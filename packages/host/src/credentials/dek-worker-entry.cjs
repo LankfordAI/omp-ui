@@ -54,6 +54,15 @@ const NATIVE = {
     lookup(dataRoot, schema) {
       return require("./linux-secret-service/index.cjs").lookup(schema, { dataRoot });
     },
+    lookupMany(_dataRoot, schema, candidates) {
+      const binding = require("./linux-secret-service/index.cjs");
+      const secrets = [];
+      for (const attributes of candidates) {
+        const secret = binding.lookup(schema, attributes);
+        if (secret !== null && secret !== undefined) secrets.push(secret);
+      }
+      return secrets;
+    },
     store(dataRoot, schema, label, secret) {
       require("./linux-secret-service/index.cjs").store(schema, label, { dataRoot }, Buffer.from(secret));
       return null;

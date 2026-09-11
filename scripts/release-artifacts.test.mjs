@@ -99,7 +99,7 @@ function packageRecord(fixture, arch, overrides = {}) {
   const { platform } = fixture.target;
   const name = hostArchiveName(platform, arch);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "host-package",
     releaseTag: `v${version}`,
     platform,
@@ -117,12 +117,18 @@ function packageRecord(fixture, arch, overrides = {}) {
       abi: 127,
     },
     service: { file: "omp-ui-host.service", sha256: "a".repeat(64) },
-    credentials: { backend: "linux-secret-service", outcome: "available" },
+    credentials: { backend: "linux-secret-service", binding: "loadable" },
     verifier: { state: "ready", reason: null, pin: "153.0.8010.36", sha256: "b".repeat(64) },
     startedAt: "2026-09-10T12:00:00.000Z",
     finishedAt: "2026-09-10T12:01:00.000Z",
     skipped: [],
-    steps: [step("--version prints the packaged version", 0), step("status --json against an empty data root reports absent", 3), step("serve", 0)],
+    steps: [
+      step("--version prints the packaged version", 0),
+      step("status --json against an empty data root reports absent", 3),
+      step("lib/node-pty loads inside the executable", 0),
+      step("lib/platform credential binding loads inside the executable", 0),
+      step("serve", 0),
+    ],
     logs: { dir: "/records", serve: "record.serve.log" },
     ...overrides,
   };
@@ -252,7 +258,7 @@ test("rejects records that skipped, ran from the source tree, or name the wrong 
     [{ artifact: { ...packageRecord(fixture, "x64").artifact, size: 999 } }, /999 bytes in the record/],
     [{ artifact: { ...packageRecord(fixture, "x64").artifact, sha256: "c".repeat(64) } }, /SHA-256 c{64} does not match the release asset/],
     [{ verifier: { state: "degraded", reason: "no browser", pin: null, sha256: null } }, /verifier degraded: no browser/],
-    [{ credentials: { backend: "unavailable", outcome: "plaintext" } }, /invalid credentials.outcome/],
+    [{ credentials: { backend: "unavailable", binding: "missing" } }, /invalid credentials.binding/],
     [{ steps: [step("stop", 1, 0)] }, /step stop exited 1, expected 0/],
     [{ steps: [] }, /invalid steps/],
     [{ service: { file: "", sha256: "a".repeat(64) } }, /invalid service.file/],
@@ -265,6 +271,15 @@ test("rejects records that skipped, ran from the source tree, or name the wrong 
     assert.throws(() => planReleaseManifest(hashed, fixture.target, withX64(overrides)), expected);
   }
   assert.ok(planReleaseManifest(hashed, fixture.target, records(fixture)));
+});
+
+test("rejects host package evidence without a loadable credential binding", () => {
+  const fixture = fixtures.linux;
+  const files = metadata(fixture.names);
+  const withoutBinding = records(fixture).map(({ name, record }) =>
+    record.arch === "x64" ? { name, record: { ...record, credentials: { backend: "linux-secret-service" } } } : { name, record },
+  );
+  assert.throws(() => planReleaseManifest(files, fixture.target, withoutBinding), /invalid credentials.binding/);
 });
 
 

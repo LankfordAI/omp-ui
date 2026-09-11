@@ -48,6 +48,8 @@ jobs:
         run: npm run fetch:verifier-browser --workspace @omp-ui/host
       - name: Build plan-doc, host verifier page, and desktop bundles
         run: npm run build
+      - name: Build the Linux Secret Service addon
+        run: npm run build:secret-service --workspace @omp-ui/host
       - name: Package and smoke-test the Linux host
         run: |
           set -euo pipefail

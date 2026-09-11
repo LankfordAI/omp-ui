@@ -142,13 +142,13 @@ function requireFields(where, record, checks) {
  * One `host-package` record per requested arch. Every field the spec names
  * must be present and coherent with the release: the tag, the exact archive
  * (name and SHA-256), host/desktop versions equal to the release version,
- * a rendered service definition, a credential outcome, a ready verifier with
- * its Chrome pin/hash, timing, and exit codes. Skips and source-tree runs
- * are refused: evidence comes from the unpacked archive or not at all.
+ * a rendered service definition, an ABI-loadable platform credential binding,
+ * a ready verifier with its Chrome pin/hash, timing, and exit codes. Skips and
+ * source-tree runs are refused: evidence comes from the unpacked archive or not at all.
  */
 function validateHostPackageRecord(record, target, hostArtifacts, where) {
   requireFields(where, record, {
-    schemaVersion: (v) => v === 1,
+    schemaVersion: (v) => v === 2,
     kind: (v) => v === "host-package",
     releaseTag: (v) => v === `v${target.version}`,
     platform: (v) => v === target.platform,
@@ -168,7 +168,7 @@ function validateHostPackageRecord(record, target, hostArtifacts, where) {
     "service.file": nonEmptyString,
     "service.sha256": (v) => typeof v === "string" && SHA256_RE.test(v),
     "credentials.backend": nonEmptyString,
-    "credentials.outcome": (v) => v === "available" || v === "degraded",
+    "credentials.binding": (v) => v === "loadable",
     "verifier.state": (v) => v === "ready" || v === "degraded",
     "verifier.pin": (v) => v === null || nonEmptyString(v),
     "verifier.sha256": (v) => v === null || (typeof v === "string" && SHA256_RE.test(v)),

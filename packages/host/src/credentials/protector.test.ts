@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { linuxSecretServiceProtector, SECRET_SCHEMA, type SecretServiceAddon } from "./linux-secret-service";
+import { linuxSecretServiceProtector, lookupLinuxSecretServiceMany, SECRET_SCHEMA, type SecretServiceAddon } from "./linux-secret-service";
 import { KEYCHAIN_SERVICE, macosKeychainProtector, type KeychainEntry } from "./macos-keychain";
 import { selectProtector } from "./protector";
 import { MASTER_KEY_FILE, windowsDpapiProtector, type DpapiBindings } from "./windows-dpapi";
@@ -158,5 +158,29 @@ describe("linuxSecretServiceProtector", () => {
     await expect(linuxSecretServiceProtector(DATA_ROOT, { addon }).load()).rejects.toThrow(
       "secret service: Cannot autolaunch D-Bus",
     );
+  });
+});
+
+describe("lookupLinuxSecretServiceMany", () => {
+  it("returns every non-null candidate from one worker operation and one deadline", async () => {
+    const calls: unknown[][] = [];
+    const candidates = [{ application: "first" }, { application: "second" }, { application: "third" }];
+    const result = await lookupLinuxSecretServiceMany(DATA_ROOT, "legacy-schema", candidates, 1234, async (spec, op, timeoutMs) => {
+      calls.push([spec, op, timeoutMs]);
+      return [new Uint8Array(Buffer.from("one")), new Uint8Array(Buffer.from("three"))];
+    });
+    expect(result.map((value) => value.toString("utf8"))).toEqual(["one", "three"]);
+    expect(calls).toEqual([[
+      { backend: "linux-secret-service", dataRoot: DATA_ROOT },
+      { name: "lookupMany", args: ["legacy-schema", candidates] },
+      1234,
+    ]]);
+  });
+
+  it("propagates unavailable and timeout errors instead of returning an empty result", async () => {
+    const unavailable = new Error("collection unavailable");
+    await expect(
+      lookupLinuxSecretServiceMany(DATA_ROOT, "legacy-schema", [], 50, async () => Promise.reject(unavailable)),
+    ).rejects.toBe(unavailable);
   });
 });

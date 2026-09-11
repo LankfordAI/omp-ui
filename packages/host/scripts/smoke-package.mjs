@@ -236,6 +236,16 @@ const CHECKS = [
       return result.status;
     },
   },
+  {
+    name: "lib/platform credential binding loads inside the executable",
+    run(bin) {
+      const result = exec(bin, ["--smoke-credential-binding"], {});
+      if (result.status !== 0 || result.stdout !== "ok\n") {
+        throw new Error(`expected exit 0 and "ok\\n", got ${describe(result)}`);
+      }
+      return result.status;
+    },
+  },
 ];
 
 /** The one rendered supervisor definition the package ships, hashed as release evidence. */
@@ -315,7 +325,7 @@ async function main() {
     if (args.record !== null) {
       const browser = browserManifest(layout);
       const record = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         kind: "host-package",
         releaseTag: args.releaseTag,
         platform: args.lane.slice(0, args.lane.indexOf("-")),
@@ -341,7 +351,7 @@ async function main() {
         service: serviceEvidence(layout),
         credentials: {
           backend: live.credentialBackend,
-          outcome: live.credentialBackend === "unavailable" ? "degraded" : "available",
+          binding: "loadable",
         },
         verifier: {
           state: live.verifier.state,

@@ -31,7 +31,15 @@ function load() {
   return addon;
 }
 
+function probe() {
+  const binding = load();
+  if (typeof binding.lookup !== "function" || typeof binding.store !== "function") {
+    throw new Error("libsecret addon exports must include callable lookup and store");
+  }
+}
+
 module.exports = {
+  probe,
   lookup(schemaName, attributes) {
     return load().lookup(schemaName, attributes);
   },

@@ -19,6 +19,23 @@ export interface SecretServiceAddon {
   store(schema: string, label: string, attributes: Record<string, string>, secret: Buffer): void | Promise<void>;
 }
 
+/** Reads all matching legacy items in one Worker and under one shared deadline. */
+export async function lookupLinuxSecretServiceMany(
+  dataRoot: string,
+  schema: string,
+  candidates: readonly Readonly<Record<string, string>>[],
+  timeoutMs: number = DEK_WORKER_TIMEOUT_MS,
+  run: typeof runProtectorInWorker = runProtectorInWorker,
+): Promise<Buffer[]> {
+  const value = await run(
+    { backend: "linux-secret-service", dataRoot },
+    { name: "lookupMany", args: [schema, candidates] },
+    timeoutMs,
+  );
+  if (!Array.isArray(value)) throw new Error("credential worker returned a non-array for legacy secrets");
+  return value.map((secret, index) => asBuffer(secret, `legacy secret ${index}`));
+}
+
 export interface LinuxSecretServiceDeps {
   /** Test seam; the default runs the real addon on a Worker with a deadline. */
   addon?: SecretServiceAddon;

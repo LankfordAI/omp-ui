@@ -82,6 +82,7 @@ export function runProtectorInWorker(
         ? new Worker(entry.url, { workerData })
         : new Worker(entry.source, { workerData, eval: true });
     let settled = false;
+    let reply: WorkerReply | null = null;
     const settle = (outcome: () => void): void => {
       if (settled) return;
       settled = true;
@@ -92,17 +93,22 @@ export function runProtectorInWorker(
       settle(() => reject(new DekTimeout(timeoutMs)));
       void worker.terminate();
     }, timeoutMs);
-    worker.once("message", (reply: unknown) => {
-      settle(() => {
-        if (!isWorkerReply(reply)) reject(new Error(`credential worker posted an unexpected reply`));
-        else if (reply.ok) resolve(reply.value);
-        else reject(new Error(reply.message));
-      });
-      void worker.terminate();
+    worker.once("message", (value: unknown) => {
+      if (!isWorkerReply(value)) {
+        settle(() => reject(new Error(`credential worker posted an unexpected reply`)));
+        return;
+      }
+      reply = value;
+      // Resolve only after natural Worker exit. Terminating immediately after
+      // a native reply races addon teardown and can crash the process.
     });
     worker.once("error", (error) => settle(() => reject(error)));
     worker.once("exit", (code) => {
-      settle(() => reject(new Error(`credential worker exited with code ${code} before answering`)));
+      settle(() => {
+        if (reply === null) reject(new Error(`credential worker exited with code ${code} before answering`));
+        else if (reply.ok) resolve(reply.value);
+        else reject(new Error(reply.message));
+      });
     });
   });
 }

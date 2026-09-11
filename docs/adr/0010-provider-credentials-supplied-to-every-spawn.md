@@ -110,3 +110,15 @@ entry is dropped, not fatal" above therefore now happens once, at handoff, and
 is recorded — never silently on a later read. The Electron readers the handoff
 needs stay in the host until two later minor releases and twelve months after
 the cutover have both passed.
+
+**Amended 2026-09-10 (#475, #476):** Linux `v11` handoff reads Chromium schema
+`chrome_libsecret_os_crypt_password_v2` through the same bounded Secret Service
+worker. It tries `application` values `@omp-ui/desktop`,
+`ai.lankford.omp-ui`, then `omp-ui` in that order. No returned candidates, a
+locked collection, an unavailable service, or a worker timeout keeps the blob
+locked and the handoff open. Only a reachable store whose returned candidates
+all fail decryption marks it foreign. If the one-shot cutover note is already
+gone, the host derives the legacy Electron `userData` path from the committed
+`relocate-authority-stores-v1` source evidence; disagreeing source parents stop
+the migration instead of guessing. This lets a fixed host retry credentials
+that v0.11.0 relocated but could not decrypt.

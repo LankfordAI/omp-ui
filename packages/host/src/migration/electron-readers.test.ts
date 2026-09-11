@@ -21,20 +21,21 @@ function chromiumCbc(prefix: string, password: string, iterations: number, plain
 describe("linux readElectronSafeStorage", () => {
   it("reads v10 (basic_text) blobs with the hardcoded password", () => {
     const blob = chromiumCbc("v10", LINUX_BASIC_PASSWORD, 1, "sk-live-abc123 ünïcödé");
-    expect(readLinux(blob, { password: null })).toBe("sk-live-abc123 ünïcödé");
+    expect(readLinux(blob, { passwords: null })).toBe("sk-live-abc123 ünïcödé");
   });
 
-  it("reads v11 blobs with the keyring password and reports locked without one", () => {
-    const blob = chromiumCbc("v11", "Zm9vYmFyYmF6", 1, "ghp_secret");
-    expect(readLinux(blob, { password: "Zm9vYmFyYmF6" })).toBe("ghp_secret");
-    expect(readLinux(blob, { password: null })).toBe("locked");
+  it("tries every retrieved v11 password and reports locked without candidates", () => {
+    const blob = chromiumCbc("v11", "later-candidate", 1, "ghp_secret");
+    expect(readLinux(blob, { passwords: ["wrong", "later-candidate"] })).toBe("ghp_secret");
+    expect(readLinux(blob, { passwords: null })).toBe("locked");
+    expect(readLinux(blob, { passwords: [] })).toBe("locked");
   });
 
-  it("reports foreign for a wrong keyring password or an unknown prefix", () => {
+  it("reports foreign only after every retrieved password fails", () => {
     const blob = chromiumCbc("v11", "right", 1, "x".repeat(40));
-    expect(readLinux(blob, { password: "wrong" })).toBe("foreign");
-    expect(readLinux(Buffer.from("v12garbage"), { password: "right" })).toBe("foreign");
-    expect(readLinux(Buffer.from([0x02, 1, 2, 3]), { password: "right" })).toBe("foreign");
+    expect(readLinux(blob, { passwords: ["wrong", "also-wrong"] })).toBe("foreign");
+    expect(readLinux(Buffer.from("v12garbage"), { passwords: ["right"] })).toBe("foreign");
+    expect(readLinux(Buffer.from([0x02, 1, 2, 3]), { passwords: ["right"] })).toBe("foreign");
   });
 });
 

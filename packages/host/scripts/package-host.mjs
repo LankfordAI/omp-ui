@@ -458,12 +458,13 @@ function packageCredentialWorker(laneName, layout) {
     fs.mkdirSync(dest, { recursive: true });
     fs.copyFileSync(path.join(addon, "index.cjs"), path.join(dest, "index.cjs"));
     const built = path.join(addon, "build", "Release", "secret_service.node");
-    if (fs.existsSync(built)) {
-      copyTree(path.join(addon, "build", "Release"), path.join(dest, "build", "Release"));
-      log("secret-service addon → lib/linux-secret-service/build/Release");
-    } else {
-      warn("secret-service addon not built (npm run build:secret-service); the package's Linux keyring is degraded");
+    if (!fs.existsSync(built)) {
+      throw new Error(
+        "secret-service addon is missing: run `npm run build:secret-service --workspace @omp-ui/host` before packaging",
+      );
     }
+    copyTree(path.join(addon, "build", "Release"), path.join(dest, "build", "Release"));
+    log("secret-service addon → lib/linux-secret-service/build/Release");
     return;
   }
   const binding = lane.platform === "darwin" ? "@napi-rs/keyring" : "@primno/dpapi";
@@ -471,8 +472,7 @@ function packageCredentialWorker(laneName, layout) {
   try {
     bindingDir = path.dirname(hostRequire.resolve(`${binding}/package.json`));
   } catch {
-    warn(`${binding} is not installed on this machine; the package's keyring binding is missing`);
-    return;
+    throw new Error(`${binding} is required for the ${laneName} host package but is not installed`);
   }
   copyTree(bindingDir, path.join(lib, binding));
   const manifest = JSON.parse(fs.readFileSync(path.join(bindingDir, "package.json"), "utf8"));

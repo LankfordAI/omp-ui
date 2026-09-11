@@ -25,6 +25,7 @@ import { selectSupervisor, type RunResult } from "./supervisor";
  * only caller — and handled here because `runCli` rejects unknown flags.
  */
 const SMOKE_NODE_PTY = "--smoke-node-pty";
+const SMOKE_CREDENTIAL_BINDING = "--smoke-credential-binding";
 
 /**
  * Set by `scripts/dev-serve.mjs` to `dev` or `dev-server`: the bundle runs from
@@ -65,6 +66,30 @@ function smokeNodePty(): number {
   // #474), so ask node-pty's own loader for it the way a spawn would.
   const utils = req(path.join(dir, "lib", "utils")) as { loadNativeModule: (name: string) => unknown };
   utils.loadNativeModule(process.platform === "win32" ? "conpty" : "pty");
+  process.stdout.write("ok\n");
+  return 0;
+}
+
+function smokeCredentialBinding(): number {
+  const req = createRequire(process.execPath);
+  const lib = path.join(path.dirname(process.execPath), "..", "lib");
+  if (process.platform === "linux") {
+    const binding = req(path.join(lib, "linux-secret-service", "index.cjs")) as { probe?: unknown };
+    if (typeof binding.probe !== "function") throw new Error("Linux credential binding exports no probe()");
+    binding.probe();
+  } else if (process.platform === "darwin") {
+    const binding = req(path.join(lib, "@napi-rs", "keyring")) as { Entry?: unknown };
+    if (typeof binding.Entry !== "function") throw new Error("macOS credential binding exports no Entry constructor");
+  } else if (process.platform === "win32") {
+    const binding = req(path.join(lib, "@primno", "dpapi")) as {
+      Dpapi?: { protectData?: unknown; unprotectData?: unknown };
+    };
+    if (typeof binding.Dpapi?.protectData !== "function" || typeof binding.Dpapi.unprotectData !== "function") {
+      throw new Error("Windows credential binding exports no callable Dpapi protectData/unprotectData");
+    }
+  } else {
+    throw new Error(`unsupported credential binding platform ${process.platform}`);
+  }
   process.stdout.write("ok\n");
   return 0;
 }
@@ -139,6 +164,7 @@ function devLayout(flavor: "dev" | "dev-server"): Layout {
 
 function main(argv: string[]): Promise<number> {
   if (argv[0] === SMOKE_NODE_PTY) return Promise.resolve(smokeNodePty());
+  if (argv[0] === SMOKE_CREDENTIAL_BINDING) return Promise.resolve(smokeCredentialBinding());
   const devFlavor = process.env[DEV_FLAVOR_ENV];
   const layout =
     devFlavor === "dev" || devFlavor === "dev-server" ? devLayout(devFlavor) : installedLayout();

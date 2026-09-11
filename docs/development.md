@@ -14,7 +14,7 @@ Install these tools before checking out the repository:
 
 `node-pty` compiles native code when a suitable prebuild is unavailable, and `package:host` always rebuilds it for the host's Node ABI. Install the tools for the platform where you develop:
 
-- Linux: Python 3, `make`, and a C/C++ build toolchain. On Debian or Ubuntu, install them with `sudo apt install -y python3 make build-essential`.
+- Linux: Python 3, `make`, a C/C++ build toolchain, `pkg-config`, and libsecret development headers. On Debian or Ubuntu, install them with `sudo apt install -y python3 make build-essential pkg-config libsecret-1-dev`.
 - macOS preview: Xcode, including its command-line build tools.
 - Windows preview: Python, the Visual Studio C++ build tools, the Windows SDK Desktop C++ components, and the matching MSVC Spectre-mitigated libraries.
 
@@ -143,6 +143,9 @@ npm run fetch:verifier-browser --workspace @omp-ui/host
 # Build the verifier page (packages/host/verifier) that the headless browser loads.
 npm run build --workspace @omp-ui/host
 
+# Linux only: build the required Secret Service binding before package:host.
+npm run build:secret-service --workspace @omp-ui/host
+
 # Assemble the omp-ui Node 22 single executable for this machine's lane under
 # packages/host/out/<lane>/seed/<version>/ — bin/omp-ui, lib/node-pty,
 # lib/<credential worker and keyring binding>, resources/{plan-verifier,
@@ -155,14 +158,15 @@ npm run build --workspace @omp-ui/host
 npm run package:host --workspace @omp-ui/host
 
 # Unpack that archive somewhere fresh and run it as an installer would: the SEA
-# boots, node-pty loads, `serve` claims a temporary data root, `status --json`
-# answers through local control, and `stop` shuts it down.
+# boots, node-pty and the platform credential binding load under its Node ABI,
+# `serve` claims a temporary data root, `status --json` answers through local
+# control, and `stop` shuts it down. The binding probe makes no keyring call.
 # --record <file> [--release-tag vX.Y.Z] writes the package evidence record the
 # release manifest consumes.
 npm run smoke:package --workspace @omp-ui/host
 ```
 
-The host's version is the desktop package's version (`packages/desktop/package.json`); `packages/host/package.json` stays `0.0.0`. `package:host` builds for the running platform only (a SEA blob carries a V8 code cache for the exact binary that generated it); `--lane` names it explicitly, `--skip-node-pty` omits the native rebuild, and without a fetched verifier browser and built page it fails unless `--allow-missing-verifier` is passed. Each release lane runs fetch, build, `package:host`, and `smoke:package --record` before electron-builder, which embeds `seed/<version>` as the desktop's `resources/host/<version>`; the lane uploads the host archive and its feed beside the desktop artifacts, and the release manifest refuses a platform whose host archive, feed, or evidence record is missing ([Releases](releases.md), [ADR-0029](adr/0029-persistent-host-owns-authoritative-application.md)). A CI job, `host-package-smoke`, runs the same four commands on every push.
+The host's version is the desktop package's version (`packages/desktop/package.json`); `packages/host/package.json` stays `0.0.0`. `package:host` builds for the running platform only (a SEA blob carries a V8 code cache for the exact binary that generated it); `--lane` names it explicitly, `--skip-node-pty` omits the native rebuild, and without a fetched verifier browser and built page it fails unless `--allow-missing-verifier` is passed. Linux packaging also requires a prior `build:secret-service`; every platform package fails if its credential binding is missing, and `smoke:package` proves that binding loads from the unpacked archive. Each release lane runs fetch, build, the Linux binding build where applicable, `package:host`, and `smoke:package --record` before electron-builder, which embeds `seed/<version>` as the desktop's `resources/host/<version>`; the lane uploads the host archive and its feed beside the desktop artifacts, and the release manifest refuses a platform whose host archive, feed, or schema-2 package record with a loadable credential binding is missing.
 
 ## Workspace layout
 

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { NO_BREADCRUMBS, type BreadcrumbEntry, type BreadcrumbSink } from "@omp-ui/core";
 import { MigrationConflict, MigrationJournal, type ItemEvidence } from "./journal";
-import { legacyUserDataDir, relocateAuthorityStores, RELOCATED_ITEMS, type GitResult } from "./relocate";
+import { legacyUserDataDir, legacyUserDataFromRelocation, relocateAuthorityStores, RELOCATED_ITEMS, type GitResult } from "./relocate";
 
 const dirs: string[] = [];
 
@@ -96,6 +96,49 @@ describe("legacyUserDataDir", () => {
     expect(legacyUserDataDir("installed", "/cfg")).toBe(path.join("/cfg", "@omp-ui/desktop"));
     expect(legacyUserDataDir("dev", "/cfg")).toBe(path.join("/cfg", "@omp-ui/desktop-dev"));
     expect(legacyUserDataDir("dev-server", "/cfg")).toBe(path.join("/cfg", "@omp-ui/desktop-dev-server"));
+  });
+});
+
+describe("legacyUserDataFromRelocation", () => {
+  it("recovers the original parent from committed relocation evidence", async () => {
+    const f = legacyFixture();
+    await relocateAuthorityStores({
+      legacyUserData: f.legacy,
+      dataRoot: f.dataRoot,
+      journal: f.journal,
+      git: gitOk,
+      breadcrumbs: NO_BREADCRUMBS,
+    });
+    expect(legacyUserDataFromRelocation(f.journal)).toBe(f.legacy);
+  });
+
+  it("returns null when every relocation item was skipped", async () => {
+    const legacy = tmp("legacy-empty-recovery");
+    const dataRoot = path.join(tmp("root-empty-recovery"), "omp-ui");
+    const journal = MigrationJournal.open(dataRoot, { now: () => 1 });
+    await relocateAuthorityStores({ legacyUserData: legacy, dataRoot, journal, git: gitOk, breadcrumbs: NO_BREADCRUMBS });
+    expect(legacyUserDataFromRelocation(journal)).toBeNull();
+  });
+
+  it("throws when non-skipped source parents disagree", () => {
+    const dataRoot = path.join(tmp("root-conflict-recovery"), "omp-ui");
+    const journal = MigrationJournal.open(dataRoot, { now: () => 1 });
+    journal.begin("relocate-authority-stores-v1");
+    const evidence = (name: string, source: string): ItemEvidence => ({
+      name,
+      source,
+      destination: path.join(dataRoot, name),
+      mode: 0,
+      size: 0,
+      mtimeMs: 0,
+      dev: 0,
+      ino: 0,
+      status: "done",
+    });
+    journal.updateItem("relocate-authority-stores-v1", evidence("provider-keys.json", "/legacy-a/provider-keys.json"));
+    journal.updateItem("relocate-authority-stores-v1", evidence("registry.json", "/legacy-b/registry.json"));
+    journal.commit("relocate-authority-stores-v1");
+    expect(() => legacyUserDataFromRelocation(journal)).toThrow(MigrationConflict);
   });
 });
 

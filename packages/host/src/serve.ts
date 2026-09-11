@@ -25,17 +25,22 @@ import type { HostConnectionRecordV1 } from "@omp-ui/core";
 import { startLocalControl, type LocalControl } from "./control/local-control";
 import { asBuffer, DEK_WORKER_TIMEOUT_MS, runProtectorInWorker } from "./credentials/dek-worker";
 import { DekTimeout, isHostEnvelope, openHostKeyCipher, type KeyProtector } from "./credentials/host-key-cipher";
+import { lookupLinuxSecretServiceMany } from "./credentials/linux-secret-service";
 import { selectProtector } from "./credentials/protector";
 import { HostApplication, type HostApplicationDeps, type HostUpdateHandoverDeps } from "./host-application";
 import { handoffCredentials, type ElectronBlobReader } from "./migration/credential-handoff";
 import { consumeCutoverHandoff } from "./migration/cutover-handoff";
 import { MigrationJournal } from "./migration/journal";
-import { readElectronSafeStorage as readLinuxSafeStorage } from "./migration/linux-electron";
+import {
+  LINUX_SAFE_STORAGE_APPLICATIONS,
+  LINUX_SAFE_STORAGE_SCHEMA,
+  readElectronSafeStorage as readLinuxSafeStorage,
+} from "./migration/linux-electron";
 import {
   keychainSafeStoragePassword,
   readElectronSafeStorage as readMacosSafeStorage,
 } from "./migration/macos-electron";
-import { relocateAuthorityStores } from "./migration/relocate";
+import { legacyUserDataFromRelocation, relocateAuthorityStores } from "./migration/relocate";
 import {
   readElectronSafeStorage as readWindowsSafeStorage,
   readLocalStateEncryptedKey,
@@ -77,6 +82,8 @@ export interface ServeDeps {
   /** `true` when the host `record` describes still authenticates a probe (a veto on the claim). */
   probe: (record: HostConnectionRecordV1) => Promise<boolean>;
   now: () => number;
+  /** Bounded legacy Chromium password lookup; tests never contact the workstation keyring. */
+  lookupLinuxSecretServiceMany?: typeof lookupLinuxSecretServiceMany;
   handover?: Partial<ServeHandoverDeps>;
 }
 
@@ -178,6 +185,7 @@ async function electronReader(
   legacyUserData: string,
   flavor: BuildFlavor,
   dataRoot: string,
+  lookupLinuxPasswords: typeof lookupLinuxSecretServiceMany,
 ): Promise<ElectronBlobReader> {
   switch (platform) {
     case "darwin":
@@ -215,8 +223,20 @@ async function electronReader(
           },
         });
     }
-    default:
-      return (blob) => readLinuxSafeStorage(blob, { password: null });
+    default: {
+      let passwords: string[] | null = null;
+      try {
+        const secrets = await lookupLinuxPasswords(
+          dataRoot,
+          LINUX_SAFE_STORAGE_SCHEMA,
+          LINUX_SAFE_STORAGE_APPLICATIONS.map((application) => ({ application })),
+        );
+        passwords = secrets.map((secret) => secret.toString("utf8")).filter((password) => password.length > 0);
+      } catch {
+        passwords = null;
+      }
+      return (blob) => readLinuxSafeStorage(blob, { passwords });
+    }
   }
 }
 
@@ -304,7 +324,7 @@ export async function serve(opts: ServeOptions): Promise<number> {
       platform,
       breadcrumbs,
     });
-    const legacy = handoff?.legacyUserData ?? opts.legacyUserData ?? null;
+    const legacy = handoff?.legacyUserData ?? opts.legacyUserData ?? legacyUserDataFromRelocation(journal);
     if (legacy !== null && journal.step("relocate-authority-stores-v1")?.status !== "committed") {
       await relocateAuthorityStores({
         legacyUserData: legacy,
@@ -335,7 +355,13 @@ export async function serve(opts: ServeOptions): Promise<number> {
       const { complete } = await handoffCredentials({
         dataRoot: root,
         journal,
-        read: await electronReader(platform, legacy, opts.flavor, root),
+        read: await electronReader(
+          platform,
+          legacy,
+          opts.flavor,
+          root,
+          opts.deps?.lookupLinuxSecretServiceMany ?? lookupLinuxSecretServiceMany,
+        ),
         encrypt: (plain) => cipher.encrypt(plain),
         isHostEnvelope,
         breadcrumbs,

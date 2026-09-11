@@ -10,6 +10,8 @@ import { createDecipheriv, pbkdf2Sync } from "node:crypto";
  */
 
 export const LINUX_BASIC_PASSWORD = "peanuts";
+export const LINUX_SAFE_STORAGE_SCHEMA = "chrome_libsecret_os_crypt_password_v2";
+export const LINUX_SAFE_STORAGE_APPLICATIONS = ["@omp-ui/desktop", "ai.lankford.omp-ui", "omp-ui"] as const;
 const SALT = "saltysalt";
 const IV = Buffer.alloc(16, 0x20);
 const PREFIX_LENGTH = 3;
@@ -26,8 +28,8 @@ export function decryptChromiumCbc(body: Buffer, password: string, iterations: n
 }
 
 export interface LinuxSafeStorageDeps {
-  /** The keyring's "<App> Safe Storage" secret; null when the keyring could not be read. */
-  password: string | null;
+  /** Candidate keyring secrets in measured Electron application order; null when the keyring could not be read. */
+  passwords: readonly string[] | null;
 }
 
 export function readElectronSafeStorage(blob: Buffer, deps: LinuxSafeStorageDeps): string | "locked" | "foreign" {
@@ -35,8 +37,12 @@ export function readElectronSafeStorage(blob: Buffer, deps: LinuxSafeStorageDeps
   const body = blob.subarray(PREFIX_LENGTH);
   if (prefix === "v10") return decryptChromiumCbc(body, LINUX_BASIC_PASSWORD, 1) ?? "foreign";
   if (prefix === "v11") {
-    if (deps.password === null) return "locked";
-    return decryptChromiumCbc(body, deps.password, 1) ?? "foreign";
+    if (deps.passwords === null || deps.passwords.length === 0) return "locked";
+    for (const password of deps.passwords) {
+      const plain = decryptChromiumCbc(body, password, 1);
+      if (plain !== null) return plain;
+    }
+    return "foreign";
   }
   return "foreign";
 }

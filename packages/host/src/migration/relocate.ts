@@ -35,6 +35,23 @@ export function legacyUserDataDir(flavor: BuildFlavor, appData: string): string 
   return path.join(appData, LEGACY_USER_DATA_NAME[flavor]);
 }
 
+/** Recovers Electron's original userData parent after the one-shot cutover note is gone. */
+export function legacyUserDataFromRelocation(journal: MigrationJournal): string | null {
+  const items = journal.step(STEP)?.items.filter((item) => item.status !== "skipped") ?? [];
+  const parents = items
+    .map((item) => item.source)
+    .filter((source) => path.isAbsolute(source))
+    .map((source) => path.dirname(source));
+  if (parents.length === 0) return null;
+  const expected = path.resolve(parents[0]);
+  for (const parent of parents.slice(1)) {
+    if (path.resolve(parent) !== expected) {
+      throw new MigrationConflict(`relocation journal sources disagree on legacy userData: ${expected} and ${path.resolve(parent)}`);
+    }
+  }
+  return expected;
+}
+
 export interface GitResult {
   code: number;
   stdout: string;
