@@ -88,6 +88,14 @@ const listings: Record<string, DirBrowseResult> = {
   },
   "~/al": {
     parentPath: HOME,
+    entries: [
+      { name: "alpha", fullPath: `${HOME}/alpha` },
+      { name: "axle", fullPath: `${HOME}/axle` },
+    ],
+    error: null,
+  },
+  "~/aa": {
+    parentPath: HOME,
     entries: [{ name: "alpha", fullPath: `${HOME}/alpha` }],
     error: null,
   },
@@ -118,7 +126,7 @@ function input(): HTMLInputElement {
   return found;
 }
 
-const LISTING_NAMES: Record<string, true> = { alpha: true, beta: true, u: true, stale: true };
+const LISTING_NAMES: Record<string, true> = { alpha: true, axle: true, beta: true, u: true, stale: true };
 
 function rowNames(): string[] {
   return [...document.body.querySelectorAll<HTMLButtonElement>("button[type=button]")]
@@ -207,7 +215,48 @@ describe("ProjectPicker", () => {
     await renderPicker();
     await type("~/al");
     expect(backendMock.browseDirectories).toHaveBeenCalledWith("~/al");
+    expect(rowNames()).toEqual(["..", "alpha", "axle"]);
+  });
+
+  it("ranks prefix matches above scattered subsequences", async () => {
+    await renderPicker();
+    await type("~/al");
+    // The backend's fuzzy recall returns both; the scorer ranks the prefix
+    // (alpha) over the scattered subsequence (axle).
+    expect(rowNames()).toEqual(["..", "alpha", "axle"]);
+  });
+
+  it("matches non-contiguous characters in the leaf", async () => {
+    await renderPicker();
+    await type("~/aa");
+    // "aa" is a subsequence of "alpha" but not a prefix; the picker browses
+    // the typed query verbatim and keeps the entry the backend recalled.
+    expect(backendMock.browseDirectories).toHaveBeenCalledWith("~/aa");
     expect(rowNames()).toEqual(["..", "alpha"]);
+  });
+
+  it("registers the full path of a fuzzy selection, not the query", async () => {
+    backendMock.addProject.mockResolvedValue({});
+    await renderPicker();
+    await type("~/al");
+    await press("ArrowDown"); // ".."
+    await press("ArrowDown"); // "alpha"
+    await press("Enter"); // descend — query becomes the entry's real path
+    expect(input().value).toBe(`${HOME}/alpha/`);
+    expect(backendMock.browseDirectories).toHaveBeenCalledWith(`${HOME}/alpha/`);
+    await press("Enter"); // dirMode accept
+    expect(backendMock.addProject).toHaveBeenCalledWith(`${HOME}/alpha`);
+  });
+
+  it("highlights the matched characters", async () => {
+    await renderPicker();
+    await type("~/al");
+    const row = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => (b.textContent ?? "").startsWith("alpha"),
+    )!;
+    expect(row.textContent).toBe("alpha");
+    const hits = [...row.querySelectorAll("span.text-signal")];
+    expect(hits.map((s) => s.textContent).join("")).toBe("al");
   });
 
   it("descends into the selected entry on Enter", async () => {
