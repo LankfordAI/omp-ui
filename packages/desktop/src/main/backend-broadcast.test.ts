@@ -81,18 +81,10 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 const invoke = (ch: string, ...args: unknown[]): Promise<unknown> =>
   Promise.resolve(handlers.get(ch)!(null, ...args));
 
-function broadcastStates(): {
-  projects: { project: { path: string } }[];
-  themeId: string;
-  localeId: string;
-}[] {
+function broadcastStates(): BackendState[] {
   return sent
     .filter((event) => event.channel === CH.onStateChanged)
-    .map((event) => event.args[0] as {
-      projects: { project: { path: string } }[];
-      themeId: string;
-      localeId: string;
-    });
+    .map((event) => event.args[0] as BackendState);
 }
 
 beforeEach(() => {
@@ -199,6 +191,15 @@ describe("settings:setLocaleId (issue #363)", () => {
     ).toBe("ko");
     expect(broadcastStates()).toHaveLength(1);
     expect(broadcastStates()[0]?.localeId).toBe("ko");
+  });
+});
+
+describe("settings:setAppUpdateTrain (issue #493)", () => {
+  it("replies, writes the registry, and broadcasts once", async () => {
+    await expect(invoke(CH.setAppUpdateTrain, "nightly")).resolves.toBeUndefined();
+    expect(Registry.load(path.join(base, "registry.json")).getSetting("appUpdateTrain")).toBe("nightly");
+    expect(broadcastStates()).toHaveLength(1);
+    expect(broadcastStates()[0]?.appUpdateTrain).toBe("nightly");
   });
 });
 

@@ -19,6 +19,7 @@ import type {
   SpawnRequest,
   ScopedCapabilityMutation,
   TranscriptWidth,
+  UpdateTrain,
   WorktreeReleaseOptions,
 } from "./types";
 
@@ -174,6 +175,7 @@ export const projectOpenTargetCodec: ArgCodec<ProjectOpenTarget> = oneOf(
 );
 export const consoleProgramCodec: ArgCodec<ConsoleProgram> = oneOf("shell", "omp-tui");
 export const remoteBindCodec: ArgCodec<RemoteBind> = oneOf("localhost", "lan");
+export const updateTrainCodec: ArgCodec<UpdateTrain> = oneOf("stable", "nightly");
 
 export const remoteInstanceSecretCodec: ArgCodec<RemoteInstanceInput["secret"]> = {
   expected: "a { kind: password | token, value } secret",

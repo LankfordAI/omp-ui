@@ -10,6 +10,7 @@ import type {
   ProjectRecord,
   RemoteBind,
   SessionMode,
+  UpdateTrain,
   TranscriptWidth,
 } from "./types";
 
@@ -53,6 +54,8 @@ export interface RegistrySettings {
   localeId: string;
   /** Check for a newer omp-ui release at launch. */
   appUpdateCheckOnLaunch: boolean;
+  /** Release train for omp-ui's own update check (issue #493); default stable. */
+  appUpdateTrain: UpdateTrain;
   /** Check for a newer omp binary at launch. */
   ompUpdateCheckOnLaunch: boolean;
   /** Embedded remote-access server: off by default (issue #37). */
@@ -197,6 +200,10 @@ export const SETTINGS: SettingDescriptors = {
   appUpdateCheckOnLaunch: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",
+  ),
+  appUpdateTrain: validatedSetting<UpdateTrain>(
+    () => "stable",
+    (value): value is UpdateTrain => value === "nightly",
   ),
   ompUpdateCheckOnLaunch: validatedSetting(
     () => true,

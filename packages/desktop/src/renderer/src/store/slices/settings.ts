@@ -258,6 +258,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setAppUpdateTrain(train) {
+      try {
+        await backend.setAppUpdateTrain(train);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setOmpUpdateCheckOnLaunch(on) {
       try {
         await backend.setOmpUpdateCheckOnLaunch(on);

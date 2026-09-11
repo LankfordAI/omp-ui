@@ -5,12 +5,16 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   APP_RELEASE_DOWNLOAD_BASE,
+  APP_NIGHTLY_RELEASE_URL,
+  compareAppVersions,
   detectPackageFormat,
   downloadAppAsset,
   expectedAssetName,
   fetchLatestAppRelease,
+  fetchNightlyAppRelease,
   fetchSha256Sums,
   parseLatestRelease,
+  parseNightlyRelease,
   parseSha256Sums,
   selectAsset,
   type AppReleaseInfo,
@@ -303,5 +307,75 @@ describe("downloadAppAsset", () => {
       }),
     ).rejects.toThrow("failed to download asset.deb: HTTP 404");
     expect(fs.existsSync(target)).toBe(false);
+  });
+});
+
+describe("nightly app releases", () => {
+  const body = {
+    tag_name: "nightly",
+    html_url: "https://github.com/LankfordAI/omp-ui/releases/tag/nightly",
+    name: "Nightly 1.2.3-nightly.20260911.abc1234",
+    draft: false,
+    prerelease: true,
+    assets: [{ name: "omp-ui-nightly.AppImage" }],
+  };
+
+  it("takes the version from the title and keeps the rolling tag", () => {
+    expect(parseNightlyRelease(body)).toMatchObject({
+      version: "1.2.3-nightly.20260911.abc1234",
+      tag: "nightly",
+      assets: ["omp-ui-nightly.AppImage"],
+    });
+  });
+
+  it("rejects drafts, non-prereleases, and malformed titles", () => {
+    expect(parseNightlyRelease({ ...body, draft: true })).toBeNull();
+    expect(parseNightlyRelease({ ...body, prerelease: false })).toBeNull();
+    expect(parseNightlyRelease({ ...body, name: "Nightly 1.2.3" })).toBeNull();
+    expect(parseNightlyRelease({ ...body, name: "Nightly build 1.2.3-nightly.20260911.abc1234" })).toBeNull();
+    expect(parseNightlyRelease({ ...body, name: "Nightly 1.2.3-nightly.20260911.abc1234 (re-roll)" })).toBeNull();
+  });
+
+  it("fetches the fixed rolling tag endpoint", async () => {
+    let url = "";
+    await fetchNightlyAppRelease(async (input) => {
+      url = input;
+      return { ok: true, status: 200, json: async () => body, arrayBuffer: async () => new ArrayBuffer(0) };
+    });
+    expect(url).toBe(APP_NIGHTLY_RELEASE_URL);
+  });
+});
+
+describe("compareAppVersions", () => {
+  const old = "1.2.3-nightly.20260911.abc1234";
+  const next = "1.2.3-nightly.20260912.0000000";
+
+  it("orders base versions independently of train", () => {
+    expect(compareAppVersions(old, "1.3.0", "nightly")).toBeLessThan(0);
+    expect(compareAppVersions("2.0.0", next, "stable")).toBeGreaterThan(0);
+  });
+
+  it("orders nightlies by date then sha", () => {
+    expect(compareAppVersions(next, old, "stable")).toBeGreaterThan(0);
+    expect(compareAppVersions("1.2.3-nightly.20260911.fffffff", old, "nightly")).toBeGreaterThan(0);
+    expect(compareAppVersions(old, old, "nightly")).toBe(0);
+  });
+
+  it("sorts unparseable versions lowest", () => {
+    expect(compareAppVersions("broken", "1.2.3", "stable")).toBeLessThan(0);
+    expect(compareAppVersions("1.2.3", "broken", "nightly")).toBeGreaterThan(0);
+    expect(compareAppVersions("broken", "also-broken", "stable")).toBe(0);
+  });
+
+  it("ranks stable and nightly by the selected train", () => {
+    expect(compareAppVersions("1.2.3", old, "nightly")).toBeLessThan(0);
+    expect(compareAppVersions(old, "1.2.3", "nightly")).toBeGreaterThan(0);
+    expect(compareAppVersions(old, "1.2.3", "stable")).toBeLessThan(0);
+    expect(compareAppVersions("1.2.3", old, "stable")).toBeGreaterThan(0);
+  });
+
+  it("treats trailing text and non-nightly prereleases as unparseable", () => {
+    expect(compareAppVersions("1.2.3-invalid", "1.2.3", "stable")).toBeLessThan(0);
+    expect(compareAppVersions("1.2.3+build5", "1.2.3", "nightly")).toBeLessThan(0);
   });
 });

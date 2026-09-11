@@ -81,6 +81,7 @@ describe("SETTINGS", () => {
       "glassChrome",
       "localeId",
       "appUpdateCheckOnLaunch",
+      "appUpdateTrain",
       "ompUpdateCheckOnLaunch",
       "remoteEnabled",
       "remoteBind",
@@ -249,6 +250,7 @@ describe("Registry.load", () => {
           dismissedOmpUpdateVersion: {},
           themeId: "",
           appUpdateCheckOnLaunch: "yes",
+          appUpdateTrain: "canary",
           ompUpdateCheckOnLaunch: 0,
           remoteEnabled: "no",
           remoteBind: "public",
@@ -278,6 +280,7 @@ describe("Registry.load", () => {
     expect(reg.getSetting("dismissedOmpUpdateVersion")).toBeNull();
     expect(reg.getSetting("themeId")).toBe("graphite");
     expect(reg.getSetting("appUpdateCheckOnLaunch")).toBe(true);
+    expect(reg.getSetting("appUpdateTrain")).toBe("stable");
     expect(reg.getSetting("ompUpdateCheckOnLaunch")).toBe(true);
     expect(reg.getSetting("remoteEnabled")).toBe(false);
     expect(reg.getSetting("remoteBind")).toBe("localhost");
@@ -526,6 +529,7 @@ describe("Registry persistence", () => {
     expect(reg.getSetting("themeId")).toBe("graphite");
     expect(reg.getSetting("localeId")).toBe("en");
     expect(reg.getSetting("appUpdateCheckOnLaunch")).toBe(true);
+    expect(reg.getSetting("appUpdateTrain")).toBe("stable");
     expect(reg.getSetting("ompUpdateCheckOnLaunch")).toBe(true);
   });
 
@@ -535,12 +539,14 @@ describe("Registry persistence", () => {
     reg.setSetting("themeId", "theme-from-a-newer-build");
     reg.setSetting("localeId", "ko");
     reg.setSetting("appUpdateCheckOnLaunch", false);
+    reg.setSetting("appUpdateTrain", "nightly");
     reg.setSetting("ompUpdateCheckOnLaunch", false);
 
     const reloaded = Registry.load(file);
     expect(reloaded.getSetting("themeId")).toBe("theme-from-a-newer-build");
     expect(reloaded.getSetting("localeId")).toBe("ko");
     expect(reloaded.getSetting("appUpdateCheckOnLaunch")).toBe(false);
+    expect(reloaded.getSetting("appUpdateTrain")).toBe("nightly");
     expect(reloaded.getSetting("ompUpdateCheckOnLaunch")).toBe(false);
   });
 
@@ -562,6 +568,7 @@ describe("Registry persistence", () => {
       ["glassChrome", (registry) => registry.setSetting("glassChrome", "subtle")],
       ["localeId", (registry) => registry.setSetting("localeId", "en")],
       ["appUpdateCheckOnLaunch", (registry) => registry.setSetting("appUpdateCheckOnLaunch", true)],
+      ["appUpdateTrain", (registry) => registry.setSetting("appUpdateTrain", "stable")],
       ["ompUpdateCheckOnLaunch", (registry) => registry.setSetting("ompUpdateCheckOnLaunch", true)],
       ["remoteEnabled", (registry) => registry.setSetting("remoteEnabled", false)],
       ["remoteBind", (registry) => registry.setSetting("remoteBind", "localhost")],

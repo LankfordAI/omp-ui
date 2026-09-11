@@ -586,6 +586,8 @@ failures stay silent. When both show they share one corner stack, the omp-ui
 card on top.
 _Avoid_: toast, notification, popup, updater dialog
 
+**Update train**: The user's choice of which omp-ui release line the update check follows — stable (the default: tagged GitHub releases) or nightly (the rolling `nightly` prerelease, built on demand from the trunk). Set in Settings → Updates; one setting, not per-install. _Avoid_: channel, ring, track.
+
 **Settings surface**:
 The modal with nine pages — General, Appearance, Updates, Remote access,
 Remote instances, Providers, Memory, omp, About — reached from the sidebar
@@ -725,4 +727,3 @@ any correlated command result. Keyed in main by the process that answered, not t
 tab, so a replaced process's goal cannot be shown by its successor; a stale or
 malformed publish leaves the last good snapshot standing.
 _Avoid_: goal status (a field of the snapshot), goal cache, goal mirror
-

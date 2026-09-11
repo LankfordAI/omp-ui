@@ -416,6 +416,8 @@ export interface BackendState {
   /** Active UI locale id; the renderer resolves it against its own locale table. */
   localeId: string;
   appUpdateCheckOnLaunch: boolean;
+  /** Which omp-ui release line the update check follows (issue #493). */
+  appUpdateTrain: UpdateTrain;
   ompUpdateCheckOnLaunch: boolean;
   /** Release version whose omp-ui update card was dismissed, or null. */
   dismissedAppUpdateVersion: string | null;
@@ -858,6 +860,9 @@ export interface DirBrowseResult {
 
 /** Which interface the embedded remote server binds to. */
 export type RemoteBind = "localhost" | "lan";
+
+/** omp-ui release line followed by the app update check (issue #493). */
+export type UpdateTrain = "stable" | "nightly";
 
 export type RemoteStatus = "stopped" | "starting" | "listening" | "error";
 

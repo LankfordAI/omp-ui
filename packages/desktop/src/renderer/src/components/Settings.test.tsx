@@ -130,6 +130,7 @@ const backendMock = {
   setGlassChrome: vi.fn(async () => {}),
   setLocaleId: vi.fn(async () => {}),
   setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
+  setAppUpdateTrain: vi.fn(async () => {}),
   setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
   clearDismissedAppUpdate: vi.fn(async () => {}),
   clearDismissedOmpUpdate: vi.fn(async () => {}),
@@ -250,6 +251,22 @@ describe("Settings Updates page (issue #89)", () => {
     expect(buttonWithText("Restart now")).toBeNull();
     expect(buttonWithText("Show in folder")).toBeNull();
     expect(buttonWithText("Update now")).toBeNull();
+  });
+
+  it("reflects the update train and persists a switch to nightly", async () => {
+    seed({});
+    useStore.setState({ state: backendState({ appUpdateTrain: "stable" }) });
+    await renderSettings();
+    expect(buttonWithText("stable")!.getAttribute("aria-pressed")).toBe("true");
+    click(buttonWithText("nightly")!);
+    expect(backendMock.setAppUpdateTrain).toHaveBeenCalledWith("nightly");
+  });
+
+  it("reflects a persisted nightly train", async () => {
+    seed({});
+    useStore.setState({ state: backendState({ appUpdateTrain: "nightly" }) });
+    await renderSettings();
+    expect(buttonWithText("nightly")!.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("starts a deb/rpm/flatpak update download from the omp-ui panel", async () => {

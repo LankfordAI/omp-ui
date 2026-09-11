@@ -79,6 +79,7 @@ import {
   type SpawnGateState,
   type SpawnRequest,
   type TranscriptWidth,
+  type UpdateTrain,
   type WorktreeReleaseOptions,
   type SessionSummary,
   type PlanReviewVerdict,
@@ -263,6 +264,7 @@ export class MainBackend {
       getDismissed: () => this.registry.getSetting("dismissedAppUpdateVersion"),
       setDismissed: (v) => this.registry.setSetting("dismissedAppUpdateVersion", v),
       hasLiveSessions: () => this.sessions.liveCount > 0,
+      getTrain: () => this.registry.getSetting("appUpdateTrain"),
       setQuitAuthorized: opts.setAppUpdateQuitAuthorized ?? (() => {}),
       send: (ch, s) => {
         // One breadcrumb per status transition, not per heartbeat (issue #413).
@@ -563,6 +565,11 @@ export class MainBackend {
         },
         [CH.setAppUpdateCheckOnLaunch]: async (on: boolean) => {
           this.registry.setSetting("appUpdateCheckOnLaunch", on);
+          await this.broadcast();
+        },
+        [CH.setAppUpdateTrain]: async (train: UpdateTrain) => {
+          this.registry.setSetting("appUpdateTrain", train);
+          await this.appUpdater.onTrainChanged();
           await this.broadcast();
         },
         [CH.setOmpUpdateCheckOnLaunch]: async (on: boolean) => {
@@ -1122,6 +1129,7 @@ export class MainBackend {
       glassChrome: this.registry.getSetting("glassChrome"),
       localeId: this.registry.getSetting("localeId"),
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),
+      appUpdateTrain: this.registry.getSetting("appUpdateTrain"),
       ompUpdateCheckOnLaunch: this.registry.getSetting("ompUpdateCheckOnLaunch"),
       dismissedAppUpdateVersion: this.registry.getSetting("dismissedAppUpdateVersion"),
       dismissedOmpUpdateVersion: this.registry.getSetting("dismissedOmpUpdateVersion"),

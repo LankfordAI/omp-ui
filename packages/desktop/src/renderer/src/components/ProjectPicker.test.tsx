@@ -88,7 +88,23 @@ const listings: Record<string, DirBrowseResult> = {
   },
   "~/al": {
     parentPath: HOME,
+    entries: [
+      { name: "alpha", fullPath: `${HOME}/alpha` },
+      { name: "axle", fullPath: `${HOME}/axle` },
+    ],
+    error: null,
+  },
+  "~/aa": {
+    parentPath: HOME,
     entries: [{ name: "alpha", fullPath: `${HOME}/alpha` }],
+    error: null,
+  },
+  "~/a": {
+    parentPath: HOME,
+    entries: [
+      { name: "apple", fullPath: `${HOME}/apple` },
+      { name: "apollo", fullPath: `${HOME}/apollo` },
+    ],
     error: null,
   },
   [`${HOME}/alpha/`]: { parentPath: `${HOME}/alpha`, entries: [], error: null },
@@ -118,7 +134,7 @@ function input(): HTMLInputElement {
   return found;
 }
 
-const LISTING_NAMES: Record<string, true> = { alpha: true, beta: true, u: true, stale: true };
+const LISTING_NAMES: Record<string, true> = { alpha: true, axle: true, beta: true, u: true, stale: true, apple: true, apollo: true };
 
 function rowNames(): string[] {
   return [...document.body.querySelectorAll<HTMLButtonElement>("button[type=button]")]
@@ -207,7 +223,108 @@ describe("ProjectPicker", () => {
     await renderPicker();
     await type("~/al");
     expect(backendMock.browseDirectories).toHaveBeenCalledWith("~/al");
+    expect(rowNames()).toEqual(["..", "alpha", "axle"]);
+  });
+
+  it("ranks prefix matches above scattered subsequences", async () => {
+    await renderPicker();
+    await type("~/al");
+    // The backend's fuzzy recall returns both; the scorer ranks the prefix
+    // (alpha) over the scattered subsequence (axle).
+    expect(rowNames()).toEqual(["..", "alpha", "axle"]);
+  });
+
+  it("matches non-contiguous characters in the leaf", async () => {
+    await renderPicker();
+    await type("~/aa");
+    // "aa" is a subsequence of "alpha" but not a prefix; the picker browses
+    // the typed query verbatim and keeps the entry the backend recalled.
+    expect(backendMock.browseDirectories).toHaveBeenCalledWith("~/aa");
     expect(rowNames()).toEqual(["..", "alpha"]);
+  });
+
+  it("registers the full path of a fuzzy selection, not the query", async () => {
+    backendMock.addProject.mockResolvedValue({});
+    await renderPicker();
+    await type("~/al");
+    await press("ArrowDown"); // ".."
+    await press("ArrowDown"); // "alpha"
+    await press("Enter"); // descend — query becomes the entry's real path
+    expect(input().value).toBe(`${HOME}/alpha/`);
+    expect(backendMock.browseDirectories).toHaveBeenCalledWith(`${HOME}/alpha/`);
+    await press("Enter"); // dirMode accept
+    expect(backendMock.addProject).toHaveBeenCalledWith(`${HOME}/alpha`);
+  });
+
+  it("highlights the matched characters", async () => {
+    await renderPicker();
+    await type("~/al");
+    const row = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => (b.textContent ?? "").startsWith("alpha"),
+    )!;
+    expect(row.textContent).toBe("alpha");
+    const hits = [...row.querySelectorAll("span.text-signal")];
+    expect(hits.map((s) => s.textContent).join("")).toBe("al");
+  });
+
+  it("Tab completes a unique match by descending into it", async () => {
+    await renderPicker();
+    await type("~/aa");
+    await press("Tab");
+    expect(input().value).toBe(`${HOME}/alpha/`);
+    expect(backendMock.browseDirectories).toHaveBeenCalledWith(`${HOME}/alpha/`);
+  });
+
+  it("Tab extends the leaf to the longest common prefix, then cycles", async () => {
+    await renderPicker();
+    await type("~/a");
+    await press("Tab");
+    // apple/apollo share "ap"; completion re-anchors on the resolved parent.
+    expect(input().value).toBe(`${HOME}/ap`);
+    await press("Tab");
+    expect(input().value).toBe(`${HOME}/apple`);
+    await press("Tab");
+    expect(input().value).toBe(`${HOME}/apollo`);
+    await press("Tab");
+    // The cycle wraps through the prefix, back to the first candidate.
+    expect(input().value).toBe(`${HOME}/ap`);
+    await press("Tab", { shiftKey: true });
+    expect(input().value).toBe(`${HOME}/apollo`);
+  });
+
+  it("Tab cycles fuzzy candidates that share no typed prefix", async () => {
+    await renderPicker();
+    await type("~/al");
+    await press("Tab");
+    expect(input().value).toBe(`${HOME}/alpha`);
+    await press("Tab");
+    expect(input().value).toBe(`${HOME}/axle`);
+    // A completed candidate still resolves to the real path via exact match.
+    backendMock.addProject.mockResolvedValue({});
+    await press("Enter");
+    expect(backendMock.addProject).toHaveBeenCalledWith(`${HOME}/axle`);
+  });
+
+  it("Tab with a selected row descends instead of completing", async () => {
+    await renderPicker();
+    await type("~/al");
+    await press("ArrowDown"); // ".."
+    await press("ArrowDown"); // "alpha"
+    await press("Tab");
+    expect(input().value).toBe(`${HOME}/alpha/`);
+  });
+
+  it("Tab with nothing to complete stays in the input", async () => {
+    await renderPicker();
+    await type("foo");
+    const el = input();
+    const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    await act(async () => {
+      el.dispatchEvent(event);
+    });
+    // The modal must not eat focus into its close button (#23).
+    expect(event.defaultPrevented).toBe(true);
+    expect(input().value).toBe("foo");
   });
 
   it("descends into the selected entry on Enter", async () => {
@@ -320,5 +437,32 @@ describe("ProjectPicker", () => {
       });
     });
     expect(rowNames()).toEqual(["..", "alpha"]);
+  });
+
+  it("does not complete from a stale listing while the current browse is pending", async () => {
+    let resolveBrowse!: (r: DirBrowseResult) => void;
+    backendMock.browseDirectories.mockImplementation((q: string) => {
+      if (q === "/tmp/ap") {
+        return new Promise<DirBrowseResult>((r) => {
+          resolveBrowse = r;
+        });
+      }
+      return Promise.resolve(listings[q] ?? { parentPath: "", entries: [], error: "invalid" });
+    });
+    await renderPicker();
+    await type("~/al"); // /home/u listing: alpha/axle
+    await type("/tmp/ap"); // new parent AND leaf; response pending
+    await press("Tab");
+    // Must not descend into the stale /home/u listing.
+    expect(input().value).toBe("/tmp/ap");
+    await act(async () => {
+      resolveBrowse({
+        parentPath: "/tmp",
+        entries: [{ name: "apple", fullPath: "/tmp/apple" }],
+        error: null,
+      });
+    });
+    await press("Tab");
+    expect(input().value).toBe("/tmp/apple/");
   });
 });
