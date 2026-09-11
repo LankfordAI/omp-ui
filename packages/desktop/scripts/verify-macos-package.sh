@@ -79,10 +79,10 @@ for binary in "$executable" "$host_bin" "$pty"; do
   fi
 done
 
-# The host refuses a verifier browser whose bytes differ from its manifest, so
-# signing must have left the vendored Chrome alone (mac.signIgnore).
-browser_exec="$(node -p 'require(process.argv[1]).executable' "$browser_manifest")"
-browser_sha="$(node -p 'require(process.argv[1]).sha256' "$browser_manifest")"
+# The host refuses a verifier browser whose bytes differ from its manifest.
+# The packaging hook re-signs the browser, then records the resulting hash.
+browser_exec="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).executable' "$browser_manifest")"
+browser_sha="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).sha256' "$browser_manifest")"
 actual_sha="$(shasum -a 256 "$seed/resources/plan-verifier/$browser_exec" | cut -d' ' -f1)"
 if [[ "$actual_sha" != "$browser_sha" ]]; then
   printf 'Embedded verifier browser hash %s differs from its manifest %s: packaging altered the binary\n' "$actual_sha" "$browser_sha" >&2
