@@ -350,6 +350,7 @@ const {
   RpcCommandTimeoutError,
   STREAM_STALL_THRESHOLD_MS,
   STREAM_STALL_TICK_MS,
+  TRANSCRIPT_FLUSH_MS,
   useStore,
 } = await import("../store");
 const { rpcCommandMachinery } = await import("../store/slices/rpc-command");
@@ -496,6 +497,7 @@ export const h = {
   QUEUE_SETTLE_REFRESH_MS,
   STREAM_STALL_THRESHOLD_MS,
   STREAM_STALL_TICK_MS,
+  TRANSCRIPT_FLUSH_MS,
   RpcCommandTimeoutError,
   deriveSidebarSessionState,
   isLateAckCommand,

@@ -74,6 +74,7 @@ export {
   RpcCommandTimeoutError,
   STREAM_STALL_THRESHOLD_MS,
   STREAM_STALL_TICK_MS,
+  TRANSCRIPT_FLUSH_MS,
   deriveSidebarSessionState,
   isLateAckCommand,
   registerShellWriter,
