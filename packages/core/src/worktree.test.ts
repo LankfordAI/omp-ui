@@ -7,6 +7,7 @@ import {
   addWorktree,
   addWorktreeForBranch,
   addWorktreeFromNewBase,
+  finalizeMintBranch,
   isWithin,
   linkProjectOmpDir,
   mergeWorktreeBranch,
@@ -46,6 +47,26 @@ async function tmpRepo(): Promise<string> {
   await git(dir, ["config", "user.name", "test"]);
   // Windows runners default to core.autocrlf=true, which checks files out as
   // CRLF and breaks assertions on committed LF content (issue #291).
+  await git(dir, ["config", "core.autocrlf", "false"]);
+  fs.writeFileSync(path.join(dir, ".seed"), "seed\n");
+  await git(dir, ["add", "."]);
+  await git(dir, ["commit", "-q", "-m", "init"]);
+  return dir;
+}
+
+/**
+ * A throwaway repo whose directory slug is exactly `name` — the fixture
+ * tmpRepo's mkdtemp basename would make the branch prefix random, and
+ * finalizeMintBranch derives the prefix from the project path (issue #482).
+ */
+async function namedRepo(name: string): Promise<string> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-mint-"));
+  cleanups.push(root);
+  const dir = path.join(root, name);
+  fs.mkdirSync(dir);
+  await git(dir, ["init", "-q", "-b", "main"]);
+  await git(dir, ["config", "user.email", "test@example.com"]);
+  await git(dir, ["config", "user.name", "test"]);
   await git(dir, ["config", "core.autocrlf", "false"]);
   fs.writeFileSync(path.join(dir, ".seed"), "seed\n");
   await git(dir, ["add", "."]);
@@ -194,6 +215,67 @@ describe("addWorktree", () => {
     await expect(
       addWorktree(dir, path.join(dir, "wt", "checkout"), mint(), null),
     ).rejects.toThrow(/not a git repository/);
+  });
+});
+
+describe("finalizeMintBranch (issue #482)", () => {
+  it("adds the base segment to a base-blind mint and pins the branch as start point", async () => {
+    const dir = await namedRepo("proj");
+    const [branch, baseRef] = await finalizeMintBranch(dir, "proj/abcd1234", null, null);
+    expect(branch).toBe("proj/main/abcd1234");
+    expect(baseRef).toBe("main");
+  });
+
+  it("roots the checkout cut with the resolved ref at the base tip and records the base", async () => {
+    const dir = await namedRepo("proj");
+    const mainTip = (await git(dir, ["rev-parse", "main"])).trim();
+    const [branch, baseRef] = await finalizeMintBranch(dir, "proj/abcd1234", null, null);
+    const wtPath = path.join(dir, "wt", "checkout");
+    const base = await addWorktree(dir, wtPath, branch, baseRef);
+    expect(base).toBe("main");
+    expect((await git(wtPath, ["rev-parse", "HEAD"])).trim()).toBe(mainTip);
+  });
+
+  it("passes a mint through untouched and HEAD-relative on a detached checkout", async () => {
+    const dir = await namedRepo("proj");
+    await git(dir, ["checkout", "--detach"]);
+    const [branch, baseRef] = await finalizeMintBranch(dir, "proj/abcd1234", null, null);
+    expect(branch).toBe("proj/abcd1234");
+    expect(baseRef).toBeNull();
+  });
+
+  it("never renames a hand-typed branch and still pins the start point", async () => {
+    const dir = await namedRepo("proj");
+    const [branch, baseRef] = await finalizeMintBranch(dir, "feature/mine", null, null);
+    expect(branch).toBe("feature/mine");
+    expect(baseRef).toBe("main");
+  });
+
+  it("leaves a mint under another project's prefix untouched (#438 per-project rule)", async () => {
+    const dir = await namedRepo("proj");
+    const [branch, baseRef] = await finalizeMintBranch(dir, "other/abcd1234", null, null);
+    expect(branch).toBe("other/abcd1234");
+    expect(baseRef).toBe("main");
+  });
+
+  it("keeps a three-segment mint and its hash when the name already carries the base", async () => {
+    const dir = await namedRepo("proj");
+    const [branch, baseRef] = await finalizeMintBranch(dir, "proj/main/abcd1234", null, null);
+    expect(branch).toBe("proj/main/abcd1234");
+    expect(baseRef).toBe("main");
+  });
+
+  it("passes the #405 new-base selection through with its explicit baseRef", async () => {
+    const dir = await namedRepo("proj");
+    const [branch, baseRef] = await finalizeMintBranch(
+      dir,
+      "proj/TECH-123/abcd1234",
+      "TECH-123",
+      "main",
+    );
+    expect(branch).toBe("proj/TECH-123/abcd1234");
+    // The payload's ref wins: the new base branch's own start point.
+    expect(baseRef).toBe("main");
   });
 });
 

@@ -5,6 +5,12 @@ import { git } from "./git";
 import { createBranch, readDefaultBranch } from "./branches";
 import { buildMergeMessage } from "./merge-message";
 import { projectSlug } from "./paths";
+import {
+  baseBranchSegment,
+  composeWorktreeBranch,
+  isMintedWorktreeBranch,
+  worktreeBranchPrefix,
+} from "./worktree-branch";
 import type {
   MergeBackResult,
   MergeBackStatus,
@@ -105,6 +111,42 @@ export async function addWorktree(
     { timeoutMs: ADD_TIMEOUT_MS },
   );
   return base;
+}
+
+/**
+ * Finalizes a minted branch name against git's truth (issue #482): the
+ * renderer composes `<project>/[<base>/]<hash>` from its branch listing,
+ * which may not have landed when the user submits. A mint that arrives
+ * with no base segment while the checkout sits on a named branch gets
+ * the segment added here, so the name and the recorded base agree no
+ * matter how fast the click. A hand-typed branch, a mint under another
+ * project's prefix, a named mint, and a detached HEAD all pass through
+ * untouched (detached: addWorktree already records the HEAD SHA).
+ * Returns [finalBranch, resolvedBaseRef] — baseRef null only when the
+ * checkout is detached or branchless, matching addWorktree's own base
+ * resolution.
+ */
+export async function finalizeMintBranch(
+  projectCwd: string,
+  branch: string,
+  baseBranch: string | null,
+  baseRef: string | null,
+): Promise<[string, string | null]> {
+  const prefix = worktreeBranchPrefix(projectCwd);
+  const current = await currentBranch(projectCwd);
+  const segment = baseBranchSegment(baseBranch, baseRef, current === "" ? null : current);
+  const finalBranch =
+    isMintedWorktreeBranch(branch, prefix) && segment !== null
+      ? composeWorktreeBranch(
+          prefix,
+          segment,
+          branch.slice(branch.lastIndexOf("/") + 1),
+        )
+      : branch;
+  // A named checkout always yields a start point, so git's reflog stops
+  // reading "Created from HEAD" on branches; detached stays HEAD-relative.
+  const resolvedRef = baseRef !== null ? baseRef : (current !== "" ? current : null);
+  return [finalBranch, resolvedRef];
 }
 
 /**

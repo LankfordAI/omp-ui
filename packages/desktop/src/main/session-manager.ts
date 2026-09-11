@@ -14,6 +14,7 @@ import {
   checkoutBranch,
   deleteSessionFiles,
   forkSessionFile,
+  finalizeMintBranch,
   goalArmMessage,
   mintLineageDirName,
   mintWorktreePath,
@@ -432,8 +433,13 @@ export class SessionManager {
             worktree = mintedWorktree;
           } else {
             const { branch, baseRef, baseBranch } = req.worktree.mint;
+            // Issue #482: the renderer's listing may not have landed when the
+            // payload was composed; the host recomposes the mint against the
+            // checkout's actual branch and pins an explicit start point.
+            const [mintBranch, mintBaseRef] = await finalizeMintBranch(
+              req.projectCwd, branch, baseBranch, baseRef);
             const worktreePath = mintWorktreePath(
-              this.deps.getWorktreesRoot(), req.projectCwd, branch);
+              this.deps.getWorktreesRoot(), req.projectCwd, mintBranch);
             // Issue #405: with a new base branch the checkout is cut from the
             // branch created in this same operation, and the recorded base is
             // that branch — diffs, sync, and merge-back never target the
@@ -441,10 +447,10 @@ export class SessionManager {
             // add fails; a later spawn-step failure leaves it (the user
             // explicitly asked for it, as #390 keeps a pre-existing branch).
             const base = baseBranch === null
-              ? await addWorktree(req.projectCwd, worktreePath, branch, baseRef)
+              ? await addWorktree(req.projectCwd, worktreePath, mintBranch, mintBaseRef)
               : await addWorktreeFromNewBase(
-                  req.projectCwd, worktreePath, branch, baseBranch, baseRef);
-            mintedWorktree = { path: worktreePath, branch, base };
+                  req.projectCwd, worktreePath, mintBranch, baseBranch, mintBaseRef);
+            mintedWorktree = { path: worktreePath, branch: mintBranch, base };
             worktree = mintedWorktree;
           }
         }
@@ -860,16 +866,21 @@ export class SessionManager {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
       if (!record) throw new Error(`unknown session tab ${tabId}`);
       if (record.worktree) throw new Error("session already runs in a worktree");
+      // Issue #482: same host recomposition as the spawn mint arm — a
+      // payload composed before the listing lands gets its base segment
+      // and an explicit start point from git's truth here.
+      const [mintBranch, mintBaseRef] = await finalizeMintBranch(
+        record.projectCwd, branch, baseBranch, baseRef);
       const worktreePath = mintWorktreePath(
-        this.deps.getWorktreesRoot(), record.projectCwd, branch);
+        this.deps.getWorktreesRoot(), record.projectCwd, mintBranch);
       // Issue #405: the same two entries as the spawn mint arm; with a new
       // base branch the record's base is that branch's name, not its start.
       const base = baseBranch === null
-        ? await addWorktree(record.projectCwd, worktreePath, branch, baseRef)
+        ? await addWorktree(record.projectCwd, worktreePath, mintBranch, mintBaseRef)
         : await addWorktreeFromNewBase(
-            record.projectCwd, worktreePath, branch, baseBranch, baseRef);
+            record.projectCwd, worktreePath, mintBranch, baseBranch, mintBaseRef);
       this.deps.registry.updateSession(tabId, {
-        worktree: { path: worktreePath, branch, base },
+        worktree: { path: worktreePath, branch: mintBranch, base },
       });
       const entry = this.live.get(tabId);
       if (!entry) {

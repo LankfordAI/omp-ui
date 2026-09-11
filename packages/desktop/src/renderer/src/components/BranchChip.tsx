@@ -641,7 +641,7 @@ export function BranchChip({
                 {onCreateWorktree !== undefined && (
                   <Button
                     size="xs"
-                    disabled={cutting || worktreeLocked || workspace.branch.trim() === "" || (workspace.baseBranch !== null && workspace.baseBranch.trim() === "")}
+                    disabled={cutting || worktreeLocked || info === undefined || workspace.branch.trim() === "" || (workspace.baseBranch !== null && workspace.baseBranch.trim() === "")}
                     onClick={() => void attemptCreate()}
                   >
                     {cutting ? t("composer.branch.creating") : t("composer.branch.create")}

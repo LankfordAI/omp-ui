@@ -289,4 +289,31 @@ describe("NewWorktreeSessionDialog", () => {
     expect(create).toBeDefined();
     expect(create!.disabled).toBe(true);
   });
+
+  it("keeps Create disabled until the branch listing has landed (issue #482)", async () => {
+    // Cold store after a restart: while the first refreshBranches is in
+    // flight the submitted payload would carry baseRef null and mint
+    // `<project>/<hash>` without its base segment. The submit must wait
+    // for the listing instead of racing it.
+    let release: (value: BranchList) => void = () => {};
+    backendMock.listBranches.mockReturnValue(
+      new Promise<BranchList>((resolve) => {
+        release = resolve;
+      }),
+    );
+    seed({});
+    render();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(buttonByText("Create session")!.disabled).toBe(true);
+
+    act(() => {
+      release(fixture);
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(buttonByText("Create session")!.disabled).toBe(false);
+  });
 });

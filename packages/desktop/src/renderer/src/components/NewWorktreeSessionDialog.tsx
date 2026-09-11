@@ -104,7 +104,7 @@ export function NewWorktreeSessionDialog({
           <Button variant="ghost" onClick={close}>
             {t("common.dialog.cancel")}
           </Button>
-          <Button variant="solid" disabled={pending || notGit || noOtherBranches || (source === "new" && baseBranch !== null && baseBranch.trim() === "")} onClick={() => void submit()}>
+          <Button variant="solid" disabled={pending || notGit || info === undefined || noOtherBranches || (source === "new" && baseBranch !== null && baseBranch.trim() === "")} onClick={() => void submit()}>
             {t("dialog.worktree.create")}
           </Button>
         </>

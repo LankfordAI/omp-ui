@@ -880,6 +880,39 @@ describe("BranchChip worktree section (issue #227)", () => {
     expect(buttonByText("create").disabled).toBe(false);
     createWorktreeHandler = null;
   });
+
+  it("offers no create affordance until the branch listing has landed (issue #482)", async () => {
+    // Cold store: the mint payload composed here would carry baseRef null,
+    // so the surface must not exist until the listing resolves the base.
+    // The chip renders nothing at all while `info` is undefined — the
+    // strongest form of the gate the create button's disabled term repeats
+    // defensively.
+    let release: (value: BranchList) => void = () => {};
+    backendMock.listBranches.mockReturnValue(
+      new Promise<BranchList>((resolve) => {
+        release = resolve;
+      }),
+    );
+    useStore.setState({ branches: {}, branchActivity: {} });
+    renderWorkspaceChip();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(document.body.querySelector("button")).toBeNull();
+
+    act(() => {
+      release(fixture);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    createWorktreeHandler = async () => true;
+    await act(async () => chip().click());
+    await act(async () => worktreeRow()!.click());
+    await flushMicrotasks();
+    expect(buttonByText("create").disabled).toBe(false);
+    createWorktreeHandler = null;
+  });
 });
 
 describe("BranchChip finish worktree row (issues #385–#389)", () => {

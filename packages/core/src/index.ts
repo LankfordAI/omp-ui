@@ -23,6 +23,7 @@ export {
   addWorktree,
   addWorktreeForBranch,
   addWorktreeFromNewBase,
+  finalizeMintBranch,
   isWithin,
   linkProjectOmpDir,
   mergeWorktreeBranch,

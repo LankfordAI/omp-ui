@@ -3281,6 +3281,34 @@ describe("convert to worktree (issue #225)", () => {
     const updated = registry.sessions.find((s) => s.tabId === record.tabId)!;
     expect(updated.worktree).toBeNull();
   });
+
+  it("recomposes a base-blind mint against the checkout's branch (issue #482)", async () => {
+    // The spawn race: a payload composed before the renderer's listing
+    // landed carries no base segment and a null baseRef. The host must
+    // recompose from git's truth so the record's base names the middle
+    // segment, on every entry — this is convertToWorktree's half.
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const prefix = Core.worktreeBranchPrefix(project);
+    const blind = `${prefix}/abcd1234`;
+    const branch = `${prefix}/main/abcd1234`;
+    const worktreePath = Core.mintWorktreePath(worktreesRoot(), project, branch);
+    const record = registry.addSession(
+      ownedSessionRecord({ tabId: "tab-convert-race", projectCwd: project, mode: "pty" }),
+    );
+
+    await manager.convertToWorktree(record.tabId, blind, null, null);
+
+    const updated = registry.sessions.find((s) => s.tabId === record.tabId)!;
+    expect(updated.worktree).toEqual({ path: worktreePath, branch, base: "main" });
+    expect(fs.existsSync(worktreePath)).toBe(true);
+    // The blind payload's path (would be slot `<prefix>-abcd1234`) was never
+    // cut — the checkout exists only under the recomposed name.
+    expect(
+      fs.existsSync(Core.mintWorktreePath(worktreesRoot(), project, blind)),
+    ).toBe(false);
+  });
 });
 
 describe("release worktree (issue #334)", () => {
