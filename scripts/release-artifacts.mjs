@@ -18,12 +18,12 @@ const PLATFORM_KINDS = {
 const PLATFORM_FEEDS = ["host-feed"];
 
 /**
- * Release evidence (issue #442 §12): one `host-package` record per arch, written
- * by `smoke-package.mjs --record` from the unpacked archive, and on Linux the
- * Fedora no-display gate record. Publication refuses without every one.
+ * Release evidence (issues #442 and #463): one `host-package` record per arch,
+ * written by `smoke-package.mjs --record` from the unpacked archive, and on
+ * Linux the no-display gate record. Publication refuses without every one.
  */
 const PLATFORM_GATES = {
-  linux: ["fedora-no-display-gate"],
+  linux: ["no-display-gate"],
   mac: [],
   win: [],
 };
@@ -225,16 +225,16 @@ function validateHostPackageRecord(record, target, hostArtifacts, where) {
   }
 }
 
-/** The Fedora H scenario (issue #442 §12): live tests ran with no display, none skipped, none failed. */
+/** The headless-host scenario: live tests ran with no display, none skipped, none failed. */
 function validateGateRecord(record, target, where) {
   requireFields(where, record, {
     schemaVersion: (v) => v === 1,
-    kind: (v) => v === "fedora-no-display-gate",
+    kind: (v) => v === "no-display-gate",
     releaseTag: (v) => v === `v${target.version}`,
     platform: (v) => v === "linux",
     arch: (v) => v === "x64",
-    "os.id": (v) => v === "fedora",
-    "os.versionId": (v) => v === "44",
+    "os.id": nonEmptyString,
+    "os.versionId": nonEmptyString,
     "display.DISPLAY": (v) => v === null,
     "display.WAYLAND_DISPLAY": (v) => v === null,
     "liveTests.total": (v) => Number.isSafeInteger(v) && v > 0,

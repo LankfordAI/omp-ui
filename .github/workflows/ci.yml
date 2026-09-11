@@ -32,7 +32,7 @@ jobs:
 
   # The host SEA packages and boots on a stock Linux runner (issue #442 §12):
   # the same package/smoke pair the release lanes run, record writer included.
-  # The Fedora no-display gate and publication live in release.yml.
+  # The no-display gate and publication live in release.yml.
   host-package-smoke:
     runs-on: ubuntu-latest
     needs: check

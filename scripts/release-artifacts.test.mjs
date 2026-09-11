@@ -131,11 +131,11 @@ function packageRecord(fixture, arch, overrides = {}) {
 function gateRecord(overrides = {}) {
   return {
     schemaVersion: 1,
-    kind: "fedora-no-display-gate",
+    kind: "no-display-gate",
     releaseTag: `v${version}`,
     platform: "linux",
     arch: "x64",
-    os: { id: "fedora", versionId: "44" },
+    os: { id: "ubuntu", versionId: "24.04" },
     display: { DISPLAY: null, WAYLAND_DISPLAY: null },
     liveTests: { total: 12, passed: 12, failed: 0, skipped: 0 },
     smokeRecord: "package-record-linux-x64.json",
@@ -150,7 +150,7 @@ function records(fixture) {
     name: `package-record-${platform}-${arch}.json`,
     record: packageRecord(fixture, arch),
   }));
-  if (platform === "linux") all.push({ name: "fedora-no-display-gate.json", record: gateRecord() });
+  if (platform === "linux") all.push({ name: "no-display-gate.json", record: gateRecord() });
   return all;
 }
 
@@ -174,7 +174,7 @@ for (const [platform, fixture] of Object.entries(fixtures)) {
     );
     if (platform === "linux") {
       assert.deepEqual(new Set(plan.artifacts.map(({ kind }) => kind)), new Set(["appimage", "deb", "host", "host-feed"]));
-      assert.deepEqual(plan.evidence.gates, ["fedora-no-display-gate.json"]);
+      assert.deepEqual(plan.evidence.gates, ["no-display-gate.json"]);
     } else if (platform === "mac") {
       assert.deepEqual(plan.latestMac, {
         version,
@@ -233,18 +233,18 @@ test("rejects duplicate artifacts for an architecture", () => {
   );
 });
 
-test("requires one host-package record per architecture and the Fedora gate on Linux", () => {
+test("requires one host-package record per architecture and the no-display gate on Linux", () => {
   const fixture = fixtures.linux;
   const files = metadata(fixture.names);
 
-  assert.throws(() => planReleaseManifest(files, fixture.target), /Missing linux records: x64 host-package, arm64 host-package, armv7l host-package, fedora-no-display-gate/);
+  assert.throws(() => planReleaseManifest(files, fixture.target), /Missing linux records: x64 host-package, arm64 host-package, armv7l host-package, no-display-gate/);
   assert.throws(
     () => planReleaseManifest(files, fixture.target, records(fixture).filter(({ record }) => record.arch !== "arm64" || record.kind !== "host-package")),
     /Missing linux records: arm64 host-package/,
   );
   assert.throws(
-    () => planReleaseManifest(files, fixture.target, records(fixture).filter(({ record }) => record.kind !== "fedora-no-display-gate")),
-    /Missing linux records: fedora-no-display-gate/,
+    () => planReleaseManifest(files, fixture.target, records(fixture).filter(({ record }) => record.kind !== "no-display-gate")),
+    /Missing linux records: no-display-gate/,
   );
   assert.throws(
     () => planReleaseManifest(files, fixture.target, [...records(fixture), { name: "again.json", record: packageRecord(fixture, "x64") }]),
@@ -252,7 +252,7 @@ test("requires one host-package record per architecture and the Fedora gate on L
   );
   assert.throws(
     () => planReleaseManifest(files, fixture.target, [...records(fixture), { name: "again.json", record: gateRecord() }]),
-    /Duplicate fedora-no-display-gate record/,
+    /Duplicate no-display-gate record/,
   );
   assert.throws(
     () => planReleaseManifest(files, fixture.target, [...records(fixture), { name: "odd.json", record: { kind: "something-else" } }]),
@@ -292,11 +292,11 @@ test("rejects records that skipped, ran from the source tree, or name the wrong 
   assert.ok(planReleaseManifest(hashed, fixture.target, records(fixture)));
 });
 
-test("rejects a Fedora gate that skipped, failed, ran under a display, or ran elsewhere", () => {
+test("rejects a no-display gate that skipped, failed, or ran under a display", () => {
   const fixture = fixtures.linux;
   const files = metadata(fixture.names);
   const withGate = (overrides) => [
-    ...records(fixture).filter(({ record }) => record.kind !== "fedora-no-display-gate"),
+    ...records(fixture).filter(({ record }) => record.kind !== "no-display-gate"),
     { name: "gate.json", record: gateRecord(overrides) },
   ];
   const cases = [
@@ -305,8 +305,6 @@ test("rejects a Fedora gate that skipped, failed, ran under a display, or ran el
     [{ liveTests: { total: 0, passed: 0, failed: 0, skipped: 0 } }, /invalid liveTests.total: 0/],
     [{ liveTests: { total: 12, passed: 10, failed: 0, skipped: 0 } }, /10 of 12 live tests passed/],
     [{ display: { DISPLAY: ":0", WAYLAND_DISPLAY: null } }, /invalid display.DISPLAY: ":0"/],
-    [{ os: { id: "ubuntu", versionId: "24.04" } }, /invalid os.id/],
-    [{ os: { id: "fedora", versionId: "43" } }, /invalid os.versionId/],
     [{ releaseTag: "v0.0.1" }, /invalid releaseTag/],
   ];
   for (const [overrides, expected] of cases) {

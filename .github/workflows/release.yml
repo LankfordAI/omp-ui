@@ -116,11 +116,11 @@ jobs:
             "packages/host/out/linux-x64/omp-ui-host-${version}-linux-x64.tar.gz" \
             packages/host/out/linux-x64/latest-host-linux.yml
 
-  # The Fedora 44 no-display gate (issue #442 §12): the host's live tests and
-  # the packaged smoke run with no graphical environment, as the lingering
-  # user service does. A skipped live test is a failure here — a missing
-  # binary that named-skips in development must not skip release evidence.
-  fedora-no-display-gate:
+  # The no-display gate (issues #442 and #463): the host's live tests and the
+  # packaged smoke run with no graphical environment, as the lingering user
+  # service does. A skipped live test is a failure here — a missing binary that
+  # named-skips in development must not skip release evidence.
+  no-display-gate:
     runs-on: [self-hosted, gfx1201]
     # OMP_UI_DATA_DIR is exported by the first step: `runner.temp` is not
     # available in job-level env, and nothing here may touch the runner
@@ -132,15 +132,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Assert the Fedora 44 row and isolate the data root
+      - name: Isolate the data root
         shell: bash
         run: |
           set -euo pipefail
-          . /etc/os-release
-          if [ "$ID" != "fedora" ] || [ "$VERSION_ID" != "44" ]; then
-            printf 'The no-display gate is the Fedora 44 x64 row; this runner is %s %s\n' "$ID" "$VERSION_ID" >&2
-            exit 1
-          fi
           echo "OMP_UI_DATA_DIR=$RUNNER_TEMP/omp-ui-gate-data" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/omp-ui-gate-data" package-records/gate
       - name: Stamp version from tag
@@ -191,7 +186,7 @@ jobs:
           }
           const record = {
             schemaVersion: 1,
-            kind: "fedora-no-display-gate",
+            kind: "no-display-gate",
             releaseTag: process.env.GITHUB_REF_NAME,
             platform: "linux",
             arch: "x64",
@@ -202,7 +197,7 @@ jobs:
             runner: process.env.RUNNER_NAME ?? null,
             finishedAt: new Date().toISOString(),
           };
-          fs.writeFileSync("package-records/fedora-no-display-gate.json", `${JSON.stringify(record, null, 2)}\n`);
+          fs.writeFileSync("package-records/no-display-gate.json", `${JSON.stringify(record, null, 2)}\n`);
           console.log(JSON.stringify(liveTests));
           if (liveTests.total === 0 || liveTests.failed > 0 || liveTests.skipped > 0) {
             console.error("the no-display gate requires every host live test to run and pass");
@@ -212,7 +207,7 @@ jobs:
       - name: Stage gate evidence
         uses: actions/upload-artifact@v4
         with:
-          name: package-record-fedora-no-display-gate
+          name: package-record-no-display-gate
           path: package-records/
           if-no-files-found: error
           retention-days: 1
@@ -375,8 +370,8 @@ jobs:
             packages/host/out/win-x64/latest-host-win.yml
 
   release-manifest:
-    needs: [release-linux, fedora-no-display-gate, package-macos, release-macos, release-windows, release-notes]
-    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.fedora-no-display-gate.result == 'success' && needs.package-macos.result == 'success' && needs.release-macos.result == 'success' && needs.release-windows.result == 'success' }}
+    needs: [release-linux, no-display-gate, package-macos, release-macos, release-windows, release-notes]
+    if: ${{ !cancelled() && needs.release-linux.result == 'success' && needs.no-display-gate.result == 'success' && needs.package-macos.result == 'success' && needs.release-macos.result == 'success' && needs.release-windows.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}
@@ -484,7 +479,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Reached only when every lane, the Fedora gate, and the evidence
+          # Reached only when every lane, the no-display gate, and the evidence
           # check above passed — the "complete and ready" gate that makes the
           # release visible to /releases/latest.
           gh release edit "$GITHUB_REF_NAME" --draft=false
