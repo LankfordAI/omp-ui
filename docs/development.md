@@ -77,6 +77,12 @@ exists on disk, so every packaging lane and CI run `smoke:pty` first. It
 relaunches itself as the Electron binary with `ELECTRON_RUN_AS_NODE=1` (no
 display needed), spawns a shell through `node-pty`, and fails if the addon
 cannot load or spawn under the exact Electron the package embeds (issue #484).
+The macOS prebuild stores its `spawn-helper` non-executable, and a copied tree
+keeps that mode into the packaged app, so `scripts/ensure-node-pty-exec.cjs`
+ORs the exec bit back in: as the desktop workspace's `postinstall` (every
+`npm ci`/`npm install` and the smoke itself), as electron-builder's `afterPack`
+hook so a local `package:mac` is safe without the smoke, and as an assertion in
+`verify-macos-package.sh` (issue #489).
 
 Run a single workspace's tests or type check with the same form:
 

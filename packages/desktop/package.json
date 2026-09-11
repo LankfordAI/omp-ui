@@ -27,7 +27,8 @@
     "themes:check": "node scripts/generate-theme-css.mjs --check",
     "test": "npm run themes:check && vitest run --passWithNoTests",
     "test:live": "vitest run --config vitest.live.config.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "postinstall": "node scripts/ensure-node-pty-exec.cjs"
   },
   "dependencies": {
     "@omp-ui/core": "*",

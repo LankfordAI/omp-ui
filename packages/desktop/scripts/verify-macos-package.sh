@@ -61,6 +61,10 @@ executable="$app/Contents/MacOS/omp-ui"
 pty="$app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-${arch}/pty.node"
 test -f "$executable" || { printf 'Missing app executable: %s\n' "$executable" >&2; exit 1; }
 test -f "$pty" || { printf 'Missing unpacked node-pty binary: %s\n' "$pty" >&2; exit 1; }
+helper="$app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-${arch}/spawn-helper"
+# The npm prebuild stores the helper mode 0644; the afterPack hook must have
+# OR'd in the exec bit, or every PTY spawn in the app fails (issue #489).
+test -x "$helper" || { printf 'node-pty spawn-helper is not executable: %s\n' "$helper" >&2; exit 1; }
 
 for binary in "$executable" "$pty"; do
   description="$(file -b "$binary")"

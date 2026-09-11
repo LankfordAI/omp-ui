@@ -12,6 +12,9 @@ files:
 asarUnpack:
   - "**/node_modules/node-pty/**"
 npmRebuild: false
+# node-pty's darwin prebuild stores spawn-helper mode 0644; OR the exec bit
+# back in the packed tree before signing (issue #489).
+afterPack: ./scripts/ensure-node-pty-exec.cjs
 toolsets:
   appimage: "1.0.3"
 linux:

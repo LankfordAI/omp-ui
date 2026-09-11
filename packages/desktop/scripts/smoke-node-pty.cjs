@@ -24,6 +24,9 @@ if (!process.versions.electron) {
   process.exit(result.status ?? 1);
 }
 
+// The npm tarball stores the darwin spawn-helper 0644; restore the exec bit
+// before spawning, or posix_spawnp fails on every macOS lane (issue #489).
+require("./ensure-node-pty-exec.cjs").ensureSpawnHelperExecBits();
 const pty = require("node-pty");
 
 const MARKER = "omp-ui-pty-ok";
