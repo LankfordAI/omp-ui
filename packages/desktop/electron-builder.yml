@@ -6,6 +6,7 @@ directories:
 files:
   - out/**
   - package.json
+afterPack: scripts/prepare-macos-verifier.mjs
 # The persistent host seed (issue #442 §10.1): the lane's unpacked host layout
 # that `npm run package:host -w @omp-ui/host -- --lane ${os}-${arch}` wrote,
 # embedded as resources/host/<version>/{bin,lib,resources,service}. The desktop
