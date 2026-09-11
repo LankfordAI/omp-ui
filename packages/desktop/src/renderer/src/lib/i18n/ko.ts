@@ -552,6 +552,11 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.updates.checkNow": "지금 확인",
   "settings.updates.checkOnLaunch": "시작 시 확인",
   "settings.updates.checkAppOnLaunchLabel": "시작 시 omp-ui 업데이트 확인",
+  "settings.updates.trainLabel": "업데이트 트레인",
+  "settings.updates.trainStable": "안정",
+  "settings.updates.trainNightly": "nightly",
+  "settings.updates.trainHint":
+    "Nightly는 trunk를 따라가는 롤링 프리릴리스로, 필요할 때 수동으로 빌드됩니다. 불안정할 수 있으며, Windows nightly는 서명되지 않은 미리보기 빌드입니다. stable로 다시 전환하면 최신 stable 릴리스로 돌아갑니다.",
   "settings.updates.dismissed": "숨김: {version}",
   "settings.updates.reoffer": "다시 제안",
   "settings.updates.ompBinary": "omp binary",

@@ -26,6 +26,7 @@ import type {
   RemoteState,
   SessionMode,
   TranscriptWidth,
+  UpdateTrain,
   WorktreeReleaseOptions,
   WorktreeReleaseResult,
   WebSearchProviderSnapshot,
@@ -348,6 +349,7 @@ export interface SettingsSlice {
   setGlassChrome(level: GlassChrome): Promise<void>;
   setLocaleId(id: string): Promise<void>;
   setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;
+  setAppUpdateTrain(train: UpdateTrain): Promise<void>;
   setOmpUpdateCheckOnLaunch(on: boolean): Promise<void>;
   clearDismissedAppUpdate(): Promise<void>;
   clearDismissedOmpUpdate(): Promise<void>;

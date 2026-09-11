@@ -34,10 +34,13 @@ export abstract class UpdateController<T extends CommonUpdateState> {
     return !manual && this.updateDeps.getDismissed() === version;
   }
 
-  protected reapDismissed(installedVersion: string | null): void {
+  protected reapDismissed(
+    installedVersion: string | null,
+    compare: (a: string, b: string) => number = compareVersions,
+  ): void {
     if (installedVersion === null) return;
     const dismissed = this.updateDeps.getDismissed();
-    if (dismissed !== null && compareVersions(dismissed, installedVersion) <= 0) {
+    if (dismissed !== null && compare(dismissed, installedVersion) <= 0) {
       this.updateDeps.setDismissed(null);
     }
   }

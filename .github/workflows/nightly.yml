@@ -121,7 +121,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nightly-linux-x64
-          path: packages/desktop/dist/*.AppImage
+          path: |
+            packages/desktop/dist/*.AppImage
+            packages/desktop/dist/latest-linux.yml
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -189,7 +191,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nightly-win-x64
-          path: packages/desktop/dist/*-windows-preview-x64-setup.exe
+          path: |
+            packages/desktop/dist/*-windows-preview-x64-setup.exe
+            packages/desktop/dist/*-windows-preview-x64-setup.exe.blockmap
+            packages/desktop/dist/latest.yml
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -225,6 +230,14 @@ jobs:
           pattern: macos-package-*
           merge-multiple: true
           path: packages/desktop/dist
+      - name: Generate macOS update metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release-artifacts.mjs \
+            --dir packages/desktop/dist --platform mac \
+            --version "$VERSION" --arches "arm64,x64" \
+            --out-dir release-manifest/mac
       - name: Compose the release notes body
         shell: bash
         env:
@@ -270,7 +283,8 @@ jobs:
           # Clobber-by-asset-name cannot work across runs (every run's version,
           # hence every file name, differs) — delete the old release with its
           # tag and recreate it at this run's SHA. Prereleases are excluded
-          # from /releases/latest, install.sh, and the app's update check.
+          # from /releases/latest and install.sh; the app sees this release
+          # only when the nightly update train is selected (issue #493).
           gh release delete nightly --yes --cleanup-tag || true
           gh release create nightly --target "$SHA" --prerelease \
             --title "Nightly ${VERSION}" --notes-file notes.md
@@ -284,15 +298,18 @@ jobs:
           cd packages/desktop/dist
           assets=(
             *.AppImage
+            latest-linux.yml
             *-windows-preview-x64-setup.exe
+            *-windows-preview-x64-setup.exe.blockmap
+            latest.yml
             *-mac-preview-*.dmg
             *-mac-preview-*.zip
             SHA256SUMS-macos-*.txt
           )
-          # 1 AppImage + 1 exe + 2 dmg + 2 zip + 2 per-arch sums = 8.
-          (( ${#assets[@]} == 8 )) || { printf 'expected 8 distributables, found %s\n' "${#assets[@]}" >&2; exit 1; }
+          # 1 AppImage + 1 feed + 1 exe + 1 blockmap + 1 feed + 2 dmg + 2 zip + 2 sums = 11.
+          (( ${#assets[@]} == 11 )) || { printf 'expected 11 distributables, found %s\n' "${#assets[@]}" >&2; exit 1; }
           sha256sum "${assets[@]}" > SHA256SUMS.txt
-          gh release upload nightly --clobber "${assets[@]}" SHA256SUMS.txt
+          gh release upload nightly --clobber "${assets[@]}" SHA256SUMS.txt "${GITHUB_WORKSPACE}/release-manifest/mac/latest-mac.yml"
       - name: Stage macOS arm64 bundles as 14-day run artifacts
         # The reusable's own artifact lives 1 day; mirror macos-preview.yml's
         # publish step so a dispatched run's files outlive the release cycle.
@@ -326,10 +343,12 @@ jobs:
           [ "$(gh release view nightly --json isDraft --jq .isDraft)" = "false" ]
           [ "$(gh release view nightly --json isPrerelease --jq .isPrerelease)" = "true" ]
           names="$(gh release view nightly --json assets --jq '.assets[].name')"
-          # No update feeds of any kind ship with a nightly (issue #480):
-          # neither latest*.yml metadata nor Windows blockmaps, both of which
-          # electron-builder leaves in dist on every run.
-          ! grep -Eq '^latest' <<<"$names"
-          ! grep -Eq '\.blockmap$' <<<"$names"
+          # The nightly train's update feeds MUST be present (issue #493);
+          # the prerelease flag — not feed absence — is what keeps nightly
+          # off the stable channel.
+          for feed in latest.yml latest-linux.yml latest-mac.yml; do
+            grep -qx "$feed" <<<"$names" || { printf 'nightly is missing %s\n' "$feed" >&2; exit 1; }
+          done
+          grep -q '\.blockmap$' <<<"$names" || { echo 'nightly is missing the NSIS blockmap' >&2; exit 1; }
           # The stable channel still resolves the last stable release.
           [ "$(gh api "repos/${GH_REPO}/releases/latest" --jq .tag_name)" != "nightly" ]

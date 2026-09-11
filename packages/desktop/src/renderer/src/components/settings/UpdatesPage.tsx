@@ -1,7 +1,7 @@
-import type { AppUpdateState, OmpUpdateState } from "@omp-ui/core/types";
+import type { AppUpdateState, OmpUpdateState, UpdateTrain } from "@omp-ui/core/types";
 import { useStore } from "../../store";
 import { AppUpdateRestartAction } from "../AppUpdateCard";
-import { Button, Panel, Switch } from "../ui";
+import { Button, ChoiceCapsule, Panel, Switch } from "../ui";
 import { t, useT } from "../../lib/i18n";
 
 function appStatusLine(u: AppUpdateState): string {
@@ -70,6 +70,7 @@ export function UpdatesPage() {
   const setAppUpdateCheckOnLaunch = useStore(
     (s) => s.setAppUpdateCheckOnLaunch,
   );
+  const setAppUpdateTrain = useStore((s) => s.setAppUpdateTrain);
   const setOmpUpdateCheckOnLaunch = useStore(
     (s) => s.setOmpUpdateCheckOnLaunch,
   );
@@ -172,6 +173,20 @@ export function UpdatesPage() {
             </Button>
           </div>
         </div>
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span className="text-xs text-ink-mid">{t("settings.updates.trainLabel")}</span>
+          <ChoiceCapsule
+            label={t("settings.updates.trainLabel")}
+            value={state?.appUpdateTrain ?? "stable"}
+            options={[
+              { value: "stable", label: t("settings.updates.trainStable") },
+              { value: "nightly", label: t("settings.updates.trainNightly") },
+            ]}
+            onChange={(value) => void setAppUpdateTrain(value as UpdateTrain)}
+            optionClassName="px-2 text-[11px]"
+          />
+        </div>
+        <p className="mt-1 text-[11px] text-ink-dim">{t("settings.updates.trainHint")}</p>
         <div className="mt-3 flex items-center justify-between gap-3">
           <span className="text-xs text-ink-mid">{t("settings.updates.checkOnLaunch")}</span>
           <Switch

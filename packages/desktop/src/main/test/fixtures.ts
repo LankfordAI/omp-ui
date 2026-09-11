@@ -31,6 +31,7 @@ interface RegistrySettings {
   glassChrome: GlassChrome;
   localeId: string;
   appUpdateCheckOnLaunch: boolean;
+  appUpdateTrain: "stable" | "nightly";
   ompUpdateCheckOnLaunch: boolean;
   remoteEnabled: boolean;
   remoteBind: RemoteBind;
@@ -101,6 +102,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     glassChrome: "subtle",
     localeId: "en",
     appUpdateCheckOnLaunch: true,
+    appUpdateTrain: "stable",
     ompUpdateCheckOnLaunch: true,
     remoteEnabled: false,
     remoteBind: "localhost",
