@@ -6,6 +6,12 @@
  * built from the commits being folded in: their subjects, plus every GitHub
  * closing reference found in their full messages, re-emitted as `Fixes <ref>`
  * lines so the merge commit itself names what the session closes.
+ *
+ * No subject shape names the worktree branch (issue #490): that name is minted
+ * per machine — project slug + base segments + random 8-hex tail (issues
+ * #405/#428/#438) — and names nothing once the checkout is gone, so the
+ * durable merge record must not depend on it. The branch stays recoverable
+ * from the merge commit's second parent and the session transcript.
  */
 
 /** Cap on the subject line: pathological input, not a style limit. */
@@ -61,16 +67,14 @@ function closingRefs(messages: readonly string[]): string[] {
 }
 
 /**
- * Builds the merge commit message for folding `branch` into `destination`.
+ * Builds the merge commit message for folding into `destination`.
  * `messages` are the full `%B` messages of the non-merge commits being merged,
  * oldest first — the order they read in the body.
  */
 export function buildMergeMessage({
-  branch,
   destination,
   messages,
 }: {
-  branch: string;
   destination: string;
   messages: readonly string[];
 }): MergeMessage {
@@ -79,12 +83,11 @@ export function buildMergeMessage({
 
   let subject: string;
   if (subjects.length === 1) {
-    const prefix = `Merge ${branch}: `;
-    subject = prefix + clip(subjects[0], Math.max(0, SUBJECT_MAX - prefix.length));
+    subject = clip(subjects[0], SUBJECT_MAX);
   } else if (subjects.length > 1) {
-    subject = `Merge ${branch} into ${destination} (${subjects.length} commits)`;
+    subject = `Merge work into ${destination} (${subjects.length} commits)`;
   } else {
-    subject = `Merge ${branch} into ${destination}`;
+    subject = `Merge work into ${destination}`;
   }
 
   const paragraphs: string[] = [];
