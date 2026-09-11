@@ -67,10 +67,16 @@ export class HeadWatcherHub {
     this.watchers.delete(projectCwd);
   }
 
-  /** Closes every gitdir watch; quit must not leave the inotify fds behind. */
-  disposeAll(): void {
+  /**
+   * Closes every gitdir watch; quit must not leave the inotify fds behind. The promise settles once
+   * the probes that were still in flight have finished (each disposes its own late result), because
+   * the `git` child they spawned holds its cwd locked until it exits (#503).
+   */
+  disposeAll(): Promise<void> {
+    const inFlight = [...this.starting.values()];
     this.starting.clear();
     for (const dispose of this.watchers.values()) dispose();
     this.watchers.clear();
+    return Promise.allSettled(inFlight).then(() => undefined);
   }
 }

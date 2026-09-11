@@ -115,15 +115,16 @@ beforeEach(() => {
 
 afterEach(async () => {
   for (const ws of openSockets.splice(0)) ws.close();
-  backend.killAll();
-  // killAll fires remote.stop() without awaiting; drain the manager's chain so the next test
-  // does not race a closing listener onto its own port.
+  // killAll settles the gitdir probe addProject fired without awaiting (#498): the `git` child it
+  // spawns runs with cwd = `base`, and Windows refuses to remove a live process's cwd — POSIX
+  // unlinks it regardless, which is why only the Windows lane ever saw this (#503). killAll also
+  // fires remote.stop() without awaiting; drain the manager's chain so the next test does not race
+  // a closing listener onto its own port.
+  await backend.killAll();
   await invoke(CH.setRemoteEnabled, false);
-  // addProject starts the project's gitdir probe (#498) without awaiting it, so a git child whose
-  // cwd is `base` can still be running here. Windows refuses to remove a live process's cwd and
-  // answers EBUSY; POSIX unlinks it regardless, which is why only the Windows lane sees this. Retry
-  // until the probe exits — the budget git.test.ts and worktree.test.ts use for the same race (#503).
-  fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  // Tail guard for the instant between the probe exiting and the handle dropping; the budget
+  // advisor-stats-live.test.ts and capability-control-live.test.ts use.
+  fs.rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe("remote server lifecycle", () => {
