@@ -362,13 +362,9 @@ function packageNodePty(nodeBinary, laneName, layout) {
     }
 
     const dest = path.join(layout, "lib", "node-pty");
-    fs.mkdirSync(path.join(dest, "lib"), { recursive: true });
-    fs.copyFileSync(path.join(copy, "package.json"), path.join(dest, "package.json"));
-    for (const entry of fs.readdirSync(path.join(copy, "lib"))) {
-      if (entry.endsWith(".js") && !entry.endsWith(".test.js")) {
-        fs.copyFileSync(path.join(copy, "lib", entry), path.join(dest, "lib", entry));
-      }
-    }
+    copyTree(path.join(copy, "lib"), path.join(dest, "lib"), (source) => {
+      return !source.endsWith(".test.js") && !source.endsWith(".js.map") && !source.endsWith(".d.ts");
+    });
     const built = path.join(copy, "build", "Release");
     const prebuilt = path.join(copy, "prebuilds", `${lane.platform}-${lane.arch}`);
     const native = fs.existsSync(built) ? built : prebuilt;
