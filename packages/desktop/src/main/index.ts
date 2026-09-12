@@ -389,7 +389,8 @@ if (!app.requestSingleInstanceLock()) {
     appQuitting = true;
     breadcrumbs.record("quit", { detail: `forced=${forceQuit}` });
     stopFdWatchdog?.();
-    backend?.killAll();
+    // Sync by contract: the quit must not wait on the release; the child git probes exit with us.
+    void backend?.killAll();
     // Pasted-image scratch files are only ever needed by a live omp process.
     clearImageScratch();
   });

@@ -50,7 +50,7 @@ describe("HeadWatcherHub", () => {
     await hub.start("/p/a");
     expect(watch).toHaveBeenCalledTimes(2);
 
-    hub.disposeAll();
+    await hub.disposeAll();
     expect(dispose).toHaveBeenCalledTimes(2);
   });
 
@@ -64,7 +64,7 @@ describe("HeadWatcherHub", () => {
 
     await hub.start("/p/plain");
     expect(watch).toHaveBeenCalledTimes(2); // still unwatchable; still silent
-    hub.disposeAll();
+    await hub.disposeAll();
   });
 
   it("churn calls onChanged with the project path; onGone drops the map entry", async () => {
@@ -91,7 +91,7 @@ describe("HeadWatcherHub", () => {
     await new Promise((resolve) => setImmediate(resolve));
     await hub.start("/p/a");
     expect(watch).toHaveBeenCalledTimes(2);
-    hub.disposeAll();
+    await hub.disposeAll();
   });
 
   it("stop during an in-flight probe disposes the late watcher", async () => {
@@ -109,7 +109,36 @@ describe("HeadWatcherHub", () => {
     gate.resolve();
     await started;
     expect(dispose).toHaveBeenCalledTimes(1);
-    hub.disposeAll();
+    await hub.disposeAll();
+  });
+
+  // The reason disposeAll answers with a promise (#503): a teardown that deletes the probe's
+  // directory must not run while git.exe still holds it as its cwd.
+  it("disposeAll settles only after an in-flight probe has finished", async () => {
+    const gate = withResolvers<void>();
+    const { promise, resolve } = withResolvers<() => void>();
+    const dispose = vi.fn();
+    const watch = vi.fn(() => {
+      void gate.promise.then(() => resolve(dispose));
+      return promise;
+    });
+    const hub = new HeadWatcherHub({ onChanged: () => {}, watch: watch as typeof watchGitHead });
+
+    const started = hub.start("/p/a");
+    let settled = false;
+    const settling = hub.disposeAll().then(() => {
+      settled = true;
+    });
+    const idle = withResolvers<void>();
+    setImmediate(idle.resolve);
+    await idle.promise;
+    expect(settled).toBe(false);
+
+    gate.resolve();
+    await settling;
+    expect(settled).toBe(true);
+    expect(dispose).toHaveBeenCalledTimes(1); // the late watcher was released, not leaked
+    await started;
   });
 
   // Integration smoke (the #498 terminal path): a real repo driven through the
@@ -124,6 +153,6 @@ describe("HeadWatcherHub", () => {
     await run("git", ["checkout", "-q", "feature"], { cwd: dir });
 
     expect(await changed.promise).toBe(dir);
-    hub.disposeAll();
+    await hub.disposeAll();
   });
 });

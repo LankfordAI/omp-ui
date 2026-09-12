@@ -994,14 +994,21 @@ export class MainBackend {
     this.remoteInstances.start();
   }
 
-  killAll(): void {
+  /**
+   * Releases every launch-time resource. The returned promise settles once the gitdir probes still
+   * in flight have finished: a spawned `git` holds its cwd locked until it exits, so a teardown that
+   * removes that directory cannot return before the child does (#503). Quit ignores the promise —
+   * the process is going away either way.
+   */
+  killAll(): Promise<void> {
     this.notifier.dispose();
     this.providerOAuth.dispose();
     this.planVerifier.dispose();
     this.sessions.killAll();
-    this.headWatchers.disposeAll();
+    const headsSettled = this.headWatchers.disposeAll();
     this.remoteInstances.stop();
     void this.remote.stop();
+    return headsSettled;
   }
 
   /**
