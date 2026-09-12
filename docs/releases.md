@@ -4,7 +4,6 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- An HTML plan that landed while the omp-ui window was hidden no longer arrives with a permanent "could not finish checking its layout" banner and a dead execute button: the review's layout probe now races its two-animation-frame settle against a 250 ms timer, because Chromium stops calling `requestAnimationFrame` altogether on a hidden page, and an inconclusive verdict re-prepares itself when the window becomes visible again instead of latching for the gate's whole life ([#504](https://github.com/LankfordAI/omp-ui/issues/504)).
 - The sidebar can now be scoped to one host: with remote instances joined, the filter area gains a host picker that defaults to *All hosts* — today's exact list — and choosing a host or *This computer* narrows the visible sections only, leaving every hidden host joined, its sessions streaming, and its signals counted in the footer, while a rose dot on the picker warns that a hidden instance needs attention and the search box keeps spanning every host whatever the scope says ([#507](https://github.com/LankfordAI/omp-ui/issues/507)).
 
 Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
