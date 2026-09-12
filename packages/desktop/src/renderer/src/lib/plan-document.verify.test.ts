@@ -12,6 +12,7 @@ import {
   preparePlanForReview,
   probePlanLayout,
   renderPlanPreflight,
+  settleForMeasurement,
   usePreparedPlanDocument,
   type LayoutProbe,
   type PreparedPlanState,
@@ -340,9 +341,55 @@ describe("probePlanLayout", () => {
   });
 });
 
+describe("settleForMeasurement", () => {
+  /** A window whose animation clock never ticks — Chromium's hidden page. */
+  function stubWindow(frames: "dead" | "live"): { win: Window; requested: () => number } {
+    let requested = 0;
+    const win = {
+      requestAnimationFrame: (cb: FrameRequestCallback): number => {
+        requested += 1;
+        if (frames === "live") queueMicrotask(() => cb(0));
+        return requested;
+      },
+      setTimeout: (cb: () => void, ms?: number): number =>
+        globalThis.setTimeout(cb, ms) as unknown as number,
+      clearTimeout: (id: number): void => globalThis.clearTimeout(id),
+    } as unknown as Window;
+    return { win, requested: () => requested };
+  }
+
+  it("settles on the timer when the animation clock never ticks", async () => {
+    // The whole of issue #504: a hidden page's rAF callbacks never run, so the
+    // frame arm alone leaves the sample to die on the probe's 4 s deadline.
+    const { win, requested } = stubWindow("dead");
+    await expect(settleForMeasurement(win, 10)).resolves.toBeUndefined();
+    expect(requested()).toBe(1);
+  });
+
+  it("settles on two frames without waiting the timer out", async () => {
+    // A timer a minute out can settle nothing: only the frame arm can resolve
+    // this, and it must still take exactly two frames.
+    const { win, requested } = stubWindow("live");
+    await settleForMeasurement(win, 60_000);
+    expect(requested()).toBe(2);
+  });
+});
+
 describe("usePreparedPlanDocument identity", () => {
+  /** A state the pipeline has settled on — everything but the initial pending. */
+  type SettledPlanState = Exclude<PreparedPlanState, { status: "pending" }>;
+
+  /** The mounted hook under test: its collected states and its lifecycle. */
+  interface HookHarness {
+    /** Every state the hook has rendered, oldest first. */
+    states: PreparedPlanState[];
+    /** Flush the preparation and return the settled state. */
+    settled: () => Promise<SettledPlanState>;
+    unmount: () => void;
+  }
+
   /** Mount the hook and collect every state it renders. */
-  function mount(html: string | null, identity?: string) {
+  function mount(html: string | null, identity?: string): HookHarness {
     const states: PreparedPlanState[] = [];
     function Probe(): null {
       states.push(usePreparedPlanDocument(html, identity));
@@ -353,6 +400,7 @@ describe("usePreparedPlanDocument identity", () => {
     const root = createRoot(host);
     act(() => root.render(createElement(Probe)));
     return {
+      states,
       /** Await the effect's prepare promise INSIDE act, so the state update
        * it schedules is flushed rather than queued behind the test. */
       settled: async () => {
@@ -387,6 +435,53 @@ describe("usePreparedPlanDocument identity", () => {
     const state = await harness.settled();
 
     expect(state.identity).toBeUndefined();
+    harness.unmount();
+  });
+
+  /** Drain microtasks until a NEW state object replaces `previous`, and
+   * return whatever the hook last rendered. */
+  async function newStateAfter(
+    harness: HookHarness,
+    previous: PreparedPlanState,
+  ): Promise<PreparedPlanState> {
+    await act(async () => {
+      for (let i = 0; i < 16 && harness.states.at(-1) === previous; i += 1)
+        await Promise.resolve();
+    });
+    return harness.states.at(-1)!;
+  }
+
+  it("re-prepares an inconclusive verdict when the page becomes visible", async () => {
+    // Issue #504: unavailable is an application failure, so it must not latch
+    // for the gate's life. jsdom reports visibilityState "visible", so the
+    // dispatched event alone drives the listener.
+    const harness = mount(NORMAL_PLAN, SOURCE_HASH);
+    const first = await harness.settled();
+    expect(first.status).toBe("unavailable");
+
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const next = await newStateAfter(harness, first);
+
+    // A genuinely fresh preparation, not the re-render the generation bump
+    // causes: preparePlanForReview always yields a new object.
+    expect(next).not.toBe(first);
+    expect(next.status).toBe("unavailable");
+    if (next.status !== "unavailable") return;
+    expect(next.identity).toBe(SOURCE_HASH);
+    harness.unmount();
+  });
+
+  it("re-prepares nothing without a visibility transition", async () => {
+    const harness = mount(NORMAL_PLAN, SOURCE_HASH);
+    const first = await harness.settled();
+
+    await act(async () => {
+      for (let i = 0; i < 16; i += 1) await Promise.resolve();
+    });
+
+    expect(harness.states.at(-1)).toBe(first);
     harness.unmount();
   });
 });

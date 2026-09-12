@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.12.3](https://github.com/LankfordAI/omp-ui/releases/tag/v0.12.3). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- An HTML plan that landed while the omp-ui window was hidden no longer arrives with a permanent "could not finish checking its layout" banner and a dead execute button: the review's layout probe now races its two-animation-frame settle against a 250 ms timer, because Chromium stops calling `requestAnimationFrame` altogether on a hidden page, and an inconclusive verdict re-prepares itself when the window becomes visible again instead of latching for the gate's whole life ([#504](https://github.com/LankfordAI/omp-ui/issues/504)).
+
+Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
