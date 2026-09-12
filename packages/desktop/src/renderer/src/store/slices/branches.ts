@@ -110,6 +110,7 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
           ...s.branchActivity,
           [key]: {
             refreshing: patch.refreshing ?? current?.refreshing ?? false,
+            fetching: patch.fetching ?? current?.fetching ?? false,
             pulling: patch.pulling ?? current?.pulling ?? false,
             pushing: patch.pushing ?? current?.pushing ?? false,
           },
@@ -127,12 +128,16 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     const fetchUpstream = opts?.fetchUpstream === true;
     const active = branchRefreshes.get(key);
     if (active !== undefined) {
-      if (fetchUpstream && !active.state.fetchUpstream)
+      if (fetchUpstream && !active.state.fetchUpstream) {
         active.state.pendingNetwork = true;
+        // The upgrade re-runs listBranches with fetchUpstream:true below, so
+        // the popover's upstream label is honest from this point (issue #506).
+        patchBranchActivity(key, { fetching: true });
+      }
       return active.promise;
     }
 
-    patchBranchActivity(key, { refreshing: true });
+    patchBranchActivity(key, { refreshing: true, fetching: fetchUpstream });
     const state = { fetchUpstream, pendingNetwork: false };
     let nextOptions = opts;
     const promise = Promise.resolve().then(async () => {
@@ -152,7 +157,7 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
         }
       } finally {
         branchRefreshes.delete(key);
-        patchBranchActivity(key, { refreshing: false });
+        patchBranchActivity(key, { refreshing: false, fetching: false });
       }
     });
     branchRefreshes.set(key, { state, promise });

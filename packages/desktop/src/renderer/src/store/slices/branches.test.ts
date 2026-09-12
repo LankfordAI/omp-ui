@@ -105,6 +105,9 @@ describe("branch switching (issue #35)", () => {
     expect(h.useStore.getState().branches["/p"]).toEqual(previous);
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: true,
+      // A local reload — the watcher echo's shape — must never claim upstream
+      // work (issue #506): this pair is the regression pin.
+      fetching: false,
       pulling: false,
       pushing: false,
     });
@@ -115,6 +118,7 @@ describe("branch switching (issue #35)", () => {
     expect(h.useStore.getState().branches["/p"]).toEqual(refreshed);
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: false,
       pushing: false,
     });
@@ -163,6 +167,9 @@ describe("branch switching (issue #35)", () => {
       ["/p", { fetchUpstream: false }],
     ]);
     expect(h.useStore.getState().branches["/p"]).toEqual(previous);
+    // The joining network request upgraded the running local refresh, so the
+    // upstream claim is honest from the upgrade onward (issue #506).
+    expect(h.useStore.getState().branchActivity["/p"]?.fetching).toBe(true);
 
     localListing.resolve(localSnapshot);
     await Promise.all([localRefresh, networkRefresh]);
@@ -173,6 +180,7 @@ describe("branch switching (issue #35)", () => {
     ]);
     expect(h.useStore.getState().branches["/p"]).toEqual(networkSnapshot);
     expect(h.useStore.getState().branchActivity["/p"]?.refreshing).toBe(false);
+    expect(h.useStore.getState().branchActivity["/p"]?.fetching).toBe(false);
   });
 
   it("coalesces duplicate in-flight network refreshes", async () => {
@@ -205,6 +213,8 @@ describe("branch switching (issue #35)", () => {
       .getState()
       .refreshBranches("/p", { fetchUpstream: true });
     await h.flushMicrotasks();
+    // A fetchUpstream:true refresh in flight: the upstream claim is live.
+    expect(h.useStore.getState().branchActivity["/p"]?.fetching).toBe(true);
 
     expect(h.mockBackend.listBranches.mock.calls).toEqual([
       ["/p", { fetchUpstream: true }],
@@ -216,6 +226,7 @@ describe("branch switching (issue #35)", () => {
     expect(h.mockBackend.listBranches).toHaveBeenCalledTimes(1);
     expect(h.useStore.getState().branches["/p"]).toEqual(snapshot);
     expect(h.useStore.getState().branchActivity["/p"]?.refreshing).toBe(false);
+    expect(h.useStore.getState().branchActivity["/p"]?.fetching).toBe(false);
   });
 
   it("pullGitBranch failure preserves the snapshot and diff revision and clears activity", async () => {
@@ -245,6 +256,7 @@ describe("branch switching (issue #35)", () => {
     const pull = h.useStore.getState().pullGitBranch("/p");
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: true,
       // Push is idle here; the flag exists so the two actions can refuse each other.
       pushing: false,
@@ -261,6 +273,7 @@ describe("branch switching (issue #35)", () => {
     });
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: false,
       pushing: false,
     });
@@ -310,6 +323,7 @@ describe("branch switching (issue #35)", () => {
     });
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: false,
       pushing: false,
     });
@@ -371,6 +385,7 @@ describe("merge-back (issue #272)", () => {
     expect(h.useStore.getState().branches["/p"]).toEqual(listing);
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: false,
       pushing: false,
     });
@@ -580,17 +595,19 @@ describe("push and publish (issue #414)", () => {
     h.mockBackend.listBranches.mockResolvedValueOnce(pushedListing);
     h.useStore.setState({
       branches: { "/p": tracked, "/other": tracked },
-      branchActivity: { "/other": { refreshing: false, pulling: true, pushing: false } },
+      branchActivity: { "/other": { refreshing: false, fetching: false, pulling: true, pushing: false } },
     });
 
     const push = h.useStore.getState().pushGitBranch("/p", HEAD);
     expect(h.useStore.getState().branchActivity["/other"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: true,
       pushing: false,
     });
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: false,
       pushing: true,
     });
@@ -611,6 +628,7 @@ describe("push and publish (issue #414)", () => {
     expect(h.mockBackend.pushBranch).toHaveBeenCalledWith("/p", HEAD);
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: false,
       pushing: true,
     });
@@ -626,6 +644,7 @@ describe("push and publish (issue #414)", () => {
     expect(h.useStore.getState().branches["/p"]).toEqual(pushedListing);
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: false,
       pushing: false,
     });
@@ -669,6 +688,7 @@ describe("push and publish (issue #414)", () => {
     expect(h.useStore.getState().branches["/p"]).toEqual(publishedListing);
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: false,
       pushing: false,
     });
@@ -694,6 +714,7 @@ describe("push and publish (issue #414)", () => {
       expect(h.useStore.getState().branches["/p"]).toEqual(listing);
       expect(h.useStore.getState().branchActivity["/p"]).toEqual({
         refreshing: false,
+        fetching: false,
         pulling: false,
         pushing: false,
       });
@@ -721,6 +742,7 @@ describe("push and publish (issue #414)", () => {
     ]);
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: false,
       pushing: false,
     });
@@ -769,6 +791,7 @@ describe("push and publish (issue #414)", () => {
     expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: false,
       pushing: false,
     });
@@ -794,6 +817,7 @@ describe("push and publish (issue #414)", () => {
     expect(h.mockBackend.pushBranch).not.toHaveBeenCalled();
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: true,
       pushing: false,
     });
@@ -818,6 +842,7 @@ describe("push and publish (issue #414)", () => {
     // The refusal leaves the flags alone: the push still owns this repository.
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
+      fetching: false,
       pulling: false,
       pushing: true,
     });
