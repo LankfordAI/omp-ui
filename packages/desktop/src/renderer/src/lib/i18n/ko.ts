@@ -1426,6 +1426,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.filter.label": "세션 필터링",
   "sidebar.filter.clear": "필터 지우기",
 
+  "sidebar.hosts.filter": "호스트 필터링",
+  "sidebar.hosts.all": "모든 호스트",
+  "sidebar.hosts.local": "이 컴퓨터",
+
   "sidebar.empty.noProjects": "아직 프로젝트가 없습니다",
   "sidebar.empty.noProjectsHint":
     "omp-ui에서 저장소를 지정하면 그곳에서 시작한 모든 세션이 여기에 표시됩니다.",
