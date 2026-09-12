@@ -265,6 +265,7 @@ beforeEach(() => {
     sidebarWidth: 272,
     inspectorWidth: 304,
     inspectorOpen: false,
+    hostScope: "all",
     newSession,
     openSession,
   });
@@ -2055,5 +2056,143 @@ describe("Sidebar remote instances (issue #416)", () => {
     const section = remoteSection();
     expect(section.textContent).toContain("answer needed");
     expect(section.querySelector('[title="Agent is waiting for your answer"]')).not.toBeNull();
+  });
+});
+
+describe("Sidebar host scope filter (issue #507)", () => {
+  const remotePath = "/projects/remote";
+  const remoteGroup = {
+    project: { ...state.projects[0]!.project, path: remotePath, name: "Remote Project" },
+    sessions: state.projects[0]!.sessions.map((s) => ({
+      ...s,
+      tabId: `remote-${s.tabId}`,
+      projectCwd: remotePath,
+      title: `Remote ${s.title}`,
+    })),
+  };
+
+  /** Two joined hosts: box-a owns one remote project, box-b none. */
+  const withTwo = (patchB: Partial<RemoteInstanceSummary> = {}) =>
+    backendState({
+      projects: state.projects,
+      remoteInstances: [
+        remoteInstance({ id: "inst-a", nickname: "box-a", url: "http://box-a:4677", projects: [remoteGroup] }),
+        remoteInstance({ id: "inst-b", nickname: "box-b", url: "http://box-b:4677", projects: [], ...patchB }),
+      ],
+    });
+
+  function hostTrigger(): HTMLButtonElement {
+    return button("filter by host");
+  }
+
+  /** Open the picker and land on one row — the user's whole gesture. */
+  function pickHost(label: string): void {
+    act(() => hostTrigger().click());
+    const item = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((el) =>
+      el.textContent?.includes(label),
+    );
+    expect(item, `menu item not found: ${label}`).toBeDefined();
+    act(() => item!.click());
+  }
+
+  function setFilter(value: string): void {
+    const input = document.body.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]');
+    if (input === null) throw new Error("filter input not found");
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("shows every host by default, with the trigger reading All hosts", () => {
+    useStore.setState({ state: withTwo() });
+    renderSidebar();
+    expect(document.body.textContent).toContain("Project One");
+    expect(document.body.querySelector('[data-remote-instance="inst-a"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-remote-instance="inst-b"]')).not.toBeNull();
+    expect(hostTrigger().textContent).toContain("All hosts");
+  });
+
+  it("renders no host control while nothing is joined", () => {
+    renderSidebar();
+    expect(document.body.querySelector('button[aria-label="filter by host"]')).toBeNull();
+  });
+
+  it("scopes the list to the picked instance and returns focus to the trigger", () => {
+    useStore.setState({ state: withTwo() });
+    renderSidebar();
+    pickHost("box-b");
+    expect(useStore.getState().hostScope).toBe("inst-b");
+    expect(document.body.querySelector('[data-remote-instance="inst-a"]')).toBeNull();
+    expect(document.body.querySelector('[data-remote-instance="inst-b"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Project One");
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(hostTrigger());
+  });
+
+  it("scopes to local projects for This computer", () => {
+    useStore.setState({ state: withTwo() });
+    renderSidebar();
+    pickHost("This computer");
+    expect(useStore.getState().hostScope).toBe("local");
+    expect(document.body.querySelector("[data-remote-instance]")).toBeNull();
+    expect(document.body.textContent).toContain("Project One");
+  });
+
+  it("lets a search span every host while a scope is active", () => {
+    useStore.setState({ state: withTwo() });
+    renderSidebar();
+    pickHost("box-b");
+    setFilter("Project One");
+    expect(document.body.textContent).toContain("Project One");
+    setFilter("");
+    expect(document.body.textContent).not.toContain("Project One");
+    expect(document.body.querySelector('[data-remote-instance="inst-b"]')).not.toBeNull();
+  });
+
+  it("degrades a scope naming a removed instance back to all hosts", () => {
+    useStore.setState({ state: withTwo() });
+    renderSidebar();
+    pickHost("box-b");
+    act(() =>
+      useStore.setState({
+        state: backendState({
+          projects: state.projects,
+          remoteInstances: [
+            remoteInstance({ id: "inst-a", nickname: "box-a", url: "http://box-a:4677", projects: [remoteGroup] }),
+          ],
+        }),
+      }),
+    );
+    // Derived at render: the stored scope stands, the list does not go blank.
+    expect(useStore.getState().hostScope).toBe("inst-b");
+    expect(document.body.textContent).toContain("Project One");
+    expect(document.body.querySelector('[data-remote-instance="inst-a"]')).not.toBeNull();
+    expect(hostTrigger().textContent).toContain("All hosts");
+  });
+
+  it("dots the trigger while a hidden instance needs attention", () => {
+    useStore.setState({ state: withTwo({ status: "unreachable", error: "connection lost" }) });
+    renderSidebar();
+    // Scoped to nothing, nothing is hidden: no alert dot.
+    expect(hostTrigger().querySelector('[class~="bg-rose"]')).toBeNull();
+    pickHost("box-a");
+    const trigger = hostTrigger();
+    expect(trigger.textContent).toContain("box-a");
+    expect(trigger.querySelector('[class~="bg-rose"]')).not.toBeNull();
+  });
+
+  it("closes on Escape, restores trigger focus, and keeps the scope", () => {
+    useStore.setState({ state: withTwo() });
+    renderSidebar();
+    act(() => hostTrigger().click());
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })),
+    );
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(hostTrigger());
+    expect(useStore.getState().hostScope).toBe("all");
   });
 });

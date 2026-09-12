@@ -699,6 +699,203 @@ function CollapsedRail({
   );
 }
 
+/* -------------------------------------------------------- host scope picker */
+
+/** Menu-row chrome shared with the sidebar's other menus (issue #507). */
+const HOST_MENU_ROW =
+  "block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none";
+
+/**
+ * The sidebar host filter (issue #507): with instances joined, scope the
+ * list to one host — or to this computer — as a display choice only. Hidden
+ * hosts stay joined, their sessions keep streaming, and their signals keep
+ * counting in the footer; a non-empty search query ignores this control
+ * entirely (the parent resolves that precedence). A rose dot on the trigger
+ * warns that a *hidden* instance needs the user's attention.
+ */
+function HostScopePicker({
+  instances,
+  scope,
+  onScope,
+}: {
+  /** Non-`self` joined instances, in state order. */
+  instances: RemoteInstanceSummary[];
+  scope: string;
+  onScope: (next: string) => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [geometry, setGeometry] = useState<{ left: number; top: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useDismissal({
+    open,
+    refs: [menuRef, triggerRef],
+    onClose: () => setOpen(false),
+    onEscape: () => setOpen(false),
+    restoreFocus: () => triggerRef.current?.focus(),
+  });
+
+  const chosen = instances.find((i) => i.id === scope);
+  const scopeLabel =
+    scope === "local" ? t("sidebar.hosts.local") : (chosen?.nickname ?? t("sidebar.hosts.all"));
+  // Scoping must not hide a host that needs attention (issue #507): any
+  // instance the scope keeps out of sight in a rose-tone status earns the dot.
+  const hiddenProblem =
+    scope !== "all" &&
+    instances.some(
+      (i) => (scope === "local" || i.id !== scope) && remoteInstanceStatusTone(i.status) === "rose",
+    );
+
+  const toggle = (): void => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const rect = triggerRef.current?.getBoundingClientRect();
+    setGeometry(rect === undefined ? null : { left: rect.left, top: rect.bottom + 4 });
+    setOpen(true);
+  };
+
+  const pick = (value: string): void => {
+    onScope(value);
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  // The menu owns its keyboard: focus lands on the current row so the Arrow
+  // keys move from there (ProjectOpenControl's pattern, issue #507).
+  useEffect(() => {
+    if (!open) return;
+    const menu = menuRef.current;
+    if (menu === null) return;
+    (
+      menu.querySelector<HTMLElement>("[role='menuitem'][aria-current='true']") ??
+      menu.querySelector<HTMLElement>("[role='menuitem']")
+    )?.focus();
+  }, [open]);
+
+  /** Roving arrow focus with wrap. Enter/Space stay native to the buttons. */
+  const moveFocus = (delta: 1 | -1): void => {
+    const menu = menuRef.current;
+    if (menu === null) return;
+    const items = Array.from(menu.querySelectorAll<HTMLElement>("[role='menuitem']"));
+    if (items.length === 0) return;
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    const next =
+      index === -1
+        ? delta === 1
+          ? items[0]
+          : items[items.length - 1]
+        : items[(index + delta + items.length) % items.length];
+    next?.focus();
+  };
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={t("sidebar.hosts.filter")}
+        title={scopeLabel}
+        onClick={toggle}
+        className="flex w-full items-center gap-1.5 rounded-md border border-line bg-raised px-2 py-1 text-left"
+      >
+        {chosen !== undefined && (
+          <Dot
+            tone={remoteInstanceStatusTone(chosen.status)}
+            pulse={chosen.status === "connecting"}
+            title={t(remoteInstanceStatusKey(chosen.status))}
+          />
+        )}
+        <span className="min-w-0 flex-1 truncate text-xs text-ink">{scopeLabel}</span>
+        {hiddenProblem && <Dot tone="rose" />}
+        <Chevron open={open} className="size-2.5 shrink-0 text-ink-dim" />
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label={t("sidebar.hosts.filter")}
+            className="fixed z-50"
+            style={{ left: geometry?.left ?? 0, top: geometry?.top ?? 0 }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                // Handle Escape on the portalled menu before it reaches the
+                // Sheet's window listener: dismiss only this popup and return
+                // focus to the trigger (issue #507).
+                event.preventDefault();
+                event.stopPropagation();
+                setOpen(false);
+                triggerRef.current?.focus();
+                return;
+              }
+              if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+              event.preventDefault();
+              moveFocus(event.key === "ArrowDown" ? 1 : -1);
+            }}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            <Panel
+              className={cn(
+                "edge-lit animate-rise w-56 p-1",
+                (geometry?.left ?? 0) > window.innerWidth / 2 && "-translate-x-full",
+                (geometry?.top ?? 0) > window.innerHeight / 2 && "-translate-y-full",
+              )}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                aria-current={scope === "all" ? "true" : undefined}
+                onClick={() => pick("all")}
+                className={cn(HOST_MENU_ROW, scope === "all" && "font-semibold text-ink")}
+              >
+                {t("sidebar.hosts.all")}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                aria-current={scope === "local" ? "true" : undefined}
+                onClick={() => pick("local")}
+                className={cn(HOST_MENU_ROW, scope === "local" && "font-semibold text-ink")}
+              >
+                {t("sidebar.hosts.local")}
+              </button>
+              {instances.map((instance) => (
+                <button
+                  key={instance.id}
+                  type="button"
+                  role="menuitem"
+                  aria-current={instance.id === scope ? "true" : undefined}
+                  onClick={() => pick(instance.id)}
+                  className={cn(HOST_MENU_ROW, instance.id === scope && "font-semibold text-ink")}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Dot
+                      tone={remoteInstanceStatusTone(instance.status)}
+                      pulse={instance.status === "connecting"}
+                      title={t(remoteInstanceStatusKey(instance.status))}
+                    />
+                    <MiddleTruncate text={instance.nickname} className="min-w-0 flex-1" />
+                  </span>
+                  {instance.status !== "joined" && (
+                    <span className="mt-0.5 block font-mono text-[10px] text-ink-faint">
+                      {t(remoteInstanceStatusKey(instance.status))}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </Panel>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 /* ------------------------------------------------------------------ sidebar */
 
 export function Sidebar() {
@@ -848,6 +1045,21 @@ export function Sidebar() {
   const totalSessions = railEntries.reduce((n, e) => n + e.group.sessions.length, 0);
   const totalLive = railEntries.reduce((n, e) => n + liveCount(e.group.sessions), 0);
   const filtering = query.trim().length > 0;
+
+  const hostScope = useStore((st) => st.hostScope);
+  const setHostScope = useStore((st) => st.setHostScope);
+  const hostChoices = useMemo(
+    () => (remoteInstances ?? []).filter((i) => i.status !== "self"),
+    [remoteInstances],
+  );
+  // A scope naming a removed instance degrades to "all" without a store write.
+  const effectiveScope =
+    hostScope === "all" || hostScope === "local" || hostChoices.some((i) => i.id === hostScope)
+      ? hostScope
+      : "all";
+  // Search is global (issue #507): a filtering query overrides the host scope.
+  const scoped = !filtering && effectiveScope !== "all";
+  const showLocalSections = !scoped || effectiveScope === "local";
   const displayedCollapsed = compact ? false : collapsed;
   const resolvedWidths = resolveDesktopPanelWidths({
     viewportWidth,
@@ -913,59 +1125,74 @@ export function Sidebar() {
                 </IconButton>
               )}
             </div>
+            {hostChoices.length > 0 && (
+              <div className="mt-1.5">
+                <HostScopePicker
+                  instances={hostChoices}
+                  scope={effectiveScope}
+                  onScope={setHostScope}
+                />
+              </div>
+            )}
           </div>
 
           {/* -------- project list -------- */}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {groups === null && <SkeletonRows />}
-            {groups !== null && groups.length === 0 && (
-              <Empty
-                title={t("sidebar.empty.noProjects")}
-                hint={t("sidebar.empty.noProjectsHint")}
-                action={
-                  <Button variant="solid" onClick={() => { openProjectPicker(); closeCompactSurface(); }}>
-                    {t("sidebar.project.addButton")}
-                  </Button>
-                }
-              />
+            {showLocalSections && (
+              <>
+                {groups !== null && groups.length === 0 && (
+                  <Empty
+                    title={t("sidebar.empty.noProjects")}
+                    hint={t("sidebar.empty.noProjectsHint")}
+                    action={
+                      <Button variant="solid" onClick={() => { openProjectPicker(); closeCompactSurface(); }}>
+                        {t("sidebar.project.addButton")}
+                      </Button>
+                    }
+                  />
+                )}
+                {groups !== null && groups.length > 0 && filtered.length === 0 && (
+                  <Empty
+                    title={t("sidebar.empty.noMatches", { query: query.trim() })}
+                    hint={t("sidebar.empty.noMatchesHint")}
+                    action={
+                      <Button variant="ghost" onClick={() => setQuery("")}>
+                        {t("sidebar.filter.clear")}
+                      </Button>
+                    }
+                  />
+                )}
+                {filtered.map((f, index) => {
+                  const path = f.group.project.path;
+                  return (
+                    <ProjectSection
+                      key={path}
+                      group={f.group}
+                      instanceId={null}
+                      hostLocalActions
+                      projectHit={f.projectHit}
+                      query={query}
+                      openTerminalMenu={openTerminalMenu}
+                      compact={compact}
+                      openAvailability={openAvailability}
+                      refreshAvailability={refreshAvailability}
+                      onActivate={closeCompactSurface}
+                      onOpenActions={() => setActionsFor(projectKey(null, path))}
+                      reorder={reorder.bindRow(path, index)}
+                      onAnnounce={setReorderNote}
+                    />
+                  );
+                })}
+              </>
             )}
-            {groups !== null && groups.length > 0 && filtered.length === 0 && (
-              <Empty
-                title={t("sidebar.empty.noMatches", { query: query.trim() })}
-                hint={t("sidebar.empty.noMatchesHint")}
-                action={
-                  <Button variant="ghost" onClick={() => setQuery("")}>
-                    {t("sidebar.filter.clear")}
-                  </Button>
-                }
-              />
-            )}
-            {filtered.map((f, index) => {
-              const path = f.group.project.path;
-              return (
-                <ProjectSection
-                  key={path}
-                  group={f.group}
-                  instanceId={null}
-                  hostLocalActions
-                  projectHit={f.projectHit}
-                  query={query}
-                  openTerminalMenu={openTerminalMenu}
-                  compact={compact}
-                  openAvailability={openAvailability}
-                  refreshAvailability={refreshAvailability}
-                  onActivate={closeCompactSurface}
-                  onOpenActions={() => setActionsFor(projectKey(null, path))}
-                  reorder={reorder.bindRow(path, index)}
-                  onAnnounce={setReorderNote}
-                />
-              );
-            })}
             {/* Joined remote instances (issue #416), after this app's own
                 projects. `self` is this app seen through its own URL — no
                 group, nothing to show twice. */}
             {(remoteInstances ?? [])
-              .filter((instance) => instance.status !== "self")
+              .filter(
+                (instance) => instance.status !== "self" && (!scoped || instance.id === effectiveScope),
+              )
               .map((instance) => (
                 <RemoteInstanceSection
                   key={instance.id}

@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.12.4](https://github.com/LankfordAI/omp-ui/releases/tag/v0.12.4). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- The sidebar can now be scoped to one host: with remote instances joined, the filter area gains a host picker that defaults to *All hosts* — today's exact list — and choosing a host or *This computer* narrows the visible sections only, leaving every hidden host joined, its sessions streaming, and its signals counted in the footer, while a rose dot on the picker warns that a hidden instance needs attention and the search box keeps spanning every host whatever the scope says ([#507](https://github.com/LankfordAI/omp-ui/issues/507)).
+
+Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 

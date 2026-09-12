@@ -213,6 +213,34 @@ describe("watchGitHead", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("ignores index bookkeeping churn and never pre-arms the debounce with it", async () => {
+    // listBranches' `git status` rewrites index/index.lock on a dirty tree;
+    // that echo must not fire (issue #506's loop), and must not start the
+    // trailing timer early so a later real event fires before its debounce.
+    vi.useFakeTimers();
+    fs.mkdirSync(path.join(base, ".git"));
+    const w = stubWatch();
+    const events: number[] = [];
+
+    const dispose = await watchGitHead(base, () => events.push(1), { runGit: gitPathSeam(".git/HEAD") });
+
+    w.fire("index.lock");
+    w.fire("index");
+    vi.advanceTimersByTime(1_000);
+    expect(events).toEqual([]);
+
+    // A burst of index noise then HEAD fires exactly one event, timed from HEAD:
+    // had the index.lock fire armed the timer, the flush would land mid-burst.
+    w.fire("index.lock");
+    vi.advanceTimersByTime(140);
+    w.fire("HEAD");
+    vi.advanceTimersByTime(149);
+    expect(events).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(events).toEqual([1]);
+    dispose();
+  });
+
   it("rejects for a path that is not a repository", async () => {
     await expect(watchGitHead(base, () => {})).rejects.toThrow();
     expect(watchMock).not.toHaveBeenCalled();

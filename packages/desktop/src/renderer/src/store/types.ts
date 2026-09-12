@@ -399,7 +399,14 @@ export interface UpdatesSlice {
 }
 
 export interface BranchActivity {
+  /** Any listBranches is in flight — gates the pull/push rows. */
   refreshing: boolean;
+  /**
+   * A refresh that fetches the configured upstream is in flight — the sole
+   * trigger for the popover's `composer.branch.refreshing` row (issue #506).
+   * A local reload must not claim upstream work.
+   */
+  fetching: boolean;
   pulling: boolean;
   /** A push of some branch of this repo is in flight (issue #414). */
   pushing: boolean;
@@ -472,6 +479,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   sidebarWidth: number;
   inspectorWidth: number;
   inspectorOpen: boolean;
+  /** Sidebar host filter (issue #507): "all" | "local" | a joined instance id. */
+  hostScope: string;
   init(): Promise<void>;
   openProjectPicker(instanceId?: string | null): void;
   closeProjectPicker(): void;
@@ -492,6 +501,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   setSidebarWidth(width: number): void;
   setInspectorWidth(width: number): void;
   setInspectorOpen(open: boolean): void;
+  setHostScope(scope: string): void;
   restartSession(tabId: string): Promise<boolean>;
   addProject(path: string, instanceId?: string | null): Promise<void>;
   removeProject(path: string, instanceId?: string | null): Promise<void>;

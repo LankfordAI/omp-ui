@@ -104,6 +104,9 @@ export function BranchChip({
   const refreshing = useStore(
     (s) => key !== undefined && s.branchActivity[key]?.refreshing === true,
   );
+  const fetching = useStore(
+    (s) => key !== undefined && s.branchActivity[key]?.fetching === true,
+  );
   const pulling = useStore(
     (s) => key !== undefined && s.branchActivity[key]?.pulling === true,
   );
@@ -812,10 +815,10 @@ export function BranchChip({
           )}
           {/* A background fetch that failed is not worth interrupting anyone
               for — it surfaces here, quietly, only once the popover is open. */}
-          {refreshing && (
+          {fetching && (
             <div className="px-1.5 py-1 text-[10px] text-ink-faint">{t("composer.branch.refreshing")}</div>
           )}
-          {info.upstreamRefreshError !== null && !refreshing && (
+          {info.upstreamRefreshError !== null && !fetching && (
             <div className="break-words px-1.5 py-1 text-[10px] leading-snug text-rose">
               {info.upstreamRefreshError}
             </div>

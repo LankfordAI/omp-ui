@@ -170,7 +170,7 @@ function seed(branch: string = BRANCH): void {
         : { ...summary, worktree: { path: "/wt/x", branch, base: "main" } },
     ),
     branches: { "/p": listing },
-    branchActivity: { "/p": { refreshing: false, pulling: false, pushing: false } },
+    branchActivity: { "/p": { refreshing: false, fetching: false, pulling: false, pushing: false } },
     tabs: [],
     activeTabId: null,
     focusedTabByProject: {},
