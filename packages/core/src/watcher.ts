@@ -70,6 +70,17 @@ export function watchLineageDir(absDir: string, onEvent: (e: LineageEvent) => vo
  */
 const GIT_CHURN_DEBOUNCE_MS = 150;
 
+/**
+ * Gitdir churn that never implies a branch or ref moved: the on-disk index
+ * (and its lock) is rewritten by plain reads — `git status` refreshing the
+ * stat cache — and a watcher that reacts to it echoes every `listBranches`
+ * as a `branch:changed`, which starts the next read (issue #506). HEAD,
+ * ORIG_HEAD, packed-refs, FETCH_HEAD and the MERGE/REBASE markers stay
+ * watched: no checkout, commit, fetch or reset changes divergence without
+ * churning one of those names in the gitdir top level.
+ */
+const GITDIR_CHURN_IGNORED: Record<string, true> = { index: true, "index.lock": true };
+
 export interface WatchGitHeadOptions {
   /**
    * Called once when the gitdir vanished or the watch failed after it was
@@ -83,10 +94,12 @@ export interface WatchGitHeadOptions {
 /**
  * Watches one project checkout's git directory (#498). Resolves the HEAD path
  * with `git rev-parse --git-path HEAD` (worktree- and separate-gitdir-aware),
- * watches its directory, and fires onEvent on any churn with a trailing
- * debounce — HEAD rename-on-write makes file-level watches unreliable, and
- * dir churn costs one local-refs listing, no network. Rejects when the path
- * is not a repository; resolves a dispose function otherwise.
+ * watches its directory, and fires onEvent on churn with a trailing debounce
+ * — HEAD rename-on-write makes file-level watches unreliable, index
+ * bookkeeping churn is ignored so our own `git status` reads never echo back
+ * as events (issue #506), and dir churn costs one local-refs listing, no
+ * network. Rejects when the path is not a repository; resolves a dispose
+ * function otherwise.
  */
 export async function watchGitHead(
   projectCwd: string,
@@ -132,6 +145,7 @@ export async function watchGitHead(
   try {
     watcher = fs.watch(dir, { persistent: false }, (_eventType, filename) => {
       if (closed || timer !== undefined || !filename) return;
+      if (GITDIR_CHURN_IGNORED[filename.toString()] === true) return;
       timer = setTimeout(flush, GIT_CHURN_DEBOUNCE_MS);
     });
     watcher.on("error", gone);

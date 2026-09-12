@@ -419,6 +419,48 @@ describe("BranchChip", () => {
     expect(popover?.getAttribute("aria-busy")).toBe("false");
   });
 
+  it("claims no upstream work during a local reload (issue #506)", async () => {
+    const info = seedBranch({
+      upstreamRef: "origin/main",
+      upstreamRemote: "origin",
+      hasUpstream: true,
+      behind: 0,
+      ahead: 2,
+    });
+    render();
+    await act(async () => chip().click());
+
+    // The watcher echo's production shape — e.g. pull's post-refresh reload:
+    // refreshing true, fetching false. No upstream claim may show, while the
+    // popover stays busy and every action row stays disabled.
+    let resolveEcho!: (value: BranchList) => void;
+    backendMock.listBranches.mockReturnValueOnce(
+      new Promise<BranchList>((resolve) => {
+        resolveEcho = resolve;
+      }),
+    );
+    const pull = useStore.getState().pullGitBranch("/p");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const popover = menu();
+    expect(popover?.getAttribute("aria-busy")).toBe("true");
+    expect(popover?.textContent).not.toContain("refreshing upstream…");
+    expect(pullButton()?.disabled).toBe(true);
+    const pushRow = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.toLowerCase().startsWith("push "),
+    );
+    expect(pushRow?.disabled).toBe(true);
+
+    await act(async () => {
+      resolveEcho(info);
+      await pull;
+    });
+  });
+
   it("shows an upstream fetch error inline without discarding the branch snapshot", async () => {
     seedBranch({
       upstreamRef: "origin/main",

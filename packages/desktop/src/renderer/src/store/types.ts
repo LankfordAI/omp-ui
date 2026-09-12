@@ -399,7 +399,14 @@ export interface UpdatesSlice {
 }
 
 export interface BranchActivity {
+  /** Any listBranches is in flight — gates the pull/push rows. */
   refreshing: boolean;
+  /**
+   * A refresh that fetches the configured upstream is in flight — the sole
+   * trigger for the popover's `composer.branch.refreshing` row (issue #506).
+   * A local reload must not claim upstream work.
+   */
+  fetching: boolean;
   pulling: boolean;
   /** A push of some branch of this repo is in flight (issue #414). */
   pushing: boolean;
