@@ -673,6 +673,14 @@ export type LayoutProbe = (doc: string, width: number) => Promise<LayoutProbeRes
 
 const PROBE_TIMEOUT_MS = 4_000;
 
+/**
+ * The settle a sample waits out before it is measured. On a painting page the
+ * two animation frames below win in about 33 ms; this timer only takes over
+ * when the clock is not ticking at all, and even under a hidden page's ~1 Hz
+ * timer alignment it lands an order of magnitude inside PROBE_TIMEOUT_MS.
+ */
+const PROBE_SETTLE_MS = 250;
+
 // Whether this environment performs real layout. jsdom lays out nothing (all
 // rects are zero) and offers no trusted CSSOM constructor path, so a
 // layout-less environment resolves inconclusive without creating a frame —
@@ -706,12 +714,11 @@ function canMeasureLayout(): boolean {
  *  - the frame is offscreen but NOT visibility-hidden and NOT opacity-zero —
  *    both inherit into every child and would fail the visibility rule.
  *
- * Waits for the intended document's load plus two animation frames on the
- * PARENT page's clock. The hidden child frame's animation clock may never
- * advance (background throttling of offscreen frames), which produced false
- * VERIFIER_TIMEOUT banners over a correctly displayed document (issue #415);
- * the settle delay is a scheduling aid, not part of the measured space, so
- * it runs on the trusted top-level window. A timeout, crash, or layout-less
+ * Waits for the intended document's load, then for a settle that races two
+ * animation frames on the PARENT page's clock against PROBE_SETTLE_MS. The
+ * hidden child frame's clock may never advance (issue #415) and the parent's
+ * stops entirely while the window is hidden (issue #504), so neither is
+ * allowed to be the only way out. A timeout, crash, or layout-less
  * environment is inconclusive, never passed.
  */
 export const probePlanLayout: LayoutProbe = (doc, width = 800) => {
@@ -737,7 +744,7 @@ export const probePlanLayout: LayoutProbe = (doc, width = 800) => {
   };
   // The timeout detail names the phase the probe never left, so a load that
   // never fired is told apart from a measurement that never ran after load.
-  let phase: "waiting-for-load" | "waiting-for-parent-frames" = "waiting-for-load";
+  let phase: "waiting-for-load" | "waiting-for-settle" = "waiting-for-load";
   const timer = setTimeout(
     () =>
       done({
@@ -757,10 +764,12 @@ export const probePlanLayout: LayoutProbe = (doc, width = 800) => {
   const scheduleMeasurement = (): void => {
     if (settled || measurementScheduled) return;
     measurementScheduled = true;
-    phase = "waiting-for-parent-frames";
-    // Two PARENT-page animation frames (§4): the trusted top-level clock is
-    // the renderer's own and always advances, unlike the hidden child's.
-    void twoFrames(window).then(() => {
+    phase = "waiting-for-settle";
+    // The settle is a scheduling aid with a deadline, never a dependency on a
+    // clock that ticks: two parent frames when the page paints, PROBE_SETTLE_MS
+    // when it does not (issue #504). Measurement itself forces synchronous
+    // layout, which a hidden page performs on demand — only paint stops.
+    void settleForMeasurement(window, PROBE_SETTLE_MS).then(() => {
       if (settled) return;
       let probe: PlanDiagnostic[];
       try {
@@ -934,10 +943,29 @@ function measureProbeFrame(
   return out;
 }
 
-/** Two animation frames on the given window's clock — the parent page's. */
-function twoFrames(win: Window): Promise<void> {
+/**
+ * Resolves on the FIRST of two animation frames on `win`'s clock or
+ * `timeoutMs` elapsing. The frames keep a painting page's measurement exactly
+ * as deterministic as it was; the timer is the arm that survives a page whose
+ * clock has stopped. Chromium does not throttle requestAnimationFrame on a
+ * hidden page — it stops calling it (the transcript batcher banks on the same
+ * fact, store/slices/shared.ts), so a proposal that landed while the window was
+ * occluded, minimized, or on another workspace waited on a clock that never
+ * ticked and timed out over a perfectly good document (issue #504).
+ *
+ * Exported for its own contract test: the surviving arm IS the fix, and a
+ * layout-less test environment can never reach it through probePlanLayout,
+ * which short-circuits before any frame exists.
+ */
+export function settleForMeasurement(win: Window, timeoutMs: number): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
-  win.requestAnimationFrame(() => win.requestAnimationFrame(() => resolve()));
+  const timer = win.setTimeout(() => resolve(), timeoutMs);
+  win.requestAnimationFrame(() =>
+    win.requestAnimationFrame(() => {
+      win.clearTimeout(timer);
+      resolve();
+    }),
+  );
   return promise;
 }
 
@@ -1065,6 +1093,14 @@ export async function renderPlanPreflight(
  * settled state while a re-run is in flight, so the iframe never blanks
  * mid-review. The settled state echoes the `identity` it was prepared for so
  * a previous plan's ready state can never enable a NEW proposal (§6).
+ *
+ * An `unavailable` verdict also re-prepares when the page becomes visible
+ * again (issue #504). Inconclusive is an APPLICATION failure, not a property
+ * of the plan, and its commonest cause — a page that was hidden while the
+ * probe ran — is gone the moment the window is back on screen; without the
+ * re-run the verdict latches for the gate's whole life and execute stays
+ * disabled over a document the user can read. `failed` never retries: that is
+ * a source defect, and only the agent can repair it.
  */
 export function usePreparedPlanDocument(
   html: string | null,
@@ -1072,6 +1108,17 @@ export function usePreparedPlanDocument(
 ): PreparedPlanState {
   const theme = useTheme();
   const [state, setState] = useState<PreparedPlanState>({ status: "pending" });
+  /** Bumped by a hidden-to-visible transition; re-runs the effect below. */
+  const [generation, setGeneration] = useState(0);
+  const inconclusive = state.status === "unavailable";
+  useEffect(() => {
+    if (!inconclusive) return;
+    const onVisibility = (): void => {
+      if (document.visibilityState === "visible") setGeneration((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [inconclusive]);
   useEffect(() => {
     if (html === null) {
       setState({ status: "pending" });
@@ -1088,6 +1135,6 @@ export function usePreparedPlanDocument(
     };
     // Tokens carry their colour as inline classes, so a theme switch only
     // reaches the rendered plan by re-preparing it.
-  }, [html, theme, identity]);
+  }, [html, theme, identity, generation]);
   return state;
 }
