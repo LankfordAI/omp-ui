@@ -1553,6 +1553,10 @@ export const en = {
   "sidebar.filter.label": "filter sessions",
   "sidebar.filter.clear": "clear filter",
 
+  "sidebar.hosts.filter": "filter by host",
+  "sidebar.hosts.all": "All hosts",
+  "sidebar.hosts.local": "This computer",
+
   "sidebar.empty.noProjects": "No projects yet",
   "sidebar.empty.noProjectsHint":
     "Point omp-ui at a repository and every session you start there shows up here.",

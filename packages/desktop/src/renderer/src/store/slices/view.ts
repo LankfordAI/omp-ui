@@ -53,6 +53,9 @@ export interface ViewSlice {
   sidebarWidth: number;
   inspectorWidth: number;
   inspectorOpen: boolean;
+  /** Sidebar host filter (issue #507): "all" | "local" | a joined instance id.
+   *  In-memory like sidebarCollapsed — deliberately not in DesktopViewStateV1. */
+  hostScope: string;
   openProjectPicker(instanceId?: string | null): void;
   closeProjectPicker(): void;
   openDiagnosticsDialog(): void;
@@ -76,6 +79,7 @@ export interface ViewSlice {
   setSidebarWidth(width: number): void;
   setInspectorWidth(width: number): void;
   setInspectorOpen(open: boolean): void;
+  setHostScope(scope: string): void;
   /**
    * Backend failures awaiting acknowledgment (issue #373): the renderer-side
    * replacement for window.alert. Arrival order is kept; nothing times out,
@@ -321,6 +325,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
   inspectorWidth: INSPECTOR_DEFAULT_WIDTH,
   inspectorOpen: false,
+  hostScope: "all",
   errorNotices: [],
   reportError(error) {
     set((s) => ({
@@ -395,6 +400,9 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   },
   setInspectorOpen(open) {
     set({ inspectorOpen: open });
+  },
+  setHostScope(scope) {
+    set({ hostScope: scope });
   },
 });
 
