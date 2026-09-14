@@ -26,6 +26,10 @@ function tool(items: RenderItem[], toolCallId: string): ToolItem | undefined {
   return items.find((i): i is ToolItem => i.kind === "tool" && i.toolCallId === toolCallId);
 }
 
+const RESOLVED_DIRECTORY_TEXT =
+  "Check @packages/desktop/src/renderer/src\n\n" +
+  '<file path="packages/desktop/src/renderer/src">\ncomponents/\nlib/\n</file>';
+
 describe("reduceEvent message lifecycle", () => {
   it("streams user → assistant text deltas → end", () => {
     let items: RenderItem[] = [];
@@ -128,6 +132,31 @@ describe("reduceEvent message lifecycle", () => {
       message: { role: "user", content: "plain string" },
     });
     expect(items[0]).toMatchObject({ kind: "user", text: "plain string" });
+  });
+
+  it("separates resolved file context from live user prose", () => {
+    const items = reduceEvent([], {
+      type: "message_start",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: RESOLVED_DIRECTORY_TEXT }],
+      },
+    });
+    expect(items[0]).toMatchObject({
+      kind: "user",
+      text: "Check @packages/desktop/src/renderer/src",
+      fileMentions: ["packages/desktop/src/renderer/src"],
+    });
+  });
+
+  it("keeps malformed file-tag prose visible", () => {
+    const text = 'Explain @a.ts\n\n<file path="elsewhere.ts">\nbody\n</file>';
+    const items = reduceEvent([], {
+      type: "message_start",
+      message: { role: "user", content: [{ type: "text", text }] },
+    });
+    expect(items[0]).toMatchObject({ kind: "user", text });
+    expect(items[0]).not.toHaveProperty("fileMentions");
   });
 
   it("extracts usage, model and timings from an assistant message_end", () => {
@@ -744,6 +773,27 @@ describe("historyToItems", () => {
       kind: "user",
       text: "what is this?",
       images: [{ data: "AAAB", mimeType: "image/webp" }],
+    });
+  });
+
+  it("matches live display fields when resolved context is backfilled", () => {
+    const message = {
+      role: "user",
+      content: [{ type: "text", text: RESOLVED_DIRECTORY_TEXT }],
+      timestamp: 1234,
+    };
+    const live = reduceEvent([], { type: "message_start", message })[0];
+    const resumed = historyToItems([message])[0];
+
+    expect(resumed).toMatchObject({
+      kind: "user",
+      text: "Check @packages/desktop/src/renderer/src",
+      fileMentions: ["packages/desktop/src/renderer/src"],
+      timestamp: 1234,
+    });
+    expect(resumed).toMatchObject({
+      text: live?.kind === "user" ? live.text : undefined,
+      fileMentions: live?.kind === "user" ? live.fileMentions : undefined,
     });
   });
 

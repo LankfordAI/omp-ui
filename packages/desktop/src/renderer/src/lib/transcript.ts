@@ -1,5 +1,6 @@
 import { formatDuration } from "./duration";
 import { boolField, field, isObj, numField, str, strField } from "./fields";
+import { splitResolvedMentionContext } from "./mentions";
 import { parseOmpDiff, type DiffRow } from "./omp-diff";
 
 export interface AdvisorNote {
@@ -12,6 +13,8 @@ export interface UserItem {
   kind: "user";
   id: string;
   text: string;
+  /** Resolved model-context paths removed from the visible prose. */
+  fileMentions?: string[];
   /**
    * Image blocks on the message. omp re-encodes on ingest (a PNG comes back as
    * webp), so the mime type here is omp's, not the clipboard's.
@@ -284,6 +287,13 @@ function textFromContent(content: unknown): string {
     .join("\n");
 }
 
+function userContentFromContent(
+  content: unknown,
+): Pick<UserItem, "text" | "fileMentions"> {
+  const { text, paths } = splitResolvedMentionContext(textFromContent(content));
+  return paths.length > 0 ? { text, fileMentions: paths } : { text };
+}
+
 /**
  * Image blocks off a user message. Returns undefined rather than an empty array
  * so a text-only message carries no key at all — `UserItem` is compared by
@@ -491,7 +501,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
           {
             kind: "user",
             id: `user-${++counter}`,
-            text: textFromContent(message.content),
+            ...userContentFromContent(message.content),
             images: imagesFromContent(message.content),
             timestamp: numField(message, "timestamp") ?? Date.now(),
           },
@@ -781,7 +791,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
       items.push({
         kind: "user",
         id: `user-${++counter}`,
-        text: textFromContent(raw.content),
+        ...userContentFromContent(raw.content),
         images: imagesFromContent(raw.content),
         timestamp: numField(raw, "timestamp"),
       });
