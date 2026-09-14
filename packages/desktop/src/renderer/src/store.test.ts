@@ -626,15 +626,22 @@ describe("notification click focus (issue #271)", () => {
   });
 });
 
-describe("remote instance tabs (issue #416)", () => {
+describe("mounted tab reconciliation (issues #416 and #510)", () => {
   const INSTANCE = "inst-a";
   const RPC = "remote-rpc";
   const PTY = "remote-pty";
-  const record = (tabId: string, mode: "rpc-ui" | "pty"): SessionSummary => ({
+  const LOCAL_RPC = "local-rpc";
+  const LOCAL_PTY = "local-pty";
+  const SURVIVOR = "local-survivor";
+  const record = (
+    tabId: string,
+    mode: "rpc-ui" | "pty",
+    projectCwd = "/p",
+  ): SessionSummary => ({
     tabId,
     sessionId: `sid-${tabId}`,
     lineageDir: `omp-ui--p--${tabId}`,
-    projectCwd: "/p",
+    projectCwd,
     launchedAt: "t",
     mode,
     worktree: null,
@@ -682,6 +689,24 @@ describe("remote instance tabs (issue #416)", () => {
         }),
       ],
     });
+  const localState = (sessions: SessionSummary[]): BackendState =>
+    makeBackendState({
+      projects: ["/gone", "/keep"].map((path) => ({
+        project: {
+          path,
+          name: path.slice(1),
+          addedAt: "t",
+          lastModel: null,
+          lastThinkingLevel: null,
+          lastAdvisor: null,
+          lastAdvisorModel: null,
+          defaultModel: null,
+          defaultAdvisorModel: null,
+        },
+        sessions: sessions.filter((session) => session.projectCwd === path),
+      })),
+    });
+
 
   // A fresh module per test: init() latches per evaluation, and the earlier
   // suites already own the shared module's onStateChanged capture.
@@ -705,6 +730,58 @@ describe("remote instance tabs (issue #416)", () => {
     const onState = h.mockBackend.onStateChanged.mock.calls[0]![0] as (s: BackendState) => void;
     return { fresh, onState, bootRpcTab };
   }
+  it("drops locally owned tabs omitted from the authoritative project snapshot", async () => {
+    const localRpc = record(LOCAL_RPC, "rpc-ui", "/gone");
+    const localPty = record(LOCAL_PTY, "pty", "/gone");
+    const survivor = record(SURVIVOR, "rpc-ui", "/keep");
+    const { fresh, onState, bootRpcTab } = await seeded(
+      localState([localRpc, localPty, survivor]),
+    );
+    fresh.setState({
+      tabs: [
+        tabInfo({ tabId: LOCAL_RPC, mode: "rpc-ui", projectCwd: "/gone" }),
+        tabInfo({ tabId: LOCAL_PTY, mode: "pty", projectCwd: "/gone" }),
+        tabInfo({ tabId: SURVIVOR, mode: "rpc-ui", projectCwd: "/keep" }),
+      ],
+      rpc: {
+        [LOCAL_RPC]: rpcTabState({ status: "ready" }),
+        [SURVIVOR]: rpcTabState({ status: "ready" }),
+      },
+      exited: { [LOCAL_RPC]: 1, [LOCAL_PTY]: 2 },
+      hibernated: { [LOCAL_RPC]: true, [LOCAL_PTY]: true },
+      tuiHandoff: {
+        [LOCAL_RPC]: { line: "/mcp reauth one", key: 1, phase: "running" },
+        [LOCAL_PTY]: { line: "/mcp reauth two", key: 2, phase: "running" },
+      },
+      activeTabId: SURVIVOR,
+      focusedTabByProject: { "/gone": LOCAL_RPC, "/keep": SURVIVOR },
+    });
+
+    onState(localState([survivor]));
+
+    let state = fresh.getState();
+    expect(state.tabs.map((tab) => tab.tabId)).toEqual([SURVIVOR]);
+    expect(state.activeTabId).toBe(SURVIVOR);
+    expect(state.rpc[LOCAL_RPC]).toBeUndefined();
+    expect(state.exited[LOCAL_RPC]).toBeUndefined();
+    expect(state.exited[LOCAL_PTY]).toBeUndefined();
+    expect(state.hibernated[LOCAL_RPC]).toBeUndefined();
+    expect(state.hibernated[LOCAL_PTY]).toBeUndefined();
+    expect(state.tuiHandoff[LOCAL_RPC]).toBeUndefined();
+    expect(state.tuiHandoff[LOCAL_PTY]).toBeUndefined();
+    expect(state.focusedTabByProject).toEqual({ "/keep": SURVIVOR });
+    expect(bootRpcTab).not.toHaveBeenCalled();
+    expect(state.ptyRedrawRevision[LOCAL_PTY]).toBeUndefined();
+
+    onState(localState([]));
+
+    state = fresh.getState();
+    expect(state.tabs).toEqual([]);
+    expect(state.activeTabId).toBeNull();
+    expect(state.focusedTabByProject).toEqual({});
+    expect(bootRpcTab).not.toHaveBeenCalled();
+  });
+
 
   it("a rejoin re-boots rpc tabs, redraws pty tabs, and drops a tab the instance no longer lists", async () => {
     const both = [record(RPC, "rpc-ui"), record(PTY, "pty")];

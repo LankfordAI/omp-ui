@@ -181,19 +181,19 @@ export const useStore = create<UiStore>()((set, get, api) => {
   };
 
   /**
-   * Reconciles open remote tabs with the instances that own them (issue
-   * #416). Runs before `state` is replaced so the previous statuses are
-   * still readable. A joined instance is authoritative for its own sessions:
-   * a tab it no longer lists is dropped; the instance itself gone drops every
-   * tab it owned. A rejoin bumps each PTY tab's redraw revision so the
-   * terminal re-sends its size, and returns the rpc tabs to re-boot — the
-   * remote process kept running, but this renderer's frames stopped — for
-   * the caller to start once the new state is committed.
+   * Reconciles mounted tabs with the authoritative project snapshot. Local
+   * tabs follow the local registry. Joined remote instances are authoritative
+   * for their sessions, while unreachable instances retain their last-known
+   * tabs. Runs before `state` is replaced so a remote rejoin can re-boot native
+   * tabs and redraw terminal tabs from the previous instance status.
    */
-  const reconcileRemoteTabs = (next: BackendState): string[] => {
+  const reconcileTabs = (next: BackendState): string[] => {
     const s = get();
-    const remoteTabs = s.tabs.filter((tab) => tab.instanceId !== null);
-    if (remoteTabs.length === 0) return [];
+    if (s.tabs.length === 0) return [];
+    const localTabIds = new Set<string>();
+    for (const group of next.projects) {
+      for (const session of group.sessions) localTabIds.add(session.tabId);
+    }
     const rejoined = new Set<string>();
     for (const inst of next.remoteInstances) {
       if (inst.status !== "joined") continue;
@@ -203,7 +203,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
     const redraw: string[] = [];
     const reboot: string[] = [];
     const dormant: string[] = [];
-    for (const tab of remoteTabs) {
+    for (const tab of s.tabs) {
+      if (tab.instanceId === null) {
+        if (!localTabIds.has(tab.tabId)) dropped.push(tab.tabId);
+        continue;
+      }
       const inst = findInstance(next, tab.instanceId);
       if (inst === undefined) {
         dropped.push(tab.tabId);
@@ -264,7 +268,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       if (initialized) return;
       initialized = true;
       backend.onStateChanged((state) => {
-        const reboot = reconcileRemoteTabs(state);
+        const reboot = reconcileTabs(state);
         set((s) => ({
           state,
           // Record mode is authoritative — tabs follow it (e.g. after switchMode).
