@@ -17,9 +17,7 @@ function pointer(type: string, x: number, pointerId = 1): Event {
   Object.defineProperty(event, "pointerId", { value: pointerId });
   return event;
 }
-let roCallback: ResizeObserverCallback | null = null;
 (globalThis as Record<string, unknown>).ResizeObserver = class {
-  constructor(cb: ResizeObserverCallback) { roCallback = cb; }
   observe() {}
   disconnect() {}
 };
