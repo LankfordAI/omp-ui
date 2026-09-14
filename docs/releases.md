@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.12.7](https://github.com/LankfordAI/omp-ui/releases/tag/v0.12.7). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- Removed stale host tabs after a joined client deletes their sessions or removes their project ([#510](https://github.com/LankfordAI/omp-ui/issues/510)).
 
 ## Choose a download
 
