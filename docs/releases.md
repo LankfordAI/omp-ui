@@ -4,6 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- Native image prompts now give the model exact per-prompt Attachment handles, avoiding failed lookup and retry turns ([#518](https://github.com/LankfordAI/omp-ui/issues/518)).
+
 
 ## Choose a download
 

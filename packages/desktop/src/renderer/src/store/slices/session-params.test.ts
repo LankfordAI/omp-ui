@@ -4,6 +4,11 @@ import { emptySessionRuntime } from "../../lib/rpc-types";
 import { rpcTabState, tabInfo } from "../../test/fixtures";
 import type { RenderItem } from "../../lib/transcript";
 import { h } from "../../test/store-harness";
+
+const ONE_IMAGE_CONTEXT =
+  "[omp-ui attachment routing: For tool calls, this prompt's attached image is available as attachment://1. Attachment handles restart at 1 for each prompt.]";
+const TWO_IMAGE_CONTEXT =
+  "[omp-ui attachment routing: For tool calls, this prompt's attached images are available as attachment://1, attachment://2. Attachment handles restart at 1 for each prompt.]";
 describe("prompting, slash commands, and session ops", () => {
   beforeEach(() => {
     h.backendState = h.stateWithRecord("sess-1");
@@ -91,6 +96,34 @@ describe("prompting, slash commands, and session ops", () => {
     // settleAll answers the prompt (and the rename) so sendPrompt resolves.
     await settleAll();
     await promise;
+  });
+
+  it("routes prompt and abort image handles without changing image objects", async () => {
+    const images = [
+      { type: "image" as const, data: "first", mimeType: "image/png" },
+      { type: "image" as const, data: "second", mimeType: "image/webp" },
+    ];
+    const prompt = h.useStore.getState().sendPrompt(h.TAB, "compare", "steer", images);
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe("compare");
+    const promptFrame = h.sent.find((sent) => sent.cmd.type === "prompt");
+    expect(promptFrame?.cmd).toMatchObject({
+      type: "prompt",
+      message: `compare\n\n${TWO_IMAGE_CONTEXT}`,
+      streamingBehavior: "steer",
+      images,
+    });
+    await settleAll();
+    await prompt;
+
+    h.sent.length = 0;
+    const abort = h.useStore.getState().abortAndPrompt(h.TAB, "inspect", [images[0]!]);
+    expect(h.sent[0]?.cmd).toMatchObject({
+      type: "abort_and_prompt",
+      message: `inspect\n\n${ONE_IMAGE_CONTEXT}`,
+      images: [images[0]],
+    });
+    await settleAll();
+    await abort;
   });
 
   it("runSlashCommand normalizes the leading slash and never titles", async () => {

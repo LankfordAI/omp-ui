@@ -10,6 +10,7 @@ import {
   type GoalCommandRequest,
 } from "@omp-ui/core/goal";
 import { backend, backendFor } from "../../backend";
+import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
 import { t } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { arrField, boolField, field, strField } from "../../lib/fields";
@@ -238,7 +239,8 @@ export function createSessionParamsSlice(
       route === "follow_up" || route === "advisor_reply" || route === "stall_continue"
         ? "followUp"
         : "steer";
-    const cmd = { type: "prompt", message, streamingBehavior };
+    const wireMessage = withAttachmentRoutingContext(message, images?.length ?? 0);
+    const cmd = { type: "prompt", message: wireMessage, streamingBehavior };
     // `images` is omitted entirely when empty: omp's own client sends no key
     // rather than an empty array, and every byte here is on one JSON line.
     const response = await m.runCommand(tabId, images?.length ? { ...cmd, images } : cmd);
@@ -260,9 +262,10 @@ export function createSessionParamsSlice(
     advisorReplyWatcher.reset(tabId);
     stallContinueWatcher.reset(tabId);
     const type = "abort_and_prompt";
+    const wireMessage = withAttachmentRoutingContext(message, images?.length ?? 0);
     await m.runCommand(
       tabId,
-      images?.length ? { type, message, images } : { type, message },
+      images?.length ? { type, message: wireMessage, images } : { type, message: wireMessage },
     );
   };
 
