@@ -486,48 +486,38 @@ describe("UpdateCard", () => {
 describe("PerimeterSweep", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("traces the host border from the live size and computed radius", async () => {
-    vi.spyOn(SVGSVGElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 200, height: 90 } as DOMRect);
-    vi.spyOn(window, "getComputedStyle").mockReturnValue({ borderTopLeftRadius: "12px" } as CSSStyleDeclaration);
+  it("renders an inert toned ring with the default segment", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 200, height: 90 } as DOMRect);
     await render(
-      <div style={{ position: "relative", width: 200, height: 90, borderTopLeftRadius: "12px" }}>
+      <div style={{ position: "relative", width: 200, height: 90 }}>
         <PerimeterSweep tone="copper" />
       </div>,
     );
-    const path = document.querySelector("svg path")!;
-    expect(path.getAttribute("d")).toBe(
-      "M 12 0.75 H 188 A 11.25 11.25 0 0 1 199.25 12 V 78 A 11.25 11.25 0 0 1 188 89.25 H 12 A 11.25 11.25 0 0 1 0.75 78 V 12 A 11.25 11.25 0 0 1 12 0.75 Z",
+    const ring = document.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
+    expect(ring.getAttribute("aria-hidden")).toBe("true");
+    expect(ring.classList.contains("text-copper")).toBe(true);
+    expect(ring.querySelector(".perimeter-sweep-rotor")).not.toBeNull();
+    expect(ring.style.getPropertyValue("--perimeter-segment")).toBe("0.2turn");
+    expect(ring.style.getPropertyValue("--perimeter-rotor-size")).toBe(
+      `${Math.ceil(Math.hypot(200, 90) * 1.05)}px`,
     );
-    expect(path.getAttribute("pathLength")).toBe("1");
-    expect(path.getAttribute("stroke-dasharray")).toBe("0.2 0.8");
   });
 
-  it("follows resizes", async () => {
-    const rectSpy = vi.spyOn(SVGSVGElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 200, height: 90 } as DOMRect);
-    vi.spyOn(window, "getComputedStyle").mockReturnValue({ borderTopLeftRadius: "12px" } as CSSStyleDeclaration);
+  it("sizes the rotor from live dimensions and preserves an explicit segment", async () => {
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 200, height: 90 } as DOMRect);
     await render(
-      <div style={{ position: "relative", width: 200, height: 90, borderTopLeftRadius: "12px" }}>
-        <PerimeterSweep tone="copper" />
+      <div style={{ position: "relative", width: 200, height: 90 }}>
+        <PerimeterSweep segment={0.35} />
       </div>,
     );
+    const ring = document.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
+    expect(ring.style.getPropertyValue("--perimeter-segment")).toBe("0.35turn");
+
     rectSpy.mockReturnValue({ width: 300, height: 120 } as DOMRect);
     act(() => { roCallback!([] as ResizeObserverEntry[], {} as ResizeObserver); });
-    const path = document.querySelector("svg path")!;
-    expect(path.getAttribute("d")).toBe(
-      "M 12 0.75 H 288 A 11.25 11.25 0 0 1 299.25 12 V 108 A 11.25 11.25 0 0 1 288 119.25 H 12 A 11.25 11.25 0 0 1 0.75 108 V 12 A 11.25 11.25 0 0 1 12 0.75 Z",
+    expect(ring.style.getPropertyValue("--perimeter-rotor-size")).toBe(
+      `${Math.ceil(Math.hypot(300, 120) * 1.05)}px`,
     );
-  });
-
-  it("paints nothing for a zero-size host", async () => {
-    vi.spyOn(SVGSVGElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 0, height: 0 } as DOMRect);
-    vi.spyOn(window, "getComputedStyle").mockReturnValue({ borderTopLeftRadius: "12px" } as CSSStyleDeclaration);
-    await render(
-      <div style={{ position: "relative", width: 200, height: 90, borderTopLeftRadius: "12px" }}>
-        <PerimeterSweep tone="copper" />
-      </div>,
-    );
-    const path = document.querySelector("svg path")!;
-    expect(path.getAttribute("d")).toBe(null);
   });
 });
 

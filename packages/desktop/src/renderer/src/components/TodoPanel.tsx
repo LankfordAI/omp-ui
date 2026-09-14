@@ -34,7 +34,7 @@ function TaskGlyph({ status }: { status: string }) {
   if (status === "in_progress") {
     return (
       <span className="mt-1 grid size-3.5 shrink-0 place-items-center">
-        <span className="animate-breathe motion-reduce:animate-none size-2 rounded-full bg-copper" />
+        <span className="animate-breathe size-2 rounded-full bg-copper" />
       </span>
     );
   }

@@ -57,7 +57,7 @@ export function ConsoleDrawer({ tabId }: { tabId: string }) {
           convention, and a stable dock keeps the transcript from jumping. */}
       <div className="console-drawer-body group relative flex h-72 flex-col overflow-hidden rounded-lg border border-line bg-surface">
         <ShellDrawer tabId={tabId} visible={open} />
-        <div className="console-drawer-controls absolute right-2 top-2 z-20 flex items-center gap-0.5 rounded-full border border-line bg-overlay/85 px-1.5 py-0.5 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <div className="console-drawer-controls absolute right-2 top-2 z-20 flex items-center gap-0.5 rounded-full border border-line bg-overlay/85 px-1.5 py-0.5 opacity-0 backdrop-glass transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <Button
             size="xs"
             variant="ghost"

@@ -176,7 +176,7 @@ export function Sheet({
 
   return createPortal(
     <div data-overlay-root className="fixed inset-0 z-[60]" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="animate-scrim pointer-events-none absolute inset-0 bg-void/65 backdrop-blur-sm" aria-hidden />
+      <div className="animate-scrim pointer-events-none absolute inset-0 bg-void/65 backdrop-glass" aria-hidden />
       <section
         ref={root}
         role="dialog"
@@ -245,7 +245,7 @@ export function Modal({
   return createPortal(
     <div
       data-overlay-root
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-void/70 backdrop-blur-sm"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-void/70 backdrop-glass"
       onPointerDown={(e) => e.target === e.currentTarget && onClose?.()}
     >
       <div
