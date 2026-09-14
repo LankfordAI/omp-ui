@@ -350,7 +350,6 @@
     color-mix(in srgb, var(--color-overlay) var(--glass-alpha), transparent),
     color-mix(in srgb, var(--color-raised) var(--glass-alpha), transparent) 45%
   );
-  backdrop-filter: var(--glass-filter);
 }
 
 /* The backdrop every glass plane looks through: void, lit from the top-left
@@ -375,12 +374,20 @@
     );
 }
 
-/* A chrome plane at glass opacity: same token, alpha from --glass-alpha,
- * blurring only what lies behind it (never its own text — ADR-0026). */
-@utility glass-void {
+/* Chrome planes whose backdrop is always app-owned and static carry no
+ * filter: Electron re-filters every backdrop-filter plane on any damaged
+ * frame (#511), and blurring a static wash is invisible anyway. The
+ * glass-* utilities keep the filter for planes that float over moving
+ * content (composer card, dialogs, sheets). */
+@utility chrome-void {
   background-color: color-mix(in srgb, var(--color-void) var(--glass-alpha), transparent);
-  backdrop-filter: var(--glass-filter);
 }
+@utility chrome-sunken {
+  background-color: color-mix(in srgb, var(--color-sunken) var(--glass-alpha), transparent);
+}
+
+/* A glass plane at glass opacity: same token, alpha from --glass-alpha,
+ * blurring only what lies behind it (never its own text — ADR-0026). */
 @utility glass-sunken {
   background-color: color-mix(in srgb, var(--color-sunken) var(--glass-alpha), transparent);
   backdrop-filter: var(--glass-filter);
