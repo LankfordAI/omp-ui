@@ -177,11 +177,25 @@ function selectionWithin(root: HTMLElement | null, sel: Selection): boolean {
 function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
   const t = useT();
   const images = item.images ?? [];
+  const fileMentions = item.fileMentions ?? [];
   return (
     <div className="speaker-run animate-rise flex flex-col items-end gap-1">
       {first && <Label className="speaker-label speaker-label-right">{t("transcript.speaker.you")}</Label>}
-      <div className="max-w-[72%] space-y-2 rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink">
+      <div className="min-w-0 max-w-[72%] space-y-2 rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink">
         {item.text !== "" && <Markdown text={item.text} />}
+        {fileMentions.length > 0 && (
+          <div
+            role="group"
+            aria-label={t("transcript.fileMentions.label")}
+            className="flex max-w-full flex-wrap justify-end gap-1.5"
+          >
+            {fileMentions.map((path) => (
+              <Chip key={path} tone="iris" mono truncate title={path}>
+                @{path}
+              </Chip>
+            ))}
+          </div>
+        )}
         {images.length > 0 && (
           <div className="flex flex-wrap justify-end gap-1.5">
             {images.map((image, i) => (

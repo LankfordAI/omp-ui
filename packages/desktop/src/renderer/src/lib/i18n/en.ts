@@ -164,6 +164,7 @@ export const en = {
   "transcript.assistant.thinking": "thinking",
   "transcript.speaker.assistant": "assistant",
   "transcript.speaker.you": "you",
+  "transcript.fileMentions.label": "resolved file mentions",
   "transcript.view.jumpToLatest": "jump to latest",
   "transcript.empty.title": "Nothing yet",
   "transcript.empty.hint": "Send a prompt to start the session.",

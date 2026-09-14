@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "./mentions";
+import {
+  deriveDirs,
+  detectAtQuery,
+  insertMention,
+  mentionRanges,
+  splitResolvedMentionContext,
+} from "./mentions";
 
 describe("detectAtQuery", () => {
   it("triggers at line start", () => {
@@ -72,6 +78,53 @@ describe("mentionRanges", () => {
 
   it("ignores an email address", () => {
     expect(mentionRanges("mail a@b.com", new Set(["b.com"]))).toEqual([]);
+  });
+});
+
+describe("splitResolvedMentionContext", () => {
+  it("returns visible prose and one resolved path", () => {
+    const text = 'Read @src/a.ts\n\n<file path="src/a.ts">\nexport const a = 1;\n</file>';
+    expect(splitResolvedMentionContext(text)).toEqual({
+      text: "Read @src/a.ts",
+      paths: ["src/a.ts"],
+    });
+  });
+
+  it("removes multiple blocks in prompt mention order", () => {
+    const text =
+      'Compare @"docs/first file.md" with @src\n\n' +
+      '<file path="docs/first file.md">\nfirst\n</file>\n\n' +
+      '<file path="src">\nsecond\n</file>';
+    expect(splitResolvedMentionContext(text)).toEqual({
+      text: 'Compare @"docs/first file.md" with @src',
+      paths: ["docs/first file.md", "src"],
+    });
+  });
+
+  it("continues past a closing delimiter inside file content", () => {
+    const text =
+      'Inspect @fixture.txt\n\n<file path="fixture.txt">\n' +
+      'first line\n</file>\nthis is still file content\n</file>';
+    expect(splitResolvedMentionContext(text)).toEqual({
+      text: "Inspect @fixture.txt",
+      paths: ["fixture.txt"],
+    });
+  });
+
+  it.each([
+    ["malformed", 'Inspect @a.ts\n\n<file path="a.ts">\nbody\n</files>'],
+    ["trailing prose", 'Inspect @a.ts\n\n<file path="a.ts">\nbody\n</file>\nmore'],
+    ["unmatched path", 'Inspect @a.ts\n\n<file path="b.ts">\nbody\n</file>'],
+    [
+      "duplicate path",
+      'Inspect @a.ts\n\n<file path="a.ts">\none\n</file>\n\n<file path="a.ts">\ntwo\n</file>',
+    ],
+    [
+      "out-of-order paths",
+      'Inspect @a.ts then @b.ts\n\n<file path="b.ts">\ntwo\n</file>\n\n<file path="a.ts">\none\n</file>',
+    ],
+  ])("leaves %s byte-for-byte visible", (_case, text) => {
+    expect(splitResolvedMentionContext(text)).toEqual({ text, paths: [] });
   });
 });
 

@@ -145,6 +145,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.assistant.thinking": "생각 중",
   "transcript.speaker.assistant": "어시스턴트",
   "transcript.speaker.you": "나",
+  "transcript.fileMentions.label": "확인된 파일 멘션",
   "transcript.view.jumpToLatest": "최신으로 이동",
   "transcript.empty.title": "아직 내용 없음",
   "transcript.empty.hint": "프롬프트를 보내 세션을 시작하세요.",

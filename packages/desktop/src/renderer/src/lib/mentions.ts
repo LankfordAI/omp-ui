@@ -23,6 +23,31 @@ function sanitizeMentionPath(rawPath: string): string | null {
   return cleaned.length > 0 ? cleaned : null;
 }
 
+interface ParsedMention {
+  path: string;
+  from: number;
+  to: number;
+}
+
+/** Omp-compatible mention tokens, before any known-file filtering. */
+function parsedMentions(text: string): ParsedMention[] {
+  const mentions: ParsedMention[] = [];
+  FILE_MENTION_REGEX.lastIndex = 0; // a module-level /g regex is stateful
+  for (const match of text.matchAll(FILE_MENTION_REGEX)) {
+    const index = match.index ?? 0;
+    if (!(index === 0 || MENTION_BOUNDARY_REGEX.test(text[index - 1] as string))) continue;
+    const rawPath = match[1] ?? match[2] ?? match[3];
+    if (!rawPath) continue;
+    const path =
+      match[1] !== undefined || match[2] !== undefined
+        ? rawPath.trim()
+        : sanitizeMentionPath(rawPath);
+    if (!path) continue;
+    mentions.push({ path, from: index, to: index + match[0].length });
+  }
+  return mentions;
+}
+
 /**
  * The @-word at the caret, or null. `start` is the index of the `@`.
  *
@@ -68,22 +93,79 @@ export function mentionRanges(
   text: string,
   known: ReadonlySet<string>,
 ): Array<{ from: number; to: number }> {
-  const ranges: Array<{ from: number; to: number }> = [];
-  FILE_MENTION_REGEX.lastIndex = 0; // a module-level /g regex is stateful
-  for (const match of text.matchAll(FILE_MENTION_REGEX)) {
-    const index = match.index ?? 0;
-    if (!(index === 0 || MENTION_BOUNDARY_REGEX.test(text[index - 1] as string))) continue;
-    const rawPath = match[1] ?? match[2] ?? match[3];
-    if (!rawPath) continue;
-    const cleaned =
-      match[1] !== undefined || match[2] !== undefined
-        ? rawPath.trim()
-        : sanitizeMentionPath(rawPath);
-    if (!cleaned) continue;
-    if (!known.has(cleaned) && !known.has(`${cleaned}/`)) continue;
-    ranges.push({ from: index, to: index + match[0].length });
+  return parsedMentions(text)
+    .filter(({ path }) => known.has(path) || known.has(`${path}/`))
+    .map(({ from, to }) => ({ from, to }));
+}
+
+const FILE_CONTEXT_OPEN = '\n\n<file path="';
+const FILE_CONTEXT_HEADER_END = '">\n';
+const FILE_CONTEXT_CLOSE = "\n</file>";
+
+/**
+ * Parses a terminal sequence of exact file blocks. A closing-tag-looking line
+ * inside file content is skipped unless the remainder completes the sequence.
+ */
+function resolvedPathsAt(text: string, start: number): string[] | null {
+  function parseBlock(blockStart: number): string[] | null {
+    if (!text.startsWith(FILE_CONTEXT_OPEN, blockStart)) return null;
+    const pathStart = blockStart + FILE_CONTEXT_OPEN.length;
+    const headerEnd = text.indexOf(FILE_CONTEXT_HEADER_END, pathStart);
+    if (headerEnd === -1) return null;
+    const path = text.slice(pathStart, headerEnd);
+    if (path === "") return null;
+
+    const bodyStart = headerEnd + FILE_CONTEXT_HEADER_END.length;
+    let close = text.indexOf(FILE_CONTEXT_CLOSE, bodyStart);
+    while (close !== -1) {
+      const afterClose = close + FILE_CONTEXT_CLOSE.length;
+      if (afterClose === text.length) return [path];
+      if (text.startsWith(FILE_CONTEXT_OPEN, afterClose)) {
+        const rest = parseBlock(afterClose);
+        if (rest !== null) return [path, ...rest];
+      }
+      close = text.indexOf(FILE_CONTEXT_CLOSE, close + 1);
+    }
+    return null;
   }
-  return ranges;
+
+  return parseBlock(start);
+}
+
+function pathsPreserveMentionOrder(
+  paths: readonly string[],
+  mentionPaths: readonly string[],
+): boolean {
+  const seen = new Set<string>();
+  let mentionStart = 0;
+  for (const path of paths) {
+    if (seen.has(path)) return false;
+    seen.add(path);
+    const mentionIndex = mentionPaths.indexOf(path, mentionStart);
+    if (mentionIndex === -1) return false;
+    mentionStart = mentionIndex + 1;
+  }
+  return true;
+}
+
+/**
+ * Removes only omp-ui's proven terminal resolved-file suffix from display
+ * text. The expanded payload itself remains unchanged outside derived state.
+ */
+export function splitResolvedMentionContext(text: string): { text: string; paths: string[] } {
+  let start = text.indexOf(FILE_CONTEXT_OPEN);
+  while (start !== -1) {
+    const paths = resolvedPathsAt(text, start);
+    if (paths !== null) {
+      const prefix = text.slice(0, start);
+      const mentionPaths = [...new Set(parsedMentions(prefix).map(({ path }) => path))];
+      return pathsPreserveMentionOrder(paths, mentionPaths)
+        ? { text: prefix, paths }
+        : { text, paths: [] };
+    }
+    start = text.indexOf(FILE_CONTEXT_OPEN, start + 1);
+  }
+  return { text, paths: [] };
 }
 
 /**

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
+  historyToItems,
   planProposalItem,
   type CommandItem,
   type RenderItem,
@@ -360,6 +361,37 @@ describe("UsageStrip", () => {
     expect(tooltip.startsWith("gateway: anthropic")).toBe(true);
     expect(tooltip).not.toContain("upstream:");
     expect(tooltip).not.toContain("response:");
+    act(() => root.unmount());
+  });
+});
+
+describe("UserBubble resolved file mentions", () => {
+  it("renders accessible truncating chips without raw resolved context", () => {
+    const longPath = `src/${"deeply-nested/".repeat(20)}fixture.ts`;
+    const prompt = `Compare @src/short.ts with @${longPath}`;
+    const expanded =
+      `${prompt}\n\n<file path="src/short.ts">\nraw short body\n</file>\n\n` +
+      `<file path="${longPath}">\nraw long body\n</file>`;
+    const items = historyToItems([
+      { role: "user", content: [{ type: "text", text: expanded }] },
+    ]);
+    const { el, root } = render(items);
+
+    expect(el.textContent).toContain(prompt);
+    expect(el.textContent).not.toContain("<file");
+    expect(el.textContent).not.toContain("raw short body");
+    expect(el.textContent).not.toContain("raw long body");
+    const group = el.querySelector('[role="group"][aria-label="resolved file mentions"]');
+    expect(group).not.toBeNull();
+    const chips = group!.querySelectorAll<HTMLElement>("span[title]");
+    expect([...chips].map((chip) => chip.getAttribute("title"))).toEqual([
+      "src/short.ts",
+      longPath,
+    ]);
+    expect(chips[0]!.textContent).toBe("@src/short.ts");
+    expect(chips[1]!.textContent).toBe(`@${longPath}`);
+    expect(chips[1]!.className).toContain("max-w-full");
+    expect(chips[1]!.querySelector(".truncate")).not.toBeNull();
     act(() => root.unmount());
   });
 });
