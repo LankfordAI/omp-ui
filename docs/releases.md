@@ -4,8 +4,6 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Removed stale host tabs after a joined client deletes their sessions or removes their project ([#510](https://github.com/LankfordAI/omp-ui/issues/510)).
-- Kept resolved file mentions as compact chips in the user's render item while hiding their raw model-context markup from the native transcript ([#515](https://github.com/LankfordAI/omp-ui/issues/515)).
 
 ## Choose a download
 
