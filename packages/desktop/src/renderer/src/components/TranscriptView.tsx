@@ -186,7 +186,7 @@ function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
         {fileMentions.length > 0 && (
           <div
             role="group"
-            aria-label={t("transcript.fileMentions.label")}
+            aria-label={t("transcript.mentions.label")}
             className="flex max-w-full flex-wrap justify-end gap-1.5"
           >
             {fileMentions.map((path) => (
