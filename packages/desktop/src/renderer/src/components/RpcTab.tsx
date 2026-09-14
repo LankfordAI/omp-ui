@@ -446,7 +446,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
 
 
       {exitCode !== undefined && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-void/80 backdrop-blur-sm">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-void/80 backdrop-glass">
           <Panel
             className={cn(
               "edge-lit animate-rise mx-4 flex flex-col items-center gap-3 px-8 py-6",

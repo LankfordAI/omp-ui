@@ -119,9 +119,7 @@
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
   --animate-rise: rise 0.34s var(--ease-out-quint) both;
   --animate-slide-in: slide-in 0.2s var(--ease-out-quint) both;
-  --animate-breathe: breathe 2.4s ease-in-out infinite;
   --animate-sweep: sweep 1.6s linear infinite;
-  --animate-sweep-loop: sweep-loop 2.8s linear infinite;
   --animate-caret: caret 1.05s step-end infinite;
   --animate-sheet-left: sheet-in-left 0.3s var(--ease-out-quint) both;
   --animate-sheet-right: sheet-in-right 0.3s var(--ease-out-quint) both;
@@ -156,15 +154,49 @@
   }
 }
 
-@keyframes breathe {
+@keyframes breathe-core {
   0%,
   100% {
     opacity: 1;
-    box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 45%, transparent);
   }
   50% {
     opacity: 0.72;
-    box-shadow: 0 0 0 3px color-mix(in oklab, currentColor 0%, transparent);
+  }
+}
+
+@keyframes breathe-ring {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0;
+    transform: scale(2);
+  }
+}
+
+@utility animate-breathe {
+  position: relative;
+  animation: breathe-core 2.4s ease-in-out infinite;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1.5px solid currentColor;
+    border-radius: inherit;
+    pointer-events: none;
+    animation: breathe-ring 2.4s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+
+    &::after {
+      animation: none;
+      opacity: 0;
+    }
   }
 }
 
@@ -177,9 +209,12 @@
   }
 }
 
-@keyframes sweep-loop {
+@keyframes perimeter-sweep-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0turn);
+  }
   to {
-    stroke-dashoffset: -1;
+    transform: translate(-50%, -50%) rotate(1turn);
   }
 }
 
@@ -350,7 +385,6 @@
     color-mix(in srgb, var(--color-overlay) var(--glass-alpha), transparent),
     color-mix(in srgb, var(--color-raised) var(--glass-alpha), transparent) 45%
   );
-  backdrop-filter: var(--glass-filter);
 }
 
 /* The backdrop every glass plane looks through: void, lit from the top-left
@@ -375,12 +409,20 @@
     );
 }
 
-/* A chrome plane at glass opacity: same token, alpha from --glass-alpha,
- * blurring only what lies behind it (never its own text — ADR-0026). */
-@utility glass-void {
+/* Chrome planes whose backdrop is always app-owned and static carry no
+ * filter: Electron re-filters every backdrop-filter plane on any damaged
+ * frame (#511), and blurring a static wash is invisible anyway. Floating
+ * or transient planes use either a full glass-* plane utility or the
+ * filter-only backdrop-glass utility; both derive from --glass-filter. */
+@utility chrome-void {
   background-color: color-mix(in srgb, var(--color-void) var(--glass-alpha), transparent);
-  backdrop-filter: var(--glass-filter);
 }
+@utility chrome-sunken {
+  background-color: color-mix(in srgb, var(--color-sunken) var(--glass-alpha), transparent);
+}
+
+/* A glass plane at glass opacity: same token, alpha from --glass-alpha,
+ * blurring only what lies behind it (never its own text — ADR-0026). */
 @utility glass-sunken {
   background-color: color-mix(in srgb, var(--color-sunken) var(--glass-alpha), transparent);
   backdrop-filter: var(--glass-filter);
@@ -398,6 +440,44 @@
 @utility glass-surface {
   background-color: color-mix(in srgb, var(--color-surface) var(--glass-alpha), transparent);
   backdrop-filter: var(--glass-filter);
+}
+@utility backdrop-glass {
+  backdrop-filter: var(--glass-filter);
+}
+
+
+@utility perimeter-sweep {
+  border: 1.5px solid transparent;
+  -webkit-mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0) border-box;
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0) border-box;
+  mask-composite: exclude;
+}
+
+.perimeter-sweep-rotor {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--perimeter-rotor-size, 200%);
+  height: var(--perimeter-rotor-size, 200%);
+  background-image: conic-gradient(
+    from 0deg,
+    transparent 0turn,
+    currentColor var(--perimeter-segment, 0.2turn),
+    transparent var(--perimeter-segment, 0.2turn)
+  );
+  animation: perimeter-sweep-spin 2.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .perimeter-sweep-rotor {
+    animation: none;
+    transform: translate(-50%, -50%);
+  }
 }
 
 /* A gradient ring occupying only the border zone: transparent border +

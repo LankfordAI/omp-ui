@@ -160,7 +160,7 @@ describe("desktop merged title bar (issues #59/#60)", () => {
     // no noise texture — the overlay can only paint a flat colour (#59); the
     // fill is the void plane token (opaque at glass Off, ADR-0026)
     expect(header.className).not.toContain("ambient");
-    expect(header.className).toContain("glass-void");
+    expect(header.className).toContain("chrome-void");
   });
 
   it("reserves no native caption strip outside the Electron shell (issue #122)", () => {

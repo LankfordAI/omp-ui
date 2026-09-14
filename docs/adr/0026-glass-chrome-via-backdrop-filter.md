@@ -64,3 +64,13 @@ the reading plane separates by elevation — border plus `shadow-float` — not 
 shifting toward the field beneath it. The wash banded: its whole range was four
 8-bit levels over 56 CSS px, so it rendered as stripes, and the `ambient` grain
 sits under it and cannot dither its ramp.
+
+**Amended 2026-09-14 (#511):** Measured on Electron 43 (AMD RDNA3,
+GNOME/Wayland): any damaged frame re-filters *every* `backdrop-filter` plane
+in the window, not only planes the damage passes behind — so blur over
+app-owned static backdrops (title bar, sidebar, inspector rail, plan-review
+dock) is perpetual cost with no visible effect. Those planes move to
+filterless `chrome-*` utilities; `plane-lit` loses its filter. `glass-*`
+keeps its meaning — blurred — for planes that float over moving content
+(composer card, dialogs, sheets). The Off/Subtle/Frosted knobs are
+unchanged.

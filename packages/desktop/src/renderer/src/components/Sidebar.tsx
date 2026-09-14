@@ -263,7 +263,7 @@ function ProjectSection({
       onDragOver={reorder.onDragOver}
       onDrop={reorder.onDrop}
     >
-      <div className="sticky top-0 z-10 bg-sunken/95 px-2 pt-2 pb-1 backdrop-blur">
+      <div className="sticky top-0 z-10 bg-sunken/95 px-2 pt-2 pb-1 backdrop-glass">
         <div
           // No gap in the non-compact layout: the reveals bring their own margin,
           // so the name owns the full row width at rest.
@@ -550,7 +550,7 @@ function RemoteInstanceSection({
 
   return (
     <section data-remote-instance={instance.id} className="border-t border-line pb-1">
-      <div className="sticky top-0 z-10 bg-sunken/95 px-2 pt-2 pb-1 backdrop-blur">
+      <div className="sticky top-0 z-10 bg-sunken/95 px-2 pt-2 pb-1 backdrop-glass">
         <div className="group/inst flex items-start gap-1.5">
           <button
             type="button"
@@ -1073,7 +1073,7 @@ export function Sidebar() {
   const sidebar = (
     <aside
       className={cn(
-        "ambient relative flex shrink-0 flex-col border-r border-line glass-sunken",
+        "ambient relative flex shrink-0 flex-col border-r border-line chrome-sunken",
         !resizing && "transition-[width] duration-200 ease-out-quint",
         displayedCollapsed ? "w-14" : compact ? "h-full w-full border-r-0" : undefined,
       )}

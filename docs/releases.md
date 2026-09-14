@@ -4,7 +4,10 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.12.5](https://github.com/LankfordAI/omp-ui/releases/tag/v0.12.5). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- Static chrome surfaces no longer use compositor-heavy backdrop blur, so a visible plan review dock does not force every damaged Electron frame to re-filter the title bar, sidebar, inspector rail, and dock ([#511](https://github.com/LankfordAI/omp-ui/issues/511)).
+- Native transcript streaming now avoids continuous SVG dash-offset and box-shadow animation, honors the *Glass chrome* setting across direct blur surfaces, and reduces visible transcript paint work while preserving liveness cues ([#512](https://github.com/LankfordAI/omp-ui/issues/512)).
+
+Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
@@ -134,6 +137,10 @@ The jobs run in this order:
 7. The manifest job downloads the three published update metadata files and checks their SHA-512 fields and expected distributable names. It also requires the tag version in `latest-mac.yml`. A release is complete only after this boundary check succeeds, after which the job publishes the draft (`gh release edit <tag> --draft=false`) and verifies `isDraft` is false. Until that moment the release is invisible to `releases/latest` and the releases Atom feed, so application updates and `packaging/install.sh` resolve the last completed release rather than the one still building.
 
 Do not rename release files by hand. The updater, installer, workflow assertions, and checksum generation all depend on the names above.
+
+### Promote develop to main
+
+Releases ship from `main`. Land a batch of `develop` work as a pull request whose base is `main`, and merge it with a **merge commit** (`gh pr merge --merge`) — never squash or rebase. The merge commit brings `develop`'s own SHAs into `main`'s history, so right after the merge `develop` reports 0 commits ahead and 1 behind (the merge commit, later joined by the release stamps on `main`): the ahead counter then shows only work that genuinely has not landed. A squash invents a new commit that exists only on `main`, which leaves `develop` looking dozens of commits unmerged even when the trees are byte-identical, and points blame and range math at the squash instead of the real work. Merge-commit subjects carry the promote PR number, so the nightly changelog's first-parent grep resolves them as before. The PR title should still end with the issue references the promote resolves — `(#481, #507)` — for readers of `main`. When `main` carries commits `develop` lacks (version stamps, cleared highlights), merge `main` into `develop` once before opening the PR so any conflict resolves once, on `develop`.
 
 ### Write the release highlights
 
