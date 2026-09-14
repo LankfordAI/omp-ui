@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Restored the original continuously spinning rounded input-box perimeter, while pacing the separate top/tool progress strips from visible transcript commits and making active-work dots static to cut the other perpetual compositor work ([#512](https://github.com/LankfordAI/omp-ui/issues/512)).
+Nothing since [v0.12.7](https://github.com/LankfordAI/omp-ui/releases/tag/v0.12.7). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
