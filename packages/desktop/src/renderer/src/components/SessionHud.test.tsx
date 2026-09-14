@@ -588,7 +588,7 @@ describe("SessionHud stream-stall chip (issue #228)", () => {
     expect(chip?.className).toContain("text-copper");
     expect(chip?.className).toContain("[app-region:no-drag]");
     // No pulse: a stalled stream is not "work happening right now".
-    expect(chip?.querySelector("span")?.className).not.toContain("animate-breathe");
+    expect(chip?.querySelector("span")?.className).not.toContain("active-halo");
   });
 
   it("shows the short stall label in the compact shell", () => {
@@ -642,7 +642,7 @@ describe("SessionHud hibernated label (issue #246)", () => {
     const span = host.querySelector('span[title="rpc status: hibernated"]')!;
     expect(span?.textContent?.trim()).toBe("hibernated");
     // Neutral, no pulse: liveness styling stays with the signal accent.
-    expect(span?.querySelector("span")?.className).not.toContain("animate-breathe");
+    expect(span?.querySelector("span")?.className).not.toContain("active-halo");
   });
 });
 

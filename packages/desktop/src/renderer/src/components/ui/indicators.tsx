@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, type CSSProperties } from "react";
 import { cn } from "../../lib/cn";
 import { TONE_DOT, TONE_TEXT, type Tone } from "./tone";
 
-/** A liveness dot. `pulse` is reserved for "work is happening right now". */
+/** A liveness dot. `pulse` marks active work with a static halo, not perpetual motion. */
 export function Dot({
   tone,
   pulse,
@@ -21,7 +21,7 @@ export function Dot({
         "size-1.5 shrink-0 rounded-full",
         TONE_DOT[tone],
         TONE_TEXT[tone],
-        pulse && "animate-breathe",
+        pulse && "active-halo",
         className,
       )}
     />
@@ -29,35 +29,55 @@ export function Dot({
 }
 
 /**
- * An indeterminate activity bar — the honest signal for "streaming".
- * `paused` freezes the sweep: motion means the stream is flowing, so a
- * stalled stream shows a frozen bar (ADR-0004).
+ * An indeterminate activity bar whose position advances only when its caller
+ * observes new work. No autonomous animation: a quiet stream must let the
+ * Chromium and Wayland compositors sleep between transcript commits.
  */
 export function ProgressSweep({
   tone = "signal",
   paused = false,
+  activity = 0,
 }: {
   tone?: Tone;
   paused?: boolean;
+  /** Changes once per visible work commit; magnitude is deliberately ignored. */
+  activity?: number;
 }) {
+  const sweepRef = useRef<HTMLDivElement>(null);
+  const previousActivity = useRef(activity);
+  const step = useRef(0);
+
+  useLayoutEffect(() => {
+    if (previousActivity.current === activity) return;
+    previousActivity.current = activity;
+    if (paused) return;
+    step.current = (step.current + 1) % 28;
+    sweepRef.current?.style.setProperty(
+      "transform",
+      `translateX(${-100 + (step.current * 500) / 28}%)`,
+    );
+  }, [activity, paused]);
+
   return (
     <div className="relative h-px w-full overflow-hidden bg-line">
       <div
-        className={cn(
-          "absolute inset-y-0 w-1/4 animate-sweep",
-          TONE_DOT[tone],
-          paused && "[animation-play-state:paused]",
-        )}
+        ref={sweepRef}
+        data-progress-sweep
+        data-paused={paused || undefined}
+        className={cn("absolute inset-y-0 w-1/4", TONE_DOT[tone])}
+        style={{ transform: "translateX(-100%)" }}
       />
     </div>
   );
 }
 
 /**
- * An indeterminate activity ring: one lit segment looping the host's border.
- * Render it as a direct child of the rounded, `relative` host it traces. The
- * rotor is sized only when that host changes, so animation frames stay in the
- * compositor while the draft grows and re-wraps.
+ * An indeterminate activity ring: one lit segment continuously loops the
+ * host's real rounded border. Render it as a direct child of that host; it
+ * measures the live box and follows draft growth and re-wrapping.
+ *
+ * Design contract (#512): keep the continuously animated SVG path. A conic
+ * rotor and a commit-stepped dash were both shipped and explicitly rejected.
  */
 export function PerimeterSweep({
   tone = "signal",
@@ -69,41 +89,64 @@ export function PerimeterSweep({
   segment?: number;
   className?: string;
 }) {
-  const ringRef = useRef<HTMLSpanElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const pathRef = useRef<SVGPathElement>(null);
 
   useLayoutEffect(() => {
-    const ring = ringRef.current;
-    if (ring === null) return;
-
-    const sizeRotor = () => {
-      const { width, height } = ring.getBoundingClientRect();
-      if (width <= 0 || height <= 0) return;
-      ring.style.setProperty(
-        "--perimeter-rotor-size",
-        `${Math.ceil(Math.hypot(width, height) * 1.05)}px`,
+    const svg = svgRef.current;
+    const path = pathRef.current;
+    if (svg === null || path === null) return;
+    const draw = () => {
+      const { width, height } = svg.getBoundingClientRect();
+      if (width <= 2 || height <= 2) return;
+      const host = svg.parentElement;
+      const radius =
+        parseFloat(host ? getComputedStyle(host).borderTopLeftRadius : "") || 0;
+      const stroke = 1.5;
+      const inset = stroke / 2;
+      const widthInside = width - stroke;
+      const heightInside = height - stroke;
+      const r = Math.max(
+        0,
+        Math.min(radius - inset, widthInside / 2, heightInside / 2),
+      );
+      path.setAttribute(
+        "d",
+        `M ${inset + r} ${inset} H ${inset + widthInside - r} ` +
+          `A ${r} ${r} 0 0 1 ${inset + widthInside} ${inset + r} ` +
+          `V ${inset + heightInside - r} A ${r} ${r} 0 0 1 ${inset + widthInside - r} ${inset + heightInside} ` +
+          `H ${inset + r} A ${r} ${r} 0 0 1 ${inset} ${inset + heightInside - r} ` +
+          `V ${inset + r} A ${r} ${r} 0 0 1 ${inset + r} ${inset} Z`,
       );
     };
-
-    sizeRotor();
-    const observer = new ResizeObserver(sizeRotor);
-    observer.observe(ring);
+    draw();
+    const observer = new ResizeObserver(draw);
+    observer.observe(svg);
     return () => observer.disconnect();
   }, []);
 
   return (
-    <span
-      ref={ringRef}
+    <svg
+      ref={svgRef}
       aria-hidden
       data-perimeter-sweep
       className={cn(
-        "perimeter-sweep pointer-events-none absolute inset-0 rounded-[inherit]",
+        "pointer-events-none absolute inset-0 h-full w-full",
         TONE_TEXT[tone],
         className,
       )}
-      style={{ "--perimeter-segment": `${segment}turn` } as CSSProperties}
     >
-      <span className="perimeter-sweep-rotor" />
-    </span>
+      <path
+        ref={pathRef}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        pathLength={1}
+        strokeDasharray={`${segment} ${1 - segment}`}
+        className="animate-sweep-loop motion-reduce:animate-none"
+      />
+    </svg>
   );
 }
 

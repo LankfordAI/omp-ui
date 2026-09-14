@@ -757,7 +757,7 @@ function SeriesRail({
                   className={cn(
                     "rounded-full",
                     isCurrent
-                      ? "size-2.5 bg-signal animate-breathe"
+                      ? "active-halo size-2.5 bg-signal"
                       : answered
                         ? "size-2 bg-signal"
                         : "size-2 border border-line-strong",

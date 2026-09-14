@@ -64,6 +64,7 @@ export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
   return {
     status: "ready",
     items: [],
+    transcriptRevision: 0,
     todos: [],
     model: null,
     availableModels: [],

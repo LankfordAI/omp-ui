@@ -18,7 +18,7 @@ const DONE = "✔ Done selecting";
 let root: Root | null = null;
 
 function runtime(queue: unknown[]): RpcTabState {
-  return { status: "ready", items: [], todos: [], model: null, availableModels: [], commands: [],
+  return { status: "ready", items: [], transcriptRevision: 0, todos: [], model: null, availableModels: [], commands: [],
     session: emptySessionRuntime(), stats: null, subagents: [], extensionStatus: {},
     extensionQueue: queue, busy: false, initialPrompt: null, autoTitleSent: null, hasRenamed: true,
     plan: null, planReview: null,

@@ -492,7 +492,10 @@ export function createMachinery(
     const tab = get().rpc[tabId];
     if (!tab || tab.items === batch.items) return;
     patchRuntime(tabId, { transcriptLastFlushAt: performance.now() });
-    patchRpc(tabId, { items: batch.items });
+    patchRpc(tabId, {
+      items: batch.items,
+      transcriptRevision: tab.transcriptRevision + 1,
+    });
   };
 
   /** #187's arm, verbatim semantics: one commit on the next animation frame. */
@@ -585,7 +588,10 @@ export function createMachinery(
       });
       return;
     }
-    patchRpc(tabId, { items: [...tab.items, item] });
+    patchRpc(tabId, {
+      items: [...tab.items, item],
+      transcriptRevision: tab.transcriptRevision + 1,
+    });
   };
   /**
    * Quiet commands are background sync (heartbeats, usage ticks): their
@@ -624,7 +630,7 @@ export function createMachinery(
       patchRuntime(tabId, { transcriptBatch: { ...batch, items } });
       return;
     }
-    patchRpc(tabId, { items });
+    patchRpc(tabId, { items, transcriptRevision: tab.transcriptRevision + 1 });
   };
 
 

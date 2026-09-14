@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../lib/rpc-types";
 import { backendState } from "../test/fixtures";
-import { Button, Chip, ChoiceCapsule, ConfirmDialog, Meter, Modal, PerimeterGlow, PerimeterSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
+import { Button, Chip, ChoiceCapsule, ConfirmDialog, Meter, Modal, PerimeterGlow, PerimeterSweep, ProgressSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -483,41 +483,44 @@ describe("UpdateCard", () => {
   });
 });
 
-describe("PerimeterSweep", () => {
+describe("activity sweeps", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("renders an inert toned ring with the default segment", async () => {
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 200, height: 90 } as DOMRect);
+  it("continuously spins the original rounded SVG dash", async () => {
+    vi.spyOn(SVGElement.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 200,
+      height: 90,
+    } as DOMRect);
     await render(
-      <div style={{ position: "relative", width: 200, height: 90 }}>
+      <div style={{ position: "relative", width: 200, height: 90, borderRadius: 12 }}>
         <PerimeterSweep tone="copper" />
       </div>,
     );
-    const ring = document.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
-    expect(ring.getAttribute("aria-hidden")).toBe("true");
+    const ring = document.querySelector<SVGSVGElement>("[data-perimeter-sweep]")!;
+    const path = ring.querySelector("path")!;
     expect(ring.classList.contains("text-copper")).toBe(true);
-    expect(ring.querySelector(".perimeter-sweep-rotor")).not.toBeNull();
-    expect(ring.style.getPropertyValue("--perimeter-segment")).toBe("0.2turn");
-    expect(ring.style.getPropertyValue("--perimeter-rotor-size")).toBe(
-      `${Math.ceil(Math.hypot(200, 90) * 1.05)}px`,
-    );
+    expect(path.getAttribute("stroke-linecap")).toBe("round");
+    expect(path.getAttribute("stroke-dasharray")).toBe("0.2 0.8");
+    expect(path.getAttribute("fill")).toBe("none");
+    expect(path.getAttribute("stroke")).toBe("currentColor");
+    expect(path.getAttribute("stroke-width")).toBe("1.5");
+    expect(path.getAttribute("pathLength")).toBe("1");
+    expect(path.classList.contains("animate-sweep-loop")).toBe(true);
+    expect(path.classList.contains("motion-reduce:animate-none")).toBe(true);
   });
 
-  it("sizes the rotor from live dimensions and preserves an explicit segment", async () => {
-    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 200, height: 90 } as DOMRect);
-    await render(
-      <div style={{ position: "relative", width: 200, height: 90 }}>
-        <PerimeterSweep segment={0.35} />
-      </div>,
-    );
-    const ring = document.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
-    expect(ring.style.getPropertyValue("--perimeter-segment")).toBe("0.35turn");
+  it("moves the progress strip on activity and holds while paused", async () => {
+    await render(<ProgressSweep activity={1} />);
+    const sweep = document.querySelector<HTMLElement>("[data-progress-sweep]")!;
+    expect(sweep.classList.contains("animate-sweep")).toBe(false);
+    expect(sweep.style.transform).toBe("translateX(-100%)");
 
-    rectSpy.mockReturnValue({ width: 300, height: 120 } as DOMRect);
-    act(() => { roCallback!([] as ResizeObserverEntry[], {} as ResizeObserver); });
-    expect(ring.style.getPropertyValue("--perimeter-rotor-size")).toBe(
-      `${Math.ceil(Math.hypot(300, 120) * 1.05)}px`,
-    );
+    act(() => root!.render(<ProgressSweep activity={2} />));
+    const moved = sweep.style.transform;
+    expect(moved).not.toBe("translateX(-100%)");
+
+    act(() => root!.render(<ProgressSweep activity={3} paused />));
+    expect(sweep.style.transform).toBe(moved);
   });
 });
 

@@ -28,7 +28,7 @@ let root: Root | null = null;
 
 function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
   return {
-    status: "ready", items: [], todos: [], model: null, availableModels: [], commands: [],
+    status: "ready", items: [], transcriptRevision: 0, todos: [], model: null, availableModels: [], commands: [],
     session: emptySessionRuntime(), stats: null, subagents: [], extensionStatus: {},
     extensionQueue: [], busy: false, initialPrompt: null,
     autoTitleSent: null,

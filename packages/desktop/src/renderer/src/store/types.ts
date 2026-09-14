@@ -146,6 +146,8 @@ export interface CapabilitiesToolFeedback {
 export interface RpcTabState {
   status: "starting" | "ready" | "running" | "error";
   items: RenderItem[];
+  /** Increments once per visible transcript commit; drives event-paced liveness motion. */
+  transcriptRevision: number;
   todos: TodoPhase[];
   model: ModelInfo | null;
   availableModels: ModelInfo[];

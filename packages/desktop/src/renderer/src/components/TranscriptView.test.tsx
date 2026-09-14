@@ -497,8 +497,8 @@ describe("stream-stall indicator (issue #228)", () => {
     // tooltip (#228, #179) — it does not flip to an error tone.
     const chip = el.querySelector('span[title^="No model-stream frame"]');
     expect(chip?.className).toContain("text-copper");
-    const sweep = el.querySelector(".animate-sweep");
-    expect(sweep?.className).toContain("paused");
+    const sweep = el.querySelector("[data-progress-sweep]");
+    expect(sweep?.getAttribute("data-paused")).toBe("true");
     act(() => root.unmount());
   });
 
@@ -509,8 +509,8 @@ describe("stream-stall indicator (issue #228)", () => {
     const { el, root } = render([runningTool], TAB);
     expect(el.textContent).toContain("running");
     expect(el.textContent).not.toContain("stalled");
-    const sweep = el.querySelector(".animate-sweep");
-    expect(sweep?.className).not.toContain("paused");
+    const sweep = el.querySelector("[data-progress-sweep]");
+    expect(sweep?.hasAttribute("data-paused")).toBe(false);
     act(() => root.unmount());
   });
 

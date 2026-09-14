@@ -478,6 +478,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
   return {
     status: "starting",
     items: [],
+    transcriptRevision: 0,
     todos: [],
     model: null,
     availableModels: [],
