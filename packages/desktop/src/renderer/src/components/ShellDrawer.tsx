@@ -213,7 +213,7 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
       {/* Suppressed while a handoff exists — its banner owns the exited state
           (restart the session, not the program). */}
       {exitCode !== undefined && handoff === undefined && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-void/85 backdrop-blur-sm">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-void/85 backdrop-glass">
           <p className="font-display text-sm text-ink-mid">
             {t("shell.drawer.exited")}{" "}
             <span className="font-mono tabular-nums text-rose">

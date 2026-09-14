@@ -216,9 +216,9 @@ describe("compact Composer", () => {
     useStore.setState((s) => ({ rpc: { [TAB]: { ...s.rpc[TAB]!, busy: true } } }));
     renderComposer();
     const box = document.body.querySelector("textarea")!.parentElement!.parentElement!;
-    const ring = box.querySelector("svg.text-copper")!;
+    const ring = box.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
     expect(ring).not.toBeNull();
-    expect(ring.querySelector("path[stroke-dasharray]")).not.toBeNull();
+    expect(ring.classList.contains("text-copper")).toBe(true);
   });
 });
 
@@ -1210,9 +1210,9 @@ describe("desktop Composer running sweep", () => {
     seed("running");
     renderComposer();
     const card = document.body.querySelector(".shadow-float")!;
-    const ring = card.querySelector("svg.text-copper")!;
+    const ring = card.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
     expect(ring).not.toBeNull();
-    expect(ring.querySelector("path[stroke-dasharray]")).not.toBeNull();
+    expect(ring.classList.contains("text-copper")).toBe(true);
   });
 });
 

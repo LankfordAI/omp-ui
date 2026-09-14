@@ -112,7 +112,7 @@ export function FindBar({ query, onQueryChange, matchIndex, matchCount, onPrev, 
         : t("transcript.findbar.position", { index: (matchIndex ?? 0) + 1, count: matchCount });
 
   return (
-    <div className="find-bar absolute left-1/2 top-2 z-20 -translate-x-1/2 edge-lit flex items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1.5 text-[11px] backdrop-blur">
+    <div className="find-bar absolute left-1/2 top-2 z-20 -translate-x-1/2 edge-lit flex items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1.5 text-[11px] backdrop-glass">
       <span className="shrink-0 text-ink-faint">
         <IconSearch />
       </span>
