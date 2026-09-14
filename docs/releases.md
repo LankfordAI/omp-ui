@@ -4,10 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Static chrome surfaces no longer use compositor-heavy backdrop blur, so a visible plan review dock does not force every damaged Electron frame to re-filter the title bar, sidebar, inspector rail, and dock ([#511](https://github.com/LankfordAI/omp-ui/issues/511)).
-- Native transcript streaming now avoids continuous SVG dash-offset and box-shadow animation, honors the *Glass chrome* setting across direct blur surfaces, and reduces visible transcript paint work while preserving liveness cues ([#512](https://github.com/LankfordAI/omp-ui/issues/512)).
-
-Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+Nothing since [v0.12.6](https://github.com/LankfordAI/omp-ui/releases/tag/v0.12.6). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
