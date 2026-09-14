@@ -1073,7 +1073,7 @@ export function Sidebar() {
   const sidebar = (
     <aside
       className={cn(
-        "ambient relative flex shrink-0 flex-col border-r border-line glass-sunken",
+        "ambient relative flex shrink-0 flex-col border-r border-line chrome-sunken",
         !resizing && "transition-[width] duration-200 ease-out-quint",
         displayedCollapsed ? "w-14" : compact ? "h-full w-full border-r-0" : undefined,
       )}
