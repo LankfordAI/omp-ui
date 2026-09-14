@@ -194,10 +194,12 @@ _Avoid_: OAuth key, subscription key, login provider
 
 **Attachment**:
 An image on an outgoing prompt. In rpc-ui it rides the prompt frame's `images`
-as bare base64; in a terminal tab it cannot ride the PTY at all, so it becomes
-a scratch file whose path is handed to omp's TUI as a bracketed paste
-(ADR-0006). omp re-encodes on ingest, so what returns in the transcript is
-omp's mime type, not the clipboard's.
+as bare base64, alongside an omp-ui-generated suffix that names the exact
+one-based `attachment://N` handles for that prompt; native transcript derivation
+removes the suffix while retaining the Attachment preview. In a terminal tab it
+cannot ride the PTY at all, so it becomes a scratch file whose path is handed to
+omp's TUI as a bracketed paste (ADR-0006). omp re-encodes on ingest, so what
+returns in the transcript is omp's mime type, not the clipboard's.
 _Avoid_: upload, file, media
 
 **Auto-title**:

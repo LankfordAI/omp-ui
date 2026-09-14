@@ -19,6 +19,20 @@ loop is a plain `readLines` + `JSON.parse` with no size check
 JSON line, however large. It must **not** be chunked: `rpc_chunk` is an
 outbound-only frame and an inbound one parses as an unknown command.
 
+OMP derives the current attachment inventory from the latest user or developer
+message containing images and numbers that message's images from
+`attachment://1`. Its read-tool description documents the URI shape but not the
+valid handles for the current prompt or that numbering restarts. To close that
+contract gap, omp-ui appends a deterministic routing suffix to every image-bearing
+rpc prompt. The suffix lists the exact one-based handles in the frame's image
+order and states that numbering restarts for each prompt.
+
+The suffix stays in OMP's authoritative session file so provider history retains
+the routing context. Native transcript derivation removes it only when the
+terminal suffix is canonical for the exact number of image blocks on that
+message. A malformed or count-mismatched lookalike remains visible user prose;
+the session file and OMP events are never rewritten.
+
 ## PTY — a scratch file plus a bracketed paste
 
 The PTY carries no byte channel, so the bytes are written to

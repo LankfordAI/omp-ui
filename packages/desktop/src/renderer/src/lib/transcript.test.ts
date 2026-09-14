@@ -30,6 +30,11 @@ const RESOLVED_DIRECTORY_TEXT =
   "Check @packages/desktop/src/renderer/src\n\n" +
   '<file path="packages/desktop/src/renderer/src">\ncomponents/\nlib/\n</file>';
 
+const ONE_IMAGE_CONTEXT =
+  "[omp-ui attachment routing: For tool calls, this prompt's attached image is available as attachment://1. Attachment handles restart at 1 for each prompt.]";
+const TWO_IMAGE_CONTEXT =
+  "[omp-ui attachment routing: For tool calls, this prompt's attached images are available as attachment://1, attachment://2. Attachment handles restart at 1 for each prompt.]";
+
 describe("reduceEvent message lifecycle", () => {
   it("streams user → assistant text deltas → end", () => {
     let items: RenderItem[] = [];
@@ -65,7 +70,7 @@ describe("reduceEvent message lifecycle", () => {
       message: {
         role: "user",
         content: [
-          { type: "text", text: "what colour?" },
+          { type: "text", text: `what colour?\n\n${TWO_IMAGE_CONTEXT}` },
           { type: "image", data: "AAAB", mimeType: "image/webp" },
           { type: "image", data: "AAAC", mimeType: "image/png" },
         ],
@@ -81,14 +86,22 @@ describe("reduceEvent message lifecycle", () => {
     });
   });
 
-  it("carries images on a text-free user message", () => {
-    // An image alone is a legitimate prompt, so it must not reduce to nothing.
+  it("carries images but hides routing context on a text-free user message", () => {
     const items = reduceEvent([], {
       type: "message_start",
-      message: { role: "user", content: [{ type: "image", data: "AAAB", mimeType: "image/png" }] },
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: ONE_IMAGE_CONTEXT },
+          { type: "image", data: "AAAB", mimeType: "image/png" },
+        ],
+      },
     });
-    expect(items[0]).toMatchObject({ kind: "user", text: "" });
-    expect((items[0] as { images?: unknown[] }).images).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "user",
+      text: "",
+      images: [{ data: "AAAB", mimeType: "image/png" }],
+    });
   });
 
   it("leaves images undefined on a text-only message", () => {
@@ -96,7 +109,7 @@ describe("reduceEvent message lifecycle", () => {
       type: "message_start",
       message: { role: "user", content: [{ type: "text", text: "plain" }] },
     });
-    expect((items[0] as { images?: unknown[] }).images).toBeUndefined();
+    expect(items[0]).not.toHaveProperty("images");
   });
 
   it("drops an image block with no data rather than rendering a broken img", () => {
@@ -107,7 +120,22 @@ describe("reduceEvent message lifecycle", () => {
         content: [{ type: "text", text: "x" }, { type: "image", mimeType: "image/png" }],
       },
     });
-    expect((items[0] as { images?: unknown[] }).images).toBeUndefined();
+    expect(items[0]).not.toHaveProperty("images");
+  });
+
+  it("keeps mismatched attachment routing prose visible", () => {
+    const text = `inspect\n\n${TWO_IMAGE_CONTEXT}`;
+    const items = reduceEvent([], {
+      type: "message_start",
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text },
+          { type: "image", data: "AAAB", mimeType: "image/png" },
+        ],
+      },
+    });
+    expect(items[0]).toMatchObject({ kind: "user", text });
   });
 
   it("creates a streaming item when deltas arrive without message_start", () => {
@@ -764,7 +792,7 @@ describe("historyToItems", () => {
       {
         role: "user",
         content: [
-          { type: "text", text: "what is this?" },
+          { type: "text", text: `what is this?\n\n${ONE_IMAGE_CONTEXT}` },
           { type: "image", data: "AAAB", mimeType: "image/webp" },
         ],
       },

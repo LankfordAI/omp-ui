@@ -1,4 +1,5 @@
 import { formatDuration } from "./duration";
+import { stripAttachmentRoutingContext } from "./attachment-routing";
 import { boolField, field, isObj, numField, str, strField } from "./fields";
 import { splitResolvedMentionContext } from "./mentions";
 import { parseOmpDiff, type DiffRow } from "./omp-diff";
@@ -289,25 +290,29 @@ function textFromContent(content: unknown): string {
 
 function userContentFromContent(
   content: unknown,
-): Pick<UserItem, "text" | "fileMentions"> {
-  const { text, paths } = splitResolvedMentionContext(textFromContent(content));
-  return paths.length > 0 ? { text, fileMentions: paths } : { text };
-}
-
-/**
- * Image blocks off a user message. Returns undefined rather than an empty array
- * so a text-only message carries no key at all — `UserItem` is compared by
- * identity in places, and an always-present `[]` would be noise.
- */
-function imagesFromContent(content: unknown): UserItem["images"] {
+): Pick<UserItem, "text" | "fileMentions" | "images"> {
+  const blocks = typeof content === "string" ? [] : contentBlocks(content);
+  const rawText =
+    typeof content === "string"
+      ? content
+      : blocks
+          .filter((block) => block.type === "text" && typeof block.text === "string")
+          .map((block) => block.text as string)
+          .join("\n");
   const images: NonNullable<UserItem["images"]> = [];
-  for (const block of contentBlocks(content)) {
+  for (const block of blocks) {
     if (block.type !== "image") continue;
     const data = str(block.data);
     if (data === undefined) continue;
     images.push({ data, mimeType: str(block.mimeType) ?? "image/png" });
   }
-  return images.length > 0 ? images : undefined;
+  const visibleText = stripAttachmentRoutingContext(rawText, images.length);
+  const { text, paths } = splitResolvedMentionContext(visibleText);
+  return {
+    text,
+    ...(paths.length > 0 ? { fileMentions: paths } : {}),
+    ...(images.length > 0 ? { images } : {}),
+  };
 }
 
 function thinkingFromContent(content: unknown): string {
@@ -502,7 +507,6 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
             kind: "user",
             id: `user-${++counter}`,
             ...userContentFromContent(message.content),
-            images: imagesFromContent(message.content),
             timestamp: numField(message, "timestamp") ?? Date.now(),
           },
         ];
@@ -792,7 +796,6 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         kind: "user",
         id: `user-${++counter}`,
         ...userContentFromContent(raw.content),
-        images: imagesFromContent(raw.content),
         timestamp: numField(raw, "timestamp"),
       });
       continue;
