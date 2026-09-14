@@ -1,5 +1,7 @@
+import { once } from "node:events";
 import * as fs from "node:fs";
 import * as os from "node:os";
+import { createServer } from "node:net";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
@@ -39,6 +41,7 @@ const win = {
 let base: string;
 let backend: InstanceType<typeof MainBackend>;
 let registryFile: string;
+let port: number;
 
 /** Invokes a `request` channel exactly as ipcMain.handle would. */
 function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
@@ -78,6 +81,20 @@ function connect(port: number, token: string): Promise<WebSocket> {
   });
 }
 
+/** Lets the OS select a currently free listener port instead of colliding with ephemeral clients. */
+async function availablePort(): Promise<number> {
+  const server = createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    await server[Symbol.asyncDispose]();
+    throw new Error("test listener has no TCP address");
+  }
+  await server[Symbol.asyncDispose]();
+  return address.port;
+}
+
 /** Native form POST to /login on the given port, following no redirects. */
 function postLogin(port: number, password: string): Promise<Response> {
   return fetch(`http://127.0.0.1:${port}/login`, {
@@ -100,13 +117,14 @@ function registryPassword(): { hash: string; salt: string } {
   return { hash: raw.settings.remotePasswordHash, salt: raw.settings.remotePasswordSalt };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-remote-"));
   process.env.PI_CODING_AGENT_DIR = path.join(base, "agent");
   delete process.env.XDG_DATA_HOME;
   registryFile = path.join(base, "registry.json");
   handlers.clear();
   sent.length = 0;
+  port = await availablePort();
   // No webRoot: the transport is what this suite exercises, and the 503 static branch is
   // covered by packages/server's own suite.
   backend = new MainBackend(win as never, registryFile);
@@ -141,7 +159,7 @@ describe("remote server lifecycle", () => {
   });
 
   it("starts listening on enable and answers /healthz with the token", async () => {
-    await invoke(CH.setRemotePort, 45677);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
 
     const state = lastPush();
@@ -150,48 +168,49 @@ describe("remote server lifecycle", () => {
     expect(state.urls[0]).toContain("127.0.0.1");
     expect(state.urls[0]).toContain(state.token);
 
-    const res = await fetch(`http://127.0.0.1:45677/healthz?t=${state.token}`);
+    const res = await fetch(`http://127.0.0.1:${port}/healthz?t=${state.token}`);
     expect(res.status).toBe(200);
     // The starting→listening transition is published, never skipped.
     expect(pushes().map((p) => p.status)).toContain("starting");
   });
 
   it("restarts onto a new port without touching sessions", async () => {
-    await invoke(CH.setRemotePort, 45678);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
     const before = backend.liveCount;
 
-    await invoke(CH.setRemotePort, 45679);
-    expect(lastPush().port).toBe(45679);
+    const movedPort = await availablePort();
+    await invoke(CH.setRemotePort, movedPort);
+    expect(lastPush().port).toBe(movedPort);
     expect(lastPush().status).toBe("listening");
 
-    const moved = await fetch(`http://127.0.0.1:45679/healthz?t=${token}`);
+    const moved = await fetch(`http://127.0.0.1:${movedPort}/healthz?t=${token}`);
     expect(moved.status).toBe(200);
     // The old port is genuinely released.
-    await expect(fetch(`http://127.0.0.1:45678/healthz?t=${token}`)).rejects.toThrow();
+    await expect(fetch(`http://127.0.0.1:${port}/healthz?t=${token}`)).rejects.toThrow();
     expect(backend.liveCount).toBe(before);
   });
 
   it("rejects an out-of-range port and keeps the server where it was", async () => {
-    await invoke(CH.setRemotePort, 45680);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
 
     await expect(invoke(CH.setRemotePort, 80)).rejects.toThrow(
       "port must be a whole number between 1024 and 65535",
     );
-    expect(lastPush().port).toBe(45680);
-    const still = await fetch(`http://127.0.0.1:45680/healthz?t=${token}`);
+    expect(lastPush().port).toBe(port);
+    const still = await fetch(`http://127.0.0.1:${port}/healthz?t=${token}`);
     expect(still.status).toBe(200);
   });
 
   it("regenerating the token drops connected clients and 401s the old token", async () => {
-    await invoke(CH.setRemotePort, 45681);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     const oldToken = lastPush().token;
 
-    const ws = await connect(45681, oldToken);
+    const ws = await connect(port, oldToken);
     const closed = new Promise<void>((resolve) => ws.once("close", () => resolve()));
 
     await invoke(CH.regenerateRemoteToken);
@@ -201,17 +220,17 @@ describe("remote server lifecycle", () => {
     expect(newToken).not.toBe(oldToken);
     expect(newToken).toBe(registryToken());
 
-    const stale = await fetch(`http://127.0.0.1:45681/healthz?t=${oldToken}`);
+    const stale = await fetch(`http://127.0.0.1:${port}/healthz?t=${oldToken}`);
     expect(stale.status).toBe(401);
-    const fresh = await fetch(`http://127.0.0.1:45681/healthz?t=${newToken}`);
+    const fresh = await fetch(`http://127.0.0.1:${port}/healthz?t=${newToken}`);
     expect(fresh.status).toBe(200);
   });
 
   it("mirrors a state broadcast to a connected remote client", async () => {
-    await invoke(CH.setRemotePort, 45682);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
-    const ws = await connect(45682, token);
+    const ws = await connect(port, token);
 
     const frame = new Promise<Record<string, unknown>>((resolve) => {
       const onMessage = (raw: Buffer): void => {
@@ -231,10 +250,10 @@ describe("remote server lifecycle", () => {
   });
 
   it("serves a request from the shared handler table over the socket", async () => {
-    await invoke(CH.setRemotePort, 45683);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
-    const ws = await connect(45683, token);
+    const ws = await connect(port, token);
 
     const reply = new Promise<Record<string, unknown>>((resolve) => {
       ws.once("message", (raw: Buffer) =>
@@ -250,9 +269,9 @@ describe("remote server lifecycle", () => {
   });
 
   it("returns the app-update restart handshake over the remote socket", async () => {
-    await invoke(CH.setRemotePort, 45687);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
-    const ws = await connect(45687, lastPush().token);
+    const ws = await connect(port, lastPush().token);
     const reply = new Promise<Record<string, unknown>>((resolve) => {
       ws.once("message", (raw: Buffer) =>
         resolve(JSON.parse(raw.toString("utf8")) as Record<string, unknown>),
@@ -270,19 +289,19 @@ describe("remote server lifecycle", () => {
   });
 
   it("disabling stops the listener and frees the port", async () => {
-    await invoke(CH.setRemotePort, 45684);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
-    expect((await fetch(`http://127.0.0.1:45684/healthz?t=${token}`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/healthz?t=${token}`)).status).toBe(200);
 
     await invoke(CH.setRemoteEnabled, false);
     expect(lastPush().status).toBe("stopped");
     expect(lastPush().urls).toEqual([]);
-    await expect(fetch(`http://127.0.0.1:45684/healthz?t=${token}`)).rejects.toThrow();
+    await expect(fetch(`http://127.0.0.1:${port}/healthz?t=${token}`)).rejects.toThrow();
   });
 
   it("publishes an error status when the port is already taken", async () => {
-    await invoke(CH.setRemotePort, 45685);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
 
@@ -293,24 +312,24 @@ describe("remote server lifecycle", () => {
     const ourHandlers = new Map(handlers);
     sent.length = 0;
     other.registerIpc();
-    await invoke(CH.setRemotePort, 45685);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     otherState.push(lastPush());
 
     expect(otherState[0].status).toBe("error");
-    expect(otherState[0].error).toBe("port 45685 is already in use");
+    expect(otherState[0].error).toBe(`port ${port} is already in use`);
     other.killAll();
 
     // The original listener is untouched by the failed start.
     for (const [ch, fn] of ourHandlers) handlers.set(ch, fn);
-    expect((await fetch(`http://127.0.0.1:45685/healthz?t=${token}`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/healthz?t=${token}`)).status).toBe(200);
   });
 
   it("keeps serving remote clients after the desktop window is gone", async () => {
-    await invoke(CH.setRemotePort, 45686);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     const token = lastPush().token;
-    const ws = await connect(45686, token);
+    const ws = await connect(port, token);
 
     // broadcast() must not early-return on a destroyed window, or remote clients starve.
     const destroyed = { isDestroyed: () => true, webContents: { isDestroyed: () => true, send: () => {} } };
@@ -341,14 +360,14 @@ describe("remote server lifecycle", () => {
 
 describe("remote password sign-in", () => {
   it("setting a password switches primary URLs to bare and keeps the token fallback", async () => {
-    await invoke(CH.setRemotePort, 45688);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     await invoke(CH.setRemotePassword, "correct-horse-battery");
 
     const state = lastPush();
     expect(state.status).toBe("listening");
     expect(state.hasPassword).toBe(true);
-    expect(state.urls[0]).toBe("http://127.0.0.1:45688/");
+    expect(state.urls[0]).toBe(`http://127.0.0.1:${port}/`);
     expect(state.urls[0]).not.toContain("?t=");
     expect(state.tokenUrls[0]).toContain(state.token);
 
@@ -367,27 +386,27 @@ describe("remote password sign-in", () => {
   });
 
   it("password login works end to end", async () => {
-    await invoke(CH.setRemotePort, 45689);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     await invoke(CH.setRemotePassword, "correct-horse-battery");
 
-    const res = await postLogin(45689, "correct-horse-battery");
+    const res = await postLogin(port, "correct-horse-battery");
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/");
     const cookie = res.headers.get("set-cookie");
     expect(cookie).toContain("omp_ui_token=");
     const jar = cookie!.split(";")[0];
     expect(
-      (await fetch(`http://127.0.0.1:45689/healthz`, { headers: { cookie: jar } })).status,
+      (await fetch(`http://127.0.0.1:${port}/healthz`, { headers: { cookie: jar } })).status,
     ).toBe(200);
 
-    const anon = await fetch("http://127.0.0.1:45689/", { redirect: "manual" });
+    const anon = await fetch(`http://127.0.0.1:${port}/`, { redirect: "manual" });
     expect(anon.status).toBe(302);
     expect(anon.headers.get("location")).toBe("/login");
   });
 
   it("clearing the password restores token-only behavior", async () => {
-    await invoke(CH.setRemotePort, 45690);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     await invoke(CH.setRemotePassword, "correct-horse-battery");
     expect(lastPush().hasPassword).toBe(true);
@@ -399,27 +418,27 @@ describe("remote password sign-in", () => {
     expect(cleared.tokenUrls[0]).toContain(cleared.token);
     expect(registryPassword().hash).toBe("");
 
-    const anon = await fetch("http://127.0.0.1:45690/", { redirect: "manual" });
+    const anon = await fetch(`http://127.0.0.1:${port}/`, { redirect: "manual" });
     expect(anon.status).toBe(401);
     expect(anon.headers.get("location")).toBeNull();
   });
 
   it("changing the password drops connected clients and revokes old cookies", async () => {
-    await invoke(CH.setRemotePort, 45691);
+    await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
     await invoke(CH.setRemotePassword, "correct-horse-battery");
 
-    const login = await postLogin(45691, "correct-horse-battery");
+    const login = await postLogin(port, "correct-horse-battery");
     const jar = login.headers.get("set-cookie")!.split(";")[0];
     expect(
       (
-        await fetch(`http://127.0.0.1:45691/healthz`, {
+        await fetch(`http://127.0.0.1:${port}/healthz`, {
           headers: { cookie: jar, connection: "close" },
         })
       ).status,
     ).toBe(200);
 
-    const ws = await connect(45691, lastPush().token);
+    const ws = await connect(port, lastPush().token);
     const closed = new Promise<void>((resolve) => ws.once("close", () => resolve()));
 
     await invoke(CH.setRemotePassword, "some-other-passphrase");
@@ -427,11 +446,11 @@ describe("remote password sign-in", () => {
     expect(lastPush().hasPassword).toBe(true);
 
     // The first password's session credential is dead; the token still works.
-    const stale = await fetch(`http://127.0.0.1:45691/healthz`, { headers: { cookie: jar } });
+    const stale = await fetch(`http://127.0.0.1:${port}/healthz`, { headers: { cookie: jar } });
     expect(stale.status).toBe(401);
     const token = lastPush().token;
     expect(
-      (await fetch(`http://127.0.0.1:45691/healthz?t=${token}`)).status,
+      (await fetch(`http://127.0.0.1:${port}/healthz?t=${token}`)).status,
     ).toBe(200);
   });
 });
