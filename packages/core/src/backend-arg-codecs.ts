@@ -1,6 +1,7 @@
 import { isObject } from "./guards";
 import { parseSpawnRequest } from "./spawn-request";
 import type { RpcFrame } from "./rpc/codec";
+import type { BrowserPaneInputEvent, BrowserPaneNavigate } from "./browser-pane";
 import type {
   AgentMode,
   BranchListOptions,
@@ -60,6 +61,11 @@ function codec<T>(expected: string, accepts: (value: unknown) => boolean): ArgCo
 
 export function str(): ArgCodec<string> {
   return codec("a string", (value) => typeof value === "string");
+}
+
+/** A string of at most `max` UTF-16 units; the browser pane's text and URL bounds. */
+function shortStr(max: number): ArgCodec<string> {
+  return codec(`a string of at most ${max} characters`, (value) => typeof value === "string" && value.length <= max);
 }
 
 /** Accepts anything: the remote decodes proxied args with its own codecs. */
@@ -282,6 +288,111 @@ export const scopedCapabilityMutationCodec: ArgCodec<ScopedCapabilityMutation> =
       key: str().decode(fields["key"], `${path}.key`),
       enabled: bool().decode(fields["enabled"], `${path}.enabled`),
     };
+  },
+};
+
+const browserPaneModifiersCodec = optional(
+  arrayOf(oneOf("shift", "control", "alt", "meta", "capsLock", "isKeypad", "left", "middle", "right")),
+);
+const browserPaneMouseButtonCodec = optional(oneOf("left", "middle", "right"));
+/** Finite and within the viewport bound; input beyond it is a malformed tuple, not a clamp. */
+const paneCoord: ArgCodec<number> = codec(
+  "a pane coordinate",
+  (value) => typeof value === "number" && Number.isFinite(value) && value >= -1 && value <= 8192,
+);
+
+/**
+ * Renderer input into the browser pane (#529): Electron's sendInputEvent
+ * unions plus insertText and the edit verbs, decoded strictly per arm so a
+ * half-formed event is rejected, never partially dispatched.
+ */
+export const browserPaneInputCodec: ArgCodec<BrowserPaneInputEvent> = {
+  expected: "a browser pane input event",
+  decode(value, path) {
+    const fields = record().decode(value, path);
+    const type = oneOf(
+      "mouseDown",
+      "mouseUp",
+      "mouseMove",
+      "mouseLeave",
+      "mouseWheel",
+      "keyDown",
+      "keyUp",
+      "char",
+      "insertText",
+      "edit",
+    ).decode(fields["type"], `${path}.type`);
+    switch (type) {
+      case "mouseDown":
+      case "mouseUp":
+      case "mouseMove":
+      case "mouseLeave":
+        exactKeys(fields, ["type", "x", "y", "button", "clickCount", "modifiers"], path);
+        return {
+          type,
+          x: paneCoord.decode(fields["x"], `${path}.x`),
+          y: paneCoord.decode(fields["y"], `${path}.y`),
+          button: browserPaneMouseButtonCodec.decode(fields["button"], `${path}.button`),
+          clickCount: optional(num()).decode(fields["clickCount"], `${path}.clickCount`),
+          modifiers: browserPaneModifiersCodec.decode(fields["modifiers"], `${path}.modifiers`),
+        };
+      case "mouseWheel":
+        exactKeys(
+          fields,
+          ["type", "x", "y", "deltaX", "deltaY", "hasPreciseScrollingDeltas", "modifiers"],
+          path,
+        );
+        return {
+          type,
+          x: paneCoord.decode(fields["x"], `${path}.x`),
+          y: paneCoord.decode(fields["y"], `${path}.y`),
+          deltaX: num().decode(fields["deltaX"], `${path}.deltaX`),
+          deltaY: num().decode(fields["deltaY"], `${path}.deltaY`),
+          hasPreciseScrollingDeltas: bool().decode(
+            fields["hasPreciseScrollingDeltas"],
+            `${path}.hasPreciseScrollingDeltas`,
+          ),
+          modifiers: browserPaneModifiersCodec.decode(fields["modifiers"], `${path}.modifiers`),
+        };
+      case "keyDown":
+      case "keyUp":
+      case "char":
+        exactKeys(fields, ["type", "keyCode", "modifiers"], path);
+        return {
+          type,
+          keyCode: shortStr(64).decode(fields["keyCode"], `${path}.keyCode`),
+          modifiers: browserPaneModifiersCodec.decode(fields["modifiers"], `${path}.modifiers`),
+        };
+      case "insertText":
+        exactKeys(fields, ["type", "text"], path);
+        return { type, text: shortStr(16_384).decode(fields["text"], `${path}.text`) };
+      case "edit":
+        exactKeys(fields, ["type", "command"], path);
+        return {
+          type,
+          command: oneOf("selectAll", "copy", "paste", "cut", "undo", "redo").decode(
+            fields["command"],
+            `${path}.command`,
+          ),
+        };
+    }
+  },
+};
+
+export const browserPaneNavigateCodec: ArgCodec<BrowserPaneNavigate> = {
+  expected: "a browser pane navigation",
+  decode(value, path) {
+    const fields = record().decode(value, path);
+    const action = oneOf("goto", "back", "forward", "reload", "stop").decode(
+      fields["action"],
+      `${path}.action`,
+    );
+    if (action === "goto") {
+      exactKeys(fields, ["action", "url"], path);
+      return { action, url: shortStr(8_192).decode(fields["url"], `${path}.url`) };
+    }
+    exactKeys(fields, ["action"], path);
+    return { action };
   },
 };
 
