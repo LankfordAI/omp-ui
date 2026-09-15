@@ -141,6 +141,15 @@ a subagent cannot be prompted or steered. It is a view onto the same live
 session, never a separate session or tab.
 _Avoid_: subagent tab, agent window, subagent chat
 
+**Browser pane**:
+A web page shown beside the native transcript of an rpc-ui tab, driven by the
+session's agent as live as the transcript is. It is a view onto the same live
+session, never a **Tab**, and not one of the **Inspector rail**'s five panes:
+its fullscreen mode takes the transcript's column, not the rail's strip.
+Handing a page to the prompt is an **Attachment** of the rendered page plus
+the URL as text.
+_Avoid_: browser tab, web tab, sixth pane
+
 **Session HUD**:
 The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
 meter, spend, and the session controls (compact, auto-compact, export, branch,
