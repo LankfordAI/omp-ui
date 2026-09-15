@@ -13,7 +13,15 @@ import { useCompactShell, useViewportWidth } from "../../lib/responsive";
 import { useStore } from "../../store";
 import { IconButton, IconClose, Label, ResizeHandle, Sheet } from "../ui";
 import { BrowserPaneBody, BrowserToolbar, FrameCanvas } from "./pane";
-import { SPLIT_DEFAULT_WIDTH, SPLIT_MIN_WIDTH, setPaneOpen, setSplitWidth, useBrowserPane } from "./state";
+import {
+  SPLIT_DEFAULT_WIDTH,
+  SPLIT_MIN_WIDTH,
+  setFullscreen,
+  setPaneOpen,
+  setSplitWidth,
+  useBrowserPane,
+  usePrototypeVariant,
+} from "./state";
 
 /* -------------------------------------------------------------- A: split */
 
@@ -33,7 +41,8 @@ export function BrowserSplit({ tabId }: { tabId: string }) {
   const [preview, setPreview] = useState<number | null>(null);
   const [resizing, setResizing] = useState(false);
 
-  if (!pane.open) return null;
+  // Verdict follow-up: while fullscreen the split yields to BrowserColumnView.
+  if (!pane.open || pane.fullscreen) return null;
 
   if (compact) {
     return (
@@ -97,15 +106,17 @@ export function BrowserSplit({ tabId }: { tabId: string }) {
  * compact shell the composer is in flow and the inset is unset.
  */
 export function BrowserColumnView({ tabId }: { tabId: string }) {
+  // In A the view is the split's fullscreen state: "back" contracts to the split.
+  const fromSplit = usePrototypeVariant() === "A";
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line-soft px-4 py-2">
         <button
           type="button"
-          onClick={() => setPaneOpen(tabId, false)}
+          onClick={() => (fromSplit ? setFullscreen(tabId, false) : setPaneOpen(tabId, false))}
           className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint transition-colors hover:bg-hover hover:text-ink-mid"
         >
-          ← transcript
+          {fromSplit ? "← split" : "← transcript"}
         </button>
         <div className="min-w-0 flex-1">
           <BrowserToolbar tabId={tabId} className="border-b-0 px-0 py-0" />

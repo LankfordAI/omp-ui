@@ -14,7 +14,7 @@ export const PROTOTYPE_ACTIVE: boolean =
 export const VARIANTS = ["A", "B", "C"] as const;
 export type Variant = (typeof VARIANTS)[number];
 export const VARIANT_NAMES: Record<Variant, string> = {
-  A: "Split beside the transcript",
+  A: "Split beside the transcript (⤢ fullscreen → full column)",
   B: "Sixth inspector-rail pane",
   C: "Full-column view",
 };
@@ -73,6 +73,8 @@ export interface BrowserPaneState {
   agentCursor: { x: number; y: number } | null;
   /** Variant A only. */
   splitWidth: number;
+  /** Variant A only (verdict follow-up): the split expanded into the full-column view. */
+  fullscreen: boolean;
 }
 
 export const SPLIT_DEFAULT_WIDTH = 560;
@@ -90,6 +92,7 @@ const EMPTY: BrowserPaneState = {
   agentConnected: false,
   agentCursor: null,
   splitWidth: SPLIT_DEFAULT_WIDTH,
+  fullscreen: false,
 };
 
 const panes = new Map<string, BrowserPaneState>();
@@ -151,6 +154,10 @@ export function normalizeUrl(input: string): string | null {
   } catch {
     return null;
   }
+}
+
+export function setFullscreen(tabId: string, on: boolean): void {
+  if (getPane(tabId).fullscreen !== on) update(tabId, { fullscreen: on });
 }
 
 /** The 900 ms loading sweep plus the 3 s source chip; replaces both pending timers. */

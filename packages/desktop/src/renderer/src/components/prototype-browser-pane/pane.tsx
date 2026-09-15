@@ -14,8 +14,10 @@ import {
   navigate,
   normalizeUrl,
   reload,
+  setFullscreen,
   setSimulateAgent,
   useBrowserPane,
+  usePrototypeVariant,
 } from "./state";
 
 /** Globe glyph for a 16-unit viewBox; the HUD toggle, the rail's TabIcon, and the palette row share it. */
@@ -41,6 +43,19 @@ function IconOpenExternal() {
     <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
       <path d="M6.5 3.5H4.2A1.7 1.7 0 0 0 2.5 5.2v6.6a1.7 1.7 0 0 0 1.7 1.7h6.6a1.7 1.7 0 0 0 1.7-1.7V9.5" {...ICON_STROKE} />
       <path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5" {...ICON_STROKE} />
+    </svg>
+  );
+}
+
+/** Expand / contract corners — the A↔C fullscreen toggle (verdict follow-up). */
+function IconFullscreen({ on }: { on: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
+      {on ? (
+        <path d="M6.5 2.5v4h-4M9.5 13.5v-4h4M2.5 6.5l4-4M13.5 9.5l-4 4" {...ICON_STROKE} />
+      ) : (
+        <path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5l-4 4M2.5 13.5l4-4" {...ICON_STROKE} />
+      )}
     </svg>
   );
 }
@@ -102,6 +117,7 @@ const ROW = "flex shrink-0 items-center gap-1 border-b border-line-soft px-2 py-
  */
 export function BrowserToolbar({ tabId, dense = false, className }: { tabId: string; dense?: boolean; className?: string }) {
   const state = useBrowserPane(tabId);
+  const variant = usePrototypeVariant();
   const [draft, setDraft] = useState(state.url ?? "");
   const input = useRef<HTMLInputElement>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -196,6 +212,15 @@ export function BrowserToolbar({ tabId, dense = false, className }: { tabId: str
         onClick={() => setNote(NOTE_TEXT[attachToPrompt(tabId)])}
       />
       {note !== null && <span className="shrink-0 font-mono text-[10px] text-ink-faint">{note}</span>}
+      {variant === "A" && (
+        <IconButton
+          label={state.fullscreen ? "exit fullscreen (back to the split)" : "fullscreen (take over the column)"}
+          className={cn(state.fullscreen && "bg-raised text-ink")}
+          onClick={() => setFullscreen(tabId, !state.fullscreen)}
+        >
+          <IconFullscreen on={state.fullscreen} />
+        </IconButton>
+      )}
     </>
   );
 

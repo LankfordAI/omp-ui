@@ -155,10 +155,12 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   const planReviewOpen = rpc?.planReview != null && rpc.planDeferred !== true;
   const items = rpc?.items ?? NO_ITEMS;
   const viewingSubagent = rpc?.selectedSubagent ?? null;
-  // PROTOTYPE (#527): variant C takes over the transcript slot while open.
+  // PROTOTYPE (#527): variant C takes over the transcript slot while open;
+  // so does variant A once its split is expanded to fullscreen (the verdict).
   const variant = usePrototypeVariant();
   const pane = useBrowserPane(tabId);
-  const browserColumn = variant === "C" && pane.open && viewingSubagent === null;
+  const browserColumn =
+    (variant === "C" || (variant === "A" && pane.fullscreen)) && pane.open && viewingSubagent === null;
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   /** Latched on the first local prompt: the hero docks now, not a round-trip later. */
   const [prompted, setPrompted] = useState(false);
