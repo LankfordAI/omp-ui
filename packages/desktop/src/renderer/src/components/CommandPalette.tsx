@@ -8,6 +8,8 @@ import { currentLocaleId, useT } from "../lib/i18n";
 import { findRecord, sessionCwd, useStore } from "../store";
 import { Chip, Dot, Label, Modal, type Tone } from "./ui";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
+// PROTOTYPE (#527)
+import { PROTOTYPE_ACTIVE, toggleBrowserPane } from "./prototype-browser-pane";
 
 /**
  * The one keyboard surface for "go somewhere / do something". Anything the
@@ -175,6 +177,16 @@ export function CommandPalette() {
           desc: t("palette.action.retitleDesc", { title }),
           run: () => void regenerateSessionTitle(tab.tabId),
         });
+        // PROTOTYPE (#527): static name, so the memo deps need no addition.
+        if (PROTOTYPE_ACTIVE) {
+          out.push({
+            id: "session:browser-pane",
+            group: t("palette.group.session"),
+            name: "Toggle browser pane",
+            desc: "PROTOTYPE #527 — show or hide the pane for this session",
+            run: () => toggleBrowserPane(tab.tabId),
+          });
+        }
       }
       // The session-pinned viewer (#379's door): live roster, session-local
       // switches, MCP runtime status, resolved at the session's own working
