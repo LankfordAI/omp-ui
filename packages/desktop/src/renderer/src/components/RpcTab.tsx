@@ -14,6 +14,8 @@ import { RemoteInstanceBanner } from "./RemoteInstanceBanner";
 import { SessionHud } from "./SessionHud";
 import { SubagentView } from "./SubagentView";
 import { TranscriptView, TuiHandoffButton } from "./TranscriptView";
+// PROTOTYPE (#527)
+import { BrowserColumnView, BrowserSplit, useBrowserPane, usePrototypeVariant } from "./prototype-browser-pane";
 import { Button, Chip, CopyButton, Panel, ProgressSweep } from "./ui";
 
 const NO_ITEMS: never[] = [];
@@ -153,6 +155,12 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   const planReviewOpen = rpc?.planReview != null && rpc.planDeferred !== true;
   const items = rpc?.items ?? NO_ITEMS;
   const viewingSubagent = rpc?.selectedSubagent ?? null;
+  // PROTOTYPE (#527): variant C takes over the transcript slot while open;
+  // so does variant A once its split is expanded to fullscreen (the verdict).
+  const variant = usePrototypeVariant();
+  const pane = useBrowserPane(tabId);
+  const browserColumn =
+    (variant === "C" || (variant === "A" && pane.fullscreen)) && pane.open && viewingSubagent === null;
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   /** Latched on the first local prompt: the hero docks now, not a round-trip later. */
   const [prompted, setPrompted] = useState(false);
@@ -165,6 +173,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   // Boot shares the hero geometry: the composer is centered from the first
   // skeleton frame, so nothing moves when the session turns ready.
   const centered =
+    !browserColumn && // PROTOTYPE (#527)
     !compact &&
     exitCode === undefined &&
     !prompted &&
@@ -305,7 +314,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
           subagent view or plan-review dock owns the surface — or the tab has
           exited — it is hidden but the session (query, index, store flag) is
           preserved. */}
-      {searchOpen && viewingSubagent === null && !planReviewOpen && exitCode === undefined && (
+      {searchOpen && viewingSubagent === null && !planReviewOpen && exitCode === undefined && !browserColumn /* PROTOTYPE (#527) */ && (
         <FindBar
           query={query}
           onQueryChange={setQuery}
@@ -390,7 +399,9 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                     execution destination survives reopening the same gate. */}
                 {active && rpc?.planReview != null && <PlanReview tabId={tabId} fill />}
                 {(!planReviewOpen || !active) &&
-                  (centered ? (
+                  (browserColumn ? (
+                    <BrowserColumnView tabId={tabId} /> /* PROTOTYPE (#527) */
+                  ) : centered ? (
                     hero ? (
                       <HeroGreeting projectCwd={projectCwd} />
                     ) : (
@@ -442,6 +453,8 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
               </>
             )}
           </div>
+          {/* PROTOTYPE (#527): variant A's split, between the column and the rail. */}
+          {variant === "A" && <BrowserSplit tabId={tabId} />}
           <InspectorRail tabId={tabId} />
         </div>
         <ConsoleDrawer tabId={tabId} />
