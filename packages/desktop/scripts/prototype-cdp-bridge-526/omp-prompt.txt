@@ -1,0 +1,15 @@
+PROTOTYPE (#526) — throwaway; not product code. (This line is a file marker; ignore it.)
+
+Using the eval tool with language "js", run these two cells in order, exactly as written, and report each raw result (or error message) verbatim. Do not use any other tool.
+
+Cell 1:
+const tab = await browser.open({ name: "pane", url: "__DEV_URL__", app: { cdp_url: "__CDP_URL__" } });
+await tab.run("await page.click('#btn');");
+await tab.type("#input", "from omp");
+const info = await tab.run("return { title: await tab.title(), out: await page.evaluate(() => document.querySelector('#out').textContent), ua: await page.evaluate(() => navigator.userAgent), pages: (await browser.pages()).length };");
+await tab.screenshot();
+return info;
+
+Cell 2:
+await browser.close({ all: true });
+return "released";
