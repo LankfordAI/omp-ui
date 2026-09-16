@@ -58,6 +58,8 @@ const mockBackend = {
   onFocusSession: vi.fn(),
   onShellData: vi.fn(),
   onShellExit: vi.fn(),
+  onBrowserPaneFrame: vi.fn(),
+  onBrowserPaneState: vi.fn(),
   shellSpawn: vi.fn(),
   shellKill: vi.fn(),
   shellWrite: vi.fn(),
@@ -206,6 +208,7 @@ const SEED_SNAPSHOT: DesktopViewStateV1 = {
   focusedTabByProject: { "/p/a": "pty-1", "/p/b": "rpc-1", "/p/x": "deleted-1", "/p/y": "gone-1" },
   sidebarWidth: 416,
   inspectorWidth: 256,
+  browserPaneWidth: 720,
 };
 const SEED_JSON = JSON.stringify(SEED_SNAPSHOT);
 const seedSnapshot = (): void =>
@@ -273,6 +276,7 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     expect(st.focusedTabByProject).toEqual({ "/p/a": "pty-1", "/p/b": "rpc-1" });
     expect(st.sidebarWidth).toBe(416);
     expect(st.inspectorWidth).toBe(256);
+    expect(st.browserPaneWidth).toBe(720);
     expect(st.restoringTabs).toBe(false);
     expect(snapshots).toHaveLength(2);
     for (const snapshot of snapshots) {

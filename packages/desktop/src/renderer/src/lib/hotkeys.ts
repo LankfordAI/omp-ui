@@ -81,12 +81,32 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
 }
 
+/** Every mounted map's latest-ref, so a focused surface can ask before it swallows a chord. */
+const mounted = new Set<{ current: HotkeyMap }>();
+
+/**
+ * Whether a keydown would fire one of the app's window-level shortcuts. The
+ * browser pane forwards keys to the page and calls preventDefault on them —
+ * except these, which stay the app's (issue #519).
+ */
+export function isAppHotkey(e: KeyboardEvent): boolean {
+  if (e.isComposing) return false;
+  for (const combo of comboCandidates(e)) {
+    for (const ref of mounted) {
+      if (ref.current[combo] === undefined) continue;
+      return combo.startsWith("mod") || !isTypingTarget(e.target);
+    }
+  }
+  return false;
+}
+
 export function useHotkeys(map: HotkeyMap): void {
   // Latest-ref so call sites can pass a fresh object literal every render.
   const mapRef = useRef(map);
   mapRef.current = map;
 
   useEffect(() => {
+    mounted.add(mapRef);
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.isComposing) return;
       for (const combo of comboCandidates(e)) {
@@ -98,6 +118,9 @@ export function useHotkeys(map: HotkeyMap): void {
       }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      mounted.delete(mapRef);
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, []);
 }

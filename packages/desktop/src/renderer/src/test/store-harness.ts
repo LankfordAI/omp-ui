@@ -26,6 +26,7 @@ import type {
   SessionCapabilitiesResult,
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
+import type { BrowserPaneEnsureResult } from "@omp-ui/core/browser-pane";
 import { backendState as makeBackendState } from "./fixtures";
 
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
@@ -295,6 +296,17 @@ const mockBackend = {
     async (instanceId: string, channel: string, args: unknown[]): Promise<unknown> => undefined,
   ),
   remoteInstanceNotify: vi.fn(),
+  // Browser pane (issue #519): a harness tab has no live process to serve a
+  // page unless a case arms one, exactly as main answers for a dormant tab.
+  browserPaneEnsure: vi.fn(
+    async (): Promise<BrowserPaneEnsureResult> => ({ status: "not-live" }),
+  ),
+  browserPaneSubscribe: vi.fn(),
+  browserPaneResize: vi.fn(),
+  browserPaneInput: vi.fn(),
+  browserPaneNavigate: vi.fn(),
+  onBrowserPaneFrame: vi.fn(),
+  onBrowserPaneState: vi.fn(),
 };
 
 // The renderer no longer uses native dialogs (issue #373): a surviving
@@ -476,6 +488,7 @@ beforeEach(() => {
     hibernated: {},
     rpc: {},
     ptyRedrawRevision: {},
+    compactSurface: null,
     compactionSettings: {},
     deleteConfirmation: null,
     lifecycleConfirmation: null,

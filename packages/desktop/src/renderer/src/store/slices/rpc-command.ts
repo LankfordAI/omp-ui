@@ -35,6 +35,7 @@ import {
   type StoreMachinery,
   type Watchers,
 } from "./shared";
+import { freshBrowserPaneView } from "./browser-pane";
 import { findOwner, findRecord } from "./view";
 import type {
   CapabilitiesToolPending,
@@ -488,6 +489,8 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     subagents: [],
     subagentItems: {},
     selectedSubagent: null,
+    browserPane: freshBrowserPaneView(),
+    composerQueue: undefined,
     subagentMarkers: new Map(),
     subagentAckLevel: undefined,
     extensionStatus: {},
@@ -574,6 +577,11 @@ export function createRpcCommandSlice(
         ...freshRpcTabState(get().state?.advisorAutoReply ?? true),
         selectedSubagent: prior?.selectedSubagent ?? null,
         subagentItems: prior?.subagentItems ?? {},
+        // The pane's open/fullscreen posture survives the reboot (#528); the
+        // ensure answer belongs to the dead process, so the component re-asks.
+        browserPane: prior
+          ? { ...prior.browserPane, ensure: "idle", state: null }
+          : freshBrowserPaneView(),
       });
       // The tab may not exist in state yet — ensure the slot exists.
       if (!get().rpc[tabId]) {

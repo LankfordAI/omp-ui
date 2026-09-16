@@ -14,12 +14,11 @@ import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
 import { findOwner, findRecord, sessionCwd, useStore, type PlanRecord, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
+import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { AGENT_TONE } from "../lib/agent-tone";
 import { compactNum, exactNum, formatCost, shortBase } from "../lib/format";
 import { TodoPanel } from "./TodoPanel";
 import { Button, Chip, CopyButton, Dot, Empty, ICON_STROKE, IconRefresh, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
-// PROTOTYPE (#527)
-import { BrowserPaneBody, IconBrowserPaths, setPaneOpen, toggleBrowserPane, useBrowserPane, usePrototypeVariant } from "./prototype-browser-pane";
 
 interface BranchDiffLoad {
   status: "idle" | "loading" | "error" | "loaded";
@@ -38,7 +37,7 @@ interface BranchDiffLoad {
  * icons. (The console moved to the composer drawer — issue #33.)
  */
 
-export type RailTab = "todos" | "agents" | "session" | "plans" | "diffs" | "browser"; // PROTOTYPE (#527): "browser"
+export type RailTab = "todos" | "agents" | "session" | "plans" | "diffs";
 
 /**
  * Rail selection is per-session and deliberately module-level: it is view
@@ -88,7 +87,6 @@ function TabIcon({ tab }: { tab: RailTab }) {
           <path d="M6 2H4.4A1.4 1.4 0 0 0 3 3.4v1.8M10 14h1.6a1.4 1.4 0 0 0 1.4-1.4v-1.8" {...ICON_STROKE} />
         </>
       )}
-      {tab === "browser" && <IconBrowserPaths /> /* PROTOTYPE (#527) */}
     </svg>
   );
 }
@@ -650,7 +648,6 @@ export function inspectorBadges(runtime: RpcTabState | undefined): Record<RailTa
     session: 0,
     plans: runtime?.planReview ? 1 : 0,
     diffs: 0,
-    browser: 0, // PROTOTYPE (#527)
   };
 }
 
@@ -668,11 +665,10 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   const setInspectorWidth = useStore((s) => s.setInspectorWidth);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+  const browserPaneWidth = useStore((s) => s.browserPaneWidth);
+  const browserPaneOpen = useBrowserPaneSplitOpen(tabId);
   const [previewWidth, setPreviewWidth] = useState<number | null>(null);
   const [resizing, setResizing] = useState(false);
-  // PROTOTYPE (#527): the pane store is the single truth; the rail follows it in B.
-  const variant = usePrototypeVariant();
-  const browserPane = useBrowserPane(tabId);
 
   const lastTabId = useRef(tabId);
   if (lastTabId.current !== tabId) {
@@ -684,23 +680,6 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   useEffect(() => {
     setPreviewWidth(null);
   }, [inspectorWidth]);
-  // PROTOTYPE (#527): mirror the pane store into the rail selection.
-  useEffect(() => {
-    if (variant === "B" && browserPane.open) {
-      selectedTab.set(tabId, "browser");
-      setTab("browser");
-      if (!compact && !open) setOpen(true);
-      return;
-    }
-    if (tab === "browser") {
-      // Pane closed, or the variant moved away from B.
-      selectedTab.set(tabId, "todos");
-      setTab("todos");
-      if (!compact) setOpen(false);
-    }
-    // Deliberately keyed on the store, not `tab`/`open`: a user leaving the
-    // pane writes the store first (see `select`), so the effect never fights.
-  }, [variant, browserPane.open]);
 
   const resolvedWidths = resolveDesktopPanelWidths({
     viewportWidth,
@@ -708,23 +687,15 @@ export function InspectorRail({ tabId }: { tabId: string }) {
     inspectorWidth,
     sidebarCollapsed,
     inspectorOpen: open,
+    browserPaneWidth,
+    browserPaneOpen,
   });
   const displayedInspectorWidth = previewWidth ?? resolvedWidths.inspectorWidth;
   const badges = inspectorBadges(runtime);
   const close = (): void => {
-    if (tab === "browser") setPaneOpen(tabId, false); // PROTOTYPE (#527)
     setOpen(false);
   };
   const select = (next: RailTab): void => {
-    // PROTOTYPE (#527): the browser pane's open state lives in its own store.
-    if (next === "browser") {
-      setPaneOpen(tabId, !(browserPane.open && (compact || open)));
-      return;
-    }
-    // Leaving the browser pane for another pane closes it; React batches
-    // setTab(next) with the store write, so the mirror effect sees tab !==
-    // "browser" and does nothing.
-    if (tab === "browser" && browserPane.open) setPaneOpen(tabId, false);
     // Re-pressing the active icon dismisses the pane back to the strip.
     if (!compact && next === tab && open) {
       close();
@@ -743,20 +714,13 @@ export function InspectorRail({ tabId }: { tabId: string }) {
       {tab === "session" && <SessionPane tabId={tabId} />}
       {tab === "plans" && <PlansPane tabId={tabId} />}
       {tab === "diffs" && <DiffsPane tabId={tabId} />}
-      {/* PROTOTYPE (#527): the compact sheet body scrolls, so the canvas needs its own height. */}
-      {tab === "browser" && !compact && <BrowserPaneBody tabId={tabId} dense />}
-      {tab === "browser" && compact && (
-        <div className="h-[60dvh]">
-          <BrowserPaneBody tabId={tabId} dense />
-        </div>
-      )}
     </>
   );
 
   if (compact) {
     return (
       <Sheet open={surface === "inspector"} placement="right" label={t("rail.chrome.inspector")} onClose={closeCompactSurface}>
-        <div className={cn("sticky top-0 z-10 grid border-b border-line bg-sunken", variant === "B" ? "grid-cols-6" : "grid-cols-5")}>
+        <div className="sticky top-0 z-10 grid grid-cols-5 border-b border-line bg-sunken">
           {TABS.map(({ id, labelKey }) => {
             const label = t(labelKey);
             return (
@@ -778,24 +742,6 @@ export function InspectorRail({ tabId }: { tabId: string }) {
             </button>
             );
           })}
-          {/* PROTOTYPE (#527): sixth tab in the compact inspector sheet. */}
-          {variant === "B" && (
-            <button
-              type="button"
-              title="Browser"
-              aria-pressed={tab === "browser"}
-              onClick={() => select("browser")}
-              className={cn(
-                "relative flex min-h-12 flex-col items-center justify-center gap-0.5 text-[10px] transition-colors",
-                tab === "browser" ? "bg-raised text-ink" : "text-ink-dim",
-              )}
-            >
-              <TabIcon tab="browser" />
-              <span>Browser</span>
-              {browserPane.agentConnected && <span aria-hidden className="absolute right-1.5 top-1 size-1.5 rounded-full bg-signal" />}
-              {tab === "browser" && <span aria-hidden className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ink" />}
-            </button>
-          )}
         </div>
         <div>{pane}</div>
       </Sheet>
@@ -828,7 +774,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
             onDraggingChange={setResizing}
           />
           <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2.5">
-            <Label className="min-w-0 flex-1 truncate">{tab === "browser" ? "Browser" /* PROTOTYPE (#527) */ : t(TABS.find(({ id }) => id === tab)!.labelKey)}</Label>
+            <Label className="min-w-0 flex-1 truncate">{t(TABS.find(({ id }) => id === tab)!.labelKey)}</Label>
             <IconButton label={t("rail.chrome.collapse")} onClick={close}>
               <IconCollapse />
             </IconButton>
@@ -846,28 +792,6 @@ export function InspectorRail({ tabId }: { tabId: string }) {
           </button>
           );
         })}
-        {/* PROTOTYPE (#527): the "rail strip icon" toggle candidate. In B it is
-            the pane's own icon; in A/C a hairline-separated toggle for a surface
-            that is not a rail pane. */}
-        {variant !== null && (
-          <>
-            {variant !== "B" && <span aria-hidden className="my-1 h-px w-5 bg-line" />}
-            <button
-              type="button"
-              title="Browser (prototype)"
-              aria-label="Browser"
-              aria-pressed={variant === "B" ? open && tab === "browser" : browserPane.open}
-              onClick={() => (variant === "B" ? select("browser") : toggleBrowserPane(tabId))}
-              className={cn(
-                "relative grid size-7 place-items-center rounded-md transition-colors",
-                (variant === "B" ? open && tab === "browser" : browserPane.open) ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid",
-              )}
-            >
-              <TabIcon tab="browser" />
-              {browserPane.agentConnected && <span aria-hidden className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-signal" />}
-            </button>
-          </>
-        )}
       </div>
     </aside>
   );
