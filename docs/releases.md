@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Native image prompts now give the model exact per-prompt Attachment handles, avoiding failed lookup and retry turns ([#518](https://github.com/LankfordAI/omp-ui/issues/518)).
+- Native tabs gain a Browser pane: a live page beside the transcript that you and the agent share, with a screenshot-plus-URL "attach page to prompt" hand-back; browser clients and joined instances see and drive it too ([#519](https://github.com/LankfordAI/omp-ui/issues/519), [ADR-0029](adr/0029-browser-pane-offscreen-webcontents-and-loopback-cdp-bridge.md)).
 
 
 ## Choose a download

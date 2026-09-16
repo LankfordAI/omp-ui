@@ -14,9 +14,9 @@ import { RemoteInstanceBanner } from "./RemoteInstanceBanner";
 import { SessionHud } from "./SessionHud";
 import { SubagentView } from "./SubagentView";
 import { TranscriptView, TuiHandoffButton } from "./TranscriptView";
-// PROTOTYPE (#527)
-import { BrowserColumnView, BrowserSplit, useBrowserPane, usePrototypeVariant } from "./prototype-browser-pane";
-import { Button, Chip, CopyButton, Panel, ProgressSweep } from "./ui";
+import { Button, Chip, CopyButton, Panel, ProgressSweep, Sheet } from "./ui";
+import { BrowserPane } from "./browser-pane/BrowserPane";
+import { BrowserPaneSplit, useDesktopPanelWidths } from "./browser-pane/BrowserPaneSplit";
 
 const NO_ITEMS: never[] = [];
 
@@ -155,12 +155,16 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   const planReviewOpen = rpc?.planReview != null && rpc.planDeferred !== true;
   const items = rpc?.items ?? NO_ITEMS;
   const viewingSubagent = rpc?.selectedSubagent ?? null;
-  // PROTOTYPE (#527): variant C takes over the transcript slot while open;
-  // so does variant A once its split is expanded to fullscreen (the verdict).
-  const variant = usePrototypeVariant();
-  const pane = useBrowserPane(tabId);
-  const browserColumn =
-    (variant === "C" || (variant === "A" && pane.fullscreen)) && pane.open && viewingSubagent === null;
+  // The browser pane (issue #519) sits beside the transcript as a split; when
+  // fullscreen — or when the width budget cannot seat the split at its
+  // minimum — it owns the transcript column instead. The compact shell shows
+  // it as a bottom sheet, so neither desktop posture applies there.
+  const pane = rpc?.browserPane;
+  const resolved = useDesktopPanelWidths(tabId);
+  const paneColumn =
+    pane?.open === true && (pane.fullscreen || !resolved.browserPaneFits) && !compact;
+  const surface = useStore((s) => s.compactSurface);
+  const closeBrowserPane = useStore((s) => s.closeBrowserPane);
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   /** Latched on the first local prompt: the hero docks now, not a round-trip later. */
   const [prompted, setPrompted] = useState(false);
@@ -173,12 +177,12 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   // Boot shares the hero geometry: the composer is centered from the first
   // skeleton frame, so nothing moves when the session turns ready.
   const centered =
-    !browserColumn && // PROTOTYPE (#527)
     !compact &&
     exitCode === undefined &&
     !prompted &&
     (status === "starting" || status === "ready") &&
-    preExchange(items);
+    preExchange(items) &&
+    !paneColumn;
   const hero = centered && status === "ready";
   /**
    * The composer floats over the transcript instead of sitting under it
@@ -314,7 +318,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
           subagent view or plan-review dock owns the surface — or the tab has
           exited — it is hidden but the session (query, index, store flag) is
           preserved. */}
-      {searchOpen && viewingSubagent === null && !planReviewOpen && exitCode === undefined && !browserColumn /* PROTOTYPE (#527) */ && (
+      {searchOpen && viewingSubagent === null && !planReviewOpen && exitCode === undefined && (
         <FindBar
           query={query}
           onQueryChange={setQuery}
@@ -399,8 +403,17 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                     execution destination survives reopening the same gate. */}
                 {active && rpc?.planReview != null && <PlanReview tabId={tabId} fill />}
                 {(!planReviewOpen || !active) &&
-                  (browserColumn ? (
-                    <BrowserColumnView tabId={tabId} /> /* PROTOTYPE (#527) */
+                  (paneColumn ? (
+                    /* The subagent view above already owns the column, so this
+                       is the main transcript slot: the page sits above the
+                       composer, never under its glass (#527) — the column view
+                       keeps the floating inset. */
+                    <div
+                      className="flex min-h-0 flex-1 flex-col"
+                      style={{ paddingBottom: "var(--transcript-bottom-inset, 0px)" }}
+                    >
+                      <BrowserPane tabId={tabId} posture="column" />
+                    </div>
                   ) : centered ? (
                     hero ? (
                       <HeroGreeting projectCwd={projectCwd} />
@@ -453,11 +466,22 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
               </>
             )}
           </div>
-          {/* PROTOTYPE (#527): variant A's split, between the column and the rail. */}
-          {variant === "A" && <BrowserSplit tabId={tabId} />}
+          {pane?.open === true && !paneColumn && !compact && <BrowserPaneSplit tabId={tabId} />}
           <InspectorRail tabId={tabId} />
         </div>
         <ConsoleDrawer tabId={tabId} />
+        {compact && (
+          <Sheet
+            open={surface === "browser-pane"}
+            placement="bottom"
+            label={t("browser.sheet.label")}
+            onClose={() => closeBrowserPane(tabId)}
+          >
+            <div className="flex h-[70dvh] flex-col">
+              <BrowserPane tabId={tabId} posture="sheet" />
+            </div>
+          </Sheet>
+        )}
       </div>
 
 

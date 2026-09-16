@@ -83,6 +83,7 @@ export {
 export { mcpStatusExtensionPath, writeMcpStatusExtension } from "./mcp-status-extension";
 export { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabilities-extension";
 export { goalExtensionPath, writeGoalExtension } from "./goal-extension";
+export { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-pane-extension";
 export {
   MCP_CONNECTION_STATUS_CHANNEL,
   MCP_RUNTIME_STATUS_COMMAND,
@@ -94,6 +95,7 @@ export {
   type McpRuntimeStatus,
 } from "./mcp-status";
 export * from "./capabilities";
+export * from "./browser-pane";
 export * from "./goal";
 export {
   ADVISOR_STATS_COMMAND,

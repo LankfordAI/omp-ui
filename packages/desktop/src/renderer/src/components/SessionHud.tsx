@@ -13,11 +13,10 @@ import { findInstance, findOwner, findRecord, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { buildTitleTranscript } from "../lib/session-transcript";
 import { ConsoleToggle } from "./ConsoleDrawer";
+import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { WorktreeChip } from "./WorktreeChip";
 import { Button, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconRefresh, IconTune, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
-// PROTOTYPE (#527)
-import { BrowserPaneSheetAction, BrowserPaneToggle } from "./prototype-browser-pane";
 
 /**
  * The instrument's status bar: one line that answers "is it alive, what is it
@@ -788,7 +787,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
-          {/* PROTOTYPE (#527) */}
           <BrowserPaneToggle tabId={tabId} className="size-11" />
           <IconButton label={t("hud.actions.sessionActions")} onClick={() => showCompactSurface("session-actions")} className="size-11">
             <IconKebab />
@@ -817,8 +815,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <Button title={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.branch")}</Button>
                 <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd, undefined, instanceId); }} className={sheetAction}><IconNew />{t("hud.actions.new")}</Button>
                 <Button onClick={refresh} className={sheetAction}><IconRefresh />{t("hud.actions.refresh")}</Button>
-                {/* PROTOTYPE (#527) */}
-                <BrowserPaneSheetAction tabId={tabId} className={sheetAction} />
                 <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-3"><span className="text-xs">{t("hud.actions.autoCompact")}</span><Switch on={session?.autoCompactionEnabled ?? false} label={t("hud.actions.autoCompact")} onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
               </div>
             </div>
@@ -917,7 +913,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
         />
         <span className="mx-0.5 h-4 w-px bg-line-soft" />
         <ConsoleToggle tabId={tabId} />
-        {/* PROTOTYPE (#527) */}
         <BrowserPaneToggle tabId={tabId} />
         <IconButton label={t("hud.actions.exportTitle")} onClick={() => void exportHtml(tabId)}>
           <IconExport />

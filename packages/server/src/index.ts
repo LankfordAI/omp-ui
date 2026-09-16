@@ -4,7 +4,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
-import { dispatchNotify, dispatchRequest, type ChannelTable, type RemoteBind } from "@omp-ui/core";
+import {
+  BROWSER_PANE_LOSSY_SKIP_BYTES,
+  LOSSY_CHANNELS,
+  dispatchNotify,
+  dispatchRequest,
+  type ChannelTable,
+  type RemoteBind,
+} from "@omp-ui/core";
 import { loginPage } from "./login-page";
 import { LoginThrottle } from "./login-throttle";
 import {
@@ -404,13 +411,16 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   const unsink = host.addSink((channel, args) => {
     const payload = args[1];
     // Structural detection, not a channel allowlist: any event whose second arg is bytes rides
-    // a binary frame (pty:data, shell:data today).
+    // a binary frame (pty:data, shell:data, browser-pane:frame today).
     const frame =
       payload instanceof Uint8Array && typeof args[0] === "string"
         ? encodeBinaryEvent(channel, args[0], payload)
         : JSON.stringify(makeServerEventFrame(channel, args));
+    const lossy = LOSSY_CHANNELS.has(channel);
     for (const client of wss.clients) {
       if (client.readyState !== WebSocket.OPEN) continue;
+      // A slow client misses a lossy frame; latest wins once its socket drains (#529).
+      if (lossy && client.bufferedAmount > BROWSER_PANE_LOSSY_SKIP_BYTES) continue;
       client.send(frame);
     }
   });

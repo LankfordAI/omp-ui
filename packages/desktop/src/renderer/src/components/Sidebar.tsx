@@ -19,6 +19,7 @@ import { arrangeSessionHandoffs } from "../lib/session-handoffs";
 import { useListReorder, type ListReorderRow } from "../lib/use-list-reorder";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
+import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
 import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconGrip, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
@@ -916,6 +917,9 @@ export function Sidebar() {
   const sidebarWidth = useStore((st) => st.sidebarWidth);
   const inspectorWidth = useStore((st) => st.inspectorWidth);
   const inspectorOpen = useStore((st) => st.inspectorOpen);
+  const browserPaneWidth = useStore((st) => st.browserPaneWidth);
+  const activeTabId = useStore((st) => st.activeTabId);
+  const browserPaneOpen = useBrowserPaneSplitOpen(activeTabId);
   const setSidebarWidth = useStore((st) => st.setSidebarWidth);
   const viewportWidth = useViewportWidth();
   const [previewWidth, setPreviewWidth] = useState<number | null>(null);
@@ -1067,6 +1071,8 @@ export function Sidebar() {
     inspectorWidth,
     sidebarCollapsed: displayedCollapsed,
     inspectorOpen,
+    browserPaneWidth,
+    browserPaneOpen,
   });
   const displayedSidebarWidth = previewWidth ?? resolvedWidths.sidebarWidth;
 

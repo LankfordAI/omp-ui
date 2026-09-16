@@ -21,6 +21,8 @@ The page also lists other reachable IPv4 addresses when local-network binding is
 
 The desktop app owns the only live `MainBackend`, session registry, and running omp processes. Its local renderer and every connected browser are additional views of that same backend. A command from any view reaches the same handler, and backend events fan out to all connected views. Remote access does not copy a session or start another omp process. The same listener is what another omp-ui app joins when it adds this one as a [remote instance](remote-instances.md).
 
+The browser pane is hosted the same way. A browser connected to this app sees the pane live and can click, type, and navigate in it. Only the desktop window sizes the pane; other views scale its frames to fit their own. Frames to a slow connection are dropped rather than queued, so the desktop never waits on a remote viewer.
+
 The HTTP and WebSocket server is embedded in the Electron main process. It starts at desktop launch when remote access was left enabled and stops when the desktop app quits. Closing a browser only removes that view. When the server is running, changing the bind address, port, password, or token restarts it without stopping live sessions. Disabling remote access stops the server, and enabling it starts the server.
 
 ## Authentication

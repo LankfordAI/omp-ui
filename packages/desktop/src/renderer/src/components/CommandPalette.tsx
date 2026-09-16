@@ -8,8 +8,6 @@ import { currentLocaleId, useT } from "../lib/i18n";
 import { findRecord, sessionCwd, useStore } from "../store";
 import { Chip, Dot, Label, Modal, type Tone } from "./ui";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
-// PROTOTYPE (#527)
-import { PROTOTYPE_ACTIVE, toggleBrowserPane } from "./prototype-browser-pane";
 
 /**
  * The one keyboard surface for "go somewhere / do something". Anything the
@@ -92,6 +90,7 @@ export function CommandPalette() {
   const terminate = useStore((s) => s.terminate);
   const switchMode = useStore((s) => s.switchMode);
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
+  const toggleBrowserPane = useStore((s) => s.toggleBrowserPane);
   const checkAppUpdate = useStore((s) => s.checkAppUpdate);
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const openSettings = useStore((s) => s.openSettings);
@@ -170,23 +169,24 @@ export function CommandPalette() {
       // Re-titling is native-only (issue #433): terminal tabs are titled by
       // omp's own TUI generator and have no prompt channel to write through.
       if (tab.mode === "rpc-ui") {
-        out.push({
-          id: "session:retitle",
-          group: t("palette.group.session"),
-          name: t("palette.action.retitle"),
-          desc: t("palette.action.retitleDesc", { title }),
-          run: () => void regenerateSessionTitle(tab.tabId),
-        });
-        // PROTOTYPE (#527): static name, so the memo deps need no addition.
-        if (PROTOTYPE_ACTIVE) {
-          out.push({
+        out.push(
+          {
+            id: "session:retitle",
+            group: t("palette.group.session"),
+            name: t("palette.action.retitle"),
+            desc: t("palette.action.retitleDesc", { title }),
+            run: () => void regenerateSessionTitle(tab.tabId),
+          },
+          // The browser pane (issue #519) is native-only too: a terminal tab
+          // has no rpc channel for main to attach the page to.
+          {
             id: "session:browser-pane",
             group: t("palette.group.session"),
-            name: "Toggle browser pane",
-            desc: "PROTOTYPE #527 — show or hide the pane for this session",
+            name: t("palette.action.browserPane"),
+            desc: t("palette.action.browserPaneDesc", { title }),
             run: () => toggleBrowserPane(tab.tabId),
-          });
-        }
+          },
+        );
       }
       // The session-pinned viewer (#379's door): live roster, session-local
       // switches, MCP runtime status, resolved at the session's own working
@@ -235,7 +235,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, terminate, switchMode, regenerateSessionTitle, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

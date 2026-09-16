@@ -24,6 +24,7 @@
  * there is no need to special-case any install path.
  */
 import {
+  BROWSER_PANE_DEFAULT_WIDTH,
   clampPanelWidth,
   INSPECTOR_DEFAULT_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
@@ -52,6 +53,11 @@ export interface DesktopViewStateV1 {
   sidebarWidth: number;
   /** Open inspector pane width preference in CSS pixels. */
   inspectorWidth: number;
+  /**
+   * Split browser pane width preference in CSS pixels. Absent from snapshots
+   * written before the pane existed; the parser defaults it (#528).
+   */
+  browserPaneWidth: number;
 }
 
 /** Minimal Storage-like surface the module reads and writes through. */
@@ -116,6 +122,10 @@ export function parseDesktopView(raw: string | null): DesktopViewStateV1 | null 
     typeof value.inspectorWidth === "number" && Number.isFinite(value.inspectorWidth)
       ? clampPanelWidth("inspector", value.inspectorWidth)
       : INSPECTOR_DEFAULT_WIDTH;
+  const browserPaneWidth =
+    typeof value.browserPaneWidth === "number" && Number.isFinite(value.browserPaneWidth)
+      ? clampPanelWidth("browserPane", value.browserPaneWidth)
+      : BROWSER_PANE_DEFAULT_WIDTH;
 
   return {
     schemaVersion: 1,
@@ -125,6 +135,7 @@ export function parseDesktopView(raw: string | null): DesktopViewStateV1 | null 
     focusedTabByProject,
     sidebarWidth,
     inspectorWidth,
+    browserPaneWidth,
   };
 }
 
@@ -182,6 +193,7 @@ export interface ProjectedView {
   focusedTabByProject: Record<string, string>;
   sidebarWidth: number;
   inspectorWidth: number;
+  browserPaneWidth: number;
 }
 
 /**
@@ -209,6 +221,7 @@ export function projectDesktopView(
     focusedTabByProject: { ...view.focusedTabByProject },
     sidebarWidth: clampPanelWidth("sidebar", view.sidebarWidth),
     inspectorWidth: clampPanelWidth("inspector", view.inspectorWidth),
+    browserPaneWidth: clampPanelWidth("browserPane", view.browserPaneWidth),
   };
 }
 

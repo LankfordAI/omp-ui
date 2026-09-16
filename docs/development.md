@@ -63,6 +63,10 @@ npm run build:web --workspace @omp-ui/desktop
 # Prove the installed node-pty addon loads and spawns a shell inside Electron.
 npm run smoke:pty --workspace @omp-ui/desktop
 
+# Electron-runtime smoke of the shipped browser pane host on this machine;
+# writes out/browser-pane-smoke/summary.json; not run in CI.
+npm run smoke:browser-pane --workspace @omp-ui/desktop
+
 # Regenerate committed theme CSS from theme-sources.json.
 npm run themes:generate --workspace @omp-ui/desktop
 
@@ -164,7 +168,7 @@ The following environment variables are developer and test seams. They are not u
 | `OMP_UI_OMP_PATH` | Adds an explicit OMP executable as the first binary-resolution candidate. If it does not exist, resolution continues to the managed copy and normal search paths. |
 | `OMP_UI_INSTALL_DIR` | Overrides the directory that holds omp-ui's managed OMP executable. This is a directory, not the executable path. |
 | `OMP_UI_REGISTRY_PATH` | Replaces the main process's default `registry.json` path, which isolates a development run's app state. |
-| `OMP_UI_CDP_PORT` | Adds Electron's `remote-debugging-port` switch for programmatic renderer inspection. Set it only for a local development run. |
+| `OMP_UI_CDP_PORT` | Adds Electron's `remote-debugging-port` switch for programmatic renderer inspection. The switch is Chromium-wide, so every browser pane page is also a tokenless target on that port beside the app renderer. Set it only for a local development run. |
 | `OMP_UI_TEST_MODEL` | Pins the main model of every session this app instance spawns — fresh or resumed, terminal or native — by passing the `provider/model[:level]` selector to OMP as `--model` and writing it into the lineage's `omp-ui-model.yml` overlay as `modelRoles.default`. It overrides the project's default-model pin and last-used model, and never rewrites a registry record. A selector OMP cannot resolve fails the spawn with OMP's own message in the tab's failure surface. |
 | `OMP_UI_TEST_ADVISOR` | Pins only the advisor model, as `modelRoles.advisor` in the lineage's advisor overlay. The advisor's on/off posture still comes from the session record and the composer, so an advisor test under the gate still tests the advisor. |
 | `OMP_UI_APP_UPDATE_ENABLE=1` | Forces app-update behavior on for an unpackaged development build. |

@@ -129,6 +129,8 @@ function fakeHost(
     notify: {
       [CH.tabViewed]: (clientId: string, tabId: string | null) => record(CH.tabViewed, [clientId, tabId]),
       [CH.ptyWrite]: (tabId: string, data: string) => record(CH.ptyWrite, [tabId, data]),
+      [CH.browserPaneSubscribe]: (tabId: string, clientId: string, on: boolean) =>
+        record(CH.browserPaneSubscribe, [tabId, clientId, on]),
     },
   } as unknown as ChannelTable;
   return host;
@@ -490,6 +492,41 @@ describe("proxy and routing", () => {
     expect(h.manager.ownerOf("t-remote-1")).toBe(summary!.id);
     expect(h.broadcasts).toBeGreaterThan(before);
     expect(h.sent.map((s) => s.channel)).toEqual([CH.onPtyData]);
+  });
+
+  // #532: the browser pane crosses the relay like a shell — its subscribe
+  // notify follows the owning tab and its frames are mirrored byte-for-byte,
+  // header included, so nothing is re-encoded on the way through.
+  it("routes browser-pane:subscribe by its owning tab and mirrors frame bytes unchanged", async () => {
+    const host = fakeHost();
+    const server = await serve(host);
+    const h = harness();
+    await join(h, server.port);
+
+    const local = vi.fn();
+    const table = {
+      request: {},
+      notify: { [CH.browserPaneSubscribe]: local },
+    } as unknown as ChannelTable;
+    const routed = routeByTab(table, (id) => h.manager.ownerOf(id), h.manager);
+    const notify = routed.notify as unknown as Record<string, (...a: unknown[]) => void>;
+
+    const subscribed = host.nextNotify(CH.browserPaneSubscribe);
+    notify[CH.browserPaneSubscribe]!("t-remote", "c1", true);
+    expect(await subscribed).toEqual(["t-remote", "c1", true]);
+    expect(local).not.toHaveBeenCalled();
+
+    notify[CH.browserPaneSubscribe]!("t-local", "c1", true);
+    expect(local).toHaveBeenCalledWith("t-local", "c1", true);
+    expect(host.notified.filter((n) => n.ch === CH.browserPaneSubscribe)).toHaveLength(1);
+
+    // Header (1280×800 at dsf 1) plus two JPEG bytes: a lossy frame, mirrored intact.
+    const bytes = new Uint8Array([0x05, 0x00, 0x03, 0x20, 0x00, 0x64, 0x00, 0x00, 0xff, 0xd8]);
+    const mirrored = h.nextSent(CH.onBrowserPaneFrame);
+    host.emit(CH.onBrowserPaneFrame, ["t-remote", bytes]);
+    const args = await mirrored;
+    expect(args[0]).toBe("t-remote");
+    expect(Array.from(args[1] as Uint8Array)).toEqual(Array.from(bytes));
   });
 
   // #498: a host branch:changed is host-scoped (instanceId null). The joiner

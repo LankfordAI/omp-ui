@@ -22,6 +22,7 @@
     "package:mac": "npm run build && electron-builder --mac",
     "package:win": "npm run build && electron-builder --win --x64",
     "smoke:pty": "node scripts/smoke-node-pty.cjs",
+    "smoke:browser-pane": "electron-vite build && electron out/main/browser-pane-smoke.js",
     "icon": "node scripts/render-icon.mjs",
     "themes:generate": "node scripts/generate-theme-css.mjs",
     "themes:check": "node scripts/generate-theme-css.mjs --check",
