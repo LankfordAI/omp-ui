@@ -18,21 +18,25 @@ import { createBreadcrumbRing } from "./breadcrumbs";
 import { gateSelector, parseSpawnGate } from "./spawn-gate";
 import { shouldReloadRenderer, type ProcessDeath } from "./renderer-recovery";
 
-// Packaged, standalone unpackaged, and electron-vite runs need independent
-// userData dirs because requestSingleInstanceLock is scoped to userData. A
-// long-lived standalone run (for example, one launched by a desktop service)
-// must not make `npm run dev` start its renderer server and immediately exit.
-// The packaged name is pinned rather than derived from app.name — app.name is
-// the desktop id "ai.lankford.omp-ui" (desktopName in package.json), and
-// existing installs must keep their registry, window state, and Chromium
-// storage where they already are. electron-vite exposes ELECTRON_RENDERER_URL
-// and gets a dedicated identity. This must precede requestSingleInstanceLock
-// below.
+// Packaged, standalone unpackaged, electron-vite, and headless verification runs
+// need independent userData dirs because requestSingleInstanceLock is scoped to
+// userData. A long-lived standalone run (for example, one launched by a desktop
+// service) must not make `npm run dev` start its renderer server and immediately
+// exit, and an agent's headless run (`npm run dev:headless`, OMP_UI_HEADLESS=1)
+// must neither die on the developer's interactive dev instance nor make its
+// second-instance handler steal focus. The packaged name is pinned rather than
+// derived from app.name — app.name is the desktop id "ai.lankford.omp-ui"
+// (desktopName in package.json), and existing installs must keep their registry,
+// window state, and Chromium storage where they already are. electron-vite
+// exposes ELECTRON_RENDERER_URL and gets a dedicated identity. This must precede
+// requestSingleInstanceLock below.
 const userDataName = app.isPackaged
   ? "@omp-ui/desktop"
-  : process.env.ELECTRON_RENDERER_URL
-    ? "@omp-ui/desktop-dev-server"
-    : "@omp-ui/desktop-dev";
+  : process.env.OMP_UI_HEADLESS === "1"
+    ? "@omp-ui/desktop-dev-headless"
+    : process.env.ELECTRON_RENDERER_URL
+      ? "@omp-ui/desktop-dev-server"
+      : "@omp-ui/desktop-dev";
 app.setPath("userData", join(app.getPath("appData"), userDataName));
 // app.name is the desktop id; user-facing surfaces show the product name.
 app.setAboutPanelOptions({ applicationName: "omp-ui" });

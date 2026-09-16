@@ -41,6 +41,7 @@ The root scripts delegate to the npm workspaces where appropriate.
 |---|---|---|
 | Install dependencies | `npm install` | Installs the root and all workspace dependencies. |
 | Start the desktop app | `npm run dev` | Generates theme CSS, installs the Electron binary if needed, then starts `electron-vite dev --watch`. |
+| Start the desktop app headless | `npm run dev:headless` | Same as `npm run dev`, but Chromium runs on its headless Ozone platform so no window is mapped on your display. Uses a dedicated userData identity, a throwaway registry with OS notifications off, and CDP on `127.0.0.1:9223`. Linux only. For agent verification runs; see [Verification runs](#verification-runs). |
 | Build all app bundles | `npm run build` | Generates themes, builds Electron main/preload/renderer, then builds the remote web bundle. |
 | Package the default target | `npm run package` | Runs the Linux packaging script. |
 | Preview release notes | `npm run notes` | Runs `scripts/release-notes.mjs` to render a release's notes body locally from git history and the GitHub API, for example `npm run notes -- --tag v0.9.12 --stdout`. Read-only; writes nothing to GitHub. |
@@ -169,6 +170,7 @@ The following environment variables are developer and test seams. They are not u
 | `OMP_UI_INSTALL_DIR` | Overrides the directory that holds omp-ui's managed OMP executable. This is a directory, not the executable path. |
 | `OMP_UI_REGISTRY_PATH` | Replaces the main process's default `registry.json` path, which isolates a development run's app state. |
 | `OMP_UI_CDP_PORT` | Adds Electron's `remote-debugging-port` switch for programmatic renderer inspection. The switch is Chromium-wide, so every browser pane page is also a tokenless target on that port beside the app renderer. Set it only for a local development run. |
+| `OMP_UI_HEADLESS=1` | Selects the `@omp-ui/desktop-dev-headless` userData identity so a headless verification run never collides with — or focuses — an interactive dev instance. Set by `npm run dev:headless`; it changes nothing else. |
 | `OMP_UI_TEST_MODEL` | Pins the main model of every session this app instance spawns — fresh or resumed, terminal or native — by passing the `provider/model[:level]` selector to OMP as `--model` and writing it into the lineage's `omp-ui-model.yml` overlay as `modelRoles.default`. It overrides the project's default-model pin and last-used model, and never rewrites a registry record. A selector OMP cannot resolve fails the spawn with OMP's own message in the tab's failure surface. |
 | `OMP_UI_TEST_ADVISOR` | Pins only the advisor model, as `modelRoles.advisor` in the lineage's advisor overlay. The advisor's on/off posture still comes from the session record and the composer, so an advisor test under the gate still tests the advisor. |
 | `OMP_UI_APP_UPDATE_ENABLE=1` | Forces app-update behavior on for an unpackaged development build. |
@@ -193,10 +195,10 @@ A run that boots the app in order to drive it over CDP should pin its sessions t
 ```bash
 OMP_UI_TEST_MODEL="openrouter/openai/gpt-5.6-luna:low" \
 OMP_UI_TEST_ADVISOR="openrouter/openai/gpt-5.6-terra:low" \
-OMP_UI_REGISTRY_PATH=/tmp/omp-ui-test-registry.json \
-OMP_UI_CDP_PORT=9223 \
-npm run dev
+npm run dev:headless
 ```
+
+Verification runs boot the app headless. `dev:headless` maps no window and takes no focus, isolates the run's userData and registry (`OMP_UI_REGISTRY_PATH` defaults to a fresh temp file with `desktopNotifications` off), sizes the virtual screen to 1600x1000, and exposes CDP on `127.0.0.1:9223`; set `OMP_UI_REGISTRY_PATH` or `OMP_UI_CDP_PORT` to override. Extra Chromium switches pass through from the workspace: `npm run dev:headless --workspace @omp-ui/desktop -- --no-sandbox`. Reach for `npm run dev` only when a human needs to see the window. One headless instance runs at a time: a second one exits on the single-instance lock.
 
 That pairing — Luna as the main selector, Terra as the advisor selector — is the recommended default; `openrouter/z-ai/glm-5.3-flash:low` is the alternate main selector when a run wants the wider context. Every documented example names an OpenRouter selector, never a local endpoint: a run on a machine without that host running would fail the spawn instead of cheapening it. Re-check a selector, its thinking levels, and whether it accepts image input with `omp models find <model>`; choose one reporting `images: yes` for a run that exercises image paste, and avoid a `:batch` variant, since a verification run waits on its own output and batch delivery has no latency promise.
 

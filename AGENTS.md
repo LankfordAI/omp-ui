@@ -18,6 +18,10 @@ Instructions for coding agents working in this repository.
   feature requests against the upstream OMP repository. Where OMP's
   current state constrains this UI, work around it inside `omp-ui` where
   possible; if no workaround exists, surface the constraint to the user.
+- A verification run that boots the app uses `npm run dev:headless`
+  (`docs/development.md`, "Verification runs"): it maps no window and takes no
+  focus. Never launch the visible app (`npm run dev`) for a check unless the user
+  asks to see it.
 - A plan or spec document ends at verification. It prescribes the change, not
   the delivery route: no commit messages, branch names, pushes, merge targets,
   or `Fixes #N` trailers — where the work goes is the user's call, made after

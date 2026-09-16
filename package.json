@@ -5,6 +5,7 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "dev": "npm run dev --workspace @omp-ui/desktop",
+    "dev:headless": "npm run dev:headless --workspace @omp-ui/desktop",
     "build": "npm run build --workspace @omp-ui/desktop",
     "package": "npm run package --workspace @omp-ui/desktop",
     "stamp": "npm version patch --no-git-tag-version --workspace @omp-ui/desktop",
