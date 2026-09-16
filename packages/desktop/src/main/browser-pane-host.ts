@@ -105,6 +105,21 @@ function clampViewport(value: number): number {
   return Math.round(Math.min(BROWSER_PANE_MAX_VIEWPORT, Math.max(BROWSER_PANE_MIN_VIEWPORT, value)));
 }
 
+/**
+ * The scale a frame was really painted at. Wayland ignores
+ * `offscreen.deviceScaleFactor`, so the requested dsf is a hypothesis the first
+ * frame confirms or refutes: adopt the ratio when it is (within 2 %) the
+ * requested scale or 1; a frame caught mid-resize matches neither and keeps
+ * the last known scale.
+ */
+function paintedScale(paintedWidth: number, cssWidth: number, requested: number): number {
+  if (cssWidth <= 0) return requested;
+  const ratio = paintedWidth / cssWidth;
+  if (Math.abs(ratio - requested) <= requested * 0.02) return requested;
+  if (Math.abs(ratio - 1) <= 0.02) return 1;
+  return requested;
+}
+
 /** `new URL(url).origin`, null for about:blank and anything unparsable. */
 function safeOrigin(url: string): string | null {
   try {
@@ -425,9 +440,13 @@ export class BrowserPaneHost {
   }
 
   private onPaint(tabId: string, entry: PaneEntry, image: PaintImage): void {
+    const size = image.getSize();
+    // Electron's first paint of a fresh window is empty; an 8-byte frame would
+    // poison the cache and the ensure answer.
+    if (size.width === 0 || size.height === 0) return;
+    entry.dsf = paintedScale(size.width, entry.size.width, entry.dsf);
     const t0 = this.now();
     const jpeg = image.toJPEG(BROWSER_PANE_JPEG_QUALITY);
-    const size = image.getSize();
     const header: BrowserPaneFrameHeader = { width: size.width, height: size.height, dsf: entry.dsf };
     // One allocation per frame: header and JPEG land in the same buffer.
     const frame = Buffer.allocUnsafe(BROWSER_PANE_FRAME_HEADER_BYTES + jpeg.length);

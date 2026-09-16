@@ -63,6 +63,10 @@ npm run build:web --workspace @omp-ui/desktop
 # Prove the installed node-pty addon loads and spawns a shell inside Electron.
 npm run smoke:pty --workspace @omp-ui/desktop
 
+# Electron-runtime smoke of the shipped browser pane host on this machine;
+# writes out/browser-pane-smoke/summary.json; not run in CI.
+npm run smoke:browser-pane --workspace @omp-ui/desktop
+
 # Regenerate committed theme CSS from theme-sources.json.
 npm run themes:generate --workspace @omp-ui/desktop
 

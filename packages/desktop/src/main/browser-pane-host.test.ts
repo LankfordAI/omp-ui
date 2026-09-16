@@ -260,6 +260,31 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     expect(decodeBrowserPaneFrame(frame)?.header).toEqual({ width: 2560, height: 1600, dsf: 2 });
   });
 
+  it("drops an empty paint and stamps the dsf the frame was really painted at", async () => {
+    const sent: Harness["sent"] = [];
+    const panes: FakePane[] = [];
+    const host = new BrowserPaneHost({
+      send: (channel, ...args) => sent.push({ channel, args }),
+      createPane: async (opts) => {
+        const fake = fakePane(opts);
+        panes.push(fake);
+        return fake.pane;
+      },
+      displayScaleFactor: () => 2,
+    });
+    host.subscribe("t1", "c1", true);
+    await flush();
+    // Electron's first paint of a fresh window is 0×0: never a frame, never cached.
+    panes[0]!.paint(0, 0, Buffer.alloc(0));
+    expect(sent.filter((s) => s.channel === CH.onBrowserPaneFrame)).toHaveLength(0);
+    expect(await host.ensure("t1")).toMatchObject({ status: "available", frame: null });
+    // Wayland ignores offscreen.deviceScaleFactor: a 1280×800 frame for a 1280×800 page is dsf 1.
+    panes[0]!.paint(1280, 800, Buffer.from([1]));
+    const frame = sent.find((s) => s.channel === CH.onBrowserPaneFrame)?.args[1] as Uint8Array;
+    expect(decodeBrowserPaneFrame(frame)?.header).toEqual({ width: 1280, height: 800, dsf: 1 });
+    expect(host.diagnostics()[0]?.frame).toEqual({ width: 1280, height: 800, dsf: 1 });
+  });
+
   it("subscribing to a tab whose page cannot be created is a no-op and ensure answers create-failed", async () => {
     const h = harness({ paneFails: true });
     h.host.subscribe("t1", "c1", true);
