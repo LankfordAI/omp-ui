@@ -103,6 +103,7 @@ function fakePaneContents(): FakeBrowserPane {
     isLoading: () => false,
     sendInputEvent: () => {},
     insertText: async () => {},
+    imeSetComposition: async () => {},
     focus: () => {},
     selectAll: () => {},
     copy: () => {},

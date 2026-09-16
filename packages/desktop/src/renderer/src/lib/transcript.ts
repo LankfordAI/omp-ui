@@ -280,7 +280,7 @@ function contentBlocks(content: unknown): Record<string, unknown>[] {
   return Array.isArray(content) ? content.filter(isObj) : [];
 }
 
-function textFromContent(content: unknown): string {
+export function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
   return contentBlocks(content)
     .filter((b) => b.type === "text" && typeof b.text === "string")

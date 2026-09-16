@@ -35,7 +35,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     hasRenamed: true, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false,
     plans: [], advisorStats: null, mcpStatus: null, advisorReply: true,
     capabilities: null, capabilitiesLoad: "idle", goal: null,
-    browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null },
+    browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null, offers: [], offeredThisTurn: [], declinedOffers: [] },
     ...patch,
   };
 }
@@ -105,7 +105,7 @@ describe("compact App shell", () => {
   it("carries the active browser pane into compact mode and restores it on tab return", () => {
     compact = false;
     useStore.setState({ rpc: { rpc: runtime({
-      browserPane: { open: true, fullscreen: false, ensure: "available", unavailableReason: null, state: null, frame: null },
+      browserPane: { open: true, fullscreen: false, ensure: "available", unavailableReason: null, state: null, frame: null, offers: [], offeredThisTurn: [], declinedOffers: [] },
     }) } });
     renderApp();
     act(() => {

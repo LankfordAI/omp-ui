@@ -1,7 +1,8 @@
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
+import { localDevUrls } from "../../lib/browser-pane-offer";
 import { formatDuration } from "../../lib/duration";
 import { boolField, field, numField, strField } from "../../lib/fields";
-import { noticeItem, type NoticeItem } from "../../lib/transcript";
+import { noticeItem, textFromContent, type NoticeItem } from "../../lib/transcript";
 import type { LastTurnMeta, RpcTabState } from "../types";
 import type { TabRuntime } from "./shared";
 
@@ -215,6 +216,35 @@ export function reduceAgentEvent(
         type: "settle-slash-command-items",
         itemIds,
       });
+    }
+    const pane = rpc.browserPane ?? tab.browserPane;
+    if (pane.offeredThisTurn.length > 0) {
+      rpc.browserPane = { ...pane, offeredThisTurn: [] };
+      hasRpcPatch = true;
+    }
+  }
+
+  if (type === "tool_execution_end") {
+    const result = field(frame, "result");
+    const urls = localDevUrls(textFromContent(field(result, "content")));
+    if (urls.length > 0) {
+      const pane = rpc.browserPane ?? tab.browserPane;
+      const current = pane.state?.url ?? null;
+      const fresh = urls.filter(
+        (url) =>
+          url !== current &&
+          !pane.declinedOffers.includes(url) &&
+          !pane.offeredThisTurn.includes(url) &&
+          !pane.offers.includes(url),
+      );
+      if (fresh.length > 0) {
+        rpc.browserPane = {
+          ...pane,
+          offers: [...pane.offers, ...fresh],
+          offeredThisTurn: [...pane.offeredThisTurn, ...fresh],
+        };
+        hasRpcPatch = true;
+      }
     }
   }
 

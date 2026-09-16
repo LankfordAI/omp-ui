@@ -802,6 +802,9 @@ export class MainBackend {
         [CH.getSessionCapabilities]: (tabId: string) =>
           this.sessions.getSessionCapabilities(tabId),
         [CH.browserPaneEnsure]: (tabId: string) => this.sessions.browserPaneEnsure(tabId),
+        [CH.browserPanePick]: (tabId: string, x: number, y: number) =>
+          this.sessions.browserPanePick(tabId, x, y),
+        [CH.browserPaneClearData]: (force: boolean) => this.sessions.browserPaneClearData(force),
         [CH.setSessionToolEnabled]: (
           tabId: string,
           processKey: string,

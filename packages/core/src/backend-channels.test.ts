@@ -56,6 +56,8 @@ const VALID_ARGS = {
   answerPlanReview: ["tab-1", "frame-1", "execute", "0".repeat(64)],
   browseDirectories: ["/project"],
   browserPaneEnsure: ["tab-1"],
+  browserPanePick: ["tab-1", 10, 20],
+  browserPaneClearData: [false],
   browserPaneInput: ["tab-1", { type: "mouseDown", x: 10, y: 20, button: "left", clickCount: 1 }],
   browserPaneNavigate: ["tab-1", { action: "goto", url: "https://localhost:5173" }],
   browserPaneResize: ["tab-1", 800, 600],

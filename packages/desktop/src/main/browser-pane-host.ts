@@ -17,6 +17,7 @@ import {
   type BrowserPaneEnsureResult,
   type BrowserPaneFrameHeader,
   type BrowserPaneInputEvent,
+  type BrowserPanePickResult,
   type BrowserPaneNavigate,
   type BrowserPaneState,
 } from "@omp-ui/core";
@@ -27,6 +28,7 @@ import {
   type CreateBridgeListener,
 } from "./browser-pane-bridge";
 import type { CreatePane, PaneContents, PaintImage } from "./browser-pane-contents";
+import { pickElement } from "./browser-pane-pick";
 
 /**
  * One browser pane per tab (#519, ADR-0029): the offscreen page, its JPEG
@@ -50,6 +52,8 @@ export interface BrowserPaneHostDeps {
   createListener?: CreateBridgeListener;
   now?: () => number;
   /** Default console.warn. */
+  /** Default: clear the Electron partition through the pane contents seam. */
+  clearPartition?: (partition: string) => Promise<void>;
   warn?: (message: string) => void;
 }
 
@@ -136,6 +140,7 @@ export class BrowserPaneHost {
   private readonly displayScaleFactor: () => number;
   private readonly createListener: CreateBridgeListener;
   private readonly now: () => number;
+  private readonly clearPartition: (partition: string) => Promise<void>;
   private readonly warn: (message: string) => void;
   private paneFactory: CreatePane | null;
   private remoteAccessPort: number | null = null;
@@ -147,6 +152,10 @@ export class BrowserPaneHost {
     this.displayScaleFactor = deps.displayScaleFactor ?? (() => 1);
     this.createListener = deps.createListener ?? createBridgeListener;
     this.now = deps.now ?? (() => performance.now());
+    this.clearPartition = deps.clearPartition ?? (async (partition) => {
+      const { clearBrowserPanePartition } = await import("./browser-pane-contents");
+      await clearBrowserPanePartition(partition);
+    });
     this.warn = deps.warn ?? ((message) => console.warn(message));
   }
 
@@ -235,6 +244,9 @@ export class BrowserPaneHost {
       case "insertText":
         void pane.insertText(event.text).catch(() => {});
         return;
+      case "imeSetComposition":
+        void pane.imeSetComposition(event.text, event.selectionStart, event.selectionEnd).catch(() => {});
+        return;
       case "edit":
         pane[event.command]();
         return;
@@ -280,6 +292,18 @@ export class BrowserPaneHost {
       }
     });
   }
+  /** Element under a viewport point (#544). Coordinates are clamped like input; no page is explicit. */
+  async pick(tabId: string, x: number, y: number): Promise<BrowserPanePickResult> {
+    const entry = this.entries.get(tabId);
+    const pane = entry?.pane ?? null;
+    if (entry === undefined || pane === null || pane.isDestroyed()) return { status: "no-page" };
+    return pickElement(
+      pane.debugger,
+      Math.min(entry.size.width, Math.max(0, x)),
+      Math.min(entry.size.height, Math.max(0, y)),
+    );
+  }
+
 
   /** Ports the page may never reach: every live bridge port plus this (#531). */
   setRemoteAccessPort(port: number | null): void {
@@ -312,19 +336,44 @@ export class BrowserPaneHost {
     }
     return rows;
   }
+  /** Pages currently alive across every tab (#542). */
+  livePageCount(): number {
+    let count = 0;
+    for (const entry of this.entries.values()) {
+      if (entry.pane !== null && !entry.pane.isDestroyed()) count += 1;
+    }
+    return count;
+  }
+
+  /** Clears the partition, recreating only pages whose views remain subscribed. */
+  async clearData(): Promise<void> {
+    const resubscribe: string[] = [];
+    for (const [tabId, entry] of this.entries) {
+      if (entry.paneInFlight !== null) await entry.paneInFlight;
+      if (entry.pane === null) continue;
+      this.destroyPage(entry);
+      this.emitState(tabId, entry);
+      if (entry.sinks.size > 0) resubscribe.push(tabId);
+    }
+    await this.clearPartition(BROWSER_PANE_PARTITION);
+    for (const tabId of resubscribe) {
+      const entry = this.entries.get(tabId);
+      if (entry === undefined) continue;
+      void this.ensurePage(tabId, entry).then((pane) => {
+        if (pane === null || entry.sinks.size === 0) return;
+        this.startPainting(entry, pane);
+        pane.invalidate();
+      });
+    }
+  }
+
 
   /** Destroys page and listener; `forgetUrl` drops the last-URL memory (delete only). */
   dispose(tabId: string, opts?: { forgetUrl?: boolean }): void {
     const entry = this.entries.get(tabId);
     if (entry === undefined) return;
     clearTimeout(entry.actingTimer);
-    clearTimeout(entry.resizeTimer);
-    for (const off of entry.offPane) off();
-    entry.offPane = [];
-    const pane = entry.pane;
-    entry.pane = null;
-    entry.painting = false;
-    pane?.destroy();
+    this.destroyPage(entry);
     const listener = entry.listener;
     entry.listener = null;
     listener?.close();
@@ -378,6 +427,19 @@ export class BrowserPaneHost {
     }
     return entry.paneInFlight;
   }
+  private destroyPage(entry: PaneEntry): void {
+    clearTimeout(entry.resizeTimer);
+    entry.resizeTimer = undefined;
+    for (const off of entry.offPane) off();
+    entry.offPane = [];
+    const pane = entry.pane;
+    entry.pane = null;
+    entry.painting = false;
+    entry.cached = null;
+    entry.header = null;
+    pane?.destroy();
+  }
+
 
   private async createPage(tabId: string, entry: PaneEntry): Promise<PaneContents | null> {
     entry.dsf = Math.min(this.displayScaleFactor(), BROWSER_PANE_MAX_DSF);

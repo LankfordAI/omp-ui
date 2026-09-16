@@ -11,13 +11,17 @@ import {
 import {
   isAllowedBrowserPaneTopLevelUrl,
   type BrowserPaneInputEvent,
+  type BrowserPanePickResult,
 } from "@omp-ui/core/browser-pane";
 import { backend } from "../../backend";
-import { createFramePainter, type FramePainter } from "../../lib/browser-pane-frame";
+import { createFramePainter, cropFrame, type FramePainter } from "../../lib/browser-pane-frame";
 import {
+  compositionCancel,
   compositionEnd,
+  compositionUpdate,
   keyEvents,
   pointerEvents,
+  mapPointer,
   wheelEvents,
   type KeyLike,
   type PointerContext,
@@ -82,6 +86,16 @@ function IconAttach() {
     <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
       <path d="M2.5 5.5h2.2l1.1-1.7h4.4l1.1 1.7h2.2v7h-11z" {...ICON_STROKE} />
       <circle cx="8" cy="8.8" r="2.2" {...ICON_STROKE} />
+    </svg>
+  );
+}
+
+/** Crosshair for selecting one page element. */
+function IconPick() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
+      <circle cx="8" cy="8" r="3" {...ICON_STROKE} />
+      <path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3" {...ICON_STROKE} />
     </svg>
   );
 }
@@ -160,9 +174,10 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   /** The IME proxy: holds focus behind the canvas so the OS composes into something. */
   const proxyRef = useRef<HTMLInputElement | null>(null);
-  const composition = useRef<{ active: boolean; committed: string | null }>({
+  const composition = useRef<{ active: boolean; committed: string | null; preedit: boolean }>({
     active: false,
     committed: null,
+    preedit: false,
   });
   const painterRef = useRef<FramePainter | null>(null);
   /** The newest pointer move waiting for the next animation frame (latest wins). */
@@ -173,6 +188,8 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   const [draft, setDraft] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false);
   const [attachedAt, setAttachedAt] = useState(0);
+  const [picking, setPicking] = useState(false);
+  const [pickNote, setPickNote] = useState<"miss" | null>(null);
 
   const ensure = pane?.ensure ?? "idle";
   const state = pane?.state ?? null;
@@ -231,6 +248,17 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
     return () => clearTimeout(timer);
   }, [attachedAt]);
 
+  useEffect(() => {
+    if (pickNote === null) return;
+    const timer = setTimeout(() => setPickNote(null), ATTACHED_NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [pickNote]);
+
+  useEffect(() => {
+    setPicking(false);
+    setPickNote(null);
+  }, [tabId, instanceDown, live]);
+
   useEffect(
     () => () => {
       if (moveFrame.current !== 0) cancelAnimationFrame(moveFrame.current);
@@ -251,15 +279,22 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
     if (header === null) return null;
     return { box: { width: canvas.clientWidth, height: canvas.clientHeight }, header };
   };
-
   const onPointer = (kind: PointerKind, e: ReactPointerEvent<HTMLCanvasElement>): void => {
     if (kind === "down") {
       // The compat mousedown that follows would move focus to <body> (a canvas
       // is not focusable); preventing it keeps the keyboard on the proxy.
       e.preventDefault();
       proxyRef.current?.focus({ preventScroll: true });
+      if (picking) {
+        const ctx = pointerContext(e.currentTarget);
+        if (ctx !== null && live) {
+          const point = mapPointer(e.nativeEvent.offsetX, e.nativeEvent.offsetY, ctx.box, ctx.header);
+          void pick(point);
+        }
+        return;
+      }
     }
-    if (!live) return;
+    if (picking || !live) return;
     const ctx = pointerContext(e.currentTarget);
     if (ctx === null) return;
     const events = pointerEvents(kind, pointerLike(e), ctx);
@@ -315,6 +350,11 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   }, []);
 
   const onKey = (kind: "keydown" | "keyup", e: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (picking && kind === "keydown" && e.key === "Escape") {
+      e.preventDefault();
+      setPicking(false);
+      return;
+    }
     if (kind === "keydown" && !e.nativeEvent.isComposing) composition.current.committed = null;
     // The app's own chords (⌘K, ⌘F, …) keep their meaning over the page.
     if (isAppHotkey(e.nativeEvent)) return;
@@ -325,10 +365,21 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
     if (live) send(events);
   };
 
+  const onCompositionUpdate = (e: CompositionEvent<HTMLInputElement>): void => {
+    const data = e.data ?? "";
+    composition.current.preedit = data !== "";
+    if (live) send(compositionUpdate(data));
+  };
+
   const onCompositionEnd = (e: CompositionEvent<HTMLInputElement>): void => {
     composition.current.active = false;
     composition.current.committed = e.data || null;
-    if (live) send(compositionEnd(e.data));
+    if (live) {
+      // A nonempty commit replaces the live composition. An empty one must clear the page's preedit.
+      if (e.data !== "") send(compositionEnd(e.data));
+      else if (composition.current.preedit) send(compositionCancel());
+    }
+    composition.current.preedit = false;
     e.currentTarget.value = "";
   };
 
@@ -369,6 +420,40 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
       tabId,
       { type: "image", data: bytesToBase64(jpeg), mimeType: "image/jpeg" },
       state?.url ?? "",
+    );
+    setAttachedAt(Date.now());
+  };
+
+  const pick = async (point: { x: number; y: number }): Promise<void> => {
+    const canvas = canvasRef.current;
+    const header = painterRef.current?.header() ?? null;
+    if (canvas === null || header === null) return;
+    let result: BrowserPanePickResult;
+    try {
+      result = await backend.browserPanePick(tabId, point.x, point.y);
+    } catch {
+      setPicking(false);
+      return;
+    }
+    if (result.status === "no-page") {
+      setPicking(false);
+      return;
+    }
+    if (result.status === "miss") {
+      setPickNote("miss");
+      return;
+    }
+    const jpeg = await cropFrame(canvas, header, result.rect);
+    setPicking(false);
+    if (jpeg === null) return;
+    const where = result.framed
+      ? t("browser.pick.framed", { selector: result.selector })
+      : `selector: ${result.selector}`;
+    const label = result.text === "" ? `<${result.tag}>` : `<${result.tag}> "${result.text}"`;
+    queueComposerAttachment(
+      tabId,
+      { type: "image", data: bytesToBase64(jpeg), mimeType: "image/jpeg" },
+      `${state?.url ?? ""}\n${where} — ${label}`,
     );
     setAttachedAt(Date.now());
   };
@@ -490,6 +575,14 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
             </span>
           )}
         </span>
+        <IconButton
+          label={t("browser.toolbar.pick")}
+          pressed={picking}
+          disabled={!hasFrame || !live}
+          onClick={() => setPicking((active) => !active)}
+        >
+          <IconPick />
+        </IconButton>
         {posture !== "sheet" && (
           <>
             <IconButton
@@ -517,7 +610,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
           style={{ opacity: instanceDown ? 0.5 : 1 }}
           className={cn(
             "block h-auto w-auto max-h-full max-w-full",
-            live ? "cursor-default" : "cursor-not-allowed",
+            picking ? "cursor-crosshair" : live ? "cursor-default" : "cursor-not-allowed",
           )}
           onPointerDown={(e) => onPointer("down", e)}
           onPointerUp={(e) => onPointer("up", e)}
@@ -542,7 +635,9 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
           onCompositionStart={() => {
             composition.current.active = true;
             composition.current.committed = null;
+            composition.current.preedit = false;
           }}
+          onCompositionUpdate={onCompositionUpdate}
           onCompositionEnd={onCompositionEnd}
           onInput={onProxyInput}
         />
@@ -554,6 +649,11 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
         {instanceDown && (
           <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-[10px] text-ink-mid backdrop-glass">
             {t("browser.state.instanceDown")}
+          </p>
+        )}
+        {(picking || pickNote === "miss") && !instanceDown && (
+          <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-[10px] text-ink-mid backdrop-glass">
+            {pickNote === "miss" ? t("browser.pick.miss") : t("browser.pick.hint")}
           </p>
         )}
       </div>

@@ -31,3 +31,27 @@ jobs:
       - run: npm test
       - run: npm run test:live
       - run: npm run build
+      - name: Smoke the browser pane under real Electron
+        # Prefer the runner session, then headless Ozone, then Xvfb only when Chromium painted no frame.
+        shell: bash
+        run: |
+          set -uo pipefail
+          smoke() { npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once "$@"; }
+          args=(--out=out/browser-pane-smoke/session)
+          if [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+            args=(--out=out/browser-pane-smoke/headless --ozone-platform=headless)
+          fi
+          smoke "${args[@]}"; rc=$?
+          if [ "$rc" -eq 3 ] && command -v xvfb-run >/dev/null; then
+            xvfb-run -a --server-args='-screen 0 1600x1000x24' \
+              npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once --out=out/browser-pane-smoke/xvfb; rc=$?
+          fi
+          exit "$rc"
+      - name: Publish the browser pane smoke summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-pane-smoke-summary
+          path: packages/desktop/out/browser-pane-smoke/**/summary.json
+          if-no-files-found: error
+          retention-days: 14

@@ -68,9 +68,10 @@ through a **loopback CDP bridge** the main process hosts:
   acts on a page the user cannot see.
 - Both drive, always. Input is never blocked; the bridge derives an agent state
   (`detached | attached | acting`) from the commands it forwards and the
-  renderer badges it. The hand-back is a screenshot **Attachment** (the last
-  frame) plus the page URL as prompt text, queued into the composer through a
-  store seam — never sent on the user's behalf.
+  renderer badges it. The whole-page hand-back is a screenshot **Attachment**
+  plus the page URL, queued into the composer — never sent on the user's behalf.
+  A second hand-back picks one element: main hit-tests over its debugger session
+  and the renderer crops the last frame to the returned element rect (#544).
 - Page content is untrusted input to the agent. Everything the agent reads from
   the pane — DOM text, screenshots, console output, accessibility snapshots,
   `tab.extract` results — is authored by the site and may carry instructions
@@ -155,9 +156,11 @@ through a **loopback CDP bridge** the main process hosts:
   socket and no Chromium resources; the page and its renderer process exist
   only after first use. The token rotates with the listener.
 - **The partition is a browser profile.** Cookies, storage and cache persist
-  across restarts and tabs under `userData`, so a dev-app login survives; a
-  "clear browser pane data" action is a follow-on. The agent can read what the
-  user logged into — the shell it already holds can read the same files.
+  across restarts and tabs under `userData`, so a dev-app login survives.
+  Settings → Advanced → **Clear browser pane data** wipes storage, cache and
+  HTTP auth, closing live pages first and recreating those still shown (#542).
+  The agent can read what the user logged into — the shell it already holds can
+  read the same files.
 - **Remote views are first-class but not equal.** Browser clients and joined
   instances see the live pane and drive it; only desktop renderers size it.
   Both relay hops are lossy; nothing is re-encoded because the header travels
@@ -196,18 +199,23 @@ through a **loopback CDP bridge** the main process hosts:
   preserved the dimmed last image and blocked input while unreachable.
 - **IME commits are not always carried by `compositionend` (#550).** Real
   Linux X11/IBus Hangul 1.5.5 emitted an empty `compositionend`, followed by
-  `input` carrying `한`. The composer accepted it while the pane lost it.
-  The proxy now forwards non-composing committed input as `insertText`,
-  suppresses preedit and deduplicates a trailing echo of a nonempty
-  `compositionend`. Two native commits produced `한 한 ` exactly once each;
-  live candidate rendering remains the separate F7 follow-on. Native German
-  QWERTZ/AltGr also produced identical `zy @€ üß` in the composer and pane.
+  `input` carrying `한`. The proxy forwards non-composing committed input as
+  `insertText`, suppresses preedit and deduplicates a trailing echo of a
+  nonempty `compositionend`. Preedit is forwarded as CDP
+  `Input.imeSetComposition` over main's root debugger session, so candidates
+  render live; the commit still travels as `insertText` and replaces the
+  composition (#541). Native German QWERTZ/AltGr remains unchanged.
 - **Platform gates are smokes, not assumptions.** Offscreen paint on GPU and
   software paths, dsf, input into an unfocused hidden window, OS keymaps, ⌘
   chords, right-click semantics, non-ASCII `insertText`, the omp handshake,
   `file:` cancellation, disposal, LAN streaming, throttling and cross-instance
   sizing each have a spike or smoke command, a pass value, and a prescribed
-  fallback. No real-Electron CI lane exists; runner adoption is a follow-on.
+  fallback. The self-hosted Linux runner runs `smoke:browser-pane --once` on
+  every CI run and publishes `summary.json`; it prefers the runner session,
+  then headless Ozone, then Xvfb (#540). Hosted macOS and Windows remain excluded.
+  Local Linux verification painted on both rungs with sandboxing enabled:
+  Wayland session (`ozone: wayland`, `sessionType: wayland`) and offscreen
+  headless Ozone (`ozone: headless`), each with 19 JPEG frames and exit 0.
   Fallbacks that fired on the Linux reference: S11's fourth layer — an agent's
   `Page.navigate` to a refused URL is cancelled by the request layer, but
   Chromium would still commit an error page for it, so `did-start-navigation`

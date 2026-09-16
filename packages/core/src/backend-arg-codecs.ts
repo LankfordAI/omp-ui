@@ -300,10 +300,15 @@ const paneCoord: ArgCodec<number> = codec(
   "a pane coordinate",
   (value) => typeof value === "number" && Number.isFinite(value) && value >= -1 && value <= 8192,
 );
+/** Integer offset into a composition string; bounded like the text it indexes. */
+const compositionOffset: ArgCodec<number> = codec(
+  "a composition offset",
+  (value) => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 16_384,
+);
 
 /**
  * Renderer input into the browser pane (#529): Electron's sendInputEvent
- * unions plus insertText and the edit verbs, decoded strictly per arm so a
+ * unions plus the three non-input verbs, decoded strictly per arm so a
  * half-formed event is rejected, never partially dispatched.
  */
 export const browserPaneInputCodec: ArgCodec<BrowserPaneInputEvent> = {
@@ -320,6 +325,7 @@ export const browserPaneInputCodec: ArgCodec<BrowserPaneInputEvent> = {
       "keyUp",
       "char",
       "insertText",
+      "imeSetComposition",
       "edit",
     ).decode(fields["type"], `${path}.type`);
     switch (type) {
@@ -366,6 +372,14 @@ export const browserPaneInputCodec: ArgCodec<BrowserPaneInputEvent> = {
       case "insertText":
         exactKeys(fields, ["type", "text"], path);
         return { type, text: shortStr(16_384).decode(fields["text"], `${path}.text`) };
+      case "imeSetComposition":
+        exactKeys(fields, ["type", "text", "selectionStart", "selectionEnd"], path);
+        return {
+          type,
+          text: shortStr(16_384).decode(fields["text"], `${path}.text`),
+          selectionStart: compositionOffset.decode(fields["selectionStart"], `${path}.selectionStart`),
+          selectionEnd: compositionOffset.decode(fields["selectionEnd"], `${path}.selectionEnd`),
+        };
       case "edit":
         exactKeys(fields, ["type", "command"], path);
         return {

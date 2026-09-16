@@ -78,6 +78,9 @@ describe("bootRpcTab carry-over (#528)", () => {
             unavailableReason: null,
             state: paneState("attached"),
             frame: { width: 1280, height: 800, dsf: 1 },
+            offers: ["http://localhost:5173/"],
+            offeredThisTurn: ["http://localhost:5173/"],
+            declinedOffers: ["http://localhost:3000/"],
           },
         }),
       },
@@ -92,6 +95,9 @@ describe("bootRpcTab carry-over (#528)", () => {
       unavailableReason: null,
       state: null,
       frame: { width: 1280, height: 800, dsf: 1 },
+      offers: ["http://localhost:5173/"],
+      offeredThisTurn: [],
+      declinedOffers: ["http://localhost:3000/"],
     });
   });
 });
@@ -110,6 +116,30 @@ describe("composer queue", () => {
     });
     expect(h.useStore.getState().rpc[h.TAB]!.composerQueue).toBeUndefined();
     expect(h.useStore.getState().drainComposerQueue(h.TAB)).toBeNull();
+  });
+});
+
+describe("browser pane dev-server offers (#543)", () => {
+  it("accepts by opening and navigating, or declines once for the tab", async () => {
+    const first = "http://localhost:5173/";
+    const second = "http://localhost:8123/";
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          browserPane: { ...rpcTabState().browserPane, offers: [first, second] },
+        }),
+      },
+    });
+    h.useStore.getState().acceptBrowserPaneOffer(h.TAB, first);
+    expect(pane().open).toBe(true);
+    expect(pane().offers).toEqual([second]);
+    expect(h.mockBackend.browserPaneNavigate).toHaveBeenCalledWith(h.TAB, { action: "goto", url: first });
+    await h.flushMicrotasks();
+
+    h.useStore.getState().declineBrowserPaneOffer(h.TAB, second);
+    h.useStore.getState().declineBrowserPaneOffer(h.TAB, second);
+    expect(pane().offers).toEqual([]);
+    expect(pane().declinedOffers).toEqual([second]);
   });
 });
 

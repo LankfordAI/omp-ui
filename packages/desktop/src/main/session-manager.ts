@@ -32,10 +32,12 @@ import {
   reclaimCheckouts as reclaimWorktreeCheckouts,
   settledWithin,
   syncWorktree,
+  type BrowserPaneClearDataResult,
   type BrowserPaneDiagnostics,
   type BrowserPaneEnsureResult,
   type BrowserPaneInputEvent,
   type BrowserPaneNavigate,
+  type BrowserPanePickResult,
   type PlanAnswerResult,
   type PlanRenderResult,
   type PlanReviewVerdict,
@@ -133,7 +135,10 @@ export interface SessionManagerDependencies {
    */
   spawnGate?: SpawnGate;
   /** Browser pane seams (#519): the page factory, the bridge listener, and the display scale; tests fake all three. */
-  browserPane?: Pick<BrowserPaneHostDeps, "createPane" | "createListener" | "displayScaleFactor">;
+  browserPane?: Pick<
+    BrowserPaneHostDeps,
+    "createPane" | "createListener" | "displayScaleFactor" | "clearPartition"
+  >;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -1093,8 +1098,17 @@ export class SessionManager {
   browserPaneNavigate(tabId: string, nav: BrowserPaneNavigate): void {
     this.browserPanes.navigate(tabId, nav);
   }
+  browserPanePick(tabId: string, x: number, y: number): Promise<BrowserPanePickResult> {
+    return this.browserPanes.pick(tabId, x, y);
+  }
   browserPaneDiagnostics(): BrowserPaneDiagnostics[] {
     return this.browserPanes.diagnostics();
+  }
+  async browserPaneClearData(force: boolean): Promise<BrowserPaneClearDataResult> {
+    const openPages = this.browserPanes.livePageCount();
+    if (openPages > 0 && !force) return { status: "busy", openPages };
+    await this.browserPanes.clearData();
+    return { status: "cleared" };
   }
   /** The remote access server's port joins the ports no pane page may reach (#531). */
   setRemoteAccessPort(port: number | null): void {

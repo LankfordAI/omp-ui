@@ -19,6 +19,8 @@ export type BrowserPaneSlice = Pick<
   | "noteBrowserPaneFrame"
   | "queueComposerAttachment"
   | "drainComposerQueue"
+  | "acceptBrowserPaneOffer"
+  | "declineBrowserPaneOffer"
 >;
 
 /** A tab that has never shown its pane: closed, split, nothing asked of main. */
@@ -30,6 +32,9 @@ export function freshBrowserPaneView(): BrowserPaneView {
     unavailableReason: null,
     state: null,
     frame: null,
+    offers: [],
+    offeredThisTurn: [],
+    declinedOffers: [],
   };
 }
 
@@ -176,6 +181,23 @@ export function createBrowserPaneSlice(
         return { rpc: { ...s.rpc, [tabId]: { ...current, composerQueue: undefined } } };
       });
       return queue;
+    },
+    acceptBrowserPaneOffer(tabId, url) {
+      const pane = get().rpc[tabId]?.browserPane;
+      if (pane === undefined) return;
+      patchPane(tabId, { offers: pane.offers.filter((offer) => offer !== url) });
+      openBrowserPane(tabId);
+      backend.browserPaneNavigate(tabId, { action: "goto", url });
+    },
+    declineBrowserPaneOffer(tabId, url) {
+      const pane = get().rpc[tabId]?.browserPane;
+      if (pane === undefined) return;
+      patchPane(tabId, {
+        offers: pane.offers.filter((offer) => offer !== url),
+        declinedOffers: pane.declinedOffers.includes(url)
+          ? pane.declinedOffers
+          : [...pane.declinedOffers, url],
+      });
     },
   };
 }
