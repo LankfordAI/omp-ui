@@ -488,6 +488,113 @@ describe("createBridgeSession ownership", () => {
   });
 });
 
+// ---------------------------------------------------------------- target scoping (#531)
+
+/** A debugger whose root lists the whole app: the omp-ui renderer beside two same-context panes. */
+class AppDebugger extends StubDebugger {
+  /** The tab that reports page P when asked to auto-attach; the other pane's tab reports P2. */
+  readonly pagesByTab: Readonly<Record<string, string>> = { T: "P", T2: "P2" };
+  async sendCommand(method: string, params?: object, sessionId?: string): Promise<unknown> {
+    if (method === "Target.getTargetInfo") {
+      return { targetInfo: { targetId: "P", type: "page", url: "about:blank", browserContextId: "pane" } };
+    }
+    if (method === "Target.getTargets") {
+      return {
+        targetInfos: [
+          { targetId: "RT", type: "tab", url: "file:///renderer/index.html", browserContextId: "default" },
+          { targetId: "RP", type: "page", url: "file:///renderer/index.html", browserContextId: "default" },
+          { targetId: "T2", type: "tab", url: "about:blank", browserContextId: "pane" },
+          { targetId: "P2", type: "page", url: "about:blank", browserContextId: "pane" },
+          { targetId: "T", type: "tab", url: "about:blank", browserContextId: "pane" },
+          { targetId: "P", type: "page", url: "about:blank", browserContextId: "pane" },
+        ],
+      };
+    }
+    if (method === "Target.attachToTarget") {
+      const targetId = params !== undefined && "targetId" in params ? String(params.targetId) : "";
+      return { sessionId: `S-${targetId}` };
+    }
+    if (method === "Target.setAutoAttach" && sessionId !== undefined) {
+      const tab = sessionId.slice(2);
+      const page = this.pagesByTab[tab];
+      if (page !== undefined) {
+        this.emit(
+          "Target.attachedToTarget",
+          { sessionId: `S-${page}`, targetInfo: { targetId: page, type: "page" }, waitingForDebugger: false },
+          sessionId,
+        );
+      }
+      return {};
+    }
+    return {};
+  }
+}
+
+describe("createBridgeSession target scoping", () => {
+  function appSession(out: BridgeFrame[], commands: string[]) {
+    const debug = new AppDebugger();
+    const session = createBridgeSession<string>({
+      debugger: debug,
+      onCommand: (method) => commands.push(method),
+      send: (_c, frame) => out.push(frame),
+      close: () => {},
+    });
+    session.addClient("a");
+    return { debug, session };
+  }
+  const message = (id: number, method: string, params: object = {}): string =>
+    JSON.stringify({ id, method, params });
+
+  it("announces only the pane's own tab and page, found among other panes by probing the tab", async () => {
+    const out: BridgeFrame[] = [];
+    const { session } = appSession(out, []);
+    await session.handleClientMessage("a", message(1, "Target.setDiscoverTargets", { discover: true }));
+    const created = out.filter((f) => f.method === "Target.targetCreated").map((f) => f.params);
+    expect(created).toEqual([
+      expect.objectContaining({ targetInfo: expect.objectContaining({ targetId: "omp-ui-bridge-browser" }) }),
+      expect.objectContaining({ targetInfo: expect.objectContaining({ targetId: "T" }) }),
+      expect.objectContaining({ targetInfo: expect.objectContaining({ targetId: "P" }) }),
+    ]);
+    await session.handleClientMessage("a", message(2, "Target.getTargets"));
+    expect(out.at(-1)).toEqual({
+      id: 2,
+      result: {
+        targetInfos: [
+          expect.objectContaining({ targetId: "omp-ui-bridge-browser" }),
+          expect.objectContaining({ targetId: "T" }),
+          expect.objectContaining({ targetId: "P" }),
+        ],
+      },
+    });
+  });
+
+  it("refuses to attach to or name a target the pane does not own", async () => {
+    const out: BridgeFrame[] = [];
+    const commands: string[] = [];
+    const { session } = appSession(out, commands);
+    await session.handleClientMessage("a", message(1, "Target.attachToTarget", { targetId: "RP", flatten: true }));
+    expect(out.at(-1)).toEqual({ id: 1, error: { code: -32000, message: "No target with given id found" } });
+    await session.handleClientMessage("a", message(2, "Target.activateTarget", { targetId: "RT" }));
+    expect(out.at(-1)).toEqual({ id: 2, error: { code: -32000, message: "No target with given id found" } });
+    expect(commands).toEqual([]);
+    await session.handleClientMessage("a", message(3, "Target.attachToTarget", { targetId: "P", flatten: true }));
+    expect(out.at(-1)).toEqual({ id: 3, result: { sessionId: "S-P" } });
+  });
+
+  it("never broadcasts another target's lifecycle events to a discovering client", async () => {
+    const out: BridgeFrame[] = [];
+    const { debug, session } = appSession(out, []);
+    await session.handleClientMessage("a", message(1, "Target.setDiscoverTargets", { discover: true }));
+    const before = out.length;
+    debug.emit("Target.targetInfoChanged", { targetInfo: { targetId: "RP", type: "page", url: "file:///x" } }, "");
+    debug.emit("Target.targetDestroyed", { targetId: "RT" }, "");
+    debug.emit("Target.targetCreated", { targetInfo: { targetId: "P3", type: "page", url: "about:blank" } }, "");
+    expect(out).toHaveLength(before);
+    debug.emit("Target.targetInfoChanged", { targetInfo: { targetId: "P", type: "page", url: "http://x/" } }, "");
+    expect(out.at(-1)?.method).toBe("Target.targetInfoChanged");
+  });
+});
+
 // ---------------------------------------------------------------- U6: gate
 
 const TOKEN = mintRemoteToken();

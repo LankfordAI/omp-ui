@@ -131,6 +131,9 @@ interface TargetIds {
   tabId: string | null;
 }
 
+/** How long a tab probe waits for the tab to report its page before it is dropped. */
+const TAB_PROBE_MS = 1_000;
+
 interface SessionInfo {
   targetId: string | null;
   type: string | null;
@@ -182,6 +185,10 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
   /** Root `Target.attachedToTarget` params seen before the attach reply that names their owner. */
   const unowned = new Map<string, unknown>();
   let ids: Promise<TargetIds> | null = null;
+  /** Resolved ids, for synchronous event filtering; null until discovery finishes. */
+  let known: TargetIds | null = null;
+  /** Tab sessions opened by `tabOwnsPage`; their events settle the probe and reach no client. */
+  const probes = new Map<string, (pageTargetId: string | null) => void>();
   let detached = false;
 
   function cmd(method: string, params: object, sessionId?: string): Promise<unknown> {
@@ -197,16 +204,78 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
     return cmd(method, params, sessionId);
   }
 
+  /**
+   * Electron's root `Target.getTargets` lists every target in the app — the
+   * omp-ui renderer included — so the pane's tab is found by browser context
+   * (the pane partition is its own context), then by URL, and, when panes share
+   * both, by probing which tab reports this page under auto-attach. Nothing
+   * outside {tab, page} is ever named to a client (#531).
+   */
   async function learnIds(): Promise<TargetIds> {
     if (!dbg.isAttached()) dbg.attach("1.3");
-    const pageId = stringField(field(await cmd("Target.getTargetInfo", {}), "targetInfo"), "targetId");
+    const page = field(await cmd("Target.getTargetInfo", {}), "targetInfo");
+    const pageId = stringField(page, "targetId");
     if (pageId === null) throw new Error("the browser pane reported no page target");
     // Turns on the root target-event stream the discovering clients are fed from.
     await cmd("Target.setDiscoverTargets", { discover: true, filter: [{}] });
-    const tab = readTargetInfos(await cmd("Target.getTargets", {})).find(
-      (t) => stringField(t, "type") === "tab",
+    const context = stringField(page, "browserContextId");
+    const tabs = readTargetInfos(await cmd("Target.getTargets", {})).filter(
+      (t) =>
+        stringField(t, "type") === "tab" &&
+        (context === null || stringField(t, "browserContextId") === context),
     );
-    return { pageId, tabId: tab === undefined ? null : stringField(tab, "targetId") };
+    const sameUrl = tabs.filter((t) => stringField(t, "url") === stringField(page, "url"));
+    const candidates = sameUrl.length > 0 ? sameUrl : tabs;
+    let tabId: string | null = candidates.length === 1 ? stringField(candidates[0], "targetId") : null;
+    if (candidates.length > 1) {
+      for (const candidate of candidates) {
+        const id = stringField(candidate, "targetId");
+        if (id !== null && (await tabOwnsPage(id, pageId))) {
+          tabId = id;
+          break;
+        }
+      }
+    }
+    known = { pageId, tabId };
+    return known;
+  }
+
+  /** Attaches to a candidate tab and asks it to auto-attach: the page it reports settles ownership. */
+  async function tabOwnsPage(candidateTabId: string, pageId: string): Promise<boolean> {
+    const sid = stringField(
+      await cmd("Target.attachToTarget", { targetId: candidateTabId, flatten: true }),
+      "sessionId",
+    );
+    if (sid === null) return false;
+    const reported = new Promise<string | null>((resolve) => {
+      const timer = setTimeout(() => resolve(null), TAB_PROBE_MS);
+      probes.set(sid, (id) => {
+        clearTimeout(timer);
+        resolve(id);
+      });
+    });
+    try {
+      await cmd(
+        "Target.setAutoAttach",
+        { autoAttach: true, waitForDebuggerOnStart: false, flatten: true },
+        sid,
+      );
+      return (await reported) === pageId;
+    } finally {
+      probes.delete(sid);
+      await cmd("Target.detachFromTarget", { sessionId: sid }).catch(() => {});
+    }
+  }
+
+  function isOwnTarget(targetId: string | null): boolean {
+    return targetId !== null && known !== null && (targetId === known.pageId || targetId === known.tabId);
+  }
+
+  /** The pane's own tab and page infos from Electron's list, tab first. */
+  async function ownTargetInfos(): Promise<unknown[]> {
+    const infos = readTargetInfos(await cmd("Target.getTargets", {}));
+    const rank = (t: unknown): number => TARGET_RANK[stringField(t, "type") ?? ""] ?? 2;
+    return infos.filter((t) => isOwnTarget(stringField(t, "targetId"))).sort((a, b) => rank(a) - rank(b));
   }
 
   function targetIds(): Promise<TargetIds> {
@@ -297,14 +366,16 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
         }
         await forward(method, params);
         send(c, { method: "Target.targetCreated", params: { targetInfo: BRIDGE_BROWSER_TARGET } });
-        const infos = readTargetInfos(await cmd("Target.getTargets", {}));
-        const rank = (t: unknown): number => TARGET_RANK[stringField(t, "type") ?? ""] ?? 2;
-        for (const targetInfo of infos.sort((a, b) => rank(a) - rank(b))) {
+        for (const targetInfo of await ownTargetInfos()) {
           send(c, { method: "Target.targetCreated", params: { targetInfo } });
         }
         reply({});
         return;
       }
+      case "Target.getTargets":
+        deps.onCommand(method);
+        reply({ targetInfos: [BRIDGE_BROWSER_TARGET, ...(await ownTargetInfos())] });
+        return;
       case "Target.setAutoAttach": {
         // Not forwarded: a root auto-attach on Electron's page-level session would
         // spawn duplicate, paused worker sessions no client owns. The client wants
@@ -328,6 +399,7 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
         return;
       }
       case "Target.attachToTarget": {
+        if (!isOwnTarget(stringField(params, "targetId"))) throw new Error("No target with given id found");
         const result = await forward(method, params);
         const sid = stringField(result, "sessionId");
         if (sid !== null) {
@@ -356,6 +428,11 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
         deps.close(c.handle);
         return;
       default:
+        // A root command naming a target the pane does not own (the omp-ui
+        // renderer, another pane) is refused with Chrome's own wording.
+        if (typeof field(params, "targetId") === "string" && !isOwnTarget(stringField(params, "targetId"))) {
+          throw new Error("No target with given id found");
+        }
         reply(await forward(method, params));
     }
   }
@@ -363,6 +440,11 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
   function onElectronMessage(_event: unknown, method: string, params: unknown, sessionId?: string): void {
     const envelope = sessionId === undefined || sessionId === "" ? null : sessionId;
     if (envelope !== null) {
+      const probe = probes.get(envelope);
+      if (probe !== undefined) {
+        if (method === "Target.attachedToTarget") probe(stringField(field(params, "targetInfo"), "targetId"));
+        return;
+      }
       const c = owner.get(envelope);
       if (c === undefined) return;
       const sid = stringField(params, "sessionId");
@@ -376,7 +458,7 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
     switch (method) {
       case "Target.attachedToTarget": {
         const sid = stringField(params, "sessionId");
-        if (sid === null) return;
+        if (sid === null || probes.has(sid)) return;
         const c = owner.get(sid);
         if (c === undefined) {
           unowned.set(sid, params);
@@ -388,15 +470,22 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
       }
       case "Target.detachedFromTarget": {
         const sid = stringField(params, "sessionId");
-        if (sid === null) return;
+        if (sid === null || probes.has(sid)) return;
         const c = owner.get(sid);
         if (c !== undefined) send(c, { method, params });
         release(sid);
         return;
       }
       case "Target.targetCreated":
+      case "Target.targetInfoChanged": {
+        // Only the pane's own tab and page exist for a client; the app's other
+        // targets (the omp-ui renderer, other panes) are never announced.
+        if (!isOwnTarget(stringField(field(params, "targetInfo"), "targetId"))) return;
+        for (const c of clients.values()) if (c.discovering) send(c, { method, params });
+        return;
+      }
       case "Target.targetDestroyed":
-      case "Target.targetInfoChanged":
+        if (!isOwnTarget(stringField(params, "targetId"))) return;
         for (const c of clients.values()) if (c.discovering) send(c, { method, params });
         return;
       default:

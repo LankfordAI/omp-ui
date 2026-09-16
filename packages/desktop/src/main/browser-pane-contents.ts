@@ -152,6 +152,18 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
         : isAllowedBrowserPaneSubframeUrl(details.url);
       if (!allowed) details.preventDefault();
     });
+    // Layer 4 (#531 S11): a navigation the agent starts over CDP skips
+    // will-navigate; the request layer cancels it, but Chromium would still
+    // commit an error page for the blocked URL. Stopping keeps the current
+    // document on screen — deferred, because Stop() from inside
+    // DidStartNavigation trips a Chromium CHECK (SIGTRAP).
+    wc.on("did-start-navigation", (details) => {
+      if (details.isMainFrame && !details.isSameDocument && !isAllowedBrowserPaneTopLevelUrl(details.url)) {
+        setImmediate(() => {
+          if (!wc.isDestroyed()) wc.stop();
+        });
+      }
+    });
     const userAgent = wc.getUserAgent();
     return {
       onPaint(cb) {

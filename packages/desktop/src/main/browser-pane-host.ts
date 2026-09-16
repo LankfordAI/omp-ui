@@ -411,14 +411,8 @@ export class BrowserPaneHost {
     entry.lastError = null;
     entry.offPane.push(
       pane.onPaint((_dirtyRect, image) => this.onPaint(tabId, entry, image)),
-      pane.on("did-navigate", () => {
-        entry.lastUrl = pane.getURL();
-        this.emitState(tabId, entry);
-      }),
-      pane.on("did-navigate-in-page", () => {
-        entry.lastUrl = pane.getURL();
-        this.emitState(tabId, entry);
-      }),
+      pane.on("did-navigate", () => this.noteCommitted(tabId, entry, pane)),
+      pane.on("did-navigate-in-page", () => this.noteCommitted(tabId, entry, pane)),
       pane.on("did-start-loading", () => this.emitState(tabId, entry)),
       pane.on("did-stop-loading", () => this.emitState(tabId, entry)),
       pane.on("page-title-updated", () => this.emitState(tabId, entry)),
@@ -437,6 +431,16 @@ export class BrowserPaneHost {
     void pane.loadURL(entry.lastUrl ?? "about:blank").catch(() => {});
     this.emitState(tabId, entry);
     return pane;
+  }
+
+  /**
+   * A committed error page for a refused URL (the request layer cancelled an
+   * agent's Page.navigate) must not become the URL a recreated pane reloads.
+   */
+  private noteCommitted(tabId: string, entry: PaneEntry, pane: PaneContents): void {
+    const url = pane.getURL();
+    if (isAllowedBrowserPaneTopLevelUrl(url)) entry.lastUrl = url;
+    this.emitState(tabId, entry);
   }
 
   private onPaint(tabId: string, entry: PaneEntry, image: PaintImage): void {

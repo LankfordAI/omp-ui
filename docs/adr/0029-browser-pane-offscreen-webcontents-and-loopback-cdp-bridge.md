@@ -40,6 +40,11 @@ through a **loopback CDP bridge** the main process hosts:
   `closeTarget`/`Page.close` faked, `Browser.close` swallowed; every other
   command is forwarded with its session id unchanged. One page per pane: omp
   never calls `newPage`, and puppeteer's `newPage` aliases to the same page.
+  Electron's root `Target` domain lists every target in the app — the omp-ui
+  renderer included — so the bridge names only the pane's own tab and page
+  (found by browser context, URL, and, between panes, an auto-attach probe),
+  answers `Target.getTargets` with that pair, refuses any root command naming
+  another target, and forwards no other target's lifecycle events.
 - The agent learns the endpoint from a sixth generated `-e` extension,
   `omp-ui-browser-pane.ts`, armed by a hidden slash command in
   `initialCommands` at every rpc spawn. It delivers **one** hidden custom
@@ -130,8 +135,12 @@ through a **loopback CDP bridge** the main process hosts:
   first and the frame-rate constant lowered second; a row whose fallback fired
   is recorded here with the measured value.
 - **HiDPI is best-effort.** `offscreen.deviceScaleFactor` is honoured on X11,
-  Windows and macOS and ignored on Wayland (the header simply says 1 and the
-  renderer upscales). Monitor moves after creation are not chased in v1.
+  Windows and macOS and ignored on Wayland; the host reads the painted scale
+  off the first frame (a 1280×800 frame for a 1280×800 page is dsf 1), so the
+  header says what was painted and the renderer upscales (measured on the
+  Linux reference: requested 2, painted 1 under Wayland; 2560×1600 at 2 under
+  `--ozone-platform=x11`, encode p90 16.3 ms). Monitor moves after creation are
+  not chased in v1.
 - **One loopback listener per live rpc tab, from spawn.** An idle tab costs one
   socket and no Chromium resources; the page and its renderer process exist
   only after first use. The token rotates with the listener.
@@ -150,6 +159,12 @@ through a **loopback CDP bridge** the main process hosts:
   `file:` cancellation, disposal, LAN streaming, throttling and cross-instance
   sizing each have a spike or smoke command, a pass value, and a prescribed
   fallback. No real-Electron CI lane exists; runner adoption is a follow-on.
+  Fallbacks that fired on the Linux reference: S11's fourth layer — an agent's
+  `Page.navigate` to a refused URL is cancelled by the request layer, but
+  Chromium would still commit an error page for it, so `did-start-navigation`
+  stops the navigation (deferred out of the observer; a synchronous `stop()`
+  there trips a Chromium CHECK) and the previous document stays on screen with
+  its state (`net::ERR_ABORTED` to the agent).
 - **omp is unchanged.** Everything rests on what omp exposes today: the
   `browser` global with `app.cdp_url`, its adoption of the existing page target,
   disconnect-only `tab.close`, and the extension API's `registerCommand`,

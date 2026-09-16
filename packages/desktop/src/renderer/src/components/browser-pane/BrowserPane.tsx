@@ -248,7 +248,12 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   };
 
   const onPointer = (kind: PointerKind, e: ReactPointerEvent<HTMLCanvasElement>): void => {
-    if (kind === "down") proxyRef.current?.focus({ preventScroll: true });
+    if (kind === "down") {
+      // The compat mousedown that follows would move focus to <body> (a canvas
+      // is not focusable); preventing it keeps the keyboard on the proxy.
+      e.preventDefault();
+      proxyRef.current?.focus({ preventScroll: true });
+    }
     if (!live) return;
     const ctx = pointerContext(e.currentTarget);
     if (ctx === null) return;
