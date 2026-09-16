@@ -389,8 +389,10 @@ export default function App() {
   }, [init]);
 
   useEffect(() => {
-    closeCompactSurface();
-  }, [activeTabId, compact, closeCompactSurface]);
+    const pane = activeTabId === null ? undefined : useStore.getState().rpc[activeTabId]?.browserPane;
+    if (compact && pane?.open) showCompactSurface("browser-pane");
+    else closeCompactSurface();
+  }, [activeTabId, compact, closeCompactSurface, showCompactSurface]);
 
   const visibleTabs = tabs.filter((t) => !t.hidden);
   const activeTab = tabs.find((tab) => tab.tabId === activeTabId);

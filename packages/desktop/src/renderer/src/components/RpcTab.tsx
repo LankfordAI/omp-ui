@@ -470,7 +470,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
           <InspectorRail tabId={tabId} />
         </div>
         <ConsoleDrawer tabId={tabId} />
-        {compact && (
+        {compact && active && (
           <Sheet
             open={surface === "browser-pane"}
             placement="bottom"

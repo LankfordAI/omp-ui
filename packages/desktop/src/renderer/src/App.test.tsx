@@ -102,6 +102,23 @@ describe("compact App shell", () => {
     expect(useStore.getState().compactSurface).toBeNull();
   });
 
+  it("carries the active browser pane into compact mode and restores it on tab return", () => {
+    compact = false;
+    useStore.setState({ rpc: { rpc: runtime({
+      browserPane: { open: true, fullscreen: false, ensure: "available", unavailableReason: null, state: null, frame: null },
+    }) } });
+    renderApp();
+    act(() => {
+      compact = true;
+      mediaListeners.forEach((listener) => listener({ matches: true } as MediaQueryListEvent));
+    });
+    expect(useStore.getState().compactSurface).toBe("browser-pane");
+    act(() => useStore.setState({ activeTabId: "pty" }));
+    expect(useStore.getState().compactSurface).toBeNull();
+    act(() => useStore.setState({ activeTabId: "rpc" }));
+    expect(useStore.getState().compactSurface).toBe("browser-pane");
+  });
+
   it("shows aggregate inspector badges and keeps every tab mounted", () => {
     renderApp();
     expect(document.body.textContent).toContain("3");

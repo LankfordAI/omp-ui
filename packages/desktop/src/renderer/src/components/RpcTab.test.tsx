@@ -42,6 +42,7 @@ const backendMock = {
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(async () => {}),
+  browserPaneSubscribe: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -153,6 +154,37 @@ beforeEach(() => {
 afterEach(() => {
   if (root) act(() => root!.unmount());
   root = null;
+});
+
+describe("compact browser pane ownership", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("shows only the active session's sheet while inactive views stay mounted", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    seed(null);
+    useStore.setState((current) => ({
+      activeTabId: TAB,
+      compactSurface: "browser-pane",
+      rpc: {
+        ...current.rpc,
+        [TAB]: { ...current.rpc[TAB]!, browserPane: {
+          ...current.rpc[TAB]!.browserPane, open: true, ensure: "not-live",
+        } },
+      },
+    }));
+    renderTab(false);
+    expect(document.querySelectorAll('[role="dialog"][aria-label="browser pane"]')).toHaveLength(0);
+    act(() => root!.render(<RpcTab tabId={TAB} active />));
+    expect(document.querySelectorAll('[role="dialog"][aria-label="browser pane"]')).toHaveLength(1);
+    act(() => root!.render(<RpcTab tabId={TAB} active={false} />));
+    expect(document.querySelectorAll('[role="dialog"][aria-label="browser pane"]')).toHaveLength(0);
+  });
 });
 
 describe("RpcTab subagent view", () => {
