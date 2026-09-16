@@ -100,6 +100,7 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "pty:pasteImage",
   "shell:spawn",
   "browser-pane:ensure",
+  "browser-pane:pick",
 ]);
 
 /** Notify channels whose first argument is the owning tabId. */

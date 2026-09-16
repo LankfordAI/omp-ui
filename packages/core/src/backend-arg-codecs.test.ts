@@ -244,6 +244,7 @@ describe("domain argument codecs", () => {
       { type: "keyUp", keyCode: "Enter" },
       { type: "char", keyCode: "a" },
       { type: "insertText", text: "héllo" },
+      { type: "imeSetComposition", text: "한", selectionStart: 1, selectionEnd: 1 },
       { type: "edit", command: "paste" },
     ];
     for (const event of events) expect(decode(browserPaneInputCodec, event)).toEqual(event);
@@ -261,6 +262,17 @@ describe("domain argument codecs", () => {
     expect(() => decode(browserPaneInputCodec, { type: "edit", command: "format" })).toThrow(
       "argument 0.command",
     );
+    expect(() =>
+      decode(browserPaneInputCodec, {
+        type: "imeSetComposition",
+        text: "한",
+        selectionStart: 1.5,
+        selectionEnd: 1,
+      }),
+    ).toThrow("argument 0.selectionStart");
+    expect(() =>
+      decode(browserPaneInputCodec, { type: "imeSetComposition", text: "한", selectionStart: 1 }),
+    ).toThrow("argument 0.selectionEnd");
     expect(() => decode(browserPaneInputCodec, { type: "scroll" })).toThrow("argument 0.type");
   });
 

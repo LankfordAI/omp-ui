@@ -15,22 +15,19 @@ import {
 import { keyEvents, type KeyLike } from "../renderer/src/lib/browser-pane-input";
 import { BrowserPaneHost } from "./browser-pane-host";
 import page from "./browser-pane-smoke-page.html?raw";
+import { smokeExitCode } from "./browser-pane-smoke-verdict";
 
 /**
- * Electron-runtime smoke of the shipped browser pane host (#519 spec 5.7,
- * #539). Second main entry; never packaged, never run in CI:
+ * Electron-runtime smoke of the shipped browser pane host (#519 spec 5.7, #539).
+ * Second main entry; never packaged. CI runs `--once` under real Electron.
  *
  *   npm run smoke:browser-pane -w @omp-ui/desktop -- [flags]
  *
  * Flags: --size=WxH (1280x800) --dsf=N --fps=N --software --anim --url=http://…
- *        --out=DIR --keys=<string> --no-input-test
+ *        --out=DIR --keys=<string> --no-input-test --once
  * Chromium switches pass through (`--ozone-platform=x11`, `--no-sandbox`).
- *
- * The host, pane factory and bridge are the product modules; this file only
- * records what they emit, pushes input through `host.input`, and reads the
- * page back through one CDP client of its own on the bridge. Prints
- * `READY cdp_url=… dev_url=… out=…`; `q` + Enter disposes and writes
- * `<out>/summary.json`.
+ * `--once` writes the summary and exits: 0 pass, 2 listener, 3 paint,
+ * 4 input, 5 watchdog. Interactive mode finishes on `q` + Enter.
  */
 
 const TAB = "smoke";
@@ -38,6 +35,7 @@ const SINK = "sink";
 const DEFAULT_KEYS = "Hello 42";
 const LATENCY_TIMEOUT_MS = 2_000;
 const LOAD_TIMEOUT_MS = 15_000;
+const ONCE_WATCHDOG_MS = 120_000;
 
 // ---------------------------------------------------------------- flags
 
@@ -64,6 +62,7 @@ const flags = {
   out: resolve(flagValue("out") ?? join(__dirname, "..", "browser-pane-smoke")),
   keys: flagValue("keys") ?? DEFAULT_KEYS,
   inputTest: !hasFlag("no-input-test"),
+  once: hasFlag("once"),
 };
 
 if (flags.software) app.disableHardwareAcceleration();
@@ -165,7 +164,7 @@ const bridge = {
   debuggerDetach: null as string | null,
   appQuitLeak: null as boolean | null,
   windowsAfterDispose: null as number | null,
-  quitPath: null as "q" | "signal" | "before-quit" | null,
+  quitPath: null as "q" | "signal" | "before-quit" | "once" | "watchdog" | null,
 };
 const warnings: string[] = [];
 let dprReported: number | null = null;
@@ -436,6 +435,18 @@ async function runDomSteps(reader: PageReader): Promise<void> {
   value = await inputValue();
   recordStep("insert-text", value === "user한🙂", { value }, await pending);
 
+  // Live preedit (#541): the commit replaces it rather than appending.
+  pending = nextFrameLatency();
+  input({ type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
+  await sleep(80);
+  const preedit = await inputValue();
+  input({ type: "imeSetComposition", text: "한", selectionStart: 1, selectionEnd: 1 });
+  await sleep(80);
+  input({ type: "insertText", text: "한" });
+  await sleep(100);
+  value = await inputValue();
+  recordStep("ime-composition", preedit === "user한🙂ㅎ" && value === "user한🙂한", { preedit, value }, await pending);
+
   const mid = { x: Math.round(flags.size.width / 2), y: Math.round(flags.size.height / 2) };
   pending = nextFrameLatency();
   input({ type: "mouseWheel", x: mid.x, y: mid.y, deltaX: 0, deltaY: -120, hasPreciseScrollingDeltas: true });
@@ -513,6 +524,9 @@ async function runInputTest(reader: PageReader): Promise<void> {
   } catch (err) {
     recordStep("self-test", false, { error: err instanceof Error ? err.message : String(err) }, null);
   }
+  // Keyboard coverage leaves a blinking caret focused, which is page-authored
+  // animation rather than an idle host repaint. Remove it before measuring.
+  await reader.eval("document.activeElement?.blur()");
   // Let the last step's repaints drain before the idle window opens. Without
   // --anim the pane must not repaint on its own; measured on Linux, software
   // compositing (--software) lands exactly one late paint 0.5-2.5 s after the
@@ -546,6 +560,7 @@ interface ClientRow {
 const clients: ClientRow[] = [];
 let devServer: Server | null = null;
 let finished = false;
+let onceWatchdog: NodeJS.Timeout | undefined;
 /** The host's rows as they stood before disposeAll emptied them. */
 let diagnosticsBeforeDispose: BrowserPaneDiagnostics[] | null = null;
 
@@ -599,6 +614,7 @@ function writeSummary(): string {
 
 function finish(path: NonNullable<typeof bridge.quitPath>): void {
   if (finished) return;
+  clearTimeout(onceWatchdog);
   finished = true;
   bridge.quitPath = path;
   diagnosticsBeforeDispose = host.diagnostics();
@@ -608,7 +624,15 @@ function finish(path: NonNullable<typeof bridge.quitPath>): void {
   devServer?.close();
   const file = writeSummary();
   console.log(`FINISH via=${path} appQuitLeak=${bridge.appQuitLeak} summary=${file}`);
-  app.quit();
+  if (flags.once) {
+    app.exit(smokeExitCode({
+      frames: { count: frames.count, firstFrameIsJpeg: frames.firstFrameIsJpeg },
+      inputTest,
+      quitPath: bridge.quitPath,
+    }));
+  } else {
+    app.quit();
+  }
 }
 
 app.on("before-quit", () => finish("before-quit"));
@@ -659,6 +683,12 @@ async function checkBridgeHttp(cdpUrl: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  if (flags.once) {
+    onceWatchdog = setTimeout(() => {
+      warnings.push("once: watchdog fired before the self-test finished");
+      finish("watchdog");
+    }, ONCE_WATCHDOG_MS);
+  }
   if (flags.fps !== BROWSER_PANE_FPS) {
     warnings.push(`--fps=${flags.fps} is informational: the shipped host paints at BROWSER_PANE_FPS=${BROWSER_PANE_FPS}`);
   }
@@ -707,6 +737,10 @@ async function main(): Promise<void> {
   console.log(
     `SELF-TEST DONE frames=${frames.count} dpr=${dprReported} agentStates=${[...new Set(states.map((s) => s.agent))].join(">")}`,
   );
+  if (flags.once) {
+    finish("once");
+    return;
+  }
   console.log("type q + Enter to finish");
 
   let lastCount = frames.count;

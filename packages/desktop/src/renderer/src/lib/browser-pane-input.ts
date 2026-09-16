@@ -241,3 +241,13 @@ export function keyEvents(
 export function compositionEnd(data: string): BrowserPaneInputEvent[] {
   return data === "" ? [] : [{ type: "insertText", text: data }];
 }
+
+/** `compositionupdate` → the live preedit with the caret at its end; empty text cancels (#541). */
+export function compositionUpdate(data: string): BrowserPaneInputEvent[] {
+  return [{ type: "imeSetComposition", text: data, selectionStart: data.length, selectionEnd: data.length }];
+}
+
+/** An empty `compositionend` after a forwarded preedit: the page's composition must go too. */
+export function compositionCancel(): BrowserPaneInputEvent[] {
+  return compositionUpdate("");
+}

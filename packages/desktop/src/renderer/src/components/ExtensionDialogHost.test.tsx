@@ -23,7 +23,7 @@ function runtime(queue: unknown[]): RpcTabState {
     extensionQueue: queue, busy: false, initialPrompt: null, autoTitleSent: null, hasRenamed: true,
     plan: null, planReview: null,
     planHtml: null, planText: null, planDeferred: false, plans: [], advisorStats: null, mcpStatus: null, advisorReply: true, capabilities: null, capabilitiesLoad: "idle", goal: null,
-    browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null } };
+    browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null, offers: [], offeredThisTurn: [], declinedOffers: [] } };
 }
 
 function renderRequest(...queue: unknown[]): void {

@@ -95,3 +95,29 @@ export function createFramePainter(
     },
   };
 }
+
+/** Cuts a padded viewport rect from the painted physical-pixel canvas as JPEG bytes. */
+export async function cropFrame(
+  canvas: HTMLCanvasElement,
+  header: BrowserPaneFrameHeader,
+  rect: { x: number; y: number; width: number; height: number },
+  padCss = 16,
+  quality = 0.85,
+): Promise<Uint8Array | null> {
+  if (canvas.width === 0 || canvas.height === 0) return null;
+  const left = Math.max(0, Math.floor((rect.x - padCss) * header.dsf));
+  const top = Math.max(0, Math.floor((rect.y - padCss) * header.dsf));
+  const right = Math.min(canvas.width, Math.ceil((rect.x + rect.width + padCss) * header.dsf));
+  const bottom = Math.min(canvas.height, Math.ceil((rect.y + rect.height + padCss) * header.dsf));
+  const width = right - left;
+  const height = bottom - top;
+  if (width < 1 || height < 1) return null;
+  const out = document.createElement("canvas");
+  out.width = width;
+  out.height = height;
+  const ctx = out.getContext("2d");
+  if (ctx === null) return null;
+  ctx.drawImage(canvas, left, top, width, height, 0, 0, width, height);
+  const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, "image/jpeg", quality));
+  return blob === null ? null : new Uint8Array(await blob.arrayBuffer());
+}

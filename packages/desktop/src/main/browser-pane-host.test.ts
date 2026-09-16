@@ -1,5 +1,6 @@
 import {
   BROWSER_PANE_ACTING_MS,
+  BROWSER_PANE_DEFAULT_VIEWPORT,
   BROWSER_PANE_FPS,
   BROWSER_PANE_MAX_VIEWPORT,
   BROWSER_PANE_MIN_VIEWPORT,
@@ -8,7 +9,7 @@ import {
   decodeBrowserPaneFrame,
   type BrowserPaneState,
 } from "@omp-ui/core";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { BridgeListener, BridgeListenerDeps, CreateBridgeListener } from "./browser-pane-bridge";
 import type { CreatePane, CreatePaneOptions, PaneContents, PaneEvent } from "./browser-pane-contents";
 import { BrowserPaneHost } from "./browser-pane-host";
@@ -54,6 +55,7 @@ function fakePane(opts: CreatePaneOptions): FakePane {
     isLoading: () => false,
     sendInputEvent: vi.fn(),
     insertText: vi.fn(async () => {}),
+    imeSetComposition: vi.fn(async () => {}),
     focus: vi.fn(),
     selectAll: vi.fn(),
     copy: vi.fn(),
@@ -106,6 +108,7 @@ interface Harness {
   listeners: Array<{ deps: BridgeListenerDeps; listener: BridgeListener }>;
   warnings: string[];
   createPane: ReturnType<typeof vi.fn<CreatePane>>;
+  clearPartition: Mock<(partition: string) => Promise<void>>;
   /** Only the state emits, in order. */
   states(): BrowserPaneState[];
   frames(): Uint8Array[];
@@ -117,6 +120,7 @@ function harness(opts: { paneFails?: boolean; listenerFails?: boolean; now?: () 
   const listeners: Harness["listeners"] = [];
   const warnings: string[] = [];
   let nextPort = 41000;
+  const clearPartition = vi.fn<(partition: string) => Promise<void>>(async () => {});
   const createPane = vi.fn<CreatePane>(async (paneOpts) => {
     if (opts.paneFails === true) throw new Error("no gpu");
     const fake = fakePane(paneOpts);
@@ -141,6 +145,7 @@ function harness(opts: { paneFails?: boolean; listenerFails?: boolean; now?: () 
     createPane,
     createListener,
     now: opts.now,
+    clearPartition,
     warn: (message) => warnings.push(message),
   });
   return {
@@ -150,6 +155,7 @@ function harness(opts: { paneFails?: boolean; listenerFails?: boolean; now?: () 
     listeners,
     warnings,
     createPane,
+    clearPartition,
     states: () =>
       sent.filter((s) => s.channel === CH.onBrowserPaneState).map((s) => s.args[1] as BrowserPaneState),
     frames: () =>
@@ -347,6 +353,9 @@ describe("BrowserPaneHost page lifecycle", () => {
     expect(pane.selectAll).toHaveBeenCalledTimes(1);
     h.host.input("t1", { type: "insertText", text: "한🙂" });
     expect(pane.insertText).toHaveBeenCalledWith("한🙂");
+    h.host.input("t1", { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
+    expect(pane.imeSetComposition).toHaveBeenCalledWith("ㅎ", 1, 1);
+    expect(pane.sendInputEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: "imeSetComposition" }));
   });
 
   it("drops input for a tab without a page", () => {
@@ -354,7 +363,45 @@ describe("BrowserPaneHost page lifecycle", () => {
     expect(() => h.host.input("t1", { type: "keyDown", keyCode: "a" })).not.toThrow();
     expect(h.createPane).not.toHaveBeenCalled();
   });
+
+  it("returns no-page before creation and clamps pick coordinates to the viewport", async () => {
+    const h = harness();
+    await expect(h.host.pick("t1", 10, 20)).resolves.toEqual({ status: "no-page" });
+    await h.host.ensure("t1");
+    const sendCommand = vi.mocked(h.panes[0]!.pane.debugger.sendCommand);
+    sendCommand.mockImplementation(async (method) => {
+      if (method === "Runtime.evaluate") return { result: { value: [0, 0] } };
+      throw new Error("miss");
+    });
+    await expect(h.host.pick("t1", -50, 99_999)).resolves.toEqual({ status: "miss" });
+    expect(sendCommand).toHaveBeenCalledWith(
+      "DOM.getNodeForLocation",
+      expect.objectContaining({ x: 0, y: BROWSER_PANE_DEFAULT_VIEWPORT.height }),
+    );
+  });
 });
+
+  it("clears after destroying live pages and recreates only a subscribed page", async () => {
+    const h = harness();
+    expect(h.host.livePageCount()).toBe(0);
+    await h.host.ensure("hidden");
+    h.host.subscribe("visible", "client", true);
+    await flush();
+    h.panes[0]!.setUrl("https://hidden.test/");
+    h.panes[0]!.emit("did-navigate");
+    h.panes[1]!.setUrl("https://visible.test/");
+    h.panes[1]!.emit("did-navigate");
+    expect(h.host.livePageCount()).toBe(2);
+
+    await h.host.clearData();
+    expect(h.panes[0]!.pane.destroy).toHaveBeenCalledTimes(1);
+    expect(h.panes[1]!.pane.destroy).toHaveBeenCalledTimes(1);
+    expect(h.clearPartition).toHaveBeenCalledWith("persist:browser-pane");
+    await flush();
+    expect(h.createPane).toHaveBeenCalledTimes(3);
+    expect(h.panes[2]!.pane.loadURL).toHaveBeenCalledWith("https://visible.test/");
+    expect(h.listeners.every(({ listener }) => !vi.mocked(listener.close).mock.calls.length)).toBe(true);
+  });
 
 describe("BrowserPaneHost navigation and popups (U7 host)", () => {
   it("routes a popup through goto and drops non-web popups", async () => {

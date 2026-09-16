@@ -98,6 +98,25 @@ export type BrowserPaneNavigate =
   | { action: "goto"; url: string }
   | { action: "back" | "forward" | "reload" | "stop" };
 
+/** The element under a pane point (#544). Rect is viewport CSS px; framed selectors are child-document relative. */
+export type BrowserPanePickResult =
+  | { status: "no-page" }
+  | { status: "miss" }
+  | {
+      status: "picked";
+      selector: string;
+      tag: string;
+      text: string;
+      framed: boolean;
+      rect: { x: number; y: number; width: number; height: number };
+    };
+export const BROWSER_PANE_PICK_SELECTOR_MAX = 1_024;
+export const BROWSER_PANE_PICK_TEXT_MAX = 80;
+
+export type BrowserPaneClearDataResult =
+  | { status: "cleared" }
+  | { status: "busy"; openPages: number };
+
 export type BrowserPaneModifier =
   | "shift"
   | "control"
@@ -111,7 +130,7 @@ export type BrowserPaneModifier =
 export type BrowserPaneMouseButton = "left" | "middle" | "right";
 export type BrowserPaneEditCommand = "selectAll" | "copy" | "paste" | "cut" | "undo" | "redo";
 
-/** Mirrors Electron's sendInputEvent unions (CSS px) plus the two non-input verbs. */
+/** Mirrors Electron's sendInputEvent unions (CSS px) plus the three non-input verbs. */
 export type BrowserPaneInputEvent =
   | {
       type: "mouseDown" | "mouseUp" | "mouseMove" | "mouseLeave";
@@ -132,6 +151,8 @@ export type BrowserPaneInputEvent =
     }
   | { type: "keyDown" | "keyUp" | "char"; keyCode: string; modifiers?: BrowserPaneModifier[] }
   | { type: "insertText"; text: string }
+  /** Live IME preedit (#541): CDP Input.imeSetComposition; empty text cancels. Offsets are UTF-16 units. */
+  | { type: "imeSetComposition"; text: string; selectionStart: number; selectionEnd: number }
   | { type: "edit"; command: BrowserPaneEditCommand };
 
 // Navigation allow-lists (#531). Pure so the renderer's address bar and main's

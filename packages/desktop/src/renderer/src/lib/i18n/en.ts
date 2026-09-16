@@ -886,6 +886,13 @@ export const en = {
   "browser.toolbar.addressPlaceholder": "https://localhost:5173",
   "browser.toolbar.attach": "attach page to prompt",
   "browser.toolbar.attached": "screenshot and URL added to the composer",
+  "browser.toolbar.pick": "attach an element to the prompt",
+  "browser.pick.hint": "click an element to attach its screenshot and selector — Esc cancels",
+  "browser.pick.miss": "nothing to pick at that point",
+  "browser.pick.framed": "selector inside a child frame: {selector}",
+  "browser.offer.text": "a local dev server appeared in a tool result",
+  "browser.offer.open": "open in browser pane",
+  "browser.offer.dismiss": "not this address",
   "browser.toolbar.fullscreen": "fill the column",
   "browser.toolbar.split": "back to split view",
   "browser.toolbar.close": "close browser pane",
@@ -1619,6 +1626,21 @@ export const en = {
   "settings.advanced.bundleHint":
     "Packages logs, lifecycle breadcrumbs, versions, and registry state into one zip for bug reports. Provider keys and remote credentials are never included; transcripts are excluded unless you tick the option.",
   "settings.advanced.bundleAction": "Export diagnostic bundle…",
+  "settings.advanced.browserDataTitle": "Browser pane data",
+  "settings.advanced.browserDataHint":
+    "Pages opened in the browser pane keep cookies, storage and cache in their own profile across restarts and sessions. Clearing signs you out of every site you logged into there; no other data is touched.",
+  "settings.advanced.browserDataAction": "Clear browser pane data…",
+  "dialog.browserdata.kicker": "Browser pane",
+  "dialog.browserdata.title": "Clear browser pane data?",
+  "dialog.browserdata.body":
+    "Cookies, site storage, the HTTP cache and saved HTTP logins of every page opened in the browser pane are deleted. Sessions, transcripts and settings are not affected.",
+  "dialog.browserdata.confirm": "Clear",
+  "dialog.browserdata.busyTitle": "Pages are still open",
+  "dialog.browserdata.busyBody":
+    "{count} browser pane page(s) are running. Closing them clears the data and reopens each visible pane at its last address, signed out; the agent's connection to those pages is dropped until it reconnects.",
+  "dialog.browserdata.force": "Close pages and clear",
+  "dialog.browserdata.working": "Clearing…",
+  "dialog.browserdata.done": "Browser pane data cleared",
   // Diagnostic bundle export dialog (issue #413)
   "dialog.diagnostics.kicker": "Diagnostics",
   "dialog.diagnostics.title": "Diagnostic bundle",

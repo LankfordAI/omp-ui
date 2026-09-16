@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   acceleratorName,
+  compositionCancel,
   compositionEnd,
+  compositionUpdate,
   keyEvents,
   mapPointer,
   pointerEvents,
@@ -164,6 +166,15 @@ describe("browser pane key translation", () => {
     });
     expect(compositionEnd("한글")).toEqual([{ type: "insertText", text: "한글" }]);
     expect(compositionEnd("")).toEqual([]);
+    expect(compositionUpdate("한")).toEqual([
+      { type: "imeSetComposition", text: "한", selectionStart: 1, selectionEnd: 1 },
+    ]);
+    expect(compositionUpdate("")).toEqual([
+      { type: "imeSetComposition", text: "", selectionStart: 0, selectionEnd: 0 },
+    ]);
+    expect(compositionCancel()).toEqual([
+      { type: "imeSetComposition", text: "", selectionStart: 0, selectionEnd: 0 },
+    ]);
   });
 
   it("darwin ⌘ chords become edit commands, ⇧⌘Z redo, and produce no keyUp", () => {

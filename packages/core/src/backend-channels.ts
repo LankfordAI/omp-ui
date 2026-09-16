@@ -55,7 +55,9 @@ import type {
   BrowserPaneEnsureResult,
   BrowserPaneInputEvent,
   BrowserPaneNavigate,
+  BrowserPanePickResult,
   BrowserPaneState,
+  BrowserPaneClearDataResult,
 } from "./browser-pane";
 import type { RpcFrame } from "./rpc/codec";
 import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
@@ -832,6 +834,16 @@ export const BACKEND_CHANNELS = {
   browserPaneNavigate: {
     channel: "browser-pane:navigate",
     ...notify<[tabId: string, nav: BrowserPaneNavigate]>([str(), browserPaneNavigateCodec]),
+  },
+  /** Element under a viewport point for the element hand-back (#544); tab-routed. */
+  browserPanePick: {
+    channel: "browser-pane:pick",
+    ...request<[tabId: string, x: number, y: number], BrowserPanePickResult>([str(), num(), num()]),
+  },
+  /** Clears this host's app-wide browser pane partition (#542); never proxied. */
+  browserPaneClearData: {
+    channel: "browser-pane:clear-data",
+    ...request<[force: boolean], BrowserPaneClearDataResult>([bool()]),
   },
   /** Header (u16 w, h, dsf×100, reserved) + JPEG; lossy — a slow client misses frames, never bytes of pty:data (#529). */
   onBrowserPaneFrame: {

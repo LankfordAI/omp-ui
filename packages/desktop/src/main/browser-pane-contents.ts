@@ -60,8 +60,11 @@ export interface PaneContents {
   getURL(): string;
   getTitle(): string;
   isLoading(): boolean;
-  sendInputEvent(event: Exclude<BrowserPaneInputEvent, { type: "insertText" | "edit" }>): void;
+  sendInputEvent(
+    event: Exclude<BrowserPaneInputEvent, { type: "insertText" | "edit" | "imeSetComposition" }>,
+  ): void;
   insertText(text: string): Promise<void>;
+  imeSetComposition(text: string, selectionStart: number, selectionEnd: number): Promise<void>;
   focus(): void;
   selectAll(): void;
   copy(): void;
@@ -228,6 +231,11 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
         }
       },
       insertText: (text) => wc.insertText(text),
+      // Preedit has no Electron API; the page's root debugger session carries it as CDP (#541).
+      imeSetComposition: (text, selectionStart, selectionEnd) =>
+        wc.debugger
+          .sendCommand("Input.imeSetComposition", { text, selectionStart, selectionEnd })
+          .then(() => undefined),
       focus: () => wc.focus(),
       selectAll: () => wc.selectAll(),
       copy: () => wc.copy(),
@@ -250,7 +258,15 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
         if (!wc.isDestroyed()) wc.close();
         if (!win.isDestroyed()) win.destroy();
       },
+
       isDestroyed: () => win.isDestroyed(),
     };
   };
+}
+/** Clears everything persisted by the browser pane profile (#542). */
+export async function clearBrowserPanePartition(partition: string): Promise<void> {
+  const ses = session.fromPartition(partition);
+  await ses.clearStorageData();
+  await ses.clearCache();
+  await ses.clearAuthCache();
 }

@@ -63,8 +63,8 @@ npm run build:web --workspace @omp-ui/desktop
 # Prove the installed node-pty addon loads and spawns a shell inside Electron.
 npm run smoke:pty --workspace @omp-ui/desktop
 
-# Electron-runtime smoke of the shipped browser pane host on this machine;
-# writes out/browser-pane-smoke/summary.json; not run in CI.
+# Electron-runtime smoke of the shipped browser pane host; writes
+# out/browser-pane-smoke/summary.json. CI runs --once on self-hosted Linux.
 npm run smoke:browser-pane --workspace @omp-ui/desktop
 
 # Regenerate committed theme CSS from theme-sources.json.
@@ -230,6 +230,7 @@ node --test scripts/close-landed-issues.test.mjs
 npm test
 npm run test:live
 npm run build
+npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once
 ```
 
 The second and third commands assert that workspace metadata and `package-lock.json` agree. `npm ci` alone does not catch every workspace-version drift case.

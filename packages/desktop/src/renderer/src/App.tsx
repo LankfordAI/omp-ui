@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { AppFeedback } from "./components/AppFeedback";
 import { AppUpdateCard } from "./components/AppUpdateCard";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
+import { BrowserPaneClearDialog } from "./components/BrowserPaneClearDialog";
 import { DiagnosticsExportDialog } from "./components/DiagnosticsExportDialog";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { inspectorBadges } from "./components/InspectorRail";
@@ -261,6 +262,7 @@ export default function App() {
   const deleteConfirmation = useStore((s) => s.deleteConfirmation);
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
   const diagnosticsDialogOpen = useStore((s) => s.diagnosticsDialogOpen);
+  const browserPaneClearDialogOpen = useStore((s) => s.browserPaneClearDialogOpen);
   const capabilitiesViewer = useStore((s) => s.capabilitiesViewer);
   const projectSettings = useStore((s) => s.projectSettings);
   const closeProjectSettings = useStore((s) => s.closeProjectSettings);
@@ -483,6 +485,7 @@ export default function App() {
       )}
       {projectPickerOpen && <ProjectPicker />}
       {diagnosticsDialogOpen && <DiagnosticsExportDialog />}
+      {browserPaneClearDialogOpen && <BrowserPaneClearDialog />}
       {capabilitiesModal !== null && (
         <CapabilitiesViewer
           scopeCwd={capabilitiesModal.scopeCwd}

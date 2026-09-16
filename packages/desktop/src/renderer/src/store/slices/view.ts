@@ -37,6 +37,7 @@ export interface ViewSlice {
   projectPickerInstanceId: string | null;
   /** The diagnostic-bundle export dialog (issue #413). */
   diagnosticsDialogOpen: boolean;
+  browserPaneClearDialogOpen: boolean;
   worktreeDialogProject: string | null;
   worktreeDialogInstanceId: string | null;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
@@ -63,6 +64,8 @@ export interface ViewSlice {
   closeProjectPicker(): void;
   openDiagnosticsDialog(): void;
   closeDiagnosticsDialog(): void;
+  openBrowserPaneClearDialog(): void;
+  closeBrowserPaneClearDialog(): void;
   openWorktreeDialog(projectCwd: string, instanceId?: string | null): void;
   closeWorktreeDialog(): void;
   openFinishWorktree(tabId: string): void;
@@ -322,6 +325,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   projectPickerOpen: false,
   projectPickerInstanceId: null,
   diagnosticsDialogOpen: false,
+  browserPaneClearDialogOpen: false,
   worktreeDialogProject: null,
   worktreeDialogInstanceId: null,
   finishWorktreeTab: null,
@@ -362,6 +366,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   },
   closeDiagnosticsDialog() {
     set({ diagnosticsDialogOpen: false });
+  },
+  openBrowserPaneClearDialog() {
+    set({ browserPaneClearDialogOpen: true });
+  },
+  closeBrowserPaneClearDialog() {
+    set({ browserPaneClearDialogOpen: false });
   },
   openWorktreeDialog(projectCwd, instanceId = null) {
     set({ worktreeDialogProject: projectCwd, worktreeDialogInstanceId: instanceId });

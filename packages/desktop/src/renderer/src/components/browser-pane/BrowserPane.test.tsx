@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BrowserPaneFrameHeader } from "@omp-ui/core/browser-pane";
+import type { BrowserPaneFrameHeader, BrowserPanePickResult } from "@omp-ui/core/browser-pane";
 import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import { backendState, remoteInstance, rpcTabState } from "../../test/fixtures";
 
@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   electron: false,
   header: { width: 1280, height: 800, dsf: 1 } as BrowserPaneFrameHeader | null,
   observers: [] as ((entries: { contentRect: { width: number; height: number } }[]) => void)[],
+  cropFrame: vi.fn(async () => new Uint8Array([0xff, 0xd8, 1])),
 }));
 
 vi.mock("../../lib/platform", () => ({
@@ -31,6 +32,7 @@ vi.mock("../../lib/browser-pane-frame", () => ({
     header: () => mocks.header,
     dispose() {},
   }),
+  cropFrame: mocks.cropFrame,
 }));
 
 class ResizeObserverStub {
@@ -48,6 +50,9 @@ const ompBackend = {
   browserPaneResize: vi.fn(),
   browserPaneInput: vi.fn(),
   browserPaneNavigate: vi.fn(),
+  browserPanePick: vi.fn<(tabId: string, x: number, y: number) => Promise<BrowserPanePickResult>>(async () => ({
+    status: "miss",
+  })),
 };
 Object.assign(window, { ompBackend });
 // Dynamic imports are required because store.ts captures window.ompBackend at module evaluation.
@@ -123,6 +128,9 @@ function seed(instanceStatus: "joined" | "unreachable" | null): void {
             agent: "attached",
           },
           frame: { width: 1280, height: 800, dsf: 1 },
+          offers: [],
+          offeredThisTurn: [],
+          declinedOffers: [],
         },
       }),
     },
@@ -235,7 +243,7 @@ describe("BrowserPane viewport sizing (#532)", () => {
   });
 });
 
-describe("BrowserPane IME commits (#550)", () => {
+describe("BrowserPane live IME composition (#541, #550)", () => {
   const compose = (type: string, data: string): void => {
     act(() => proxy().dispatchEvent(new CompositionEvent(type, { bubbles: true, data })));
   };
@@ -244,47 +252,92 @@ describe("BrowserPane IME commits (#550)", () => {
     act(() => proxy().dispatchEvent(new InputEvent("input", { bubbles: true, data, isComposing })));
   };
 
-  it("forwards the IBus commit after an empty compositionend, not the preedit", () => {
+  it("forwards each preedit and commits it exactly once", () => {
     seed(null);
     render();
     compose("compositionstart", "");
-    input("ㅎ", true);
-    input("하", true);
-    input("한", true);
-    input(null, true);
-    compose("compositionend", "");
+    compose("compositionupdate", "ㅎ");
+    compose("compositionupdate", "한");
+    compose("compositionend", "한");
     input("한");
-    expect(ompBackend.browserPaneInput.mock.calls).toEqual([[TAB, { type: "insertText", text: "한" }]]);
-    expect(proxy().value).toBe("");
-  });
-
-  it("does not duplicate a compositionend commit echoed by input, or lose the next equal commit", () => {
-    seed(null);
-    render();
-    for (let i = 0; i < 2; i += 1) {
-      compose("compositionstart", "");
-      input("한", false);
-      compose("compositionend", "한");
-      input("한");
-    }
     expect(ompBackend.browserPaneInput.mock.calls).toEqual([
-      [TAB, { type: "insertText", text: "한" }],
+      [TAB, { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 }],
+      [TAB, { type: "imeSetComposition", text: "한", selectionStart: 1, selectionEnd: 1 }],
       [TAB, { type: "insertText", text: "한" }],
     ]);
   });
 
-  it("does not send cancelled preedit or replay an outage commit on rejoin", () => {
-    seed("joined");
+  it("clears live preedit before forwarding the IBus trailing commit", () => {
+    seed(null);
     render();
     compose("compositionstart", "");
-    input("한", true);
+    compose("compositionupdate", "ㅎ");
     compose("compositionend", "");
-    input(null);
+    input("한");
+    expect(ompBackend.browserPaneInput.mock.calls).toEqual([
+      [TAB, { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 }],
+      [TAB, { type: "imeSetComposition", text: "", selectionStart: 0, selectionEnd: 0 }],
+      [TAB, { type: "insertText", text: "한" }],
+    ]);
+    expect(proxy().value).toBe("");
+  });
+
+  it("sends nothing for an empty composition with no preedit", () => {
+    seed(null);
+    render();
+    compose("compositionstart", "");
+    compose("compositionend", "");
+    expect(ompBackend.browserPaneInput).not.toHaveBeenCalled();
+  });
+
+  it("does not replay an outage commit on rejoin", () => {
+    seed("joined");
+    render();
     act(() => seed("unreachable"));
     compose("compositionstart", "");
+    compose("compositionupdate", "한");
     compose("compositionend", "한");
     act(() => seed("joined"));
     input("한");
     expect(ompBackend.browserPaneInput).not.toHaveBeenCalled();
+  });
+});
+
+describe("BrowserPane element hand-back (#544)", () => {
+  it("consumes the page click, picks the mapped point, and keeps pick mode after a miss", async () => {
+    seed(null);
+    render();
+    act(() => button("attach an element to the prompt")!.click());
+    await act(async () => {
+      pointerDown();
+      await Promise.resolve();
+    });
+    expect(ompBackend.browserPaneInput).not.toHaveBeenCalled();
+    expect(ompBackend.browserPanePick).toHaveBeenCalledWith(TAB, 10, 20);
+    expect(button("attach an element to the prompt")?.getAttribute("aria-pressed")).toBe("true");
+    act(() => proxy().dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" })));
+    expect(button("attach an element to the prompt")?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("queues the cropped element with an actionable selector and URL", async () => {
+    ompBackend.browserPanePick.mockResolvedValueOnce({
+      status: "picked",
+      selector: "#save",
+      tag: "button",
+      text: "Save",
+      framed: false,
+      rect: { x: 1, y: 2, width: 30, height: 20 },
+    });
+    seed(null);
+    render();
+    act(() => button("attach an element to the prompt")!.click());
+    await act(async () => {
+      pointerDown();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const queued = useStore.getState().rpc[TAB]?.composerQueue;
+    expect(queued?.text.at(-1)).toContain("https://localhost:5173/\nselector: #save — <button> \"Save\"");
+    expect(queued?.images.at(-1)?.mimeType).toBe("image/jpeg");
   });
 });
