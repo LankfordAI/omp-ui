@@ -16,7 +16,6 @@ import { SubagentView } from "./SubagentView";
 import { TranscriptView, TuiHandoffButton } from "./TranscriptView";
 import { Button, Chip, CopyButton, Panel, ProgressSweep, Sheet } from "./ui";
 import { BrowserPane } from "./browser-pane/BrowserPane";
-import { BrowserPaneOffer } from "./browser-pane/BrowserPaneOffer";
 import { BrowserPaneSplit, useDesktopPanelWidths } from "./browser-pane/BrowserPaneSplit";
 
 const NO_ITEMS: never[] = [];
@@ -379,7 +378,6 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
           </Panel>
         </div>
       )}
-      <BrowserPaneOffer tabId={tabId} />
 
       {/* The console drawer spans the full tab width — transcript column and
           rail — docked at the bottom edge below the composer (issue #33). */}

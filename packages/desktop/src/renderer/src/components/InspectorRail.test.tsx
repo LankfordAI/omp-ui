@@ -144,7 +144,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     capabilities: null,
     capabilitiesLoad: "idle",
     advisorReply: true,
-    browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null, offers: [], offeredThisTurn: [], declinedOffers: [] },
+    browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null },
     ...patch,
   };
 }

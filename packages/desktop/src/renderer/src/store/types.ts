@@ -161,12 +161,6 @@ export interface BrowserPaneView {
   state: BrowserPaneState | null;
   /** Physical size of the last painted frame; null until one arrives. */
   frame: BrowserPaneFrameHeader | null;
-  /** Local dev-server URLs awaiting the user's answer (#543). */
-  offers: string[];
-  /** URLs already offered during the current agent turn. */
-  offeredThisTurn: string[];
-  /** URLs dismissed for this tab; persisted with the pane posture. */
-  declinedOffers: string[];
 }
 
 /** Per-tab rpc-ui state (the phase-2 doc's state machine, concretized). */
@@ -556,8 +550,6 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   queueComposerAttachment(tabId: string, image: ImageAttachment, text: string): void;
   /** Takes the queued attachments; null when nothing is queued. */
   drainComposerQueue(tabId: string): { images: ImageAttachment[]; text: string[] } | null;
-  acceptBrowserPaneOffer(tabId: string, url: string): void;
-  declineBrowserPaneOffer(tabId: string, url: string): void;
   setHostScope(scope: string): void;
   restartSession(tabId: string): Promise<boolean>;
   addProject(path: string, instanceId?: string | null): Promise<void>;

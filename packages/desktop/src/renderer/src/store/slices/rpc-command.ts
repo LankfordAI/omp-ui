@@ -580,7 +580,7 @@ export function createRpcCommandSlice(
         // The pane's open/fullscreen posture survives the reboot (#528); the
         // ensure answer belongs to the dead process, so the component re-asks.
         browserPane: prior
-          ? { ...prior.browserPane, ensure: "idle", state: null, offeredThisTurn: [] }
+          ? { ...prior.browserPane, ensure: "idle", state: null }
           : freshBrowserPaneView(),
       });
       // The tab may not exist in state yet — ensure the slot exists.
