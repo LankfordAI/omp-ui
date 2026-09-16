@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { app, dialog, ipcMain, shell, type BrowserWindow } from "electron";
+import { app, dialog, ipcMain, screen, shell, type BrowserWindow } from "electron";
 import {
   CH,
   browseDirectories,
@@ -54,6 +54,8 @@ import {
   collectDiagnosticsBundle,
   previewDiagnosticsBundle,
   type AgentMode,
+  type BrowserPaneInputEvent,
+  type BrowserPaneNavigate,
   TITLE_MODEL_ROLES,
   type AdvisorDefaults,
   type BackendState,
@@ -242,6 +244,12 @@ export class MainBackend {
         breadcrumb: this.breadcrumbs,
         spawnGate: this.spawnGate,
         planVerify: (html, themeId, signal) => this.planVerifier.verify(html, themeId, signal),
+        browserPane: {
+          // Panes paint at the app window's display scale, so a pane frame is
+          // pixel-exact on the screen the user is looking at (#519).
+          displayScaleFactor: () =>
+            this.win.isDestroyed() ? 1 : screen.getDisplayMatching(this.win.getBounds()).scaleFactor,
+        },
       });
     // The desktop window is one event mirror among several — the remote server adds its own.
     // Guarded here rather than in send(): on/after quit the webContents is gone.
@@ -295,7 +303,11 @@ export class MainBackend {
         passwordSalt: this.registry.getSetting("remotePasswordSalt"),
       }),
       setToken: (token) => this.registry.setSetting("remoteToken", token),
-      send: (state) => this.send(CH.onRemoteState, state),
+      send: (state) => {
+        // The remote port joins the browser pane's denied loopback ports (#531).
+        this.sessions.setRemoteAccessPort(state.status === "listening" ? state.port : null);
+        this.send(CH.onRemoteState, state);
+      },
     });
     // A stable identity so a joiner can recognise this app as itself (issue #416).
     if (this.registry.getSetting("instanceId") === "") this.registry.setSetting("instanceId", randomUUID());
@@ -415,6 +427,7 @@ export class MainBackend {
       sessions,
       liveTabIds: sessions.filter((s) => this.sessions.isLive(s.tabId)).map((s) => s.tabId),
       breadcrumbs: this.breadcrumbs.entries(),
+      browserPanes: this.sessions.browserPaneDiagnostics(),
       facts: {
         appVersion: app.getVersion(),
         ompVersion: this.ompPath ? await readInstalledOmpVersion(this.ompPath) : null,
@@ -788,6 +801,7 @@ export class MainBackend {
         [CH.restartSession]: (tabId: string) => this.sessions.restart(tabId),
         [CH.getSessionCapabilities]: (tabId: string) =>
           this.sessions.getSessionCapabilities(tabId),
+        [CH.browserPaneEnsure]: (tabId: string) => this.sessions.browserPaneEnsure(tabId),
         [CH.setSessionToolEnabled]: (
           tabId: string,
           processKey: string,
@@ -889,6 +903,14 @@ export class MainBackend {
         [CH.shellWrite]: (tabId: string, data: string) => this.sessions.shellWrite(tabId, data),
         [CH.shellResize]: (tabId: string, cols: number, rows: number) =>
           this.sessions.shellResize(tabId, cols, rows),
+        [CH.browserPaneSubscribe]: (tabId: string, clientId: string, on: boolean) =>
+          this.sessions.browserPaneSubscribe(tabId, clientId, on),
+        [CH.browserPaneResize]: (tabId: string, width: number, height: number) =>
+          this.sessions.browserPaneResize(tabId, width, height),
+        [CH.browserPaneInput]: (tabId: string, event: BrowserPaneInputEvent) =>
+          this.sessions.browserPaneInput(tabId, event),
+        [CH.browserPaneNavigate]: (tabId: string, nav: BrowserPaneNavigate) =>
+          this.sessions.browserPaneNavigate(tabId, nav),
         [CH.rpcSend]: (tabId: string, cmd: RpcFrame) => this.sessions.rpcSend(tabId, cmd),
         [CH.tabViewed]: (clientId: string, tabId: string | null) =>
           this.sessions.setViewedTab(clientId, tabId),

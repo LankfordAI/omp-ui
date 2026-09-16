@@ -9,6 +9,7 @@ import {
   readOmpCompactionMethods,
   type OwnedSessionRecord,
   writeAdvisorOverlay,
+  writeBrowserPaneExtension,
   writeAdvisorStatsExtension,
   writeCapabilitiesExtension,
   writeCompactionMethodOverlay,
@@ -100,7 +101,13 @@ export async function writeRpcOverlays(
   }
 
   /** The generated `-e` bridges an rpc-ui spawn needs. */
-export function writeRpcExtensions(absLineageDir: string): { paths: string[]; mcpStatusLoaded: boolean; capabilitiesLoaded: boolean; goalLoaded: boolean } {
+export function writeRpcExtensions(absLineageDir: string): {
+  paths: string[];
+  mcpStatusLoaded: boolean;
+  capabilitiesLoaded: boolean;
+  goalLoaded: boolean;
+  browserPaneLoaded: boolean;
+} {
     const paths: string[] = [];
     try {
       paths.push(writePlanExtension(absLineageDir));
@@ -133,7 +140,14 @@ export function writeRpcExtensions(absLineageDir: string): { paths: string[]; mc
     } catch (err) {
       console.warn("[goal] could not write the goal extension:", err);
     }
-    return { paths, mcpStatusLoaded, capabilitiesLoaded, goalLoaded };
+    let browserPaneLoaded = false;
+    try {
+      paths.push(writeBrowserPaneExtension(absLineageDir));
+      browserPaneLoaded = true;
+    } catch (err) {
+      console.warn("[browser-pane] could not write the browser-pane extension:", err);
+    }
+    return { paths, mcpStatusLoaded, capabilitiesLoaded, goalLoaded, browserPaneLoaded };
   }
 
 /** Manager-provided paths and registry mutation for prepareResumeRecord. */
