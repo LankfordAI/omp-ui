@@ -4,6 +4,11 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- Tool results that carry images — eval screenshots, reading an image — now render them in a strip inside the native transcript's tool card ([#520](https://github.com/LankfordAI/omp-ui/issues/520)).
+- The native transcript no longer offers to open a loopback dev-server URL a tool result printed; URLs stay clickable and the browser pane still auto-opens when the agent attaches ([#554](https://github.com/LankfordAI/omp-ui/issues/554)).
+- `npm run dev:headless` boots the app with no window and no focus steal for agent verification runs ([#552](https://github.com/LankfordAI/omp-ui/issues/552)).
+- `npm run dev:headless -- --pane` prints a loopback URL so the headless instance can be watched live in the browser pane ([#553](https://github.com/LankfordAI/omp-ui/issues/553)).
+
 
 ## Choose a download
 
