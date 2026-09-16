@@ -1,13 +1,21 @@
-import { IncomingMessage } from "node:http";
 import * as net from "node:net";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { WebSocket, WebSocketServer } from "ws";
+import { afterEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import { CH, type ChannelTable } from "@omp-ui/core";
 import { startRemoteServer, type RemoteServerHandle, type RemoteHost } from "./index";
-import { decodeBinaryEvent, REMOTE_WS_PATH } from "./protocol";
+import {
+  decodeBinaryEvent,
+  decodeFrameDelivery,
+  makeFrameAck,
+  parseServerFrame,
+  REMOTE_FRAME_KEY_PARAM,
+  REMOTE_FRAME_WS_PATH,
+  REMOTE_WS_PATH,
+  type FrameDelivery,
+} from "./protocol";
 import {
   hashRemotePassword,
   mintRemoteToken,
@@ -40,6 +48,9 @@ function fakeHost(): FakeHost {
       [CH.ptyWrite]: (tabId: string, data: string) => {
         notified.push({ ch: CH.ptyWrite, args: [tabId, data] });
       },
+      [CH.browserPaneSubscribe]: (tabId: string, clientId: string, on: boolean) => {
+        notified.push({ ch: CH.browserPaneSubscribe, args: [tabId, clientId, on] });
+      },
     },
   } as unknown as ChannelTable;
   return {
@@ -57,9 +68,9 @@ function fakeHost(): FakeHost {
 
 const open: RemoteServerHandle[] = [];
 const sockets: WebSocket[] = [];
+const frameKeys = new WeakMap<WebSocket, string>();
 
 afterEach(async () => {
-  vi.restoreAllMocks();
   for (const ws of sockets.splice(0)) ws.close();
   for (const h of open.splice(0)) await h.close();
 });
@@ -81,7 +92,7 @@ async function serve(
   return { handle, host, base: `http://127.0.0.1:${handle.port}` };
 }
 
-/** Opens a socket and resolves once it is OPEN; rejects if it closes first. */
+/** Waits for the reliable socket's pairing handshake, consuming it before request assertions. */
 function connect(
   base: string,
   token: string | null,
@@ -91,7 +102,15 @@ function connect(
   const ws = new WebSocket(url, { headers });
   sockets.push(ws);
   return new Promise((resolve, reject) => {
-    ws.once("open", () => resolve(ws));
+    ws.once("message", (raw: Buffer) => {
+      const frame = parseServerFrame(JSON.parse(raw.toString("utf8")));
+      if (frame?.t !== "frames") {
+        reject(new Error("missing frame pairing handshake"));
+        return;
+      }
+      frameKeys.set(ws, frame.key);
+      resolve(ws);
+    });
     ws.once("close", () => reject(new Error("closed before open")));
     ws.once("error", () => {
       /* the close handler is the one that settles */
@@ -116,6 +135,67 @@ function nextBinary(ws: WebSocket): Promise<Buffer> {
       resolve(raw);
     };
     ws.once("message", onMessage);
+  });
+}
+
+interface FramePeer {
+  ws: WebSocket;
+  deliveries: FrameDelivery[];
+}
+
+function connectFrames(
+  base: string,
+  key: string | null,
+  token: string | null = TOKEN,
+  headers?: Record<string, string>,
+): Promise<FramePeer> {
+  const url = new URL(`${base.replace("http://", "ws://")}${REMOTE_FRAME_WS_PATH}`);
+  if (key !== null) url.searchParams.set(REMOTE_FRAME_KEY_PARAM, key);
+  if (token !== null) url.searchParams.set("t", token);
+  const ws = new WebSocket(url, { headers });
+  sockets.push(ws);
+  const deliveries: FramePeer["deliveries"] = [];
+  ws.on("message", (raw: Buffer, isBinary: boolean) => {
+    expect(isBinary).toBe(true);
+    const frame = decodeFrameDelivery(new Uint8Array(raw));
+    expect(frame).not.toBeNull();
+    if (frame !== null) deliveries.push(frame);
+  });
+  return new Promise<FramePeer>((resolve, reject) => {
+    ws.once("open", () => resolve({ ws, deliveries }));
+    ws.once("error", reject);
+    ws.once("close", () => reject(new Error("closed before open")));
+  });
+}
+
+async function reliableBarrier(ws: WebSocket): Promise<void> {
+  const response = nextJson(ws);
+  ws.send(JSON.stringify({ t: "req", id: 999, ch: CH.getState, args: [] }));
+  expect(await response).toMatchObject({ t: "res", id: 999, ok: true });
+}
+
+/** Same-socket ping/pong proves prior ACKs and their outgoing deliveries have been processed. */
+function frameBarrier(ws: WebSocket): Promise<void> {
+  return new Promise<void>((resolve) => {
+    ws.once("pong", () => resolve());
+    ws.ping();
+  });
+}
+
+async function subscribe(ws: WebSocket, tabId: string, clientId = "viewer", on = true): Promise<void> {
+  ws.send(JSON.stringify({ t: "notify", ch: CH.browserPaneSubscribe, args: [tabId, clientId, on] }));
+  await reliableBarrier(ws);
+}
+
+async function ack(peer: FramePeer, id: number): Promise<void> {
+  peer.ws.send(JSON.stringify(makeFrameAck(id)));
+  await frameBarrier(peer.ws);
+}
+
+function closeSocket(ws: WebSocket): Promise<number> {
+  return new Promise<number>((resolve) => {
+    ws.once("close", (code) => resolve(code));
+    ws.close();
   });
 }
 
@@ -182,16 +262,7 @@ function postLogin(base: string, password: string): Promise<Response> {
 
 /** Opens a socket authenticated only by the given cookie header. */
 function connectWithCookie(base: string, cookie: string): Promise<WebSocket> {
-  const url = `${base.replace("http://", "ws://")}${REMOTE_WS_PATH}`;
-  const ws = new WebSocket(url, { headers: { cookie } });
-  sockets.push(ws);
-  return new Promise((resolve, reject) => {
-    ws.once("open", () => resolve(ws));
-    ws.once("close", () => reject(new Error("closed before open")));
-    ws.once("error", () => {
-      /* the close handler is the one that settles */
-    });
-  });
+  return connect(base, null, { cookie });
 }
 
 describe("startRemoteServer password auth", () => {
@@ -513,51 +584,266 @@ describe("startRemoteServer event fan-out", () => {
     expect([...(decoded?.payload ?? [])]).toEqual([1, 2, 3]);
   });
 
-  it("drops browser frames at a 96 KiB backlog without dropping PTY bytes", async () => {
-    // The server-side socket is reachable only through the connection event; a request header
-    // marks which one plays the slow client, and its bufferedAmount is pinned above the threshold.
-    const SLOW_HEADER = "x-omp-test-slow";
-    const realEmit = WebSocketServer.prototype.emit;
-    vi.spyOn(WebSocketServer.prototype, "emit").mockImplementation(function (
-      this: WebSocketServer,
-      event,
-      ...args
-    ) {
-      const [ws, req] = args;
-      if (
-        event === "connection" &&
-        ws instanceof WebSocket &&
-        req instanceof IncomingMessage &&
-        req.headers[SLOW_HEADER] === "1"
-      ) {
-        Object.defineProperty(ws, "bufferedAmount", {
-          get: () => 96 * 1024,
-        });
-      }
-      return realEmit.call(this, event, ...args);
-    });
+});
+
+describe("startRemoteServer paired frame stream", () => {
+  it("requires both authentication and a live pairing key, and rejects duplicate companions", async () => {
+    const { base } = await serve();
+    const reliable = await connect(base, TOKEN);
+    const other = await connect(base, TOKEN);
+    const key = frameKeys.get(reliable)!;
+    expect(key).toMatch(/^[a-f0-9]{64}$/);
+    expect(frameKeys.get(other)).not.toBe(key);
+    await expect(connectFrames(base, null)).rejects.toThrow("401");
+    await expect(connectFrames(base, "bad-key")).rejects.toThrow("401");
+    await expect(connectFrames(base, "0".repeat(64))).rejects.toThrow("401");
+    await expect(connectFrames(base, key, null)).rejects.toThrow("401");
+    await expect(connectFrames(base, key, mintRemoteToken())).rejects.toThrow("401");
+    const frames = await connectFrames(base, key);
+    await expect(connectFrames(base, key)).rejects.toThrow("409");
+    await frameBarrier(frames.ws);
+    await reliableBarrier(reliable);
+  });
+
+  it("accepts the same bearer and password-cookie authentication on both sockets", async () => {
+    const { base } = await serve({ password: PW_HASH });
+    const bearer = { authorization: `Bearer ${TOKEN}` };
+    const node = await connect(base, null, bearer);
+    const nodeFrames = await connectFrames(base, frameKeys.get(node)!, null, bearer);
+    const cookie = `omp_ui_token=${passwordSessionCredential(PW_HASH.hash)}`;
+    const browser = await connectWithCookie(base, cookie);
+    const browserFrames = await connectFrames(base, frameKeys.get(browser)!, null, { cookie });
+    await Promise.all([frameBarrier(nodeFrames.ws), frameBarrier(browserFrames.ws)]);
+  });
+
+  it("keeps PTY, shell, and control delivery reliable while a viewer withholds its image ACK", async () => {
     const { base, host } = await serve();
-    const slow = await connect(base, TOKEN, { [SLOW_HEADER]: "1" });
+    const slow = await connect(base, TOKEN);
     const fast = await connect(base, TOKEN);
-
-    const channelOf = (raw: Buffer): string | undefined =>
-      decodeBinaryEvent(new Uint8Array(raw))?.channel;
-    const fastChannels: string[] = [];
-    const fastSawBoth = new Promise<void>((resolve) => {
-      fast.on("message", (raw: Buffer, isBinary: boolean) => {
-        if (!isBinary) return;
-        fastChannels.push(channelOf(raw) ?? "?");
-        if (fastChannels.length === 2) resolve();
-      });
+    const slowFrames = await connectFrames(base, frameKeys.get(slow)!);
+    const fastFrames = await connectFrames(base, frameKeys.get(fast)!);
+    await Promise.all([subscribe(slow, "tab"), subscribe(fast, "tab")]);
+    const reliableChannels: string[] = [];
+    slow.on("message", (raw: Buffer, binary: boolean) => {
+      if (binary) reliableChannels.push(decodeBinaryEvent(new Uint8Array(raw))?.channel ?? "invalid");
     });
-    const slowFirst = nextBinary(slow);
-    host.emit("browser-pane:frame", ["tab-1", Uint8Array.of(9)]);
-    host.emit("pty:data", ["tab-1", Uint8Array.of(1)]);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(1)]);
+    await Promise.all([frameBarrier(slowFrames.ws), frameBarrier(fastFrames.ws)]);
+    expect(slowFrames.deliveries[0]).toEqual(fastFrames.deliveries[0]);
+    await ack(fastFrames, fastFrames.deliveries[0]!.id);
+    for (let i = 2; i <= 100; i++) host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(i)]);
+    const pty = nextBinary(slow);
+    host.emit(CH.onPtyData, ["tab", Uint8Array.of(7)]);
+    expect(decodeBinaryEvent(new Uint8Array(await pty))?.payload).toEqual(Uint8Array.of(7));
+    const shell = nextBinary(slow);
+    host.emit(CH.onShellData, ["tab", Uint8Array.of(8)]);
+    expect(decodeBinaryEvent(new Uint8Array(await shell))?.payload).toEqual(Uint8Array.of(8));
+    const event = nextJson(slow);
+    host.emit("state:changed", [{ projects: [] }]);
+    expect(await event).toEqual({ t: "ev", ch: "state:changed", args: [{ projects: [] }] });
+    await reliableBarrier(slow);
+    await Promise.all([frameBarrier(slowFrames.ws), frameBarrier(fastFrames.ws)]);
+    expect(reliableChannels).toEqual([CH.onPtyData, CH.onShellData]);
+    expect(slowFrames.deliveries.map((frame) => frame.payload[0])).toEqual([1]);
+    expect(fastFrames.deliveries.map((frame) => frame.payload[0])).toEqual([1, 2]);
+    await ack(fastFrames, fastFrames.deliveries[1]!.id);
+    expect(fastFrames.deliveries.map((frame) => frame.payload[0])).toEqual([1, 2, 100]);
+    await ack(slowFrames, slowFrames.deliveries[0]!.id);
+    expect(slowFrames.deliveries.map((frame) => frame.payload[0])).toEqual([1, 100]);
+  });
 
-    await fastSawBoth;
-    expect(fastChannels).toEqual(["browser-pane:frame", "pty:data"]);
-    // TCP keeps order: had the frame been sent, it would have arrived before pty:data.
-    expect(channelOf(await slowFirst)).toBe("pty:data");
+  it("retains only the latest pending frame per tab and serves tabs fairly after matching ACKs", async () => {
+    const { base, host } = await serve();
+    const reliable = await connect(base, TOKEN);
+    const frames = await connectFrames(base, frameKeys.get(reliable)!);
+    await subscribe(reliable, "a");
+    await subscribe(reliable, "b");
+    host.emit(CH.onBrowserPaneFrame, ["a", Uint8Array.of(1)]);
+    host.emit(CH.onBrowserPaneFrame, ["a", Uint8Array.of(2)]);
+    host.emit(CH.onBrowserPaneFrame, ["b", Uint8Array.of(3)]);
+    for (let i = 4; i <= 100; i++) host.emit(CH.onBrowserPaneFrame, ["a", Uint8Array.of(i)]);
+    host.emit(CH.onBrowserPaneFrame, ["b", Uint8Array.of(101)]);
+    host.emit(CH.onBrowserPaneFrame, ["unwatched", Uint8Array.of(255)]);
+    await frameBarrier(frames.ws);
+    const first = frames.deliveries[0]!.id;
+    // A valid but non-current id, malformed ids, and an ACK on /ws give no credit.
+    await ack(frames, first + 500);
+    frames.ws.send(JSON.stringify({ t: "ack", id: String(first) }));
+    frames.ws.send(JSON.stringify({ t: "ack", id: first + 0.5 }));
+    reliable.send(JSON.stringify(makeFrameAck(first)));
+    await reliableBarrier(reliable);
+    await frameBarrier(frames.ws);
+    expect(frames.deliveries.map((frame) => frame.payload[0])).toEqual([1]);
+    await ack(frames, first);
+    expect(frames.deliveries.map((frame) => [frame.tabId, frame.payload[0]])).toEqual([["a", 1], ["a", 100]]);
+    host.emit(CH.onBrowserPaneFrame, ["a", Uint8Array.of(102)]);
+    await ack(frames, first); // duplicate ACK must not release the second in-flight frame.
+    expect(frames.deliveries.map((frame) => frame.payload[0])).toEqual([1, 100]);
+    await ack(frames, frames.deliveries[1]!.id);
+    expect(frames.deliveries.map((frame) => [frame.tabId, frame.payload[0]])).toEqual([
+      ["a", 1], ["a", 100], ["b", 101],
+    ]);
+    await ack(frames, frames.deliveries[2]!.id);
+    await ack(frames, frames.deliveries[3]!.id);
+    expect(frames.deliveries.map((frame) => [frame.tabId, frame.payload[0]])).toEqual([
+      ["a", 1], ["a", 100], ["b", 101], ["a", 102],
+    ]);
+  });
+
+  it("captures synchronous subscription replay before a companion opens without leaking onto /ws", async () => {
+    const host = fakeHost();
+    const originalTable = host.handlers();
+    host.handlers = () => ({
+      ...originalTable,
+      notify: {
+        ...originalTable.notify,
+        [CH.browserPaneSubscribe]: (tabId, clientId, on) => {
+          originalTable.notify[CH.browserPaneSubscribe](tabId, clientId, on);
+          if (on) host.emit(CH.onBrowserPaneFrame, [tabId, Uint8Array.of(42)]);
+        },
+      },
+    });
+    const { base } = await serve({ host });
+    const reliable = await connect(base, TOKEN);
+    const binary: Buffer[] = [];
+    reliable.on("message", (raw: Buffer, isBinary: boolean) => {
+      if (isBinary) binary.push(raw);
+    });
+    await subscribe(reliable, "cached");
+    const frames = await connectFrames(base, frameKeys.get(reliable)!);
+    await frameBarrier(frames.ws);
+    expect(frames.deliveries.map((frame) => [frame.tabId, frame.payload[0]])).toEqual([["cached", 42]]);
+    expect(binary).toEqual([]);
+  });
+
+  it("tracks joined client identities independently and drops pending bytes only on the last unsubscribe", async () => {
+    const { base, host } = await serve();
+    const reliable = await connect(base, TOKEN);
+    const frames = await connectFrames(base, frameKeys.get(reliable)!);
+    await subscribe(reliable, "tab", "one");
+    await subscribe(reliable, "tab", "two");
+    await subscribe(reliable, "tab", "one", false);
+    await subscribe(reliable, "tab", "unknown", false);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(1)]);
+    await frameBarrier(frames.ws);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(2)]);
+    await subscribe(reliable, "tab", "two", false);
+    await subscribe(reliable, "other");
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(3)]);
+    host.emit(CH.onBrowserPaneFrame, ["other", Uint8Array.of(4)]);
+    await frameBarrier(frames.ws);
+    // Unsubscribing cannot grant another send before the old image settles.
+    expect(frames.deliveries.map((frame) => frame.payload[0])).toEqual([1]);
+    await ack(frames, frames.deliveries[0]!.id);
+    expect(frames.deliveries.map((frame) => [frame.tabId, frame.payload[0]])).toEqual([["tab", 1], ["other", 4]]);
+    await ack(frames, frames.deliveries[1]!.id);
+    expect(frames.deliveries.map((frame) => frame.payload[0])).toEqual([1, 4]);
+  });
+
+  it("rejects malformed subscription tuples without widening frame delivery", async () => {
+    const { base, host } = await serve();
+    const reliable = await connect(base, TOKEN);
+    const frames = await connectFrames(base, frameKeys.get(reliable)!);
+    for (const args of [["tab", "viewer", 1], ["tab", "viewer", true, "extra"], ["tab", 1, true]]) {
+      reliable.send(JSON.stringify({ t: "notify", ch: CH.browserPaneSubscribe, args }));
+    }
+    await reliableBarrier(reliable);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(9)]);
+    await frameBarrier(frames.ws);
+    expect(host.notified).toEqual([]);
+    expect(frames.deliveries).toEqual([]);
+    await subscribe(reliable, "tab");
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(10)]);
+    await frameBarrier(frames.ws);
+    expect(frames.deliveries.map((frame) => frame.payload[0])).toEqual([10]);
+  });
+
+  it("replays an unacknowledged frame on reconnect, but prefers newer pending bytes", async () => {
+    const { base, host } = await serve();
+    const reliable = await connect(base, TOKEN);
+    const key = frameKeys.get(reliable)!;
+    const first = await connectFrames(base, key);
+    await subscribe(reliable, "tab");
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(1)]);
+    await frameBarrier(first.ws);
+    await closeSocket(first.ws);
+    const second = await connectFrames(base, key);
+    await frameBarrier(second.ws);
+    expect(second.deliveries).toEqual(first.deliveries);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(2)]);
+    await closeSocket(second.ws);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(3)]);
+    const third = await connectFrames(base, key);
+    await frameBarrier(third.ws);
+    expect(third.deliveries.map((frame) => frame.payload[0])).toEqual([3]);
+    await ack(third, first.deliveries[0]!.id);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(4)]);
+    await frameBarrier(third.ws);
+    expect(third.deliveries.map((frame) => frame.payload[0])).toEqual([3]);
+    await ack(third, third.deliveries[0]!.id);
+    expect(third.deliveries.map((frame) => frame.payload[0])).toEqual([3, 4]);
+    await reliableBarrier(reliable);
+  });
+
+  it("does not resurrect an unsubscribed in-flight image when that tab is subscribed again", async () => {
+    const { base, host } = await serve();
+    const reliable = await connect(base, TOKEN);
+    const key = frameKeys.get(reliable)!;
+    const first = await connectFrames(base, key);
+    await subscribe(reliable, "tab");
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(1)]);
+    await frameBarrier(first.ws);
+    await subscribe(reliable, "tab", "viewer", false);
+    await subscribe(reliable, "tab");
+    await closeSocket(first.ws);
+    const second = await connectFrames(base, key);
+    await frameBarrier(second.ws);
+    expect(second.deliveries).toEqual([]);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(2)]);
+    await frameBarrier(second.ws);
+    expect(second.deliveries.map((frame) => frame.payload[0])).toEqual([2]);
+  });
+
+  it("never dispatches calls from the ACK-only socket and isolates its payload limit", async () => {
+    const { base, host } = await serve();
+    const reliable = await connect(base, TOKEN);
+    const key = frameKeys.get(reliable)!;
+    const frames = await connectFrames(base, key);
+    frames.ws.send(JSON.stringify({ t: "notify", ch: CH.ptyWrite, args: ["tab", "bad"] }));
+    frames.ws.send(JSON.stringify({ t: "req", id: 1, ch: CH.getState, args: [] }));
+    frames.ws.send(Buffer.from("binary"));
+    frames.ws.send("{bad-json");
+    await frameBarrier(frames.ws);
+    expect(host.notified).toEqual([]);
+    expect(frames.deliveries).toEqual([]);
+    const closed = new Promise<number>((resolve) => frames.ws.once("close", (code) => resolve(code)));
+    frames.ws.send("x".repeat(1025));
+    expect(await closed).toBe(1009);
+    await reliableBarrier(reliable);
+    const replacement = await connectFrames(base, key);
+    await frameBarrier(replacement.ws);
+  });
+
+  it("retires the pairing key and companion when reliable closes without synthetic unsubscribe", async () => {
+    const { base, host } = await serve();
+    const old = await connect(base, TOKEN);
+    const key = frameKeys.get(old)!;
+    const oldFrames = await connectFrames(base, key);
+    await subscribe(old, "tab", "stable-client");
+    const newer = await connect(base, TOKEN);
+    const newerFrames = await connectFrames(base, frameKeys.get(newer)!);
+    await subscribe(newer, "tab", "stable-client");
+    const closed = new Promise<number>((resolve) => oldFrames.ws.once("close", (code) => resolve(code)));
+    await closeSocket(old);
+    expect(await closed).toBe(1001);
+    await expect(connectFrames(base, key)).rejects.toThrow("401");
+    expect(host.notified).toEqual([
+      { ch: CH.browserPaneSubscribe, args: ["tab", "stable-client", true] },
+      { ch: CH.browserPaneSubscribe, args: ["tab", "stable-client", true] },
+    ]);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(5)]);
+    await frameBarrier(newerFrames.ws);
+    expect(newerFrames.deliveries.map((frame) => frame.payload[0])).toEqual([5]);
   });
 });
 
@@ -565,11 +851,14 @@ describe("startRemoteServer lifecycle", () => {
   it("close() ends every connection and frees the port", async () => {
     const { handle, base } = await serve();
     const ws = await connect(base, TOKEN);
+    const frames = await connectFrames(base, frameKeys.get(ws)!);
     const closed = new Promise<number>((resolve) => ws.once("close", (code) => resolve(code)));
+    const framesClosed = new Promise<number>((resolve) => frames.ws.once("close", (code) => resolve(code)));
     const port = handle.port;
     await handle.close();
     open.length = 0;
     expect(await closed).toBe(1001);
+    expect(await framesClosed).toBe(1001);
 
     // The port is genuinely free: a fresh server binds the same number.
     const second = await startRemoteServer({

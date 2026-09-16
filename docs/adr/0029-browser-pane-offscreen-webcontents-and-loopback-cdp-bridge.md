@@ -21,11 +21,18 @@ through a **loopback CDP bridge** the main process hosts:
   app's hardware-acceleration setting. Every frame carries an eight-byte header
   (`u16` width, height, dsf×100, reserved) so a frame and its dimensions can
   never arrive out of order.
-- Frames ride the existing structural binary rule of `@omp-ui/server` on a
-  new `browser-pane:frame` event declared **lossy** in `BACKEND_CHANNELS`. The
-  server skips a client whose socket buffer is over 64 KiB for lossy events
-  only; `pty:data` and `shell:data` are never dropped. Main caches the last
-  encoded frame per pane and replays it to each new subscriber.
+- `browser-pane:frame` remains **lossy** in `BACKEND_CHANNELS`, but remote
+  images travel only on a separate authenticated `/ws/frames` WebSocket.
+  The reliable `/ws` connection supplies a random 256-bit pairing key; the
+  frame connection requires both that live key and ordinary remote auth.
+  It cannot issue backend calls or outlive its reliable connection.
+  Each pair admits one frame awaiting its exact sequence ACK and retains
+  only the newest pending frame per subscribed tab, with fair tab scheduling.
+  A browser ACK follows paint or intentional drop; a joined main process
+  ACK follows its local relay handoff, whose downstream frame pairs have
+  independent bounds. No viewer waits for another viewer's ACK. The existing
+  eight-byte pane header is unchanged inside the sequenced transport envelope.
+  Main still encodes one JPEG per paint and caches the last frame per pane.
 - Renderers send JSON back: `browser-pane:input` mirrors Electron's
   `sendInputEvent` unions plus `insertText` and macOS edit verbs, in CSS px;
   `browser-pane:navigate`, `browser-pane:resize` (desktop renderers only —
@@ -120,10 +127,13 @@ through a **loopback CDP bridge** the main process hosts:
   for a tab another instance owns. A hidden custom message is conversation
   content: append-only, invisible to the transcript, and armed by the owning
   main process.
-- **Per-client frame throttling in main (rejected).** One encode per paint and
-  the server's lossy skip is the whole backpressure story: a slow phone drops
-  frames rather than slowing the desktop, latest frame wins once it drains, and
-  main keeps no per-sink state.
+- **`bufferedAmount` or `ws.send` callbacks alone (rejected after S14).**
+  Both bound only local writes, not bytes already accepted by the kernel.
+  The 256 → 64 KiB fallback and a one-callback-in-flight experiment still
+  delivered tens-of-seconds-old images and delayed PTY data. Receiver ACKs
+  bound outstanding image delivery; a separate frame socket prevents image
+  head-of-line blocking on the reliable connection. The accepted state is
+  per remote transport pair, not per paint sink in `BrowserPaneHost`.
 
 ## Consequences
 
@@ -153,7 +163,7 @@ through a **loopback CDP bridge** the main process hosts:
   Both relay hops are lossy; nothing is re-encoded because the header travels
   in-band. An unreachable owner leaves the last frame dimmed under the
   remote-instance banner with input held; rejoin resubscribes.
-- **Slow-client delivery remains a release gate (#546).** Linux S14 used a
+- **S14 changed the transport decision (#546).** Linux S14 initially used a
   real browser and PTY on the same WebSocket, throttled to 50,000 B/s for 60 s.
   The prescribed 256 → 64 KiB fallback lowered maximum native `bufferedAmount`
   from 299,956 to 123,685 bytes, but maximum displayed-frame age only fell
@@ -163,9 +173,27 @@ through a **loopback CDP bridge** the main process hosts:
   but RSS oscillated roughly 251–764 MiB, so flat memory was not established.
   A separate real-transport experiment with one `ws.send` callback in flight
   still reached 18.5 s message age in 20 s: callbacks acknowledge local socket
-  acceptance, not receiver delivery. The 64 KiB fallback is retained, but S14
-  is not a pass. Receiver acknowledgments and transport isolation require a
-  further decision; no such protocol change is part of this implementation.
+  acceptance, not receiver delivery. The user approved receiver ACKs plus a
+  separate authenticated frame stream, superseding the threshold fallback.
+  A missing ACK never releases credit; frame reconnect replays the latest
+  eligible image without restarting a healthy reliable connection. Reliable
+  close discards all pairing and pending-frame state. This is a clean
+  transport cutover: hosts, joined instances, and browser bundles must all
+  implement the pairing handshake; there is no old shared-socket image path.
+  The rebuilt Linux rerun used a 50,000 B/s aggregate cap across both sockets
+  for 60 s (46,045 B/s measured), with roughly 107 kB images: desktop delivery
+  and painting stayed at 30 fps; all 120 real PTY echoes arrived with 8–30 ms
+  latency; current-image catchup took 206 ms after unthrottling. Maximum
+  unacknowledged delivery was one, every admitted image was the newest
+  available, and displayed age stayed bounded at 4,744 ms rather than growing
+  throughout the run. Main heap medians were 9.825 → 9.852 MiB. RSS medians
+  were 413.9 → 432.0 MiB with allocation/GC oscillation (261–742 MiB), not
+  constant RSS; no sustained retained-memory growth was observed in the run.
+  A frame-only disconnect recovered without a reliable-socket change or PTY
+  interruption. The Linux A → B → browser rerun separately proved unchanged
+  JPEG bytes, independent subscriber credit, and 503/504 ms companion-only
+  reconnects on the upstream/downstream hops; full owner rejoin still
+  preserved the dimmed last image and blocked input while unreachable.
 - **IME commits are not always carried by `compositionend` (#550).** Real
   Linux X11/IBus Hangul 1.5.5 emitted an empty `compositionend`, followed by
   `input` carrying `한`. The composer accepted it while the pane lost it.
@@ -195,3 +223,12 @@ through a **loopback CDP bridge** the main process hosts:
   `sendCustomMessage` and session events. omp's `tab.click` hang against every
   CDP target is worked around in the hidden message (`tab.run` + `page.click`),
   not fixed here.
+- **Three implementation deviations were explicitly ratified.** Browser
+  translation keys use the existing three-segment catalog convention
+  (`browser.toolbar.blocked`, `browser.split.resize`). Root
+  `Target.setAutoAttach` is shimmed with an owned-tab attachment rather than
+  forwarded, avoiding duplicate paused worker sessions; root
+  `setDiscoverTargets({discover:false})` changes only that client's flag,
+  preserving discovery for other clients. The live hidden-extension test
+  reads `get_messages`, because omp does not create the session `.jsonl`
+  before a user message exists. These are intentional, not migration gaps.

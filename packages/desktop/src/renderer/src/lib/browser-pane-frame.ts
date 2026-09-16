@@ -8,7 +8,8 @@ import { decodeBrowserPaneFrame, type BrowserPaneFrameHeader } from "@omp-ui/cor
  * has no `createImageBitmap`.
  */
 export interface FramePainter {
-  write(frame: Uint8Array): void;
+  /** Settles after drawing or intentionally dropping this delivery. */
+  write(frame: Uint8Array): Promise<void>;
   /** JPEG bytes (header stripped) of the last frame drawn; the attach button's source. */
   lastJpeg(): Uint8Array | null;
   header(): BrowserPaneFrameHeader | null;
@@ -16,6 +17,7 @@ export interface FramePainter {
 }
 
 type Decoded = { header: BrowserPaneFrameHeader; jpeg: Uint8Array };
+type Pending = { frame: Decoded; settle: () => void };
 
 function decodeJpeg(jpeg: Uint8Array): Promise<ImageBitmap> {
   // A Blob over a view takes the view's bytes only, so the header-stripped
@@ -30,19 +32,18 @@ export function createFramePainter(
   decode: (jpeg: Uint8Array) => Promise<ImageBitmap> = decodeJpeg,
 ): FramePainter {
   const ctx = canvas.getContext("2d");
-  let inflight = false;
-  let parked: Decoded | null = null;
+  let inflight: Pending | null = null;
+  let parked: Pending | null = null;
   let last: Decoded | null = null;
   let disposed = false;
 
-  const paint = async (frame: Decoded): Promise<void> => {
-    inflight = true;
+  const paint = async (entry: Pending): Promise<void> => {
+    inflight = entry;
+    let bitmap: ImageBitmap | null = null;
     try {
-      const bitmap = await decode(frame.jpeg);
-      if (disposed) {
-        bitmap.close();
-        return;
-      }
+      const { frame } = entry;
+      bitmap = await decode(frame.jpeg);
+      if (disposed) return;
       const { header } = frame;
       if (canvas.width !== header.width || canvas.height !== header.height) {
         canvas.width = header.width;
@@ -52,12 +53,13 @@ export function createFramePainter(
         onHeader(header);
       }
       ctx?.drawImage(bitmap, 0, 0);
-      bitmap.close();
       last = frame;
     } catch {
-      // A frame the decoder rejects is dropped; the next one repaints.
+      // A frame the decoder or canvas rejects is dropped; the next one repaints.
     } finally {
-      inflight = false;
+      bitmap?.close();
+      entry.settle();
+      inflight = null;
       const next = parked;
       parked = null;
       if (next !== null && !disposed) void paint(next);
@@ -66,14 +68,18 @@ export function createFramePainter(
 
   return {
     write(frame) {
-      if (disposed) return;
+      if (disposed || ctx === null) return Promise.resolve();
       const decoded = decodeBrowserPaneFrame(frame);
-      if (decoded === null) return;
-      if (inflight) {
-        parked = decoded;
-        return;
-      }
-      void paint(decoded);
+      if (decoded === null) return Promise.resolve();
+      return new Promise<void>((settle) => {
+        const entry = { frame: decoded, settle };
+        if (inflight !== null) {
+          parked?.settle();
+          parked = entry;
+        } else {
+          void paint(entry);
+        }
+      });
     },
     lastJpeg() {
       return last?.jpeg ?? null;
@@ -83,6 +89,8 @@ export function createFramePainter(
     },
     dispose() {
       disposed = true;
+      inflight?.settle();
+      parked?.settle();
       parked = null;
     },
   };

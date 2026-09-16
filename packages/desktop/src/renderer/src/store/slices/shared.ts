@@ -293,10 +293,10 @@ export function registerShellWriter(
 
 // One lossy frame listener total; each mounted BrowserPane registers its
 // painter here (issue #519). Frames for a tab with no writer are dropped.
-const browserPaneWriters = new Map<string, (frame: Uint8Array) => void>();
+const browserPaneWriters = new Map<string, (frame: Uint8Array) => void | Promise<void>>();
 export function registerBrowserPaneWriter(
   tabId: string,
-  cb: (frame: Uint8Array) => void,
+  cb: (frame: Uint8Array) => void | Promise<void>,
 ): () => void {
   browserPaneWriters.set(tabId, cb);
   return () => {

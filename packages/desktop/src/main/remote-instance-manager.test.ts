@@ -527,6 +527,19 @@ describe("proxy and routing", () => {
     const args = await mirrored;
     expect(args[0]).toBe("t-remote");
     expect(Array.from(args[1] as Uint8Array)).toEqual(Array.from(bytes));
+
+    // One joined socket carries multiple viewers; closing one must not stop the other.
+    const secondSubscriber = host.nextNotify(CH.browserPaneSubscribe);
+    notify[CH.browserPaneSubscribe]!("t-remote", "c2", true);
+    await secondSubscriber;
+    const firstClosed = host.nextNotify(CH.browserPaneSubscribe);
+    notify[CH.browserPaneSubscribe]!("t-remote", "c1", false);
+    await firstClosed;
+    const nextBytes = new Uint8Array([...bytes, 2]);
+    const stillMirrored = h.nextSent(CH.onBrowserPaneFrame);
+    host.emit(CH.onBrowserPaneFrame, ["t-remote", nextBytes]);
+    const [, nextFrame] = await stillMirrored;
+    expect(Array.from(nextFrame as Uint8Array)).toEqual(Array.from(nextBytes));
   });
 
   // #498: a host branch:changed is host-scoped (instanceId null). The joiner
