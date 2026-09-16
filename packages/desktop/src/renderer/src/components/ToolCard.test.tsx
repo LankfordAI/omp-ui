@@ -355,3 +355,35 @@ describe("ToolCard incremental stream budgets", () => {
     act(() => root.unmount());
   });
 });
+
+describe("tool result images (issue #520)", () => {
+  it("renders an image-only result as an expanded body with a data-URI img", () => {
+    const { el, root } = renderCard(
+      tool({ resultText: "", images: [{ data: "AAAB", mimeType: "image/png" }] }),
+    );
+    // Chevron present (hasBody) and body open by default (not long output).
+    expect(el.querySelector("button svg")).not.toBeNull();
+    const imgs = [...el.querySelectorAll("img")];
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]?.getAttribute("src")).toBe("data:image/png;base64,AAAB");
+    expect(imgs[0]?.getAttribute("alt")).toBe("tool result image 1");
+    act(() => root.unmount());
+  });
+
+  it("renders the prose slab and the image strip together", () => {
+    const { el, root } = renderCard(
+      tool({
+        resultText: "captured two frames",
+        images: [
+          { data: "AAAB", mimeType: "image/jpeg" },
+          { data: "BBAC", mimeType: "image/png" },
+        ],
+      }),
+    );
+    expect(el.textContent).toContain("captured two frames");
+    const imgs = [...el.querySelectorAll("img")];
+    expect(imgs).toHaveLength(2);
+    expect(imgs[1]?.getAttribute("title")).toContain("2 of 2");
+    act(() => root.unmount());
+  });
+});

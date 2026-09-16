@@ -304,6 +304,50 @@ describe("reduceEvent tool executions", () => {
     expect(tool(items, "ghost")).toMatchObject({ status: "done" });
   });
 
+  it("carries image blocks from the end result onto the tool card", () => {
+    // Issue #520: an eval screenshot or read-of-image must survive the live
+    // tool_execution_end fold, not just the user-attachment path.
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "tool_execution_start", toolCallId: "ti1", toolName: "eval" });
+    items = reduceEvent(items, {
+      type: "tool_execution_end",
+      toolCallId: "ti1",
+      result: {
+        content: [
+          { type: "text", text: "captured frame" },
+          { type: "image", data: "AAAB", mimeType: "image/jpeg" },
+        ],
+      },
+    });
+    const t = tool(items, "ti1");
+    expect(t?.resultText).toBe("captured frame");
+    expect(t?.images).toEqual([{ data: "AAAB", mimeType: "image/jpeg" }]);
+  });
+
+  it("defaults an image block's missing mimeType to image/png", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "ti2",
+      result: { content: [{ type: "image", data: "AAAB" }] },
+    });
+    expect(tool(items, "ti2")?.images).toEqual([{ data: "AAAB", mimeType: "image/png" }]);
+  });
+
+  it("leaves images absent for text-only ends and for image blocks without data", () => {
+    const textOnly = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "ti3",
+      result: { content: [{ type: "text", text: "ok" }] },
+    });
+    expect(tool(textOnly, "ti3")).not.toHaveProperty("images");
+    const noData = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "ti4",
+      result: { content: [{ type: "image", mimeType: "image/png" }] },
+    });
+    expect(tool(noData, "ti4")).not.toHaveProperty("images");
+  });
+
   it("captures the start intent as the card headline", () => {
     const items = reduceEvent([], {
       type: "tool_execution_start",
@@ -802,6 +846,38 @@ describe("historyToItems", () => {
       text: "what is this?",
       images: [{ data: "AAAB", mimeType: "image/webp" }],
     });
+  });
+
+  it("restores tool result images on backfill", () => {
+    // The same blocks have to survive get_messages, or a resumed session shows
+    // a tool card with no trace of the screenshot it captured (issue #520).
+    const items = historyToItems([
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "t9", name: "eval", arguments: {} }],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "t9",
+        content: [
+          { type: "text", text: "captured frame" },
+          { type: "image", data: "AAAB", mimeType: "image/jpeg" },
+        ],
+      },
+    ]);
+    expect(tool(items, "t9")).toMatchObject({
+      status: "done",
+      resultText: "captured frame",
+      images: [{ data: "AAAB", mimeType: "image/jpeg" }],
+    });
+  });
+
+  it("leaves images absent on a text-only backfilled tool result", () => {
+    const items = historyToItems([
+      { role: "assistant", content: [{ type: "toolCall", id: "ta", name: "bash", arguments: {} }] },
+      { role: "toolResult", toolCallId: "ta", content: [{ type: "text", text: "ok" }] },
+    ]);
+    expect(tool(items, "ta")).not.toHaveProperty("images");
   });
 
   it("matches live display fields when resolved context is backfilled", () => {

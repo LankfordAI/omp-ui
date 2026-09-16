@@ -582,6 +582,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
   const hasBody =
     item.args !== undefined ||
     item.resultText !== undefined ||
+    (item.images?.length ?? 0) > 0 ||
     hasDiff ||
     item.partialText !== undefined ||
     draft !== null ||
@@ -706,6 +707,30 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
                 {resultText}
               </Slab>
             ))}
+
+          {(item.images?.length ?? 0) > 0 && (
+            <div
+              role="group"
+              aria-label={t("transcript.tool.imageLabel")}
+              className="flex flex-wrap gap-1.5"
+            >
+              {(item.images ?? []).map((image, i) => (
+                <img
+                  // Index-keyed deliberately, as in UserBubble: the list is fixed
+                  // once rendered and the base64 payload is far too long a key.
+                  key={i}
+                  src={`data:${image.mimeType};base64,${image.data}`}
+                  alt={t("transcript.tool.imageAlt", { n: i + 1 })}
+                  title={t("transcript.tool.imageTitle", {
+                    mimeType: image.mimeType,
+                    n: i + 1,
+                    count: item.images!.length,
+                  })}
+                  className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
+                />
+              ))}
+            </div>
+          )}
 
           {item.notes && item.notes.length > 0 && <AdvisoryNotes notes={item.notes} />}
         </div>

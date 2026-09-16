@@ -61,6 +61,8 @@ export interface ToolItem {
   /** tool_execution_start.intent — the human headline ("Reading hello.txt"). */
   intent?: string;
   resultText?: string;
+  /** Image blocks from tool_result content, same shape as UserItem.images (issue #520). */
+  images?: { data: string; mimeType: string }[];
   /** tool_execution_update.partialResult text, while running. */
   partialText?: string;
   diff?: DiffRow[];
@@ -288,6 +290,24 @@ export function textFromContent(content: unknown): string {
     .join("\n");
 }
 
+/** Image blocks of a content payload: `data` required, `mimeType` defaults to image/png. */
+function imagesFromContent(content: unknown): { data: string; mimeType: string }[] {
+  const images: { data: string; mimeType: string }[] = [];
+  for (const block of contentBlocks(content)) {
+    if (block.type !== "image") continue;
+    const data = str(block.data);
+    if (data === undefined) continue;
+    images.push({ data, mimeType: str(block.mimeType) ?? "image/png" });
+  }
+  return images;
+}
+
+/** Conditional `images` field for a content payload — absent when it has no image blocks. */
+function imagesField(content: unknown): Pick<ToolItem, "images"> {
+  const images = imagesFromContent(content);
+  return images.length > 0 ? { images } : {};
+}
+
 function userContentFromContent(
   content: unknown,
 ): Pick<UserItem, "text" | "fileMentions" | "images"> {
@@ -299,13 +319,7 @@ function userContentFromContent(
           .filter((block) => block.type === "text" && typeof block.text === "string")
           .map((block) => block.text as string)
           .join("\n");
-  const images: NonNullable<UserItem["images"]> = [];
-  for (const block of blocks) {
-    if (block.type !== "image") continue;
-    const data = str(block.data);
-    if (data === undefined) continue;
-    images.push({ data, mimeType: str(block.mimeType) ?? "image/png" });
-  }
+  const images = imagesFromContent(content);
   const visibleText = stripAttachmentRoutingContext(rawText, images.length);
   const { text, paths } = splitResolvedMentionContext(visibleText);
   return {
@@ -644,6 +658,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
         ...detailFacts(details),
+        ...imagesField(result ? result.content : undefined),
       };
       const idx = toolCallId
         ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
@@ -842,6 +857,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
         ...detailFacts(details),
+        ...imagesField(raw.content),
       };
     }
   }
