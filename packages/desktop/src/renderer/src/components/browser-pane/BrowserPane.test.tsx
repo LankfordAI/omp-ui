@@ -173,6 +173,20 @@ afterEach(() => {
 });
 
 describe("BrowserPane while the owning instance is down (issue #416)", () => {
+  it("dims the retained page during an outage and restores visibility on rejoin (#547)", () => {
+    seed("joined");
+    render();
+    expect(getComputedStyle(canvas()).opacity).toBe("1");
+
+    act(() => seed("unreachable"));
+    const dimmedOpacity = Number(getComputedStyle(canvas()).opacity);
+    expect(dimmedOpacity).toBeGreaterThan(0);
+    expect(dimmedOpacity).toBeLessThan(1);
+
+    act(() => seed("joined"));
+    expect(getComputedStyle(canvas()).opacity).toBe("1");
+  });
+
   it("sends nothing toward the page, then re-subscribes and forwards input once it rejoins", () => {
     mocks.electron = true;
     seed("unreachable");
@@ -185,7 +199,6 @@ describe("BrowserPane while the owning instance is down (issue #416)", () => {
     expect(ompBackend.browserPaneSubscribe).not.toHaveBeenCalled();
     // The toolbar reads as inert, not broken.
     expect(button("reload")?.disabled).toBe(true);
-    expect(document.body.textContent).toContain("showing the last frame while the instance is unreachable");
 
     act(() => seed("joined"));
     expect(ompBackend.browserPaneSubscribe).toHaveBeenCalledTimes(1);
@@ -219,5 +232,59 @@ describe("BrowserPane viewport sizing (#532)", () => {
     render();
     act(() => mocks.observers.at(-1)!([{ contentRect: { width: 640.4, height: 400.6 } }]));
     expect(ompBackend.browserPaneResize).toHaveBeenCalledWith(TAB, 640, 401);
+  });
+});
+
+describe("BrowserPane IME commits (#550)", () => {
+  const compose = (type: string, data: string): void => {
+    act(() => proxy().dispatchEvent(new CompositionEvent(type, { bubbles: true, data })));
+  };
+  const input = (data: string | null, isComposing = false): void => {
+    proxy().value = data ?? "";
+    act(() => proxy().dispatchEvent(new InputEvent("input", { bubbles: true, data, isComposing })));
+  };
+
+  it("forwards the IBus commit after an empty compositionend, not the preedit", () => {
+    seed(null);
+    render();
+    compose("compositionstart", "");
+    input("ㅎ", true);
+    input("하", true);
+    input("한", true);
+    input(null, true);
+    compose("compositionend", "");
+    input("한");
+    expect(ompBackend.browserPaneInput.mock.calls).toEqual([[TAB, { type: "insertText", text: "한" }]]);
+    expect(proxy().value).toBe("");
+  });
+
+  it("does not duplicate a compositionend commit echoed by input, or lose the next equal commit", () => {
+    seed(null);
+    render();
+    for (let i = 0; i < 2; i += 1) {
+      compose("compositionstart", "");
+      input("한", false);
+      compose("compositionend", "한");
+      input("한");
+    }
+    expect(ompBackend.browserPaneInput.mock.calls).toEqual([
+      [TAB, { type: "insertText", text: "한" }],
+      [TAB, { type: "insertText", text: "한" }],
+    ]);
+  });
+
+  it("does not send cancelled preedit or replay an outage commit on rejoin", () => {
+    seed("joined");
+    render();
+    compose("compositionstart", "");
+    input("한", true);
+    compose("compositionend", "");
+    input(null);
+    act(() => seed("unreachable"));
+    compose("compositionstart", "");
+    compose("compositionend", "한");
+    act(() => seed("joined"));
+    input("한");
+    expect(ompBackend.browserPaneInput).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type CompositionEvent,
+  type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -159,6 +160,10 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   /** The IME proxy: holds focus behind the canvas so the OS composes into something. */
   const proxyRef = useRef<HTMLInputElement | null>(null);
+  const composition = useRef<{ active: boolean; committed: string | null }>({
+    active: false,
+    committed: null,
+  });
   const painterRef = useRef<FramePainter | null>(null);
   /** The newest pointer move waiting for the next animation frame (latest wins). */
   const pendingMove = useRef<BrowserPaneInputEvent[] | null>(null);
@@ -310,6 +315,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   }, []);
 
   const onKey = (kind: "keydown" | "keyup", e: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (kind === "keydown" && !e.nativeEvent.isComposing) composition.current.committed = null;
     // The app's own chords (⌘K, ⌘F, …) keep their meaning over the page.
     if (isAppHotkey(e.nativeEvent)) return;
     const { events, preventDefault } = keyEvents(kind, keyLike(e), { darwin: IS_MAC });
@@ -320,7 +326,21 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   };
 
   const onCompositionEnd = (e: CompositionEvent<HTMLInputElement>): void => {
+    composition.current.active = false;
+    composition.current.committed = e.data || null;
     if (live) send(compositionEnd(e.data));
+    e.currentTarget.value = "";
+  };
+
+  const onProxyInput = (e: FormEvent<HTMLInputElement>): void => {
+    const input = e.nativeEvent as InputEvent;
+    if (composition.current.active || input.isComposing) return;
+    // IBus commits after an empty compositionend; other IMEs include the
+    // text in compositionend and may repeat it in the following input (#550).
+    if (live && input.data && input.data !== composition.current.committed) {
+      send(compositionEnd(input.data));
+    }
+    composition.current.committed = null;
     e.currentTarget.value = "";
   };
 
@@ -494,6 +514,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
             the attributes, so a dsf-2 frame paints crisp on a dsf-2 screen. */}
         <canvas
           ref={canvasRef}
+          style={{ opacity: instanceDown ? 0.5 : 1 }}
           className={cn(
             "block h-auto w-auto max-h-full max-w-full",
             live ? "cursor-default" : "cursor-not-allowed",
@@ -518,7 +539,12 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
           className="pointer-events-none absolute left-0 top-0 size-px opacity-0"
           onKeyDown={(e) => onKey("keydown", e)}
           onKeyUp={(e) => onKey("keyup", e)}
+          onCompositionStart={() => {
+            composition.current.active = true;
+            composition.current.committed = null;
+          }}
           onCompositionEnd={onCompositionEnd}
+          onInput={onProxyInput}
         />
         {status !== null && (
           <p className="pointer-events-none absolute inset-x-6 top-1/2 -translate-y-1/2 text-center text-[11px] leading-snug text-ink-dim">
