@@ -33,6 +33,11 @@ import type {
   WorktreeSyncResult,
   PushResult,
 } from "@omp-ui/core/types";
+import type {
+  BrowserPaneFrameHeader,
+  BrowserPaneState,
+  BrowserPaneUnavailableReason,
+} from "@omp-ui/core/browser-pane";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import type { McpRuntimeStatus } from "@omp-ui/core/mcp-status";
@@ -142,6 +147,28 @@ export interface CapabilitiesToolFeedback {
   status: CapabilitiesToolFeedbackStatus;
 }
 
+/**
+ * The renderer's posture on one tab's browser pane (issue #519). `open` and
+ * `fullscreen` are the user's choices and survive a process reboot (#528);
+ * `ensure` is the answer to the last `browserPaneEnsure` and restarts at
+ * `idle` whenever the pane component remounts.
+ */
+export interface BrowserPaneView {
+  open: boolean;
+  fullscreen: boolean;
+  ensure: "idle" | "pending" | "available" | "unavailable" | "not-live";
+  unavailableReason: BrowserPaneUnavailableReason | null;
+  state: BrowserPaneState | null;
+  /** Physical size of the last painted frame; null until one arrives. */
+  frame: BrowserPaneFrameHeader | null;
+  /** Local dev-server URLs awaiting the user's answer (#543). */
+  offers: string[];
+  /** URLs already offered during the current agent turn. */
+  offeredThisTurn: string[];
+  /** URLs dismissed for this tab; persisted with the pane posture. */
+  declinedOffers: string[];
+}
+
 /** Per-tab rpc-ui state (the phase-2 doc's state machine, concretized). */
 export interface RpcTabState {
   status: "starting" | "ready" | "running" | "error";
@@ -157,6 +184,12 @@ export interface RpcTabState {
   subagents: SubagentInfo[];
   subagentItems?: Record<string, RenderItem[]>;
   selectedSubagent?: string | null;
+  browserPane: BrowserPaneView;
+  /**
+   * Attachments handed to the composer from outside it — the browser pane's
+   * attach-to-prompt button. Drained once by the composer's effect.
+   */
+  composerQueue?: { images: ImageAttachment[]; text: string[] };
   subagentMarkers?: Map<string, string>;
   subagentAckLevel?: "progress" | "events";
   extensionStatus: Record<string, string>;
@@ -312,7 +345,7 @@ export type SettingsPage =
   | "about";
 
 export type CompactSurface =
-  "sessions" | "inspector" | "session-actions" | "composer-options";
+  "sessions" | "inspector" | "session-actions" | "composer-options" | "browser-pane";
 
 export type CompactionMethodsLoad =
   | { status: "unloaded" }
@@ -457,6 +490,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   projectPickerInstanceId: string | null;
   /** True while the diagnostic-bundle export dialog is open (issue #413). */
   diagnosticsDialogOpen: boolean;
+  browserPaneClearDialogOpen: boolean;
   worktreeDialogProject: string | null;
   worktreeDialogInstanceId: string | null;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
@@ -481,6 +515,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   sidebarWidth: number;
   inspectorWidth: number;
   inspectorOpen: boolean;
+  /** Split browser pane width preference (issue #519). */
+  browserPaneWidth: number;
   /** Sidebar host filter (issue #507): "all" | "local" | a joined instance id. */
   hostScope: string;
   init(): Promise<void>;
@@ -488,6 +524,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   closeProjectPicker(): void;
   openDiagnosticsDialog(): void;
   closeDiagnosticsDialog(): void;
+  openBrowserPaneClearDialog(): void;
+  closeBrowserPaneClearDialog(): void;
   openCapabilitiesViewer(
     scopeCwd: string | null,
     tabId?: string,
@@ -503,6 +541,23 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
   setSidebarWidth(width: number): void;
   setInspectorWidth(width: number): void;
   setInspectorOpen(open: boolean): void;
+  setBrowserPaneWidth(width: number): void;
+  /** Opens the tab's browser pane and asks main to ensure its page exists. */
+  openBrowserPane(tabId: string): void;
+  closeBrowserPane(tabId: string): void;
+  toggleBrowserPane(tabId: string): void;
+  setBrowserPaneFullscreen(tabId: string, on: boolean): void;
+  /** Re-runs `browserPaneEnsure` for the tab; a stale answer for a rebuilt tab is dropped. */
+  ensureBrowserPane(tabId: string): Promise<void>;
+  /** A `browser-pane:state` push; auto-opens the pane when the agent first attaches (#530). */
+  handleBrowserPaneState(tabId: string, state: BrowserPaneState): void;
+  /** Records the painted frame's size; a no-op while the dimensions are unchanged. */
+  noteBrowserPaneFrame(tabId: string, header: BrowserPaneFrameHeader): void;
+  queueComposerAttachment(tabId: string, image: ImageAttachment, text: string): void;
+  /** Takes the queued attachments; null when nothing is queued. */
+  drainComposerQueue(tabId: string): { images: ImageAttachment[]; text: string[] } | null;
+  acceptBrowserPaneOffer(tabId: string, url: string): void;
+  declineBrowserPaneOffer(tabId: string, url: string): void;
   setHostScope(scope: string): void;
   restartSession(tabId: string): Promise<boolean>;
   addProject(path: string, instanceId?: string | null): Promise<void>;

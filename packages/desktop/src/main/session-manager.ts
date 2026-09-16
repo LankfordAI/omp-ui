@@ -8,6 +8,7 @@ import {
   addWorktreeFromNewBase,
   base64Bytes,
   bracketedImagePaste,
+  browserPaneSetMessage,
   capabilityToolMutationMessage,
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
@@ -31,6 +32,12 @@ import {
   reclaimCheckouts as reclaimWorktreeCheckouts,
   settledWithin,
   syncWorktree,
+  type BrowserPaneClearDataResult,
+  type BrowserPaneDiagnostics,
+  type BrowserPaneEnsureResult,
+  type BrowserPaneInputEvent,
+  type BrowserPaneNavigate,
+  type BrowserPanePickResult,
   type PlanAnswerResult,
   type PlanRenderResult,
   type PlanReviewVerdict,
@@ -61,6 +68,7 @@ import {
   type WorktreeSyncResult,
 } from "@omp-ui/core";
 import type { Attention } from "./desktop-notifier";
+import { BrowserPaneHost, type BrowserPaneHostDeps } from "./browser-pane-host";
 import type { BreadcrumbSink } from "./breadcrumbs";
 import type { FrameObserver } from "./frame-observer";
 import {
@@ -126,6 +134,11 @@ export interface SessionManagerDependencies {
    * (docs/development.md). Absent or blank means an ungated launch.
    */
   spawnGate?: SpawnGate;
+  /** Browser pane seams (#519): the page factory, the bridge listener, and the display scale; tests fake all three. */
+  browserPane?: Pick<
+    BrowserPaneHostDeps,
+    "createPane" | "createListener" | "displayScaleFactor" | "clearPartition"
+  >;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -141,6 +154,7 @@ export class SessionManager {
     this.watcherHub.broadcastPatch(false),
   );
   private readonly shellHost: ShellHost;
+  readonly browserPanes: BrowserPaneHost;
   private readonly watcherHub: WatcherHub;
   private readonly ops = new Map<string, { kind: OpKind; chain: Promise<void> }>();
   private readonly viewTracker: ViewTracker;
@@ -162,6 +176,7 @@ export class SessionManager {
       send: deps.send,
       getOmpModelArg: () => gateSelector(this.gate),
     });
+    this.browserPanes = new BrowserPaneHost({ send: deps.send, ...deps.browserPane });
     this.watcherHub = new WatcherHub({
       registry: deps.registry,
       getSessionsRoot: () => deps.getSessionsRoot(),
@@ -262,6 +277,7 @@ export class SessionManager {
     for (const entry of this.live.values()) this.killLive(entry);
     this.live.clear();
     this.shellHost.killAll();
+    this.browserPanes.disposeAll();
     this.watcherHub.disposeAll();
     this.hibernation.disposeAll();
     this.stallWatchdog.disposeAll();
@@ -624,9 +640,13 @@ export class SessionManager {
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const entry = createRpcLiveEntry(record);
-    const { paths: extensions, mcpStatusLoaded, capabilitiesLoaded, goalLoaded } =
+    const { paths: extensions, mcpStatusLoaded, capabilitiesLoaded, goalLoaded, browserPaneLoaded } =
       writeRpcExtensions(absLineageDir);
     entry.capabilitiesBridgeLoaded = capabilitiesLoaded;
+    // The bridge listener outlives the process: a relaunch under the same tab
+    // reuses the endpoint, so the agent's remembered URL stays valid (#519).
+    const cdpUrl = browserPaneLoaded ? await this.browserPanes.ensureEndpoint(record.tabId) : null;
+    entry.browserPaneArmed = cdpUrl !== null;
     const initialCommands: Array<{ type: "prompt"; id: string; message: string }> = [];
     if (mcpStatusLoaded) {
       initialCommands.push({
@@ -655,6 +675,13 @@ export class SessionManager {
         type: "prompt",
         id: `omp-ui-initial-capabilities-${randomUUID()}`,
         message: capabilitiesMessage(),
+      });
+    }
+    if (cdpUrl !== null) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-browser-pane-${randomUUID()}`,
+        message: browserPaneSetMessage(cdpUrl),
       });
     }
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate);
@@ -769,6 +796,19 @@ export class SessionManager {
     if (!entry.capabilitiesBridgeLoaded) return { status: "bridge-unavailable" };
     if (entry.capabilities === null) return { status: "starting" };
     return { status: "available", snapshot: entry.capabilities };
+  }
+
+  /**
+   * The browser pane's open path (#519): the tab's lifecycle answers the head
+   * of the ladder here; the host answers the tail (page creation).
+   */
+  async browserPaneEnsure(tabId: string): Promise<BrowserPaneEnsureResult> {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) return { status: "missing-session" };
+    const entry = this.live.get(tabId);
+    if (!entry) return { status: "not-live" };
+    if (entry.kind === "pty") return { status: "terminal" };
+    return this.browserPanes.ensure(tabId);
   }
 
   /**
@@ -1046,6 +1086,34 @@ export class SessionManager {
   shellResize(tabId: string, cols: number, rows: number): void {
     this.shellHost.resize(tabId, cols, rows);
   }
+  browserPaneSubscribe(tabId: string, clientId: string, on: boolean): void {
+    this.browserPanes.subscribe(tabId, clientId, on);
+  }
+  browserPaneResize(tabId: string, width: number, height: number): void {
+    this.browserPanes.resize(tabId, width, height);
+  }
+  browserPaneInput(tabId: string, event: BrowserPaneInputEvent): void {
+    this.browserPanes.input(tabId, event);
+  }
+  browserPaneNavigate(tabId: string, nav: BrowserPaneNavigate): void {
+    this.browserPanes.navigate(tabId, nav);
+  }
+  browserPanePick(tabId: string, x: number, y: number): Promise<BrowserPanePickResult> {
+    return this.browserPanes.pick(tabId, x, y);
+  }
+  browserPaneDiagnostics(): BrowserPaneDiagnostics[] {
+    return this.browserPanes.diagnostics();
+  }
+  async browserPaneClearData(force: boolean): Promise<BrowserPaneClearDataResult> {
+    const openPages = this.browserPanes.livePageCount();
+    if (openPages > 0 && !force) return { status: "busy", openPages };
+    await this.browserPanes.clearData();
+    return { status: "cleared" };
+  }
+  /** The remote access server's port joins the ports no pane page may reach (#531). */
+  setRemoteAccessPort(port: number | null): void {
+    this.browserPanes.setRemoteAccessPort(port);
+  }
   ptyWrite(tabId: string, data: string): void {
     const entry = this.live.get(tabId);
     if (!entry) return;
@@ -1084,6 +1152,7 @@ export class SessionManager {
 
   setViewedTab(clientId: string, tabId: string | null): void {
     this.viewTracker.setViewedTab(clientId, tabId);
+    this.browserPanes.noteViewed(clientId, tabId);
   }
 
   noteDesktopClientId(clientId: string): void {
@@ -1143,6 +1212,8 @@ export class SessionManager {
   private async hibernate(tabId: string, entry: LiveEntry): Promise<boolean> {
     entry.suppressExit = true;
     if (await this.reapWithEscalation(entry)) {
+      // The page goes with the process; the last URL is what a resume restores.
+      this.browserPanes.dispose(tabId);
       this.deps.send(CH.onSessionHibernated, tabId);
       this.deps.breadcrumb?.record("session-hibernate", { tabId });
       void this.deps.broadcast();
@@ -1366,6 +1437,7 @@ export class SessionManager {
     this.planPreflight.dispose(tabId);
     this.watcherHub.stop(tabId);
     this.killShell(tabId);
+    this.browserPanes.dispose(tabId, { forgetUrl: true });
     try {
       await deleteSessionFiles(
         this.deps.getSessionsRoot(),
@@ -1434,6 +1506,7 @@ export class SessionManager {
       if (!record || record.mode === mode) return;
       this.deps.breadcrumb?.record("session-mode", { tabId, mode });
       this.killShell(tabId);
+      if (mode === "pty") this.browserPanes.dispose(tabId);
       const entry = this.live.get(tabId);
       if (!entry) {
         this.deps.registry.updateSession(tabId, { mode });

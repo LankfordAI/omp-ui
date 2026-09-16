@@ -2,10 +2,15 @@ import type { IncomingMessage } from "node:http";
 import { WebSocket } from "ws";
 import {
   decodeBinaryEvent,
+  decodeFrameDelivery,
+  makeFrameAck,
   makeClientNotifyFrame,
   makeClientRequestFrame,
   parseServerFrame,
   REMOTE_COOKIE,
+  REMOTE_CLOSE_REVOKED,
+  REMOTE_FRAME_KEY_PARAM,
+  REMOTE_FRAME_WS_PATH,
   REMOTE_WS_PATH,
 } from "./protocol";
 
@@ -21,7 +26,7 @@ export interface InstanceClient {
   request<Result>(channel: string, args: unknown[]): Promise<Result>;
   notify(channel: string, args: unknown[]): void;
   /** Every event the remote fans out, JSON or binary-decoded; binary payloads arrive as Uint8Array. */
-  onEvent(cb: (channel: string, args: unknown[]) => void): void;
+  onEvent(cb: (channel: string, args: unknown[]) => void | Promise<void>): void;
   /** Fires once, after open. `code` is the WS close code; `reason` its text. */
   onClose(cb: (code: number, reason: string) => void): void;
   close(): void;
@@ -41,8 +46,8 @@ export class InstanceConnectError extends Error {
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 
 /**
- * Dials `origin + /ws` with `Authorization: Bearer credential`. Resolves once open;
- * rejects with InstanceConnectError. Never throws synchronously.
+ * Dials the reliable and paired frame streams with `Authorization: Bearer credential`.
+ * Resolves once both are open; rejects with InstanceConnectError. Never throws synchronously.
  */
 export function connectInstanceClient(
   origin: string,
@@ -50,99 +55,76 @@ export function connectInstanceClient(
   opts: { timeoutMs?: number } = {},
 ): Promise<InstanceClient> {
   return new Promise<InstanceClient>((resolve, reject) => {
+    const headers = { authorization: `Bearer ${credential}` };
+    const base = origin.replace(/^http/, "ws");
     let ws: WebSocket;
     try {
-      ws = new WebSocket(`${origin.replace(/^http/, "ws")}${REMOTE_WS_PATH}`, {
-        headers: { authorization: `Bearer ${credential}` },
-      });
+      ws = new WebSocket(`${base}${REMOTE_WS_PATH}`, { headers });
     } catch (err) {
-      reject(
-        new InstanceConnectError({
-          kind: "unreachable",
-          message: err instanceof Error ? err.message : String(err),
-        }),
-      );
+      reject(new InstanceConnectError({
+        kind: "unreachable",
+        message: err instanceof Error ? err.message : String(err),
+      }));
       return;
     }
 
     const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
-    const eventCbs: Array<(channel: string, args: unknown[]) => void> = [];
+    const eventCbs: Array<(channel: string, args: unknown[]) => void | Promise<void>> = [];
     const closeCbs: Array<(code: number, reason: string) => void> = [];
     let nextId = 1;
     let opened = false;
-    let settled = false;
+    let stopped = false;
     let failure: InstanceConnectFailure | null = null;
+    let frameKey: string | null = null;
+    let frames: WebSocket | null = null;
+    let retry: NodeJS.Timeout | undefined;
+    let frameTimer: NodeJS.Timeout | undefined;
+    let retryDelay = 500;
 
-    const fail = (f: InstanceConnectFailure): void => {
-      if (settled) return;
-      settled = true;
-      reject(new InstanceConnectError(f));
+    const stopFrames = (): void => {
+      clearTimeout(retry);
+      clearTimeout(frameTimer);
+      retry = undefined;
+      const socket = frames;
+      frames = null;
+      if (socket !== null && socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    };
+
+    const stop = (): void => {
+      stopped = true;
+      clearTimeout(timer);
+      stopFrames();
+      if (ws.readyState !== WebSocket.CLOSED) ws.terminate();
     };
 
     const timer = setTimeout(() => {
-      failure = { kind: "unreachable", message: "timed out" };
-      ws.terminate();
+      failure = { kind: "unreachable", message: "timed out waiting for remote frame stream" };
+      stop();
     }, opts.timeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS);
 
-    ws.on("unexpected-response", (_req, res: IncomingMessage) => {
-      failure =
-        res.statusCode === 401
-          ? { kind: "unauthorized" }
-          : { kind: "unreachable", message: `HTTP ${res.statusCode ?? "?"}` };
-      res.resume();
-      ws.terminate();
-    });
-
-    ws.on("error", (err: Error) => {
-      // A pre-open error is followed by close, which settles; once open, close does the work.
-      if (failure === null) failure = { kind: "unreachable", message: err.message };
-    });
-
-    ws.on("message", (raw: Buffer, isBinary: boolean) => {
-      if (isBinary) {
-        const decoded = decodeBinaryEvent(new Uint8Array(raw));
-        if (decoded) for (const cb of eventCbs) cb(decoded.channel, [decoded.tabId, decoded.payload]);
-        return;
+    // Invoke local sinks together. Relay sinks hand off synchronously; each downstream
+    // server pair owns its own credit, rather than lending it to this upstream socket.
+    const dispatch = (channel: string, args: unknown[]): void | Promise<void> => {
+      let waits: Promise<void>[] | undefined;
+      for (const cb of eventCbs) {
+        try {
+          const result = cb(channel, args);
+          if (result !== undefined) (waits ??= []).push(result);
+        } catch {
+          // A failed local consumer intentionally drops this delivery.
+        }
       }
-      let frame: unknown;
-      try {
-        frame = JSON.parse(raw.toString("utf8"));
-      } catch {
-        return;
-      }
-      const parsed = parseServerFrame(frame);
-      if (parsed === null) return;
-      if (parsed.t === "ev") {
-        for (const cb of eventCbs) cb(parsed.ch, parsed.args);
-        return;
-      }
-      const entry = pending.get(parsed.id);
-      if (!entry) return;
-      pending.delete(parsed.id);
-      if (parsed.ok === true) entry.resolve(parsed.value);
-      else entry.reject(new Error(parsed.message));
-    });
+      if (waits !== undefined) return Promise.allSettled(waits).then(() => {});
+    };
 
-    ws.on("close", (code: number, reasonBuf: Buffer) => {
-      clearTimeout(timer);
-      for (const [, entry] of pending) entry.reject(new Error("remote connection lost"));
-      pending.clear();
-      if (!opened) {
-        fail(failure ?? { kind: "unreachable", message: `closed before open (${code})` });
-        return;
-      }
-      const reason = reasonBuf.toString("utf8");
-      for (const cb of closeCbs) cb(code, reason);
-    });
-
-    ws.on("open", () => {
-      clearTimeout(timer);
+    const ready = (): void => {
+      if (opened || stopped || ws.readyState !== WebSocket.OPEN || frames?.readyState !== WebSocket.OPEN) return;
       opened = true;
-      settled = true;
+      clearTimeout(timer);
       resolve({
         request<Result>(channel: string, args: unknown[]): Promise<Result> {
           return new Promise<Result>((res, rej) => {
-            if (ws.readyState !== WebSocket.OPEN) {
+            if (stopped || ws.readyState !== WebSocket.OPEN) {
               rej(new Error("remote connection lost"));
               return;
             }
@@ -153,8 +135,9 @@ export function connectInstanceClient(
           });
         },
         notify(channel, args) {
-          if (ws.readyState !== WebSocket.OPEN) return;
-          ws.send(JSON.stringify(makeClientNotifyFrame(channel, args)));
+          if (!stopped && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(makeClientNotifyFrame(channel, args)));
+          }
         },
         onEvent(cb) {
           eventCbs.push(cb);
@@ -163,10 +146,137 @@ export function connectInstanceClient(
           closeCbs.push(cb);
         },
         close() {
+          stopped = true;
+          stopFrames();
           if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close(1000);
         },
       });
+    };
+
+    const scheduleFrames = (): void => {
+      if (stopped || ws.readyState !== WebSocket.OPEN || retry !== undefined) return;
+      retry = setTimeout(() => {
+        retry = undefined;
+        connectFrames();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 5_000);
+    };
+
+    const connectFrames = (): void => {
+      if (stopped || ws.readyState !== WebSocket.OPEN || frameKey === null || frames !== null) return;
+      const socket = new WebSocket(
+        `${base}${REMOTE_FRAME_WS_PATH}?${REMOTE_FRAME_KEY_PARAM}=${frameKey}`,
+        { headers },
+      );
+      frames = socket;
+      frameTimer = setTimeout(() => socket.terminate(), DEFAULT_CONNECT_TIMEOUT_MS);
+      socket.on("open", () => {
+        if (stopped || frames !== socket) {
+          socket.terminate();
+          return;
+        }
+        clearTimeout(frameTimer);
+        retryDelay = 500;
+        ready();
+      });
+      socket.on("message", (raw: Buffer, isBinary: boolean) => {
+        if (!isBinary || stopped || frames !== socket) return;
+        const decoded = decodeFrameDelivery(raw);
+        if (decoded === null) return;
+        void Promise.resolve(dispatch(decoded.channel, [decoded.tabId, decoded.payload])).then(() => {
+          if (!stopped && frames === socket && ws.readyState === WebSocket.OPEN && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(makeFrameAck(decoded.id)));
+          }
+        });
+      });
+      socket.on("unexpected-response", (_req, res: IncomingMessage) => {
+        res.resume();
+        // Only the initial pairing proves the credential. Afterwards the server also
+        // answers 401 for a retired pairing key (its reliable socket closed first), so
+        // retry and let the reliable socket's own close report a real revocation.
+        if (res.statusCode === 401 && frames === socket && !opened) {
+          failure = { kind: "unauthorized" };
+          stop();
+        } else {
+          socket.terminate();
+        }
+      });
+      socket.on("error", () => {
+        // Close schedules an independent retry; an HTTP 401 above instead tears down the pair.
+      });
+      socket.on("close", (code) => {
+        if (frames !== socket) return;
+        clearTimeout(frameTimer);
+        frames = null;
+        if (code === REMOTE_CLOSE_REVOKED || code === 1008) {
+          failure = { kind: "unauthorized" };
+          stop();
+          return;
+        }
+        scheduleFrames();
+      });
+    };
+
+    ws.on("unexpected-response", (_req, res: IncomingMessage) => {
+      failure = res.statusCode === 401
+        ? { kind: "unauthorized" }
+        : { kind: "unreachable", message: `HTTP ${res.statusCode ?? "?"}` };
+      res.resume();
+      stop();
     });
+
+    ws.on("error", (err: Error) => {
+      if (failure === null) failure = { kind: "unreachable", message: err.message };
+    });
+
+    ws.on("message", (raw: Buffer, isBinary: boolean) => {
+      if (stopped) return;
+      if (isBinary) {
+        const decoded = decodeBinaryEvent(raw);
+        if (decoded) void dispatch(decoded.channel, [decoded.tabId, decoded.payload]);
+        return;
+      }
+      let frame: unknown;
+      try {
+        frame = JSON.parse(raw.toString("utf8"));
+      } catch {
+        return;
+      }
+      const parsed = parseServerFrame(frame);
+      if (parsed === null) return;
+      if (parsed.t === "frames") {
+        if (frameKey === null) {
+          frameKey = parsed.key;
+          connectFrames();
+        }
+        return;
+      }
+      if (parsed.t === "ev") {
+        void dispatch(parsed.ch, parsed.args);
+        return;
+      }
+      const entry = pending.get(parsed.id);
+      if (!entry) return;
+      pending.delete(parsed.id);
+      if (parsed.ok === true) entry.resolve(parsed.value);
+      else entry.reject(new Error(parsed.message));
+    });
+
+    ws.on("close", (code: number, reasonBuf: Buffer) => {
+      stopped = true;
+      clearTimeout(timer);
+      stopFrames();
+      for (const [, entry] of pending) entry.reject(new Error("remote connection lost"));
+      pending.clear();
+      if (!opened) {
+        reject(new InstanceConnectError(failure ?? { kind: "unreachable", message: `closed before paired open (${code})` }));
+        return;
+      }
+      const unauthorized = failure?.kind === "unauthorized";
+      for (const cb of closeCbs) cb(unauthorized ? REMOTE_CLOSE_REVOKED : code, unauthorized ? "credential rejected" : reasonBuf.toString("utf8"));
+    });
+
+    ws.on("open", ready);
   });
 }
 

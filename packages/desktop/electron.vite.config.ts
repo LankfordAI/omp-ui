@@ -9,7 +9,12 @@ export default defineConfig({
       externalizeDeps: { exclude: ["@omp-ui/core", "@omp-ui/server", "ws"] },
       // ws require()s these optional native accelerators inside try/catch and falls back to JS.
       rollupOptions: {
-        input: { index: resolve("src/main/index.ts") },
+        // browser-pane-smoke is the Electron-runtime smoke of the pane host
+        // (spec 5.7); electron-builder.yml excludes it from the package.
+        input: {
+          index: resolve("src/main/index.ts"),
+          "browser-pane-smoke": resolve("src/main/browser-pane-smoke.ts"),
+        },
         external: ["bufferutil", "utf-8-validate"],
       },
     },

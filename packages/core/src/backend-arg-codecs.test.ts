@@ -4,6 +4,8 @@ import {
   arrayOf,
   bool,
   branchListOptionsCodec,
+  browserPaneInputCodec,
+  browserPaneNavigateCodec,
   checkoutOptionsCodec,
   consoleProgramCodec,
   imageAttachmentCodec,
@@ -229,5 +231,58 @@ describe("domain argument codecs", () => {
       expect(String(error)).not.toContain("secretInput");
       expect(String(error)).not.toContain("do-not-echo");
     }
+  });
+
+  it("decodes every browser pane input arm strictly", () => {
+    const events = [
+      { type: "mouseDown", x: 10, y: 20, button: "left", clickCount: 1, modifiers: ["shift"] },
+      { type: "mouseUp", x: 10, y: 20 },
+      { type: "mouseMove", x: 0.5, y: 8192 },
+      { type: "mouseLeave", x: -1, y: -1 },
+      { type: "mouseWheel", x: 1, y: 2, deltaX: 0, deltaY: -120, hasPreciseScrollingDeltas: false },
+      { type: "keyDown", keyCode: "Enter", modifiers: ["control", "meta"] },
+      { type: "keyUp", keyCode: "Enter" },
+      { type: "char", keyCode: "a" },
+      { type: "insertText", text: "héllo" },
+      { type: "imeSetComposition", text: "한", selectionStart: 1, selectionEnd: 1 },
+      { type: "edit", command: "paste" },
+    ];
+    for (const event of events) expect(decode(browserPaneInputCodec, event)).toEqual(event);
+
+    expect(() => decode(browserPaneInputCodec, { type: "mouseUp", x: 1, y: 2, extra: true })).toThrow();
+    expect(() => decode(browserPaneInputCodec, { type: "mouseMove", x: Number.NaN, y: 2 })).toThrow(
+      "argument 0.x",
+    );
+    expect(() => decode(browserPaneInputCodec, { type: "mouseMove", x: 8193, y: 2 })).toThrow(
+      "argument 0.x",
+    );
+    expect(() => decode(browserPaneInputCodec, { type: "keyDown", keyCode: "K".repeat(65) })).toThrow(
+      "argument 0.keyCode",
+    );
+    expect(() => decode(browserPaneInputCodec, { type: "edit", command: "format" })).toThrow(
+      "argument 0.command",
+    );
+    expect(() =>
+      decode(browserPaneInputCodec, {
+        type: "imeSetComposition",
+        text: "한",
+        selectionStart: 1.5,
+        selectionEnd: 1,
+      }),
+    ).toThrow("argument 0.selectionStart");
+    expect(() =>
+      decode(browserPaneInputCodec, { type: "imeSetComposition", text: "한", selectionStart: 1 }),
+    ).toThrow("argument 0.selectionEnd");
+    expect(() => decode(browserPaneInputCodec, { type: "scroll" })).toThrow("argument 0.type");
+  });
+
+  it("decodes browser pane navigation with url only on goto", () => {
+    const goto = { action: "goto", url: "https://example.com/" };
+    expect(decode(browserPaneNavigateCodec, goto)).toEqual(goto);
+    for (const action of ["back", "forward", "reload", "stop"]) {
+      expect(decode(browserPaneNavigateCodec, { action })).toEqual({ action });
+    }
+    expect(() => decode(browserPaneNavigateCodec, { action: "goto" })).toThrow("argument 0.url");
+    expect(() => decode(browserPaneNavigateCodec, { action: "back", url: "x" })).toThrow();
   });
 });

@@ -85,6 +85,36 @@ describe("reduceAgentEvent", () => {
     expect(reduced.patch).toEqual({ runtime: { lastFrameAt: 1_000 } });
     expect(reduced.transcript).toEqual({ frame, stall: null });
   });
+
+  it("offers each local tool-result URL once per turn and respects decline/current URL", () => {
+    const url = "http://localhost:5173/";
+    const result = { type: "tool_execution_end", result: { content: [{ type: "text", text: `Local: ${url}` }] } };
+    const tab = rpcTabState();
+    const first = reduceAgentEvent(tab, runtime(), result).patch.rpc?.browserPane;
+    expect(first).toMatchObject({ offers: [url], offeredThisTurn: [url] });
+
+    const repeated = reduceAgentEvent(
+      { ...tab, browserPane: first! },
+      runtime(),
+      result,
+    );
+    expect(repeated.patch.rpc?.browserPane).toBeUndefined();
+
+    const nextTurn = reduceAgentEvent({ ...tab, browserPane: first! }, runtime(), { type: "agent_start" });
+    expect(nextTurn.patch.rpc?.browserPane?.offeredThisTurn).toEqual([]);
+    const declined = { ...tab.browserPane, declinedOffers: [url] };
+    expect(reduceAgentEvent({ ...tab, browserPane: declined }, runtime(), result).patch.rpc?.browserPane).toBeUndefined();
+    const current = { ...tab.browserPane, state: { url, title: "", loading: false, canGoBack: false, canGoForward: false, alive: true, agent: "detached" as const } };
+    expect(reduceAgentEvent({ ...tab, browserPane: current }, runtime(), result).patch.rpc?.browserPane).toBeUndefined();
+  });
+
+  it("does not patch browser pane state for non-loopback tool results", () => {
+    const reduced = reduceAgentEvent(rpcTabState(), runtime(), {
+      type: "tool_execution_end",
+      result: { content: "https://example.com/" },
+    });
+    expect(reduced.patch.rpc?.browserPane).toBeUndefined();
+  });
 });
 
 describe("handleRpcFrame routing", () => {

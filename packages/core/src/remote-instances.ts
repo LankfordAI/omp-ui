@@ -99,6 +99,8 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:tool-enabled",
   "pty:pasteImage",
   "shell:spawn",
+  "browser-pane:ensure",
+  "browser-pane:pick",
 ]);
 
 /** Notify channels whose first argument is the owning tabId. */
@@ -110,6 +112,10 @@ export const TAB_ROUTED_NOTIFIES: ReadonlySet<string> = new Set<string>([
   "shell:resize",
   "rpc:send",
   "stall:cap",
+  "browser-pane:subscribe",
+  "browser-pane:resize",
+  "browser-pane:input",
+  "browser-pane:navigate",
 ]);
 
 /** Project-scoped channels the renderer may address to a joined instance through the proxy. */
@@ -169,4 +175,6 @@ export const REMOTE_TAB_EVENTS: ReadonlySet<string> = new Set<string>([
   "session:hibernated",
   "shell:data",
   "shell:exit",
+  "browser-pane:frame",
+  "browser-pane:state",
 ]);

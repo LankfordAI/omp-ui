@@ -14,6 +14,7 @@ import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
 import { findOwner, findRecord, sessionCwd, useStore, type PlanRecord, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
+import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { AGENT_TONE } from "../lib/agent-tone";
 import { compactNum, exactNum, formatCost, shortBase } from "../lib/format";
 import { TodoPanel } from "./TodoPanel";
@@ -664,6 +665,8 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   const setInspectorWidth = useStore((s) => s.setInspectorWidth);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+  const browserPaneWidth = useStore((s) => s.browserPaneWidth);
+  const browserPaneOpen = useBrowserPaneSplitOpen(tabId);
   const [previewWidth, setPreviewWidth] = useState<number | null>(null);
   const [resizing, setResizing] = useState(false);
 
@@ -684,6 +687,8 @@ export function InspectorRail({ tabId }: { tabId: string }) {
     inspectorWidth,
     sidebarCollapsed,
     inspectorOpen: open,
+    browserPaneWidth,
+    browserPaneOpen,
   });
   const displayedInspectorWidth = previewWidth ?? resolvedWidths.inspectorWidth;
   const badges = inspectorBadges(runtime);

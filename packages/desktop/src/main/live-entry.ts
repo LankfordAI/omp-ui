@@ -31,6 +31,8 @@ export interface RpcLiveEntry extends LiveEntryBase {
   capabilities: CapabilitySnapshot | null;
   /** True when this spawn successfully wrote (and armed) the capabilities bridge. */
   capabilitiesBridgeLoaded: boolean;
+  /** True when this spawn minted the browser pane's bridge endpoint and armed the extension (#519). */
+  browserPaneArmed: boolean;
 }
 
 export type LiveEntry = PtyLiveEntry | RpcLiveEntry;
@@ -72,6 +74,7 @@ export function createRpcLiveEntry(record: OwnedSessionRecord): RpcLiveEntry {
     rpc: null,
     capabilities: null,
     capabilitiesBridgeLoaded: false,
+    browserPaneArmed: false,
   };
 }
 

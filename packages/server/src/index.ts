@@ -1,19 +1,32 @@
+import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { networkInterfaces } from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
-import { dispatchNotify, dispatchRequest, type ChannelTable, type RemoteBind } from "@omp-ui/core";
+import {
+  CH,
+  LOSSY_CHANNELS,
+  dispatchNotify,
+  dispatchRequest,
+  type ChannelTable,
+  type RemoteBind,
+} from "@omp-ui/core";
 import { loginPage } from "./login-page";
 import { LoginThrottle } from "./login-throttle";
 import {
   encodeBinaryEvent,
+  encodeFrameDelivery,
   makeServerEventFrame,
+  makeServerFrameStream,
   makeServerResponseErr,
   makeServerResponseOk,
   parseClientFrame,
+  parseFrameAck,
   REMOTE_COOKIE,
+  REMOTE_FRAME_KEY_PARAM,
+  REMOTE_FRAME_WS_PATH,
   REMOTE_TOKEN_PARAM,
   REMOTE_WS_PATH,
   type ServerFrame,
@@ -59,6 +72,21 @@ const COOKIE_MAX_AGE = 31_536_000;
 const CLOSE_DRAIN_MS = 250;
 /** POST /login body ceiling; a real form is a few dozen bytes. */
 const MAX_LOGIN_BODY = 8192;
+
+interface PendingFrame {
+  id: number;
+  tabId: string;
+  bytes: Uint8Array;
+}
+
+interface FramePair {
+  reliable: WebSocket;
+  frames: WebSocket | null;
+  subscriptions: Map<string, Set<string>>;
+  pending: Map<string, PendingFrame>;
+  inFlight: PendingFrame | null;
+  replayInFlight: boolean;
+}
 
 const MIME: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
@@ -348,6 +376,54 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   });
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
+  const frameWss = new WebSocketServer({ noServer: true, maxPayload: 1024 });
+  const pairs = new Map<string, FramePair>();
+  let nextFrameId = 0;
+  let closing = false;
+
+  const flushFrame = (pair: FramePair): void => {
+    if (pair.inFlight !== null || pair.frames?.readyState !== WebSocket.OPEN) return;
+    const next = pair.pending.entries().next();
+    if (next.done) return;
+    const [tabId, frame] = next.value;
+    pair.pending.delete(tabId);
+    pair.inFlight = frame;
+    pair.replayInFlight = true;
+    pair.frames.send(frame.bytes);
+  };
+
+  const attachFrames = (pair: FramePair, ws: WebSocket): void => {
+    pair.frames = ws;
+    ws.on("error", () => {});
+    ws.on("message", (raw: Buffer, isBinary: boolean) => {
+      if (isBinary || pair.frames !== ws) return;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw.toString("utf8"));
+      } catch {
+        return;
+      }
+      const ack = parseFrameAck(parsed);
+      if (ack === null || ack.id !== pair.inFlight?.id) return;
+      pair.inFlight = null;
+      pair.replayInFlight = false;
+      flushFrame(pair);
+    });
+    ws.on("close", () => {
+      if (pair.frames !== ws) return;
+      pair.frames = null;
+      const frame = pair.inFlight;
+      if (
+        frame !== null && pair.replayInFlight && pair.subscriptions.has(frame.tabId) &&
+        !pair.pending.has(frame.tabId)
+      ) {
+        pair.pending.set(frame.tabId, frame);
+      }
+      pair.inFlight = null;
+      pair.replayInFlight = false;
+    });
+    flushFrame(pair);
+  };
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     let url: URL;
@@ -358,15 +434,85 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       return;
     }
     const { value } = presentedToken(req, url);
-    if (url.pathname !== REMOTE_WS_PATH || !credentialMatches(value)) {
+    if (
+      closing || !credentialMatches(value) ||
+      (url.pathname !== REMOTE_WS_PATH && url.pathname !== REMOTE_FRAME_WS_PATH)
+    ) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
+      return;
+    }
+    if (url.pathname === REMOTE_FRAME_WS_PATH) {
+      const key = url.searchParams.get(REMOTE_FRAME_KEY_PARAM);
+      const pair = key === null ? undefined : pairs.get(key);
+      if (pair === undefined || pair.reliable.readyState !== WebSocket.OPEN) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      if (pair.frames !== null) {
+        socket.write("HTTP/1.1 409 Conflict\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      frameWss.handleUpgrade(req, socket, head, (ws) => attachFrames(pair, ws));
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   });
 
   wss.on("connection", (ws: WebSocket) => {
+    const key = randomBytes(32).toString("hex");
+    const pair: FramePair = {
+      reliable: ws,
+      frames: null,
+      subscriptions: new Map(),
+      pending: new Map(),
+      inFlight: null,
+      replayInFlight: false,
+    };
+    pairs.set(key, pair);
+    // Let the shared notify decoder validate the tuple before recording it, then call the
+    // host. A subscribe may synchronously replay the cached frame through our sink.
+    const subscriptionTable: ChannelTable = {
+      request: table.request,
+      notify: {
+        [CH.browserPaneSubscribe]: (tabId: string, clientId: string, on: boolean) => {
+          if (on) {
+            let viewers = pair.subscriptions.get(tabId);
+            if (viewers === undefined) {
+              viewers = new Set();
+              pair.subscriptions.set(tabId, viewers);
+            }
+            viewers.add(clientId);
+          } else {
+            const viewers = pair.subscriptions.get(tabId);
+            viewers?.delete(clientId);
+            if (viewers?.size === 0) {
+              pair.subscriptions.delete(tabId);
+              pair.pending.delete(tabId);
+              if (pair.inFlight?.tabId === tabId) pair.replayInFlight = false;
+            }
+          }
+          table.notify[CH.browserPaneSubscribe](tabId, clientId, on);
+        },
+      } as ChannelTable["notify"],
+    };
+    ws.on("close", () => {
+      pairs.delete(key);
+      pair.subscriptions.clear();
+      pair.pending.clear();
+      pair.inFlight = null;
+      pair.replayInFlight = false;
+      const frames = pair.frames;
+      pair.frames = null;
+      if (frames !== null) {
+        frames.close(1001);
+        const timer = setTimeout(() => frames.terminate(), CLOSE_DRAIN_MS);
+        timer.unref();
+        frames.once("close", () => clearTimeout(timer));
+      }
+    });
     // `ws` emits receiver failures (including maxPayload close 1009) here. A
     // malformed remote client may lose its socket, but must never crash the
     // Electron main process with an uncaught exception.
@@ -382,7 +528,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       const frame = parseClientFrame(parsed);
       if (frame === null) return;
       if (frame.t === "notify") {
-        dispatchNotify(table, frame.ch, frame.args);
+        dispatchNotify(frame.ch === CH.browserPaneSubscribe ? subscriptionTable : table, frame.ch, frame.args);
         return;
       }
       const id = frame.id;
@@ -394,6 +540,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
           reply(ws, makeServerResponseErr(id, err instanceof Error ? err.message : String(err)));
         });
     });
+    reply(ws, makeServerFrameStream(key));
   });
 
   // Built once per server, not per message: the handlers are stateless closures over the
@@ -403,8 +550,25 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   // One sink for the whole server, not one per socket: the host fans out once and we fan to clients.
   const unsink = host.addSink((channel, args) => {
     const payload = args[1];
-    // Structural detection, not a channel allowlist: any event whose second arg is bytes rides
-    // a binary frame (pty:data, shell:data today).
+    if (LOSSY_CHANNELS.has(channel)) {
+      // Lossy bytes never share the reliable socket, even before a companion has connected.
+      if (!(payload instanceof Uint8Array) || typeof args[0] !== "string") return;
+      const tabId = args[0];
+      let frame: PendingFrame | null = null;
+      for (const pair of pairs.values()) {
+        if (!pair.subscriptions.has(tabId) || pair.reliable.readyState !== WebSocket.OPEN) continue;
+        if (frame === null) {
+          nextFrameId = nextFrameId === 0xffffffff ? 1 : nextFrameId + 1;
+          frame = { id: nextFrameId, tabId, bytes: encodeFrameDelivery(nextFrameId, channel, tabId, payload) };
+        }
+        // Replacing an entry preserves its insertion order: busy tabs cannot starve others.
+        pair.pending.set(tabId, frame);
+        flushFrame(pair);
+      }
+      return;
+    }
+    // Structural detection, not a channel allowlist: remaining byte events (PTY and shell)
+    // retain their reliable binary format.
     const frame =
       payload instanceof Uint8Array && typeof args[0] === "string"
         ? encodeBinaryEvent(channel, args[0], payload)
@@ -419,6 +583,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     const onEarlyError = (err: NodeJS.ErrnoException): void => {
       unsink();
       wss.close();
+      frameWss.close();
       reject(
         new Error(
           err.code === "EADDRINUSE" ? `port ${port} is already in use` : err.message,
@@ -437,12 +602,19 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
         webBundleMissing,
         port: bound,
         close: async () => {
+          closing = true;
           unsink();
           // A graceful 1001 first so a live browser client sees "going away" and starts its
           // reconnect probe rather than a bare socket reset.
           for (const client of wss.clients) client.close(1001);
-          await settledClients(wss, CLOSE_DRAIN_MS);
+          for (const client of frameWss.clients) client.close(1001);
+          await Promise.all([
+            settledClients(wss, CLOSE_DRAIN_MS),
+            settledClients(frameWss, CLOSE_DRAIN_MS),
+          ]);
           wss.close();
+          frameWss.close();
+          pairs.clear();
           await new Promise<void>((done) => {
             server.close(() => done());
             // Upgraded sockets are never "idle" to the HTTP server, so a client that ignored

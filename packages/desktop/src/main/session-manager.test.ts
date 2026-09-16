@@ -9,6 +9,8 @@ import type { KeyCipher, PtyHandle } from "@omp-ui/core";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { CH } from "@omp-ui/core";
 import { SessionManager, type SessionManagerDependencies } from "./session-manager";
+import type { PaneContents, PaneEvent } from "./browser-pane-contents";
+import type { BridgeListener } from "./browser-pane-bridge";
 import type { Attention } from "./desktop-notifier";
 import type { BreadcrumbEntry } from "./breadcrumbs";
 import { parseSpawnGate, type SpawnGate } from "./spawn-gate";
@@ -64,6 +66,79 @@ const rpcInstances: {
   frame: (frame: unknown) => void;
 }[] = [];
 const watcherDisposes: Mock[] = [];
+/** Browser pane seams (#519): one fake page per creation, one fake bridge listener per mint. */
+interface FakeBrowserPane extends PaneContents {
+  destroy: Mock;
+  loadURL: Mock;
+  /** Commits the last loadURL as a navigation, as Electron's did-navigate would. */
+  commitNavigation(): void;
+}
+const fakeBrowserPanes: FakeBrowserPane[] = [];
+const fakePaneListeners: (BridgeListener & { close: Mock })[] = [];
+let nextPanePort = 45000;
+
+function fakePaneContents(): FakeBrowserPane {
+  let destroyed = false;
+  let url = "";
+  const handlers = new Map<PaneEvent, Set<(...args: unknown[]) => void>>();
+  return {
+    onPaint: () => () => {},
+    setFrameRate: () => {},
+    startPainting: () => {},
+    stopPainting: () => {},
+    invalidate: () => {},
+    setContentSize: () => {},
+    getContentSize: () => ({ width: 1280, height: 800 }),
+    loadURL: vi.fn(async (next: string) => {
+      url = next;
+    }),
+    goBack: () => {},
+    goForward: () => {},
+    reload: () => {},
+    stop: () => {},
+    canGoBack: () => false,
+    canGoForward: () => false,
+    getURL: () => url,
+    getTitle: () => "",
+    isLoading: () => false,
+    sendInputEvent: () => {},
+    insertText: async () => {},
+    imeSetComposition: async () => {},
+    focus: () => {},
+    selectAll: () => {},
+    copy: () => {},
+    paste: () => {},
+    cut: () => {},
+    undo: () => {},
+    redo: () => {},
+    debugger: {
+      attach: () => {},
+      detach: () => {},
+      isAttached: () => true,
+      sendCommand: async () => ({}),
+      on: () => {},
+    },
+    userAgent: "fake-ua",
+    on: (event, cb) => {
+      let set = handlers.get(event);
+      if (set === undefined) {
+        set = new Set();
+        handlers.set(event, set);
+      }
+      set.add(cb);
+      return () => {
+        set?.delete(cb);
+      };
+    },
+    destroy: vi.fn(() => {
+      destroyed = true;
+    }),
+    isDestroyed: () => destroyed,
+    commitNavigation: () => {
+      for (const cb of handlers.get("did-navigate") ?? []) cb();
+    },
+  };
+}
 let nextPtyDiesOn: "default" | "SIGKILL" | "never" = "never";
 let base = "";
 
@@ -200,6 +275,25 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
         crumbs.push({ at: new Date(0).toISOString(), seq: crumbs.length + 1, kind, ...fields }),
       entries: () => crumbs.slice(),
     },
+    browserPane: {
+      createPane: async () => {
+        const pane = fakePaneContents();
+        fakeBrowserPanes.push(pane);
+        return pane;
+      },
+      createListener: async (listenerDeps) => {
+        const port = nextPanePort;
+        nextPanePort += 1;
+        const listener = {
+          port,
+          url: `http://127.0.0.1:${port}/${listenerDeps.token}`,
+          close: vi.fn(),
+          clientCount: () => 0,
+        };
+        fakePaneListeners.push(listener);
+        return listener;
+      },
+    },
   };
   // `restart` rebuilds the manager against the SAME registry: the gate
   // boundary test needs a gated run followed by an ungated one (issue #372).
@@ -228,6 +322,8 @@ beforeEach(() => {
   fakePtys.length = 0;
   fakeShells.length = 0;
   rpcInstances.length = 0;
+  fakeBrowserPanes.length = 0;
+  fakePaneListeners.length = 0;
   watcherDisposes.length = 0;
   spawnCalls.length = 0;
   nextPtyDiesOn = "never";
@@ -315,6 +411,7 @@ describe("MCP runtime status bridge", () => {
       Core.goalArmMessage(),
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
+      Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
     ]);
   });
 
@@ -335,6 +432,7 @@ describe("MCP runtime status bridge", () => {
       Core.goalArmMessage(),
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
+      Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
     ]);
   });
 
@@ -365,6 +463,7 @@ describe("MCP runtime status bridge", () => {
       Core.goalArmMessage(),
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
+      Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
     ]);
     expect(RpcClientMock).toHaveBeenCalledTimes(1);
     expect(warning).toHaveBeenCalledWith(
@@ -459,6 +558,7 @@ describe("session capabilities bridge (issue #374)", () => {
       Core.goalArmMessage(),
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
+      Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
     ]);
 
     // Bridged but silent so far: the viewer sees "starting", not an empty roster.
@@ -510,6 +610,7 @@ describe("session capabilities bridge (issue #374)", () => {
       Core.mcpRuntimeStatusMessage(),
       Core.goalArmMessage(),
       Core.planMessage(false, "html"),
+      Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
     ]);
     await expect(manager.getSessionCapabilities(TAB)).resolves.toEqual({
       status: "bridge-unavailable",
@@ -5201,6 +5302,38 @@ describe("hibernation (issue #246)", () => {
     expect(crumbs.map((entry) => entry.kind)).toEqual(["session-resume", "session-hibernate"]);
   });
 
+  it("hibernation destroys the browser pane page and listener but keeps the last URL for the resume (#519)", async () => {
+    const { manager, rpc, sent } = await readyHandoff();
+    await manager.browserPaneEnsure(TAB);
+    const page = fakeBrowserPanes[0]!;
+    // The agent visited a page; its URL is the pane's memory.
+    manager.browserPanes.navigate(TAB, { action: "goto", url: "https://example.com/docs" });
+    await flush();
+    expect(page.loadURL).toHaveBeenLastCalledWith("https://example.com/docs");
+    page.commitNavigation();
+    const listener = fakePaneListeners[0]!;
+    sent.length = 0;
+
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
+    cleanProbe(rpc);
+    await expect(result).resolves.toBe(true);
+    expect(page.destroy).toHaveBeenCalledTimes(1);
+    expect(listener.close).toHaveBeenCalledTimes(1);
+    // The pane's dead-state row precedes the hibernated row, so the renderer
+    // never shows a live pane on a hibernated tab.
+    const order = sent
+      .filter((s) => s.channel === CH.onBrowserPaneState || s.channel === CH.onSessionHibernated)
+      .map((s) => s.channel);
+    expect(order).toEqual([CH.onBrowserPaneState, CH.onSessionHibernated]);
+
+    await resumeRpc(manager);
+    expect(fakePaneListeners).toHaveLength(2);
+    await manager.browserPaneEnsure(TAB);
+    expect(fakeBrowserPanes).toHaveLength(2);
+    expect(fakeBrowserPanes[1]!.loadURL).toHaveBeenCalledWith("https://example.com/docs");
+  });
+
   it("bypasses viewed-tab and post-verdict settle guards only for a valid handoff (issue #283)", async () => {
     const { manager, rpc } = await readyHandoff();
     rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -5662,5 +5795,133 @@ describe("session lifecycle breadcrumbs (issue #413)", () => {
     expect(crumbs[0]).toMatchObject({ tabId: TAB, mode: "rpc-ui" });
     await manager.switchMode(TAB, "rpc-ui");
     expect(kinds(crumbs)).toEqual(["session-mode"]);
+  });
+});
+
+describe("browser pane lifecycle (#519, U1)", () => {
+  const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+  /** Microtask drain: page factory → shared in-flight promise → navigation. */
+  const flush = async (): Promise<void> => {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  };
+  /** Opens the pane and commits one navigation so the tab has a URL to remember. */
+  const visit = async (manager: SessionManager, url: string): Promise<FakeBrowserPane> => {
+    await expect(manager.browserPaneEnsure(TAB)).resolves.toMatchObject({ status: "available" });
+    const page = fakeBrowserPanes.at(-1)!;
+    manager.browserPaneNavigate(TAB, { action: "goto", url });
+    await flush();
+    page.commitNavigation();
+    return page;
+  };
+
+  it("mints the bridge endpoint at rpc spawn and arms the extension with it", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    expect(fakePaneListeners).toHaveLength(1);
+    const { url } = fakePaneListeners[0]!;
+    expect(url).toMatch(new RegExp(Core.BROWSER_PANE_ENDPOINT_PATTERN));
+    const options = RpcClientMock.mock.calls.at(-1)?.[0];
+    expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-browser-pane\.ts$/));
+    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)?.map(
+      (command) => command.message,
+    );
+    expect(messages?.at(-1)).toBe(Core.browserPaneSetMessage(url));
+    // No page until the user opens the pane or the agent connects.
+    expect(fakeBrowserPanes).toHaveLength(0);
+  });
+
+  it("answers the ladder head from the tab's lifecycle", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await expect(manager.browserPaneEnsure("nope")).resolves.toEqual({ status: "missing-session" });
+    await expect(manager.browserPaneEnsure(TAB)).resolves.toEqual({ status: "not-live" });
+    await resumeRpc(manager);
+    await expect(manager.browserPaneEnsure(TAB)).resolves.toMatchObject({ status: "available" });
+    expect(fakeBrowserPanes).toHaveLength(1);
+  });
+
+  it("answers terminal for a pty tab and never mints a listener for it", async () => {
+    const { manager } = setup();
+    await resume(manager);
+    await expect(manager.browserPaneEnsure(TAB)).resolves.toEqual({ status: "terminal" });
+    expect(fakePaneListeners).toHaveLength(0);
+  });
+
+  it("keeps the page and reuses the listener across a process exit", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const page = await visit(manager, "https://example.com/a");
+    rpcInstances[0]!.exit(1);
+    expect(page.destroy).not.toHaveBeenCalled();
+    expect(fakePaneListeners[0]!.close).not.toHaveBeenCalled();
+
+    await resumeRpc(manager);
+    expect(fakePaneListeners).toHaveLength(1);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0];
+    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)?.map(
+      (command) => command.message,
+    );
+    expect(messages?.at(-1)).toBe(Core.browserPaneSetMessage(fakePaneListeners[0]!.url));
+    expect(fakeBrowserPanes).toHaveLength(1);
+  });
+
+  it("delete destroys the page and listener and forgets the URL", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const page = await visit(manager, "https://example.com/a");
+    rpcInstances[0]!.kill.mockImplementation(() => rpcInstances[0]!.exit(0));
+    sent.length = 0;
+    await manager.deleteSession(TAB, false);
+    expect(page.destroy).toHaveBeenCalledTimes(1);
+    expect(fakePaneListeners[0]!.close).toHaveBeenCalledTimes(1);
+    const state = sent.find((s) => s.channel === CH.onBrowserPaneState)?.args[1];
+    expect(state).toMatchObject({ alive: false, url: "https://example.com/a" });
+    expect(manager.browserPaneDiagnostics()).toEqual([]);
+    // A fresh page under the same tabId starts blank: the memory went with the delete.
+    await manager.browserPanes.ensure(TAB);
+    expect(fakeBrowserPanes.at(-1)!.loadURL).toHaveBeenCalledWith("about:blank");
+  });
+
+  it("switching to pty destroys the pane; switching back to rpc-ui restores the URL", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const page = await visit(manager, "https://example.com/a");
+    rpcInstances[0]!.kill.mockImplementation(() => rpcInstances[0]!.exit(0));
+    await manager.switchMode(TAB, "pty");
+    expect(page.destroy).toHaveBeenCalledTimes(1);
+    expect(fakePaneListeners[0]!.close).toHaveBeenCalledTimes(1);
+    await expect(manager.browserPaneEnsure(TAB)).resolves.toEqual({ status: "terminal" });
+
+    fakePtys[0]!.kill.mockImplementation(() => fakePtys[0]!.exit(0));
+    await manager.switchMode(TAB, "rpc-ui");
+    expect(fakePaneListeners).toHaveLength(2);
+    await manager.browserPaneEnsure(TAB);
+    expect(fakeBrowserPanes.at(-1)!.loadURL).toHaveBeenCalledWith("https://example.com/a");
+  });
+
+  it("killAll destroys every pane page and listener", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const page = await visit(manager, "https://example.com/a");
+    manager.killAll();
+    expect(page.destroy).toHaveBeenCalledTimes(1);
+    expect(fakePaneListeners[0]!.close).toHaveBeenCalledTimes(1);
+    expect(manager.browserPanes.deniedPorts().size).toBe(0);
+  });
+
+  it("viewing another tab drops the client's frame sink", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    await manager.browserPaneEnsure(TAB);
+    manager.browserPaneSubscribe(TAB, "renderer", true);
+    await flush();
+    sent.length = 0;
+    manager.setViewedTab("renderer", "tab-other");
+    // The subscribe path stays intact for a client that comes back.
+    manager.browserPaneSubscribe(TAB, "renderer", true);
+    await flush();
+    expect(manager.browserPaneDiagnostics()).toMatchObject([{ tabId: TAB, subscribers: 1 }]);
+    manager.setViewedTab("renderer", null);
+    expect(manager.browserPaneDiagnostics()).toMatchObject([{ tabId: TAB, subscribers: 0 }]);
   });
 });

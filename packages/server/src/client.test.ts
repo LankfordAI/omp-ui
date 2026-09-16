@@ -1,8 +1,23 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { createServer } from "node:http";
+import type { Socket } from "node:net";
+import { WebSocket, WebSocketServer } from "ws";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CH, type ChannelTable } from "@omp-ui/core";
 import { startRemoteServer, type RemoteHost, type RemoteServerHandle } from "./index";
 import { connectInstanceClient, InstanceConnectError, signInForCredential, type InstanceClient } from "./client";
 import { hashRemotePassword, mintRemoteToken } from "./token";
+import {
+  encodeBinaryEvent,
+  encodeFrameDelivery,
+  makeServerFrameStream,
+  makeServerResponseOk,
+  parseClientFrame,
+  parseFrameAck,
+  REMOTE_FRAME_KEY_PARAM,
+  REMOTE_FRAME_WS_PATH,
+  REMOTE_WS_PATH,
+  type FrameAck,
+} from "./protocol";
 
 const TOKEN = mintRemoteToken();
 
@@ -42,9 +57,11 @@ function fakeHost(): FakeHost {
 
 const open: RemoteServerHandle[] = [];
 const clients: InstanceClient[] = [];
+const wireCleanup: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
   for (const c of clients.splice(0)) c.close();
+  for (const close of wireCleanup.splice(0)) await close();
   for (const h of open.splice(0)) await h.close();
 });
 
@@ -82,6 +99,70 @@ async function failureOf(promise: Promise<unknown>): Promise<InstanceConnectErro
     return (err as InstanceConnectError).failure;
   }
   throw new Error("expected rejection");
+}
+
+async function wireServer(opts: { holdFrames?: boolean; announce?: boolean } = {}) {
+  const key = "a".repeat(64);
+  const server = createServer();
+  const reliableServer = new WebSocketServer({ noServer: true });
+  const frameServer = new WebSocketServer({ noServer: true });
+  const controls: WebSocket[] = [];
+  const frames: Array<{ socket: WebSocket; acks: FrameAck[] }> = [];
+  const upgrades: Array<() => void> = [];
+  const sockets = new Set<Socket>();
+  const access = { frameStatus: 101, rejected: 0 };
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  });
+  reliableServer.on("connection", (socket) => {
+    controls.push(socket);
+    socket.on("message", (raw) => {
+      const request = parseClientFrame(JSON.parse(raw.toString()));
+      if (request?.t === "req") socket.send(JSON.stringify(makeServerResponseOk(request.id, { ok: 1 })));
+    });
+    if (opts.announce !== false) socket.send(JSON.stringify(makeServerFrameStream(key)));
+  });
+  frameServer.on("connection", (socket) => {
+    const acks: FrameAck[] = [];
+    frames.push({ socket, acks });
+    socket.on("message", (raw) => {
+      const ack = parseFrameAck(JSON.parse(raw.toString()));
+      if (ack !== null) acks.push(ack);
+    });
+  });
+  server.on("upgrade", (request, socket, head) => {
+    const url = new URL(request.url!, "http://localhost");
+    const frame = url.pathname === REMOTE_FRAME_WS_PATH;
+    if (!frame && url.pathname !== REMOTE_WS_PATH) {
+      socket.destroy();
+      return;
+    }
+    if (request.headers.authorization !== `Bearer ${TOKEN}` ||
+      (frame && (url.searchParams.get(REMOTE_FRAME_KEY_PARAM) !== key || access.frameStatus === 401))) {
+      if (frame && access.frameStatus === 401) access.rejected += 1;
+      socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    const target = frame ? frameServer : reliableServer;
+    const accept = () => target.handleUpgrade(request, socket, head, (ws) => target.emit("connection", ws));
+    if (frame && opts.holdFrames) upgrades.push(accept);
+    else accept();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("missing listener address");
+  wireCleanup.push(async () => {
+    for (const ws of reliableServer.clients) ws.terminate();
+    for (const ws of frameServer.clients) ws.terminate();
+    for (const socket of sockets) socket.destroy();
+    await Promise.all([
+      new Promise<void>((resolve) => reliableServer.close(() => resolve())),
+      new Promise<void>((resolve) => frameServer.close(() => resolve())),
+      new Promise<void>((resolve) => server.close(() => resolve())),
+    ]);
+  });
+  return { base: `http://127.0.0.1:${address.port}`, key, controls, frames, upgrades, access };
 }
 
 describe("connectInstanceClient", () => {
@@ -145,6 +226,138 @@ describe("connectInstanceClient", () => {
     await handle.close();
     expect(await closed).toBe(1001);
     await expect(client.request(CH.getState, [])).rejects.toThrow("remote connection lost");
+  });
+});
+
+describe("paired instance frame stream", () => {
+  it("waits for the authenticated companion before becoming ready", async () => {
+    const wire = await wireServer({ holdFrames: true });
+    let ready = false;
+    const connecting = join(wire.base).then((client) => {
+      ready = true;
+      return client;
+    });
+    await vi.waitFor(() => expect(wire.upgrades).toHaveLength(1));
+    expect(ready).toBe(false);
+    wire.upgrades[0]!();
+    const client = await connecting;
+    await expect(client.request(CH.getState, [])).resolves.toEqual({ ok: 1 });
+  });
+
+  it("bounds an absent pairing handshake instead of falling back to the reliable stream", async () => {
+    const wire = await wireServer({ announce: false });
+    const failure = await failureOf(connectInstanceClient(wire.base, TOKEN, { timeoutMs: 100 }));
+    expect(failure.kind).toBe("unreachable");
+    await vi.waitFor(() => expect(wire.controls[0]?.readyState).toBe(WebSocket.CLOSED));
+    expect(wire.frames).toHaveLength(0);
+  });
+
+  it("reports an unauthorized companion during the initial pairing", async () => {
+    const wire = await wireServer();
+    wire.access.frameStatus = 401;
+    expect(await failureOf(connectInstanceClient(wire.base, TOKEN))).toEqual({ kind: "unauthorized" });
+    await vi.waitFor(() => expect(wire.controls[0]?.readyState).toBe(WebSocket.CLOSED));
+  });
+
+  it("waits for every local consumer while PTY and requests stay reliable", async () => {
+    const wire = await wireServer();
+    const client = await join(wire.base);
+    let resolveFirst!: () => void;
+    let rejectSecond!: (reason: Error) => void;
+    const first = new Promise<void>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<void>((_resolve, reject) => { rejectSecond = reject; });
+    let received = 0;
+    client.onEvent((channel) => {
+      if (channel !== CH.onBrowserPaneFrame) return;
+      received++;
+      return first;
+    });
+    client.onEvent((channel) => channel === CH.onBrowserPaneFrame ? second : undefined);
+    const frame = wire.frames[0]!;
+    frame.socket.send(encodeFrameDelivery(17, CH.onBrowserPaneFrame, "tab-1", new Uint8Array([4])));
+    await vi.waitFor(() => expect(received).toBe(1));
+    expect(frame.acks).toEqual([]);
+    const pty = nextEvent(client);
+    wire.controls[0]!.send(encodeBinaryEvent(CH.onPtyData, "tab-1", new Uint8Array([9])));
+    expect((await pty).channel).toBe(CH.onPtyData);
+    await expect(client.request(CH.getState, [])).resolves.toEqual({ ok: 1 });
+    resolveFirst();
+    await client.request(CH.getState, []);
+    expect(frame.acks).toEqual([]);
+    rejectSecond(new Error("receiver disposed"));
+    await vi.waitFor(() => expect(frame.acks).toEqual([{ t: "ack", id: 17 }]));
+    client.onEvent(() => { throw new Error("failed consumer"); });
+    frame.socket.send(encodeFrameDelivery(18, CH.onBrowserPaneFrame, "tab-1", new Uint8Array([5])));
+    await vi.waitFor(() => expect(frame.acks).toEqual([{ t: "ack", id: 17 }, { t: "ack", id: 18 }]));
+  });
+
+  it("reconnects only frames and never ACKs an old delivery on its replacement", async () => {
+    const wire = await wireServer();
+    const client = await join(wire.base);
+    let releaseHeld!: () => void;
+    const held = new Promise<void>((resolve) => { releaseHeld = resolve; });
+    let received = 0;
+    const closed = vi.fn();
+    client.onClose(closed);
+    client.onEvent((channel) => {
+      if (channel === CH.onBrowserPaneFrame) {
+        received++;
+        return received === 1 ? held : undefined;
+      }
+    });
+    const old = wire.frames[0]!;
+    old.socket.send(encodeFrameDelivery(21, CH.onBrowserPaneFrame, "tab-1", new Uint8Array([1])));
+    await vi.waitFor(() => expect(received).toBe(1));
+    old.socket.terminate();
+    await expect(client.request(CH.getState, [])).resolves.toEqual({ ok: 1 });
+    await vi.waitFor(() => expect(wire.frames).toHaveLength(2));
+    releaseHeld();
+    const next = wire.frames[1]!;
+    next.socket.send(encodeFrameDelivery(22, CH.onBrowserPaneFrame, "tab-1", new Uint8Array([2])));
+    await vi.waitFor(() => expect(next.acks).toEqual([{ t: "ack", id: 22 }]));
+    expect(old.acks).toEqual([]);
+    expect(wire.controls).toHaveLength(1);
+    expect(closed).not.toHaveBeenCalled();
+    client.close();
+    await vi.waitFor(() => expect(next.socket.readyState).toBe(WebSocket.CLOSED));
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps retrying frames after a post-pairing 401 while the reliable socket lives", async () => {
+    // After pairing, the server also answers 401 for a retired pairing key (its
+    // reliable side closed first): revocation reaches the client through the
+    // reliable socket's own close, never through the frame retry.
+    const wire = await wireServer();
+    const client = await join(wire.base);
+    let closed = false;
+    client.onClose(() => {
+      closed = true;
+    });
+    wire.access.frameStatus = 401;
+    wire.frames[0]!.socket.terminate();
+    await vi.waitFor(() => expect(wire.access.rejected).toBeGreaterThan(0));
+    expect(closed).toBe(false);
+    await expect(client.request(CH.getState, [])).resolves.toEqual({ ok: 1 });
+    wire.access.frameStatus = 101;
+    await vi.waitFor(() => expect(wire.frames).toHaveLength(2), { timeout: 4_000 });
+    expect(closed).toBe(false);
+  });
+
+  it("cancels frame reconnect when the reliable connection closes", async () => {
+    const wire = await wireServer();
+    const client = await join(wire.base);
+    vi.useFakeTimers();
+    try {
+      const closed = new Promise<void>((resolve) => client.onClose(() => resolve()));
+      wire.frames[0]!.socket.terminate();
+      client.close();
+      await closed;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(wire.frames).toHaveLength(1);
+      expect(wire.controls[0]?.readyState).toBe(WebSocket.CLOSED);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -90,6 +90,7 @@ export function IconButton({
   label,
   tone = "neutral",
   disabled,
+  pressed,
   className,
 }: {
   children: ReactNode;
@@ -97,12 +98,15 @@ export function IconButton({
   label: string;
   tone?: Tone;
   disabled?: boolean;
+  /** A toggle's state: sets `aria-pressed` and the raised face while on. */
+  pressed?: boolean;
   className?: string;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
+      aria-pressed={pressed}
       title={label}
       disabled={disabled}
       onClick={onClick}
@@ -111,6 +115,7 @@ export function IconButton({
         "transition-colors duration-150 hover:bg-hover",
         "disabled:cursor-default disabled:text-ink-faint disabled:hover:bg-transparent",
         tone === "rose" ? "hover:text-rose" : tone === "copper" ? "hover:text-copper" : "hover:text-ink",
+        pressed === true && "bg-raised text-ink",
         className,
       )}
     >

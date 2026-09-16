@@ -23,9 +23,8 @@ function tooLarge(name: string, bytes: number): string {
   return `${name} is ${mb} MB — over omp's 20 MB image limit`;
 }
 
-/** ArrayBuffer → bare base64, chunked so a large image cannot blow the stack. */
-function toBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
+/** Bytes → bare base64, chunked so a large image cannot blow the stack. */
+export function bytesToBase64(bytes: Uint8Array): string {
   // String.fromCharCode is variadic; 32k arguments is comfortably under every
   // engine's spread limit while keeping the loop short.
   const CHUNK = 32768;
@@ -59,7 +58,7 @@ export async function readImageFiles(files: Iterable<File>): Promise<ClipboardIm
       }
       out.images.push({
         type: "image",
-        data: toBase64(buffer),
+        data: bytesToBase64(new Uint8Array(buffer)),
         // A browser-provided image can arrive with an empty type; omp converts
         // unknown formats to PNG anyway, so claiming PNG is the useful guess.
         mimeType: file.type || "image/png",

@@ -14,12 +14,18 @@ function listen(
   return () => query.removeListener(listener);
 }
 
+/**
+ * The compact shell test outside React, for store actions that route a pane
+ * onto the compact sheet stack. False without a window or matchMedia (jsdom).
+ */
+export function isCompactShell(): boolean {
+  return typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(COMPACT_SHELL_QUERY).matches;
+}
+
 export function useCompactShell(): boolean {
-  const [compact, setCompact] = useState(() =>
-    typeof window === "undefined" || typeof window.matchMedia !== "function"
-      ? false
-      : window.matchMedia(COMPACT_SHELL_QUERY).matches,
-  );
+  const [compact, setCompact] = useState(isCompactShell);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;

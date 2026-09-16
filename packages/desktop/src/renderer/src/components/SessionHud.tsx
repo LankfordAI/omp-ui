@@ -13,6 +13,7 @@ import { findInstance, findOwner, findRecord, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { buildTitleTranscript } from "../lib/session-transcript";
 import { ConsoleToggle } from "./ConsoleDrawer";
+import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { WorktreeChip } from "./WorktreeChip";
 import { Button, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconRefresh, IconTune, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
@@ -786,6 +787,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
+          <BrowserPaneToggle tabId={tabId} className="size-11" />
           <IconButton label={t("hud.actions.sessionActions")} onClick={() => showCompactSurface("session-actions")} className="size-11">
             <IconKebab />
             <span className="sr-only">{t("hud.actions.sessionActions")}</span>
@@ -911,6 +913,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         />
         <span className="mx-0.5 h-4 w-px bg-line-soft" />
         <ConsoleToggle tabId={tabId} />
+        <BrowserPaneToggle tabId={tabId} />
         <IconButton label={t("hud.actions.exportTitle")} onClick={() => void exportHtml(tabId)}>
           <IconExport />
         </IconButton>

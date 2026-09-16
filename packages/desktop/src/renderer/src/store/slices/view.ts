@@ -16,6 +16,7 @@ import {
   type DesktopViewStateV1,
 } from "../../lib/desktop-view-state";
 import {
+  BROWSER_PANE_DEFAULT_WIDTH,
   clampPanelWidth,
   INSPECTOR_DEFAULT_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
@@ -36,6 +37,7 @@ export interface ViewSlice {
   projectPickerInstanceId: string | null;
   /** The diagnostic-bundle export dialog (issue #413). */
   diagnosticsDialogOpen: boolean;
+  browserPaneClearDialogOpen: boolean;
   worktreeDialogProject: string | null;
   worktreeDialogInstanceId: string | null;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
@@ -53,6 +55,8 @@ export interface ViewSlice {
   sidebarWidth: number;
   inspectorWidth: number;
   inspectorOpen: boolean;
+  /** Split browser pane width preference (issue #519); persisted beside the other two. */
+  browserPaneWidth: number;
   /** Sidebar host filter (issue #507): "all" | "local" | a joined instance id.
    *  In-memory like sidebarCollapsed — deliberately not in DesktopViewStateV1. */
   hostScope: string;
@@ -60,6 +64,8 @@ export interface ViewSlice {
   closeProjectPicker(): void;
   openDiagnosticsDialog(): void;
   closeDiagnosticsDialog(): void;
+  openBrowserPaneClearDialog(): void;
+  closeBrowserPaneClearDialog(): void;
   openWorktreeDialog(projectCwd: string, instanceId?: string | null): void;
   closeWorktreeDialog(): void;
   openFinishWorktree(tabId: string): void;
@@ -79,6 +85,7 @@ export interface ViewSlice {
   setSidebarWidth(width: number): void;
   setInspectorWidth(width: number): void;
   setInspectorOpen(open: boolean): void;
+  setBrowserPaneWidth(width: number): void;
   setHostScope(scope: string): void;
   /**
    * Backend failures awaiting acknowledgment (issue #373): the renderer-side
@@ -202,6 +209,7 @@ export async function restoreDesktopView(api: StoreApi<UiStore>): Promise<void> 
     api.setState({
       sidebarWidth: saved.sidebarWidth,
       inspectorWidth: saved.inspectorWidth,
+      browserPaneWidth: saved.browserPaneWidth,
     });
   }
   if (shouldRestoreDesktopView(saved, currentVersion)) {
@@ -231,7 +239,8 @@ export function installDesktopViewPersistence(api: StoreApi<UiStore>): void {
       state.focusedTabByProject === previous.focusedTabByProject &&
       state.appUpdate.currentVersion === previous.appUpdate.currentVersion &&
       state.sidebarWidth === previous.sidebarWidth &&
-      state.inspectorWidth === previous.inspectorWidth
+      state.inspectorWidth === previous.inspectorWidth &&
+      state.browserPaneWidth === previous.browserPaneWidth
     ) {
       return;
     }
@@ -253,8 +262,10 @@ let memoryClientId: string | null = null;
  * This renderer's stable report identity: persisted so a reload replaces (not
  * duplicates) its report on the backend; in-memory when storage is unavailable
  * (jsdom harness, private mode). Same defensive style as desktop-view-state.ts.
+ * Shared with the browser pane's frame subscription (#529), which keys its
+ * sink by the same id so one renderer never holds two subscriptions.
  */
-function clientId(): string {
+export function viewedClientId(): string {
   if (memoryClientId !== null) return memoryClientId;
   try {
     const storage = desktopViewStorage();
@@ -293,7 +304,7 @@ export function installViewedTabReporter(api: StoreApi<UiStore>): () => void {
   if (reporterInstalled.has(api)) return () => {};
   reporterInstalled.add(api);
   const report = (): void => {
-    backend.tabViewed(clientId(), api.getState().activeTabId);
+    backend.tabViewed(viewedClientId(), api.getState().activeTabId);
   };
   report(); // post-restore initial report (restoringTabs settled by then)
   const unsubscribe = api.subscribe((state, previous) => {
@@ -314,6 +325,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   projectPickerOpen: false,
   projectPickerInstanceId: null,
   diagnosticsDialogOpen: false,
+  browserPaneClearDialogOpen: false,
   worktreeDialogProject: null,
   worktreeDialogInstanceId: null,
   finishWorktreeTab: null,
@@ -325,6 +337,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
   inspectorWidth: INSPECTOR_DEFAULT_WIDTH,
   inspectorOpen: false,
+  browserPaneWidth: BROWSER_PANE_DEFAULT_WIDTH,
   hostScope: "all",
   errorNotices: [],
   reportError(error) {
@@ -353,6 +366,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   },
   closeDiagnosticsDialog() {
     set({ diagnosticsDialogOpen: false });
+  },
+  openBrowserPaneClearDialog() {
+    set({ browserPaneClearDialogOpen: true });
+  },
+  closeBrowserPaneClearDialog() {
+    set({ browserPaneClearDialogOpen: false });
   },
   openWorktreeDialog(projectCwd, instanceId = null) {
     set({ worktreeDialogProject: projectCwd, worktreeDialogInstanceId: instanceId });
@@ -400,6 +419,9 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   },
   setInspectorOpen(open) {
     set({ inspectorOpen: open });
+  },
+  setBrowserPaneWidth(width) {
+    set({ browserPaneWidth: clampPanelWidth("browserPane", width) });
   },
   setHostScope(scope) {
     set({ hostScope: scope });

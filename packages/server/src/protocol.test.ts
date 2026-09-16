@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeServerEventFrame, makeServerResponseErr, makeServerResponseOk, parseClientFrame, parseServerFrame } from "./protocol";
+import { decodeBinaryEvent, decodeFrameDelivery, encodeBinaryEvent, encodeFrameDelivery, makeFrameAck, makeServerEventFrame, makeServerFrameStream, makeServerResponseErr, makeServerResponseOk, parseClientFrame, parseFrameAck, parseServerFrame } from "./protocol";
 
 describe("parseClientFrame", () => {
   it("normalizes a well-formed req with and without args", () => {
@@ -117,5 +117,48 @@ describe("parseServerFrame", () => {
       ch: "onX",
       args: [],
     });
+  });
+});
+
+describe("paired frame transport (#546)", () => {
+  it("accepts only a full opaque pairing key in the server handshake", () => {
+    const key = "0123456789abcdef".repeat(4);
+    expect(parseServerFrame(makeServerFrameStream(key))).toEqual({ t: "frames", key });
+    for (const bad of [undefined, 1, "", key.slice(1), key + "0", "g".repeat(64)]) {
+      expect(parseServerFrame({ t: "frames", key: bad })).toBeNull();
+    }
+  });
+
+  it("separates sequenced deliveries from reliable binary events without changing payload bytes", () => {
+    const payload = new Uint8Array([0x05, 0x00, 0x03, 0x20, 0, 100, 0, 0, 0xff, 0xd8]);
+    const delivery = encodeFrameDelivery(0x01020304, "browser-pane:frame", "한", payload);
+    expect(Array.from(delivery.subarray(0, 9))).toEqual([2, 1, 2, 3, 4, 0, 18, 0, 3]);
+    expect(decodeFrameDelivery(delivery)).toEqual({
+      id: 0x01020304, channel: "browser-pane:frame", tabId: "한", payload,
+    });
+    expect(decodeBinaryEvent(delivery)).toBeNull();
+    const reliable = encodeBinaryEvent("pty:data", "한", payload);
+    expect(decodeFrameDelivery(reliable)).toBeNull();
+    expect(decodeBinaryEvent(reliable)).toEqual({ channel: "pty:data", tabId: "한", payload });
+  });
+
+  it("rejects incomplete envelopes and invalid delivery IDs without granting ACK credit", () => {
+    const delivery = encodeFrameDelivery(1, "browser-pane:frame", "t", new Uint8Array([1]));
+    expect(decodeFrameDelivery(delivery.subarray(0, 8))).toBeNull();
+    expect(decodeFrameDelivery(delivery.subarray(0, 10))).toBeNull();
+    delivery.fill(0, 1, 5);
+    expect(decodeFrameDelivery(delivery)).toBeNull();
+    for (const id of [0, -1, 1.5, 0x100000000, NaN, Infinity, "1"]) {
+      expect(parseFrameAck({ t: "ack", id })).toBeNull();
+    }
+    expect(parseFrameAck({ t: "notify", id: 1 })).toBeNull();
+    expect(parseFrameAck(makeFrameAck(0xffff_ffff))).toEqual({ t: "ack", id: 0xffff_ffff });
+  });
+
+  it("owns payload bytes even when the incoming Node Buffer shares storage", () => {
+    const packet = Buffer.from(encodeFrameDelivery(1, "browser-pane:frame", "t", new Uint8Array([9, 8])));
+    const decoded = decodeFrameDelivery(packet)!;
+    packet.fill(0);
+    expect(Array.from(decoded.payload)).toEqual([9, 8]);
   });
 });

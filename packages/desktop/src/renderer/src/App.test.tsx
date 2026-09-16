@@ -34,7 +34,9 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     autoTitleSent: null,
     hasRenamed: true, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false,
     plans: [], advisorStats: null, mcpStatus: null, advisorReply: true,
-    capabilities: null, capabilitiesLoad: "idle", goal: null, ...patch,
+    capabilities: null, capabilitiesLoad: "idle", goal: null,
+    browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null, offers: [], offeredThisTurn: [], declinedOffers: [] },
+    ...patch,
   };
 }
 
@@ -98,6 +100,23 @@ describe("compact App shell", () => {
     expect(useStore.getState().compactSurface).toBeNull();
     act(() => { useStore.getState().showCompactSurface("sessions"); compact = false; mediaListeners.forEach((listener) => listener({ matches: false } as MediaQueryListEvent)); });
     expect(useStore.getState().compactSurface).toBeNull();
+  });
+
+  it("carries the active browser pane into compact mode and restores it on tab return", () => {
+    compact = false;
+    useStore.setState({ rpc: { rpc: runtime({
+      browserPane: { open: true, fullscreen: false, ensure: "available", unavailableReason: null, state: null, frame: null, offers: [], offeredThisTurn: [], declinedOffers: [] },
+    }) } });
+    renderApp();
+    act(() => {
+      compact = true;
+      mediaListeners.forEach((listener) => listener({ matches: true } as MediaQueryListEvent));
+    });
+    expect(useStore.getState().compactSurface).toBe("browser-pane");
+    act(() => useStore.setState({ activeTabId: "pty" }));
+    expect(useStore.getState().compactSurface).toBeNull();
+    act(() => useStore.setState({ activeTabId: "rpc" }));
+    expect(useStore.getState().compactSurface).toBe("browser-pane");
   });
 
   it("shows aggregate inspector badges and keeps every tab mounted", () => {

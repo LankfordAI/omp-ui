@@ -21,13 +21,15 @@ The page also lists other reachable IPv4 addresses when local-network binding is
 
 The desktop app owns the only live `MainBackend`, session registry, and running omp processes. Its local renderer and every connected browser are additional views of that same backend. A command from any view reaches the same handler, and backend events fan out to all connected views. Remote access does not copy a session or start another omp process. The same listener is what another omp-ui app joins when it adds this one as a [remote instance](remote-instances.md).
 
+The browser pane is hosted the same way. A browser connected to this app sees the pane live and can click, type, and navigate in it. Only desktop renderers size the page; browser clients scale its frames to fit their own. Images use a separate authenticated frame connection, with one image awaiting acknowledgment and only the newest pending image per subscribed tab. The acknowledgment follows paint or an intentional drop. A slow image connection does not put images ahead of terminal output or control replies on the reliable connection. Frame-only reconnect resumes images without restarting that reliable connection. Hosts, joined instances, and browser bundles must all support this paired transport; reverse proxies must forward WebSocket upgrades for both `/ws` and `/ws/frames`.
+
 The HTTP and WebSocket server is embedded in the Electron main process. It starts at desktop launch when remote access was left enabled and stops when the desktop app quits. Closing a browser only removes that view. When the server is running, changing the bind address, port, password, or token restarts it without stopping live sessions. Disabling remote access stops the server, and enabling it starts the server.
 
 ## Authentication
 
 ### Password sign-in
 
-omp-ui stores a fresh salted scrypt hash, not the password. After a successful sign-in, the server puts a password-derived credential in an `HttpOnly`, `SameSite=Strict` cookie. The cookie authenticates HTTP requests and the WebSocket connection, and browser JavaScript cannot read it.
+omp-ui stores a fresh salted scrypt hash, not the password. After a successful sign-in, the server puts a password-derived credential in an `HttpOnly`, `SameSite=Strict` cookie. The cookie authenticates HTTP requests and both WebSocket connections, and browser JavaScript cannot read it. The frame connection also presents an ephemeral pairing key issued by its reliable connection; that key alone cannot authenticate or outlive the reliable connection.
 
 Password failures are tracked in memory per client IP. The fifth consecutive wrong password starts a 60-second lockout. A wrong password after that lockout expires doubles the next lockout to 120 seconds, then 240 seconds, up to a 15-minute cap. A successful sign-in clears the failures for that IP. Restarting the embedded server also clears its in-memory lockout records.
 

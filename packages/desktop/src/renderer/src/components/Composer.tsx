@@ -71,6 +71,8 @@ export function Composer({
   // a memo keyed on `commands` alone would hold them stale across a switch.
   const localeId = currentLocaleId();
   const status = useStore((s) => s.rpc[tabId]?.status);
+  const composerQueue = useStore((s) => s.rpc[tabId]?.composerQueue);
+  const drainComposerQueue = useStore((s) => s.drainComposerQueue);
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
   const commands = useStore((s) => s.rpc[tabId]?.commands ?? NO_COMMANDS);
   // UI_PLAN_COMMAND is the palette's one canonical plan entry: omp's own
@@ -173,7 +175,7 @@ export function Composer({
    */
   const [files, setFiles] = useState<{ list: string[]; truncated: boolean } | null>(null);
   const [effortMenu, setEffortMenu] = useState(false);
-  const { images, pasteError, onPaste, pickImages, dropImage, clearImages, dismissError } = useImageDraft();
+  const { images, pasteError, onPaste, pickImages, addImages, dropImage, clearImages, dismissError } = useImageDraft();
   /** Whether the box has focus — omp shimmers a keyword only while it does. */
   const [focused, setFocused] = useState(false);
   /**
@@ -398,6 +400,18 @@ export function Composer({
   useEffect(() => {
     if (unavailable && compactSurface === "composer-options") closeCompactSurface();
   }, [unavailable, compactSurface, closeCompactSurface]);
+  // The browser pane's hand-back (issue #519): its screenshot joins the image
+  // draft and its URL the text, drained once so a re-render cannot add them
+  // twice. Only this composer reads the queue — PlanReview's draft never does.
+  useEffect(() => {
+    if (composerQueue === undefined) return;
+    const queued = drainComposerQueue(tabId);
+    if (queued === null) return;
+    addImages(queued.images);
+    const lines = queued.text.join("\n");
+    if (lines !== "") setText((prev) => (prev === "" ? lines : `${prev}\n${lines}`));
+    box.current?.focus({ preventScroll: true });
+  }, [composerQueue, tabId, drainComposerQueue, addImages]);
   useDismissal({
     open: effortMenu,
     refs: effortAnchor,

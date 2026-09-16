@@ -113,6 +113,7 @@ function options(override: Partial<DiagnosticsOptions> = {}): DiagnosticsOptions
     projects: [],
     sessions: [],
     liveTabIds: [],
+    browserPanes: [],
     includeTranscripts: false,
     destinationPath: path.join(tmpRoot, "bundle.zip"),
     gitRunner: async () => "",
@@ -299,6 +300,54 @@ describe("collectDiagnosticsBundle", () => {
       "remote-instances.json (joined-instance credentials) is never read",
     );
     expect(result.totalBytes).toBe(fs.statSync(result.path).size);
+  });
+
+  it("writes one browser-pane/<tabId>.json per pane row and declares the origin redaction", async () => {
+    const rows = [
+      {
+        tabId: "t1",
+        pageAlive: true,
+        subscribers: 1,
+        cdpClients: 2,
+        agentState: "acting" as const,
+        urlOrigin: "https://example.com",
+        frame: { width: 1280, height: 800, dsf: 1 },
+        fps: 29.5,
+        lastEncodeMs: 4,
+        bridgePort: 40123,
+        partition: "persist:browser-pane" as const,
+        lastError: null,
+      },
+      {
+        tabId: "t2",
+        pageAlive: false,
+        subscribers: 0,
+        cdpClients: 0,
+        agentState: "detached" as const,
+        urlOrigin: null,
+        frame: null,
+        fps: 0,
+        lastEncodeMs: null,
+        bridgePort: null,
+        partition: "persist:browser-pane" as const,
+        lastError: "listener-failed",
+      },
+    ];
+    const result = await collectDiagnosticsBundle(options({ browserPanes: rows }));
+    const entries = await readZip(result.path);
+    expect([...entries.keys()].filter((n) => n.startsWith("browser-pane/")).sort()).toEqual([
+      "browser-pane/t1.json",
+      "browser-pane/t2.json",
+    ]);
+    expect(jsonOf(entries.get("browser-pane/t1.json"))).toEqual(rows[0]);
+    expect(jsonOf(entries.get("browser-pane/t2.json"))).toEqual(rows[1]);
+    const manifest = jsonOf(entries.get("manifest.json")) as Record<string, unknown>;
+    expect(manifest.redaction).toContain(
+      "browser pane URLs reduced to origin; bridge tokens never read",
+    );
+
+    const empty = await previewDiagnosticsBundle(options());
+    expect(empty.sections.find((s) => s.id === "browser-pane")?.included).toBe(false);
   });
 
   it("excludes transcripts by default and caps them with a warning when opted in", async () => {

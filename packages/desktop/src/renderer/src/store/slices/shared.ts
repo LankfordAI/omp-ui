@@ -76,6 +76,12 @@ export interface TabRuntime {
   /** Bumped by every capability push and by teardown; invalidates reads (#374). */
   capabilitiesGeneration: number;
   /**
+   * The browser pane ensure this tab last issued (issue #519). An answer whose
+   * captured generation no longer matches — a newer ensure, or a reboot that
+   * discarded this runtime — is dropped.
+   */
+  browserPaneEnsureGeneration?: number;
+  /**
    * Goal commands awaiting their correlated result: requestId → transcript
    * command-row id (issue #381). The result arrives on a snapshot, not on the
    * prompt's acknowledgement, and a snapshot answered by another client or an
@@ -285,7 +291,20 @@ export function registerShellWriter(
   };
 }
 
-export { termWriters, shellWriters };
+// One lossy frame listener total; each mounted BrowserPane registers its
+// painter here (issue #519). Frames for a tab with no writer are dropped.
+const browserPaneWriters = new Map<string, (frame: Uint8Array) => void | Promise<void>>();
+export function registerBrowserPaneWriter(
+  tabId: string,
+  cb: (frame: Uint8Array) => void | Promise<void>,
+): () => void {
+  browserPaneWriters.set(tabId, cb);
+  return () => {
+    browserPaneWriters.delete(tabId);
+  };
+}
+
+export { termWriters, shellWriters, browserPaneWriters };
 
 function dropExited(
   exited: Record<string, number>,

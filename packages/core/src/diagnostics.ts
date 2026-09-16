@@ -7,6 +7,7 @@ import type { GitRunner } from "./branches";
 import { projectSlug } from "./paths";
 import { advisorOverlayPath } from "./advisor-overlay";
 import { advisorStatsExtensionPath } from "./advisor-stats-extension";
+import { browserPaneExtensionPath } from "./browser-pane-extension";
 import { capabilitiesExtensionPath } from "./capabilities-extension";
 import { compactionMethodOverlayPath } from "./compaction-overlay";
 import { goalExtensionPath } from "./goal-extension";
@@ -16,6 +17,7 @@ import { planExtensionPath } from "./plan-extension";
 import { buildZip } from "./zip-writer";
 import type { RegistrySettings } from "./registry";
 import type {
+  BrowserPaneDiagnostics,
   DiagnosticsExportResult,
   DiagnosticsPreview,
   DiagnosticsSection,
@@ -69,6 +71,8 @@ export interface DiagnosticsOptions {
   destinationPath: string | null;
   /** Current-run breadcrumb ring entries, newest last. */
   breadcrumbs?: readonly DiagnosticsBreadcrumbEntry[];
+  /** Live browser pane hosts, one row per tab with a page or bridge listener (#519). */
+  browserPanes: readonly BrowserPaneDiagnostics[];
   gitRunner?: GitRunner;
   transcriptCapBytes?: number;
   /** Stamp + dos-timestamped zip entries. */
@@ -89,13 +93,14 @@ const LOG_FILES = [
   "breadcrumbs.log.old",
 ] as const;
 
-/** The 8 generated per-session files (5 extensions + 3 overlays). */
+/** The 9 generated per-session files (6 extensions + 3 overlays). */
 const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   planExtensionPath,
   goalExtensionPath,
   capabilitiesExtensionPath,
   advisorStatsExtensionPath,
   mcpStatusExtensionPath,
+  browserPaneExtensionPath,
   advisorOverlayPath,
   modelOverlayPath,
   compactionMethodOverlayPath,
@@ -400,6 +405,12 @@ async function buildSections(
     included: windowState.length > 0,
     files: windowState,
   });
+  sections.push({
+    id: "browser-pane",
+    prefix: "browser-pane/",
+    included: o.browserPanes.length > 0,
+    files: o.browserPanes.map((p) => bytesFile(`${p.tabId}.json`, p)),
+  });
 
   const transcriptFiles: PlannedFile[] = [];
   if (o.includeTranscripts) {
@@ -471,6 +482,7 @@ function manifestBytes(
       "remoteToken/remotePasswordHash/remotePasswordSalt replaced by hasRemoteToken/hasRemotePassword booleans",
       "<userData>/oauth-login/ is never walked",
       "plan bodies, transcripts (unless opted in), and project file contents are excluded",
+      "browser pane URLs reduced to origin; bridge tokens never read",
     ],
     warnings,
   });

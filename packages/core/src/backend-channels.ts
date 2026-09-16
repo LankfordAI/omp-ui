@@ -51,11 +51,21 @@ import type {
   WorktreeSyncResult,
 } from "./types";
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
+import type {
+  BrowserPaneEnsureResult,
+  BrowserPaneInputEvent,
+  BrowserPaneNavigate,
+  BrowserPanePickResult,
+  BrowserPaneState,
+  BrowserPaneClearDataResult,
+} from "./browser-pane";
 import type { RpcFrame } from "./rpc/codec";
 import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
 import {
   agentModeCodec,
   any,
+  browserPaneInputCodec,
+  browserPaneNavigateCodec,
   arrayOf,
   diagnosticsExportRequestCodec,
   bool,
@@ -107,10 +117,13 @@ export interface NotifyChannel<Args extends unknown[]> {
 /** Type-only marker for an event emitted by the backend. */
 export interface EventChannel<Args extends unknown[]> {
   readonly kind: "event";
+  /** Frames a transport may drop for a slow client; never set on pty:data / shell:data (#529). */
+  readonly lossy?: true;
   readonly $args?: Args;
 }
 
 const EVENT = { kind: "event" } as const;
+const LOSSY_EVENT = { kind: "event", lossy: true } as const;
 
 /** Declares a request/reply channel's argument tuple, codecs, and result. */
 function request<Args extends unknown[], Result>(
@@ -127,6 +140,11 @@ function notify<Args extends unknown[]>(args: ArgCodecs<Args>): NotifyChannel<Ar
 /** Declares a backend event channel's callback argument tuple. */
 function event<Args extends unknown[]>(): EventChannel<Args> {
   return EVENT;
+}
+
+/** Declares an event a transport may drop for a slow client (#529). */
+function lossyEvent<Args extends unknown[]>(): EventChannel<Args> {
+  return LOSSY_EVENT;
 }
 
 /**
@@ -790,6 +808,52 @@ export const BACKEND_CHANNELS = {
     channel: "shell:exit",
     ...event<[tabId: string, exitCode: number]>(),
   },
+  /**
+   * Creates the tab's browser pane lazily (page + guard) and answers the
+   * getSessionCapabilities ladder minus the bridge rungs (#529, #530). The
+   * endpoint is never in the result: the owning main arms it inside omp (#532).
+   */
+  browserPaneEnsure: {
+    channel: "browser-pane:ensure",
+    ...request<[tabId: string], BrowserPaneEnsureResult>([str()]),
+  },
+  /** Sink registry (#529): `clientId` as in tabViewed; tabId first so routeByTab applies (#532). */
+  browserPaneSubscribe: {
+    channel: "browser-pane:subscribe",
+    ...notify<[tabId: string, clientId: string, on: boolean]>([str(), str(), bool()]),
+  },
+  /** CSS px of the local desktop renderer's pane; other views scale (#529, #532). */
+  browserPaneResize: {
+    channel: "browser-pane:resize",
+    ...notify<[tabId: string, width: number, height: number]>([str(), num(), num()]),
+  },
+  browserPaneInput: {
+    channel: "browser-pane:input",
+    ...notify<[tabId: string, event: BrowserPaneInputEvent]>([str(), browserPaneInputCodec]),
+  },
+  browserPaneNavigate: {
+    channel: "browser-pane:navigate",
+    ...notify<[tabId: string, nav: BrowserPaneNavigate]>([str(), browserPaneNavigateCodec]),
+  },
+  /** Element under a viewport point for the element hand-back (#544); tab-routed. */
+  browserPanePick: {
+    channel: "browser-pane:pick",
+    ...request<[tabId: string, x: number, y: number], BrowserPanePickResult>([str(), num(), num()]),
+  },
+  /** Clears this host's app-wide browser pane partition (#542); never proxied. */
+  browserPaneClearData: {
+    channel: "browser-pane:clear-data",
+    ...request<[force: boolean], BrowserPaneClearDataResult>([bool()]),
+  },
+  /** Header (u16 w, h, dsf×100, reserved) + JPEG; lossy — a slow client misses frames, never bytes of pty:data (#529). */
+  onBrowserPaneFrame: {
+    channel: "browser-pane:frame",
+    ...lossyEvent<[tabId: string, frame: Uint8Array]>(),
+  },
+  onBrowserPaneState: {
+    channel: "browser-pane:state",
+    ...event<[tabId: string, state: BrowserPaneState]>(),
+  },
   rpcSend: { channel: "rpc:send", ...notify<[tabId: string, command: RpcFrame]>([str(), rpcFrameCodec]) },
   /**
    * Reports the tab this renderer currently has in view, or null when none.
@@ -981,6 +1045,13 @@ type ChannelNames = {
 export const CH = Object.fromEntries(
   Object.entries(BACKEND_CHANNELS).map(([method, descriptor]) => [method, descriptor.channel]),
 ) as ChannelNames;
+
+/** Wire names of every lossy event; the server consults this, not a channel allowlist. */
+export const LOSSY_CHANNELS: ReadonlySet<string> = new Set(
+  Object.values(BACKEND_CHANNELS)
+    .filter((descriptor) => descriptor.kind === "event" && descriptor.lossy === true)
+    .map((descriptor) => descriptor.channel),
+);
 
 const ARG_CODECS_BY_CHANNEL = new Map<string, readonly ArgCodec<unknown>[]>();
 for (const descriptor of Object.values(BACKEND_CHANNELS)) {

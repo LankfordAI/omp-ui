@@ -1,0 +1,49 @@
+<!-- PROTOTYPE (#526) — throwaway; not product code. -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>526 test page</title>
+<style>
+  body { margin: 0; padding: 24px; min-height: 3000px; font: 16px system-ui, sans-serif; background: #f4f1e8; }
+  #btn { font-size: 18px; padding: 8px 16px; }
+  #input { font-size: 18px; padding: 6px; margin-left: 12px; width: 240px; }
+  #out { margin-top: 16px; font-family: monospace; }
+  #box { width: 80px; height: 80px; background: #4a6a8a; margin-top: 24px; position: relative; left: 0; }
+</style>
+</head>
+<body>
+  <button id="btn">Click me</button>
+  <input id="input" placeholder="type here">
+  <div id="out">clicks=0 value=</div>
+  <div id="box"></div>
+  <script>
+    window.__events = [];
+    window.__ua = navigator.userAgent;
+    window.__rafCount = 0;
+    var clicks = 0;
+    var shade = false;
+    var input = document.getElementById("input");
+    var out = document.getElementById("out");
+    function record(type, e) {
+      window.__events.push([type, (e.target && e.target.id) || "", e.key !== undefined ? e.key : (e.data !== undefined && e.data !== null ? e.data : "")]);
+      if (type === "click") clicks += 1;
+      shade = !shade;
+      document.body.style.background = shade ? "#e8e3d3" : "#f4f1e8";
+      out.textContent = "clicks=" + clicks + " value=" + input.value;
+    }
+    ["click", "contextmenu", "keydown", "keypress", "input", "wheel"].forEach(function (type) {
+      document.addEventListener(type, function (e) { record(type, e); }, { passive: type === "wheel" });
+    });
+    if (location.search.indexOf("anim=1") !== -1) {
+      var box = document.getElementById("box");
+      var t0 = performance.now();
+      (function frame(now) {
+        window.__rafCount += 1;
+        box.style.left = (Math.sin((now - t0) / 500) * 200 + 200) + "px";
+        requestAnimationFrame(frame);
+      })(t0);
+    }
+  </script>
+</body>
+</html>

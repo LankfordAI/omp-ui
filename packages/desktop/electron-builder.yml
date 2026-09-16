@@ -6,6 +6,8 @@ directories:
 files:
   - out/**
   - package.json
+  # Developer smoke entry (npm run smoke:browser-pane); never shipped.
+  - "!out/main/browser-pane-smoke.js"
   # node-pty ships every platform's prebuilt addon plus MSVC debug symbols; the
   # platform blocks below keep only what that platform's runtime can load.
   - "!**/node_modules/node-pty/prebuilds/**/*.pdb"

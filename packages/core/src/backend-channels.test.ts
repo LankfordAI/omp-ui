@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   BACKEND_CHANNELS,
   CH,
+  LOSSY_CHANNELS,
   dispatchNotify,
   dispatchRequest,
   makeBackendClient,
@@ -54,6 +55,13 @@ const VALID_ARGS = {
   addRemoteInstance: [{ url: "http://127.0.0.1:4678", nickname: "", secret: { kind: "token", value: "tok" } }],
   answerPlanReview: ["tab-1", "frame-1", "execute", "0".repeat(64)],
   browseDirectories: ["/project"],
+  browserPaneEnsure: ["tab-1"],
+  browserPanePick: ["tab-1", 10, 20],
+  browserPaneClearData: [false],
+  browserPaneInput: ["tab-1", { type: "mouseDown", x: 10, y: 20, button: "left", clickCount: 1 }],
+  browserPaneNavigate: ["tab-1", { action: "goto", url: "https://localhost:5173" }],
+  browserPaneResize: ["tab-1", 800, 600],
+  browserPaneSubscribe: ["tab-1", "client-1", true],
   cancelProviderOAuth: [],
   checkAppUpdate: [],
   checkOmpUpdate: [],
@@ -244,6 +252,12 @@ describe("BACKEND_CHANNELS", () => {
         worktreePath: string | null,
       ) => MergeBackStatus | Promise<MergeBackStatus>
     >();
+  });
+
+  it("marks only the browser pane frame as lossy", () => {
+    expect(LOSSY_CHANNELS).toEqual(new Set(["browser-pane:frame"]));
+    expect(LOSSY_CHANNELS.has(CH.onPtyData)).toBe(false);
+    expect(LOSSY_CHANNELS.has(CH.onShellData)).toBe(false);
   });
 });
 

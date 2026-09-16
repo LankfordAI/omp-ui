@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  BROWSER_PANE_DEFAULT_WIDTH,
+  BROWSER_PANE_MAX_WIDTH,
+  BROWSER_PANE_MIN_WIDTH,
   COLLAPSED_SIDEBAR_WIDTH,
   INSPECTOR_DEFAULT_WIDTH,
   INSPECTOR_MAX_WIDTH,
@@ -9,7 +12,19 @@ import {
   SIDEBAR_MIN_WIDTH,
   clampPanelWidth,
   resolveDesktopPanelWidths,
+  type DesktopPanelWidthsInput,
 } from "./panel-layout";
+
+/** Every pane at its default preference with the browser pane closed. */
+const defaults: DesktopPanelWidthsInput = {
+  viewportWidth: 1200,
+  sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
+  inspectorWidth: INSPECTOR_DEFAULT_WIDTH,
+  browserPaneWidth: BROWSER_PANE_DEFAULT_WIDTH,
+  sidebarCollapsed: false,
+  inspectorOpen: true,
+  browserPaneOpen: false,
+};
 
 describe("desktop panel layout", () => {
   it("clamps preferences and defaults non-finite input", () => {
@@ -19,39 +34,39 @@ describe("desktop panel layout", () => {
     expect(clampPanelWidth("inspector", 1)).toBe(INSPECTOR_MIN_WIDTH);
     expect(clampPanelWidth("inspector", 999)).toBe(INSPECTOR_MAX_WIDTH);
     expect(clampPanelWidth("inspector", Number.POSITIVE_INFINITY)).toBe(INSPECTOR_DEFAULT_WIDTH);
+    expect(clampPanelWidth("browserPane", 1)).toBe(BROWSER_PANE_MIN_WIDTH);
+    expect(clampPanelWidth("browserPane", 9999)).toBe(BROWSER_PANE_MAX_WIDTH);
+    expect(clampPanelWidth("browserPane", Number.NaN)).toBe(BROWSER_PANE_DEFAULT_WIDTH);
   });
 
   it("reduces the inspector first when the 900px desktop budget is exceeded", () => {
-    expect(resolveDesktopPanelWidths({
-      viewportWidth: 900,
-      sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
-      inspectorWidth: INSPECTOR_DEFAULT_WIDTH,
-      sidebarCollapsed: false,
-      inspectorOpen: true,
-    })).toEqual({
+    expect(resolveDesktopPanelWidths({ ...defaults, viewportWidth: 900 })).toEqual({
       sidebarWidth: 272,
       inspectorWidth: 268,
+      browserPaneWidth: 0,
       sidebarAllowedMax: 272,
       inspectorAllowedMax: 268,
+      browserPaneAllowedMax: BROWSER_PANE_MAX_WIDTH,
+      browserPaneFits: true,
     });
   });
 
   it("excludes collapsed and closed panes from the variable budget", () => {
     const collapsed = resolveDesktopPanelWidths({
+      ...defaults,
       viewportWidth: 900,
       sidebarWidth: 512,
       inspectorWidth: 480,
       sidebarCollapsed: true,
-      inspectorOpen: true,
     });
     expect(collapsed.sidebarWidth).toBe(COLLAPSED_SIDEBAR_WIDTH);
     expect(collapsed.inspectorWidth).toBe(480);
 
     const closed = resolveDesktopPanelWidths({
+      ...defaults,
       viewportWidth: 900,
       sidebarWidth: 512,
       inspectorWidth: 480,
-      sidebarCollapsed: false,
       inspectorOpen: false,
     });
     expect(closed.sidebarWidth).toBe(512);
@@ -60,11 +75,91 @@ describe("desktop panel layout", () => {
 
   it("preserves wide viewport preferences", () => {
     expect(resolveDesktopPanelWidths({
-      viewportWidth: 1200,
+      ...defaults,
       sidebarWidth: 416,
       inspectorWidth: 256,
-      sidebarCollapsed: false,
-      inspectorOpen: true,
     })).toMatchObject({ sidebarWidth: 416, inspectorWidth: 256 });
+  });
+
+  it("yields inspector, then sidebar, then browser pane when the pane joins the budget", () => {
+    // 1440 − 360 fixed = 1080 of variable room against 272 + 304 + 560 = 1136:
+    // the inspector alone absorbs the 56 overflow.
+    const inspectorOnly = resolveDesktopPanelWidths({
+      ...defaults,
+      viewportWidth: 1440,
+      browserPaneOpen: true,
+    });
+    expect(inspectorOnly).toMatchObject({
+      sidebarWidth: 272,
+      inspectorWidth: 304 - 56,
+      browserPaneWidth: 560,
+      browserPaneFits: true,
+    });
+
+    // 1380 → 1020 of room: the inspector bottoms out at 224 (80 given) and
+    // the sidebar gives the remaining 36; the pane keeps its preference.
+    const thenSidebar = resolveDesktopPanelWidths({
+      ...defaults,
+      viewportWidth: 1380,
+      browserPaneOpen: true,
+    });
+    expect(thenSidebar).toMatchObject({
+      sidebarWidth: 272 - 36,
+      inspectorWidth: INSPECTOR_MIN_WIDTH,
+      browserPaneWidth: 560,
+      browserPaneFits: true,
+    });
+
+    // 1200 → 840 of room: both chrome panes at minimum leaves 392 for the pane.
+    const thenPane = resolveDesktopPanelWidths({
+      ...defaults,
+      viewportWidth: 1200,
+      browserPaneOpen: true,
+    });
+    expect(thenPane).toMatchObject({
+      sidebarWidth: SIDEBAR_MIN_WIDTH,
+      inspectorWidth: INSPECTOR_MIN_WIDTH,
+      browserPaneWidth: 392,
+      browserPaneAllowedMax: 392,
+      browserPaneFits: true,
+    });
+  });
+
+  it("gives the chrome panes their room back when the pane falls back to the column posture", () => {
+    // 900 → 540 of room: sidebar 272 + inspector 304 = 576 already overflows,
+    // so no split can fit; the pane is not rendered and must not shrink them.
+    const resolved = resolveDesktopPanelWidths({
+      ...defaults,
+      viewportWidth: 900,
+      browserPaneOpen: true,
+    });
+    expect(resolved).toEqual({
+      ...resolveDesktopPanelWidths({ ...defaults, viewportWidth: 900, browserPaneOpen: false }),
+      browserPaneFits: false,
+    });
+    // 1100 → 740 of room: the pair fits at preference (576) but leaves 164 for
+    // the pane, under its 360 minimum; neither chrome pane yields for it.
+    expect(resolveDesktopPanelWidths({ ...defaults, viewportWidth: 1100, browserPaneOpen: true }))
+      .toMatchObject({ sidebarWidth: 272, inspectorWidth: 304, browserPaneFits: false });
+    // Collapsing the sidebar and closing the inspector frees enough room.
+    expect(resolveDesktopPanelWidths({
+      ...defaults,
+      viewportWidth: 900,
+      browserPaneOpen: true,
+      sidebarCollapsed: true,
+      inspectorOpen: false,
+    })).toMatchObject({ browserPaneWidth: 484, browserPaneFits: true });
+  });
+
+  it("never reports an allowed maximum below a pane's minimum", () => {
+    const resolved = resolveDesktopPanelWidths({
+      ...defaults,
+      viewportWidth: 400,
+      browserPaneOpen: true,
+    });
+    expect(resolved.sidebarAllowedMax).toBe(SIDEBAR_MIN_WIDTH);
+    expect(resolved.inspectorAllowedMax).toBe(INSPECTOR_MIN_WIDTH);
+    expect(resolved.browserPaneAllowedMax).toBeGreaterThanOrEqual(BROWSER_PANE_MIN_WIDTH);
+    expect(resolved.browserPaneFits).toBe(false);
   });
 });

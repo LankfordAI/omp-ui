@@ -11,11 +11,17 @@ import { Row } from "./rows";
 export function AdvancedPage() {
   const t = useT();
   const openDiagnosticsDialog = useStore((s) => s.openDiagnosticsDialog);
+  const openBrowserPaneClearDialog = useStore((s) => s.openBrowserPaneClearDialog);
   return (
     <div className="px-4 py-3">
       <Row title={t("settings.advanced.bundleTitle")} hint={t("settings.advanced.bundleHint")}>
         <Button size="xs" onClick={openDiagnosticsDialog}>
           {t("settings.advanced.bundleAction")}
+        </Button>
+      </Row>
+      <Row title={t("settings.advanced.browserDataTitle")} hint={t("settings.advanced.browserDataHint")}>
+        <Button size="xs" onClick={openBrowserPaneClearDialog}>
+          {t("settings.advanced.browserDataAction")}
         </Button>
       </Row>
     </div>

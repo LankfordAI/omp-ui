@@ -1,6 +1,6 @@
 import { useCallback, useState, type ChangeEvent, type ClipboardEvent } from "react";
 import type { ImageAttachment } from "@omp-ui/core/types";
-import { hasClipboardImage, readClipboardImages, readImageFiles } from "./clipboard-image";
+import { hasClipboardImage, MAX_IMAGE_BYTES, readClipboardImages, readImageFiles } from "./clipboard-image";
 
 /**
  * The image Attachment draft shared by the composer and the plan review's
@@ -15,6 +15,8 @@ export interface ImageDraft {
   onPaste: (e: ClipboardEvent<HTMLTextAreaElement>) => void;
   /** Adds picker-selected Attachments through the same draft path as paste. */
   pickImages: (e: ChangeEvent<HTMLInputElement>) => void;
+  /** Appends ready-made Attachments (the browser pane's hand-back) under the same size guard. */
+  addImages: (images: ImageAttachment[]) => void;
   dropImage: (index: number) => void;
   /** Clears the images and any refusal message together (send / refine). */
   clearImages: () => void;
@@ -57,6 +59,22 @@ export function useImageDraft(): ImageDraft {
     setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
   }, []);
 
+  const addImages = useCallback((incoming: ImageAttachment[]) => {
+    const accepted: ImageAttachment[] = [];
+    const rejected: string[] = [];
+    for (const image of incoming) {
+      // Base64 carries 3 bytes per 4 characters; the ceiling is omp's, not ours.
+      const bytes = Math.floor((image.data.length * 3) / 4);
+      if (bytes > MAX_IMAGE_BYTES) {
+        rejected.push(`${image.mimeType} attachment is ${(bytes / (1024 * 1024)).toFixed(1)} MB — over omp's 20 MB image limit`);
+        continue;
+      }
+      accepted.push(image);
+    }
+    if (accepted.length > 0) setImages((prev) => [...prev, ...accepted]);
+    setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
+  }, []);
+
   const dropImage = useCallback((index: number) => {
     setImages((prev) => prev.filter((_, i) => i !== index));
   }, []);
@@ -68,5 +86,5 @@ export function useImageDraft(): ImageDraft {
 
   const dismissError = useCallback(() => setPasteError(null), []);
 
-  return { images, pasteError, onPaste, pickImages, dropImage, clearImages, dismissError };
+  return { images, pasteError, onPaste, pickImages, addImages, dropImage, clearImages, dismissError };
 }

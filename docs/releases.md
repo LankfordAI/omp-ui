@@ -5,6 +5,14 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Native image prompts now give the model exact per-prompt Attachment handles, avoiding failed lookup and retry turns ([#518](https://github.com/LankfordAI/omp-ui/issues/518)).
+- Native tabs gain a Browser pane: a live page beside the transcript that you and the agent share, with a screenshot-plus-URL "attach page to prompt" hand-back; browser clients and joined instances see and drive it too ([#519](https://github.com/LankfordAI/omp-ui/issues/519), [ADR-0029](adr/0029-browser-pane-offscreen-webcontents-and-loopback-cdp-bridge.md)).
+- Browser pane rollout fixes preserve the active pane across compact-shell transitions, prevent hidden sessions from opening duplicate sheets, dim retained frames while a remote instance is unreachable, and deliver Linux IBus Korean commits exactly once ([#547](https://github.com/LankfordAI/omp-ui/issues/547), [#548](https://github.com/LankfordAI/omp-ui/issues/548), [#549](https://github.com/LankfordAI/omp-ui/issues/549), [#550](https://github.com/LankfordAI/omp-ui/issues/550)).
+- Remote browser pane images now use a separate authenticated, receiver-acknowledged frame connection. Throttled images keep only the newest pending frame instead of building a stale queue ahead of terminal output; frame-only reconnect leaves reliable traffic running. Hosts, joined instances, and browser bundles must all support the paired transport ([#546](https://github.com/LankfordAI/omp-ui/issues/546)).
+- The browser pane shows IME composition live: Korean, Japanese and other composed input renders its candidates in the page as you type, not only on commit ([#541](https://github.com/LankfordAI/omp-ui/issues/541)).
+- Settings → Advanced gains "Clear browser pane data": cookies, storage, cache and HTTP logins of pages opened in the browser pane are wiped, with live pages closed and reopened signed out ([#542](https://github.com/LankfordAI/omp-ui/issues/542)).
+- When a tool result prints a local dev-server address, the native transcript offers to open it in the browser pane; dismissing remembers the address for that tab ([#543](https://github.com/LankfordAI/omp-ui/issues/543)).
+- "Attach an element to the prompt" in the browser pane hands the composer a cropped screenshot of one element plus a selector the agent can click ([#544](https://github.com/LankfordAI/omp-ui/issues/544)).
+- CI runs the browser pane smoke under real Electron on the self-hosted Linux runner and publishes its summary as a workflow artifact ([#540](https://github.com/LankfordAI/omp-ui/issues/540)).
 
 
 ## Choose a download
