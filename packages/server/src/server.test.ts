@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
-import { BROWSER_PANE_LOSSY_SKIP_BYTES, CH, type ChannelTable } from "@omp-ui/core";
+import { CH, type ChannelTable } from "@omp-ui/core";
 import { startRemoteServer, type RemoteServerHandle, type RemoteHost } from "./index";
 import { decodeBinaryEvent, REMOTE_WS_PATH } from "./protocol";
 import {
@@ -513,7 +513,7 @@ describe("startRemoteServer event fan-out", () => {
     expect([...(decoded?.payload ?? [])]).toEqual([1, 2, 3]);
   });
 
-  it("skips a client with a full socket buffer for lossy events only", async () => {
+  it("drops browser frames at a 96 KiB backlog without dropping PTY bytes", async () => {
     // The server-side socket is reachable only through the connection event; a request header
     // marks which one plays the slow client, and its bufferedAmount is pinned above the threshold.
     const SLOW_HEADER = "x-omp-test-slow";
@@ -531,7 +531,7 @@ describe("startRemoteServer event fan-out", () => {
         req.headers[SLOW_HEADER] === "1"
       ) {
         Object.defineProperty(ws, "bufferedAmount", {
-          get: () => BROWSER_PANE_LOSSY_SKIP_BYTES + 44 * 1024,
+          get: () => 96 * 1024,
         });
       }
       return realEmit.call(this, event, ...args);

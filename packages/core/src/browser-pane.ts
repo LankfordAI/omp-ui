@@ -16,8 +16,8 @@ export const BROWSER_PANE_FPS = 30;
 export const BROWSER_PANE_JPEG_QUALITY = 70;
 export const BROWSER_PANE_MAX_DSF = 2;
 export const BROWSER_PANE_FRAME_HEADER_BYTES = 8;
-/** A client whose socket buffer is over this misses a lossy frame (#529). */
-export const BROWSER_PANE_LOSSY_SKIP_BYTES = 256 * 1024;
+/** S14's lower backlog ceiling: skip lossy frames above 64 KiB after measured lag growth (#546). */
+export const BROWSER_PANE_LOSSY_SKIP_BYTES = 64 * 1024;
 /** Root `/json/version` answers only this long after a tokened hit (#531). */
 export const BROWSER_PANE_ROOT_VERSION_WINDOW_MS = 5_000;
 export const BROWSER_PANE_MAX_CDP_CLIENTS = 8;

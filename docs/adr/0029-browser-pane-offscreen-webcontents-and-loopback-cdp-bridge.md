@@ -23,7 +23,7 @@ through a **loopback CDP bridge** the main process hosts:
   never arrive out of order.
 - Frames ride the existing structural binary rule of `@omp-ui/server` on a
   new `browser-pane:frame` event declared **lossy** in `BACKEND_CHANNELS`. The
-  server skips a client whose socket buffer is over 256 KiB for lossy events
+  server skips a client whose socket buffer is over 64 KiB for lossy events
   only; `pty:data` and `shell:data` are never dropped. Main caches the last
   encoded frame per pane and replays it to each new subscriber.
 - Renderers send JSON back: `browser-pane:input` mirrors Electron's
@@ -153,6 +153,27 @@ through a **loopback CDP bridge** the main process hosts:
   Both relay hops are lossy; nothing is re-encoded because the header travels
   in-band. An unreachable owner leaves the last frame dimmed under the
   remote-instance banner with input held; rejoin resubscribes.
+- **Slow-client delivery remains a release gate (#546).** Linux S14 used a
+  real browser and PTY on the same WebSocket, throttled to 50,000 B/s for 60 s.
+  The prescribed 256 → 64 KiB fallback lowered maximum native `bufferedAmount`
+  from 299,956 to 123,685 bytes, but maximum displayed-frame age only fell
+  from 41,786 to 38,988 ms. Desktop delivery stayed at 30 fps and caught-up
+  frames arrived 104–105 ms after unthrottling; browser PTY delivery stalled
+  behind queued images despite continued production. Heap did not trend up,
+  but RSS oscillated roughly 251–764 MiB, so flat memory was not established.
+  A separate real-transport experiment with one `ws.send` callback in flight
+  still reached 18.5 s message age in 20 s: callbacks acknowledge local socket
+  acceptance, not receiver delivery. The 64 KiB fallback is retained, but S14
+  is not a pass. Receiver acknowledgments and transport isolation require a
+  further decision; no such protocol change is part of this implementation.
+- **IME commits are not always carried by `compositionend` (#550).** Real
+  Linux X11/IBus Hangul 1.5.5 emitted an empty `compositionend`, followed by
+  `input` carrying `한`. The composer accepted it while the pane lost it.
+  The proxy now forwards non-composing committed input as `insertText`,
+  suppresses preedit and deduplicates a trailing echo of a nonempty
+  `compositionend`. Two native commits produced `한 한 ` exactly once each;
+  live candidate rendering remains the separate F7 follow-on. Native German
+  QWERTZ/AltGr also produced identical `zy @€ üß` in the composer and pane.
 - **Platform gates are smokes, not assumptions.** Offscreen paint on GPU and
   software paths, dsf, input into an unfocused hidden window, OS keymaps, ⌘
   chords, right-click semantics, non-ASCII `insertText`, the omp handshake,
@@ -165,6 +186,9 @@ through a **loopback CDP bridge** the main process hosts:
   stops the navigation (deferred out of the observer; a synchronous `stop()`
   there trips a Chromium CHECK) and the previous document stays on screen with
   its state (`net::ERR_ABORTED` to the agent).
+  Linux remote-view verification used `--no-sandbox` for its isolated test
+  instances; its results do not establish sandbox behavior. The local
+  lifecycle, hand-back and native-keyboard instances ran without that flag.
 - **omp is unchanged.** Everything rests on what omp exposes today: the
   `browser` global with `app.cdp_url`, its adoption of the existing page target,
   disconnect-only `tab.close`, and the extension API's `registerCommand`,
