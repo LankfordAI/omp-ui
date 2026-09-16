@@ -1268,9 +1268,11 @@ describe("PlanReview refine attachment picker (issue #65)", () => {
     expect(verdictFrame()).toMatchObject({ id: "p1", value: "refine" });
     expect(promptFrame()).toMatchObject({
       type: "prompt",
-      message: "Revise the plan per the attached change notes.",
       images: [IMAGE_ONE],
     });
+    expect((promptFrame()?.message as string).split("\n\n").at(-1)).toBe(
+      "[omp-ui attachment routing: For tool calls, this prompt's attached image is available as attachment://1. Attachment handles restart at 1 for each prompt.]",
+    );
   });
 });
 
