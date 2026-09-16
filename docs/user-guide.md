@@ -158,6 +158,10 @@ The **inspector rail** is the right-hand icon strip in a native tab. It has five
 
 On compact screens, the inspector opens as a right-side sheet with the same five panes.
 
+## Browser pane
+
+The **browser pane** is a live web page inside a native tab that you and the agent share. Open it with the globe in the Session HUD or the *Toggle browser pane* palette action; it appears as a resizable split beside the transcript. Type an address (only `http` and `https` pages load) or ask the agent to open a page — it learns the pane's endpoint automatically and the pane opens on its own when the agent connects. Both of you can click, scroll, and type at any time; an **agent connected** badge shows while the agent holds the page and pulses while it acts. **Attach page to prompt** puts a screenshot of the current frame and the page URL into the composer for your next message. The fullscreen control gives the page the whole transcript column with the composer kept; on compact screens the pane is a bottom sheet. Closing the pane only stops the stream — the page and the agent's connection stay until the session hibernates, is deleted, or switches to terminal mode. Remote-access browsers and joined instances see the same pane and can drive it; only the desktop window sets its size. Camera, microphone, location, notifications, and downloads are always refused inside the pane, and pages you open there are untrusted input to the agent, exactly like files it reads.
+
 ## Worktree sessions
 
 A **worktree session** runs OMP in a dedicated git worktree on its own branch. The checkout lives under omp-ui's app-data directory and shares the project's git object store. The registered project remains its project for sidebar grouping and remembered session parameters, but the worktree is its effective working tree — including for project-scope MCP configuration, which omp-ui resolves and writes through a `.omp` link in the checkout that points at the project's own directory.

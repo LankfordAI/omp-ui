@@ -1,5 +1,6 @@
 // Pure types, zero runtime imports — the renderer imports these type-only via
 // the @omp-ui/core/types subpath.
+import type { BrowserPaneAgentState } from "./browser-pane";
 import type { GoalSnapshot } from "./goal";
 import type { SkillOrigin } from "./omp-capability-keys";
 export type { SkillOrigin } from "./omp-capability-keys";
@@ -1054,12 +1055,29 @@ export interface DiagnosticsSection {
     | "logs"
     | "breadcrumbs"
     | "window-state"
+    | "browser-pane"
     | "transcripts";
   /** Stable zip prefix this section writes under, e.g. "logs/". */
   prefix: string;
   included: boolean;
   files: DiagnosticsSectionFile[];
   totalBytes: number;
+}
+
+/** One browser pane's host-side counters for the diagnostics bundle (#519); URLs reduced to origin. */
+export interface BrowserPaneDiagnostics {
+  tabId: string;
+  pageAlive: boolean;
+  subscribers: number;
+  cdpClients: number;
+  agentState: BrowserPaneAgentState;
+  urlOrigin: string | null;
+  frame: { width: number; height: number; dsf: number } | null;
+  fps: number;
+  lastEncodeMs: number | null;
+  bridgePort: number | null;
+  partition: "persist:browser-pane";
+  lastError: string | null;
 }
 
 /** What an export would contain, computed without reading file bodies. */

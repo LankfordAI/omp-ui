@@ -1,10 +1,11 @@
+import { IncomingMessage } from "node:http";
 import * as net from "node:net";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
-import { CH, type ChannelTable } from "@omp-ui/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { WebSocket, WebSocketServer } from "ws";
+import { BROWSER_PANE_LOSSY_SKIP_BYTES, CH, type ChannelTable } from "@omp-ui/core";
 import { startRemoteServer, type RemoteServerHandle, type RemoteHost } from "./index";
 import { decodeBinaryEvent, REMOTE_WS_PATH } from "./protocol";
 import {
@@ -58,6 +59,7 @@ const open: RemoteServerHandle[] = [];
 const sockets: WebSocket[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const ws of sockets.splice(0)) ws.close();
   for (const h of open.splice(0)) await h.close();
 });
@@ -80,9 +82,13 @@ async function serve(
 }
 
 /** Opens a socket and resolves once it is OPEN; rejects if it closes first. */
-function connect(base: string, token: string | null): Promise<WebSocket> {
+function connect(
+  base: string,
+  token: string | null,
+  headers?: Record<string, string>,
+): Promise<WebSocket> {
   const url = `${base.replace("http://", "ws://")}${REMOTE_WS_PATH}${token === null ? "" : `?t=${token}`}`;
-  const ws = new WebSocket(url);
+  const ws = new WebSocket(url, { headers });
   sockets.push(ws);
   return new Promise((resolve, reject) => {
     ws.once("open", () => resolve(ws));
@@ -505,6 +511,53 @@ describe("startRemoteServer event fan-out", () => {
     expect(decoded?.channel).toBe("pty:data");
     expect(decoded?.tabId).toBe("tab-1");
     expect([...(decoded?.payload ?? [])]).toEqual([1, 2, 3]);
+  });
+
+  it("skips a client with a full socket buffer for lossy events only", async () => {
+    // The server-side socket is reachable only through the connection event; a request header
+    // marks which one plays the slow client, and its bufferedAmount is pinned above the threshold.
+    const SLOW_HEADER = "x-omp-test-slow";
+    const realEmit = WebSocketServer.prototype.emit;
+    vi.spyOn(WebSocketServer.prototype, "emit").mockImplementation(function (
+      this: WebSocketServer,
+      event,
+      ...args
+    ) {
+      const [ws, req] = args;
+      if (
+        event === "connection" &&
+        ws instanceof WebSocket &&
+        req instanceof IncomingMessage &&
+        req.headers[SLOW_HEADER] === "1"
+      ) {
+        Object.defineProperty(ws, "bufferedAmount", {
+          get: () => BROWSER_PANE_LOSSY_SKIP_BYTES + 44 * 1024,
+        });
+      }
+      return realEmit.call(this, event, ...args);
+    });
+    const { base, host } = await serve();
+    const slow = await connect(base, TOKEN, { [SLOW_HEADER]: "1" });
+    const fast = await connect(base, TOKEN);
+
+    const channelOf = (raw: Buffer): string | undefined =>
+      decodeBinaryEvent(new Uint8Array(raw))?.channel;
+    const fastChannels: string[] = [];
+    const fastSawBoth = new Promise<void>((resolve) => {
+      fast.on("message", (raw: Buffer, isBinary: boolean) => {
+        if (!isBinary) return;
+        fastChannels.push(channelOf(raw) ?? "?");
+        if (fastChannels.length === 2) resolve();
+      });
+    });
+    const slowFirst = nextBinary(slow);
+    host.emit("browser-pane:frame", ["tab-1", Uint8Array.of(9)]);
+    host.emit("pty:data", ["tab-1", Uint8Array.of(1)]);
+
+    await fastSawBoth;
+    expect(fastChannels).toEqual(["browser-pane:frame", "pty:data"]);
+    // TCP keeps order: had the frame been sent, it would have arrived before pty:data.
+    expect(channelOf(await slowFirst)).toBe("pty:data");
   });
 });
 

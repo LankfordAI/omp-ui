@@ -142,13 +142,18 @@ session, never a separate session or tab.
 _Avoid_: subagent tab, agent window, subagent chat
 
 **Browser pane**:
-A web page shown beside the native transcript of an rpc-ui tab, driven by the
-session's agent as live as the transcript is. It is a view onto the same live
-session, never a **Tab**, and not one of the **Inspector rail**'s five panes:
-its fullscreen mode takes the transcript's column, not the rail's strip.
-Handing a page to the prompt is an **Attachment** of the rendered page plus
-the URL as text.
-_Avoid_: browser tab, web tab, sixth pane
+A live web page inside an rpc-ui tab that the user and the agent share. The
+main process owns the page (an offscreen renderer in its own partition),
+streams it to every view as frames, takes the user's clicks and typing, and
+lets the agent drive the same page over a host-local endpoint it learns from
+a hidden message. It opens as a resizable split beside the native transcript
+and can take the transcript's whole column (fullscreen) with the floating
+composer kept; on compact screens it is a bottom sheet. It is a view onto the
+same live session, never a **Tab**, and not one of the **Inspector rail**'s
+panes. "Attach page to prompt" hands the composer a screenshot **Attachment**
+plus the page URL as ordinary text. Closing it only stops the stream; the page
+lives until the session hibernates, is deleted, or switches to a terminal.
+_Avoid_: browser tab, web tab, sixth pane, webview, embedded browser
 
 **Session HUD**:
 The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
