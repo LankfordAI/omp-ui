@@ -810,6 +810,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "browser.state.instanceDown": "인스턴스에 연결할 수 없어 마지막 프레임을 표시하고 있습니다",
   "browser.toolbar.blocked": "여기서는 http 및 https 페이지만 열 수 있습니다",
   "browser.split.resize": "브라우저 패널 크기 조절",
+  "browser.surface.label": "공유 페이지 — 키 입력과 클릭이 페이지로 전달됩니다",
   "hud.actions.browserPane": "브라우저 패널 열기",
   "hud.actions.browserPaneClose": "브라우저 패널 닫기",
   "palette.action.browserPane": "브라우저 패널 전환",

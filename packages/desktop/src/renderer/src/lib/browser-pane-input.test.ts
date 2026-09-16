@@ -14,6 +14,7 @@ import {
 } from "./browser-pane-input";
 
 const FLAGS = { shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, capsLock: false };
+const KEY_FLAGS = { ...FLAGS, altGraph: false };
 
 /** A 1280×800 CSS page painted at dsf 2 into a box half its size. */
 const CTX = { box: { width: 640, height: 400 }, header: { width: 2560, height: 1600, dsf: 2 } };
@@ -29,7 +30,7 @@ const pointer = (over: Partial<PointerLike> = {}): PointerLike => ({
 });
 
 const key = (over: Partial<KeyLike> = {}): KeyLike => ({
-  ...FLAGS,
+  ...KEY_FLAGS,
   key: "a",
   location: 0,
   isComposing: false,
@@ -139,6 +140,17 @@ describe("browser pane key translation", () => {
     expect(keyEvents("keydown", key({ key: "c", metaKey: true }), nonDarwin).events).toEqual([
       { type: "keyDown", keyCode: "C", modifiers: ["meta"] },
     ]);
+  });
+
+  it("keeps the character of an AltGr key that Windows reports as ctrl+alt", () => {
+    const altGr = key({ key: "@", ctrlKey: true, altKey: true, altGraph: true });
+    expect(keyEvents("keydown", altGr, nonDarwin).events).toEqual([
+      { type: "keyDown", keyCode: "@", modifiers: ["control", "alt"] },
+      { type: "char", keyCode: "@", modifiers: ["control", "alt"] },
+    ]);
+    // A plain ctrl+alt chord is still a shortcut, not text.
+    expect(keyEvents("keydown", key({ key: "@", ctrlKey: true, altKey: true }), nonDarwin).events)
+      .toEqual([{ type: "keyDown", keyCode: "@", modifiers: ["control", "alt"] }]);
   });
 
   it("spells accelerator names Electron's way and drops the unknown", () => {

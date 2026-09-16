@@ -129,6 +129,22 @@ export function resolveDesktopPanelWidths({
         Math.min(INSPECTOR_MAX_WIDTH, variableBudget - effectiveSidebar - effectiveBrowserPane),
       );
   const browserPaneRoom = variableBudget - effectiveSidebar - effectiveInspector;
+  if (browserPaneOpen && browserPaneRoom < BROWSER_PANE_MIN_WIDTH) {
+    // The pane falls back to the column posture, so the split it reserved is
+    // not rendered: the sidebar and inspector get the budget back.
+    return {
+      ...resolveDesktopPanelWidths({
+        viewportWidth,
+        sidebarWidth,
+        inspectorWidth,
+        browserPaneWidth,
+        sidebarCollapsed,
+        inspectorOpen,
+        browserPaneOpen: false,
+      }),
+      browserPaneFits: false,
+    };
+  }
   const browserPaneAllowedMax = !browserPaneOpen
     ? BROWSER_PANE_MAX_WIDTH
     : Math.max(BROWSER_PANE_MIN_WIDTH, Math.min(BROWSER_PANE_MAX_WIDTH, browserPaneRoom));
@@ -140,6 +156,6 @@ export function resolveDesktopPanelWidths({
     sidebarAllowedMax,
     inspectorAllowedMax,
     browserPaneAllowedMax,
-    browserPaneFits: !browserPaneOpen || browserPaneRoom >= BROWSER_PANE_MIN_WIDTH,
+    browserPaneFits: true,
   };
 }

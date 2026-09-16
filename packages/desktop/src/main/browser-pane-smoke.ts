@@ -386,6 +386,7 @@ function keyLike(key: string, overrides: Partial<KeyLike> = {}): KeyLike {
     altKey: false,
     metaKey: false,
     capsLock: false,
+    altGraph: false,
     location: 0,
     isComposing: false,
     ...overrides,

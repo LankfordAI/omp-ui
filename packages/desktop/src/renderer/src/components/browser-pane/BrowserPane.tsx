@@ -150,6 +150,7 @@ function keyLike(e: ReactKeyboardEvent<HTMLInputElement>): KeyLike {
     altKey: e.altKey,
     metaKey: e.metaKey,
     capsLock: e.getModifierState("CapsLock"),
+    altGraph: e.getModifierState("AltGraph"),
   };
 }
 
@@ -599,9 +600,17 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
         )}
       </div>
 
+      {/* The keyboard's way in: the surface is in the tab order and hands
+          focus straight to the proxy, which stays out of the accessibility tree. */}
       <div
         ref={hostRef}
-        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-void focus-within:ring-1 focus-within:ring-inset focus-within:ring-line-strong"
+        tabIndex={0}
+        role="group"
+        aria-label={t("browser.surface.label")}
+        onFocus={(e) => {
+          if (e.target === e.currentTarget) proxyRef.current?.focus({ preventScroll: true });
+        }}
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-void outline-none focus-within:ring-1 focus-within:ring-inset focus-within:ring-line-strong"
       >
         {/* The frame, at its own aspect ratio inside the box. Physical px in
             the attributes, so a dsf-2 frame paints crisp on a dsf-2 screen. */}

@@ -125,15 +125,22 @@ describe("desktop panel layout", () => {
     });
   });
 
-  it("reports the pane does not fit at 900px with the sidebar expanded and inspector open", () => {
+  it("gives the chrome panes their room back when the pane falls back to the column posture", () => {
+    // 900 → 540 of room: sidebar 272 + inspector 304 = 576 already overflows,
+    // so no split can fit; the pane is not rendered and must not shrink them.
     const resolved = resolveDesktopPanelWidths({
       ...defaults,
       viewportWidth: 900,
       browserPaneOpen: true,
     });
-    expect(resolved.browserPaneFits).toBe(false);
-    expect(resolved.sidebarWidth).toBe(SIDEBAR_MIN_WIDTH);
-    expect(resolved.inspectorWidth).toBe(INSPECTOR_MIN_WIDTH);
+    expect(resolved).toEqual({
+      ...resolveDesktopPanelWidths({ ...defaults, viewportWidth: 900, browserPaneOpen: false }),
+      browserPaneFits: false,
+    });
+    // 1100 → 740 of room: the pair fits at preference (576) but leaves 164 for
+    // the pane, under its 360 minimum; neither chrome pane yields for it.
+    expect(resolveDesktopPanelWidths({ ...defaults, viewportWidth: 1100, browserPaneOpen: true }))
+      .toMatchObject({ sidebarWidth: 272, inspectorWidth: 304, browserPaneFits: false });
     // Collapsing the sidebar and closing the inspector frees enough room.
     expect(resolveDesktopPanelWidths({
       ...defaults,
@@ -152,7 +159,7 @@ describe("desktop panel layout", () => {
     });
     expect(resolved.sidebarAllowedMax).toBe(SIDEBAR_MIN_WIDTH);
     expect(resolved.inspectorAllowedMax).toBe(INSPECTOR_MIN_WIDTH);
-    expect(resolved.browserPaneAllowedMax).toBe(BROWSER_PANE_MIN_WIDTH);
+    expect(resolved.browserPaneAllowedMax).toBeGreaterThanOrEqual(BROWSER_PANE_MIN_WIDTH);
     expect(resolved.browserPaneFits).toBe(false);
   });
 });

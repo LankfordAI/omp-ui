@@ -191,7 +191,10 @@ export function connectInstanceClient(
       });
       socket.on("unexpected-response", (_req, res: IncomingMessage) => {
         res.resume();
-        if (res.statusCode === 401 && frames === socket) {
+        // Only the initial pairing proves the credential. Afterwards the server also
+        // answers 401 for a retired pairing key (its reliable socket closed first), so
+        // retry and let the reliable socket's own close report a real revocation.
+        if (res.statusCode === 401 && frames === socket && !opened) {
           failure = { kind: "unauthorized" };
           stop();
         } else {

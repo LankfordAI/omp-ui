@@ -12,6 +12,12 @@ describe("isDeniedLoopbackRequest (#531 layer 3)", () => {
     ["http://0.0.0.0:9222/", true],
     ["ws://127.0.0.1:9222/token", true],
     ["http://LOCALHOST:9222/", true],
+    ["http://[::]:9222/", true],
+    ["http://[::ffff:127.0.0.1]:9222/", true],
+    ["http://[0:0:0:0:0:ffff:7f00:1]:9222/", true],
+    ["http://[::ffff:0.0.0.0]:9222/", true],
+    ["http://[::ffff:192.168.1.10]:9222/", false],
+    ["http://[2001:db8::1]:9222/", false],
   ])("cancels %s against a denied port", (url, cancelled) => {
     expect(isDeniedLoopbackRequest(url, DENIED)).toBe(cancelled);
   });

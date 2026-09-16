@@ -13,7 +13,6 @@ import {
   makeServerResponseOk,
   parseClientFrame,
   parseFrameAck,
-  REMOTE_CLOSE_REVOKED,
   REMOTE_FRAME_KEY_PARAM,
   REMOTE_FRAME_WS_PATH,
   REMOTE_WS_PATH,
@@ -111,7 +110,7 @@ async function wireServer(opts: { holdFrames?: boolean; announce?: boolean } = {
   const frames: Array<{ socket: WebSocket; acks: FrameAck[] }> = [];
   const upgrades: Array<() => void> = [];
   const sockets = new Set<Socket>();
-  const access = { frameStatus: 101 };
+  const access = { frameStatus: 101, rejected: 0 };
   server.on("connection", (socket) => {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
@@ -141,6 +140,7 @@ async function wireServer(opts: { holdFrames?: boolean; announce?: boolean } = {
     }
     if (request.headers.authorization !== `Bearer ${TOKEN}` ||
       (frame && (url.searchParams.get(REMOTE_FRAME_KEY_PARAM) !== key || access.frameStatus === 401))) {
+      if (frame && access.frameStatus === 401) access.rejected += 1;
       socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       return;
     }
@@ -323,15 +323,24 @@ describe("paired instance frame stream", () => {
     expect(closed).toHaveBeenCalledTimes(1);
   });
 
-  it("surfaces revocation on frame reconnect rather than retrying forever", async () => {
+  it("keeps retrying frames after a post-pairing 401 while the reliable socket lives", async () => {
+    // After pairing, the server also answers 401 for a retired pairing key (its
+    // reliable side closed first): revocation reaches the client through the
+    // reliable socket's own close, never through the frame retry.
     const wire = await wireServer();
     const client = await join(wire.base);
-    const closed = new Promise<number>((resolve) => client.onClose((code) => resolve(code)));
+    let closed = false;
+    client.onClose(() => {
+      closed = true;
+    });
     wire.access.frameStatus = 401;
     wire.frames[0]!.socket.terminate();
-    expect(await closed).toBe(REMOTE_CLOSE_REVOKED);
-    await expect(client.request(CH.getState, [])).rejects.toThrow("remote connection lost");
-    expect(wire.frames).toHaveLength(1);
+    await vi.waitFor(() => expect(wire.access.rejected).toBeGreaterThan(0));
+    expect(closed).toBe(false);
+    await expect(client.request(CH.getState, [])).resolves.toEqual({ ok: 1 });
+    wire.access.frameStatus = 101;
+    await vi.waitFor(() => expect(wire.frames).toHaveLength(2), { timeout: 4_000 });
+    expect(closed).toBe(false);
   });
 
   it("cancels frame reconnect when the reliable connection closes", async () => {

@@ -5,7 +5,13 @@ import {
 } from "@omp-ui/core";
 import type { PaneDebugger } from "./browser-pane-contents";
 
-/** Runs in the page with the picked node as `this` and returns a stable, concise selector. */
+/**
+ * Runs in the page with the picked node as `this` and returns a stable, concise
+ * selector plus its rect in pane (top-level viewport) space. A node inside a
+ * frame adds every ancestor iframe's content-box offset; a cross-origin
+ * ancestor hides its frame element, and the pick becomes a miss rather than
+ * cropping child-document coordinates out of the top-level frame.
+ */
 export const PICK_FUNCTION = `function () {
   let el = this;
   while (el && el.nodeType !== 1) el = el.parentElement || el.parentNode;
@@ -36,10 +42,20 @@ export const PICK_FUNCTION = `function () {
     selector = parts.join(" > ");
   }
   const r = el.getBoundingClientRect();
+  let x = r.left, y = r.top;
+  for (let w = window; w !== w.top; w = w.parent) {
+    let frame = null;
+    try { frame = w.frameElement; } catch { frame = null; }
+    if (!frame) return null;
+    const fr = frame.getBoundingClientRect();
+    const cs = w.parent.getComputedStyle(frame);
+    x += fr.left + frame.clientLeft + (parseFloat(cs.paddingLeft) || 0);
+    y += fr.top + frame.clientTop + (parseFloat(cs.paddingTop) || 0);
+  }
   const text = (el.innerText || el.value || el.getAttribute("aria-label") || "").trim();
   return {
     selector, tag: el.tagName.toLowerCase(), text,
-    rect: { x: r.left, y: r.top, width: r.width, height: r.height },
+    rect: { x, y, width: r.width, height: r.height },
     framed: window.top !== window,
   };
 }`;

@@ -17,8 +17,13 @@ const DEFAULT_PORTS: Record<string, number> = {
 };
 
 const LOOPBACK_V4_RE = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+/** WHATWG serialises `[::ffff:127.x.y.z]` as compressed hex (`[::ffff:7f00:1]`); `[::ffff:0:0]` is the mapped wildcard. */
+const LOOPBACK_V6_MAPPED_RE = /^\[::ffff:(7f[0-9a-f]{2}:[0-9a-f]{1,4}|0:0)\]$/;
 
-/** Pure: loopback host + denied port → cancel. Hosts: 127.0.0.0/8, localhost, [::1], 0.0.0.0. */
+/**
+ * Pure: loopback host + denied port → cancel. Hosts: 127.0.0.0/8, localhost,
+ * [::1], the wildcards 0.0.0.0 and [::], and their IPv4-mapped IPv6 forms.
+ */
 export function isDeniedLoopbackRequest(url: string, deniedPorts: ReadonlySet<number>): boolean {
   if (deniedPorts.size === 0) return false;
   let parsed: URL;
@@ -29,7 +34,12 @@ export function isDeniedLoopbackRequest(url: string, deniedPorts: ReadonlySet<nu
   }
   const host = parsed.hostname;
   const loopback =
-    host === "localhost" || host === "[::1]" || host === "0.0.0.0" || LOOPBACK_V4_RE.test(host);
+    host === "localhost" ||
+    host === "[::1]" ||
+    host === "[::]" ||
+    host === "0.0.0.0" ||
+    LOOPBACK_V4_RE.test(host) ||
+    LOOPBACK_V6_MAPPED_RE.test(host);
   if (!loopback) return false;
   const port = parsed.port === "" ? DEFAULT_PORTS[parsed.protocol] : Number(parsed.port);
   return port !== undefined && deniedPorts.has(port);

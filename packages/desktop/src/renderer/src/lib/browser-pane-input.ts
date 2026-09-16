@@ -44,6 +44,11 @@ export interface KeyLike extends ModifierFlags {
   /** `KeyboardEvent.location`; 3 is the numeric keypad. */
   location: number;
   isComposing: boolean;
+  /**
+   * `getModifierState("AltGraph")`: Windows reports AltGr as Ctrl+Alt, so the
+   * composed character is only printable while this is set.
+   */
+  altGraph: boolean;
 }
 
 /** CSS px box the canvas paints into. */
@@ -232,7 +237,8 @@ export function keyEvents(
   const mods = modifiers(e, e.location === 3 ? ["isKeypad"] : undefined);
   if (kind === "keyup") return { events: [{ type: "keyUp", keyCode, modifiers: mods }], preventDefault: true };
   const events: BrowserPaneInputEvent[] = [{ type: "keyDown", keyCode, modifiers: mods }];
-  const printable = isSingleGrapheme(e.key) && !e.ctrlKey && !e.metaKey;
+  // A ctrl/meta chord is a shortcut, not text — unless AltGr composed the key.
+  const printable = isSingleGrapheme(e.key) && (e.altGraph || (!e.ctrlKey && !e.metaKey));
   if (printable) events.push({ type: "char", keyCode: e.key, modifiers: mods });
   return { events, preventDefault: true };
 }

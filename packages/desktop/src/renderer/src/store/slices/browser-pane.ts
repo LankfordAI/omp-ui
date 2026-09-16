@@ -131,7 +131,11 @@ export function createBrowserPaneSlice(
     handleBrowserPaneState(tabId, state) {
       const previous = get().rpc[tabId]?.browserPane;
       if (previous === undefined) return;
-      patchPane(tabId, { state });
+      // A destroyed page (crash, data clear, hibernation) takes its answer with
+      // it: back to idle so a mounted pane re-asks main, which recreates the
+      // page or reports that the session is no longer live.
+      const ensure = !state.alive && previous.ensure === "available" ? "idle" : previous.ensure;
+      patchPane(tabId, { state, ensure });
       // The #530 auto-open: the agent just connected to a pane the user is not
       // looking at. A tab with no observed state has, by definition, had no
       // agent attached yet. Any later push — a page load, acting ↔ attached —

@@ -243,6 +243,22 @@ describe("BrowserPane viewport sizing (#532)", () => {
   });
 });
 
+describe("BrowserPane keyboard access", () => {
+  it("puts the page surface in the tab order and hands its focus to the IME proxy", () => {
+    seed(null);
+    render();
+    const surface = document.body.querySelector<HTMLElement>('[role="group"][tabindex="0"]');
+    expect(surface).not.toBeNull();
+    expect(surface!.contains(proxy())).toBe(true);
+    expect(proxy().getAttribute("aria-hidden")).toBe("true");
+    expect(proxy().tabIndex).toBe(-1);
+    act(() => surface!.focus());
+    expect(document.activeElement).toBe(proxy());
+    act(() => proxy().dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "a" })));
+    expect(ompBackend.browserPaneInput).toHaveBeenCalledWith(TAB, expect.objectContaining({ type: "char", keyCode: "a" }));
+  });
+});
+
 describe("BrowserPane live IME composition (#541, #550)", () => {
   const compose = (type: string, data: string): void => {
     act(() => proxy().dispatchEvent(new CompositionEvent(type, { bubbles: true, data })));

@@ -906,6 +906,7 @@ export const en = {
   "browser.state.instanceDown": "showing the last frame while the instance is unreachable",
   "browser.toolbar.blocked": "only http and https pages load here",
   "browser.split.resize": "resize browser pane",
+  "browser.surface.label": "shared page — keys and clicks go to the page",
   "hud.actions.browserPane": "open browser pane",
   "hud.actions.browserPaneClose": "close browser pane",
   "palette.action.browserPane": "Toggle browser pane",

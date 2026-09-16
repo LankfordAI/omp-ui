@@ -62,6 +62,27 @@ describe("handleBrowserPaneState (#530 auto-open)", () => {
     expect(pane()).toMatchObject({ open: true, fullscreen: true, state: { agent: "attached" } });
     expect(h.mockBackend.browserPaneEnsure).not.toHaveBeenCalled();
   });
+
+  it("drops availability when the page is destroyed so a mounted pane re-asks main", () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          browserPane: { ...rpcTabState().browserPane, open: true, ensure: "available" },
+        }),
+      },
+    });
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("detached", { alive: false }));
+    expect(pane()).toMatchObject({ ensure: "idle", state: { alive: false } });
+
+    // An answer still in flight, or one that already said no, is left to settle on its own.
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("detached"));
+    expect(pane().ensure).toBe("idle");
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState({ browserPane: { ...rpcTabState().browserPane, ensure: "pending" } }) },
+    });
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("detached", { alive: false }));
+    expect(pane().ensure).toBe("pending");
+  });
 });
 
 describe("bootRpcTab carry-over (#528)", () => {
