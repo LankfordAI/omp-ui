@@ -85,6 +85,10 @@ export { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabil
 export { goalExtensionPath, writeGoalExtension } from "./goal-extension";
 export { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-pane-extension";
 export {
+  autoresearchExtensionPath,
+  writeAutoresearchExtension,
+} from "./autoresearch-extension";
+export {
   MCP_CONNECTION_STATUS_CHANNEL,
   MCP_RUNTIME_STATUS_COMMAND,
   MCP_RUNTIME_STATUS_KEY,
@@ -97,6 +101,7 @@ export {
 export * from "./capabilities";
 export * from "./browser-pane";
 export * from "./goal";
+export * from "./autoresearch";
 export {
   ADVISOR_STATS_COMMAND,
   ADVISOR_STATS_KEY,
@@ -137,6 +142,15 @@ export {
   type PlanStatus,
 } from "./plan";
 export { readMemoryOverview } from "./memory-store";
+export {
+  autoresearchCandidateKeys,
+  autoresearchDbPath,
+  autoresearchProjectKey,
+  autoresearchStateDir,
+  readCheckoutExperiments,
+  readExperimentLogPath,
+  readExperimentRuns,
+} from "./autoresearch-store";
 export {
   formatModelRole,
   getOmpAgentDir,

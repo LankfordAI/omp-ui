@@ -52,7 +52,7 @@ const state = backendState({
           launchedAt: "t",
           mode: "rpc-ui",
 worktree: null,
-          planImplementationSource: null,
+          planImplementationSource: null, experiment: null,
           agentMode: "build",
           compactionMethod: null,
           model: null,
@@ -118,6 +118,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
   return {
     status: "ready",
     goal: null,
+    autoresearch: null,
     items: [],
     transcriptRevision: 0,
     todos: [{ phase: "work", tasks: [{ content: "First task", status: "pending" }] }],

@@ -1,5 +1,6 @@
 import type {
   PlanImplementationSource,
+  SessionExperiment,
   SessionWorktree,
   SpawnRequest,
   SpawnWorktree,
@@ -74,6 +75,33 @@ function parsePlanImplementationSource(value: unknown): PlanImplementationSource
   };
 }
 
+/** Experiment provenance (issue #559): every field required, `launchedBranch` an explicit string|null. */
+function parseSessionExperiment(value: unknown): SessionExperiment {
+  const label = "spawn request.experiment";
+  const experiment = objectValue(value, label);
+  rejectUnknownKeys(
+    experiment,
+    ["goal", "metric", "unit", "direction", "launchedBranch", "launchedAt"],
+    label,
+  );
+  const { unit, direction, launchedBranch } = experiment;
+  if (typeof unit !== "string") throw new Error(`${label}.unit must be a string`);
+  if (direction !== "lower" && direction !== "higher") {
+    throw new Error(`${label}.direction must be lower or higher`);
+  }
+  if (launchedBranch !== null && typeof launchedBranch !== "string") {
+    throw new Error(`${label}.launchedBranch must be a string or null`);
+  }
+  return {
+    goal: requiredString(experiment, "goal", label),
+    metric: requiredString(experiment, "metric", label),
+    unit,
+    direction,
+    launchedBranch,
+    launchedAt: requiredString(experiment, "launchedAt", label),
+  };
+}
+
 function parseSessionWorktree(value: unknown): SessionWorktree {
   const reuse = objectValue(value, "spawn request.worktree.reuse");
   rejectUnknownKeys(reuse, ["path", "branch", "base"], "spawn request.worktree.reuse");
@@ -133,6 +161,7 @@ const NEW_KEYS = [
   "rows",
   "worktree",
   "planImplementationSource",
+  "experiment",
   "planMode",
 ] as const;
 
@@ -200,6 +229,11 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
       ? null
       : parsePlanImplementationSource(value.planImplementationSource)
     : undefined;
+  const experiment = hasOwn(value, "experiment")
+    ? value.experiment === null
+      ? null
+      : parseSessionExperiment(value.experiment)
+    : undefined;
   const common = {
     origin: "new" as const,
     projectCwd: requiredString(value, "projectCwd"),
@@ -209,6 +243,7 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
     worktree: parseWorktree(value.worktree),
     ...(advisorModel === undefined ? {} : { advisorModel }),
     ...(source === undefined ? {} : { planImplementationSource: source }),
+    ...(experiment === undefined ? {} : { experiment }),
   };
   return mode === "pty"
     ? { ...common, mode }

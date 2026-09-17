@@ -107,7 +107,7 @@ const state = backendState({
           launchedAt: "2026-08-03T00:00:00.000Z",
           mode: "rpc-ui",
           worktree: null,
-          planImplementationSource: null,
+          planImplementationSource: null, experiment: null,
           agentMode: "build",
           compactionMethod: null,
           model: null,
@@ -131,7 +131,7 @@ const state = backendState({
           launchedAt: "2026-08-03T01:00:00.000Z",
           mode: "rpc-ui",
           worktree: null,
-          planImplementationSource: null,
+          planImplementationSource: null, experiment: null,
           agentMode: "build",
           compactionMethod: null,
           model: null,
@@ -698,7 +698,15 @@ describe("Sidebar project open control (issue #169)", () => {
     const rows = [...actions!.querySelectorAll<HTMLButtonElement>("button")]
       .map((row) => row.textContent?.trim())
       .filter((text): text is string => text !== undefined && text !== "");
-    expect(rows).toEqual(["New session", "New terminal session", "New worktree session…", "Project settings…", "Remove project…"]);
+    expect(rows).toEqual([
+      "New session",
+      "New terminal session",
+      "New worktree session…",
+      "Experiments",
+      "New experiment…",
+      "Project settings…",
+      "Remove project…",
+    ]);
 
     const sessionsSheet = document.body.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="projects and sessions"]',
@@ -997,7 +1005,7 @@ describe("project name display", () => {
             launchedAt: "2026-08-03T00:00:00.000Z",
             mode: "rpc-ui" as const,
             worktree: null,
-            planImplementationSource: null,
+            planImplementationSource: null, experiment: null,
             agentMode: "build" as const,
             compactionMethod: null,
             model: null,
@@ -1098,7 +1106,7 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
     launchedAt: "2026-08-03T00:00:00.000Z",
     mode: "rpc-ui" as const,
     worktree: null,
-    planImplementationSource: null,
+    planImplementationSource: null, experiment: null,
     agentMode: "build" as const,
     compactionMethod: null,
     model: null,
@@ -1411,7 +1419,7 @@ describe("Sidebar session drag-and-drop (issue #274)", () => {
     launchedAt: "2026-08-20T00:00:00.000Z",
     mode: "rpc-ui",
     worktree: null,
-    planImplementationSource: null,
+    planImplementationSource: null, experiment: null,
     agentMode: "build",
     compactionMethod: null,
     model: null,
@@ -1573,26 +1581,26 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
             sessionId: null,
             lineageDir: "l1",
             projectCwd: "/projects/tree",
-            planImplementationSource: { sourceTabId: "tree-root", planTitle: "P", planFilePath: "local://p.html" },
+            planImplementationSource: { sourceTabId: "tree-root", planTitle: "P", planFilePath: "local://p.html" }, experiment: null,
             launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", worktree: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null,
             cachedTitle: "Tree Impl", cachedModified: "2026-08-20T00:00:00.000Z", title: "Tree Impl",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
           {
             tabId: "tree-root", sessionId: null, lineageDir: "l2", projectCwd: "/projects/tree",
-            launchedAt: "2026-08-20T01:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null,
+            launchedAt: "2026-08-20T01:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null,
             cachedTitle: "Tree Root", cachedModified: "2026-08-20T01:00:00.000Z", title: "Tree Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
           {
             tabId: "mid-root", sessionId: null, lineageDir: "l3", projectCwd: "/projects/tree",
-            launchedAt: "2026-08-20T02:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null,
+            launchedAt: "2026-08-20T02:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null,
             cachedTitle: "Mid Root", cachedModified: "2026-08-20T02:00:00.000Z", title: "Mid Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
           {
             tabId: "last-root", sessionId: null, lineageDir: "l4", projectCwd: "/projects/tree",
-            launchedAt: "2026-08-20T03:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null,
+            launchedAt: "2026-08-20T03:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null,
             cachedTitle: "Last Root", cachedModified: "2026-08-20T03:00:00.000Z", title: "Last Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1676,7 +1684,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
             sessions: [
               {
                 tabId: "only", sessionId: null, lineageDir: "l", projectCwd: "/projects/solo",
-                launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null,
+                launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, agentMode: "build" as const, compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null,
                 cachedTitle: "Only", cachedModified: "2026-08-20T00:00:00.000Z", title: "Only",
                 status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
               },
@@ -1716,7 +1724,7 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     launchedAt: "2026-08-03T00:00:00.000Z",
     mode: "rpc-ui" as const,
     worktree: null,
-    planImplementationSource: null,
+    planImplementationSource: null, experiment: null,
     agentMode: "build" as const,
     compactionMethod: null,
     model: null,

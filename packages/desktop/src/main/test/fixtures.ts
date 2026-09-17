@@ -64,7 +64,7 @@ export function ownedSessionRecord(
     lineageDir: "omp-ui--proj--11111111-2222-3333-4444-555555555555",
     projectCwd: "/proj",
     worktree: null,
-    planImplementationSource: null,
+    planImplementationSource: null, experiment: null,
     launchedAt: "2026-07-29T10:00:00.000Z",
     mode: "rpc-ui",
     compactionMethod: null,

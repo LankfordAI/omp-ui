@@ -24,7 +24,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     lineageDir: "omp-ui--proj--11111111-2222-3333-4444-555555555555",
     projectCwd: "/abs/proj",
     worktree: null,
-    planImplementationSource: null,
+    planImplementationSource: null, experiment: null,
     launchedAt: "2026-07-29T10:00:00.000Z",
     mode: "pty",
     compactionMethod: null,
@@ -343,6 +343,55 @@ describe("Registry persistence", () => {
     const reloaded = Registry.load(file);
     expect(reloaded.sessions[0]?.planImplementationSource).toEqual(source);
     expect(JSON.parse(fs.readFileSync(file, "utf8")).schemaVersion).toBe(1);
+  });
+
+  it("round-trips persisted experiment provenance, including a null launch branch", () => {
+    const file = tmpFile();
+    const experiment = {
+      goal: "cut p95 latency",
+      metric: "p95_ms",
+      unit: "ms",
+      direction: "lower" as const,
+      launchedBranch: null,
+      launchedAt: "2026-09-17T10:00:00.000Z",
+    };
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord({ experiment }));
+
+    const reloaded = Registry.load(file);
+    expect(reloaded.sessions[0]?.experiment).toEqual(experiment);
+  });
+
+  it("drops a session whose experiment is incomplete without touching its siblings", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [],
+        sessions: [
+          sessionRecord(),
+          {
+            ...sessionRecord({ tabId: "no-metric" }),
+            experiment: {
+              goal: "g",
+              unit: "",
+              direction: "lower",
+              launchedBranch: "autoresearch/g/abcd",
+              launchedAt: "t",
+            },
+          },
+          {
+            ...sessionRecord({ tabId: "no-branch-key" }),
+            experiment: { goal: "g", metric: "m", unit: "", direction: "higher", launchedAt: "t" },
+          },
+        ],
+      }),
+    );
+
+    const reg = Registry.load(file);
+    expect(reg.sessions.map((session) => session.tabId)).toEqual(["tab-1"]);
+    expect(fs.existsSync(file)).toBe(true);
   });
 
   it("defaults dismissedAppUpdateVersion to null when the field is absent", () => {
@@ -1101,7 +1150,7 @@ describe("Registry worktree field", () => {
       model: null,
       thinkingLevel: null,
       advisorModel: null,
-      planImplementationSource: null,
+      planImplementationSource: null, experiment: null,
       agentMode: "build",
     });
   });
@@ -1322,6 +1371,7 @@ describe("legacy registries with absent optional fields (issue #294)", () => {
       "agentMode",
       "worktree",
       "planImplementationSource",
+      "experiment",
     ]) {
       delete legacySession[k];
     }
@@ -1345,7 +1395,7 @@ describe("legacy registries with absent optional fields (issue #294)", () => {
       compactionMethod: null,
       agentMode: "build",
       worktree: null,
-      planImplementationSource: null,
+      planImplementationSource: null, experiment: null,
     });
   });
 });

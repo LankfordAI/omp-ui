@@ -106,6 +106,7 @@ import { openExternalSafe } from "./open-external";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
 import { windowStatePath } from "./window-state";
 import { NO_BREADCRUMBS, type BreadcrumbSink } from "./breadcrumbs";
+import { readExperimentDetail, readProjectExperiments, readRunLog } from "./experiments";
 
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
@@ -788,6 +789,16 @@ export class MainBackend {
         // getBranchDiff: it touches no registry/BackendState field and never
         // calls broadcast().
         [CH.memoryOverview]: (projectCwd: string) => readMemoryOverview(projectCwd),
+        [CH.autoresearchOverview]: (projectCwd: string) =>
+          readProjectExperiments(this.registry.sessions, projectCwd),
+        [CH.autoresearchExperiment]: (projectCwd: string, tabId: string | null, experimentId: number) =>
+          readExperimentDetail(this.registry.sessions, projectCwd, tabId, experimentId),
+        [CH.autoresearchRunLog]: (
+          projectCwd: string,
+          tabId: string | null,
+          experimentId: number,
+          runId: number,
+        ) => readRunLog(this.registry.sessions, projectCwd, tabId, experimentId, runId),
         [CH.suggestBranchName]: (projectCwd: string, planContext: string) =>
           this.suggestBranchName(projectCwd, planContext),
         [CH.readOmpSettings]: (projectCwd: string | null) =>
@@ -1293,6 +1304,7 @@ export class MainBackend {
     // state, so a session with no live process reports none instead of a
     // remembered one (issue #381).
     const goal = this.sessions.goalSnapshot(record.tabId);
+    const autoresearch = this.sessions.autoresearchSnapshot(record.tabId);
     return {
       ...record,
       title: title?.trim() || "New session",
@@ -1307,6 +1319,7 @@ export class MainBackend {
       // with no process reports none.
       pendingDialogs: this.sessions.pendingDialogs(record.tabId),
       ...(goal === undefined ? {} : { goal }),
+      ...(autoresearch === undefined ? {} : { autoresearch }),
     };
   }
 

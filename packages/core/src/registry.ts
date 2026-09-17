@@ -7,6 +7,7 @@ import type {
   OwnedSessionRecord,
   PlanFormat,
   PlanImplementationSource,
+  SessionExperiment,
   ProjectRecord,
   RemoteBind,
   SessionMode,
@@ -322,6 +323,30 @@ function isPlanImplementationSource(value: unknown): value is PlanImplementation
   );
 }
 
+/**
+ * Experiment provenance (issue #559). Complete or dropped: `launchedBranch`
+ * must be PRESENT (null = detached / not a repo), since a missing key would
+ * silently unlink the session from its DB row.
+ */
+function isSessionExperiment(value: unknown): value is SessionExperiment {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "goal" in value &&
+    typeof value.goal === "string" &&
+    "metric" in value &&
+    typeof value.metric === "string" &&
+    "unit" in value &&
+    typeof value.unit === "string" &&
+    "direction" in value &&
+    (value.direction === "lower" || value.direction === "higher") &&
+    "launchedBranch" in value &&
+    (typeof value.launchedBranch === "string" || value.launchedBranch === null) &&
+    "launchedAt" in value &&
+    typeof value.launchedAt === "string"
+  );
+}
+
 function isWorktreeShape(v: unknown): boolean {
   return (
     typeof v === "object" &&
@@ -356,6 +381,8 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // Handoff provenance also post-dates the first schema-1 records. When
     // present it must be complete: partial metadata cannot identify a plan.
     optNullable(value, "planImplementationSource", isPlanImplementationSource) &&
+    // Experiment provenance post-dates schema-1 too; same completeness rule.
+    optNullable(value, "experiment", isSessionExperiment) &&
     "launchedAt" in value &&
     typeof value.launchedAt === "string" &&
     "mode" in value &&
@@ -420,6 +447,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
         ? { path: s.worktree.path, branch: s.worktree.branch, base: s.worktree.base ?? null }
         : null,
       planImplementationSource: s.planImplementationSource ?? null,
+      experiment: s.experiment ?? null,
     }));
   const settingsValue =
     "settings" in raw && raw.settings !== null && typeof raw.settings === "object"

@@ -24,7 +24,8 @@
     "./extension-dialog": "./src/extension-dialog.ts",
     "./rpc/control-frames": "./src/rpc/control-frames.ts",
     "./remote-instances": "./src/remote-instances.ts",
-    "./worktree-branch": "./src/worktree-branch.ts"
+    "./worktree-branch": "./src/worktree-branch.ts",
+    "./autoresearch": "./src/autoresearch.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

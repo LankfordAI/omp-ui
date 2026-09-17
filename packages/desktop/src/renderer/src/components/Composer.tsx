@@ -10,6 +10,7 @@ import {
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
 import { GOAL_COMMAND } from "@omp-ui/core/goal";
+import { AUTORESEARCH_COMMAND } from "@omp-ui/core/autoresearch";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
 import { currentLocaleId, useT, type MessageKey } from "../lib/i18n";
@@ -97,6 +98,14 @@ export function Composer({
         })),
       },
       { ...UI_GUIDED_GOAL_COMMAND, description: t("composer.slash.guidedGoal") },
+      {
+        ...UI_AUTORESEARCH_COMMAND,
+        description: t("composer.slash.autoresearch"),
+        subcommands: UI_AUTORESEARCH_SUBCOMMANDS.map((sub) => ({
+          name: sub.name,
+          description: t(sub.key),
+        })),
+      },
     ];
     const owned = new Set(uiEntries.map((entry) => entry.name));
     return [
@@ -110,6 +119,7 @@ export function Composer({
           c.name !== PLAN_COMMAND &&
           c.name !== CAPABILITIES_COMMAND &&
           c.name !== GOAL_COMMAND &&
+          c.name !== AUTORESEARCH_COMMAND &&
           !owned.has(c.name),
       ),
     ];
@@ -1069,6 +1079,27 @@ const UI_GUIDED_GOAL_COMMAND: SlashCommandInfo = {
   source: "omp-ui",
   input: { hint: "[rough objective]" },
 };
+
+/**
+ * omp's `/autoresearch`, offered as omp-ui's own row (ADR-0030): `start` and
+ * `lab` are renderer surfaces the store intercepts, the rest reach omp verbatim.
+ * omp advertises `autoresearch` itself — the owned set folds its row into this
+ * one — and its hidden `omp-ui-autoresearch` arming command is filtered out
+ * like the capabilities bridge's.
+ */
+const UI_AUTORESEARCH_COMMAND: SlashCommandInfo = {
+  name: "autoresearch",
+  description: "autoresearch experiments: start, lab, off, clear",
+  source: "omp-ui",
+  subcommands: [],
+};
+
+const UI_AUTORESEARCH_SUBCOMMANDS: { name: string; key: MessageKey }[] = [
+  { name: "start", key: "composer.slash.autoresearchStart" },
+  { name: "lab", key: "composer.slash.autoresearchLab" },
+  { name: "off", key: "composer.slash.autoresearchOff" },
+  { name: "clear", key: "composer.slash.autoresearchClear" },
+];
 
 /** Stable empties keep the per-field selectors from firing on every store tick. */
 const NO_COMMANDS: never[] = [];

@@ -20,6 +20,9 @@ import type {
   InstanceIdentity,
   McpSetEnabledRequest,
   MemoryOverview,
+  ExperimentDetail,
+  ProjectExperiments,
+  RunLogResult,
   MergeBackResult,
   MergeBackStatus,
   MergeDestination,
@@ -635,6 +638,35 @@ export const BACKEND_CHANNELS = {
   memoryOverview: {
     channel: "memory:overview",
     ...request<[projectCwd: string], MemoryOverview>([str()]),
+  },
+  /**
+   * Experiments for a project: its checkout plus every owned worktree
+   * session's checkout, read from omp's autoresearch DBs (ADR-0030). Never
+   * rejects — a per-checkout failure lands in that checkout's `result.error`.
+   */
+  autoresearchOverview: {
+    channel: "autoresearch:overview",
+    ...request<[projectCwd: string], ProjectExperiments>([str()]),
+  },
+  /**
+   * One experiment's record and runs; `tabId` names the owned worktree
+   * session whose checkout's DB holds it, null = the project checkout's DB.
+   */
+  autoresearchExperiment: {
+    channel: "autoresearch:experiment",
+    ...request<[projectCwd: string, tabId: string | null, experimentId: number], ExperimentDetail>([
+      str(),
+      nullable(str()),
+      num(),
+    ]),
+  },
+  /** Head of one run's log (≤ 256 KiB), confined to omp's autoresearch state dir. */
+  autoresearchRunLog: {
+    channel: "autoresearch:runLog",
+    ...request<
+      [projectCwd: string, tabId: string | null, experimentId: number, runId: number],
+      RunLogResult
+    >([str(), nullable(str()), num(), num()]),
   },
   /**
    * Lists resolved, redacted MCP servers and per-file errors; null projectCwd

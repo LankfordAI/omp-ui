@@ -20,11 +20,17 @@ import {
 import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
 import { MCP_RUNTIME_STATUS_KEY } from "@omp-ui/core/mcp-status";
 import { CAPABILITIES_STATUS_KEY } from "@omp-ui/core/capabilities";
+import {
+  AUTORESEARCH_STATUS_KEY,
+  AUTORESEARCH_WIDGET_KEY,
+  type AutoresearchSnapshot,
+} from "@omp-ui/core/autoresearch";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { commandItem, type NoticeItem } from "../../lib/transcript";
 import {
   backendState as makeBackendState,
   rpcTabState,
+  tabInfo,
 } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 import { reduceAgentEvent } from "./reduce-agent-event";
@@ -649,6 +655,114 @@ describe("handleRpcFrame routing", () => {
       const { tab, skills } = loaded();
       expect(skills).toEqual(["alpha"]);
       expect(tab.capabilities?.revision).toBe(1);
+    });
+  });
+
+  describe("autoresearch bridge frames (ADR-0030)", () => {
+    const snapshot = (patch: Partial<AutoresearchSnapshot> = {}): AutoresearchSnapshot => ({
+      version: 1,
+      processKey: "proc-1",
+      sessionId: "sess-1",
+      revision: 1,
+      available: true,
+      unavailable: null,
+      mode: "on",
+      goal: "make the benchmark faster",
+      goalTruncated: false,
+      lastTool: null,
+      ...patch,
+    });
+    let frameSeq = 0;
+    const publish = (value: AutoresearchSnapshot | string): void =>
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: `autoresearch-${++frameSeq}`,
+        method: "setStatus",
+        statusKey: AUTORESEARCH_STATUS_KEY,
+        statusText: typeof value === "string" ? value : JSON.stringify(value),
+      });
+
+    it("claims the snapshot as tab state, never as a status chip", () => {
+      publish(snapshot({ revision: 3 }));
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.autoresearch).toMatchObject({ processKey: "proc-1", revision: 3, mode: "on" });
+      expect(tab.extensionStatus).toEqual({});
+      expect(tab.items).toEqual([]);
+      expect(tab.extensionQueue).toEqual([]);
+    });
+
+    it("drops a same-process publish that is not newer, keeps a malformed one from reading as off", () => {
+      publish(snapshot({ revision: 5, mode: "on" }));
+      publish(snapshot({ revision: 5, mode: "off" }));
+      publish(snapshot({ revision: 4, mode: "off" }));
+      publish("{ not json");
+      expect(h.useStore.getState().rpc[h.TAB]!.autoresearch).toMatchObject({ revision: 5, mode: "on" });
+      // A replacement bridge — a respawn — starts over at its own revision 1.
+      publish(snapshot({ processKey: "proc-2", revision: 1, mode: "off" }));
+      expect(h.useStore.getState().rpc[h.TAB]!.autoresearch).toMatchObject({ processKey: "proc-2", mode: "off" });
+    });
+
+    it("swallows omp's autoresearch dashboard widget but still answers it", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: "w-autoresearch",
+        method: "setWidget",
+        widgetKey: AUTORESEARCH_WIDGET_KEY,
+        widgetLines: ["autoresearch: on", "run 3"],
+      });
+      expect(h.sent.pop()!.cmd).toMatchObject({
+        type: "extension_ui_response",
+        id: "w-autoresearch",
+        cancelled: true,
+      });
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.extensionStatus).toEqual({});
+      expect(tab.items).toEqual([]);
+      // Any other widget keeps the ordinary status-chip path.
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: "w-ctx",
+        method: "setWidget",
+        widgetKey: "ctx",
+        widgetLines: ["ctx 12%"],
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.extensionStatus).toEqual({ ctx: "ctx 12%" });
+    });
+
+    it("re-reads a project's experiments the Lab already holds when the mode or tool activity changes", () => {
+      const loadExperiments = vi.fn(async () => {});
+      const previous = h.useStore.getState().loadExperiments;
+      h.useStore.setState({
+        tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/project" })],
+        experiments: {
+          "/project": { load: "ready", result: null, detail: {}, error: null, revision: 1 },
+        },
+        loadExperiments,
+      });
+      try {
+        // The first snapshot this tab sees is itself a change.
+        publish(snapshot({ revision: 1, mode: "off" }));
+        expect(loadExperiments).toHaveBeenCalledTimes(1);
+        // A newer publish that changes nothing the DB could reflect is not.
+        publish(snapshot({ revision: 2, mode: "off" }));
+        expect(loadExperiments).toHaveBeenCalledTimes(1);
+        publish(snapshot({ revision: 3, mode: "on" }));
+        expect(loadExperiments).toHaveBeenCalledTimes(2);
+        publish(snapshot({
+          revision: 4,
+          mode: "on",
+          lastTool: { name: "log_experiment", at: 1_700_000_000_000, isError: false },
+        }));
+        expect(loadExperiments).toHaveBeenCalledTimes(3);
+        expect(loadExperiments).toHaveBeenLastCalledWith("/project", null);
+        // A project nobody has read yet is not read on a frame's behalf: the
+        // Lab and the HUD chip make the first read when they mount.
+        h.useStore.setState({ experiments: {} });
+        publish(snapshot({ revision: 5, mode: "off" }));
+        expect(loadExperiments).toHaveBeenCalledTimes(3);
+      } finally {
+        h.useStore.setState({ loadExperiments: previous, experiments: {}, tabs: [] });
+      }
     });
   });
 

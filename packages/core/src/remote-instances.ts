@@ -151,6 +151,11 @@ const PROJECT_PROXY_CHANNELS: readonly string[] = [
   "capabilities:scoped:set",
   "project-files:list",
   "file-mentions:resolve",
+  // The Lab reads a joined instance's experiments from that instance's own
+  // autoresearch DBs (issue #559); the DB and run logs live on the owning host.
+  "autoresearch:overview",
+  "autoresearch:experiment",
+  "autoresearch:runLog",
 ];
 
 /**

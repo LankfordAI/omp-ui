@@ -53,7 +53,7 @@ function record(patch: Partial<SessionSummary> = {}): SessionSummary {
     launchedAt: "t",
     mode: "rpc-ui",
     worktree: null,
-    planImplementationSource: null,
+    planImplementationSource: null, experiment: null,
     agentMode: "build",
     compactionMethod: null,
     model: null,

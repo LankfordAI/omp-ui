@@ -124,7 +124,8 @@ _Avoid_: right sidebar, panel, drawer
 **Project actions sheet**:
 The bottom sheet a compact-shell project header's ⋯ button opens: the
 project's name and full path, then New session, New terminal session,
-*New worktree session, Project settings, and Remove project. It
+*New worktree session, Experiments, New experiment, Project settings, and
+Remove project. It
 replaces the cluster below 900px. The desktop open targets (VS Code, Files, Terminal) are
 deliberately absent: a compact shell is usually a phone talking to a
 remote omp-ui, where opening on the host answers a question nobody asked.
@@ -167,7 +168,9 @@ model describe the parent advisor; its spend and token total include advisor
 activity in every spawned descendant. The parent switch is a ceiling: an
 advisor-off parent disables descendant advisors, while an advisor-on parent
 still leaves each descendant's own opt-in authoritative. A generated `-e`
-extension delivers the values (ADR-0008), never a text parse.
+extension delivers the values (ADR-0008), never a text parse; while OMP's
+autoresearch mode is on, an `autoresearch` chip sits beside the goal chip and
+opens the **Lab** on that experiment (ADR-0030).
 _Avoid_: toolbar, header, status bar
 
 **Session parameter memory**:
@@ -743,3 +746,31 @@ any correlated command result. Keyed in main by the process that answered, not t
 tab, so a replaced process's goal cannot be shown by its successor; a stale or
 malformed publish leaves the last good snapshot standing.
 _Avoid_: goal status (a field of the snapshot), goal cache, goal mirror
+
+**Experiment**:
+One row of OMP's autoresearch `sessions` table — its goal, metric, direction,
+branch, baseline, segments, notes, and runs — not an omp-ui record. It is
+linked to an owned session by that session's effective working tree plus its
+branch, so it keeps existing while the session is dormant and outlives the
+process that wrote it. omp-ui's own record of a launch is provenance only:
+what the user asked for before `init_experiment` made the row.
+_Avoid_: run (a run is one benchmark execution inside an experiment), trial,
+autoresearch session
+
+**Lab**:
+The main-pane surface that lists every project's **Experiments** with progress
+cards, and shows one experiment's runs, notes, and controls in a detail view.
+Deliberately not a **Tab** and not one of the **Inspector rail**'s panes:
+opening it hides the tab column, and activating any tab closes it. Reached from
+the sidebar project cluster, the command palette, the Session HUD's
+autoresearch chip, or `/autoresearch lab`.
+_Avoid_: dashboard, experiments tab, research panel
+
+**New experiment**:
+The dialog whose fields are exactly `init_experiment`'s parameters. It spawns
+an rpc-ui session in a fresh worktree checkout on a minted
+`autoresearch/<slug>/<hash>` branch, arms OMP's mode with bare `/autoresearch`,
+and sends one kickoff prompt — so the experiment is created by OMP's own tools,
+never by an omp-ui write. Where there is no Git checkout it launches at the
+project checkout with no branch isolation, and a jj-only workspace is refused.
+_Avoid_: experiment wizard, autoresearch setup

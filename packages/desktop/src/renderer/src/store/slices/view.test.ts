@@ -28,7 +28,7 @@ function summary(
     worktree,
     launchedAt: "t",
     mode: "rpc-ui",
-    planImplementationSource: null,
+    planImplementationSource: null, experiment: null,
     agentMode: "build",
     compactionMethod: null,
     model: null,

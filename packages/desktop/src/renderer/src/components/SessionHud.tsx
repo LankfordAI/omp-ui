@@ -3,11 +3,15 @@ import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
 import type { NativeGoal } from "@omp-ui/core/goal";
+import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
 import { useCompactShell } from "../lib/responsive";
 import { useT } from "../lib/i18n";
+import { linkedExperiment } from "../lib/experiment-link";
+import { deltaLabel } from "./lab/experiment-state";
+import { projectKey } from "../lib/project-key";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findInstance, findOwner, findRecord, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
@@ -248,6 +252,78 @@ function GoalChip({
         {goal.status === "active" && <Dot tone="signal" />}
         {label}
         <span className="opacity-70">{usage}</span>
+      </Chip>
+    </button>
+  );
+}
+
+/**
+ * One session's autoresearch mode, as the root bridge reports it (ADR-0030,
+ * issue #559). The chip is the glanceable half: is the loop on, is a turn
+ * running, which run of the segment, how far the best kept run has moved from
+ * the baseline, is a run waiting for its log. Progress comes from the Lab's
+ * cached overview — omp's DB is the record of runs, and the chip never reads
+ * it directly — linked to this session by checkout and branch; before that
+ * cache exists the chip reads it once. Clicking opens the Lab on the linked
+ * experiment (or the project's overview while no row exists yet).
+ */
+function AutoresearchChip({
+  snapshot,
+  tabId,
+  className,
+}: {
+  snapshot: AutoresearchSnapshot;
+  tabId: string;
+  className?: string;
+}) {
+  const t = useT();
+  const openLab = useStore((s) => s.openLab);
+  const loadExperiments = useStore((s) => s.loadExperiments);
+  const tab = useStore((s) => s.tabs.find((candidate) => candidate.tabId === tabId));
+  const projectCwd = tab?.projectCwd;
+  const instanceId = tab?.instanceId ?? null;
+  const summary = useStore((s) => findRecord(s.state, tabId));
+  const cache = useStore((s) =>
+    projectCwd === undefined ? undefined : s.experiments[projectKey(instanceId, projectCwd)],
+  );
+  const turnRunning = useStore((s) => s.rpc[tabId]?.status === "running") || summary?.turnRunning === true;
+  // Read the overview once for a project the Lab has not visited yet; from
+  // then on the snapshot's own acceptance path keeps it fresh.
+  const needsExperiments = projectCwd !== undefined && cache === undefined;
+  useEffect(() => {
+    if (needsExperiments) void loadExperiments(projectCwd, instanceId);
+  }, [needsExperiments, projectCwd, instanceId, loadExperiments]);
+  const record = linkedExperiment(cache?.result ?? null, tabId, summary)?.record ?? null;
+  const progress = record?.progress ?? null;
+  const detail: string[] = [];
+  if (record !== null && progress !== null) {
+    detail.push(
+      record.maxIterations === null
+        ? t("hud.autoresearch.run", { n: progress.segmentRuns })
+        : t("hud.autoresearch.runOf", { n: progress.segmentRuns, cap: record.maxIterations }),
+    );
+    if (progress.best !== null && progress.baseline !== null) {
+      detail.push(
+        t("hud.autoresearch.best", {
+          delta: deltaLabel(progress.baseline.metric, progress.best.metric),
+        }),
+      );
+    }
+    if (progress.pendingRunId !== null) detail.push(t("hud.autoresearch.logPending"));
+  }
+  const title = t("hud.autoresearch.goal", { goal: snapshot.goal ?? "" });
+  return (
+    <button
+      type="button"
+      onClick={() => openLab(projectCwd ?? null, instanceId, { tabId })}
+      title={`${title} — ${t("hud.autoresearch.openTitle")}`}
+      aria-label={title}
+      className={cn("shrink-0 rounded border border-transparent", className)}
+    >
+      <Chip tone={turnRunning ? "signal" : "copper"} mono>
+        {turnRunning && <Dot tone="signal" />}
+        {t("hud.autoresearch.on")}
+        {detail.length > 0 && <span className="opacity-70">{detail.join(" · ")}</span>}
       </Chip>
     </button>
   );
@@ -675,6 +751,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const mcpFailureCount = useStore((s) => s.rpc[tabId]?.mcpStatus?.failedServers.length ?? 0);
   const plan = useStore((s) => s.rpc[tabId]?.plan);
   const goal = useStore((s) => s.rpc[tabId]?.goal);
+  const autoresearch = useStore((s) => s.rpc[tabId]?.autoresearch);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
@@ -759,6 +836,14 @@ export function SessionHud({ tabId }: { tabId: string }) {
       className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
     />
   );
+  // The autoresearch chip sits beside it while omp's mode is on (ADR-0030).
+  const autoresearchChip = autoresearch?.mode === "on" && (
+    <AutoresearchChip
+      snapshot={autoresearch}
+      tabId={tabId}
+      className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
+    />
+  );
   // Which host this session lives on (issue #416): quiet mono chip, the URL in
   // the tooltip. Local sessions carry no chip — most sessions are local, and a
   // "this app" chip on every one would say nothing.
@@ -784,6 +869,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {instanceChip}
           {agentModeChip}
           {goalChip}
+          {autoresearchChip}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
@@ -844,6 +930,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {instanceChip}
       {agentModeChip}
       {goalChip}
+      {autoresearchChip}
       {/* Remote sessions retain the informational and finish-capable chip;
           only host-local open rows are suppressed (issue #435). */}
       {worktree && (

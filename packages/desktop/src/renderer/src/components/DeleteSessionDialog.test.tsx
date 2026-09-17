@@ -147,7 +147,7 @@ const summary = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({
   launchedAt: "2026-01-01T00:00:00.000Z",
   mode: "rpc-ui",
   worktree: null,
-  planImplementationSource: null,
+  planImplementationSource: null, experiment: null,
   agentMode: "build",
   compactionMethod: null,
   model: null,

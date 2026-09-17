@@ -7,8 +7,10 @@ import { DiagnosticsExportDialog } from "./components/DiagnosticsExportDialog";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { inspectorBadges } from "./components/InspectorRail";
 import { CapabilitiesViewer } from "./components/CapabilitiesViewer";
+import { NewExperimentDialog } from "./components/NewExperimentDialog";
 import { NewWorktreeSessionDialog } from "./components/NewWorktreeSessionDialog";
 import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
+import { Lab } from "./components/lab/Lab";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { ProjectPicker } from "./components/ProjectPicker";
@@ -271,6 +273,8 @@ export default function App() {
   const worktreeDialogInstanceId = useStore((s) => s.worktreeDialogInstanceId);
   const newSession = useStore((s) => s.newSession);
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
+  const lab = useStore((s) => s.lab);
+  const experimentDialog = useStore((s) => s.experimentDialog);
   const settingsPage = useStore((s) => s.settingsPage);
   const openSettings = useStore((s) => s.openSettings);
   const toggleConsole = useStore((s) => s.toggleConsole);
@@ -398,7 +402,10 @@ export default function App() {
 
   const visibleTabs = tabs.filter((t) => !t.hidden);
   const activeTab = tabs.find((tab) => tab.tabId === activeTabId);
-  const compactTitle = activeTitle ?? t("app.compact.projectsAndSessions");
+  // The Lab takes the main pane whole (issue #559): the tabs stay mounted
+  // underneath, hidden, exactly as a background tab is.
+  const compactTitle =
+    lab !== null ? t("lab.header.title") : activeTitle ?? t("app.compact.projectsAndSessions");
   const badges = activeTab?.mode === "rpc-ui" ? inspectorBadges(activeRuntime) : null;
   const inspectorCount = badges ? badges.todos + badges.agents + badges.plans : 0;
 
@@ -453,7 +460,7 @@ export default function App() {
              * with it and the session becomes unrecoverable in place.
              */}
             {tabs.map((t) => {
-              const shown = t.tabId === activeTabId && !t.hidden;
+              const shown = lab === null && t.tabId === activeTabId && !t.hidden;
               return (
                 <div
                   key={t.tabId}
@@ -469,7 +476,8 @@ export default function App() {
                 </div>
               );
             })}
-            {visibleTabs.length === 0 && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
+            {lab !== null && <Lab view={lab} />}
+            {visibleTabs.length === 0 && lab === null && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
           </div>
         </div>
       </div>
@@ -503,6 +511,9 @@ export default function App() {
       )}
       {worktreeDialogProject !== null && (
         <NewWorktreeSessionDialog projectCwd={worktreeDialogProject} instanceId={worktreeDialogInstanceId} />
+      )}
+      {experimentDialog !== null && (
+        <NewExperimentDialog projectCwd={experimentDialog.projectCwd} instanceId={experimentDialog.instanceId} />
       )}
       {finishWorktreeTab !== null && (
         <FinishWorktreeDialog key={finishWorktreeTab} tabId={finishWorktreeTab} />

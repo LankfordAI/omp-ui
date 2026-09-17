@@ -45,3 +45,11 @@ describe("browser pane routing sets", () => {
     expectTypeOf<Extract<BrowserPaneEnsureResult, { cdpUrl: unknown }>>().toBeNever();
   });
 });
+
+describe("autoresearch proxy channels (issue #559)", () => {
+  it("proxies the three Lab reads to a joined instance", () => {
+    for (const channel of ["autoresearch:overview", "autoresearch:experiment", "autoresearch:runLog"]) {
+      expect(REMOTE_PROXY_CHANNELS.has(channel)).toBe(true);
+    }
+  });
+});

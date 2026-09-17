@@ -75,6 +75,16 @@ export function IconPlus({ className }: { className?: string }) {
   );
 }
 
+/** Erlenmeyer flask — the Lab and every experiment affordance (issue #559). */
+export function IconFlask({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M6 2h4M6.5 2v4.2L2.9 12.4A1.2 1.2 0 0 0 3.95 14.2h8.1a1.2 1.2 0 0 0 1.05-1.8L9.5 6.2V2" />
+      <path d="M4.6 10.5h6.8" />
+    </svg>
+  );
+}
+
 export function Chevron({ open, className }: { open: boolean; className?: string }) {
   return (
     <svg
