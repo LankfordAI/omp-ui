@@ -23,6 +23,7 @@ import type {
   UpdateTrain,
   WorktreeReleaseOptions,
 } from "./types";
+import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 
 export interface ArgCodec<T> {
   readonly expected: string;
@@ -249,6 +250,15 @@ export const ompSettingValueCodec: ArgCodec<OmpSettingValue> = {
     if (typeof value === "number") return num().decode(value, path);
     if (Array.isArray(value)) return stringArrayCodec.decode(value, path);
     return openRecordCodec.decode(value, path);
+  },
+};
+
+export const subagentModelMapCodec: ArgCodec<SubagentModelMap> = {
+  expected: "a plain object of safe agent names and model selectors",
+  decode(value, path) {
+    const fields = record().decode(value, path);
+    if (!isSubagentModelMap(fields)) fail(path, "a plain object of safe agent names and model selectors");
+    return fields;
   },
 };
 

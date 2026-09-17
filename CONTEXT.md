@@ -142,6 +142,22 @@ a subagent cannot be prompted or steered. It is a view onto the same live
 session, never a separate session or tab.
 _Avoid_: subagent tab, agent window, subagent chat
 
+**Subagent model**:
+The model one agent (`scout`, `task`, …) spawns with, chosen per agent at
+three scopes where the narrowest wins (ADR-0031): Global
+(`~/.omp/agent/config.yml`), Project (`<cwd>/.omp/config.yml`), and Session
+(a per-lineage `--config` overlay) — all three carried by omp's own
+`task.agentModelOverrides` record, which omp deep-merges per agent name. A
+choice is a single selector string: `"*"` (the session's own model), a
+concrete `provider/id[:level]`, or an `@role` alias; an absent key is omp's
+default (the agent's frontmatter model, else the session model), never `""`.
+Session choices are live — omp re-reads the overlay before every subagent
+spawn — and are edited in the Agents pane; Global and Project choices live in
+Settings → omp and apply to sessions started afterwards. With no session
+choice at all, the **Subagents inherit the session model** preference (on by
+default) expands the roster into `"*"` entries at spawn.
+_Avoid_: cheap model setting, agent model pin
+
 **Browser pane**:
 A live web page inside an rpc-ui tab that the user and the agent share. The
 main process owns the page (an offscreen renderer in its own partition),
@@ -192,6 +208,11 @@ changes continue to update the `last*` fields without moving either pin.
 Clearing a pin restores the last-used chain. The advisor pin is model-only;
 advisor on/off keeps its existing last-used → app default → omp config chain,
 so the pinned advisor model is dormant while that chain resolves off.
+Subagent models (ADR-0031) are deliberately NOT part of this memory: a
+session's `subagentModels` map is a standing session-scoped choice that never
+updates the project's last-used fields, and there is no project "default
+subagent models" pin — the project layer for subagents is omp's own
+`.omp/config.yml`, not a registry field.
 _Avoid_: resetting model on advisor toggle
 
 **Subscription sign-in**:

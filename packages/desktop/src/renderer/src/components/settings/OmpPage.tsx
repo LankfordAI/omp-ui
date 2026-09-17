@@ -8,6 +8,8 @@ import { findRecord, sessionCwd, useStore } from "../../store";
 import { Button, Empty, Label } from "../ui";
 import { CommitField, Row, SettingControl, layerBadge } from "./rows";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
+import { OMP_SUBAGENT_MODELS_KEY } from "@omp-ui/core/omp-settings-keys";
+import { SubagentModelsSection } from "./SubagentModelsSection";
 import { useT } from "../../lib/i18n";
 
 export function OmpPage({
@@ -163,6 +165,14 @@ export function OmpPage({
           </div>
         </section>
       )}
+
+      <SubagentModelsSection
+        entry={byKey.get(OMP_SUBAGENT_MODELS_KEY)}
+        projectCwd={projectCwd}
+        pendingKey={pendingKey}
+        commit={commit}
+        retry={retry}
+      />
 
       {OMP_SETTING_GROUPS.map((group) => {
         const entries = group.keys

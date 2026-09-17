@@ -72,6 +72,7 @@ export function ownedSessionRecord(
     thinkingLevel: null,
     advisor: false,
     advisorModel: null,
+    subagentModels: null,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",

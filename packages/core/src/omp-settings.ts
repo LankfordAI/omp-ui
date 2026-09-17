@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { getOmpAgentDir } from "./omp-config";
 import { SKILLS_SETTING_KEYS, TOOL_SETTING_KEYS } from "./omp-capability-keys";
-import { OMP_MODEL_ROLES_KEY, OMP_SETTING_KEYS } from "./omp-settings-keys";
+import { OMP_MODEL_ROLES_KEY, OMP_SETTING_KEYS, SUBAGENT_MODEL_SETTING_GROUP } from "./omp-settings-keys";
 import {
   parseWebSearchProviderList,
   WEB_SEARCH_PROBE_SENTINEL,
@@ -50,6 +50,8 @@ export {
   OMP_MODEL_ROLES_KEY,
   OMP_SETTING_GROUPS,
   OMP_SETTING_KEYS,
+  SUBAGENT_MODEL_SETTING_GROUP,
+  OMP_SUBAGENT_MODELS_KEY,
   WEB_SEARCH_SETTING_GROUP,
 } from "./omp-settings-keys";
 
@@ -65,6 +67,9 @@ const ALLOWED_KEYS: readonly string[] = [
   ...SKILLS_SETTING_KEYS,
   ...TOOL_SETTING_KEYS,
   OMP_MODEL_ROLES_KEY,
+  // task.agentModelOverrides is REPLACE-not-merge like modelRoles (ADR-0031):
+  // the writer must send the full merged record, never just the edited agent.
+  ...SUBAGENT_MODEL_SETTING_GROUP.keys,
 ];
 
 /** One omp invocation: resolves stdout, rejects Error(trimmed stderr) on failure. */
@@ -292,6 +297,7 @@ export async function readOmpSettings(
         value: effective as OmpSettingValue | undefined,
         options: options[key] ?? null,
         layer: resolveLayer(effective, schema.value, rawSetting(pristineMap, key)?.value),
+        globalValue: schema.value as OmpSettingValue | undefined,
       });
     }
     return { entries, agentDir: getOmpAgentDir(), projectConfigPath, error: null };

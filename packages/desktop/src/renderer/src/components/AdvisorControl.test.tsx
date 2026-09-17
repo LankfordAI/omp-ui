@@ -60,6 +60,7 @@ function record(patch: Partial<SessionSummary> = {}): SessionSummary {
     thinkingLevel: null,
     advisor: true,
     advisorModel: PIN,
+    subagentModels: null,
     cachedTitle: "Gated session",
     cachedModified: "t",
     title: "Gated session",

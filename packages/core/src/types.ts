@@ -4,6 +4,8 @@ import type { BrowserPaneAgentState } from "./browser-pane";
 import type { RpcFrame } from "./rpc/codec";
 import type { GoalSnapshot } from "./goal";
 import type { AutoresearchSnapshot } from "./autoresearch";
+import type { SubagentModelMap } from "./subagent-model";
+import type { ProjectConfigMapRead } from "./project-config-writer";
 import type { SkillOrigin } from "./omp-capability-keys";
 export type { SkillOrigin } from "./omp-capability-keys";
 export type SessionStatus =
@@ -326,6 +328,15 @@ export interface OwnedSessionRecord {
    * this is applied as a `--config` overlay at spawn and changing it respawns.
    */
   advisorModel: string | null;
+  /**
+   * Session-scope subagent model choices (ADR-0031): agent name → omp
+   * `model[:level]` selector, `"*"` meaning the session's own model. Applied
+   * as a `--config` overlay omp re-reads before every subagent spawn, so
+   * changes take effect live with no respawn. Null = no session choice; the
+   * inherit-by-default umbrella may then fill the map at spawn. Post-dates
+   * the first schema-1 records — legacy records normalize to null.
+   */
+  subagentModels: SubagentModelMap | null;
   cachedTitle: string | null;
   cachedModified: string | null;
 }
@@ -448,6 +459,10 @@ export interface BackendState {
   desktopNotifications: boolean;
   /** Seeds the advisor on/off for new sessions, default off (issue #174). */
   defaultAdvisor: boolean;
+  /** Umbrella: subagents with no explicit choice run on the session's model (ADR-0031); default on. */
+  subagentModelInheritByDefault: boolean;
+  /** Agent names from the last roster refresh (ADR-0031). */
+  agentRoster: string[];
   modelFavorites: string[];
   /** Whether destructive session deletion proceeds without a renderer warning. */
   skipDeleteConfirmation: boolean;
@@ -628,9 +643,22 @@ export interface OmpSettingEntry {
   description: string;
   /** Effective value for the read's projectCwd; undefined = unset. */
   value: OmpSettingValue | undefined;
+  /** Global-layer value; undefined = unset at that layer. REPLACE-not-merge
+   *  records (`modelRoles`, `task.agentModelOverrides`) merge edits against
+   *  THIS, never against `value`, so a project value is not baked into the
+   *  global file. */
+  globalValue: OmpSettingValue | undefined;
   /** Enum members, in omp's order; null for non-enum types. */
   options: string[] | null;
   layer: OmpSettingLayer;
+}
+
+/** The project layer's `task.agentModelOverrides`, read for the subagent models section (ADR-0031). */
+export interface ProjectSubagentModelsResult {
+  /** The project layer's own map; {} when absent or not a map. */
+  map: SubagentModelMap;
+  /** The raw layer read, so an `unsupported` shape surfaces verbatim. */
+  layer: ProjectConfigMapRead;
 }
 
 export interface OmpSettingsSnapshot {

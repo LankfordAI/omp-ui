@@ -7,6 +7,8 @@ import {
   CH,
   browseDirectories,
   checkoutBranch,
+  discoverAgentNames,
+  execOmpConfigRunner,
   createBranch,
   dispatchNotify,
   dispatchRequest,
@@ -50,6 +52,11 @@ import {
   RemoteInstanceStore,
   resolveOmpBinary,
   resolveSessionLocation,
+  isSafeAgentName,
+  isSafeSelector,
+  parseUnpackedAgentNames,
+  readProjectConfigMap,
+  setProjectConfigMapEntry,
   writeOmpSetting,
   collectDiagnosticsBundle,
   previewDiagnosticsBundle,
@@ -88,6 +95,8 @@ import {
   type PlanFormat,
   type ProjectGroup,
   type ProjectOpenTarget,
+  type ProjectSubagentModelsResult,
+  type SubagentModelMap,
 } from "@omp-ui/core";
 import { hashRemotePassword, mintRemoteToken, validateRemotePassword } from "@omp-ui/server";
 import { HeadWatcherHub } from "./git-head-watchers";
@@ -563,6 +572,19 @@ export class MainBackend {
           this.registry.setProjectDefaultAdvisorModel(projectPath, model?.trim() || null);
           await this.broadcast();
         },
+        [CH.getProjectSubagentModels]: (projectCwd: string): ProjectSubagentModelsResult => {
+          const layer = readProjectConfigMap(projectCwd, ["task", "agentModelOverrides"]);
+          return { map: layer.shape === "map" ? layer.value : {}, layer };
+        },
+        [CH.setProjectSubagentModel]: async (projectCwd: string, agent: string, value: string | null) => {
+          // The writer quotes on emit, but a name/selector outside the grammar
+          // could never match omp's resolution — refuse before touching the file.
+          if (!isSafeAgentName(agent)) throw new Error(`refusing unsafe agent name: ${agent}`);
+          if (value !== null && !isSafeSelector(value)) {
+            throw new Error(`refusing unsafe model selector: ${value}`);
+          }
+          await setProjectConfigMapEntry(projectCwd, ["task", "agentModelOverrides"], agent, value);
+        },
         [CH.setDefaultMode]: async (mode: SessionMode) => {
           this.registry.setSetting("defaultMode", mode);
           await this.broadcast();
@@ -610,6 +632,10 @@ export class MainBackend {
         },
         [CH.setDefaultAdvisor]: async (on: boolean) => {
           this.registry.setSetting("defaultAdvisor", on);
+          await this.broadcast();
+        },
+        [CH.setSubagentModelInheritByDefault]: async (on: boolean) => {
+          this.registry.setSetting("subagentModelInheritByDefault", on);
           await this.broadcast();
         },
         [CH.setSkipDeleteConfirmation]: async (skip: boolean) => {
@@ -667,6 +693,8 @@ export class MainBackend {
           this.registry.setSessionModel(tabId, model, thinkingLevel);
           void this.broadcast();
         },
+        [CH.setSessionSubagentModels]: (tabId: string, map: SubagentModelMap | null) =>
+          this.sessions.setSessionSubagentModels(tabId, map),
         [CH.spawnSession]: (req: SpawnRequest) => this.sessions.spawn(req),
         [CH.terminateSession]: (tabId: string) => this.sessions.terminate(tabId),
         [CH.hibernatePlanSource]: (sourceTabId: string, implementationTabId: string) =>
@@ -805,6 +833,41 @@ export class MainBackend {
           readOmpSettings({ ompPath: this.ompPath, projectCwd }),
         [CH.writeOmpSetting]: (key: string, value: OmpSettingValue) =>
           writeOmpSetting({ ompPath: this.ompPath, key, value }),
+        /**
+         * Roster refresh (ADR-0031): bundled names via `omp agents unpack`
+         * into a throwaway dir, plus the user agent dir and every registered
+         * project's `.omp/agents`. The unpack dir is removed afterwards; the
+         * user and project agent dirs are never written.
+         */
+        [CH.refreshAgentRoster]: async (): Promise<string[]> => {
+          if (this.ompPath === null) throw new Error("omp binary not found");
+          const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-agents-"));
+          try {
+            await execOmpConfigRunner(this.ompPath)(
+              ["agents", "unpack", "--dir", tmp, "--json"],
+              { cwd: tmp, env: process.env },
+            );
+            const names = new Set<string>(parseUnpackedAgentNames(tmp));
+            // User agents plus every registered root and owned session working
+            // tree: omp resolves project agents from the process cwd, which is
+            // the dedicated checkout for a worktree session.
+            for (const name of discoverAgentNames(null)) names.add(name);
+            for (const project of this.registry.projects) {
+              for (const name of discoverAgentNames(project.path)) names.add(name);
+            }
+            for (const session of this.registry.sessions) {
+              for (const name of discoverAgentNames(session.worktree?.path ?? session.projectCwd)) {
+                names.add(name);
+              }
+            }
+            const roster = [...names].sort();
+            this.registry.setSetting("agentRoster", roster);
+            await this.broadcast();
+            return roster;
+          } finally {
+            fs.rmSync(tmp, { recursive: true, force: true });
+          }
+        },
         // The provider list is omp-version-scoped, not app state: one probe per
         // Providers mount, no cache, no broadcast (ADR-0027).
         [CH.readWebSearchProviders]: () => readWebSearchProviders({ ompPath: this.ompPath }),
@@ -1243,6 +1306,8 @@ export class MainBackend {
       stallAutoContinue: this.registry.getSetting("stallAutoContinue"),
       desktopNotifications: this.registry.getSetting("desktopNotifications"),
       defaultAdvisor: this.registry.getSetting("defaultAdvisor"),
+      subagentModelInheritByDefault: this.registry.getSetting("subagentModelInheritByDefault"),
+      agentRoster: this.registry.getSetting("agentRoster"),
       modelFavorites: this.registry.getFavorites(),
       skipDeleteConfirmation: this.registry.getSetting("skipDeleteConfirmation"),
       themeId: this.registry.getSetting("themeId"),

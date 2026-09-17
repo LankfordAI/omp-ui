@@ -55,7 +55,7 @@ function summary(patch: Partial<SessionSummary> = {}): SessionSummary {
     agentMode: "build",
     compactionMethod: null,
     advisor: false,
-    advisorModel: null,
+    advisorModel: null, subagentModels: null,
     cachedTitle: null,
     cachedModified: null,
     title: "Session",

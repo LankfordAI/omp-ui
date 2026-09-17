@@ -68,6 +68,7 @@ describe("compactionSettingsFromEntries", () => {
     type: "number",
     description: "",
     value,
+    globalValue: value,
     options: null,
     layer: "default",
   });

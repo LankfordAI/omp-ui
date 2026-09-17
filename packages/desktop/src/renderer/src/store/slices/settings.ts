@@ -187,6 +187,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setSubagentModelInheritByDefault(on) {
+      try {
+        await backend.setSubagentModelInheritByDefault(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setSkipDeleteConfirmation(skip) {
       try {
         await backend.setSkipDeleteConfirmation(skip);

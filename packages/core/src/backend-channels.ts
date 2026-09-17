@@ -33,6 +33,7 @@ import type {
   ProjectRecord,
   ProjectOpenAvailability,
   ProjectOpenTarget,
+  ProjectSubagentModelsResult,
   ProviderKeysSnapshot,
   PushResult,
   ProviderOAuthState,
@@ -53,6 +54,7 @@ import type {
   WorktreeReleaseResult,
   WorktreeSyncResult,
 } from "./types";
+import type { SubagentModelMap } from "./subagent-model";
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
 import type {
   BrowserPaneEnsureResult,
@@ -98,6 +100,7 @@ import {
   worktreeReleaseOptionsCodec,
   type ArgCodec,
   type ArgCodecs,
+  subagentModelMapCodec,
 } from "./backend-arg-codecs";
 
 declare const CHANNEL_ARGS: unique symbol;
@@ -215,6 +218,23 @@ export const BACKEND_CHANNELS = {
     ...request<[projectPath: string, model: string | null], void>([str(), nullable(str())]),
   },
   /**
+   * The project layer's `task.agentModelOverrides` (ADR-0031): the map plus
+   * the raw read, so an `unsupported` shape (flow mapping, anchor, duplicate
+   * key) surfaces verbatim and the row can explain itself.
+   */
+  getProjectSubagentModels: {
+    channel: "project:getSubagentModels",
+    ...request<[projectCwd: string], ProjectSubagentModelsResult>([str()]),
+  },
+  /**
+   * Writes ONE entry of the project's `task.agentModelOverrides` — one at a
+   * time, so an unrelated hand-written key survives. null deletes the entry.
+   */
+  setProjectSubagentModel: {
+    channel: "project:setSubagentModel",
+    ...request<[projectCwd: string, agent: string, value: string | null], void>([str(), str(), nullable(str())]),
+  },
+  /**
    * Moves an owned session to sit immediately before `beforeTabId` in its
    * project's sidebar order (#274); a null or unknown `beforeTabId` appends
    * it. The order is the persisted registry array order, so the change
@@ -268,6 +288,11 @@ export const BACKEND_CHANNELS = {
   },
   setDefaultAdvisor: {
     channel: "settings:setDefaultAdvisor",
+    ...request<[on: boolean], void>([bool()]),
+  },
+  /** The app-level umbrella: subagents with no explicit choice run on the session's model (ADR-0031). */
+  setSubagentModelInheritByDefault: {
+    channel: "settings:setSubagentModelInheritByDefault",
     ...request<[on: boolean], void>([bool()]),
   },
   setSkipDeleteConfirmation: {
@@ -470,6 +495,27 @@ export const BACKEND_CHANNELS = {
       [tabId: string, model: string | null, thinkingLevel: string | null],
       void
     >([str(), nullable(str()), nullable(str())]),
+  },
+
+  /**
+   * Session-scope subagent model choices (ADR-0031). Registry write, then the
+   * session's overlay is rewritten IN PLACE — omp re-reads the `--config`
+   * layer before every subagent spawn, so the change lands at the next spawn
+   * with no respawn. No project last-used side effect: subagent choices are
+   * not "last used" memory. null clears the session's own choices.
+   */
+  setSessionSubagentModels: {
+    channel: "session:setSubagentModels",
+    ...request<[tabId: string, map: SubagentModelMap | null], void>([str(), nullable(subagentModelMapCodec)]),
+  },
+  /**
+   * Re-enumerates the agent roster (ADR-0031): `omp agents unpack` into a
+   * throwaway dir plus the user and project agent dirs, persisted to the
+   * registry. On demand, never at spawn.
+   */
+  refreshAgentRoster: {
+    channel: "agents:refreshRoster",
+    ...request<[], string[]>([]),
   },
   /**
    * Titles a first user prompt with omp's own small model (the `tiny`/`commit`/

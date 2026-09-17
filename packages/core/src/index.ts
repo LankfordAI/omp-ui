@@ -75,6 +75,25 @@ export {
   compactionMethodOverlayPath,
   writeCompactionMethodOverlay,
 } from "./compaction-overlay";
+export {
+  subagentModelOverlayPath,
+  writeSubagentModelOverlay,
+} from "./subagent-model-overlay";
+export {
+  SUBAGENT_MODEL_INHERIT,
+  isSafeAgentName,
+  isSafeSelector,
+  isSubagentModelMap,
+  mergeSubagentModelMaps,
+  resolveSubagentOverlayEntries,
+  type SubagentModelMap,
+} from "./subagent-model";
+export { discoverAgentNames, parseUnpackedAgentNames } from "./subagent-model-agents";
+export {
+  readProjectConfigMap,
+  setProjectConfigMapEntry,
+  type ProjectConfigMapRead,
+} from "./project-config-writer";
 export { planExtensionPath, writePlanExtension } from "./plan-extension";
 export {
   advisorStatsExtensionPath,

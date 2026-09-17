@@ -209,6 +209,7 @@ export function GeneralPage() {
   const setStallAutoContinue = useStore((s) => s.setStallAutoContinue);
   const setDesktopNotifications = useStore((s) => s.setDesktopNotifications);
   const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
+  const setSubagentModelInheritByDefault = useStore((s) => s.setSubagentModelInheritByDefault);
   const scale = useTranscriptScale();
   const mode = state?.defaultMode ?? "pty";
   const agentMode = state?.defaultAgentMode ?? "plan";
@@ -341,6 +342,16 @@ export function GeneralPage() {
           on={state?.defaultAdvisor === true}
           onChange={(next) => void setDefaultAdvisor(next)}
           label={t("settings.general.defaultAdvisor")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.subagentInherit")}
+        hint={t("settings.general.subagentInheritHint")}
+      >
+        <Switch
+          on={state?.subagentModelInheritByDefault ?? true}
+          onChange={(next) => void setSubagentModelInheritByDefault(next)}
+          label={t("settings.general.subagentInherit")}
         />
       </Row>
       <Row

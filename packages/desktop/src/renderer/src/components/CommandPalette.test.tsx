@@ -118,7 +118,7 @@ const CWD_RECORD = {
   model: null,
   thinkingLevel: null,
   advisor: false,
-  advisorModel: null,
+  advisorModel: null, subagentModels: null,
   cachedTitle: "T",
   cachedModified: "t",
   title: "T",
