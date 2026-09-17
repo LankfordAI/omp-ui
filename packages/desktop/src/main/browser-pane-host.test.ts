@@ -2,6 +2,8 @@ import {
   BROWSER_PANE_ACTING_MS,
   BROWSER_PANE_DEFAULT_VIEWPORT,
   BROWSER_PANE_FPS,
+  BROWSER_PANE_JPEG_QUALITY,
+  BROWSER_PANE_JPEG_QUALITY_SETTLED,
   BROWSER_PANE_MAX_VIEWPORT,
   BROWSER_PANE_MIN_VIEWPORT,
   BROWSER_PANE_RESIZE_DEBOUNCE_MS,
@@ -19,6 +21,9 @@ interface FakePane {
   opts: CreatePaneOptions;
   /** Delivers one paint at the given physical size. */
   paint(width: number, height: number, jpeg: Buffer): void;
+  /** The toJPEG mock of the most recent paint. */
+  lastJpegQuality(): number | undefined;
+  setLoading(on: boolean): void;
   emit(event: PaneEvent): void;
   setUrl(url: string): void;
 }
@@ -27,6 +32,8 @@ function fakePane(opts: CreatePaneOptions): FakePane {
   const handlers = new Map<PaneEvent, Set<(...args: unknown[]) => void>>();
   let paintCb: Parameters<PaneContents["onPaint"]>[0] | null = null;
   let url = "";
+  let loading = false;
+  let toJPEG: Mock<(quality: number) => Buffer> | undefined;
   let destroyed = false;
   const pane: PaneContents = {
     onPaint: (cb) => {
@@ -43,6 +50,9 @@ function fakePane(opts: CreatePaneOptions): FakePane {
     getContentSize: () => ({ width: opts.width, height: opts.height }),
     loadURL: vi.fn(async (next: string) => {
       url = next;
+      // Real Electron commits every load with did-stop-loading; the host gates
+      // the metrics override on that first commit (#557).
+      for (const cb of handlers.get("did-stop-loading") ?? []) cb();
     }),
     goBack: vi.fn(),
     goForward: vi.fn(),
@@ -52,7 +62,7 @@ function fakePane(opts: CreatePaneOptions): FakePane {
     canGoForward: () => true,
     getURL: () => url,
     getTitle: () => "Fake",
-    isLoading: () => false,
+    isLoading: () => loading,
     sendInputEvent: vi.fn(),
     insertText: vi.fn(async () => {}),
     imeSetComposition: vi.fn(async () => {}),
@@ -90,8 +100,14 @@ function fakePane(opts: CreatePaneOptions): FakePane {
   return {
     pane,
     opts,
-    paint: (width, height, jpeg) =>
-      paintCb?.({ x: 0, y: 0, width, height }, { toJPEG: () => jpeg, getSize: () => ({ width, height }) }),
+    paint: (width, height, jpeg) => {
+      toJPEG = vi.fn<(quality: number) => Buffer>(() => jpeg);
+      paintCb?.({ x: 0, y: 0, width, height }, { toJPEG, getSize: () => ({ width, height }) });
+    },
+    lastJpegQuality: () => toJPEG?.mock.calls.at(-1)?.[0],
+    setLoading: (on) => {
+      loading = on;
+    },
     emit: (event) => {
       for (const cb of handlers.get(event) ?? []) cb();
     },
@@ -246,7 +262,7 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     expect(result).toMatchObject({ status: "available", frame: { width: 1280, height: 800, dsf: 1 } });
   });
 
-  it("clamps the display scale and stamps it into the frame header", async () => {
+  it("clamps the target scale into the window size, the override, and the frame header", async () => {
     const sent: Harness["sent"] = [];
     const panes: FakePane[] = [];
     const host = new BrowserPaneHost({
@@ -256,14 +272,23 @@ describe("BrowserPaneHost sink registry (U2)", () => {
         panes.push(fake);
         return fake.pane;
       },
-      displayScaleFactor: () => 3,
+      targetScaleFactor: () => 3,
     });
     host.subscribe("t1", "c1", true);
     await flush();
-    expect(panes[0]!.opts.deviceScaleFactor).toBe(2);
+    const pane = panes[0]!.pane;
+    // Window at css*2 (the BROWSER_PANE_MAX_DSF clamp), CSS viewport pinned at 2x.
+    expect(pane.setContentSize).toHaveBeenCalledWith(2560, 1600);
+    expect(pane.debugger.sendCommand).toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", {
+      width: 1280,
+      height: 800,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
     panes[0]!.paint(2560, 1600, Buffer.from([1]));
     const frame = sent.find((s) => s.channel === CH.onBrowserPaneFrame)?.args[1] as Uint8Array;
     expect(decodeBrowserPaneFrame(frame)?.header).toEqual({ width: 2560, height: 1600, dsf: 2 });
+    expect(host.diagnostics()[0]).toMatchObject({ targetDsf: 2, metricsMode: "window-scaled" });
   });
 
   it("drops an empty paint and stamps the dsf the frame was really painted at", async () => {
@@ -276,7 +301,7 @@ describe("BrowserPaneHost sink registry (U2)", () => {
         panes.push(fake);
         return fake.pane;
       },
-      displayScaleFactor: () => 2,
+      targetScaleFactor: () => 2,
     });
     host.subscribe("t1", "c1", true);
     await flush();
@@ -284,11 +309,111 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     panes[0]!.paint(0, 0, Buffer.alloc(0));
     expect(sent.filter((s) => s.channel === CH.onBrowserPaneFrame)).toHaveLength(0);
     expect(await host.ensure("t1")).toMatchObject({ status: "available", frame: null });
-    // Wayland ignores offscreen.deviceScaleFactor: a 1280×800 frame for a 1280×800 page is dsf 1.
+    // A route that yields nothing (override ineffective) falls back to dsf 1, never a false 2.
     panes[0]!.paint(1280, 800, Buffer.from([1]));
     const frame = sent.find((s) => s.channel === CH.onBrowserPaneFrame)?.args[1] as Uint8Array;
     expect(decodeBrowserPaneFrame(frame)?.header).toEqual({ width: 1280, height: 800, dsf: 1 });
     expect(host.diagnostics()[0]?.frame).toEqual({ width: 1280, height: 800, dsf: 1 });
+  });
+
+  it("sizes the window and header for a fractional target density", async () => {
+    const sent: Harness["sent"] = [];
+    const panes: FakePane[] = [];
+    const host = new BrowserPaneHost({
+      send: (channel, ...args) => sent.push({ channel, args }),
+      createPane: async (opts) => {
+        const fake = fakePane(opts);
+        panes.push(fake);
+        return fake.pane;
+      },
+      targetScaleFactor: () => 1.5,
+    });
+    host.subscribe("t1", "c1", true);
+    await flush();
+    const pane = panes[0]!.pane;
+    expect(pane.setContentSize).toHaveBeenCalledWith(1920, 1200);
+    expect(pane.debugger.sendCommand).toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", {
+      width: 1280,
+      height: 800,
+      deviceScaleFactor: 1.5,
+      mobile: false,
+    });
+    panes[0]!.paint(1920, 1200, Buffer.from([1]));
+    const frame = sent.find((s) => s.channel === CH.onBrowserPaneFrame)?.args[1] as Uint8Array;
+    expect(decodeBrowserPaneFrame(frame)?.header).toEqual({ width: 1920, height: 1200, dsf: 1.5 });
+    expect(host.diagnostics()[0]).toMatchObject({ targetDsf: 1.5, metricsMode: "window-scaled" });
+  });
+
+  it("shrinks the window once when a platform squares the scale, then converges", async () => {
+    const sent: Harness["sent"] = [];
+    const panes: FakePane[] = [];
+    const host = new BrowserPaneHost({
+      send: (channel, ...args) => sent.push({ channel, args }),
+      createPane: async (opts) => {
+        const fake = fakePane(opts);
+        panes.push(fake);
+        return fake.pane;
+      },
+      targetScaleFactor: () => 2,
+    });
+    host.subscribe("t1", "c1", true);
+    await flush();
+    const pane = panes[0]!.pane;
+    // A window-DIP-auto-scaled platform paints css*2*2: the header tells the truth
+    // for that frame and the host shrinks the window to CSS size once.
+    panes[0]!.paint(5120, 3200, Buffer.from([1]));
+    expect(decodeBrowserPaneFrame(sent.at(-1)?.args[1] as Uint8Array)?.header.dsf).toBe(4);
+    expect(pane.setContentSize).toHaveBeenLastCalledWith(1280, 800);
+    expect(pane.debugger.sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
+      width: 1280,
+      height: 800,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    expect(host.diagnostics()[0]).toMatchObject({ targetDsf: 2, metricsMode: "window-css" });
+    panes[0]!.paint(2560, 1600, Buffer.from([2]));
+    expect(decodeBrowserPaneFrame(sent.at(-1)?.args[1] as Uint8Array)?.header).toEqual({
+      width: 2560,
+      height: 1600,
+      dsf: 2,
+    });
+  });
+
+  it("re-asserts its own metrics 250 ms after an agent viewport override", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    await h.host.ensureEndpoint("t1");
+    await h.host.ensure("t1");
+    const pane = h.panes[0]!.pane;
+    const sizes = vi.mocked(pane.setContentSize).mock.calls.length;
+    const overrides = vi.mocked(pane.debugger.sendCommand).mock.calls.length;
+    h.listeners[0]!.deps.onCommand("Emulation.clearDeviceMetricsOverride");
+    vi.advanceTimersByTime(249);
+    expect(pane.setContentSize).toHaveBeenCalledTimes(sizes);
+    vi.advanceTimersByTime(1);
+    expect(pane.setContentSize).toHaveBeenCalledTimes(sizes + 1);
+    expect(pane.setContentSize).toHaveBeenLastCalledWith(1280, 800);
+    expect(vi.mocked(pane.debugger.sendCommand)).toHaveBeenCalledTimes(overrides + 1);
+    expect(pane.debugger.sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
+      width: 1280,
+      height: 800,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    // The bridge override command itself never marks the agent as acting.
+    expect(h.states().every((s) => s.agent !== "acting")).toBe(true);
+  });
+
+  it("encodes loading frames at 70 and settled frames at 85", async () => {
+    const h = harness();
+    await h.host.ensure("t1");
+    const fake = h.panes[0]!;
+    fake.setLoading(true);
+    fake.paint(1280, 800, Buffer.from([1]));
+    expect(fake.lastJpegQuality()).toBe(BROWSER_PANE_JPEG_QUALITY);
+    fake.setLoading(false);
+    fake.paint(1280, 800, Buffer.from([1]));
+    expect(fake.lastJpegQuality()).toBe(BROWSER_PANE_JPEG_QUALITY_SETTLED);
   });
 
   it("subscribing to a tab whose page cannot be created is a no-op and ensure answers create-failed", async () => {
@@ -337,11 +462,13 @@ describe("BrowserPaneHost page lifecycle", () => {
     const h = harness();
     await h.host.ensure("t1");
     const pane = h.panes[0]!.pane;
+    // Creation itself sizes the window through applyMetrics; count from there.
+    const created = vi.mocked(pane.setContentSize).mock.calls.length;
     h.host.resize("t1", 900, 700);
     h.host.resize("t1", 100, 9000);
     vi.advanceTimersByTime(BROWSER_PANE_RESIZE_DEBOUNCE_MS);
-    expect(pane.setContentSize).toHaveBeenCalledTimes(1);
-    expect(pane.setContentSize).toHaveBeenCalledWith(BROWSER_PANE_MIN_VIEWPORT, BROWSER_PANE_MAX_VIEWPORT);
+    expect(pane.setContentSize).toHaveBeenCalledTimes(created + 1);
+    expect(pane.setContentSize).toHaveBeenLastCalledWith(BROWSER_PANE_MIN_VIEWPORT, BROWSER_PANE_MAX_VIEWPORT);
 
     h.host.input("t1", { type: "mouseMove", x: -5, y: 99999 });
     expect(pane.sendInputEvent).toHaveBeenCalledWith({
@@ -547,6 +674,8 @@ describe("BrowserPaneHost endpoint, agent state, and denied ports (U7 host)", ()
         agentState: "detached",
         urlOrigin: "https://example.com",
         frame: { width: 1280, height: 800, dsf: 1 },
+        targetDsf: 1,
+        metricsMode: "window-scaled",
         fps: 0,
         lastEncodeMs: 5,
         bridgePort: 41000,

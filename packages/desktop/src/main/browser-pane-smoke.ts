@@ -566,6 +566,8 @@ let onceWatchdog: NodeJS.Timeout | undefined;
 let diagnosticsBeforeDispose: BrowserPaneDiagnostics[] | null = null;
 
 function summary(): object {
+  const rows = diagnosticsBeforeDispose ?? host.diagnostics();
+  const paneRow = rows.find((row) => row.tabId === TAB) ?? null;
   return {
     platform: {
       os: process.platform,
@@ -586,6 +588,8 @@ function summary(): object {
       dsfRequested: flags.dsf ?? 1,
       dprReported,
       lastFrame: frames.lastHeader,
+      targetDsf: paneRow?.targetDsf ?? null,
+      metricsMode: paneRow?.metricsMode ?? null,
     },
     frames: {
       count: frames.count,
@@ -600,9 +604,8 @@ function summary(): object {
     inputTest,
     bridge,
     clients,
-    states,
+    diagnostics: rows,
     warnings,
-    diagnostics: diagnosticsBeforeDispose ?? host.diagnostics(),
   };
 }
 
@@ -696,7 +699,7 @@ async function main(): Promise<void> {
   const devUrl = flags.url ?? (await startDevServer());
   host = new BrowserPaneHost({
     send,
-    displayScaleFactor: () => flags.dsf ?? 1,
+    targetScaleFactor: () => flags.dsf ?? 1,
     warn: (message) => {
       warnings.push(message);
       console.warn(message);

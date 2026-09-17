@@ -155,6 +155,9 @@ export class MainBackend {
   /** Last delivered update statuses, for one-per-transition breadcrumbs. */
   private lastAppUpdateStatus: string | null = null;
   private lastOmpUpdateStatus: string | null = null;
+  /** The app window's real page devicePixelRatio; screen.scaleFactor lies on Wayland fractional scaling (#557). */
+  private panePageDpr = 1;
+  private paneDprProbeTimer: NodeJS.Timeout | undefined;
 
   constructor(
     private readonly win: BrowserWindow,
@@ -245,11 +248,37 @@ export class MainBackend {
         spawnGate: this.spawnGate,
         planVerify: (html, themeId, signal) => this.planVerifier.verify(html, themeId, signal),
         browserPane: {
-          // Panes paint at the app window's display scale, so a pane frame is
-          // pixel-exact on the screen the user is looking at (#519).
-          displayScaleFactor: () =>
-            this.win.isDestroyed() ? 1 : screen.getDisplayMatching(this.win.getBounds()).scaleFactor,
+          // Cache the app window's real page dpr; screen.scaleFactor lies on Wayland
+          // fractional scaling (reports 1 while the page renders at 1.5) (#557).
+          // Dividing by the zoom factor keeps transcript Ctrl+/- zoom out of the pane.
+          targetScaleFactor: () => {
+            if (this.win.isDestroyed()) return 1;
+            try {
+              const zoom = this.win.webContents.getZoomFactor();
+              return zoom > 0 ? this.panePageDpr / zoom : this.panePageDpr;
+            } catch {
+              return this.panePageDpr;
+            }
+          },
         },
+      });
+    // Probe the window's true page dpr when the shell loads (and reloads) and
+    // whenever the display geometry could have changed (#557). Every hook is
+    // guarded: the unit-test fake windows carry only the sink surface.
+    if (typeof win.webContents.on === "function")
+      win.webContents.on("did-finish-load", () => this.probePanePageDpr());
+    // try/catch: the unit-test electron mocks are partial and throw on any
+    // `screen` property access; a missing hook only costs a re-probe.
+    try {
+      screen.on("display-metrics-changed", () => this.probePanePageDpr());
+    } catch {
+      /* screen unavailable (mocked or pre-ready) */
+    }
+    if (typeof win.on === "function")
+      win.on("moved", () => {
+        // Cross-display drag: debounce so a drag is one probe, not one per pixel.
+        clearTimeout(this.paneDprProbeTimer);
+        this.paneDprProbeTimer = setTimeout(() => this.probePanePageDpr(), 300);
       });
     // The desktop window is one event mirror among several — the remote server adds its own.
     // Guarded here rather than in send(): on/after quit the webContents is gone.
@@ -346,6 +375,17 @@ export class MainBackend {
         }
       })
       .catch((err) => console.warn("[backend] worktree sweep failed:", err));
+  }
+
+  /** Read the window's real page devicePixelRatio; screen.scaleFactor lies under Wayland fractional scaling (#557). */
+  private probePanePageDpr(): void {
+    if (this.win.isDestroyed()) return;
+    void this.win.webContents
+      .executeJavaScript("window.devicePixelRatio", true)
+      .then((v) => {
+        if (typeof v === "number" && Number.isFinite(v) && v > 0) this.panePageDpr = v;
+      })
+      .catch(() => {});
   }
 
   get liveCount(): number {
