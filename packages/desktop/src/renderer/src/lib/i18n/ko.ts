@@ -1193,6 +1193,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.agents.title": "하위 에이전트 · {count}",
   "rail.agents.refreshLabel": "하위 에이전트 새로고침",
   "rail.agents.modelsLabel": "하위 에이전트 모델",
+  "rail.agents.modelsButton": "모델",
   "rail.agents.modelsTitle": "하위 에이전트 모델 — 이 세션",
   "rail.agents.modelsUmbrella":
     "세션 선택 없음: 모든 에이전트가 이 세션의 모델을 상속합니다 (우산 기본값).",

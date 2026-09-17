@@ -1319,6 +1319,7 @@ export const en = {
   "rail.agents.title": "subagents · {count}",
   "rail.agents.refreshLabel": "refresh subagents",
   "rail.agents.modelsLabel": "subagent models",
+  "rail.agents.modelsButton": "models",
   "rail.agents.modelsTitle": "Subagent models — this session",
   "rail.agents.modelsUmbrella":
     "No session choices: every agent inherits this session's own model (the umbrella default).",

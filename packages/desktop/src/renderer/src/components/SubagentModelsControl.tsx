@@ -7,7 +7,7 @@ import { useT } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findOwner, findRecord, sessionCwd, useStore } from "../store";
 import { ModelPalette } from "./ModelSelector";
-import { Chip, IconButton, IconTune } from "./ui";
+import { Chip, IconTune } from "./ui";
 
 const EMPTY_MODELS: ModelInfo[] = [];
 
@@ -109,13 +109,17 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
 
   return (
     <span className="relative">
-      <IconButton
-        label={t("rail.agents.modelsLabel")}
+      <button
+        type="button"
+        aria-label={t("rail.agents.modelsLabel")}
         aria-expanded={open}
+        title={t("rail.agents.modelsLabel")}
         onClick={() => setOpen((value) => !value)}
+        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-line bg-transparent px-1.5 text-[11px] font-medium text-ink-mid transition-colors hover:border-line-strong hover:text-ink"
       >
-        <IconTune />
-      </IconButton>
+        <IconTune className="size-3" />
+        <span>{t("rail.agents.modelsButton")}</span>
+      </button>
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />

@@ -222,12 +222,23 @@ describe("desktop InspectorRail", () => {
     act(() => button("agents")!.click());
     expect(document.body.textContent).toContain("worker");
     expect(document.body.textContent).not.toContain("First task");
-
     // Re-pressing the active icon dismisses the pane back to the strip alone.
     act(() => button("agents")!.click());
     expect(button("collapse inspector")).toBeNull();
     expect(document.body.textContent).not.toContain("worker");
     expect(button("agents")).not.toBeNull();
+  });
+
+  it("visibly labels the session subagent-model control (#563)", () => {
+    useStore.setState({ state });
+    renderRail();
+    act(() => button("agents")!.click());
+
+    // An aria label/tooltip alone is not discoverable to a sighted user: the
+    // button itself must visibly say what it configures.
+    const models = button("subagent models");
+    expect(models).not.toBeNull();
+    expect(models!.textContent?.toLowerCase()).toContain("models");
   });
 
   it("shares committed width across close, reopen, and tab instances", () => {
