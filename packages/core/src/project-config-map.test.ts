@@ -95,7 +95,12 @@ describe("setProjectConfigMapEntry", () => {
     await setProjectConfigMapEntry(cwd, KEY, "scout", "*");
     const file = path.join(cwd, ".omp", "config.yml");
     expect(read(file)).toBe('task:\n  agentModelOverrides:\n    scout: "*"\n');
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    // Windows does not emulate chmod for writable files; stat reports the
+    // NTFS-derived 0o666 there (same platform expectation as
+    // project-config-writer.test.ts, issue #566).
+    if (process.platform !== "win32") {
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("changes only the one entry's line, byte-level, beside comments and siblings", async () => {
