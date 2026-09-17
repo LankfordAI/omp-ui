@@ -4,8 +4,6 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- The **Lab** gives OMP's autoresearch mode a first-class surface: every project's **Experiments** with progress cards, run history, notes, and controls (open/resume, stop, new segment, land the winner, branch diff), reachable from the sidebar project cluster, the command palette, `/autoresearch lab`, and the Session HUD's autoresearch chip ([#559](https://github.com/LankfordAI/omp-ui/issues/559)).
-- The native transcript renders the harness's literal `[INFERENCE]` marker as a quiet **INF** chip with an explanatory tooltip, while **Copy as Markdown** and the transcript source keep the token verbatim ([#558](https://github.com/LankfordAI/omp-ui/issues/558)).
 
 ## Choose a download
 
