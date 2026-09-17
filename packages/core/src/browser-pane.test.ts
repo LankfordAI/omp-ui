@@ -126,4 +126,23 @@ describe("hidden instruction", () => {
     expect(text.split(ENDPOINT)).toHaveLength(2);
     expect(text).toContain("cdp_url");
   });
+
+  it("carries the direct-tools-first routing policy (#561)", () => {
+    const text = browserPaneInstruction(ENDPOINT);
+    // Direct interfaces with existing credentials win for structured service work…
+    expect(text).toContain("installed CLIs or APIs with existing credentials");
+    // …and a service console or interactive sign-in is never the first choice then.
+    expect(text).toContain(
+      "Do not open a service console or begin interactive sign-in when an authenticated local CLI or API can complete the task",
+    );
+    // The affirmative pane cases survive: rendered interaction, browser state,
+    // browser-only auth, and an explicit user request.
+    expect(text).toContain(
+      "Use the browser pane for rendered UI, client-side JavaScript, browser state, browser-only authentication, or when the user explicitly asks to see or interact with a page",
+    );
+    // A CLI/API that demands browser authentication falls back to the pane.
+    expect(text).toContain(
+      "use the pane for that authentication and then return to the CLI or API",
+    );
+  });
 });

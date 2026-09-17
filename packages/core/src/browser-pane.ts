@@ -236,11 +236,12 @@ export function parseBrowserPaneSetArgs(args: string): { cdpUrl: string } | null
 }
 
 /**
- * The hidden message the agent receives (#530, verbatim), split around the
- * endpoint so the generated extension interpolates the same text.
+ * The hidden message the agent receives (#530, plus the direct-tools-first
+ * routing policy of #561), split around the endpoint so the generated
+ * extension interpolates the same text.
  */
 export const BROWSER_PANE_INSTRUCTION_PARTS: readonly [string, string] = [
-  '[omp-ui browser pane] This session has a browser pane the user sees live beside the transcript. Drive it from the eval kernel:\n  const tab = await browser.open({ name: "pane", url: "<http or https URL>", app: { cdp_url: "',
+  '[omp-ui browser pane] This session has a browser pane the user sees live beside the transcript. It is available when the task requires browser interaction. Prefer the most direct interface: use read/search for repository files and static web content, and use installed CLIs or APIs with existing credentials for structured service work. Do not open a service console or begin interactive sign-in when an authenticated local CLI or API can complete the task. Use the browser pane for rendered UI, client-side JavaScript, browser state, browser-only authentication, or when the user explicitly asks to see or interact with a page. If a preferred CLI or API reports that browser authentication is required, use the pane for that authentication and then return to the CLI or API. To drive it from the eval kernel:\n  const tab = await browser.open({ name: "pane", url: "<http or https URL>", app: { cdp_url: "',
   '" } });\nThe endpoint has exactly one page: every name you open shares it and its `url` navigates it. The user can click and type in the same page at any time, so observe before you act. tab.click hangs against this endpoint; click with tab.run(async ({ page }) => page.click(selector)). tab.close only disconnects; the page stays open for the user. Only http and https URLs load. This supersedes any earlier omp-ui browser pane endpoint.',
 ];
 
