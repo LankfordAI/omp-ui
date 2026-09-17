@@ -128,7 +128,9 @@ describe("autoresearchStateDir", () => {
     const xdg = tmpDir();
     fs.mkdirSync(path.join(xdg, "omp"));
     const env = { XDG_STATE_HOME: xdg, OMP_PROFILE: "work" };
-    expect(autoresearchStateDir(env, "darwin", "/Users/u")).toBe("/Users/u/.omp/profiles/work");
+    expect(autoresearchStateDir(env, "darwin", "/Users/u")).toBe(
+      path.join("/Users/u", ".omp", "profiles", "work"),
+    );
     fs.mkdirSync(path.join(xdg, "omp", "profiles", "work"), { recursive: true });
     expect(autoresearchStateDir(env, "darwin", "/Users/u")).toBe(
       path.join(xdg, "omp", "profiles", "work"),
