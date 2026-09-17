@@ -54,7 +54,7 @@ function record(patch: Partial<SessionSummary> = {}): SessionSummary {
     model: null,
     thinkingLevel: null,
     advisor: false,
-    advisorModel: null,
+    advisorModel: null, subagentModels: null,
     cachedTitle: "Running task",
     cachedModified: "t",
     title: "Running task",

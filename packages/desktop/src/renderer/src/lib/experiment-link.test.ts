@@ -52,7 +52,7 @@ function session(patch: Partial<SessionSummary> & Pick<SessionSummary, "tabId">)
     model: null,
     thinkingLevel: null,
     advisor: false,
-    advisorModel: null,
+    advisorModel: null, subagentModels: null,
     cachedTitle: null,
     cachedModified: null,
     title: "t",

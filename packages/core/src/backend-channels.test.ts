@@ -155,6 +155,7 @@ const VALID_ARGS = {
   setPlanFormat: ["html"],
   setProjectDefaultAdvisorModel: ["/project", null],
   setProjectDefaultModel: ["/project", null],
+  getProjectSubagentModels: ["/project"],
   setProviderKey: ["OPENROUTER_API_KEY", "key"],
   setRemoteBind: ["localhost"],
   setRemoteEnabled: [true],
@@ -181,6 +182,10 @@ const VALID_ARGS = {
   setSessionToolEnabled: ["tab-1", "proc-1", "sess-1", "web search", true],
   startProviderOAuth: ["openai-codex"],
   suggestBranchName: ["/project", "plan"],
+  refreshAgentRoster: [],
+  setProjectSubagentModel: ["/project", "scout", null],
+  setSessionSubagentModels: ["tab-1", null],
+  setSubagentModelInheritByDefault: [true],
   switchMode: ["tab-1", "pty"],
   submitProviderOAuthInput: ["https://chatgpt.com/…"],
   tabViewed: ["client-1", null],
@@ -317,6 +322,7 @@ describe("transport dispatch", () => {
       [{ includeTranscripts: false, destinationPath: null, rogue: "secret-rogue" }],
       "argument 0",
     ],
+    [CH.setSessionSubagentModels, ["tab-1", { scout: "bad selector" }], "argument 1"],
   ] as const)("rejects malformed request arguments before the handler", async (channel, args, path) => {
     const { table, calls } = recordingTable();
     await expect(dispatchRequest(table, channel, [...args])).rejects.toThrow(path);

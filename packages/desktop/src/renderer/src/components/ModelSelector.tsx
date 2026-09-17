@@ -4,6 +4,7 @@ import { filterModelsForTab } from "../lib/model-filter";
 import { t, useT } from "../lib/i18n";
 import { fuzzyBest } from "../lib/fuzzy";
 import type { ModelInfo } from "../lib/rpc-types";
+import { SUBAGENT_MODEL_INHERIT } from "@omp-ui/core/subagent-model";
 import { findInstance, findOwner, useStore } from "../store";
 import { CAPSULE_SEGMENT, Chevron, Chip, Dot, IconButton, Label, Modal, StarIcon } from "./ui";
 import { ModelRail } from "./ModelRail";
@@ -176,10 +177,25 @@ type ModelPaletteProps = {
       defaultModel: string | null;
       onPick(model: string | null): void;
     }
+  | {
+      /**
+       * One agent's subagent model (ADR-0031). `current` is the stored
+       * selector — "*", "@role", or "provider/id[:level]" — or null when the
+       * key is absent (omp default). onPick emits the selector to store, or
+       * null to clear the key back to omp's default.
+       */
+      variant: "subagent";
+      current: string | null;
+      /** Adds the row that resolves to "*": inherit the session's own model. */
+      allowInherit: boolean;
+      onPick(selector: string | null): void;
+    }
 );
 
 type ModelPaletteRow =
   | { kind: "configured-advisor" }
+  | { kind: "session-model" }
+  | { kind: "omp-default" }
   | { kind: "model"; model: ModelInfo };
 
 function selectorFor(model: ModelInfo): string {
@@ -256,16 +272,32 @@ export function ModelPalette(props: ModelPaletteProps) {
   }, [models, query, currentSelector, tab, favorites]);
 
   const isFavoritesTab = tab === "favorites";
+  const allowInherit = props.variant === "subagent" && props.allowInherit;
   const rows = useMemo<ModelPaletteRow[]>(() => {
     const modelRows: ModelPaletteRow[] = shown.map((model) => ({ kind: "model", model }));
+    if (props.variant === "subagent") {
+      // The special rows stay on every tab: they are the point of this picker.
+      const special: ModelPaletteRow[] = allowInherit
+        ? [{ kind: "session-model" }, { kind: "omp-default" }]
+        : [{ kind: "omp-default" }];
+      return [...special, ...modelRows];
+    }
     return props.variant === "advisor" && !isFavoritesTab
       ? [{ kind: "configured-advisor" }, ...modelRows]
       : modelRows;
-  }, [shown, props.variant, isFavoritesTab]);
+  }, [shown, props.variant, allowInherit, isFavoritesTab]);
 
   const pickRow = (row: ModelPaletteRow) => {
     if (row.kind === "configured-advisor") {
       if (props.variant === "advisor") props.onPick(null);
+      return;
+    }
+    if (row.kind === "session-model") {
+      if (props.variant === "subagent") props.onPick(SUBAGENT_MODEL_INHERIT);
+      return;
+    }
+    if (row.kind === "omp-default") {
+      if (props.variant === "subagent") props.onPick(null);
       return;
     }
     if (props.variant === "main") props.onPick(row.model);
@@ -391,6 +423,47 @@ export function ModelPalette(props: ModelPaletteProps) {
                 );
               }
 
+              if (row.kind === "session-model" || row.kind === "omp-default") {
+                const isSessionRow = row.kind === "session-model";
+                // `current` is the stored selector: "*" marks the session row,
+                // null (key absent) marks the omp-default row (ADR-0031).
+                const isCurrent =
+                  props.variant === "subagent" &&
+                  (isSessionRow
+                    ? props.current === SUBAGENT_MODEL_INHERIT
+                    : props.current === null);
+                return (
+                  <button
+                    key={row.kind}
+                    type="button"
+                    ref={index === active ? activeRef : null}
+                    onMouseEnter={() => setActive(index)}
+                    onClick={() => pickRow(row)}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-1.5 text-left",
+                      index === active ? "bg-hover" : isCurrent ? "bg-raised" : "hover:bg-raised",
+                    )}
+                  >
+                    <span className="grid w-2 shrink-0 place-items-center">
+                      {isCurrent && <Dot tone="signal" title={t("composer.model.inUse")} />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-display text-sm text-ink">
+                        {isSessionRow
+                          ? t("composer.model.subagentSessionModel")
+                          : t("composer.model.subagentOmpDefault")}
+                      </span>
+                      <span className="block truncate font-mono text-[10px] text-ink-faint">
+                        {isSessionRow
+                          ? t("composer.model.subagentSessionModelHint")
+                          : t("composer.model.subagentOmpDefaultHint")}
+                      </span>
+                    </span>
+                  </button>
+                );
+              }
+
+
               const { model } = row;
               const modelKey = selectorFor(model);
               const isFavorite = favorites.has(modelKey);
@@ -413,7 +486,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                     className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
                   >
                     <span className="grid w-2 shrink-0 place-items-center">
-                      {isCurrent && (props.variant === "main" || !props.inherited) && (
+                      {isCurrent && (props.variant !== "advisor" || !props.inherited) && (
                         <Dot
                           tone="signal"
                           title={props.variant === "main" ? t("composer.model.current") : t("composer.model.pinned")}

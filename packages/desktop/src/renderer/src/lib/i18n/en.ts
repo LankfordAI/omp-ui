@@ -350,6 +350,10 @@ export const en = {
   "composer.model.inUse": "in use",
   "composer.model.useConfigured": "use omp's configured advisor",
   "composer.model.advisorUnset": "modelRoles.advisor is unset — omp resolves its slow model chain",
+  "composer.model.subagentSessionModel": "session model",
+  "composer.model.subagentSessionModelHint": "* · the subagent runs on this session's own model",
+  "composer.model.subagentOmpDefault": "omp default",
+  "composer.model.subagentOmpDefaultHint": "the agent's own frontmatter model, else the session model",
   "composer.model.current": "current model",
   "composer.model.pinned": "pinned to this session",
   "composer.model.reasoning": "reasoning",
@@ -549,6 +553,9 @@ export const en = {
   "settings.general.defaultAdvisor": "Default advisor",
   "settings.general.defaultAdvisorHint":
     "Start new sessions with the advisor running. Projects with a remembered advisor keep their own last-used state.",
+  "settings.general.subagentInherit": "Subagents inherit the session model",
+  "settings.general.subagentInheritHint":
+    "New sessions spawn every subagent on the session's own model unless a narrower choice says otherwise. Applies to sessions launched afterwards, and to running sessions whose per-agent choice is unset.",
   "settings.general.skipDeleteConfirmation": "Skip the delete confirmation",
   "settings.general.skipDeleteConfirmationHint":
     "Deleting a session erases its whole lineage dir; skipping removes the warning.",
@@ -785,6 +792,19 @@ export const en = {
   "settings.omp.noSessionFocused":
     "No session focused — showing omp's global configuration.",
   "settings.omp.modelRoles": "Model roles",
+  "settings.omp.subagentModels": "Subagent models",
+  "settings.omp.subagentModelsHint":
+    "The model each agent spawns with. Global edits rewrite the whole record; project edits write one entry into the project's .omp/config.yml. Session-scoped choices live in the Agents pane and win over both. Changes apply to sessions started afterwards.",
+  "settings.omp.subagentScope": "edit scope",
+  "settings.omp.subagentScopeGlobal": "Global",
+  "settings.omp.subagentScopeProject": "Project",
+  "settings.omp.subagentDefault": "omp default",
+  "settings.omp.subagentRowDefault": "{agent} uses omp's default: its frontmatter model, else the session model",
+  "settings.omp.subagentUnsupported":
+    "This project's task.agentModelOverrides can't be edited here: {reason}",
+  "settings.omp.subagentRefresh": "refresh agents",
+  "settings.omp.subagentRefreshing": "refreshing…",
+  "settings.omp.subagentRosterEmpty": "no agents discovered yet — refresh to enumerate omp's agents",
   "settings.omp.modelRoleLabel": "model role {role}",
   "settings.omp.modelRolePlaceholder": "model[:level] — blank = unset",
   "settings.omp.mcpNote":
@@ -1298,6 +1318,23 @@ export const en = {
   "worktree.details.cutFrom": "cut from {base}",
   "rail.agents.title": "subagents · {count}",
   "rail.agents.refreshLabel": "refresh subagents",
+  "rail.agents.modelsLabel": "subagent models",
+  "rail.agents.modelsButton": "models",
+  "rail.agents.modelsTitle": "Subagent models — this session",
+  "rail.agents.modelsUmbrella":
+    "No session choices: every agent inherits this session's own model (the umbrella default).",
+  "rail.agents.modelsNoUmbrella":
+    "No session choices: agents follow omp's own defaults — frontmatter model, else the session model.",
+  "rail.agents.modelsExplicit":
+    "Session choices below win over the project and global layers; unlisted agents follow them.",
+  "rail.agents.modelsTiming":
+    "Applies to the next subagent spawn — running agents keep their model.",
+  "rail.agents.modelsEmpty": "no agents discovered yet — refresh the roster",
+  "rail.agents.modelsRefresh": "refresh agent roster",
+  "rail.agents.modelsDefault": "unset",
+  "rail.agents.modelsLayerSession": "session",
+  "rail.agents.modelsLayerProject": "project",
+  "rail.agents.modelsLayerGlobal": "global",
   "rail.agents.emptyTitle": "No subagents",
   "rail.agents.emptyHint": "Delegated agents appear here while they run.",
   "rail.agents.refresh": "refresh",

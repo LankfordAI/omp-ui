@@ -4,6 +4,7 @@ import {
   hydrateSessionFile,
   parseModelRole,
   resolveSessionLocation,
+  resolveSubagentOverlayEntries,
   rebindSessionCwd,
   unarchiveSession,
   readOmpCompactionMethods,
@@ -18,14 +19,22 @@ import {
   writeMcpStatusExtension,
   writeGoalExtension,
   writePlanExtension,
+  writeSubagentModelOverlay,
 } from "@omp-ui/core";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
+
+/** Registry inputs the subagent overlay needs (ADR-0031), read synchronously off the registry. */
+export interface SubagentSpawnConfig {
+  inheritByDefault: boolean;
+  roster: readonly string[];
+}
 
 /** Rewrites spawn overlays from the session record (and any dev/test gate pin) on every launch. */
 export function writeSessionOverlays(
   record: OwnedSessionRecord,
   absLineageDir: string,
   gate: SpawnGate = NO_GATE,
+  subagents: SubagentSpawnConfig = { inheritByDefault: false, roster: [] },
 ): string[] {
   const overlays: string[] = [];
   // The gate's advisor model wins over the record's; the enabled flag stays the
@@ -58,6 +67,21 @@ export function writeSessionOverlays(
       console.warn("[model] could not write the default-model overlay:", err);
     }
   }
+  // The gate needs no subagent case: a gated main model reaches subagents for
+  // free through the "*" entries the umbrella and explicit choices resolve to.
+  try {
+    const overlay = writeSubagentModelOverlay(
+      absLineageDir,
+      resolveSubagentOverlayEntries(
+        record.subagentModels,
+        subagents.inheritByDefault,
+        subagents.roster,
+      ),
+    );
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[subagents] could not write the overlay:", err);
+  }
   return overlays;
 }
 
@@ -66,8 +90,9 @@ export async function writeRpcOverlays(
   absLineageDir: string,
   ompPath: string,
   gate: SpawnGate = NO_GATE,
+  subagents: SubagentSpawnConfig = { inheritByDefault: false, roster: [] },
 ): Promise<string[]> {
-  const overlays = writeSessionOverlays(record, absLineageDir, gate);
+  const overlays = writeSessionOverlays(record, absLineageDir, gate, subagents);
     const preferred = record.compactionMethod;
     if (preferred === null) {
       writeCompactionMethodOverlay(absLineageDir, null, []);

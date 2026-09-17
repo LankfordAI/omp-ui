@@ -32,6 +32,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     thinkingLevel: null,
     advisor: false,
     advisorModel: null,
+    subagentModels: null,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",
@@ -71,6 +72,8 @@ describe("SETTINGS", () => {
       "desktopNotifications",
       "defaultAdvisor",
       "modelFavorites",
+      "subagentModelInheritByDefault",
+      "agentRoster",
       "skipDeleteConfirmation",
       "sessionOrderFrozen",
       "dismissedAppUpdateVersion",
@@ -92,9 +95,16 @@ describe("SETTINGS", () => {
       "instanceId",
     ]);
   });
-
   it("creates fresh mutable fallbacks", () => {
     expect(SETTINGS.modelFavorites.fallback()).not.toBe(SETTINGS.modelFavorites.fallback());
+    expect(SETTINGS.agentRoster.fallback()).not.toBe(SETTINGS.agentRoster.fallback());
+    expect(SETTINGS.agentRoster.fallback()).toEqual([
+      "reviewer",
+      "scout",
+      "security-reviewer",
+      "sonic",
+      "task",
+    ]);
   });
 });
 
@@ -952,7 +962,7 @@ describe("Registry mutations", () => {
     fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }));
     const reg = Registry.load(file);
     expect(reg.sessions).toHaveLength(1);
-    expect(reg.sessions[0]).toMatchObject({ model: null, thinkingLevel: null, advisorModel: null });
+    expect(reg.sessions[0]).toMatchObject({ model: null, thinkingLevel: null, advisorModel: null, subagentModels: null });
   });
 
   it("updateSession applies partial patches", () => {

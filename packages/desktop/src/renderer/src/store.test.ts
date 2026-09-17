@@ -338,8 +338,8 @@ describe("settings", () => {
     h.mockBackend.readOmpSettings.mockResolvedValueOnce({
       ...h.emptyOmpSettings,
       entries: [
-        { key: "compaction.thresholdPercent", type: "number", description: "", value: -1, options: null, layer: "default" },
-        { key: "compaction.thresholdTokens", type: "number", description: "", value: -1, options: null, layer: "default" },
+        { key: "compaction.thresholdPercent", type: "number", description: "", value: -1, globalValue: undefined, options: null, layer: "default" },
+        { key: "compaction.thresholdTokens", type: "number", description: "", value: -1, globalValue: undefined, options: null, layer: "default" },
       ],
     });
 
@@ -568,7 +568,7 @@ describe("notification click focus (issue #271)", () => {
     model: null,
     thinkingLevel: null,
     advisor: false,
-    advisorModel: null,
+    advisorModel: null, subagentModels: null,
     cachedTitle: null,
     cachedModified: null,
     title: "New session",
@@ -651,7 +651,7 @@ describe("mounted tab reconciliation (issues #416 and #510)", () => {
     model: null,
     thinkingLevel: null,
     advisor: false,
-    advisorModel: null,
+    advisorModel: null, subagentModels: null,
     cachedTitle: null,
     cachedModified: null,
     title: "New session",

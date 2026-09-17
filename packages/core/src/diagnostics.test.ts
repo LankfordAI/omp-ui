@@ -74,6 +74,7 @@ function session(
     thinkingLevel: null,
     advisor: false,
     advisorModel: null,
+    subagentModels: null,
     cachedTitle: null,
     cachedModified: null,
     ...override,

@@ -153,7 +153,7 @@ const summary = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({
   model: null,
   thinkingLevel: null,
   advisor: false,
-  advisorModel: null,
+  advisorModel: null, subagentModels: null,
   cachedTitle: null,
   cachedModified: null,
   title: "Production repair",

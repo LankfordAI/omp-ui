@@ -46,9 +46,11 @@ import {
   type Registry,
   type WorktreeCheckoutDescriptor,
   resolveSessionLocation,
+  resolveSubagentOverlayEntries,
   RpcClient,
   spawnOmp,
   writeImageToScratch,
+  writeSubagentModelOverlay,
   MAX_IMAGE_BYTES,
   type ConsoleProgram,
   type DeleteSessionPreview,
@@ -63,6 +65,7 @@ import {
   type SessionCapabilitiesResult,
   type SetSessionToolEnabledResult,
   type SessionMode,
+  type SubagentModelMap,
   type SessionWorktree,
   type SpawnRequest,
   type WorktreeReleaseOptions,
@@ -88,7 +91,7 @@ import { PlanPreflightController } from "./plan-preflight";
 import { readConfinedPlanFile } from "./plan-file";
 import { GoalStatusTracker } from "./goal-status-tracker";
 import { AutoresearchStatusTracker } from "./autoresearch-status-tracker";
-import { prepareResumeRecord, writeRpcExtensions, writeRpcOverlays, writeSessionOverlays } from "./spawn-config";
+import { prepareResumeRecord, writeRpcExtensions, writeRpcOverlays, writeSessionOverlays, type SubagentSpawnConfig } from "./spawn-config";
 import { StallWatchdog } from "./stall-watchdog";
 import { TurnTracker } from "./turns";
 import { ViewTracker } from "./view-tracker";
@@ -512,6 +515,7 @@ export class SessionManager {
           thinkingLevel: project?.lastThinkingLevel ?? null,
           advisor: req.advisor,
           advisorModel: req.advisorModel ?? null,
+          subagentModels: null,
           cachedTitle: null,
           cachedModified: null,
         });
@@ -623,6 +627,48 @@ export class SessionManager {
     );
   }
 
+  /**
+   * The registry inputs the subagent overlay needs (ADR-0031), read
+   * synchronously so the spawn path never spawns a helper process. The roster
+   * is whatever the last settings-surface refresh captured — spawn never
+   * enumerates agents itself.
+   */
+  private subagentSpawnConfig(): SubagentSpawnConfig {
+    return {
+      inheritByDefault: this.deps.registry.getSetting("subagentModelInheritByDefault"),
+      roster: this.deps.registry.getSetting("agentRoster"),
+    };
+  }
+
+  /**
+   * session:setSubagentModels (ADR-0031). The record write, then an in-place
+   * rewrite of the session's subagent overlay: omp re-reads the `--config`
+   * layer before every subagent spawn, so the change lands at the next spawn
+   * with no respawn — unlike the advisor. A session whose lineage dir does
+   * not exist yet (lazy materialization) just keeps the choice in the record
+   * for its next launch; spawning would create the dir, so nothing is lost.
+   */
+  setSessionSubagentModels(tabId: string, map: SubagentModelMap | null): void {
+    this.deps.registry.setSessionSubagentModels(tabId, map);
+    const record = this.deps.registry.sessions.find((session) => session.tabId === tabId);
+    if (record === undefined) return;
+    const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
+    if (!fs.existsSync(absLineageDir)) {
+      void this.deps.broadcast();
+      return;
+    }
+    const config = this.subagentSpawnConfig();
+    try {
+      writeSubagentModelOverlay(
+        absLineageDir,
+        resolveSubagentOverlayEntries(map, config.inheritByDefault, config.roster),
+      );
+    } catch (err) {
+      console.warn("[subagents] could not rewrite the overlay:", err);
+    }
+    void this.deps.broadcast();
+  }
+
   private async spawnPty(
     record: OwnedSessionRecord,
     req: SpawnRequest,
@@ -642,7 +688,7 @@ export class SessionManager {
       cols: req.cols,
       rows: req.rows,
       advisor: record.advisor,
-      configOverlays: writeSessionOverlays(record, absLineageDir, this.gate),
+      configOverlays: writeSessionOverlays(record, absLineageDir, this.gate, this.subagentSpawnConfig()),
     });
     const entry = createPtyLiveEntry(record, ptyHandle);
     this.live.set(record.tabId, entry);
@@ -719,7 +765,7 @@ export class SessionManager {
         message: autoresearchArmMessage(),
       });
     }
-    const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate);
+    const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate, this.subagentSpawnConfig());
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
     }
@@ -1537,6 +1583,7 @@ export class SessionManager {
       thinkingLevel: source.thinkingLevel,
       advisor: source.advisor,
       advisorModel: source.advisorModel,
+      subagentModels: source.subagentModels,
       cachedTitle: source.cachedTitle,
       cachedModified: new Date().toISOString(),
     });

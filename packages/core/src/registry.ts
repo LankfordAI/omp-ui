@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeTextAtomic } from "./atomic-write";
+import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import type {
   AgentMode,
   GlassChrome,
@@ -36,6 +37,11 @@ export interface RegistrySettings {
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
   defaultAdvisor: boolean;
   modelFavorites: string[];
+  /** Session-scope umbrella: subagents with no explicit choice run on the
+   *  session's own model (ADR-0031); default on. */
+  subagentModelInheritByDefault: boolean;
+  /** Agent names from the last roster refresh (unpack + agent dirs). */
+  agentRoster: string[];
   skipDeleteConfirmation: boolean;
   /** One-time migration marker (#274): the sessions array order is explicit; load never re-sorts it. */
   sessionOrderFrozen: boolean;
@@ -99,6 +105,11 @@ function validatedSetting<T>(
   return { fallback, parse: (value) => (valid(value) ? value : fallback()) };
 }
 
+/** Bundled omp v18.2.4 agents: the fresh-registry umbrella must work before
+ *  the first on-demand `omp agents unpack` refresh. Unknown/new names join on
+ *  refresh; stale names are harmless inert override keys. */
+const DEFAULT_AGENT_ROSTER = ["reviewer", "scout", "security-reviewer", "sonic", "task"];
+
 export const SETTINGS: SettingDescriptors = {
   // The native transcript is the primary mode (the sidebar's mode toggle
   // went away with #10); pty stays an explicit per-spawn menu choice.
@@ -148,6 +159,20 @@ export const SETTINGS: SettingDescriptors = {
   ),
   modelFavorites: (() => {
     const fallback = (): string[] => [];
+    return {
+      fallback,
+      parse: (value: unknown) =>
+        Array.isArray(value)
+          ? value.filter((item): item is string => typeof item === "string")
+          : fallback(),
+    };
+  })(),
+  subagentModelInheritByDefault: validatedSetting(
+    () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  agentRoster: (() => {
+    const fallback = (): string[] => [...DEFAULT_AGENT_ROSTER];
     return {
       fallback,
       parse: (value: unknown) =>
@@ -399,6 +424,9 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // would silently drop every session written before the advisor picker
     // shipped.
     optNullable(value, "advisorModel", isStr) &&
+    // subagentModels post-dates the advisor picker records too; absent loads
+    // as null, which is also the umbrella-applies state (ADR-0031).
+    optNullable(value, "subagentModels", isSubagentModelMap) &&
     // Required-nullable pair: absence drops; null is the legal empty value.
     "cachedTitle" in value &&
     (typeof value.cachedTitle === "string" || value.cachedTitle === null) &&
@@ -442,6 +470,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,
       compactionMethod: s.compactionMethod ?? null,
+      subagentModels: s.subagentModels ?? null,
       agentMode: s.agentMode ?? "build",
       worktree: s.worktree
         ? { path: s.worktree.path, branch: s.worktree.branch, base: s.worktree.base ?? null }
@@ -712,6 +741,21 @@ export class Registry {
         project.lastModel = model;
         project.lastThinkingLevel = thinkingLevel;
       }
+      return true;
+    });
+  }
+
+  /**
+   * Records this session's subagent model choices (ADR-0031). Session-scope
+   * only, deliberately without setSessionModel's project last-used side
+   * effect: subagent choices are not "last used" memory.
+   */
+  setSessionSubagentModels(tabId: string, subagentModels: SubagentModelMap | null): void {
+    this.#transaction((draft) => {
+      const record = draft.sessions.find((session) => session.tabId === tabId);
+      if (!record) return false;
+      if (JSON.stringify(record.subagentModels) === JSON.stringify(subagentModels)) return false;
+      record.subagentModels = subagentModels === null ? null : { ...subagentModels };
       return true;
     });
   }

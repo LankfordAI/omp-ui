@@ -32,6 +32,14 @@ export type ProjectConfigRead =
   | { shape: "absent" }
   | { shape: "unsupported"; line: number; reason: string };
 
+/** What a project-layer read found for a two-level key path holding a string map. */
+export type ProjectConfigMapRead =
+  | { shape: "map"; value: Record<string, string> }
+  /** A scalar/array sits where a map was expected. */
+  | { shape: "value"; value: ProjectConfigValue }
+  | { shape: "absent" }
+  | { shape: "unsupported"; line: number; reason: string };
+
 class Refuse extends Error {
   constructor(file: string, line: number, message: string) {
     super(`${file}:${line}: ${message}`);
@@ -270,6 +278,91 @@ function parseFlowSeq(text: string): string[] | null {
   return parts.map((p) => scalarIn(p));
 }
 
+interface MapEntry {
+  /** Index into model.lines. */
+  line: number;
+  /** The unquoted key. */
+  name: string;
+  /** Raw value text, comment stripped. */
+  inline: string;
+}
+
+/** The colon separating key from value, outside quotes; -1 when the line is not `key: value`. */
+function keyColon(body: string): number {
+  let quote: string | undefined;
+  for (let i = 0; i < body.length; i += 1) {
+    const char = body[i]!;
+    if (quote !== undefined) {
+      if (char === quote) quote = undefined;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    // YAML separates key and value with `:` plus whitespace or end-of-line.
+    if (char === ":" && (i + 1 === body.length || /\s/.test(body[i + 1]!))) return i;
+  }
+  return -1;
+}
+
+/**
+ * The entries of a child block already known to be a mapping. Anything outside
+ * the one-level `key: scalar` shape — a nested mapping, a flow value, an
+ * anchor, a duplicate key — refuses, naming the file and the line.
+ */
+function mapEntries(model: Model, file: string, hit: ChildHit): MapEntry[] {
+  const contents = hit.block.filter((j) => !isCommentOrBlank(model.lines[j]!));
+  const entryIndent = model.lines[contents[0]!]!.indent;
+  const entries: MapEntry[] = [];
+  const seen = new Set<string>();
+  for (const j of contents) {
+    const line = model.lines[j]!;
+    if (line.indent !== entryIndent) {
+      throw new Refuse(file, j + 1, "nested content under a map entry");
+    }
+    const colon = keyColon(line.body);
+    if (colon < 0) {
+      throw new Refuse(file, j + 1, "not a `key: value` map entry");
+    }
+    const name = scalarIn(line.body.slice(0, colon));
+    const inline = splitComment(line.body.slice(colon + 1)).value.trim();
+    if (inline === "") {
+      throw new Refuse(file, j + 1, `"${name}" holds no scalar`);
+    }
+    if (inline.startsWith("[") || inline.startsWith("{")) {
+      throw new Refuse(file, j + 1, `"${name}" holds a flow value`);
+    }
+    if (hasNodeSyntax(inline) || inline.startsWith("&") || inline.startsWith("*") || inline.startsWith("!")) {
+      throw new Refuse(file, j + 1, `"${name}" carries an anchor, alias, or tag`);
+    }
+    if (seen.has(name)) {
+      throw new Refuse(file, j + 1, `duplicate "${name}" entry`);
+    }
+    seen.add(name);
+    entries.push({ line: j, name, inline });
+  }
+  return entries;
+}
+
+/** Sequence items of a child block, or the refusal a bad item produces. */
+function blockSeqItems(
+  model: Model,
+  file: string,
+  hit: ChildHit,
+): { items: string[] } | { line: number; reason: string } {
+  const items: string[] = [];
+  for (const j of hit.block) {
+    const line = model.lines[j]!;
+    if (isCommentOrBlank(line)) continue;
+    if (!line.body.startsWith("-") && !line.body.startsWith("- ")) {
+      return { line: j + 1, reason: `${file}: not a sequence entry` };
+    }
+    items.push(scalarIn(splitComment(line.body.slice(1)).value));
+  }
+  return { items };
+}
+
 /** Read the project layer's OWN value for a two-level key path; never throws on absence. */
 export function readProjectConfigValue(
   projectCwd: string,
@@ -313,16 +406,74 @@ export function readProjectConfigValue(
         reason: `${file}: nested mapping under ${keyPath[1]}`,
       };
     }
-    const items: string[] = [];
-    for (const j of hit.block) {
-      const line = model.lines[j]!;
-      if (isCommentOrBlank(line)) continue;
-      if (!line.body.startsWith("-") && !line.body.startsWith("- ")) {
-        return { shape: "unsupported", line: j + 1, reason: `${file}: not a sequence entry` };
-      }
-      items.push(scalarIn(splitComment(line.body.slice(1)).value));
+    const seq = blockSeqItems(model, file, hit);
+    if ("reason" in seq) return { shape: "unsupported", line: seq.line, reason: seq.reason };
+    return { shape: "value", value: seq.items };
+  } catch (err) {
+    read = { shape: "unsupported", line: 0, reason: (err as Error).message };
+  }
+  return read;
+}
+
+/**
+ * Read the project layer's OWN string map for a two-level key path —
+ * `task.agentModelOverrides` is the consumer (ADR-0031). A scalar or
+ * sequence where the map was expected reads back as a plain value so the
+ * caller can show it; a flow mapping, anchor, or duplicate key reports
+ * `unsupported` with the file and line rather than being reformatted.
+ */
+export function readProjectConfigMap(
+  projectCwd: string,
+  keyPath: readonly string[],
+): ProjectConfigMapRead {
+  if (keyPath.length !== 2) {
+    return { shape: "unsupported", line: 0, reason: "key path must be parent + key" };
+  }
+  const file = projectConfigFile(projectCwd);
+  if (!fs.existsSync(file)) return { shape: "absent" };
+  const text = fs.readFileSync(file, "utf8");
+  if (/^---/m.test(text)) {
+    const i = text.split(/\r?\n/).findIndex((l) => l.startsWith("---"));
+    return { shape: "unsupported", line: i + 1, reason: `${file}: multi-document YAML` };
+  }
+  const model = modelize(text);
+  let read: ProjectConfigMapRead;
+  try {
+    const parentLine = findParent(model, file, keyPath[0]!);
+    if (parentLine === null) return { shape: "absent" };
+    const hit = findChild(model, file, parentLine, keyPath[1]!);
+    if (hit === null) return { shape: "absent" };
+    if (hit.inline.startsWith("{")) {
+      return {
+        shape: "unsupported",
+        line: hit.line + 1,
+        reason: `${file}: flow mapping under ${keyPath[1]}`,
+      };
     }
-    return { shape: "value", value: items };
+    if (hit.inline.startsWith("[")) {
+      const items = parseFlowSeq(hit.inline);
+      return items === null
+        ? { shape: "unsupported", line: hit.line + 1, reason: `${file}: flow sequence not parseable` }
+        : { shape: "value", value: items };
+    }
+    if (hit.inline !== "") {
+      const low = splitComment(hit.inline).value.trim().toLowerCase();
+      if (low === "true") return { shape: "value", value: true };
+      if (low === "false") return { shape: "value", value: false };
+      return { shape: "value", value: scalarIn(splitComment(hit.inline).value) };
+    }
+    const shape = childBlockShape(model, hit);
+    if (shape === "empty") return { shape: "absent" };
+    if (shape === "seq") {
+      const seq = blockSeqItems(model, file, hit);
+      if ("reason" in seq) return { shape: "unsupported", line: seq.line, reason: seq.reason };
+      return { shape: "value", value: seq.items };
+    }
+    const value: Record<string, string> = {};
+    for (const entry of mapEntries(model, file, hit)) {
+      value[entry.name] = scalarIn(entry.inline);
+    }
+    return { shape: "map", value };
   } catch (err) {
     read = { shape: "unsupported", line: 0, reason: (err as Error).message };
   }
@@ -418,5 +569,144 @@ export async function setProjectConfigValue(
   const lastContent = [...hit.block].reverse().find((j) => !isCommentOrBlank(model.lines[j]!));
   const deleteCount = lastContent === undefined ? 1 : lastContent - hit.line + 1;
   out.splice(hit.line, deleteCount, ...childLines(pad.length));
+  writeTextAtomic(file, out.join(eol));
+}
+
+/**
+ * Write ONE entry of a two-level string map (`task.agentModelOverrides`) into
+ * the project's config layer, in place — an unrelated hand-written sibling
+ * entry survives untouched, comments included. `value: null` deletes that one
+ * entry, and a deletion that empties the map removes the child key with it.
+ * Creates the file (mode 0o600) when neither config.yml nor config.yaml
+ * exists. Throws (naming file and line) on any shape outside the grammar.
+ */
+export async function setProjectConfigMapEntry(
+  projectCwd: string,
+  keyPath: readonly string[],
+  entry: string,
+  value: string | null,
+): Promise<void> {
+  if (
+    keyPath.length !== 2 ||
+    keyPath.some((k) => k.length === 0 || /[:#\s]/.test(k))
+  ) {
+    throw new Error(`invalid project config key path: ${keyPath.join(".")}`);
+  }
+  if (entry.length === 0 || /[\r\n]/.test(entry)) {
+    throw new Error("invalid map entry name");
+  }
+  if (value !== null && /[\r\n]/.test(value)) {
+    throw new Error("invalid map entry value");
+  }
+  const [parent, child] = [keyPath[0]!, keyPath[1]!];
+  const file = projectConfigFile(projectCwd);
+  const existed = fs.existsSync(file);
+  const text = existed ? fs.readFileSync(file, "utf8") : "";
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  if (/^---/m.test(text)) {
+    const i = text.split(/\r?\n/).findIndex((l) => l.startsWith("---"));
+    throw new Refuse(file, i + 1, "multi-document YAML is outside this writer's grammar");
+  }
+
+  /** The three fresh lines for a file/parent/child that does not exist yet. */
+  const freshLines = (indent: number): string[] => [
+    `${parent}:`,
+    `${" ".repeat(indent)}${child}:`,
+    `${" ".repeat(indent + 2)}${scalarOut(entry)}: ${scalarOut(value ?? "")}`,
+  ];
+
+  if (value === null && !existed) return;
+  if (!existed) {
+    writeTextAtomic(file, freshLines(2).join(eol) + eol, 0o600);
+    return;
+  }
+
+  const model = modelize(text);
+  const out = model.lines.map((l) => l.text);
+  const parentLine = findParent(model, file, parent);
+  if (parentLine === null) {
+    if (value === null) return;
+    const head = text === "" || text.endsWith("\n") ? "" : eol;
+    writeTextAtomic(file, text + head + freshLines(2).join(eol) + eol);
+    return;
+  }
+
+  const end = blockEnd(model, parentLine);
+  const hit = findChild(model, file, parentLine, child);
+  if (hit === null) {
+    if (value === null) return;
+    const firstChild = model.lines
+      .slice(parentLine + 1, end)
+      .find((l) => !isCommentOrBlank(l));
+    const indent = firstChild === undefined ? 2 : firstChild.indent;
+    // A same-named key buried deeper in the block is a nested mapping; the
+    // two-level model must not duplicate it at the block's own indent.
+    for (let i = parentLine + 1; i < end; i += 1) {
+      const line = model.lines[i]!;
+      if (isCommentOrBlank(line) || line.indent === indent) continue;
+      if (line.body.startsWith(`${child}:`)) {
+        throw new Refuse(file, i + 1, `${child} lives in a nested mapping`);
+      }
+    }
+    out.splice(
+      lastContentIndex(model, parentLine, end) + 1,
+      0,
+      `${" ".repeat(indent)}${child}:`,
+      `${" ".repeat(indent + 2)}${scalarOut(entry)}: ${scalarOut(value)}`,
+    );
+    writeTextAtomic(file, out.join(eol));
+    return;
+  }
+
+  if (hit.inline !== "") {
+    if (hit.inline.startsWith("{")) {
+      throw new Refuse(file, hit.line + 1, `${child} is a flow mapping`);
+    }
+    if (hit.inline.startsWith("[")) {
+      throw new Refuse(file, hit.line + 1, `${child} holds a list; refusing to overwrite it`);
+    }
+    throw new Refuse(file, hit.line + 1, `${child} holds a scalar; refusing to overwrite it`);
+  }
+  const shape = childBlockShape(model, hit);
+  if (shape === "seq") {
+    throw new Refuse(file, hit.line + 1, `${child} holds a list; refusing to overwrite it`);
+  }
+  if (shape === "empty") {
+    if (value === null) return;
+    out.splice(
+      hit.line + 1,
+      0,
+      `${" ".repeat(model.lines[hit.line]!.indent + 2)}${scalarOut(entry)}: ${scalarOut(value)}`,
+    );
+    writeTextAtomic(file, out.join(eol));
+    return;
+  }
+
+  const entries = mapEntries(model, file, hit);
+  const entryIndent = model.lines[entries[0]!.line]!.indent;
+  const found = entries.find((e) => e.name === entry);
+  if (found === undefined) {
+    if (value === null) return;
+    out.splice(
+      entries[entries.length - 1]!.line + 1,
+      0,
+      `${" ".repeat(entryIndent)}${scalarOut(entry)}: ${scalarOut(value)}`,
+    );
+    writeTextAtomic(file, out.join(eol));
+    return;
+  }
+  if (value !== null) {
+    out.splice(found.line, 1, `${" ".repeat(entryIndent)}${scalarOut(entry)}: ${scalarOut(value)}`);
+    writeTextAtomic(file, out.join(eol));
+    return;
+  }
+  // Delete one entry; a deletion that empties the map removes the child too.
+  if (entries.length === 1) {
+    const lastContent = [...hit.block].reverse().find((j) => !isCommentOrBlank(model.lines[j]!));
+    const deleteCount = lastContent === undefined ? 1 : lastContent - hit.line + 1;
+    out.splice(hit.line, deleteCount);
+  } else {
+    out.splice(found.line, 1);
+  }
   writeTextAtomic(file, out.join(eol));
 }

@@ -38,6 +38,18 @@ export const WEB_SEARCH_SETTING_GROUP: OmpSettingGroup = {
   keys: ["providers.webSearchOrder", "providers.webSearchExclude"],
 };
 
+/**
+ * The subagent model override record (ADR-0031). Allowlisted but NOT in
+ * OMP_SETTING_GROUPS: a record renders as a read-only JSON span on the omp
+ * page (rows.tsx), so the page's "Subagent models" section carries one row
+ * per agent instead, editing at the Global or Project layer explicitly.
+ */
+export const OMP_SUBAGENT_MODELS_KEY = "task.agentModelOverrides";
+export const SUBAGENT_MODEL_SETTING_GROUP: OmpSettingGroup = {
+  title: "Subagent models",
+  keys: [OMP_SUBAGENT_MODELS_KEY],
+};
+
 /** The omp settings the settings surface exposes, grouped for the omp page. */
 export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
   {

@@ -63,7 +63,7 @@ function remoteProjectGroup(): ProjectGroup {
         model: null,
         thinkingLevel: null,
         advisor: false,
-        advisorModel: null,
+        advisorModel: null, subagentModels: null,
         cachedTitle: "Remote session",
         cachedModified: "2026-09-09T00:00:00.000Z",
         title: "Remote session",
@@ -278,6 +278,29 @@ describe("ModelPalette variants", () => {
     act(() => buttonByText("GPT-5").click());
     expect(pick).toHaveBeenLastCalledWith("openai/gpt-5");
     expect(document.body.textContent).toContain("picking one restarts this session and resumes it");
+  });
+
+  it("offers session-model and omp-default rows for subagent choices", () => {
+    const pick = vi.fn();
+    mount(
+      <ModelPalette
+        variant="subagent"
+        models={models}
+        current="*"
+        allowInherit
+        instanceId={null}
+        onPick={pick}
+        onClose={vi.fn()}
+      />,
+    );
+
+    act(() => buttonByText("session model").click());
+    expect(pick).toHaveBeenLastCalledWith("*");
+    act(() => buttonByText("omp default").click());
+    expect(pick).toHaveBeenLastCalledWith(null);
+    act(() => buttonByText("openai").click());
+    act(() => buttonByText("GPT-5").click());
+    expect(pick).toHaveBeenLastCalledWith("openai/gpt-5");
   });
 
   it("shares current-first ranking and the 120-model cap across both variants", () => {
