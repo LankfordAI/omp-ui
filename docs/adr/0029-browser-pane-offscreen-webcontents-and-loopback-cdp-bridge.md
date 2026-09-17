@@ -56,10 +56,19 @@ through a **loopback CDP bridge** the main process hosts:
 - The agent learns the endpoint from a sixth generated `-e` extension,
   `omp-ui-browser-pane.ts`, armed by a hidden slash command in
   `initialCommands` at every rpc spawn. It delivers **one** hidden custom
-  message (`display: false`) naming `browser.open({ app: { cdp_url } })` and
-  the endpoint's rules, re-queued after a compaction or branch switch. No prompt
-  suffix, no system-prompt append: about 180 tokens once per omp process, and
-  the provider prefix cache is left intact.
+  message (`display: false`) naming `browser.open({ app: { cdp_url } })`, the
+  endpoint's rules, and a routing policy (#561): prefer the most direct
+  interface — `read`/search for repository files and static web content,
+  installed CLIs or APIs with existing credentials for structured service work
+  — and reserve the pane for rendered UI, client-side JavaScript, browser
+  state, browser-only authentication, and explicit user requests to see or
+  interact with a page. A CLI or API that reports browser authentication is
+  required sends the agent to the pane for that sign-in and back. This is
+  guidance, not a gate: "both drive, always" describes control once attached,
+  not tool preference, and the agent opening the pane autonomously stays
+  intentional. The message is re-queued after a compaction or branch switch.
+  No prompt suffix, no system-prompt append: one short hidden message once per
+  omp process, and the provider prefix cache is left intact.
 - The endpoint lives with the live rpc tab from spawn; the page is created on
   first user open or first agent attach, whichever comes first. The pane
   survives a process restart under the same tab, and is destroyed with

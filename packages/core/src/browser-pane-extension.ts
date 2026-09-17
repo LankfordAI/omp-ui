@@ -11,10 +11,11 @@ import { writeLineageArtifact } from "./lineage-artifact";
  * The agent learns the browser pane's endpoint (#519, ADR-0029) from this
  * generated extension: the spawner arms it with `/omp-ui-browser-pane set
  * <json>` in `initialCommands`, and it delivers ONE hidden custom message
- * (`display: false`) naming `browser.open({ app: { cdp_url } })` and the
- * endpoint's rules to the root session. No prompt suffix, no system-prompt
- * append: about 180 tokens once per omp process, re-queued after a compaction,
- * branch, or session switch so a rebuilt context still carries it (#530).
+ * (`display: false`) naming `browser.open({ app: { cdp_url } })`, the
+ * endpoint's rules, and the direct-tools-first routing policy (#561) to the
+ * root session. No prompt suffix, no system-prompt append: one short hidden
+ * message once per omp process, re-queued after a compaction, branch, or
+ * session switch so a rebuilt context still carries it (#530).
  *
  * The endpoint is host-local and never reaches a renderer (#532); the owning
  * main process is the only party that ever names it, and only inside omp.
