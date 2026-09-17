@@ -4,6 +4,10 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- The hidden **Browser pane** message now carries a direct-tools-first routing policy: the agent reaches for a configured CLI or API before driving the shared page, so an authenticated local tool is not bypassed for its web console ([#561](https://github.com/LankfordAI/omp-ui/issues/561)).
+- **Subagent model** choices are editable at Global, Project, and Session scope — the Agents pane's per-session **Models** control, Settings → Advanced **Subagent models**, and the General preference **Subagents inherit the session model** — carried by omp's own `task.agentModelOverrides` layers ([ADR-0031](adr/0031-subagent-model-selection-via-config-layers.md), [#562](https://github.com/LankfordAI/omp-ui/issues/562)).
+- The Agents pane's session-scoped subagent model control now shows a visible **Models** label instead of a bare icon ([#563](https://github.com/LankfordAI/omp-ui/issues/563)).
+- **Project settings** presents its four sections behind a tab strip — one visible at a time instead of one long scroll ([#564](https://github.com/LankfordAI/omp-ui/issues/564)).
 
 ## Choose a download
 
