@@ -4,9 +4,6 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Answering a blocking question — ask, select, confirm, input, or editor — on any viewer now settles that frame for every viewer, and a late joiner hydrates the question it missed, because the open dialog is owned in the main process and mirrored on the session summary ([#555](https://github.com/LankfordAI/omp-ui/issues/555)).
-- The **Browser pane**'s open/close is now session-scoped, not per-view: closing it for one viewer stops the stream for all, while the page keeps running for the agent ([#556](https://github.com/LankfordAI/omp-ui/issues/556)).
-- The **Browser pane** rasterizes at the screen's true pixel density under Wayland fractional scaling, so its text is no longer upscaled and blurry ([#557](https://github.com/LankfordAI/omp-ui/issues/557)).
 
 ## Choose a download
 
