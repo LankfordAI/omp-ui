@@ -1867,3 +1867,89 @@ describe("re-titling (issue #433)", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.titleRegeneration).toBeNull();
   });
 });
+
+describe("reconcilePendingDialogs (issue #555)", () => {
+  /** The harness record with its summary `pendingDialogs` set to `frames`. */
+  const stateWithDialogs = (
+    frames: Array<Record<string, unknown>> | undefined,
+  ): typeof h.backendState => {
+    const base = h.stateWithRecord("sess-1");
+    const rec = { ...base.projects[0]!.sessions[0]! };
+    if (frames === undefined) delete rec.pendingDialogs;
+    else rec.pendingDialogs = frames;
+    return {
+      ...base,
+      projects: [{ ...base.projects[0]!, sessions: [rec] }],
+    };
+  };
+
+  const dialog = (id: string): Record<string, unknown> => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title: "Pick an option",
+  });
+
+  const ids = (queue: unknown[]): unknown[] =>
+    queue.map((q) => (typeof q === "object" && q !== null && "id" in q ? q.id : undefined));
+  beforeEach(() => {
+    h.sent.length = 0;
+  });
+
+  it("hydrates an empty queue from the record list, in order", () => {
+    const state = stateWithDialogs([dialog("q1"), dialog("q2")]);
+    h.useStore.setState({ state, rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    expect(ids(h.useStore.getState().rpc[h.TAB]!.extensionQueue)).toEqual([
+      "q1",
+      "q2",
+    ]);
+  });
+
+  it("clears a stale queue the record says is settled", () => {
+    const local = dialog("q1");
+    const state = stateWithDialogs([]);
+    h.useStore.setState({
+      state,
+      rpc: { [h.TAB]: rpcTabState({ extensionQueue: [local] }) },
+    });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toEqual([]);
+  });
+
+  it("drops the frame a sibling answered and keeps the rest in order", () => {
+    const q1 = dialog("q1");
+    const q2 = dialog("q2");
+    const state = stateWithDialogs([q2]);
+    h.useStore.setState({
+      state,
+      rpc: { [h.TAB]: rpcTabState({ extensionQueue: [q1, q2] }) },
+    });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    const queue = h.useStore.getState().rpc[h.TAB]!.extensionQueue;
+    expect(ids(queue)).toEqual(["q2"]);
+  });
+
+  it("is idempotent: an identical id sequence patches nothing", () => {
+    const local = dialog("q1");
+    const state = stateWithDialogs([dialog("q1")]);
+    h.useStore.setState({
+      state,
+      rpc: { [h.TAB]: rpcTabState({ extensionQueue: [local] }) },
+    });
+    const before = h.useStore.getState().rpc[h.TAB]!.extensionQueue;
+    h.useStore.getState().reconcilePendingDialogs(state);
+    expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toBe(before);
+  });
+
+  it("leaves the queue alone when the host published no list", () => {
+    const state = stateWithDialogs(undefined);
+    const local = dialog("q1");
+    h.useStore.setState({
+      state,
+      rpc: { [h.TAB]: rpcTabState({ extensionQueue: [local] }) },
+    });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toEqual([local]);
+  });
+});

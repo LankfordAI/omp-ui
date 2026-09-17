@@ -1835,7 +1835,7 @@ describe("human-answer published state (issue #436)", () => {
     broadcast.mockClear();
 
     rpc.frame(dialogFrame("c1"));
-    // No gate involved: the openRequests component alone raises the level, so
+    // No gate involved: the dialog-gate component alone raises the level, so
     // the manager's own throttled patch is the one rebuild (fresh manager:
     // past the window, so it lands immediately).
     expect(manager.pendingAnswer(TAB)).toBe(true);
@@ -1880,9 +1880,10 @@ describe("human-answer published state (issue #436)", () => {
     await resume(manager);
     broadcast.mockClear();
 
-    // The markdown sentinel select raises the gate AND openRequests at once.
-    // The gate component changed, so publishAnswerEdge stands down: the
-    // PlanGateTracker's direct broadcast is the only rebuild.
+    // The markdown sentinel select raises the gate only: the dialog tracker
+    // excludes plan-review frames (#555). The gate component changed, so
+    // publishAnswerEdge stands down: the PlanGateTracker's direct broadcast
+    // is the only rebuild.
     rpcInstances.at(-1)!.frame({
       type: "extension_ui_request",
       id: "p1",
@@ -1954,10 +1955,51 @@ describe("human-answer published state (issue #436)", () => {
     expect(broadcast).toHaveBeenCalledTimes(1);
 
     rpcInstances.at(-1)!.exit(0);
-    // onExit clears the open requests through the observers; handleExit's own
+    // onExit clears the open dialogs through the observers; handleExit's own
     // direct broadcast is the only rebuild — no extra edge patch.
     expect(manager.pendingAnswer(TAB)).toBe(false);
     expect(broadcast).toHaveBeenCalledTimes(2);
+  });
+
+  it("owns the open-dialog list for the summary (#555)", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    const rpc = rpcInstances.at(-1)!;
+
+    rpc.frame(dialogFrame("q1", "select"));
+    rpc.frame(dialogFrame("q2", "input"));
+    expect(manager.pendingDialogs(TAB).map((f) => f.id)).toEqual(["q1", "q2"]);
+
+    // A sibling client's answer settles the frame in main, not just locally.
+    manager.rpcSend(TAB, answer("q1"));
+    expect(manager.pendingDialogs(TAB).map((f) => f.id)).toEqual(["q2"]);
+    expect(manager.pendingAnswer(TAB)).toBe(true);
+
+    manager.rpcSend(TAB, answer("q2"));
+    expect(manager.pendingDialogs(TAB)).toEqual([]);
+    expect(manager.pendingAnswer(TAB)).toBe(false);
+
+    // The plan-review select is owned by its gate, never the dialog list.
+    rpc.frame({
+      type: "extension_ui_request",
+      id: "p1",
+      method: "select",
+      title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
+        title: "add auth",
+        planFilePath: "local://auth-plan.md",
+        planAbsPath: "/l/auth-plan.md",
+      })}`,
+    });
+    expect(manager.pendingDialogs(TAB)).toEqual([]);
+    expect(manager.pendingAnswer(TAB)).toBe(true);
+  });
+
+  it("reports no dialogs for a session with no live process", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    rpcInstances.at(-1)!.frame(dialogFrame("q1", "select"));
+    rpcInstances.at(-1)!.exit(0);
+    expect(manager.pendingDialogs(TAB)).toEqual([]);
   });
 });
 

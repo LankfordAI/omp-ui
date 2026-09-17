@@ -1,6 +1,7 @@
 // Pure types, zero runtime imports — the renderer imports these type-only via
 // the @omp-ui/core/types subpath.
 import type { BrowserPaneAgentState } from "./browser-pane";
+import type { RpcFrame } from "./rpc/codec";
 import type { GoalSnapshot } from "./goal";
 import type { SkillOrigin } from "./omp-capability-keys";
 export type { SkillOrigin } from "./omp-capability-keys";
@@ -357,6 +358,15 @@ export interface SessionSummary extends OwnedSessionRecord {
    * always reports false — a PTY raises no rpc dialogs.
    */
   awaitingHumanAnswer?: boolean;
+  /**
+   * The blocking-dialog frames this session is currently blocked on, in
+   * arrival order, with the plan-review select excluded (that gate owns its
+   * own frame — issue #555). Ephemeral like `pendingPlan`: the live child
+   * blocks; a session with no process reports none. Absent from an older
+   * host's summary, so a renderer only reconciles when it is defined —
+   * never clears a real queue on undefined.
+   */
+  pendingDialogs?: RpcFrame[];
   /**
    * The live session's goal snapshot as its own bridge published it (issue #381).
    * Ephemeral runtime state like `pendingPlan`: never persisted, absent for a

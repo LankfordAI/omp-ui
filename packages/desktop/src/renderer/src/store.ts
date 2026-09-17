@@ -124,6 +124,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
     advisorReply: advisorReplyWatcher,
     stall: stallContinueWatcher,
     reconcilePlanGates,
+    // Deferred: the sessionParams slice is built below this one; boot
+    // happens long after module wiring, so the late binding is safe (#555).
+    reconcilePendingDialogs: (state) => sessionParams.reconcilePendingDialogs(state),
   });
   const sessionParams = createSessionParamsSlice(set, get, m, {
     concern: concernWatcher,
@@ -296,6 +299,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         syncGlassChrome(state);
         syncLocale(state);
         reconcilePlanGates(state);
+        sessionParams.reconcilePendingDialogs(state);
         rpcCommandSlice.reconcileGoals(state);
       });
       // #498: the checkout moved outside this client — a remote transport
@@ -363,6 +367,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       syncGlassChrome(state);
       syncLocale(state);
       reconcilePlanGates(state);
+      sessionParams.reconcilePendingDialogs(state);
       rpcCommandSlice.reconcileGoals(state);
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);

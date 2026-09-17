@@ -1261,6 +1261,9 @@ export class MainBackend {
       streamStalled,
       turnRunning,
       awaitingHumanAnswer,
+      // Ephemeral like the plan gate (#555): the live child blocks; a session
+      // with no process reports none.
+      pendingDialogs: this.sessions.pendingDialogs(record.tabId),
       ...(goal === undefined ? {} : { goal }),
     };
   }
