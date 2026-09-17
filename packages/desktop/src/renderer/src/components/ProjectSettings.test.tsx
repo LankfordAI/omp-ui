@@ -174,6 +174,14 @@ function button(text: string): HTMLButtonElement {
   return found!;
 }
 
+function tabButton(label: string): HTMLButtonElement {
+  const found = [...document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+    (b) => b.textContent?.includes(label),
+  );
+  if (found === undefined) throw new Error(`tab not found: ${label}`);
+  return found;
+}
+
 function buttons(text: string): HTMLButtonElement[] {
   return [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(
     (candidate) => candidate.textContent?.trim() === text,
@@ -246,7 +254,7 @@ afterEach(() => {
 });
 
 describe("ProjectSettings", () => {
-  it("renders all four sections for the project", async () => {
+  it("renders the header and opens on the MCP servers tab", async () => {
     await renderDialog();
 
     // Header carries the project identity.
@@ -254,21 +262,67 @@ describe("ProjectSettings", () => {
     expect(document.body.textContent).toContain("Project");
     expect(document.body.textContent).toContain(PROJECT);
 
-    // MCP section: the empty state resolves for this project.
+    // MCP servers is the active tab; its empty state resolves for this project.
+    expect(tabButton("MCP servers").getAttribute("aria-selected")).toBe("true");
     expect(backendMock.getMcpServers).toHaveBeenCalledWith(PROJECT);
     expect(document.body.textContent).toContain("No MCP servers configured for this project.");
 
-    // Skills and Tools sections: the catalogs resolve at THIS project's scope.
-    expect(backendMock.getScopedCapabilities).toHaveBeenCalledWith(PROJECT);
-    expect(document.body.textContent).toContain("Skills");
-    expect(document.body.textContent).toContain("Tools");
-    expect(document.body.textContent).toContain("what omp can load");
+    // The other sections are unmounted until their tab is visited (the strip's
+    // "Default models" label contains "Default model", so assert on pins).
+    expect(document.body.textContent).not.toContain("pin/main");
+    expect(document.body.textContent).not.toContain("what omp can load");
+  });
 
-    // Models section: both pins are visible.
-    expect(document.body.textContent).toContain("Default model");
-    expect(document.body.textContent).toContain("Default advisor model");
+  it("switches sections with the tab strip, one at a time", async () => {
+    await renderDialog();
+
+    // Skills: the catalog resolves at THIS project's scope on first visit.
+    await act(async () => tabButton("Skills").click());
+    expect(tabButton("Skills").getAttribute("aria-selected")).toBe("true");
+    expect(backendMock.getScopedCapabilities).toHaveBeenCalledWith(PROJECT);
+    expect(document.body.textContent).toContain("what omp can load");
+    expect(document.body.textContent).not.toContain("No MCP servers configured for this project.");
+
+    // Tools: same catalog, same scope.
+    await act(async () => tabButton("Tools").click());
+    expect(tabButton("Tools").getAttribute("aria-selected")).toBe("true");
+    expect(document.body.textContent).toContain("Tool enable settings for this project's scope");
+
+    // Default models: both pins are visible.
+    await act(async () => tabButton("Default models").click());
+    expect(tabButton("Default models").getAttribute("aria-selected")).toBe("true");
     expect(document.body.textContent).toContain("pin/main");
     expect(document.body.textContent).toContain("pin/advisor:high");
+
+    // Back to MCP servers.
+    await act(async () => tabButton("MCP servers").click());
+    expect(tabButton("MCP servers").getAttribute("aria-selected")).toBe("true");
+    expect(document.body.textContent).toContain("No MCP servers configured for this project.");
+    expect(document.body.textContent).not.toContain("pin/main");
+  });
+
+  it("moves selection and focus with arrow keys, Home, and End", async () => {
+    await renderDialog();
+
+    const keydown = async (tab: HTMLButtonElement, key: string): Promise<void> => {
+      await act(async () => {
+        tab.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      });
+    };
+
+    const mcp = tabButton("MCP servers");
+    mcp.focus();
+    await keydown(mcp, "ArrowRight");
+    expect(tabButton("Skills").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tabButton("Skills"));
+
+    await keydown(tabButton("Skills"), "End");
+    expect(tabButton("Default models").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tabButton("Default models"));
+
+    await keydown(tabButton("Default models"), "Home");
+    expect(tabButton("MCP servers").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tabButton("MCP servers"));
   });
 
   it("routes catalog toggles to the project scope, never across it", async () => {
@@ -290,6 +344,7 @@ describe("ProjectSettings", () => {
       }),
     );
     await renderDialog();
+    await act(async () => tabButton("Tools").click());
 
     await act(async () => {
       switchFor("Disable bash").click();
@@ -351,6 +406,7 @@ describe("ProjectSettings", () => {
 
   it("renders both pins and explains a dormant advisor pin", async () => {
     await renderDialog();
+    await act(async () => tabButton("Default models").click());
 
     expect(document.body.textContent).toContain("Default model");
     expect(document.body.textContent).toContain("pin/main");
@@ -362,6 +418,7 @@ describe("ProjectSettings", () => {
 
   it("clears each pin through its project action", async () => {
     await renderDialog();
+    await act(async () => tabButton("Default models").click());
 
     await act(async () => buttons("Clear")[0]!.click());
     expect(backendMock.setProjectDefaultModel).toHaveBeenCalledWith(PROJECT, null);
@@ -378,6 +435,7 @@ describe("ProjectSettings", () => {
       }),
     });
     await renderDialog();
+    await act(async () => tabButton("Default models").click());
 
     await act(async () => buttons("Change")[0]!.click());
     const input = document.body.querySelector<HTMLInputElement>('input[aria-label="Default model"]')!;
@@ -404,6 +462,7 @@ describe("ProjectSettings", () => {
       }),
     });
     await renderDialog();
+    await act(async () => tabButton("Default models").click());
 
     await act(async () => buttons("Change")[1]!.click());
     const input = document.body.querySelector<HTMLInputElement>(
@@ -440,6 +499,7 @@ describe("ProjectSettings", () => {
       },
     });
     await renderDialog();
+    await act(async () => tabButton("Default models").click());
 
     // No catalog yet: Change opens the typed editor, and a typed set rides
     // the instance's project channels with the exact pin args.

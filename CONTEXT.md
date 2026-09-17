@@ -565,7 +565,9 @@ _Avoid_: capabilities panel, plugin manager, tool browser
 **Project settings**:
 The modal the project header's settings button (desktop cluster) and the
 compact sheet's "Project settings…" row open: one dialog for the project with
-four stacked sections — the project's MCP servers (the same resolved list,
+four sections behind a tab strip — one visible at a time, the active tab
+dialog-local and resetting to MCP servers on each open (issue #564) — the
+project's MCP servers (the same resolved list,
 per-server toggles, per-source provenance, and per-file errors the MCP manager
 renders, project-scoped with no pinned tab), the project's **capability
 catalogs** for Skills and Tools (issue #383: the same panels the global viewer
