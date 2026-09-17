@@ -81,7 +81,6 @@ export interface PaneContents {
 
 export interface CreatePaneOptions {
   partition: string;
-  deviceScaleFactor: number;
   width: number;
   height: number;
   /** #529 popups: deny and hand the URL back for in-pane navigation through the guard. */
@@ -117,18 +116,16 @@ const ELECTRON_MODIFIERS: Record<BrowserPaneModifier, ElectronModifier> = {
 export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>): CreatePane {
   return async (opts) => {
     guardBrowserPaneSession(session.fromPartition(opts.partition), deniedPorts);
-    // Undocumented in electron.d.ts but honoured by the offscreen renderer
-    // (#526 prototype evidence): paints arrive at this dsf.
-    const offscreen: Electron.Offscreen & { deviceScaleFactor: number } = {
-      deviceScaleFactor: opts.deviceScaleFactor,
-    };
+    // Density comes from the host's Emulation.setDeviceMetricsOverride plus a
+    // css*dsf-sized window (#557); offscreen.deviceScaleFactor is ignored on
+    // Wayland (ADR-0029), so the window is created plain at 1x.
     const win = new BrowserWindow({
       show: false,
       width: opts.width,
       height: opts.height,
       useContentSize: true,
       webPreferences: {
-        offscreen,
+        offscreen: true,
         partition: opts.partition,
         // No preload at all: this page never reaches the backend bridge.
         sandbox: true,

@@ -4,6 +4,7 @@ import {
   BROWSER_PANE_FPS,
   BROWSER_PANE_FRAME_HEADER_BYTES,
   BROWSER_PANE_JPEG_QUALITY,
+  BROWSER_PANE_JPEG_QUALITY_SETTLED,
   BROWSER_PANE_MAX_DSF,
   BROWSER_PANE_MAX_VIEWPORT,
   BROWSER_PANE_MIN_VIEWPORT,
@@ -41,13 +42,17 @@ import { pickElement } from "./browser-pane-pick";
 /** Client commands that mean the agent is steering the page right now (#530). */
 const ACTING_COMMAND_RE = /^Input\.|^Page\.navigate$|^Runtime\.(evaluate|callFunctionOn)$/;
 const FPS_EWMA_ALPHA = 0.2;
+/** The agent's puppeteer/CDP viewport commands that would clobber the host's own metrics override. */
+const EMULATION_OVERRIDE_RE = /^Emulation\.(set|clear)DeviceMetricsOverride$/;
+/** How long after the last agent override command the host re-asserts its own geometry. */
+const METRICS_REASSERT_MS = 250;
 
 export interface BrowserPaneHostDeps {
   send: (channel: string, ...args: unknown[]) => void;
   /** Default: the Electron-backed factory; tests pass a fake. */
   createPane?: CreatePane;
-  /** Display scale of the app window; clamped to BROWSER_PANE_MAX_DSF. Default () => 1. */
-  displayScaleFactor?: () => number;
+  /** Effective page devicePixelRatio of the app window (1 on unknown); clamped to BROWSER_PANE_MAX_DSF. Default () => 1. */
+  targetScaleFactor?: () => number;
   /** Default: the real http+ws bridge; tests may fake. */
   createListener?: CreateBridgeListener;
   now?: () => number;
@@ -71,7 +76,17 @@ interface PaneEntry {
   cached: Uint8Array | null;
   header: BrowserPaneFrameHeader | null;
   size: { width: number; height: number };
+  /** The dsf of the last painted frame. */
   dsf: number;
+  /** The rasterization scale aimed for on this page (min of targetScaleFactor() and BROWSER_PANE_MAX_DSF). */
+  targetDsf: number;
+  /** Whether the offscreen window is sized css*dsf or css; only ever moves window-scaled → window-css. */
+  metricsMode: "window-scaled" | "window-css";
+  /** The window's first top-level document has committed; the metrics override is safe to send only then (#557). */
+  documentCommitted: boolean;
+  /** applyMetrics sized the window but the commit gate deferred the override. */
+  metricsPending: boolean;
+  reassertTimer: NodeJS.Timeout | undefined;
   agent: BrowserPaneAgentState;
   actingTimer: NodeJS.Timeout | undefined;
   cdpClients: number;
@@ -95,7 +110,12 @@ function newEntry(lastUrl: string | null): PaneEntry {
     cached: null,
     header: null,
     size: { ...BROWSER_PANE_DEFAULT_VIEWPORT },
+    targetDsf: 1,
+    metricsMode: "window-scaled",
     dsf: 1,
+    documentCommitted: false,
+    metricsPending: false,
+    reassertTimer: undefined,
     agent: "detached",
     actingTimer: undefined,
     cdpClients: 0,
@@ -113,18 +133,27 @@ function clampViewport(value: number): number {
 }
 
 /**
- * The scale a frame was really painted at. Wayland ignores
- * `offscreen.deviceScaleFactor`, so the requested dsf is a hypothesis the first
- * frame confirms or refutes: adopt the ratio when it is (within 2 %) the
- * requested scale or 1; a frame caught mid-resize matches neither and keeps
- * the last known scale.
+ * What scale a frame was really painted at, plus whether the window came out
+ * squared (a platform that auto-scales window DIPs by scaleFactor). The
+ * metrics-override route sizes the offscreen window at css*dsf, which is
+ * correct on Wayland but would multiply again on those platforms; the doubled
+ * verdict triggers a one-shot shrink to CSS size in onPaint. A ratio of 1
+ * means the override was ineffective — today's dsf-1 fallback, no regression.
+ * A frame caught mid-resize matches none of them and keeps the last scale.
  */
-function paintedScale(paintedWidth: number, cssWidth: number, requested: number): number {
-  if (cssWidth <= 0) return requested;
+function paintedScale(
+  paintedWidth: number,
+  cssWidth: number,
+  target: number,
+  last: number,
+): { dsf: number; doubled: boolean } {
+  if (cssWidth <= 0) return { dsf: last, doubled: false };
   const ratio = paintedWidth / cssWidth;
-  if (Math.abs(ratio - requested) <= requested * 0.02) return requested;
-  if (Math.abs(ratio - 1) <= 0.02) return 1;
-  return requested;
+  const near = (x: number): boolean => Math.abs(ratio - x) <= x * 0.02;
+  if (near(target)) return { dsf: target, doubled: false };
+  if (target > 1 && near(target * target)) return { dsf: ratio, doubled: true };
+  if (near(1)) return { dsf: 1, doubled: false };
+  return { dsf: last, doubled: false };
 }
 
 /** `new URL(url).origin`, null for about:blank and anything unparsable. */
@@ -140,7 +169,7 @@ function safeOrigin(url: string): string | null {
 export class BrowserPaneHost {
   private readonly entries = new Map<string, PaneEntry>();
   private readonly send: BrowserPaneHostDeps["send"];
-  private readonly displayScaleFactor: () => number;
+  private readonly targetScaleFactor: () => number;
   private readonly createListener: CreateBridgeListener;
   private readonly now: () => number;
   private readonly clearPartition: (partition: string) => Promise<void>;
@@ -152,7 +181,7 @@ export class BrowserPaneHost {
   constructor(deps: BrowserPaneHostDeps) {
     this.send = deps.send;
     this.paneFactory = deps.createPane ?? null;
-    this.displayScaleFactor = deps.displayScaleFactor ?? (() => 1);
+    this.targetScaleFactor = deps.targetScaleFactor ?? (() => 1);
     this.createListener = deps.createListener ?? createBridgeListener;
     this.now = deps.now ?? (() => performance.now());
     this.clearPartition = deps.clearPartition ?? (async (partition) => {
@@ -246,7 +275,8 @@ export class BrowserPaneHost {
     clearTimeout(entry.resizeTimer);
     entry.resizeTimer = setTimeout(() => {
       entry.resizeTimer = undefined;
-      entry.pane?.setContentSize(entry.size.width, entry.size.height);
+      const pane = entry.pane;
+      if (pane !== null && !pane.isDestroyed()) this.applyMetrics(entry, pane);
     }, BROWSER_PANE_RESIZE_DEBOUNCE_MS);
   }
 
@@ -342,6 +372,8 @@ export class BrowserPaneHost {
         agentState: entry.agent,
         urlOrigin: entry.lastUrl === null ? null : safeOrigin(entry.lastUrl),
         frame: entry.header,
+        targetDsf: entry.targetDsf,
+        metricsMode: entry.metricsMode,
         fps: Math.round(entry.fps * 10) / 10,
         lastEncodeMs: entry.lastEncodeMs,
         bridgePort: entry.listener?.port ?? null,
@@ -448,6 +480,8 @@ export class BrowserPaneHost {
   private destroyPage(entry: PaneEntry): void {
     clearTimeout(entry.resizeTimer);
     entry.resizeTimer = undefined;
+    clearTimeout(entry.reassertTimer);
+    entry.reassertTimer = undefined;
     for (const off of entry.offPane) off();
     entry.offPane = [];
     const pane = entry.pane;
@@ -460,13 +494,15 @@ export class BrowserPaneHost {
 
 
   private async createPage(tabId: string, entry: PaneEntry): Promise<PaneContents | null> {
-    entry.dsf = Math.min(this.displayScaleFactor(), BROWSER_PANE_MAX_DSF);
+    entry.targetDsf = Math.min(this.targetScaleFactor(), BROWSER_PANE_MAX_DSF);
+    entry.dsf = 1;
+    entry.documentCommitted = false;
+    entry.metricsPending = false;
     let pane: PaneContents;
     try {
       const createPane = await this.factory();
       pane = await createPane({
         partition: BROWSER_PANE_PARTITION,
-        deviceScaleFactor: entry.dsf,
         width: entry.size.width,
         height: entry.size.height,
         onPopup: (url) => {
@@ -494,7 +530,10 @@ export class BrowserPaneHost {
       pane.on("did-navigate", () => this.noteCommitted(tabId, entry, pane)),
       pane.on("did-navigate-in-page", () => this.noteCommitted(tabId, entry, pane)),
       pane.on("did-start-loading", () => this.emitState(tabId, entry)),
-      pane.on("did-stop-loading", () => this.emitState(tabId, entry)),
+      pane.on("did-stop-loading", () => {
+        this.ensureMetrics(entry, "first-commit");
+        this.emitState(tabId, entry);
+      }),
       pane.on("page-title-updated", () => this.emitState(tabId, entry)),
       pane.on("destroyed", () => {
         if (entry.pane !== pane) return;
@@ -505,6 +544,9 @@ export class BrowserPaneHost {
       }),
     );
     pane.debugger.attach("1.3");
+    // Size the surface and pin the CSS viewport before the first paint so the
+    // page renders at target density from the start (#557).
+    this.applyMetrics(entry, pane);
     if (entry.sinks.size > 0) this.startPainting(entry, pane);
     else pane.stopPainting();
     // A remembered URL the guard now cancels rejects here; the state still emits.
@@ -518,9 +560,38 @@ export class BrowserPaneHost {
    * agent's Page.navigate) must not become the URL a recreated pane reloads.
    */
   private noteCommitted(tabId: string, entry: PaneEntry, pane: PaneContents): void {
+    this.ensureMetrics(entry, "first-commit");
     const url = pane.getURL();
     if (isAllowedBrowserPaneTopLevelUrl(url)) entry.lastUrl = url;
     this.emitState(tabId, entry);
+  }
+
+  /**
+   * Re-assert the host geometry when it may have been lost: the window's first
+   * document committing (a deferred applyMetrics) or the last CDP client
+   * detaching — Chromium's session teardown clears the viewport emulation and
+   * restores the pre-override window bounds (#557). The detach lands a tick
+   * after the count callback, so the re-pin rides the same debounce as an
+   * agent override command.
+   */
+  private ensureMetrics(entry: PaneEntry, reason: "first-commit" | "last-client"): void {
+    const pane = entry.pane;
+    if (pane === null || pane.isDestroyed()) return;
+    if (reason === "first-commit") {
+      entry.documentCommitted = true;
+      if (entry.metricsPending) this.applyMetrics(entry, pane);
+      return;
+    }
+    if (entry.documentCommitted) this.scheduleMetricsReassert(entry);
+  }
+
+  private scheduleMetricsReassert(entry: PaneEntry): void {
+    clearTimeout(entry.reassertTimer);
+    entry.reassertTimer = setTimeout(() => {
+      entry.reassertTimer = undefined;
+      const pane = entry.pane;
+      if (pane !== null && !pane.isDestroyed()) this.applyMetrics(entry, pane);
+    }, METRICS_REASSERT_MS);
   }
 
   private onPaint(tabId: string, entry: PaneEntry, image: PaintImage): void {
@@ -528,9 +599,17 @@ export class BrowserPaneHost {
     // Electron's first paint of a fresh window is empty; an 8-byte frame would
     // poison the cache and the ensure answer.
     if (size.width === 0 || size.height === 0) return;
-    entry.dsf = paintedScale(size.width, entry.size.width, entry.dsf);
+    const { dsf, doubled } = paintedScale(size.width, entry.size.width, entry.targetDsf, entry.dsf);
+    entry.dsf = dsf;
+    if (doubled && entry.metricsMode === "window-scaled") {
+      // The platform squared the scale: drop to CSS-sized windows and re-pin.
+      entry.metricsMode = "window-css";
+      const pane = entry.pane;
+      if (pane !== null && !pane.isDestroyed()) this.applyMetrics(entry, pane);
+    }
     const t0 = this.now();
-    const jpeg = image.toJPEG(BROWSER_PANE_JPEG_QUALITY);
+    const settled = entry.pane !== null && !entry.pane.isLoading();
+    const jpeg = image.toJPEG(settled ? BROWSER_PANE_JPEG_QUALITY_SETTLED : BROWSER_PANE_JPEG_QUALITY);
     const header: BrowserPaneFrameHeader = { width: size.width, height: size.height, dsf: entry.dsf };
     // One allocation per frame: header and JPEG land in the same buffer.
     const frame = Buffer.allocUnsafe(BROWSER_PANE_FRAME_HEADER_BYTES + jpeg.length);
@@ -570,11 +649,16 @@ export class BrowserPaneHost {
       clearTimeout(entry.actingTimer);
       entry.actingTimer = undefined;
       entry.agent = "detached";
+      // Chromium's session teardown drops the viewport emulation the detached
+      // session owned — including the host's override (#557). Re-pin it so the
+      // pane stays sharp after the agent disconnects.
+      this.ensureMetrics(entry, "last-client");
       this.emitState(tabId, entry);
     }
   }
 
   private onCommand(tabId: string, entry: PaneEntry, method: string): void {
+    if (EMULATION_OVERRIDE_RE.test(method)) this.scheduleMetricsReassert(entry);
     if (!ACTING_COMMAND_RE.test(method)) return;
     clearTimeout(entry.actingTimer);
     entry.actingTimer = setTimeout(() => {
@@ -586,6 +670,43 @@ export class BrowserPaneHost {
     if (entry.agent === "acting") return;
     entry.agent = "acting";
     this.emitState(tabId, entry);
+  }
+
+  /**
+   * Pin the CSS viewport at `entry.size` with deviceScaleFactor `targetDsf`
+   * so paints arrive at css*dsf. Measured sequence (Electron 43/Wayland):
+   * the window must sit at CSS size when the override lands, then grow —
+   * growing first leaves the surface at CSS pixels, and sending the override
+   * before the window's first document commits segfaults the GPU process.
+   * Before that commit this only marks the entry pending; `ensureMetrics`
+   * re-applies from the commit event. Until then the page paints CSS-sized at
+   * dsf 1 — exactly what Wayland did before this route existed.
+   */
+  private applyMetrics(entry: PaneEntry, pane: PaneContents): void {
+    const d = entry.targetDsf;
+    const grow = entry.metricsMode === "window-scaled" ? d : 1;
+    if (!entry.documentCommitted) {
+      entry.metricsPending = true;
+      return;
+    }
+    entry.metricsPending = false;
+    const width = Math.min(BROWSER_PANE_MAX_VIEWPORT, Math.round(entry.size.width * grow));
+    const height = Math.min(BROWSER_PANE_MAX_VIEWPORT, Math.round(entry.size.height * grow));
+    pane.setContentSize(entry.size.width, entry.size.height);
+    void pane.debugger
+      .sendCommand("Emulation.setDeviceMetricsOverride", {
+        width: entry.size.width,
+        height: entry.size.height,
+        deviceScaleFactor: d,
+        mobile: false,
+      })
+      .then(() => {
+        // Growing after the pin is what turns the dpr into surface pixels.
+        if (grow > 1 && !pane.isDestroyed()) pane.setContentSize(width, height);
+      })
+      .catch(() => {
+        // A page that refuses the override paints 1x; paintedScale records dsf 1.
+      });
   }
 
   private currentState(entry: PaneEntry): BrowserPaneState {

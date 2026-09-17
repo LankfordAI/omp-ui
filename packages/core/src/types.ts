@@ -1083,6 +1083,10 @@ export interface BrowserPaneDiagnostics {
   agentState: BrowserPaneAgentState;
   urlOrigin: string | null;
   frame: { width: number; height: number; dsf: number } | null;
+  /** The rasterization scale the host aimed for (page dpr / zoom, clamped). */
+  targetDsf: number;
+  /** Which calibration branch the first frames settled on: window sized at css*dsf, or shrunk to CSS after a squared paint. */
+  metricsMode: "window-scaled" | "window-css";
   fps: number;
   lastEncodeMs: number | null;
   bridgePort: number | null;

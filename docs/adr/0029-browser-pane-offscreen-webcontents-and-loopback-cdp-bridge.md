@@ -16,7 +16,8 @@ through a **loopback CDP bridge** the main process hosts:
 - Desktop main creates one hidden `BrowserWindow` per live rpc-ui tab with
   `webPreferences.offscreen`, in the app-wide `persist:browser-pane` partition,
   with `sandbox`, `contextIsolation`, no `nodeIntegration`, and no preload
-  (the plan verifier's isolation recipe). `paint` frames are `toJPEG(70)` at
+  (the plan verifier's isolation recipe). `paint` frames are `toJPEG(70)` while
+  the page loads and `toJPEG(85)` once it settles (#557), at
   `setFrameRate(30)` only while a renderer is subscribed; the pane follows the
   app's hardware-acceleration setting. Every frame carries an eight-byte header
   (`u16` width, height, dsf×100, reserved) so a frame and its dimensions can
@@ -145,13 +146,35 @@ through a **loopback CDP bridge** the main process hosts:
   smoke measures p90 encode over 16 ms, the dsf is clamped to a pixel budget
   first and the frame-rate constant lowered second; a row whose fallback fired
   is recorded here with the measured value.
-- **HiDPI is best-effort.** `offscreen.deviceScaleFactor` is honoured on X11,
-  Windows and macOS and ignored on Wayland; the host reads the painted scale
-  off the first frame (a 1280×800 frame for a 1280×800 page is dsf 1), so the
-  header says what was painted and the renderer upscales (measured on the
-  Linux reference: requested 2, painted 1 under Wayland; 2560×1600 at 2 under
-  `--ozone-platform=x11`, encode p90 16.3 ms). Monitor moves after creation are
-  not chased in v1.
+- **HiDPI is calibrated, not assumed (#557).** `offscreen.deviceScaleFactor`
+  is honoured on X11, Windows and macOS and ignored on Wayland — and under
+  Wayland *fractional* scaling even `screen.getDisplayMatching().scaleFactor`
+  lies (reports 1 while the app window's own pages render at 1.5), so the host
+  takes its target from the app window's measured page `devicePixelRatio`
+  divided by the window's zoom factor, clamped to `BROWSER_PANE_MAX_DSF`.
+  The route is `Emulation.setDeviceMetricsOverride` at the CSS size with the
+  offscreen window sized `css × dsf` — but only after the window's first
+  document commits: sending the override to a never-committed offscreen window
+  segfaults the GPU process (measured, Electron 43/Wayland), and with the
+  pinned CSS viewport Chromium restores the window to CSS bounds at each
+  commit, so the host's sequence is resize-to-CSS, send the override, then
+  grow. The first frame still arbitrates: a paint at `ratio = paintWidth /
+  cssWidth` matches the target (Wayland, X11), the target squared (a platform
+  that auto-scales window DIPs — one-shot shrink to CSS-sized windows and
+  re-pin), or 1 (override ineffective — the old dsf-1 fallback, no
+  regression), always within 2 %; mid-resize frames keep the last scale, and
+  the header states what was painted. The last CDP client detaching clears
+  the emulation state its session owned, so the host re-pins through the same
+  250 ms debounce that reverts an agent `setViewport` (a client that keeps
+  re-sending the command defers the revert; the user's resize always wins).
+  Measured on the Linux reference (GNOME/Wayland, 1.5× fractional, software
+  raster, 800×600 CSS pane): target 1.5 → paint 1200×900 at page dpr 1.5,
+  encode p90 3.8 ms; target 2 → paint 1600×1200 at page dpr 2, encode p90
+  7.0 ms — inside the 16 ms gate, no frame-rate fallback. The squared-platform
+  correction branch cannot fire on Wayland (it never squares) and is covered
+  by the host unit tests. Monitor moves after creation are still not chased
+  in v1; `display-metrics-changed` and window moves only re-probe the target,
+  which applies at the next page create or resize.
 - **One loopback listener per live rpc tab, from spawn.** An idle tab costs one
   socket and no Chromium resources; the page and its renderer process exist
   only after first use. The token rotates with the listener.

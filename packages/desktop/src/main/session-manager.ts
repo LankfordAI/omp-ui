@@ -135,10 +135,10 @@ export interface SessionManagerDependencies {
    * (docs/development.md). Absent or blank means an ungated launch.
    */
   spawnGate?: SpawnGate;
-  /** Browser pane seams (#519): the page factory, the bridge listener, and the display scale; tests fake all three. */
+  /** Browser pane seams (#519): the page factory, the bridge listener, and the target page scale; tests fake all three. */
   browserPane?: Pick<
     BrowserPaneHostDeps,
-    "createPane" | "createListener" | "displayScaleFactor" | "clearPartition"
+    "createPane" | "createListener" | "targetScaleFactor" | "clearPartition"
   >;
 }
 

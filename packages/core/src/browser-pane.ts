@@ -14,6 +14,8 @@ export const BROWSER_PANE_CUSTOM_TYPE = "omp-ui:browser-pane";
 export const BROWSER_PANE_PARTITION = "persist:browser-pane";
 export const BROWSER_PANE_FPS = 30;
 export const BROWSER_PANE_JPEG_QUALITY = 70;
+/** JPEG quality once the page has settled; loading frames stay at BROWSER_PANE_JPEG_QUALITY. */
+export const BROWSER_PANE_JPEG_QUALITY_SETTLED = 85;
 export const BROWSER_PANE_MAX_DSF = 2;
 export const BROWSER_PANE_FRAME_HEADER_BYTES = 8;
 /** Root `/json/version` answers only this long after a tokened hit (#531). */
