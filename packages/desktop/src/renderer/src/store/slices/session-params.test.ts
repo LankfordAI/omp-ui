@@ -616,6 +616,46 @@ describe("prompting, slash commands, and session ops", () => {
     });
   });
 
+  it("/autoresearch lab and /autoresearch start open omp-ui's surfaces and send nothing", async () => {
+    h.useStore.setState({ tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })] });
+    await h.useStore.getState().runSlashCommand(h.TAB, "/autoresearch lab");
+    expect(h.sent).toHaveLength(0);
+    expect(h.useStore.getState().lab).toMatchObject({ projectCwd: "/p", instanceId: null });
+    await h.useStore.getState().runSlashCommand(h.TAB, "/autoresearch start");
+    expect(h.sent).toHaveLength(0);
+    expect(h.useStore.getState().experimentDialog).toEqual({ projectCwd: "/p", instanceId: null });
+  });
+
+  it("every other /autoresearch line stays omp's command with the normal lifecycle", async () => {
+    h.useStore.setState({ tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })] });
+    seedCommands({ name: "autoresearch" });
+    for (const line of ["/autoresearch", "/autoresearch off", "/autoresearch clear", "/autoresearch lab now"]) {
+      h.sent.length = 0;
+      const promise = h.useStore.getState().runSlashCommand(h.TAB, line);
+      expect(h.sent[0]!.cmd).toMatchObject({ type: "prompt", message: line });
+      expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+        kind: "command",
+        name: "autoresearch",
+        status: "running",
+      });
+      h.respond(h.TAB, h.sent[0]!.cmd, { agentInvoked: false });
+      await promise;
+    }
+    expect(h.useStore.getState().lab).toBeNull();
+    expect(h.useStore.getState().experimentDialog).toBeNull();
+  });
+
+  it("/autoresearch lab from a pty tab reaches its TUI untouched", async () => {
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, mode: "pty", projectCwd: "/p" })],
+    });
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/autoresearch lab");
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/autoresearch lab" });
+    expect(h.useStore.getState().lab).toBeNull();
+    await settleAll();
+    await promise;
+  });
+
   it("busy is true while a command is in flight and survives a concurrent one", async () => {
     const first = h.useStore.getState().rpcCommand(h.TAB, { type: "get_state" });
     const second = h.useStore

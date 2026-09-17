@@ -65,7 +65,7 @@ function session(
     sessionId: "0198e9f0-0000-7000-8000-000000000000",
     lineageDir: `omp-ui--p--${override.tabId}`,
     worktree: null,
-    planImplementationSource: null,
+    planImplementationSource: null, experiment: null,
     launchedAt: NOW.toISOString(),
     mode: "rpc-ui",
     agentMode: "build",

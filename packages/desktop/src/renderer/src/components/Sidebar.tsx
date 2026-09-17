@@ -22,7 +22,7 @@ import { SessionRow } from "./SessionRow";
 import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconGrip, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconGrip, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -198,6 +198,7 @@ function ProjectSection({
   const moveSession = useStore((st) => st.moveSession);
   const focusedTabId = useStore((st) => st.focusedTabByProject[projectKey(instanceId, group.project.path)]);
   const openProjectSettings = useStore((st) => st.openProjectSettings);
+  const openLab = useStore((st) => st.openLab);
   const [open, setOpen] = useState(true);
   const [visible, setVisible] = useState(PAGE);
 
@@ -378,6 +379,9 @@ function ProjectSection({
                   refreshAvailability={refreshAvailability}
                 />
               )}
+              <IconButton label={t("sidebar.project.lab", { name: project.name })} disabled={disabled} onClick={() => openLab(project.path, instanceId)}>
+                <IconFlask />
+              </IconButton>
               <IconButton label={t("sidebar.project.settings", { name: project.name })} disabled={disabled} onClick={() => openProjectSettings(project.path, instanceId)}>
                 <IconTune />
               </IconButton>

@@ -69,7 +69,7 @@ let root: Root | null = null;
 const state = backendState({
   projects: [{ project: { path: "/p", name: "P", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null }, sessions: [{
     tabId: TAB, sessionId: "s", lineageDir: "lineage", projectCwd: "/p", launchedAt: "t", mode: "rpc-ui",
-    worktree: null, planImplementationSource: null, agentMode: "build", compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, cachedTitle: "Compose", cachedModified: "t", title: "Compose", status: "complete", live: "live", pendingPlan: null, planSettle: null, streamStalled: false,
+    worktree: null, planImplementationSource: null, experiment: null, agentMode: "build", compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, cachedTitle: "Compose", cachedModified: "t", title: "Compose", status: "complete", live: "live", pendingPlan: null, planSettle: null, streamStalled: false,
   }] }],
 });
 
@@ -902,6 +902,33 @@ describe("Composer BuildPlanControl", () => {
     act(() => parent.click());
     expect(runSlashCommand).not.toHaveBeenCalled();
     expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("/goal ");
+  });
+
+  it("offers omp's autoresearch family once, as omp-ui's own row with its four verbs", () => {
+    seed("ready");
+    // omp advertises `autoresearch` itself and its hidden arming command; the
+    // palette shows omp-ui's one row (ADR-0030), never a second for the same action.
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          commands: [
+            { name: "autoresearch", description: "omp's own", source: "extension" },
+            { name: "omp-ui-autoresearch", description: "hidden arm", source: "extension" },
+          ],
+        },
+      },
+    });
+    renderComposer();
+    typeDraft("/autoresearch");
+    const labels = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .map((b) => b.getAttribute("aria-label") ?? "")
+      .filter((label) => label.startsWith("/"));
+    expect(labels.filter((l) => l.startsWith("/autoresearch:"))).toEqual([
+      "/autoresearch: autoresearch experiments: start, lab, off, clear",
+    ]);
+    expect(labels.some((l) => l.startsWith("/omp-ui-autoresearch"))).toBe(false);
+    expect(labels.filter((l) => /^\/autoresearch (start|lab|off|clear):/.test(l))).toHaveLength(4);
   });
 
   it("completes the guided-goal draft with its argument", () => {

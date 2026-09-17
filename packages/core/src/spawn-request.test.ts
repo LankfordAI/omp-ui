@@ -53,12 +53,27 @@ const resumeRequest: SpawnRequest = {
   planMode: true,
 };
 
+const experiment = {
+  goal: "cut p95 latency",
+  metric: "p95_ms",
+  unit: "ms",
+  direction: "lower" as const,
+  launchedBranch: "autoresearch/cut-p95-latency/ab12cd",
+  launchedAt: "2026-09-17T10:00:00.000Z",
+};
+
+const newExperimentRequest: SpawnRequest = {
+  ...newRpcRequest,
+  planImplementationSource: null,
+  experiment,
+};
+
 describe("parseSpawnRequest", () => {
   const nullPlanSource: SpawnRequest = {
     ...newRpcRequest,
-    planImplementationSource: null,
+    planImplementationSource: null, experiment: null,
   };
-  it.each([newRpcRequest, newPtyRequest, newCheckoutRequest, newProjectRequest, nullPlanSource, resumeRequest])(
+  it.each([newRpcRequest, newPtyRequest, newCheckoutRequest, newProjectRequest, nullPlanSource, newExperimentRequest, resumeRequest])(
     "round-trips a well-shaped $origin request",
     (request) => {
       expect(parseSpawnRequest(request)).toEqual(request);
@@ -97,6 +112,11 @@ describe("parseSpawnRequest", () => {
     ["resume project", { ...resumeRequest, projectCwd: "/project" }],
     ["resume worktree", { ...resumeRequest, worktree: null }],
     ["resume plan source", { ...resumeRequest, planImplementationSource: null }],
+    ["resume experiment", { ...resumeRequest, experiment: null }],
+    ["unknown experiment key", { ...newExperimentRequest, experiment: { ...experiment, slug: "x" } }],
+    ["experiment direction", { ...newExperimentRequest, experiment: { ...experiment, direction: "up" } }],
+    ["experiment without launch branch key", { ...newExperimentRequest, experiment: { ...experiment, launchedBranch: undefined } }],
+    ["experiment metric", { ...newExperimentRequest, experiment: { ...experiment, metric: "" } }],
     ["missing resume tab", { ...resumeRequest, resumeTabId: "" }],
     ["legacy plan field", { ...newRpcRequest, startInPlanMode: false }],
   ] as const)("rejects %s", (_label, raw) => {

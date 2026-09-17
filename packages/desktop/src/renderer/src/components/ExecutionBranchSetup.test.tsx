@@ -148,7 +148,7 @@ function sessionRecord(tabId: string, title: string) {
     projectCwd: "/p",
     launchedAt: "t",
     mode: "rpc-ui" as const,
-    planImplementationSource: null,
+    planImplementationSource: null, experiment: null,
     agentMode: "build" as const,
     compactionMethod: null,
     model: null,

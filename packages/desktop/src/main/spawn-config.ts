@@ -9,6 +9,7 @@ import {
   readOmpCompactionMethods,
   type OwnedSessionRecord,
   writeAdvisorOverlay,
+  writeAutoresearchExtension,
   writeBrowserPaneExtension,
   writeAdvisorStatsExtension,
   writeCapabilitiesExtension,
@@ -107,6 +108,7 @@ export function writeRpcExtensions(absLineageDir: string): {
   capabilitiesLoaded: boolean;
   goalLoaded: boolean;
   browserPaneLoaded: boolean;
+  autoresearchLoaded: boolean;
 } {
     const paths: string[] = [];
     try {
@@ -147,7 +149,21 @@ export function writeRpcExtensions(absLineageDir: string): {
     } catch (err) {
       console.warn("[browser-pane] could not write the browser-pane extension:", err);
     }
-    return { paths, mcpStatusLoaded, capabilitiesLoaded, goalLoaded, browserPaneLoaded };
+    let autoresearchLoaded = false;
+    try {
+      paths.push(writeAutoresearchExtension(absLineageDir));
+      autoresearchLoaded = true;
+    } catch (err) {
+      console.warn("[autoresearch] could not write the autoresearch extension:", err);
+    }
+    return {
+      paths,
+      mcpStatusLoaded,
+      capabilitiesLoaded,
+      goalLoaded,
+      browserPaneLoaded,
+      autoresearchLoaded,
+    };
   }
 
 /** Manager-provided paths and registry mutation for prepareResumeRecord. */

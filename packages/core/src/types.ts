@@ -3,6 +3,7 @@
 import type { BrowserPaneAgentState } from "./browser-pane";
 import type { RpcFrame } from "./rpc/codec";
 import type { GoalSnapshot } from "./goal";
+import type { AutoresearchSnapshot } from "./autoresearch";
 import type { SkillOrigin } from "./omp-capability-keys";
 export type { SkillOrigin } from "./omp-capability-keys";
 export type SessionStatus =
@@ -257,6 +258,26 @@ export interface DeleteSessionResult {
   failed: Array<{ tabId: string; message: string }>;
 }
 
+/**
+ * Launch parameters of a session omp-ui started as an experiment (CONTEXT.md
+ * "New experiment"). Provenance only: omp's autoresearch DB is the record of
+ * what the experiment became; this is what the user asked for at launch, and
+ * what links a fresh session to its DB row before `init_experiment` runs.
+ */
+export interface SessionExperiment {
+  goal: string;
+  metric: string;
+  unit: string;
+  direction: "lower" | "higher";
+  /**
+   * Branch the checkout was on at launch: the minted worktree branch, or the
+   * project checkout's branch (null when detached / not a repo).
+   */
+  launchedBranch: string | null;
+  /** ISO-8601. */
+  launchedAt: string;
+}
+
 export interface OwnedSessionRecord {
   tabId: string;
   /** UUIDv7 — null until the session materializes on disk (lazy materialization). */
@@ -276,6 +297,13 @@ export interface OwnedSessionRecord {
    * to null at parse time.
    */
   planImplementationSource: PlanImplementationSource | null;
+  /**
+   * Experiment provenance for a session omp-ui launched from the New
+   * experiment dialog. Post-dates schema-1; legacy records normalize to null.
+   * A `/branch` fork copies null: the checkout is shared, so the DB row stays
+   * linked to the original record.
+   */
+  experiment: SessionExperiment | null;
   launchedAt: string;
   mode: SessionMode;
   /** Agent mode (plan/build) of the last rpc-ui incarnation the plan
@@ -374,6 +402,13 @@ export interface SessionSummary extends OwnedSessionRecord {
    * omp's runtime inside the child stays the only owner.
    */
   goal?: GoalSnapshot;
+  /**
+   * The live session's autoresearch snapshot as its own bridge published it
+   * (ADR-0030). Ephemeral runtime state like `goal`: never persisted, absent
+   * for a session with no live autoresearch bridge, and never a copy of omp's
+   * run data — the DB stays the record of runs.
+   */
+  autoresearch?: AutoresearchSnapshot;
 }
 
 export interface ProjectGroup {
@@ -532,6 +567,8 @@ interface NewSpawnRequestBase {
   worktree: SpawnWorktree;
   /** Provenance to persist on a fresh implementation session. */
   planImplementationSource?: PlanImplementationSource | null;
+  /** Experiment provenance to persist on a fresh experiment session (rpc-ui only). */
+  experiment?: SessionExperiment | null;
 }
 
 export interface NewPtySpawnRequest extends NewSpawnRequestBase {
@@ -556,6 +593,7 @@ interface ResumeSpawnRequestBase {
   projectCwd?: never;
   worktree?: never;
   planImplementationSource?: never;
+  experiment?: never;
 }
 
 export type ResumeSpawnRequest = ResumeSpawnRequestBase &
@@ -1113,5 +1151,124 @@ export interface DiagnosticsExportResult {
   totalBytes: number;
   warnings: string[];
 }
+
+// ------------------------------------------------------------ experiments
+// Read-only projections of omp's per-project autoresearch SQLite DB
+// (ADR-0030). Computed in core/autoresearch-store.ts, served by the
+// `autoresearch:*` channels, drawn by the Lab. omp-ui never writes the DB.
+
+/** One row of omp's autoresearch `runs` table, reduced for display. */
+export interface ExperimentRun {
+  id: number;
+  segment: number;
+  command: string;
+  startedAt: number;
+  completedAt: number | null;
+  durationMs: number | null;
+  exitCode: number | null;
+  timedOut: boolean;
+  parsedPrimary: number | null;
+  metric: number | null;
+  /** null = pending or abandoned (see `abandoned`). */
+  status: "keep" | "discard" | "crash" | "checks_failed" | null;
+  abandoned: boolean;
+  description: string | null;
+  commitHash: string | null;
+  modifiedPaths: string[];
+  scopeDeviations: string[];
+  justification: string | null;
+  flagged: boolean;
+  flaggedReason: string | null;
+  loggedAt: number | null;
+  /** `log_path` non-empty; the path itself never leaves main. */
+  hasLog: boolean;
+}
+
+/** Current-segment aggregates, computed by the store (never stored by omp). */
+export interface ExperimentProgress {
+  segmentRuns: number;
+  kept: number;
+  discarded: number;
+  crashed: number;
+  checksFailed: number;
+  /** Earliest kept, unflagged, metric-bearing run of the segment. */
+  baseline: { runId: number; metric: number } | null;
+  /** Min (direction lower) or max (higher) metric over the same set. */
+  best: { runId: number; metric: number } | null;
+  /** A run started but not yet logged (status null, not abandoned). */
+  pendingRunId: number | null;
+  /** max(started_at, logged_at) over the segment. */
+  lastActivityAt: number | null;
+  /** Ordered by run id; unflagged runs with a metric. */
+  metricSeries: Array<{ runId: number; metric: number; kept: boolean }>;
+}
+
+/** One row of omp's autoresearch `sessions` table: an experiment (CONTEXT.md). */
+export interface ExperimentRecord {
+  id: number;
+  name: string;
+  goal: string | null;
+  primaryMetric: string;
+  metricUnit: string;
+  direction: "lower" | "higher";
+  preferredCommand: string | null;
+  branch: string | null;
+  baselineCommit: string | null;
+  currentSegment: number;
+  maxIterations: number | null;
+  scopePaths: string[];
+  offLimits: string[];
+  constraints: string[];
+  secondaryMetrics: string[];
+  notes: string;
+  createdAt: number;
+  closedAt: number | null;
+  progress: ExperimentProgress;
+}
+
+/** Which DB a checkout's experiments were read from. */
+export interface ExperimentSource {
+  cwd: string;
+  key: string;
+  dbPath: string;
+}
+
+/** Every experiment recorded for one checkout (project root or worktree). */
+export interface CheckoutExperiments {
+  /** null when no candidate DB exists for the cwd. */
+  source: ExperimentSource | null;
+  /** Newest first; [] when source is null. */
+  experiments: ExperimentRecord[];
+  /** sqlite/read failure; experiments then []. */
+  error: string | null;
+}
+
+/** `autoresearch:overview`: a project's experiments across its checkouts. */
+export interface ProjectExperiments {
+  projectCwd: string;
+  /** git | none | jj-only — the New experiment dialog's preflight. */
+  repo: "git" | "none" | "jj-only";
+  checkouts: Array<{
+    /** projectCwd or a worktree path. */
+    cwd: string;
+    /** The owned worktree session whose checkout this is; null for the project checkout. */
+    tabId: string | null;
+    /** record.worktree.branch for worktree checkouts. */
+    branch: string | null;
+    result: CheckoutExperiments;
+  }>;
+  /** Owned sessions launched as experiments that have no DB row yet (Phase 1 still running). */
+  pendingLaunches: Array<{ tabId: string; experiment: SessionExperiment }>;
+}
+
+/** `autoresearch:experiment`: one experiment with its runs. */
+export interface ExperimentDetail {
+  record: ExperimentRecord | null;
+  runs: ExperimentRun[];
+  error: string | null;
+}
+
+/** `autoresearch:runLog`: the head of one run's log, confined to omp's state dir. */
+export type RunLogResult = { text: string; truncated: boolean } | { error: string };
 
 export type { OmpBackend } from "./backend-channels";

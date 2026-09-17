@@ -7,8 +7,9 @@ import { Sheet } from "./ui";
 /**
  * The compact project header's `⋯` bottom sheet (issue #205): the project's
  * name and full path, then New session, New terminal session, New worktree
- * session, Project settings, and Remove project. The desktop header's open
- * targets (VS Code / file manager) are deliberately absent — a compact shell
+ * session, Experiments, New experiment (issue #559), Project settings, and
+ * Remove project. The desktop header's open targets (VS Code / file manager)
+ * are deliberately absent — a compact shell
  * is usually a phone talking to a remote omp-ui, where "open on the host"
  * answers a question nobody asked.
  *
@@ -40,6 +41,8 @@ export function ProjectActionsSheet({
   const removeProject = useStore((st) => st.removeProject);
   const openProjectSettings = useStore((st) => st.openProjectSettings);
   const openWorktreeDialog = useStore((st) => st.openWorktreeDialog);
+  const openLab = useStore((st) => st.openLab);
+  const openExperimentDialog = useStore((st) => st.openExperimentDialog);
 
   return (
     <Sheet open={project !== null} placement="bottom" label={project?.name ?? ""} onClose={onClose}>
@@ -80,6 +83,26 @@ export function ProjectActionsSheet({
               }}
             >
               {t("project.actions.newWorktree")}
+            </button>
+            <button
+              type="button"
+              className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
+              onClick={() => {
+                openLab(project.path, instanceId);
+                onClose();
+              }}
+            >
+              {t("project.actions.lab")}
+            </button>
+            <button
+              type="button"
+              className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
+              onClick={() => {
+                openExperimentDialog(project.path, instanceId);
+                onClose();
+              }}
+            >
+              {t("project.actions.newExperiment")}
             </button>
             <button
               type="button"

@@ -165,7 +165,7 @@ const session = (
   launchedAt: "2026-08-03T00:00:00.000Z",
   mode,
   worktree: null,
-  planImplementationSource: null,
+  planImplementationSource: null, experiment: null,
   agentMode: "build" as const,
   compactionMethod: null,
   model: null,

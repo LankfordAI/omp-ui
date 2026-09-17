@@ -4,6 +4,7 @@ import * as path from "node:path";
 import {
   CH,
   addWorktree,
+  autoresearchArmMessage,
   addWorktreeForBranch,
   addWorktreeFromNewBase,
   base64Bytes,
@@ -57,6 +58,7 @@ import {
   type RpcFrame,
   type ResumeSpawnRequest,
   type GoalSnapshot,
+  type AutoresearchSnapshot,
   type CapabilityToolMutationRequest,
   type SessionCapabilitiesResult,
   type SetSessionToolEnabledResult,
@@ -85,6 +87,7 @@ import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { PlanPreflightController } from "./plan-preflight";
 import { readConfinedPlanFile } from "./plan-file";
 import { GoalStatusTracker } from "./goal-status-tracker";
+import { AutoresearchStatusTracker } from "./autoresearch-status-tracker";
 import { prepareResumeRecord, writeRpcExtensions, writeRpcOverlays, writeSessionOverlays } from "./spawn-config";
 import { StallWatchdog } from "./stall-watchdog";
 import { TurnTracker } from "./turns";
@@ -168,6 +171,7 @@ export class SessionManager {
   private readonly stallWatchdog: StallWatchdog;
   private readonly toolControl: CapabilityControlTracker;
   private readonly goals: GoalStatusTracker;
+  private readonly autoresearch: AutoresearchStatusTracker;
   /** The open blocking dialogs per tab — the summary's `pendingDialogs` (#555). */
   private readonly dialogGates = new DialogGateTracker();
   private readonly gate: SpawnGate;
@@ -249,7 +253,17 @@ export class SessionManager {
       getLive: (tabId) => this.live.get(tabId),
     });
     this.goals = new GoalStatusTracker({ broadcast: () => this.deps.broadcast() });
-    this.frameObservers = [this.hibernation, this.planGates, this.planPreflight, this.stallWatchdog, this.toolControl, this.goals, this.dialogGates];
+    this.autoresearch = new AutoresearchStatusTracker({ broadcast: () => this.deps.broadcast() });
+    this.frameObservers = [
+      this.hibernation,
+      this.planGates,
+      this.planPreflight,
+      this.stallWatchdog,
+      this.toolControl,
+      this.goals,
+      this.autoresearch,
+      this.dialogGates,
+    ];
   }
 
   get liveCount(): number {
@@ -363,6 +377,10 @@ export class SessionManager {
       if (source.mode !== "rpc-ui") {
         throw new Error("a plan implementation source must use rpc-ui mode");
       }
+    }
+
+    if ((req.experiment ?? null) !== null && req.mode !== "rpc-ui") {
+      throw new Error("an experiment requires rpc-ui mode");
     }
 
     if (req.worktree !== null && "reuse" in req.worktree) {
@@ -484,6 +502,7 @@ export class SessionManager {
             req.planImplementationSource == null
               ? null
               : { ...req.planImplementationSource },
+          experiment: req.experiment == null ? null : { ...req.experiment },
           launchedAt: new Date().toISOString(),
           mode: req.mode,
           agentMode: "build",
@@ -643,8 +662,14 @@ export class SessionManager {
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const entry = createRpcLiveEntry(record);
-    const { paths: extensions, mcpStatusLoaded, capabilitiesLoaded, goalLoaded, browserPaneLoaded } =
-      writeRpcExtensions(absLineageDir);
+    const {
+      paths: extensions,
+      mcpStatusLoaded,
+      capabilitiesLoaded,
+      goalLoaded,
+      browserPaneLoaded,
+      autoresearchLoaded,
+    } = writeRpcExtensions(absLineageDir);
     entry.capabilitiesBridgeLoaded = capabilitiesLoaded;
     // The bridge listener outlives the process: a relaunch under the same tab
     // reuses the endpoint, so the agent's remembered URL stays valid (#519).
@@ -685,6 +710,13 @@ export class SessionManager {
         type: "prompt",
         id: `omp-ui-initial-browser-pane-${randomUUID()}`,
         message: browserPaneSetMessage(cdpUrl),
+      });
+    }
+    if (autoresearchLoaded) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-autoresearch-${randomUUID()}`,
+        message: autoresearchArmMessage(),
       });
     }
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate);
@@ -1152,6 +1184,11 @@ export class SessionManager {
     return this.goals.snapshot(tabId);
   }
 
+  /** The live session's autoresearch snapshot, as its own bridge published it (issue #559). */
+  autoresearchSnapshot(tabId: string): AutoresearchSnapshot | undefined {
+    return this.autoresearch.snapshot(tabId);
+  }
+
   planGate(tabId: string): PlanGate | undefined {
     return this.planGates.gate(tabId);
   }
@@ -1489,6 +1526,9 @@ export class SessionManager {
       projectCwd: source.projectCwd,
       worktree: source.worktree,
       planImplementationSource: source.planImplementationSource,
+      // The fork shares the source's checkout, so the DB row stays linked to
+      // the original record; copying the provenance would make both claim it.
+      experiment: null,
       launchedAt: new Date().toISOString(),
       mode: source.mode,
       agentMode: source.agentMode,

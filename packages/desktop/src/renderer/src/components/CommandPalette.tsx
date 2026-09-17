@@ -95,6 +95,8 @@ export function CommandPalette() {
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const openSettings = useStore((s) => s.openSettings);
   const openDiagnosticsDialog = useStore((s) => s.openDiagnosticsDialog);
+  const openLab = useStore((s) => s.openLab);
+  const openExperimentDialog = useStore((s) => s.openExperimentDialog);
   const t = useT();
   const localeId = currentLocaleId();
 
@@ -128,6 +130,16 @@ export function CommandPalette() {
         run: () => void newSession(group.project.path),
       });
     }
+    // Experiments (issue #559): one launch per project, next to its new-session twin.
+    for (const group of state?.projects ?? []) {
+      out.push({
+        id: `project:experiment:${group.project.path}`,
+        group: t("palette.group.projects"),
+        name: t("palette.action.newExperiment", { name: group.project.name }),
+        desc: group.project.path,
+        run: () => openExperimentDialog(group.project.path, null),
+      });
+    }
     out.push({
       id: "add-project",
       group: t("palette.group.projects"),
@@ -144,6 +156,13 @@ export function CommandPalette() {
       name: t("palette.action.capabilities"),
       desc: t("palette.action.capabilitiesDesc"),
       run: () => openCapabilitiesViewer(null, undefined, "mcp"),
+    });
+    out.push({
+      id: "app:lab",
+      group: t("palette.group.app"),
+      name: t("palette.action.lab"),
+      desc: t("palette.action.labDesc"),
+      run: () => openLab(null, null),
     });
 
     const tab = activeTabId === null ? undefined : tabs.find((t) => t.tabId === activeTabId);
@@ -235,7 +254,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openLab, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

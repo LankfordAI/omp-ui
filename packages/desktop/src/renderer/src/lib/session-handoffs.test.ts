@@ -30,7 +30,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     lineageDir: `lineage-${tabId}`,
     projectCwd: PROJECT,
     worktree: null,
-    planImplementationSource: null,
+    planImplementationSource: null, experiment: null,
     launchedAt: "2026-08-19T12:00:00.000Z",
     mode: "rpc-ui",
     model: null,

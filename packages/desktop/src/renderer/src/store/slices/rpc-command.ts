@@ -2,6 +2,7 @@
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
 import type { GoalSnapshot } from "@omp-ui/core/goal";
+import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type {
   CapabilitySnapshot,
   SessionCapabilitiesResult,
@@ -9,6 +10,7 @@ import type {
 } from "@omp-ui/core/capabilities";
 import { backend, backendFor } from "../../backend";
 import { formatDuration } from "../../lib/duration";
+import { projectKey } from "../../lib/project-key";
 import { arrField } from "../../lib/fields";
 import { randomId } from "../../lib/random-id";
 import {
@@ -224,6 +226,47 @@ export function acceptGoalSnapshot(
         }
       : item,
   );
+  return true;
+}
+
+/**
+ * The one acceptance rule for an autoresearch snapshot (ADR-0030), shared by
+ * the `setStatus` push path and the boot-time summary hydration, with the
+ * revision/processKey discipline of {@link acceptGoalSnapshot}. It has no
+ * command row to settle: `/autoresearch` is omp's own command and its row
+ * settles through the ordinary prompt path.
+ *
+ * It is also the Lab's one live-reload trigger. Run history lives in omp's
+ * SQLite DB, which no frame announces; a mode flip or a finished autoresearch
+ * tool is the moment that DB may have changed, so a project whose experiments
+ * the Lab (or a HUD chip) already read is re-read here — from both paths, so a
+ * late joiner hydrating from the summary refreshes exactly like a live frame.
+ */
+export function acceptAutoresearchSnapshot(
+  tabId: string,
+  snapshot: AutoresearchSnapshot,
+  get: GetState,
+  m: StoreMachinery,
+): boolean {
+  const retained = get().rpc[tabId]?.autoresearch ?? null;
+  if (
+    retained !== null &&
+    retained.processKey === snapshot.processKey &&
+    snapshot.revision <= retained.revision
+  )
+    return false;
+  m.patchRpc(tabId, { autoresearch: snapshot });
+  if (
+    retained !== null &&
+    retained.mode === snapshot.mode &&
+    retained.lastTool?.at === snapshot.lastTool?.at
+  )
+    return true;
+  const tab = get().tabs.find((t) => t.tabId === tabId);
+  if (tab === undefined) return true;
+  const load = get().experiments[projectKey(tab.instanceId, tab.projectCwd)]?.load;
+  if (load !== undefined && load !== "idle")
+    void get().loadExperiments(tab.projectCwd, tab.instanceId);
   return true;
 }
 
@@ -472,6 +515,7 @@ export function disposeTabRuntime(
     // The goal belongs to the dying process too; a pending command row settles
     // as failed by the abandoned rpc call it rode, never by optimism.
     goal: null,
+    autoresearch: null,
   });
   rpcCommandMachinery.abandon(tabId, reason, m);
   m.discardTabRuntime(tabId);
@@ -515,6 +559,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     advisorStats: null,
     mcpStatus: null,
     goal: null,
+    autoresearch: null,
     capabilities: null,
     capabilitiesLoad: "idle",
     capabilitiesToolPending: null,
@@ -537,6 +582,8 @@ export function createRpcCommandSlice(
    * store.ts runs it beside `reconcilePlanGates` on every state read (issue #381).
    */
   reconcileGoals(state: BackendState): void;
+  /** The autoresearch twin of `reconcileGoals`, run beside it (ADR-0030). */
+  reconcileAutoresearch(state: BackendState): void;
 } {
   // The bodies moved from the root closure keep their original names.
   const {
@@ -1019,6 +1066,25 @@ export function createRpcCommandSlice(
     }
   };
 
+  /**
+   * Hydrates the autoresearch snapshot each tab's live process reports
+   * (ADR-0030), with `reconcileGoals`' semantics: the summary carries it for
+   * late joiners, the shared acceptance helper keeps a live frame and a
+   * hydrated record in agreement, and a tab whose process died shows none.
+   */
+  const reconcileAutoresearch = (state: BackendState): void => {
+    for (const [tabId, tab] of Object.entries(get().rpc)) {
+      const rec = findRecord(state, tabId);
+      const snapshot = rec?.autoresearch;
+      if (snapshot === undefined) {
+        if (tab.autoresearch !== null && rec?.live !== "live")
+          m.patchRpc(tabId, { autoresearch: null });
+        continue;
+      }
+      acceptAutoresearchSnapshot(tabId, snapshot, get, m);
+    }
+  };
+
   return {
     bootRpcTab,
     refreshAvailableModels,
@@ -1028,5 +1094,6 @@ export function createRpcCommandSlice(
     renameSession,
     setSessionToolEnabled,
     reconcileGoals,
+    reconcileAutoresearch,
   };
 }

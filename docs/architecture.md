@@ -187,6 +187,7 @@ A native session's composer accepts the same slash commands as the terminal TUI.
 | `/plan`, `/no-plan` (bare) | Toggle plan mode through the generated extension described above. |
 | `/mcp`, `/mcp list` (bare) | Open the capabilities viewer's MCP tab for the session's own working tree. Every other `/mcp …` subcommand forwards normally — including `/mcp reload`, which the viewer's MCP footer sends. |
 | `/goal …`, `/guided-goal …` | Never forwarded as prose: OMP's `/goal` spec is TUI-only, so a forwarded line would reach the model as text and start a turn that talks about the goal instead of changing it. The composer dispatches a hidden command to the generated goal bridge instead, whose reply settles the command row ([ADR-0024](adr/0024-goal-mode-in-native-sessions.md)). Terminal tabs keep forwarding the line to OMP's own TUI. |
+| `/autoresearch start` | Opens the New experiment dialog for the session's project; never forwarded. `/autoresearch lab` opens the Lab, likewise never forwarded. Every other `/autoresearch…` form — bare, a goal, `off`, `clear` — forwards verbatim: it is OMP's own extension command, which dispatches over rpc-ui without a dialog ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)). |
 | Any other advertised command | Forwards as a `prompt` frame with the command acknowledgement lifecycle below. |
 | Unknown `/word` | Forwards as a literal model prompt. No command row appears; OMP starts a real agent turn. |
 
@@ -234,6 +235,56 @@ it. Automatic prompts (advisor reply, stall auto-continue) stand down while a go
 owns the session, and an active goal vetoes session hibernation, since hibernating
 the process would kill the loop doing the work. A paused or budget-limited idle
 goal owns no loop and applies no veto.
+
+### Experiments (autoresearch)
+
+OMP's `/autoresearch` loop owns the whole experiment: the mode, the benchmark
+runs, and the record. omp-ui stores no experiment of its own and writes nothing
+OMP owns ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md),
+issue #559); it reads from two sources, because no single seam carries the state.
+
+Live mode, goal, and tool activity come from another per-lineage generated
+extension. The pure wire contract is
+[`autoresearch.ts`](../packages/core/src/autoresearch.ts), which the generated
+`omp-ui-autoresearch.ts` interpolates so publisher and parser cannot drift; the
+bridge reduces the root session's branch (`sessionManager.getBranch()` walking
+OMP's `autoresearch-control` entries) and watches `tool_execution_end`, then
+publishes an `AutoresearchSnapshot` on the existing extension-status key
+`ui.setStatus("omp-ui:autoresearch", …)`. `AutoresearchStatusTracker` in main
+keeps the newest accepted snapshot per tab, keyed on the process that answered,
+and `SessionSummary.autoresearch` carries it to late and remote subscribers. A
+bridge whose API is missing publishes `available: false` with the reason rather
+than a guess.
+
+Run history comes from OMP's per-project autoresearch SQLite databases, read
+directly by [`autoresearch-store.ts`](../packages/core/src/autoresearch-store.ts)
+with one read-only connection per request and no write path at all — the ADR-0017
+discipline, including discovery: omp-ui derives the deterministic path but never
+creates a file. The renderer sends `projectCwd` plus an optional `tabId`; main
+confines every read through `experiments.ts` and serves the project-proxied
+`autoresearch:overview`, `autoresearch:experiment`, and `autoresearch:runLog`
+channels, so a remote renderer reads the host that owns the checkout.
+
+The renderer's `lab` slice holds the Lab's view state and the per-project cache,
+and the Lab surface is a main-pane view, not a tab and not an inspector rail
+pane: opening it hides the tab column, and `focusOn` closes it. Its rows link an
+experiment to an owned session by effective checkout plus branch, which is also
+how a session's HUD chip finds the experiment it is running.
+
+New experiment launches sequence through the ordinary worktree spawn path:
+spawn a worktree rpc-ui session on a minted `autoresearch/<slug>/<hash>` branch
+(ADR-0018) with the launch recorded as provenance on the registry record, wait
+for ready, apply the session's model, dispatch bare `/autoresearch` to arm
+OMP's mode, then send one kickoff prompt whose fields are exactly
+`init_experiment`'s parameters. A non-git project launches at the project
+checkout with OMP's own warning; a jj-only workspace is refused before spawn.
+
+Two deliberate absences. There is no hibernation veto — a benchmark runs inside
+a turn, so the running-turn probe already covers the work, and OMP replays its
+control entries and re-checks the branch on resume — and there is no Plan-mode
+interlock, since the loop and the read-only guarantee are OMP's. OMP's own
+`autoresearch` `setWidget` frame is answered (OMP blocks on the reply) and
+swallowed in native tabs: its content is the snapshot and the Lab.
 
 ### Advisor
 
@@ -317,3 +368,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [The web-search provider list is discovered from omp](adr/0027-web-search-provider-list-discovered-from-omp.md) | Probe the installed binary's `omp search --provider` flag validation for its provider ids instead of transcribing a catalog, and degrade to configured ids only when discovery fails. |
 | [Remote instances are joined by the main process, not the renderer](adr/0028-remote-instances-joined-by-main-process-proxy.md) | Let desktop main dial each joined omp-ui app, hold its credential, merge its projects into backend state, and route tab-scoped traffic by tab id, so the renderer keeps one backend and every client sees the same joined instances. |
 | [The browser pane is an offscreen WebContents streamed to renderers and bridged to the agent over loopback CDP](adr/0029-browser-pane-offscreen-webcontents-and-loopback-cdp-bridge.md) | Render the shared page offscreen in desktop main, stream JPEG frames on a lossy event to every view, take input back as JSON, and hand the agent a host-local, token-pathed CDP endpoint through a generated extension — never a WebContentsView, never omp's Chromium, never `--remote-debugging-port`. |
+| [Experiments read autoresearch from two sources](adr/0030-experiments-read-autoresearch-from-two-sources.md) | Take live autoresearch state from a generated bridge over the existing `setStatus` frame and run history from OMP's own SQLite databases, read-only per request, since no rpc command, no extension-importable storage, and no wire-visible control entry can carry either alone. |

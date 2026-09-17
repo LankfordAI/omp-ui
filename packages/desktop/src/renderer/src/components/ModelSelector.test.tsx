@@ -57,7 +57,7 @@ function remoteProjectGroup(): ProjectGroup {
         launchedAt: "2026-09-09T00:00:00.000Z",
         mode: "rpc-ui",
         worktree: null,
-        planImplementationSource: null,
+        planImplementationSource: null, experiment: null,
         agentMode: "build",
         compactionMethod: null,
         model: null,

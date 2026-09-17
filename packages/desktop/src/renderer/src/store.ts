@@ -23,6 +23,7 @@ import { applyLocale, currentLocaleId, resolveLocale } from "./lib/i18n";
 import { createBranchesSlice } from "./store/slices/branches";
 import { createBrowserPaneSlice } from "./store/slices/browser-pane";
 import { createFrameReductionSlice } from "./store/slices/frame-reduction";
+import { createLabSlice } from "./store/slices/lab";
 import { createLifecycleSlice } from "./store/slices/lifecycle";
 import { createPlanExecutionSlice } from "./store/slices/plan-execution";
 import { createRpcCommandSlice } from "./store/slices/rpc-command";
@@ -53,7 +54,10 @@ export type {
   CompactionMethodsLoad,
   DeleteConfirmation,
   ErrorNotice,
+  ExperimentsCache,
+  LabView,
   LifecycleConfirmation,
+  NewExperimentSpec,
   PlanRecord,
   PlanRevisionNotes,
   RpcFailure,
@@ -140,6 +144,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     stall: stallContinueWatcher,
   });
   const browserPane = createBrowserPaneSlice(set, get, m);
+  const lab = createLabSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });
 
   /**
    * Repaints the document to match the registry's persisted themeId. The
@@ -260,6 +265,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...lifecycle,
     ...sessionParams,
     ...browserPane,
+    ...lab,
     state: null,
     exited: {},
     hibernated: {},
@@ -301,6 +307,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         reconcilePlanGates(state);
         sessionParams.reconcilePendingDialogs(state);
         rpcCommandSlice.reconcileGoals(state);
+        rpcCommandSlice.reconcileAutoresearch(state);
       });
       // #498: the checkout moved outside this client — a remote transport
       // checkout executing on its owner, a host-side release switch, or a git
@@ -369,6 +376,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       reconcilePlanGates(state);
       sessionParams.reconcilePendingDialogs(state);
       rpcCommandSlice.reconcileGoals(state);
+      rpcCommandSlice.reconcileAutoresearch(state);
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);
       installViewedTabReporter(api);

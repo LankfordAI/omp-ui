@@ -403,7 +403,8 @@ describe("MCP runtime status bridge", () => {
     // The flush precedes the mode command; the mode command is published on
     // every spawn, Build included (issue #142; regression #256). The goal arm
     // rides before the mode command so goal restoration answers Plan entry's
-    // unfinished-goal check (issue #381); the capabilities arm rides last.
+    // unfinished-goal check (issue #381); the capabilities arm follows, then
+    // the browser-pane endpoint and the autoresearch arm (issue #559).
     const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
       ?.map((command) => command.message);
     expect(messages).toEqual([
@@ -412,6 +413,7 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.autoresearchArmMessage(),
     ]);
   });
 
@@ -433,6 +435,7 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.autoresearchArmMessage(),
     ]);
   });
 
@@ -464,6 +467,7 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.autoresearchArmMessage(),
     ]);
     expect(RpcClientMock).toHaveBeenCalledTimes(1);
     expect(warning).toHaveBeenCalledWith(
@@ -552,13 +556,14 @@ describe("session capabilities bridge (issue #374)", () => {
     const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)?.map(
       (command) => command.message,
     );
-    // The arm command rides last: after the MCP flush and the mode command.
+    // The arm command rides after the MCP flush and the mode command.
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
       Core.goalArmMessage(),
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.autoresearchArmMessage(),
     ]);
 
     // Bridged but silent so far: the viewer sees "starting", not an empty roster.
@@ -611,6 +616,7 @@ describe("session capabilities bridge (issue #374)", () => {
       Core.goalArmMessage(),
       Core.planMessage(false, "html"),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.autoresearchArmMessage(),
     ]);
     await expect(manager.getSessionCapabilities(TAB)).resolves.toEqual({
       status: "bridge-unavailable",
@@ -1481,6 +1487,43 @@ describe("plan implementation handoff persistence (issue #238)", () => {
       planImplementationSource: handoff, }),
     ).rejects.toThrow("requires rpc-ui mode");
 
+    expect(addSession).not.toHaveBeenCalled();
+    expect(spawnOmpMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("experiment provenance persistence (issue #559)", () => {
+  const experiment: Core.SessionExperiment = {
+    goal: "reduce p95 latency",
+    metric: "p95_ms",
+    unit: "ms",
+    direction: "lower",
+    launchedBranch: "autoresearch/reduce-p95-latency/ab12cd",
+    launchedAt: "2026-09-17T00:00:00.000Z",
+  };
+
+  it("persists the launch parameters on the fresh record", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    mode: "rpc-ui",
+    advisor: false,
+    cols: 80,
+    rows: 24,
+    experiment, });
+    expect(registry.sessions.find((session) => session.tabId === tabId)!.experiment).toEqual(experiment);
+  });
+
+  it("rejects an experiment for a terminal spawn before creating a record", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const addSession = vi.spyOn(registry, "addSession");
+    await expect(
+      manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      experiment, } as unknown as Core.SpawnRequest),
+    ).rejects.toThrow("an experiment requires rpc-ui mode");
     expect(addSession).not.toHaveBeenCalled();
     expect(spawnOmpMock).not.toHaveBeenCalled();
   });
@@ -5868,7 +5911,7 @@ describe("browser pane lifecycle (#519, U1)", () => {
     const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)?.map(
       (command) => command.message,
     );
-    expect(messages?.at(-1)).toBe(Core.browserPaneSetMessage(url));
+    expect(messages).toContain(Core.browserPaneSetMessage(url));
     // No page until the user opens the pane or the agent connects.
     expect(fakeBrowserPanes).toHaveLength(0);
   });
@@ -5903,7 +5946,7 @@ describe("browser pane lifecycle (#519, U1)", () => {
     const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)?.map(
       (command) => command.message,
     );
-    expect(messages?.at(-1)).toBe(Core.browserPaneSetMessage(fakePaneListeners[0]!.url));
+    expect(messages).toContain(Core.browserPaneSetMessage(fakePaneListeners[0]!.url));
     expect(fakeBrowserPanes).toHaveLength(1);
   });
 

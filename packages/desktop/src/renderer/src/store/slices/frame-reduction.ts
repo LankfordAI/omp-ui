@@ -12,6 +12,11 @@ import {
 } from "@omp-ui/core/mcp-status";
 import { GOAL_STATUS_KEY, parseGoalSnapshot } from "@omp-ui/core/goal";
 import {
+  AUTORESEARCH_STATUS_KEY,
+  AUTORESEARCH_WIDGET_KEY,
+  parseAutoresearchSnapshot,
+} from "@omp-ui/core/autoresearch";
+import {
   CAPABILITIES_STATUS_KEY,
   parseCapabilitySnapshot,
 } from "@omp-ui/core/capabilities";
@@ -43,6 +48,7 @@ import {
   type AgentEventEffect,
 } from "./reduce-agent-event";
 import {
+  acceptAutoresearchSnapshot,
   acceptCapabilitySnapshot,
   acceptGoalSnapshot,
   disposeTabRuntime,
@@ -571,6 +577,24 @@ export function createFrameReductionSlice(
               m.appendItem(tabId, noticeItem(text, "warn"));
             }
             m.patchRpc(tabId, { mcpStatus });
+            return;
+          }
+          if (entry?.key === AUTORESEARCH_STATUS_KEY) {
+            const snapshot = parseAutoresearchSnapshot(entry.text);
+            // Same posture as the goal claim: a malformed publish leaves the
+            // last real snapshot standing rather than reading as "off".
+            if (snapshot === null) return;
+            acceptAutoresearchSnapshot(tabId, snapshot, get, m);
+            return;
+          }
+          if (
+            strField(frame, "method") === "setWidget" &&
+            strField(frame, "widgetKey") === AUTORESEARCH_WIDGET_KEY
+          ) {
+            // omp's own autoresearch dashboard widget is TUI furniture: the
+            // snapshot and the Lab carry its content, so it never becomes a
+            // status chip. Still answered — omp blocks on the reply.
+            backend.rpcSend(tabId, extensionCancelResponse(frameId));
             return;
           }
           if (entry?.key === GOAL_STATUS_KEY) {

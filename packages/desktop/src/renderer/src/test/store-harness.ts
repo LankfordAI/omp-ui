@@ -9,14 +9,17 @@ import type {
   BackendState,
   DeleteSessionPreview,
   DeleteSessionResult,
+  ExperimentDetail,
   LiveState,
   MergeBackStatus,
+  ProjectExperiments,
   PushResult,
   MergeDestination,
   OmpSettingsSnapshot,
   OmpUpdateState,
   ProviderOAuthState,
   RemoteState,
+  RunLogResult,
   SessionWorktree,
   WorktreeReleaseResult,
   WorktreeSyncResult,
@@ -308,6 +311,20 @@ const mockBackend = {
   browserPaneSetOpen: vi.fn(),
   onBrowserPaneFrame: vi.fn(),
   onBrowserPaneState: vi.fn(),
+  // Experiments Lab (issue #559): a harness project has no autoresearch DB
+  // unless a case seeds one, exactly as main answers for a fresh git checkout.
+  autoresearchOverview: vi.fn(
+    async (): Promise<ProjectExperiments> => ({
+      projectCwd: "/project",
+      repo: "git",
+      checkouts: [],
+      pendingLaunches: [],
+    }),
+  ),
+  autoresearchExperiment: vi.fn(
+    async (): Promise<ExperimentDetail> => ({ record: null, runs: [], error: null }),
+  ),
+  autoresearchRunLog: vi.fn(async (): Promise<RunLogResult> => ({ text: "", truncated: false })),
 };
 
 // The renderer no longer uses native dialogs (issue #373): a surviving
@@ -413,7 +430,7 @@ function stateWithRecord(
             launchedAt: "t",
             mode: "rpc-ui",
             worktree,
-            planImplementationSource: null,
+            planImplementationSource: null, experiment: null,
             agentMode: "build",
             compactionMethod: null,
             model: null,
@@ -498,6 +515,9 @@ beforeEach(() => {
     ompUpdate: idleOmpUpdate,
     remote: idleRemoteState,
     providerOAuth: idleProviderOAuth,
+    lab: null,
+    experimentDialog: null,
+    experiments: {},
   });
   vi.clearAllMocks();
 });

@@ -3,8 +3,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GoalSnapshot, NativeGoal } from "@omp-ui/core/goal";
+import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
+import type { BackendState, ExperimentRecord, ProjectExperiments } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "../lib/rpc-types";
-import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
+import { backendState, remoteInstance, rpcTabState, tabInfo } from "../test/fixtures";
+import type { ExperimentsCache } from "../store/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 Object.assign(window, { ompBackend: {} });
@@ -46,7 +49,7 @@ const state = backendState({
           launchedAt: "t",
           mode: "rpc-ui",
           worktree: null,
-          planImplementationSource: null,
+          planImplementationSource: null, experiment: null,
           agentMode: "build",
           compactionMethod: null,
           model: null,
@@ -831,6 +834,159 @@ describe("SessionHud goal chip (issue #381)", () => {
       root = null;
       document.body.replaceChildren();
     }
+  });
+});
+
+describe("SessionHud autoresearch chip (issue #559)", () => {
+  const openLab = vi.fn();
+  const loadExperiments = vi.fn(async () => {});
+
+  const snapshot = (patch: Partial<AutoresearchSnapshot> = {}): AutoresearchSnapshot => ({
+    version: 1,
+    processKey: "proc",
+    sessionId: "s",
+    revision: 1,
+    available: true,
+    unavailable: null,
+    mode: "on",
+    goal: "make the benchmark faster",
+    goalTruncated: false,
+    lastTool: null,
+    ...patch,
+  });
+
+  const seed = (
+    autoresearch: AutoresearchSnapshot | null,
+    experiments: Record<string, ExperimentsCache> = {},
+  ): void => {
+    useStore.setState({
+      openLab,
+      loadExperiments,
+      experiments,
+      tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" })],
+      rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, autoresearch } },
+    });
+  };
+
+  const render = (): HTMLElement => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    return host;
+  };
+
+  const chip = (host: HTMLElement): HTMLButtonElement | null =>
+    host.querySelector<HTMLButtonElement>('button[aria-label^="autoresearch: "]');
+
+  it("renders no chip while omp's mode is off or unreported", () => {
+    for (const value of [null, snapshot({ mode: "off" })]) {
+      seed(value);
+      const host = render();
+      expect(chip(host)).toBeNull();
+      expect(host.textContent).not.toContain("autoresearch");
+      if (root) act(() => root!.unmount());
+      root = null;
+      document.body.replaceChildren();
+    }
+  });
+
+  it("names the goal, reads the project's experiments once, and opens the Lab on this tab", () => {
+    seed(snapshot());
+    const host = render();
+    const button = chip(host)!;
+    expect(button).not.toBeNull();
+    expect(button.getAttribute("aria-label")).toBe("autoresearch: make the benchmark faster");
+    expect(button.textContent).toBe("autoresearch");
+    // The cache is empty for this project, so the chip makes the first read.
+    expect(loadExperiments).toHaveBeenCalledTimes(1);
+    expect(loadExperiments).toHaveBeenCalledWith("/p", null);
+    act(() => button.click());
+    expect(openLab).toHaveBeenCalledWith("/p", null, { tabId: TAB });
+  });
+
+  it("reports the linked experiment's run count, best delta and pending log from the Lab's cache", () => {
+    const branch = "autoresearch/faster/ab12cd";
+    const session = state.projects[0]!.sessions[0]!;
+    const withProvenance: BackendState = {
+      ...state,
+      projects: [
+        {
+          ...state.projects[0]!,
+          sessions: [
+            {
+              ...session,
+              experiment: {
+                goal: "make the benchmark faster",
+                metric: "p95_ms",
+                unit: "ms",
+                direction: "lower",
+                launchedBranch: branch,
+                launchedAt: "t",
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const record: ExperimentRecord = {
+      id: 1,
+      name: "faster",
+      goal: "make the benchmark faster",
+      primaryMetric: "p95_ms",
+      metricUnit: "ms",
+      direction: "lower",
+      preferredCommand: null,
+      branch,
+      baselineCommit: null,
+      currentSegment: 1,
+      maxIterations: 10,
+      scopePaths: [],
+      offLimits: [],
+      constraints: [],
+      secondaryMetrics: [],
+      notes: "",
+      createdAt: 1,
+      closedAt: null,
+      progress: {
+        segmentRuns: 3,
+        kept: 2,
+        discarded: 1,
+        crashed: 0,
+        checksFailed: 0,
+        baseline: { runId: 1, metric: 200 },
+        best: { runId: 3, metric: 175 },
+        pendingRunId: 4,
+        lastActivityAt: 5,
+        metricSeries: [],
+      },
+    };
+    const overview: ProjectExperiments = {
+      projectCwd: "/p",
+      repo: "git",
+      checkouts: [
+        {
+          cwd: "/p",
+          tabId: null,
+          branch: null,
+          result: {
+            source: { cwd: "/p", key: "--p--", dbPath: "/db/--p--.db" },
+            experiments: [record],
+            error: null,
+          },
+        },
+      ],
+      pendingLaunches: [],
+    };
+    useStore.setState({ state: withProvenance });
+    seed(snapshot(), { "/p": { load: "ready", result: overview, detail: {}, error: null, revision: 1 } });
+    const host = render();
+    const text = chip(host)!.textContent ?? "";
+    expect(text).toContain("run 3/10");
+    expect(text).toContain("best \u221212.5%");
+    expect(text).toContain("log pending");
+    // The Lab already holds this project: no second read on the chip's behalf.
+    expect(loadExperiments).not.toHaveBeenCalled();
   });
 });
 

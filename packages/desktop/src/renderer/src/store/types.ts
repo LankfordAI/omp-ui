@@ -4,6 +4,8 @@ import type {
   AppUpdateRestartResult,
   AppUpdateState,
   BackendState,
+  ExperimentDetail,
+  ProjectExperiments,
   BranchList,
   GlassChrome,
   BranchListOptions,
@@ -47,6 +49,7 @@ import type {
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
 import type { GoalSnapshot } from "@omp-ui/core/goal";
+import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type { CompactionThresholdSettings } from "@omp-ui/core/compaction-threshold";
 import type {
   PlanExecutionContext,
@@ -236,6 +239,12 @@ export interface RpcTabState {
    * Display state only: the child process owns the goal and its continuation.
    */
   goal: GoalSnapshot | null;
+  /**
+   * The session's autoresearch snapshot as the root bridge published it
+   * (ADR-0030): mode, goal and last tool activity. Display state only — omp's
+   * DB is the record of runs, read through the Lab's channels.
+   */
+  autoresearch: AutoresearchSnapshot | null;
   /** How the roster read went; the viewer's own state machine (issue #374). */
   capabilitiesLoad:
     | "idle"
@@ -452,7 +461,84 @@ export interface TuiHandoff {
   phase: "running" | "exited";
 }
 
-export interface UiStore extends SettingsSlice, UpdatesSlice {
+/**
+ * The Lab main-pane surface (CONTEXT.md "Lab"): which projects it scopes and,
+ * when set, the one experiment whose detail view is open. `null` on the store
+ * means the Lab is closed; any tab activation through `focusOn` closes it.
+ */
+export interface LabView {
+  /** null = every project; otherwise one project's experiments. */
+  projectCwd: string | null;
+  instanceId: string | null;
+  /** Detail view target; null = overview. */
+  experiment: {
+    projectCwd: string;
+    instanceId: string | null;
+    /** The owned worktree session whose checkout's DB holds it; null = the project checkout. */
+    tabId: string | null;
+    experimentId: number;
+  } | null;
+}
+
+/** Cached `autoresearch:overview` answer for one project (keyed by projectKey). */
+export interface ExperimentsCache {
+  load: "idle" | "loading" | "ready" | "error";
+  result: ProjectExperiments | null;
+  /** Keyed `${tabId ?? ""}:${experimentId}`. */
+  detail: Record<string, { load: "loading" | "ready" | "error"; value: ExperimentDetail | null }>;
+  error: string | null;
+  revision: number;
+}
+
+/** What the New experiment dialog submits; maps 1:1 onto omp's init_experiment. */
+export interface NewExperimentSpec {
+  goal: string;
+  metric: string;
+  unit: string;
+  direction: "lower" | "higher";
+  /** null = the agent writes ./autoresearch.sh itself. */
+  command: string | null;
+  scopePaths: string[];
+  offLimits: string[];
+  constraints: string[];
+  maxIterations: number | null;
+  model: ModelInfo | null;
+  /** null = launch at the project checkout (not a git repo). */
+  worktree: { mint: { branch: string; baseRef: string | null; baseBranch: string | null } } | null;
+}
+
+export interface LabSlice {
+  lab: LabView | null;
+  experimentDialog: { projectCwd: string; instanceId: string | null } | null;
+  /** By projectKey(instanceId, projectCwd). */
+  experiments: Record<string, ExperimentsCache>;
+  /**
+   * Opens the Lab overview (null = all projects). With `focus.tabId`, opens the
+   * detail of that tab's linked experiment when the cache already knows it,
+   * else the overview scoped to the tab's project.
+   */
+  openLab(projectCwd?: string | null, instanceId?: string | null, focus?: { tabId: string }): void;
+  openLabExperiment(target: NonNullable<LabView["experiment"]>): void;
+  closeLab(): void;
+  openExperimentDialog(projectCwd: string, instanceId?: string | null): void;
+  closeExperimentDialog(): void;
+  /** Guarded by a per-project generation so a late reply never overwrites a newer one. */
+  loadExperiments(projectCwd: string, instanceId?: string | null): Promise<void>;
+  loadExperimentDetail(target: NonNullable<LabView["experiment"]>): Promise<void>;
+  /**
+   * Spawns the experiment session (worktree when `spec.worktree`), waits for
+   * ready, applies the model, arms omp's mode with bare `/autoresearch`, then
+   * sends the kickoff prompt. Throws on spawn failure so the dialog renders
+   * the message inline (like newWorktreeSession).
+   */
+  newExperiment(projectCwd: string, spec: NewExperimentSpec, instanceId?: string | null): Promise<void>;
+  /** `/autoresearch off` on a live rpc-ui tab; refused with an error notice otherwise. */
+  stopExperiment(tabId: string): Promise<void>;
+  /** Prompts a fresh segment (init_experiment new_segment) on a live rpc-ui tab. */
+  startNewSegment(tabId: string): Promise<void>;
+}
+
+export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice {
   state: BackendState | null;
   tabs: TabInfo[];
   activeTabId: string | null;

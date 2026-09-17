@@ -147,6 +147,27 @@ const localCommands: readonly LocalCommand[] = [
       return get().runGoalCommand(tabId, line);
     },
   },
+  // omp-ui's two autoresearch surfaces (ADR-0030): `start` is the New
+  // experiment dialog and `lab` the Lab. Exactly these two forms — bare
+  // `/autoresearch`, `off`, `clear`, and anything else stay omp's own command
+  // and reach it verbatim with the normal command lifecycle; a terminal tab's
+  // TUI keeps omp's dashboard for all of them.
+  {
+    match: /^\/autoresearch\s+start$/i,
+    run(tabId, get) {
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
+      if (tab?.mode !== "rpc-ui") return false;
+      get().openExperimentDialog(tab.projectCwd, tab.instanceId);
+    },
+  },
+  {
+    match: /^\/autoresearch\s+lab$/i,
+    run(tabId, get) {
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
+      if (tab?.mode !== "rpc-ui") return false;
+      get().openLab(tab.projectCwd, tab.instanceId, { tabId });
+    },
+  },
   {
     // The capabilities viewer's MCP tab owns the /mcp list surface. Bare
     // forms only — every other subcommand (reauth, add, …) works over rpc
