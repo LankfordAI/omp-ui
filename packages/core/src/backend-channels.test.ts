@@ -61,6 +61,7 @@ const VALID_ARGS = {
   browserPaneInput: ["tab-1", { type: "mouseDown", x: 10, y: 20, button: "left", clickCount: 1 }],
   browserPaneNavigate: ["tab-1", { action: "goto", url: "https://localhost:5173" }],
   browserPaneResize: ["tab-1", 800, 600],
+  browserPaneSetOpen: ["tab-1", true],
   browserPaneSubscribe: ["tab-1", "client-1", true],
   cancelProviderOAuth: [],
   checkAppUpdate: [],

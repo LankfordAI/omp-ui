@@ -835,6 +835,11 @@ export const BACKEND_CHANNELS = {
     channel: "browser-pane:navigate",
     ...notify<[tabId: string, nav: BrowserPaneNavigate]>([str(), browserPaneNavigateCodec]),
   },
+  /** Sets the tab's pane visibility; every viewer of the tab follows (#556). */
+  browserPaneSetOpen: {
+    channel: "browser-pane:set-open",
+    ...notify<[tabId: string, open: boolean]>([str(), bool()]),
+  },
   /** Element under a viewport point for the element hand-back (#544); tab-routed. */
   browserPanePick: {
     channel: "browser-pane:pick",

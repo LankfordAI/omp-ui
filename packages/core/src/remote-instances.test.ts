@@ -16,16 +16,18 @@ const PANE_NOTIFIES = [
   "browser-pane:resize",
   "browser-pane:input",
   "browser-pane:navigate",
+  // The session-level visibility publish (#556).
+  "browser-pane:set-open",
 ];
 
 describe("browser pane routing sets", () => {
-  it("routes the ensure and pick requests and the four notifies by their owning tab", () => {
+  it("routes the ensure and pick requests and the five notifies by their owning tab", () => {
     expect(TAB_ROUTED_REQUESTS.has("browser-pane:ensure")).toBe(true);
     expect(TAB_ROUTED_REQUESTS.has("browser-pane:pick")).toBe(true);
     for (const channel of PANE_NOTIFIES) expect(TAB_ROUTED_NOTIFIES.has(channel)).toBe(true);
   });
 
-  it("proxies all six routed pane channels to a joined instance", () => {
+  it("proxies all seven routed pane channels to a joined instance", () => {
     for (const channel of ["browser-pane:ensure", "browser-pane:pick", ...PANE_NOTIFIES]) {
       expect(REMOTE_PROXY_CHANNELS.has(channel)).toBe(true);
     }

@@ -556,3 +556,46 @@ describe("BrowserPaneHost endpoint, agent state, and denied ports (U7 host)", ()
     ]);
   });
 });
+
+describe("BrowserPaneHost session-level visibility (#556)", () => {
+  it("emits the open flag only on a change", () => {
+    const h = harness();
+    expect(h.states()).toHaveLength(0);
+    h.host.setOpen("t1", true);
+    expect(h.states().at(-1)).toMatchObject({ open: true });
+    const before = h.states().length;
+    h.host.setOpen("t1", true);
+    expect(h.states()).toHaveLength(before);
+    h.host.setOpen("t1", false);
+    expect(h.states().at(-1)).toMatchObject({ open: false });
+  });
+
+  it("includes the flag in the ensure answer and starts closed", async () => {
+    const h = harness();
+    const first = await h.host.ensure("t1");
+    await flush();
+    expect(first.status).toBe("available");
+    if (first.status === "available") expect(first.state.open).toBe(false);
+    h.host.setOpen("t1", true);
+    const again = await h.host.ensure("t1");
+    if (again.status === "available") expect(again.state.open).toBe(true);
+  });
+
+  it("closes the posture everywhere when the page is disposed", () => {
+    const h = harness();
+    h.host.setOpen("t1", true);
+    h.host.dispose("t1");
+    expect(h.states().at(-1)).toMatchObject({ open: false, alive: false });
+  });
+
+  it("painting is bound to subscribe, not to the open flag", async () => {
+    const h = harness();
+    h.host.setOpen("t1", true);
+    await flush();
+    // An open pane nobody is viewing paints nothing.
+    expect(h.panes).toHaveLength(0);
+    h.host.subscribe("t1", "c1", true);
+    await flush();
+    expect(h.panes).toHaveLength(1);
+  });
+});

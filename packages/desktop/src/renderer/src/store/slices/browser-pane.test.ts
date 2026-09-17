@@ -1,8 +1,8 @@
 // Browser pane slice tests (issue #519, U10 store rows).
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { BrowserPaneState } from "@omp-ui/core/browser-pane";
 import type { ImageAttachment } from "@omp-ui/core/types";
-import { rpcTabState } from "../../test/fixtures";
+import { rpcTabState, tabInfo } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 
 const pane = () => h.useStore.getState().rpc[h.TAB]!.browserPane;
@@ -84,6 +84,111 @@ describe("handleBrowserPaneState (#530 auto-open)", () => {
     expect(pane().ensure).toBe("pending");
   });
 });
+
+describe("session-scoped pane visibility (#556)", () => {
+  /** Drives isCompactShell(): the stub window has no matchMedia otherwise. */
+  const withCompactShell = (compact: boolean): void => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: (query: string) => ({
+        matches: compact,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }),
+    });
+  };
+  afterEach(() => {
+    Reflect.deleteProperty(window, "matchMedia");
+  });
+  it("closes the pane when another view's close arrives on the state push", () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          browserPane: { ...rpcTabState().browserPane, open: true },
+        }),
+      },
+    });
+    h.useStore.getState().handleBrowserPaneState(
+      h.TAB,
+      paneState("detached", { open: false }),
+    );
+    expect(pane().open).toBe(false);
+  });
+
+  it("keeps the local posture when the host sends no open field (version skew)", () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          browserPane: { ...rpcTabState().browserPane, open: true },
+        }),
+      },
+    });
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("attached"));
+    expect(pane().open).toBe(true);
+  });
+
+  it("surfaces the sheet when the open arrives on the tab in view", () => {
+    withCompactShell(true);
+    h.useStore.setState({
+      activeTabId: h.TAB,
+      compactSurface: null,
+      rpc: { [h.TAB]: rpcTabState() },
+    });
+    h.useStore.getState().handleBrowserPaneState(
+      h.TAB,
+      paneState("detached", { open: true }),
+    );
+    expect(h.useStore.getState().compactSurface).toBe("browser-pane");
+  });
+
+  it("takes the sheet down when a close arrives on the tab in view", () => {
+    withCompactShell(true);
+    h.useStore.setState({
+      activeTabId: h.TAB,
+      compactSurface: "browser-pane",
+      rpc: {
+        [h.TAB]: rpcTabState({
+          browserPane: { ...rpcTabState().browserPane, open: true },
+        }),
+      },
+    });
+    h.useStore.getState().handleBrowserPaneState(
+      h.TAB,
+      paneState("detached", { open: false }),
+    );
+    expect(h.useStore.getState().compactSurface).toBeNull();
+  });
+
+  it("publishes the posture on local open and close", () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().openBrowserPane(h.TAB);
+    expect(h.mockBackend.browserPaneSetOpen).toHaveBeenLastCalledWith(h.TAB, true);
+    h.useStore.getState().closeBrowserPane(h.TAB);
+    expect(h.mockBackend.browserPaneSetOpen).toHaveBeenLastCalledWith(h.TAB, false);
+  });
+
+  it("never lets a background tab claim the compact surface (#549)", () => {
+    withCompactShell(true);
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB }), tabInfo({ tabId: "tab-other" })],
+      activeTabId: "tab-other",
+      compactSurface: null,
+      rpc: {
+        [h.TAB]: rpcTabState(),
+        "tab-other": rpcTabState(),
+      },
+    });
+    h.useStore.getState().handleBrowserPaneState(
+      h.TAB,
+      paneState("detached", { open: true }),
+    );
+    // The posture is adopted; the sheet does not pop over the active tab.
+    expect(pane().open).toBe(true);
+    expect(h.useStore.getState().compactSurface).toBeNull();
+  });
+});
+
 
 describe("bootRpcTab carry-over (#528)", () => {
   it("keeps open and fullscreen across a reboot but forgets the dead process's answer", async () => {

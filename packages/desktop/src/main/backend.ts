@@ -914,6 +914,8 @@ export class MainBackend {
           this.sessions.browserPaneInput(tabId, event),
         [CH.browserPaneNavigate]: (tabId: string, nav: BrowserPaneNavigate) =>
           this.sessions.browserPaneNavigate(tabId, nav),
+        [CH.browserPaneSetOpen]: (tabId: string, open: boolean) =>
+          this.sessions.browserPaneSetOpen(tabId, open),
         [CH.rpcSend]: (tabId: string, cmd: RpcFrame) => this.sessions.rpcSend(tabId, cmd),
         [CH.tabViewed]: (clientId: string, tabId: string | null) =>
           this.sessions.setViewedTab(clientId, tabId),

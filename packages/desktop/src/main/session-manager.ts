@@ -1098,6 +1098,9 @@ export class SessionManager {
   browserPaneInput(tabId: string, event: BrowserPaneInputEvent): void {
     this.browserPanes.input(tabId, event);
   }
+  browserPaneSetOpen(tabId: string, open: boolean): void {
+    this.browserPanes.setOpen(tabId, open);
+  }
   browserPaneNavigate(tabId: string, nav: BrowserPaneNavigate): void {
     this.browserPanes.navigate(tabId, nav);
   }

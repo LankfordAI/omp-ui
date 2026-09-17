@@ -305,6 +305,7 @@ const mockBackend = {
   browserPaneResize: vi.fn(),
   browserPaneInput: vi.fn(),
   browserPaneNavigate: vi.fn(),
+  browserPaneSetOpen: vi.fn(),
   onBrowserPaneFrame: vi.fn(),
   onBrowserPaneState: vi.fn(),
 };

@@ -116,6 +116,7 @@ export const TAB_ROUTED_NOTIFIES: ReadonlySet<string> = new Set<string>([
   "browser-pane:resize",
   "browser-pane:input",
   "browser-pane:navigate",
+  "browser-pane:set-open",
 ]);
 
 /** Project-scoped channels the renderer may address to a joined instance through the proxy. */
