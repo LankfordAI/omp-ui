@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { parseModelRole } from "@omp-ui/core/model-role";
 import type { ProjectRecord } from "@omp-ui/core/types";
+import { cn } from "../lib/cn";
 import { useT, type MessageKey } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
 import { projectKey } from "../lib/project-key";
@@ -335,16 +336,26 @@ export function ProjectModelPins({
   );
 }
 
+type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models";
+
+const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
+  { id: "mcp", labelKey: "project.settings.mcpServers" },
+  { id: "skills", labelKey: "project.settings.skills" },
+  { id: "tools", labelKey: "project.settings.tools" },
+  { id: "models", labelKey: "project.settings.defaultModels" },
+];
+
 /**
- * The per-project settings dialog (issues #281, #383): one modal holding a
- * project's standing configuration — MCP servers, the skills and tools
- * catalogs at project scope, and the default-model pins — opened from the
- * desktop project header and the compact actions sheet. Session-scoped
- * behavior (rosters, session-local switches, restart, TUI reauth handoff)
- * stays in CapabilitiesViewer; this dialog pins no tab, so every panel gets
- * only the project scope — omitted viewer props keep each panel exactly the
- * manager it always was. Catalog switches write this project's
- * `.omp/config.yml` in place (core/project-config-writer.ts).
+ * The per-project settings dialog (issues #281, #383, #564): one modal holding
+ * a project's standing configuration — MCP servers, the skills and tools
+ * catalogs at project scope, and the default-model pins — behind a four-tab
+ * strip, opened from the desktop project header and the compact actions sheet.
+ * Session-scoped behavior (rosters, session-local switches, restart, TUI
+ * reauth handoff) stays in CapabilitiesViewer; this dialog pins no session
+ * tab, so every panel gets only the project scope — omitted viewer props keep
+ * each panel exactly the manager it always was. Catalog switches write this
+ * project's `.omp/config.yml` in place (core/project-config-writer.ts). The
+ * active tab is dialog-local state, resetting to MCP servers on each open.
  */
 export function ProjectSettings({
   project,
@@ -358,6 +369,26 @@ export function ProjectSettings({
   onClose: () => void;
 }) {
   const t = useT();
+  const [active, setActive] = useState<ProjectSettingsSectionId>("mcp");
+  const tabRefs = useRef<Partial<Record<ProjectSettingsSectionId, HTMLButtonElement | null>>>({});
+
+  // WAI-ARIA tabs: roving tabindex, arrows/Home/End move selection AND focus.
+  // Mirrors CapabilitiesViewer's onTabListKeyDown (CapabilitiesViewer.tsx).
+  const onTabListKeyDown = (event: React.KeyboardEvent): void => {
+    const index = SECTIONS.findIndex((tab) => tab.id === active);
+    const target =
+      event.key === "ArrowRight" ? (index + 1) % SECTIONS.length
+        : event.key === "ArrowLeft" ? (index + SECTIONS.length - 1) % SECTIONS.length
+          : event.key === "Home" ? 0
+            : event.key === "End" ? SECTIONS.length - 1
+              : null;
+    if (target === null) return;
+    event.preventDefault();
+    const next = SECTIONS[target]!;
+    setActive(next.id);
+    tabRefs.current[next.id]?.focus();
+  };
+
   if (project === null) return null;
 
   return (
@@ -375,45 +406,91 @@ export function ProjectSettings({
           </p>
         </header>
 
-        <div className="max-h-[60dvh] overflow-y-auto">
-          <section aria-labelledby="project-settings-mcp" className="border-b border-line pb-3">
-            <h3 id="project-settings-mcp" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
-              {t("project.settings.mcpServers")}
-            </h3>
-            {/* A project dialog pins no session, so the project root is the
-                scope — no checkout to resolve through. */}
-            <McpServersPanel scopeCwd={project.path} instanceId={instanceId} />
-            <p className="px-4 pt-2 text-[11px] text-ink-faint">
-              {t("project.settings.mcpHint")}
-            </p>
-          </section>
+        <div
+          role="tablist"
+          aria-label={t("project.settings.title")}
+          onKeyDown={onTabListKeyDown}
+          className="flex gap-1 border-b border-line px-4 py-2"
+        >
+          {SECTIONS.map((tab) => {
+            const selected = tab.id === active;
+            return (
+              <button
+                key={tab.id}
+                ref={(node) => {
+                  tabRefs.current[tab.id] = node;
+                }}
+                type="button"
+                role="tab"
+                id={`project-settings-tab-${tab.id}`}
+                aria-selected={selected}
+                aria-controls={`project-settings-panel-${tab.id}`}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => setActive(tab.id)}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  selected ? "bg-hover text-ink" : "text-ink-mid hover:text-ink",
+                )}
+              >
+                {t(tab.labelKey)}
+              </button>
+            );
+          })}
+        </div>
 
-          <section aria-labelledby="project-settings-skills" className="border-b border-line pb-3">
-            <h3 id="project-settings-skills" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
-              {t("project.settings.skills")}
-            </h3>
-            <SkillsScopePanel scopeCwd={project.path} instanceId={instanceId} />
-            <p className="px-4 pt-2 text-[11px] text-ink-faint">
-              {t("project.settings.skillsHint")}
-            </p>
-          </section>
+        <div
+          role="tabpanel"
+          id={`project-settings-panel-${active}`}
+          aria-labelledby={`project-settings-tab-${active}`}
+          tabIndex={-1}
+          className="max-h-[60dvh] overflow-y-auto"
+        >
+          {active === "mcp" && (
+            <section aria-labelledby="project-settings-mcp" className="pb-3">
+              <h3 id="project-settings-mcp" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+                {t("project.settings.mcpServers")}
+              </h3>
+              {/* A project dialog pins no session, so the project root is the
+                  scope — no checkout to resolve through. */}
+              <McpServersPanel scopeCwd={project.path} instanceId={instanceId} />
+              <p className="px-4 pt-2 text-[11px] text-ink-faint">
+                {t("project.settings.mcpHint")}
+              </p>
+            </section>
+          )}
 
-          <section aria-labelledby="project-settings-tools" className="border-b border-line pb-3">
-            <h3 id="project-settings-tools" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
-              {t("project.settings.tools")}
-            </h3>
-            <ToolsScopePanel scopeCwd={project.path} instanceId={instanceId} />
-            <p className="px-4 pt-2 text-[11px] text-ink-faint">
-              {t("project.settings.toolsHint")}
-            </p>
-          </section>
+          {active === "skills" && (
+            <section aria-labelledby="project-settings-skills" className="pb-3">
+              <h3 id="project-settings-skills" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+                {t("project.settings.skills")}
+              </h3>
+              <SkillsScopePanel scopeCwd={project.path} instanceId={instanceId} />
+              <p className="px-4 pt-2 text-[11px] text-ink-faint">
+                {t("project.settings.skillsHint")}
+              </p>
+            </section>
+          )}
 
-          <section aria-labelledby="project-settings-models" className="px-4 py-4">
-            <h3 id="project-settings-models" className="mb-4 font-display text-sm font-semibold text-ink">
-              {t("project.settings.defaultModels")}
-            </h3>
-            <ProjectModelPins project={project} instanceId={instanceId} />
-          </section>
+          {active === "tools" && (
+            <section aria-labelledby="project-settings-tools" className="pb-3">
+              <h3 id="project-settings-tools" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+                {t("project.settings.tools")}
+              </h3>
+              <ToolsScopePanel scopeCwd={project.path} instanceId={instanceId} />
+              <p className="px-4 pt-2 text-[11px] text-ink-faint">
+                {t("project.settings.toolsHint")}
+              </p>
+            </section>
+          )}
+
+          {active === "models" && (
+            <section aria-labelledby="project-settings-models" className="px-4 py-4">
+              <h3 id="project-settings-models" className="mb-4 font-display text-sm font-semibold text-ink">
+                {t("project.settings.defaultModels")}
+              </h3>
+              <ProjectModelPins project={project} instanceId={instanceId} />
+            </section>
+          )}
         </div>
       </section>
     </Modal>
