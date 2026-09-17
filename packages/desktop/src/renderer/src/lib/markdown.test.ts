@@ -442,6 +442,101 @@ describe("parseMarkdown inline", () => {
   });
 });
 
+describe("claim marker (issue #558)", () => {
+  it("parses [INFERENCE] as an inf span with its neighbours", () => {
+    expect(parseMarkdown("a [INFERENCE] b")[0]).toEqual({
+      kind: "p",
+      spans: [
+        { kind: "text", text: "a " },
+        { kind: "inf", text: "[INFERENCE]" },
+        { kind: "text", text: " b" },
+      ],
+    });
+  });
+
+  it("matches case-insensitively and keeps the canonical literal", () => {
+    for (const src of ["[inference]", "[Inference]", "[InFeReNcE]"]) {
+      expect(parseMarkdown(src)[0]).toEqual({
+        kind: "p",
+        spans: [{ kind: "inf", text: "[INFERENCE]" }],
+      });
+    }
+  });
+
+  it("leaves an unterminated marker as literal text", () => {
+    // Mid-stream tail: resolves on the next delta's full re-parse.
+    expect(parseMarkdown("text [INFE")[0]).toEqual({
+      kind: "p",
+      spans: [{ kind: "text", text: "text [INFE" }],
+    });
+  });
+
+  it("handles brackets around the marker", () => {
+    expect(parseMarkdown("[INFERENCE]]")[0]).toEqual({
+      kind: "p",
+      spans: [
+        { kind: "inf", text: "[INFERENCE]" },
+        { kind: "text", text: "]" },
+      ],
+    });
+    expect(parseMarkdown("[[INFERENCE]")[0]).toEqual({
+      kind: "p",
+      spans: [
+        { kind: "text", text: "[" },
+        { kind: "inf", text: "[INFERENCE]" },
+      ],
+    });
+  });
+
+  it("lets a real link win over the marker", () => {
+    expect(parseMarkdown("[INFERENCE](https://a.dev)")[0]).toEqual({
+      kind: "p",
+      spans: [
+        {
+          kind: "link",
+          spans: [{ kind: "text", text: "INFERENCE" }],
+          href: "https://a.dev",
+        },
+      ],
+    });
+  });
+
+  it("keeps the marker literal inside inline code", () => {
+    expect(parseMarkdown("`[INFERENCE]`")[0]).toEqual({
+      kind: "p",
+      spans: [{ kind: "code", text: "[INFERENCE]" }],
+    });
+  });
+
+  it("parses the marker flush against punctuation and nested in strong", () => {
+    expect(parseMarkdown("text.[INFERENCE]")[0]).toEqual({
+      kind: "p",
+      spans: [
+        { kind: "text", text: "text." },
+        { kind: "inf", text: "[INFERENCE]" },
+      ],
+    });
+    expect(parseMarkdown("**bold [INFERENCE]**")[0]).toEqual({
+      kind: "p",
+      spans: [
+        {
+          kind: "strong",
+          spans: [
+            { kind: "text", text: "bold " },
+            { kind: "inf", text: "[INFERENCE]" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("never matches across a newline", () => {
+    expect(parseMarkdown("[INFERENCE\n]")).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: "[INFERENCE\n]" }] },
+    ]);
+  });
+});
+
 describe("LaTeX math (issue #191)", () => {
   it("parses inline math in prose", () => {
     expect(parseMarkdown("value is $y_0 + y_1$ now")).toEqual([

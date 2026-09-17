@@ -410,3 +410,34 @@ describe("Markdown tables (issue #365)", () => {
     act(() => root.unmount());
   });
 });
+
+describe("claim marker chip (issue #558)", () => {
+  it("renders [INFERENCE] as a subscript INF chip, not prose", () => {
+    const { el, root } = render("a [INFERENCE] b");
+    const chip = el.querySelector('[title="Model-flagged inference: not verified against sources"]');
+    expect(chip).not.toBeNull();
+    expect(chip!.textContent).toBe("INF");
+    // Sibling text spans survive; the raw token never reaches the screen.
+    expect(chip!.previousElementSibling?.textContent).toBe("a ");
+    expect(chip!.nextElementSibling?.textContent).toBe(" b");
+    expect(el.textContent).not.toContain("[INFERENCE]");
+    act(() => root.unmount());
+  });
+
+  it("keeps the marker literal inside inline code", () => {
+    const { el, root } = render("`[INFERENCE]`");
+    expect(el.querySelector("code")?.textContent).toBe("[INFERENCE]");
+    expect(el.querySelector('[title="Model-flagged inference: not verified against sources"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("renders one chip for the marker and a link for [INFERENCE](url)", () => {
+    const { el, root } = render("[INFERENCE](https://a.dev) [INFERENCE]");
+    expect(el.querySelectorAll('a[role="link"]')).toHaveLength(1);
+    const chips = Array.from(el.querySelectorAll("span")).filter(
+      (s) => s.textContent === "INF",
+    );
+    expect(chips).toHaveLength(1);
+    act(() => root.unmount());
+  });
+});
