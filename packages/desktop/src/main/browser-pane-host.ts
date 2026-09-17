@@ -65,6 +65,8 @@ interface PaneEntry {
   /** Handlers to detach before the page is destroyed. */
   offPane: Array<() => void>;
   lastUrl: string | null;
+  /** Session-level pane visibility (#556): open in at least one view. */
+  open: boolean;
   sinks: Set<string>;
   cached: Uint8Array | null;
   header: BrowserPaneFrameHeader | null;
@@ -88,6 +90,7 @@ function newEntry(lastUrl: string | null): PaneEntry {
     paneInFlight: null,
     offPane: [],
     lastUrl,
+    open: false,
     sinks: new Set(),
     cached: null,
     header: null,
@@ -215,6 +218,18 @@ export class BrowserPaneHost {
       if (entry.cached !== null) this.send(CH.onBrowserPaneFrame, tabId, entry.cached);
       else pane.invalidate();
     });
+  }
+
+  /**
+   * Sets the session-level pane posture (#556). Painting stays bound to
+   * `subscribe`, not to this flag — an open pane nobody is viewing still
+   * paints nothing; the flag is purely what every viewer renders.
+   */
+  setOpen(tabId: string, open: boolean): void {
+    const entry = this.entry(tabId);
+    if (entry.open === open) return;
+    entry.open = open;
+    this.emitState(tabId, entry);
   }
 
   /** tab:viewed mirror: a client viewing another tab or null leaves every other tab's sink set. */
@@ -379,6 +394,9 @@ export class BrowserPaneHost {
     listener?.close();
     entry.agent = "detached";
     entry.cdpClients = 0;
+    // The page is gone: the session-level posture closes everywhere with it
+    // (#556), matching the newEntry that replaces this one below.
+    entry.open = false;
     if (opts?.forgetUrl === true) this.entries.delete(tabId);
     else this.entries.set(tabId, newEntry(entry.lastUrl));
     this.emitState(tabId, entry);
@@ -581,6 +599,7 @@ export class BrowserPaneHost {
       canGoForward: alive ? pane.canGoForward() : false,
       alive,
       agent: entry.agent,
+      open: entry.open,
     };
   }
 

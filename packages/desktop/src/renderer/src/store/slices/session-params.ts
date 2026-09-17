@@ -1,7 +1,7 @@
 // Session parameter domain (decomposed for #295): prompting, slash commands,
 // and every per-session parameter command — model, advisor, modes, retry,
 // compaction, plan, todos, refreshes, subagent drill-down.
-import type { ImageAttachment } from "@omp-ui/core/types";
+import type { BackendState, ImageAttachment } from "@omp-ui/core/types";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { planMessage } from "@omp-ui/core/plan";
 import {
@@ -49,6 +49,7 @@ export type SessionParamsSlice = Pick<
   UiStore,
   | "advisorDefaults"
   | "answerExtension"
+  | "reconcilePendingDialogs"
   | "sendPrompt"
   | "abortAgent"
   | "abortAndPrompt"
@@ -205,6 +206,44 @@ export function createSessionParamsSlice(
     m.patchRpc(tabId, {
       extensionQueue: tab.extensionQueue.filter((q) => q !== request),
     });
+  };
+
+  /**
+   * Reconciles each open rpc tab's blocking-dialog queue against the
+   * main-process-owned list on the session summary (issue #555). The record
+   * wins: a frame another client answered drops out, a frame this client
+   * never received is hydrated, and a late joiner sees the question its
+   * sibling is showing. Idempotent — patches only when the id sequence
+   * differs, so it is safe to run on every state read. Skipped entirely
+   * when the host published no list (undefined), which is not the same
+   * claim as "no open dialogs" (ADR-0028 version skew).
+   *
+   * Compare by `id`, never by object identity: broadcast frames are freshly
+   * deserialized each time, while `answerExtension`'s optimistic filter
+   * compares by identity against the object currently in the queue — both
+   * stay correct because the queue is always internally consistent.
+   *
+   * A second client answering a frame main already settled is harmless and
+   * deliberately unhandled: the protocol has no "revise", so the stale
+   * `ext_response` forwards, the tracker's delete is a no-op, and the next
+   * broadcast corrects the lagging client's queue. No per-answer reservation
+   * set like `planAnswerReservations` — a plan verdict spawns an
+   * implementation, a dialog answer does not. Do not "fix" this later.
+   */
+  const reconcilePendingDialogs = (state: BackendState): void => {
+    for (const [tabId, tab] of Object.entries(get().rpc)) {
+      const rec = findRecord(state, tabId);
+      const pending = rec?.pendingDialogs;
+      if (pending === undefined) continue;
+      const localIds = tab.extensionQueue.map((q) => strField(q, "id"));
+      const remoteIds = pending.map((q) => strField(q, "id"));
+      if (
+        localIds.length === remoteIds.length &&
+        localIds.every((id, i) => id === remoteIds[i])
+      )
+        continue;
+      m.patchRpc(tabId, { extensionQueue: pending });
+    }
   };
 
   const sendPrompt = async (
@@ -781,6 +820,7 @@ export function createSessionParamsSlice(
   return {
     advisorDefaults: {},
     answerExtension,
+    reconcilePendingDialogs,
     sendPrompt,
     abortAgent,
     abortAndPrompt,

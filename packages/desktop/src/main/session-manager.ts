@@ -78,6 +78,7 @@ import {
   wirePtyData,
   wireRpc,
 } from "./live-entry";
+import { DialogGateTracker } from "./dialog-gate-tracker";
 import { HibernationTracker } from "./hibernation-tracker";
 import { CapabilityControlTracker } from "./capability-control-tracker";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
@@ -167,6 +168,8 @@ export class SessionManager {
   private readonly stallWatchdog: StallWatchdog;
   private readonly toolControl: CapabilityControlTracker;
   private readonly goals: GoalStatusTracker;
+  /** The open blocking dialogs per tab — the summary's `pendingDialogs` (#555). */
+  private readonly dialogGates = new DialogGateTracker();
   private readonly gate: SpawnGate;
 
   constructor(private readonly deps: SessionManagerDependencies) {
@@ -246,7 +249,7 @@ export class SessionManager {
       getLive: (tabId) => this.live.get(tabId),
     });
     this.goals = new GoalStatusTracker({ broadcast: () => this.deps.broadcast() });
-    this.frameObservers = [this.hibernation, this.planGates, this.planPreflight, this.stallWatchdog, this.toolControl, this.goals];
+    this.frameObservers = [this.hibernation, this.planGates, this.planPreflight, this.stallWatchdog, this.toolControl, this.goals, this.dialogGates];
   }
 
   get liveCount(): number {
@@ -1095,6 +1098,9 @@ export class SessionManager {
   browserPaneInput(tabId: string, event: BrowserPaneInputEvent): void {
     this.browserPanes.input(tabId, event);
   }
+  browserPaneSetOpen(tabId: string, open: boolean): void {
+    this.browserPanes.setOpen(tabId, open);
+  }
   browserPaneNavigate(tabId: string, nav: BrowserPaneNavigate): void {
     this.browserPanes.navigate(tabId, nav);
   }
@@ -1181,13 +1187,18 @@ export class SessionManager {
    * (issue #436).
    */
   pendingAnswer(tabId: string): boolean {
-    return this.planGates.pending(tabId) || this.hibernation.hasOpenRequests(tabId);
+    return this.planGates.pending(tabId) || this.dialogGates.hasOpen(tabId);
+  }
+
+  /** The open blocking dialogs, in arrival order, for the summary (#555). */
+  pendingDialogs(tabId: string): RpcFrame[] {
+    return this.dialogGates.openFrames(tabId);
   }
 
   private awaitingHumanAnswer(tabId: string): boolean {
     if (this.planGates.pending(tabId)) return true;
     if (this.planPreflight.isHeld(tabId)) return true;
-    return this.hibernation.hasOpenRequests(tabId);
+    return this.dialogGates.hasOpen(tabId);
   }
 
   /**

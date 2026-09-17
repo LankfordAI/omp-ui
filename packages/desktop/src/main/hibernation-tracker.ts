@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  isBlockingDialogMethod,
   isObject,
   normalizeControlFrame,
   type OwnedSessionRecord,
@@ -79,16 +78,9 @@ export class HibernationTracker implements FrameObserver {
    * against the dying process (issue #246, #296).
    */
   private readonly inFlight = new Map<string, Promise<boolean>>();
-  /** Unanswered blocking-dialog ids per tab (plan reviews included). */
-  private readonly openRequests = new Map<string, Set<string>>();
   private readonly records = new Map<string, HibernateRecord>();
 
   constructor(private readonly deps: HibernationTrackerDeps) {}
-
-  /** True while a renderer-routed dialog awaits the user's answer. */
-  hasOpenRequests(tabId: string): boolean {
-    return (this.openRequests.get(tabId)?.size ?? 0) > 0;
-  }
 
   /**
    * Post-verdict hibernation suspension (issue #246): between the verdict
@@ -167,35 +159,12 @@ export class HibernationTracker implements FrameObserver {
         break;
       }
     }
-    if (
-      control !== null &&
-      control.kind === "ext_request" &&
-      // Only user-answer dialogs block hibernation; the other methods are
-      // fire-and-forget state frames the renderer never replies to.
-      typeof control.id === "string" &&
-      isBlockingDialogMethod(control.method)
-    ) {
-      let open = this.openRequests.get(tabId);
-      if (open === undefined) {
-        open = new Set<string>();
-        this.openRequests.set(tabId, open);
-      }
-      open.add(control.id);
-    }
-    // Responses to dialogs are commands (rpcSend), not frames: onSend
-    // clears the bookkeeping. Any real frame re-arms the clock.
+    // Blocking-dialog bookkeeping now lives in DialogGateTracker (#555).
+    // Any real frame re-arms the clock.
     rec.armed = true;
     this.armHibernateTimer(tabId);
   }
 
-  onSend(tabId: string, cmd: RpcFrame): void {
-    // Responses to dialogs are commands, not frames: this is where the
-    // blocking-dialog bookkeeping clears.
-    const control = normalizeControlFrame(cmd);
-    if (control !== null && control.kind === "ext_response" && typeof control.id === "string") {
-      this.openRequests.get(tabId)?.delete(control.id);
-    }
-  }
 
   onExit(tabId: string): void {
     this.clear(tabId);
@@ -217,7 +186,6 @@ export class HibernationTracker implements FrameObserver {
       rec.probeId = null;
       rec.probeResolve = null;
     }
-    this.openRequests.delete(tabId);
     // The in-flight reap is NOT dropped here: exit fires before the reap
     // promise settles, and a delete or resume arriving in that gap must
     // still wait it out (issue #246, #296). The attempt's finally and
@@ -235,7 +203,6 @@ export class HibernationTracker implements FrameObserver {
   disposeAll(): void {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
-    this.openRequests.clear();
     this.inFlight.clear();
     for (const rec of this.records.values()) clearTimeout(rec.probeTimer);
     this.records.clear();

@@ -656,6 +656,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice {
     request: unknown,
     response: Record<string, unknown>,
   ): void;
+  /**
+   * Aligns each open rpc tab's blocking-dialog queue with main's
+   * `pendingDialogs` list (issue #555). Safe to run on every state read.
+   */
+  reconcilePendingDialogs(state: BackendState): void;
   setInitialPrompt(tabId: string, prompt: string): void;
   renameSession(tabId: string): void;
   sendPrompt(

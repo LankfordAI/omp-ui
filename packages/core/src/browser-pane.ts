@@ -85,6 +85,14 @@ export interface BrowserPaneState {
   /** False once the page is destroyed (lifecycle), true while it exists. */
   alive: boolean;
   agent: BrowserPaneAgentState;
+  /**
+   * True while the session's pane is open in at least one view (issue #556).
+   * A session-level posture owned by main: closing it anywhere closes it
+   * everywhere, while the page keeps running for the agent (ADR-0029).
+   * Absent from a host that predates this field, so a renderer keeps its
+   * local posture rather than closing a genuinely open pane.
+   */
+  open?: boolean;
 }
 
 export type BrowserPaneUnavailableReason = "listener-failed" | "create-failed" | "no-frames";

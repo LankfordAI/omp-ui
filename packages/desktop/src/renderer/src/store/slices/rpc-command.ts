@@ -229,6 +229,8 @@ export function acceptGoalSnapshot(
 
 export interface RpcCommandDeps extends Watchers {
   reconcilePlanGates(state: BackendState): void;
+  /** Aligns dialog queues with main's list after boot (#555). */
+  reconcilePendingDialogs(state: BackendState): void;
 }
 
 interface PendingCommand {
@@ -679,6 +681,8 @@ export function createRpcCommandSlice(
         // gate on the record hydrates now instead of being clobbered.
         const bootedState = get().state;
         if (bootedState !== null) deps.reconcilePlanGates(bootedState);
+        // Same hydration for a question this tab mounted but never received.
+        if (bootedState !== null) deps.reconcilePendingDialogs(bootedState);
         // History is in and the tab is live: notices staged across the
         // relaunch land now, after everything that would have dropped them
         // (issue #334).

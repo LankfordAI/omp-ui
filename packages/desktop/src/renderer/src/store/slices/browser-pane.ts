@@ -102,14 +102,20 @@ export function createBrowserPaneSlice(
 
   const openBrowserPane = (tabId: string): void => {
     if (get().rpc[tabId] === undefined) return;
+    // Optimistic local patch (zero latency for the actor) plus the
+    // session-level publish: every other viewer adopts it from main's next
+    // state push (#556). A notify — a down instance fails silently and the
+    // local patch simply stands until rejoin.
     patchPane(tabId, { open: true });
     if (isCompactShell()) get().showCompactSurface("browser-pane");
+    backend.browserPaneSetOpen(tabId, true);
     void ensureBrowserPane(tabId);
   };
 
   const closeBrowserPane = (tabId: string): void => {
     patchPane(tabId, { open: false, fullscreen: false });
     if (isCompactShell()) get().closeCompactSurface();
+    backend.browserPaneSetOpen(tabId, false);
   };
 
   return {
@@ -130,15 +136,42 @@ export function createBrowserPaneSlice(
       // it: back to idle so a mounted pane re-asks main, which recreates the
       // page or reports that the session is no longer live.
       const ensure = !state.alive && previous.ensure === "available" ? "idle" : previous.ensure;
-      patchPane(tabId, { state, ensure });
+      // A host predating this field sends no `open` (ADR-0028 version skew):
+      // keep the local posture rather than closing a pane that is genuinely
+      // open. Main's flag is authoritative whenever it is present (#556).
+      patchPane(tabId, { state, open: state.open ?? previous.open, ensure });
       // The #530 auto-open: the agent just connected to a pane the user is not
       // looking at. A tab with no observed state has, by definition, had no
       // agent attached yet. Any later push — a page load, acting ↔ attached —
-      // leaves a deliberately closed pane closed.
+      // leaves a deliberately closed pane closed. An agent attach does not set
+      // `open`, so this path still runs openBrowserPane, which publishes it.
       const wasDetached = (previous.state?.agent ?? "detached") === "detached";
       if (wasDetached && state.agent !== "detached" && !previous.open) {
         openBrowserPane(tabId);
+        return;
       }
+      // Surfaced by another view's open. `compactSurface` is app-global, not
+      // per-tab, so a BACKGROUND tab must never claim it (#549): only the tab
+      // the client is actually on may mount the sheet, and only the compact
+      // shell has a sheet at all — desktop shows the split from `open`. App's
+      // active-tab effect does not re-run on a posture push, hence the show
+      // here.
+      if (
+        state.open === true &&
+        !previous.open &&
+        get().activeTabId === tabId &&
+        isCompactShell()
+      )
+        get().showCompactSurface("browser-pane");
+      // The symmetric close: a remote close on the tab in view takes its
+      // sheet down (App's active-tab effect does not re-run here either).
+      else if (
+        state.open === false &&
+        previous.open &&
+        get().activeTabId === tabId &&
+        isCompactShell()
+      )
+        get().closeCompactSurface();
     },
     noteBrowserPaneFrame(tabId, header) {
       const frame = get().rpc[tabId]?.browserPane.frame;
