@@ -1032,6 +1032,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "markdown.codeblock.source": "source",
   "markdown.codeblock.diagram": "diagram",
   "markdown.diagram.aria": "mermaid diagram",
+  "markdown.inf.tip": "모델이 표시한 추론: 출처가 확인되지 않음",
 
   "app.crash.title": "omp-ui 렌더링 오류",
   "app.crash.body": "세션 자체에는 영향이 없습니다. omp는 백그라운드에서 계속 실행됩니다. 다시 연결하려면 reload하세요.",

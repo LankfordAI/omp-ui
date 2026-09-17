@@ -106,10 +106,24 @@ function OpenExternalLink({ href, children }: { href: string; children: ReactNod
 }
 
 function Spans({ spans }: { spans: MdSpan[] }) {
+  const t = useT();
   return (
     <>
       {spans.map((span, i) => {
         switch (span.kind) {
+          case "inf":
+            // Quiet claim annotation (issue #558): the `[INFERENCE]` harness
+            // marker as a small subscript chip — dim, unfilled, narrower than
+            // the token so the line does not grow. Disclosure stays visible.
+            return (
+              <span
+                key={i}
+                title={t("markdown.inf.tip")}
+                className="select-none align-[0.15em] font-mono text-[0.62em] tracking-[0.08em] text-ink-mid"
+              >
+                INF
+              </span>
+            );
           case "code":
             return (
               <code key={i} className="rounded bg-overlay px-1 font-mono text-[0.9em] text-ink">

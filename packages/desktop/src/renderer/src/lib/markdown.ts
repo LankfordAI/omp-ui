@@ -39,7 +39,9 @@ export type MdSpan =
   | { kind: "math"; text: string }
   | { kind: "strong"; spans: MdSpan[] }
   | { kind: "em"; spans: MdSpan[] }
-  | { kind: "link"; spans: MdSpan[]; href: string };
+  | { kind: "link"; spans: MdSpan[]; href: string }
+  /** Harness claim marker: the literal `[INFERENCE]` token (issue #558). */
+  | { kind: "inf"; text: string };
 
 /* --------------------------------------------------------------- inline */
 
@@ -139,6 +141,20 @@ function readLink(src: string, i: number): { span: MdSpan; next: number } | null
   // A bracket-link label never nests links (issue #101): `[url](url)` renders
   // the label as plain text, so the autolinker cannot double-link it.
   return { span: { kind: "link", spans: parseInline(text, false), href }, next: paren + 1 };
+}
+
+/** Harness claim marker: the literal `[INFERENCE]` (case-insensitive). */
+const CLAIM_MARKER = /^\[inference\]/i;
+
+/**
+ * The claim marker at `i`, if present (issue #558). The slice is bounded so
+ * the regex can never match across a newline, keeping the parser's
+ * line-bounded rule. An unterminated `[INFE` matches nothing and stays
+ * literal text until a later frame's full re-parse lands the `]`.
+ */
+function readClaimMarker(src: string, i: number): { span: MdSpan; next: number } | null {
+  const m = CLAIM_MARKER.exec(src.slice(i, i + 11));
+  return m ? { span: { kind: "inf", text: "[INFERENCE]" }, next: i + m[0].length } : null;
 }
 
 /**
@@ -241,6 +257,15 @@ function parseInline(src: string, links = true): MdSpan[] {
         flush();
         out.push(link.span);
         i = link.next;
+        continue;
+      }
+      // Claim marker after the link attempt, so a real `[INFERENCE](x)` link
+      // still wins (issue #558).
+      const claim = readClaimMarker(src, i);
+      if (claim) {
+        flush();
+        out.push(claim.span);
+        i = claim.next;
         continue;
       }
     }
