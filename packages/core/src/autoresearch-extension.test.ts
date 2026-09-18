@@ -6,8 +6,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   AUTORESEARCH_COMMAND,
   AUTORESEARCH_GOAL_CHAR_LIMIT,
+  AUTORESEARCH_PROPOSE_TOOL,
   AUTORESEARCH_STATUS_KEY,
+  EXPERIMENT_BRIEF_CHAR_LIMIT,
+  EXPERIMENT_PROPOSAL_LAUNCHED_PREFIX,
+  experimentLaunchedValue,
   parseAutoresearchSnapshot,
+  parseExperimentProposalTitle,
   type AutoresearchSnapshot,
 } from "./autoresearch";
 import { autoresearchExtensionPath, writeAutoresearchExtension } from "./autoresearch-extension";
@@ -40,11 +45,29 @@ interface Session {
   changeSession(): void;
 }
 
+interface ToolDefinition {
+  name: string;
+  label: string;
+  description: string;
+  parameters: unknown;
+  execute: (
+    toolCallId: string,
+    params: unknown,
+    signal: AbortSignal | undefined,
+    onUpdate: unknown,
+    ctx: { ui?: { select?: (title: string, options: string[]) => Promise<string | undefined> } } | undefined,
+  ) => Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean; details?: unknown }>;
+}
+
 interface Harness {
   AgentSession: new (id: string, options?: { without?: string[]; throwing?: string[] }) => Session;
   arm: (args?: string) => Promise<void>;
   snapshot: () => AutoresearchSnapshot;
   statuses: AutoresearchSnapshot[];
+  /** The captured `propose_experiment` registration; null when the harness withheld `registerTool`. */
+  tool: ToolDefinition | null;
+  /** The parameter keys `z.object` was handed, in order. */
+  schemaKeys: string[];
 }
 
 function control(mode: string, goal?: string): ControlEntry {
@@ -56,7 +79,7 @@ function control(mode: string, goal?: string): ControlEntry {
 }
 
 /** Transpiles the generated file and instantiates one factory per fake class. */
-function harness(): Harness {
+function harness(options: { withoutTool?: boolean } = {}): Harness {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-autoresearch-"));
   dirs.push(dir);
   const file = writeAutoresearchExtension(dir);
@@ -72,6 +95,19 @@ function harness(): Harness {
 
   const statuses: AutoresearchSnapshot[] = [];
   let handler: ((args: string, ctx: Record<string, unknown>) => Promise<void>) | undefined;
+  let tool: ToolDefinition | null = null;
+  const schemaKeys: string[] = [];
+  // Every chainable method returns the proxy itself; `z.object` records its keys.
+  const z: unknown = new Proxy(() => z, {
+    get: () => z,
+    apply: (_t, _this, args: unknown[]) => {
+      const [first] = args as [unknown];
+      if (first !== null && typeof first === "object" && !Array.isArray(first)) {
+        schemaKeys.push(...Object.keys(first as Record<string, unknown>));
+      }
+      return z;
+    },
+  });
 
   class FakeAgentSession {
     id: string;
@@ -130,13 +166,20 @@ function harness(): Harness {
     }
   }
 
-  factory({
+  const api: Record<string, unknown> = {
     pi: { AgentSession: FakeAgentSession },
-    registerCommand: (name: string, options: { handler: typeof handler }): void => {
+    registerCommand: (name: string, options2: { handler: typeof handler }): void => {
       expect(name).toBe(AUTORESEARCH_COMMAND);
-      handler = options.handler;
+      handler = options2.handler;
     },
-  });
+    zod: z,
+  };
+  if (options.withoutTool !== true) {
+    api.registerTool = (definition: ToolDefinition): void => {
+      tool = definition;
+    };
+  }
+  factory(api);
 
   return {
     AgentSession: FakeAgentSession as unknown as Harness["AgentSession"],
@@ -158,7 +201,11 @@ function harness(): Harness {
       if (!value) throw new Error("the bridge published no snapshot");
       return value;
     },
+    get tool(): ToolDefinition | null {
+      return tool;
+    },
     statuses,
+    schemaKeys,
   };
 }
 
@@ -334,5 +381,227 @@ describe("autoresearch extension", () => {
     h.session.entries.push(control("on"));
     h.session.fire({ type: "agent_end" });
     expect(h.statuses).toHaveLength(1);
+  });
+});
+
+describe("propose_experiment", () => {
+  const params = {
+    goal: "Cut p95 render latency",
+    primary_metric: "p95_ms",
+    metric_unit: "ms",
+    direction: "lower",
+    preferred_command: "node bench.js",
+    scope_paths: ["src/render"],
+    off_limits: [],
+    constraints: ["no new deps"],
+    max_iterations: 12,
+    brief: "bench.js prints METRIC p95_ms",
+  };
+
+  it("registers the tool with the documented parameter names", async () => {
+    const h = harness();
+    expect(h.tool?.name).toBe(AUTORESEARCH_PROPOSE_TOOL);
+    expect(h.schemaKeys).toEqual([
+      "goal",
+      "primary_metric",
+      "metric_unit",
+      "direction",
+      "preferred_command",
+      "scope_paths",
+      "off_limits",
+      "constraints",
+      "max_iterations",
+      "brief",
+    ]);
+  });
+
+  it("publishes proposeUnavailable and keeps the bridge working without registerTool", async () => {
+    const h = harness({ withoutTool: true });
+    const session = new h.AgentSession("s1");
+    await session.prompt("/" + AUTORESEARCH_COMMAND);
+    await h.arm();
+    expect(h.snapshot().proposeUnavailable).toContain(AUTORESEARCH_PROPOSE_TOOL);
+    session.entries.push(control("on", "x"));
+    session.fire({ type: "agent_end" });
+    expect(h.snapshot()).toMatchObject({ mode: "on", goal: "x" });
+  });
+
+  it("asks through a sentinel select the shared parser reads", async () => {
+    const h = await armed();
+    const titles: string[] = [];
+    const optionSets: string[][] = [];
+    const result = await h.tool!.execute("t1", params, undefined, undefined, {
+      ui: {
+        select: async (title, options) => {
+          titles.push(title);
+          optionSets.push(options);
+          return "revise";
+        },
+      },
+    });
+    expect(titles).toHaveLength(1);
+    expect(parseExperimentProposalTitle(titles[0])).toEqual({
+      goal: "Cut p95 render latency",
+      metric: "p95_ms",
+      unit: "ms",
+      direction: "lower",
+      command: "node bench.js",
+      scopePaths: ["src/render"],
+      offLimits: [],
+      constraints: ["no new deps"],
+      maxIterations: 12,
+      brief: "bench.js prints METRIC p95_ms",
+    });
+    expect(optionSets[0]).toEqual(["launch", "revise"]);
+    expect(result.isError).toBeUndefined();
+  });
+
+  it("reports a launch with the branch and the spec as edited", async () => {
+    const h = await armed();
+    const result = await h.tool!.execute("t1", params, undefined, undefined, {
+      ui: {
+        select: async () =>
+          experimentLaunchedValue({
+            goal: "Cut p95 render latency",
+            metric: "p95_ms",
+            unit: "ms",
+            direction: "lower",
+            command: null,
+            scopePaths: ["src/render"],
+            offLimits: [],
+            constraints: [],
+            maxIterations: 5,
+            brief: null,
+            branch: "autoresearch/cut-p95-render-latency/abcd1234",
+          }),
+      },
+    });
+    const text = result.content[0]!.text;
+    expect(result.isError).toBeUndefined();
+    expect(text).toContain("autoresearch/cut-p95-render-latency/abcd1234");
+    expect(text).toContain("Max iterations per segment: 5");
+    expect(result.details).toMatchObject({ branch: "autoresearch/cut-p95-render-latency/abcd1234" });
+  });
+
+  it("maps a launched answer without a branch to the project checkout", async () => {
+    const h = await armed();
+    const result = await h.tool!.execute("t1", params, undefined, undefined, {
+      ui: {
+        select: async () =>
+          EXPERIMENT_PROPOSAL_LAUNCHED_PREFIX +
+          JSON.stringify({
+            goal: "faster",
+            metric: "t",
+            unit: "",
+            direction: "lower",
+            command: null,
+            scopePaths: [],
+            offLimits: [],
+            constraints: [],
+            maxIterations: null,
+            brief: null,
+            branch: null,
+          }),
+      },
+    });
+    expect(result.content[0]!.text).toContain("at the project checkout");
+  });
+
+  it("handles revise, dismissal, throw, and abort", async () => {
+    const h = await armed();
+    const revise = await h.tool!.execute("t1", params, undefined, undefined, {
+      ui: { select: async () => "revise" },
+    });
+    expect(revise.content[0]!.text).toContain("Ask what to change");
+    expect(revise.isError).toBeUndefined();
+
+    const dismissed = await h.tool!.execute("t1", params, undefined, undefined, {
+      ui: { select: async () => undefined },
+    });
+    expect(dismissed.content[0]!.text).toContain("dismissed");
+    expect(dismissed.isError).toBeUndefined();
+
+    const thrown = await h.tool!.execute("t1", params, undefined, undefined, {
+      ui: {
+        select: () => Promise.reject(new Error("dropped")),
+      },
+    });
+    expect(thrown.content[0]!.text).toContain("dismissed");
+
+    const aborted = await h.tool!.execute(
+      "t1",
+      params,
+      { get aborted() { return true; } } as AbortSignal,
+      undefined,
+      { ui: { select: async () => "revise" } },
+    );
+    expect(aborted.content[0]!.text).toBe("Cancelled.");
+  });
+
+  it("refuses a bad call before opening any dialog", async () => {
+    const h = await armed();
+    let asked = 0;
+    const bad = await h.tool!.execute(
+      "t1",
+      { ...params, primary_metric: "p95 ms" },
+      undefined,
+      undefined,
+      {
+        ui: {
+          select: async () => {
+            asked += 1;
+            return "launch";
+          },
+        },
+      },
+    );
+    expect(bad.isError).toBe(true);
+    expect(bad.content[0]!.text).toContain("primary_metric");
+    expect(asked).toBe(0);
+
+    const noGoal = await h.tool!.execute("t2", { ...params, goal: "  " }, undefined, undefined, {
+      ui: { select: async () => "launch" },
+    });
+    expect(noGoal.isError).toBe(true);
+    expect(noGoal.content[0]!.text).toBe("goal is required");
+
+    const tooMany = await h.tool!.execute(
+      "t3",
+      { ...params, scope_paths: Array.from({ length: 33 }, (_, i) => `p${i}`) },
+      undefined,
+      undefined,
+      { ui: { select: async () => "launch" } },
+    );
+    expect(tooMany.isError).toBe(true);
+    expect(tooMany.content[0]!.text).toContain("scope_paths has too many entries");
+
+    const badIter = await h.tool!.execute("t4", { ...params, max_iterations: 0 }, undefined, undefined, {
+      ui: { select: async () => "launch" },
+    });
+    expect(badIter.isError).toBe(true);
+    expect(badIter.content[0]!.text).toContain("max_iterations");
+  });
+
+  it("truncates an oversized brief instead of rejecting it", async () => {
+    const h = await armed();
+    const titles: string[] = [];
+    await h.tool!.execute("t1", { ...params, brief: "b".repeat(EXPERIMENT_BRIEF_CHAR_LIMIT + 500) }, undefined, undefined, {
+      ui: {
+        select: async (title) => {
+          titles.push(title);
+          return "revise";
+        },
+      },
+    });
+    const parsed = parseExperimentProposalTitle(titles[0]);
+    expect(parsed?.brief).toHaveLength(EXPERIMENT_BRIEF_CHAR_LIMIT); // truncated + ellipsis stays within the cap
+    expect(parsed?.brief?.endsWith("…")).toBe(true);
+  });
+
+  it("errors when no review surface is attached", async () => {
+    const h = await armed();
+    const result = await h.tool!.execute("t1", params, undefined, undefined, { ui: {} });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain("Lab");
   });
 });

@@ -4,6 +4,7 @@
 import type { BackendState, ImageAttachment } from "@omp-ui/core/types";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { planMessage } from "@omp-ui/core/plan";
+import { parseExperimentProposalTitle } from "@omp-ui/core/autoresearch";
 import {
   GOAL_OBJECTIVE_CHAR_LIMIT,
   goalMessage,
@@ -147,17 +148,25 @@ const localCommands: readonly LocalCommand[] = [
       return get().runGoalCommand(tabId, line);
     },
   },
-  // omp-ui's two autoresearch surfaces (ADR-0030): `start` is the New
-  // experiment dialog and `lab` the Lab. Exactly these two forms — bare
-  // `/autoresearch`, `off`, `clear`, and anything else stay omp's own command
-  // and reach it verbatim with the normal command lifecycle; a terminal tab's
-  // TUI keeps omp's dashboard for all of them.
+  // omp-ui's autoresearch surfaces (ADR-0030, #567): `start` is the New
+  // experiment dialog (its own agent interview with text), `lab` the Lab.
+  // Bare `/autoresearch`, `off`, `clear`, and anything else stay omp's own
+  // command and reach it verbatim with the normal command lifecycle; a
+  // terminal tab's TUI keeps omp's dashboard for all of them.
   {
-    match: /^\/autoresearch\s+start$/i,
-    run(tabId, get) {
+    // Bare `start` opens the New experiment dialog; `start <text>` starts the
+    // experiment interview in this tab with the text as the rough description
+    // (issue #567) — the /guided-goal shape.
+    match: /^\/autoresearch\s+start(?:\s+[\s\S]+)?$/i,
+    run(tabId, get, line) {
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui") return false;
-      get().openExperimentDialog(tab.projectCwd, tab.instanceId);
+      const text = line.replace(/^\/autoresearch\s+start/i, "").trim();
+      if (text === "") {
+        get().openExperimentDialog(tab.projectCwd, tab.instanceId);
+        return;
+      }
+      return get().startExperimentInterview(tab.projectCwd, tab.instanceId, text, tabId);
     },
   },
   {
@@ -256,14 +265,27 @@ export function createSessionParamsSlice(
       const rec = findRecord(state, tabId);
       const pending = rec?.pendingDialogs;
       if (pending === undefined) continue;
+      // A propose_experiment select is main's generic blocking dialog but the
+      // renderer's experimentProposal (issue #567): split it out before the
+      // queue compare, or the two lists would disagree on every pass.
+      const generic: unknown[] = [];
+      let proposalFrame: unknown = undefined;
+      for (const frame of pending) {
+        if (parseExperimentProposalTitle(strField(frame, "title")) !== null) proposalFrame = frame;
+        else generic.push(frame);
+      }
       const localIds = tab.extensionQueue.map((q) => strField(q, "id"));
-      const remoteIds = pending.map((q) => strField(q, "id"));
-      if (
-        localIds.length === remoteIds.length &&
-        localIds.every((id, i) => id === remoteIds[i])
-      )
-        continue;
-      m.patchRpc(tabId, { extensionQueue: pending });
+      const remoteIds = generic.map((q) => strField(q, "id"));
+      if (localIds.length !== remoteIds.length || localIds.some((id, i) => id !== remoteIds[i]))
+        m.patchRpc(tabId, { extensionQueue: generic });
+      const heldId = tab.experimentProposal === null ? undefined : strField(tab.experimentProposal.frame, "id");
+      if (proposalFrame === undefined) {
+        // A sibling answered it: drop ours; the dialog bound to it closes itself.
+        if (tab.experimentProposal !== null) m.patchRpc(tabId, { experimentProposal: null });
+      } else if (strField(proposalFrame, "id") !== heldId) {
+        const proposal = parseExperimentProposalTitle(strField(proposalFrame, "title"));
+        if (proposal !== null) get().acceptExperimentProposal(tabId, proposal, proposalFrame);
+      }
     }
   };
 

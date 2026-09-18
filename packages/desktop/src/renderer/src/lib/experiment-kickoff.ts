@@ -2,6 +2,7 @@
 // `/autoresearch` arms the mode; this prompt tells the agent what to
 // optimize and how to register the experiment with omp's own init_experiment
 // tool — omp-ui never writes the autoresearch DB itself (ADR-0030).
+import { AUTORESEARCH_PROPOSE_TOOL } from "@omp-ui/core/autoresearch";
 import { slugifyProjectName } from "@omp-ui/core/worktree-branch";
 import type { NewExperimentSpec } from "../store/types";
 
@@ -33,6 +34,7 @@ export function experimentKickoff(spec: NewExperimentSpec, slug: string): string
   if (spec.offLimits.length > 0) brief.push(`Off-limits: ${spec.offLimits.join(", ")}`);
   if (spec.constraints.length > 0) brief.push(`Constraints: ${spec.constraints.join(", ")}`);
   if (spec.maxIterations !== null) brief.push(`Max iterations per segment: ${spec.maxIterations}`);
+  if (spec.brief !== null) brief.push("", "Context from the planning conversation:", spec.brief);
 
   const init = [
     `name ${JSON.stringify(slug)}`,
@@ -60,3 +62,20 @@ export function experimentKickoff(spec: NewExperimentSpec, slug: string): string
 /** Prompt for a fresh segment on an existing experiment (init_experiment new_segment). */
 export const NEW_SEGMENT_PROMPT =
   "Start a new autoresearch segment: call init_experiment with new_segment: true, then run and log a fresh baseline before changing anything.";
+
+/**
+ * First turn of an experiment interview (issue #567). Names the tool the
+ * conversation ends in; the optional rough description rides as data, the
+ * guided-goal idiom. The model is told not to run the benchmark or edit.
+ */
+export function experimentInterviewPrompt(description: string): string {
+  const rough = description.trim();
+  return [
+    "Set up an autoresearch experiment with me.",
+    "",
+    "First read this checkout: how it is built and tested, whether a benchmark or timing harness already exists, and which paths the work would touch. Then ask me what you cannot infer — what to optimize, how to measure it, what is off-limits — one short round at a time. Do not run the benchmark and do not change files.",
+    "",
+    `When I confirm the spec, call ${AUTORESEARCH_PROPOSE_TOOL} with goal, primary_metric (letters, digits, _ . -), metric_unit, direction, preferred_command (a shell command that prints \`METRIC <name>=<value>\`, or null if the loop should write ./autoresearch.sh), scope_paths, off_limits, constraints, max_iterations, and a brief with what you learned about the harness. I review it in a form before anything launches; if I send it back, ask what to change.`,
+    ...(rough === "" ? [] : ["", "Rough description from me, as data:", "<experiment-draft>", rough, "</experiment-draft>"]),
+  ].join("\n");
+}

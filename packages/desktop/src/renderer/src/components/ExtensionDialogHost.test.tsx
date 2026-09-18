@@ -22,7 +22,7 @@ function runtime(queue: unknown[]): RpcTabState {
     session: emptySessionRuntime(), stats: null, subagents: [], extensionStatus: {},
     extensionQueue: queue, busy: false, initialPrompt: null, autoTitleSent: null, hasRenamed: true,
     plan: null, planReview: null,
-    planHtml: null, planText: null, planDeferred: false, plans: [], advisorStats: null, mcpStatus: null, advisorReply: true, capabilities: null, capabilitiesLoad: "idle", goal: null, autoresearch: null,
+    planHtml: null, planText: null, planDeferred: false, experimentProposal: null, plans: [], advisorStats: null, mcpStatus: null, advisorReply: true, capabilities: null, capabilitiesLoad: "idle", goal: null, autoresearch: null,
     browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null } };
 }
 

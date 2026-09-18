@@ -1855,6 +1855,13 @@ export const en = {
     "Autoresearch needs a Git checkout. This is a jj-only workspace; run jj git init --colocate first.",
   "experiment.dialog.launch": "Launch",
   "experiment.dialog.launching": "Launching…",
+  "experiment.dialog.withAgent": "Configure with the agent",
+  "experiment.dialog.proposedHint":
+    "Proposed by the agent. Edit anything, then Launch — Cancel sends it back to the conversation.",
+  "experiment.dialog.brief": "Agent brief",
+  "experiment.dialog.briefHint": "sent with the kickoff prompt",
+  "experiment.interview.unavailable":
+    "This session's omp-ui bridge could not mount propose_experiment: {reason}. Use the New experiment form instead.",
   "experiment.dialog.preflight": "checking the repository…",
   "experiment.dialog.goalRequired": "describe what to optimize",
   "experiment.dialog.metricRequired": "name the metric",

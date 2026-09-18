@@ -14,6 +14,7 @@ function snapshot(overrides: Partial<AutoresearchSnapshot> = {}): AutoresearchSn
     goal: "reduce p95 latency",
     goalTruncated: false,
     lastTool: null,
+    proposeUnavailable: null,
     ...overrides,
   };
 }

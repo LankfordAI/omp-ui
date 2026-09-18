@@ -33,7 +33,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     extensionQueue: [], busy: false, initialPrompt: null,
     autoTitleSent: null,
     hasRenamed: true, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false,
-    plans: [], advisorStats: null, mcpStatus: null, advisorReply: true,
+    experimentProposal: null, plans: [], advisorStats: null, mcpStatus: null, advisorReply: true,
     capabilities: null, capabilitiesLoad: "idle", goal: null, autoresearch: null,
     browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null },
     ...patch,

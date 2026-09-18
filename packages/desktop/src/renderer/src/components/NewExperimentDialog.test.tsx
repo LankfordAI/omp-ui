@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectExperiments, SpawnRequest } from "@omp-ui/core/types";
+import type { RpcTabState } from "../store/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -14,10 +15,11 @@ const overview = (repo: ProjectExperiments["repo"]): ProjectExperiments => ({
 });
 
 // Only the channels the dialog's store path touches: the preflight read on
-// mount and the spawn its submit goes through.
+// mount, the spawn its submit goes through, and the rpcSend a gate answer rides.
 const backendMock = {
   autoresearchOverview: vi.fn(async (): Promise<ProjectExperiments> => overview("git")),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  rpcSend: vi.fn(),
   spawnSession: vi.fn<(request: SpawnRequest) => Promise<{ tabId: string }>>(async () => ({
     tabId: "exp-1",
   })),
@@ -35,22 +37,51 @@ const flushMicrotasks = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
 
-async function render(repo: ProjectExperiments["repo"]): Promise<void> {
+const PROPOSAL = {
+  goal: "Cut p95 render latency",
+  metric: "p95_ms",
+  unit: "ms",
+  direction: "lower" as const,
+  command: "node bench.js",
+  scopePaths: ["src/render", "src/paint"],
+  offLimits: [],
+  constraints: ["no new deps"],
+  maxIterations: 12,
+  brief: "bench.js prints METRIC p95_ms on success.",
+};
+const PROPOSAL_FRAME = { type: "extension_ui_request", id: "gate-1", method: "select", title: "sentinel" };
+
+async function render(
+  repo: ProjectExperiments["repo"],
+  options: { proposalTabId?: string } = {},
+): Promise<void> {
   backendMock.autoresearchOverview.mockResolvedValue(overview(repo));
+  const proposalTabId = options.proposalTabId ?? null;
   useStore.setState({
     advisorDefaults: { "/p": { enabled: false, model: null } },
-    tabs: [],
+    tabs:
+      proposalTabId === null
+        ? []
+        : [{ tabId: proposalTabId, mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null }],
     activeTabId: null,
     focusedTabByProject: {},
-    rpc: {},
+    rpc:
+      proposalTabId === null
+        ? {}
+        : {
+            [proposalTabId]: {
+              experimentProposal: { proposal: PROPOSAL, frame: PROPOSAL_FRAME },
+            } as unknown as RpcTabState,
+          },
+    exited: {},
     state: null,
     experiments: {},
-    experimentDialog: { projectCwd: "/p", instanceId: null },
+    experimentDialog: { projectCwd: "/p", instanceId: null, ...(proposalTabId === null ? {} : { proposalTabId }) },
   });
   const host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => root!.render(<NewExperimentDialog projectCwd="/p" instanceId={null} />));
+  act(() => root!.render(<NewExperimentDialog projectCwd="/p" instanceId={null} proposalTabId={proposalTabId} />));
   // The mount effect runs the preflight read.
   await act(async () => {
     await flushMicrotasks();
@@ -79,6 +110,9 @@ async function typeInto(input: HTMLInputElement | HTMLTextAreaElement, value: st
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
+
+const buttonByText = (label: string): HTMLButtonElement | undefined =>
+  [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent === label);
 
 async function fillRequired(): Promise<void> {
   await typeInto(field<HTMLTextAreaElement>("#experiment-goal"), "Reduce p95 latency of /search");
@@ -174,5 +208,82 @@ describe("NewExperimentDialog", () => {
     });
     expect(document.body.textContent).toContain("already exists");
     expect(useStore.getState().experimentDialog).not.toBeNull();
+  });
+
+  it("seeds every field from a proposal and shows the brief block without the agent button", async () => {
+    await render("git", { proposalTabId: "exp-tab" });
+    expect(field<HTMLTextAreaElement>("#experiment-goal").value).toBe(PROPOSAL.goal);
+    expect(field<HTMLInputElement>("#experiment-metric").value).toBe(PROPOSAL.metric);
+    expect(field<HTMLInputElement>("#experiment-unit").value).toBe(PROPOSAL.unit);
+    expect(field<HTMLInputElement>("#experiment-command").value).toBe(PROPOSAL.command);
+    expect(field<HTMLTextAreaElement>("#experiment-scope").value).toBe("src/render\nsrc/paint");
+    expect(field<HTMLTextAreaElement>("#experiment-constraints").value).toBe("no new deps");
+    expect(field<HTMLInputElement>("#experiment-max-iterations").value).toBe("12");
+    expect(document.body.textContent).toContain(PROPOSAL.brief);
+    expect(document.body.textContent).toContain(t("experiment.dialog.proposedHint"));
+    expect(buttonByText(t("experiment.dialog.withAgent"))).toBeUndefined();
+  });
+
+  it("Cancel on a proposal answers the gate with revise and closes", async () => {
+    await render("git", { proposalTabId: "exp-tab" });
+    const cancel = buttonByText(t("common.dialog.cancel"))!;
+    await act(async () => {
+      cancel.click();
+      await flushMicrotasks();
+    });
+    expect(backendMock.rpcSend).toHaveBeenCalledWith("exp-tab", {
+      type: "extension_ui_response",
+      id: "gate-1",
+      value: "revise",
+    });
+    expect(useStore.getState().experimentDialog).toBeNull();
+  });
+
+  it("Launch on a proposal spawns, then answers the gate with the launched spec", async () => {
+    await render("git", { proposalTabId: "exp-tab" });
+    await act(async () => {
+      launchButton().click();
+      await flushMicrotasks();
+    });
+    expect(backendMock.spawnSession).toHaveBeenCalled();
+    const answer = backendMock.rpcSend.mock.calls.find(([, cmd]) => cmd.type === "extension_ui_response");
+    expect(answer).toBeDefined();
+    const value = String((answer![1] as { value: string }).value);
+    expect(value.startsWith("launched:")).toBe(true);
+    expect(JSON.parse(value.slice("launched:".length))).toMatchObject({
+      goal: PROPOSAL.goal,
+      metric: PROPOSAL.metric,
+      brief: PROPOSAL.brief,
+      branch: expect.stringMatching(/^autoresearch\//),
+    });
+    expect(useStore.getState().rpc["exp-tab"]!.experimentProposal).toBeNull();
+  });
+
+  it("the blank form offers Configure with the agent, carrying the typed goal", async () => {
+    const startExperimentInterview = vi.fn(async () => {});
+    await render("git");
+    act(() => useStore.setState({ startExperimentInterview }));
+    await typeInto(field<HTMLTextAreaElement>("#experiment-goal"), "make tests faster");
+    const agent = buttonByText(t("experiment.dialog.withAgent"))!;
+    await act(async () => {
+      agent.click();
+      await flushMicrotasks();
+    });
+    // The action owns the close (real startExperimentInterview clears the dialog);
+    // the component's contract is the call with the typed goal as description.
+    expect(startExperimentInterview).toHaveBeenCalledWith("/p", null, "make tests faster");
+  });
+
+  it("closes when a sibling settles the proposal", async () => {
+    await render("git", { proposalTabId: "exp-tab" });
+    act(() =>
+      useStore.setState((s) => ({
+        rpc: { ...s.rpc, "exp-tab": { ...s.rpc["exp-tab"]!, experimentProposal: null } as RpcTabState },
+      })),
+    );
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(useStore.getState().experimentDialog).toBeNull();
   });
 });

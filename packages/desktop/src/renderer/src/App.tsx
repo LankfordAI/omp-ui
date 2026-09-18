@@ -513,7 +513,12 @@ export default function App() {
         <NewWorktreeSessionDialog projectCwd={worktreeDialogProject} instanceId={worktreeDialogInstanceId} />
       )}
       {experimentDialog !== null && (
-        <NewExperimentDialog projectCwd={experimentDialog.projectCwd} instanceId={experimentDialog.instanceId} />
+        <NewExperimentDialog
+          key={experimentDialog.proposalTabId ?? "blank"}
+          projectCwd={experimentDialog.projectCwd}
+          instanceId={experimentDialog.instanceId}
+          proposalTabId={experimentDialog.proposalTabId ?? null}
+        />
       )}
       {finishWorktreeTab !== null && (
         <FinishWorktreeDialog key={finishWorktreeTab} tabId={finishWorktreeTab} />

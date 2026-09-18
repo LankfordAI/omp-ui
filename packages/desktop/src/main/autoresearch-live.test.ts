@@ -3,8 +3,20 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import { RpcClient, resolveOmpBinary, writeAutoresearchExtension } from "@omp-ui/core";
 import {
+  RpcClient,
+  resolveOmpBinary,
+  writeAutoresearchExtension,
+  writeCapabilitiesExtension,
+} from "@omp-ui/core";
+import {
+  CAPABILITIES_STATUS_KEY,
+  capabilitiesMessage,
+  parseCapabilitySnapshot,
+  type CapabilitySnapshot,
+} from "@omp-ui/core/capabilities";
+import {
+  AUTORESEARCH_PROPOSE_TOOL,
   AUTORESEARCH_STATUS_KEY,
   AUTORESEARCH_WIDGET_KEY,
   autoresearchArmMessage,
@@ -69,6 +81,10 @@ function spawnScope(): Scope {
   fs.mkdirSync(lineage, { recursive: true });
   fs.mkdirSync(home, { recursive: true });
   const bridge = writeAutoresearchExtension(lineage);
+  // The roster bridge rides along purely as the observer: the live proof
+  // (#567) is that pi.registerTool mounted propose_experiment on the real
+  // runtime, and the published tool list is the only wire-visible evidence.
+  const capabilities = writeCapabilitiesExtension(lineage);
   const frames: Frame[] = [];
   let markExited!: () => void;
   const exited = new Promise<void>((resolve) => {
@@ -87,9 +103,10 @@ function spawnScope(): Scope {
     cwd: base,
     lineageDir: lineage,
     ompPath: ompPath!,
-    extensions: [bridge],
+    extensions: [bridge, capabilities],
     initialCommands: [
       { type: "prompt", id: "omp-ui-initial-autoresearch-test", message: autoresearchArmMessage() },
+      { type: "prompt", message: capabilitiesMessage() },
     ],
     spawnProcess: (bin, args, extra) => {
       const proc = spawn(bin, args, {
@@ -129,6 +146,14 @@ function modeAfter(scope: Scope, from: number, mode: AutoresearchSnapshot["mode"
   );
 }
 
+function capabilitySnapshotsAfter(scope: Scope, from: number): CapabilitySnapshot[] {
+  return scope.frames
+    .slice(from)
+    .filter((f) => f.type === "extension_ui_request" && f.statusKey === CAPABILITIES_STATUS_KEY)
+    .map((f) => parseCapabilitySnapshot(f.statusText))
+    .filter((s): s is CapabilitySnapshot => s !== null);
+}
+
 async function killScope(scope: Scope): Promise<void> {
   scope.client.kill();
   const exitedNow = await Promise.race([
@@ -154,6 +179,8 @@ describe.skipIf(ompPath === null)("autoresearch status bridge on the real runtim
     const armed = await modeAfter(scope, 0, "off");
     expect(armed.goal).toBeNull();
     expect(armed.lastTool).toBeNull();
+    // The one-line proof that the same runtime mounts the proposal tool.
+    expect(armed.proposeUnavailable).toBeNull();
 
     let before = scope.frames.length;
     scope.client.send({ type: "prompt", message: "/autoresearch" } as never);
@@ -179,5 +206,27 @@ describe.skipIf(ompPath === null)("autoresearch status bridge on the real runtim
 
     // Extension commands settle before turn processing: no user render item.
     expect(scope.frames.filter((f) => f.type === "message_start" && f.message?.role === "user")).toHaveLength(0);
+  });
+
+  it("mounts propose_experiment so the capabilities roster carries it", { timeout: 90_000 }, async () => {
+    scope = spawnScope();
+    const armed = await waitFor(
+      () => snapshotsAfter(scope!, 0).find((s) => s.available && s.proposeUnavailable === null),
+      30_000,
+      "an armed autoresearch snapshot without proposeUnavailable",
+    );
+    expect(armed.processKey).not.toBe("");
+    const rostered = await waitFor(
+      () =>
+        capabilitySnapshotsAfter(scope!, 0).find(
+          (s) => s.tools.status === "available" && s.tools.items.some((t) => t.name === AUTORESEARCH_PROPOSE_TOOL),
+        ),
+      30_000,
+      `a capabilities roster carrying ${AUTORESEARCH_PROPOSE_TOOL}`,
+    );
+    const tools = rostered.tools;
+    expect(tools.status).toBe("available");
+    if (tools.status !== "available") return;
+    expect(tools.items.find((tool) => tool.name === AUTORESEARCH_PROPOSE_TOOL)).toBeDefined();
   });
 });

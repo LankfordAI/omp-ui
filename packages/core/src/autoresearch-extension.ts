@@ -3,10 +3,20 @@ import {
   AUTORESEARCH_COMMAND,
   AUTORESEARCH_CONTROL_TYPE,
   AUTORESEARCH_GOAL_CHAR_LIMIT,
+  AUTORESEARCH_METRIC_NAME_RE,
+  AUTORESEARCH_PROPOSE_TOOL,
   AUTORESEARCH_SLASH,
   AUTORESEARCH_STATUS_BYTE_LIMIT,
   AUTORESEARCH_STATUS_KEY,
   AUTORESEARCH_TOOLS,
+  EXPERIMENT_BRIEF_CHAR_LIMIT,
+  EXPERIMENT_LIST_ENTRY_CHAR_LIMIT,
+  EXPERIMENT_LIST_LIMIT,
+  EXPERIMENT_PROPOSAL_BYTE_LIMIT,
+  EXPERIMENT_PROPOSAL_LAUNCHED_PREFIX,
+  EXPERIMENT_PROPOSAL_OPTIONS,
+  EXPERIMENT_PROPOSAL_REVISE,
+  EXPERIMENT_PROPOSAL_SENTINEL,
 } from "./autoresearch";
 import { writeLineageArtifact } from "./lineage-artifact";
 
@@ -17,13 +27,15 @@ import { writeLineageArtifact } from "./lineage-artifact";
  * `setWidget` frame no native tab renders. Nothing on the rpc wire says whether
  * autoresearch is on, what the goal is, or which loop tool just finished.
  *
- * This generated extension is a read-only status bridge (Experiments Lab,
- * omp-ui #559). It reduces the root session's branch to `mode`/`goal` by
- * walking `sessionManager.getBranch()`, watches `tool_execution_end` for the
- * loop's own tools, and publishes one snapshot on {@link AUTORESEARCH_STATUS_KEY}
- * through the existing `setStatus` frame. It never mounts a tool, never runs a
- * continuation loop, never opens a dialog and never writes omp's database:
- * run history is read from SQLite by autoresearch-store.ts.
+ * This generated extension is the autoresearch status bridge (Experiments Lab,
+ * omp-ui #559) plus the experiment-proposal tool (#567). It reduces the root
+ * session's branch to `mode`/`goal` by walking `sessionManager.getBranch()`,
+ * watches `tool_execution_end` for the loop's own tools, and publishes one
+ * snapshot on {@link AUTORESEARCH_STATUS_KEY} through the existing `setStatus`
+ * frame. It registers exactly one tool, \`propose_experiment\`, which blocks on
+ * a sentinel \`select\` the omp-ui renderer intercepts; it never runs a
+ * continuation loop and never writes omp's database: run history is read from
+ * SQLite by autoresearch-store.ts.
  *
  * Every API this touches is unsupported surface, so every one is probed: a
  * missing `getBranch` publishes `unavailable` with the reason and leaves
@@ -51,6 +63,16 @@ const SLASH_PREFIX = "/" + ${JSON.stringify(AUTORESEARCH_SLASH)};
 const TOOLS: readonly string[] = ${JSON.stringify(AUTORESEARCH_TOOLS)};
 const BYTE_LIMIT = ${AUTORESEARCH_STATUS_BYTE_LIMIT};
 const GOAL_LIMIT = ${AUTORESEARCH_GOAL_CHAR_LIMIT};
+const PROPOSE_TOOL = ${JSON.stringify(AUTORESEARCH_PROPOSE_TOOL)};
+const PROPOSAL_SENTINEL = ${JSON.stringify(EXPERIMENT_PROPOSAL_SENTINEL)};
+const PROPOSAL_OPTIONS: readonly string[] = ${JSON.stringify(EXPERIMENT_PROPOSAL_OPTIONS)};
+const LAUNCHED_PREFIX = ${JSON.stringify(EXPERIMENT_PROPOSAL_LAUNCHED_PREFIX)};
+const REVISE = ${JSON.stringify(EXPERIMENT_PROPOSAL_REVISE)};
+const METRIC_RE = new RegExp(${JSON.stringify(AUTORESEARCH_METRIC_NAME_RE.source)});
+const PROPOSAL_BYTE_LIMIT = ${EXPERIMENT_PROPOSAL_BYTE_LIMIT};
+const BRIEF_LIMIT = ${EXPERIMENT_BRIEF_CHAR_LIMIT};
+const LIST_LIMIT = ${EXPERIMENT_LIST_LIMIT};
+const ENTRY_LIMIT = ${EXPERIMENT_LIST_ENTRY_CHAR_LIMIT};
 
 interface StatusUi {
   setStatus: (key: string, text: string | undefined) => void;
@@ -62,8 +84,27 @@ interface SessionLike {
   registerSessionChangeCallback?: (listener: () => void) => unknown;
 }
 
+interface ToolResult {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
+  details?: Record<string, unknown>;
+}
+
+interface ToolUi {
+  select?: (title: string, options: string[]) => Promise<string | undefined>;
+}
+
+interface ZodFn {
+  (...args: unknown[]): ZodFn;
+  describe: (text: string) => ZodFn;
+  optional: () => ZodFn;
+  nullable: () => ZodFn;
+  int: () => ZodFn;
+  min: (n: number) => ZodFn;
+}
+
 interface ExtensionApi {
-  pi?: { AgentSession?: { prototype?: Record<string, unknown> } };
+  zod?: Record<string, (...args: unknown[]) => ZodFn>;
   registerCommand: (
     name: string,
     options: {
@@ -71,6 +112,19 @@ interface ExtensionApi {
       handler: (args: string, ctx: { ui: StatusUi }) => Promise<void>;
     },
   ) => void;
+  registerTool?: (definition: {
+    name: string;
+    label: string;
+    description: string;
+    parameters: unknown;
+    execute: (
+      toolCallId: string,
+      params: unknown,
+      signal: AbortSignal | undefined,
+      onUpdate: unknown,
+      ctx: { ui?: ToolUi } | undefined,
+    ) => Promise<ToolResult>;
+  }) => void;
 }
 
 interface LastTool {
@@ -103,6 +157,167 @@ function utf8Length(text: string): number {
   return bytes;
 }
 
+type ProposalRecord = Record<string, unknown>;
+
+/** snake_case tool params → the wire's camelCase spec, with fixable messages. */
+function normalizeProposal(
+  params: unknown,
+): { ok: true; proposal: ProposalRecord } | { ok: false; message: string } {
+  const p = asRecord(params) ?? {};
+  const goal = trimmed(p.goal);
+  if (goal === "") return { ok: false, message: "goal is required" };
+  if (goal.length > GOAL_LIMIT) return { ok: false, message: "goal is longer than " + GOAL_LIMIT + " characters" };
+  const metric = trimmed(p.primary_metric);
+  if (!METRIC_RE.test(metric)) {
+    return {
+      ok: false,
+      message: "primary_metric must be letters, digits, _ . or - (what METRIC name=value accepts)",
+    };
+  }
+  if (p.direction !== "lower" && p.direction !== "higher") {
+    return { ok: false, message: "direction must be lower or higher" };
+  }
+  let command: string | null;
+  if (p.preferred_command === null || p.preferred_command === undefined) command = null;
+  else if (typeof p.preferred_command === "string") command = p.preferred_command.trim() === "" ? null : p.preferred_command.trim();
+  else return { ok: false, message: "preferred_command must be a string or null" };
+  const lists: ProposalRecord = {};
+  for (const [wire, param] of [
+    ["scopePaths", "scope_paths"],
+    ["offLimits", "off_limits"],
+    ["constraints", "constraints"],
+  ] as const) {
+    const raw = p[param];
+    if (raw !== undefined && !Array.isArray(raw)) return { ok: false, message: param + " must be an array of strings" };
+    const entries = (Array.isArray(raw) ? raw : []).map((e) => trimmed(e)).filter((e) => e !== "");
+    if (entries.length > LIST_LIMIT) return { ok: false, message: param + " has too many entries (max " + LIST_LIMIT + ")" };
+    if (entries.some((e) => e.length > ENTRY_LIMIT)) {
+      return { ok: false, message: param + " entry is longer than " + ENTRY_LIMIT + " characters" };
+    }
+    lists[wire] = entries;
+  }
+  let maxIterations: number | null = null;
+  if (p.max_iterations !== null && p.max_iterations !== undefined) {
+    if (typeof p.max_iterations !== "number" || !Number.isInteger(p.max_iterations) || p.max_iterations < 1) {
+      return { ok: false, message: "max_iterations must be a whole number of at least 1" };
+    }
+    maxIterations = p.max_iterations;
+  }
+  let brief: string | null = trimmed(p.brief);
+  if (brief === "") brief = null;
+  else if (brief.length > BRIEF_LIMIT) brief = brief.slice(0, BRIEF_LIMIT - 1) + "\\u2026";
+  return {
+    ok: true,
+    proposal: {
+      goal,
+      metric,
+      unit: trimmed(p.metric_unit),
+      direction: p.direction,
+      command,
+      scopePaths: lists.scopePaths,
+      offLimits: lists.offLimits,
+      constraints: lists.constraints,
+      maxIterations,
+      brief,
+    },
+  };
+}
+
+function trimmed(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** Total parser for the renderer's launched answer: the proposal rules plus branch. */
+function parseLaunched(text: string): ProposalRecord | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const proposal = asRecord(raw);
+  if (proposal === null) return null;
+  if (typeof proposal.goal !== "string" || proposal.goal.trim() === "") return null;
+  if (typeof proposal.metric !== "string" || !METRIC_RE.test(proposal.metric)) return null;
+  if (typeof proposal.unit !== "string") return null;
+  if (proposal.direction !== "lower" && proposal.direction !== "higher") return null;
+  if (proposal.command !== null && !(typeof proposal.command === "string" && proposal.command !== "")) return null;
+  for (const key of ["scopePaths", "offLimits", "constraints"]) {
+    const list = proposal[key];
+    if (!Array.isArray(list) || list.length > LIST_LIMIT) return null;
+    if (!list.every((e) => typeof e === "string" && e !== "" && e.length <= ENTRY_LIMIT)) return null;
+  }
+  if (proposal.maxIterations !== null && !(typeof proposal.maxIterations === "number" && Number.isInteger(proposal.maxIterations) && proposal.maxIterations > 0)) return null;
+  if (proposal.brief !== null && !(typeof proposal.brief === "string" && proposal.brief.length <= BRIEF_LIMIT)) return null;
+  if (proposal.branch !== null && typeof proposal.branch !== "string") return null;
+  return proposal;
+}
+
+/** One line per field, form order, empties omitted — the kickoff brief style. */
+function describeSpec(spec: ProposalRecord): string {
+  const lines: string[] = [];
+  lines.push("Goal: " + String(spec.goal));
+  const unit = typeof spec.unit === "string" && spec.unit !== "" ? " (" + spec.unit + ")" : "";
+  lines.push("Metric: " + String(spec.metric) + unit + ", " + String(spec.direction) + " is better.");
+  if (spec.command !== null) lines.push("Benchmark command: " + String(spec.command));
+  else lines.push("No benchmark command: the loop writes ./autoresearch.sh.");
+  for (const [label, key] of [
+    ["Scope paths", "scopePaths"],
+    ["Off-limits", "offLimits"],
+    ["Constraints", "constraints"],
+  ] as const) {
+    const list = spec[key];
+    if (Array.isArray(list) && list.length > 0) lines.push(label + ": " + list.join(", "));
+  }
+  if (spec.maxIterations !== null) lines.push("Max iterations per segment: " + String(spec.maxIterations));
+  return lines.join("\\n");
+}
+
+async function proposeExperiment(
+  params: unknown,
+  signal: AbortSignal | undefined,
+  ctx: { ui?: ToolUi } | undefined,
+): Promise<ToolResult> {
+  const normalized = normalizeProposal(params);
+  if (!normalized.ok) return { isError: true, content: [{ type: "text", text: normalized.message }] };
+  const title = PROPOSAL_SENTINEL + JSON.stringify(normalized.proposal);
+  if (utf8Length(title) > PROPOSAL_BYTE_LIMIT) {
+    return { isError: true, content: [{ type: "text", text: "The proposal is too large; shorten brief or the lists." }] };
+  }
+  const select = ctx?.ui?.select;
+  if (typeof select !== "function") {
+    return {
+      isError: true,
+      content: [{ type: "text", text: "No omp-ui review surface is attached to this session; the user can launch from the Lab's New experiment form instead." }],
+    };
+  }
+  let answer: unknown;
+  try {
+    answer = await select.call(ctx.ui, title, PROPOSAL_OPTIONS.slice());
+  } catch {
+    answer = undefined; // a dropped dialog is a refusal, never a launch
+  }
+  if (signal?.aborted) return { content: [{ type: "text", text: "Cancelled." }] };
+  if (typeof answer === "string" && answer.indexOf(LAUNCHED_PREFIX) === 0) {
+    const launched = parseLaunched(answer.slice(LAUNCHED_PREFIX.length));
+    const where = launched?.branch ? " on branch " + String(launched.branch) : " at the project checkout";
+    return {
+      content: [{ type: "text", text: "Launched: the user confirmed the experiment and omp-ui started it in a new session" + where +
+        ". The loop runs there, not here; watch it in the Lab." +
+        (launched !== null ? "\\n\\nSpec as launched (the user may have edited your proposal):\\n" + describeSpec(launched) : "") }],
+      details: launched ?? undefined,
+    };
+  }
+  if (answer === REVISE) {
+    return {
+      content: [{ type: "text", text: "The user sent the proposal back without launching. Ask what to change, then call " + PROPOSE_TOOL + " again once they confirm." }],
+    };
+  }
+  return {
+    content: [{ type: "text", text: "The proposal was dismissed without an answer; nothing launched. Ask the user how to proceed." }],
+  };
+}
+
 export default function (pi: ExtensionApi) {
   const processKey = "omp-ui-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
 
@@ -112,6 +327,8 @@ export default function (pi: ExtensionApi) {
   let lastDigest = "";
   /** Set only when the prompt hook could not be installed; outranks every read. */
   let hookBroken: string | null = null;
+  /** Set when propose_experiment could not be registered; published, never digested. */
+  let proposeUnavailable: string | null = null;
   /** Why the last control read failed; null means mode/goal are trustworthy. */
   let broken: string | null = null;
   let mode: "on" | "off" = "off";
@@ -193,6 +410,7 @@ export default function (pi: ExtensionApi) {
       goal: goalTruncated ? (goal as string).slice(0, GOAL_LIMIT) : goal,
       goalTruncated,
       lastTool,
+      proposeUnavailable,
     };
     // An impossible payload is published as unavailable, never as half a goal.
     let json = JSON.stringify(snapshot);
@@ -339,6 +557,39 @@ export default function (pi: ExtensionApi) {
       publish(true);
     },
   });
+
+  try {
+    const z = pi.zod;
+    if (typeof pi.registerTool !== "function") throw new Error("pi.registerTool is missing");
+    if (!z || typeof z.object !== "function") throw new Error("pi.zod is missing");
+    pi.registerTool({
+      name: PROPOSE_TOOL,
+      label: "Propose experiment",
+      description:
+        "Propose an autoresearch experiment for the user to review in omp-ui's New experiment form. " +
+        "Call it only after the user has confirmed the goal, metric, direction and boundaries in conversation. " +
+        "The call blocks until they launch it or send it back; nothing launches without their review.",
+      parameters: z.object({
+        goal: z.string().describe("What to optimize, one or two sentences"),
+        primary_metric: z.string().describe("Metric name: letters, digits, _ . - (what METRIC name=value accepts)"),
+        metric_unit: z.string().optional().describe("Unit label such as ms; omit when unitless"),
+        direction: z.enum(["lower", "higher"]).describe("Which way is better"),
+        preferred_command: z.string().nullable().optional().describe(
+          "Shell command that runs the benchmark, exits 0 and prints METRIC <name>=<value>; null when the loop should write ./autoresearch.sh",
+        ),
+        scope_paths: z.array(z.string()).optional().describe("Paths the loop may change"),
+        off_limits: z.array(z.string()).optional().describe("Paths or behaviors the loop must not touch"),
+        constraints: z.array(z.string()).optional(),
+        max_iterations: z.number().int().min(1).nullable().optional(),
+        brief: z.string().nullable().optional().describe(
+          "What you learned about the harness and codebase that the experiment session should know; it is appended to its kickoff",
+        ),
+      }),
+      execute: async (_id, params, signal, _onUpdate, ctx) => proposeExperiment(params, signal, ctx),
+    });
+  } catch (error) {
+    proposeUnavailable = "could not mount " + PROPOSE_TOOL + ": " + String(error);
+  }
 }
 `;
 }

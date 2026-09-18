@@ -254,7 +254,7 @@ export function deriveSidebarSessionState(
   // A watchdog-aborted turn outranks awaiting-answer: the user must prompt to
   // continue the session, which also clears the queue (issue #248).
   if (summary.streamStalled) return "stalled";
-  if (awaiting || rpc.planReview !== null || rpc.extensionQueue.length > 0)
+  if (awaiting || rpc.planReview !== null || rpc.experimentProposal !== null || rpc.extensionQueue.length > 0)
     return "awaiting-answer";
   switch (rpc.status) {
     case "running":

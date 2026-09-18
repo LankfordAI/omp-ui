@@ -43,6 +43,39 @@ export const AUTORESEARCH_STATUS_BYTE_LIMIT = 64 * 1024;
 /** Goal text is published verbatim up to this many chars; longer goals publish `goalTruncated: true`. */
 export const AUTORESEARCH_GOAL_CHAR_LIMIT = 4096;
 
+/** The bridge-registered tool the interview ends in; omp-ui intercepts its select (issue #567). */
+export const AUTORESEARCH_PROPOSE_TOOL = "propose_experiment";
+/** Prefix on the tool's `select` title; the JSON after it is an {@link ExperimentProposal}. */
+export const EXPERIMENT_PROPOSAL_SENTINEL = "omp-ui:experiment-proposal:";
+/** The select's two options. The renderer answers `launched:<json>` or `revise`. */
+export const EXPERIMENT_PROPOSAL_OPTIONS = ["launch", "revise"] as const;
+/** Prefix of the renderer's launch answer; the JSON after it is the spec as launched. */
+export const EXPERIMENT_PROPOSAL_LAUNCHED_PREFIX = "launched:";
+export const EXPERIMENT_PROPOSAL_REVISE = "revise";
+/** What omp's `METRIC name=value` line accepts as a name. */
+export const AUTORESEARCH_METRIC_NAME_RE = /^[A-Za-z0-9_.-]+$/;
+/** Hard cap on the sentinel title (UTF-8 bytes); the tool refuses a larger proposal. */
+export const EXPERIMENT_PROPOSAL_BYTE_LIMIT = 16 * 1024;
+export const EXPERIMENT_BRIEF_CHAR_LIMIT = 4000;
+export const EXPERIMENT_LIST_LIMIT = 32;
+export const EXPERIMENT_LIST_ENTRY_CHAR_LIMIT = 512;
+
+/** The spec the model proposes; the New experiment dialog's fields minus model and worktree. */
+export interface ExperimentProposal {
+  goal: string;
+  metric: string;
+  unit: string;
+  direction: "lower" | "higher";
+  /** null = the loop writes ./autoresearch.sh itself. */
+  command: string | null;
+  scopePaths: string[];
+  offLimits: string[];
+  constraints: string[];
+  maxIterations: number | null;
+  /** What the proposing agent learned about the harness; appended to the kickoff. */
+  brief: string | null;
+}
+
 export type AutoresearchMode = "on" | "off";
 
 /** What the root bridge publishes on {@link AUTORESEARCH_STATUS_KEY}. */
@@ -65,6 +98,8 @@ export interface AutoresearchSnapshot {
   goalTruncated: boolean;
   /** Last autoresearch tool this bridge saw finish; null before the first one. */
   lastTool: { name: AutoresearchTool; at: number; isError: boolean } | null;
+  /** Why propose_experiment could not be mounted; null when it is (or the bridge predates it). */
+  proposeUnavailable: string | null;
 }
 
 /** Hidden slash command that arms the bridge and binds its UI context. */
@@ -109,6 +144,7 @@ export function parseAutoresearchSnapshot(value: unknown): AutoresearchSnapshot 
     goal: record.goal as string | null,
     goalTruncated: record.goalTruncated,
     lastTool,
+    proposeUnavailable: typeof record.proposeUnavailable === "string" ? record.proposeUnavailable : null,
   };
 }
 
@@ -157,4 +193,72 @@ function utf8Length(text: string): number {
     } else bytes += 3;
   }
   return bytes;
+}
+
+/**
+ * Total: null for anything that is not a well-formed proposal — wrong types,
+ * a metric the METRIC line would reject, an unknown direction, an entry over
+ * its cap. Shared by the extension's answer parser (interpolated) and the
+ * renderer's frame router, so neither side can accept what the other rejects.
+ */
+export function parseExperimentProposal(value: unknown): ExperimentProposal | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  if (typeof record.goal !== "string") return null;
+  const goal = record.goal.trim();
+  if (goal === "" || goal.length > AUTORESEARCH_GOAL_CHAR_LIMIT) return null;
+  if (typeof record.metric !== "string" || !AUTORESEARCH_METRIC_NAME_RE.test(record.metric)) return null;
+  if (typeof record.unit !== "string") return null;
+  if (record.direction !== "lower" && record.direction !== "higher") return null;
+  if (record.command !== null && !(typeof record.command === "string" && record.command !== "")) return null;
+  const scopePaths = parseStringList(record.scopePaths);
+  const offLimits = parseStringList(record.offLimits);
+  const constraints = parseStringList(record.constraints);
+  if (scopePaths === INVALID || offLimits === INVALID || constraints === INVALID) return null;
+  const maxIterations = record.maxIterations;
+  if (
+    maxIterations !== null &&
+    !(typeof maxIterations === "number" && Number.isInteger(maxIterations) && maxIterations > 0)
+  ) {
+    return null;
+  }
+  const brief = record.brief;
+  if (brief !== null && !(typeof brief === "string" && brief.length <= EXPERIMENT_BRIEF_CHAR_LIMIT)) return null;
+  return {
+    goal,
+    metric: record.metric,
+    unit: record.unit,
+    direction: record.direction,
+    command: record.command as string | null,
+    scopePaths,
+    offLimits,
+    constraints,
+    maxIterations: maxIterations as number | null,
+    brief: brief as string | null,
+  };
+}
+
+/** Reads a proposal off an `extension_ui_request` title, or null when the title is not one. */
+export function parseExperimentProposalTitle(title: string | undefined): ExperimentProposal | null {
+  if (title === undefined || !title.startsWith(EXPERIMENT_PROPOSAL_SENTINEL)) return null;
+  const parsed = safeParse(title.slice(EXPERIMENT_PROPOSAL_SENTINEL.length));
+  if (parsed === null) return null;
+  return parseExperimentProposal(parsed);
+}
+
+/** The renderer's launch answer: prefix + JSON of the branch and the spec as launched. */
+export function experimentLaunchedValue(
+  launched: ExperimentProposal & { branch: string | null },
+): string {
+  return EXPERIMENT_PROPOSAL_LAUNCHED_PREFIX + JSON.stringify(launched);
+}
+
+function parseStringList(value: unknown): string[] | typeof INVALID {
+  if (!Array.isArray(value) || value.length > EXPERIMENT_LIST_LIMIT) return INVALID;
+  const out: string[] = [];
+  for (const raw of value) {
+    if (typeof raw !== "string" || raw === "" || raw.length > EXPERIMENT_LIST_ENTRY_CHAR_LIMIT) return INVALID;
+    out.push(raw);
+  }
+  return out;
 }

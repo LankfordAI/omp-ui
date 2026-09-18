@@ -1722,6 +1722,13 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "Autoresearch에는 Git 체크아웃이 필요합니다. 이 워크스페이스는 jj 전용입니다. 먼저 jj git init --colocate를 실행하세요.",
   "experiment.dialog.launch": "시작",
   "experiment.dialog.launching": "시작하는 중…",
+  "experiment.dialog.withAgent": "에이전트와 함께 구성",
+  "experiment.dialog.proposedHint":
+    "에이전트가 제안한 내용입니다. 원하는 대로 수정한 뒤 실행하세요. 취소하면 대화로 되돌려 보냅니다.",
+  "experiment.dialog.brief": "에이전트 브리프",
+  "experiment.dialog.briefHint": "킥오프 프롬프트와 함께 전송됨",
+  "experiment.interview.unavailable":
+    "이 세션의 omp-ui 브리지가 propose_experiment를 마운트할 수 없습니다: {reason}. 새 실험 폼을 대신 사용하세요.",
   "experiment.dialog.preflight": "저장소를 확인하는 중…",
   "experiment.dialog.goalRequired": "최적화할 대상을 설명하세요",
   "experiment.dialog.metricRequired": "지표 이름을 지정하세요",
