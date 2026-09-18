@@ -219,3 +219,66 @@ describe("readProjectConfigValue", () => {
     expect(read0.shape).toBe("unsupported");
   });
 });
+
+describe("setProjectConfigValue — numbers", () => {
+  it("creates a bare number in omp's own fresh-file form", async () => {
+    const cwd = tmpProject();
+    await setProjectConfigValue(cwd, ["task", "maxConcurrency"], 8);
+    expect(read(path.join(cwd, ".omp", "config.yml"))).toBe("task:\n  maxConcurrency: 8\n");
+  });
+
+  it("normalizes a hand-quoted number in place, siblings kept", async () => {
+    const cwd = tmpProject();
+    const file = writeConfig(cwd, "# note\ntask:\n  agentModelOverrides:\n    scout: x/y\n  maxConcurrency: \"8\"\nunrelated: keep-me\n");
+    await setProjectConfigValue(cwd, ["task", "maxConcurrency"], 32);
+    expect(read(file)).toBe(
+      "# note\ntask:\n  agentModelOverrides:\n    scout: x/y\n  maxConcurrency: 32\nunrelated: keep-me\n",
+    );
+  });
+
+  it("refuses a non-integer before the file changes", async () => {
+    const cwd = tmpProject();
+    const file = writeConfig(cwd, "task:\n  maxConcurrency: 8\n");
+    const before = read(file);
+    await expect(setProjectConfigValue(cwd, ["task", "maxConcurrency"], 1.5)).rejects.toThrow(
+      /invalid project config number/,
+    );
+    await expect(setProjectConfigValue(cwd, ["task", "maxConcurrency"], Number.NaN)).rejects.toThrow(
+      /invalid project config number/,
+    );
+    expect(read(file)).toBe(before);
+  });
+});
+
+describe("setProjectConfigValue — delete (value: null)", () => {
+  it("removes the child line keeping comments and siblings", async () => {
+    const cwd = tmpProject();
+    const file = writeConfig(
+      cwd,
+      "# header\ntask:\n  # kept note\n  agentModelOverrides:\n    scout: x/y\n  maxConcurrency: 8\nunrelated: keep-me\n",
+    );
+    await setProjectConfigValue(cwd, ["task", "maxConcurrency"], null);
+    expect(read(file)).toBe(
+      "# header\ntask:\n  # kept note\n  agentModelOverrides:\n    scout: x/y\nunrelated: keep-me\n",
+    );
+  });
+
+  it("prunes the parent block the deletion leaves empty", async () => {
+    const cwd = tmpProject();
+    const file = writeConfig(cwd, "task:\n  maxConcurrency: 8\nunrelated: keep-me\n");
+    await setProjectConfigValue(cwd, ["task", "maxConcurrency"], null);
+    expect(read(file)).toBe("unrelated: keep-me\n");
+  });
+
+  it("is a no-op when file, parent, or child is absent — never creates", async () => {
+    const cwd = tmpProject();
+    await setProjectConfigValue(cwd, ["task", "maxConcurrency"], null);
+    expect(fs.existsSync(path.join(cwd, ".omp", "config.yml"))).toBe(false);
+    const file = writeConfig(cwd, "bash:\n  enabled: true\n");
+    await setProjectConfigValue(cwd, ["task", "maxConcurrency"], null);
+    expect(read(file)).toBe("bash:\n  enabled: true\n");
+    writeConfig(cwd, "task:\n  agentModelOverrides:\n    scout: x/y\n");
+    await setProjectConfigValue(cwd, ["task", "maxConcurrency"], null);
+    expect(read(file)).toBe("task:\n  agentModelOverrides:\n    scout: x/y\n");
+  });
+});

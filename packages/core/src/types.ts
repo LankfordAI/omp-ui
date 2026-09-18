@@ -5,7 +5,7 @@ import type { RpcFrame } from "./rpc/codec";
 import type { GoalSnapshot } from "./goal";
 import type { AutoresearchSnapshot } from "./autoresearch";
 import type { SubagentModelMap } from "./subagent-model";
-import type { ProjectConfigMapRead } from "./project-config-writer";
+import type { ProjectConfigMapRead, ProjectConfigRead, ProjectConfigValue } from "./project-config-writer";
 import type { SkillOrigin } from "./omp-capability-keys";
 export type { SkillOrigin } from "./omp-capability-keys";
 export type SessionStatus =
@@ -659,6 +659,14 @@ export interface ProjectSubagentModelsResult {
   map: SubagentModelMap;
   /** The raw layer read, so an `unsupported` shape surfaces verbatim. */
   layer: ProjectConfigMapRead;
+}
+
+/** The project layer's OWN scalar for one key path, read for a section that edits both layers. */
+export interface ProjectScalarResult {
+  /** The project layer's own value; undefined when absent or the file holds nothing readable. */
+  value: ProjectConfigValue | undefined;
+  /** The raw layer read, so an `unsupported` shape surfaces verbatim. */
+  layer: ProjectConfigRead;
 }
 
 export interface OmpSettingsSnapshot {

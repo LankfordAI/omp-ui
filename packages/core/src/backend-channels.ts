@@ -33,6 +33,7 @@ import type {
   ProjectRecord,
   ProjectOpenAvailability,
   ProjectOpenTarget,
+  ProjectScalarResult,
   ProjectSubagentModelsResult,
   ProviderKeysSnapshot,
   PushResult,
@@ -233,6 +234,23 @@ export const BACKEND_CHANNELS = {
   setProjectSubagentModel: {
     channel: "project:setSubagentModel",
     ...request<[projectCwd: string, agent: string, value: string | null], void>([str(), str(), nullable(str())]),
+  },
+  /**
+   * The project layer's `task.maxConcurrency` (issue #569): the value plus the
+   * raw read, so an `unsupported` shape (flow mapping, anchor, duplicate key)
+   * surfaces verbatim and the section can explain itself.
+   */
+  getProjectMaxConcurrency: {
+    channel: "project:getMaxConcurrency",
+    ...request<[projectCwd: string], ProjectScalarResult>([str()]),
+  },
+  /**
+   * Writes the project's `task.maxConcurrency` — one key, siblings untouched.
+   * null deletes the project override so the value falls back to global.
+   */
+  setProjectMaxConcurrency: {
+    channel: "project:setMaxConcurrency",
+    ...request<[projectCwd: string, value: number | null], void>([str(), nullable(num())]),
   },
   /**
    * Moves an owned session to sit immediately before `beforeTabId` in its

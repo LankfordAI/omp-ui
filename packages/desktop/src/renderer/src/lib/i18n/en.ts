@@ -802,6 +802,12 @@ export const en = {
   "settings.omp.subagentRowDefault": "{agent} uses omp's default: its frontmatter model, else the session model",
   "settings.omp.subagentUnsupported":
     "This project's task.agentModelOverrides can't be edited here: {reason}",
+  "settings.omp.subagentConcurrency": "Subagent concurrency",
+  "settings.omp.subagentConcurrencyHint":
+    "How many subagents run at once; extra spawns queue instead of failing. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. Changes apply to sessions started afterwards.",
+  "settings.omp.subagentConcurrencyClear": "clear",
+  "settings.omp.subagentConcurrencyUnsupported":
+    "This project's task.maxConcurrency can't be edited here: {reason}",
   "settings.omp.subagentRefresh": "refresh agents",
   "settings.omp.subagentRefreshing": "refreshing…",
   "settings.omp.subagentRosterEmpty": "no agents discovered yet — refresh to enumerate omp's agents",

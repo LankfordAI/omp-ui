@@ -9,6 +9,7 @@ import type {
   OmpSettingsSnapshot,
   OmpUpdateState,
   PlanFormat,
+  ProjectScalarResult,
   ProviderKeyStatus,
   ProviderOAuthState,
   ProviderOAuthStatus,
@@ -152,6 +153,10 @@ const backendMock = {
   writeOmpSetting: vi.fn(async () => {}),
   getProjectSubagentModels: vi.fn(async () => ({ map: {}, layer: { shape: "absent" as const } })),
   setProjectSubagentModel: vi.fn(async () => {}),
+  getProjectMaxConcurrency: vi.fn(
+    async (): Promise<ProjectScalarResult> => ({ value: undefined, layer: { shape: "absent" } }),
+  ),
+  setProjectMaxConcurrency: vi.fn(async () => {}),
   setSessionSubagentModels: vi.fn(async () => {}),
   refreshAgentRoster: vi.fn(async () => []),
   setSubagentModelInheritByDefault: vi.fn(async () => {}),
@@ -1501,3 +1506,139 @@ describe("Settings Appearance page transcript width and glass chrome (issues #39
     expect(card("Off glass chrome").getAttribute("aria-pressed")).toBe("true");
   });
 });
+
+describe("Settings omp Subagent concurrency section (issue #569)", () => {
+  const concurrencyEntry = (): OmpSettingsSnapshot["entries"][number] => ({
+    key: "task.maxConcurrency",
+    type: "number",
+    description: "Maximum number of subagents running concurrently",
+    value: 32,
+    globalValue: 32,
+    options: null,
+    layer: "default",
+  });
+
+  /** Seeds the omp page with the concurrency entry alone; `focused` drives projectCwd. */
+  function seedConcurrency(focused = true): void {
+    backendMock.readOmpSettings.mockResolvedValue({
+      ...emptyOmpSettings,
+      entries: [concurrencyEntry()],
+    });
+    backendMock.getProjectMaxConcurrency.mockResolvedValue({
+      value: undefined,
+      layer: { shape: "absent" as const },
+    });
+    const tab = tabInfo();
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: focused ? [tab] : [],
+      activeTabId: focused ? tab.tabId : null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  const field = (): HTMLInputElement =>
+    document.querySelector<HTMLInputElement>('input[aria-label="task.maxConcurrency"]')!;
+
+  const scopeButtons = (): HTMLButtonElement[] => [
+    ...document.body.querySelectorAll<HTMLButtonElement>(
+      '[role="group"][aria-label="edit scope"] button',
+    ),
+  ];
+
+  async function commitNumber(value: string): Promise<void> {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(field(), value);
+      field().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+  }
+
+  it("renders the section and commits the global layer through omp config set", async () => {
+    seedConcurrency();
+    await renderSettings();
+    expect(document.body.textContent).toContain("Subagent concurrency");
+
+    click(scopeButtons()[0]!); // Global
+    expect(field().value).toBe("32");
+    await commitNumber("8");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("task.maxConcurrency", 8);
+    expect(backendMock.setProjectMaxConcurrency).not.toHaveBeenCalled();
+  });
+
+  it("defaults to the project layer with a focused session and writes the project channel", async () => {
+    seedConcurrency();
+    await renderSettings();
+    expect(backendMock.getProjectMaxConcurrency).toHaveBeenCalledWith("/project");
+    expect(scopeButtons()[1]!.disabled).toBe(false);
+
+    await commitNumber("8");
+    expect(backendMock.setProjectMaxConcurrency).toHaveBeenCalledWith("/project", 8);
+    expect(backendMock.writeOmpSetting).not.toHaveBeenCalled();
+  });
+
+  it("clear deletes the project override", async () => {
+    seedConcurrency();
+    backendMock.getProjectMaxConcurrency.mockResolvedValueOnce({
+      value: "8",
+      layer: { shape: "value" as const, value: "8" },
+    });
+    await renderSettings();
+    const clear = buttonWithText("clear")!;
+    expect(clear.disabled).toBe(false);
+    click(clear);
+    expect(backendMock.setProjectMaxConcurrency).toHaveBeenCalledWith("/project", null);
+  });
+
+  it("explains an unsupported project shape and disables the Project chip", async () => {
+    seedConcurrency();
+    backendMock.getProjectMaxConcurrency.mockResolvedValueOnce({
+      value: undefined,
+      layer: {
+        shape: "unsupported" as const,
+        line: 2,
+        reason: "/project/.omp/config.yml:2: flow mapping",
+      },
+    });
+    await renderSettings();
+    expect(document.body.textContent).toContain(
+      "This project's task.maxConcurrency can't be edited here",
+    );
+    expect(scopeButtons()[1]!.disabled).toBe(true);
+    expect(field().disabled).toBe(true);
+  });
+
+  it("forces the global scope with no session focused", async () => {
+    seedConcurrency(false);
+    await renderSettings();
+    expect(scopeButtons()[0]!.disabled).toBe(false);
+    expect(scopeButtons()[1]!.disabled).toBe(true);
+    expect(scopeButtons()[1]!.title).toContain("No session focused");
+    await commitNumber("12");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("task.maxConcurrency", 12);
+    expect(backendMock.getProjectMaxConcurrency).not.toHaveBeenCalled();
+  });
+
+  it("renders nothing when omp predates the key", async () => {
+    backendMock.readOmpSettings.mockResolvedValue(emptyOmpSettings);
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+    expect(document.body.textContent).not.toContain("Subagent concurrency");
+    expect(field()).toBeNull();
+  });
+});
+

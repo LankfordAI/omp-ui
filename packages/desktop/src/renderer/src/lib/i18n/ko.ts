@@ -718,6 +718,12 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.omp.subagentRowDefault": "{agent}은(는) omp 기본값 사용: 프런트매터 모델, 없으면 세션 모델",
   "settings.omp.subagentUnsupported":
     "이 프로젝트의 task.agentModelOverrides는 여기서 편집할 수 없습니다: {reason}",
+  "settings.omp.subagentConcurrency": "서브에이전트 동시성",
+  "settings.omp.subagentConcurrencyHint":
+    "한번에 실행되는 서브에이전트 수입니다. 초과된 스폰은 실패 대신 큐에 대기합니다. Global 편집은 omp config set으로 이루어지고, Project 편집은 프로젝트의 .omp/config.yml에 이 키 하나만 쓰며, Project 값을 지우면 Global로 대체됩니다. 변경 사항은 이후에 시작된 세션에 적용됩니다.",
+  "settings.omp.subagentConcurrencyClear": "지우기",
+  "settings.omp.subagentConcurrencyUnsupported":
+    "이 프로젝트의 task.maxConcurrency는 여기서 편집할 수 없습니다: {reason}",
   "settings.omp.subagentRefresh": "에이전트 새로고침",
   "settings.omp.subagentRefreshing": "새로고침 중…",
   "settings.omp.subagentRosterEmpty": "발견된 에이전트 없음 — 새로고침으로 omp 에이전트 열거",

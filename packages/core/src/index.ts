@@ -91,8 +91,12 @@ export {
 export { discoverAgentNames, parseUnpackedAgentNames } from "./subagent-model-agents";
 export {
   readProjectConfigMap,
+  readProjectConfigValue,
   setProjectConfigMapEntry,
+  setProjectConfigValue,
   type ProjectConfigMapRead,
+  type ProjectConfigRead,
+  type ProjectConfigValue,
 } from "./project-config-writer";
 export { planExtensionPath, writePlanExtension } from "./plan-extension";
 export {

@@ -157,6 +157,8 @@ const backendMock = {
   setWindowChrome: vi.fn(async () => {}),
   readOmpSettings: vi.fn(async () => emptyOmpSettings),
   writeOmpSetting: vi.fn(async () => {}),
+  getProjectMaxConcurrency: vi.fn(async () => ({ value: undefined, layer: { shape: "absent" as const } })),
+  setProjectMaxConcurrency: vi.fn(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });
 

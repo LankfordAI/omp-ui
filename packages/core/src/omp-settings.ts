@@ -4,7 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { getOmpAgentDir } from "./omp-config";
 import { SKILLS_SETTING_KEYS, TOOL_SETTING_KEYS } from "./omp-capability-keys";
-import { OMP_MODEL_ROLES_KEY, OMP_SETTING_KEYS, SUBAGENT_MODEL_SETTING_GROUP } from "./omp-settings-keys";
+import {
+  OMP_MODEL_ROLES_KEY,
+  OMP_SETTING_KEYS,
+  SUBAGENT_CONCURRENCY_SETTING_GROUP,
+  SUBAGENT_MODEL_SETTING_GROUP,
+} from "./omp-settings-keys";
 import {
   parseWebSearchProviderList,
   WEB_SEARCH_PROBE_SENTINEL,
@@ -50,7 +55,9 @@ export {
   OMP_MODEL_ROLES_KEY,
   OMP_SETTING_GROUPS,
   OMP_SETTING_KEYS,
+  SUBAGENT_CONCURRENCY_SETTING_GROUP,
   SUBAGENT_MODEL_SETTING_GROUP,
+  OMP_MAX_CONCURRENCY_KEY,
   OMP_SUBAGENT_MODELS_KEY,
   WEB_SEARCH_SETTING_GROUP,
 } from "./omp-settings-keys";
@@ -70,6 +77,9 @@ const ALLOWED_KEYS: readonly string[] = [
   // task.agentModelOverrides is REPLACE-not-merge like modelRoles (ADR-0031):
   // the writer must send the full merged record, never just the edited agent.
   ...SUBAGENT_MODEL_SETTING_GROUP.keys,
+  // Edited by the omp page's dedicated Subagent concurrency section at both
+  // layers; kept out of OMP_SETTING_GROUPS so no Global-only row duplicates it.
+  ...SUBAGENT_CONCURRENCY_SETTING_GROUP.keys,
 ];
 
 /** One omp invocation: resolves stdout, rejects Error(trimmed stderr) on failure. */
