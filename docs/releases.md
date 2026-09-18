@@ -4,6 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- An install following the **nightly** **update train** can now switch back to **stable**: the update check pins electron-updater's prerelease flag to the selected train instead of inferring one from the installed version, so the stable feed resolves the plain stable release rather than failing with "No published versions on GitHub" ([#568](https://github.com/LankfordAI/omp-ui/issues/568)).
+- The **omp** page gains a **Subagent concurrency** section editing omp's `task.maxConcurrency`: a **Global** / **Project** scoped cap on how many subagents a session runs at once, with extra spawns queueing instead of failing ([#569](https://github.com/LankfordAI/omp-ui/issues/569)).
 
 ## Choose a download
 
