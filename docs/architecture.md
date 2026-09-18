@@ -188,7 +188,7 @@ A native session's composer accepts the same slash commands as the terminal TUI.
 | `/plan`, `/no-plan` (bare) | Toggle plan mode through the generated extension described above. |
 | `/mcp`, `/mcp list` (bare) | Open the capabilities viewer's MCP tab for the session's own working tree. Every other `/mcp …` subcommand forwards normally — including `/mcp reload`, which the viewer's MCP footer sends. |
 | `/goal …`, `/guided-goal …` | Never forwarded as prose: OMP's `/goal` spec is TUI-only, so a forwarded line would reach the model as text and start a turn that talks about the goal instead of changing it. The composer dispatches a hidden command to the generated goal bridge instead, whose reply settles the command row ([ADR-0024](adr/0024-goal-mode-in-native-sessions.md)). Terminal tabs keep forwarding the line to OMP's own TUI. |
-| `/autoresearch start` | Opens the New experiment dialog for the session's project; never forwarded. `/autoresearch lab` opens the Lab, likewise never forwarded. Every other `/autoresearch…` form — bare, a goal, `off`, `clear` — forwards verbatim: it is OMP's own extension command, which dispatches over rpc-ui without a dialog ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)). |
+| `/autoresearch start` | Bare `start` opens the New experiment dialog for the session's project; `start <text>` starts the experiment interview in this session with the text as the rough description ([#567](https://github.com/LankfordAI/omp-ui/issues/567), [ADR-0032](adr/0032-experiments-configured-in-conversation.md)). `/autoresearch lab` opens the Lab, likewise never forwarded. Every other `/autoresearch…` form — bare, a goal, `off`, `clear` — forwards verbatim: it is OMP's own extension command, which dispatches over rpc-ui without a dialog ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)). |
 | Any other advertised command | Forwards as a `prompt` frame with the command acknowledgement lifecycle below. |
 | Unknown `/word` | Forwards as a literal model prompt. No command row appears; OMP starts a real agent turn. |
 
@@ -279,6 +279,24 @@ for ready, apply the session's model, dispatch bare `/autoresearch` to arm
 OMP's mode, then send one kickoff prompt whose fields are exactly
 `init_experiment`'s parameters. A non-git project launches at the project
 checkout with OMP's own warning; a jj-only workspace is refused before spawn.
+
+An experiment's fields can also be configured in conversation (#567,
+[ADR-0032](adr/0032-experiments-configured-in-conversation.md)). The autoresearch
+bridge additionally registers a `propose_experiment` tool with the runtime's
+`pi.registerTool`; after an interview in a native session — started by the
+dialog's **Configure with the agent** button or by `/autoresearch start <text>`
+— the model calls it, and the tool blocks on a `select` whose title carries the
+`omp-ui:experiment-proposal:` sentinel plus the JSON spec. `frame-reduction`
+intercepts that sentinel like the plan-review one and hands the spec to the
+`lab` slice, which opens the New experiment dialog prefilled;
+`reconcilePendingDialogs` splits the frame out of the generic queue so a late
+joiner hydrates it the same way (#555). To main the select is an ordinary
+blocking dialog — awaiting-answer, hibernation, and the stall watchdog need no
+new tracker. Launch runs the sequence above unchanged and answers the gate with
+`launched:<json>` (branch and spec as launched) only after the spawn resolves,
+so a failed spawn leaves the gate pending; closing the dialog answers `revise`.
+The proposing agent's `brief` rides the kickoff prompt — it is not an
+`init_experiment` parameter and not launch provenance.
 
 Two deliberate absences. There is no hibernation veto — a benchmark runs inside
 a turn, so the running-turn probe already covers the work, and OMP replays its
@@ -371,3 +389,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [The browser pane is an offscreen WebContents streamed to renderers and bridged to the agent over loopback CDP](adr/0029-browser-pane-offscreen-webcontents-and-loopback-cdp-bridge.md) | Render the shared page offscreen in desktop main, stream JPEG frames on a lossy event to every view, take input back as JSON, and hand the agent a host-local, token-pathed CDP endpoint through a generated extension — never a WebContentsView, never omp's Chromium, never `--remote-debugging-port`. |
 | [Experiments read autoresearch from two sources](adr/0030-experiments-read-autoresearch-from-two-sources.md) | Take live autoresearch state from a generated bridge over the existing `setStatus` frame and run history from OMP's own SQLite databases, read-only per request, since no rpc command, no extension-importable storage, and no wire-visible control entry can carry either alone. |
 | [Subagent model selection via omp's config layers](adr/0031-subagent-model-selection-via-config-layers.md) | Edit `task.agentModelOverrides` at Global, Project, and a live per-lineage overlay scope, with a roster-expanded `"*"` umbrella at Session scope so subagents default to the session's own model. |
+| [Experiments configured in conversation](adr/0032-experiments-configured-in-conversation.md) | Let the main model propose an experiment through a bridge-registered `propose_experiment` sentinel select the New experiment dialog answers — no one-shot drafting, no loop in the interview session, no main-process gate tracker. |

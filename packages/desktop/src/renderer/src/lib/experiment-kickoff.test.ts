@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NewExperimentSpec } from "../store/types";
-import { experimentKickoff } from "./experiment-kickoff";
+import { experimentInterviewPrompt, experimentKickoff } from "./experiment-kickoff";
 
 const spec = (patch: Partial<NewExperimentSpec> = {}): NewExperimentSpec => ({
   goal: "reduce p95 latency of /search",
@@ -12,6 +12,7 @@ const spec = (patch: Partial<NewExperimentSpec> = {}): NewExperimentSpec => ({
   offLimits: [],
   constraints: [],
   maxIterations: null,
+  brief: null,
   model: null,
   worktree: null,
   ...patch,
@@ -61,5 +62,26 @@ describe("experimentKickoff", () => {
     expect(text).not.toMatch(/Scope paths|Off-limits|Constraints|Max iterations/);
     expect(text).not.toMatch(/preferred_command|scope_paths|off_limits|constraints|max_iterations/);
     expect(text).toContain("No benchmark command yet");
+  });
+
+  it("appends the agent brief after the field lines and before Phase 1", () => {
+    const text = experimentKickoff(spec({ maxIterations: 12, brief: "bench.js prints METRIC p95_ms on success." }), "slug");
+    expect(text).toContain(
+      "Max iterations per segment: 12\n\nContext from the planning conversation:\nbench.js prints METRIC p95_ms on success.\n\nPhase 1",
+    );
+    expect(text).not.toContain("Context from the planning conversation:\n\n");
+  });
+});
+
+describe("experimentInterviewPrompt", () => {
+  it("names the propose tool and carries no draft block for an empty description", () => {
+    const text = experimentInterviewPrompt("");
+    expect(text).toContain("propose_experiment");
+    expect(text).not.toContain("<experiment-draft>");
+  });
+
+  it("wraps a trimmed rough description as data", () => {
+    const text = experimentInterviewPrompt("  make the unit tests faster \n");
+    expect(text).toContain("<experiment-draft>\nmake the unit tests faster\n</experiment-draft>");
   });
 });

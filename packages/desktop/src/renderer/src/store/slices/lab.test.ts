@@ -1,8 +1,7 @@
 // Lab slice tests (issue #559): the New experiment launch sequence, its
-// refusal paths, and the overview cache's generation guard.
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { ProjectExperiments } from "@omp-ui/core/types";
-import { rpcTabState } from "../../test/fixtures";
+import { rpcTabState, tabInfo } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 import type { NewExperimentSpec } from "../types";
 import { focusOn } from "./view";
@@ -19,6 +18,7 @@ const spec = (patch: Partial<NewExperimentSpec> = {}): NewExperimentSpec => ({
   offLimits: [],
   constraints: [],
   maxIterations: null,
+  brief: null,
   model: null,
   worktree: {
     mint: { branch: "autoresearch/reduce-p95-latency-of-search/0badf00d", baseRef: "main", baseBranch: null },
@@ -155,6 +155,228 @@ describe("newExperiment", () => {
     h.useStore.setState({ exited: { [FRESH]: 1 } });
     await launch;
     expect(h.sent).toEqual([]);
+  });
+});
+
+describe("experiment proposal gate (issue #567)", () => {
+  const proposal = {
+    goal: "faster",
+    metric: "t",
+    unit: "ms",
+    direction: "lower" as const,
+    command: null,
+    scopePaths: ["src/"],
+    offLimits: [],
+    constraints: [],
+    maxIterations: null,
+    brief: null,
+  };
+  const frame = { type: "extension_ui_request", id: "gate-1", method: "select", title: "sentinel" };
+
+  beforeEach(() => {
+    h.sent.length = 0;
+  });
+
+  it("Launch answers the held gate after the spawn resolves, with the spec as launched", async () => {
+    seed();
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+      rpc: { [h.TAB]: rpcTabState({ experimentProposal: { proposal, frame } }) },
+    });
+    const launch = h.useStore.getState().newExperiment("/p", spec(), null, { tabId: h.TAB });
+    await h.flushMicrotasks();
+    // Spawn has resolved; the answer carries the minted branch.
+    const response = h.sent.find((s) => s.cmd.type === "extension_ui_response");
+    expect(response).toBeDefined();
+    expect(response!.cmd).toMatchObject({ id: "gate-1" });
+    const value = String(response!.cmd.value);
+    expect(value.startsWith("launched:")).toBe(true);
+    const launched = JSON.parse(value.slice("launched:".length));
+    expect(launched).toMatchObject({
+      goal: "Reduce p95 latency of /search!",
+      metric: "p95_ms",
+      branch: "autoresearch/reduce-p95-latency-of-search/0badf00d",
+      brief: null,
+    });
+    expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).toBeNull();
+    // The process never boots here; stop the launch's readiness poll.
+    h.useStore.setState({ exited: { [FRESH]: 1 } });
+    await launch;
+  });
+
+  it("a rejected spawn leaves the gate pending and sends nothing", async () => {
+    seed();
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+      rpc: { [h.TAB]: rpcTabState({ experimentProposal: { proposal, frame } }) },
+    });
+    h.mockBackend.spawnSession.mockRejectedValueOnce(new Error("fatal: branch exists"));
+    await expect(
+      h.useStore.getState().newExperiment("/p", spec(), null, { tabId: h.TAB }),
+    ).rejects.toThrow("branch exists");
+    expect(h.sent.filter((s) => s.cmd.type === "extension_ui_response")).toEqual([]);
+    expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).not.toBeNull();
+  });
+
+  it("answerExperimentProposal sends, skips an exited tab, and refuses when none is held", () => {
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB })],
+      rpc: { [h.TAB]: rpcTabState({ experimentProposal: { proposal, frame } }) },
+    });
+    expect(h.useStore.getState().answerExperimentProposal(h.TAB, "revise")).toBe(true);
+    expect(h.sent).toEqual([
+      { tabId: h.TAB, cmd: { type: "extension_ui_response", id: "gate-1", value: "revise" } },
+    ]);
+    expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).toBeNull();
+    expect(h.useStore.getState().answerExperimentProposal(h.TAB, "revise")).toBe(false);
+    expect(h.sent).toHaveLength(1);
+
+    h.useStore.setState({
+      exited: { [h.TAB]: 1 },
+      rpc: { [h.TAB]: rpcTabState({ experimentProposal: { proposal, frame } }) },
+    });
+    h.sent.length = 0;
+    expect(h.useStore.getState().answerExperimentProposal(h.TAB, "revise")).toBe(true);
+    expect(h.sent).toEqual([]);
+    expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).toBeNull();
+  });
+
+  it("closeExperimentDialog opens the next held proposal", () => {
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" }), tabInfo({ tabId: "tab-2", projectCwd: "/q" })],
+      rpc: {
+        [h.TAB]: rpcTabState({ experimentProposal: { proposal, frame } }),
+        "tab-2": rpcTabState({ experimentProposal: { proposal, frame: { ...frame, id: "gate-2" } } }),
+      },
+      experimentDialog: { projectCwd: "/p", instanceId: null, proposalTabId: h.TAB },
+    });
+    // Answering the open one and then closing hands the queue to tab-2.
+    expect(h.useStore.getState().answerExperimentProposal(h.TAB, "revise")).toBe(true);
+    h.useStore.getState().closeExperimentDialog();
+    expect(h.useStore.getState().experimentDialog).toEqual({
+      projectCwd: "/q",
+      instanceId: null,
+      proposalTabId: "tab-2",
+    });
+  });
+
+  it("acceptExperimentProposal holds it and opens the dialog only when none is open", () => {
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+      rpc: { [h.TAB]: rpcTabState() },
+      experimentDialog: null,
+    });
+    h.useStore.getState().acceptExperimentProposal(h.TAB, proposal, frame);
+    expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).toMatchObject({ frame });
+    expect(h.useStore.getState().experimentDialog).toEqual({
+      projectCwd: "/p",
+      instanceId: null,
+      proposalTabId: h.TAB,
+    });
+    // A second tab proposing while the dialog is open is held, not swapped in.
+    h.useStore.setState({
+      tabs: [...h.useStore.getState().tabs, tabInfo({ tabId: "tab-2", projectCwd: "/q" })],
+      rpc: { ...h.useStore.getState().rpc, "tab-2": rpcTabState() },
+    });
+    h.useStore.getState().acceptExperimentProposal("tab-2", proposal, { ...frame, id: "gate-2" });
+    expect(h.useStore.getState().rpc["tab-2"]!.experimentProposal).not.toBeNull();
+    expect(h.useStore.getState().experimentDialog).toMatchObject({ proposalTabId: h.TAB });
+  });
+
+  it("startExperimentInterview in a tab prompts it and spawns nothing", async () => {
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+      rpc: { [h.TAB]: rpcTabState() },
+      experimentDialog: { projectCwd: "/p", instanceId: null },
+    });
+    const run = h.useStore.getState().startExperimentInterview("/p", null, "make tests faster", h.TAB);
+    // The send precedes the command ack: the frame is already on the wire.
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().experimentDialog).toBeNull();
+    const prompts = h.sent.filter((s) => s.cmd.type === "prompt");
+    expect(prompts).toHaveLength(1);
+    expect(String(prompts[0]!.cmd.message)).toContain("make tests faster");
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await run;
+  });
+
+  it("startExperimentInterview in a fresh session spawns, mounts, focuses, then prompts on ready", async () => {
+    h.backendState = h.stateWithRecord("sess-1", "dormant");
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+      tabs: [],
+      activeTabId: null,
+      focusedTabByProject: {},
+      rpc: {},
+      experimentDialog: { projectCwd: "/p", instanceId: null },
+    });
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: FRESH });
+    const run = h.useStore.getState().startExperimentInterview("/p", null, "go");
+    await h.flushMicrotasks();
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: "new", projectCwd: "/p", mode: "rpc-ui", worktree: null }),
+    );
+    const mounted = h.useStore.getState();
+    expect(mounted.tabs.map((tab) => tab.tabId)).toEqual([FRESH]);
+    expect(mounted.activeTabId).toBe(FRESH);
+    // Nothing is sent before the tab is ready.
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toEqual([]);
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState({ hasRenamed: true }) } });
+    await h.flushMicrotasks();
+    const prompts = h.sent.filter((s) => s.cmd.type === "prompt");
+    expect(prompts).toHaveLength(1);
+    expect(String(prompts[0]!.cmd.message)).toContain("propose_experiment");
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await run;
+  });
+
+  it("startExperimentInterview reports an unmountable bridge and sends nothing", async () => {
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+      rpc: {
+        [h.TAB]: rpcTabState({
+          autoresearch: {
+            version: 1, processKey: "p", sessionId: "s", revision: 1, available: true, unavailable: null,
+            mode: "off", goal: null, goalTruncated: false, lastTool: null,
+            proposeUnavailable: "pi.registerTool is missing",
+          },
+        }),
+      },
+    });
+    await h.useStore.getState().startExperimentInterview("/p", null, "go", h.TAB);
+    expect(h.sent).toEqual([]);
+    expect(h.errorMessages().at(-1)).toContain("pi.registerTool is missing");
+  });
+
+  it("a spawn that dies before ready prompts nothing", async () => {
+    h.backendState = h.stateWithRecord("sess-1", "dormant");
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+      tabs: [],
+      rpc: {},
+    });
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: FRESH });
+    const run = h.useStore.getState().startExperimentInterview("/p", null, "go");
+    await h.flushMicrotasks();
+    h.useStore.setState({ exited: { [FRESH]: 1 } });
+    await run;
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toEqual([]);
+  });
+
+  it("a failed fresh spawn becomes an error notice, not a throw", async () => {
+    h.backendState = h.stateWithRecord("sess-1", "dormant");
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+      tabs: [],
+      rpc: {},
+    });
+    h.mockBackend.spawnSession.mockRejectedValueOnce(new Error("spawn exploded"));
+    await h.useStore.getState().startExperimentInterview("/p", null, "go");
+    expect(h.errorMessages().at(-1)).toContain("spawn exploded");
+    expect(h.useStore.getState().tabs).toEqual([]);
   });
 });
 

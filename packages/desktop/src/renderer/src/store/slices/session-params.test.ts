@@ -1,5 +1,6 @@
 // Session parameter slice tests (moved verbatim from store.test.ts for #295).
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EXPERIMENT_PROPOSAL_SENTINEL, type ExperimentProposal } from "@omp-ui/core/autoresearch";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { rpcTabState, tabInfo } from "../../test/fixtures";
 import type { RenderItem } from "../../lib/transcript";
@@ -624,6 +625,39 @@ describe("prompting, slash commands, and session ops", () => {
     await h.useStore.getState().runSlashCommand(h.TAB, "/autoresearch start");
     expect(h.sent).toHaveLength(0);
     expect(h.useStore.getState().experimentDialog).toEqual({ projectCwd: "/p", instanceId: null });
+  });
+
+  it("/autoresearch start <text> interviews in this tab and opens no dialog", async () => {
+    h.useStore.setState({ tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })] });
+    h.sent.length = 0;
+    const run = h.useStore.getState().runSlashCommand(h.TAB, "/autoresearch start make the tests faster");
+    const prompts = h.sent.filter((s) => s.cmd.type === "prompt");
+    expect(prompts).toHaveLength(1);
+    expect(String(prompts[0]!.cmd.message)).toContain("propose_experiment");
+    expect(String(prompts[0]!.cmd.message)).toContain("make the tests faster");
+    expect(h.useStore.getState().experimentDialog).toBeNull();
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, { agentInvoked: true });
+    await run;
+  });
+
+  it("/autoresearch start <text> reports an unmountable bridge instead of prompting", async () => {
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+      rpc: {
+        [h.TAB]: rpcTabState({
+          autoresearch: {
+            version: 1, processKey: "p", sessionId: "s", revision: 1, available: true, unavailable: null,
+            mode: "off", goal: null, goalTruncated: false, lastTool: null,
+            proposeUnavailable: "could not mount propose_experiment: pi.zod is missing",
+          },
+        }),
+      },
+    });
+    h.sent.length = 0;
+    await h.useStore.getState().runSlashCommand(h.TAB, "/autoresearch start go");
+    expect(h.sent).toHaveLength(0);
+    expect(h.errorMessages().at(-1)).toContain("propose_experiment");
   });
 
   it("every other /autoresearch line stays omp's command with the normal lifecycle", async () => {
@@ -1991,5 +2025,49 @@ describe("reconcilePendingDialogs (issue #555)", () => {
     });
     h.useStore.getState().reconcilePendingDialogs(state);
     expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toEqual([local]);
+  });
+
+  const PROPOSED: ExperimentProposal = {
+    goal: "faster",
+    metric: "t",
+    unit: "",
+    direction: "lower",
+    command: null,
+    scopePaths: [],
+    offLimits: [],
+    constraints: [],
+    maxIterations: null,
+    brief: null,
+  };
+  const proposalDialog = (id: string): Record<string, unknown> => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title: EXPERIMENT_PROPOSAL_SENTINEL + JSON.stringify(PROPOSED),
+  });
+
+  it("hydrates a held proposal and keeps it out of the queue, idempotently", () => {
+    h.useStore.setState({ tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })], experimentDialog: null });
+    const q = dialog("q1");
+    const prop = proposalDialog("p1");
+    const state = stateWithDialogs([q, prop]);
+    h.useStore.setState({ state, rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(ids(tab.extensionQueue)).toEqual(["q1"]);
+    expect(tab.experimentProposal).toMatchObject({ frame: prop, proposal: { goal: "faster" } });
+    expect(h.useStore.getState().experimentDialog).toMatchObject({ proposalTabId: h.TAB });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toBe(tab.extensionQueue);
+    expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).toBe(tab.experimentProposal);
+    h.useStore.setState({ tabs: [], experimentDialog: null });
+  });
+
+  it("drops a proposal the summary no longer lists", () => {
+    const held = { proposal: PROPOSED, frame: proposalDialog("p1") };
+    const state = stateWithDialogs([]);
+    h.useStore.setState({ state, rpc: { [h.TAB]: rpcTabState({ experimentProposal: held }) } });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).toBeNull();
   });
 });

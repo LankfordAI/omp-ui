@@ -23,6 +23,7 @@ import { CAPABILITIES_STATUS_KEY } from "@omp-ui/core/capabilities";
 import {
   AUTORESEARCH_STATUS_KEY,
   AUTORESEARCH_WIDGET_KEY,
+  EXPERIMENT_PROPOSAL_SENTINEL,
   type AutoresearchSnapshot,
 } from "@omp-ui/core/autoresearch";
 import { emptySessionRuntime } from "../../lib/rpc-types";
@@ -670,6 +671,7 @@ describe("handleRpcFrame routing", () => {
       goal: "make the benchmark faster",
       goalTruncated: false,
       lastTool: null,
+      proposeUnavailable: null,
       ...patch,
     });
     let frameSeq = 0;
@@ -763,6 +765,83 @@ describe("handleRpcFrame routing", () => {
       } finally {
         h.useStore.setState({ loadExperiments: previous, experiments: {}, tabs: [] });
       }
+    });
+  });
+
+  describe("experiment proposal frames (issue #567)", () => {
+    const proposalBody = {
+      goal: "faster",
+      metric: "t",
+      unit: "ms",
+      direction: "lower",
+      command: null,
+      scopePaths: [],
+      offLimits: [],
+      constraints: [],
+      maxIterations: null,
+      brief: null,
+    };
+    let frameSeq = 0;
+    const selectFrame = (title: string): Record<string, unknown> => ({
+      type: "extension_ui_request",
+      id: `propose-${++frameSeq}`,
+      method: "select",
+      title,
+      options: ["launch", "revise"],
+    });
+    const seedTab = (): void => {
+      h.useStore.setState({ tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })], experimentDialog: null });
+    };
+    afterEach(() => {
+      h.useStore.setState({ tabs: [], experimentDialog: null });
+    });
+
+    it("routes a sentinel select to the dialog, never the generic queue", () => {
+      seedTab();
+      const frame = selectFrame(EXPERIMENT_PROPOSAL_SENTINEL + JSON.stringify(proposalBody));
+      h.sent.length = 0;
+      h.useStore.getState().handleRpcFrame(h.TAB, frame);
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.experimentProposal).toMatchObject({ proposal: proposalBody, frame });
+      expect(tab.extensionQueue).toEqual([]);
+      expect(h.sent).toEqual([]);
+      expect(h.useStore.getState().experimentDialog).toEqual({
+        projectCwd: "/p",
+        instanceId: null,
+        proposalTabId: h.TAB,
+      });
+    });
+
+    it("falls through to the generic queue on a malformed sentinel payload", () => {
+      seedTab();
+      const frame = selectFrame(EXPERIMENT_PROPOSAL_SENTINEL + "{not json");
+      h.useStore.getState().handleRpcFrame(h.TAB, frame);
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.experimentProposal).toBeNull();
+      expect(tab.extensionQueue).toEqual([frame]);
+    });
+
+    it("holds a second proposal while a dialog is open instead of replacing it", () => {
+      seedTab();
+      const first = selectFrame(EXPERIMENT_PROPOSAL_SENTINEL + JSON.stringify(proposalBody));
+      h.useStore.getState().handleRpcFrame(h.TAB, first);
+      h.useStore.setState({ experimentDialog: { projectCwd: "/other", instanceId: null } });
+      const second = selectFrame(EXPERIMENT_PROPOSAL_SENTINEL + JSON.stringify(proposalBody));
+      h.useStore.getState().handleRpcFrame(h.TAB, second);
+      expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).toMatchObject({ frame: second });
+      expect(h.useStore.getState().experimentDialog).toEqual({ projectCwd: "/other", instanceId: null });
+    });
+
+    it("holds a replayed frame once without re-opening a closed dialog", () => {
+      seedTab();
+      const frame = selectFrame(EXPERIMENT_PROPOSAL_SENTINEL + JSON.stringify(proposalBody));
+      h.useStore.getState().handleRpcFrame(h.TAB, frame);
+      h.useStore.setState({ experimentDialog: null });
+      h.useStore.getState().handleRpcFrame(h.TAB, frame);
+      // Same frame id: held once. A dialog the user closed for this proposal
+      // is not forced back open by a replay — hydration is the summary's job.
+      expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).toMatchObject({ frame });
+      expect(h.useStore.getState().experimentDialog).toBeNull();
     });
   });
 

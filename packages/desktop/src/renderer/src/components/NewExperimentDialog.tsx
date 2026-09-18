@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { composeWorktreeBranch } from "@omp-ui/core/worktree-branch";
+import { AUTORESEARCH_METRIC_NAME_RE, EXPERIMENT_PROPOSAL_REVISE } from "@omp-ui/core/autoresearch";
 import { useT } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
 import { projectKey } from "../lib/project-key";
@@ -9,9 +10,6 @@ import { findInstance, useStore } from "../store";
 import { ModelPalette } from "./ModelSelector";
 import { Button, ChoiceCapsule, ConfirmDialog } from "./ui";
 import { mintBranchName } from "./WorktreeBranchFields";
-
-/** What omp's `METRIC name=value` line accepts as a name. */
-const METRIC_NAME_RE = /^[A-Za-z0-9_.-]+$/;
 /** omp's own cap on published goal text; the composer input stops there too. */
 const GOAL_CHAR_LIMIT = 4096;
 
@@ -38,26 +36,38 @@ const EMPTY_MODELS: ModelInfo[] = [];
  * then records the row the Lab reads. The "where" segment is the overview
  * channel's preflight: a git checkout mints a branch, a plain directory runs
  * at the project checkout with omp's isolation off, and a jj-only workspace
- * cannot launch at all (omp's loop needs git).
+ * cannot launch at all (omp's loop needs git). With `proposalTabId`, an agent's
+ * propose_experiment prefills the form (issue #567): Launch answers that
+ * blocked select with the spec as launched; closing answers it `revise`.
  */
 export function NewExperimentDialog({
   projectCwd,
   instanceId,
+  proposalTabId,
 }: {
   projectCwd: string;
   /** The remote instance owning the project (issue #416); null for this host. */
   instanceId: string | null;
+  /** The tab whose agent proposed this spec (issue #567); null for the blank form. */
+  proposalTabId: string | null;
 }) {
   const t = useT();
-  const [goal, setGoal] = useState("");
-  const [metric, setMetric] = useState("");
-  const [unit, setUnit] = useState("");
-  const [direction, setDirection] = useState<NewExperimentSpec["direction"]>("lower");
-  const [command, setCommand] = useState("");
-  const [scopePaths, setScopePaths] = useState("");
-  const [offLimits, setOffLimits] = useState("");
-  const [constraints, setConstraints] = useState("");
-  const [maxIterations, setMaxIterations] = useState("");
+  // The proposal that opened this dialog, captured once: App remounts the
+  // dialog per proposal so these initializers seed from it (issue #567).
+  const draft = useStore((s) => (proposalTabId === null ? null : s.rpc[proposalTabId]?.experimentProposal ?? null));
+  const seed = useRef(draft?.proposal ?? null).current;
+  const [goal, setGoal] = useState(seed?.goal ?? "");
+  const [metric, setMetric] = useState(seed?.metric ?? "");
+  const [unit, setUnit] = useState(seed?.unit ?? "");
+  const [direction, setDirection] = useState<NewExperimentSpec["direction"]>(seed?.direction ?? "lower");
+  const [command, setCommand] = useState(seed?.command ?? "");
+  const [scopePaths, setScopePaths] = useState(seed?.scopePaths.join("\n") ?? "");
+  const [offLimits, setOffLimits] = useState(seed?.offLimits.join("\n") ?? "");
+  const [constraints, setConstraints] = useState(seed?.constraints.join("\n") ?? "");
+  const [maxIterations, setMaxIterations] = useState(
+    seed === null || seed.maxIterations === null ? "" : String(seed.maxIterations),
+  );
+  const brief = seed?.brief ?? null;
   // The mint tail is drawn once per dialog; the slug follows the goal until
   // the user edits the branch, after which the typed name stands.
   const [hash] = useState(() => mintBranchName("autoresearch").slice("autoresearch/".length));
@@ -72,6 +82,8 @@ export function NewExperimentDialog({
   const loadExperiments = useStore((s) => s.loadExperiments);
   const newExperiment = useStore((s) => s.newExperiment);
   const closeExperimentDialog = useStore((s) => s.closeExperimentDialog);
+  const answerExperimentProposal = useStore((s) => s.answerExperimentProposal);
+  const startExperimentInterview = useStore((s) => s.startExperimentInterview);
   const state = useStore((s) => s.state);
   const rpc = useStore((s) => s.rpc);
 
@@ -79,6 +91,11 @@ export function NewExperimentDialog({
   useEffect(() => {
     void loadExperiments(projectCwd, instanceId);
   }, [projectCwd, instanceId, loadExperiments]);
+
+  // A sibling client launched or cancelled this proposal, or the tab relaunched: the gate is gone.
+  useEffect(() => {
+    if (proposalTabId !== null && draft === null) closeExperimentDialog();
+  }, [proposalTabId, draft, closeExperimentDialog]);
 
   const group = useMemo(() => {
     const groups = instanceId === null ? state?.projects : findInstance(state, instanceId)?.projects;
@@ -111,10 +128,12 @@ export function NewExperimentDialog({
 
   const goalMissing = goal.trim() === "";
   const metricMissing = metric.trim() === "";
-  const metricInvalid = !metricMissing && !METRIC_NAME_RE.test(metric.trim());
+  const metricInvalid = !metricMissing && !AUTORESEARCH_METRIC_NAME_RE.test(metric.trim());
 
   const close = (): void => {
     setError(null);
+    // Cancel, Escape, and the backdrop all send the proposal back (decision: close = revise).
+    if (proposalTabId !== null) answerExperimentProposal(proposalTabId, EXPERIMENT_PROPOSAL_REVISE);
     closeExperimentDialog();
   };
 
@@ -138,11 +157,13 @@ export function NewExperimentDialog({
           offLimits: lines(offLimits),
           constraints: lines(constraints),
           maxIterations: Number.isInteger(cap) && cap > 0 ? cap : null,
+          brief,
           model: pickedModel,
           worktree:
             repo === "git" ? { mint: { branch: branch.trim(), baseRef: null, baseBranch: null } } : null,
         },
         instanceId,
+        proposalTabId === null ? undefined : { tabId: proposalTabId },
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -160,6 +181,16 @@ export function NewExperimentDialog({
       width="w-[28rem]"
       actions={
         <>
+          {proposalTabId === null && (
+            <Button
+              variant="ghost"
+              className="mr-auto"
+              disabled={pending}
+              onClick={() => void startExperimentInterview(projectCwd, instanceId, goal)}
+            >
+              {t("experiment.dialog.withAgent")}
+            </Button>
+          )}
           <Button variant="ghost" onClick={close}>
             {t("common.dialog.cancel")}
           </Button>
@@ -175,6 +206,7 @@ export function NewExperimentDialog({
       }
     >
       <div className="space-y-4">
+        {seed !== null && <p className={HINT}>{t("experiment.dialog.proposedHint")}</p>}
         <div>
           <label htmlFor="experiment-goal" className={LABEL}>
             {t("experiment.dialog.goal")}
@@ -276,6 +308,18 @@ export function NewExperimentDialog({
             />
           </div>
         ))}
+
+        {brief !== null && (
+          <div>
+            <span className={LABEL}>
+              {t("experiment.dialog.brief")}{" "}
+              <span className="text-ink-faint/70">· {t("experiment.dialog.briefHint")}</span>
+            </span>
+            <pre className="mt-1.5 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink-mid">
+              {brief}
+            </pre>
+          </div>
+        )}
 
         <div className="grid grid-cols-[8rem_1fr] gap-3">
           <div>

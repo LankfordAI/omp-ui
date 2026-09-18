@@ -49,7 +49,7 @@ import type {
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
 import type { GoalSnapshot } from "@omp-ui/core/goal";
-import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
+import type { AutoresearchSnapshot, ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { CompactionThresholdSettings } from "@omp-ui/core/compaction-threshold";
 import type {
   PlanExecutionContext,
@@ -224,6 +224,8 @@ export interface RpcTabState {
   titleRegeneration?: { readonly requestId: number; readonly previousTitle: string } | null;
   plan: PlanStatus | null;
   planReview: { request: PlanReviewRequest; frame: unknown } | null;
+  /** The agent's pending propose_experiment select, until Launch or Cancel answers it (issue #567). */
+  experimentProposal: { proposal: ExperimentProposal; frame: unknown } | null;
   planText: string | null;
   planHtml: string | null;
   planDeferred: boolean;
@@ -491,7 +493,7 @@ export interface ExperimentsCache {
   revision: number;
 }
 
-/** What the New experiment dialog submits; maps 1:1 onto omp's init_experiment. */
+/** What the New experiment dialog submits: init_experiment's parameters plus the launch's own fields. */
 export interface NewExperimentSpec {
   goal: string;
   metric: string;
@@ -503,6 +505,8 @@ export interface NewExperimentSpec {
   offLimits: string[];
   constraints: string[];
   maxIterations: number | null;
+  /** Not an init_experiment parameter: what the proposing agent learned, appended to the kickoff. null from the blank form. */
+  brief: string | null;
   model: ModelInfo | null;
   /** null = launch at the project checkout (not a git repo). */
   worktree: { mint: { branch: string; baseRef: string | null; baseBranch: string | null } } | null;
@@ -510,7 +514,7 @@ export interface NewExperimentSpec {
 
 export interface LabSlice {
   lab: LabView | null;
-  experimentDialog: { projectCwd: string; instanceId: string | null } | null;
+  experimentDialog: { projectCwd: string; instanceId: string | null; proposalTabId?: string } | null;
   /** By projectKey(instanceId, projectCwd). */
   experiments: Record<string, ExperimentsCache>;
   /**
@@ -521,8 +525,17 @@ export interface LabSlice {
   openLab(projectCwd?: string | null, instanceId?: string | null, focus?: { tabId: string }): void;
   openLabExperiment(target: NonNullable<LabView["experiment"]>): void;
   closeLab(): void;
-  openExperimentDialog(projectCwd: string, instanceId?: string | null): void;
+  openExperimentDialog(projectCwd: string, instanceId?: string | null, proposalTabId?: string): void;
   closeExperimentDialog(): void;
+  /** Holds the proposal on its tab; opens the dialog for it when none is open, else it waits its turn. */
+  acceptExperimentProposal(tabId: string, proposal: ExperimentProposal, frame: unknown): void;
+  /** Answers the pending select (skipping the send when the tab's process has exited) and clears it. False when none is pending. */
+  answerExperimentProposal(tabId: string, value: string): boolean;
+  /**
+   * Starts the interview: in `inTab` when given (a live rpc-ui tab), else in a
+   * fresh rpc-ui session for the project. Closes any open experiment dialog first.
+   */
+  startExperimentInterview(projectCwd: string, instanceId: string | null, description: string, inTab?: string): Promise<void>;
   /** Guarded by a per-project generation so a late reply never overwrites a newer one. */
   loadExperiments(projectCwd: string, instanceId?: string | null): Promise<void>;
   loadExperimentDetail(target: NonNullable<LabView["experiment"]>): Promise<void>;
@@ -530,9 +543,15 @@ export interface LabSlice {
    * Spawns the experiment session (worktree when `spec.worktree`), waits for
    * ready, applies the model, arms omp's mode with bare `/autoresearch`, then
    * sends the kickoff prompt. Throws on spawn failure so the dialog renders
-   * the message inline (like newWorktreeSession).
+   * the message inline (like newWorktreeSession). With `gate`, a successful
+   * spawn answers the proposing tab's blocked select with the spec as launched.
    */
-  newExperiment(projectCwd: string, spec: NewExperimentSpec, instanceId?: string | null): Promise<void>;
+  newExperiment(
+    projectCwd: string,
+    spec: NewExperimentSpec,
+    instanceId?: string | null,
+    gate?: { tabId: string },
+  ): Promise<void>;
   /** `/autoresearch off` on a live rpc-ui tab; refused with an error notice otherwise. */
   stopExperiment(tabId: string): Promise<void>;
   /** Prompts a fresh segment (init_experiment new_segment) on a live rpc-ui tab. */

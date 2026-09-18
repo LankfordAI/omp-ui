@@ -852,6 +852,7 @@ describe("SessionHud autoresearch chip (issue #559)", () => {
     goal: "make the benchmark faster",
     goalTruncated: false,
     lastTool: null,
+    proposeUnavailable: null,
     ...patch,
   });
 

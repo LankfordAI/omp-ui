@@ -80,6 +80,7 @@ function snapshot(mode: AutoresearchSnapshot["mode"]): AutoresearchSnapshot {
     goal: null,
     goalTruncated: false,
     lastTool: null,
+    proposeUnavailable: null,
   };
 }
 

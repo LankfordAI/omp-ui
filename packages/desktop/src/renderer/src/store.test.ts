@@ -105,6 +105,30 @@ describe("deriveSidebarSessionState", () => {
     expect(
       h.deriveSidebarSessionState(
         summary(),
+        rpcTabState({
+          status: "ready",
+          experimentProposal: {
+            proposal: {
+              goal: "faster",
+              metric: "t",
+              unit: "",
+              direction: "lower",
+              command: null,
+              scopePaths: [],
+              offLimits: [],
+              constraints: [],
+              maxIterations: null,
+              brief: null,
+            },
+            frame: { id: "p" },
+          },
+        }),
+        undefined,
+      ),
+    ).toBe("awaiting-answer");
+    expect(
+      h.deriveSidebarSessionState(
+        summary(),
         rpcTabState({ status: "error", extensionQueue: [{ id: "q" }] }),
         undefined,
       ),

@@ -790,10 +790,20 @@ autoresearch chip, or `/autoresearch lab`.
 _Avoid_: dashboard, experiments tab, research panel
 
 **New experiment**:
-The dialog whose fields are exactly `init_experiment`'s parameters. It spawns
+The dialog whose fields are exactly `init_experiment`'s parameters (plus the
+agent's optional brief, which rides the kickoff only). It spawns
 an rpc-ui session in a fresh worktree checkout on a minted
 `autoresearch/<slug>/<hash>` branch, arms OMP's mode with bare `/autoresearch`,
 and sends one kickoff prompt — so the experiment is created by OMP's own tools,
 never by an omp-ui write. Where there is no Git checkout it launches at the
 project checkout with no branch isolation, and a jj-only workspace is refused.
+Its fields can be proposed by the agent: an **experiment interview** in a
+native session ends in the agent's `propose_experiment` call, which opens this
+dialog prefilled; Launch is still the only way anything starts.
 _Avoid_: experiment wizard, autoresearch setup
+
+**Experiment proposal**:
+The agent's pending `propose_experiment` call — a blocked select the New
+experiment dialog answers with launch or revise. Never launched by the agent
+itself. Closing the dialog is `revise`, not a deferral.
+_Avoid_: experiment draft, auto-configure, wizard step

@@ -5,14 +5,21 @@
 // DB and never re-implements the loop; every mutation here rides omp's own
 // slash command or a prompt.
 import type { SessionMode } from "@omp-ui/core/types";
-import { backendFor } from "../../backend";
-import { experimentKickoff, experimentSlug, NEW_SEGMENT_PROMPT } from "../../lib/experiment-kickoff";
+import { experimentLaunchedValue, type ExperimentProposal } from "@omp-ui/core/autoresearch";
+import { backend, backendFor } from "../../backend";
+import { strField } from "../../lib/fields";
+import {
+  experimentInterviewPrompt,
+  experimentKickoff,
+  experimentSlug,
+  NEW_SEGMENT_PROMPT,
+} from "../../lib/experiment-kickoff";
 import { linkedExperiment } from "../../lib/experiment-link";
 import { t } from "../../lib/i18n";
 import { projectKey, splitProjectKey } from "../../lib/project-key";
 import { dropExited, type GetState, type SetState, type StoreMachinery } from "./shared";
 import { findRecord, focusOn } from "./view";
-import type { ExperimentsCache, LabSlice, LabView } from "../types";
+import type { ExperimentsCache, LabSlice, LabView, NewExperimentSpec } from "../types";
 
 export interface LabDeps {
   resolveSpawnParams(
@@ -43,6 +50,57 @@ export function createLabSlice(
   m: StoreMachinery,
   deps: LabDeps,
 ): LabSlice {
+  /** The ten proposal fields of a submitted spec, as launched. */
+  const proposalOf = (spec: NewExperimentSpec): ExperimentProposal => ({
+    goal: spec.goal,
+    metric: spec.metric,
+    unit: spec.unit,
+    direction: spec.direction,
+    command: spec.command,
+    scopePaths: spec.scopePaths,
+    offLimits: spec.offLimits,
+    constraints: spec.constraints,
+    maxIterations: spec.maxIterations,
+    brief: spec.brief,
+  });
+
+  /** The first tab still holding a proposal, or null. Tab order = arrival order in `tabs`. */
+  const nextProposalTab = (): { tabId: string; projectCwd: string; instanceId: string | null } | null => {
+    for (const tab of get().tabs) {
+      if (get().rpc[tab.tabId]?.experimentProposal) return tab;
+    }
+    return null;
+  };
+
+  const openNextProposal = (): void => {
+    if (get().experimentDialog !== null) return;
+    const next = nextProposalTab();
+    if (next !== null)
+      set({ experimentDialog: { projectCwd: next.projectCwd, instanceId: next.instanceId, proposalTabId: next.tabId } });
+  };
+
+  const acceptExperimentProposal: LabSlice["acceptExperimentProposal"] = (tabId, proposal, frame) => {
+    const held = get().rpc[tabId]?.experimentProposal;
+    if (held && strField(held.frame, "id") === strField(frame, "id")) return; // same frame, replayed
+    m.patchRpc(tabId, { experimentProposal: { proposal, frame } });
+    openNextProposal();
+  };
+
+  const answerExperimentProposal: LabSlice["answerExperimentProposal"] = (tabId, value) => {
+    const held = get().rpc[tabId]?.experimentProposal;
+    if (!held) return false;
+    // The agent is blocked on this reply — clear only after sending. An exited
+    // process has nothing to release; the form was still worth keeping.
+    if (get().exited[tabId] === undefined)
+      backend.rpcSend(tabId, {
+        type: "extension_ui_response",
+        id: strField(held.frame, "id"),
+        value,
+      });
+    m.patchRpc(tabId, { experimentProposal: null });
+    return true;
+  };
+
   const patchCache = (key: string, patch: (prev: ExperimentsCache) => Partial<ExperimentsCache>): void => {
     set((s) => {
       const prev: ExperimentsCache = s.experiments[key] ?? {
@@ -171,7 +229,7 @@ export function createLabSlice(
     return true;
   };
 
-  const newExperiment: LabSlice["newExperiment"] = async (projectCwd, spec, instanceId = null) => {
+  const newExperiment: LabSlice["newExperiment"] = async (projectCwd, spec, instanceId = null, gate) => {
     const { advisor, advisorModel } = await deps.resolveSpawnParams(
       projectCwd,
       { mode: "rpc-ui" },
@@ -206,6 +264,11 @@ export function createLabSlice(
       exited: dropExited(s.exited, tabId),
       experimentDialog: null,
     }));
+    if (gate !== undefined) {
+      // The spawn succeeded: release the interview agent with the spec as launched.
+      answerExperimentProposal(gate.tabId, experimentLaunchedValue({ branch: launchedBranch, ...proposalOf(spec) }));
+    }
+    openNextProposal();
     // Issue #405: the mint may have just created a base branch; surface it
     // in the lists without a network round trip.
     if (spec.worktree?.mint.baseBranch != null) {
@@ -250,11 +313,57 @@ export function createLabSlice(
       if (refreshTimer === null) refreshTimer = window.setInterval(refresh, LAB_REFRESH_MS);
     },
     closeLab,
-    openExperimentDialog(projectCwd, instanceId = null) {
-      set({ experimentDialog: { projectCwd, instanceId } });
+    openExperimentDialog(projectCwd, instanceId = null, proposalTabId) {
+      set({
+        experimentDialog: { projectCwd, instanceId, ...(proposalTabId === undefined ? {} : { proposalTabId }) },
+      });
     },
     closeExperimentDialog() {
       set({ experimentDialog: null });
+      openNextProposal();
+    },
+    acceptExperimentProposal,
+    answerExperimentProposal,
+    async startExperimentInterview(projectCwd, instanceId, description, inTab) {
+      set({ experimentDialog: null });
+      if (inTab !== undefined) {
+        const unavailable = get().rpc[inTab]?.autoresearch?.proposeUnavailable ?? null;
+        if (unavailable !== null) {
+          get().reportError(new Error(t("experiment.interview.unavailable", { reason: unavailable })));
+          return;
+        }
+        await get().sendPrompt(inTab, experimentInterviewPrompt(description), "prompt");
+        return;
+      }
+      const { advisor, advisorModel } = await deps.resolveSpawnParams(projectCwd, { mode: "rpc-ui" }, instanceId);
+      let tabId: string;
+      try {
+        ({ tabId } = await backendFor(instanceId).spawnSession({
+          origin: "new",
+          projectCwd,
+          mode: "rpc-ui",
+          advisor,
+          advisorModel,
+          cols: 80,
+          rows: 24,
+          worktree: null,
+        }));
+      } catch (err) {
+        get().reportError(err); // no dialog is open to render it inline — the newSession posture
+        return;
+      }
+      const key = projectKey(instanceId, projectCwd);
+      set((s) => ({
+        tabs: [...s.tabs, { tabId, mode: "rpc-ui", projectCwd, hidden: false, instanceId }],
+        ...focusOn(s, tabId, key),
+        exited: dropExited(s.exited, tabId),
+      }));
+      await m.pollUntil(
+        tabId,
+        (tab) => tab?.status === "ready" || tab?.status === "error" || get().exited[tabId] !== undefined,
+      );
+      if (get().rpc[tabId]?.status !== "ready") return;
+      await get().sendPrompt(tabId, experimentInterviewPrompt(description), "prompt");
     },
     loadExperiments,
     loadExperimentDetail,

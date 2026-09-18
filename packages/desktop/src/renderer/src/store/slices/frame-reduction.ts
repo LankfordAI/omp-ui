@@ -15,6 +15,7 @@ import {
   AUTORESEARCH_STATUS_KEY,
   AUTORESEARCH_WIDGET_KEY,
   parseAutoresearchSnapshot,
+  parseExperimentProposalTitle,
 } from "@omp-ui/core/autoresearch";
 import {
   CAPABILITIES_STATUS_KEY,
@@ -542,6 +543,13 @@ export function createFrameReductionSlice(
             );
             m.appendItem(tabId, planItem);
             void get().loadPlanText(tabId, review.planAbsPath, planItem.id);
+            return;
+          }
+          const proposal = parseExperimentProposalTitle(strField(frame, "title"));
+          if (proposal) {
+            // The agent is blocked on this select; the New experiment dialog
+            // answers it (issue #567). Never the generic queue.
+            get().acceptExperimentProposal(tabId, proposal, frame);
             return;
           }
           const entry = extensionStatusEntry(frame);
