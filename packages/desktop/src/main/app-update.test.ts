@@ -389,6 +389,9 @@ function makeFakeAutoUpdater(): FakeAutoUpdater {
     autoDownload: true,
     autoInstallOnAppQuit: true,
     allowDowngrade: false,
+    // What electron-updater derives for a prerelease install; the updater must
+    // overwrite this per train rather than inherit it.
+    allowPrerelease: true,
     setFeedURL: vi.fn(),
     on(event: string, cb: (arg: unknown) => void) {
       listeners.set(event, [...(listeners.get(event) ?? []), cb]);
@@ -641,6 +644,27 @@ describe("AppUpdater update trains (issue #493)", () => {
     expect(updater.state).toMatchObject({ status: "available", latestVersion: "1.0.0" });
   });
 
+  it("pins prerelease channel resolution out of the stable feed after a nightly install", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    const made = makeUpdater({
+      currentVersion: "1.0.0-nightly.20260911.abc1234",
+      getTrain: () => "stable",
+      fetchImpl: updateFetch({ releaseBody: releaseBody("1.0.0") }),
+      autoUpdaterFactory: async () => autoUpdater,
+      platform: "win32",
+      env: {},
+      exists: () => false,
+    });
+    await made.updater.checkNow(true);
+    expect(autoUpdater.allowPrerelease).toBe(false);
+    expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({
+      provider: "github",
+      owner: "LankfordAI",
+      repo: "omp-ui",
+    });
+    expect(made.updater.state.status).toBe("downloading");
+  });
+
   it("orders same-base nightlies", async () => {
     const currentVersion = "1.0.0-nightly.20260911.abc1234";
     const equal = makeUpdater({
@@ -675,6 +699,7 @@ describe("AppUpdater update trains (issue #493)", () => {
       });
       await made.updater.checkNow(false);
       expect(autoUpdater.allowDowngrade).toBe(train === "nightly");
+      expect(autoUpdater.allowPrerelease).toBe(train === "nightly");
       expect(autoUpdater.setFeedURL).toHaveBeenCalledWith(
         train === "nightly"
           ? { provider: "generic", url: "https://github.com/LankfordAI/omp-ui/releases/download/nightly/" }
