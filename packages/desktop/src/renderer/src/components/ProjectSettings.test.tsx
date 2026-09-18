@@ -168,7 +168,7 @@ async function renderDialog(): Promise<void> {
   // mounted (ui/overlays.tsx useOverlay), so that handoff is still queued when
   // the render's promise settles. Drain the frame — the real signal, never a
   // guessed sleep — or it lands later and steals focus mid-assertion from any
-  // test that tracks focus itself (issue #565).
+  // test that tracks focus itself (issue #566).
   await act(async () => new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame())));
 }
 

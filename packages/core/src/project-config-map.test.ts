@@ -97,7 +97,7 @@ describe("setProjectConfigMapEntry", () => {
     expect(read(file)).toBe('task:\n  agentModelOverrides:\n    scout: "*"\n');
     // Windows does not emulate chmod for writable files; stat reports the
     // NTFS-derived 0o666 there (same platform expectation as
-    // project-config-writer.test.ts, issue #566).
+    // project-config-writer.test.ts, issue #565).
     if (process.platform !== "win32") {
       expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     }
