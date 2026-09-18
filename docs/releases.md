@@ -4,8 +4,6 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- A fresh install now seeds omp's memory defaults on first run: durable recall is on out of the box, with `memory.backend`, `mnemopi.scoping`, and `autolearn.enabled` written once into omp's global config layer — a key the **Memory settings** page or the user already names is left untouched whatever its value ([#570](https://github.com/LankfordAI/omp-ui/issues/570)).
-- **Experiments**, the **Lab**, and autoresearch now sit behind a global **Experiments lab (beta)** switch on Settings → General, off by default: off, the sidebar flask, the palette's **Lab** / **New experiment** rows, the `propose_experiment` tool, and `/autoresearch` all stand down, and the surfaces close if open ([#571](https://github.com/LankfordAI/omp-ui/issues/571)).
 
 ## Choose a download
 
