@@ -43,6 +43,8 @@ export interface RegistrySettings {
   /** Agent names from the last roster refresh (unpack + agent dirs). */
   agentRoster: string[];
   skipDeleteConfirmation: boolean;
+  /** Global feature flag for the Experiments Lab + autoresearch bridge (issue #571); default off. */
+  experimentsEnabled: boolean;
   /** One-time migration marker (#274): the sessions array order is explicit; load never re-sorts it. */
   sessionOrderFrozen: boolean;
   /** One-time seed marker (issue #570): memory defaults were applied to omp's global layer once. */
@@ -184,6 +186,10 @@ export const SETTINGS: SettingDescriptors = {
     };
   })(),
   skipDeleteConfirmation: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  experimentsEnabled: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),

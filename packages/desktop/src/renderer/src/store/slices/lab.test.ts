@@ -38,7 +38,7 @@ const overview = (patch: Partial<ProjectExperiments> = {}): ProjectExperiments =
 function seed(): void {
   h.backendState = h.stateWithRecord("sess-1", "dormant");
   h.useStore.setState({
-    state: h.backendState,
+    state: { ...h.backendState, experimentsEnabled: true },
     advisorDefaults: { "/p": { enabled: false, model: null } },
     experimentDialog: { projectCwd: "/p", instanceId: null },
   });
@@ -428,7 +428,7 @@ describe("Lab view", () => {
       },
     };
     h.useStore.setState({
-      state: h.backendState,
+      state: { ...h.backendState, experimentsEnabled: true },
       tabs: [{ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null }],
       activeTabId: h.TAB,
       experiments: {
@@ -462,6 +462,15 @@ describe("Lab view", () => {
     expect(h.mockBackend.autoresearchExperiment).toHaveBeenCalledWith("/p", h.TAB, 7);
     h.useStore.getState().closeLab();
     expect(h.useStore.getState().lab).toBeNull();
+  });
+
+  it("leaves lab null when openLab runs with the flag off", () => {
+    h.backendState = h.stateWithRecord("sess-1", "dormant");
+    h.useStore.setState({ state: h.backendState, tabs: [], rpc: {} });
+    h.useStore.getState().openLab("/p", null);
+    expect(h.useStore.getState().lab).toBeNull();
+    h.useStore.getState().openExperimentDialog("/p", null);
+    expect(h.useStore.getState().experimentDialog).toBeNull();
   });
 });
 

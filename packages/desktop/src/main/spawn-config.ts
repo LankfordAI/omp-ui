@@ -127,7 +127,10 @@ export async function writeRpcOverlays(
   }
 
   /** The generated `-e` bridges an rpc-ui spawn needs. */
-export function writeRpcExtensions(absLineageDir: string): {
+export function writeRpcExtensions(
+  absLineageDir: string,
+  experimentsEnabled: boolean,
+): {
   paths: string[];
   mcpStatusLoaded: boolean;
   capabilitiesLoaded: boolean;
@@ -175,11 +178,13 @@ export function writeRpcExtensions(absLineageDir: string): {
       console.warn("[browser-pane] could not write the browser-pane extension:", err);
     }
     let autoresearchLoaded = false;
-    try {
-      paths.push(writeAutoresearchExtension(absLineageDir));
-      autoresearchLoaded = true;
-    } catch (err) {
-      console.warn("[autoresearch] could not write the autoresearch extension:", err);
+    if (experimentsEnabled) {
+      try {
+        paths.push(writeAutoresearchExtension(absLineageDir));
+        autoresearchLoaded = true;
+      } catch (err) {
+        console.warn("[autoresearch] could not write the autoresearch extension:", err);
+      }
     }
     return {
       paths,

@@ -43,6 +43,7 @@ export function ProjectActionsSheet({
   const openWorktreeDialog = useStore((st) => st.openWorktreeDialog);
   const openLab = useStore((st) => st.openLab);
   const openExperimentDialog = useStore((st) => st.openExperimentDialog);
+  const experimentsEnabled = useStore((st) => st.state?.experimentsEnabled === true);
 
   return (
     <Sheet open={project !== null} placement="bottom" label={project?.name ?? ""} onClose={onClose}>
@@ -84,26 +85,30 @@ export function ProjectActionsSheet({
             >
               {t("project.actions.newWorktree")}
             </button>
-            <button
-              type="button"
-              className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
-              onClick={() => {
-                openLab(project.path, instanceId);
-                onClose();
-              }}
-            >
-              {t("project.actions.lab")}
-            </button>
-            <button
-              type="button"
-              className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
-              onClick={() => {
-                openExperimentDialog(project.path, instanceId);
-                onClose();
-              }}
-            >
-              {t("project.actions.newExperiment")}
-            </button>
+            {experimentsEnabled && (
+              <button
+                type="button"
+                className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
+                onClick={() => {
+                  openLab(project.path, instanceId);
+                  onClose();
+                }}
+              >
+                {t("project.actions.lab")}
+              </button>
+            )}
+            {experimentsEnabled && (
+              <button
+                type="button"
+                className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
+                onClick={() => {
+                  openExperimentDialog(project.path, instanceId);
+                  onClose();
+                }}
+              >
+                {t("project.actions.newExperiment")}
+              </button>
+            )}
             <button
               type="button"
               className={cn(ACTION_ROW_CLASS, "text-ink-mid")}

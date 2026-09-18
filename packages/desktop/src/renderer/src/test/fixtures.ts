@@ -19,6 +19,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
   defaultAdvisor: false,
     modelFavorites: [],
     skipDeleteConfirmation: false,
+    experimentsEnabled: false,
     themeId: "graphite",
     fontFamilyId: "default",
     transcriptWidth: "wide",

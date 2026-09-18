@@ -513,6 +513,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.subagentInheritHint": "더 좁은 범위의 선택이 없으면 새 세션은 모든 하위 에이전트를 세션 자체 모델로 스폰합니다. 이후에 시작되는 세션과, 에이전트별 선택이 없는 실행 중 세션에 적용됩니다.",
   "settings.general.skipDeleteConfirmation": "삭제 확인 건너뛰기",
   "settings.general.skipDeleteConfirmationHint": "세션을 삭제하면 전체 계보 디렉터리가 지워집니다. 건너뛰면 경고가 표시되지 않습니다.",
+  "settings.general.experiments": "실험실 (베타)",
+  "settings.general.experimentsHint": "OMP의 /autoresearch 루프용 실험실, 새 실험 대화 상자, 자동 연구 칩을 추가합니다. 끄면 해당 화면이 숨겨지고 /autoresearch는 OMP에 남겨집니다. 이후에 시작되는 세션에 적용됩니다.",
   "settings.general.transcriptTextSize": "대화록 글자 크기",
   "settings.general.transcriptTextSizeHint": "네이티브 대화록에만 적용됩니다. 나머지 화면은 문서가 아닌 앱입니다.",
   "settings.general.transcriptTextSizeLabel": "대화록 글자 크기",

@@ -106,7 +106,7 @@ export function CommandPalette() {
 
   const actions = useMemo<Action[]>(() => {
     const out: Action[] = [];
-
+    const experimentsEnabled = state?.experimentsEnabled === true;
     for (const group of state?.projects ?? []) {
       for (const s of group.sessions) {
         if (s.live === "missing") continue;
@@ -130,15 +130,18 @@ export function CommandPalette() {
         run: () => void newSession(group.project.path),
       });
     }
-    // Experiments (issue #559): one launch per project, next to its new-session twin.
-    for (const group of state?.projects ?? []) {
-      out.push({
-        id: `project:experiment:${group.project.path}`,
-        group: t("palette.group.projects"),
-        name: t("palette.action.newExperiment", { name: group.project.name }),
-        desc: group.project.path,
-        run: () => openExperimentDialog(group.project.path, null),
-      });
+    // Experiments (issue #559): one launch per project, next to its new-session
+    // twin. Hidden while the feature flag is off.
+    if (experimentsEnabled) {
+      for (const group of state?.projects ?? []) {
+        out.push({
+          id: `project:experiment:${group.project.path}`,
+          group: t("palette.group.projects"),
+          name: t("palette.action.newExperiment", { name: group.project.name }),
+          desc: group.project.path,
+          run: () => openExperimentDialog(group.project.path, null),
+        });
+      }
     }
     out.push({
       id: "add-project",
@@ -157,13 +160,15 @@ export function CommandPalette() {
       desc: t("palette.action.capabilitiesDesc"),
       run: () => openCapabilitiesViewer(null, undefined, "mcp"),
     });
-    out.push({
-      id: "app:lab",
-      group: t("palette.group.app"),
-      name: t("palette.action.lab"),
-      desc: t("palette.action.labDesc"),
-      run: () => openLab(null, null),
-    });
+    if (experimentsEnabled) {
+      out.push({
+        id: "app:lab",
+        group: t("palette.group.app"),
+        name: t("palette.action.lab"),
+        desc: t("palette.action.labDesc"),
+        run: () => openLab(null, null),
+      });
+    }
 
     const tab = activeTabId === null ? undefined : tabs.find((t) => t.tabId === activeTabId);
     if (tab) {

@@ -203,6 +203,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setExperimentsEnabled(on) {
+      try {
+        await backend.setExperimentsEnabled(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setThemeId(id) {
       const previousId = currentThemeId();
       applyTheme(resolveTheme(id));

@@ -906,9 +906,11 @@ describe("Composer BuildPlanControl", () => {
 
   it("offers omp's autoresearch family once, as omp-ui's own row with its four verbs", () => {
     seed("ready");
-    // omp advertises `autoresearch` itself and its hidden arming command; the
-    // palette shows omp-ui's one row (ADR-0030), never a second for the same action.
+    // omp advertises `autoresearch` itself and its hidden arming command; with
+    // the experiments flag on, the palette shows omp-ui's one row (ADR-0030),
+    // never a second for the same action.
     useStore.setState({
+      state: { ...state, experimentsEnabled: true },
       rpc: {
         [TAB]: {
           ...useStore.getState().rpc[TAB]!,
@@ -929,6 +931,31 @@ describe("Composer BuildPlanControl", () => {
     ]);
     expect(labels.some((l) => l.startsWith("/omp-ui-autoresearch"))).toBe(false);
     expect(labels.filter((l) => /^\/autoresearch (start|lab|off|clear):/.test(l))).toHaveLength(4);
+  });
+
+  it("leaves the autoresearch row to omp while the experiments flag is off", () => {
+    seed("ready");
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          commands: [
+            { name: "autoresearch", description: "omp's own", source: "extension" },
+            { name: "omp-ui-autoresearch", description: "hidden arm", source: "extension" },
+          ],
+        },
+      },
+    });
+    renderComposer();
+    typeDraft("/autoresearch");
+    const labels = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .map((b) => b.getAttribute("aria-label") ?? "")
+      .filter((label) => label.startsWith("/"));
+    // The flag-off palette carries only omp's advertised row; the hidden arming
+    // command stays filtered, and omp-ui's subcommand verbs are absent.
+    expect(labels.filter((l) => l.startsWith("/autoresearch"))).toEqual([
+      "/autoresearch: omp's own",
+    ]);
   });
 
   it("completes the guided-goal draft with its argument", () => {

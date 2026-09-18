@@ -466,6 +466,8 @@ export interface BackendState {
   modelFavorites: string[];
   /** Whether destructive session deletion proceeds without a renderer warning. */
   skipDeleteConfirmation: boolean;
+  /** Global feature flag for the Experiments Lab and its autoresearch bridge (issue #571); app-level, default off. */
+  experimentsEnabled: boolean;
   /** Active theme id; the renderer resolves it against its own theme table. */
   themeId: string;
   /** Active font family id; the renderer resolves it against its own font table. */

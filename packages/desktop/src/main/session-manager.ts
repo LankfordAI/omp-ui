@@ -715,7 +715,7 @@ export class SessionManager {
       goalLoaded,
       browserPaneLoaded,
       autoresearchLoaded,
-    } = writeRpcExtensions(absLineageDir);
+    } = writeRpcExtensions(absLineageDir, this.deps.registry.getSetting("experimentsEnabled"));
     entry.capabilitiesBridgeLoaded = capabilitiesLoaded;
     // The bridge listener outlives the process: a relaunch under the same tab
     // reuses the endpoint, so the agent's remembered URL stays valid (#519).
