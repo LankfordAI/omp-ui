@@ -4,6 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- The **New experiment** dialog can now be configured in conversation: **Configure with the agent** (or `/autoresearch start <text>` in a session) runs an **experiment interview** whose `propose_experiment` call opens the dialog prefilled, and closing it answers as `revise` rather than launching anything ([ADR-0032](adr/0032-experiments-configured-in-conversation.md), [#567](https://github.com/LankfordAI/omp-ui/issues/567)).
 
 ## Choose a download
 
