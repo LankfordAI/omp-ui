@@ -658,6 +658,10 @@ export class MainBackend {
           this.registry.setSetting("skipDeleteConfirmation", skip);
           await this.broadcast();
         },
+        [CH.setExperimentsEnabled]: async (on: boolean) => {
+          this.registry.setSetting("experimentsEnabled", on);
+          await this.broadcast();
+        },
         [CH.setThemeId]: async (id: string) => {
           this.registry.setSetting("themeId", id);
           await this.broadcast();
@@ -1329,6 +1333,7 @@ export class MainBackend {
       themeId: this.registry.getSetting("themeId"),
       fontFamilyId: this.registry.getSetting("fontFamilyId"),
       transcriptWidth: this.registry.getSetting("transcriptWidth"),
+      experimentsEnabled: this.registry.getSetting("experimentsEnabled"),
       glassChrome: this.registry.getSetting("glassChrome"),
       localeId: this.registry.getSetting("localeId"),
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),

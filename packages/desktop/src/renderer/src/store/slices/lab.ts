@@ -182,6 +182,7 @@ export function createLabSlice(
   };
 
   const openLab: LabSlice["openLab"] = (projectCwd = null, instanceId = null, focus) => {
+    if (get().state?.experimentsEnabled !== true) return;
     let view: LabView = { projectCwd, instanceId, experiment: null };
     if (focus !== undefined) {
       const tab = get().tabs.find((candidate) => candidate.tabId === focus.tabId);
@@ -314,6 +315,7 @@ export function createLabSlice(
     },
     closeLab,
     openExperimentDialog(projectCwd, instanceId = null, proposalTabId) {
+      if (get().state?.experimentsEnabled !== true) return;
       set({
         experimentDialog: { projectCwd, instanceId, ...(proposalTabId === undefined ? {} : { proposalTabId }) },
       });

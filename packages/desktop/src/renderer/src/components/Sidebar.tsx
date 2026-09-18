@@ -199,6 +199,7 @@ function ProjectSection({
   const focusedTabId = useStore((st) => st.focusedTabByProject[projectKey(instanceId, group.project.path)]);
   const openProjectSettings = useStore((st) => st.openProjectSettings);
   const openLab = useStore((st) => st.openLab);
+  const experimentsEnabled = useStore((st) => st.state?.experimentsEnabled === true);
   const [open, setOpen] = useState(true);
   const [visible, setVisible] = useState(PAGE);
 
@@ -379,9 +380,11 @@ function ProjectSection({
                   refreshAvailability={refreshAvailability}
                 />
               )}
-              <IconButton label={t("sidebar.project.lab", { name: project.name })} disabled={disabled} onClick={() => openLab(project.path, instanceId)}>
-                <IconFlask />
-              </IconButton>
+              {experimentsEnabled && (
+                <IconButton label={t("sidebar.project.lab", { name: project.name })} disabled={disabled} onClick={() => openLab(project.path, instanceId)}>
+                  <IconFlask />
+                </IconButton>
+              )}
               <IconButton label={t("sidebar.project.settings", { name: project.name })} disabled={disabled} onClick={() => openProjectSettings(project.path, instanceId)}>
                 <IconTune />
               </IconButton>

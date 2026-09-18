@@ -244,6 +244,13 @@ runs, and the record. omp-ui stores no experiment of its own and writes nothing
 OMP owns ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md),
 issue #559); it reads from two sources, because no single seam carries the state.
 
+The whole subsystem sits behind the app-global `experimentsEnabled` flag
+(Settings → General, default off). With the flag off the spawn path never
+writes `omp-ui-autoresearch.ts` into the lineage dir and never sends the arm
+command, so `propose_experiment` is never registered and no snapshot is ever
+published; the renderer hides every Lab and New experiment entry point and
+`/autoresearch start|lab` fall through to OMP verbatim.
+
 Live mode, goal, and tool activity come from another per-lineage generated
 extension. The pure wire contract is
 [`autoresearch.ts`](../packages/core/src/autoresearch.ts), which the generated

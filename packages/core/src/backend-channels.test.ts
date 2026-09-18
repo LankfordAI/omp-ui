@@ -147,6 +147,7 @@ const VALID_ARGS = {
   setDefaultCompactionMethod: [null],
   setDefaultMode: ["rpc-ui"],
   setDesktopNotifications: [true],
+  setExperimentsEnabled: [true],
   setFontFamilyId: ["mono"],
   setGlassChrome: ["subtle"],
   setHibernateIdleMinutes: [30],

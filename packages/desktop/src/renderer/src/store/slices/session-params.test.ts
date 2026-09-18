@@ -618,7 +618,10 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("/autoresearch lab and /autoresearch start open omp-ui's surfaces and send nothing", async () => {
-    h.useStore.setState({ tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })] });
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+      state: { ...h.backendState, experimentsEnabled: true },
+    });
     await h.useStore.getState().runSlashCommand(h.TAB, "/autoresearch lab");
     expect(h.sent).toHaveLength(0);
     expect(h.useStore.getState().lab).toMatchObject({ projectCwd: "/p", instanceId: null });
@@ -628,7 +631,10 @@ describe("prompting, slash commands, and session ops", () => {
   });
 
   it("/autoresearch start <text> interviews in this tab and opens no dialog", async () => {
-    h.useStore.setState({ tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })] });
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+      state: { ...h.backendState, experimentsEnabled: true },
+    });
     h.sent.length = 0;
     const run = h.useStore.getState().runSlashCommand(h.TAB, "/autoresearch start make the tests faster");
     const prompts = h.sent.filter((s) => s.cmd.type === "prompt");
@@ -644,6 +650,7 @@ describe("prompting, slash commands, and session ops", () => {
   it("/autoresearch start <text> reports an unmountable bridge instead of prompting", async () => {
     h.useStore.setState({
       tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+      state: { ...h.backendState, experimentsEnabled: true },
       rpc: {
         [h.TAB]: rpcTabState({
           autoresearch: {
@@ -688,6 +695,19 @@ describe("prompting, slash commands, and session ops", () => {
     expect(h.useStore.getState().lab).toBeNull();
     await settleAll();
     await promise;
+  });
+
+  it("/autoresearch lab and start reach omp verbatim while the flag is off", async () => {
+    h.useStore.setState({ tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })] });
+    for (const line of ["/autoresearch lab", "/autoresearch start go"]) {
+      h.sent.length = 0;
+      const promise = h.useStore.getState().runSlashCommand(h.TAB, line);
+      expect(h.sent.some((s) => s.cmd.type === "prompt" && s.cmd.message === line)).toBe(true);
+      await settleAll();
+      await promise;
+    }
+    expect(h.useStore.getState().lab).toBeNull();
+    expect(h.useStore.getState().experimentDialog).toBeNull();
   });
 
   it("busy is true while a command is in flight and survives a concurrent one", async () => {

@@ -559,6 +559,9 @@ export const en = {
   "settings.general.skipDeleteConfirmation": "Skip the delete confirmation",
   "settings.general.skipDeleteConfirmationHint":
     "Deleting a session erases its whole lineage dir; skipping removes the warning.",
+  "settings.general.experiments": "Experiments lab (beta)",
+  "settings.general.experimentsHint":
+    "Adds the Lab, the New experiment dialog, and the autoresearch chip for OMP's /autoresearch loop. Off hides those surfaces and leaves /autoresearch to OMP. Applies to sessions started afterwards.",
   "settings.general.transcriptTextSize": "Transcript text size",
   "settings.general.transcriptTextSizeHint":
     "Native transcripts only — the rest of the chrome is an app, not a document.",

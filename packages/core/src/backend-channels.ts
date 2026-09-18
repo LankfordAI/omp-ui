@@ -317,6 +317,11 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setSkipDeleteConfirmation",
     ...request<[skip: boolean], void>([bool()]),
   },
+  /** Global feature flag for the Experiments Lab and autoresearch bridge. */
+  setExperimentsEnabled: {
+    channel: "settings:setExperimentsEnabled",
+    ...request<[on: boolean], void>([bool()]),
+  },
   setThemeId: { channel: "settings:setThemeId", ...request<[id: string], void>([str()]) },
   setFontFamilyId: { channel: "settings:setFontFamilyId", ...request<[id: string], void>([str()]) },
   setTranscriptWidth: {

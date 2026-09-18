@@ -275,6 +275,7 @@ export default function App() {
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
   const lab = useStore((s) => s.lab);
   const experimentDialog = useStore((s) => s.experimentDialog);
+  const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
   const settingsPage = useStore((s) => s.settingsPage);
   const openSettings = useStore((s) => s.openSettings);
   const toggleConsole = useStore((s) => s.toggleConsole);
@@ -306,6 +307,15 @@ export default function App() {
       findOwner(state, capabilitiesViewer.tabId) === undefined)
       ? null
       : capabilitiesViewer;
+
+  // Turning the feature off must not leave an open Lab or dialog behind: close
+  // both, which stops the Lab's refresh timer through closeLab.
+  useEffect(() => {
+    if (experimentsEnabled) return;
+    const s = useStore.getState();
+    if (s.lab !== null) s.closeLab();
+    if (s.experimentDialog !== null) s.closeExperimentDialog();
+  }, [experimentsEnabled]);
 
   // The keyboard twin of the composer's /new: a new live session in the current
   // tab's project. No current project (nothing focused yet, or every tab hidden)
@@ -476,8 +486,8 @@ export default function App() {
                 </div>
               );
             })}
-            {lab !== null && <Lab view={lab} />}
-            {visibleTabs.length === 0 && lab === null && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
+            {lab !== null && experimentsEnabled && <Lab view={lab} />}
+            {visibleTabs.length === 0 && (lab === null || !experimentsEnabled) && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
           </div>
         </div>
       </div>
@@ -512,7 +522,7 @@ export default function App() {
       {worktreeDialogProject !== null && (
         <NewWorktreeSessionDialog projectCwd={worktreeDialogProject} instanceId={worktreeDialogInstanceId} />
       )}
-      {experimentDialog !== null && (
+      {experimentDialog !== null && experimentsEnabled && (
         <NewExperimentDialog
           key={experimentDialog.proposalTabId ?? "blank"}
           projectCwd={experimentDialog.projectCwd}

@@ -683,7 +683,7 @@ describe("Sidebar project open control (issue #169)", () => {
         removeEventListener: vi.fn(),
       })),
     });
-    useStore.setState({ compactSurface: "sessions" });
+    useStore.setState({ compactSurface: "sessions", state: { ...state, experimentsEnabled: true } });
     renderSidebar();
 
     // The compact header carries no ProjectOpenControl — one ⋯ trigger only.
@@ -707,7 +707,6 @@ describe("Sidebar project open control (issue #169)", () => {
       "Project settings…",
       "Remove project…",
     ]);
-
     const sessionsSheet = document.body.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="projects and sessions"]',
     );
@@ -723,6 +722,34 @@ describe("Sidebar project open control (issue #169)", () => {
     );
     expect(useStore.getState().compactSurface).toBe("sessions");
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("omits the experiment rows from the actions sheet while the flag is off", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+    useStore.setState({ compactSurface: "sessions" });
+    renderSidebar();
+
+    act(() => button("actions for Project One").click());
+    const actions = document.body.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Project One"]',
+    )!;
+    const rows = [...actions.querySelectorAll<HTMLButtonElement>("button")]
+      .map((row) => row.textContent?.trim())
+      .filter((text): text is string => text !== undefined && text !== "");
+    expect(rows).toEqual([
+      "New session",
+      "New terminal session",
+      "New worktree session…",
+      "Project settings…",
+      "Remove project…",
+    ]);
   });
 
   it("isolates pointer, click, and dragstart from both segments and a portaled menu item", async () => {

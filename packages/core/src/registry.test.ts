@@ -75,6 +75,7 @@ describe("SETTINGS", () => {
       "subagentModelInheritByDefault",
       "agentRoster",
       "skipDeleteConfirmation",
+      "experimentsEnabled",
       "sessionOrderFrozen",
       "dismissedAppUpdateVersion",
       "dismissedOmpUpdateVersion",
@@ -116,6 +117,7 @@ describe("Registry.load", () => {
     expect(reg.getSetting("defaultMode")).toBe("rpc-ui");
     expect(reg.getSetting("defaultAgentMode")).toBe("plan");
     expect(reg.getSetting("skipDeleteConfirmation")).toBe(false);
+    expect(reg.getSetting("experimentsEnabled")).toBe(false);
     // Issue #109: HTML is the default plan review rendition.
     expect(reg.getSetting("planFormat")).toBe("html");
     // Issue #246: idle rpc-ui sessions hibernate after a 30 min quiet window.
@@ -621,6 +623,7 @@ describe("Registry persistence", () => {
       ["desktopNotifications", (registry) => registry.setSetting("desktopNotifications", true)],
       ["defaultAdvisor", (registry) => registry.setSetting("defaultAdvisor", false)],
       ["skipDeleteConfirmation", (registry) => registry.setSetting("skipDeleteConfirmation", false)],
+      ["experimentsEnabled", (registry) => registry.setSetting("experimentsEnabled", false)],
       ["themeId", (registry) => registry.setSetting("themeId", "graphite")],
       ["fontFamilyId", (registry) => registry.setSetting("fontFamilyId", "default")],
       ["transcriptWidth", (registry) => registry.setSetting("transcriptWidth", "wide")],

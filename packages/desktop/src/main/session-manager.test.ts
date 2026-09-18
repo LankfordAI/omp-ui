@@ -404,7 +404,8 @@ describe("MCP runtime status bridge", () => {
     // every spawn, Build included (issue #142; regression #256). The goal arm
     // rides before the mode command so goal restoration answers Plan entry's
     // unfinished-goal check (issue #381); the capabilities arm follows, then
-    // the browser-pane endpoint and the autoresearch arm (issue #559).
+    // the browser-pane endpoint. The autoresearch arm (issue #559) follows the
+    // pane endpoint only while experimentsEnabled is on (off by default).
     const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
       ?.map((command) => command.message);
     expect(messages).toEqual([
@@ -413,8 +414,32 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
-      Core.autoresearchArmMessage(),
     ]);
+  });
+
+  it("arms the autoresearch bridge only when experimentsEnabled is on", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("experimentsEnabled", true);
+    await manager.spawn({
+      origin: "new",
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+    });
+
+    const options = RpcClientMock.mock.calls.at(-1)?.[0];
+    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
+      ?.map((command) => command.message);
+    // Off above, on here: the arm command is appended last only with the flag
+    // set, and the bridge file rides into `extensions` with it.
+    expect(messages?.at(-1)).toBe(Core.autoresearchArmMessage());
+    expect(options?.extensions).toContainEqual(
+      expect.stringMatching(/omp-ui-autoresearch\.ts$/),
+    );
   });
 
   it("flushes MCP status before entering initial Plan mode", async () => {
@@ -435,7 +460,6 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
-      Core.autoresearchArmMessage(),
     ]);
   });
 
@@ -467,7 +491,6 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
-      Core.autoresearchArmMessage(),
     ]);
     expect(RpcClientMock).toHaveBeenCalledTimes(1);
     expect(warning).toHaveBeenCalledWith(
@@ -563,7 +586,6 @@ describe("session capabilities bridge (issue #374)", () => {
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
-      Core.autoresearchArmMessage(),
     ]);
 
     // Bridged but silent so far: the viewer sees "starting", not an empty roster.
@@ -616,7 +638,6 @@ describe("session capabilities bridge (issue #374)", () => {
       Core.goalArmMessage(),
       Core.planMessage(false, "html"),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
-      Core.autoresearchArmMessage(),
     ]);
     await expect(manager.getSessionCapabilities(TAB)).resolves.toEqual({
       status: "bridge-unavailable",

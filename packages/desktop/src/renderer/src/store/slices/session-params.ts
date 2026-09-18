@@ -159,6 +159,7 @@ const localCommands: readonly LocalCommand[] = [
     // (issue #567) — the /guided-goal shape.
     match: /^\/autoresearch\s+start(?:\s+[\s\S]+)?$/i,
     run(tabId, get, line) {
+      if (get().state?.experimentsEnabled !== true) return false;
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui") return false;
       const text = line.replace(/^\/autoresearch\s+start/i, "").trim();
@@ -172,6 +173,7 @@ const localCommands: readonly LocalCommand[] = [
   {
     match: /^\/autoresearch\s+lab$/i,
     run(tabId, get) {
+      if (get().state?.experimentsEnabled !== true) return false;
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui") return false;
       get().openLab(tab.projectCwd, tab.instanceId, { tabId });

@@ -76,6 +76,7 @@ export function Composer({
   const drainComposerQueue = useStore((s) => s.drainComposerQueue);
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
   const commands = useStore((s) => s.rpc[tabId]?.commands ?? NO_COMMANDS);
+  const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
   // UI_PLAN_COMMAND is the palette's one canonical plan entry: omp's own
   // `plan` is TUI-only (ADR-0007) and the extension's `omp-ui-plan` is the
   // driver the intercept rewrites to, so both are filtered out.
@@ -98,14 +99,18 @@ export function Composer({
         })),
       },
       { ...UI_GUIDED_GOAL_COMMAND, description: t("composer.slash.guidedGoal") },
-      {
-        ...UI_AUTORESEARCH_COMMAND,
-        description: t("composer.slash.autoresearch"),
-        subcommands: UI_AUTORESEARCH_SUBCOMMANDS.map((sub) => ({
-          name: sub.name,
-          description: t(sub.key),
-        })),
-      },
+      ...(experimentsEnabled
+        ? [
+            {
+              ...UI_AUTORESEARCH_COMMAND,
+              description: t("composer.slash.autoresearch"),
+              subcommands: UI_AUTORESEARCH_SUBCOMMANDS.map((sub) => ({
+                name: sub.name,
+                description: t(sub.key),
+              })),
+            },
+          ]
+        : []),
     ];
     const owned = new Set(uiEntries.map((entry) => entry.name));
     return [
@@ -123,7 +128,7 @@ export function Composer({
           !owned.has(c.name),
       ),
     ];
-  }, [commands, localeId, t]);
+  }, [commands, experimentsEnabled, localeId, t]);
   const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
   const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
