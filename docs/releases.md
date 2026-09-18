@@ -112,9 +112,13 @@ workflow asserts the feeds are present before finishing. The prerelease flag,
 not feed absence, is what keeps nightlies off the stable train: the `nightly`
 release stays invisible to `releases/latest`, to `packaging/install.sh`, and
 to the stable train's update check. A nightly's version prefix equals the
-latest stable, so the stable train's check compares equal and reports "no
-update available" until a newer stable ships; the nightly train's ordering
-instead ranks each newer nightly ahead and offers it (issue #493).
+latest stable, and on the stable train the bare stable release outranks that
+same-base prerelease, so a nightly install following the stable train is
+offered the stable build and returns to it; the nightly train instead ranks
+each newer nightly ahead (issue #493). Staging pins electron-updater's
+`allowPrerelease` to the train, because left to itself the GitHub provider
+infers a release channel from the installed prerelease version and finds no
+matching tag for the rolling `nightly` release.
 
 ## Publish a release
 

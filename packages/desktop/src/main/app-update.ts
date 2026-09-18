@@ -45,6 +45,9 @@ export interface AutoUpdaterLike {
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
   allowDowngrade: boolean;
+  /** GitHub provider only. electron-updater infers it from the installed
+  *  version, which is a prerelease for a nightly build. */
+  allowPrerelease: boolean;
   setFeedURL(
     options:
       | { provider: "github"; owner: string; repo: string }
@@ -512,6 +515,15 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       // Same-base nightly is semver-older than stable; allow the opted-in
       // nightly transition, then reset this flag on every stable stage.
       autoUpdater.allowDowngrade = train === "nightly";
+      // The GitHub provider picks a stable release by prerelease *channel* when
+      // allowPrerelease is set, and it derives that flag from the installed
+      // version. A nightly install would then search releases.atom for a tag
+      // with a `nightly` prerelease; nightlies live under the literal,
+      // non-semver `nightly` tag, so the search finds nothing and electron-updater
+      // fails with "No published versions on GitHub" (issue #568). Pin the flag to
+      // the train: stable resolves /releases/latest, and the nightly train's
+      // generic feed never reads it.
+      autoUpdater.allowPrerelease = train === "nightly";
 
       const result = await autoUpdater.checkForUpdates();
       // A superseded call never publishes for the new generation's stage.
