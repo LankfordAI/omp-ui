@@ -201,6 +201,10 @@ export {
   type OmpConfigRunner,
 } from "./omp-settings";
 export {
+  MEMORY_DEFAULT_SEED,
+  seedMemoryDefaults,
+} from "./memory-defaults";
+export {
   normalizeWebSearchOrder,
   parseWebSearchProviderList,
   unknownWebSearchProviders,

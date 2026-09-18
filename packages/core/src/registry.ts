@@ -45,6 +45,8 @@ export interface RegistrySettings {
   skipDeleteConfirmation: boolean;
   /** One-time migration marker (#274): the sessions array order is explicit; load never re-sorts it. */
   sessionOrderFrozen: boolean;
+  /** One-time seed marker (issue #570): memory defaults were applied to omp's global layer once. */
+  memoryDefaultsSeeded: boolean;
   /** Release version whose update card the user dismissed ("Later"). */
   dismissedAppUpdateVersion: string | null;
   /** omp version whose update/install card the user dismissed ("Later"). */
@@ -186,6 +188,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   sessionOrderFrozen: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  memoryDefaultsSeeded: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),

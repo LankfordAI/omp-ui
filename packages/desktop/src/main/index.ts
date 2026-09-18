@@ -350,6 +350,11 @@ if (!app.requestSingleInstanceLock()) {
     // The fresh-spawn gate consults the subscription account cache, so prime
     // it at boot the same way the shell keys are (issue #368).
     void be.refreshProviderOAuth();
+    // omp's own defaults leave durable recall off, so seed the divergent
+    // memory keys once into omp's global layer (issue #570). Void-fired like
+    // the pair above: the writes finish long before the user registers a
+    // project and opens the first tab, and a failed pass retries next boot.
+    void be.seedMemoryDefaultsOnce();
 
     win.on("close", (e) => {
       // updateQuitAuthorized: the close was issued by native quitAndInstall,
