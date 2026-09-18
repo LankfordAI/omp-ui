@@ -124,6 +124,8 @@ Focus a session to see its resolved backend and scoping, base directory, global 
 
 Edits run through `omp config set` and write only omp's global configuration. A focused project's `.omp/config.yml` has higher precedence, so a value marked `project` can continue to override the global edit. Values marked `global` come from omp's global file; unbadged values are omp defaults. omp rewrites the global YAML when it saves, which drops comments from that file.
 
+On its first run the app writes `memory.backend: mnemopi`, `mnemopi.scoping: per-project-tagged`, and `autolearn.enabled: true` into omp's global configuration, but only for keys no configuration layer already sets; later installs, project overrides, and explicit choices are never rewritten. Turning a value back to omp's default on this page writes it explicitly, so the seed does not undo it.
+
 Memory configuration applies to sessions started after the change. Existing omp processes keep the configuration they started with.
 
 ## omp

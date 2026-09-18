@@ -59,6 +59,7 @@ import {
   readProjectConfigValue,
   setProjectConfigMapEntry,
   setProjectConfigValue,
+  seedMemoryDefaults,
   writeOmpSetting,
   collectDiagnosticsBundle,
   previewDiagnosticsBundle,
@@ -1139,6 +1140,22 @@ export class MainBackend {
    */
   refreshProviderOAuth(): Promise<void> {
     return this.providerOAuth.refresh().then(() => undefined);
+  }
+
+  /**
+   * One-time memory-default seed (issue #570): writes the memory keys omp's own
+   * defaults leave behind into omp's global layer, but only keys no config
+   * layer already names. Fire-and-forget: a missing omp binary or a failed
+   * write leaves the marker unset and retries next boot.
+   */
+  seedMemoryDefaultsOnce(): Promise<void> {
+    if (this.registry.getSetting("memoryDefaultsSeeded")) return Promise.resolve();
+    return seedMemoryDefaults(this.ompPath).then(
+      (done) => {
+        if (done) this.registry.setSetting("memoryDefaultsSeeded", true);
+      },
+      () => {},
+    );
   }
 
   /** Brings the embedded remote server in line with persisted settings. Called once at launch. */

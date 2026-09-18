@@ -76,6 +76,7 @@ describe("SETTINGS", () => {
       "agentRoster",
       "skipDeleteConfirmation",
       "sessionOrderFrozen",
+      "memoryDefaultsSeeded",
       "dismissedAppUpdateVersion",
       "dismissedOmpUpdateVersion",
       "themeId",
