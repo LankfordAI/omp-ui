@@ -50,6 +50,19 @@ export const SUBAGENT_MODEL_SETTING_GROUP: OmpSettingGroup = {
   keys: [OMP_SUBAGENT_MODELS_KEY],
 };
 
+/**
+ * The subagent fan-out cap. Allowlisted but NOT in OMP_SETTING_GROUPS: a
+ * plain group row commits through `omp config set`, which is Global-only by
+ * construction, so the page's dedicated "Subagent concurrency" section edits
+ * this key at the Global or Project layer explicitly instead (a row would be
+ * a Global-only duplicate).
+ */
+export const OMP_MAX_CONCURRENCY_KEY = "task.maxConcurrency";
+export const SUBAGENT_CONCURRENCY_SETTING_GROUP: OmpSettingGroup = {
+  title: "Subagent concurrency",
+  keys: [OMP_MAX_CONCURRENCY_KEY],
+};
+
 /** The omp settings the settings surface exposes, grouped for the omp page. */
 export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
   {

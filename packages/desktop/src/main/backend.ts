@@ -56,7 +56,9 @@ import {
   isSafeSelector,
   parseUnpackedAgentNames,
   readProjectConfigMap,
+  readProjectConfigValue,
   setProjectConfigMapEntry,
+  setProjectConfigValue,
   writeOmpSetting,
   collectDiagnosticsBundle,
   previewDiagnosticsBundle,
@@ -95,6 +97,7 @@ import {
   type PlanFormat,
   type ProjectGroup,
   type ProjectOpenTarget,
+  type ProjectScalarResult,
   type ProjectSubagentModelsResult,
   type SubagentModelMap,
 } from "@omp-ui/core";
@@ -584,6 +587,19 @@ export class MainBackend {
             throw new Error(`refusing unsafe model selector: ${value}`);
           }
           await setProjectConfigMapEntry(projectCwd, ["task", "agentModelOverrides"], agent, value);
+        },
+        [CH.getProjectMaxConcurrency]: (projectCwd: string): ProjectScalarResult => {
+          const layer = readProjectConfigValue(projectCwd, ["task", "maxConcurrency"]);
+          return { value: layer.shape === "value" ? layer.value : undefined, layer };
+        },
+        [CH.setProjectMaxConcurrency]: async (projectCwd: string, value: number | null) => {
+          // The writer emits numbers bare, but a cap omp could never honor —
+          // zero, a fraction, NaN — would hang or starve every spawn. Refuse
+          // before touching the file, same stance as the agent-name guard.
+          if (value !== null && (!Number.isInteger(value) || value < 1)) {
+            throw new Error(`refusing invalid maxConcurrency: ${value}`);
+          }
+          await setProjectConfigValue(projectCwd, ["task", "maxConcurrency"], value);
         },
         [CH.setDefaultMode]: async (mode: SessionMode) => {
           this.registry.setSetting("defaultMode", mode);

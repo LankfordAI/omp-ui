@@ -6,6 +6,7 @@ import {
   readOmpSettings,
   readWebSearchProviders,
   writeOmpSetting,
+  OMP_MAX_CONCURRENCY_KEY,
   OMP_MODEL_ROLES_KEY,
   pristineEnvironment,
   type OmpConfigRunner,
@@ -231,6 +232,37 @@ describe("readOmpSettings", () => {
     );
     expect(snapshot.entries.map((e) => e.key)).toEqual(["advisor.enabled"]);
   });
+
+  it("emits the allowlisted task.maxConcurrency with omp's number schema", async () => {
+    const schema = entry(32, "number", "Maximum number of subagents running concurrently");
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: "/repo" },
+      fakeRunner(
+        {
+          effective: { [OMP_MAX_CONCURRENCY_KEY]: entry(8, "number", "Maximum number of subagents running concurrently") },
+          global: { [OMP_MAX_CONCURRENCY_KEY]: schema },
+          pristine: { [OMP_MAX_CONCURRENCY_KEY]: schema },
+        },
+        "/repo",
+      ),
+    );
+    expect(snapshot.error).toBeNull();
+    expect(snapshot.entries.find((e) => e.key === OMP_MAX_CONCURRENCY_KEY)).toMatchObject({
+      type: "number",
+      description: "Maximum number of subagents running concurrently",
+      value: 8,
+      globalValue: 32,
+      layer: "project",
+    });
+  });
+
+  it("emits nothing for task.maxConcurrency on an omp that predates the key", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner({ global: {}, pristine: {} }, null),
+    );
+    expect(snapshot.entries.some((e) => e.key === OMP_MAX_CONCURRENCY_KEY)).toBe(false);
+  });
 });
 
 describe("OpenRouter variant", () => {
@@ -451,6 +483,18 @@ describe("writeOmpSetting", () => {
       "--",
       "-1",
     ]);
+  });
+
+  it("allowlists task.maxConcurrency and puts the number in argv bare", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: OMP_MAX_CONCURRENCY_KEY, value: 8 },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", OMP_MAX_CONCURRENCY_KEY, "8", "--json"]);
   });
 
   it("propagates omp's stderr message unchanged", async () => {

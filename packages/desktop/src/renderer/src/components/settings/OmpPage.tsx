@@ -8,8 +8,9 @@ import { findRecord, sessionCwd, useStore } from "../../store";
 import { Button, Empty, Label } from "../ui";
 import { CommitField, Row, SettingControl, layerBadge } from "./rows";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
-import { OMP_SUBAGENT_MODELS_KEY } from "@omp-ui/core/omp-settings-keys";
+import { OMP_MAX_CONCURRENCY_KEY, OMP_SUBAGENT_MODELS_KEY } from "@omp-ui/core/omp-settings-keys";
 import { SubagentModelsSection } from "./SubagentModelsSection";
+import { SubagentConcurrencySection } from "./SubagentConcurrencySection";
 import { useT } from "../../lib/i18n";
 
 export function OmpPage({
@@ -168,6 +169,14 @@ export function OmpPage({
 
       <SubagentModelsSection
         entry={byKey.get(OMP_SUBAGENT_MODELS_KEY)}
+        projectCwd={projectCwd}
+        pendingKey={pendingKey}
+        commit={commit}
+        retry={retry}
+      />
+
+      <SubagentConcurrencySection
+        entry={byKey.get(OMP_MAX_CONCURRENCY_KEY)}
         projectCwd={projectCwd}
         pendingKey={pendingKey}
         commit={commit}

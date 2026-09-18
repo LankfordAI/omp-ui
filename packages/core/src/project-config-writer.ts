@@ -24,7 +24,7 @@ import { writeTextAtomic } from "./atomic-write";
 const CONFIG_FILENAMES = ["config.yml", "config.yaml"] as const;
 
 /** Value shapes this writer can emit in the grammar omp's own writer uses. */
-export type ProjectConfigValue = string | boolean | string[];
+export type ProjectConfigValue = string | boolean | number | string[];
 
 /** What a project-layer read found for one two-level key path. */
 export type ProjectConfigRead =
@@ -75,7 +75,14 @@ function scalarOut(value: string): string {
   return plain ? value : `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-function scalarOf(value: string | boolean): string {
+function scalarOf(value: string | boolean | number): string {
+  if (typeof value === "number") {
+    // Bare digits are YAML's own number form; quoting would type it as a
+    // string, and omp's number settings reject that. NaN/Infinity fail
+    // Number.isInteger, so this refuses them before any byte is written.
+    if (!Number.isInteger(value)) throw new Error(`invalid project config number: ${value}`);
+    return String(value);
+  }
   return typeof value === "boolean" ? (value ? "true" : "false") : scalarOut(value);
 }
 
@@ -481,14 +488,58 @@ export function readProjectConfigMap(
 }
 
 /**
+ * Remove one two-level value from the project's config layer, in place. Never
+ * creates a file: a project with no config has nothing to clear. Deleting a
+ * child takes its block lines with it, and a parent block left with no content
+ * is pruned too — the same shape `omp config set`'s layer would never write.
+ * Throws (naming file and line) on any shape outside the grammar.
+ */
+async function deleteProjectConfigValue(
+  projectCwd: string,
+  keyPath: readonly string[],
+): Promise<void> {
+  const [parent, child] = [keyPath[0]!, keyPath[1]!];
+  const file = projectConfigFile(projectCwd);
+  if (!fs.existsSync(file)) return;
+  const text = fs.readFileSync(file, "utf8");
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  if (/^---/m.test(text)) {
+    const i = text.split(/\r?\n/).findIndex((l) => l.startsWith("---"));
+    throw new Refuse(file, i + 1, "multi-document YAML is outside this writer's grammar");
+  }
+  const model = modelize(text);
+  const out = model.lines.map((l) => l.text);
+  const parentLine = findParent(model, file, parent);
+  if (parentLine === null) return;
+  const end = blockEnd(model, parentLine);
+  const hit = findChild(model, file, parentLine, child);
+  if (hit === null) return;
+  const lastContent = [...hit.block].reverse().find((j) => !isCommentOrBlank(model.lines[j]!));
+  const blockLast = lastContent === undefined ? hit.line : lastContent;
+  // Other content in the parent block survives beside the deleted child; a
+  // block left with nothing but comments is pruned down to its parent line.
+  const remaining = model.lines
+    .slice(parentLine + 1, end)
+    .some((line, i) => {
+      const at = parentLine + 1 + i;
+      return (at < hit.line || at > blockLast) && !isCommentOrBlank(line);
+    });
+  const start = remaining ? hit.line : parentLine;
+  out.splice(start, blockLast - start + 1);
+  writeTextAtomic(file, out.join(eol));
+}
+
+/**
  * Write one two-level value into the project's config layer, in place.
  * Creates the file (mode 0o600) when neither config.yml nor config.yaml
- * exists. Throws (naming file and line) on any shape outside the grammar.
+ * exists. `value: null` deletes the key instead — never creating anything,
+ * and pruning a parent block the deletion leaves empty. Throws (naming file
+ * and line) on any shape outside the grammar.
  */
 export async function setProjectConfigValue(
   projectCwd: string,
   keyPath: readonly string[],
-  value: ProjectConfigValue,
+  value: ProjectConfigValue | null,
 ): Promise<void> {
   if (
     keyPath.length !== 2 ||
@@ -496,7 +547,14 @@ export async function setProjectConfigValue(
   ) {
     throw new Error(`invalid project config key path: ${keyPath.join(".")}`);
   }
+  if (value === null) {
+    await deleteProjectConfigValue(projectCwd, keyPath);
+    return;
+  }
   const [parent, child] = [keyPath[0]!, keyPath[1]!];
+  // The delete branch returned above, so what the emit closure below writes
+  // is a value; the alias carries that narrowing into the closure.
+  const write = value;
   const file = projectConfigFile(projectCwd);
   const existed = fs.existsSync(file);
   const text = existed ? fs.readFileSync(file, "utf8") : "";
@@ -508,12 +566,12 @@ export async function setProjectConfigValue(
 
   /** The child block `indent` columns in: `child: v`, or `child:` + seq items. */
   const childLines = (indent: number): string[] =>
-    Array.isArray(value)
+    Array.isArray(write)
       ? [
           `${" ".repeat(indent)}${child}:`,
-          ...value.map((item) => `${" ".repeat(indent + 2)}- ${scalarOf(item)}`),
+          ...write.map((item) => `${" ".repeat(indent + 2)}- ${scalarOf(item)}`),
         ]
-      : [`${" ".repeat(indent)}${child}: ${scalarOf(value)}`];
+      : [`${" ".repeat(indent)}${child}: ${scalarOf(write)}`];
 
   if (!existed) {
     // A fresh file gets omp's own shape: `parent:` at column 0, `child:` at 2.
