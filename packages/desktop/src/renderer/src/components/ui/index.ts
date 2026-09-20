@@ -7,6 +7,7 @@ export {
   IconGrip,
   IconPlus,
   IconRefresh,
+  IconSearch,
   IconTune,
   StarIcon,
 } from "./icons";

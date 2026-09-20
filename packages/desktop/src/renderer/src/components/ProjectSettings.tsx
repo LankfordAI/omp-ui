@@ -392,8 +392,8 @@ export function ProjectSettings({
   if (project === null) return null;
 
   return (
-    <Modal onClose={onClose} width="w-[40rem]">
-      <section role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
+    <Modal onClose={onClose} width="w-[40rem]" labelledBy="project-settings-title">
+      <section>
         <header className="border-b border-line px-4 py-3.5">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
             {t("project.settings.title")}

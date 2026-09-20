@@ -430,23 +430,37 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   },
 });
 
+type SessionOwner = { instanceId: string | null; record: SessionSummary };
+const ownerIndexes = new WeakMap<BackendState, ReadonlyMap<string, SessionOwner>>();
+
+function ownerIndex(state: BackendState): ReadonlyMap<string, SessionOwner> {
+  const cached = ownerIndexes.get(state);
+  if (cached) return cached;
+  const index = new Map<string, SessionOwner>();
+  for (const project of state.projects) {
+    for (const record of project.sessions) {
+      if (!index.has(record.tabId)) index.set(record.tabId, { instanceId: null, record });
+    }
+  }
+  for (const instance of state.remoteInstances) {
+    for (const project of instance.projects) {
+      for (const record of project.sessions) {
+        if (!index.has(record.tabId)) {
+          index.set(record.tabId, { instanceId: instance.id, record });
+        }
+      }
+    }
+  }
+  ownerIndexes.set(state, index);
+  return index;
+}
+
 /** The session record for a tab: local projects first, then every joined instance's. */
 export function findRecord(
   state: BackendState | null,
   tabId: string,
 ): SessionSummary | undefined {
-  if (state === null) return undefined;
-  for (const project of state.projects) {
-    const record = project.sessions.find((session) => session.tabId === tabId);
-    if (record) return record;
-  }
-  for (const instance of state.remoteInstances) {
-    for (const project of instance.projects) {
-      const record = project.sessions.find((session) => session.tabId === tabId);
-      if (record) return record;
-    }
-  }
-  return undefined;
+  return state === null ? undefined : ownerIndex(state).get(tabId)?.record;
 }
 
 /**
@@ -457,19 +471,8 @@ export function findRecord(
 export function findOwner(
   state: BackendState | null,
   tabId: string,
-): { instanceId: string | null; record: SessionSummary } | undefined {
-  if (state === null) return undefined;
-  for (const project of state.projects) {
-    const record = project.sessions.find((session) => session.tabId === tabId);
-    if (record) return { instanceId: null, record };
-  }
-  for (const instance of state.remoteInstances) {
-    for (const project of instance.projects) {
-      const record = project.sessions.find((session) => session.tabId === tabId);
-      if (record) return { instanceId: instance.id, record };
-    }
-  }
-  return undefined;
+): SessionOwner | undefined {
+  return state === null ? undefined : ownerIndex(state).get(tabId);
 }
 
 export function findInstance(

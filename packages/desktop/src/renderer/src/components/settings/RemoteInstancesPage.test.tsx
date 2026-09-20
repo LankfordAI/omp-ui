@@ -92,6 +92,27 @@ describe("RemoteInstancesPage (issue #416)", () => {
     expect(input("Connection URL").value).toBe("");
   });
 
+  it("cancels a secret draft on Escape without bubbling to Settings", async () => {
+    render();
+    const secret = input("Password");
+    await typeInto(secret, "unfinished");
+    const bubbled = vi.fn();
+    document.body.addEventListener("keydown", bubbled);
+
+    await act(async () => {
+      secret.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(secret.value).toBe("");
+    expect(bubbled).not.toHaveBeenCalled();
+  });
+
   it("takes the token from a pasted token link and hides the secret field", async () => {
     render();
     await typeInto(input("Connection URL"), "http://box-b:4677/?t=abc123");

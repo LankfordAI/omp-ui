@@ -963,10 +963,17 @@ describe("Registry mutations", () => {
     delete legacy.model;
     delete legacy.thinkingLevel;
     delete legacy.advisorModel;
+    delete legacy.advisor;
     fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }));
     const reg = Registry.load(file);
     expect(reg.sessions).toHaveLength(1);
-    expect(reg.sessions[0]).toMatchObject({ model: null, thinkingLevel: null, advisorModel: null, subagentModels: null });
+    expect(reg.sessions[0]).toMatchObject({
+      model: null,
+      thinkingLevel: null,
+      advisor: false,
+      advisorModel: null,
+      subagentModels: null,
+    });
   });
 
   it("updateSession applies partial patches", () => {
@@ -1382,6 +1389,7 @@ describe("legacy registries with absent optional fields (issue #294)", () => {
       "model",
       "thinkingLevel",
       "compactionMethod",
+      "advisor",
       "agentMode",
       "worktree",
       "planImplementationSource",
@@ -1406,6 +1414,7 @@ describe("legacy registries with absent optional fields (issue #294)", () => {
     expect(reg.sessions[0]).toMatchObject({
       model: null,
       thinkingLevel: null,
+      advisor: false,
       compactionMethod: null,
       agentMode: "build",
       worktree: null,

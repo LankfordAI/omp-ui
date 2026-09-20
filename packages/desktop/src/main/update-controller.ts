@@ -4,7 +4,7 @@ export interface CommonUpdateState {
   status: string;
   latestVersion: string | null;
   progress: number | null;
-  error: string | null;
+  error: unknown | null;
 }
 
 export interface UpdateControllerDeps<T extends CommonUpdateState> {

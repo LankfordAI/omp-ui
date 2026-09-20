@@ -182,7 +182,10 @@ describe("OmpUpdateCard", () => {
     vi.useFakeTimers();
     try {
       useStore.setState({
-        ompUpdate: ompUpdateState({ status: "error", error: "failed to download omp 1.2.0: HTTP 500" }),
+        ompUpdate: ompUpdateState({
+          status: "error",
+          error: { kind: "failed", message: "failed to download omp 1.2.0: HTTP 500" },
+        }),
       });
       renderCard();
       expect(document.body.textContent).toContain("Install failed");

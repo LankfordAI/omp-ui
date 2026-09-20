@@ -63,7 +63,6 @@ import {
   writeOmpSetting,
   collectDiagnosticsBundle,
   previewDiagnosticsBundle,
-  type AgentMode,
   type BrowserPaneInputEvent,
   type BrowserPaneNavigate,
   TITLE_MODEL_ROLES,
@@ -72,7 +71,6 @@ import {
   type ChannelTable,
   type BranchListOptions,
   type ConsoleProgram,
-  type GlassChrome,
   type ImageAttachment,
   type McpSetEnabledRequest,
   type ScopedCapabilityMutation,
@@ -83,26 +81,22 @@ import {
   type DiagnosticsExportRequest,
   type DiagnosticsExportResult,
   type DiagnosticsOptions,
-  type RemoteBind,
   type RemoteInstanceInput,
   type RemoteInstancePatch,
   type RpcFrame,
   type SessionMode,
   type SpawnGateState,
   type SpawnRequest,
-  type TranscriptWidth,
-  type UpdateTrain,
   type WorktreeReleaseOptions,
   type SessionSummary,
   type PlanReviewVerdict,
-  type PlanFormat,
   type ProjectGroup,
   type ProjectOpenTarget,
   type ProjectScalarResult,
   type ProjectSubagentModelsResult,
   type SubagentModelMap,
 } from "@omp-ui/core";
-import { hashRemotePassword, mintRemoteToken, validateRemotePassword } from "@omp-ui/server";
+import { mintRemoteToken } from "@omp-ui/server";
 import { HeadWatcherHub } from "./git-head-watchers";
 import { OmpUpdater } from "./omp-update";
 import { AppUpdater } from "./app-update";
@@ -120,6 +114,8 @@ import { NO_GATE, type SpawnGate } from "./spawn-gate";
 import { windowStatePath } from "./window-state";
 import { NO_BREADCRUMBS, type BreadcrumbSink } from "./breadcrumbs";
 import { readExperimentDetail, readProjectExperiments, readRunLog } from "./experiments";
+import { registerSettingsHandlers } from "./settings-handlers";
+import { registerRemoteHandlers } from "./remote-handlers";
 
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
@@ -602,100 +598,14 @@ export class MainBackend {
           }
           await setProjectConfigValue(projectCwd, ["task", "maxConcurrency"], value);
         },
-        [CH.setDefaultMode]: async (mode: SessionMode) => {
-          this.registry.setSetting("defaultMode", mode);
-          await this.broadcast();
-        },
-        [CH.setDefaultAgentMode]: async (mode: AgentMode) => {
-          this.registry.setSetting("defaultAgentMode", mode);
-          await this.broadcast();
-        },
-        [CH.listCompactionMethods]: async () =>
-          (await readOmpCompactionMethods({ ompPath: this.ompPath, projectCwd: null })).supported,
-        [CH.setDefaultCompactionMethod]: async (method: string | null) => {
-          if (method !== null) {
-            const { supported } = await readOmpCompactionMethods({
-              ompPath: this.ompPath,
-              projectCwd: null,
-            });
-            if (!supported.includes(method)) throw new Error(`Unsupported compaction method: ${method}`);
-          }
-          this.registry.setSetting("defaultCompactionMethod", method);
-          await this.broadcast();
-        },
-        [CH.setPlanFormat]: async (format: PlanFormat) => {
-          this.registry.setSetting("planFormat", format);
-          await this.broadcast();
-        },
-        [CH.setHibernateIdleMinutes]: async (minutes: number) => {
-          this.registry.setSetting("hibernateIdleMinutes", minutes);
-          await this.broadcast();
-        },
-        [CH.setStreamStallAbortSeconds]: async (seconds: number) => {
-          this.registry.setSetting("streamStallAbortSeconds", seconds);
-          await this.broadcast();
-        },
-        [CH.setAdvisorAutoReply]: async (on: boolean) => {
-          this.registry.setSetting("advisorAutoReply", on);
-          await this.broadcast();
-        },
-        [CH.setStallAutoContinue]: async (on: boolean) => {
-          this.registry.setSetting("stallAutoContinue", on);
-          await this.broadcast();
-        },
-        [CH.setDesktopNotifications]: async (on: boolean) => {
-          this.registry.setSetting("desktopNotifications", on);
-          await this.broadcast();
-        },
-        [CH.setDefaultAdvisor]: async (on: boolean) => {
-          this.registry.setSetting("defaultAdvisor", on);
-          await this.broadcast();
-        },
-        [CH.setSubagentModelInheritByDefault]: async (on: boolean) => {
-          this.registry.setSetting("subagentModelInheritByDefault", on);
-          await this.broadcast();
-        },
-        [CH.setSkipDeleteConfirmation]: async (skip: boolean) => {
-          this.registry.setSetting("skipDeleteConfirmation", skip);
-          await this.broadcast();
-        },
-        [CH.setExperimentsEnabled]: async (on: boolean) => {
-          this.registry.setSetting("experimentsEnabled", on);
-          await this.broadcast();
-        },
-        [CH.setThemeId]: async (id: string) => {
-          this.registry.setSetting("themeId", id);
-          await this.broadcast();
-        },
-        [CH.setFontFamilyId]: async (id: string) => {
-          this.registry.setSetting("fontFamilyId", id);
-          await this.broadcast();
-        },
-        [CH.setTranscriptWidth]: async (width: TranscriptWidth) => {
-          this.registry.setSetting("transcriptWidth", width);
-          await this.broadcast();
-        },
-        [CH.setGlassChrome]: async (level: GlassChrome) => {
-          this.registry.setSetting("glassChrome", level);
-          await this.broadcast();
-        },
-        [CH.setLocaleId]: async (id: string) => {
-          this.registry.setSetting("localeId", id);
-          await this.broadcast();
-        },
-        [CH.setAppUpdateCheckOnLaunch]: async (on: boolean) => {
-          this.registry.setSetting("appUpdateCheckOnLaunch", on);
-          await this.broadcast();
-        },
-        [CH.setAppUpdateTrain]: async (train: UpdateTrain) => {
-          this.registry.setSetting("appUpdateTrain", train);
-          await this.appUpdater.onTrainChanged();
-          await this.broadcast();
-        },
-        [CH.setOmpUpdateCheckOnLaunch]: async (on: boolean) => {
-          this.registry.setSetting("ompUpdateCheckOnLaunch", on);
-          await this.broadcast();
-        },
+        ...registerSettingsHandlers({
+          registry: this.registry,
+          broadcast: () => this.broadcast(),
+          supportedCompactionMethods: async () =>
+            (await readOmpCompactionMethods({ ompPath: this.ompPath, projectCwd: null }))
+              .supported,
+          onAppUpdateTrainChanged: () => this.appUpdater.onTrainChanged(),
+        }),
         // The appUpdateDismiss/ompUpdateDismiss channels only ever set a dismissal;
         // re-arming a dismissed card from Settings needs its own pair.
         [CH.clearDismissedAppUpdate]: async () => {
@@ -895,13 +805,13 @@ export class MainBackend {
         // Each write answers with the refreshed snapshot in the same round trip,
         // so the page never has to guess what the store now holds.
         [CH.readProviderKeys]: (projectCwd: string | null) => this.providerSnapshot(projectCwd),
-        [CH.setProviderKey]: (envName: string, value: string) => {
+        [CH.setProviderKey]: (projectCwd: string | null, envName: string, value: string) => {
           this.providerKeys.setKey(envName, value);
-          return this.providerSnapshot(null);
+          return this.providerSnapshot(projectCwd);
         },
-        [CH.clearProviderKey]: (envName: string) => {
+        [CH.clearProviderKey]: (projectCwd: string | null, envName: string) => {
           this.providerKeys.clearKey(envName);
-          return this.providerSnapshot(null);
+          return this.providerSnapshot(projectCwd);
         },
         // Subscription (OAuth) sign-ins (issue #368): the flow state is pushed to
         // every renderer via onProviderOAuthState; the page reads the rows itself.
@@ -973,41 +883,13 @@ export class MainBackend {
         [CH.setAppUpdateInstallOnQuit]: (on: boolean) => this.appUpdater.setInstallOnQuit(on),
         [CH.dismissAppUpdate]: (version: string, remember: boolean) =>
           this.appUpdater.dismiss(version, remember),
-        [CH.getRemoteState]: () => this.remote.state,
-        [CH.setRemoteEnabled]: async (on: boolean) => {
-          this.registry.setSetting("remoteEnabled", on);
-          this.breadcrumbs.record("remote-enable", { detail: on ? "on" : "off" });
-          await this.remote.apply();
-        },
-        [CH.setRemoteBind]: async (bind: RemoteBind) => {
-          this.registry.setSetting("remoteBind", bind);
-          await this.remote.apply();
-        },
-        [CH.setRemotePort]: async (port: number) => {
-          if (!Number.isInteger(port) || port < 1024 || port > 65535) {
-            throw new Error("port must be a whole number between 1024 and 65535");
-          }
-          this.registry.setSetting("remotePort", port);
-          await this.remote.apply();
-        },
-        [CH.regenerateRemoteToken]: async () => {
-          this.registry.setSetting("remoteToken", mintRemoteToken());
-          // State only — the token itself never reaches the ring (issue #37).
-          this.breadcrumbs.record("remote-token-regenerate");
-          await this.remote.restart();
-        },
-        [CH.setRemotePassword]: async (password: string) => {
-          const problem = validateRemotePassword(password);
-          if (problem !== null) throw new Error(problem);
-          const { salt, hash } = hashRemotePassword(password);
-          this.registry.setSettings({ remotePasswordHash: hash, remotePasswordSalt: salt });
-          // apply(), not restart(): the new hash/salt already makes sameTarget false.
-          await this.remote.apply();
-        },
-        [CH.clearRemotePassword]: async () => {
-          this.registry.setSettings({ remotePasswordHash: "", remotePasswordSalt: "" });
-          await this.remote.apply();
-        },
+        ...registerRemoteHandlers({
+          registry: this.registry,
+          getState: () => this.remote.state,
+          apply: () => this.remote.apply(),
+          restart: () => this.remote.restart(),
+          breadcrumbs: this.breadcrumbs,
+        }),
         // Remote instances (issue #416): identity for joiners; the manager owns the rest.
         [CH.getInstanceIdentity]: () => ({
           instanceId: this.registry.getSetting("instanceId"),
@@ -1408,6 +1290,7 @@ export class MainBackend {
     // remembered one (issue #381).
     const goal = this.sessions.goalSnapshot(record.tabId);
     const autoresearch = this.sessions.autoresearchSnapshot(record.tabId);
+    const bridgeAvailability = this.sessions.bridgeAvailability(record.tabId);
     return {
       ...record,
       title: title?.trim() || "New session",
@@ -1415,6 +1298,7 @@ export class MainBackend {
       live,
       pendingPlan: gate?.pending ?? null,
       planSettle: gate?.settle ?? null,
+      ...(bridgeAvailability === undefined ? {} : { bridgeAvailability }),
       streamStalled,
       turnRunning,
       awaitingHumanAnswer,

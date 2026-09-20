@@ -6,7 +6,7 @@ import { fuzzyBest } from "../lib/fuzzy";
 import type { ModelInfo } from "../lib/rpc-types";
 import { SUBAGENT_MODEL_INHERIT } from "@omp-ui/core/subagent-model";
 import { findInstance, findOwner, useStore } from "../store";
-import { CAPSULE_SEGMENT, Chevron, Chip, Dot, IconButton, Label, Modal, StarIcon } from "./ui";
+import { CAPSULE_SEGMENT, Chevron, Chip, Dot, IconButton, IconSearch, Label, Modal, StarIcon } from "./ui";
 import { ModelRail } from "./ModelRail";
 import { usePaletteNav } from "./palette";
 
@@ -345,10 +345,7 @@ export function ModelPalette(props: ModelPaletteProps) {
             {props.variant === "advisor" ? (
               <Label>{t("composer.model.advisorModel")}</Label>
             ) : (
-              <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-4 text-ink-faint">
-                <circle cx="7" cy="7" r="4.5" stroke="currentColor" />
-                <path d="M10.5 10.5 14 14" stroke="currentColor" strokeLinecap="round" />
-              </svg>
+              <IconSearch className="size-4 text-ink-faint" />
             )}
             <input
               ref={search}

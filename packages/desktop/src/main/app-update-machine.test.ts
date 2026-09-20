@@ -46,20 +46,22 @@ const machine = (over: Partial<AppUpdateMachine> = {}): AppUpdateMachine => ({
 
 const step = (prev: AppUpdateMachine, event: AppUpdateEvent): AppUpdateMachine =>
   deriveAppUpdateState(prev, event);
+const failed = (message: string) => ({ kind: "failed" as const, message });
+
 
 describe("deriveAppUpdateState", () => {
   it("disabled sets only the status", () => {
-    const prev = machine({ state: { ...IDLE_STATE, error: "stale", progress: 7 } });
+    const prev = machine({ state: { ...IDLE_STATE, error: failed("stale"), progress: 7 } });
     const { state } = step(prev, { t: "disabled" });
     expect(state.status).toBe("disabled");
     // Untouched fields survive the merge exactly as the old set(patch) did.
-    expect(state.error).toBe("stale");
+    expect(state.error).toEqual(failed("stale"));
     expect(state.progress).toBe(7);
   });
 
   it("check-begin clears progress and error", () => {
     const prev = machine({
-      state: { ...IDLE_STATE, status: "error", progress: 42, error: "boom" },
+      state: { ...IDLE_STATE, status: "error", progress: 42, error: failed("boom") },
     });
     expect(step(prev, { t: "check-begin" })).toEqual({
       ...prev,
@@ -73,7 +75,7 @@ describe("deriveAppUpdateState", () => {
     });
     const manual = step(prev, { t: "unreachable", manual: true }).state;
     expect(manual.status).toBe("error");
-    expect(manual.error).toBe("could not reach GitHub");
+    expect(manual.error).toEqual({ kind: "unreachable", message: "could not reach GitHub" });
     // Deliberate retention: the quiet arm keeps the stale offer metadata.
     const quiet = step(prev, { t: "unreachable", manual: false }).state;
     expect(quiet.status).toBe("idle");
@@ -151,7 +153,7 @@ describe("deriveAppUpdateState", () => {
 
   it("stage-complete settles the stage and takes the version from the event", () => {
     const prev = machine({
-      state: { ...IDLE_STATE, status: "downloading", progress: 90, error: "stale" },
+      state: { ...IDLE_STATE, status: "downloading", progress: 90, error: failed("stale") },
       stage: { visible: true },
     });
     const next = step(prev, { t: "stage-complete", version: "1.2.0" });
@@ -178,25 +180,25 @@ describe("deriveAppUpdateState", () => {
     });
     const { state } = step(prev, { t: "stage-failed", visible: true, message: "offline" });
     expect(state.status).toBe("error");
-    expect(state.error).toBe("offline");
+    expect(state.error).toEqual(failed("offline"));
     expect(state.progress).toBe(66); // deliberate retention, mirroring the old patch
     expect(prev.stage).not.toBeNull();
   });
 
   it("stage-failed: a quiet failure returns to idle and keeps even the stale error", () => {
     const prev = machine({
-      state: { ...IDLE_STATE, error: "older failure" },
+      state: { ...IDLE_STATE, error: failed("older failure") },
       stage: { visible: false },
     });
     const next = step(prev, { t: "stage-failed", visible: false, message: "offline" });
     expect(next.state.status).toBe("idle");
-    expect(next.state.error).toBe("older failure"); // deliberate retention
+    expect(next.state.error).toEqual(failed("older failure")); // deliberate retention
     expect(next.stage).toBeNull();
   });
 
   it("installing clears progress and error", () => {
     const prev = machine({
-      state: { ...IDLE_STATE, status: "downloaded", progress: 3, error: "stale" },
+      state: { ...IDLE_STATE, status: "downloaded", progress: 3, error: failed("stale") },
     });
     const { state } = step(prev, { t: "installing" });
     expect(state.status).toBe("installing");
@@ -207,7 +209,7 @@ describe("deriveAppUpdateState", () => {
   it("apply-failed prefixes the handoff error", () => {
     const { state } = step(machine(), { t: "apply-failed", message: "boom" });
     expect(state.status).toBe("error");
-    expect(state.error).toBe("could not apply update: boom");
+    expect(state.error).toEqual(failed("could not apply update: boom"));
   });
 
   it("install-on-quit mirrors the user intent", () => {
@@ -217,11 +219,11 @@ describe("deriveAppUpdateState", () => {
   });
 
   it("asset failures carry their fixed messages", () => {
-    expect(step(machine(), { t: "asset-missing" }).state.error).toBe(
-      "expected asset missing from release",
+    expect(step(machine(), { t: "asset-missing" }).state.error).toEqual(
+      failed("expected asset missing from release"),
     );
-    expect(step(machine(), { t: "checksums-missing" }).state.error).toBe(
-      "release checksums unavailable",
+    expect(step(machine(), { t: "checksums-missing" }).state.error).toEqual(
+      failed("release checksums unavailable"),
     );
   });
 
@@ -239,7 +241,7 @@ describe("deriveAppUpdateState", () => {
     const prev = machine({ state: { ...IDLE_STATE, status: "downloading", progress: 88 } });
     const { state } = step(prev, { t: "asset-download-failed", message: "checksum mismatch" });
     expect(state.status).toBe("error");
-    expect(state.error).toBe("checksum mismatch");
+    expect(state.error).toEqual(failed("checksum mismatch"));
     expect(state.progress).toBe(88);
   });
 
@@ -253,7 +255,7 @@ describe("deriveAppUpdateState", () => {
         releaseName: RELEASE.name,
         downloadedPath: "/tmp/old.deb",
         installOnQuit: true,
-        error: "stale",
+        error: failed("stale"),
       },
       release: RELEASE,
     });

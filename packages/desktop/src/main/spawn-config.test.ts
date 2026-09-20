@@ -1,9 +1,14 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { subagentModelOverlayPath } from "@omp-ui/core";
-import { writeSessionOverlays } from "./spawn-config";
+import {
+  RPC_BRIDGE_IDS,
+  writeRpcExtensions,
+  writeSessionOverlays,
+  type RpcBridgeWriters,
+} from "./spawn-config";
 import { ownedSessionRecord } from "./test/fixtures";
 
 const dirs: string[] = [];
@@ -15,6 +20,59 @@ function tmp(): string {
 afterEach(() => {
   for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
+function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): RpcBridgeWriters {
+  return {
+    plan: () => write("plan"),
+    advisorStats: () => write("advisorStats"),
+    mcpStatus: () => write("mcpStatus"),
+    capabilities: () => write("capabilities"),
+    goal: () => write("goal"),
+    browserPane: () => write("browserPane"),
+    autoresearch: () => write("autoresearch"),
+  };
+}
+
+describe("writeRpcExtensions", () => {
+  it("reports every bridge independently, including plan and advisor stats", () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const writers = bridgeWriters((id) => {
+      if (id === "plan" || id === "advisorStats") throw new Error(`${id} failed`);
+      return `/${id}.ts`;
+    });
+
+    expect(writeRpcExtensions(tmp(), true, writers)).toEqual({
+      paths: [
+        "/mcpStatus.ts",
+        "/capabilities.ts",
+        "/goal.ts",
+        "/browserPane.ts",
+        "/autoresearch.ts",
+      ],
+      loaded: {
+        plan: false,
+        advisorStats: false,
+        mcpStatus: true,
+        capabilities: true,
+        goal: true,
+        browserPane: true,
+        autoresearch: true,
+      },
+    });
+    expect(warning).toHaveBeenCalledTimes(2);
+    warning.mockRestore();
+  });
+
+  it("records a disabled autoresearch bridge without invoking it", () => {
+    const autoresearch = vi.fn(() => "/autoresearch.ts");
+    const writers = bridgeWriters((id) =>
+      id === "autoresearch" ? autoresearch() : `/${id}.ts`,
+    );
+    const result = writeRpcExtensions(tmp(), false, writers);
+    expect(result.loaded.autoresearch).toBe(false);
+    expect(autoresearch).not.toHaveBeenCalled();
+  });
+});
+
 
 describe("writeSessionOverlays — subagent overlay (ADR-0031)", () => {
   it("umbrella on + no session choice: every roster name inherits the session model", () => {

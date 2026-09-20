@@ -120,6 +120,11 @@ describe("native RPC relaunch preparation", () => {
     const update = h.useStore
       .getState()
       .setSessionAdvisor(h.TAB, true, "openrouter/a/b:high");
+    expect(h.useStore.getState().rpc[h.TAB]).toMatchObject({
+      status: "running",
+      commandAdmissionBlocked: true,
+    });
+    await h.flushMicrotasks();
     expectPrepared();
     changed.resolve(undefined);
     await update;
@@ -148,7 +153,10 @@ describe("native RPC relaunch preparation", () => {
       .getState()
       .setSessionAdvisor(h.TAB, true, "openrouter/openai/gpt-5.6-sol:low");
     expect(h.mockBackend.setSessionAdvisor).not.toHaveBeenCalled();
-    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("starting");
+    expect(h.useStore.getState().rpc[h.TAB]).toMatchObject({
+      status: "ready",
+      commandAdmissionBlocked: true,
+    });
 
     h.useStore.setState((state) => ({
       rpc: {
@@ -216,7 +224,11 @@ describe("native RPC relaunch preparation", () => {
       const blockedCommand = h.sent.pop()!.cmd;
 
       const relaunch = h.useStore.getState().setSessionAdvisor(h.TAB, true, "openrouter/a/b:high");
-      expectPrepared();
+      expect(h.useStore.getState().rpc[h.TAB]).toMatchObject({
+        status: "running",
+        commandAdmissionBlocked: true,
+        plan: priorPlan,
+      });
       await vi.advanceTimersByTimeAsync(25_000);
       h.useStore.getState().handleRpcFrame(h.TAB, { type: "session_info_update" });
       await vi.advanceTimersByTimeAsync(6_000);
@@ -225,6 +237,7 @@ describe("native RPC relaunch preparation", () => {
       expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("running");
       expect(h.useStore.getState().rpc[h.TAB]!.session.isStreaming).toBe(true);
       expect(h.useStore.getState().rpc[h.TAB]!.plan).toEqual(priorPlan);
+      expect(h.useStore.getState().rpc[h.TAB]!.commandAdmissionBlocked).toBe(false);
       expect(h.errorMessages()).toEqual([
         "Could not restart the advisor because an in-flight session command did not settle. The session is still running.",
       ]);

@@ -106,19 +106,19 @@ export async function readRunLog(
   runId: number,
 ): Promise<RunLogResult> {
   const cwd = resolveCheckoutCwd(sessions, projectCwd, tabId);
-  if (cwd === null) return { error: "unknown session" };
+  if (cwd === null) return { kind: "error", error: "unknown session" };
   const checkout = await readCheckoutExperiments(cwd);
-  if (checkout.source === null) return { error: checkout.error ?? "unknown experiment" };
+  if (checkout.source === null) return { kind: "error", error: checkout.error ?? "unknown experiment" };
   if (!checkout.experiments.some((experiment) => experiment.id === experimentId)) {
-    return { error: "unknown experiment" };
+    return { kind: "error", error: "unknown experiment" };
   }
   let logPath: string | null;
   try {
     logPath = readExperimentLogPath(checkout.source.dbPath, runId);
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
+    return { kind: "error", error: err instanceof Error ? err.message : String(err) };
   }
-  if (logPath === null || logPath.length === 0) return { error: "no log for this run" };
+  if (logPath === null || logPath.length === 0) return { kind: "error", error: "no log for this run" };
   // omp writes `<stateRoot>/autoresearch/<key>/runs/<id>` (or under the DB dir
   // override); the wider state root holds sessions and credentials.
   const override = process.env.OMP_AUTORESEARCH_DB_DIR;
@@ -126,17 +126,17 @@ export async function readRunLog(
     ? override
     : path.join(autoresearchStateDir(), "autoresearch");
   if (!isWithin(root, logPath)) {
-    return { error: "log is outside omp's autoresearch state dir" };
+    return { kind: "error", error: "log is outside omp's autoresearch state dir" };
   }
   let fd: number;
   try {
     fd = fs.openSync(logPath, "r");
   } catch {
-    return { error: "no log for this run" };
+    return { kind: "error", error: "no log for this run" };
   }
   try {
     const stat = fs.fstatSync(fd);
-    if (!stat.isFile()) return { error: "no log for this run" };
+    if (!stat.isFile()) return { kind: "error", error: "no log for this run" };
     const length = Math.min(stat.size, RUN_LOG_BYTE_LIMIT);
     const buffer = Buffer.allocUnsafe(length);
     let read = 0;
@@ -145,9 +145,13 @@ export async function readRunLog(
       if (n === 0) break;
       read += n;
     }
-    return { text: buffer.toString("utf8", 0, read), truncated: stat.size > RUN_LOG_BYTE_LIMIT };
+    return {
+      kind: "ok",
+      text: buffer.toString("utf8", 0, read),
+      truncated: stat.size > RUN_LOG_BYTE_LIMIT,
+    };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
+    return { kind: "error", error: err instanceof Error ? err.message : String(err) };
   } finally {
     fs.closeSync(fd);
   }

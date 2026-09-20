@@ -10,7 +10,7 @@
  * localization happens at the presentation boundary, never here.
  */
 import { DEFAULT_THEME_ID, resolveTheme } from "./lib/themes";
-import { renderPlanPreflight } from "./lib/plan-document";
+import { renderPlanPreflight } from "./lib/plan-verify";
 import type { PlanDiagnostic, PlanRenderResult } from "@omp-ui/core/plan";
 
 interface VerifyArgs {

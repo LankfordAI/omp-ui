@@ -12,6 +12,14 @@ import {
   GOAL_STATUS_KEY,
 } from "./goal";
 import { writeLineageArtifact } from "./lineage-artifact";
+import {
+  generatedAsRecordSource,
+  generatedPollTimerSource,
+  generatedModeTransitionSource,
+  generatedSessionIdSource,
+  generatedShutdownCleanupSource,
+  generatedUtf8LengthSource,
+} from "./generated-extension-source";
 
 /**
  * omp's goal family is TUI-only: `goal` and `guided-goal` define `handleTui`
@@ -105,9 +113,7 @@ const GUIDED_INTERVIEW =
 const BUSY_REFUSAL = "Stop the current turn before starting or replacing a goal.";
 const NO_PROGRESS_PAUSE = "Goal continuation made no tool progress; resume to continue.";
 
-interface PollTimer {
-  unref?: () => void;
-}
+${generatedPollTimerSource()}
 
 interface StatusUi {
   setStatus: (key: string, text: string | undefined) => void;
@@ -222,25 +228,9 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
+${generatedAsRecordSource()}
 
-function utf8Length(text: string): number {
-  let bytes = 0;
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    if (code < 0x80) bytes += 1;
-    else if (code < 0x800) bytes += 2;
-    else if (code >= 0xdc00 && code < 0xe000) bytes += 0;
-    else if (code >= 0xd800 && code < 0xdc00) {
-      bytes += 4;
-      i++;
-    } else bytes += 3;
-  }
-  return bytes;
-}
+${generatedUtf8LengthSource()}
 
 export default function (pi: ExtensionApi) {
   const processKey = "omp-ui-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
@@ -273,16 +263,7 @@ export default function (pi: ExtensionApi) {
 
   // ---------------------------------------------------------------- readers
 
-  function sessionIdOf(session: SessionLike | null): string | null {
-    const read = asRecord(session?.sessionManager)?.getSessionId;
-    if (typeof read !== "function") return null;
-    try {
-      const id = (read as () => unknown).call(session?.sessionManager);
-      return isString(id) && id.length > 0 ? id : null;
-    } catch {
-      return null;
-    }
-  }
+  ${generatedSessionIdSource("SessionLike")}
 
   function stateOf(session: SessionLike | null): StateLike | null {
     const read = session?.getGoalModeState;
@@ -415,35 +396,7 @@ export default function (pi: ExtensionApi) {
    * realm-wide symbol. Kept as a plain queue object so neither extension has to
    * know which of them loaded first.
    */
-  function chain(): { queue: Promise<void> } {
-    const global = globalThis as unknown as Record<string, unknown>;
-    const key = Symbol.for(TRANSITION_KEY);
-    let box = asRecord(global[key as unknown as string]);
-    if (box === null) {
-      const created = { queue: Promise.resolve() };
-      try {
-        (global as Record<symbol, unknown>)[key] = created;
-      } catch {
-        /* a runtime that refuses new symbols keeps our local chain */
-      }
-      return created;
-    }
-    const queue = box.queue;
-    if (queue instanceof Promise) return box as unknown as { queue: Promise<void> };
-    const reset = { queue: Promise.resolve() };
-    box.queue = reset.queue;
-    return reset;
-  }
-
-  function inTransition(work: () => Promise<void>): Promise<void> {
-    const box = chain();
-    const next = box.queue.then(work, work);
-    box.queue = next.then(
-      () => undefined,
-      () => undefined,
-    );
-    return next;
-  }
+  ${generatedModeTransitionSource("modeTransitionChain")}
 
   /** Arrival order for goal state mutations; never held across a dialog or turn. */
   function serialize(work: () => Promise<void>): Promise<void> {
@@ -976,9 +929,10 @@ export default function (pi: ExtensionApi) {
       pendingErrorPause = null;
       continuationTurnInFlight = false;
       const runtime = runtimeOf();
-      if (typeof asRecord(runtime)?.clearAccounting === "function") {
+      const clearAccounting = runtime?.clearAccounting;
+      if (typeof clearAccounting === "function") {
         try {
-          asRecord(runtime)?.clearAccounting?.();
+          clearAccounting.call(runtime);
         } catch {
           /* omp keeps its own accounting; a failed clear is omp's to live with */
         }
@@ -999,7 +953,7 @@ export default function (pi: ExtensionApi) {
       const sessionContext = asRecord(contextValue);
       const mode = sessionContext === null ? null : sessionContext.mode;
       if (mode === "goal" || mode === "goal_paused") {
-        const goal = validSavedGoal(asRecord(sessionContext.modeData)?.goal);
+        const goal = validSavedGoal(asRecord(sessionContext?.modeData)?.goal);
         if (goal === null) {
           // Never fabricate a goal and never rewrite the transcript over it.
           broken = "the saved goal in this session's transcript is malformed";
@@ -1203,9 +1157,11 @@ export default function (pi: ExtensionApi) {
     } catch (error) {
       failure = String(error);
     }
+    if (failure !== null) return settle(request, false, failure);
     const stale = sessionStale(captured);
     if (stale !== null) return settle(request, false, stale);
     pauseReason = null;
+    pendingErrorPause = null;
     settle(request, true, "Goal set: " + objective);
     startWork(START_TYPE, objective);
   }
@@ -1239,6 +1195,7 @@ export default function (pi: ExtensionApi) {
     const stale = sessionStale(captured);
     if (stale !== null) return settle(request, false, stale);
     pauseReason = null;
+    pendingErrorPause = null;
     settle(request, true, "Goal replaced: " + objective);
     startWork(START_TYPE, objective);
   }
@@ -1277,7 +1234,7 @@ export default function (pi: ExtensionApi) {
     if (goal.status === "active") return settle(request, true, "The goal is already active.");
     if (goal.status === "complete") return settle(request, false, "The goal is already complete.");
     if (goal.status !== "paused") return settle(request, false, "Only a paused goal can be resumed.");
-    if (refuseBusy(request, "the goal")) return;
+    if (refuseBusy(request)) return;
     if (goal.tokenBudget !== null && goal.tokensUsed >= goal.tokenBudget) {
       return settle(
         request,
@@ -1312,6 +1269,7 @@ export default function (pi: ExtensionApi) {
     const stale = stillCurrent(captured);
     if (stale !== null) return settle(request, false, stale);
     pauseReason = null;
+    pendingErrorPause = null;
     settle(request, true, "Goal resumed.");
     scheduleContinuation();
   }
@@ -1495,7 +1453,7 @@ export default function (pi: ExtensionApi) {
           pendingErrorPause = NO_PROGRESS_PAUSE;
         }
         const failure = terminalError(event);
-        if (failure !== null) pendingErrorPause = failure;
+        if (failure !== null && armed(goalOf(rootSession))) pendingErrorPause = failure;
         continuationTurnInFlight = false;
         turnHadToolExecution = false;
         if (willContinue !== true) {
@@ -1522,7 +1480,7 @@ export default function (pi: ExtensionApi) {
     if (typeof subscribe === "function") {
       try {
         const off = subscribe.call(session, (event) => onEvent(asRecord(event) ?? {}));
-        if (typeof off === "function") unsubscribe.push(off);
+        if (typeof off === "function") unsubscribe.push(off as () => void);
       } catch {
         /* an unsubscribable session still answers commands */
       }
@@ -1535,7 +1493,7 @@ export default function (pi: ExtensionApi) {
           // pending idle check rather than dispatching blind.
           if (idleCheckPending || continuation === "scheduled") evaluateIdle(false);
         });
-        if (typeof off === "function") unsubscribe.push(off);
+        if (typeof off === "function") unsubscribe.push(off as () => void);
       } catch {
         /* run-state observation is a nicety; agent_end still drives the loop */
       }
@@ -1556,7 +1514,7 @@ export default function (pi: ExtensionApi) {
           restoredSessionId = null;
           void restore();
         });
-        if (typeof off === "function") unsubscribe.push(off);
+        if (typeof off === "function") unsubscribe.push(off as () => void);
       } catch {
         /* an older runtime keeps restoration on the arm command */
       }
@@ -1587,28 +1545,8 @@ export default function (pi: ExtensionApi) {
     }
   }
 
-  /** Same root-shutdown discipline the capabilities bridge uses. */
-  function bindShutdown(session: SessionLike): void {
-    const target = session as unknown as Record<string, unknown>;
-    for (const method of ["dispose", "disconnect", "cleanup", "shutdown"]) {
-      try {
-        const original = target[method];
-        if (typeof original !== "function") continue;
-        const call = original as (...args: unknown[]) => unknown;
-        target[method] = function (this: unknown, ...args: unknown[]): unknown {
-          const result = call.apply(this, args);
-          try {
-            if (this === session) teardown();
-          } catch {
-            /* shutdown bookkeeping never breaks the session */
-          }
-          return result;
-        };
-      } catch {
-        /* a sealed or throwing shutdown hook is not our session's problem */
-      }
-    }
-  }
+  /** Same root-shutdown discipline every generated bridge uses. */
+  ${generatedShutdownCleanupSource("SessionLike")}
 
   function teardown(): void {
     cancelSettle();

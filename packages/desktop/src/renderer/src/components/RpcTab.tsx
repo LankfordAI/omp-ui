@@ -44,14 +44,17 @@ function TranscriptSkeleton({ centered = false }: { centered?: boolean }) {
 
 /** The fresh-session greeting above the centered composer. */
 function HeroGreeting({ projectCwd }: { projectCwd: string | undefined }) {
+  const t = useT();
   const project = projectCwd?.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
   return (
     <div className="animate-rise flex min-h-0 flex-1 flex-col items-center justify-end gap-2 px-6 pb-6">
       <h1 className="text-balance-tight text-center font-display text-3xl text-ink">
-        {project ? `What's next in ${project}?` : "What's next?"}
+        {project
+          ? t("rpc.hero.project", { project })
+          : t("rpc.hero.default")}
       </h1>
       <p className="text-sm text-ink-dim">
-        Describe it — plan first, or build straight away.
+        {t("rpc.hero.hint")}
       </p>
     </div>
   );

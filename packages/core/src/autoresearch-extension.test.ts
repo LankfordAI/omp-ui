@@ -16,6 +16,7 @@ import {
   type AutoresearchSnapshot,
 } from "./autoresearch";
 import { autoresearchExtensionPath, writeAutoresearchExtension } from "./autoresearch-extension";
+import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -221,6 +222,12 @@ async function armed(): Promise<Harness & { session: Session }> {
 // --------------------------------------------------------------------- tests
 
 describe("autoresearch extension", () => {
+  it("writes a strict TypeScript extension omp can load", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-autoresearch-check-"));
+    dirs.push(dir);
+    typecheckGeneratedExtension(writeAutoresearchExtension(dir));
+  });
+
   it("arms to an available off snapshot with no goal when the branch has no control entries", async () => {
     const h = await armed();
     expect(h.statuses).toHaveLength(1);

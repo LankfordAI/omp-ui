@@ -6,6 +6,7 @@ import {
   BROWSER_PANE_INSTRUCTION_PARTS,
 } from "./browser-pane";
 import { writeLineageArtifact } from "./lineage-artifact";
+import { generatedRootBindingSource } from "./generated-extension-source";
 
 /**
  * The agent learns the browser pane's endpoint (#519, ADR-0029) from this
@@ -77,6 +78,7 @@ export default function (pi: PaneExtensionApi) {
   let delivered: string | null = null;
   let warnedUnavailable = false;
   let ui: PaneUi | null = null;
+  ${generatedRootBindingSource("PaneSession")}
 
   try {
     const prototype = pi.pi?.AgentSession?.prototype;
@@ -84,7 +86,7 @@ export default function (pi: PaneExtensionApi) {
     if (prototype && typeof originalPrompt === "function") {
       const call = originalPrompt as (this: PaneSession, ...a: unknown[]) => unknown;
       prototype.prompt = function (this: PaneSession, ...args: unknown[]): unknown {
-        if (rootSession === null) rootSession = this;
+        captureRoot(this);
         return call.apply(this, args);
       };
     }

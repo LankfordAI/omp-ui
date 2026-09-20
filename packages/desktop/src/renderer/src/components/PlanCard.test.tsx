@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanDiagnostic } from "@omp-ui/core/plan";
 import type { PlanItem } from "../lib/transcript";
 import type { PreparedPlanState } from "../lib/plan-document";
+import type * as PreparedPlanHook from "../lib/use-prepared-plan-document";
 import { PlanCard } from "./PlanCard";
 
 /**
@@ -25,12 +26,9 @@ const bridge = vi.hoisted(() => ({
   answerPlanReview: vi.fn(async () => ({ status: "accepted" as const })),
 }));
 
-vi.mock("../lib/plan-document", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../lib/plan-document")>();
+vi.mock("../lib/use-prepared-plan-document", async (importOriginal) => {
+  const original = await importOriginal<typeof PreparedPlanHook>();
   return {
-    ...original,
-    // The original hook always runs first so hook order stays stable even on
-    // the render that switches to the pinned state.
     usePreparedPlanDocument: (html: string | null, identity?: string) => {
       const state = original.usePreparedPlanDocument(html, identity);
       return planPrepared.state ?? state;

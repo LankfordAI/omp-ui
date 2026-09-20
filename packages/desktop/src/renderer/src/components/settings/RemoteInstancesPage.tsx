@@ -7,7 +7,7 @@ import { useT } from "../../lib/i18n";
 import { remoteInstanceStatusKey, remoteInstanceStatusTone } from "../../lib/remote-instance-status";
 import { useStore } from "../../store";
 import { Button, Chip, ChoiceCapsule, Dot, Empty, Label, Panel } from "../ui";
-import { CommitField, FIELD, Row } from "./rows";
+import { CommitField, FIELD, Row, SecretField } from "./rows";
 
 /**
  * Settings → Remote instances (issue #416): every omp-ui app this one has
@@ -118,22 +118,16 @@ function InstanceEditor({ instance }: { instance: RemoteInstanceSummary }) {
       >
         <div className="flex items-center gap-1.5">
           <SecretKindCapsule value={secretKind} onChange={setSecretKind} />
-          <input
-            type="password"
+          <SecretField
             value={secret}
-            aria-label={
-              secretKind === "token" ? t("remoteinstances.field.token") : t("remoteinstances.field.password")
+            label={
+              secretKind === "token"
+                ? t("remoteinstances.field.token")
+                : t("remoteinstances.field.password")
             }
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(e) => setSecret(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                saveSecret();
-              }
-            }}
-            className={cn(FIELD, "flex-1")}
+            className="flex-1"
+            onChange={setSecret}
+            onSave={saveSecret}
           />
           <Button size="xs" disabled={secret.trim() === ""} onClick={saveSecret}>
             {t("remoteinstances.action.save")}
@@ -288,18 +282,17 @@ function AddForm() {
         >
           <div className="flex items-center gap-1.5">
             <SecretKindCapsule value={secretKind} onChange={setSecretKind} />
-            <input
-              type="password"
+            <SecretField
               value={secret}
-              aria-label={
-                secretKind === "token" ? t("remoteinstances.field.token") : t("remoteinstances.field.password")
+              label={
+                secretKind === "token"
+                  ? t("remoteinstances.field.token")
+                  : t("remoteinstances.field.password")
               }
-              spellCheck={false}
-              autoComplete="off"
               disabled={busy}
-              onChange={(e) => setSecret(e.target.value)}
-              onKeyDown={onEnter}
-              className={cn(FIELD, "flex-1")}
+              className="flex-1"
+              onChange={setSecret}
+              onSave={submit}
             />
           </div>
         </Row>

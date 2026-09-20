@@ -31,6 +31,10 @@ export interface RpcLiveEntry extends LiveEntryBase {
   capabilities: CapabilitySnapshot | null;
   /** True when this spawn successfully wrote (and armed) the capabilities bridge. */
   capabilitiesBridgeLoaded: boolean;
+  /** False when plan mode could not be installed for this process. */
+  planBridgeLoaded: boolean;
+  /** False when advisor accounting could not be installed for this process. */
+  advisorStatsBridgeLoaded: boolean;
   /** True when this spawn minted the browser pane's bridge endpoint and armed the extension (#519). */
   browserPaneArmed: boolean;
 }
@@ -74,6 +78,8 @@ export function createRpcLiveEntry(record: OwnedSessionRecord): RpcLiveEntry {
     rpc: null,
     capabilities: null,
     capabilitiesBridgeLoaded: false,
+    planBridgeLoaded: false,
+    advisorStatsBridgeLoaded: false,
     browserPaneArmed: false,
   };
 }

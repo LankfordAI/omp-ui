@@ -1004,6 +1004,38 @@ describe("CapabilitiesViewer — live sections", () => {
     expect(document.body.textContent).not.toContain("No entries in this category.");
   });
 
+  it("keeps the MCP total stable while filtering runtime-only servers", async () => {
+    backendMock.getMcpServers.mockResolvedValue({
+      servers: [{ ...writableRow, name: "configured" }],
+      errors: [],
+    } satisfies McpServersResult);
+    useStore.setState({
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "mcp", instanceId: null },
+      state: liveState,
+      rpc: {
+        [TAB]: rpcTabState({
+          capabilitiesLoad: "available",
+          capabilities: baseSnapshot({
+            tools: {
+              status: "available",
+              items: [
+                baseTool("mcp__alpha__run", { source: "mcp", mcpServerName: "alpha" }),
+                baseTool("mcp__beta__run", { source: "mcp", mcpServerName: "beta" }),
+              ],
+            },
+          }),
+        }),
+      },
+    });
+    await renderManager();
+    expect(tabButton("MCP servers").textContent).toContain("3");
+
+    await typeSearch("alpha");
+    expect(tabButton("MCP servers").textContent).toContain("1/3");
+    expect(document.body.textContent).toContain("alpha");
+    expect(document.body.textContent).not.toContain("beta");
+  });
+
   it("drills an MCP row into the Tools tab, pinning the server and clearing filters", async () => {
     const linearEntry: McpServerEntry = { ...writableRow, name: "linear", transport: "http" };
     backendMock.getMcpServers.mockResolvedValue({ servers: [linearEntry], errors: [] } satisfies McpServersResult);

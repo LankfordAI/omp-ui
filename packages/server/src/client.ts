@@ -13,6 +13,13 @@ import {
   REMOTE_FRAME_WS_PATH,
   REMOTE_WS_PATH,
 } from "./protocol";
+import {
+  REMOTE_CONNECT_TIMEOUT_MS,
+  REMOTE_FRAME_RETRY_INITIAL_MS,
+  dispatchRemoteListeners,
+  isCredentialClose,
+  nextFrameRetryDelay,
+} from "./transport-core";
 
 /**
  * The dial-out half of the remote transport (issue #416): one omp-ui's main
@@ -43,7 +50,7 @@ export class InstanceConnectError extends Error {
   }
 }
 
-const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
+const DEFAULT_CONNECT_TIMEOUT_MS = REMOTE_CONNECT_TIMEOUT_MS;
 
 /**
  * Dials the reliable and paired frame streams with `Authorization: Bearer credential`.
@@ -79,7 +86,7 @@ export function connectInstanceClient(
     let frames: WebSocket | null = null;
     let retry: NodeJS.Timeout | undefined;
     let frameTimer: NodeJS.Timeout | undefined;
-    let retryDelay = 500;
+    let retryDelay = REMOTE_FRAME_RETRY_INITIAL_MS;
 
     const stopFrames = (): void => {
       clearTimeout(retry);
@@ -104,18 +111,8 @@ export function connectInstanceClient(
 
     // Invoke local sinks together. Relay sinks hand off synchronously; each downstream
     // server pair owns its own credit, rather than lending it to this upstream socket.
-    const dispatch = (channel: string, args: unknown[]): void | Promise<void> => {
-      let waits: Promise<void>[] | undefined;
-      for (const cb of eventCbs) {
-        try {
-          const result = cb(channel, args);
-          if (result !== undefined) (waits ??= []).push(result);
-        } catch {
-          // A failed local consumer intentionally drops this delivery.
-        }
-      }
-      if (waits !== undefined) return Promise.allSettled(waits).then(() => {});
-    };
+    const dispatch = (channel: string, args: unknown[]): void | Promise<void> =>
+      dispatchRemoteListeners(eventCbs, (cb) => cb(channel, args));
 
     const ready = (): void => {
       if (opened || stopped || ws.readyState !== WebSocket.OPEN || frames?.readyState !== WebSocket.OPEN) return;
@@ -159,7 +156,7 @@ export function connectInstanceClient(
         retry = undefined;
         connectFrames();
       }, retryDelay);
-      retryDelay = Math.min(retryDelay * 2, 5_000);
+      retryDelay = nextFrameRetryDelay(retryDelay);
     };
 
     const connectFrames = (): void => {
@@ -176,7 +173,7 @@ export function connectInstanceClient(
           return;
         }
         clearTimeout(frameTimer);
-        retryDelay = 500;
+        retryDelay = REMOTE_FRAME_RETRY_INITIAL_MS;
         ready();
       });
       socket.on("message", (raw: Buffer, isBinary: boolean) => {
@@ -208,7 +205,7 @@ export function connectInstanceClient(
         if (frames !== socket) return;
         clearTimeout(frameTimer);
         frames = null;
-        if (code === REMOTE_CLOSE_REVOKED || code === 1008) {
+        if (isCredentialClose(code)) {
           failure = { kind: "unauthorized" };
           stop();
           return;

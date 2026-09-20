@@ -6,7 +6,7 @@ import { useCompactShell } from "../lib/responsive";
 import { formatHotkey, useHotkeys } from "../lib/hotkeys";
 import { currentLocaleId, useT } from "../lib/i18n";
 import { findRecord, sessionCwd, useStore } from "../store";
-import { Chip, Dot, Label, Modal, type Tone } from "./ui";
+import { Chip, Dot, IconSearch, Label, Modal, type Tone } from "./ui";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
 
 /**
@@ -309,24 +309,7 @@ export function CommandPalette() {
   return (
     <Modal onClose={close} width="w-[34rem]">
       <PaletteSearchHeader>
-        <svg viewBox="0 0 16 16" aria-hidden className="size-4 shrink-0 text-ink-dim">
-          <circle
-            cx="7"
-            cy="7"
-            r="4.25"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.4}
-            strokeLinecap="round"
-          />
-          <path
-            d="M10.2 10.2L13.5 13.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.4}
-            strokeLinecap="round"
-          />
-        </svg>
+        <IconSearch className="size-4 shrink-0 text-ink-dim" />
         <input
           ref={inputRef}
           value={query}

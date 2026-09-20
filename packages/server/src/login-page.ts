@@ -1,3 +1,5 @@
+import { escapeHtml } from "@omp-ui/core/html";
+
 /**
  * The sign-in form served at /login in password mode. Inline CSS, no JS, no external assets:
  * it must render even when the web bundle is missing, and it deliberately reveals the service
@@ -44,12 +46,4 @@ export function loginPage(error: string | null): string {
 </div>
 </body>
 </html>`;
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

@@ -4,13 +4,20 @@
 // reach other slices only through get(); everything here is shared by
 // construction.
 import type { StoreApi } from "zustand";
-import type { SessionSummary } from "@omp-ui/core/types";
+import type { BackendState, SessionSummary } from "@omp-ui/core/types";
+import {
+  SESSION_COMMANDS,
+  sessionCommandHasLateAck,
+  type SessionCommand,
+  type SessionCommandType,
+} from "@omp-ui/core/session-command";
 import { formatDuration } from "../../lib/duration";
 import { field, isObj } from "../../lib/fields";
 import {
   parseModelInfo,
   parseSessionRuntime,
   parseSessionStats,
+  type ModelInfo,
   parseTodoPhases,
   type SessionRuntime,
 } from "../../lib/rpc-types";
@@ -109,16 +116,22 @@ export interface StoreMachinery {
   cancelTranscriptBatch(tabId: string): void;
   appendItem(tabId: string, item: RenderItem): void;
   patchItems(tabId: string, map: (item: RenderItem) => RenderItem): void;
+  acceptsCommands(tabId: string): boolean;
+  applyStagedParams(
+    tabId: string,
+    options: { model?: ModelInfo | null; thinkingLevel?: string | null },
+  ): Promise<boolean>;
   runCommand(
     tabId: string,
-    cmd: Record<string, unknown>,
-    opts?: { quiet?: boolean; captureId?: (id: string) => void },
+    cmd: SessionCommand,
+    opts?: { quiet?: boolean; allowDuringBoot?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown>;
   pollUntil(
     tabId: string,
     pred: (tab: RpcTabState | undefined) => boolean,
     timeoutMs?: number,
   ): Promise<void>;
+  pollUntilSettled(tabId: string): Promise<void>;
   syncSubagentSubscription(tabId: string): void;
   applyRpcState(tabId: string, resp: unknown): void;
   refreshUsage(tabId: string, afterState?: () => void): Promise<void>;
@@ -138,21 +151,6 @@ export const RPC_COMMAND_TIMEOUT_MS = 30_000;
  * `switch_session`, `branch`), or arbitrary shell (`bash`, which bypasses the
  * chain). For them, lateness is not failure (issue #335).
  */
-const LATE_ACK_COMMANDS: Record<string, true> = {
-  compact: true,
-  handoff: true,
-  abort: true,
-  abort_and_prompt: true,
-  export_html: true,
-  login: true,
-  new_session: true,
-  switch_session: true,
-  branch: true,
-  set_model: true,
-  cycle_model: true,
-  get_available_models: true,
-  bash: true,
-};
 
 /** Mirrors omp's own skill-command match: start of message or after whitespace. */
 const SKILL_COMMAND_RE = /(^|\s)\/skill:[^\s/]+(\s|$)/;
@@ -168,7 +166,9 @@ const SKILL_COMMAND_RE = /(^|\s)\/skill:[^\s/]+(\s|$)/;
  */
 export function isLateAckCommand(cmd: Record<string, unknown>): boolean {
   const type = typeof cmd.type === "string" ? cmd.type : "";
-  if (LATE_ACK_COMMANDS[type] === true) return true;
+  if (type !== "prompt" && type in SESSION_COMMANDS) {
+    return sessionCommandHasLateAck(type as SessionCommandType);
+  }
   if (type !== "prompt") return false;
   const message = typeof cmd.message === "string" ? cmd.message : "";
   return message.trimStart().startsWith("/") || SKILL_COMMAND_RE.test(message);
@@ -229,10 +229,10 @@ export class RpcCommandAbandonedError extends Error {
 export function deriveSidebarSessionState(
   summary: SessionSummary,
   rpc: RpcTabState | undefined,
-  exitCode: number | undefined,
+  _legacyExitCode?: number,
 ): SidebarSessionState {
+  void _legacyExitCode;
   if (summary.live !== "live") return summary.live;
-  if (exitCode !== undefined) return "dormant";
   // A pending gate is main-process state (issue #215) — the record alone
   // marks the session awaiting-answer, even before its tab is booted.
   if (summary.pendingPlan !== null) return "awaiting-answer";
@@ -335,8 +335,30 @@ function dropTuiHandoff(
 
 export { dropExited, dropHibernated, dropTuiHandoff };
 
-/** Planning sources whose accepted fresh handoff disables automatic prompts. */
-export const handedOffPlanSources = new Set<string>();
+export function persistedPlanHandoffs(state: BackendState): Record<string, string> {
+  const result: Record<string, string> = {};
+  const groups = [
+    ...state.projects,
+    ...state.remoteInstances.flatMap((instance) => instance.projects),
+  ];
+  for (const group of groups) {
+    for (const record of group.sessions) {
+      const sourceTabId = record.planImplementationSource?.sourceTabId;
+      if (sourceTabId !== undefined) result[sourceTabId] = record.tabId;
+    }
+  }
+  return result;
+}
+
+export function dropPlanHandoff(
+  handedOffFor: Record<string, string>,
+  tabId: string,
+): Record<string, string> {
+  if (!(tabId in handedOffFor)) return handedOffFor;
+  const next = { ...handedOffFor };
+  delete next[tabId];
+  return next;
+}
 
 /**
  * The one renderer-only runtime entry per rpc tab. `bootRpcTab` creates the
@@ -680,6 +702,53 @@ export function createMachinery(
     });
   };
 
+  const applyStagedParams = async (
+    tabId: string,
+    options: { model?: ModelInfo | null; thinkingLevel?: string | null },
+  ): Promise<boolean> => {
+    const current = get().rpc[tabId];
+    if (!current) return false;
+    if (
+      options.model != null &&
+      `${options.model.provider}/${options.model.id}` !==
+        (current.model ? `${current.model.provider}/${current.model.id}` : null)
+    ) {
+      await get().setModel(tabId, options.model);
+      if (get().rpc[tabId]?.failure?.command === "set_model") return false;
+    }
+    if (
+      options.thinkingLevel != null &&
+      options.thinkingLevel !== (get().rpc[tabId]?.session.thinkingLevel ?? null)
+    ) {
+      await get().setThinkingLevel(tabId, options.thinkingLevel);
+      if (get().rpc[tabId]?.failure?.command === "set_thinking_level") return false;
+    }
+    return true;
+  };
+
+  const pollUntilSettled = (tabId: string): Promise<void> =>
+    pollUntil(
+      tabId,
+      (tab) => {
+        const record = findRecord(get().state, tabId);
+        return (
+          tab?.status === "ready" ||
+          tab?.status === "error" ||
+          get().exited[tabId] !== undefined ||
+          (record !== undefined && record.live !== "live")
+        );
+      },
+    );
+
+  const acceptsCommands = (tabId: string): boolean => {
+    const tab = get().rpc[tabId];
+    return (
+      tab !== undefined &&
+      tab.status !== "starting" &&
+      tab.commandAdmissionBlocked !== true
+    );
+  };
+
   /**
    * Every store method routes failures here: the tab keeps its status (a
    * rejected `set_model` must not wedge a live session into "error") but the
@@ -689,12 +758,16 @@ export function createMachinery(
    */
   const runCommand = async (
     tabId: string,
-    cmd: Record<string, unknown>,
-    opts?: { quiet?: boolean; captureId?: (id: string) => void },
+    cmd: SessionCommand,
+    opts?: { quiet?: boolean; allowDuringBoot?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown> => {
+    if (opts?.allowDuringBoot !== true && opts?.quiet !== true && !acceptsCommands(tabId)) return null;
     const command = typeof cmd.type === "string" ? cmd.type : "unknown";
     try {
-      const resp = await get().rpcCommand(tabId, cmd, opts);
+      const resp = await get().rpcCommand(tabId, cmd, {
+        quiet: opts?.quiet,
+        captureId: opts?.captureId,
+      });
       // Only an explicit, user-visible success retires a transient failure.
       // Background refreshes must not make a diagnostic disappear, and no
       // command response may hide a fatal boot/process failure.
@@ -895,9 +968,12 @@ export function createMachinery(
     effectiveItems,
     queueTranscriptFrame,
     flushTranscriptBatch,
+    applyStagedParams,
     cancelTranscriptBatch,
     appendItem,
     patchItems,
+    pollUntilSettled,
+    acceptsCommands,
     runCommand,
     pollUntil,
     syncSubagentSubscription,

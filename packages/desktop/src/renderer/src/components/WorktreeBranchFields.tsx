@@ -4,7 +4,6 @@ import { projectKey } from "../lib/project-key";
 import { useStore } from "../store";
 import {
   baseBranchSegment,
-  composeWorktreeBranch,
   remintWorktreeBranch,
   worktreeBranchPrefix,
 } from "@omp-ui/core/worktree-branch";
@@ -38,21 +37,6 @@ export type WorkspaceSelection =
  */
 export const NEW_BRANCH_SENTINEL = "__new__";
 
-/**
- * Branch mint for a worktree session (issues #224, #225, #405, #438): the
- * project's prefix, an optional base segment, and 8 hex from a secure
- * random. The base segment is optional here because the fields recompose it
- * as soon as they mount — a caller that mints before the branch listing is
- * known still ends up with the right name.
- */
-export function mintBranchName(prefix: string, segment: string | null = null): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(4));
-  return composeWorktreeBranch(
-    prefix,
-    segment,
-    Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(""),
-  );
-}
 
 /**
  * The branch and base fields of a worktree session (issues #224, #225),

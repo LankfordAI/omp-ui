@@ -1,6 +1,7 @@
 import type { BrowserWindow } from "electron";
-import { readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { writeTextAtomic } from "@omp-ui/core";
 
 // Tier-3 update restore (issue #99): an AppImage update relaunches the app,
 // so the window's geometry must outlive the process. Electron 43.2 has
@@ -47,17 +48,10 @@ export function loadWindowState(file: string): WindowState | null {
 }
 
 export function saveWindowState(file: string, state: WindowState): boolean {
-  const tmp = `${file}.tmp-${process.pid}`;
   try {
-    writeFileSync(tmp, JSON.stringify(state), "utf8");
-    renameSync(tmp, file);
+    writeTextAtomic(file, JSON.stringify(state));
     return true;
   } catch {
-    try {
-      rmSync(tmp, { force: true });
-    } catch {
-      // Best-effort cleanup only; the caller never observes an exception.
-    }
     return false;
   }
 }

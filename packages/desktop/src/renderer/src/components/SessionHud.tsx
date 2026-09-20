@@ -8,7 +8,7 @@ import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
 import { useCompactShell } from "../lib/responsive";
-import { useT } from "../lib/i18n";
+import { useT, type MessageKey } from "../lib/i18n";
 import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
 import { projectKey } from "../lib/project-key";
@@ -163,11 +163,14 @@ function IconRetitle() {
 
 /* --------------------------------------------------------------- fragments */
 
-const STATUS: Record<string, { tone: Tone; pulse: boolean }> = {
-  starting: { tone: "neutral", pulse: true },
-  ready: { tone: "signal", pulse: false },
-  running: { tone: "copper", pulse: true },
-  error: { tone: "rose", pulse: false },
+const STATUS: Record<
+  string,
+  { tone: Tone; pulse: boolean; labelKey: MessageKey }
+> = {
+  starting: { tone: "neutral", pulse: true, labelKey: "hud.status.starting" },
+  ready: { tone: "signal", pulse: false, labelKey: "hud.status.ready" },
+  running: { tone: "copper", pulse: true, labelKey: "hud.status.running" },
+  error: { tone: "rose", pulse: false, labelKey: "hud.status.error" },
 };
 
 /** Observation-only claim for the stall chip (issue #228, #179). */
@@ -585,19 +588,23 @@ function ModeRow({
   );
 }
 
-function ModesPopover({ tabId }: { tabId: string }) {
+function ModesPopover({
+  tabId,
+  autoRetry,
+  onAutoRetry,
+}: {
+  tabId: string;
+  autoRetry: boolean;
+  onAutoRetry: (next: boolean) => void;
+}) {
   const t = useT();
   const modeCopy = useModeCopy();
   const session = useStore((s) => s.rpc[tabId]?.session);
   const setSteeringMode = useStore((s) => s.setSteeringMode);
   const setFollowUpMode = useStore((s) => s.setFollowUpMode);
   const setInterruptMode = useStore((s) => s.setInterruptMode);
-  const setAutoRetry = useStore((s) => s.setAutoRetry);
   const abortRetry = useStore((s) => s.abortRetry);
   const [open, setOpen] = useState(false);
-  // omp exposes no auto-retry readback in get_state, so the switch tracks what
-  // this window has asked for; retry is on by default in omp.
-  const [autoRetry, setAutoRetryLocal] = useState(true);
   const anchor = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   // Portaled + fixed: the wide HUD root is overflow-hidden inside the h-9 title
@@ -678,10 +685,7 @@ function ModesPopover({ tabId }: { tabId: string }) {
                 on={autoRetry}
                 label={t("hud.retry.autoRetry")}
                 title={t("hud.retry.autoRetryTitle")}
-                onChange={(next) => {
-                  setAutoRetryLocal(next);
-                  void setAutoRetry(tabId, next);
-                }}
+                onChange={onAutoRetry}
               />
             </div>
           </div>
@@ -693,16 +697,22 @@ function ModesPopover({ tabId }: { tabId: string }) {
   );
 }
 
-function CompactModes({ tabId }: { tabId: string }) {
+function CompactModes({
+  tabId,
+  autoRetry,
+  onAutoRetry,
+}: {
+  tabId: string;
+  autoRetry: boolean;
+  onAutoRetry: (next: boolean) => void;
+}) {
   const t = useT();
   const modeCopy = useModeCopy();
   const session = useStore((s) => s.rpc[tabId]?.session);
   const setSteeringMode = useStore((s) => s.setSteeringMode);
   const setFollowUpMode = useStore((s) => s.setFollowUpMode);
   const setInterruptMode = useStore((s) => s.setInterruptMode);
-  const setAutoRetry = useStore((s) => s.setAutoRetry);
   const abortRetry = useStore((s) => s.abortRetry);
-  const [autoRetry, setAutoRetryLocal] = useState(true);
   return (
     <div className="space-y-3 border-t border-line p-3">
       <ModeRow label={modeCopy.labels.steering} value={session?.steeringMode ?? null} known={STEERING_MODES} onChange={(v) => void setSteeringMode(tabId, v)} hint={modeCopy.rowHints.steering} optionHints={modeCopy.queueHints} />
@@ -712,7 +722,7 @@ function CompactModes({ tabId }: { tabId: string }) {
         <Button variant="ghost" tone="rose" onClick={() => void abortRetry(tabId)}>{t("hud.retry.abort")}</Button>
         <div className="flex items-center gap-2">
           <span className="text-xs text-ink-mid">{t("hud.retry.autoRetry")}</span>
-          <Switch on={autoRetry} label={t("hud.retry.autoRetry")} onChange={(next) => { setAutoRetryLocal(next); void setAutoRetry(tabId, next); }} />
+          <Switch on={autoRetry} label={t("hud.retry.autoRetry")} onChange={onAutoRetry} />
         </div>
       </div>
     </div>
@@ -724,6 +734,12 @@ function CompactModes({ tabId }: { tabId: string }) {
 
 export function SessionHud({ tabId }: { tabId: string }) {
   const t = useT();
+  const setAutoRetry = useStore((s) => s.setAutoRetry);
+  const [autoRetry, setAutoRetryLocal] = useState(true);
+  const updateAutoRetry = (next: boolean): void => {
+    setAutoRetryLocal(next);
+    void setAutoRetry(tabId, next);
+  };
   const status = useStore((s) => s.rpc[tabId]?.status) ?? "starting";
   // Hibernation overrides the (stale) rpc status: the process is stopped on
   // purpose, not live (issue #246). Neutral, no pulse — the mint signal
@@ -785,20 +801,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
     compactionSettings !== undefined
       ? compactionThresholdTokens(usage.contextWindow, compactionSettings)
       : null;
-  const face = hibernated
-    ? { tone: "neutral" as const, pulse: false }
-    : STATUS[status] ?? STATUS.starting;
+  const face = hibernated ? null : (STATUS[status] ?? STATUS.starting);
+  const resolvedFace = face ?? { ...STATUS.starting, pulse: false };
   const label = hibernated
     ? t("hud.status.hibernated")
-    : status === "starting"
-      ? t("hud.status.starting")
-      : status === "ready"
-        ? t("hud.status.ready")
-        : status === "running"
-          ? t("hud.status.running")
-          : status === "error"
-            ? t("hud.status.error")
-            : status;
+    : t(resolvedFace.labelKey);
   const notices = Object.entries(extensionStatus ?? {}).filter(([, text]) => text.trim() !== "");
   const activeAgentMode = plan == null ? null : plan.enabled ? "plan" : "build";
   const exceptionalAgentMode =
@@ -865,7 +872,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
     return (
       <>
         <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
-          <LivenessBadge compacting={session?.isCompacting === true} stallMs={streamStallMs} face={face} label={label} short />
+          <LivenessBadge compacting={session?.isCompacting === true} stallMs={streamStallMs} face={resolvedFace} label={label} short />
           {instanceChip}
           {agentModeChip}
           {goalChip}
@@ -905,7 +912,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
               </div>
             </div>
           </div>
-          <CompactModes tabId={tabId} />
+          <CompactModes tabId={tabId} autoRetry={autoRetry} onAutoRetry={updateAutoRetry} />
         </Sheet>
       </>
     );
@@ -921,7 +928,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       <LivenessBadge
         compacting={session?.isCompacting === true}
         stallMs={streamStallMs}
-        face={face}
+        face={resolvedFace}
         label={label}
         className="shrink-0 [app-region:no-drag]"
         title={t("hud.status.rpcStatus", { status: label })}
@@ -1036,20 +1043,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
         </IconButton>
         <IconButton
           label={t("hud.actions.refreshTitle")}
-          onClick={() => {
-            void refreshState(tabId);
-            void refreshStats(tabId);
-            // The advisor refresh rides a slash prompt, which a live turn could
-            // misfile as a steer — the extension auto-publishes at the next
-            // turn boundary, so never force it while running.
-            if (status !== "running" && session?.isStreaming !== true) {
-              void refreshAdvisorStats(tabId);
-            }
-          }}
+          onClick={refresh}
         >
           <IconRefresh />
         </IconButton>
-        <ModesPopover tabId={tabId} />
+        <ModesPopover tabId={tabId} autoRetry={autoRetry} onAutoRetry={updateAutoRetry} />
       </div>
     </div>
   );

@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal } from "@xterm/xterm";
-import type { ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
@@ -13,6 +8,11 @@ import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/c
 import type { ClipboardImages } from "../lib/clipboard-image";
 import { useTheme } from "../lib/themes";
 import { useFontFamily } from "../lib/font-families";
+import {
+  applyTerminalAppearance,
+  createTerminal,
+  type CreatedTerminal,
+} from "../lib/terminal";
 import { findInstance, findOwner, registerTermWriter, useStore } from "../store";
 import { useT } from "../lib/i18n";
 import { FindBar } from "./FindBar";
@@ -48,7 +48,7 @@ function searchDecorations(tokens: Record<string, string>) {
 export function TerminalTab({ tabId, active }: { tabId: string; active: boolean }) {
   const t = useT();
   const hostRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<{ term: Terminal; fit: FitAddon; search: SearchAddon } | null>(null);
+  const termRef = useRef<(CreatedTerminal & { search: SearchAddon }) | null>(null);
   const imagePickerRef = useRef<HTMLInputElement>(null);
   const theme = useTheme();
   const font = useFontFamily();
@@ -140,39 +140,13 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const term = new Terminal({
-      fontFamily: font.mono,
-      fontSize: 12.5,
-      lineHeight: 1.45,
-      cursorBlink: true,
-      cursorStyle: "bar",
-      // The host div paints the same colour, so transparency buys nothing and
-      // costs the WebGL renderer its fast path.
-      allowTransparency: false,
-      scrollback: 10000,
-      smoothScrollDuration: 0,
-      theme: theme.term as ITheme,
-    });
-    const fit = new FitAddon();
-    term.open(host);
-    term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
+    const { term, fit } = createTerminal(host, theme, font);
     const search = new SearchAddon();
     term.loadAddon(search);
     const resultsSub = search.onDidChangeResults(({ resultIndex, resultCount }) => {
       setResultIndex(resultIndex);
       setResultCount(resultCount);
     });
-    try {
-      const webgl = new WebglAddon();
-      // GPU process restart (driver reset, suspend, OOM) kills the WebGL
-      // context; disposing the addon restores the DOM renderer so the
-      // terminal keeps rendering instead of showing a dead canvas.
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {
-      // WebGL unavailable — silently stay on the DOM renderer.
-    }
     termRef.current = { term, fit, search };
 
     // Spawn size is 80×24; immediately fit the real viewport and push it.
@@ -233,10 +207,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   // canvas with the new font's metrics without waiting for the next keystroke.
   useEffect(() => {
     const term = termRef.current?.term;
-    if (!term) return;
-    term.options.theme = { ...theme.term } as ITheme;
-    term.options.fontFamily = font.mono;
-    term.refresh(0, term.rows - 1);
+    if (term) applyTerminalAppearance(term, theme, font);
   }, [theme, font]);
 
   // Find within the session (issue #270): re-issue the search as the query

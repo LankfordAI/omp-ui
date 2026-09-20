@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   baseBranchSegment,
   isMintedWorktreeBranch,
+  mintBranchName,
   remintWorktreeBranch,
   worktreeBranchPrefix,
 } from "./worktree-branch";
@@ -46,6 +47,13 @@ describe("baseBranchSegment", () => {
     expect(baseBranchSegment("TECH-123", null, null)).toBe("TECH-123");
   });
 });
+describe("mintBranchName", () => {
+  it("uses the shared composition rule and an eight-hex CSPRNG tail", () => {
+    expect(mintBranchName("project")).toMatch(/^project\/[0-9a-f]{8}$/);
+    expect(mintBranchName("project", "main")).toMatch(/^project\/main\/[0-9a-f]{8}$/);
+  });
+});
+
 
 describe("isMintedWorktreeBranch", () => {
   it("recognises this project's mints, with and without base segments", () => {

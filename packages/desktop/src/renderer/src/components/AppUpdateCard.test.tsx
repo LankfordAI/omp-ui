@@ -291,7 +291,7 @@ describe("AppUpdateCard", () => {
     useStore.setState({
       appUpdate: appUpdateState({
         status: "error",
-        error: "could not apply update: native preparation failed",
+        error: { kind: "failed", message: "could not apply update: native preparation failed" },
       }),
     });
     renderCard();

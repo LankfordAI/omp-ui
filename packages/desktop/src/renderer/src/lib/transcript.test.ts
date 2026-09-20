@@ -8,7 +8,7 @@ import {
   noticeItem,
   preExchange,
   reduceEvent,
-  settleRunningTools,
+  settleRunningItems,
   type AssistantItem,
   type RenderItem,
   type ToolItem,
@@ -455,13 +455,23 @@ describe("run-end tool settlement", () => {
     expect(tool(after, "t9")).toBe(settled);
   });
 
-  it("settleRunningTools returns the same array by identity when nothing runs", () => {
+  it("settleRunningItems returns the same array by identity when nothing runs", () => {
     const items = reduceEvent([], {
       type: "tool_execution_end",
       toolCallId: "t10",
       result: { content: [] },
     });
-    expect(settleRunningTools(items)).toBe(items);
+    expect(settleRunningItems(items)).toBe(items);
+  });
+
+  it("agent_end settles a streaming assistant item", () => {
+    let items = reduceEvent([], {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "partial" },
+    });
+    expect(assistant(items)?.streaming).toBe(true);
+    items = reduceEvent(items, { type: "agent_end" });
+    expect(assistant(items)?.streaming).toBe(false);
   });
 
   it("agent_end after an error message_end aborts running tools", () => {
@@ -499,14 +509,14 @@ describe("run-end tool settlement", () => {
     expect(tool(items, "tB")?.status).toBe("cancelled");
   });
 
-  it("settleRunningTools honors an explicit settled target", () => {
+  it("settleRunningItems honors an explicit tool settlement target", () => {
     const items = reduceEvent([], {
       type: "tool_execution_start",
       toolCallId: "tC",
       toolName: "bash",
     });
-    expect(tool(settleRunningTools(items, "aborted"), "tC")?.status).toBe("aborted");
-    expect(tool(settleRunningTools(items, "cancelled"), "tC")?.status).toBe("cancelled");
+    expect(tool(settleRunningItems(items, "aborted"), "tC")?.status).toBe("aborted");
+    expect(tool(settleRunningItems(items, "cancelled"), "tC")?.status).toBe("cancelled");
   });
 });
 

@@ -231,7 +231,10 @@ export function deriveAppUpdateState(
       return next(
         state(
           event.manual
-            ? { status: "error", error: "could not reach GitHub" }
+            ? {
+                status: "error",
+                error: { kind: "unreachable", message: "could not reach GitHub" },
+              }
             : { status: "idle" },
         ),
       );
@@ -286,7 +289,7 @@ export function deriveAppUpdateState(
       return next(
         state(
           event.visible
-            ? { status: "error", error: event.message }
+            ? { status: "error", error: { kind: "failed", message: event.message } }
             : { status: "idle" },
         ),
         { stage: null },
@@ -301,25 +304,36 @@ export function deriveAppUpdateState(
         state({
           status: "error",
           progress: null,
-          error: `could not apply update: ${event.message}`,
+          error: {
+            kind: "failed",
+            message: `could not apply update: ${event.message}`,
+          },
         }),
       );
     case "install-on-quit":
       return next(state({ installOnQuit: event.on }));
     case "asset-missing":
       return next(
-        state({ status: "error", error: "expected asset missing from release" }),
+        state({
+          status: "error",
+          error: { kind: "failed", message: "expected asset missing from release" },
+        }),
       );
     case "checksums-missing":
       return next(
-        state({ status: "error", error: "release checksums unavailable" }),
+        state({
+          status: "error",
+          error: { kind: "failed", message: "release checksums unavailable" },
+        }),
       );
     case "asset-download-begin":
       return next(state({ status: "downloading", progress: null }));
     case "asset-download-progress":
       return next(state({ status: "downloading", progress: event.percent }));
     case "asset-download-failed":
-      return next(state({ status: "error", error: event.message }));
+      return next(
+        state({ status: "error", error: { kind: "failed", message: event.message } }),
+      );
     case "asset-downloaded":
       return next(
         state({ status: "downloaded", downloadedPath: event.path, progress: null }),

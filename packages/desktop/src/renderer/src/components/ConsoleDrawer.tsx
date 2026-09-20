@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { backend } from "../backend";
 import { IS_WINDOWS } from "../lib/platform";
 import { useStore } from "../store";
@@ -12,12 +11,6 @@ import { Button, ICON_STROKE, IconButton, IconClose } from "./ui";
  * the full tab width.
  */
 
-/**
- * Tabs whose drawer has been opened at least once. After the first open the
- * drawer stays mounted (display:none when closed) so the shell's state —
- * cwd, env, running programs — survives the close (issue #42).
- */
-const consoleOpened = new Set<string>();
 
 /** The Session HUD's console button. */
 export function ConsoleToggle({ tabId, className }: { tabId: string; className?: string }) {
@@ -36,16 +29,10 @@ export function ConsoleToggle({ tabId, className }: { tabId: string; className?:
 export function ConsoleDrawer({ tabId }: { tabId: string }) {
   const t = useT();
   const open = useStore((s) => s.consoleOpen[tabId] ?? false);
+  const mounted = useStore((s) => tabId in s.consoleOpen);
   const toggleConsole = useStore((s) => s.toggleConsole);
 
-  // After the first open the drawer stays mounted — `hidden` (display:none)
-  // keeps the xterm instance and its writer registration alive so a closed
-  // drawer does not kill running shell programs (same survival strategy
-  // App.tsx uses for hidden tabs).
-  useEffect(() => {
-    if (open) consoleOpened.add(tabId);
-  }, [open, tabId]);
-  if (!open && !consoleOpened.has(tabId)) return null;
+  if (!open && !mounted) return null;
 
   // The console recipe: a card floating on the sunken strip, inset by the
   // same px-4 so the left edges line up. The terminal canvas paints the

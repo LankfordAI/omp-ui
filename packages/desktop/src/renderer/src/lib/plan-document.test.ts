@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PLAN_DOCUMENT_CSP, preparePlanDocument, verifyPlanStructure } from "./plan-document";
+import { preparePlanDocument, verifyPlanStructure } from "./plan-document";
+import { PLAN_DOCUMENT_CSP } from "./plan-guardrails";
 import { currentThemeId, DEFAULT_THEME_ID, mixHex, resolveTheme } from "./themes";
 import type { CodeTokenizer } from "./plan-highlight";
 import type { Theme } from "./themes";
@@ -660,7 +661,7 @@ describe("preparePlanDocument dollar regressions (issue #412)", () => {
     // The spans split the source mid-token; only the joined text can carry a
     // literal, so the count is taken with the markup removed.
     const text = visibleText(doc);
-    expect(countOf(text, `awk '/total:$/' report.csv`)).toBe(1);
+    expect(countOf(text, `awk &#39;/total:$/&#39; report.csv`)).toBe(1);
     expect(countOf(text, "a$&amp;b")).toBe(1);
     expect(doc).not.toContain("a$&b");
     expect(countOf(doc, "omp-ui-highlight-0")).toBe(1);

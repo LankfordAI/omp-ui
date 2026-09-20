@@ -403,12 +403,19 @@ export const BACKEND_CHANNELS = {
    */
   setProviderKey: {
     channel: "provider-keys:set",
-    ...request<[envName: string, value: string], ProviderKeysSnapshot>([str(), str()]),
+    ...request<[projectCwd: string | null, envName: string, value: string], ProviderKeysSnapshot>([
+      nullable(str()),
+      str(),
+      str(),
+    ]),
   },
   /** Forgets a stored credential; inherited or login-shell values take over again. */
   clearProviderKey: {
     channel: "provider-keys:clear",
-    ...request<[envName: string], ProviderKeysSnapshot>([str()]),
+    ...request<[projectCwd: string | null, envName: string], ProviderKeysSnapshot>([
+      nullable(str()),
+      str(),
+    ]),
   },
   /**
    * Subscription (OAuth) sign-in rows, re-read from omp's own auth store
@@ -997,7 +1004,7 @@ export const BACKEND_CHANNELS = {
     channel: "session:focus",
     ...event<[tabId: string]>(),
   },
-  onRpcFrame: { channel: "rpc:frame", ...event<[tabId: string, frame: object]>() },
+  onRpcFrame: { channel: "rpc:frame", ...event<[tabId: string, frame: RpcFrame]>() },
   onStateChanged: { channel: "state:changed", ...event<[state: BackendState]>() },
   /**
    * The project's checkout or branch list moved outside this client (#498): a
@@ -1182,7 +1189,7 @@ export type OmpBackend = {
   readonly [Method in BackendMethodName]: ClientMethod<BackendChannelSpec[Method]>;
 };
 
-type RequestHandlers = {
+export type RequestHandlers = {
   readonly [Method in BackendMethodName as BackendChannelSpec[Method]["kind"] extends "request"
     ? BackendChannelSpec[Method]["channel"]
     : never]: BackendChannelSpec[Method] extends RequestChannel<infer Args, infer Result>

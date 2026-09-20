@@ -21,7 +21,7 @@ import {
   type PlanExecutionOptions,
 } from "../../lib/plan-concerns";
 import { planSeedText } from "../../lib/plan-seed";
-import { noticeItem, settleRunningTools } from "../../lib/transcript";
+import { noticeItem, settleRunningItems } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
 import { randomId } from "../../lib/random-id";
 import { projectKey } from "../../lib/project-key";
@@ -29,7 +29,6 @@ import {
   dropExited,
   dropHibernated,
   dropTuiHandoff,
-  handedOffPlanSources,
   type GetState,
   type SetState,
   type StoreMachinery,
@@ -154,6 +153,7 @@ export function createLifecycleSlice(
     });
     m.patchRpc(tabId, {
       status: "starting",
+      commandAdmissionBlocked: false,
       plan: null,
       session: { ...tab.session, isStreaming: false },
       extensionQueue: [],
@@ -184,7 +184,7 @@ export function createLifecycleSlice(
     // process's final frames must not be lost (issue #187).
     const before = get().rpc[tabId];
     const settled = before
-      ? settleRunningTools(m.effectiveItems(tabId), "aborted")
+      ? settleRunningItems(m.effectiveItems(tabId), "aborted")
       : undefined;
     disposeTabRuntime(
       tabId,
@@ -228,7 +228,6 @@ export function createLifecycleSlice(
   const dropTabs = (gone: readonly string[], reason: string): void => {
     for (const id of gone) {
       disposeTabRuntime(id, reason, deps, m);
-      handedOffPlanSources.delete(id);
     }
     set((s) => {
       const rpc = { ...s.rpc };
@@ -361,29 +360,10 @@ export function createLifecycleSlice(
       ...focusOn(s, freshId, projectKey(instanceId, projectCwd)),
       exited: dropExited(s.exited, freshId),
     }));
-    await m.pollUntil(freshId, (t) => t?.status === "ready");
+    await m.pollUntilSettled(freshId);
     if (get().rpc[freshId]?.status !== "ready") return;
-    // Staged main-model parameters ride the composer's own actions, so they
-    // persist into session parameter memory exactly like a composer change.
-    const stagedModel = options?.model ?? null;
-    if (stagedModel !== null) {
-      const cur = get().rpc[freshId]?.model;
-      if (
-        `${stagedModel.provider}/${stagedModel.id}` !==
-        (cur ? `${cur.provider}/${cur.id}` : null)
-      ) {
-        await get().setModel(freshId, stagedModel);
-        if (get().rpc[freshId]?.failure?.command === "set_model") return;
-      }
-    }
-    if (
-      options?.thinkingLevel != null &&
-      options.thinkingLevel !==
-        (get().rpc[freshId]?.session.thinkingLevel ?? null)
-    ) {
-      await get().setThinkingLevel(freshId, options.thinkingLevel);
-      if (get().rpc[freshId]?.failure?.command === "set_thinking_level") return;
-    }
+    // Staged parameters share one failure policy across every fresh launch.
+    if (!(await m.applyStagedParams(freshId, options ?? {}))) return;
     const lead = "A plan was approved for this project. Implement it now.";
     const body = planSeedText(planText);
     const seed = body
@@ -402,7 +382,13 @@ export function createLifecycleSlice(
     );
     if (!accepted) return;
 
-    handedOffPlanSources.add(srcTabId);
+    set((state) => ({
+      handedOffFor: { ...state.handedOffFor, [srcTabId]: freshId },
+      observedPlanHandoffs: {
+        ...state.observedPlanHandoffs,
+        [srcTabId]: freshId,
+      },
+    }));
     advisorReplyWatcher.cancel(srcTabId);
     stallContinueWatcher.cancel(srcTabId);
     m.appendItem(

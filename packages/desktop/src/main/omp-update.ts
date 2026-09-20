@@ -67,7 +67,14 @@ export class OmpUpdater extends UpdateController<OmpUpdateState> {
       // Offline/registry unreachable: quiet in the background, answered manually.
       this.set(
         manual
-          ? { ...facts, status: "error", error: info.error ?? "could not reach the omp release registry" }
+          ? {
+              ...facts,
+              status: "error",
+              error: info.error ?? {
+                kind: "unreachable",
+                message: "could not reach the omp release registry",
+              },
+            }
           : { ...facts, status: "idle" },
       );
       return this.state;
@@ -116,7 +123,10 @@ export class OmpUpdater extends UpdateController<OmpUpdateState> {
       // the state keeps the pre-action installPath/installedVersion.
       this.set({
         status: "error",
-        error: e instanceof Error ? e.message : String(e),
+        error: {
+          kind: "failed",
+          message: e instanceof Error ? e.message : String(e),
+        },
         progress: null,
       });
       return;

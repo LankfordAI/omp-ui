@@ -16,16 +16,16 @@ import { cn } from "../lib/cn";
 import { currentLocaleId, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import {
-  keywordColors,
   keywordPalette,
   magicKeywordSegments,
   SHIMMER_PERIOD_MS,
 } from "../lib/magic-keywords";
-import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/mentions";
+import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
+import { composerPaintRuns } from "../lib/composer-paint";
 import { queueChipView } from "../lib/queue-chip";
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { slashCompletion } from "../lib/slash-completion";
-import { findInstance, findOwner, findRecord, sessionCwd, useStore } from "../store";
+import { findInstance, findOwner, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { AdvisorControl } from "./AdvisorControl";
@@ -132,24 +132,26 @@ export function Composer({
   const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
   const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
-  const dead = useStore((s) => s.exited[tabId] !== undefined);
+  const owner = useStore((s) => findOwner(s.state, tabId));
+  const record = owner?.record;
+  const dead = record?.live !== "live";
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
   const compact = useCompactShell();
   const compactSurface = useStore((s) => s.compactSurface);
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
-  const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId)));
+  const cwd = sessionCwd(record);
   // The owning remote instance (issue #416): project-scoped reads go to that
   // host, and while it is not joined the composer is as inert as a dead tab —
   // nothing typed here could reach the agent.
-  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
+  const instanceId = owner?.instanceId ?? null;
   const instanceDown = useStore(
     (s) => instanceId !== null && findInstance(s.state, instanceId)?.status !== "joined",
   );
   // A session running in a worktree cannot be pointed at a second one: the
   // branch chip's worktree section is never offered to it. Finishing the
   // worktree moves it back to the project checkout instead (issue #334).
-  const hasWorktree = useStore((s) => findRecord(s.state, tabId)?.worktree != null);
+  const hasWorktree = record?.worktree != null;
   // The worktree section of the branch chip (issue #227) stands in for the
   // standalone workspace chip: offered only while the session is unprompted
   // and has no worktree of its own.
@@ -158,7 +160,6 @@ export function Composer({
   // The finish-worktree offer (issues #385–#389): this tab for any worktree
   // session — a null base no longer withholds it, the dialog falls back to
   // the default branch. Undefined for plain sessions and the sheet instance.
-  const record = useStore((s) => findRecord(s.state, tabId));
   const finishTabId = record?.worktree != null ? tabId : undefined;
 
   const sendPrompt = useStore((s) => s.sendPrompt);
@@ -275,34 +276,10 @@ export function Composer({
    * accent — because omp will fire it at send time; an unpainted @ stays
    * ordinary prose, which is exactly what omp will do with it.
    */
-  const runs = useMemo(() => {
-    const mentions = mentionRanges(text, known);
-    const out: { text: string; color?: string; iris?: boolean }[] = [];
-    let base = 0;
-    let mi = 0;
-    for (const seg of segments) {
-      if (seg.keyword !== null) {
-        keywordColors(seg.keyword, phase).forEach((color, c) =>
-          out.push({ text: seg.text[c]!, color }),
-        );
-      } else {
-        const segStart = base;
-        const segEnd = base + seg.text.length;
-        while (mi < mentions.length && mentions[mi]!.to <= segStart) mi++;
-        let pos = 0;
-        for (let k = mi; k < mentions.length && mentions[k]!.from < segEnd; k++) {
-          const from = Math.max(mentions[k]!.from, segStart) - segStart;
-          const to = Math.min(mentions[k]!.to, segEnd) - segStart;
-          if (from > pos) out.push({ text: seg.text.slice(pos, from) });
-          out.push({ text: seg.text.slice(from, to), iris: true });
-          pos = to;
-        }
-        if (pos < seg.text.length) out.push({ text: seg.text.slice(pos) });
-      }
-      base += seg.text.length;
-    }
-    return out;
-  }, [segments, phase, text, known]);
+  const runs = useMemo(
+    () => composerPaintRuns(text, known, phase),
+    [text, known, phase],
+  );
 
   // The listing is refetched on every open so files created mid-session
   // appear; the previous list stays on screen while the new one is in flight.

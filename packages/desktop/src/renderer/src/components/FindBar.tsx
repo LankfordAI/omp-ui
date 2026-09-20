@@ -1,6 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { useT } from "../lib/i18n";
-import { IconButton, IconClose } from "./ui";
+import { IconButton, IconClose, IconSearch } from "./ui";
 
 /**
  * Find-within-session bar (issue #270): a hover-reveal pill riding on top of
@@ -22,25 +22,6 @@ export interface FindBarProps {
   onClose: () => void;
 }
 
-/* ------------------------------------------------------------------- icons */
-
-function IconSearch() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="7" cy="7" r="4" />
-      <path d="M10.2 10.2 13 13" />
-    </svg>
-  );
-}
 
 /** Up arrow — previous match (mirrors the "jump to latest" glyph, flipped). */
 function IconUp() {

@@ -61,6 +61,7 @@ export class PlanVerifier {
   private pagePromise: Promise<VerifierPage> | null = null;
   private queue: Promise<void> = Promise.resolve();
   private active: Job | null = null;
+  private readonly pending = new Set<Job>();
   private disposed = false;
   private readonly createPage: () => Promise<VerifierPage>;
 
@@ -112,6 +113,7 @@ export class PlanVerifier {
     if (signal.aborted) {
       return Promise.resolve(abortedResult());
     }
+    this.pending.add(job);
     signal.addEventListener("abort", () => job.cancel(), { once: true });
     const run = this.queue.then(() => this.run(job));
     // The chain never rejects; failures answer through the job's resolver.
@@ -123,65 +125,70 @@ export class PlanVerifier {
   }
 
   private async run(job: Job): Promise<void> {
-    if (job.signal.aborted) {
+    if (job.signal.aborted || this.disposed) {
+      this.pending.delete(job);
+      job.resolve(abortedResult());
       return;
     }
     this.active = job;
     const remaining = TOTAL_DEADLINE_MS - (Date.now() - job.enqueuedAt);
     if (remaining <= 0) {
       this.active = null;
-      job.resolve(unavailable("the verification queue exceeded its deadline", "VERIFIER_TIMEOUT"));
-      return;
-    }
-    try {
-      const page = await this.ensurePage();
-      await page.ready();
-      let settle!: (result: PlanRenderResult) => void;
-      const inner = new Promise<PlanRenderResult>((res) => {
-        settle = res;
-      });
-      const timer = setTimeout(() => {
-        // A hung page cannot be trusted for the NEXT job either; tear it down
-        // and let the next independent request recreate it.
-        void this.teardownPage();
-        settle(unavailable("the verifier did not answer within its deadline", "VERIFIER_TIMEOUT"));
-      }, remaining);
-      void page
-        .invoke(job.args)
-        .then(
-          (value) => {
-            clearTimeout(timer);
-            settle(
-              isRenderResult(value)
-                ? value
-                : unavailable("the verifier returned a malformed result", "VERIFIER_UNAVAILABLE"),
-            );
-          },
-          (err: unknown) => {
-            clearTimeout(timer);
-            void this.teardownPage();
-            settle(
-              unavailable(
-                err instanceof Error ? err.message : "the verifier page died",
-                "VERIFIER_UNAVAILABLE",
-              ),
-            );
-          },
-        );
-      job.resolve(await inner);
-    } catch (err) {
+      this.pending.delete(job);
       job.resolve(
         unavailable(
-          err instanceof Error ? err.message : "the verifier could not start",
-          "VERIFIER_UNAVAILABLE",
+          "the verification queue exceeded its deadline",
+          "VERIFIER_TIMEOUT",
         ),
       );
+      return;
+    }
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const operation = (async (): Promise<PlanRenderResult> => {
+        try {
+          const page = await this.ensurePage();
+          if (this.disposed) return abortedResult();
+          await page.ready();
+          if (this.disposed) return abortedResult();
+          const value = await page.invoke(job.args);
+          return isRenderResult(value)
+            ? value
+            : unavailable(
+                "the verifier returned a malformed result",
+                "VERIFIER_UNAVAILABLE",
+              );
+        } catch (err) {
+          void this.teardownPage();
+          return unavailable(
+            err instanceof Error ? err.message : "the verifier page died",
+            "VERIFIER_UNAVAILABLE",
+          );
+        }
+      })();
+      const deadline = new Promise<PlanRenderResult>((resolve) => {
+        timer = setTimeout(() => {
+          void this.teardownPage();
+          resolve(
+            unavailable(
+              "the verifier did not answer within its deadline",
+              "VERIFIER_TIMEOUT",
+            ),
+          );
+        }, remaining);
+      });
+      job.resolve(await Promise.race([operation, deadline]));
     } finally {
+      clearTimeout(timer);
       this.active = null;
+      this.pending.delete(job);
     }
   }
 
   private async ensurePage(): Promise<VerifierPage> {
+    if (this.disposed) {
+      throw new Error("the verifier service is disposed");
+    }
     if (this.page !== null) return this.page;
     if (this.pagePromise === null) {
       this.pagePromise = this.createPage().then(
@@ -214,10 +221,9 @@ export class PlanVerifier {
   dispose(): void {
     this.disposed = true;
     void this.teardownPage();
-    if (this.active !== null) {
-      this.active.cancel();
-      this.active = null;
-    }
+    for (const job of this.pending) job.cancel();
+    this.pending.clear();
+    this.active = null;
   }
 }
 

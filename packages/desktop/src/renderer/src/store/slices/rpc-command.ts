@@ -1,3 +1,4 @@
+import type { SessionCommand } from "@omp-ui/core/session-command";
 // RPC command domain (decomposed for #295): boot, command correlation and
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
@@ -29,7 +30,7 @@ import {
   RPC_COMMAND_TIMEOUT_MS,
   RpcCommandAbandonedError,
   RpcCommandTimeoutError,
-  handedOffPlanSources,
+  dropPlanHandoff,
   isLateAckCommand,
   respData,
   type GetState,
@@ -39,6 +40,7 @@ import {
 } from "./shared";
 import { freshBrowserPaneView } from "./browser-pane";
 import { findOwner, findRecord } from "./view";
+import { isNewerSnapshot } from "../snapshot-acceptance";
 import type {
   CapabilitiesToolPending,
   RpcTabState,
@@ -158,12 +160,7 @@ export function acceptCapabilitySnapshot(
   m: StoreMachinery,
 ): boolean {
   const retained = get().rpc[tabId]?.capabilities ?? null;
-  if (
-    retained !== null &&
-    retained.processKey === snapshot.processKey &&
-    snapshot.revision <= retained.revision
-  )
-    return false;
+  if (!isNewerSnapshot(retained, snapshot)) return false;
   const replacement =
     retained !== null && !sameRosterIdentity(retained, snapshot);
   m.patchRpc(
@@ -203,12 +200,7 @@ export function acceptGoalSnapshot(
   m: StoreMachinery,
 ): boolean {
   const retained = get().rpc[tabId]?.goal ?? null;
-  if (
-    retained !== null &&
-    retained.processKey === snapshot.processKey &&
-    snapshot.revision <= retained.revision
-  )
-    return false;
+  if (!isNewerSnapshot(retained, snapshot)) return false;
   m.patchRpc(tabId, { goal: snapshot });
   const result = snapshot.result;
   if (result === null) return true;
@@ -249,12 +241,7 @@ export function acceptAutoresearchSnapshot(
   m: StoreMachinery,
 ): boolean {
   const retained = get().rpc[tabId]?.autoresearch ?? null;
-  if (
-    retained !== null &&
-    retained.processKey === snapshot.processKey &&
-    snapshot.revision <= retained.revision
-  )
-    return false;
+  if (!isNewerSnapshot(retained, snapshot)) return false;
   m.patchRpc(tabId, { autoresearch: snapshot });
   if (
     retained !== null &&
@@ -555,6 +542,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     planText: null,
     planHtml: null,
     planDeferred: false,
+    planReadiness: null,
     experimentProposal: null,
     plans: [],
     advisorStats: null,
@@ -609,7 +597,7 @@ export function createRpcCommandSlice(
   };
 
   const bootRpcTab = async (tabId: string): Promise<void> => {
-    handedOffPlanSources.delete(tabId);
+    set((state) => ({ handedOffFor: dropPlanHandoff(state.handedOffFor, tabId) }));
     if (rpcBooting.has(tabId)) return;
     rpcBooting.add(tabId);
     try {
@@ -763,7 +751,7 @@ export function createRpcCommandSlice(
 
   const rpcCommand = (
     tabId: string,
-    cmd: Record<string, unknown>,
+    cmd: SessionCommand,
     opts?: { quiet?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown> => {
     if (!get().rpc[tabId])

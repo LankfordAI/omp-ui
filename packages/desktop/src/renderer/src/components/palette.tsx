@@ -6,11 +6,11 @@ import {
   type Dispatch,
   type HTMLAttributes,
   type KeyboardEvent,
-  type ReactNode,
   type RefObject,
   type SetStateAction,
 } from "react";
 import { cn } from "../lib/cn";
+import { Empty } from "./ui";
 
 export interface PaletteNavOptions<T> {
   items: readonly T[];
@@ -126,22 +126,4 @@ export function PaletteList({ className, ...props }: HTMLAttributes<HTMLDivEleme
   return <div className={cn("max-h-[24rem] overflow-y-auto py-1.5", className)} {...props} />;
 }
 
-export function PaletteEmpty({
-  title,
-  hint,
-  action,
-  className,
-}: {
-  title: ReactNode;
-  hint?: ReactNode;
-  action?: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex flex-col items-center justify-center gap-2 px-6 py-10 text-center", className)}>
-      <p className="font-display text-sm text-ink-mid">{title}</p>
-      {hint && <p className="max-w-xs text-xs leading-relaxed text-ink-faint">{hint}</p>}
-      {action}
-    </div>
-  );
-}
+export const PaletteEmpty = Empty;

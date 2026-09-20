@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./protocol": "./src/protocol.ts"
+    "./protocol": "./src/protocol.ts",
+    "./transport-core": "./src/transport-core.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

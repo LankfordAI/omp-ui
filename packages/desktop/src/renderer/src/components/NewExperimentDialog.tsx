@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { composeWorktreeBranch } from "@omp-ui/core/worktree-branch";
+import { composeWorktreeBranch, mintBranchName } from "@omp-ui/core/worktree-branch";
 import { AUTORESEARCH_METRIC_NAME_RE, EXPERIMENT_PROPOSAL_REVISE } from "@omp-ui/core/autoresearch";
 import { useT } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
@@ -9,7 +9,6 @@ import type { NewExperimentSpec } from "../store/types";
 import { findInstance, useStore } from "../store";
 import { ModelPalette } from "./ModelSelector";
 import { Button, ChoiceCapsule, ConfirmDialog } from "./ui";
-import { mintBranchName } from "./WorktreeBranchFields";
 /** omp's own cap on published goal text; the composer input stops there too. */
 const GOAL_CHAR_LIMIT = 4096;
 

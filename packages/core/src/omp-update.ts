@@ -171,7 +171,10 @@ export async function checkOmpUpdate(opts: {
       info.updateAvailable = compareVersions(info.installedVersion, info.latestVersion) < 0;
     }
   } catch (e) {
-    info.error = e instanceof Error ? e.message : String(e);
+    info.error = {
+      kind: "unreachable",
+      message: e instanceof Error ? e.message : String(e),
+    };
   }
   return info;
 }

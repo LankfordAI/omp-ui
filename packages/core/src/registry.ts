@@ -436,6 +436,7 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // would silently drop every session written before the advisor picker
     // shipped.
     optNullable(value, "advisorModel", isStr) &&
+    optional(value, "advisor", (advisor) => typeof advisor === "boolean") &&
     // subagentModels post-dates the advisor picker records too; absent loads
     // as null, which is also the umbrella-applies state (ADR-0031).
     optNullable(value, "subagentModels", isSubagentModelMap) &&
@@ -478,6 +479,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
     .filter(isOwnedSessionRecord)
     .map((s) => ({
       ...s,
+      advisor: s.advisor === true,
       model: s.model ?? null,
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,

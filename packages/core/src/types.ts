@@ -7,6 +7,30 @@ import type { AutoresearchSnapshot } from "./autoresearch";
 import type { SubagentModelMap } from "./subagent-model";
 import type { ProjectConfigMapRead, ProjectConfigRead, ProjectConfigValue } from "./project-config-writer";
 import type { SkillOrigin } from "./omp-capability-keys";
+import type { RegistrySettings } from "./registry";
+import type { SessionExperiment } from "./experiment-types";
+export type {
+  CheckoutExperiments,
+  ExperimentDetail,
+  ExperimentProgress,
+  ExperimentRecord,
+  ExperimentRun,
+  ExperimentSource,
+  ProjectExperiments,
+  RunLogResult,
+  SessionExperiment,
+} from "./experiment-types";
+export type {
+  AppPackageFormat,
+  AppUpdateRestartResult,
+  AppUpdateState,
+  AppUpdateStatus,
+  OmpUpdateInfo,
+  OmpUpdateState,
+  OmpUpdateStatus,
+  UpdateFailure,
+  UpdateTrain,
+} from "./update-types";
 export type { SkillOrigin } from "./omp-capability-keys";
 export type SessionStatus =
   | "complete"
@@ -260,25 +284,6 @@ export interface DeleteSessionResult {
   failed: Array<{ tabId: string; message: string }>;
 }
 
-/**
- * Launch parameters of a session omp-ui started as an experiment (CONTEXT.md
- * "New experiment"). Provenance only: omp's autoresearch DB is the record of
- * what the experiment became; this is what the user asked for at launch, and
- * what links a fresh session to its DB row before `init_experiment` runs.
- */
-export interface SessionExperiment {
-  goal: string;
-  metric: string;
-  unit: string;
-  direction: "lower" | "higher";
-  /**
-   * Branch the checkout was on at launch: the minted worktree branch, or the
-   * project checkout's branch (null when detached / not a repo).
-   */
-  launchedBranch: string | null;
-  /** ISO-8601. */
-  launchedAt: string;
-}
 
 export interface OwnedSessionRecord {
   tabId: string;
@@ -377,6 +382,11 @@ export interface SessionSummary extends OwnedSessionRecord {
   live: LiveState;
   pendingPlan: PendingPlan | null;
   planSettle: PlanSettle | null;
+  /** Per-process bridge installation; absent for terminal, dormant, and older remote hosts. */
+  bridgeAvailability?: {
+    plan: boolean;
+    advisorStats: boolean;
+  };
   /** Main-process watchdog aborted a silently wedged turn (issue #248); sidebar badge. */
   streamStalled: boolean;
   /**
@@ -438,54 +448,21 @@ export interface SpawnGateState {
   advisorModel: string | null;
 }
 
-export interface BackendState {
+type BackendBroadcastSettings = Omit<
+  RegistrySettings,
+  | "sessionOrderFrozen"
+  | "memoryDefaultsSeeded"
+  | "remoteEnabled"
+  | "remoteBind"
+  | "remotePort"
+  | "remoteToken"
+  | "remotePasswordHash"
+  | "remotePasswordSalt"
+  | "instanceId"
+>;
+
+export interface BackendState extends BackendBroadcastSettings {
   projects: ProjectGroup[];
-  defaultMode: SessionMode;
-  /** Initial Plan/Build posture for newly created native sessions. */
-  defaultAgentMode: AgentMode;
-  /** Preferred first compaction method captured by future native sessions; null defers to omp. */
-  defaultCompactionMethod: string | null;
-  /** Plan authoring format the next plan-mode toggle asks the agent for. */
-  planFormat: PlanFormat;
-  /** Idle window before an rpc-ui session's process is hibernated; 0 disables. */
-  hibernateIdleMinutes: number;
-  /** Silence window before a running turn is aborted as stream-stalled (issue #248); 0 disables. */
-  streamStallAbortSeconds: number;
-  /** Auto-answer a late advisor review (issue #111); seeds each rpc tab's advisorReply. */
-  advisorAutoReply: boolean;
-  /** Bounded auto-continue after a turn dies to a stream stall (issue #251); app-level, default on. */
-  stallAutoContinue: boolean;
-  /** OS notifications for background-session attention (issue #271); app-level, default on. */
-  desktopNotifications: boolean;
-  /** Seeds the advisor on/off for new sessions, default off (issue #174). */
-  defaultAdvisor: boolean;
-  /** Umbrella: subagents with no explicit choice run on the session's model (ADR-0031); default on. */
-  subagentModelInheritByDefault: boolean;
-  /** Agent names from the last roster refresh (ADR-0031). */
-  agentRoster: string[];
-  modelFavorites: string[];
-  /** Whether destructive session deletion proceeds without a renderer warning. */
-  skipDeleteConfirmation: boolean;
-  /** Global feature flag for the Experiments Lab and its autoresearch bridge (issue #571); app-level, default off. */
-  experimentsEnabled: boolean;
-  /** Active theme id; the renderer resolves it against its own theme table. */
-  themeId: string;
-  /** Active font family id; the renderer resolves it against its own font table. */
-  fontFamilyId: string;
-  /** Transcript column width step; the renderer maps it to a CSS length. */
-  transcriptWidth: TranscriptWidth;
-  /** Translucency of chrome planes over the backdrop wash. */
-  glassChrome: GlassChrome;
-  /** Active UI locale id; the renderer resolves it against its own locale table. */
-  localeId: string;
-  appUpdateCheckOnLaunch: boolean;
-  /** Which omp-ui release line the update check follows (issue #493). */
-  appUpdateTrain: UpdateTrain;
-  ompUpdateCheckOnLaunch: boolean;
-  /** Release version whose omp-ui update card was dismissed, or null. */
-  dismissedAppUpdateVersion: string | null;
-  /** omp version whose install/update card was dismissed, or null. */
-  dismissedOmpUpdateVersion: string | null;
   /** This instance's dev/test spawn selectors; not persisted, not a pin. */
   spawnGate: SpawnGateState;
   /** Joined remote instances and their registries (issue #416); never persisted here, never carries a credential. */
@@ -779,76 +756,6 @@ export type ScopedCapabilityMutation = { scopeCwd: string | null } & (
   | { kind: "skill-gate"; key: string; enabled: boolean }
 );
 
-/**
- * Snapshot of the omp install/update situation (see core/omp-update.ts). Kept
- * inline here rather than imported so this file stays dependency-free for the
- * renderer's type-only import.
- */
-export interface OmpUpdateInfo {
-  /** Resolved omp binary path, or null when omp is not installed/not found. */
-  installPath: string | null;
-  installedVersion: string | null;
-  latestVersion: string | null;
-  /** True when both versions are known and installed < latest. */
-  updateAvailable: boolean;
-  error: string | null;
-}
-
-/** How this omp-ui install was packaged (see core/app-update.ts). */
-export type AppPackageFormat = "appimage" | "nsis" | "maczip" | "deb" | "rpm" | "flatpak" | "unknown";
-
-/** Snapshot of the omp-ui app update situation (see main/app-update.ts). */
-export type AppUpdateStatus =
-  | "disabled" // dev/unversioned build — updater off
-  | "idle" // nothing to show; a silent auto-update stage may be in flight
-  | "checking"
-  | "up-to-date" // manual check only; transient
-  | "available" // manual formats only; auto-updatable packages stage during the check
-  | "downloading"
-  | "downloaded" // AppImage/NSIS/macOS zip: staged + verified; others: installer opened/in folder
-  | "installing" // authorized post-download handoff to the installer/native updater
-  | "error";
-
-export interface AppUpdateState {
-  status: AppUpdateStatus;
-  currentVersion: string | null;
-  latestVersion: string | null;
-  /** Release page URL (from the release JSON html_url). */
-  releaseUrl: string | null;
-  releaseName: string | null;
-  format: AppPackageFormat;
-  /** 0–100 while downloading; null = indeterminate or not downloading. */
-  progress: number | null;
-  downloadedPath: string | null;
-  /** Explicit user opt-in to apply the staged auto-update on the next natural quit. */
-  installOnQuit: boolean;
-  error: string | null;
-}
-
-/** Result of requesting a restart into a staged app update. */
-export type AppUpdateRestartResult = "confirmation-required" | "restarting" | "unavailable";
-
-/** Where the omp binary install/update flow stands (see desktop main/omp-update.ts). */
-export type OmpUpdateStatus =
-  | "idle" // nothing to show
-  | "checking"
-  | "up-to-date" // manual check only; transient
-  | "missing" // omp not installed — an install offer, not an update
-  | "available"
-  | "downloading"
-  | "installed" // applied; new sessions use the new binary
-  | "error";
-
-export interface OmpUpdateState {
-  status: OmpUpdateStatus;
-  /** Resolved omp binary path, or null when omp is not installed. */
-  installPath: string | null;
-  installedVersion: string | null;
-  latestVersion: string | null;
-  /** 0–100 while downloading; null = indeterminate or not downloading. */
-  progress: number | null;
-  error: string | null;
-}
 
 /** The config sources omp-ui resolves MCP servers from (see core/mcp-config.ts). */
 export type McpServerSource =
@@ -948,8 +855,6 @@ export interface DirBrowseResult {
 /** Which interface the embedded remote server binds to. */
 export type RemoteBind = "localhost" | "lan";
 
-/** omp-ui release line followed by the app update check (issue #493). */
-export type UpdateTrain = "stable" | "nightly";
 
 export type RemoteStatus = "stopped" | "starting" | "listening" | "error";
 
@@ -1190,123 +1095,5 @@ export interface DiagnosticsExportResult {
   warnings: string[];
 }
 
-// ------------------------------------------------------------ experiments
-// Read-only projections of omp's per-project autoresearch SQLite DB
-// (ADR-0030). Computed in core/autoresearch-store.ts, served by the
-// `autoresearch:*` channels, drawn by the Lab. omp-ui never writes the DB.
-
-/** One row of omp's autoresearch `runs` table, reduced for display. */
-export interface ExperimentRun {
-  id: number;
-  segment: number;
-  command: string;
-  startedAt: number;
-  completedAt: number | null;
-  durationMs: number | null;
-  exitCode: number | null;
-  timedOut: boolean;
-  parsedPrimary: number | null;
-  metric: number | null;
-  /** null = pending or abandoned (see `abandoned`). */
-  status: "keep" | "discard" | "crash" | "checks_failed" | null;
-  abandoned: boolean;
-  description: string | null;
-  commitHash: string | null;
-  modifiedPaths: string[];
-  scopeDeviations: string[];
-  justification: string | null;
-  flagged: boolean;
-  flaggedReason: string | null;
-  loggedAt: number | null;
-  /** `log_path` non-empty; the path itself never leaves main. */
-  hasLog: boolean;
-}
-
-/** Current-segment aggregates, computed by the store (never stored by omp). */
-export interface ExperimentProgress {
-  segmentRuns: number;
-  kept: number;
-  discarded: number;
-  crashed: number;
-  checksFailed: number;
-  /** Earliest kept, unflagged, metric-bearing run of the segment. */
-  baseline: { runId: number; metric: number } | null;
-  /** Min (direction lower) or max (higher) metric over the same set. */
-  best: { runId: number; metric: number } | null;
-  /** A run started but not yet logged (status null, not abandoned). */
-  pendingRunId: number | null;
-  /** max(started_at, logged_at) over the segment. */
-  lastActivityAt: number | null;
-  /** Ordered by run id; unflagged runs with a metric. */
-  metricSeries: Array<{ runId: number; metric: number; kept: boolean }>;
-}
-
-/** One row of omp's autoresearch `sessions` table: an experiment (CONTEXT.md). */
-export interface ExperimentRecord {
-  id: number;
-  name: string;
-  goal: string | null;
-  primaryMetric: string;
-  metricUnit: string;
-  direction: "lower" | "higher";
-  preferredCommand: string | null;
-  branch: string | null;
-  baselineCommit: string | null;
-  currentSegment: number;
-  maxIterations: number | null;
-  scopePaths: string[];
-  offLimits: string[];
-  constraints: string[];
-  secondaryMetrics: string[];
-  notes: string;
-  createdAt: number;
-  closedAt: number | null;
-  progress: ExperimentProgress;
-}
-
-/** Which DB a checkout's experiments were read from. */
-export interface ExperimentSource {
-  cwd: string;
-  key: string;
-  dbPath: string;
-}
-
-/** Every experiment recorded for one checkout (project root or worktree). */
-export interface CheckoutExperiments {
-  /** null when no candidate DB exists for the cwd. */
-  source: ExperimentSource | null;
-  /** Newest first; [] when source is null. */
-  experiments: ExperimentRecord[];
-  /** sqlite/read failure; experiments then []. */
-  error: string | null;
-}
-
-/** `autoresearch:overview`: a project's experiments across its checkouts. */
-export interface ProjectExperiments {
-  projectCwd: string;
-  /** git | none | jj-only — the New experiment dialog's preflight. */
-  repo: "git" | "none" | "jj-only";
-  checkouts: Array<{
-    /** projectCwd or a worktree path. */
-    cwd: string;
-    /** The owned worktree session whose checkout this is; null for the project checkout. */
-    tabId: string | null;
-    /** record.worktree.branch for worktree checkouts. */
-    branch: string | null;
-    result: CheckoutExperiments;
-  }>;
-  /** Owned sessions launched as experiments that have no DB row yet (Phase 1 still running). */
-  pendingLaunches: Array<{ tabId: string; experiment: SessionExperiment }>;
-}
-
-/** `autoresearch:experiment`: one experiment with its runs. */
-export interface ExperimentDetail {
-  record: ExperimentRecord | null;
-  runs: ExperimentRun[];
-  error: string | null;
-}
-
-/** `autoresearch:runLog`: the head of one run's log, confined to omp's state dir. */
-export type RunLogResult = { text: string; truncated: boolean } | { error: string };
 
 export type { OmpBackend } from "./backend-channels";

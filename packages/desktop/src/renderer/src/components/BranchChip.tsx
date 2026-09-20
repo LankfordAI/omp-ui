@@ -5,12 +5,12 @@ import { projectKey } from "../lib/project-key";
 import { useDismissal } from "../lib/use-dismissal";
 import { runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, ICON_STROKE } from "./ui";
-import { baseBranchSegment, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
 import {
+  baseBranchSegment,
   mintBranchName,
-  WorktreeBranchFields,
-  type WorkspaceSelection,
-} from "./WorktreeBranchFields";
+  worktreeBranchPrefix,
+} from "@omp-ui/core/worktree-branch";
+import { WorktreeBranchFields, type WorkspaceSelection } from "./WorktreeBranchFields";
 
 /**
  * The composer's git-branch indicator and switcher (issues #35, #168): a

@@ -32,6 +32,7 @@ import { createSettingsSlice } from "./store/slices/settings";
 import {
   browserPaneWriters,
   createMachinery,
+  persistedPlanHandoffs,
   shellWriters,
   termWriters,
 } from "./store/slices/shared";
@@ -257,6 +258,94 @@ export const useStore = create<UiStore>()((set, get, api) => {
     }
     return reboot;
   };
+  const reconcileBridgeAvailability = (next: BackendState): void => {
+    const summaries = [
+      ...next.projects.flatMap((group) => group.sessions),
+      ...next.remoteInstances
+        .filter((instance) => instance.status === "joined")
+        .flatMap((instance) => instance.projects.flatMap((group) => group.sessions)),
+    ];
+    set((current) => {
+      let changed = false;
+      const rpc = { ...current.rpc };
+      for (const summary of summaries) {
+        const availability = summary.bridgeAvailability;
+        const tab = rpc[summary.tabId];
+        if (availability === undefined || tab === undefined) continue;
+        const nextTab = { ...tab };
+        if (!availability.plan) {
+          nextTab.plan = {
+            enabled: false,
+            planFilePath: null,
+            planAbsPath: null,
+            approved: false,
+            unavailable: "bridge-unavailable",
+          };
+        }
+        if (!availability.advisorStats) {
+          nextTab.advisorStats = {
+            available: false,
+            unavailable: "bridge-unavailable",
+            configured: false,
+            active: false,
+            model: null,
+            subscription: false,
+            contextWindow: 0,
+            contextTokens: 0,
+            cost: 0,
+            totalTokens: 0,
+          };
+        }
+        if (!availability.plan || !availability.advisorStats) {
+          rpc[summary.tabId] = nextTab;
+          changed = true;
+        }
+      }
+      return changed ? { rpc } : {};
+    });
+  };
+  const applyAuthoritativeState = (state: BackendState): void => {
+    const reboot = reconcileTabs(state);
+    const observedPlanHandoffs = persistedPlanHandoffs(state);
+    set((current) => {
+      const handedOffFor: Record<string, string> = {};
+      for (const [sourceTabId, implementationTabId] of Object.entries(
+        observedPlanHandoffs,
+      )) {
+        if (
+          current.observedPlanHandoffs[sourceTabId] !== implementationTabId ||
+          current.handedOffFor[sourceTabId] === implementationTabId
+        ) {
+          handedOffFor[sourceTabId] = implementationTabId;
+        }
+      }
+      return {
+        state,
+        handedOffFor,
+        observedPlanHandoffs,
+        tabs: current.tabs.map((tab) => {
+          const record = findRecord(state, tab.tabId);
+          return record && record.mode !== tab.mode
+            ? { ...tab, mode: record.mode }
+            : tab;
+        }),
+        focusedTabByProject: pruneFocus(current.focusedTabByProject, state),
+      };
+    });
+    for (const tabId of reboot) void get().bootRpcTab(tabId);
+    syncTheme(state);
+    syncFontFamily(state);
+    syncTranscriptWidth(state);
+    syncGlassChrome(state);
+    syncLocale(state);
+    reconcilePlanGates(state);
+    reconcileBridgeAvailability(state);
+    sessionParams.reconcilePendingDialogs(state);
+    rpcCommandSlice.reconcileGoals(state);
+    rpcCommandSlice.reconcileAutoresearch(state);
+  };
+
+
 
   return {
     ...createViewSlice(set, get, api),
@@ -269,6 +358,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     state: null,
     exited: {},
     hibernated: {},
+    handedOffFor: {},
+    observedPlanHandoffs: {},
     rpc: {},
     branches: branchesSlice.branches,
     branchActivity: branchesSlice.branchActivity,
@@ -287,28 +378,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     async init() {
       if (initialized) return;
       initialized = true;
-      backend.onStateChanged((state) => {
-        const reboot = reconcileTabs(state);
-        set((s) => ({
-          state,
-          // Record mode is authoritative — tabs follow it (e.g. after switchMode).
-          tabs: s.tabs.map((t) => {
-            const rec = findRecord(state, t.tabId);
-            return rec && rec.mode !== t.mode ? { ...t, mode: rec.mode } : t;
-          }),
-          focusedTabByProject: pruneFocus(s.focusedTabByProject, state),
-        }));
-        for (const tabId of reboot) void get().bootRpcTab(tabId);
-        syncTheme(state);
-        syncFontFamily(state);
-        syncTranscriptWidth(state);
-        syncGlassChrome(state);
-        syncLocale(state);
-        reconcilePlanGates(state);
-        sessionParams.reconcilePendingDialogs(state);
-        rpcCommandSlice.reconcileGoals(state);
-        rpcCommandSlice.reconcileAutoresearch(state);
-      });
+      backend.onStateChanged(applyAuthoritativeState);
       // #498: the checkout moved outside this client — a remote transport
       // checkout executing on its owner, a host-side release switch, or a git
       // command in a terminal. Re-read local refs only; upstream freshness stays
@@ -367,16 +437,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
         backend.getRemoteState(),
         backend.getProviderOAuthState(),
       ]);
-      set({ state, appUpdate, ompUpdate, remote, providerOAuth });
-      syncTheme(state);
-      syncFontFamily(state);
-      syncTranscriptWidth(state);
-      syncGlassChrome(state);
-      syncLocale(state);
-      reconcilePlanGates(state);
-      sessionParams.reconcilePendingDialogs(state);
-      rpcCommandSlice.reconcileGoals(state);
-      rpcCommandSlice.reconcileAutoresearch(state);
+      set({ appUpdate, ompUpdate, remote, providerOAuth });
+      applyAuthoritativeState(state);
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);
       installViewedTabReporter(api);

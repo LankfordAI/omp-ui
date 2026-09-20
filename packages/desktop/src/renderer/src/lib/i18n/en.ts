@@ -210,6 +210,9 @@ export const en = {
   "transcript.subagent.readOnly": "read-only subagent view",
   "transcript.subagent.empty": "No activity captured yet — the transcript fills in as the agent works.",
   // Composer textarea placeholders
+  "rpc.hero.project": "What's next in {project}?",
+  "rpc.hero.default": "What's next?",
+  "rpc.hero.hint": "Describe it — plan first, or build straight away.",
   "composer.placeholder.exited": "agent exited — resume to continue",
   "composer.placeholder.restarting": "restarting advisor…",
   "composer.placeholder.running": "steer the agent…",

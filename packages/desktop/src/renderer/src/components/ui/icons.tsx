@@ -39,6 +39,16 @@ export function IconRefresh({ className }: { className?: string }) {
   );
 }
 
+/** Magnifier — shared by search fields and find surfaces. */
+export function IconSearch({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <circle cx="7" cy="7" r="4" />
+      <path d="M10.2 10.2 13 13" />
+    </svg>
+  );
+}
+
 export function IconClose({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} aria-hidden className={cn("size-2.5", className)}>

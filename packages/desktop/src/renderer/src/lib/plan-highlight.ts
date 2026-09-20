@@ -16,8 +16,8 @@
  * (issue #412), and an authored marker-looking comment is just source.
  */
 import type { ThemedToken } from "shiki/core";
+import { escapeHtml } from "@omp-ui/core/html";
 import { tokenizeCode } from "./highlight";
-import { escapeHtml } from "./plan-diagrams";
 import type {
   ParsedPlanSource,
   PlanElement,

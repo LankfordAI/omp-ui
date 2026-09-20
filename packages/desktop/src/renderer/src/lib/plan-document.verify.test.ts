@@ -7,16 +7,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  PLAN_DOCUMENT_CSP,
   preparePlanDocument,
-  preparePlanForReview,
-  probePlanLayout,
-  renderPlanPreflight,
-  settleForMeasurement,
-  usePreparedPlanDocument,
-  type LayoutProbe,
   type PreparedPlanState,
 } from "./plan-document";
+import { PLAN_DOCUMENT_CSP } from "./plan-guardrails";
+import {
+  probePlanLayout,
+  settleForMeasurement,
+  type LayoutProbe,
+} from "./plan-probe";
+import { preparePlanForReview, renderPlanPreflight } from "./plan-verify";
+import { usePreparedPlanDocument } from "./use-prepared-plan-document";
 import { resolveTheme } from "./themes";
 import type { CodeTokenizer } from "./plan-highlight";
 import type { DiagramRenderer, PlanCanvas } from "./plan-diagrams";

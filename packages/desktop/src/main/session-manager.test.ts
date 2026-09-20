@@ -1149,6 +1149,95 @@ describe("session tool control (issue #379)", () => {
     await restarted;
     expect(rpcInstances).toHaveLength(2);
   });
+
+  it("queues terminate behind an in-flight lifecycle mutation", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    publish(rpc, roster());
+
+    const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
+    await flush();
+    const [prompt] = mutationPrompts(rpc);
+    manager.terminate(TAB);
+    await flush();
+    expect(rpc.kill).not.toHaveBeenCalled();
+
+    publish(
+      rpc,
+      roster({
+        revision: 4,
+        tools: { status: "available", items: [toolRow("read", false), toolRow("write", true)] },
+        toolMutation: mutationRecord(prompt!.request, "applied"),
+      }),
+    );
+    await pending;
+    await flush();
+    expect(rpc.kill).toHaveBeenCalledOnce();
+  });
+
+  it("queues subagent model persistence behind an in-flight lifecycle mutation", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    publish(rpc, roster());
+
+    const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
+    await flush();
+    const [prompt] = mutationPrompts(rpc);
+    manager.setSessionSubagentModels(TAB, { scout: "anthropic/claude-sonnet-4" });
+    await flush();
+    expect(registry.sessions.find((session) => session.tabId === TAB)?.subagentModels).toBeNull();
+
+    publish(
+      rpc,
+      roster({
+        revision: 4,
+        tools: { status: "available", items: [toolRow("read", false), toolRow("write", true)] },
+        toolMutation: mutationRecord(prompt!.request, "applied"),
+      }),
+    );
+    await pending;
+    await flush();
+    expect(registry.sessions.find((session) => session.tabId === TAB)?.subagentModels).toEqual({
+      scout: "anthropic/claude-sonnet-4",
+    });
+  });
+
+  it("queues a fork behind an in-flight lifecycle mutation", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances.at(-1)!;
+    publish(rpc, roster());
+
+    const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
+    await flush();
+    const [prompt] = mutationPrompts(rpc);
+    const fork = manager.forkSession(TAB);
+    let settled = false;
+    void fork.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    await flush();
+    expect(settled).toBe(false);
+
+    publish(
+      rpc,
+      roster({
+        revision: 4,
+        tools: { status: "available", items: [toolRow("read", false), toolRow("write", true)] },
+        toolMutation: mutationRecord(prompt!.request, "applied"),
+      }),
+    );
+    await pending;
+    await expect(fork).rejects.toThrow("no transcript to branch yet");
+  });
 });
 
 describe("default compaction method (issue #268)", () => {

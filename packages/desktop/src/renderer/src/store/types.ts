@@ -1,3 +1,4 @@
+import type { SessionCommand } from "@omp-ui/core/session-command";
 import type {
   AgentMode,
   AdvisorDefaults,
@@ -169,6 +170,8 @@ export interface BrowserPaneView {
 /** Per-tab rpc-ui state (the phase-2 doc's state machine, concretized). */
 export interface RpcTabState {
   status: "starting" | "ready" | "running" | "error";
+  /** Refuses user commands while a lifecycle mutation drains the old process. */
+  commandAdmissionBlocked?: boolean;
   items: RenderItem[];
   /** Increments once per visible transcript commit; drives event-paced liveness motion. */
   transcriptRevision: number;
@@ -179,15 +182,15 @@ export interface RpcTabState {
   session: SessionRuntime;
   stats: SessionStats | null;
   subagents: SubagentInfo[];
-  subagentItems?: Record<string, RenderItem[]>;
-  selectedSubagent?: string | null;
+  subagentItems: Record<string, RenderItem[]>;
+  selectedSubagent: string | null;
   browserPane: BrowserPaneView;
   /**
    * Attachments handed to the composer from outside it — the browser pane's
    * attach-to-prompt button. Drained once by the composer's effect.
    */
   composerQueue?: { images: ImageAttachment[]; text: string[] };
-  subagentMarkers?: Map<string, string>;
+  subagentMarkers: Map<string, string>;
   subagentAckLevel?: "progress" | "events";
   extensionStatus: Record<string, string>;
   /** Renderer-observed request/model progress; never local tool execution. */
@@ -198,7 +201,7 @@ export interface RpcTabState {
    * Whole-second granularity: changes at most once per second.
    */
   streamStallMs?: number;
-  stallCount?: number;
+  stallCount: number;
   /** The turn's terminal assistant message end; drives settle target and stall classification. */
   lastTurn?: LastTurnMeta;
   /** A main-process watchdog abort notice arrived; the next agent_end feeds auto-continue (issue #254). */
@@ -230,7 +233,7 @@ export interface RpcTabState {
   planHtml: string | null;
   planDeferred: boolean;
   /** PlanReview's local preparation verdict for the current gate (§6 guard). */
-  planReadiness?: PlanReadiness | null;
+  planReadiness: PlanReadiness | null;
   plans: PlanRecord[];
   advisorStats: AdvisorStatsView | null;
   mcpStatus: McpRuntimeStatus | null;
@@ -412,8 +415,12 @@ export interface SettingsSlice {
   /** The installed omp's own web-search provider ids (ADR-0027); never a curated list. */
   readWebSearchProviders(): Promise<WebSearchProviderSnapshot>;
   readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
-  setProviderKey(envName: string, value: string): Promise<ProviderKeysSnapshot>;
-  clearProviderKey(envName: string): Promise<ProviderKeysSnapshot>;
+  setProviderKey(
+    projectCwd: string | null,
+    envName: string,
+    value: string,
+  ): Promise<ProviderKeysSnapshot>;
+  clearProviderKey(projectCwd: string | null, envName: string): Promise<ProviderKeysSnapshot>;
   providerOAuth: ProviderOAuthState;
   replaceProviderOAuth(state: ProviderOAuthState): void;
   readProviderOAuth(): Promise<ProviderOAuthStatus[]>;
@@ -569,6 +576,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice {
   shellExited: Record<string, number>;
   /** True for tabs whose process omp-ui hibernated while idle (issue #246). */
   hibernated: Record<string, boolean>;
+  /** Active source → implementation plan handoffs derived from persisted records. */
+  handedOffFor: Record<string, string>;
+  /** Last persisted handoff relation observed, including human-released sources. */
+  observedPlanHandoffs: Record<string, string>;
   rpc: Record<string, RpcTabState>;
   consoleOpen: Record<string, boolean>;
   searchOpen: Record<string, boolean>;
@@ -754,7 +765,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice {
 
   rpcCommand(
     tabId: string,
-    cmd: Record<string, unknown>,
+    cmd: SessionCommand,
     opts?: { quiet?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown>;
   handleRpcFrame(tabId: string, frame: object): void;

@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { ADVISOR_STATS_COMMAND, ADVISOR_STATS_KEY } from "./advisor-stats";
 import { writeLineageArtifact } from "./lineage-artifact";
+import { generatedPollTimerSource } from "./generated-extension-source";
 
 /**
  * OMP's rpc surface has no advisor accounting. The public methods on each live
@@ -42,9 +43,7 @@ const STATUS_KEY = ${JSON.stringify(ADVISOR_STATS_KEY)};
 const COMMAND = ${JSON.stringify(ADVISOR_STATS_COMMAND)};
 const POLL_MS = 2000;
 
-interface PollTimer {
-  unref?: () => void;
-}
+${generatedPollTimerSource()}
 
 interface AdvisorSnapshot {
   cost: number;

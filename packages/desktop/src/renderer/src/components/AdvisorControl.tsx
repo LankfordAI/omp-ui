@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { parseModelRole } from "@omp-ui/core/model-role";
 import { cn } from "../lib/cn";
+import { shortModelLabel } from "../lib/format";
 import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import type { ModelInfo } from "../lib/rpc-types";
@@ -33,30 +35,6 @@ import { ModelPalette } from "./ModelSelector";
 /** Stable empty so the per-field selector doesn't fire on every store tick. */
 const EMPTY: ModelInfo[] = [];
 
-/** The tail of a selector, which is all that fits on a chip. */
-export function shortLabel(selector: string): string {
-  const slash = selector.lastIndexOf("/");
-  const tail = slash === -1 ? selector : selector.slice(slash + 1);
-  // Drop omp's `:level` suffix — the level is the advisor's, not the user's pick.
-  const colon = tail.lastIndexOf(":");
-  return colon > 0 ? tail.slice(0, colon) : tail;
-}
-
-/**
- * Splits omp's role selector into model and thinking level, mirroring core's
- * parseModelRole. Only a final bare `[a-z]+` segment is a level: model ids may
- * themselves contain colons (OpenRouter's `model:exacto`), so an id tail is
- * never mistaken for a level.
- */
-const LEVEL_RE = /^[a-z]+$/;
-export function splitRole(selector: string): { model: string; level?: string } {
-  const colon = selector.lastIndexOf(":");
-  if (colon !== -1) {
-    const tail = selector.slice(colon + 1);
-    if (LEVEL_RE.test(tail)) return { model: selector.slice(0, colon), level: tail };
-  }
-  return { model: selector };
-}
 
 export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: string; disabled?: boolean; layout?: "inline" | "sheet" }) {
   const t = useT();
@@ -127,7 +105,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
 
   /** The effective model and its thinking level, split apart (omp encodes the
    * level as a `:level` suffix on the selector). */
-  const effectiveSplit = effective === null ? null : splitRole(effective);
+  const effectiveSplit = effective === null ? null : parseModelRole(effective);
   const effectiveModelSelector = effectiveSplit?.model ?? null;
   const effectiveLevel = effectiveSplit?.level ?? null;
   // The level selector offers only the model's own valid efforts.
@@ -241,7 +219,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
               <span className="min-w-0 truncate">
                 {effective === null
                   ? t("composer.advisor.pickModel")
-                  : effectiveModel?.name || effectiveModel?.id || shortLabel(effective)}
+                  : effectiveModel?.name || effectiveModel?.id || shortModelLabel(effective)}
               </span>
             </button>
           )}

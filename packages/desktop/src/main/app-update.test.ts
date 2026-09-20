@@ -217,7 +217,7 @@ describe("AppUpdater.checkNow", () => {
     });
     await updater.checkNow(true);
     expect(statuses()).toContain("error");
-    expect(updater.state.error).toBe("could not reach GitHub");
+    expect(updater.state.error?.message).toBe("could not reach GitHub");
   });
 
   it("suppresses the dismissed version in the background but not manually", async () => {
@@ -360,7 +360,7 @@ describe("AppUpdater.download (deb/rpm/flatpak)", () => {
     const { updater, downloadsDir } = await availableDeb(null);
     await updater.download();
     expect(updater.state.status).toBe("error");
-    expect(updater.state.error).toBe("release checksums unavailable");
+    expect(updater.state.error?.message).toBe("release checksums unavailable");
     expect(fs.readdirSync(downloadsDir)).toEqual([]);
   });
 
@@ -469,7 +469,7 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
     manualUpdater.downloadUpdate.mockRejectedValueOnce(new Error("offline"));
     const { updater: manual } = await stageAutoUpdate(manualUpdater, true);
     expect(manual.state.status).toBe("error");
-    expect(manual.state.error).toBe("offline");
+    expect(manual.state.error?.message).toBe("offline");
   });
 
   it("arms and disarms install-on-quit only after staging", async () => {
@@ -538,7 +538,7 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
     autoUpdater.emitError(new Error("native preparation failed"));
 
     expect(updater.state.status).toBe("error");
-    expect(updater.state.error).toBe("could not apply update: native preparation failed");
+    expect(updater.state.error?.message).toBe("could not apply update: native preparation failed");
     expect(updater.restart()).toBe("unavailable");
     expect(setQuitAuthorized.mock.calls).toEqual([[true], [false]]);
   });
@@ -553,7 +553,7 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
 
     expect(updater.restart()).toBe("unavailable");
     expect(updater.state.status).toBe("error");
-    expect(updater.state.error).toBe("could not apply update: installer launch failed");
+    expect(updater.state.error?.message).toBe("could not apply update: installer launch failed");
     expect(updater.restart()).toBe("unavailable");
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
     expect(setQuitAuthorized.mock.calls).toEqual([[true], [false]]);
@@ -585,7 +585,7 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
     const manual = make();
     await manual.updater.checkNow(true);
     expect(manual.updater.state.status).toBe("error");
-    expect(manual.updater.state.error).toBe("electron-updater export unavailable");
+    expect(manual.updater.state.error?.message).toBe("electron-updater export unavailable");
   });
 
   it("surfaces a factory that resolves without an updater", async () => {
@@ -599,7 +599,7 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
 
     await made.updater.checkNow(true);
     expect(made.updater.state.status).toBe("error");
-    expect(made.updater.state.error).toContain("autoDownload");
+    expect(made.updater.state.error?.message).toContain("autoDownload");
   });
 });
 
