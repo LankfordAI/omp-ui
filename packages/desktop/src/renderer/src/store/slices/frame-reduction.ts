@@ -39,7 +39,7 @@ import {
   markerItem,
   noticeItem,
   planProposalItem,
-  settleRunningTools,
+  settleRunningItems,
   type CommandItem,
   type RenderItem,
 } from "../../lib/transcript";
@@ -439,7 +439,7 @@ export function createFrameReductionSlice(
         // The process died mid-tool, so no agent_end will settle running
         // cards. Settle the effective items — frames still pending in the
         // batch are part of the transcript up to the failure (issue #187).
-        const settledItems = settleRunningTools(m.effectiveItems(tabId), "aborted");
+        const settledItems = settleRunningItems(m.effectiveItems(tabId), "aborted");
         disposeTabRuntime(tabId, "the session process stopped", deps, m);
         m.patchRpc(tabId, {
           status: "error",

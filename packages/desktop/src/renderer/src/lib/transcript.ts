@@ -263,19 +263,29 @@ export function planProposalItem(
 }
 
 /**
- * Settles tool cards still running when the run itself ends.
- * `aborted` — the turn died: stream stall/timeout, provider error, process
- * death. `cancelled` — a user interrupt (stopReason "aborted"), or a clean
- * end that anomalously left a card running.
+ * Settles every run-scoped item still active when the run itself ends.
+ * Tool status records why work stopped; assistant streaming loses its caret
+ * and liveness obligation regardless of the tool settlement reason.
  */
-export function settleRunningTools(
+export function settleRunningItems(
   items: RenderItem[],
   settled: "cancelled" | "aborted" = "cancelled",
 ): RenderItem[] {
-  if (!items.some((i) => i.kind === "tool" && i.status === "running")) return items;
-  return items.map((i) =>
-    i.kind === "tool" && i.status === "running" ? { ...i, status: settled } : i,
+  const hasRunning = items.some(
+    (item) =>
+      (item.kind === "tool" && item.status === "running") ||
+      (item.kind === "assistant" && item.streaming),
   );
+  if (!hasRunning) return items;
+  return items.map((item) => {
+    if (item.kind === "tool" && item.status === "running") {
+      return { ...item, status: settled };
+    }
+    if (item.kind === "assistant" && item.streaming) {
+      return { ...item, streaming: false };
+    }
+    return item;
+  });
 }
 
 function contentBlocks(content: unknown): Record<string, unknown>[] {
@@ -692,7 +702,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         lastAssistant?.kind === "assistant" && lastAssistant.stopReason === "error"
           ? "aborted"
           : "cancelled";
-      return [...settleRunningTools(items, settled), markerItem("agent finished", "signal")];
+      return [...settleRunningItems(items, settled), markerItem("agent finished", "signal")];
     }
     // Turn boundaries are pure ceremony in a rendered transcript: one prompt
     // produced eight of them in a live smoke test, drowning the actual content.

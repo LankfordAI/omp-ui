@@ -17,6 +17,7 @@ import {
   parseModelInfo,
   parseSessionRuntime,
   parseSessionStats,
+  type ModelInfo,
   parseTodoPhases,
   type SessionRuntime,
 } from "../../lib/rpc-types";
@@ -116,6 +117,10 @@ export interface StoreMachinery {
   appendItem(tabId: string, item: RenderItem): void;
   patchItems(tabId: string, map: (item: RenderItem) => RenderItem): void;
   acceptsCommands(tabId: string): boolean;
+  applyStagedParams(
+    tabId: string,
+    options: { model?: ModelInfo | null; thinkingLevel?: string | null },
+  ): Promise<boolean>;
   runCommand(
     tabId: string,
     cmd: SessionCommand,
@@ -126,6 +131,7 @@ export interface StoreMachinery {
     pred: (tab: RpcTabState | undefined) => boolean,
     timeoutMs?: number,
   ): Promise<void>;
+  pollUntilSettled(tabId: string): Promise<void>;
   syncSubagentSubscription(tabId: string): void;
   applyRpcState(tabId: string, resp: unknown): void;
   refreshUsage(tabId: string, afterState?: () => void): Promise<void>;
@@ -696,6 +702,44 @@ export function createMachinery(
     });
   };
 
+  const applyStagedParams = async (
+    tabId: string,
+    options: { model?: ModelInfo | null; thinkingLevel?: string | null },
+  ): Promise<boolean> => {
+    const current = get().rpc[tabId];
+    if (!current) return false;
+    if (
+      options.model != null &&
+      `${options.model.provider}/${options.model.id}` !==
+        (current.model ? `${current.model.provider}/${current.model.id}` : null)
+    ) {
+      await get().setModel(tabId, options.model);
+      if (get().rpc[tabId]?.failure?.command === "set_model") return false;
+    }
+    if (
+      options.thinkingLevel != null &&
+      options.thinkingLevel !== (get().rpc[tabId]?.session.thinkingLevel ?? null)
+    ) {
+      await get().setThinkingLevel(tabId, options.thinkingLevel);
+      if (get().rpc[tabId]?.failure?.command === "set_thinking_level") return false;
+    }
+    return true;
+  };
+
+  const pollUntilSettled = (tabId: string): Promise<void> =>
+    pollUntil(
+      tabId,
+      (tab) => {
+        const record = findRecord(get().state, tabId);
+        return (
+          tab?.status === "ready" ||
+          tab?.status === "error" ||
+          get().exited[tabId] !== undefined ||
+          (record !== undefined && record.live !== "live")
+        );
+      },
+    );
+
   const acceptsCommands = (tabId: string): boolean => {
     const tab = get().rpc[tabId];
     return (
@@ -924,9 +968,11 @@ export function createMachinery(
     effectiveItems,
     queueTranscriptFrame,
     flushTranscriptBatch,
+    applyStagedParams,
     cancelTranscriptBatch,
     appendItem,
     patchItems,
+    pollUntilSettled,
     acceptsCommands,
     runCommand,
     pollUntil,

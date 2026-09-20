@@ -275,22 +275,9 @@ export function createLabSlice(
     if (spec.worktree?.mint.baseBranch != null) {
       void get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
     }
-    await m.pollUntil(
-      tabId,
-      (tab) => tab?.status === "ready" || tab?.status === "error" || get().exited[tabId] !== undefined,
-    );
+    await m.pollUntilSettled(tabId);
     if (get().rpc[tabId]?.status !== "ready") return;
-    if (spec.model !== null) {
-      const current = get().rpc[tabId]?.model;
-      if (
-        current === undefined ||
-        current === null ||
-        `${spec.model.provider}/${spec.model.id}` !== `${current.provider}/${current.id}`
-      ) {
-        await get().setModel(tabId, spec.model);
-        if (get().rpc[tabId]?.failure?.command === "set_model") return;
-      }
-    }
+    if (!(await m.applyStagedParams(tabId, { model: spec.model }))) return;
     // Bare `/autoresearch` arms omp's mode (its own command, no dialog over
     // rpc); the kickoff then names the experiment through init_experiment.
     await get().runSlashCommand(tabId, "/autoresearch");
@@ -360,10 +347,7 @@ export function createLabSlice(
         ...focusOn(s, tabId, key),
         exited: dropExited(s.exited, tabId),
       }));
-      await m.pollUntil(
-        tabId,
-        (tab) => tab?.status === "ready" || tab?.status === "error" || get().exited[tabId] !== undefined,
-      );
+      await m.pollUntilSettled(tabId);
       if (get().rpc[tabId]?.status !== "ready") return;
       await get().sendPrompt(tabId, experimentInterviewPrompt(description), "prompt");
     },

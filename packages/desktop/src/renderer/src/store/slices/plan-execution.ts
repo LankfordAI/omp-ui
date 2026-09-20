@@ -309,7 +309,6 @@ export function createPlanExecutionSlice(
       return;
     }
     // What the receiving session runs today — only staged *changes* are applied.
-    const tab = get().rpc[tabId];
     const rec = findRecord(get().state, tabId);
     const stagedModel = options?.model;
     const stagedThinkingLevel = options?.thinkingLevel;
@@ -328,17 +327,13 @@ export function createPlanExecutionSlice(
         await m.pollUntil(tabId, (t) => (t?.status ?? "ready") !== "running");
       }
       if (
-        stagedModel != null &&
-        `${stagedModel.provider}/${stagedModel.id}` !==
-          (tab?.model ? `${tab.model.provider}/${tab.model.id}` : null)
+        (stagedModel != null || stagedThinkingLevel != null) &&
+        !(await m.applyStagedParams(tabId, {
+          model: stagedModel,
+          thinkingLevel: stagedThinkingLevel,
+        }))
       ) {
-        await get().setModel(tabId, stagedModel);
-      }
-      if (
-        stagedThinkingLevel != null &&
-        stagedThinkingLevel !== (tab?.session.thinkingLevel ?? null)
-      ) {
-        await get().setThinkingLevel(tabId, stagedThinkingLevel);
+        return;
       }
 
       let relaunched = false;
@@ -356,13 +351,7 @@ export function createPlanExecutionSlice(
       // plain follow-ups target the current process and keep the synchronous
       // dispatch path that queues behind the accepted plan turn.
       if (relaunched) {
-        await m.pollUntil(
-          tabId,
-          (t) =>
-            t?.status === "ready" ||
-            t?.status === "error" ||
-            get().exited[tabId] !== undefined,
-        );
+        await m.pollUntilSettled(tabId);
         if (get().rpc[tabId]?.status !== "ready") return;
       }
 
@@ -427,32 +416,29 @@ export function createPlanExecutionSlice(
     },
   });
 
-  /**
-   * Answers an advisor review that lands after `agent finished`, when nothing in
-   * the idle session would carry it back to the main model (issue #104). Same
-   * collection core as the plan fold; the watcher owns the batch window, the
-   * transcript baseline, and the consecutive-reply guard.
-   */
+  const autoPromptAllowed = (
+    tabId: string,
+  ): { ok: true; tab: RpcTabState } | { ok: false; reason: string } => {
+    if (get().handedOffFor[tabId] !== undefined) {
+      return { ok: false, reason: "plan-handoff" };
+    }
+    const tab = get().rpc[tabId];
+    if (!tab) return { ok: false, reason: "missing-tab" };
+    if (goalOwnsSession(tabId)) return { ok: false, reason: "goal-owned" };
+    if (tab.status !== "ready") return { ok: false, reason: `status:${tab.status}` };
+    if (get().exited[tabId] !== undefined) return { ok: false, reason: "exited" };
+    if (tab.planReview !== null || tab.planDeferred) {
+      return { ok: false, reason: "plan-gate" };
+    }
+    return { ok: true, tab };
+  };
+
   const advisorReply = new AdvisorReplyWatcher({
     getItems: m.effectiveItems,
     canReply: (tabId) => {
-      if (get().handedOffFor[tabId] !== undefined) return false;
-      const tab = get().rpc[tabId];
-      if (!tab) return false;
-      // #381: an auto-prompt must not bypass an explicit goal pause or budget;
-      // goal diagnostics still render — this gates dispatch, not display.
-      if (goalOwnsSession(tabId)) return false;
-      if (!tab.advisorReply) return false;
-      // "ready" only: starting/running/error are all no-prompt states, and a
-      // running turn already receives the advisor's notes in its own context.
-      if (tab.status !== "ready") return false;
-      if (get().exited[tabId] !== undefined) return false;
-      // The agent is blocked inside a plan proposal — a follow-up would queue
-      // behind a gate that only the user can resolve.
-      if (tab.planReview !== null || tab.planDeferred) return false;
-      // ADR-0009's fold owns this very review and dispatches it itself.
-      if (concern.isActive(tabId)) return false;
-      return true;
+      const permission = autoPromptAllowed(tabId);
+      if (!permission.ok || !permission.tab.advisorReply) return false;
+      return !concern.isActive(tabId);
     },
     onNotice: (tabId, text, level) =>
       m.appendItem(tabId, noticeItem(text, level)),
@@ -461,32 +447,12 @@ export function createPlanExecutionSlice(
     },
   });
 
-  /**
-   * Continues a live session whose turn died to a stream stall (issue #251):
-   * the watchdog aborted the turn, omp will not retry after content, and
-   * without this the session sits idle. Bounded like the advisor watcher —
-   * a settle window so a user's own "continue" wins the race, and a
-   * consecutive-continue cap, since the continue turn is itself stallable.
-   */
   const stall = new StallContinueWatcher({
     canContinue: (tabId) => {
-      if (get().handedOffFor[tabId] !== undefined) return false;
-      const tab = get().rpc[tabId];
-      if (!tab) return false;
-      // #381: an auto-prompt must not bypass an explicit goal pause or budget;
-      // goal diagnostics still render — this gates dispatch, not display.
-      if (goalOwnsSession(tabId)) return false;
+      const permission = autoPromptAllowed(tabId);
+      if (!permission.ok) return false;
       if (get().state?.stallAutoContinue === false) return false;
-      // "ready" only: a running turn already has the continue in flight or
-      // the user is mid-prompt; a dead process must never receive one.
-      if (tab.status !== "ready") return false;
-      if (get().exited[tabId] !== undefined) return false;
-      // A question is already pending above the composer — do not stack a
-      // prompt on it.
-      if (tab.extensionQueue.length > 0) return false;
-      // The agent is blocked inside a plan gate — only the user can resolve it.
-      if (tab.planReview !== null || tab.planDeferred) return false;
-      return true;
+      return permission.tab.extensionQueue.length === 0;
     },
     onDispatch: (tabId) => {
       void get().sendPrompt(tabId, STALL_CONTINUE_LEAD, "stall_continue");
