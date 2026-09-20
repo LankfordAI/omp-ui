@@ -40,6 +40,7 @@ import {
 } from "./shared";
 import { freshBrowserPaneView } from "./browser-pane";
 import { findOwner, findRecord } from "./view";
+import { isNewerSnapshot } from "../snapshot-acceptance";
 import type {
   CapabilitiesToolPending,
   RpcTabState,
@@ -159,12 +160,7 @@ export function acceptCapabilitySnapshot(
   m: StoreMachinery,
 ): boolean {
   const retained = get().rpc[tabId]?.capabilities ?? null;
-  if (
-    retained !== null &&
-    retained.processKey === snapshot.processKey &&
-    snapshot.revision <= retained.revision
-  )
-    return false;
+  if (!isNewerSnapshot(retained, snapshot)) return false;
   const replacement =
     retained !== null && !sameRosterIdentity(retained, snapshot);
   m.patchRpc(
@@ -204,12 +200,7 @@ export function acceptGoalSnapshot(
   m: StoreMachinery,
 ): boolean {
   const retained = get().rpc[tabId]?.goal ?? null;
-  if (
-    retained !== null &&
-    retained.processKey === snapshot.processKey &&
-    snapshot.revision <= retained.revision
-  )
-    return false;
+  if (!isNewerSnapshot(retained, snapshot)) return false;
   m.patchRpc(tabId, { goal: snapshot });
   const result = snapshot.result;
   if (result === null) return true;
@@ -250,12 +241,7 @@ export function acceptAutoresearchSnapshot(
   m: StoreMachinery,
 ): boolean {
   const retained = get().rpc[tabId]?.autoresearch ?? null;
-  if (
-    retained !== null &&
-    retained.processKey === snapshot.processKey &&
-    snapshot.revision <= retained.revision
-  )
-    return false;
+  if (!isNewerSnapshot(retained, snapshot)) return false;
   m.patchRpc(tabId, { autoresearch: snapshot });
   if (
     retained !== null &&

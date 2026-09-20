@@ -304,6 +304,47 @@ export const useStore = create<UiStore>()((set, get, api) => {
       return changed ? { rpc } : {};
     });
   };
+  const applyAuthoritativeState = (state: BackendState): void => {
+    const reboot = reconcileTabs(state);
+    const observedPlanHandoffs = persistedPlanHandoffs(state);
+    set((current) => {
+      const handedOffFor: Record<string, string> = {};
+      for (const [sourceTabId, implementationTabId] of Object.entries(
+        observedPlanHandoffs,
+      )) {
+        if (
+          current.observedPlanHandoffs[sourceTabId] !== implementationTabId ||
+          current.handedOffFor[sourceTabId] === implementationTabId
+        ) {
+          handedOffFor[sourceTabId] = implementationTabId;
+        }
+      }
+      return {
+        state,
+        handedOffFor,
+        observedPlanHandoffs,
+        tabs: current.tabs.map((tab) => {
+          const record = findRecord(state, tab.tabId);
+          return record && record.mode !== tab.mode
+            ? { ...tab, mode: record.mode }
+            : tab;
+        }),
+        focusedTabByProject: pruneFocus(current.focusedTabByProject, state),
+      };
+    });
+    for (const tabId of reboot) void get().bootRpcTab(tabId);
+    syncTheme(state);
+    syncFontFamily(state);
+    syncTranscriptWidth(state);
+    syncGlassChrome(state);
+    syncLocale(state);
+    reconcilePlanGates(state);
+    reconcileBridgeAvailability(state);
+    sessionParams.reconcilePendingDialogs(state);
+    rpcCommandSlice.reconcileGoals(state);
+    rpcCommandSlice.reconcileAutoresearch(state);
+  };
+
 
 
   return {
@@ -337,45 +378,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     async init() {
       if (initialized) return;
       initialized = true;
-      backend.onStateChanged((state) => {
-        const reboot = reconcileTabs(state);
-        const observedPlanHandoffs = persistedPlanHandoffs(state);
-        set((s) => {
-          const handedOffFor: Record<string, string> = {};
-          for (const [sourceTabId, implementationTabId] of Object.entries(
-            observedPlanHandoffs,
-          )) {
-            if (
-              s.observedPlanHandoffs[sourceTabId] !== implementationTabId ||
-              s.handedOffFor[sourceTabId] === implementationTabId
-            ) {
-              handedOffFor[sourceTabId] = implementationTabId;
-            }
-          }
-          return {
-            state,
-            handedOffFor,
-            observedPlanHandoffs,
-            // Record mode is authoritative — tabs follow it (e.g. after switchMode).
-            tabs: s.tabs.map((t) => {
-              const rec = findRecord(state, t.tabId);
-              return rec && rec.mode !== t.mode ? { ...t, mode: rec.mode } : t;
-            }),
-            focusedTabByProject: pruneFocus(s.focusedTabByProject, state),
-          };
-        });
-        for (const tabId of reboot) void get().bootRpcTab(tabId);
-        syncTheme(state);
-        syncFontFamily(state);
-        syncTranscriptWidth(state);
-        syncGlassChrome(state);
-        syncLocale(state);
-        reconcilePlanGates(state);
-        reconcileBridgeAvailability(state);
-        sessionParams.reconcilePendingDialogs(state);
-        rpcCommandSlice.reconcileGoals(state);
-        rpcCommandSlice.reconcileAutoresearch(state);
-      });
+      backend.onStateChanged(applyAuthoritativeState);
       // #498: the checkout moved outside this client — a remote transport
       // checkout executing on its owner, a host-side release switch, or a git
       // command in a terminal. Re-read local refs only; upstream freshness stays
@@ -434,16 +437,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
         backend.getRemoteState(),
         backend.getProviderOAuthState(),
       ]);
-      set({ state, appUpdate, ompUpdate, remote, providerOAuth });
-      syncTheme(state);
-      syncFontFamily(state);
-      syncTranscriptWidth(state);
-      syncGlassChrome(state);
-      syncLocale(state);
-      reconcilePlanGates(state);
-      sessionParams.reconcilePendingDialogs(state);
-      rpcCommandSlice.reconcileGoals(state);
-      rpcCommandSlice.reconcileAutoresearch(state);
+      set({ appUpdate, ompUpdate, remote, providerOAuth });
+      applyAuthoritativeState(state);
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);
       installViewedTabReporter(api);
