@@ -694,69 +694,65 @@ export function ProvidersPage({
         </p>
       )}
 
-      {groups.map(({ id, label }, index) => {
-        const rows = providers.filter((p) => p.group === id);
-        const withSubscription = (
-          <div key="oauth" className="space-y-0.5">
-            <Label>{t("settings.providers.oauthGroup")}</Label>
-            {oauth.status === "error" ? (
-              <p className="py-2.5 text-[11px] leading-relaxed text-rose">
-                {t("settings.providers.oauthReadFailed")}
-                {oauth.message}
-              </p>
-            ) : oauth.status === "loaded" ? (
-              <div className="divide-y divide-line-soft">
-                {oauthRows.map((row) => (
-                  <SubscriptionRow
-                    key={row.id}
-                    row={row}
-                    flow={providerOAuth}
-                    flowBusy={flowActive(providerOAuth)}
-                    onSignIn={() => signIn(row.id)}
-                    onSignOut={() => signOut(row.id)}
-                    onSubmit={submit}
-                    onCancel={() => void cancelProviderOAuth()}
-                  />
-                ))}
-              </div>
-            ) : null}
-          </div>
-        );
-        if (rows.length === 0 && index === 0) return null;
+      {groups.map(({ id, label }) => {
+        const rows = providers.filter((provider) => provider.group === id);
+        if (rows.length === 0 && id !== "search") return null;
         return (
-          <div key={id} className="space-y-3">
-            <div className="space-y-0.5">
-              <Label>{label}</Label>
-              <div className="divide-y divide-line-soft">
-                {rows.map((row) => (
-                  <ProviderRow
-                    key={row.id}
-                    row={row}
-                    busy={pendingEnv !== null}
-                    onSave={(value) =>
-                      run(row.env, setProviderKey(projectCwd, row.env, value))
-                    }
-                    onClear={() =>
-                      run(row.env, clearProviderKey(projectCwd, row.activeEnv))
-                    }
-                  />
-                ))}
-                {id === "search" && (
-                  <WebSearchProviderRow
-                    load={load}
-                    entries={ompEntries}
-                    discovery={webSearch}
-                    pendingKey={pendingKey}
-                    commit={commit}
-                    retry={retry}
-                  />
-                )}
-              </div>
+          <div key={id} className="space-y-0.5">
+            <Label>{label}</Label>
+            <div className="divide-y divide-line-soft">
+              {rows.map((row) => (
+                <ProviderRow
+                  key={row.id}
+                  row={row}
+                  busy={pendingEnv !== null}
+                  onSave={(value) =>
+                    run(row.env, setProviderKey(projectCwd, row.env, value))
+                  }
+                  onClear={() =>
+                    run(row.env, clearProviderKey(projectCwd, row.activeEnv))
+                  }
+                />
+              ))}
+              {id === "search" && (
+                <WebSearchProviderRow
+                  load={load}
+                  entries={ompEntries}
+                  discovery={webSearch}
+                  pendingKey={pendingKey}
+                  commit={commit}
+                  retry={retry}
+                />
+              )}
             </div>
-            {index === 0 && withSubscription}
           </div>
         );
       })}
+
+      <div className="space-y-0.5">
+        <Label>{t("settings.providers.oauthGroup")}</Label>
+        {oauth.status === "error" ? (
+          <p className="py-2.5 text-[11px] leading-relaxed text-rose">
+            {t("settings.providers.oauthReadFailed")}
+            {oauth.message}
+          </p>
+        ) : oauth.status === "loaded" ? (
+          <div className="divide-y divide-line-soft">
+            {oauthRows.map((row) => (
+              <SubscriptionRow
+                key={row.id}
+                row={row}
+                flow={providerOAuth}
+                flowBusy={flowActive(providerOAuth)}
+                onSignIn={() => signIn(row.id)}
+                onSignOut={() => signOut(row.id)}
+                onSubmit={submit}
+                onCancel={() => void cancelProviderOAuth()}
+              />
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -189,13 +189,8 @@ export function Settings() {
   };
 
   return (
-    <Modal onClose={closeSettings} width="w-[46rem]">
-      <section
-        className="settings-surface"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-title"
-      >
+    <Modal onClose={closeSettings} width="w-[46rem]" labelledBy="settings-title">
+      <section className="settings-surface">
         <header className="settings-header border-b border-line px-4 py-3.5">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
             {t("settings.shell.application")}

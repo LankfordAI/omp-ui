@@ -482,7 +482,9 @@ describe("ProjectSettings", () => {
 
   it("unmounts when the project is removed while open", async () => {
     await renderDialog();
-    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+    const dialogs = document.body.querySelectorAll<HTMLElement>('[role="dialog"]');
+    expect(dialogs).toHaveLength(1);
+    expect(dialogs[0]?.getAttribute("aria-labelledby")).toBe("project-settings-title");
 
     const state = useStore.getState().state!;
     act(() => useStore.setState({ state: { ...state, projects: [] } }));

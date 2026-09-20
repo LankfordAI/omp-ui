@@ -251,6 +251,16 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+describe("Settings dialog semantics", () => {
+  it("renders one dialog labelled by the Settings heading", async () => {
+    seed({});
+    await renderSettings();
+    const dialogs = document.body.querySelectorAll<HTMLElement>('[role="dialog"]');
+    expect(dialogs).toHaveLength(1);
+    expect(dialogs[0]?.getAttribute("aria-labelledby")).toBe("settings-title");
+  });
+});
+
 describe("Settings Updates page (issue #89)", () => {
   it("offers only the checks when no update is on the table", async () => {
     seed({});
@@ -1196,10 +1206,13 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     shadowsEnvironment: false,
   };
 
-  const seedProviders = (rows: ProviderOAuthStatus[]): void => {
+  const seedProviders = (
+    rows: ProviderOAuthStatus[],
+    keyRows: ProviderKeyStatus[] = [keyRow],
+  ): void => {
     backendMock.readProviderOAuth.mockResolvedValueOnce(rows);
     backendMock.readProviderKeys.mockResolvedValueOnce({
-      providers: [keyRow],
+      providers: keyRows,
       encryptionAvailable: false,
       backend: "none",
     });
@@ -1232,6 +1245,13 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     expect(document.body.textContent).toContain("signed in");
     expect(document.body.textContent).toContain("me@example.com");
     expect(buttonWithText("sign out")).not.toBeNull();
+  });
+
+  it("keeps Subscriptions visible when the provider-key catalog is empty", async () => {
+    seedProviders([oauthRow()], []);
+    await renderSettings();
+    expect(document.body.textContent).toContain("Subscriptions");
+    expect(document.body.textContent).toContain("ChatGPT Plus/Pro");
   });
 
   it("shows an unsigned-in row with a Sign in action and no sign out", async () => {
