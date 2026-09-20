@@ -67,6 +67,13 @@ export function composeWorktreeBranch(
 ): string {
   return segment === null ? `${prefix}/${hash}` : `${prefix}/${segment}/${hash}`;
 }
+/** Mints a renderer- and main-safe worktree branch with a CSPRNG tail. */
+export function mintBranchName(prefix: string, segment: string | null = null): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(4));
+  const hash = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return composeWorktreeBranch(prefix, segment, hash);
+}
+
 
 /**
  * A minted name no human chose: this project's prefix, an optional run of

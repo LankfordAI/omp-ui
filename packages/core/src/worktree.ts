@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { git } from "./git";
-import { createBranch, readDefaultBranch } from "./branches";
+import { countCommitsBetween, createBranch, readDefaultBranch } from "./branches";
 import { buildMergeMessage } from "./merge-message";
 import { projectSlug } from "./paths";
 import {
@@ -95,12 +95,7 @@ export async function addWorktree(
   } else {
     // The checkout's branch is the durable name for the cut point; only a
     // detached checkout has no name, and records its HEAD commit.
-    let current: string;
-    try {
-      current = (await git(projectCwd, ["branch", "--show-current"])).trim();
-    } catch {
-      current = "";
-    }
+    const current = await currentBranch(projectCwd);
     base =
       current !== "" ? current : (await git(projectCwd, ["rev-parse", "HEAD"])).trim();
   }
@@ -392,6 +387,17 @@ async function currentBranch(projectCwd: string): Promise<string> {
     return "";
   }
 }
+async function readConflictedPaths(cwd: string): Promise<string[]> {
+  try {
+    return (await git(cwd, ["diff", "--name-only", "--diff-filter=U"]))
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
+  } catch {
+    return [];
+  }
+}
+
 
 async function resolveMergeDestinationForCurrent(
   projectCwd: string,
@@ -610,20 +616,10 @@ export async function readMergeBackStatus(
   let ahead = 0;
   let behind = 0;
   if (!alreadyMerged) {
-    try {
-      ahead = Number(
-        (await git(projectCwd, ["rev-list", "--count", `${destination}..${branch}`])).trim(),
-      );
-    } catch {
-      ahead = 0;
-    }
-    try {
-      behind = Number(
-        (await git(projectCwd, ["rev-list", "--count", `${branch}..${destination}`])).trim(),
-      );
-    } catch {
-      behind = 0;
-    }
+    ahead =
+      (await countCommitsBetween(projectCwd, `${destination}..${branch}`)) ?? 0;
+    behind =
+      (await countCommitsBetween(projectCwd, `${branch}..${destination}`)) ?? 0;
   }
   // The destination's own push facts ride the same snapshot (issue #414): the
   // finish dialog's done row needs "destination ahead of origin/main", which
@@ -666,12 +662,13 @@ async function readDestinationPushFacts(
       await git(projectCwd, ["rev-parse", "--abbrev-ref", `${destination}@{upstream}`])
     ).trim();
     if (upstream === "" || upstream === destination) return NO_PUSH_FACTS;
-    const ahead = Number(
-      (await git(projectCwd, ["rev-list", "--count", `${upstream}..${destination}`])).trim(),
+    const ahead = await countCommitsBetween(
+      projectCwd,
+      `${upstream}..${destination}`,
     );
-    return Number.isSafeInteger(ahead)
-      ? { destinationUpstream: upstream, destinationAhead: ahead }
-      : NO_PUSH_FACTS;
+    return ahead === null
+      ? NO_PUSH_FACTS
+      : { destinationUpstream: upstream, destinationAhead: ahead };
   } catch {
     return NO_PUSH_FACTS;
   }
@@ -721,9 +718,7 @@ async function mergeInto(
   branch: string,
   destination: string,
 ): Promise<Omit<MergeBackResult, "conflictsLeftIn">> {
-  const commits = Number(
-    (await git(cwd, ["rev-list", "--count", `${destination}..${branch}`])).trim(),
-  );
+  const commits = (await countCommitsBetween(cwd, `${destination}..${branch}`)) ?? 0;
   const message = buildMergeMessage({
     destination,
     messages: await foldedCommitMessages(cwd, destination, branch),
@@ -736,15 +731,7 @@ async function mergeInto(
   try {
     await git(cwd, args, { timeoutMs: MERGE_TIMEOUT_MS });
   } catch (error) {
-    let conflicted: string[] = [];
-    try {
-      conflicted = (await git(cwd, ["diff", "--name-only", "--diff-filter=U"]))
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line !== "");
-    } catch {
-      // The probe itself failed — git's own message below is the better answer.
-    }
+    const conflicted = await readConflictedPaths(cwd);
     if (conflicted.length > 0) {
       return { kind: "conflicts", destination, commits, files: conflicted };
     }
@@ -850,15 +837,7 @@ export async function syncWorktree(
   try {
     await git(worktreePath, ["merge", "--no-edit", source], { timeoutMs: MERGE_TIMEOUT_MS });
   } catch (error) {
-    let conflicted: string[] = [];
-    try {
-      conflicted = (await git(worktreePath, ["diff", "--name-only", "--diff-filter=U"]))
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line !== "");
-    } catch {
-      // The probe itself failed — git's own message below is the better answer.
-    }
+    const conflicted = await readConflictedPaths(worktreePath);
     if (conflicted.length > 0) {
       return { kind: "conflicts", source, files: conflicted };
     }

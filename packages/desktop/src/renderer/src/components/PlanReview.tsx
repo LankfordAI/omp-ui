@@ -18,8 +18,8 @@ import { ModelPalette } from "./ModelSelector";
 import { PlanDiagnostics, PlanFallback } from "./PlanFallback";
 import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
-import { worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
-import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
+import { mintBranchName, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
+import { WorktreeBranchFields } from "./WorktreeBranchFields";
 
 /**
  * The plan approval gate. omp's agent is *blocked* inside its `xd://propose`

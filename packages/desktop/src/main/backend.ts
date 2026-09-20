@@ -1408,6 +1408,7 @@ export class MainBackend {
     // remembered one (issue #381).
     const goal = this.sessions.goalSnapshot(record.tabId);
     const autoresearch = this.sessions.autoresearchSnapshot(record.tabId);
+    const bridgeAvailability = this.sessions.bridgeAvailability(record.tabId);
     return {
       ...record,
       title: title?.trim() || "New session",
@@ -1415,6 +1416,7 @@ export class MainBackend {
       live,
       pendingPlan: gate?.pending ?? null,
       planSettle: gate?.settle ?? null,
+      ...(bridgeAvailability === undefined ? {} : { bridgeAvailability }),
       streamStalled,
       turnRunning,
       awaitingHumanAnswer,

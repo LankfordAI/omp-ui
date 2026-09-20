@@ -95,14 +95,14 @@ export function OmpUpdateCard() {
     const title =
       status === "up-to-date"
         ? t("update.omp.upToDate", { version: installedVersion ?? "" })
-        : error === "could not reach the omp release registry"
+        : error?.kind === "unreachable"
           ? t("update.omp.checkFailed")
           : t("update.omp.installFailed");
     body = (
       <div className="min-w-0">
         <p className="text-sm font-medium text-ink">{title}</p>
         {status === "error" && error !== null && (
-          <p className="mt-0.5 break-words text-xs text-ink-dim">{error}</p>
+          <p className="mt-0.5 break-words text-xs text-ink-dim">{error.message}</p>
         )}
       </div>
     );

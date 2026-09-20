@@ -11,6 +11,7 @@ import {
   type CapabilitySnapshot,
 } from "./capabilities";
 import { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabilities-extension";
+import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -27,11 +28,6 @@ function transpile(source: string, module: ts.ModuleKind): ts.TranspileOutput {
   });
 }
 
-function errorText(result: ts.TranspileOutput): string[] {
-  return (result.diagnostics ?? [])
-    .filter((d) => d.category === ts.DiagnosticCategory.Error)
-    .map((d) => ts.flattenDiagnosticMessageText(d.messageText, " "));
-}
 
 /** The fake root's full surface: read probes plus the tool-control methods. */
 interface FakeSession {
@@ -303,11 +299,8 @@ describe("writeCapabilitiesExtension", () => {
     expect(typeof loaded.exports.default).toBe("function");
   });
 
-  it("writes a syntactically valid TS extension omp can transpile", () => {
-    const source = fs.readFileSync(writeCapabilitiesExtension(tempLineage()), "utf8");
-    // Substring checks can't catch a broken template; the file omp loads must
-    // actually be valid TypeScript, or every session would reject the -e arg.
-    expect(errorText(transpile(source, ts.ModuleKind.ESNext))).toEqual([]);
+  it("writes a strict TypeScript extension omp can load", () => {
+    typecheckGeneratedExtension(writeCapabilitiesExtension(tempLineage()));
   });
 });
 

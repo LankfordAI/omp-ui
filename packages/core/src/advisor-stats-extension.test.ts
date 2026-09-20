@@ -8,6 +8,7 @@ import {
   advisorStatsExtensionPath,
   writeAdvisorStatsExtension,
 } from "./advisor-stats-extension";
+import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -202,19 +203,8 @@ describe("writeAdvisorStatsExtension", () => {
     expect(source).toContain("unref");
   });
 
-  it("writes a syntactically valid TS extension omp can transpile", () => {
-    const source = fs.readFileSync(writeAdvisorStatsExtension(tempLineage()), "utf8");
-    // Substring checks can't catch a broken template; the file omp loads must
-    // actually be valid TypeScript, or every session with an advisor would
-    // reject the -e arg at startup.
-    const { diagnostics } = ts.transpileModule(source, {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-      reportDiagnostics: true,
-    });
-    const errors = (diagnostics ?? []).filter(
-      (d) => d.category === ts.DiagnosticCategory.Error,
-    );
-    expect(errors.map((e) => String(e.messageText))).toEqual([]);
+  it("writes a strict TypeScript extension omp can load", () => {
+    typecheckGeneratedExtension(writeAdvisorStatsExtension(tempLineage()));
   });
 });
 

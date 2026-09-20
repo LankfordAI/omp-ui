@@ -16,6 +16,20 @@ export type GitRunner = (
   options?: GitOptions,
 ) => Promise<string>;
 
+/** Counts commits in a revision range; null on git failure or malformed output. */
+export async function countCommitsBetween(
+  cwd: string,
+  range: string,
+  runGit: GitRunner = git,
+): Promise<number | null> {
+  try {
+    const count = Number((await runGit(cwd, ["rev-list", "--count", range])).trim());
+    return Number.isSafeInteger(count) ? count : null;
+  } catch {
+    return null;
+  }
+}
+
 export type BranchClock = () => number;
 
 export interface ParsedBranchStatus {
@@ -340,10 +354,21 @@ export function createBranchService(
       return emptyBranchList();
     }
 
-    let status = await readStatus(root);
+    const [statusRead, branchesRead, defaultBranchRead, defaultRemoteRead] =
+      await Promise.allSettled([
+        readStatus(root),
+        readLocalBranches(root),
+        readDefaultBranch(root, runGit),
+        resolveDefaultRemote(root, runGit),
+      ]);
+    if (statusRead.status === "rejected") throw statusRead.reason;
+    if (branchesRead.status === "rejected") throw branchesRead.reason;
+    if (defaultBranchRead.status === "rejected") throw defaultBranchRead.reason;
+    if (defaultRemoteRead.status === "rejected") throw defaultRemoteRead.reason;
+    let status = statusRead.value;
     const current = status.head;
-    const branches = await readLocalBranches(root);
-    const defaultBranch = await readDefaultBranch(root, runGit);
+    const branches = branchesRead.value;
+    const defaultBranch = defaultBranchRead.value;
     const configured = current === null ? null : await readConfiguredUpstream(root, current);
     const remote = configured?.remote ?? null;
     let entry: FetchCacheEntry | null = null;
@@ -357,7 +382,7 @@ export function createBranchService(
     }
 
     const upstreamAvailable = configured !== null && (await verifyUpstream(root));
-    const defaultRemote = await resolveDefaultRemote(root, runGit);
+    const defaultRemote = defaultRemoteRead.value;
     const identity =
       configured === null || current === null ? null : `${root}\0${current}\0${configured.ref}`;
     let ahead = upstreamAvailable ? status.ahead : 0;
@@ -442,14 +467,8 @@ export function createBranchService(
   };
 
   /** Commits in `to` that `from` lacks; null when either side is unreadable. */
-  const countBetween = async (root: string, from: string, to: string): Promise<number | null> => {
-    try {
-      const count = Number((await runGit(root, ["rev-list", "--count", `${from}..${to}`])).trim());
-      return Number.isSafeInteger(count) ? count : null;
-    } catch {
-      return null;
-    }
-  };
+  const countBetween = async (root: string, from: string, to: string): Promise<number | null> =>
+    countCommitsBetween(root, `${from}..${to}`, runGit);
 
   /**
    * A push advanced the remote-tracking ref, so the fetch cache's freshness

@@ -16,6 +16,7 @@
  * escaped source); they no longer decide the outcome.
  */
 import type { PlanDiagnostic } from "@omp-ui/core/plan";
+import { escapeHtml } from "@omp-ui/core/html";
 import { mixHex } from "./themes";
 import type { ParsedPlanSource, PlanDiagramBlock, PlanReplacement } from "./plan-source";
 
@@ -337,19 +338,3 @@ function syntaxErrorFrom(err: unknown): DiagramSyntaxError {
   return new DiagramSyntaxError(text, line === null ? null : Number(line[1]));
 }
 
-export function decodeEntities(text: string): string {
-  return text
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#0?39;|&#x27;|&apos;/gi, "'")
-    .replace(/&amp;/gi, "&");
-}
-
-export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}

@@ -127,74 +127,67 @@ export async function writeRpcOverlays(
   }
 
   /** The generated `-e` bridges an rpc-ui spawn needs. */
+export const RPC_BRIDGE_IDS = [
+  "plan",
+  "advisorStats",
+  "mcpStatus",
+  "capabilities",
+  "goal",
+  "browserPane",
+  "autoresearch",
+] as const;
+export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
+export type RpcBridgeWriters = Record<RpcBridgeId, (lineageDir: string) => string>;
+
+const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
+  plan: writePlanExtension,
+  advisorStats: writeAdvisorStatsExtension,
+  mcpStatus: writeMcpStatusExtension,
+  capabilities: writeCapabilitiesExtension,
+  goal: writeGoalExtension,
+  browserPane: writeBrowserPaneExtension,
+  autoresearch: writeAutoresearchExtension,
+};
+
+const RPC_BRIDGES: ReadonlyArray<{
+  id: RpcBridgeId;
+  logId: string;
+  warning: string;
+  enabled: (experimentsEnabled: boolean) => boolean;
+}> = [
+  { id: "plan", logId: "plan", warning: "plan", enabled: () => true },
+  { id: "advisorStats", logId: "advisor", warning: "advisor-stats", enabled: () => true },
+  { id: "mcpStatus", logId: "mcp", warning: "MCP-status", enabled: () => true },
+  { id: "capabilities", logId: "capabilities", warning: "capabilities", enabled: () => true },
+  { id: "goal", logId: "goal", warning: "goal", enabled: () => true },
+  { id: "browserPane", logId: "browser-pane", warning: "browser-pane", enabled: () => true },
+  { id: "autoresearch", logId: "autoresearch", warning: "autoresearch", enabled: (enabled) => enabled },
+];
+export interface RpcExtensionWriteResult {
+  paths: string[];
+  loaded: Record<RpcBridgeId, boolean>;
+}
+
 export function writeRpcExtensions(
   absLineageDir: string,
   experimentsEnabled: boolean,
-): {
-  paths: string[];
-  mcpStatusLoaded: boolean;
-  capabilitiesLoaded: boolean;
-  goalLoaded: boolean;
-  browserPaneLoaded: boolean;
-  autoresearchLoaded: boolean;
-} {
-    const paths: string[] = [];
+  writers: RpcBridgeWriters = DEFAULT_RPC_BRIDGE_WRITERS,
+): RpcExtensionWriteResult {
+  const paths: string[] = [];
+  const loaded = Object.fromEntries(
+    RPC_BRIDGE_IDS.map((id) => [id, false]),
+  ) as Record<RpcBridgeId, boolean>;
+  for (const bridge of RPC_BRIDGES) {
+    if (!bridge.enabled(experimentsEnabled)) continue;
     try {
-      paths.push(writePlanExtension(absLineageDir));
+      paths.push(writers[bridge.id](absLineageDir));
+      loaded[bridge.id] = true;
     } catch (err) {
-      console.warn("[plan] could not write the plan extension:", err);
+      console.warn(`[${bridge.logId}] could not write the ${bridge.warning} extension:`, err);
     }
-    try {
-      paths.push(writeAdvisorStatsExtension(absLineageDir));
-    } catch (err) {
-      console.warn("[advisor] could not write the advisor-stats extension:", err);
-    }
-    let mcpStatusLoaded = false;
-    try {
-      paths.push(writeMcpStatusExtension(absLineageDir));
-      mcpStatusLoaded = true;
-    } catch (err) {
-      console.warn("[mcp] could not write the MCP-status extension:", err);
-    }
-    let capabilitiesLoaded = false;
-    try {
-      paths.push(writeCapabilitiesExtension(absLineageDir));
-      capabilitiesLoaded = true;
-    } catch (err) {
-      console.warn("[capabilities] could not write the capabilities extension:", err);
-    }
-    let goalLoaded = false;
-    try {
-      paths.push(writeGoalExtension(absLineageDir));
-      goalLoaded = true;
-    } catch (err) {
-      console.warn("[goal] could not write the goal extension:", err);
-    }
-    let browserPaneLoaded = false;
-    try {
-      paths.push(writeBrowserPaneExtension(absLineageDir));
-      browserPaneLoaded = true;
-    } catch (err) {
-      console.warn("[browser-pane] could not write the browser-pane extension:", err);
-    }
-    let autoresearchLoaded = false;
-    if (experimentsEnabled) {
-      try {
-        paths.push(writeAutoresearchExtension(absLineageDir));
-        autoresearchLoaded = true;
-      } catch (err) {
-        console.warn("[autoresearch] could not write the autoresearch extension:", err);
-      }
-    }
-    return {
-      paths,
-      mcpStatusLoaded,
-      capabilitiesLoaded,
-      goalLoaded,
-      browserPaneLoaded,
-      autoresearchLoaded,
-    };
   }
+  return { paths, loaded };
+}
 
 /** Manager-provided paths and registry mutation for prepareResumeRecord. */
 export interface PrepareResumeDeps {

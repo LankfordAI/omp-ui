@@ -2,6 +2,10 @@ import * as path from "node:path";
 import { writeLineageArtifact } from "./lineage-artifact";
 import { GOAL_MODE_TRANSITION_KEY } from "./goal";
 import {
+  generatedModeTransitionSource,
+  generatedRootBindingSource,
+} from "./generated-extension-source";
+import {
   PLAN_COMMAND,
   PLAN_EXECUTE,
   PLAN_PREFLIGHT_REPLY_VERSION,
@@ -349,6 +353,7 @@ export default function (pi: PlanExtensionApi) {
   // The first prompting AgentSession. Every command operation runs on it, and
   // no later prompt — descendant or not — may retarget it (ADR-0008 discipline).
   let rootSession: PlanSession | null = null;
+  ${generatedRootBindingSource("PlanSession")}
   let unavailable: string | undefined;
   let approved = false;
   // Which format the renderer asked for on the last \`on\`. A bare \`on\` typed by
@@ -402,10 +407,10 @@ export default function (pi: PlanExtensionApi) {
       prototype.prompt = function (this: PlanSession, ...args: unknown[]): unknown {
         // Assign once: a subagent or branch session prompting must not move the
         // object every entry/exit transaction runs on.
-        if (rootSession === null) rootSession = this;
+        const isRoot = captureRoot(this);
         // A new ROOT prompt span gets a fresh preflight repair budget;
         // descendant prompts share the root's budget and never reset it.
-        if (rootSession === this) resetPreflightBudget();
+        if (isRoot) resetPreflightBudget();
         return call.apply(this, args);
       };
     }
@@ -1155,35 +1160,7 @@ export default function (pi: PlanExtensionApi) {
   // before they touch a mode. Without it, a model-originated \`goal create\` and
   // a Plan toggle can both pass their own check and leave the session in a mode
   // whose persisted slot says something else.
-  function transitions(): { queue: Promise<void> } {
-    const key = Symbol.for(TRANSITION_KEY);
-    const global = globalThis as unknown as Record<symbol, unknown>;
-    const existing = global[key];
-    if (existing !== null && typeof existing === "object" && "queue" in existing) {
-      const box = existing as { queue: unknown };
-      if (box.queue instanceof Promise) return box as unknown as { queue: Promise<void> };
-      const fresh = { queue: Promise.resolve() };
-      box.queue = fresh.queue;
-      return fresh;
-    }
-    const created = { queue: Promise.resolve() };
-    try {
-      global[key] = created;
-    } catch {
-      /* a runtime that refuses new symbols keeps the local chain below */
-    }
-    return created;
-  }
-
-  function inTransition(work: () => Promise<void>): Promise<void> {
-    const box = transitions();
-    const next = box.queue.then(work, work);
-    box.queue = next.then(
-      () => undefined,
-      () => undefined,
-    );
-    return next;
-  }
+  ${generatedModeTransitionSource("modeTransitionChain")}
 
   /**
    * An unfinished goal — paused or budget-limited included — blocks Plan entry:

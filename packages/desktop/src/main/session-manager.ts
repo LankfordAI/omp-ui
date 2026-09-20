@@ -708,21 +708,19 @@ export class SessionManager {
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const entry = createRpcLiveEntry(record);
-    const {
-      paths: extensions,
-      mcpStatusLoaded,
-      capabilitiesLoaded,
-      goalLoaded,
-      browserPaneLoaded,
-      autoresearchLoaded,
-    } = writeRpcExtensions(absLineageDir, this.deps.registry.getSetting("experimentsEnabled"));
-    entry.capabilitiesBridgeLoaded = capabilitiesLoaded;
+    const { paths: extensions, loaded: bridgeLoaded } = writeRpcExtensions(
+      absLineageDir,
+      this.deps.registry.getSetting("experimentsEnabled"),
+    );
+    entry.planBridgeLoaded = bridgeLoaded.plan;
+    entry.advisorStatsBridgeLoaded = bridgeLoaded.advisorStats;
+    entry.capabilitiesBridgeLoaded = bridgeLoaded.capabilities;
     // The bridge listener outlives the process: a relaunch under the same tab
     // reuses the endpoint, so the agent's remembered URL stays valid (#519).
-    const cdpUrl = browserPaneLoaded ? await this.browserPanes.ensureEndpoint(record.tabId) : null;
+    const cdpUrl = bridgeLoaded.browserPane ? await this.browserPanes.ensureEndpoint(record.tabId) : null;
     entry.browserPaneArmed = cdpUrl !== null;
     const initialCommands: Array<{ type: "prompt"; id: string; message: string }> = [];
-    if (mcpStatusLoaded) {
+    if (bridgeLoaded.mcpStatus) {
       initialCommands.push({
         type: "prompt",
         id: `omp-ui-initial-mcp-${randomUUID()}`,
@@ -732,19 +730,21 @@ export class SessionManager {
     // The goal bridge arms before the plan command: its restoration is what
     // tells Plan entry whether an unfinished goal owns the mode slot, and a plan
     // that started before it would read an unrestored session and enter anyway.
-    if (goalLoaded) {
+    if (bridgeLoaded.goal) {
       initialCommands.push({
         type: "prompt",
         id: `omp-ui-initial-goal-${randomUUID()}`,
         message: goalArmMessage(),
       });
     }
-    initialCommands.push({
-      type: "prompt",
-      id: `omp-ui-initial-mode-${randomUUID()}`,
-      message: planMessage(planMode, this.deps.registry.getSetting("planFormat")),
-    });
-    if (capabilitiesLoaded) {
+    if (bridgeLoaded.plan) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-mode-${randomUUID()}`,
+        message: planMessage(planMode, this.deps.registry.getSetting("planFormat")),
+      });
+    }
+    if (bridgeLoaded.capabilities) {
       initialCommands.push({
         type: "prompt",
         id: `omp-ui-initial-capabilities-${randomUUID()}`,
@@ -758,7 +758,7 @@ export class SessionManager {
         message: browserPaneSetMessage(cdpUrl),
       });
     }
-    if (autoresearchLoaded) {
+    if (bridgeLoaded.autoresearch) {
       initialCommands.push({
         type: "prompt",
         id: `omp-ui-initial-autoresearch-${randomUUID()}`,
@@ -1234,6 +1234,17 @@ export class SessionManager {
   autoresearchSnapshot(tabId: string): AutoresearchSnapshot | undefined {
     return this.autoresearch.snapshot(tabId);
   }
+  bridgeAvailability(
+    tabId: string,
+  ): { plan: boolean; advisorStats: boolean } | undefined {
+    const entry = this.live.get(tabId);
+    if (entry?.kind !== "rpc-ui") return undefined;
+    return {
+      plan: entry.planBridgeLoaded,
+      advisorStats: entry.advisorStatsBridgeLoaded,
+    };
+  }
+
 
   planGate(tabId: string): PlanGate | undefined {
     return this.planGates.gate(tabId);

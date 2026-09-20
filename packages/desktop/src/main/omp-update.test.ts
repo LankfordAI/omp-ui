@@ -100,7 +100,7 @@ describe("OmpUpdater.checkNow", () => {
     });
     await updater.checkNow(true);
     expect(updater.state.status).toBe("error");
-    expect(updater.state.error).toBe("could not reach the omp release registry");
+    expect(updater.state.error?.message).toBe("could not reach the omp release registry");
   });
 
   it("announces an available update with versions and install path", async () => {
@@ -276,7 +276,7 @@ describe("OmpUpdater.download", () => {
     await updater.checkNow(false);
     await updater.download();
     expect(updater.state.status).toBe("error");
-    expect(updater.state.error).toContain("500");
+    expect(updater.state.error?.message).toContain("500");
     expect(onApplied).not.toHaveBeenCalled();
     expect(fs.readFileSync(target, "utf8")).toBe("old-binary");
     expect(fs.readdirSync(dir)).toEqual(["omp"]);
@@ -297,7 +297,7 @@ describe("OmpUpdater.download", () => {
     expect(updater.state.status).toBe("available");
     await updater.download();
     expect(updater.state.status).toBe("error");
-    expect(updater.state.error).toMatch(/failed validation/);
+    expect(updater.state.error?.message).toMatch(/failed validation/);
     expect(onApplied).not.toHaveBeenCalled();
     expect(fs.existsSync(target)).toBe(false);
     expect(fs.readdirSync(dir)).toEqual([]);

@@ -182,14 +182,14 @@ export function AppUpdateCard() {
         ? t("update.app.upToDate", { version: currentVersion ?? "" })
         : status === "disabled"
           ? t("update.app.disabled")
-          : error === "could not reach GitHub"
+          : error?.kind === "unreachable"
             ? t("update.app.checkFailed")
             : t("update.app.failed");
     body = (
       <div className="min-w-0">
         <p className="text-sm font-medium text-ink">{title}</p>
         {status === "error" && error !== null && (
-          <p className="mt-0.5 break-words text-xs text-ink-dim">{error}</p>
+          <p className="mt-0.5 break-words text-xs text-ink-dim">{error.message}</p>
         )}
       </div>
     );

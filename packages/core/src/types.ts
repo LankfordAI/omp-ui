@@ -377,6 +377,11 @@ export interface SessionSummary extends OwnedSessionRecord {
   live: LiveState;
   pendingPlan: PendingPlan | null;
   planSettle: PlanSettle | null;
+  /** Per-process bridge installation; absent for terminal, dormant, and older remote hosts. */
+  bridgeAvailability?: {
+    plan: boolean;
+    advisorStats: boolean;
+  };
   /** Main-process watchdog aborted a silently wedged turn (issue #248); sidebar badge. */
   streamStalled: boolean;
   /**
@@ -784,6 +789,11 @@ export type ScopedCapabilityMutation = { scopeCwd: string | null } & (
  * inline here rather than imported so this file stays dependency-free for the
  * renderer's type-only import.
  */
+export interface UpdateFailure {
+  kind: "unreachable" | "failed";
+  message: string;
+}
+
 export interface OmpUpdateInfo {
   /** Resolved omp binary path, or null when omp is not installed/not found. */
   installPath: string | null;
@@ -791,7 +801,7 @@ export interface OmpUpdateInfo {
   latestVersion: string | null;
   /** True when both versions are known and installed < latest. */
   updateAvailable: boolean;
-  error: string | null;
+  error: UpdateFailure | null;
 }
 
 /** How this omp-ui install was packaged (see core/app-update.ts). */
@@ -822,7 +832,7 @@ export interface AppUpdateState {
   downloadedPath: string | null;
   /** Explicit user opt-in to apply the staged auto-update on the next natural quit. */
   installOnQuit: boolean;
-  error: string | null;
+  error: UpdateFailure | null;
 }
 
 /** Result of requesting a restart into a staged app update. */
@@ -847,7 +857,7 @@ export interface OmpUpdateState {
   latestVersion: string | null;
   /** 0–100 while downloading; null = indeterminate or not downloading. */
   progress: number | null;
-  error: string | null;
+  error: UpdateFailure | null;
 }
 
 /** The config sources omp-ui resolves MCP servers from (see core/mcp-config.ts). */

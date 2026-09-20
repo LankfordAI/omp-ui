@@ -10,6 +10,7 @@ import {
   type McpRuntimeStatus,
 } from "./mcp-status";
 import { mcpStatusExtensionPath, writeMcpStatusExtension } from "./mcp-status-extension";
+import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -83,13 +84,8 @@ describe("writeMcpStatusExtension", () => {
     expect(source).toContain(JSON.stringify(MCP_RUNTIME_STATUS_COMMAND));
   });
 
-  it("writes TypeScript omp can transpile", () => {
-    const source = fs.readFileSync(writeMcpStatusExtension(tempLineage()), "utf8");
-    const { diagnostics } = ts.transpileModule(source, {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-      reportDiagnostics: true,
-    });
-    expect((diagnostics ?? []).filter((d) => d.category === ts.DiagnosticCategory.Error)).toEqual([]);
+  it("writes a strict TypeScript extension omp can load", () => {
+    typecheckGeneratedExtension(writeMcpStatusExtension(tempLineage()));
   });
 });
 

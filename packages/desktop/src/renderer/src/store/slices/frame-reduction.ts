@@ -150,6 +150,47 @@ export function createFrameReductionSlice(
     advisorReply: advisorReplyWatcher,
     stall: stallContinueWatcher,
   } = deps;
+  const statusKeyHandlers: Record<string, (tabId: string, text: string | undefined) => void> = {
+    [PLAN_STATUS_KEY]: (tabId, text) => {
+      m.patchRpc(tabId, { plan: parsePlanStatus(text) });
+    },
+    [ADVISOR_STATS_KEY]: (tabId, text) => {
+      m.patchRpc(tabId, { advisorStats: parseAdvisorStats(text) });
+    },
+    [MCP_RUNTIME_STATUS_KEY]: (tabId, text) => {
+      const mcpStatus = parseMcpRuntimeStatus(text);
+      const tab = get().rpc[tabId];
+      if (mcpStatus === null || tab === undefined) return;
+      const observed = new Set(
+        (tab.mcpStatus?.failedServers ?? []).map(
+          (failure) => `${failure.kind}\u0000${failure.serverName}`,
+        ),
+      );
+      for (const failure of mcpStatus.failedServers) {
+        const key = `${failure.kind}\u0000${failure.serverName}`;
+        if (observed.has(key)) continue;
+        observed.add(key);
+        const notice = failure.kind === "auth"
+          ? `MCP server “${failure.serverName}” failed authentication and is absent from this live session. Open the MCP manager, authenticate through omp’s TUI, then reload MCP in this session.`
+          : `MCP server “${failure.serverName}” failed to connect and is absent from this live session. Open the MCP manager to inspect its configuration, then reload MCP in this session.`;
+        m.appendItem(tabId, noticeItem(notice, "warn"));
+      }
+      m.patchRpc(tabId, { mcpStatus });
+    },
+    [AUTORESEARCH_STATUS_KEY]: (tabId, text) => {
+      const snapshot = parseAutoresearchSnapshot(text);
+      if (snapshot !== null) acceptAutoresearchSnapshot(tabId, snapshot, get, m);
+    },
+    [GOAL_STATUS_KEY]: (tabId, text) => {
+      const snapshot = parseGoalSnapshot(text);
+      if (snapshot !== null) acceptGoalSnapshot(tabId, snapshot, get, m);
+    },
+    [CAPABILITIES_STATUS_KEY]: (tabId, text) => {
+      const snapshot = parseCapabilitySnapshot(text);
+      if (snapshot !== null) acceptCapabilitySnapshot(tabId, snapshot, get, m);
+    },
+  };
+
 
   /** Trailing-throttled roster refresh for the subagent_* heartbeat path. */
   const pulseSubagents = (tabId: string): void => {
@@ -339,6 +380,10 @@ export function createFrameReductionSlice(
         )
           stallContinueWatcher.trigger(tabId);
         return;
+      default: {
+        const exhaustive: never = effect;
+        void exhaustive;
+      }
     }
   };
 
@@ -352,7 +397,7 @@ export function createFrameReductionSlice(
   };
 
   const handleRpcFrame = (tabId: string, frame: object): void => {
-      if (frame === null || typeof frame !== "object") return;
+    
       const type = "type" in frame ? frame.type : undefined;
       // Control frames (the grammar core's normalizeControlFrame owns: the
       // command response, ready, the extension request/response, the rpc
@@ -414,6 +459,8 @@ export function createFrameReductionSlice(
         return;
       }
       switch (type) {
+        case "extension_ui_response":
+          return;
         case "rpc_chunk":
           return; // reassembled in main — never expected here
         case "session_info_update": {
@@ -553,76 +600,20 @@ export function createFrameReductionSlice(
             return;
           }
           const entry = extensionStatusEntry(frame);
-          if (entry?.key === PLAN_STATUS_KEY) {
-            m.patchRpc(tabId, { plan: parsePlanStatus(entry.text) });
-            return;
-          }
-          if (entry?.key === ADVISOR_STATS_KEY) {
-            // Included in a catch-up snapshot only when the frame has
-            // arrived by settle time; a later frame never re-settles a
-            // taken snapshot (issue #273).
-            m.patchRpc(tabId, { advisorStats: parseAdvisorStats(entry.text) });
-            return;
-          }
-          if (entry?.key === MCP_RUNTIME_STATUS_KEY) {
-            const mcpStatus = parseMcpRuntimeStatus(entry.text);
-            if (mcpStatus === null) return;
-            const observed = new Set(
-              (tab.mcpStatus?.failedServers ?? []).map(
-                (failure) => `${failure.kind}\u0000${failure.serverName}`,
-              ),
-            );
-            for (const failure of mcpStatus.failedServers) {
-              const key = `${failure.kind}\u0000${failure.serverName}`;
-              if (observed.has(key)) continue;
-              observed.add(key);
-              // The manager's footer offers `/mcp reload`, which rebinds the
-              // live session's MCP tools in place (#327) — the restart this
-              // copy used to name is no longer the lever.
-              const text = failure.kind === "auth"
-                ? `MCP server “${failure.serverName}” failed authentication and is absent from this live session. Open the MCP manager, authenticate through omp’s TUI, then reload MCP in this session.`
-                : `MCP server “${failure.serverName}” failed to connect and is absent from this live session. Open the MCP manager to inspect its configuration, then reload MCP in this session.`;
-              m.appendItem(tabId, noticeItem(text, "warn"));
+          if (entry !== null) {
+            const handleStatus = statusKeyHandlers[entry.key];
+            if (handleStatus !== undefined) {
+              handleStatus(tabId, entry.text);
+              return;
             }
-            m.patchRpc(tabId, { mcpStatus });
-            return;
-          }
-          if (entry?.key === AUTORESEARCH_STATUS_KEY) {
-            const snapshot = parseAutoresearchSnapshot(entry.text);
-            // Same posture as the goal claim: a malformed publish leaves the
-            // last real snapshot standing rather than reading as "off".
-            if (snapshot === null) return;
-            acceptAutoresearchSnapshot(tabId, snapshot, get, m);
-            return;
           }
           if (
             strField(frame, "method") === "setWidget" &&
             strField(frame, "widgetKey") === AUTORESEARCH_WIDGET_KEY
           ) {
-            // omp's own autoresearch dashboard widget is TUI furniture: the
-            // snapshot and the Lab carry its content, so it never becomes a
-            // status chip. Still answered — omp blocks on the reply.
+            // omp's autoresearch widget is TUI furniture. The snapshot and Lab
+            // own its content, but omp still blocks until this reply arrives.
             backend.rpcSend(tabId, extensionCancelResponse(frameId));
-            return;
-          }
-          if (entry?.key === GOAL_STATUS_KEY) {
-            const snapshot = parseGoalSnapshot(entry.text);
-            // Malformed status never becomes "no goal": the last goal the tab
-            // really saw keeps standing until a valid publish replaces it.
-            if (snapshot === null) return;
-            // The same acceptance rule the summary hydration uses, so a live
-            // frame and a late joiner can never disagree (#381).
-            acceptGoalSnapshot(tabId, snapshot, get, m);
-            return;
-          }
-          if (entry?.key === CAPABILITIES_STATUS_KEY) {
-            const snapshot = parseCapabilitySnapshot(entry.text);
-            // Malformed JSON never replaces a good roster with an empty one.
-            if (snapshot === null) return;
-            // The one acceptance rule, shared with the applied-mutation result
-            // path so a push and a reply can never disagree about which roster
-            // this tab shows (#379; the read race is #374's).
-            acceptCapabilitySnapshot(tabId, snapshot, get, m);
             return;
           }
           const action = routeExtensionRequest(frame);

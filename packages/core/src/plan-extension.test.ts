@@ -12,6 +12,7 @@ import {
   type PlanReviewRequest,
 } from "./plan";
 import { planExtensionPath, writePlanExtension } from "./plan-extension";
+import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -132,16 +133,8 @@ describe("writePlanExtension", () => {
     expect(source).toContain('let format: "html" | "md" = "md"');
   });
 
-  it("writes a syntactically valid TS extension omp can transpile", () => {
-    const source = fs.readFileSync(writePlanExtension(tempLineage()), "utf8");
-    const { diagnostics } = ts.transpileModule(source, {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-      reportDiagnostics: true,
-    });
-    const errors = (diagnostics ?? []).filter(
-      (d) => d.category === ts.DiagnosticCategory.Error,
-    );
-    expect(errors.map((e) => String(e.messageText))).toEqual([]);
+  it("writes a strict TypeScript extension omp can load", () => {
+    typecheckGeneratedExtension(writePlanExtension(tempLineage()));
   });
 });
 

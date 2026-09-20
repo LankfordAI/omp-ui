@@ -257,6 +257,53 @@ export const useStore = create<UiStore>()((set, get, api) => {
     }
     return reboot;
   };
+  const reconcileBridgeAvailability = (next: BackendState): void => {
+    const summaries = [
+      ...next.projects.flatMap((group) => group.sessions),
+      ...next.remoteInstances
+        .filter((instance) => instance.status === "joined")
+        .flatMap((instance) => instance.projects.flatMap((group) => group.sessions)),
+    ];
+    set((current) => {
+      let changed = false;
+      const rpc = { ...current.rpc };
+      for (const summary of summaries) {
+        const availability = summary.bridgeAvailability;
+        const tab = rpc[summary.tabId];
+        if (availability === undefined || tab === undefined) continue;
+        const nextTab = { ...tab };
+        if (!availability.plan) {
+          nextTab.plan = {
+            enabled: false,
+            planFilePath: null,
+            planAbsPath: null,
+            approved: false,
+            unavailable: "bridge-unavailable",
+          };
+        }
+        if (!availability.advisorStats) {
+          nextTab.advisorStats = {
+            available: false,
+            unavailable: "bridge-unavailable",
+            configured: false,
+            active: false,
+            model: null,
+            subscription: false,
+            contextWindow: 0,
+            contextTokens: 0,
+            cost: 0,
+            totalTokens: 0,
+          };
+        }
+        if (!availability.plan || !availability.advisorStats) {
+          rpc[summary.tabId] = nextTab;
+          changed = true;
+        }
+      }
+      return changed ? { rpc } : {};
+    });
+  };
+
 
   return {
     ...createViewSlice(set, get, api),
@@ -305,6 +352,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         syncGlassChrome(state);
         syncLocale(state);
         reconcilePlanGates(state);
+        reconcileBridgeAvailability(state);
         sessionParams.reconcilePendingDialogs(state);
         rpcCommandSlice.reconcileGoals(state);
         rpcCommandSlice.reconcileAutoresearch(state);

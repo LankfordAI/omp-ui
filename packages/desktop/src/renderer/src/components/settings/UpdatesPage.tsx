@@ -29,7 +29,7 @@ function appStatusLine(u: AppUpdateState): string {
     case "disabled":
       return t("settings.updates.appChecksDisabled");
     case "error":
-      return u.error ?? t("settings.updates.checkFailed");
+      return u.error?.message ?? t("settings.updates.checkFailed");
     default:
       return t("settings.updates.noCheckYet");
   }
@@ -56,7 +56,7 @@ function ompStatusLine(u: OmpUpdateState): string {
     case "checking":
       return t("settings.updates.checking");
     case "error":
-      return u.error ?? t("settings.updates.checkFailed");
+      return u.error?.message ?? t("settings.updates.checkFailed");
     default:
       return t("settings.updates.noCheckYet");
   }

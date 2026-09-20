@@ -10,6 +10,7 @@ import {
   browserPaneSetMessage,
 } from "./browser-pane";
 import { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-pane-extension";
+import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -132,18 +133,13 @@ async function bound(h: Harness): Promise<Session> {
 // ------------------------------------------------------------------- tests
 
 describe("writeBrowserPaneExtension", () => {
-  it("writes into the lineage dir, overwrites a stale copy, and compiles", () => {
+  it("writes into the lineage dir, overwrites a stale copy, and strictly typechecks", () => {
     const lineage = path.join(tempLineage(), "nested");
     const file = writeBrowserPaneExtension(lineage);
     expect(file).toBe(browserPaneExtensionPath(lineage));
     fs.writeFileSync(file, "// stale\n", "utf8");
     writeBrowserPaneExtension(lineage);
-    const source = fs.readFileSync(file, "utf8");
-    const { diagnostics } = ts.transpileModule(source, {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-      reportDiagnostics: true,
-    });
-    expect((diagnostics ?? []).filter((d) => d.category === ts.DiagnosticCategory.Error)).toEqual([]);
+    typecheckGeneratedExtension(file);
   });
 });
 

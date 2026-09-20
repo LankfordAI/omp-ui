@@ -3,8 +3,8 @@ import { useT } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
 import { useStore } from "../store";
 import { Button, ChoiceCapsule, ConfirmDialog } from "./ui";
-import { worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
-import { mintBranchName, WorktreeBranchFields } from "./WorktreeBranchFields";
+import { mintBranchName, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
+import { WorktreeBranchFields } from "./WorktreeBranchFields";
 
 /**
  * Asks for the branch and base of a worktree session (issue #224): the branch

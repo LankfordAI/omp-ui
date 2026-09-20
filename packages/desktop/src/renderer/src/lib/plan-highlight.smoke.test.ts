@@ -67,7 +67,7 @@ describe("planHighlightTransform (real shiki)", () => {
     // The generated spans carry the dollar bytes; the composer inserts them as
     // data, so no replacement pattern can fire (issue #412).
     const text = doc.replace(/<[^>]*>/g, "");
-    expect(text).toContain(`awk '/total:$/' report.csv`);
+    expect(text).toContain("awk &#39;/total:$/&#39; report.csv");
     // `escapeHtml` re-escapes the generated span text, so the dollar bytes
     // arrive in their entity form — never expanded, never doubled.
     expect(text).toContain('echo &quot;${TOTAL} done&quot; # $&amp; comment');

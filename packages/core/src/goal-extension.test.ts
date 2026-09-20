@@ -13,6 +13,7 @@ import {
   type GoalSnapshot,
 } from "./goal";
 import { goalExtensionPath, writeGoalExtension } from "./goal-extension";
+import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -60,6 +61,8 @@ interface Options {
   without?: string[];
   /** Runtime members that answer by throwing. */
   throwing?: string[];
+  /** Simulates a runtime that accepts create but fails to return a goal. */
+  createReturnsNoGoal?: boolean;
 }
 
 interface Harness {
@@ -95,6 +98,7 @@ interface Session {
   turnGate: { promise: Promise<void>; resolve: () => void } | null;
   /** Set when the fake refuses a turn the way AgentBusyError does. */
   turnRejects: boolean;
+  toolMutationHook: (() => void) | null;
   abortCalls: number;
   disposeCalls: number;
   sessionChangeListeners: (() => void)[];
@@ -150,9 +154,11 @@ function harness(): Harness {
     goalSetting: boolean | null;
     turnGate: { promise: Promise<void>; resolve: () => void } | null = null;
     turnRejects = false;
+    toolMutationHook: (() => void) | null = null;
     abortCalls = 0;
     disposeCalls = 0;
     sessionChangeListeners: (() => void)[] = [];
+    private readonly createReturnsNoGoal: boolean;
     saved: { mode: string; goal?: GoalRecord } | null;
     listeners: ((event: { type: string }) => void)[] = [];
     runStateListeners: ((state?: string) => void)[] = [];
@@ -164,6 +170,7 @@ function harness(): Harness {
       this.planMode = options.planMode ?? false;
       this.vibeMode = options.vibeMode ?? false;
       this.goalSetting = options.goalSetting === undefined ? true : options.goalSetting;
+      this.createReturnsNoGoal = options.createReturnsNoGoal === true;
       this.saved = options.saved
         ? { mode: options.saved.mode, goal: options.saved.goal }
         : null;
@@ -201,6 +208,7 @@ function harness(): Harness {
     goalRuntime = {
       createGoal: (input: { objective: string; tokenBudget?: number }): ModeState => {
         if (unfinished(this.state)) throw new Error("cannot create a new goal because this session already has a goal");
+        if (this.createReturnsNoGoal) return { enabled: false, mode: "active" } as ModeState;
         this.state = { enabled: true, mode: "active", goal: this.record(input.objective, input.tokenBudget) };
         this.persist();
         this.fire({ type: "goal_updated", goal: this.state.goal, state: this.state });
@@ -317,6 +325,7 @@ function harness(): Harness {
     }
 
     runToolRegistryMutation(work: () => Promise<unknown>): Promise<unknown> {
+      this.toolMutationHook?.();
       return work();
     }
 
@@ -544,13 +553,10 @@ describe("writeGoalExtension", () => {
     expect(fs.readFileSync(file, "utf8")).toContain(JSON.stringify(GOAL_STATUS_KEY));
   });
 
-  it("emits a generated source that compiles and carries the wire contract", () => {
-    const source = fs.readFileSync(writeGoalExtension(tempLineage()), "utf8");
-    const { diagnostics } = ts.transpileModule(source, {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-      reportDiagnostics: true,
-    });
-    expect((diagnostics ?? []).filter((d) => d.category === ts.DiagnosticCategory.Error)).toEqual([]);
+  it("emits a generated source that strictly typechecks and carries the wire contract", () => {
+    const file = writeGoalExtension(tempLineage());
+    typecheckGeneratedExtension(file);
+    const source = fs.readFileSync(file, "utf8");
     for (const constant of [GOAL_COMMAND, GOAL_STATUS_KEY]) {
       expect(source).toContain(JSON.stringify(constant));
     }
@@ -688,6 +694,53 @@ describe("goal bridge arm and availability", () => {
 });
 
 describe("goal verbs against omp's runtime", () => {
+  it("settles a thrown createGoal as failed and starts no turn", async () => {
+    const h = harness();
+    const root = await armed(h, "session-create-throws", { throwing: ["createGoal"] });
+    const created = await send(h, root, "goal impossible");
+    expect(created.ok).toBe(false);
+    expect(created.text).toContain("createGoal exploded");
+    expect(root.state).toBeNull();
+    expect(root.turns).toEqual([]);
+  });
+
+  it("settles a create that returns no goal as failed and starts no turn", async () => {
+    const h = harness();
+    const root = await armed(h, "session-create-empty", { createReturnsNoGoal: true });
+    const created = await send(h, root, "goal missing");
+    expect(created.ok).toBe(false);
+    expect(created.text).toContain("created no goal");
+    expect(root.state).toBeNull();
+    expect(root.turns).toEqual([]);
+  });
+
+  it("settles a re-entrant create refusal as failed and preserves the existing goal", async () => {
+    const h = harness();
+    const root = await armed(h, "session-create-race", { enabledTools: ["read"] });
+    root.toolMutationHook = () => {
+      root.toolMutationHook = null;
+      const now = Date.now();
+      root.state = {
+        enabled: true,
+        mode: "active",
+        goal: {
+          id: "goal-raced",
+          objective: "won the race",
+          status: "active",
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+      };
+    };
+    const created = await send(h, root, "goal too late");
+    expect(created.ok).toBe(false);
+    expect(created.text).toContain("already has a goal");
+    expect(root.state?.goal.objective).toBe("won the race");
+    expect(root.turns).toEqual([]);
+  });
+
   it("creates a goal, starts work on it, and continues it once per clean yield", async () => {
     vi.useFakeTimers();
     const h = harness();
@@ -1160,6 +1213,29 @@ describe("continuation safety", () => {
     expect(root.state).toMatchObject({ enabled: false, goal: { status: "paused" } });
     expect(h.snapshot().pauseReason).toContain("upstream 500");
   });
+  it("does not let an old goal error pause a newly created objective", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    const root = await armed(h);
+    await send(h, root, "goal old objective");
+    root.fire({
+      type: "agent_end",
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: "old failure" }],
+    });
+    h.answer(true);
+    await send(h, root, "goal drop");
+    const created = await send(h, root, "goal new objective");
+    expect(created.ok).toBe(true);
+    root.fire({ type: "agent_end", messages: [{ role: "assistant", stopReason: "stop" }] });
+    vi.advanceTimersByTime(800);
+    await flush();
+    expect(root.state).toMatchObject({
+      enabled: true,
+      goal: { status: "active", objective: "new objective" },
+    });
+    expect(h.snapshot().pauseReason).toBeNull();
+  });
+
 
   it("invalidates a pending timer the moment abort starts, before omp pauses", async () => {
     vi.useFakeTimers();

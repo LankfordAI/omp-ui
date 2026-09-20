@@ -19,6 +19,12 @@ import {
   EXPERIMENT_PROPOSAL_SENTINEL,
 } from "./autoresearch";
 import { writeLineageArtifact } from "./lineage-artifact";
+import {
+  generatedAsRecordSource,
+  generatedSessionIdSource,
+  generatedShutdownCleanupSource,
+  generatedUtf8LengthSource,
+} from "./generated-extension-source";
 
 /**
  * omp's `/autoresearch` runs entirely inside omp (verified on v18.2.4): the
@@ -104,6 +110,7 @@ interface ZodFn {
 }
 
 interface ExtensionApi {
+  pi?: { AgentSession?: { prototype?: Record<string, unknown> } };
   zod?: Record<string, (...args: unknown[]) => ZodFn>;
   registerCommand: (
     name: string,
@@ -137,25 +144,9 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
+${generatedAsRecordSource()}
 
-function utf8Length(text: string): number {
-  let bytes = 0;
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    if (code < 0x80) bytes += 1;
-    else if (code < 0x800) bytes += 2;
-    else if (code >= 0xdc00 && code < 0xe000) bytes += 0;
-    else if (code >= 0xd800 && code < 0xdc00) {
-      bytes += 4;
-      i++;
-    } else bytes += 3;
-  }
-  return bytes;
-}
+${generatedUtf8LengthSource()}
 
 type ProposalRecord = Record<string, unknown>;
 
@@ -284,7 +275,8 @@ async function proposeExperiment(
   if (utf8Length(title) > PROPOSAL_BYTE_LIMIT) {
     return { isError: true, content: [{ type: "text", text: "The proposal is too large; shorten brief or the lists." }] };
   }
-  const select = ctx?.ui?.select;
+  const toolUi = ctx?.ui;
+  const select = toolUi?.select;
   if (typeof select !== "function") {
     return {
       isError: true,
@@ -293,7 +285,7 @@ async function proposeExperiment(
   }
   let answer: unknown;
   try {
-    answer = await select.call(ctx.ui, title, PROPOSAL_OPTIONS.slice());
+    answer = await select.call(toolUi, title, PROPOSAL_OPTIONS.slice());
   } catch {
     answer = undefined; // a dropped dialog is a refusal, never a launch
   }
@@ -336,16 +328,7 @@ export default function (pi: ExtensionApi) {
   let lastTool: LastTool | null = null;
   const unsubscribe = new Array<() => void>();
 
-  function sessionIdOf(session: SessionLike | null): string | null {
-    const read = asRecord(session?.sessionManager)?.getSessionId;
-    if (typeof read !== "function") return null;
-    try {
-      const id = (read as () => unknown).call(session?.sessionManager);
-      return isString(id) && id.length > 0 ? id : null;
-    } catch {
-      return null;
-    }
-  }
+  ${generatedSessionIdSource("SessionLike")}
 
   /**
    * Reduces the root branch to the latest control state. omp appends one
@@ -459,7 +442,7 @@ export default function (pi: ExtensionApi) {
     if (typeof subscribe === "function") {
       try {
         const off = subscribe.call(session, (event) => onEvent(asRecord(event) ?? {}));
-        if (typeof off === "function") unsubscribe.push(off);
+        if (typeof off === "function") unsubscribe.push(off as () => void);
       } catch {
         /* an unsubscribable session still answers the arm command */
       }
@@ -473,35 +456,15 @@ export default function (pi: ExtensionApi) {
           lastTool = null;
           refresh(true);
         });
-        if (typeof off === "function") unsubscribe.push(off);
+        if (typeof off === "function") unsubscribe.push(off as () => void);
       } catch {
         /* an older runtime republishes on the next agent_end */
       }
     }
   }
 
-  /** Same root-shutdown discipline the goal bridge uses. */
-  function bindShutdown(session: SessionLike): void {
-    const target = session as unknown as Record<string, unknown>;
-    for (const method of ["dispose", "disconnect", "cleanup", "shutdown"]) {
-      try {
-        const original = target[method];
-        if (typeof original !== "function") continue;
-        const call = original as (...args: unknown[]) => unknown;
-        target[method] = function (this: unknown, ...args: unknown[]): unknown {
-          const result = call.apply(this, args);
-          try {
-            if (this === session) teardown();
-          } catch {
-            /* shutdown bookkeeping never breaks the session */
-          }
-          return result;
-        };
-      } catch {
-        /* a sealed or throwing shutdown hook is not our session's problem */
-      }
-    }
-  }
+  /** Same root-shutdown discipline every generated bridge uses. */
+  ${generatedShutdownCleanupSource("SessionLike")}
 
   function teardown(): void {
     for (const off of unsubscribe.splice(0)) {

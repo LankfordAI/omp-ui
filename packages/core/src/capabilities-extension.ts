@@ -8,6 +8,12 @@ import {
   TOOL_MUTATION_STATUSES,
 } from "./capabilities";
 import { writeLineageArtifact } from "./lineage-artifact";
+import {
+  generatedPollTimerSource,
+  generatedRootBindingSource,
+  generatedSessionIdSource,
+  generatedUtf8LengthSource,
+} from "./generated-extension-source";
 
 /**
  * OMP exposes its live capability surface (skills, tools, MCP ownership) only
@@ -77,9 +83,7 @@ const BYTE_LIMIT = ${CAPABILITY_STATUS_BYTE_LIMIT};
 const POLL_MS = 2000;
 const CONTROL_CHARS = /[\\u0000-\\u001f\\u007f-\\u009f]/g;
 
-interface PollTimer {
-  unref?: () => void;
-}
+${generatedPollTimerSource()}
 
 interface StatusUi {
   setStatus: (key: string, text: string | undefined) => void;
@@ -243,6 +247,7 @@ function parseToolRequest(json: string): ToolMutationRequest | null {
 export default function (pi: ExtensionApi) {
   const processKey = "omp-ui-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
   let rootSession: SessionLike | null = null;
+  ${generatedRootBindingSource("SessionLike", "bindRootShutdown(candidate);")}
   let ui: StatusUi | null = null;
   let pollTimer: PollTimer | null = null;
   let lastDigest: string | null = null;
@@ -259,30 +264,9 @@ export default function (pi: ExtensionApi) {
       : { text, truncated: false };
   }
 
-  function utf8Length(text: string): number {
-    let bytes = 0;
-    for (let i = 0; i < text.length; i++) {
-      const code = text.charCodeAt(i);
-      if (code < 0x80) bytes += 1;
-      else if (code < 0x800) bytes += 2;
-      else if (code >= 0xdc00 && code < 0xe000) bytes += 0;
-      else if (code >= 0xd800 && code < 0xdc00) { bytes += 4; i++; }
-      else bytes += 3;
-    }
-    return bytes;
-  }
+  ${generatedUtf8LengthSource()}
 
-  function sessionIdOf(session: SessionLike | null): string | null {
-    const manager = session?.sessionManager;
-    const fn = manager?.getSessionId;
-    if (typeof fn !== "function") return null;
-    try {
-      const id = fn.call(manager);
-      return typeof id === "string" && id.length > 0 ? id : null;
-    } catch {
-      return null;
-    }
-  }
+  ${generatedSessionIdSource("SessionLike")}
 
   function probeVersion(): string | null {
     try {
@@ -798,14 +782,6 @@ export default function (pi: ExtensionApi) {
     }
   }
 
-  function captureRoot(candidate: SessionLike): boolean {
-    if (rootSession === null) {
-      rootSession = candidate;
-      bindRootShutdown(candidate);
-      return true;
-    }
-    return candidate === rootSession;
-  }
 
   try {
     const prototype = pi.pi?.AgentSession?.prototype;
