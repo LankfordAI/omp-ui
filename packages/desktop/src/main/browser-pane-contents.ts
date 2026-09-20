@@ -31,6 +31,7 @@ export type PaneEvent =
   | "did-navigate-in-page"
   | "did-start-loading"
   | "did-stop-loading"
+  | "did-fail-load"
   | "page-title-updated"
   | "destroyed"
   | "context-menu";

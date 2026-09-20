@@ -87,6 +87,8 @@ export interface BrowserPaneState {
   /** False once the page is destroyed (lifecycle), true while it exists. */
   alive: boolean;
   agent: BrowserPaneAgentState;
+  /** Last top-level navigation failure; cleared when a new load starts. */
+  error?: string | null;
   /**
    * True while the session's pane is open in at least one view (issue #556).
    * A session-level posture owned by main: closing it anywhere closes it

@@ -471,6 +471,8 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   else if (ensure === "not-live") status = t("browser.state.notLive");
   else if (ensure === "unavailable") {
     status = t("browser.state.unavailable", { reason: pane?.unavailableReason ?? "" });
+  } else if (state?.error) {
+    status = state.error;
   } else if (available && !hasFrame) {
     status = state?.url === null ? t("browser.state.idle") : t("browser.state.noFrames");
   }

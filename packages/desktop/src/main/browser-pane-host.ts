@@ -235,7 +235,8 @@ export class BrowserPaneHost {
   }
 
   subscribe(tabId: string, clientId: string, on: boolean): void {
-    const entry = this.entry(tabId);
+    const entry = this.entries.get(tabId);
+    if (entry === undefined) return;
     if (!on) {
       if (entry.sinks.delete(clientId) && entry.sinks.size === 0) this.stopPainting(entry);
       return;
@@ -255,7 +256,8 @@ export class BrowserPaneHost {
    * paints nothing; the flag is purely what every viewer renders.
    */
   setOpen(tabId: string, open: boolean): void {
-    const entry = this.entry(tabId);
+    const entry = this.entries.get(tabId);
+    if (entry === undefined) return;
     if (entry.open === open) return;
     entry.open = open;
     this.emitState(tabId, entry);
@@ -270,7 +272,8 @@ export class BrowserPaneHost {
   }
 
   resize(tabId: string, width: number, height: number): void {
-    const entry = this.entry(tabId);
+    const entry = this.entries.get(tabId);
+    if (entry === undefined) return;
     entry.size = { width: clampViewport(width), height: clampViewport(height) };
     clearTimeout(entry.resizeTimer);
     entry.resizeTimer = setTimeout(() => {
@@ -310,7 +313,8 @@ export class BrowserPaneHost {
   }
 
   navigate(tabId: string, nav: BrowserPaneNavigate): void {
-    const entry = this.entry(tabId);
+    const entry = this.entries.get(tabId);
+    if (entry === undefined) return;
     // Layer 1 of #531: a disallowed target is dropped and the address bar
     // snaps back to the current state.
     if (nav.action === "goto" && !isAllowedBrowserPaneTopLevelUrl(nav.url)) {
@@ -321,7 +325,9 @@ export class BrowserPaneHost {
       if (pane === null) return;
       switch (nav.action) {
         case "goto":
-          void pane.loadURL(nav.url).catch(() => {});
+          void pane.loadURL(nav.url).catch((err: unknown) => {
+            this.noteLoadFailure(tabId, entry, err);
+          });
           return;
         case "back":
           if (pane.canGoBack()) pane.goBack();
@@ -529,10 +535,21 @@ export class BrowserPaneHost {
       pane.onPaint((_dirtyRect, image) => this.onPaint(tabId, entry, image)),
       pane.on("did-navigate", () => this.noteCommitted(tabId, entry, pane)),
       pane.on("did-navigate-in-page", () => this.noteCommitted(tabId, entry, pane)),
-      pane.on("did-start-loading", () => this.emitState(tabId, entry)),
+      pane.on("did-start-loading", () => {
+        entry.lastError = null;
+        this.emitState(tabId, entry);
+      }),
       pane.on("did-stop-loading", () => {
         this.ensureMetrics(entry, "first-commit");
         this.emitState(tabId, entry);
+      }),
+      pane.on("did-fail-load", (...args) => {
+        if (args[4] === false) return;
+        this.noteLoadFailure(
+          tabId,
+          entry,
+          typeof args[2] === "string" ? args[2] : "navigation failed",
+        );
       }),
       pane.on("page-title-updated", () => this.emitState(tabId, entry)),
       pane.on("destroyed", () => {
@@ -550,7 +567,9 @@ export class BrowserPaneHost {
     if (entry.sinks.size > 0) this.startPainting(entry, pane);
     else pane.stopPainting();
     // A remembered URL the guard now cancels rejects here; the state still emits.
-    void pane.loadURL(entry.lastUrl ?? "about:blank").catch(() => {});
+    void pane.loadURL(entry.lastUrl ?? "about:blank").catch((err: unknown) => {
+      this.noteLoadFailure(tabId, entry, err);
+    });
     this.emitState(tabId, entry);
     return pane;
   }
@@ -708,6 +727,13 @@ export class BrowserPaneHost {
         // A page that refuses the override paints 1x; paintedScale records dsf 1.
       });
   }
+  private noteLoadFailure(tabId: string, entry: PaneEntry, error: unknown): void {
+    if (this.entries.get(tabId) !== entry) return;
+    const detail = error instanceof Error ? error.message : String(error);
+    entry.lastError = `load-failed: ${detail.slice(0, 500)}`;
+    this.emitState(tabId, entry);
+  }
+
 
   private currentState(entry: PaneEntry): BrowserPaneState {
     const pane = entry.pane;
@@ -721,6 +747,7 @@ export class BrowserPaneHost {
       alive,
       agent: entry.agent,
       open: entry.open,
+      error: entry.lastError,
     };
   }
 

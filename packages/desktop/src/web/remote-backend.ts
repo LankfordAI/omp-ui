@@ -7,12 +7,18 @@ import {
   makeClientNotifyFrame,
   makeClientRequestFrame,
   parseServerFrame,
-  REMOTE_CLOSE_REVOKED,
   REMOTE_FRAME_KEY_PARAM,
   REMOTE_FRAME_WS_PATH,
   REMOTE_TOKEN_PARAM,
   REMOTE_WS_PATH,
 } from "@omp-ui/server/protocol";
+import {
+  REMOTE_CONNECT_TIMEOUT_MS,
+  REMOTE_FRAME_RETRY_INITIAL_MS,
+  dispatchRemoteListeners,
+  isCredentialClose,
+  nextFrameRetryDelay,
+} from "@omp-ui/server/transport-core";
 
 // The browser half owns only WebSocket lifecycle and wire decoding; method construction is shared
 // with preload through makeBackendClient.
@@ -50,7 +56,7 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
     let frames: WebSocket | null = null;
     let retry: number | undefined;
     let frameTimer: number | undefined;
-    let retryDelay = 500;
+    let retryDelay = REMOTE_FRAME_RETRY_INITIAL_MS;
     let health: AbortController | null = null;
 
     const down = (): void => {
@@ -73,20 +79,10 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
       for (const cb of statusCbs) cb(false);
     };
 
-    const timer = window.setTimeout(down, 10_000);
+    const timer = window.setTimeout(down, REMOTE_CONNECT_TIMEOUT_MS);
 
-    const dispatch = (channel: string, args: unknown[]): void | Promise<void> => {
-      let waits: Promise<void>[] | undefined;
-      for (const cb of listeners.get(channel) ?? []) {
-        try {
-          const result = cb(...args);
-          if (result !== undefined) (waits ??= []).push(result);
-        } catch {
-          // A failed receiver intentionally drops the frame instead of holding credit forever.
-        }
-      }
-      if (waits !== undefined) return Promise.allSettled(waits).then(() => {});
-    };
+    const dispatch = (channel: string, args: unknown[]): void | Promise<void> =>
+      dispatchRemoteListeners(listeners.get(channel) ?? [], (cb) => cb(...args));
 
     const request = <Args extends unknown[], Result>(channel: string, args: Args): Promise<Result> =>
       new Promise<Result>((res, rej) => {
@@ -131,7 +127,10 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
       if (health !== null) return;
       const controller = new AbortController();
       health = controller;
-      const timeout = window.setTimeout(() => controller.abort(), 10_000);
+      const timeout = window.setTimeout(
+        () => controller.abort(),
+        REMOTE_CONNECT_TIMEOUT_MS,
+      );
       const url = new URL("/healthz", location.href);
       const token = new URLSearchParams(location.search).get(REMOTE_TOKEN_PARAM);
       if (token) url.searchParams.set(REMOTE_TOKEN_PARAM, token);
@@ -156,7 +155,7 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
         retry = undefined;
         connectFrames();
       }, retryDelay);
-      retryDelay = Math.min(retryDelay * 2, 5_000);
+      retryDelay = nextFrameRetryDelay(retryDelay);
     };
 
     const connectFrames = (): void => {
@@ -164,7 +163,10 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
       const socket = new WebSocket(socketUrl(REMOTE_FRAME_WS_PATH, frameKey));
       frames = socket;
       socket.binaryType = "arraybuffer";
-      frameTimer = window.setTimeout(() => socket.close(), 10_000);
+      frameTimer = window.setTimeout(
+        () => socket.close(),
+        REMOTE_CONNECT_TIMEOUT_MS,
+      );
       socket.addEventListener("open", () => {
         if (stopped || frames !== socket) {
           socket.close();
@@ -173,7 +175,7 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
         clearTimeout(frameTimer);
         health?.abort();
         health = null;
-        retryDelay = 500;
+        retryDelay = REMOTE_FRAME_RETRY_INITIAL_MS;
         ready();
       });
       socket.addEventListener("message", (ev: MessageEvent) => {
@@ -193,7 +195,7 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
         if (frames !== socket) return;
         clearTimeout(frameTimer);
         frames = null;
-        if (ev.code === REMOTE_CLOSE_REVOKED || ev.code === 1008) {
+        if (isCredentialClose(ev.code)) {
           down();
           return;
         }

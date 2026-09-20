@@ -24,7 +24,7 @@ interface FakePane {
   /** The toJPEG mock of the most recent paint. */
   lastJpegQuality(): number | undefined;
   setLoading(on: boolean): void;
-  emit(event: PaneEvent): void;
+  emit(event: PaneEvent, ...args: unknown[]): void;
   setUrl(url: string): void;
 }
 
@@ -108,8 +108,8 @@ function fakePane(opts: CreatePaneOptions): FakePane {
     setLoading: (on) => {
       loading = on;
     },
-    emit: (event) => {
-      for (const cb of handlers.get(event) ?? []) cb();
+    emit: (event, ...args) => {
+      for (const cb of handlers.get(event) ?? []) cb(...args);
     },
     setUrl: (next) => {
       url = next;
@@ -191,6 +191,7 @@ afterEach(() => {
 describe("BrowserPaneHost sink registry (U2)", () => {
   it("creates the page on the first sink, paints at BROWSER_PANE_FPS, and stops when the last sink leaves", async () => {
     const h = harness();
+    await h.host.ensureEndpoint("t1");
     h.host.subscribe("t1", "c1", true);
     await flush();
     expect(h.createPane).toHaveBeenCalledTimes(1);
@@ -224,6 +225,7 @@ describe("BrowserPaneHost sink registry (U2)", () => {
 
   it("noteViewed drops the client's sink from every other tab", async () => {
     const h = harness();
+    await Promise.all([h.host.ensureEndpoint("t1"), h.host.ensureEndpoint("t2")]);
     h.host.subscribe("t1", "c1", true);
     h.host.subscribe("t2", "c1", true);
     await flush();
@@ -274,6 +276,7 @@ describe("BrowserPaneHost sink registry (U2)", () => {
       },
       targetScaleFactor: () => 3,
     });
+    await host.ensureEndpoint("t1");
     host.subscribe("t1", "c1", true);
     await flush();
     const pane = panes[0]!.pane;
@@ -303,6 +306,7 @@ describe("BrowserPaneHost sink registry (U2)", () => {
       },
       targetScaleFactor: () => 2,
     });
+    await host.ensureEndpoint("t1");
     host.subscribe("t1", "c1", true);
     await flush();
     // Electron's first paint of a fresh window is 0×0: never a frame, never cached.
@@ -328,6 +332,7 @@ describe("BrowserPaneHost sink registry (U2)", () => {
       },
       targetScaleFactor: () => 1.5,
     });
+    await host.ensureEndpoint("t1");
     host.subscribe("t1", "c1", true);
     await flush();
     const pane = panes[0]!.pane;
@@ -356,6 +361,7 @@ describe("BrowserPaneHost sink registry (U2)", () => {
       },
       targetScaleFactor: () => 2,
     });
+    await host.ensureEndpoint("t1");
     host.subscribe("t1", "c1", true);
     await flush();
     const pane = panes[0]!.pane;
@@ -441,11 +447,26 @@ describe("BrowserPaneHost page lifecycle", () => {
     expect(h.states().at(-1)).toMatchObject({ url: "https://example.com/docs", alive: false });
 
     await h.host.ensure("t1");
+
     expect(h.panes[1]!.pane.loadURL).toHaveBeenCalledWith("https://example.com/docs");
 
     h.host.dispose("t1", { forgetUrl: true });
     await h.host.ensure("t1");
     expect(h.panes[2]!.pane.loadURL).toHaveBeenCalledWith("about:blank");
+  });
+  it("does not resurrect forgotten state from late pane notifications", async () => {
+    const h = harness();
+    await h.host.ensureEndpoint("t1");
+    h.host.dispose("t1", { forgetUrl: true });
+
+    h.host.subscribe("t1", "client", false);
+    h.host.setOpen("t1", false);
+    h.host.resize("t1", 900, 600);
+    h.host.navigate("t1", { action: "goto", url: "https://example.com/" });
+    await flush();
+
+    expect(h.host.diagnostics()).toEqual([]);
+    expect(h.createPane).not.toHaveBeenCalled();
   });
 
   it("emits alive:false and drops the page when the page dies underneath it", async () => {
@@ -512,6 +533,7 @@ describe("BrowserPaneHost page lifecycle", () => {
     const h = harness();
     expect(h.host.livePageCount()).toBe(0);
     await h.host.ensure("hidden");
+    await h.host.ensureEndpoint("visible");
     h.host.subscribe("visible", "client", true);
     await flush();
     h.panes[0]!.setUrl("https://hidden.test/");
@@ -572,12 +594,32 @@ describe("BrowserPaneHost navigation and popups (U7 host)", () => {
     expect(pane.stop).toHaveBeenCalledTimes(1);
   });
 
-  it("creates the page for a goto on a tab that has none", async () => {
+  it("ignores navigation for a tab that has no armed pane", async () => {
     const h = harness();
     h.host.navigate("t1", { action: "goto", url: "https://example.com/" });
     await flush();
-    expect(h.createPane).toHaveBeenCalledTimes(1);
-    expect(h.panes[0]!.pane.loadURL).toHaveBeenLastCalledWith("https://example.com/");
+    expect(h.createPane).not.toHaveBeenCalled();
+    expect(h.host.diagnostics()).toEqual([]);
+  });
+
+  it("publishes top-level navigation failures and records diagnostics", async () => {
+    const h = harness();
+    await h.host.ensure("t1");
+    h.panes[0]!.emit(
+      "did-fail-load",
+      {},
+      -105,
+      "NAME_NOT_RESOLVED",
+      "https://missing.invalid/",
+      true,
+    );
+
+    expect(h.states().at(-1)).toMatchObject({
+      error: "load-failed: NAME_NOT_RESOLVED",
+    });
+    expect(h.host.diagnostics()).toMatchObject([
+      { tabId: "t1", lastError: "load-failed: NAME_NOT_RESOLVED" },
+    ]);
   });
 });
 
@@ -687,8 +729,9 @@ describe("BrowserPaneHost endpoint, agent state, and denied ports (U7 host)", ()
 });
 
 describe("BrowserPaneHost session-level visibility (#556)", () => {
-  it("emits the open flag only on a change", () => {
+  it("emits the open flag only on a change", async () => {
     const h = harness();
+    await h.host.ensureEndpoint("t1");
     expect(h.states()).toHaveLength(0);
     h.host.setOpen("t1", true);
     expect(h.states().at(-1)).toMatchObject({ open: true });
@@ -710,8 +753,9 @@ describe("BrowserPaneHost session-level visibility (#556)", () => {
     if (again.status === "available") expect(again.state.open).toBe(true);
   });
 
-  it("closes the posture everywhere when the page is disposed", () => {
+  it("closes the posture everywhere when the page is disposed", async () => {
     const h = harness();
+    await h.host.ensureEndpoint("t1");
     h.host.setOpen("t1", true);
     h.host.dispose("t1");
     expect(h.states().at(-1)).toMatchObject({ open: false, alive: false });
@@ -719,6 +763,7 @@ describe("BrowserPaneHost session-level visibility (#556)", () => {
 
   it("painting is bound to subscribe, not to the open flag", async () => {
     const h = harness();
+    await h.host.ensureEndpoint("t1");
     h.host.setOpen("t1", true);
     await flush();
     // An open pane nobody is viewing paints nothing.
