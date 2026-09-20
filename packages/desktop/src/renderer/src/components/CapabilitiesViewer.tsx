@@ -16,6 +16,7 @@ import { backend, backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { fuzzyBest } from "../lib/fuzzy";
 import { useT, type MessageKey } from "../lib/i18n";
+import { useCapabilityRosterSource } from "../lib/use-capability-roster-source";
 import { findRecord, sessionCwd, useStore, type CapabilitiesToolFeedbackStatus } from "../store";
 import { Button, Chip, ChoiceCapsule, Empty, IconButton, Modal, Panel, Switch } from "./ui";
 import { layerBadge } from "./settings/rows";
@@ -438,13 +439,16 @@ export function McpServersPanel({
       ...(mcpStatus?.failedServers.map((failure) => failure.serverName) ?? []),
       ...(runtimeTools?.flatMap((tool) => (tool.mcpServerName === null ? [] : [tool.mcpServerName])) ?? []),
     ]);
-    return [...names]
-      .filter((name) => !named.has(name) && scoreFields(needle, name, "", "") !== null)
-      .sort((a, b) => a.localeCompare(b));
-  }, [result, mcpStatus, runtimeTools, needle]);
+    return [...names].filter((name) => !named.has(name)).sort((a, b) => a.localeCompare(b));
+  }, [result, mcpStatus, runtimeTools]);
+
+  const visibleRuntimeOnly = useMemo(
+    () => runtimeOnly.filter((name) => scoreFields(needle, name, "", "") !== null),
+    [runtimeOnly, needle],
+  );
 
   const totalCount = result === null ? null : result.servers.length + runtimeOnly.length;
-  const visibleCount = configRows === null ? 0 : configRows.length + runtimeOnly.length;
+  const visibleCount = configRows === null ? 0 : configRows.length + visibleRuntimeOnly.length;
   useEffect(() => {
     onCounts?.(visibleCount, totalCount);
   }, [onCounts, visibleCount, totalCount]);
@@ -505,7 +509,7 @@ export function McpServersPanel({
               />
             </div>
           )}
-          {result.servers.length === 0 ? (
+          {result.servers.length === 0 && runtimeOnly.length === 0 ? (
             <Empty
               title={
                 scopeCwd === null
@@ -514,7 +518,7 @@ export function McpServersPanel({
               }
               hint={t("mcp.panel.emptyHint")}
             />
-          ) : configRows !== null && configRows.length === 0 && runtimeOnly.length === 0 ? (
+          ) : configRows !== null && configRows.length === 0 && visibleRuntimeOnly.length === 0 ? (
             <Empty title={t("viewer.empty.noMatches")} />
           ) : (
             <>
@@ -534,13 +538,13 @@ export function McpServersPanel({
                   />
                 ))}
               </ul>
-              {runtimeOnly.length > 0 && (
+              {visibleRuntimeOnly.length > 0 && (
                 <div className="mt-1.5">
                   <p className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
                     {t("viewer.mcp.runtimeOnly")}
                   </p>
                   <ul className="divide-y divide-line-soft border-t border-line-soft">
-                    {runtimeOnly.map((name) => (
+                    {visibleRuntimeOnly.map((name) => (
                       <RuntimeRow
                         key={`runtime:${name}`}
                         name={name}
@@ -1195,44 +1199,19 @@ export function CapabilitiesViewer({
   const setSessionToolEnabled = useStore((s) => s.setSessionToolEnabled);
   const runSlashCommand = useStore((s) => s.runSlashCommand);
   const state = useStore((s) => s.state);
-  const record = useStore((s) => (tabId === undefined ? undefined : findRecord(s.state, tabId)));
+  const {
+    record,
+    busy,
+    loadStatus,
+    snapshot,
+    toolPending,
+    toolFeedback,
+    planModeOn,
+    runtimeBusy,
+  } = useCapabilityRosterSource(tabId);
   const live = record?.live === "live";
   const native = record?.mode === "rpc-ui";
   const worktree = record?.worktree ?? null;
-  // A native tab mid-turn would queue the reload behind the running turn; a
-  // PTY tab's TUI simply shows the typed line, so only the native path waits.
-  const busy = useStore((s) => (tabId === undefined ? false : s.rpc[tabId]?.status === "running"));
-  // Skills/Tools describe one live native session. No pin, no bridge.
-  const loadStatus = useStore((s) =>
-    tabId === undefined ? ("bridge-unavailable" as const) : (s.rpc[tabId]?.capabilitiesLoad ?? "idle"),
-  );
-  const snapshot = useStore((s) => (tabId === undefined ? null : (s.rpc[tabId]?.capabilities ?? null)));
-  // Session-local tool control (issue #379): the in-flight mutation and the
-  // last outcome that did not land, both owned by the tab so the modal can
-  // close and reopen without losing either.
-  const toolPending = useStore((s) =>
-    tabId === undefined ? null : (s.rpc[tabId]?.capabilitiesToolPending ?? null),
-  );
-  const toolFeedback = useStore((s) =>
-    tabId === undefined ? null : (s.rpc[tabId]?.capabilitiesToolFeedback ?? null),
-  );
-  // Plan mode owns the write tool: omp hands it to the session while planning,
-  // so taking it away would break the mode that needs it.
-  const planModeOn = useStore((s) =>
-    tabId === undefined ? false : (s.rpc[tabId]?.plan?.enabled ?? false),
-  );
-  // The runtime's own busy signal — a turn in flight or messages queued — not
-  // this viewer's idea of busy. The bridge refuses mutations mid-turn anyway;
-  // locking the switches here just avoids a click that can only be refused.
-  const runtimeBusy = useStore((s) => {
-    const tab = tabId === undefined ? undefined : s.rpc[tabId];
-    if (tab === undefined) return false;
-    return (
-      tab.status === "running" ||
-      tab.session.isStreaming === true ||
-      tab.session.queuedMessageCount > 0
-    );
-  });
   const t = useT();
 
   const [active, setActive] = useState<CapabilitySectionId>(section);
@@ -1245,10 +1224,9 @@ export function CapabilitiesViewer({
   const [toolOrigin, setToolOrigin] = useState<"all" | CapabilityTool["source"]>("all");
   const [toolServer, setToolServer] = useState<string | null>(null);
   const [skillView, setSkillView] = useState<"all" | "listed" | "hidden" | "unknown">("all");
-  const [mcpCounts, setMcpCounts] = useState<{ visible: number; total: number | null } | null>(null);
-  // Unpinned tabs count from the scope panels' own reads instead of a roster.
-  const [skillCatalogCounts, setSkillCatalogCounts] = useState<{ visible: number; total: number | null } | null>(null);
-  const [toolCatalogCounts, setToolCatalogCounts] = useState<{ visible: number; total: number | null } | null>(null);
+  const [sectionCounts, setSectionCounts] = useState<
+    Record<CapabilitySectionId, { visible: number; total: number | null } | null>
+  >({ mcp: null, skills: null, tools: null });
   const tabRefs = useRef<Record<CapabilitySectionId, HTMLButtonElement | null>>({
     mcp: null,
     skills: null,
@@ -1267,16 +1245,23 @@ export function CapabilitiesViewer({
   // roster and runtime status describe a tree these rows no longer drive.
   const effectiveCwd = tabId === undefined ? undefined : sessionCwd(record);
   const drifted =
-    tabId !== undefined && record !== undefined && effectiveCwd !== undefined && effectiveCwd !== scopeCwd;
+    tabId !== undefined &&
+    record !== undefined &&
+    effectiveCwd !== undefined &&
+    effectiveCwd !== scopeCwd;
   const missingSession =
     tabId !== undefined && record === undefined && state !== null && !drifted;
-  // The last-known snapshot rides an error load too (Retry offered, stale
-  // labeled); a drifted pin detaches it entirely.
   const roster =
-    !drifted && !missingSession && snapshot !== null && (loadStatus === "available" || loadStatus === "error")
+    !drifted &&
+    !missingSession &&
+    snapshot !== null &&
+    (loadStatus === "available" || loadStatus === "error")
       ? snapshot
       : null;
-  const sessionTools = roster !== null && roster.tools.status === "available" ? roster.tools.items : null;
+  const sessionTools =
+    roster !== null && roster.tools.status === "available"
+      ? roster.tools.items
+      : null;
 
   const reload = (): void => {
     if (tabId === undefined) return;
@@ -1285,46 +1270,45 @@ export function CapabilitiesViewer({
       setReloading(false);
       closeCapabilitiesViewer();
     };
-    if (native) {
-      // omp handles /mcp reload itself (disconnectAll -> discoverAndConnect ->
-      // refreshMCPTools) and answers agentInvoked:false — no model turn. The
-      // command row in the transcript is the receipt, including on failure.
-      void runSlashCommand(tabId, "/mcp reload").then(done, done);
-    } else {
-      // A terminal tab is an omp TUI: type the command the user would type.
+    if (native) void runSlashCommand(tabId, "/mcp reload").then(done, done);
+    else {
       backend.ptyWrite(tabId, "/mcp reload\r");
       done();
     }
   };
 
-  /** Re-read config from disk and ask the bridge for a fresh snapshot. This
-   *  never sends `/reload` or `/mcp reload` — it mutates no session. */
   const refresh = (): void => {
-    setRefreshKey((k) => k + 1);
-    if (tabId !== undefined && !drifted) void refreshCapabilities(tabId).catch(() => {});
+    setRefreshKey((key) => key + 1);
+    if (tabId !== undefined && !drifted) {
+      void refreshCapabilities(tabId).catch(() => {});
+    }
   };
 
-  const reportMcpCounts = useCallback((visible: number, total: number | null) => {
-    setMcpCounts((prev) =>
-      prev !== null && prev.visible === visible && prev.total === total ? prev : { visible, total },
-    );
-  }, []);
-
-  const reportSkillCatalogCounts = useCallback((visible: number, total: number | null) => {
-    setSkillCatalogCounts((prev) =>
-      prev !== null && prev.visible === visible && prev.total === total ? prev : { visible, total },
-    );
-  }, []);
-
-  const reportToolCatalogCounts = useCallback((visible: number, total: number | null) => {
-    setToolCatalogCounts((prev) =>
-      prev !== null && prev.visible === visible && prev.total === total ? prev : { visible, total },
-    );
-  }, []);
+  const reportCounts = useCallback(
+    (sectionId: CapabilitySectionId, visible: number, total: number | null) => {
+      setSectionCounts((current) => {
+        const retained = current[sectionId];
+        return retained?.visible === visible && retained.total === total
+          ? current
+          : { ...current, [sectionId]: { visible, total } };
+      });
+    },
+    [],
+  );
+  const reportMcpCounts = useCallback(
+    (visible: number, total: number | null) => reportCounts("mcp", visible, total),
+    [reportCounts],
+  );
+  const reportSkillCatalogCounts = useCallback(
+    (visible: number, total: number | null) => reportCounts("skills", visible, total),
+    [reportCounts],
+  );
+  const reportToolCatalogCounts = useCallback(
+    (visible: number, total: number | null) => reportCounts("tools", visible, total),
+    [reportCounts],
+  );
 
   const openToolsFor = useCallback((serverName: string) => {
-    // The drill-down answers one question — what does THIS server register?
-    // — so every filter that could hide the answer goes.
     setQuery("");
     setToolStatus("all");
     setToolOrigin("all");
@@ -1340,7 +1324,12 @@ export function CapabilitiesViewer({
       if (skillView === "listed" && skill.hidden !== false) continue;
       if (skillView === "hidden" && skill.hidden !== true) continue;
       if (skillView === "unknown" && skill.hidden !== null) continue;
-      const score = scoreFields(needle, skill.name, skill.description, `${skill.source ?? ""} ${skill.filePath} ${skill.scope ?? ""}`);
+      const score = scoreFields(
+        needle,
+        skill.name,
+        skill.description,
+        `${skill.source ?? ""} ${skill.filePath} ${skill.scope ?? ""}`,
+      );
       if (score !== null) scored.push({ skill, score });
     }
     if (needle.length === 0) {
@@ -1538,6 +1527,16 @@ export function CapabilitiesViewer({
 
   const skillTotal = roster !== null && roster.skills.status === "available" ? roster.skills.items.length : null;
   const toolTotal = roster !== null && roster.tools.status === "available" ? roster.tools.items.length : null;
+  const sectionCount = (sectionId: CapabilitySectionId): string => {
+    if (sectionId === "mcp" || tabId === undefined) {
+      const counts = sectionCounts[sectionId];
+      return countLabel(counts?.total ?? null, counts?.visible ?? null);
+    }
+    return sectionId === "skills"
+      ? countLabel(skillTotal, skillRows?.length ?? null)
+      : countLabel(toolTotal, toolRows?.length ?? null);
+  };
+
 
   return (
     <Modal onClose={closeCapabilitiesViewer} width="w-[42rem]" labelledBy="capabilities-viewer-title">
@@ -1571,16 +1570,7 @@ export function CapabilitiesViewer({
         <div role="tablist" aria-label={t("viewer.header.title")} onKeyDown={onTabListKeyDown} className="flex gap-1">
           {TABS.map((tab) => {
             const selected = tab.id === active;
-            const count =
-              tab.id === "mcp"
-                ? countLabel(mcpCounts?.total ?? null, mcpCounts?.visible ?? null)
-                : tab.id === "skills"
-                  ? tabId === undefined
-                    ? countLabel(skillCatalogCounts?.total ?? null, skillCatalogCounts?.visible ?? null)
-                    : countLabel(skillTotal, skillRows?.length ?? null)
-                  : tabId === undefined
-                    ? countLabel(toolCatalogCounts?.total ?? null, toolCatalogCounts?.visible ?? null)
-                    : countLabel(toolTotal, toolRows?.length ?? null);
+            const count = sectionCount(tab.id);
             return (
               <button
                 key={tab.id}
