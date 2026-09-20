@@ -1,22 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import type {
   MemoryOverview,
   OmpSettingEntry,
   OmpSettingValue,
 } from "@omp-ui/core/types";
 import { MEMORY_SETTING_GROUP } from "@omp-ui/core/omp-settings-keys";
-import { backend, displayMessage } from "../../backend";
+import { backend } from "../../backend";
 import { useStore } from "../../store";
 import { Button, Chip, Empty, Label, Panel } from "../ui";
 import { Row, SettingControl, layerBadge } from "./rows";
 import { useT } from "../../lib/i18n";
+import { useLoad, type Load as AsyncLoad } from "../../lib/load";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
 
-type OverviewLoad =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "loaded"; overview: MemoryOverview }
-  | { status: "error"; message: string };
 
 function MemoryBankPath({
   label,
@@ -48,7 +44,7 @@ function MemoryOverviewPanel({
   projectCwd,
   retry,
 }: {
-  load: OverviewLoad;
+  load: AsyncLoad<MemoryOverview>;
   projectCwd: string | null;
   retry: () => void;
 }) {
@@ -82,7 +78,7 @@ function MemoryOverviewPanel({
     );
   }
 
-  const { overview } = load;
+  const overview = load.value;
   return (
     <Panel className="space-y-2 px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-1.5">
@@ -143,41 +139,20 @@ export function MemoryPage({
 }) {
   const t = useT();
   const openSettings = useStore((state) => state.openSettings);
-  const [overviewLoad, setOverviewLoad] = useState<OverviewLoad>({ status: "idle" });
-  const [overviewRetry, setOverviewRetry] = useState(0);
-  const overviewGeneration = useRef(0);
-
-  useEffect(() => {
-    const generation = ++overviewGeneration.current;
-    if (projectCwd === null) {
-      setOverviewLoad({ status: "idle" });
-      return;
-    }
-
-    let stale = false;
-    setOverviewLoad({ status: "loading" });
-    backend.memoryOverview(projectCwd).then(
-      (overview) => {
-        if (!stale && generation === overviewGeneration.current) {
-          setOverviewLoad({ status: "loaded", overview });
-        }
-      },
-      (error: unknown) => {
-        if (!stale && generation === overviewGeneration.current) {
-          setOverviewLoad({ status: "error", message: displayMessage(error) });
-        }
-      },
-    );
-    return () => {
-      stale = true;
-    };
-  }, [projectCwd, overviewRevision, overviewRetry]);
+  const readOverview = useCallback(
+    () => backend.memoryOverview(projectCwd as string),
+    [projectCwd, overviewRevision],
+  );
+  const {
+    load: overviewLoad,
+    retry: retryOverview,
+  } = useLoad(projectCwd === null ? null : readOverview);
 
   const overviewPanel = (
     <MemoryOverviewPanel
       load={overviewLoad}
       projectCwd={projectCwd}
-      retry={() => setOverviewRetry((revision) => revision + 1)}
+      retry={retryOverview}
     />
   );
 
