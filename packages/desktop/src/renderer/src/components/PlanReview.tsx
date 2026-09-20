@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { parseModelRole } from "@omp-ui/core/model-role";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { useT, type MessageKey } from "../lib/i18n";
 import { keywordColors, type MagicKeyword } from "../lib/magic-keywords";
 import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
 import { usePreparedPlanDocument } from "../lib/use-prepared-plan-document";
+import { shortModelLabel } from "../lib/format";
 import { projectKey } from "../lib/project-key";
 import { useCompactShell } from "../lib/responsive";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findOwner, findRecord, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
-import { shortLabel, splitRole } from "./AdvisorControl";
+import { usePlanDispatchStaging } from "../lib/use-plan-dispatch-staging";
 import { ExecutionBranchSetup, useExecutionBranch } from "./ExecutionBranchSetup";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
@@ -236,35 +238,32 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
    */
   const sourceWorktree = sessionRecord?.worktree ?? null;
 
-  const [stagedModel, setStagedModel] = useState<ModelInfo | null>(currentModel);
-  const [stagedThinking, setStagedThinking] = useState<string | null>(currentThinking);
-  const [stagedAdvisor, setStagedAdvisor] = useState(sessionRecord?.advisor ?? false);
-  const [stagedAdvisorModel, setStagedAdvisorModel] = useState<string | null>(
-    sessionRecord?.advisorModel ?? null,
-  );
-  const [orchestrate, setOrchestrate] = useState(false);
-  const [ultrathink, setUltrathink] = useState(false);
-  const [workflowz, setWorkflowz] = useState(false);
-  const [pickingModel, setPickingModel] = useState(false);
-  const [pickingAdvisorModel, setPickingAdvisorModel] = useState(false);
+  const {
+    stagedModel,
+    setStagedModel,
+    stagedThinking,
+    setStagedThinking,
+    stagedAdvisor,
+    setStagedAdvisor,
+    stagedAdvisorModel,
+    setStagedAdvisorModel,
+    keywords,
+    setKeyword,
+    pickingModel,
+    setPickingModel,
+    pickingAdvisorModel,
+    setPickingAdvisorModel,
+  } = usePlanDispatchStaging(review, sessionRecord, currentModel, currentThinking);
+  const { ultrathink, orchestrate, workflowz } = keywords;
   const [levelMenu, setLevelMenu] = useState<"main" | "advisor" | null>(null);
 
-  // A new proposal re-seeds the staged parameters from the session's current
-  // values (React's adjust-state-during-render pattern). Defer/reopen keeps the
-  // user's staging because the review object is unchanged; the keyword switches
-  // always reset to off (decided: never remembered).
+  // A new proposal resets navigation and checkout staging. Dispatch parameters
+  // are re-seeded by usePlanDispatchStaging.
   const [seededFor, setSeededFor] = useState<unknown>(null);
   if (review !== seededFor) {
     setSeededFor(review);
     setContext("existing");
-    setStagedModel(currentModel);
-    setStagedThinking(currentThinking);
-    setStagedAdvisor(sessionRecord?.advisor ?? false);
-    setStagedAdvisorModel(sessionRecord?.advisorModel ?? null);
-    setUltrathink(false);
-    setOrchestrate(false);
     setCompactStep("review");
-    setWorkflowz(false);
     setWorktreeSel(null);
   }
 
@@ -318,7 +317,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const gatedAdvisor = gateAdvisor !== null;
   const effectiveAdvisor = gateAdvisor ?? stagedAdvisorModel ?? advisorDefaults?.model ?? null;
   const advisorInherited = !gatedAdvisor && stagedAdvisorModel === null;
-  const advisorSplit = effectiveAdvisor === null ? null : splitRole(effectiveAdvisor);
+  const advisorSplit = effectiveAdvisor === null ? null : parseModelRole(effectiveAdvisor);
   const advisorModelInfo =
     availableModels.find((m) => `${m.provider}/${m.id}` === advisorSplit?.model) ?? null;
   const advisorEfforts = advisorModelInfo?.thinking?.efforts ?? [];
@@ -797,7 +796,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                   >
                     {effectiveAdvisor === null
                       ? t("plan.review.ompDefault")
-                      : advisorModelInfo?.name || shortLabel(effectiveAdvisor)}
+                      : advisorModelInfo?.name || shortModelLabel(effectiveAdvisor)}
                   </button>
                 </>
               )}
@@ -946,21 +945,21 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
               <legend className="text-[11px] font-medium text-ink">{t("plan.review.magicKeywords")}</legend>
               <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">{t("plan.review.magicKeywordsHint")}</p>
               <div className="mt-3 space-y-3">
-                {KEYWORD_ROWS.map(({ keyword, hintKey }) => {
-                  const armed =
-                    keyword === "ultrathink" ? ultrathink : keyword === "orchestrate" ? orchestrate : workflowz;
-                  const setArmed =
-                    keyword === "ultrathink" ? setUltrathink : keyword === "orchestrate" ? setOrchestrate : setWorkflowz;
-                  return (
-                    <div key={keyword} className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <KeywordLabel keyword={keyword} />
-                        <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">{t(hintKey, { keyword })}</span>
-                      </div>
-                      <Switch on={armed} onChange={setArmed} label={t("plan.review.armKeyword", { keyword })} />
+                {KEYWORD_ROWS.map(({ keyword, hintKey }) => (
+                  <div key={keyword} className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <KeywordLabel keyword={keyword} />
+                      <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
+                        {t(hintKey, { keyword })}
+                      </span>
                     </div>
-                  );
-                })}
+                    <Switch
+                      on={keywords[keyword]}
+                      onChange={(armed) => setKeyword(keyword, armed)}
+                      label={t("plan.review.armKeyword", { keyword })}
+                    />
+                  </div>
+                ))}
               </div>
             </fieldset>
 

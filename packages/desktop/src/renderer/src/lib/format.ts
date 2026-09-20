@@ -30,6 +30,14 @@ export function shortBase(base: string): string {
   return /^[0-9a-f]{40}$/.test(base) ? base.slice(0, 8) : base;
 }
 
+/** Tail of a provider/model selector, without an omp thinking-level suffix. */
+export function shortModelLabel(selector: string): string {
+  const slash = selector.lastIndexOf("/");
+  const tail = slash === -1 ? selector : selector.slice(slash + 1);
+  const colon = tail.lastIndexOf(":");
+  return colon > 0 ? tail.slice(0, colon) : tail;
+}
+
 /**
  * The transcript notice for a worktree release (issue #334). The session
  * survives, so this is the only durable record in the UI of where it moved,
