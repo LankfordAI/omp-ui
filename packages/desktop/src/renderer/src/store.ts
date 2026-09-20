@@ -32,6 +32,7 @@ import { createSettingsSlice } from "./store/slices/settings";
 import {
   browserPaneWriters,
   createMachinery,
+  persistedPlanHandoffs,
   shellWriters,
   termWriters,
 } from "./store/slices/shared";
@@ -316,6 +317,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     state: null,
     exited: {},
     hibernated: {},
+    handedOffFor: {},
+    observedPlanHandoffs: {},
     rpc: {},
     branches: branchesSlice.branches,
     branchActivity: branchesSlice.branchActivity,
@@ -336,15 +339,31 @@ export const useStore = create<UiStore>()((set, get, api) => {
       initialized = true;
       backend.onStateChanged((state) => {
         const reboot = reconcileTabs(state);
-        set((s) => ({
-          state,
-          // Record mode is authoritative — tabs follow it (e.g. after switchMode).
-          tabs: s.tabs.map((t) => {
-            const rec = findRecord(state, t.tabId);
-            return rec && rec.mode !== t.mode ? { ...t, mode: rec.mode } : t;
-          }),
-          focusedTabByProject: pruneFocus(s.focusedTabByProject, state),
-        }));
+        const observedPlanHandoffs = persistedPlanHandoffs(state);
+        set((s) => {
+          const handedOffFor: Record<string, string> = {};
+          for (const [sourceTabId, implementationTabId] of Object.entries(
+            observedPlanHandoffs,
+          )) {
+            if (
+              s.observedPlanHandoffs[sourceTabId] !== implementationTabId ||
+              s.handedOffFor[sourceTabId] === implementationTabId
+            ) {
+              handedOffFor[sourceTabId] = implementationTabId;
+            }
+          }
+          return {
+            state,
+            handedOffFor,
+            observedPlanHandoffs,
+            // Record mode is authoritative — tabs follow it (e.g. after switchMode).
+            tabs: s.tabs.map((t) => {
+              const rec = findRecord(state, t.tabId);
+              return rec && rec.mode !== t.mode ? { ...t, mode: rec.mode } : t;
+            }),
+            focusedTabByProject: pruneFocus(s.focusedTabByProject, state),
+          };
+        });
         for (const tabId of reboot) void get().bootRpcTab(tabId);
         syncTheme(state);
         syncFontFamily(state);

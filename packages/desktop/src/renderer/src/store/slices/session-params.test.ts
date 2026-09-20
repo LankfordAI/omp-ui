@@ -59,6 +59,9 @@ describe("prompting, slash commands, and session ops", () => {
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "starting" }) } });
     await expect(h.useStore.getState().sendPrompt(h.TAB, "starting")).resolves.toBe(false);
     expect(h.sent).toHaveLength(0);
+    await expect(h.useStore.getState().compactSession(h.TAB)).resolves.toBe(false);
+    await h.useStore.getState().exportHtml(h.TAB);
+    expect(h.sent).toHaveLength(0);
 
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "ready" }) } });
     const failed = h.useStore.getState().sendPrompt(h.TAB, "rejected");

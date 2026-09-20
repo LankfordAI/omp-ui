@@ -27,7 +27,6 @@ import {
 } from "../../lib/stall-continue";
 import { noticeItem } from "../../lib/transcript";
 import { findRecord } from "./view";
-import { handedOffPlanSources } from "./shared";
 import type { GetState, SetState, StoreMachinery, Watchers } from "./shared";
 import type { PlanRecord, PlanRevisionNotes, RpcTabState } from "../types";
 export interface PlanExecutionSlice {
@@ -437,7 +436,7 @@ export function createPlanExecutionSlice(
   const advisorReply = new AdvisorReplyWatcher({
     getItems: m.effectiveItems,
     canReply: (tabId) => {
-      if (handedOffPlanSources.has(tabId)) return false;
+      if (get().handedOffFor[tabId] !== undefined) return false;
       const tab = get().rpc[tabId];
       if (!tab) return false;
       // #381: an auto-prompt must not bypass an explicit goal pause or budget;
@@ -471,7 +470,7 @@ export function createPlanExecutionSlice(
    */
   const stall = new StallContinueWatcher({
     canContinue: (tabId) => {
-      if (handedOffPlanSources.has(tabId)) return false;
+      if (get().handedOffFor[tabId] !== undefined) return false;
       const tab = get().rpc[tabId];
       if (!tab) return false;
       // #381: an auto-prompt must not bypass an explicit goal pause or budget;

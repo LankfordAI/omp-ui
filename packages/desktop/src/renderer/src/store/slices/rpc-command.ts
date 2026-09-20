@@ -30,7 +30,7 @@ import {
   RPC_COMMAND_TIMEOUT_MS,
   RpcCommandAbandonedError,
   RpcCommandTimeoutError,
-  handedOffPlanSources,
+  dropPlanHandoff,
   isLateAckCommand,
   respData,
   type GetState,
@@ -611,7 +611,7 @@ export function createRpcCommandSlice(
   };
 
   const bootRpcTab = async (tabId: string): Promise<void> => {
-    handedOffPlanSources.delete(tabId);
+    set((state) => ({ handedOffFor: dropPlanHandoff(state.handedOffFor, tabId) }));
     if (rpcBooting.has(tabId)) return;
     rpcBooting.add(tabId);
     try {

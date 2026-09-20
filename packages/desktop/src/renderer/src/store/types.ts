@@ -170,6 +170,8 @@ export interface BrowserPaneView {
 /** Per-tab rpc-ui state (the phase-2 doc's state machine, concretized). */
 export interface RpcTabState {
   status: "starting" | "ready" | "running" | "error";
+  /** Refuses user commands while a lifecycle mutation drains the old process. */
+  commandAdmissionBlocked?: boolean;
   items: RenderItem[];
   /** Increments once per visible transcript commit; drives event-paced liveness motion. */
   transcriptRevision: number;
@@ -574,6 +576,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice {
   shellExited: Record<string, number>;
   /** True for tabs whose process omp-ui hibernated while idle (issue #246). */
   hibernated: Record<string, boolean>;
+  /** Active source → implementation plan handoffs derived from persisted records. */
+  handedOffFor: Record<string, string>;
+  /** Last persisted handoff relation observed, including human-released sources. */
+  observedPlanHandoffs: Record<string, string>;
   rpc: Record<string, RpcTabState>;
   consoleOpen: Record<string, boolean>;
   searchOpen: Record<string, boolean>;

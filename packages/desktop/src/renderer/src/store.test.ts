@@ -747,6 +747,38 @@ describe("mounted tab reconciliation (issues #416 and #510)", () => {
     const onState = h.mockBackend.onStateChanged.mock.calls[0]![0] as (s: BackendState) => void;
     return { fresh, onState, bootRpcTab };
   }
+  it("derives persisted handoff suppression and preserves a human release", async () => {
+    const source = record("plan-source", "rpc-ui", "/keep");
+    const implementation = {
+      ...record("plan-implementation", "rpc-ui", "/keep"),
+      planImplementationSource: {
+        sourceTabId: source.tabId,
+        planTitle: "Ship it",
+        planFilePath: "local://plan.md",
+      },
+    };
+    const snapshot = localState([source, implementation]);
+    const { fresh, onState } = await seeded(snapshot);
+
+    onState(snapshot);
+    expect(fresh.getState().handedOffFor).toEqual({
+      [source.tabId]: implementation.tabId,
+    });
+
+    fresh.setState({ handedOffFor: {} });
+    onState(snapshot);
+    expect(fresh.getState().handedOffFor).toEqual({});
+
+    const replacement = {
+      ...implementation,
+      tabId: "plan-implementation-2",
+    };
+    onState(localState([source, replacement]));
+    expect(fresh.getState().handedOffFor).toEqual({
+      [source.tabId]: replacement.tabId,
+    });
+  });
+
   it("drops locally owned tabs omitted from the authoritative project snapshot", async () => {
     const localRpc = record(LOCAL_RPC, "rpc-ui", "/gone");
     const localPty = record(LOCAL_PTY, "pty", "/gone");

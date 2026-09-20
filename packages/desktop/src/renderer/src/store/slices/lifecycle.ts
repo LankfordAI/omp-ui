@@ -29,7 +29,6 @@ import {
   dropExited,
   dropHibernated,
   dropTuiHandoff,
-  handedOffPlanSources,
   type GetState,
   type SetState,
   type StoreMachinery,
@@ -154,6 +153,7 @@ export function createLifecycleSlice(
     });
     m.patchRpc(tabId, {
       status: "starting",
+      commandAdmissionBlocked: false,
       plan: null,
       session: { ...tab.session, isStreaming: false },
       extensionQueue: [],
@@ -228,7 +228,6 @@ export function createLifecycleSlice(
   const dropTabs = (gone: readonly string[], reason: string): void => {
     for (const id of gone) {
       disposeTabRuntime(id, reason, deps, m);
-      handedOffPlanSources.delete(id);
     }
     set((s) => {
       const rpc = { ...s.rpc };
@@ -402,7 +401,13 @@ export function createLifecycleSlice(
     );
     if (!accepted) return;
 
-    handedOffPlanSources.add(srcTabId);
+    set((state) => ({
+      handedOffFor: { ...state.handedOffFor, [srcTabId]: freshId },
+      observedPlanHandoffs: {
+        ...state.observedPlanHandoffs,
+        [srcTabId]: freshId,
+      },
+    }));
     advisorReplyWatcher.cancel(srcTabId);
     stallContinueWatcher.cancel(srcTabId);
     m.appendItem(

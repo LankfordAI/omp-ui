@@ -52,13 +52,21 @@ const KATEX_OPTIONS = {
  * different render items share one result.
  */
 const mathHtmlCache = new Map<string, string>();
+const MATH_HTML_CACHE_LIMIT = 128;
 
 function renderMathHtml(text: string, display: boolean): string {
   const key = `${display ? 1 : 0}\u0000${text}`;
-  let html = mathHtmlCache.get(key);
-  if (html === undefined) {
-    html = katex.renderToString(text, { ...KATEX_OPTIONS, displayMode: display });
-    mathHtmlCache.set(key, html);
+  const cached = mathHtmlCache.get(key);
+  if (cached !== undefined) {
+    mathHtmlCache.delete(key);
+    mathHtmlCache.set(key, cached);
+    return cached;
+  }
+  const html = katex.renderToString(text, { ...KATEX_OPTIONS, displayMode: display });
+  mathHtmlCache.set(key, html);
+  if (mathHtmlCache.size > MATH_HTML_CACHE_LIMIT) {
+    const oldest = mathHtmlCache.keys().next().value;
+    if (oldest !== undefined) mathHtmlCache.delete(oldest);
   }
   return html;
 }

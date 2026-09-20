@@ -34,7 +34,7 @@ import {
 import { randomId } from "../../lib/random-id";
 import {
   RPC_COMMAND_TIMEOUT_MS,
-  handedOffPlanSources,
+  dropPlanHandoff,
   respData,
   type GetState,
   type SetState,
@@ -297,8 +297,7 @@ export function createSessionParamsSlice(
     route: PromptRoute = "steer",
     images?: ImageAttachment[],
   ): Promise<boolean> => {
-    const tab = get().rpc[tabId];
-    if (!tab || tab.status === "starting") return false;
+    if (!m.acceptsCommands(tabId)) return false;
     if (route === "advisor_reply" || route === "stall_continue") {
       // omp-ui's own prompt (a late-review answer, a stall continue): it
       // must not title the session and must not re-arm either loop guard —
@@ -306,7 +305,7 @@ export function createSessionParamsSlice(
     } else {
       // Human direction makes a previously handed-off source active again,
       // even when its immediate hibernation was declined.
-      handedOffPlanSources.delete(tabId);
+      set((state) => ({ handedOffFor: dropPlanHandoff(state.handedOffFor, tabId) }));
       // Titling reads the first substantive prompt, whichever route it took.
       get().setInitialPrompt(tabId, message);
       advisorReplyWatcher.reset(tabId);
@@ -340,8 +339,8 @@ export function createSessionParamsSlice(
     message: string,
     images?: ImageAttachment[],
   ): Promise<void> => {
-    if (get().rpc[tabId]?.status === "starting") return;
-    handedOffPlanSources.delete(tabId);
+    if (!m.acceptsCommands(tabId)) return;
+    set((state) => ({ handedOffFor: dropPlanHandoff(state.handedOffFor, tabId) }));
     get().setInitialPrompt(tabId, message);
     advisorReplyWatcher.reset(tabId);
     stallContinueWatcher.reset(tabId);
@@ -375,17 +374,14 @@ export function createSessionParamsSlice(
     advisor: boolean,
     advisorModel: string | null,
   ): Promise<void> => {
+    if (!m.acceptsCommands(tabId)) return;
     const tab = get().rpc[tabId];
-    if (tab?.status === "starting") return;
     const rec = findRecord(get().state, tabId);
     const changedLive =
       rec?.live === "live" &&
       rec.mode === "rpc-ui" &&
       (rec.advisor !== advisor || rec.advisorModel !== advisorModel);
     if (changedLive && tab) {
-      const previousStatus = tab.status;
-      const previousStreaming = tab.session.isStreaming;
-      const previousPlan = tab.plan;
       const commandIds = rpcCommandMachinery.snapshotPending(tabId, {
         includeQuiet: false,
       });
@@ -393,7 +389,7 @@ export function createSessionParamsSlice(
         ...(pendingSessionParameterActions.get(tabId) ?? []),
       ];
       const deadline = Date.now() + RPC_COMMAND_TIMEOUT_MS + 1_000;
-      deps.prepareRpcRelaunch(tabId);
+      m.patchRpc(tabId, { commandAdmissionBlocked: true });
       await m.pollUntil(
         tabId,
         (current) =>
@@ -416,16 +412,11 @@ export function createSessionParamsSlice(
         pendingSessionParameterActions.get(tabId)?.has(action),
       );
       if (commandsRemain || parametersRemain) {
-        if (current) {
-          m.patchRpc(tabId, {
-            status: previousStatus,
-            session: { ...current.session, isStreaming: previousStreaming },
-            plan: previousPlan,
-          });
-        }
+        if (current) m.patchRpc(tabId, { commandAdmissionBlocked: false });
         get().reportError(t("session.error.advisorBusy"));
         return;
       }
+      deps.prepareRpcRelaunch(tabId);
     }
     try {
       await backend.setSessionAdvisor(tabId, advisor, advisorModel);
@@ -453,7 +444,7 @@ export function createSessionParamsSlice(
   };
 
   const setModel = async (tabId: string, model: ModelInfo): Promise<void> => {
-    if (get().rpc[tabId]?.status === "starting") return;
+    if (!m.acceptsCommands(tabId)) return;
     const action = (async (): Promise<void> => {
       const resp = await m.runCommand(tabId, {
         type: "set_model",
@@ -477,7 +468,7 @@ export function createSessionParamsSlice(
     tabId: string,
     level: string,
   ): Promise<void> => {
-    if (get().rpc[tabId]?.status === "starting") return;
+    if (!m.acceptsCommands(tabId)) return;
     const action = (async (): Promise<void> => {
       const resp = await m.runCommand(tabId, {
         type: "set_thinking_level",
@@ -633,7 +624,7 @@ export function createSessionParamsSlice(
   };
 
   const setPlanMode = async (tabId: string, enabled: boolean): Promise<void> => {
-    if (get().rpc[tabId]?.status === "starting") return;
+    if (!m.acceptsCommands(tabId)) return;
     // The extension owns the state; the UI never assumes the toggle took —
     // it re-renders when the extension publishes its status frame.
     // The format rides the `on` command, so the extension — not a later
@@ -808,10 +799,14 @@ export function createSessionParamsSlice(
     // The extension answers by publishing over setStatus. Until omp has run a
     // turn the session is uncaptured, so it reports a live-session wait which
     // the HUD treats as "not yet" rather than an error.
-    await m.runCommand(tabId, {
-      type: "prompt",
-      message: `/${ADVISOR_STATS_COMMAND}`,
-    });
+    await m.runCommand(
+      tabId,
+      {
+        type: "prompt",
+        message: `/${ADVISOR_STATS_COMMAND}`,
+      },
+      { allowDuringBoot: true },
+    );
   };
 
   const refreshSubagents = async (tabId: string): Promise<void> => {
