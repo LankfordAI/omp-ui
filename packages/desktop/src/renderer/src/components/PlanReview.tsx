@@ -4,7 +4,7 @@ import { cn } from "../lib/cn";
 import { useT, type MessageKey } from "../lib/i18n";
 import { keywordColors, type MagicKeyword } from "../lib/magic-keywords";
 import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
-import { usePreparedPlanDocument } from "../lib/plan-document";
+import { usePreparedPlanDocument } from "../lib/use-prepared-plan-document";
 import { projectKey } from "../lib/project-key";
 import { useCompactShell } from "../lib/responsive";
 import type { ModelInfo } from "../lib/rpc-types";

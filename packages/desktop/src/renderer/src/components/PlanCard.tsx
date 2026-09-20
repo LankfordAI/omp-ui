@@ -1,6 +1,6 @@
 import { isHtmlPlanPath } from "@omp-ui/core/plan";
 import { useT } from "../lib/i18n";
-import { usePreparedPlanDocument } from "../lib/plan-document";
+import { usePreparedPlanDocument } from "../lib/use-prepared-plan-document";
 import type { PlanItem } from "../lib/transcript";
 import { Markdown } from "./Markdown";
 import { PlanDiagnostics, PlanFallback } from "./PlanFallback";

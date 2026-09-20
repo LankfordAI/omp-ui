@@ -6,6 +6,7 @@ import type { BranchList, SessionWorktree } from "@omp-ui/core/types";
 import type { ThemedToken } from "shiki/core";
 import type { PlanDiagnostic } from "@omp-ui/core/plan";
 import type { PreparedPlanState } from "../lib/plan-document";
+import type * as PreparedPlanHook from "../lib/use-prepared-plan-document";
 import type { ParsedPlanSource } from "../lib/plan-source";
 import type { CodeTokenizer } from "../lib/plan-highlight";
 import type { Theme } from "../lib/themes";
@@ -28,12 +29,9 @@ vi.mock("../lib/clipboard-image", () => clipboardImageMock);
  */
 const planPrepared = vi.hoisted(() => ({ state: null as PreparedPlanState | null }));
 
-vi.mock("../lib/plan-document", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../lib/plan-document")>();
+vi.mock("../lib/use-prepared-plan-document", async (importOriginal) => {
+  const original = await importOriginal<typeof PreparedPlanHook>();
   return {
-    ...original,
-    // The original hook always runs first so hook order stays stable even on
-    // the render that switches to the pinned state.
     usePreparedPlanDocument: (html: string | null, identity?: string) => {
       const state = original.usePreparedPlanDocument(html, identity);
       return planPrepared.state ?? state;
