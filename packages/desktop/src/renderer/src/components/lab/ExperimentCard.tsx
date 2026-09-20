@@ -1,7 +1,7 @@
 import type { ExperimentRecord, SessionExperiment } from "@omp-ui/core/types";
 import { cn } from "../../lib/cn";
 import { useT, type MessageKey } from "../../lib/i18n";
-import { relativeTime } from "../SessionRow";
+import { relativeTime } from "../../lib/format";
 import { Chip, type Tone } from "../ui";
 import { deltaLabel, type ExperimentState } from "./experiment-state";
 import { MetricSparkline } from "./MetricSparkline";

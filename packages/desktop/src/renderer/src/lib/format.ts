@@ -1,4 +1,5 @@
 import type { WorktreeReleaseResult } from "@omp-ui/core/types";
+import { currentLocaleId } from "./i18n";
 
 /**
  * Number, cost, and ref formatting for display — the one home for count and
@@ -36,6 +37,29 @@ export function shortModelLabel(selector: string): string {
   const tail = slash === -1 ? selector : selector.slice(slash + 1);
   const colon = tail.lastIndexOf(":");
   return colon > 0 ? tail.slice(0, colon) : tail;
+}
+
+/** Coarse localized relative time for scan-first rows and cards. */
+export function relativeTime(iso: string | null): string {
+  if (!iso) return "";
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const seconds = Math.round((Date.now() - then) / 1000);
+  const format = new Intl.RelativeTimeFormat(currentLocaleId(), {
+    numeric: "auto",
+    style: "narrow",
+  });
+  if (seconds < 45) return format.format(0, "second");
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return format.format(-minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return format.format(-hours, "hour");
+  const days = Math.round(hours / 24);
+  if (days < 7) return format.format(-days, "day");
+  return new Date(then).toLocaleDateString(currentLocaleId(), {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 /**

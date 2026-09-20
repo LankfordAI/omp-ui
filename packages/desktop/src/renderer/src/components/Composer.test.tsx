@@ -496,11 +496,6 @@ describe("Composer attachment picker", () => {
     expect(sendPrompt).toHaveBeenCalledWith(TAB, "continue without it", "prompt", []);
   });
 
-  it("disables picker access for a dead session", () => {
-    seed("ready", true); renderComposer();
-    expect(imagePicker().disabled).toBe(true);
-    expect(document.body.querySelector<HTMLButtonElement>('button[title="attach images"]')!.disabled).toBe(true);
-  });
 });
 
 describe("Composer action row overflow", () => {

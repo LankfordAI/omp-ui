@@ -16,12 +16,12 @@ import { cn } from "../lib/cn";
 import { currentLocaleId, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import {
-  keywordColors,
   keywordPalette,
   magicKeywordSegments,
   SHIMMER_PERIOD_MS,
 } from "../lib/magic-keywords";
-import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/mentions";
+import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
+import { composerPaintRuns } from "../lib/composer-paint";
 import { queueChipView } from "../lib/queue-chip";
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { slashCompletion } from "../lib/slash-completion";
@@ -276,34 +276,10 @@ export function Composer({
    * accent — because omp will fire it at send time; an unpainted @ stays
    * ordinary prose, which is exactly what omp will do with it.
    */
-  const runs = useMemo(() => {
-    const mentions = mentionRanges(text, known);
-    const out: { text: string; color?: string; iris?: boolean }[] = [];
-    let base = 0;
-    let mi = 0;
-    for (const seg of segments) {
-      if (seg.keyword !== null) {
-        keywordColors(seg.keyword, phase).forEach((color, c) =>
-          out.push({ text: seg.text[c]!, color }),
-        );
-      } else {
-        const segStart = base;
-        const segEnd = base + seg.text.length;
-        while (mi < mentions.length && mentions[mi]!.to <= segStart) mi++;
-        let pos = 0;
-        for (let k = mi; k < mentions.length && mentions[k]!.from < segEnd; k++) {
-          const from = Math.max(mentions[k]!.from, segStart) - segStart;
-          const to = Math.min(mentions[k]!.to, segEnd) - segStart;
-          if (from > pos) out.push({ text: seg.text.slice(pos, from) });
-          out.push({ text: seg.text.slice(from, to), iris: true });
-          pos = to;
-        }
-        if (pos < seg.text.length) out.push({ text: seg.text.slice(pos) });
-      }
-      base += seg.text.length;
-    }
-    return out;
-  }, [segments, phase, text, known]);
+  const runs = useMemo(
+    () => composerPaintRuns(text, known, phase),
+    [text, known, phase],
+  );
 
   // The listing is refetched on every open so files created mid-session
   // appear; the previous list stays on screen while the new one is in flight.
