@@ -733,8 +733,12 @@ export function ProvidersPage({
                     key={row.id}
                     row={row}
                     busy={pendingEnv !== null}
-                    onSave={(value) => run(row.env, setProviderKey(row.env, value))}
-                    onClear={() => run(row.env, clearProviderKey(row.activeEnv))}
+                    onSave={(value) =>
+                      run(row.env, setProviderKey(projectCwd, row.env, value))
+                    }
+                    onClear={() =>
+                      run(row.env, clearProviderKey(projectCwd, row.activeEnv))
+                    }
                   />
                 ))}
                 {id === "search" && (

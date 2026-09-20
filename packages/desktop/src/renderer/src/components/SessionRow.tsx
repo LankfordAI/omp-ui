@@ -209,9 +209,7 @@ export function SessionRow({
   const terminate = useStore((st) => st.terminate);
   const resumeDead = useStore((st) => st.resumeDead);
   const exited = useStore((st) => st.exited[s.tabId]);
-  const sidebarState = useStore((st) =>
-    deriveSidebarSessionState(s, st.rpc[s.tabId], st.exited[s.tabId]),
-  );
+  const sidebarState = useStore((st) => deriveSidebarSessionState(s, st.rpc[s.tabId]));
   const activeTabId = useStore((st) => st.activeTabId);
 
   const missing = s.live === "missing";

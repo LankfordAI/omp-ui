@@ -5,6 +5,12 @@
 // construction.
 import type { StoreApi } from "zustand";
 import type { SessionSummary } from "@omp-ui/core/types";
+import {
+  SESSION_COMMANDS,
+  sessionCommandHasLateAck,
+  type SessionCommand,
+  type SessionCommandType,
+} from "@omp-ui/core/session-command";
 import { formatDuration } from "../../lib/duration";
 import { field, isObj } from "../../lib/fields";
 import {
@@ -111,7 +117,7 @@ export interface StoreMachinery {
   patchItems(tabId: string, map: (item: RenderItem) => RenderItem): void;
   runCommand(
     tabId: string,
-    cmd: Record<string, unknown>,
+    cmd: SessionCommand,
     opts?: { quiet?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown>;
   pollUntil(
@@ -138,21 +144,6 @@ export const RPC_COMMAND_TIMEOUT_MS = 30_000;
  * `switch_session`, `branch`), or arbitrary shell (`bash`, which bypasses the
  * chain). For them, lateness is not failure (issue #335).
  */
-const LATE_ACK_COMMANDS: Record<string, true> = {
-  compact: true,
-  handoff: true,
-  abort: true,
-  abort_and_prompt: true,
-  export_html: true,
-  login: true,
-  new_session: true,
-  switch_session: true,
-  branch: true,
-  set_model: true,
-  cycle_model: true,
-  get_available_models: true,
-  bash: true,
-};
 
 /** Mirrors omp's own skill-command match: start of message or after whitespace. */
 const SKILL_COMMAND_RE = /(^|\s)\/skill:[^\s/]+(\s|$)/;
@@ -168,7 +159,9 @@ const SKILL_COMMAND_RE = /(^|\s)\/skill:[^\s/]+(\s|$)/;
  */
 export function isLateAckCommand(cmd: Record<string, unknown>): boolean {
   const type = typeof cmd.type === "string" ? cmd.type : "";
-  if (LATE_ACK_COMMANDS[type] === true) return true;
+  if (type !== "prompt" && type in SESSION_COMMANDS) {
+    return sessionCommandHasLateAck(type as SessionCommandType);
+  }
   if (type !== "prompt") return false;
   const message = typeof cmd.message === "string" ? cmd.message : "";
   return message.trimStart().startsWith("/") || SKILL_COMMAND_RE.test(message);
@@ -229,10 +222,10 @@ export class RpcCommandAbandonedError extends Error {
 export function deriveSidebarSessionState(
   summary: SessionSummary,
   rpc: RpcTabState | undefined,
-  exitCode: number | undefined,
+  _legacyExitCode?: number,
 ): SidebarSessionState {
+  void _legacyExitCode;
   if (summary.live !== "live") return summary.live;
-  if (exitCode !== undefined) return "dormant";
   // A pending gate is main-process state (issue #215) — the record alone
   // marks the session awaiting-answer, even before its tab is booted.
   if (summary.pendingPlan !== null) return "awaiting-answer";
@@ -689,7 +682,7 @@ export function createMachinery(
    */
   const runCommand = async (
     tabId: string,
-    cmd: Record<string, unknown>,
+    cmd: SessionCommand,
     opts?: { quiet?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown> => {
     const command = typeof cmd.type === "string" ? cmd.type : "unknown";

@@ -331,7 +331,7 @@ const mockBackend = {
   autoresearchExperiment: vi.fn(
     async (): Promise<ExperimentDetail> => ({ record: null, runs: [], error: null }),
   ),
-  autoresearchRunLog: vi.fn(async (): Promise<RunLogResult> => ({ text: "", truncated: false })),
+  autoresearchRunLog: vi.fn(async (): Promise<RunLogResult> => ({ kind: "ok", text: "", truncated: false })),
 };
 
 // The renderer no longer uses native dialogs (issue #373): a surviving

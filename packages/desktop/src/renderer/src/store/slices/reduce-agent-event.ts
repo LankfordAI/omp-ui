@@ -88,7 +88,7 @@ function stallNotice(
   const watchdogMatch = STALL_MESSAGE_RE.exec(errorMessage);
   if ((errorId & OMP_ERROR_FLAG_TIMEOUT) === 0 && watchdogMatch === null)
     return null;
-  const count = (tab.stallCount ?? 0) + 1;
+  const count = tab.stallCount + 1;
   const checkpoint = tab.streamCheckpoint;
   const stage =
     watchdogMatch?.[2]?.toLowerCase() === "first"

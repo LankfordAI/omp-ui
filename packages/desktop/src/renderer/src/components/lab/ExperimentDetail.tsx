@@ -119,7 +119,7 @@ export function ExperimentDetail({ target }: { target: Target }) {
           setLogs((prev) => ({
             ...prev,
             [runId]:
-              "error" in result
+              result.kind === "error"
                 ? { load: "error", error: result.error }
                 : { load: "ready", text: result.text, truncated: result.truncated },
           })),

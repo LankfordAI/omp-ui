@@ -27,7 +27,10 @@
     "./remote-instances": "./src/remote-instances.ts",
     "./worktree-branch": "./src/worktree-branch.ts",
     "./autoresearch": "./src/autoresearch.ts",
-    "./html": "./src/html.ts"
+    "./html": "./src/html.ts",
+    "./experiment-types": "./src/experiment-types.ts",
+    "./update-types": "./src/update-types.ts",
+    "./session-command": "./src/session-command.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

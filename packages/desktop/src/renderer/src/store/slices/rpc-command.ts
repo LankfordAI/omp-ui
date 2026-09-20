@@ -1,3 +1,4 @@
+import type { SessionCommand } from "@omp-ui/core/session-command";
 // RPC command domain (decomposed for #295): boot, command correlation and
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
@@ -555,6 +556,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     planText: null,
     planHtml: null,
     planDeferred: false,
+    planReadiness: null,
     experimentProposal: null,
     plans: [],
     advisorStats: null,
@@ -763,7 +765,7 @@ export function createRpcCommandSlice(
 
   const rpcCommand = (
     tabId: string,
-    cmd: Record<string, unknown>,
+    cmd: SessionCommand,
     opts?: { quiet?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown> => {
     if (!get().rpc[tabId])

@@ -444,12 +444,12 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       return backend.readProviderKeys(projectCwd);
     },
 
-    setProviderKey(envName, value) {
-      return backend.setProviderKey(envName, value);
+    setProviderKey(projectCwd, envName, value) {
+      return backend.setProviderKey(projectCwd, envName, value);
     },
 
-    clearProviderKey(envName) {
-      return backend.clearProviderKey(envName);
+    clearProviderKey(projectCwd, envName) {
+      return backend.clearProviderKey(projectCwd, envName);
     },
 
     replaceProviderOAuth(state) {

@@ -19,9 +19,10 @@ let root: Root | null = null;
 
 function runtime(queue: unknown[]): RpcTabState {
   return { status: "ready", items: [], transcriptRevision: 0, todos: [], model: null, availableModels: [], commands: [],
-    session: emptySessionRuntime(), stats: null, subagents: [], extensionStatus: {},
+    session: emptySessionRuntime(), stats: null, subagents: [], subagentItems: {}, selectedSubagent: null,
+    subagentMarkers: new Map(), stallCount: 0, extensionStatus: {},
     extensionQueue: queue, busy: false, initialPrompt: null, autoTitleSent: null, hasRenamed: true,
-    plan: null, planReview: null,
+    plan: null, planReview: null, planReadiness: null,
     planHtml: null, planText: null, planDeferred: false, experimentProposal: null, plans: [], advisorStats: null, mcpStatus: null, advisorReply: true, capabilities: null, capabilitiesLoad: "idle", goal: null, autoresearch: null,
     browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null } };
 }

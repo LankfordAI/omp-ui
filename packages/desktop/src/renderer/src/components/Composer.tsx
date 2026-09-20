@@ -25,7 +25,7 @@ import { deriveDirs, detectAtQuery, insertMention, mentionRanges } from "../lib/
 import { queueChipView } from "../lib/queue-chip";
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { slashCompletion } from "../lib/slash-completion";
-import { findInstance, findOwner, findRecord, sessionCwd, useStore } from "../store";
+import { findInstance, findOwner, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { AdvisorControl } from "./AdvisorControl";
@@ -132,24 +132,26 @@ export function Composer({
   const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
   const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
-  const dead = useStore((s) => s.exited[tabId] !== undefined);
+  const owner = useStore((s) => findOwner(s.state, tabId));
+  const record = owner?.record;
+  const dead = record?.live !== "live";
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
   const compact = useCompactShell();
   const compactSurface = useStore((s) => s.compactSurface);
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
-  const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId)));
+  const cwd = sessionCwd(record);
   // The owning remote instance (issue #416): project-scoped reads go to that
   // host, and while it is not joined the composer is as inert as a dead tab —
   // nothing typed here could reach the agent.
-  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
+  const instanceId = owner?.instanceId ?? null;
   const instanceDown = useStore(
     (s) => instanceId !== null && findInstance(s.state, instanceId)?.status !== "joined",
   );
   // A session running in a worktree cannot be pointed at a second one: the
   // branch chip's worktree section is never offered to it. Finishing the
   // worktree moves it back to the project checkout instead (issue #334).
-  const hasWorktree = useStore((s) => findRecord(s.state, tabId)?.worktree != null);
+  const hasWorktree = record?.worktree != null;
   // The worktree section of the branch chip (issue #227) stands in for the
   // standalone workspace chip: offered only while the session is unprompted
   // and has no worktree of its own.
@@ -158,7 +160,6 @@ export function Composer({
   // The finish-worktree offer (issues #385–#389): this tab for any worktree
   // session — a null base no longer withholds it, the dialog falls back to
   // the default branch. Undefined for plain sessions and the sheet instance.
-  const record = useStore((s) => findRecord(s.state, tabId));
   const finishTabId = record?.worktree != null ? tabId : undefined;
 
   const sendPrompt = useStore((s) => s.sendPrompt);

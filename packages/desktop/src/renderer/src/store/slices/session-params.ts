@@ -324,7 +324,7 @@ export function createSessionParamsSlice(
         ? "followUp"
         : "steer";
     const wireMessage = withAttachmentRoutingContext(message, images?.length ?? 0);
-    const cmd = { type: "prompt", message: wireMessage, streamingBehavior };
+    const cmd = { type: "prompt" as const, message: wireMessage, streamingBehavior };
     // `images` is omitted entirely when empty: omp's own client sends no key
     // rather than an empty array, and every byte here is on one JSON line.
     const response = await m.runCommand(tabId, images?.length ? { ...cmd, images } : cmd);

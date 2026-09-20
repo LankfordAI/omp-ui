@@ -3,25 +3,18 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   CH,
-  addWorktree,
-  autoresearchArmMessage,
-  addWorktreeForBranch,
-  addWorktreeFromNewBase,
   base64Bytes,
   bracketedImagePaste,
   browserPaneSetMessage,
   capabilityToolMutationMessage,
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
-  checkoutBranch,
   deleteSessionFiles,
-  forkSessionFile,
-  finalizeMintBranch,
+  autoresearchArmMessage,
   goalArmMessage,
   mintLineageDirName,
-  mintWorktreePath,
-  readWorktreeDirty,
-  renameWorktreeBranch,
+  settledWithin,
+  forkSessionFile,
   linkProjectOmpDir,
   isHtmlPlanPath,
   isWithin,
@@ -30,9 +23,6 @@ import {
   parseCapabilitySnapshot,
   planMessage,
   planHandoffDescendants,
-  reclaimCheckouts as reclaimWorktreeCheckouts,
-  settledWithin,
-  syncWorktree,
   type BrowserPaneClearDataResult,
   type BrowserPaneDiagnostics,
   type BrowserPaneEnsureResult,
@@ -44,7 +34,6 @@ import {
   type PlanReviewVerdict,
   type ProviderKeys,
   type Registry,
-  type WorktreeCheckoutDescriptor,
   resolveSessionLocation,
   resolveSubagentOverlayEntries,
   RpcClient,
@@ -98,6 +87,7 @@ import { ViewTracker } from "./view-tracker";
 import { WatcherHub } from "./watcher-hub";
 import { ShellHost } from "./shell-host";
 import { gateSelector, NO_GATE, type SpawnGate } from "./spawn-gate";
+import { WorktreeOps } from "./worktree-ops";
 
 const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
@@ -149,7 +139,7 @@ export interface SessionManagerDependencies {
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
-type OpKind = "spawn" | "delete" | "hibernate" | "relaunch" | "tool";
+type OpKind = "spawn" | "delete" | "hibernate" | "relaunch" | "tool" | "terminate" | "fork";
 
 export class SessionManager {
   private readonly live = new Map<string, LiveEntry>();
@@ -164,6 +154,7 @@ export class SessionManager {
   readonly browserPanes: BrowserPaneHost;
   private readonly watcherHub: WatcherHub;
   private readonly ops = new Map<string, { kind: OpKind; chain: Promise<void> }>();
+  private readonly worktreeOps: WorktreeOps;
   private readonly viewTracker: ViewTracker;
   private readonly planGates: PlanGateTracker;
   private readonly planPreflight: PlanPreflightController;
@@ -181,6 +172,10 @@ export class SessionManager {
 
   constructor(private readonly deps: SessionManagerDependencies) {
     this.gate = deps.spawnGate ?? NO_GATE;
+    this.worktreeOps = new WorktreeOps({
+      registry: deps.registry,
+      getWorktreesRoot: deps.getWorktreesRoot,
+    });
     this.shellHost = new ShellHost({
       getOmpPath: deps.getOmpPath,
       send: deps.send,
@@ -456,44 +451,12 @@ export class SessionManager {
       } else {
         projectCwd = req.projectCwd;
         freshTabId = randomUUID();
-        let worktree: SessionWorktree | null = null;
-        if (req.worktree !== null) {
-          if ("reuse" in req.worktree) {
-            worktree = { ...req.worktree.reuse };
-          } else if ("checkout" in req.worktree) {
-            // Issue #390: a session on an existing local branch. The branch
-            // pre-existed, but the checkout is omp-ui's — rollback reclaims
-            // the path and branch cleanup keeps the branch unless provably
-            // merged (reclaimCheckouts reports kept-unmerged then).
-            const { branch } = req.worktree.checkout;
-            const worktreePath = mintWorktreePath(
-              this.deps.getWorktreesRoot(), req.projectCwd, branch);
-            const base = await addWorktreeForBranch(req.projectCwd, worktreePath, branch);
-            mintedWorktree = { path: worktreePath, branch, base };
-            worktree = mintedWorktree;
-          } else {
-            const { branch, baseRef, baseBranch } = req.worktree.mint;
-            // Issue #482: the renderer's listing may not have landed when the
-            // payload was composed; the host recomposes the mint against the
-            // checkout's actual branch and pins an explicit start point.
-            const [mintBranch, mintBaseRef] = await finalizeMintBranch(
-              req.projectCwd, branch, baseBranch, baseRef);
-            const worktreePath = mintWorktreePath(
-              this.deps.getWorktreesRoot(), req.projectCwd, mintBranch);
-            // Issue #405: with a new base branch the checkout is cut from the
-            // branch created in this same operation, and the recorded base is
-            // that branch — diffs, sync, and merge-back never target the
-            // trunk it was cut from. The new ref is rolled back only if the
-            // add fails; a later spawn-step failure leaves it (the user
-            // explicitly asked for it, as #390 keeps a pre-existing branch).
-            const base = baseBranch === null
-              ? await addWorktree(req.projectCwd, worktreePath, mintBranch, mintBaseRef)
-              : await addWorktreeFromNewBase(
-                  req.projectCwd, worktreePath, mintBranch, baseBranch, mintBaseRef);
-            mintedWorktree = { path: worktreePath, branch: mintBranch, base };
-            worktree = mintedWorktree;
-          }
-        }
+        const preparedWorktree = await this.worktreeOps.prepareSpawn(
+          req.projectCwd,
+          req.worktree,
+        );
+        const worktree = preparedWorktree.worktree;
+        mintedWorktree = preparedWorktree.minted;
         const project = this.deps.registry.projects.find((p) => p.path === req.projectCwd);
         record = this.deps.registry.addSession({
           tabId: freshTabId,
@@ -589,17 +552,41 @@ export class SessionManager {
         this.hibernation.dispose(tabId);
         this.planPreflight.dispose(tabId);
         if (fresh) {
-          if (this.deps.registry.sessions.some((session) => session.tabId === tabId)) {
+          const freshRecord = this.deps.registry.sessions.find(
+            (session) => session.tabId === tabId,
+          );
+          if (freshRecord) {
             try {
               this.deps.registry.removeSession(tabId);
             } catch (error) {
               fail("remove spawned session record", error);
             }
+            try {
+              await deleteSessionFiles(
+                this.deps.getSessionsRoot(),
+                this.deps.getArchiveRoot(),
+                freshRecord.lineageDir,
+              );
+            } catch (error) {
+              fail("remove spawned lineage files", error);
+            }
           }
-          if (mintedWorktree && !this.deps.registry.sessions.some((session) => session.tabId === tabId)) {
-            const [cleanup] = await this.reclaimCheckouts([{ projectCwd, worktree: mintedWorktree }]);
-            if (!cleanup || cleanup.checkoutKept !== null || (cleanup.branchOutcome !== "removed" && cleanup.branchOutcome !== "already-gone")) {
-              const outcome = cleanup ? `checkout ${cleanup.checkoutKept ?? "removed"}; branch ${cleanup.branchOutcome}` : "no cleanup outcome";
+          if (
+            mintedWorktree &&
+            !this.deps.registry.sessions.some((session) => session.tabId === tabId)
+          ) {
+            const [cleanup] = await this.worktreeOps.reclaim([
+              { projectCwd, worktree: mintedWorktree },
+            ]);
+            if (
+              !cleanup ||
+              cleanup.checkoutKept !== null ||
+              (cleanup.branchOutcome !== "removed" &&
+                cleanup.branchOutcome !== "already-gone")
+            ) {
+              const outcome = cleanup
+                ? `checkout ${cleanup.checkoutKept ?? "removed"}; branch ${cleanup.branchOutcome}`
+                : "no cleanup outcome";
               fail("reclaim minted worktree", new Error(outcome));
             }
           }
@@ -649,24 +636,24 @@ export class SessionManager {
    * for its next launch; spawning would create the dir, so nothing is lost.
    */
   setSessionSubagentModels(tabId: string, map: SubagentModelMap | null): void {
-    this.deps.registry.setSessionSubagentModels(tabId, map);
-    const record = this.deps.registry.sessions.find((session) => session.tabId === tabId);
-    if (record === undefined) return;
-    const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
-    if (!fs.existsSync(absLineageDir)) {
-      void this.deps.broadcast();
-      return;
-    }
-    const config = this.subagentSpawnConfig();
-    try {
-      writeSubagentModelOverlay(
-        absLineageDir,
-        resolveSubagentOverlayEntries(map, config.inheritByDefault, config.roster),
-      );
-    } catch (err) {
-      console.warn("[subagents] could not rewrite the overlay:", err);
-    }
-    void this.deps.broadcast();
+    void this.enqueueOp(tabId, "relaunch", async () => {
+      this.deps.registry.setSessionSubagentModels(tabId, map);
+      const record = this.deps.registry.sessions.find((session) => session.tabId === tabId);
+      if (record === undefined) return;
+      const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
+      if (fs.existsSync(absLineageDir)) {
+        const config = this.subagentSpawnConfig();
+        try {
+          writeSubagentModelOverlay(
+            absLineageDir,
+            resolveSubagentOverlayEntries(map, config.inheritByDefault, config.roster),
+          );
+        } catch (err) {
+          console.warn("[subagents] could not rewrite the overlay:", err);
+        }
+      }
+      await this.deps.broadcast();
+    });
   }
 
   private async spawnPty(
@@ -990,19 +977,13 @@ export class SessionManager {
       // Issue #482: same host recomposition as the spawn mint arm — a
       // payload composed before the listing lands gets its base segment
       // and an explicit start point from git's truth here.
-      const [mintBranch, mintBaseRef] = await finalizeMintBranch(
-        record.projectCwd, branch, baseBranch, baseRef);
-      const worktreePath = mintWorktreePath(
-        this.deps.getWorktreesRoot(), record.projectCwd, mintBranch);
-      // Issue #405: the same two entries as the spawn mint arm; with a new
-      // base branch the record's base is that branch's name, not its start.
-      const base = baseBranch === null
-        ? await addWorktree(record.projectCwd, worktreePath, mintBranch, mintBaseRef)
-        : await addWorktreeFromNewBase(
-            record.projectCwd, worktreePath, mintBranch, baseBranch, mintBaseRef);
-      this.deps.registry.updateSession(tabId, {
-        worktree: { path: worktreePath, branch: mintBranch, base },
-      });
+      await this.worktreeOps.convert(
+        tabId,
+        record.projectCwd,
+        branch,
+        baseRef,
+        baseBranch,
+      );
       const entry = this.live.get(tabId);
       if (!entry) {
         await this.deps.broadcast();
@@ -1029,11 +1010,7 @@ export class SessionManager {
       // Issue #388: a dirty checkout is never force-removed by a return.
       // Merge-only and keep-branch stay available — those paths do not
       // remove the checkout; the dialog's delete offers the loss explicitly.
-      if ((await readWorktreeDirty(record.projectCwd, wt.path)) === true) {
-        throw new Error(
-          "the worktree has uncommitted changes — commit or discard them before returning",
-        );
-      }
+      await this.worktreeOps.assertClean(record.projectCwd, wt);
       let cleanup: Pick<WorktreeReleaseResult, "checkoutKept" | "branchOutcome"> = {
         checkoutKept: "failed",
         branchOutcome: "not-attempted",
@@ -1049,7 +1026,7 @@ export class SessionManager {
       const demote = async (): Promise<void> => {
         this.killShell(tabId);
         this.deps.registry.updateSession(tabId, { worktree: null });
-        cleanup = await this.reclaimWorktree(record.projectCwd, wt, {
+        cleanup = await this.worktreeOps.reclaimOne(record.projectCwd, wt, {
           keepBranch: opts.keepBranch,
           mergedInto: opts.mergedInto,
         });
@@ -1057,7 +1034,7 @@ export class SessionManager {
         // reclaim; switching onto it would be nonsense either way (#431).
         if (switchTarget !== null && switchTarget !== wt.branch) {
           try {
-            await checkoutBranch(record.projectCwd, switchTarget);
+            await this.worktreeOps.checkout(record.projectCwd, switchTarget);
             checkoutSwitch = { kind: "switched", branch: switchTarget };
           } catch (error) {
             checkoutSwitch = {
@@ -1094,27 +1071,17 @@ export class SessionManager {
     });
   }
 
-  /**
-   * Merges `source` into the session's worktree checkout (issue #387) so
-   * conflicts land where the owning session can resolve them. Serialised
-   * against release/convert/delete under "relaunch" — no relaunch happens;
-   * a merge must not race a respawn of the same tab.
-   */
+  /** Merges `source` into the owning session's checkout. */
   async syncWorktree(tabId: string, source: string): Promise<WorktreeSyncResult> {
     return this.enqueueOp(tabId, "relaunch", async () => {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
       if (!record) throw new Error(`unknown session tab ${tabId}`);
       if (!record.worktree) throw new Error("session does not run in a worktree");
-      return syncWorktree(record.projectCwd, record.worktree.path, source);
+      return this.worktreeOps.sync(record.projectCwd, record.worktree.path, source);
     });
   }
 
-  /**
-   * Renames the branch a worktree session runs on (issues #386, #389): git
-   * updates the checkout's HEAD symref; the record follows; the running omp
-   * process is unaffected by a ref rename, so no respawn. Git's stderr on a
-   * collision or invalid name propagates verbatim.
-   */
+  /** Renames the branch under a live worktree without relaunching it. */
   async renameWorktreeBranch(tabId: string, newName: string): Promise<void> {
     const name = newName.trim();
     if (name === "") throw new Error("branch name must not be empty");
@@ -1123,10 +1090,7 @@ export class SessionManager {
       if (!record) throw new Error(`unknown session tab ${tabId}`);
       const wt = record.worktree;
       if (!wt) throw new Error("session does not run in a worktree");
-      await renameWorktreeBranch(wt.path, wt.branch, name);
-      this.deps.registry.updateSession(tabId, {
-        worktree: { ...wt, branch: name },
-      });
+      await this.worktreeOps.rename(tabId, wt, name);
       await this.deps.broadcast();
     });
   }
@@ -1459,10 +1423,12 @@ export class SessionManager {
 
   terminate(tabId: string): void {
     this.killShell(tabId);
-    const entry = this.live.get(tabId);
-    if (!entry) return;
-    this.deps.breadcrumb?.record("session-terminate", { tabId });
-    void this.escalateOnTerminate(tabId, entry);
+    void this.enqueueOp(tabId, "terminate", async () => {
+      const entry = this.live.get(tabId);
+      if (!entry) return;
+      this.deps.breadcrumb?.record("session-terminate", { tabId });
+      await this.escalateOnTerminate(tabId, entry);
+    });
   }
 
   async deleteSession(tabId: string, cascade: boolean): Promise<DeleteSessionResult> {
@@ -1477,7 +1443,7 @@ export class SessionManager {
     const settled = await Promise.allSettled(
       ids.map((id) => this.enqueueOp(id, "delete", () => this.deleteInner(id))),
     );
-    await this.reclaimCheckouts(checkouts);
+    await this.worktreeOps.reclaim(checkouts);
     if (!cascade) {
       const only = settled[0]!;
       if (only.status === "rejected") throw only.reason;
@@ -1511,25 +1477,6 @@ export class SessionManager {
     };
   }
 
-  private reclaimCheckouts(
-    checkouts: ReadonlyArray<{ projectCwd: string; worktree: SessionWorktree }>,
-  ) {
-    return reclaimWorktreeCheckouts(checkouts, {
-      worktreesRoot: this.deps.getWorktreesRoot(),
-      survivingSessions: this.deps.registry.sessions,
-    });
-  }
-
-  private async reclaimWorktree(
-    projectCwd: string,
-    worktree: SessionWorktree,
-    extra?: Pick<WorktreeCheckoutDescriptor, "keepBranch" | "mergedInto">,
-  ): Promise<Pick<WorktreeReleaseResult, "checkoutKept" | "branchOutcome">> {
-    const [result] = await this.reclaimCheckouts([{ projectCwd, worktree, ...extra }]);
-    return result
-      ? { checkoutKept: result.checkoutKept, branchOutcome: result.branchOutcome }
-      : { checkoutKept: "failed", branchOutcome: "not-attempted" };
-  }
 
   private async deleteInner(tabId: string): Promise<void> {
     const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
@@ -1558,6 +1505,7 @@ export class SessionManager {
   }
 
   async forkSession(tabId: string): Promise<{ tabId: string }> {
+    return this.enqueueOp(tabId, "fork", async () => {
     const source = this.deps.registry.sessions.find((s) => s.tabId === tabId);
     if (!source) throw new Error(`unknown session tab ${tabId}`);
     const loc = await resolveSessionLocation(
@@ -1599,7 +1547,8 @@ export class SessionManager {
       cachedModified: new Date().toISOString(),
     });
     await this.deps.broadcast();
-    return { tabId: fork.tabId };
+      return { tabId: fork.tabId };
+    });
   }
 
   private async killAndReap(tabId: string, entry: LiveEntry): Promise<void> {

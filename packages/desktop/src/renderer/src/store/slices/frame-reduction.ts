@@ -513,7 +513,7 @@ export function createFrameReductionSlice(
           // Per-agent marker coalescing: a heartbeat repeats its label
           // forever, so only a genuine transition stamps a marker — no
           // matter how several agents' frames interleave.
-          const markers = new Map(tab.subagentMarkers ?? []);
+          const markers = new Map(tab.subagentMarkers);
           if (markers.get(key) !== label) {
             markers.set(key, label);
             m.patchRpc(tabId, { subagentMarkers: markers });
@@ -524,7 +524,7 @@ export function createFrameReductionSlice(
           // nothing. The viewed agent's buffer renders in the subagent
           // view's full transcript — it must not truncate; the cap bounds
           // retained background buffers.
-          const buffers = tab.subagentItems ?? {};
+          const buffers = tab.subagentItems;
           const prev = buffers[key] ?? EMPTY_BUFFER;
           const next = reduceSubagentFrame(
             prev,

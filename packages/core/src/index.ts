@@ -66,6 +66,7 @@ export * from "./backend-channels";
 export { Registry, planHandoffDescendants, type RegistrySettings } from "./registry";
 export { spawnOmp, spawnOmpTui, spawnShell, ompTuiArgs, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
+export * from "./session-command";
 export { settledWithin } from "./promise-utils";
 export { writeTextAtomic } from "./atomic-write";
 export { BLOCKING_DIALOG_METHODS, isBlockingDialogMethod } from "./extension-dialog";

@@ -41,13 +41,6 @@ describe("deriveSidebarSessionState", () => {
     expect(h.deriveSidebarSessionState(summary(), undefined, undefined)).toBe(
       "live",
     );
-    expect(
-      h.deriveSidebarSessionState(
-        summary(),
-        rpcTabState({ status: "running" }),
-        0,
-      ),
-    ).toBe("dormant");
 
     expect(
       h.deriveSidebarSessionState(
