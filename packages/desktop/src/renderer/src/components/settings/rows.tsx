@@ -121,6 +121,46 @@ export function CommitField({
   );
 }
 
+/** Controlled secret draft: Enter saves, Escape clears without closing Settings. */
+export function SecretField({
+  value,
+  label,
+  disabled = false,
+  className,
+  onChange,
+  onSave,
+}: {
+  value: string;
+  label: string;
+  disabled?: boolean;
+  className?: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <input
+      type="password"
+      value={value}
+      aria-label={label}
+      spellCheck={false}
+      autoComplete="off"
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          onSave();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onChange("");
+        }
+      }}
+      className={cn(FIELD, className)}
+    />
+  );
+}
+
 export function SettingControl({
   entry,
   pendingKey,
