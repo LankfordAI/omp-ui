@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.13.11](https://github.com/LankfordAI/omp-ui/releases/tag/v0.13.11). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- Under the **Korean** UI locale the remaining hardcoded chrome renders from the catalog: the **Todos** pane's phase heading, its "N of M complete" tooltips, and the click-to-advance tooltip, plus the Settings → **Remote** footer ([#581](https://github.com/LankfordAI/omp-ui/issues/581)).
+
+Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 

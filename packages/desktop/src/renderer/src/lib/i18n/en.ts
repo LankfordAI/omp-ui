@@ -690,6 +690,12 @@ export const en = {
     "Opens omp-ui in the phone's browser; it will ask for your password.",
   "settings.remote.pairToken":
     "Opens omp-ui in the phone's browser with the token already attached.",
+  "settings.remote.footerOriginPrefix":
+    "Over localhost the app is a full browser app. Over your local network it works as a responsive web app, but browsers reserve installability and offline support for secure origins — plain ",
+  "settings.remote.footerOriginSuffix":
+    " is not one, so there is no install prompt until you front this with your own HTTPS (a TLS terminator, or Tailscale serve).",
+  "settings.remote.footerRestart":
+    " Changing anything here restarts only the server; sessions keep running.",
 
   // ProvidersPage
   "settings.providers.savedHere": "saved here",
@@ -1203,6 +1209,12 @@ export const en = {
   // Shared straggler surfaces
   "todo.empty.title": "No todos",
   "todo.empty.hint": "The agent publishes a plan here once it starts one.",
+  "todo.panel.phase": "Phase {n}",
+  "todo.panel.progress": "{done} of {total} complete",
+  "todo.panel.advance": "{status} — click to advance",
+  "todo.status.pending": "pending",
+  "todo.status.inProgress": "in progress",
+  "todo.status.completed": "completed",
   "composer.model.favorites": "Favorites",
   "worktree.field.branch": "Branch",
   "worktree.field.base": "Base",

@@ -1,6 +1,6 @@
 import { cn } from "../lib/cn";
 import type { TodoPhase, TodoTask } from "../lib/rpc-types";
-import { useT } from "../lib/i18n";
+import { useT, type MessageKey } from "../lib/i18n";
 import { useStore } from "../store";
 import { Empty, Meter } from "./ui";
 
@@ -14,6 +14,13 @@ const CYCLE: Record<string, string> = {
   pending: "in_progress",
   in_progress: "completed",
   completed: "pending",
+};
+
+/** omp's task statuses (docs/phase-2-rpc-ui.md § State). An unexpected token renders raw. */
+const STATUS_LABEL: Record<string, MessageKey> = {
+  pending: "todo.status.pending",
+  in_progress: "todo.status.inProgress",
+  completed: "todo.status.completed",
 };
 
 function TaskGlyph({ status }: { status: string }) {
@@ -73,15 +80,16 @@ export function TodoPanel({ tabId }: { tabId: string }) {
       {phases.map((phase, pi) => {
         const tasks = phase.tasks ?? [];
         const done = tasks.filter((t) => t.status === "completed").length;
+        const progress = t("todo.panel.progress", { done, total: tasks.length });
         return (
           <section key={pi}>
             <div className="mb-1 flex items-baseline gap-2">
               <h3 className="min-w-0 flex-1 truncate font-display text-[12px] text-ink">
-                {phase.phase ?? `Phase ${pi + 1}`}
+                {phase.phase ?? t("todo.panel.phase", { n: pi + 1 })}
               </h3>
               <span
                 className="shrink-0 font-mono text-[10px] tabular-nums text-ink-faint"
-                title={`${done} of ${tasks.length} complete`}
+                title={progress}
               >
                 {done}/{tasks.length}
               </span>
@@ -89,33 +97,36 @@ export function TodoPanel({ tabId }: { tabId: string }) {
             <Meter
               fraction={tasks.length > 0 ? done / tasks.length : 0}
               className="mb-1.5"
-              title={`${done} of ${tasks.length} complete`}
+              title={progress}
             />
             <ul className="space-y-0.5">
-              {tasks.map((task, ti) => (
-                <li key={ti} className="animate-slide-in">
-                  <button
-                    type="button"
-                    onClick={() => cycle(pi, ti)}
-                    title={`${task.status} — click to advance`}
-                    className="flex w-full items-start gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-hover"
-                  >
-                    <TaskGlyph status={task.status} />
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 text-[11px] leading-snug",
-                        task.status === "completed"
-                          ? "text-ink-faint line-through"
-                          : task.status === "in_progress"
-                            ? "text-ink"
-                            : "text-ink-mid",
-                      )}
+              {tasks.map((task, ti) => {
+                const label = STATUS_LABEL[task.status];
+                return (
+                  <li key={ti} className="animate-slide-in">
+                    <button
+                      type="button"
+                      onClick={() => cycle(pi, ti)}
+                      title={t("todo.panel.advance", { status: label ? t(label) : task.status })}
+                      className="flex w-full items-start gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-hover"
                     >
-                      {task.content}
-                    </span>
-                  </button>
-                </li>
-              ))}
+                      <TaskGlyph status={task.status} />
+                      <span
+                        className={cn(
+                          "min-w-0 flex-1 text-[11px] leading-snug",
+                          task.status === "completed"
+                            ? "text-ink-faint line-through"
+                            : task.status === "in_progress"
+                              ? "text-ink"
+                              : "text-ink-mid",
+                        )}
+                      >
+                        {task.content}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         );
