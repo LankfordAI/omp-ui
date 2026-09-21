@@ -956,6 +956,21 @@ describe("branch:changed subscription (issue #498)", () => {
   });
 });
 
+describe("project picker registration target (issue #624)", () => {
+  it("coerces a non-string first argument to the local registry", () => {
+    // The defect's exact shape: React hands click handlers the event, and
+    // an event-like object must never become an instance id.
+    h.useStore.getState().openProjectPicker({} as unknown as string);
+    expect(h.useStore.getState().projectPickerOpen).toBe(true);
+    expect(h.useStore.getState().projectPickerInstanceId).toBeNull();
+    h.useStore.getState().closeProjectPicker();
+    // A real instance id still registers remotely.
+    h.useStore.getState().openProjectPicker("inst-a");
+    expect(h.useStore.getState().projectPickerInstanceId).toBe("inst-a");
+    h.useStore.getState().closeProjectPicker();
+  });
+});
+
 describe("getting-started checklist (issue #623)", () => {
   it("open flips visibility without any backend write", () => {
     h.useStore.getState().openGettingStarted();

@@ -232,7 +232,7 @@ function Welcome() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="solid" onClick={openProjectPicker}>
+          <Button variant="solid" onClick={() => openProjectPicker()}>
             {t("app.welcome.addProject")}
           </Button>
           <Button variant="ghost" onClick={openGettingStarted}>

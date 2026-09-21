@@ -185,7 +185,7 @@ export function GettingStarted() {
           title={t("app.gettingstarted.stepProject")}
           hint={t("app.gettingstarted.hintProject")}
           action={
-            <Button variant="solid" onClick={openProjectPicker}>
+            <Button variant="solid" onClick={() => openProjectPicker()}>
               {t("app.gettingstarted.actionAddProject")}
             </Button>
           }

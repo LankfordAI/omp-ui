@@ -363,7 +363,13 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
 
   openProjectPicker(instanceId = null) {
-    set({ projectPickerOpen: true, projectPickerInstanceId: instanceId });
+    // React hands click handlers the event as the first argument: only a
+    // string is an instance id — anything else registers on the local
+    // registry (#624).
+    set({
+      projectPickerOpen: true,
+      projectPickerInstanceId: typeof instanceId === "string" ? instanceId : null,
+    });
   },
   closeProjectPicker() {
     set({ projectPickerOpen: false, projectPickerInstanceId: null });

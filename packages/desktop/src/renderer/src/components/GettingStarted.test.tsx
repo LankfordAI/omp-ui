@@ -321,6 +321,10 @@ describe("Getting started checklist rows (issue #623)", () => {
     expect(add).not.toBeNull();
     click(add!);
     expect(useStore.getState().projectPickerOpen).toBe(true);
+    // The click event must never reach the optional instanceId (#624): a
+    // non-null id routes the picker's browses through remoteInstanceRequest
+    // and the modal lists nothing forever.
+    expect(useStore.getState().projectPickerInstanceId).toBeNull();
   });
 
   it("the session step waits on the project step, then fires on the first project", async () => {
