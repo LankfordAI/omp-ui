@@ -18,7 +18,7 @@ import type {
 } from "@omp-ui/core/types";
 import { backendState, tabInfo } from "../test/fixtures";
 import type { SettingsPage } from "../store";
-import { applyLocale, resolveLocale } from "../lib/i18n";
+import { applyLocale, resolveLocale, t } from "../lib/i18n";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -1089,6 +1089,17 @@ describe("Settings page footer dispatch (issue #300)", () => {
       else expect(footer?.textContent).toContain(marker);
     });
   }
+
+  it("remote footer copy comes from the catalog, mono origin token intact (issue #581)", async () => {
+    useStore.setState({ settingsPage: "remote", state: backendState(), tabs: [], activeTabId: null });
+    applyLocale(resolveLocale("ko"));
+    await renderSettings();
+    const footer = document.body.querySelector("footer")?.textContent ?? "";
+    expect(footer).toContain(t("settings.remote.footerRestart"));
+    expect(footer).not.toContain("Changing anything here restarts only the server");
+    // \x3c and \x3e are the angle brackets: the mono origin token must survive the fragment split.
+    expect(footer).toMatch(/http:\/\/\x3clan-ip\x3e/);
+  });
 
   it("advanced lists in the nav and offers the bundle export (issue #413)", async () => {
     useStore.setState({

@@ -626,6 +626,12 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.remote.scanToPair": "스캔하여 페어링",
   "settings.remote.pairPassword": "휴대폰 브라우저에서 omp-ui를 열고 비밀번호를 요청합니다.",
   "settings.remote.pairToken": "token이 첨부된 상태로 휴대폰 브라우저에서 omp-ui를 엽니다.",
+  "settings.remote.footerOriginPrefix":
+    "localhost에서는 이 앱이 완전한 브라우저 앱으로 동작합니다. 로컬 네트워크에서는 반응형 웹 앱으로 동작하지만, 브라우저는 설치와 offline 지원을 secure origin에만 허용합니다 — 평문 ",
+  "settings.remote.footerOriginSuffix":
+    " 은(는) secure origin이 아니므로, 직접 HTTPS(TLS terminator 또는 Tailscale serve)를 앞에 두기 전까지는 설치 프롬프트가 표시되지 않습니다.",
+  "settings.remote.footerRestart":
+    " 여기서 무언가를 변경해도 서버만 재시작되며 세션은 계속 실행됩니다.",
 
   "settings.providers.savedHere": "여기에 저장됨",
   "settings.providers.environment": "environment",
@@ -1080,6 +1086,12 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "이 문제가 반복되면 설정 → 고급 또는 명령 팔레트에서 진단 번들을 내보내세요.",
   "todo.empty.title": "할 일 없음",
   "todo.empty.hint": "에이전트가 플랜을 시작하면 여기에 게시합니다.",
+  "todo.panel.phase": "{n}단계",
+  "todo.panel.progress": "{total}개 중 {done}개 완료",
+  "todo.panel.advance": "{status} — 클릭하여 다음 상태로 전환",
+  "todo.status.pending": "대기",
+  "todo.status.inProgress": "진행 중",
+  "todo.status.completed": "완료",
   "composer.model.favorites": "즐겨찾기",
   "worktree.field.branch": "브랜치",
   "worktree.field.base": "Base",

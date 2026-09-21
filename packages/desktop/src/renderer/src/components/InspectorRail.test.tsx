@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "../lib/rpc-types";
+import { applyLocale, resolveLocale, t } from "../lib/i18n";
 import type { RpcTabState } from "../store";
 import { backendState } from "../test/fixtures";
 
@@ -199,6 +200,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Locale state is module-global; every test starts from the default.
+  applyLocale(resolveLocale("en"));
   if (root) act(() => root!.unmount());
   root = null;
   document.body.replaceChildren();
@@ -233,6 +236,26 @@ describe("desktop InspectorRail", () => {
     expect(button("collapse inspector")).toBeNull();
     expect(document.body.textContent).not.toContain("worker");
     expect(button("agents")).not.toBeNull();
+  });
+
+  it("renders Todos pane chrome from the catalog under both locales (issue #581)", () => {
+    // A phase with no `phase` name: the fallback heading is one of the strings under test.
+    const unnamed = runtime({ todos: [{ tasks: [{ content: "First task", status: "pending" }] }] });
+    for (const id of ["en", "ko"] as const) {
+      act(() => applyLocale(resolveLocale(id)));
+      // beforeEach runs per test, not per lap: reset dismissal state so the click always opens.
+      useStore.setState({ rpc: { [TAB]: unnamed }, inspectorOpen: false });
+      renderRail();
+      // The strip's aria-label is itself catalog text; resolve it under the lap's locale.
+      act(() => button(t("rail.tabs.todos"))!.click());
+      expect(document.body.querySelector("h3")?.textContent).toBe(t("todo.panel.phase", { n: 1 }));
+      const titles = [...document.body.querySelectorAll("[title]")].map((el) => (el as HTMLElement).title);
+      expect(titles).toContain(t("todo.panel.progress", { done: 0, total: 1 }));
+      expect(titles).toContain(t("todo.panel.advance", { status: t("todo.status.pending") }));
+      act(() => root!.unmount());
+      root = null;
+      document.body.replaceChildren();
+    }
   });
 
   it("visibly labels the session subagent-model control (#563)", () => {
