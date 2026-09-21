@@ -315,7 +315,9 @@ describe("compacted execution context holds the prompt when compaction stalls (i
       await h.flushMicrotasks();
       expect(h.sent.some((s) => s.cmd.type === "compact")).toBe(true);
 
-      await vi.advanceTimersByTimeAsync(31_000);
+      // 30s alone no longer proves a stall: the execution rides out the
+      // whole settle deadline before holding (issue #625).
+      await vi.advanceTimersByTimeAsync(h.COMPACT_SETTLE_DEADLINE_MS + 60_000);
       await h.flushMicrotasks();
 
       expect(implementationPrompts()).toHaveLength(0);
@@ -329,6 +331,36 @@ describe("compacted execution context holds the prompt when compaction stalls (i
         level: "warn",
         text: expect.stringContaining("compaction did not finish"),
       });
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("dispatches once when the ack lands past the response budget (issue #625)", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      executeCompacted("c3");
+      await h.flushMicrotasks();
+      const compact = h.sent.find((s) => s.cmd.type === "compact")!;
+      // A 175s summary is a normal slow compaction, not a wedge.
+      await vi.advanceTimersByTimeAsync(175_000);
+      h.respond(h.TAB, compact.cmd, { summary: "…" });
+      for (let wave = 0; wave < 4; wave++) {
+        await h.flushMicrotasks();
+        for (const { tabId, cmd } of h.sent.filter((s) => s.cmd.type !== "prompt")) {
+          h.respond(tabId, cmd, {});
+        }
+      }
+
+      expect(implementationPrompts()).toHaveLength(1);
+      expect(
+        h.useStore
+          .getState()
+          .rpc[h.TAB]!.items.filter((i) => i.kind === "notice" && i.level === "warn"),
+      ).toHaveLength(0);
+      expect(h.useStore.getState().rpc[h.TAB]!.compacting).toBeUndefined();
     } finally {
       warn.mockRestore();
       vi.useRealTimers();

@@ -4,6 +4,7 @@ import { emptySessionRuntime } from "../../lib/rpc-types";
 import { generateTitleFromPrompt } from "../../lib/session-title";
 import { rpcTabState } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
+import type { StoreMachinery, TabRuntime } from "./shared";
 import type {
   CapabilitySection,
   CapabilitySnapshot,
@@ -1908,5 +1909,41 @@ describe("session-local tool control (issue #379)", () => {
       status: "bridge-unavailable",
     });
     expect(h.mockBackend.setSessionToolEnabled).not.toHaveBeenCalled();
+  });
+});
+
+describe("late-response observation (issue #302, #625)", () => {
+  // Only `settle`'s attribution bookkeeping is under test; this stub stands
+  // in for the machinery whose runtime rows the command bus reads and writes.
+  const stubMachinery = (
+    runtime: Pick<TabRuntime, "timedOutCommands">,
+  ): StoreMachinery =>
+    ({
+      runtime: () => runtime,
+      patchRuntime: (_tabId: string, patch: Partial<TabRuntime>): void => {
+        Object.assign(runtime, patch);
+      },
+    }) as unknown as StoreMachinery;
+
+  it("reports the command a late response completes and retires its row", () => {
+    const timedOutCommands: TabRuntime["timedOutCommands"] = [
+      { id: "late-1", command: "compact", startedAt: 1, timedOutAt: 2 },
+    ];
+    const m = stubMachinery({ timedOutCommands });
+    expect(
+      h.rpcCommandMachinery.settle(h.TAB, "late-1", { success: true, frame: {} }, m),
+    ).toBe("compact");
+    expect(m.runtime(h.TAB).timedOutCommands).toEqual([]);
+  });
+
+  it("claims nothing for an untracked id and leaves the attribution row standing", () => {
+    const timedOutCommands: TabRuntime["timedOutCommands"] = [
+      { id: "late-2", command: "handoff", startedAt: 1, timedOutAt: 2 },
+    ];
+    const m = stubMachinery({ timedOutCommands });
+    expect(
+      h.rpcCommandMachinery.settle(h.TAB, "unknown", { success: true, frame: {} }, m),
+    ).toBeNull();
+    expect(m.runtime(h.TAB).timedOutCommands).toHaveLength(1);
   });
 });

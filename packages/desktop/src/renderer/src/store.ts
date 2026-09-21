@@ -85,6 +85,8 @@ export {
   COMPACTION_USAGE_MAX_ATTEMPTS,
 } from "./store/slices/frame-reduction";
 export {
+  COMPACT_SETTLE_DEADLINE_MS,
+  RPC_COMMAND_TIMEOUT_MS,
   RpcCommandTimeoutError,
   STREAM_STALL_THRESHOLD_MS,
   STREAM_STALL_TICK_MS,

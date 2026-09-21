@@ -69,9 +69,9 @@ const EXECUTION_PROMPT =
   "The plan review is complete — execute the approved plan now. It is set as this " +
   "session's reference.";
 
-/** Compaction did not settle, so the implementation prompt was never sent. */
+/** Compaction never settled within the settle deadline, so the prompt was not sent. */
 const COMPACTION_HELD_NOTICE =
-  "compaction did not finish — the implementation prompt was held. " +
+  "compaction did not finish within 15m — the implementation prompt was held. " +
   "Refresh state, then compact and send it again from this session.";
 
 /**
@@ -355,7 +355,12 @@ export function createPlanExecutionSlice(
         if (get().rpc[tabId]?.status !== "ready") return;
       }
 
-      if (context === "compacted" && !(await get().compactSession(tabId))) {
+      // #336 held the dispatch on any unacknowledged compaction. `pending` is
+      // now a distinct state: wait for the boundary, then decide (issue #625).
+      if (
+        context === "compacted" &&
+        (await get().compactSession(tabId, { waitForCompletion: true })) !== "acked"
+      ) {
         // Compaction never acknowledged: omp is still busy or wedged, and a
         // prompt sent now queues behind it and fails the same way. Hold the
         // dispatch and say what to do instead of stacking banners (#336).
