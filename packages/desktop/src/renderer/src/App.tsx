@@ -5,6 +5,7 @@ import { CommandPalette, openPalette } from "./components/CommandPalette";
 import { BrowserPaneClearDialog } from "./components/BrowserPaneClearDialog";
 import { DiagnosticsExportDialog } from "./components/DiagnosticsExportDialog";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
+import { GettingStarted } from "./components/GettingStarted";
 import { inspectorBadges } from "./components/InspectorRail";
 import { CapabilitiesViewer } from "./components/CapabilitiesViewer";
 import { NewExperimentDialog } from "./components/NewExperimentDialog";
@@ -215,6 +216,7 @@ function RestoringSessions() {
 function Welcome() {
   const t = useT();
   const openProjectPicker = useStore((s) => s.openProjectPicker);
+  const openGettingStarted = useStore((s) => s.openGettingStarted);
   const hasProjects = useStore((s) => (s.state?.projects.length ?? 0) > 0);
 
   return (
@@ -230,8 +232,11 @@ function Welcome() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="solid" onClick={openProjectPicker}>
+          <Button variant="solid" onClick={() => openProjectPicker()}>
             {t("app.welcome.addProject")}
+          </Button>
+          <Button variant="ghost" onClick={openGettingStarted}>
+            {t("app.gettingstarted.open")}
           </Button>
           {hasProjects && (
             <Button variant="ghost" onClick={() => openPalette()}>
@@ -264,6 +269,7 @@ export default function App() {
   const deleteConfirmation = useStore((s) => s.deleteConfirmation);
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
   const diagnosticsDialogOpen = useStore((s) => s.diagnosticsDialogOpen);
+  const gettingStartedOpen = useStore((s) => s.gettingStartedOpen);
   const browserPaneClearDialogOpen = useStore((s) => s.browserPaneClearDialogOpen);
   const capabilitiesViewer = useStore((s) => s.capabilitiesViewer);
   const projectSettings = useStore((s) => s.projectSettings);
@@ -533,6 +539,9 @@ export default function App() {
       {finishWorktreeTab !== null && (
         <FinishWorktreeDialog key={finishWorktreeTab} tabId={finishWorktreeTab} />
       )}
+      {/* Below the Settings/ProjectPicker portals so their overlays outrank it
+          in useOverlay's stack (issue #623). */}
+      {gettingStartedOpen && <GettingStarted />}
       {settingsPage && <Settings />}
       {/* Feedback last of the root surfaces: its dialogs must outrank every
           other overlay in the stack (issue #373). */}

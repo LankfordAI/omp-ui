@@ -95,6 +95,7 @@ export function CommandPalette() {
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const openSettings = useStore((s) => s.openSettings);
   const openDiagnosticsDialog = useStore((s) => s.openDiagnosticsDialog);
+  const openGettingStarted = useStore((s) => s.openGettingStarted);
   const openLab = useStore((s) => s.openLab);
   const openExperimentDialog = useStore((s) => s.openExperimentDialog);
   const t = useT();
@@ -244,6 +245,13 @@ export function CommandPalette() {
       run: () => openSettings(),
     });
     out.push({
+      id: "app:getting-started",
+      group: t("palette.group.app"),
+      name: t("app.gettingstarted.palette"),
+      desc: t("app.gettingstarted.subtitle"),
+      run: () => openGettingStarted(),
+    });
+    out.push({
       id: "app:export-diagnostics",
       group: t("palette.group.app"),
       name: t("palette.action.exportDiagnostics"),
@@ -259,7 +267,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openLab, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openLab, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

@@ -49,6 +49,8 @@ export interface RegistrySettings {
   sessionOrderFrozen: boolean;
   /** One-time seed marker (issue #570): memory defaults were applied to omp's global layer once. */
   memoryDefaultsSeeded: boolean;
+  /** First-run checklist dismissed; fresh installs open it once on the desktop shell. */
+  gettingStartedSeen: boolean;
   /** Release version whose update card the user dismissed ("Later"). */
   dismissedAppUpdateVersion: string | null;
   /** omp version whose update/install card the user dismissed ("Later"). */
@@ -198,6 +200,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   memoryDefaultsSeeded: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  gettingStartedSeen: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),

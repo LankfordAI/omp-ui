@@ -7,6 +7,7 @@ import type {
 import { backend } from "./backend";
 import type { PlanExecutionOptions } from "./lib/plan-concerns";
 import { projectKey } from "./lib/project-key";
+import { IS_ELECTRON } from "./lib/platform";
 import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "./lib/font-families";
 import {
@@ -442,8 +443,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);
       installViewedTabReporter(api);
+      // First-run onboarding (issue #623): the desktop shell of a fresh install
+      // opens the Getting started checklist once. Remote renderers never
+      // auto-open — joining someone's app is not an install — and a surfaced
+      // restore means this is not a first run (defensive: restoreDesktopView
+      // can only surface tabs on a version bump, never with no history).
+      if (IS_ELECTRON && state.gettingStartedSeen === false && get().tabs.length === 0) {
+        set({ gettingStartedOpen: true });
+      }
     },
-
     bootRpcTab: rpcCommandSlice.bootRpcTab,
     refreshAvailableModels: rpcCommandSlice.refreshAvailableModels,
     refreshCapabilities: rpcCommandSlice.refreshCapabilities,

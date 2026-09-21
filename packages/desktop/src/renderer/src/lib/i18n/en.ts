@@ -38,6 +38,27 @@ export const en = {
   "app.welcome.hintSearch": "search within a session",
   "app.welcome.hintTranscriptScale": "larger transcript text",
 
+  // App getting-started checklist (issue #623)
+  "app.gettingstarted.title": "Getting started",
+  "app.gettingstarted.subtitle": "Four steps to your first session. Status updates as you go.",
+  "app.gettingstarted.stepBinary": "Install the omp agent binary",
+  "app.gettingstarted.hintBinary": "omp-ui runs its own private copy of omp.",
+  "app.gettingstarted.stepProvider": "Connect a model provider",
+  "app.gettingstarted.hintProvider": "Add an API key or sign in to a subscription.",
+  "app.gettingstarted.stepProject": "Track a project",
+  "app.gettingstarted.hintProject": "Point omp-ui at the directory you want to work in.",
+  "app.gettingstarted.stepSession": "Start your first session",
+  "app.gettingstarted.hintSession": "Native transcript, or an embedded terminal tab.",
+  "app.gettingstarted.actionInstall": "Install",
+  "app.gettingstarted.actionCheck": "Check",
+  "app.gettingstarted.actionOpenProviders": "Open provider settings",
+  "app.gettingstarted.actionAddProject": "Add project",
+  "app.gettingstarted.actionNewSession": "New session",
+  "app.gettingstarted.done": "Done",
+  "app.gettingstarted.open": "Getting started",
+  "app.gettingstarted.palette": "Getting started checklist",
+  "app.gettingstarted.downloading": "installing — {percent}%",
+
   // App compact shell nav
   "app.compact.projectsAndSessions": "projects and sessions",
   "app.compact.inspector": "inspector",

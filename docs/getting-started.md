@@ -109,6 +109,8 @@ Open the DMG and drag **omp-ui** to **Applications**. Release builds are Develop
 
 ## Complete first launch
 
+On its first launch on a fresh install, the desktop app shows a **Getting started** checklist that tracks these four steps — the omp binary, a model provider, a project, and a first session — with live status, and marks itself dismissed when you select **Done**. It never appears again on that install, and it re-opens anytime from the command palette (**Getting started checklist**). The steps below are the manual equivalent.
+
 1. Open omp-ui and select the gear button to open **Settings**.
 2. Open **Updates**. Under **omp binary**, select **Check now**. If omp is missing, select **Install**. If an update is offered, select **Update now**.
 3. Open **Providers**. Confirm that at least one model provider has a credential. omp-ui may find one in the inherited environment or, on Linux and macOS, the login shell. Otherwise, select **Add key** for your provider and save its API key.

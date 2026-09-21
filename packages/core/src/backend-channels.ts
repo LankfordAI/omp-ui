@@ -317,6 +317,11 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setSkipDeleteConfirmation",
     ...request<[skip: boolean], void>([bool()]),
   },
+  /** Marks the first-run Getting started checklist dismissed. */
+  setGettingStartedSeen: {
+    channel: "settings:setGettingStartedSeen",
+    ...request<[seen: boolean], void>([bool()]),
+  },
   /** Global feature flag for the Experiments Lab and autoresearch bridge. */
   setExperimentsEnabled: {
     channel: "settings:setExperimentsEnabled",
