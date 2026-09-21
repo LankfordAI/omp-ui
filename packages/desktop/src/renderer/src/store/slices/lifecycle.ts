@@ -361,7 +361,25 @@ export function createLifecycleSlice(
       exited: dropExited(s.exited, freshId),
     }));
     await m.pollUntilSettled(freshId);
-    if (get().rpc[freshId]?.status !== "ready") return;
+    if (get().rpc[freshId]?.status !== "ready") {
+      // An errored boot owns a failure banner and an exited one owns an
+      // exit notice; a boot that simply never reported is the one abort
+      // with no observable symptom anywhere — #622 hid behind exactly
+      // this silence, so it says so on the planning session instead.
+      if (
+        get().rpc[freshId]?.status !== "error" &&
+        get().exited[freshId] === undefined
+      ) {
+        m.appendItem(
+          srcTabId,
+          noticeItem(
+            "implementation not dispatched — the fresh session never finished starting; open it and send the plan manually",
+            "warn",
+          ),
+        );
+      }
+      return;
+    }
     // Staged parameters share one failure policy across every fresh launch.
     if (!(await m.applyStagedParams(freshId, options ?? {}))) return;
     const lead = "A plan was approved for this project. Implement it now.";

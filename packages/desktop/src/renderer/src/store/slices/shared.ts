@@ -726,18 +726,23 @@ export function createMachinery(
     return true;
   };
 
+  /**
+   * Wait until a launched/relaunched tab's process settles: `ready` (it can
+   * take the launch prompt), `error`, or exited. Deliberately NOT the
+   * record's `live` field: a fresh spawn registers its record before the
+   * child is marked live, so any broadcast landing mid-spawn — commonly the
+   * planning session's own turn end after an execute verdict — projects the
+   * spawning record as dormant/missing, and treating that as settled aborts
+   * the seed dispatch (#622). Process death always arrives through `exited`:
+   * `teardownProcess` marks it for both exits and hibernation.
+   */
   const pollUntilSettled = (tabId: string): Promise<void> =>
     pollUntil(
       tabId,
-      (tab) => {
-        const record = findRecord(get().state, tabId);
-        return (
-          tab?.status === "ready" ||
-          tab?.status === "error" ||
-          get().exited[tabId] !== undefined ||
-          (record !== undefined && record.live !== "live")
-        );
-      },
+      (tab) =>
+        tab?.status === "ready" ||
+        tab?.status === "error" ||
+        get().exited[tabId] !== undefined,
     );
 
   const acceptsCommands = (tabId: string): boolean => {

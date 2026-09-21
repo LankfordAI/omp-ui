@@ -1366,6 +1366,170 @@ describe("handleRpcFrame routing", () => {
     await rearmHandoffSource();
   });
 
+  it("keeps waiting for the fresh tab through a mid-spawn non-live record (#622)", async () => {
+    // Regression on the #595 settle predicate: a broadcast landing while the
+    // new session is still spawning (the planning session's own turn end is
+    // the usual one) shows the registered-but-not-yet-live record as
+    // dormant/missing. That is a boot-transition artifact, not a settled
+    // process — the seed prompt must still be dispatched once the tab is
+    // ready.
+    const spawn = h.deferred<{ tabId: string }>();
+    h.mockBackend.spawnSession.mockReturnValueOnce(spawn.promise);
+    h.useStore.setState({ state: h.stateWithRecord(null) });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "p622",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+    });
+    // Let the plan file read resolve so executePlan captures the plan text.
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    await h.flushMicrotasks();
+    const spawning = h.stateWithRecord(null);
+    spawning.projects[0]!.sessions.push({
+      ...spawning.projects[0]!.sessions[0]!,
+      tabId: "fresh-tab",
+      sessionId: null,
+      live: "missing",
+    });
+    h.useStore.setState({ state: spawning });
+    // The spawn answer lands while that stale snapshot is the newest the
+    // store has: the readiness wait must not read it as a settled process.
+    spawn.resolve({ tabId: "fresh-tab" });
+    await h.flushMicrotasks();
+    // The spawn completes: the record turns live and the tab reaches ready.
+    const booted = h.stateWithRecord(null);
+    booted.projects[0]!.sessions.push({
+      ...booted.projects[0]!.sessions[0]!,
+      tabId: "fresh-tab",
+      sessionId: "fresh-session-1",
+      live: "live",
+    });
+    h.useStore.setState({
+      state: booted,
+      rpc: {
+        ...h.useStore.getState().rpc,
+        "fresh-tab": rpcTabState({ status: "ready" }),
+      },
+    });
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
+      (s) =>
+        s.tabId === "fresh-tab" &&
+        s.cmd.type === "prompt" &&
+        String(s.cmd.message).includes("Implement it now"),
+    );
+    expect(prompt).toBeDefined();
+    if (prompt !== undefined) h.respond("fresh-tab", prompt.cmd, {});
+    await h.flushMicrotasks();
+    await rearmHandoffSource();
+  });
+
+  it("a non-live record flutter after a live broadcast never settles the launch wait (#622)", async () => {
+    // A latched variant of the settle predicate ("count non-live only once
+    // live was first observed") would pass the straight mid-spawn case yet
+    // still drop the prompt through a relaunch/kill window. The contract is
+    // stricter than any record-reading variant: an unmarked non-live record
+    // is never a settled process — the exited map is the only death signal.
+    const spawn = h.deferred<{ tabId: string }>();
+    h.mockBackend.spawnSession.mockReturnValueOnce(spawn.promise);
+    h.useStore.setState({ state: h.stateWithRecord(null) });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "p622b",
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+    });
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh");
+    await h.flushMicrotasks();
+    spawn.resolve({ tabId: "fresh-tab" });
+    await h.flushMicrotasks();
+    const recordIn = (live: "live" | "dormant") => {
+      const next = h.stateWithRecord(null);
+      next.projects[0]!.sessions.push({
+        ...next.projects[0]!.sessions[0]!,
+        tabId: "fresh-tab",
+        sessionId: null,
+        live,
+      });
+      return next;
+    };
+    // A booting child reads live, then a kill/relaunch window reads dormant
+    // with no exit mark, then live again — and only then does the tab boot.
+    h.useStore.setState({ state: recordIn("live") });
+    h.useStore.setState({ state: recordIn("dormant") });
+    // Drain: a predicate that wrongly settles here resolves the wait NOW,
+    // while the tab is still un-booted — which is the whole failure shape.
+    await h.flushMicrotasks();
+    h.useStore.setState({
+      state: recordIn("live"),
+      rpc: {
+        ...h.useStore.getState().rpc,
+        "fresh-tab": rpcTabState({ status: "ready" }),
+      },
+    });
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(
+      (s) =>
+        s.tabId === "fresh-tab" &&
+        s.cmd.type === "prompt" &&
+        String(s.cmd.message).includes("Implement it now"),
+    );
+    expect(prompt).toBeDefined();
+    if (prompt !== undefined) h.respond("fresh-tab", prompt.cmd, {});
+    await h.flushMicrotasks();
+    await rearmHandoffSource();
+  });
+
+  it("surfaces a fresh implementation whose session never finishes starting (#622)", async () => {
+    // The regression's real disguise was silence: the readiness wait expiring
+    // with the tab still starting is the one abort with no failure banner and
+    // no exit notice, so it must leave a transcript notice on the planning
+    // session — any future break of this family then self-reports.
+    vi.useFakeTimers();
+    try {
+      const spawn = h.deferred<{ tabId: string }>();
+      h.mockBackend.spawnSession.mockReturnValueOnce(spawn.promise);
+      h.useStore.setState({ state: h.stateWithRecord(null) });
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: "p622t",
+        method: "select",
+        title:
+          "omp-ui:plan-review:" +
+          JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      h.useStore.getState().executePlan(h.TAB, "fresh");
+      await vi.advanceTimersByTimeAsync(0);
+      spawn.resolve({ tabId: "fresh-tab" });
+      await vi.advanceTimersByTimeAsync(0);
+      // The boot never reports: the 15 s readiness window expires with the
+      // tab still starting.
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(
+        h.sent.some((s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt"),
+      ).toBe(false);
+      expect(
+        h.useStore
+          .getState()
+          .rpc[h.TAB]!.items.some(
+            (item) =>
+              item.kind === "notice" &&
+              item.text.includes("not dispatched"),
+          ),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("seeds a fresh session with an html plan's spec, not its stylesheet", async () => {
     const htmlPlan = [
       "<!doctype html>",
