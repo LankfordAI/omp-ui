@@ -200,6 +200,17 @@ npm run dev:headless
 
 Verification runs boot the app headless. `dev:headless` maps no window and takes no focus, isolates the run's userData and registry (`OMP_UI_REGISTRY_PATH` defaults to a fresh temp file; whichever registry the run uses gets `desktopNotifications` forced off), sizes the virtual screen to 1600x1000, and exposes CDP on `127.0.0.1:9223`; set `OMP_UI_REGISTRY_PATH` or `OMP_UI_CDP_PORT` to override. Extra Chromium switches pass through from the workspace: `npm run dev:headless --workspace @omp-ui/desktop -- --no-sandbox`. Reach for `npm run dev` only when a human needs to see the window. One headless instance runs at a time: a second one exits on the single-instance lock.
 
+To verify the Getting started checklist's first-launch gates, a throwaway registry is not enough: the binary row reads `resolveOmpBinary()`, whose PATH scan finds the managed copy whenever the run is launched from a shell inside the packaged app (that PATH starts with `~/.local/share/omp-ui/bin` plus AppImage mounts), and the provider row additionally sees ambient env, the login shell's rc exports, and subscription accounts. Simulate a virgin machine by clearing the environment:
+
+```bash
+env -i HOME=$(mktemp -d) PATH=/usr/bin:/bin SHELL=/bin/bash \
+    XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR TMPDIR=/tmp \
+    OMP_UI_INSTALL_DIR=$(mktemp -d)/bin \
+npm run dev:headless --workspace @omp-ui/desktop
+```
+
+`OMP_UI_INSTALL_DIR` redirects both binary resolution and the checklist's Install download target, so the download lands in the temp dir instead of the real managed dir. Expect all four rows pending with their actions; clicking Install runs the real GitHub download and flips row 1. Without an OS credential store (what `env -i` also removes), saving a key from Settings refuses to store it — by design, the page says so — so exercise the connected state by exporting a provider variable instead (`OPENROUTER_API_KEY=…` before `env`, giving `source: "environment"`).
+
 Pass `--pane` instead of a Chromium switch — `npm run dev:headless --workspace @omp-ui/desktop -- --pane` — and the run additionally serves its own UI over loopback HTTP so it can be watched live in another omp-ui instance's browser pane (issue #553). The launcher seeds `remoteEnabled`, `remoteBind: "localhost"`, a free `remotePort`, and a fresh `remoteToken` into the registry it uses (these keys win even in a user-supplied `OMP_UI_REGISTRY_PATH`, which otherwise keeps all its other settings), spawns `vite build --watch --config vite.web.config.ts` so the served `out/web` bundle stays current, and prints one line:
 
 ```
