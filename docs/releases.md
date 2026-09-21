@@ -4,6 +4,25 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- Under the **Korean** UI locale the fresh-session hero — "What's next in …?" and its hint — renders from the locale catalog, and sidebar and Lab relative timestamps follow the locale through `Intl.RelativeTimeFormat` instead of a hardcoded English table ([#581](https://github.com/LankfordAI/omp-ui/issues/581)).
+- Every inline secret row in Settings — **Providers**, **Remote**, and **Remote instances** — now shares one editor: **Escape** cancels the entry and leaves the dialog open on every row, instead of closing Settings mid-edit where the arm was missing ([#588](https://github.com/LankfordAI/omp-ui/issues/588)).
+- Settings and Project settings expose one labelled dialog node to assistive technology instead of nesting a second `role="dialog"` inside the modal ([#582](https://github.com/LankfordAI/omp-ui/issues/582)).
+- The Session HUD's wide and compact faces share one auto-retry state, matching omp's single setting — a flip on either face reads correctly on the other ([#587](https://github.com/LankfordAI/omp-ui/issues/587)).
+- Saving or clearing a provider key answers with the same project-scoped snapshot the page reads, so keys supplied by a project's `.env` stay marked set after any write ([#579](https://github.com/LankfordAI/omp-ui/issues/579)).
+- A failed **browser pane** navigation is no longer swallowed: the pane reports the load error instead of silently snapping the address bar back ([#584](https://github.com/LankfordAI/omp-ui/issues/584)).
+- Browser-pane traffic no longer mints pane state for tabs that have no pane, so deleting a session releases its pane entry at once instead of resurrecting it ([#585](https://github.com/LankfordAI/omp-ui/issues/585)).
+- Update cards classify a failed check by its kind rather than by comparing the main process's error prose verbatim: unreachable infrastructure gets the offline copy, a real upstream error shows its own message ([#583](https://github.com/LankfordAI/omp-ui/issues/583)).
+- The capabilities viewer's MCP tab total is stable under search — runtime-only servers filter for display but count once, not folded into the unfiltered config total ([#580](https://github.com/LankfordAI/omp-ui/issues/580)).
+- When a session's process dies mid-stream, the streaming assistant item settles with the tool cards — no stray typing caret or stall indicator survives the crash ([#578](https://github.com/LankfordAI/omp-ui/issues/578)).
+- Toggling the advisor no longer clears the plan gate and the dialog queue before the drain proves quiescence; a relaunch the drain gives up on leaves the plan review and queued dialogs intact ([#574](https://github.com/LankfordAI/omp-ui/issues/574)).
+- Terminate, fork, and the subagent-models edit now ride the same per-tab op queue as spawn, restart, and the worktree ops, so they can no longer interleave with an in-flight relaunch ([#576](https://github.com/LankfordAI/omp-ui/issues/576)).
+- Goal **create** reports its failure — a build without goal support, a refusal, a goal omp never created — instead of settling "Goal set" unconditionally ([#572](https://github.com/LankfordAI/omp-ui/issues/572)).
+- A stale turn error no longer pauses the next goal: goal **create**, **replace**, and **resume** clear the pending error pause, and only an armed goal absorbs one ([#573](https://github.com/LankfordAI/omp-ui/issues/573)).
+- The plan verifier's deadline counts from when the job was enqueued, so a hung verification page can no longer leave later checks running unbounded, and disposing the verifier drops its queued jobs, not just the active one ([#577](https://github.com/LankfordAI/omp-ui/issues/577)).
+- The app stops growing over long uptimes: the KaTeX render memo is LRU-bounded — a streamed formula no longer leaves one permanent entry per intermediate prefix — and console-drawer tab state prunes with the tab ([#586](https://github.com/LankfordAI/omp-ui/issues/586)).
+- A sidebar branch-list refresh fans its independent git reads out concurrently, so the refresh costs the slowest read instead of their serial sum ([#611](https://github.com/LankfordAI/omp-ui/issues/611)).
+- Session records saved before the advisor picker existed now load with a defined advisor value like every other legacy field, instead of slipping through validation as an absent one typed as present ([#575](https://github.com/LankfordAI/omp-ui/issues/575)).
+- Under the surface this release is a whole-codebase consistency sweep: the server instance client and the web remote client share one transport core, every guarded fetch one `Load<T>` state, every spawn one generated-bridge prelude, the settings rows one primitive set, and the store, plan pipeline, backend handler table, and capability surfaces each hold one authoritative source for facts they used to duplicate.
 
 ## Choose a download
 
