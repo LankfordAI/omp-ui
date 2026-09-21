@@ -20,6 +20,8 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     modelFavorites: [],
     skipDeleteConfirmation: false,
     experimentsEnabled: false,
+    // Existing suites never auto-open the first-run checklist (issue #623).
+    gettingStartedSeen: true,
     themeId: "graphite",
     fontFamilyId: "default",
     transcriptWidth: "wide",

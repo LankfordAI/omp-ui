@@ -25,6 +25,7 @@ interface RegistrySettings {
   experimentsEnabled: boolean;
   sessionOrderFrozen: boolean;
   memoryDefaultsSeeded: boolean;
+  gettingStartedSeen: boolean;
   dismissedAppUpdateVersion: string | null;
   dismissedOmpUpdateVersion: string | null;
   themeId: string;
@@ -99,6 +100,9 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     // recency freeze exactly like pre-#274 registries do.
     sessionOrderFrozen: false,
     memoryDefaultsSeeded: false,
+    // Default false: the boot seed (issue #623) flips it for registries that
+    // already carry projects or sessions, exactly like an upgrade does.
+    gettingStartedSeen: false,
     dismissedAppUpdateVersion: null,
     dismissedOmpUpdateVersion: null,
     themeId: "graphite",

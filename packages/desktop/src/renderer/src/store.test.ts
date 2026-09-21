@@ -16,6 +16,18 @@ import {
 } from "./test/fixtures";
 import { h } from "./test/store-harness";
 
+const platformMocks = vi.hoisted(() => ({ electron: false }));
+
+// store.ts gates the first-run checklist auto-open on the Electron shell; the
+// auto-open tests flip this per fresh-module evaluation (issue #623).
+vi.mock("./lib/platform", () => ({
+  get IS_ELECTRON() {
+    return platformMocks.electron;
+  },
+  IS_MAC: false,
+  IS_WINDOWS: false,
+}));
+
 
 describe("deriveSidebarSessionState", () => {
   const summary = () => h.stateWithRecord(null).projects[0]!.sessions[0]!;
@@ -941,5 +953,71 @@ describe("branch:changed subscription (issue #498)", () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
     expect(h.mockBackend.remoteInstanceRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe("getting-started checklist (issue #623)", () => {
+  it("open flips visibility without any backend write", () => {
+    h.useStore.getState().openGettingStarted();
+    expect(h.useStore.getState().gettingStartedOpen).toBe(true);
+    expect(h.mockBackend.setGettingStartedSeen).not.toHaveBeenCalled();
+  });
+
+  it("dismiss closes and marks the authoritative flag seen exactly once", () => {
+    h.useStore.setState({
+      state: makeBackendState({ gettingStartedSeen: false }),
+      gettingStartedOpen: true,
+    });
+    h.useStore.getState().dismissGettingStarted();
+    expect(h.useStore.getState().gettingStartedOpen).toBe(false);
+    expect(h.mockBackend.setGettingStartedSeen).toHaveBeenCalledTimes(1);
+    expect(h.mockBackend.setGettingStartedSeen).toHaveBeenCalledWith(true);
+  });
+
+  it("dismiss on an install already marked seen writes nothing", () => {
+    h.useStore.setState({
+      state: makeBackendState({ gettingStartedSeen: true }),
+      gettingStartedOpen: true,
+    });
+    h.useStore.getState().dismissGettingStarted();
+    expect(h.useStore.getState().gettingStartedOpen).toBe(false);
+    expect(h.mockBackend.setGettingStartedSeen).not.toHaveBeenCalled();
+  });
+
+  // Fresh modules: init() latches per evaluation, and the auto-open reads the
+  // fetched state through the Electron-shell gate the platform mock exposes.
+  it("init auto-opens when the desktop shell's fetched state is unseen", async () => {
+    vi.resetModules();
+    platformMocks.electron = true;
+    try {
+      h.backendState = makeBackendState({ gettingStartedSeen: false });
+      const { useStore: fresh } = await import("./store");
+      await fresh.getState().init();
+      expect(fresh.getState().gettingStartedOpen).toBe(true);
+    } finally {
+      platformMocks.electron = false;
+    }
+  });
+
+  it("init stays closed when the fetched state is already seen", async () => {
+    vi.resetModules();
+    platformMocks.electron = true;
+    try {
+      h.backendState = makeBackendState({ gettingStartedSeen: true });
+      const { useStore: fresh } = await import("./store");
+      await fresh.getState().init();
+      expect(fresh.getState().gettingStartedOpen).toBe(false);
+    } finally {
+      platformMocks.electron = false;
+    }
+  });
+
+  it("a remote renderer never auto-opens", async () => {
+    vi.resetModules();
+    platformMocks.electron = false;
+    h.backendState = makeBackendState({ gettingStartedSeen: false });
+    const { useStore: fresh } = await import("./store");
+    await fresh.getState().init();
+    expect(fresh.getState().gettingStartedOpen).toBe(false);
   });
 });

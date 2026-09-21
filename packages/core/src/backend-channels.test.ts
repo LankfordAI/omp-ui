@@ -149,6 +149,7 @@ const VALID_ARGS = {
   setDesktopNotifications: [true],
   setExperimentsEnabled: [true],
   setFontFamilyId: ["mono"],
+  setGettingStartedSeen: [true],
   setGlassChrome: ["subtle"],
   setHibernateIdleMinutes: [30],
   setMcpServerEnabled: [{ projectCwd: null, name: "github", enabled: true }],

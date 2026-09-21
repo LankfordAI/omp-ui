@@ -78,6 +78,7 @@ describe("SETTINGS", () => {
       "experimentsEnabled",
       "sessionOrderFrozen",
       "memoryDefaultsSeeded",
+      "gettingStartedSeen",
       "dismissedAppUpdateVersion",
       "dismissedOmpUpdateVersion",
       "themeId",
@@ -118,6 +119,8 @@ describe("Registry.load", () => {
     expect(reg.getSetting("defaultMode")).toBe("rpc-ui");
     expect(reg.getSetting("defaultAgentMode")).toBe("plan");
     expect(reg.getSetting("skipDeleteConfirmation")).toBe(false);
+    // Issue #623: a fresh registry has never seen the Getting started checklist.
+    expect(reg.getSetting("gettingStartedSeen")).toBe(false);
     expect(reg.getSetting("experimentsEnabled")).toBe(false);
     // Issue #109: HTML is the default plan review rendition.
     expect(reg.getSetting("planFormat")).toBe("html");
@@ -332,6 +335,7 @@ describe("Registry persistence", () => {
     reg.setSetting("defaultMode", "rpc-ui");
     reg.setSetting("defaultAgentMode", "build");
     reg.setSetting("skipDeleteConfirmation", true);
+    reg.setSetting("gettingStartedSeen", true);
 
     const reloaded = Registry.load(file);
     expect(reloaded.projects).toHaveLength(1);
@@ -341,6 +345,7 @@ describe("Registry persistence", () => {
     expect(reloaded.getSetting("defaultMode")).toBe("rpc-ui");
     expect(reloaded.getSetting("defaultAgentMode")).toBe("build");
     expect(reloaded.getSetting("skipDeleteConfirmation")).toBe(true);
+    expect(reloaded.getSetting("gettingStartedSeen")).toBe(true);
   });
 
   it("round-trips persisted plan handoff metadata", () => {
@@ -593,6 +598,7 @@ describe("Registry persistence", () => {
     expect(reg.getSetting("appUpdateCheckOnLaunch")).toBe(true);
     expect(reg.getSetting("appUpdateTrain")).toBe("stable");
     expect(reg.getSetting("ompUpdateCheckOnLaunch")).toBe(true);
+    expect(reg.getSetting("gettingStartedSeen")).toBe(false);
   });
 
   it("round-trips a non-default theme and launch update checks across a reload", () => {
@@ -603,6 +609,7 @@ describe("Registry persistence", () => {
     reg.setSetting("appUpdateCheckOnLaunch", false);
     reg.setSetting("appUpdateTrain", "nightly");
     reg.setSetting("ompUpdateCheckOnLaunch", false);
+    reg.setSetting("gettingStartedSeen", true);
 
     const reloaded = Registry.load(file);
     expect(reloaded.getSetting("themeId")).toBe("theme-from-a-newer-build");
@@ -610,6 +617,7 @@ describe("Registry persistence", () => {
     expect(reloaded.getSetting("appUpdateCheckOnLaunch")).toBe(false);
     expect(reloaded.getSetting("appUpdateTrain")).toBe("nightly");
     expect(reloaded.getSetting("ompUpdateCheckOnLaunch")).toBe(false);
+    expect(reloaded.getSetting("gettingStartedSeen")).toBe(true);
   });
 
   it("does not write when a public setting setter receives the current value", () => {
@@ -624,6 +632,7 @@ describe("Registry persistence", () => {
       ["desktopNotifications", (registry) => registry.setSetting("desktopNotifications", true)],
       ["defaultAdvisor", (registry) => registry.setSetting("defaultAdvisor", false)],
       ["skipDeleteConfirmation", (registry) => registry.setSetting("skipDeleteConfirmation", false)],
+      ["gettingStartedSeen", (registry) => registry.setSetting("gettingStartedSeen", false)],
       ["experimentsEnabled", (registry) => registry.setSetting("experimentsEnabled", false)],
       ["themeId", (registry) => registry.setSetting("themeId", "graphite")],
       ["fontFamilyId", (registry) => registry.setSetting("fontFamilyId", "default")],

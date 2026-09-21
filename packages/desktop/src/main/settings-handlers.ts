@@ -25,6 +25,7 @@ type SettingsHandlerChannels =
   | typeof CH.setDefaultAdvisor
   | typeof CH.setSubagentModelInheritByDefault
   | typeof CH.setSkipDeleteConfirmation
+  | typeof CH.setGettingStartedSeen
   | typeof CH.setExperimentsEnabled
   | typeof CH.setThemeId
   | typeof CH.setFontFamilyId
@@ -74,6 +75,7 @@ export function registerSettingsHandlers(
     [CH.setSubagentModelInheritByDefault]: (value: boolean) =>
       commit("subagentModelInheritByDefault", value),
     [CH.setSkipDeleteConfirmation]: (value: boolean) => commit("skipDeleteConfirmation", value),
+    [CH.setGettingStartedSeen]: (value: boolean) => commit("gettingStartedSeen", value),
     [CH.setExperimentsEnabled]: (value: boolean) => commit("experimentsEnabled", value),
     [CH.setThemeId]: (value: string) => commit("themeId", value),
     [CH.setFontFamilyId]: (value: string) => commit("fontFamilyId", value),

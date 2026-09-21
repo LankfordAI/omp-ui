@@ -350,6 +350,15 @@ export class MainBackend {
     });
     // A stable identity so a joiner can recognise this app as itself (issue #416).
     if (this.registry.getSetting("instanceId") === "") this.registry.setSetting("instanceId", randomUUID());
+    // A registry that already carries a life — projects or sessions — is not a
+    // first install; seed the Getting started checklist as seen so the upgrade
+    // never pops it (issue #623).
+    if (
+      !this.registry.getSetting("gettingStartedSeen") &&
+      (this.registry.projects.length > 0 || this.registry.sessions.length > 0)
+    ) {
+      this.registry.setSetting("gettingStartedSeen", true);
+    }
     this.remoteInstances = new RemoteInstanceManager({
       store: new RemoteInstanceStore(
         opts.remoteInstancesFile ?? path.join(path.dirname(registryFile), "remote-instances.json"),
@@ -1229,6 +1238,7 @@ export class MainBackend {
       agentRoster: this.registry.getSetting("agentRoster"),
       modelFavorites: this.registry.getFavorites(),
       skipDeleteConfirmation: this.registry.getSetting("skipDeleteConfirmation"),
+      gettingStartedSeen: this.registry.getSetting("gettingStartedSeen"),
       themeId: this.registry.getSetting("themeId"),
       fontFamilyId: this.registry.getSetting("fontFamilyId"),
       transcriptWidth: this.registry.getSetting("transcriptWidth"),

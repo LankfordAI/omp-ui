@@ -35,6 +35,8 @@ export interface ViewSlice {
   restoringTabs: boolean;
   projectPickerOpen: boolean;
   projectPickerInstanceId: string | null;
+  /** True while the first-run Getting started checklist overlay is open (issue #623). */
+  gettingStartedOpen: boolean;
   /** The diagnostic-bundle export dialog (issue #413). */
   diagnosticsDialogOpen: boolean;
   browserPaneClearDialogOpen: boolean;
@@ -64,6 +66,8 @@ export interface ViewSlice {
   closeProjectPicker(): void;
   openDiagnosticsDialog(): void;
   closeDiagnosticsDialog(): void;
+  openGettingStarted(): void;
+  dismissGettingStarted(): void;
   openBrowserPaneClearDialog(): void;
   closeBrowserPaneClearDialog(): void;
   openWorktreeDialog(projectCwd: string, instanceId?: string | null): void;
@@ -319,13 +323,14 @@ export function installViewedTabReporter(api: StoreApi<UiStore>): () => void {
   };
 }
 
-export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) => ({
+export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, get) => ({
   tabs: [],
   activeTabId: null,
   focusedTabByProject: {},
   restoringTabs: false,
   projectPickerOpen: false,
   projectPickerInstanceId: null,
+  gettingStartedOpen: false,
   diagnosticsDialogOpen: false,
   browserPaneClearDialogOpen: false,
   worktreeDialogProject: null,
@@ -362,6 +367,18 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set) =
   },
   closeProjectPicker() {
     set({ projectPickerOpen: false, projectPickerInstanceId: null });
+  },
+  openGettingStarted() {
+    set({ gettingStartedOpen: true });
+  },
+  dismissGettingStarted() {
+    set({ gettingStartedOpen: false });
+    // Mark the checklist seen once, on the first dismissal that finds the
+    // authoritative flag still false; a palette re-open on an old install
+    // stays a read.
+    if (get().state?.gettingStartedSeen === false) {
+      backend.setGettingStartedSeen(true).catch((err) => get().reportError(err));
+    }
   },
   openDiagnosticsDialog() {
     set({ diagnosticsDialogOpen: true });

@@ -600,6 +600,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice {
   projectPickerOpen: boolean;
   /** The instance a picked directory registers on; null = local (issue #416). */
   projectPickerInstanceId: string | null;
+  /** True while the first-run Getting started checklist overlay is open (issue #623). */
+  gettingStartedOpen: boolean;
   /** True while the diagnostic-bundle export dialog is open (issue #413). */
   diagnosticsDialogOpen: boolean;
   browserPaneClearDialogOpen: boolean;
@@ -634,6 +636,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice {
   init(): Promise<void>;
   openProjectPicker(instanceId?: string | null): void;
   closeProjectPicker(): void;
+  openGettingStarted(): void;
+  dismissGettingStarted(): void;
   openDiagnosticsDialog(): void;
   closeDiagnosticsDialog(): void;
   openBrowserPaneClearDialog(): void;

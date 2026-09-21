@@ -628,6 +628,16 @@ failures stay silent. When both show they share one corner stack, the omp-ui
 card on top.
 _Avoid_: toast, notification, popup, updater dialog
 
+**Getting started checklist**:
+The first-run overlay that tracks the four gates of a fresh install — the
+managed omp binary, a provider credential, a registered project, and a first
+owned session — reading each from live backend state and marking itself seen
+(`gettingStartedSeen`) when dismissed. It auto-opens once, only on the desktop
+shell, and re-opens from the command palette or the empty-state button. It is
+per-renderer visibility over the one persisted flag, never a second store of
+user progress.
+_Avoid_: onboarding wizard, tour, coach marks
+
 **Update train**: The user's choice of which omp-ui release line the update check follows — stable (the default: tagged GitHub releases) or nightly (the rolling `nightly` prerelease, built on demand from the trunk). Set in Settings → Updates; one setting, not per-install. _Avoid_: channel, ring, track.
 
 **Settings surface**:
