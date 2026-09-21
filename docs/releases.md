@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Executing an approved plan in a fresh session dispatches its seed prompt again: the unified settle predicate no longer treats a broadcast landing mid-spawn — which shows the just-registered session as not yet live — as a settled process and silently aborts the handoff ([#622](https://github.com/LankfordAI/omp-ui/issues/622)).
+Nothing since [v0.13.11](https://github.com/LankfordAI/omp-ui/releases/tag/v0.13.11). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
