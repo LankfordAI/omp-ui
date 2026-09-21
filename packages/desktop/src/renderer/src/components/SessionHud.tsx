@@ -746,6 +746,12 @@ export function SessionHud({ tabId }: { tabId: string }) {
   // accent is reserved for liveness (ADR-0004), matching the sidebar's
   // dormant style.
   const hibernated = useStore((s) => s.hibernated[tabId] === true);
+  // A manual compaction this renderer started whose ack has not landed. The
+  // authoritative "compacting" signal while omp's serial chain is blocked:
+  // `session.isCompacting` arrives through get_state, and every poll queues
+  // behind that same chain, so it reads stale for the whole compaction
+  // (issue #625).
+  const compacting = useStore((s) => s.rpc[tabId]?.compacting !== undefined);
   const session = useStore((s) => s.rpc[tabId]?.session);
   const stats = useStore((s) => s.rpc[tabId]?.stats);
   const extensionStatus = useStore((s) => s.rpc[tabId]?.extensionStatus);
@@ -872,7 +878,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
     return (
       <>
         <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
-          <LivenessBadge compacting={session?.isCompacting === true} stallMs={streamStallMs} face={resolvedFace} label={label} short />
+          <LivenessBadge compacting={session?.isCompacting === true || compacting} stallMs={streamStallMs} face={resolvedFace} label={label} short />
           {instanceChip}
           {agentModeChip}
           {goalChip}
@@ -902,7 +908,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
               <Label>{t("hud.actions.heading")}</Label>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />
-                <Button tone="copper" disabled={session?.isCompacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />{t("hud.actions.compact")}</Button>
+                <Button tone="copper" disabled={session?.isCompacting === true || compacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />{t("hud.actions.compact")}</Button>
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />{t("hud.actions.export")}</Button>
                 <Button onClick={() => openCapabilitiesViewer(null, undefined, "mcp", instanceId)} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>
                 <Button title={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.branch")}</Button>
@@ -926,7 +932,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   return (
     <div className="titlebar-hud flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden px-2 [app-region:drag]">
       <LivenessBadge
-        compacting={session?.isCompacting === true}
+        compacting={session?.isCompacting === true || compacting}
         stallMs={streamStallMs}
         face={resolvedFace}
         label={label}
@@ -993,7 +999,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           variant="ghost"
           tone="copper"
           title={t("hud.actions.compactTitle")}
-          disabled={session?.isCompacting}
+          disabled={session?.isCompacting === true || compacting}
           onClick={() => void compactSession(tabId)}
         >
           <IconCompact />

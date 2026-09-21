@@ -33,6 +33,7 @@ import {
 } from "../../lib/transcript";
 import { randomId } from "../../lib/random-id";
 import {
+  COMPACT_SETTLE_DEADLINE_MS,
   RPC_COMMAND_TIMEOUT_MS,
   dropPlanHandoff,
   respData,
@@ -44,7 +45,7 @@ import {
 import { rpcCommandMachinery } from "./rpc-command";
 import { buildTitleTranscript } from "../../lib/session-transcript";
 import { findOwner, findRecord, sessionCwd } from "./view";
-import type { UiStore } from "../types";
+import type { CompactionOutcome, UiStore } from "../types";
 
 export type SessionParamsSlice = Pick<
   UiStore,
@@ -530,15 +531,51 @@ export function createSessionParamsSlice(
     await m.runCommand(tabId, { type: "abort_retry" });
   };
 
-  /** Resolves true only when omp acknowledged the compaction (issue #336). */
-  const compactSession = async (tabId: string): Promise<boolean> => {
+  /**
+   * See `UiStore.compactSession`. The response ack is the completion event
+   * (#336); when it beats the response budget, the late response frame closes
+   * the record from the reducer instead, and this call reports `pending`
+   * (issue #625).
+   */
+  const compactSession = async (
+    tabId: string,
+    options?: { waitForCompletion?: boolean },
+  ): Promise<CompactionOutcome> => {
+    const tab = get().rpc[tabId];
+    // omp refuses a second compaction outright ("Compaction already in
+    // progress"), so a click during one in flight reports, never re-sends.
+    if (tab?.compacting !== undefined || !m.acceptsCommands(tabId)) return "failed";
     m.appendItem(tabId, markerItem("compacting context", "copper"));
+    m.patchRpc(tabId, { compacting: { startedAt: Date.now() } });
+    m.patchRuntime(tabId, { compactionOutcome: undefined });
     const resp = await m.runCommand(tabId, { type: "compact" });
-    if (resp === null) return false;
-    // `data.summary` is the entire compacted history — noted, never rendered.
-    m.appendItem(tabId, markerItem("context compacted", "copper"));
-    await m.refreshUsage(tabId);
-    return true;
+    if (resp !== null) {
+      // The id was pending, so the reducer never claimed this observation:
+      // this call appends the completion Marker.
+      m.finishCompaction(tabId, "acked");
+      return "acked";
+    }
+    // No ack yet, but the chain may still be working: the timeout attribution
+    // entry outlives the budget until the response is observed (#302), so it
+    // is the authoritative "still coming" signal.
+    if (
+      m
+        .runtime(tabId)
+        .timedOutCommands.some((c) => c.command === "compact")
+    ) {
+      if (options?.waitForCompletion !== true) return "pending";
+      await m.pollUntil(
+        tabId,
+        (t) => t?.compacting === undefined,
+        COMPACT_SETTLE_DEADLINE_MS,
+      );
+      if (get().rpc[tabId]?.compacting !== undefined) return "pending"; // deadline passed
+      return m.runtime(tabId).compactionOutcome ?? "failed";
+    }
+    // Refused outright, or the process left (abandoned): the banner or the
+    // exit overlay owns the story; no completion Marker is earned.
+    m.finishCompaction(tabId, "failed");
+    return "failed";
   };
 
   const exportHtml = async (tabId: string): Promise<void> => {

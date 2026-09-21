@@ -22,6 +22,7 @@ import {
   type SessionRuntime,
 } from "../../lib/rpc-types";
 import {
+  markerItem,
   noticeItem,
   reduceEvent,
   type NoticeItem,
@@ -32,6 +33,7 @@ import type { PlanConcernWatcher } from "../../lib/plan-concerns";
 import type { StallContinueWatcher } from "../../lib/stall-continue";
 import { backend } from "../../backend";
 import type {
+  CompactionOutcome,
   RpcTabState,
   SidebarSessionState,
   TuiHandoff,
@@ -78,6 +80,8 @@ export interface TabRuntime {
   slashCommandItems: Map<string, string>;
   streamStallTimer?: number;
   compactionUsageGeneration?: number;
+  /** The verdict recorded by the last manual compaction this tab settled. */
+  compactionOutcome?: CompactionOutcome;
   lastUsageRefresh?: number;
   subagentPendingLevel?: "progress" | "events";
   /** Bumped by every capability push and by teardown; invalidates reads (#374). */
@@ -106,6 +110,8 @@ export interface StoreMachinery {
   discardTabRuntime(tabId: string): void;
   bumpCompactionUsageGeneration(tabId: string): number;
   patchSession(tabId: string, patch: Partial<SessionRuntime>): void;
+  /** Closes a manual compaction exactly once, from whichever path observed it. */
+  finishCompaction(tabId: string, outcome: CompactionOutcome): void;
   effectiveItems(tabId: string): RenderItem[];
   queueTranscriptFrame(
     tabId: string,
@@ -141,6 +147,14 @@ export interface StoreMachinery {
 
 /** The RPC response budget, shared by rpc-command and the advisor relaunch. */
 export const RPC_COMMAND_TIMEOUT_MS = 30_000;
+
+/**
+ * How long an execution waits for a compaction whose ack beat the response
+ * budget. Grounded in measurement: a 247k-token compaction committed 175s
+ * after its turn ended, so the window must clear minutes, not seconds
+ * (issue #625).
+ */
+export const COMPACT_SETTLE_DEADLINE_MS = 15 * 60_000;
 
 /**
  * omp answers on one serial chain (rpc-mode.ts `RpcInputDispatcher`). These
@@ -864,6 +878,48 @@ export function createMachinery(
     patchRpc(tabId, { session: { ...tab.session, ...patch } });
   };
 
+  /**
+   * The one place a manual compaction closes. The in-time ack and the late
+   * response frame both route here, and the record is cleared first, so a
+   * second caller is a no-op instead of a doubled Marker.
+   */
+  const finishCompaction = (
+    tabId: string,
+    outcome: CompactionOutcome,
+  ): void => {
+    const tab = get().rpc[tabId];
+    if (tab?.compacting === undefined) return;
+    const elapsedMs = Date.now() - tab.compacting.startedAt;
+    patchRuntime(tabId, { compactionOutcome: outcome });
+    patchRpc(tabId, {
+      compacting: undefined,
+      // The banner said "may still complete"; it just did. Retire only the
+      // compact timeout, never another command's or a fatal one — and never
+      // on a `failed` verdict, whose banner or exit overlay owns the story.
+      ...(outcome !== "failed" &&
+      tab.failure?.kind === "command" &&
+      tab.failure.command === "compact"
+        ? { failure: undefined }
+        : {}),
+    });
+    if (outcome === "failed") return;
+    appendItem(
+      tabId,
+      // The duration is the slow path's own evidence; a compaction inside the
+      // budget reads exactly as it always did.
+      markerItem(
+        elapsedMs >= RPC_COMMAND_TIMEOUT_MS
+          ? `context compacted — ${formatDuration(elapsedMs)}`
+          : "context compacted",
+        "copper",
+      ),
+    );
+    // A manual ack is sent after the boundary is committed, so one read is
+    // already accurate — the same reason the old inline path used
+    // `refreshUsage`, not the auto path's convergence retry.
+    void refreshUsage(tabId);
+  };
+
   const applyRpcState = (tabId: string, resp: unknown): void => {
     const tab = get().rpc[tabId];
     const payload = respData(resp);
@@ -970,6 +1026,7 @@ export function createMachinery(
     discardTabRuntime,
     bumpCompactionUsageGeneration,
     patchSession,
+    finishCompaction,
     effectiveItems,
     queueTranscriptFrame,
     flushTranscriptBatch,

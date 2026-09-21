@@ -19,7 +19,7 @@ const TAB = "tab-mobile";
 const BUILD_MODE_TOOLTIP = "Build mode — working-tree writes and state-changing commands are allowed";
 const PLAN_MODE_TOOLTIP_WITH_PATH = "Plan mode — read-only exploration — /plan.md";
 const PLAN_MODE_TOOLTIP_WITHOUT_PATH = "Plan mode — read-only exploration — no plan drafted";
-const compactSession = vi.fn(async () => true);
+const compactSession = vi.fn(async () => "acked" as const);
 const exportHtml = vi.fn(async () => {});
 const branchSession = vi.fn(async () => {});
 const newSession = vi.fn(async () => {});
@@ -621,6 +621,27 @@ describe("SessionHud stream-stall chip (issue #228)", () => {
     act(() => root!.render(<SessionHud tabId={TAB} />));
     expect(host.textContent).toContain("compacting");
     expect(host.textContent).not.toContain("no stream activity for");
+  });
+
+  it("reads compacting from the renderer's own record while the chain is blocked (issue #625)", () => {
+    desktop();
+    // The get_state field cannot know: every poll queues behind the blocked
+    // chain, so the HUD must trust the tab's own compaction record.
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          status: "ready",
+          session: { ...emptySessionRuntime(), isCompacting: false },
+          compacting: { startedAt: Date.now() },
+        },
+      },
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(host.textContent).toContain("compacting");
+    const compact = host.querySelector<HTMLButtonElement>('button[title="compact the conversation now"]')!;
+    expect(compact.disabled).toBe(true);
   });
 });
 

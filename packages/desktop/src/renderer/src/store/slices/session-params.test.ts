@@ -59,7 +59,9 @@ describe("prompting, slash commands, and session ops", () => {
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "starting" }) } });
     await expect(h.useStore.getState().sendPrompt(h.TAB, "starting")).resolves.toBe(false);
     expect(h.sent).toHaveLength(0);
-    await expect(h.useStore.getState().compactSession(h.TAB)).resolves.toBe(false);
+    await expect(h.useStore.getState().compactSession(h.TAB)).resolves.toBe("failed");
+    // A command never sent must not mark the transcript.
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(0);
     await h.useStore.getState().exportHtml(h.TAB);
     expect(h.sent).toHaveLength(0);
 
@@ -1344,21 +1346,92 @@ describe("prompting, slash commands, and session ops", () => {
     expect(JSON.stringify(items)).not.toContain("xxxx");
   });
 
-  it("compactSession reports whether omp acknowledged the compaction (issue #336)", async () => {
+  it("compactSession reports omp's verdict, and a late ack settles the record (issue #336, #625)", async () => {
     const acked = h.useStore.getState().compactSession(h.TAB);
     await settleAll({ summary: "…" });
-    await expect(acked).resolves.toBe(true);
+    await expect(acked).resolves.toBe("acked");
+    // In-time path: exactly one completion marker, byte-identical to the old
+    // transcript, and the record is already closed.
+    const early = h.useStore.getState().rpc[h.TAB]!;
+    expect(early.compacting).toBeUndefined();
+    const closed = early.items.filter(
+      (i): i is Extract<RenderItem, { kind: "marker" }> =>
+        i.kind === "marker" && i.label.startsWith("context compacted"),
+    );
+    expect(closed).toHaveLength(1);
+    expect(closed[0]).toMatchObject({ label: "context compacted" });
 
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      h.sent.length = 0;
+      const held = h.useStore.getState().compactSession(h.TAB);
+      await vi.advanceTimersByTimeAsync(31_000);
+      await expect(held).resolves.toBe("pending");
+      expect(h.useStore.getState().rpc[h.TAB]!.compacting).toBeDefined();
+      expect(h.useStore.getState().rpc[h.TAB]!.failure).toMatchObject({
+        kind: "command",
+        command: "compact",
+      });
+      // The stage-one marker stays in the transcript: count only what this
+      // compaction closes.
+      const beforeClose = h.useStore.getState().rpc[h.TAB]!.items.length;
+      // The late response frame is the completion event: the banner retires,
+      // the start marker closes with the duration, and usage refreshes.
+      const compact = h.sent.find((s) => s.cmd.type === "compact")!;
+      h.respond(h.TAB, compact.cmd, { summary: "…" });
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.compacting).toBeUndefined();
+      expect(tab.failure).toBeUndefined();
+      const closes = tab.items.slice(beforeClose).filter(
+        (i): i is Extract<RenderItem, { kind: "marker" }> =>
+          i.kind === "marker" && i.label.startsWith("context compacted"),
+      );
+      expect(closes).toHaveLength(1);
+      expect(closes[0]).toMatchObject({ label: "context compacted — 31.0s" });
+      expect(h.sent.some((s) => s.cmd.type === "get_state")).toBe(true);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("a late error response closes the compaction failed, banner intact and no completion marker (issue #625)", async () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const held = h.useStore.getState().compactSession(h.TAB);
       await vi.advanceTimersByTimeAsync(31_000);
-      await expect(held).resolves.toBe(false);
+      await expect(held).resolves.toBe("pending");
+      const compact = h.sent.find((s) => s.cmd.type === "compact")!;
+      h.respond(h.TAB, compact.cmd, "compaction refused", false);
+      await h.flushMicrotasks();
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.compacting).toBeUndefined();
+      expect(tab.failure).toMatchObject({ kind: "command", command: "compact" });
+      const markers = tab.items.filter((i) => i.kind === "marker");
+      expect(markers).toHaveLength(1);
+      expect(markers[0]).toMatchObject({ label: "compacting context" });
+      // A compaction that never happened claims no fresh usage.
+      expect(h.sent.some((s) => s.cmd.type === "get_state")).toBe(false);
     } finally {
       warn.mockRestore();
       vi.useRealTimers();
     }
+  });
+
+  it("a second compactSession during one in flight reports without sending or marking (issue #625)", async () => {
+    const first = h.useStore.getState().compactSession(h.TAB);
+    await h.flushMicrotasks();
+    // omp refuses a second compaction outright; the guard behind the disabled
+    // button reports the in-flight one instead of re-sending.
+    await expect(h.useStore.getState().compactSession(h.TAB)).resolves.toBe("failed");
+    expect(h.sent.filter((s) => s.cmd.type === "compact")).toHaveLength(1);
+    const markers = h.useStore.getState().rpc[h.TAB]!.items.filter((i) => i.kind === "marker");
+    expect(markers).toHaveLength(1);
+    expect(markers[0]).toMatchObject({ label: "compacting context" });
+    await settleAll({ summary: "…" });
+    await first;
   });
 
   describe("automatic compaction usage convergence", () => {

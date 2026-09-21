@@ -408,22 +408,34 @@ export const rpcCommandMachinery = {
     });
   },
 
+  /**
+   * Resolves or drops the pending wait for `id`. Returns the command name
+   * when the response is the late completion of a timed-out command — the
+   * observation the #302 attribution waits for, and for `compact` the only
+   * proof the work landed (issue #625) — and null otherwise.
+   */
   settle(
     tabId: string,
     id: string,
     response: { success: boolean; frame: unknown; error?: unknown },
     m: StoreMachinery,
-  ): void {
+  ): string | null {
     const tabPending = pendingCommands.get(tabId);
     const pending = tabPending?.get(id);
     if (!pending) {
       // The budget expired first: this late response is the completion
-      // observation the timeout attribution waits for (issue #302).
-      const timedOutCommands = m
-        .runtime(tabId)
-        .timedOutCommands.filter((entry) => entry.id !== id);
-      m.patchRuntime(tabId, { timedOutCommands });
-      return;
+      // observation the timeout attribution waits for (issue #302), and it is
+      // also the only proof some commands — `compact` — have of finishing.
+      const late =
+        m
+          .runtime(tabId)
+          .timedOutCommands.find((entry) => entry.id === id)?.command ?? null;
+      m.patchRuntime(tabId, {
+        timedOutCommands: m
+          .runtime(tabId)
+          .timedOutCommands.filter((entry) => entry.id !== id),
+      });
+      return late;
     }
     clearTimeout(pending.timer);
     tabPending!.delete(id);
@@ -443,10 +455,15 @@ export const rpcCommandMachinery = {
     } else {
       pending.resolve(response.frame);
     }
+    return null;
   },
 
   abandon(tabId: string, reason: string, m: StoreMachinery): void {
     m.patchRuntime(tabId, { timedOutCommands: [], lastFrameAt: undefined });
+    // The process left, so no completion frame will ever land: close an open
+    // manual compaction as failed even when its own promise already returned
+    // past the budget (issue #625). A no-op when no record is open.
+    m.finishCompaction(tabId, "failed");
     const tabPending = pendingCommands.get(tabId);
     if (tabPending === undefined || tabPending.size === 0) return;
     pendingCommands.delete(tabId);

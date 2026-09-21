@@ -167,6 +167,14 @@ export interface BrowserPaneView {
   frame: BrowserPaneFrameHeader | null;
 }
 
+/**
+ * A manual compaction's verdict as the renderer knows it. `pending` means omp
+ * has neither acknowledged nor refused it yet — past the response budget the
+ * ack is still coming, and only the response frame can prove the work landed
+ * (issue #625).
+ */
+export type CompactionOutcome = "acked" | "pending" | "failed";
+
 /** Per-tab rpc-ui state (the phase-2 doc's state machine, concretized). */
 export interface RpcTabState {
   status: "starting" | "ready" | "running" | "error";
@@ -209,6 +217,14 @@ export interface RpcTabState {
   extensionQueue: unknown[];
   /** True while any rpc command is in flight. */
   busy: boolean;
+  /**
+   * A manual compaction this tab started whose completion omp has not yet
+   * confirmed. Its ack is the completion event, and a compaction larger than
+   * the response budget holds this set past that budget's expiry: the
+   * transcript's start Marker stays open and the Session HUD keeps reading
+   * "compacting" until the response frame lands (issue #625).
+   */
+  compacting?: { startedAt: number };
   failure?: RpcFailure;
   initialPrompt: string | null;
   /**
@@ -812,8 +828,19 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice {
   setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
   setAutoRetry(tabId: string, enabled: boolean): Promise<void>;
   abortRetry(tabId: string): Promise<void>;
-  /** Resolves true only when omp acknowledged the compaction (issue #336). */
-  compactSession(tabId: string): Promise<boolean>;
+  /**
+   * Compacts the context. Resolves `acked` only when omp acknowledged the
+   * compaction (#336), `pending` when it is still running past the response
+   * budget, and `failed` when omp refused it or the process left.
+   * `waitForCompletion` additionally rides out a `pending` compaction until
+   * its ack lands or COMPACT_SETTLE_DEADLINE_MS passes — the plan-execution
+   * caller's contract, since dispatching into a context that never compacted
+   * is the failure #336 was filed for.
+   */
+  compactSession(
+    tabId: string,
+    options?: { waitForCompletion?: boolean },
+  ): Promise<CompactionOutcome>;
   exportHtml(tabId: string): Promise<void>;
   branchSession(tabId: string): Promise<void>;
   renameSessionTo(tabId: string, name: string): Promise<void>;

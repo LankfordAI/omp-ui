@@ -421,7 +421,7 @@ export function createFrameReductionSlice(
       m.patchRuntime(tabId, { lastFrameAt: observedAt });
       if (control?.kind === "response") {
         if (typeof control.id === "string") {
-          rpcCommandMachinery.settle(
+          const late = rpcCommandMachinery.settle(
             tabId,
             control.id,
             {
@@ -431,6 +431,11 @@ export function createFrameReductionSlice(
             },
             m,
           );
+          // A compaction whose ack beat the response budget still completes,
+          // and this frame is the only thing that says so (issue #625). Read
+          // the record fresh: `tab` above predates every patch in this frame.
+          if (late === "compact" && get().rpc[tabId]?.compacting !== undefined)
+            m.finishCompaction(tabId, control.success === false ? "failed" : "acked");
         }
         return;
       }
