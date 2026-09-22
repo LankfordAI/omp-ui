@@ -6,6 +6,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 - Under the **Korean** UI locale the remaining hardcoded chrome renders from the catalog: the **Todos** pane's phase heading, its "N of M complete" tooltips, and the click-to-advance tooltip, plus the Settings → **Remote** footer ([#581](https://github.com/LankfordAI/omp-ui/issues/581)).
 - The **Nightly** workflow refuses a `ref` that does not resolve to a commit on `main`, `develop`, or a stable `v*` tag, so a pasted fork or feature-branch SHA can no longer be signed, notarized, and published to the nightly train; the macOS packaging reusable now receives its secrets by name ([#627](https://github.com/LankfordAI/omp-ui/issues/627)).
+- The macOS packaging reusable no longer takes a caller-supplied target matrix: the arm64/x64 set and the `macos-15` runner are literals in the workflow, and every packaging, notarization, and verification command reads the architecture from an environment variable rather than a spliced expression ([#628](https://github.com/LankfordAI/omp-ui/issues/628)).
 
 Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 

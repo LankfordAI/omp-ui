@@ -177,8 +177,6 @@ jobs:
       version: ${{ needs.meta.outputs.version }}
       ref: ${{ needs.meta.outputs.sha }}
       notarize: ${{ inputs.notarize == 'true' }}
-      targets: >-
-        {"include":[{"arch":"arm64","runner":"macos-15"},{"arch":"x64","runner":"macos-15"}]}
     secrets:
       CSC_LINK: ${{ secrets.CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}

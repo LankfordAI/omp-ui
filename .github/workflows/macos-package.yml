@@ -19,10 +19,6 @@ on:
         description: Notarize and staple the signed package.
         required: true
         type: boolean
-      targets:
-        description: JSON matrix whose include entries contain arch and runner.
-        required: true
-        type: string
       release_tag:
         description: >-
           GitHub release tag to upload the DMG, ZIP, and checksum file to.
@@ -49,25 +45,21 @@ on:
           Developer team ID. notarytool submits with it and the verify step
           asserts the signature carries it, notarized or not.
         required: true
-    outputs:
-      targets:
-        description: The target matrix used to build the packages.
-        value: ${{ jobs.package.outputs.targets }}
 
 jobs:
   package:
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(inputs.targets) }}
-    runs-on: ${{ matrix.runner }}
-    outputs:
-      targets: ${{ steps.targets.outputs.value }}
+      # Fixed target set: the six release distributables are two DMG+ZIP
+      # pairs (docs/releases.md). Callers cannot widen or redirect it —
+      # the matrix and runner are literals here, never inputs (issue #628).
+      matrix:
+        arch: [arm64, x64]
+    # Both architectures package on Apple Silicon: the Intel runner is about
+    # twice as slow at every step and nothing in the lane executes the app
+    # (issue #485).
+    runs-on: macos-15
     steps:
-      - id: targets
-        shell: bash
-        env:
-          TARGETS: ${{ inputs.targets }}
-        run: echo "value=$TARGETS" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.sha }}
@@ -100,7 +92,7 @@ jobs:
           # holds the fresh volume (issue #278). A bounded step retry recovers.
           status=0
           for attempt in 1 2 3; do
-            if npm run package:mac --workspace @omp-ui/desktop -- --${{ matrix.arch }} --publish never --config.mac.notarize=false; then
+            if npm run package:mac --workspace @omp-ui/desktop -- "--$ARCH" --publish never --config.mac.notarize=false; then
               status=0
               break
             else
@@ -114,6 +106,7 @@ jobs:
           done
           exit "$status"
         env:
+          ARCH: ${{ matrix.arch }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
       - name: Notarize macOS build (notarytool with retries)
@@ -123,15 +116,15 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: bash packages/desktop/scripts/notarize-macos.sh "${{ matrix.arch }}"
+          ARCH: ${{ matrix.arch }}
+        run: bash packages/desktop/scripts/notarize-macos.sh "$ARCH"
       - name: Verify signed macOS package
         shell: bash
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: >-
-          bash packages/desktop/scripts/verify-macos-package.sh
-          "${{ matrix.arch }}"
-          "${{ inputs.notarize && 'full' || 'signed-only' }}"
+          ARCH: ${{ matrix.arch }}
+          MODE: ${{ inputs.notarize && 'full' || 'signed-only' }}
+        run: bash packages/desktop/scripts/verify-macos-package.sh "$ARCH" "$MODE"
       - name: Stage macOS package for caller
         if: ${{ inputs.release_tag == '' }}
         uses: actions/upload-artifact@v4
