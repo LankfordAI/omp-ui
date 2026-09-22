@@ -65,10 +65,9 @@ npm run build:web --workspace @omp-ui/desktop
 npm run smoke:pty --workspace @omp-ui/desktop
 
 # Electron-runtime smoke of the shipped browser pane host; writes
-# out/browser-pane-smoke/summary.json. CI runs --once on Linux: the omp-ui
-# self-hosted pool (headless Ozone: the containers have no display) for
-# same-repo events, a hosted runner (headless Ozone, Xvfb fallback) for fork
-# pull requests.
+# out/browser-pane-smoke/summary.json. CI runs --once on Linux: the self-hosted
+# runner for same-repo events, a hosted runner (headless Ozone, Xvfb fallback)
+# for fork pull requests.
 npm run smoke:browser-pane --workspace @omp-ui/desktop
 
 # Regenerate committed theme CSS from theme-sources.json.
@@ -264,16 +263,13 @@ The `npm install --package-lock-only` and `git diff --exit-code package-lock.jso
 
 ### Self-hosted Linux pool
 
-Same-repo CI, `release-linux`, and the nightly `linux-x64` lane run on omp-ui's own repository-level runner pool, label `omp-ui-linux` (issue #629). The pool's contract:
+Same-repo CI, `release-linux`, and the nightly `linux-x64` lane run on the org's self-hosted Linux runner pool; jobs request `[self-hosted, gfx1201]` (the pool registers with labels `linux,rocm,gfx1201`).
 
-- Runners are registered to `LankfordAI/omp-ui` only, as single-job (`--ephemeral`) registrations.
-- Every job runs in a brand-new container started from an image pinned by ID; nothing written by one job survives into the next.
-- The container has no host Docker socket, no GPU devices, no host IPC namespace, and no registration credential in its environment.
-- There is no persistent cache: expect Node, the npm cache, Electron, and electron-builder tooling to download on every job.
+Issue #629 will move these lanes to a dedicated repository-level `omp-ui-linux` pool whose contract is a brand-new container per job: an image pinned by ID, single-job (`--ephemeral`) registrations, no host Docker socket, no GPU devices, no host IPC namespace, no registration credential in the environment, and no persistent cache — expect Node, the npm cache, Electron, and electron-builder tooling to download on every job. No runner serves that label yet; pointing the lanes at it before the pool existed queued every main-branch job indefinitely (issue #631), so retarget only once the pool is registered. Until then the gfx1201 container restarts between jobs with the same filesystem: a warm `~/.npm` and `~/.cache`, and the host Docker socket mounted.
 
-`scripts/assert-isolated-runner.sh` is the first step of each self-hosted job. It fails the job when the runner's settings file lacks `"ephemeral": true`, when `~/.npm` or `~/.cache` already exist before anything was installed, when `ACCESS_TOKEN`/`REG_TOKEN` are in the environment, or when a Docker socket or `DOCKER_HOST` is reachable. It is a misconfiguration detector, not a security boundary: a job that already owns the runner also owns the check. Its unit tests are `node --test scripts/assert-isolated-runner.test.mjs`.
+`scripts/assert-isolated-runner.sh` runs as the first step of each self-hosted job with `continue-on-error: true`: it reports when the runner's settings file lacks `"ephemeral": true`, when `~/.npm` or `~/.cache` already exist before anything was installed, when `ACCESS_TOKEN`/`REG_TOKEN` are in the environment, or when a Docker socket or `DOCKER_HOST` is reachable. It is a misconfiguration detector, not a security boundary: a job that already owns the runner also owns the check. Its failures on the gfx1201 pool's warm filesystem and mounted socket are expected and non-gating until #629's pool ships. Its unit tests are `node --test scripts/assert-isolated-runner.test.mjs`.
 
-The runner image, the host `systemd` supervisor, the host runbook, and the org runner audit live in `LankfordAI/Actions-Runner` under `Dockerfiles/ActionsRunner/README.md`.
+The runner image and the compose-based supervisor live in `LankfordAI/Actions-Runner` under `Dockerfiles/ActionsRunner/`.
 
 ## Pull request reviews
 
