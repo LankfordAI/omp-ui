@@ -65,7 +65,9 @@ npm run build:web --workspace @omp-ui/desktop
 npm run smoke:pty --workspace @omp-ui/desktop
 
 # Electron-runtime smoke of the shipped browser pane host; writes
-# out/browser-pane-smoke/summary.json. CI runs --once on self-hosted Linux.
+# out/browser-pane-smoke/summary.json. CI runs --once on Linux: the self-hosted
+# runner for same-repo events, a hosted runner (headless Ozone, Xvfb fallback)
+# for fork pull requests.
 npm run smoke:browser-pane --workspace @omp-ui/desktop
 
 # Regenerate committed theme CSS from theme-sources.json.
