@@ -172,10 +172,18 @@ through a **loopback CDP bridge** the main process hosts:
   that auto-scales window DIPs — one-shot shrink to CSS-sized windows and
   re-pin), or 1 (override ineffective — the old dsf-1 fallback, no
   regression), always within 2 %; mid-resize frames keep the last scale, and
-  the header states what was painted. The last CDP client detaching clears
-  the emulation state its session owned, so the host re-pins through the same
-  250 ms debounce that reverts an agent `setViewport` (a client that keeps
-  re-sending the command defers the revert; the user's resize always wins).
+  the header states what was painted. Device emulation is one state on the
+  widget but is tracked per CDP session, and Chromium ignores a re-sent
+  override whose params equal what that session last sent — so once an agent
+  session overwrites the pin (puppeteer `setViewport`), wipes it (a clipped or
+  `captureBeyondViewport` `Page.captureScreenshot` restores the agent
+  session's own empty params, disabling emulation on the widget), or takes it
+  along when it detaches, a plain re-send would never reach the renderer
+  (#630). Every application therefore clears the host's override before
+  setting it, and the host re-asserts through a 250 ms debounce after any
+  such command has been answered by Electron and after any decrease in CDP
+  clients (a client that keeps re-sending defers the revert; the user's
+  resize always wins).
   Measured on the Linux reference (GNOME/Wayland, 1.5× fractional, software
   raster, 800×600 CSS pane): target 1.5 → paint 1200×900 at page dpr 1.5,
   encode p90 3.8 ms; target 2 → paint 1600×1200 at page dpr 2, encode p90

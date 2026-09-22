@@ -199,6 +199,7 @@ interface Replay {
   out: Map<number, BridgeFrame[]>;
   closed: number[];
   forwarded: string[];
+  settled: string[];
 }
 
 async function replayFixture(): Promise<Replay> {
@@ -206,9 +207,11 @@ async function replayFixture(): Promise<Replay> {
   const out = new Map<number, BridgeFrame[]>();
   const closed: number[] = [];
   const forwarded: string[] = [];
+  const settled: string[] = [];
   const session = createBridgeSession<number>({
     debugger: debug,
     onCommand: (method) => forwarded.push(method),
+    onCommandSettled: (method) => settled.push(method),
     send: (client, frame) => {
       let frames = out.get(client);
       if (frames === undefined) {
@@ -246,7 +249,7 @@ async function replayFixture(): Promise<Replay> {
         break;
     }
   }
-  return { debugger: debug, out, closed, forwarded };
+  return { debugger: debug, out, closed, forwarded, settled };
 }
 
 function framesOf(replay: Replay, client: number): BridgeFrame[] {
@@ -354,6 +357,8 @@ describe("browser pane bridge root shim (omp 18.1.21 + puppeteer replay)", () =>
       )
       .map((r) => r.method);
     expect(replay.forwarded).toEqual(expectedForwarded);
+    // Target.getTargets is answered locally and never settles.
+    expect(replay.settled).toEqual(expectedForwarded.filter((m) => m !== "Target.getTargets"));
   });
 
   it("relays an Electron rejection as a CDP error under the client's id", async () => {
@@ -471,6 +476,7 @@ describe("createBridgeSession ownership", () => {
     const session = createBridgeSession<string>({
       debugger: debug,
       onCommand: () => {},
+      onCommandSettled: () => {},
       send: (_c, frame) => out.push(frame),
       close: () => {},
     });
@@ -485,6 +491,52 @@ describe("createBridgeSession ownership", () => {
     debug.emit("Runtime.consoleAPICalled", { type: "log" }, "S1");
     expect(out).toHaveLength(3);
     expect(out[2]).toEqual({ method: "Runtime.consoleAPICalled", params: { type: "log" }, sessionId: "S1" });
+  });
+
+  it("reports a forwarded command as settled after Electron answers, with its params, and also when it fails", async () => {
+    const out: BridgeFrame[] = [];
+    const sent: string[] = [];
+    const settled: Array<[string, object]> = [];
+    let release: () => void = () => {};
+    let reached: () => void = () => {};
+    const electronBusy = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const debug = new StubDebugger(async (method) => {
+      if (method === "Page.captureScreenshot") {
+        reached();
+        return new Promise<unknown>((resolve) => {
+          release = () => resolve({ data: "" });
+        });
+      }
+      if (method === "Page.bogus") throw new Error("'Page.bogus' wasn't found");
+      return {};
+    });
+    const session = createBridgeSession<string>({
+      debugger: debug,
+      onCommand: (method) => sent.push(method),
+      onCommandSettled: (method, params) => settled.push([method, params]),
+      send: (_c, frame) => out.push(frame),
+      close: () => {},
+    });
+    session.addClient("a");
+    const params = { clip: { x: 0, y: 0, width: 8, height: 8, scale: 1 }, captureBeyondViewport: true };
+    const pending = session.handleClientMessage(
+      "a",
+      JSON.stringify({ id: 1, method: "Page.captureScreenshot", params, sessionId: "S1" }),
+    );
+    // Electron has the command and has not answered: sent, not settled.
+    await electronBusy;
+    expect(sent).toEqual(["Page.captureScreenshot"]);
+    expect(settled).toEqual([]);
+    release();
+    await pending;
+    expect(settled).toEqual([["Page.captureScreenshot", params]]);
+    expect(out.at(-1)).toEqual({ id: 1, sessionId: "S1", result: { data: "" } });
+
+    await session.handleClientMessage("a", JSON.stringify({ id: 2, method: "Page.bogus", sessionId: "S1" }));
+    expect(out.at(-1)).toMatchObject({ id: 2, error: { code: -32000 } });
+    expect(settled.at(-1)).toEqual(["Page.bogus", {}]);
   });
 });
 
@@ -536,6 +588,7 @@ describe("createBridgeSession target scoping", () => {
     const session = createBridgeSession<string>({
       debugger: debug,
       onCommand: (method) => commands.push(method),
+      onCommandSettled: () => {},
       send: (_c, frame) => out.push(frame),
       close: () => {},
     });
@@ -726,6 +779,7 @@ async function serve(opts: { now?: () => number; userAgent?: string } = {}): Pro
       }
     },
     onCommand: () => {},
+    onCommandSettled: () => {},
     appVersion: "9.9.9",
     now: opts.now,
   });

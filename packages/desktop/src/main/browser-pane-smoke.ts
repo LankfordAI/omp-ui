@@ -28,6 +28,12 @@ import { smokeExitCode } from "./browser-pane-smoke-verdict";
  * Chromium switches pass through (`--ozone-platform=x11`, `--no-sandbox`).
  * `--once` writes the summary and exits: 0 pass, 2 listener, 3 paint,
  * 4 input, 5 watchdog. Interactive mode finishes on `q` + Enter.
+ *
+ * The metrics-* steps clobber the host's HiDPI pin the way an agent does
+ * (metrics-agent-viewport, metrics-clip-screenshot) and expect it back within
+ * the re-assert debounce; metrics-plain-screenshot expects the pin to survive a
+ * screenshot that touches no emulation (#630). All three need --dsf>1 to prove
+ * anything and record ok=null otherwise.
  */
 
 const TAB = "smoke";
@@ -512,6 +518,83 @@ async function runDomSteps(reader: PageReader): Promise<void> {
   }
 }
 
+/** Debounce (250 ms) + resize + paint: how long a clobbered pin needs to come back. */
+const METRICS_SETTLE_MS = 600;
+
+/**
+ * Agent CDP traffic that overwrites or disables the widget's device emulation
+ * (#630): a puppeteer viewport and a clipped screenshot. Each must leave the
+ * page back at the host's CSS size and dsf once the re-assert has landed; a
+ * plain screenshot must leave the pin alone.
+ */
+async function runMetricsClobberSteps(reader: PageReader): Promise<void> {
+  const wantDsf = flags.dsf ?? 1;
+  const want = { dpr: wantDsf, inner: [flags.size.width, flags.size.height] };
+  const readMetrics = async (): Promise<{ dpr: number; inner: number[]; lastHeader: typeof frames.lastHeader }> => {
+    const [dpr, w, h] = await reader.eval<[number, number, number]>("[devicePixelRatio, innerWidth, innerHeight]");
+    return { dpr, inner: [w, h], lastHeader: frames.lastHeader };
+  };
+
+  const clobbers: Array<[string, string, object]> = [
+    [
+      "metrics-agent-viewport",
+      "Emulation.setDeviceMetricsOverride",
+      { width: flags.size.width, height: flags.size.height, deviceScaleFactor: 1, mobile: false },
+    ],
+    [
+      "metrics-clip-screenshot",
+      "Page.captureScreenshot",
+      {
+        format: "jpeg",
+        quality: 40,
+        clip: { x: 0, y: 0, width: 64, height: 64, scale: 1 },
+        captureBeyondViewport: true,
+        fromSurface: true,
+      },
+    ],
+  ];
+  for (const [name, method, params] of clobbers) {
+    await reader.client.call(method, params, reader.sessionId);
+    await sleep(METRICS_SETTLE_MS);
+    const got = await readMetrics();
+    const back =
+      got.dpr === wantDsf &&
+      got.inner[0] === want.inner[0] &&
+      got.inner[1] === want.inner[1] &&
+      got.lastHeader?.dsf === wantDsf;
+    // At dsf 1 the agent's override equals the host's pin: nothing to prove.
+    if (wantDsf > 1) recordStep(name, back, { ...got, want }, null);
+    else recordStep(name, null, { ...got, want, note: "needs --dsf>1" }, null);
+  }
+
+  // A plain screenshot (no clip, no captureBeyondViewport) touches no emulation,
+  // so the pin must survive it without any re-assert. The offscreen capture
+  // itself forces compositor frames (measured: 3-4 paints on Linux), so the
+  // paint count is recorded, not gated.
+  const before = frames.count;
+  const windowStart = performance.now() - t0;
+  await reader.client.call(
+    "Page.captureScreenshot",
+    { format: "jpeg", quality: 40, captureBeyondViewport: false },
+    reader.sessionId,
+  );
+  await sleep(METRICS_SETTLE_MS);
+  const got = await readMetrics();
+  const back = got.dpr === wantDsf && got.inner[0] === want.inner[0] && got.inner[1] === want.inner[1];
+  recordStep(
+    "metrics-plain-screenshot",
+    wantDsf > 1 ? back : null,
+    {
+      ...got,
+      want,
+      ...(wantDsf > 1 ? {} : { note: "needs --dsf>1" }),
+      repaints: frames.count - before,
+      paintOffsetsMs: frames.at.slice(before).map((at) => round2(at - windowStart)),
+    },
+    null,
+  );
+}
+
 async function runInputTest(reader: PageReader): Promise<void> {
   await sleep(300);
   try {
@@ -524,6 +607,11 @@ async function runInputTest(reader: PageReader): Promise<void> {
     }
   } catch (err) {
     recordStep("self-test", false, { error: err instanceof Error ? err.message : String(err) }, null);
+  }
+  try {
+    await runMetricsClobberSteps(reader);
+  } catch (err) {
+    recordStep("metrics-clobber", false, { error: err instanceof Error ? err.message : String(err) }, null);
   }
   // Keyboard coverage leaves a blinking caret focused, which is page-authored
   // animation rather than an idle host repaint. Remove it before measuring.

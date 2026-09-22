@@ -42,9 +42,20 @@ import { pickElement } from "./browser-pane-pick";
 /** Client commands that mean the agent is steering the page right now (#530). */
 const ACTING_COMMAND_RE = /^Input\.|^Page\.navigate$|^Runtime\.(evaluate|callFunctionOn)$/;
 const FPS_EWMA_ALPHA = 0.2;
-/** The agent's puppeteer/CDP viewport commands that would clobber the host's own metrics override. */
-const EMULATION_OVERRIDE_RE = /^Emulation\.(set|clear)DeviceMetricsOverride$/;
-/** How long after the last agent override command the host re-asserts its own geometry. */
+/**
+ * Agent commands after which the widget's device emulation may no longer be the
+ * host's: a puppeteer viewport (Emulation.*), or a Page.captureScreenshot whose
+ * clip / captureBeyondViewport makes Chromium install and then "restore" the
+ * agent session's own (empty) emulation params — a DisableDeviceEmulation on the
+ * widget that no Emulation.* command ever announces (#630).
+ */
+function clobbersMetrics(method: string, params: object): boolean {
+  if (/^Emulation\.(set|clear)DeviceMetricsOverride$/.test(method)) return true;
+  if (method !== "Page.captureScreenshot") return false;
+  const p = params as { clip?: unknown; captureBeyondViewport?: unknown };
+  return (typeof p.clip === "object" && p.clip !== null) || p.captureBeyondViewport === true;
+}
+/** How long after the last clobbering agent command the host re-asserts its own geometry. */
 const METRICS_REASSERT_MS = 250;
 
 export interface BrowserPaneHostDeps {
@@ -205,6 +216,7 @@ export class BrowserPaneHost {
         pane: () => entry.pane,
         onClientCount: (n) => this.onClientCount(tabId, entry, n),
         onCommand: (method) => this.onCommand(tabId, entry, method),
+        onCommandSettled: (method, params) => this.onCommandSettled(entry, method, params),
       });
     } catch (err) {
       entry.lastError = "listener-failed";
@@ -587,13 +599,12 @@ export class BrowserPaneHost {
 
   /**
    * Re-assert the host geometry when it may have been lost: the window's first
-   * document committing (a deferred applyMetrics) or the last CDP client
-   * detaching — Chromium's session teardown clears the viewport emulation and
-   * restores the pre-override window bounds (#557). The detach lands a tick
-   * after the count callback, so the re-pin rides the same debounce as an
-   * agent override command.
+   * document committing (a deferred applyMetrics) or a CDP client detaching —
+   * Chromium's session teardown drops the viewport emulation the detached
+   * session owned (#557). The detach lands a tick after the count callback, so
+   * the re-pin rides the same debounce as an agent override command.
    */
-  private ensureMetrics(entry: PaneEntry, reason: "first-commit" | "last-client"): void {
+  private ensureMetrics(entry: PaneEntry, reason: "first-commit" | "client-detached"): void {
     const pane = entry.pane;
     if (pane === null || pane.isDestroyed()) return;
     if (reason === "first-commit") {
@@ -660,7 +671,13 @@ export class BrowserPaneHost {
   }
 
   private onClientCount(tabId: string, entry: PaneEntry, n: number): void {
+    const previous = entry.cdpClients;
     entry.cdpClients = n;
+    // A detaching session runs Chromium's EmulationHandler::Disable(); if it had
+    // set a viewport, the widget's emulation is gone with it (#557, #630). Every
+    // decrease re-pins — the detach lands a tick after this callback, so it rides
+    // the same debounce as an agent override.
+    if (n < previous) this.ensureMetrics(entry, "client-detached");
     if (n > 0 && entry.agent === "detached") {
       entry.agent = "attached";
       this.emitState(tabId, entry);
@@ -668,16 +685,15 @@ export class BrowserPaneHost {
       clearTimeout(entry.actingTimer);
       entry.actingTimer = undefined;
       entry.agent = "detached";
-      // Chromium's session teardown drops the viewport emulation the detached
-      // session owned — including the host's override (#557). Re-pin it so the
-      // pane stays sharp after the agent disconnects.
-      this.ensureMetrics(entry, "last-client");
       this.emitState(tabId, entry);
     }
   }
 
+  private onCommandSettled(entry: PaneEntry, method: string, params: object): void {
+    if (clobbersMetrics(method, params)) this.scheduleMetricsReassert(entry);
+  }
+
   private onCommand(tabId: string, entry: PaneEntry, method: string): void {
-    if (EMULATION_OVERRIDE_RE.test(method)) this.scheduleMetricsReassert(entry);
     if (!ACTING_COMMAND_RE.test(method)) return;
     clearTimeout(entry.actingTimer);
     entry.actingTimer = setTimeout(() => {
@@ -700,6 +716,11 @@ export class BrowserPaneHost {
    * Before that commit this only marks the entry pending; `ensureMetrics`
    * re-applies from the commit event. Until then the page paints CSS-sized at
    * dsf 1 — exactly what Wayland did before this route existed.
+   *
+   * Every application clears the host session's own override first: Chromium
+   * ignores a re-sent identical override, so a pin another CDP session has
+   * overwritten (agent `setViewport`, a clipped `Page.captureScreenshot`, a
+   * detaching session) could otherwise never be restored (#630).
    */
   private applyMetrics(entry: PaneEntry, pane: PaneContents): void {
     const d = entry.targetDsf;
@@ -711,6 +732,13 @@ export class BrowserPaneHost {
     entry.metricsPending = false;
     const width = Math.min(BROWSER_PANE_MAX_VIEWPORT, Math.round(entry.size.width * grow));
     const height = Math.min(BROWSER_PANE_MAX_VIEWPORT, Math.round(entry.size.height * grow));
+    // The widget's emulation is shared with every agent CDP session, and Chromium
+    // drops an Emulation.setDeviceMetricsOverride whose params equal what *this*
+    // session last sent — even after another session overwrote or disabled them.
+    // Clearing first makes the set below always reach the renderer. Before the
+    // first pin the clear is a no-op; the browser side runs at dispatch, so the
+    // resize below is not raced by it.
+    void pane.debugger.sendCommand("Emulation.clearDeviceMetricsOverride").catch(() => {});
     pane.setContentSize(entry.size.width, entry.size.height);
     void pane.debugger
       .sendCommand("Emulation.setDeviceMetricsOverride", {

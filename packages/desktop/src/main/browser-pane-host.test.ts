@@ -385,29 +385,133 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     });
   });
 
-  it("re-asserts its own metrics 250 ms after an agent viewport override", async () => {
+  it("re-asserts its own metrics 250 ms after an agent viewport override settles", async () => {
     vi.useFakeTimers();
     const h = harness();
     await h.host.ensureEndpoint("t1");
     await h.host.ensure("t1");
     const pane = h.panes[0]!.pane;
-    const sizes = vi.mocked(pane.setContentSize).mock.calls.length;
-    const overrides = vi.mocked(pane.debugger.sendCommand).mock.calls.length;
-    h.listeners[0]!.deps.onCommand("Emulation.clearDeviceMetricsOverride");
+    const setContentSize = vi.mocked(pane.setContentSize);
+    const sendCommand = vi.mocked(pane.debugger.sendCommand);
+    const sizes = setContentSize.mock.calls.length;
+    const overrides = sendCommand.mock.calls.length;
+    const deps = h.listeners[0]!.deps;
+    // The send-time hook derives agent state only; it no longer re-pins.
+    deps.onCommand("Emulation.clearDeviceMetricsOverride");
+    vi.advanceTimersByTime(250);
+    expect(setContentSize).toHaveBeenCalledTimes(sizes);
+    expect(sendCommand).toHaveBeenCalledTimes(overrides);
+
+    deps.onCommandSettled("Emulation.clearDeviceMetricsOverride", {});
     vi.advanceTimersByTime(249);
-    expect(pane.setContentSize).toHaveBeenCalledTimes(sizes);
+    expect(setContentSize).toHaveBeenCalledTimes(sizes);
     vi.advanceTimersByTime(1);
-    expect(pane.setContentSize).toHaveBeenCalledTimes(sizes + 1);
-    expect(pane.setContentSize).toHaveBeenLastCalledWith(1280, 800);
-    expect(vi.mocked(pane.debugger.sendCommand)).toHaveBeenCalledTimes(overrides + 1);
-    expect(pane.debugger.sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
+    expect(setContentSize).toHaveBeenCalledTimes(sizes + 1);
+    expect(setContentSize).toHaveBeenLastCalledWith(1280, 800);
+    // Clear, then size, then set: the clear is what makes Chromium accept the
+    // otherwise-identical override again.
+    expect(sendCommand).toHaveBeenCalledTimes(overrides + 2);
+    expect(sendCommand).toHaveBeenNthCalledWith(overrides + 1, "Emulation.clearDeviceMetricsOverride");
+    expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
       width: 1280,
       height: 800,
       deviceScaleFactor: 1,
       mobile: false,
     });
+    const clearOrder = sendCommand.mock.invocationCallOrder[overrides]!;
+    const sizeOrder = setContentSize.mock.invocationCallOrder[sizes]!;
+    const setOrder = sendCommand.mock.invocationCallOrder[overrides + 1]!;
+    expect(clearOrder).toBeLessThan(sizeOrder);
+    expect(sizeOrder).toBeLessThan(setOrder);
     // The bridge override command itself never marks the agent as acting.
     expect(h.states().every((s) => s.agent !== "acting")).toBe(true);
+  });
+
+  it("re-pins after an agent screenshot that touches emulation, not after a plain one", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    await h.host.ensureEndpoint("t1");
+    await h.host.ensure("t1");
+    const pane = h.panes[0]!.pane;
+    const setContentSize = vi.mocked(pane.setContentSize);
+    const sendCommand = vi.mocked(pane.debugger.sendCommand);
+    const deps = h.listeners[0]!.deps;
+    let sizes = setContentSize.mock.calls.length;
+    let overrides = sendCommand.mock.calls.length;
+    const expectRepin = () => {
+      expect(setContentSize).toHaveBeenCalledTimes(sizes + 1);
+      expect(sendCommand).toHaveBeenCalledTimes(overrides + 2);
+      expect(sendCommand).toHaveBeenNthCalledWith(overrides + 1, "Emulation.clearDeviceMetricsOverride");
+      expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      sizes = setContentSize.mock.calls.length;
+      overrides = sendCommand.mock.calls.length;
+    };
+
+    // A plain screenshot: puppeteer forces captureBeyondViewport=false and Chromium touches no emulation.
+    deps.onCommandSettled("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    vi.advanceTimersByTime(250);
+    expect(setContentSize).toHaveBeenCalledTimes(sizes);
+    expect(sendCommand).toHaveBeenCalledTimes(overrides);
+
+    // A clipped screenshot: Chromium restores the agent session's empty params, disabling the widget's emulation.
+    deps.onCommandSettled("Page.captureScreenshot", {
+      clip: { x: 0, y: 0, width: 8, height: 8, scale: 1 },
+      captureBeyondViewport: true,
+    });
+    vi.advanceTimersByTime(250);
+    expectRepin();
+
+    // puppeteer's fullPage: captureBeyondViewport without a clip.
+    deps.onCommandSettled("Page.captureScreenshot", { captureBeyondViewport: true });
+    vi.advanceTimersByTime(250);
+    expectRepin();
+  });
+
+  it("re-pins when a CDP client detaches while others remain", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    await h.host.ensureEndpoint("t1");
+    await h.host.ensure("t1");
+    const pane = h.panes[0]!.pane;
+    const setContentSize = vi.mocked(pane.setContentSize);
+    const sendCommand = vi.mocked(pane.debugger.sendCommand);
+    const deps = h.listeners[0]!.deps;
+    let sizes = setContentSize.mock.calls.length;
+    let overrides = sendCommand.mock.calls.length;
+    const expectRepin = () => {
+      expect(setContentSize).toHaveBeenCalledTimes(sizes + 1);
+      expect(setContentSize).toHaveBeenLastCalledWith(1280, 800);
+      expect(sendCommand).toHaveBeenCalledTimes(overrides + 2);
+      expect(sendCommand).toHaveBeenNthCalledWith(overrides + 1, "Emulation.clearDeviceMetricsOverride");
+      expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      sizes = setContentSize.mock.calls.length;
+      overrides = sendCommand.mock.calls.length;
+    };
+
+    deps.onClientCount(2);
+    vi.advanceTimersByTime(250);
+    expect(setContentSize).toHaveBeenCalledTimes(sizes);
+    expect(sendCommand).toHaveBeenCalledTimes(overrides);
+
+    // One of two leaves: its session teardown may have disabled the widget's emulation.
+    deps.onClientCount(1);
+    vi.advanceTimersByTime(250);
+    expectRepin();
+
+    deps.onClientCount(0);
+    vi.advanceTimersByTime(250);
+    expectRepin();
+    expect(h.states().at(-1)?.agent).toBe("detached");
   });
 
   it("encodes loading frames at 70 and settled frames at 85", async () => {

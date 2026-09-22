@@ -33,6 +33,8 @@ export interface BridgeListenerDeps {
   onClientCount: (n: number) => void;
   /** Every client command the bridge forwards to Electron (agent-state derivation). */
   onCommand: (method: string) => void;
+  /** The same command once Electron has answered it (resolved or rejected), with the params the client sent. */
+  onCommandSettled: (method: string, params: object) => void;
   appVersion?: string;
   now?: () => number;
 }
@@ -111,6 +113,8 @@ export interface BridgeFrame {
 export interface BridgeSessionDeps<T> {
   debugger: PaneDebugger;
   onCommand: (method: string) => void;
+  /** The same command once Electron has answered it (resolved or rejected), with the params the client sent. */
+  onCommandSettled: (method: string, params: object) => void;
   send: (client: T, frame: BridgeFrame) => void;
   /** Close the client's transport; the transport then calls `removeClient`. */
   close: (client: T) => void;
@@ -199,9 +203,13 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
   }
 
   /** A client command going to Electron verbatim. */
-  function forward(method: string, params: object, sessionId?: string): Promise<unknown> {
+  async function forward(method: string, params: object, sessionId?: string): Promise<unknown> {
     deps.onCommand(method);
-    return cmd(method, params, sessionId);
+    try {
+      return await cmd(method, params, sessionId);
+    } finally {
+      deps.onCommandSettled(method, params);
+    }
   }
 
   /**
@@ -629,6 +637,7 @@ export const createBridgeListener: CreateBridgeListener = (deps) =>
           session: createBridgeSession<WebSocket>({
             debugger: pane.debugger,
             onCommand: deps.onCommand,
+            onCommandSettled: deps.onCommandSettled,
             send: (ws, frame) => {
               if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
             },
