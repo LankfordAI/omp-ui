@@ -37,7 +37,12 @@ jobs:
       notarize: ${{ inputs.notarize == 'true' }}
       targets: >-
         {"include":[{"arch":"arm64","runner":"macos-15"},{"arch":"x64","runner":"macos-15"}]}
-    secrets: inherit
+    secrets:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
   publish:
     needs: package

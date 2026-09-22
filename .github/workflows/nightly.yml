@@ -6,14 +6,20 @@ name: Nightly
 # Divergence rule: the Linux/Windows lanes mirror main's release.yml lane
 # steps (macOS runs main's macos-package.yml directly through the static
 # cross-ref below). Change release.yml's lane steps and mirror them here.
-# The checkout is pinned to the resolved `ref` input, so the packaged tree is
-# the trunk tip regardless of which branch's copy of this file executes.
+# The checkout is pinned to the resolved `ref` input, and meta refuses any
+# commit not reachable from main, develop, or a stable v* tag (issue #627),
+# so the packaged tree is a trunk commit regardless of which branch's copy
+# of this file executes. What this file cannot enforce: workflow_dispatch
+# runs the selected branch's copy of it, so restricting who may dispatch is
+# a repository setting, not a workflow rule.
 
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git ref to package the tip of (branch, tag, or SHA).
+        description: >-
+          Git ref to package the tip of (branch, tag, or SHA). Must resolve to
+          a commit on main, develop, or a v* tag; anything else is refused.
         type: string
         default: main
         required: false
@@ -47,6 +53,12 @@ jobs:
       sha: ${{ steps.stamp.outputs.sha }}
       version: ${{ steps.stamp.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the trunk-membership gate below can answer
+          # ancestry for any commit on main, develop, or a v* tag.
+          fetch-depth: 0
+          fetch-tags: true
       - name: Resolve ref and compute the nightly version
         id: stamp
         shell: bash
@@ -56,11 +68,35 @@ jobs:
           INPUT_REF: ${{ inputs.ref }}
         run: |
           set -euo pipefail
-          # gh resolves branches, tags, and full/short SHAs to one canonical SHA.
+          # gh resolves branches, tags, and full/short SHAs to one canonical SHA —
+          # including commits that exist only in forks, which share this
+          # repository's object store.
           sha="$(gh api "repos/${GH_REPO}/commits/${INPUT_REF}" --jq .sha)" || {
             printf 'ref %s does not resolve in %s\n' "$INPUT_REF" "$GH_REPO" >&2
             exit 1
           }
+          # Trunk-membership gate (issue #627). Every lane, the signing
+          # reusable, and the rolling release consume this SHA, so it must be
+          # reachable from a trusted tip. The rolling `nightly` tag is not one:
+          # this workflow moves it.
+          trusted=(refs/remotes/origin/main refs/remotes/origin/develop)
+          while IFS= read -r tag; do trusted+=("$tag"); done \
+            < <(git for-each-ref --format='%(refname)' 'refs/tags/v*')
+          trusted_by=""
+          if git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+            for tip in "${trusted[@]}"; do
+              if git merge-base --is-ancestor "$sha" "$tip"; then
+                trusted_by="${tip#refs/}"
+                break
+              fi
+            done
+          fi
+          if [ -z "$trusted_by" ]; then
+            printf 'ref %s resolves to %s, which is not reachable from main, develop, or any v* tag; refusing to package it (issue #627)\n' \
+              "$INPUT_REF" "$sha" >&2
+            exit 1
+          fi
+          echo "trusted: $sha is reachable from $trusted_by"
           # The prerelease base is the latest STABLE release, never the tree
           # version (it lags between tags on the trunk): stamped as
           # <stable>-nightly.<date>.<sha>, the app's update check compares equal
@@ -143,7 +179,12 @@ jobs:
       notarize: ${{ inputs.notarize == 'true' }}
       targets: >-
         {"include":[{"arch":"arm64","runner":"macos-15"},{"arch":"x64","runner":"macos-15"}]}
-    secrets: inherit
+    secrets:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
   windows-x64:
     needs: meta

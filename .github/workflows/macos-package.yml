@@ -31,6 +31,24 @@ on:
         required: false
         type: string
         default: ""
+    secrets:
+      CSC_LINK:
+        description: Base64 Developer ID Application certificate (.p12) for electron-builder.
+        required: true
+      CSC_KEY_PASSWORD:
+        description: Password of the CSC_LINK certificate.
+        required: true
+      APPLE_ID:
+        description: Apple ID that notarytool submits with. Read only when notarize is true.
+        required: true
+      APPLE_APP_SPECIFIC_PASSWORD:
+        description: App-specific password for that Apple ID. Read only when notarize is true.
+        required: true
+      APPLE_TEAM_ID:
+        description: >-
+          Developer team ID. notarytool submits with it and the verify step
+          asserts the signature carries it, notarized or not.
+        required: true
     outputs:
       targets:
         description: The target matrix used to build the packages.
