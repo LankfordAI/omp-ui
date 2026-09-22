@@ -4,10 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Installed as an AppImage, omp-ui starts user-facing child processes — the console drawer shell, the managed `omp` session, git operations, the login-shell key capture, and **Open in terminal** — from the pre-AppImage environment: the runtime variables and every `AppRun` generation's `PATH`, `LD_LIBRARY_PATH`, `XDG_DATA_DIRS`, and `GSETTINGS_SCHEMA_DIR` edits are undone, and xterm.js PTYs advertise 24-bit color ([#632](https://github.com/LankfordAI/omp-ui/issues/632)).
-- The Linux runner-pool question is closed: no dedicated fresh-container pool will register, so the `omp-ui-linux` label and the job-isolation detector are retired and every self-hosted Linux lane stays permanently on the `gfx1201` pool ([#629](https://github.com/LankfordAI/omp-ui/issues/629)).
-
-Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+Nothing since [v0.13.13](https://github.com/LankfordAI/omp-ui/releases/tag/v0.13.13). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
