@@ -24,14 +24,10 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runner) }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check the self-hosted runner is isolated
-        # Advisory until issue #629's fresh-container pool is deployed: the
-        # gfx1201 pool restarts the same container with a warm cache and a
-        # mounted Docker socket, which the script reads as misconfiguration
-        # (issue #631). Skipped on GitHub-hosted runners; failure is reported,
-        # not gating.
+      - name: Assert the self-hosted runner is isolated
+        # Single-job registration, unused filesystem, no leaked credential or
+        # Docker socket (issue #629). Skipped on GitHub-hosted runners.
         if: ${{ !inputs.hosted }}
-        continue-on-error: true
         run: bash scripts/assert-isolated-runner.sh
       - name: Prepare hosted runner for the Electron smokes
         if: ${{ inputs.hosted }}

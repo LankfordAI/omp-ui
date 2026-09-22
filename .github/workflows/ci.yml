@@ -9,15 +9,12 @@ permissions:
   contents: read
 
 jobs:
-  # gfx1201 is the self-hosted Linux runner pool (labels linux,rocm,gfx1201)
-  # that also builds the shipped Linux artifacts (release.yml release-linux,
-  # nightly.yml linux-x64), so only same-repo events run there; fork PRs go to
-  # check-fork. A pull_request run executes the workflow from the PR's merge
-  # ref, so this guard routes; the repository's all-external-contributors
-  # approval policy is what gates (issue #626). Issue #629 will retarget these
-  # jobs to a dedicated `omp-ui-linux` fresh-container pool once that pool is
-  # deployed; no runner serves that label today, so pointing here kept every
-  # main-branch job queued indefinitely (issue #631).
+  # gfx1201 is the org's self-hosted Linux runner pool (labels linux,rocm,
+  # gfx1201) that also builds the shipped Linux artifacts (release.yml
+  # release-linux, nightly.yml linux-x64), so only same-repo events run there;
+  # fork PRs go to check-fork. A pull_request run executes the workflow from
+  # the PR's merge ref, so this guard routes; the repository's
+  # all-external-contributors approval policy is what gates (issue #626).
   check:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     uses: ./.github/workflows/check.yml

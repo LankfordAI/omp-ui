@@ -41,13 +41,9 @@ jobs:
     runs-on: [self-hosted, gfx1201]
     steps:
       - uses: actions/checkout@v4
-      - name: Check the self-hosted runner is isolated
-        # Advisory until issue #629's fresh-container pool is deployed: the
-        # gfx1201 pool registers `--ephemeral` per start but restarts the same
-        # container with a warm cache and a mounted Docker socket, which the
-        # script reads as misconfiguration (issue #631). Failure is reported,
-        # not gating.
-        continue-on-error: true
+      - name: Assert the self-hosted runner is isolated
+        # Single-job registration, unused filesystem, no leaked credential or
+        # Docker socket (issue #629).
         run: bash scripts/assert-isolated-runner.sh
       - uses: actions/setup-node@v4
         with:

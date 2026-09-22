@@ -127,11 +127,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.meta.outputs.sha }}
-      - name: Check the self-hosted runner is isolated
-        # Advisory until issue #629's fresh-container pool is deployed; see
-        # release.yml release-linux (issue #631). Failure is reported, not
-        # gating.
-        continue-on-error: true
+      - name: Assert the self-hosted runner is isolated
+        # Single-job registration, unused filesystem, no leaked credential or
+        # Docker socket (issue #629).
         run: bash scripts/assert-isolated-runner.sh
       - uses: actions/setup-node@v4
         with:
