@@ -120,7 +120,6 @@ function networkOptions(timeoutMs: number): GitOptions {
   return {
     timeoutMs,
     env: {
-      ...process.env,
       GIT_TERMINAL_PROMPT: "0",
       GCM_INTERACTIVE: "never",
       GIT_ASKPASS: "",

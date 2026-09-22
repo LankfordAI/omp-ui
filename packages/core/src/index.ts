@@ -267,6 +267,7 @@ export {
   type OmpOneShotSpawn,
   type RunOmpOnceOptions,
 } from "./omp-process";
+export { withoutAppImageRuntime } from "./appimage-env";
 export {
   generateBranchNameWithOmp,
   generateTitleWithOmp,

@@ -70,6 +70,20 @@ describe("ompChildEnv", () => {
       path.join("resolved", "bin"),
     );
   });
+
+  it.runIf(process.platform === "linux")(
+    "puts the omp directory ahead of the launch PATH, not an AppImage mount",
+    () => {
+      const root = "/tmp/.mount_omp-uiAAAAAA";
+      const base = {
+        APPDIR: root,
+        ARGV0: "/home/u/.local/bin/omp-ui.AppImage",
+        PATH: `${root}:${root}/usr/sbin:/usr/bin`,
+        LD_LIBRARY_PATH: `${root}/usr/lib`,
+      };
+      expect(ompChildEnv("/opt/omp/bin/omp", base)).toEqual({ PATH: "/opt/omp/bin:/usr/bin" });
+    },
+  );
 });
 
 describe("runOmpOnce", () => {

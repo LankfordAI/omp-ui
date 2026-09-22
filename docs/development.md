@@ -202,7 +202,7 @@ npm run dev:headless
 
 Verification runs boot the app headless. `dev:headless` maps no window and takes no focus, isolates the run's userData and registry (`OMP_UI_REGISTRY_PATH` defaults to a fresh temp file; whichever registry the run uses gets `desktopNotifications` forced off), sizes the virtual screen to 1600x1000, and exposes CDP on `127.0.0.1:9223`; set `OMP_UI_REGISTRY_PATH` or `OMP_UI_CDP_PORT` to override. Extra Chromium switches pass through from the workspace: `npm run dev:headless --workspace @omp-ui/desktop -- --no-sandbox`. Reach for `npm run dev` only when a human needs to see the window. One headless instance runs at a time: a second one exits on the single-instance lock.
 
-To verify the Getting started checklist's first-launch gates, a throwaway registry is not enough: the binary row reads `resolveOmpBinary()`, whose PATH scan finds the managed copy whenever the run is launched from a shell inside the packaged app (that PATH starts with `~/.local/share/omp-ui/bin` plus AppImage mounts), and the provider row additionally sees ambient env, the login shell's rc exports, and subscription accounts. Simulate a virgin machine by clearing the environment:
+To verify the Getting started checklist's first-launch gates, a throwaway registry is not enough: the binary row reads `resolveOmpBinary()`, whose PATH scan finds the managed copy whenever the run is launched from a shell inside the packaged app (that PATH starts with `~/.local/share/omp-ui/bin`), and the provider row additionally sees ambient env, the login shell's rc exports, and subscription accounts. Simulate a virgin machine by clearing the environment:
 
 ```bash
 env -i HOME=$(mktemp -d) PATH=/usr/bin:/bin SHELL=/bin/bash \
