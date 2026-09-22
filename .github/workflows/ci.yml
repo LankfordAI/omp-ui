@@ -5,53 +5,25 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  # gfx1201 is the persistent host that also builds the shipped Linux
+  # artifacts (release.yml release-linux, nightly.yml linux-x64), so only
+  # same-repo events run there. A pull_request run executes the workflow from
+  # the PR's merge ref, so this guard routes; the repository's
+  # all-external-contributors approval policy is what gates (issue #626).
   check:
-    runs-on: [self-hosted, gfx1201]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run smoke:pty --workspace @omp-ui/desktop
-      - run: npm run lint
-        # npm ci validates the dependency tree but not workspace metadata —
-        # a version stamped without regenerating the lock (issue #90) passes
-        # it. Regenerating must be a no-op on a synced tree; any diff is drift.
-      - name: Assert lockfile in sync
-        run: |
-          npm install --package-lock-only
-          git diff --exit-code package-lock.json
-      - run: npm run typecheck
-      - run: node --test scripts/release-artifacts.test.mjs
-      - run: node --test scripts/release-notes.test.mjs
-      - run: node --test scripts/close-landed-issues.test.mjs
-      - run: npm test
-      - run: npm run test:live
-      - run: npm run build
-      - name: Smoke the browser pane under real Electron
-        # Prefer the runner session, then headless Ozone, then Xvfb only when Chromium painted no frame.
-        shell: bash
-        run: |
-          set -uo pipefail
-          smoke() { npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once "$@"; }
-          args=(--out=out/browser-pane-smoke/session)
-          if [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
-            args=(--out=out/browser-pane-smoke/headless --ozone-platform=headless)
-          fi
-          smoke "${args[@]}"; rc=$?
-          if [ "$rc" -eq 3 ] && command -v xvfb-run >/dev/null; then
-            xvfb-run -a --server-args='-screen 0 1600x1000x24' \
-              npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once --out=out/browser-pane-smoke/xvfb; rc=$?
-          fi
-          exit "$rc"
-      - name: Publish the browser pane smoke summary
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: browser-pane-smoke-summary
-          path: packages/desktop/out/browser-pane-smoke/**/summary.json
-          if-no-files-found: error
-          retention-days: 14
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/check.yml
+    with:
+      runner: '["self-hosted", "gfx1201"]'
+      hosted: false
+
+  check-fork:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    uses: ./.github/workflows/check.yml
+    with:
+      runner: '["ubuntu-latest"]'
+      hosted: true
