@@ -178,7 +178,6 @@ The following environment variables are developer and test seams. They are not u
 | `OMP_UI_APP_UPDATE_ENABLE=1` | Forces app-update behavior on for an unpackaged development build. |
 | `OMP_UI_APP_UPDATE_VERSION` | Overrides the current app version passed to the updater. |
 | `OMP_UI_APP_UPDATE_FORMAT=appimage` | Supplies the development-only AppImage environment needed to reach the AppImage updater path. Other values do not select a fake package format. |
-| `OMP_UI_RUNNER_DOCKER_SOCKET` | Path `scripts/assert-isolated-runner.sh` checks for a mounted Docker socket instead of `/var/run/docker.sock`. Test seam only. |
 
 Pass controls on the same command invocation so they do not leak into later runs. For example:
 
@@ -242,7 +241,6 @@ For the agent *driving* the run, rather than the app it drives, OMP's own settin
 The main CI job uses Node 22 and runs these commands in order:
 
 ```bash
-bash scripts/assert-isolated-runner.sh   # self-hosted pool only
 npm ci
 npm run smoke:pty --workspace @omp-ui/desktop
 npm run lint
@@ -252,7 +250,6 @@ npm run typecheck
 node --test scripts/release-artifacts.test.mjs
 node --test scripts/release-notes.test.mjs
 node --test scripts/close-landed-issues.test.mjs
-node --test scripts/assert-isolated-runner.test.mjs
 npm test
 npm run test:live
 npm run build
@@ -263,9 +260,7 @@ The `npm install --package-lock-only` and `git diff --exit-code package-lock.jso
 
 ### Self-hosted Linux pool
 
-Same-repo CI, `release-linux`, and the nightly `linux-x64` lane run on the org's self-hosted Linux pool; jobs request `[self-hosted, gfx1201]` (the runners register with labels `linux,rocm,gfx1201`). Each self-hosted job runs in a brand-new container started from the pinned image in `LankfordAI/Actions-Runner` under a single-job (`--ephemeral`) registration, so nothing written by one job survives into the next and there is no persistent cache: expect Node, the npm cache, Electron, and electron-builder tooling to download on every job. A label no registered runner serves queues jobs forever instead of failing them — retargeting to an undeployed pool stalled every main-branch run for hours (issue #631).
-
-`scripts/assert-isolated-runner.sh` is the first step of each self-hosted job. It fails the job when the runner's settings file lacks `"ephemeral": true`, when `~/.npm` or `~/.cache` already exist before anything was installed, when `ACCESS_TOKEN`/`REG_TOKEN` are in the environment, or when a Docker socket or `DOCKER_HOST` is reachable. It is a misconfiguration detector, not a security boundary: a job that already owns the runner also owns the check. Its unit tests are `node --test scripts/assert-isolated-runner.test.mjs`.
+Same-repo CI, `release-linux`, and the nightly `linux-x64` lane run on the org's self-hosted Linux pool; jobs request `[self-hosted, gfx1201]` (the runners register with labels `linux,rocm,gfx1201`). The runner container registers `--ephemeral`, and the supervisor restarts it between jobs, but the same image filesystem comes back: a warm `~/.npm` and `~/.cache` and a mounted host Docker socket. Treat the pool as stateful — cache hits and host-visible mounts are the norm, and nothing on the release path asserts otherwise. Issue #629 proposed a dedicated fresh-container pool to change that contract; the pool will not be deployed, and its isolation detector was removed. A label no registered runner serves queues jobs forever instead of failing them — retargeting to that undeployed pool stalled every main-branch run for hours (issue #631).
 
 The runner image and the compose-based supervisor live in `LankfordAI/Actions-Runner` under `Dockerfiles/ActionsRunner/`.
 

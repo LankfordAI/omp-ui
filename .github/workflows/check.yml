@@ -24,11 +24,6 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runner) }}
     steps:
       - uses: actions/checkout@v4
-      - name: Assert the self-hosted runner is isolated
-        # Single-job registration, unused filesystem, no leaked credential or
-        # Docker socket (issue #629). Skipped on GitHub-hosted runners.
-        if: ${{ !inputs.hosted }}
-        run: bash scripts/assert-isolated-runner.sh
       - name: Prepare hosted runner for the Electron smokes
         if: ${{ inputs.hosted }}
         shell: bash
@@ -55,7 +50,6 @@ jobs:
       - run: node --test scripts/release-artifacts.test.mjs
       - run: node --test scripts/release-notes.test.mjs
       - run: node --test scripts/close-landed-issues.test.mjs
-      - run: node --test scripts/assert-isolated-runner.test.mjs
       - run: npm test
       - run: npm run test:live
       - run: npm run build

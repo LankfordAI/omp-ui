@@ -127,10 +127,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.meta.outputs.sha }}
-      - name: Assert the self-hosted runner is isolated
-        # Single-job registration, unused filesystem, no leaked credential or
-        # Docker socket (issue #629).
-        run: bash scripts/assert-isolated-runner.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22
