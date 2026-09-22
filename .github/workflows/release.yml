@@ -108,11 +108,6 @@ jobs:
       version: ${{ github.ref_name }}
       notarize: true
       release_tag: ${{ github.ref_name }}
-      # Both architectures package on Apple Silicon: the Intel runner is about
-      # twice as slow at every step and nothing in the lane executes the app
-      # (issue #485).
-      targets: >-
-        {"include":[{"arch":"arm64","runner":"macos-15"},{"arch":"x64","runner":"macos-15"}]}
     secrets:
       CSC_LINK: ${{ secrets.CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -216,17 +211,14 @@ jobs:
           gh release download "$GITHUB_REF_NAME" --dir release-assets --pattern '*-windows-preview-x64-setup.exe'
       - name: Plan release artifacts and generate metadata
         shell: bash
-        env:
-          MACOS_TARGETS: ${{ needs.package-macos.outputs.targets }}
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          macos_arches="$(node -e 'process.stdout.write(JSON.parse(process.env.MACOS_TARGETS).include.map(({arch}) => arch).join(","))')"
           node scripts/release-artifacts.mjs \
             --dir release-assets --platform linux --version "$version" --arches x64 \
             --out-dir release-manifest/linux
           node scripts/release-artifacts.mjs \
-            --dir release-assets --platform mac --version "$version" --arches "$macos_arches" \
+            --dir release-assets --platform mac --version "$version" --arches arm64,x64 \
             --out-dir release-manifest/mac
           node scripts/release-artifacts.mjs \
             --dir release-assets --platform win --version "$version" --arches x64 \
