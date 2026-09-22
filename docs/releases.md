@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Under the **Korean** UI locale the remaining hardcoded chrome renders from the catalog: the **Todos** pane's phase heading, its "N of M complete" tooltips, and the click-to-advance tooltip, plus the Settings → **Remote** footer ([#581](https://github.com/LankfordAI/omp-ui/issues/581)).
+- The **Nightly** workflow refuses a `ref` that does not resolve to a commit on `main`, `develop`, or a stable `v*` tag, so a pasted fork or feature-branch SHA can no longer be signed, notarized, and published to the nightly train; the macOS packaging reusable now receives its secrets by name ([#627](https://github.com/LankfordAI/omp-ui/issues/627)).
 
 Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
@@ -101,12 +102,16 @@ The binary never downloads without that click. omp-ui downloads to a temporary p
 
 The [Nightly workflow](../.github/workflows/nightly.yml) is manual-dispatch only:
 nothing schedules it, and no push or pull request triggers it. A dispatch resolves
-its `ref` input (default `main`) to one commit and packages that tip for Linux
-x64, Windows x64, and macOS arm64/x64 under the version
-`<latest-stable>-nightly.<UTC date>.<short SHA>` — the base follows the latest
-stable release, never the tree version. The files are delivered two ways: as
-14-day run artifacts, and on one rolling *prerelease* GitHub Release named
-`nightly`, which each run deletes and recreates at the packaged commit.
+its `ref` input (default `main`) to one commit and refuses it unless that commit
+is reachable from `main`, `develop`, or a stable `v*` tag — a fork PR head, a
+feature branch, or the rolling `nightly` tag itself never reaches a lane (issue
+#627). The trusted tip is then packaged for Linux x64, Windows x64, and macOS
+arm64/x64 under the version `<latest-stable>-nightly.<UTC date>.<short SHA>` —
+the base follows the latest stable release, never the tree version. The files
+are delivered two ways: as 14-day run artifacts, and on one rolling *prerelease*
+GitHub Release named `nightly`, which each run deletes and recreates at the
+packaged commit. The macOS lane receives its signing and notarization secrets
+by name from each caller; no workflow uses `secrets: inherit`.
 
 The `nightly` release carries the update feeds a stable release carries —
 `latest-linux.yml`, `latest.yml`, `latest-mac.yml`, and the NSIS blockmap — so
