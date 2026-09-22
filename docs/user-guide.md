@@ -88,7 +88,7 @@ The queue count covers all displayable queued work, not only user follow-ups. It
 
 ### Use the console
 
-`Mod+J` opens a full-width login shell below the native composer. It runs in the session's effective working tree, including a worktree checkout. Closing the console hides it without discarding its terminal instance. Terminal tabs do not have this separate console because the tab itself is already a terminal.
+`Mod+J` opens a full-width login shell below the native composer. It runs in the session's effective working tree, including a worktree checkout. The shell starts from the environment omp-ui was launched with, without the AppImage's own variables, so commands behave as they do in a native terminal. Closing the console hides it without discarding its terminal instance. Terminal tabs do not have this separate console because the tab itself is already a terminal.
 
 ## Plan mode and review
 

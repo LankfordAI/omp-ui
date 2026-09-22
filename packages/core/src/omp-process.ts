@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import * as path from "node:path";
+import { withoutAppImageRuntime } from "./appimage-env";
 
 export interface OmpOneShotProcess {
   stdout: NodeJS.ReadableStream;
@@ -24,17 +25,17 @@ export interface RunOmpOnceOptions {
 }
 
 /**
- * Copies the parent environment and exposes the resolved omp binary's directory
- * first on PATH, so runtime shims also work from desktop launches.
+ * The launch environment (AppImage runtime edits removed) with the resolved
+ * omp binary's directory first on PATH, so runtime shims also work from
+ * desktop launches.
  */
 export function ompChildEnv(
   ompPath: string,
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  return {
-    ...base,
-    PATH: [path.dirname(ompPath), base.PATH].filter(Boolean).join(path.delimiter),
-  };
+  const env = withoutAppImageRuntime(base);
+  env.PATH = [path.dirname(ompPath), env.PATH].filter(Boolean).join(path.delimiter);
+  return env;
 }
 
 function defaultSpawn(

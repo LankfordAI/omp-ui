@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { withoutAppImageRuntime } from "./appimage-env";
 
 const execFileP = promisify(execFile);
 
@@ -26,7 +27,7 @@ export async function git(
   try {
     const { stdout } = await execFileP("git", args, {
       cwd,
-      env: { ...process.env, ...options.env },
+      env: Object.assign(withoutAppImageRuntime(), options.env),
       timeout: options.timeoutMs,
       maxBuffer: 32 * 1024 * 1024,
       encoding: "utf8",

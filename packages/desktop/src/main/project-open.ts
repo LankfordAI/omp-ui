@@ -3,6 +3,7 @@ import { accessSync, constants, existsSync } from "node:fs";
 import path from "node:path";
 
 import type { ProjectOpenAvailability, ProjectOpenTarget } from "@omp-ui/core";
+import { withoutAppImageRuntime } from "@omp-ui/core";
 import { app, shell } from "electron";
 
 const VSCODE_PROTOCOL_URL = "vscode://file/";
@@ -27,7 +28,7 @@ const electronHost: ProjectOpenHost = {
   openExternal: (url) => shell.openExternal(url),
   openPath: (projectPath) => shell.openPath(projectPath),
   findExecutable: (name) => {
-    for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+    for (const dir of (withoutAppImageRuntime().PATH ?? "").split(path.delimiter)) {
       if (dir === "") continue;
       const candidate = path.join(dir, name);
       try {
@@ -44,7 +45,7 @@ const electronHost: ProjectOpenHost = {
   // ES2022, same convention as live-entry.ts.
   runLauncher: (file, args, cwd) =>
     new Promise((resolve, reject) => {
-      const child = spawn(file, args, { cwd, stdio: "ignore" });
+      const child = spawn(file, args, { cwd, stdio: "ignore", env: withoutAppImageRuntime() });
       child.on("error", reject);
       child.on("exit", (code, signal) => {
         if (code === 0) resolve();
@@ -53,7 +54,12 @@ const electronHost: ProjectOpenHost = {
     }),
   spawnDetached: (file, args, cwd) =>
     new Promise((resolve, reject) => {
-      const child = spawn(file, args, { cwd, detached: true, stdio: "ignore" });
+      const child = spawn(file, args, {
+        cwd,
+        detached: true,
+        stdio: "ignore",
+        env: withoutAppImageRuntime(),
+      });
       child.on("error", reject);
       child.on("spawn", () => {
         child.unref();

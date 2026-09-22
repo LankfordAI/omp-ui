@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as pty from "node-pty";
+import { withoutAppImageRuntime } from "./appimage-env";
 import { ompChildEnv } from "./omp-process";
 import { withFdSweep } from "./fd-sweep";
 import { batched } from "./pty-batch";
@@ -14,6 +15,9 @@ export interface PtyHandle {
   /** Default is adapter-owned. Unix signals are forwarded; ConPTY is terminate-only. */
   kill(signal?: string): void;
 }
+
+/** xterm.js renders 24-bit SGR colour; a native terminal advertises that through COLORTERM. */
+const XTERM_ENV = { COLORTERM: "truecolor" } as const;
 
 /** ConPTY has no Unix-signal escalation; its kill operation only terminates. */
 export function normalizePtyKillSignal(
@@ -76,7 +80,7 @@ export function spawnOmp(opts: {
     cols: opts.cols,
     rows: opts.rows,
     cwd: opts.cwd,
-    env: ompChildEnv(opts.ompPath),
+    env: Object.assign(ompChildEnv(opts.ompPath), XTERM_ENV),
     encoding: null, // raw Buffers, not decoded strings
   });
 
@@ -107,7 +111,7 @@ export function spawnShell(opts: {
     cols: opts.cols,
     rows: opts.rows,
     cwd: opts.cwd,
-    env: { ...process.env },
+    env: Object.assign(withoutAppImageRuntime(), XTERM_ENV),
     encoding: null, // raw Buffers, same as spawnOmp
   });
   return adapt(opts.id, proc);
@@ -144,7 +148,7 @@ export function spawnOmpTui(opts: {
     cols: opts.cols,
     rows: opts.rows,
     cwd: opts.cwd,
-    env: ompChildEnv(opts.ompPath),
+    env: Object.assign(ompChildEnv(opts.ompPath), XTERM_ENV),
     encoding: null, // raw Buffers, same as spawnOmp
   });
   return adapt(opts.id, proc);

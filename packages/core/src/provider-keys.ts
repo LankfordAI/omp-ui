@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { withoutAppImageRuntime } from "./appimage-env";
 import { PROVIDER_ENV_NAMES, PROVIDER_KEY_SPECS } from "./provider-catalog";
 import type { ProviderKeyStatus, ProviderKeySource } from "./types";
 
@@ -146,7 +147,10 @@ function defaultShellCapture(script: string, shell: string): Promise<string> {
       // `-i` matters: interactive is the only mode that sources ~/.zshrc or the
       // interactive half of ~/.bashrc, which is where users actually export
       // keys. `-l` adds the profile files. Verified: `-lc` alone sees nothing.
-      child = spawn(shell, ["-ilc", script], { stdio: ["ignore", "pipe", "ignore"] });
+      child = spawn(shell, ["-ilc", script], {
+        stdio: ["ignore", "pipe", "ignore"],
+        env: withoutAppImageRuntime(),
+      });
     } catch {
       resolve("");
       return;
