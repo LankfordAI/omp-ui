@@ -120,13 +120,17 @@ jobs:
 
   linux-x64:
     needs: meta
-    runs-on: [self-hosted, gfx1201]
+    runs-on: [self-hosted, omp-ui-linux]
     env:
       NIGHTLY_VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.meta.outputs.sha }}
+      - name: Assert the self-hosted runner is isolated
+        # Single-job registration, unused filesystem, no leaked credential or
+        # Docker socket (issue #629).
+        run: bash scripts/assert-isolated-runner.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22

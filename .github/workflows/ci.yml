@@ -9,16 +9,19 @@ permissions:
   contents: read
 
 jobs:
-  # gfx1201 is the persistent host that also builds the shipped Linux
-  # artifacts (release.yml release-linux, nightly.yml linux-x64), so only
-  # same-repo events run there. A pull_request run executes the workflow from
-  # the PR's merge ref, so this guard routes; the repository's
-  # all-external-contributors approval policy is what gates (issue #626).
+  # omp-ui-linux is omp-ui's own repository-level runner pool: every job runs
+  # in a fresh container from a pinned image under a single-job registration
+  # (issue #629), and the same pool builds the shipped Linux artifacts
+  # (release.yml release-linux, nightly.yml linux-x64), so only same-repo
+  # events run there; fork PRs go to check-fork. A pull_request run executes
+  # the workflow from the PR's merge ref, so this guard routes; the
+  # repository's all-external-contributors approval policy is what gates
+  # (issue #626).
   check:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     uses: ./.github/workflows/check.yml
     with:
-      runner: '["self-hosted", "gfx1201"]'
+      runner: '["self-hosted", "omp-ui-linux"]'
       hosted: false
 
   check-fork:

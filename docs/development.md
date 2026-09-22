@@ -65,9 +65,10 @@ npm run build:web --workspace @omp-ui/desktop
 npm run smoke:pty --workspace @omp-ui/desktop
 
 # Electron-runtime smoke of the shipped browser pane host; writes
-# out/browser-pane-smoke/summary.json. CI runs --once on Linux: the self-hosted
-# runner for same-repo events, a hosted runner (headless Ozone, Xvfb fallback)
-# for fork pull requests.
+# out/browser-pane-smoke/summary.json. CI runs --once on Linux: the omp-ui
+# self-hosted pool (headless Ozone: the containers have no display) for
+# same-repo events, a hosted runner (headless Ozone, Xvfb fallback) for fork
+# pull requests.
 npm run smoke:browser-pane --workspace @omp-ui/desktop
 
 # Regenerate committed theme CSS from theme-sources.json.
@@ -178,6 +179,7 @@ The following environment variables are developer and test seams. They are not u
 | `OMP_UI_APP_UPDATE_ENABLE=1` | Forces app-update behavior on for an unpackaged development build. |
 | `OMP_UI_APP_UPDATE_VERSION` | Overrides the current app version passed to the updater. |
 | `OMP_UI_APP_UPDATE_FORMAT=appimage` | Supplies the development-only AppImage environment needed to reach the AppImage updater path. Other values do not select a fake package format. |
+| `OMP_UI_RUNNER_DOCKER_SOCKET` | Path `scripts/assert-isolated-runner.sh` checks for a mounted Docker socket instead of `/var/run/docker.sock`. Test seam only. |
 
 Pass controls on the same command invocation so they do not leak into later runs. For example:
 
@@ -241,6 +243,7 @@ For the agent *driving* the run, rather than the app it drives, OMP's own settin
 The main CI job uses Node 22 and runs these commands in order:
 
 ```bash
+bash scripts/assert-isolated-runner.sh   # self-hosted pool only
 npm ci
 npm run smoke:pty --workspace @omp-ui/desktop
 npm run lint
@@ -250,13 +253,27 @@ npm run typecheck
 node --test scripts/release-artifacts.test.mjs
 node --test scripts/release-notes.test.mjs
 node --test scripts/close-landed-issues.test.mjs
+node --test scripts/assert-isolated-runner.test.mjs
 npm test
 npm run test:live
 npm run build
 npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once
 ```
 
-The second and third commands assert that workspace metadata and `package-lock.json` agree. `npm ci` alone does not catch every workspace-version drift case.
+The `npm install --package-lock-only` and `git diff --exit-code package-lock.json` pair asserts that workspace metadata and `package-lock.json` agree. `npm ci` alone does not catch every workspace-version drift case.
+
+### Self-hosted Linux pool
+
+Same-repo CI, `release-linux`, and the nightly `linux-x64` lane run on omp-ui's own repository-level runner pool, label `omp-ui-linux` (issue #629). The pool's contract:
+
+- Runners are registered to `LankfordAI/omp-ui` only, as single-job (`--ephemeral`) registrations.
+- Every job runs in a brand-new container started from an image pinned by ID; nothing written by one job survives into the next.
+- The container has no host Docker socket, no GPU devices, no host IPC namespace, and no registration credential in its environment.
+- There is no persistent cache: expect Node, the npm cache, Electron, and electron-builder tooling to download on every job.
+
+`scripts/assert-isolated-runner.sh` is the first step of each self-hosted job. It fails the job when the runner's settings file lacks `"ephemeral": true`, when `~/.npm` or `~/.cache` already exist before anything was installed, when `ACCESS_TOKEN`/`REG_TOKEN` are in the environment, or when a Docker socket or `DOCKER_HOST` is reachable. It is a misconfiguration detector, not a security boundary: a job that already owns the runner also owns the check. Its unit tests are `node --test scripts/assert-isolated-runner.test.mjs`.
+
+The runner image, the host `systemd` supervisor, the host runbook, and the org runner audit live in `LankfordAI/Actions-Runner` under `Dockerfiles/ActionsRunner/README.md`.
 
 ## Pull request reviews
 
