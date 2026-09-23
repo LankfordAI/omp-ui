@@ -19,6 +19,9 @@ function resizePointer(type: string, x: number): Event {
 const backendMock = {
   rpcSend: vi.fn(),
   getBranchDiff: vi.fn(),
+  // The subagent models popover reads the settings layers when it opens.
+  readOmpSettings: vi.fn(async () => null),
+  getProjectSubagentModels: vi.fn(async () => null),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -180,6 +183,13 @@ function railTab(label: string): HTMLButtonElement | null {
   );
 }
 
+/** The session subagent-model popover, wherever it is mounted. */
+function modelsPopover(): HTMLElement | null {
+  return document.body.querySelector<HTMLElement>(
+    `[role="dialog"][aria-label="${t("rail.agents.modelsTitle")}"]`,
+  );
+}
+
 beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
@@ -268,6 +278,68 @@ describe("desktop InspectorRail", () => {
     const models = button("subagent models");
     expect(models).not.toBeNull();
     expect(models!.textContent?.toLowerCase()).toContain("models");
+  });
+
+  it("anchors the subagent models popover in the viewport, outside the clipping pane (#634)", () => {
+    useStore.setState({ state: { ...state, agentRoster: ["scout", "task"] } });
+    renderRail();
+    act(() => button("agents")!.click());
+    const triggerRect = (left: number, right: number): DOMRect =>
+      ({ top: 80, bottom: 104, height: 24, left, right, width: right - left, x: left, y: 80, toJSON: () => ({}) }) as DOMRect;
+    const rects = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect");
+    try {
+      // Right-aligning 288px to a trigger that ends at x=100 would start at
+      // x=-188: the popover clamps to the 8px viewport margin instead.
+      rects.mockReturnValue(triggerRect(40, 100));
+      act(() => button("subagent models")!.click());
+      const popover = modelsPopover()!;
+      expect(popover.closest("aside")).toBeNull();
+      expect(popover.style.left).toBe("8px");
+      expect(popover.style.top).toBe("108px");
+      expect(popover.style.width).toBe("288px");
+      expect(popover.style.maxHeight).toBe(`${window.innerHeight - 116}px`);
+      act(() => button("subagent models")!.click());
+      expect(modelsPopover()).toBeNull();
+
+      // With room to its left, the popover's right edge meets the trigger's.
+      rects.mockReturnValue(triggerRect(340, 400));
+      act(() => button("subagent models")!.click());
+      expect(modelsPopover()!.style.left).toBe("112px");
+    } finally {
+      rects.mockRestore();
+    }
+  });
+
+  it("keeps the subagent models popover open through the model palette (#634)", () => {
+    useStore.setState({ state: { ...state, agentRoster: ["scout"] } });
+    renderRail();
+    act(() => button("agents")!.click());
+    act(() => button("subagent models")!.click());
+    // scout's model button: the first control inside the popover.
+    const row = modelsPopover()!.querySelector<HTMLButtonElement>("button")!;
+    // A press inside the portaled popover is not an outside press.
+    act(() => {
+      row.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    act(() => row.click());
+    const palette = document.body.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
+    expect(palette).not.toBeNull();
+    // Nor is a press inside the palette, which is portaled outside the popover.
+    act(() => {
+      palette!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(modelsPopover()).not.toBeNull();
+    // Escape belongs to the palette while it is up.
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(document.body.querySelector('[aria-modal="true"]')).toBeNull();
+    expect(modelsPopover()).not.toBeNull();
+    // With the palette gone, a press outside both dismisses the popover.
+    act(() => {
+      document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(modelsPopover()).toBeNull();
   });
 
   it("shares committed width across close, reopen, and tab instances", () => {
