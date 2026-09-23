@@ -51,7 +51,8 @@ function setup(): void {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-provkeys-"));
   process.env.PI_CODING_AGENT_DIR = path.join(base, "agent");
   delete process.env.XDG_DATA_HOME;
-  delete process.env[KEY];
+  vi.stubEnv(KEY, undefined);
+  vi.stubEnv("ANTHROPIC_API_KEY", undefined);
 
   const registryFile = path.join(base, "registry.json");
   seedRegistry(registryFile);
@@ -73,7 +74,7 @@ const row = (snap: ProviderKeysSnapshot, id: string) => {
 beforeEach(setup);
 
 afterEach(() => {
-  delete process.env[KEY];
+  vi.unstubAllEnvs();
   if (base) fs.rmSync(base, { recursive: true, force: true });
 });
 
