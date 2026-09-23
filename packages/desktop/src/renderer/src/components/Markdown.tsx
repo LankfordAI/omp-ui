@@ -91,7 +91,7 @@ function MathExpression({ text, display }: { text: string; display: boolean }): 
 /**
  * One external link anchor: no `href` attribute (renderer never navigates; the
  * absence also kills middle-click/drag), clicks route window.open — intercepted
- * by main's setWindowOpenHandler → shell.openExternal (issue #101).
+ * by main's setWindowOpenHandler → openExternalSafe (issue #101).
  */
 function OpenExternalLink({ href, children }: { href: string; children: ReactNode }) {
   return (

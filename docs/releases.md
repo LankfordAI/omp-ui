@@ -6,6 +6,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 - Installed as an AppImage, omp-ui opens a project in **VS Code** and **Files** from the pre-AppImage environment, as **Open in terminal** already did: the new VS Code window's integrated terminals no longer inherit `ARGV0`, `APPIMAGE`, `APPDIR`, or the `AppRun` `PATH` and `LD_LIBRARY_PATH` edits, so zsh runs commands under their own names ([#633](https://github.com/LankfordAI/omp-ui/issues/633)).
 
+- Installed as an AppImage, omp-ui hands transcript links, provider sign-in pages, release notes, and exported transcripts to your browser from the pre-AppImage environment. A browser omp-ui starts no longer inherits `ARGV0`, `APPIMAGE`, `APPDIR`, `OWD`, or the `AppRun` `PATH` and `LD_LIBRARY_PATH` edits, so the programs that browser opens later don't inherit them either. On Wayland, a browser that is already running now opens the page without raising its window ([#635](https://github.com/LankfordAI/omp-ui/issues/635)).
+
 Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
