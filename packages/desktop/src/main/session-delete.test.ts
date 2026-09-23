@@ -103,6 +103,7 @@ function setup(): {
         lastAdvisorModel: null,
         defaultModel: null,
         defaultAdvisorModel: null,
+        browserClock: false,
       },
     ],
     sessions: [
@@ -373,6 +374,7 @@ function setupCascade(): {
         lastAdvisorModel: null,
         defaultModel: null,
         defaultAdvisorModel: null,
+        browserClock: false,
       },
     ],
     sessions: [

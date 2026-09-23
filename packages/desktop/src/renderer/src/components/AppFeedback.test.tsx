@@ -37,6 +37,7 @@ const PROJECT = {
   lastAdvisorModel: null,
   defaultModel: null,
   defaultAdvisorModel: null,
+  browserClock: false,
 };
 
 function record(patch: Partial<SessionSummary> = {}): SessionSummary {

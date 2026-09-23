@@ -895,6 +895,7 @@ describe("Registry mutations", () => {
       lastAdvisorModel: null,
       defaultModel: null,
       defaultAdvisorModel: null,
+      browserClock: false,
     });
   });
 
@@ -965,6 +966,38 @@ describe("Registry mutations", () => {
     );
     const reg = Registry.load(file);
     expect(reg.projects.map((p) => p.path)).toEqual(["/ok"]);
+  });
+
+  it("setProjectBrowserClock turns the clock on and off, survives a reload, and skips no-op or unknown writes", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    expect(reg.projects[0]!.browserClock).toBe(false);
+    reg.setProjectBrowserClock("/abs/proj", true);
+    expect(Registry.load(file).projects[0]!.browserClock).toBe(true);
+    const before = fs.readFileSync(file, "utf8");
+    reg.setProjectBrowserClock("/abs/proj", true);
+    reg.setProjectBrowserClock("/abs/zzz", false);
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    reg.setProjectBrowserClock("/abs/proj", false);
+    expect(Registry.load(file).projects[0]!.browserClock).toBe(false);
+  });
+
+  it("drops a project record whose browserClock is not a boolean", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [
+          { path: "/proj", name: "proj", addedAt: "t", browserClock: "yes" },
+          { path: "/ok", name: "ok", addedAt: "t", browserClock: true },
+        ],
+        sessions: [],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.projects.map((p) => [p.path, p.browserClock])).toEqual([["/ok", true]]);
   });
 
   it("keeps legacy sessions and defaults missing preferences to null", () => {

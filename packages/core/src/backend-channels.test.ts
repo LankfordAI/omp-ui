@@ -156,6 +156,7 @@ const VALID_ARGS = {
   setMcpServerEnabled: [{ projectCwd: null, name: "github", enabled: true }],
   setOmpUpdateCheckOnLaunch: [true],
   setPlanFormat: ["html"],
+  setProjectBrowserClock: ["/project", true],
   setProjectDefaultAdvisorModel: ["/project", null],
   setProjectDefaultModel: ["/project", null],
   getProjectSubagentModels: ["/project"],

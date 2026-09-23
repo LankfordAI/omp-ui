@@ -108,6 +108,13 @@ export interface ProjectRecord {
    * registries without the field are normalized to null at parse time.
    */
   defaultAdvisorModel: string | null;
+  /**
+   * Browser clock (see CONTEXT.md): shows the date and time above this
+   * project's browser panes and stamps it onto every pane screenshot — the
+   * camera button, element picks, and agent Page.captureScreenshot results.
+   * Legacy registries without the field are normalized to false at parse time.
+   */
+  browserClock: boolean;
 }
 
 /**

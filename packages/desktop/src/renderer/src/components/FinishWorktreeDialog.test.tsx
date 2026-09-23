@@ -151,6 +151,7 @@ const stateWith = (session: SessionSummary): BackendState =>
           lastAdvisorModel: null,
           defaultModel: null,
           defaultAdvisorModel: null,
+          browserClock: false,
         },
         sessions: [session],
       },

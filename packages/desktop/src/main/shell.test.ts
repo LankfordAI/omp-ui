@@ -140,6 +140,7 @@ function setup(opts: { spawnGate?: SpawnGate } = {}): { backend: InstanceType<ty
         lastAdvisorModel: null,
         defaultModel: null,
         defaultAdvisorModel: null,
+        browserClock: false,
       },
     ],
     sessions: [

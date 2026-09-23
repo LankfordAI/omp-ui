@@ -54,6 +54,7 @@ function project(override: Partial<ProjectRecord> & { path: string }): ProjectRe
     lastAdvisorModel: null,
     defaultModel: null,
     defaultAdvisorModel: null,
+    browserClock: false,
     ...override,
   };
 }

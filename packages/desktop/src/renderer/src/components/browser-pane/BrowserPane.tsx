@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
+  browserClockText,
   isAllowedBrowserPaneTopLevelUrl,
   type BrowserPaneInputEvent,
   type BrowserPanePickResult,
@@ -31,10 +32,12 @@ import {
 import { bytesToBase64 } from "../../lib/clipboard-image";
 import { cn } from "../../lib/cn";
 import { isAppHotkey } from "../../lib/hotkeys";
-import { useT } from "../../lib/i18n";
+import { STAMPED_JPEG_QUALITY, stampImage } from "../../lib/clock-stamp";
+import { currentLocaleId, useT } from "../../lib/i18n";
 import { IS_ELECTRON, IS_MAC } from "../../lib/platform";
 import { findInstance, findOwner, registerBrowserPaneWriter, useStore, viewedClientId } from "../../store";
 import { Dot, ICON_STROKE, IconButton, IconClose } from "../ui";
+import { BrowserPaneClock } from "./BrowserPaneClock";
 
 /**
  * The browser pane (issue #519, ADR-0029): the session's shared page, painted
@@ -165,6 +168,13 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   const instanceDown = useStore(
     (s) => instanceId !== null && findInstance(s.state, instanceId)?.status !== "joined",
   );
+  /** The browser clock follows the tab's project on whichever host owns it. */
+  const clockOn = useStore((s) => {
+    const owner = findOwner(s.state, tabId);
+    if (owner === undefined) return false;
+    const groups = owner.instanceId === null ? s.state?.projects : findInstance(s.state, owner.instanceId)?.projects;
+    return groups?.find((g) => g.project.path === owner.record.projectCwd)?.project.browserClock === true;
+  });
   const ensureBrowserPane = useStore((s) => s.ensureBrowserPane);
   const closeBrowserPane = useStore((s) => s.closeBrowserPane);
   const setBrowserPaneFullscreen = useStore((s) => s.setBrowserPaneFullscreen);
@@ -189,6 +199,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   const [draft, setDraft] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false);
   const [attachedAt, setAttachedAt] = useState(0);
+  const [stampFailedAt, setStampFailedAt] = useState(0);
   const [picking, setPicking] = useState(false);
   const [pickNote, setPickNote] = useState<"miss" | null>(null);
 
@@ -248,6 +259,12 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
     const timer = setTimeout(() => setAttachedAt(0), ATTACHED_NOTE_MS);
     return () => clearTimeout(timer);
   }, [attachedAt]);
+
+  useEffect(() => {
+    if (stampFailedAt === 0) return;
+    const timer = setTimeout(() => setStampFailedAt(0), ATTACHED_NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [stampFailedAt]);
 
   useEffect(() => {
     if (pickNote === null) return;
@@ -414,12 +431,28 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
     proxyRef.current?.focus({ preventScroll: true });
   };
 
-  const attach = (): void => {
-    const jpeg = painterRef.current?.lastJpeg() ?? null;
-    if (jpeg === null) return;
+  /** The hand-back bytes: stamped when the clock is on; null (nothing to queue) when stamping failed. */
+  const handBack = async (jpeg: Uint8Array, dsf: number): Promise<Uint8Array | null> => {
+    if (!clockOn) return jpeg;
+    try {
+      const text = browserClockText(new Date(), currentLocaleId());
+      return await stampImage(jpeg, "image/jpeg", STAMPED_JPEG_QUALITY, text, { scale: dsf });
+    } catch {
+      setStampFailedAt(Date.now());
+      return null;
+    }
+  };
+
+  const attach = async (): Promise<void> => {
+    const painter = painterRef.current;
+    const jpeg = painter?.lastJpeg() ?? null;
+    const header = painter?.header() ?? null;
+    if (jpeg === null || header === null) return;
+    const bytes = await handBack(jpeg, header.dsf);
+    if (bytes === null) return;
     queueComposerAttachment(
       tabId,
-      { type: "image", data: bytesToBase64(jpeg), mimeType: "image/jpeg" },
+      { type: "image", data: bytesToBase64(bytes), mimeType: "image/jpeg" },
       state?.url ?? "",
     );
     setAttachedAt(Date.now());
@@ -447,13 +480,15 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
     const jpeg = await cropFrame(canvas, header, result.rect);
     setPicking(false);
     if (jpeg === null) return;
+    const bytes = await handBack(jpeg, header.dsf);
+    if (bytes === null) return;
     const where = result.framed
       ? t("browser.pick.framed", { selector: result.selector })
       : `selector: ${result.selector}`;
     const label = result.text === "" ? `<${result.tag}>` : `<${result.tag}> "${result.text}"`;
     queueComposerAttachment(
       tabId,
-      { type: "image", data: bytesToBase64(jpeg), mimeType: "image/jpeg" },
+      { type: "image", data: bytesToBase64(bytes), mimeType: "image/jpeg" },
       `${state?.url ?? ""}\n${where} — ${label}`,
     );
     setAttachedAt(Date.now());
@@ -479,6 +514,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-surface">
+      {clockOn && <BrowserPaneClock />}
       {/* The agent is acting: a 1 px copper frame pulses over the whole pane
           (SessionRow's working face), never dimming the page under it. */}
       {acting && <div aria-hidden className="pointer-events-none absolute inset-0 z-10 animate-pulse border border-copper" />}
@@ -565,17 +601,26 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
           <IconButton
             label={t("browser.toolbar.attach")}
             disabled={!hasFrame}
-            onClick={attach}
+            onClick={() => void attach()}
           >
             <IconAttach />
           </IconButton>
-          {attachedAt !== 0 && (
+          {stampFailedAt !== 0 ? (
             <span
-              role="status"
-              className="pointer-events-none absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded-md border border-line bg-overlay px-2 py-1 text-[10px] text-ink-mid"
+              role="alert"
+              className="pointer-events-none absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded-md border border-rose bg-overlay px-2 py-1 text-[10px] text-rose"
             >
-              {t("browser.toolbar.attached")}
+              {t("browser.clock.stampFailed")}
             </span>
+          ) : (
+            attachedAt !== 0 && (
+              <span
+                role="status"
+                className="pointer-events-none absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded-md border border-line bg-overlay px-2 py-1 text-[10px] text-ink-mid"
+              >
+                {t("browser.toolbar.attached")}
+              </span>
+            )
           )}
         </span>
         <IconButton

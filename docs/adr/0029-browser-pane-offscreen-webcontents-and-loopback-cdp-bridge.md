@@ -280,3 +280,15 @@ through a **loopback CDP bridge** the main process hosts:
   preserving discovery for other clients. The live hidden-extension test
   reads `get_messages`, because omp does not create the session `.jsonl`
   before a user message exists. These are intentional, not migration gaps.
+
+## Amendment — browser clock
+
+The bridge forwards CDP payloads verbatim **except** a successful
+`Page.captureScreenshot` result while the tab's project has the browser clock
+on (see CONTEXT.md "Browser clock", issue #642). That result's `data` is
+replaced with the same image, re-encoded in the requested format and quality,
+with a date/time badge in the top-right corner. The size is unchanged unless
+the image is too small for the badge, in which case a strip is added on top.
+A stamping failure is returned to the client as the command's CDP error,
+never as an unstamped image. The page is never touched: the stamp is drawn in
+a separate main-owned hidden page, not in the pane.

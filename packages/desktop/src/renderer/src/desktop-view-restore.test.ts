@@ -189,11 +189,11 @@ const session = (
 const backendState: BackendState = makeBackendState({
   projects: [
     {
-      project: { path: "/p/a", name: "a", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
+      project: { path: "/p/a", name: "a", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false },
       sessions: [session("pty-1", "/p/a", "pty", "dormant", false)],
     },
     {
-      project: { path: "/p/b", name: "b", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
+      project: { path: "/p/b", name: "b", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false },
       // rpc-1 resumable, missing-1 is gone on disk, deleted-1 has NO record.
       sessions: [
         session("rpc-1", "/p/b", "rpc-ui", "dormant", true),

@@ -105,6 +105,7 @@ import { RemoteInstanceManager } from "./remote-instance-manager";
 import { routeByTab } from "./remote-route";
 import { SessionManager } from "./session-manager";
 import { PlanVerifier } from "./plan-verifier";
+import { ClockStamper } from "./clock-stamper";
 import { readConfinedPlanFile } from "./plan-file";
 import { DesktopNotifier } from "./desktop-notifier";
 import { electronKeyCipher } from "./key-cipher";
@@ -127,6 +128,8 @@ export class MainBackend {
   readonly sessions: SessionManager;
   /** The one plan verification service (§4): owned here, injected downward. */
   private readonly planVerifier: PlanVerifier;
+  /** Stamps the browser clock onto agent screenshots (see CONTEXT.md "Browser clock"). */
+  private readonly clockStamper: ClockStamper;
   /** OS notifications for background sessions (issue #271). */
   private readonly notifier: DesktopNotifier;
   private readonly appUpdater: AppUpdater;
@@ -242,6 +245,7 @@ export class MainBackend {
       send: (channel, ...args) => this.send(channel, ...args),
     });
     this.planVerifier = new PlanVerifier();
+    this.clockStamper = new ClockStamper();
     this.sessions =
       opts.sessions ??
       new SessionManager({
@@ -271,6 +275,7 @@ export class MainBackend {
               return this.panePageDpr;
             }
           },
+          stampImage: (req) => this.clockStamper.stamp(req),
         },
       });
     // Probe the window's true page dpr when the shell loads (and reloads) and
@@ -580,6 +585,10 @@ export class MainBackend {
         },
         [CH.setProjectDefaultAdvisorModel]: async (projectPath: string, model: string | null) => {
           this.registry.setProjectDefaultAdvisorModel(projectPath, model?.trim() || null);
+          await this.broadcast();
+        },
+        [CH.setProjectBrowserClock]: async (projectPath: string, on: boolean) => {
+          this.registry.setProjectBrowserClock(projectPath, on);
           await this.broadcast();
         },
         [CH.getProjectSubagentModels]: (projectCwd: string): ProjectSubagentModelsResult => {
@@ -1072,6 +1081,7 @@ export class MainBackend {
     this.notifier.dispose();
     this.providerOAuth.dispose();
     this.planVerifier.dispose();
+    this.clockStamper.dispose();
     this.sessions.killAll();
     const headsSettled = this.headWatchers.disposeAll();
     this.remoteInstances.stop();

@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.14.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.14.0). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- A project can turn on the **browser clock** (Project settings → Browser → Clock). Its browser panes then show the date and time in a strip above the toolbar, and every pane screenshot carries a date/time badge in its top-right corner: the camera hand-back, element picks, and screenshots the agent takes. The badge is drawn on the image only; the page is never touched ([#642](https://github.com/LankfordAI/omp-ui/issues/642)).
+
+Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 

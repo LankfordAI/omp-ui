@@ -99,6 +99,7 @@ function setup(): { backend: InstanceType<typeof MainBackend> } {
         lastAdvisorModel: null,
         defaultModel: null,
         defaultAdvisorModel: null,
+        browserClock: false,
       },
     ],
     sessions: [

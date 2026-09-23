@@ -695,6 +695,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice {
     model: string | null,
     instanceId?: string | null,
   ): Promise<void>;
+  setProjectBrowserClock(projectPath: string, on: boolean, instanceId?: string | null): Promise<void>;
   toggleFavorite(key: string, instanceId?: string | null): Promise<void>;
   newSession(
     projectCwd: string,

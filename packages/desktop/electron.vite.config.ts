@@ -16,6 +16,10 @@ export default defineConfig({
           "browser-pane-smoke": resolve("src/main/browser-pane-smoke.ts"),
         },
         external: ["bufferutil", "utf-8-validate"],
+        // Shared chunks sit beside index.js, not in chunks/: modules resolving
+        // bundled assets through __dirname (plan-verifier, clock-stamper,
+        // backend) assume __dirname is out/main.
+        output: { chunkFileNames: "[name]-[hash].js" },
       },
     },
   },
@@ -23,15 +27,17 @@ export default defineConfig({
   renderer: {
     plugins: [react(), tailwindcss()],
     build: {
-      // Two pages ship: the app (index.html — unchanged default entry) and
-      // the private main-owned plan verifier surface (issue #312 follow-up).
-      // electron-builder ships both via `out/**`; the WEB build config
-      // (vite.web.config.ts) deliberately never lists the verifier page, so
-      // the remote client cannot load it.
+      // Three pages ship: the app (index.html — unchanged default entry), the
+      // private main-owned plan verifier surface (issue #312 follow-up), and
+      // the private main-owned browser-clock stamper. electron-builder ships
+      // them via `out/**`; the WEB build config (vite.web.config.ts)
+      // deliberately never lists the private pages, so the remote client
+      // cannot load them.
       rollupOptions: {
         input: {
           index: resolve("src/renderer/index.html"),
           planVerifier: resolve("src/renderer/plan-verifier.html"),
+          clockStamper: resolve("src/renderer/clock-stamper.html"),
         },
       },
     },

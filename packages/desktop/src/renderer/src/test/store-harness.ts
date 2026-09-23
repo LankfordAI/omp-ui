@@ -437,6 +437,7 @@ function stateWithRecord(
           lastAdvisorModel: null,
           defaultModel: null,
           defaultAdvisorModel: null,
+          browserClock: false,
         },
         sessions: [
           {

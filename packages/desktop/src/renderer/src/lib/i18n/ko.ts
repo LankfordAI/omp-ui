@@ -859,6 +859,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "browser.pick.hint": "요소를 클릭하면 스크린샷과 선택자가 첨부됩니다 — Esc로 취소",
   "browser.pick.miss": "그 지점에는 선택할 요소가 없습니다",
   "browser.pick.framed": "하위 프레임 안의 선택자: {selector}",
+  "browser.clock.label": "시스템 시계",
+  "browser.clock.stampFailed": "스크린샷에 시계를 넣지 못해 아무것도 첨부하지 않았습니다",
   "browser.toolbar.fullscreen": "열 전체로 펼치기",
   "browser.toolbar.split": "분할 보기로 돌아가기",
   "browser.toolbar.close": "브라우저 패널 닫기",
@@ -1505,6 +1507,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "project.settings.toolsHint":
     "이 프로젝트 범위의 도구 활성화 설정이며, 이후 시작되는 세션에 적용됩니다.",
   "project.settings.defaultModels": "기본 모델",
+  "project.settings.browser": "브라우저",
+  "project.settings.browserClock": "시계",
+  "project.settings.browserClockHint":
+    "이 프로젝트의 브라우저 창 위에 날짜와 시간을 표시하고, 카메라 버튼·요소 선택·에이전트가 찍은 스크린샷 등 모든 브라우저 스크린샷에 새겨 넣습니다.",
 
   "sidebar.status.workingLabel": "작업 중",
   "sidebar.status.workingTitle": "에이전트가 작업 중입니다",

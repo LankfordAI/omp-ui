@@ -172,6 +172,14 @@ plus the page URL as ordinary text. Closing it only stops the stream; the page
 lives until the session hibernates, is deleted, or switches to a terminal.
 _Avoid_: browser tab, web tab, sixth pane, webview, embedded browser
 
+**Browser clock**:
+A per-project switch (Project settings → Browser) that shows the date and
+time in a strip atop the **Browser pane** and stamps it as a corner badge onto
+every pane screenshot: the camera hand-back, element picks, and screenshots
+the agent takes through the pane's endpoint. It exists for evidence that must
+carry a timestamp. Stamps change only the image, never the page.
+_Avoid_: timestamp overlay, watermark, system tray clock
+
 **Session HUD**:
 The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
 meter, spend, and the session controls (compact, auto-compact, export, branch,

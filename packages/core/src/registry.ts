@@ -347,7 +347,8 @@ function isProjectRecord(value: unknown): value is ProjectRecord {
     optNullable(value, "lastAdvisor", (v) => typeof v === "boolean") &&
     optNullable(value, "lastAdvisorModel", isStr) &&
     optNullable(value, "defaultModel", isStr) &&
-    optNullable(value, "defaultAdvisorModel", isStr)
+    optNullable(value, "defaultAdvisorModel", isStr) &&
+    optNullable(value, "browserClock", (v) => typeof v === "boolean")
   );
 }
 
@@ -481,6 +482,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       lastAdvisorModel: p.lastAdvisorModel ?? null,
       defaultModel: p.defaultModel ?? null,
       defaultAdvisorModel: p.defaultAdvisorModel ?? null,
+      browserClock: p.browserClock === true,
     }));
   const sessions = sessionsValue
     .filter(isOwnedSessionRecord)
@@ -693,6 +695,7 @@ export class Registry {
       lastAdvisorModel: null,
       defaultModel: null,
       defaultAdvisorModel: null,
+      browserClock: false,
     };
     this.#transaction((draft) => {
       draft.projects.push(record);
@@ -800,6 +803,16 @@ export class Registry {
       const project = draft.projects.find((candidate) => candidate.path === projectPath);
       if (!project || project.defaultAdvisorModel === model) return false;
       project.defaultAdvisorModel = model;
+      return true;
+    });
+  }
+
+  /** Turns the project's browser clock on or off. Unknown project or unchanged value: no save. */
+  setProjectBrowserClock(projectPath: string, on: boolean): void {
+    this.#transaction((draft) => {
+      const project = draft.projects.find((candidate) => candidate.path === projectPath);
+      if (!project || project.browserClock === on) return false;
+      project.browserClock = on;
       return true;
     });
   }

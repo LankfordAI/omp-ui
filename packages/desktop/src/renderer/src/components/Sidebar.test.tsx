@@ -97,6 +97,7 @@ const state = backendState({
         lastAdvisorModel: null,
         defaultModel: null,
         defaultAdvisorModel: null,
+        browserClock: false,
       },
       sessions: [
         {
@@ -1025,6 +1026,7 @@ describe("project name display", () => {
             lastAdvisorModel: null,
             defaultModel: null,
             defaultAdvisorModel: null,
+            browserClock: false,
           },
           sessions: lives.map((live, i) => ({
             tabId: `tab-${i + 1}`,
@@ -1154,7 +1156,7 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
     streamStalled: false,
   });
   const project = (path: string, name: string) => ({
-    project: { path, name, addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
+    project: { path, name, addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false },
     sessions: Array.from({ length: 9 }, (_, i) =>
       session(`${path === projA ? "a" : "b"}-session-${i + 1}`, path, `Project ${name} session ${i + 1}`),
     ),
@@ -1481,7 +1483,7 @@ describe("Sidebar session drag-and-drop (issue #274)", () => {
   const treeState = backendState({
     projects: [
       {
-        project: { path: treePath, name: "Tree", addedAt: "2026-08-19T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
+        project: { path: treePath, name: "Tree", addedAt: "2026-08-19T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false },
         sessions: [
           sess("tree-impl", "Tree Impl", { projectCwd: treePath, planImplementationSource: src("tree-root") }),
           sess("tree-root", "Tree Root"),
@@ -1491,7 +1493,7 @@ describe("Sidebar session drag-and-drop (issue #274)", () => {
         ],
       },
       {
-        project: { path: plainPath, name: "Plain", addedAt: "2026-08-18T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
+        project: { path: plainPath, name: "Plain", addedAt: "2026-08-18T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false },
         sessions: [sess("plain-a", "Plain A"), sess("plain-b", "Plain B")],
       },
     ].map((g) => ({
@@ -1606,6 +1608,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
           lastAdvisorModel: null,
           defaultModel: null,
           defaultAdvisorModel: null,
+          browserClock: false,
         },
         sessions: [
           {
@@ -1716,7 +1719,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
       state: backendState({
         projects: [
           {
-            project: { path: "/projects/solo", name: "Solo", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
+            project: { path: "/projects/solo", name: "Solo", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false },
             sessions: [
               {
                 tabId: "only", sessionId: null, lineageDir: "l", projectCwd: "/projects/solo",
@@ -1790,6 +1793,7 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     lastAdvisorModel: null,
     defaultModel: null,
     defaultAdvisorModel: null,
+    browserClock: false,
   };
 
   // The implementation arrives newer than its source — the sidebar must still

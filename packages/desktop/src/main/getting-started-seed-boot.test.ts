@@ -48,6 +48,7 @@ const PROJECT: ProjectRecord = {
   lastAdvisorModel: null,
   defaultModel: null,
   defaultAdvisorModel: null,
+  browserClock: false,
 };
 
 let base: string;
