@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { OmpSettingValue } from "@omp-ui/core/types";
 import { OMP_SUBAGENT_MODELS_KEY } from "@omp-ui/core/omp-settings-keys";
 import { SUBAGENT_MODEL_INHERIT, type SubagentModelMap } from "@omp-ui/core/subagent-model";
 import { backendFor, displayMessage } from "../backend";
 import { useT } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
+import { useDismissal } from "../lib/use-dismissal";
 import { findOwner, findRecord, sessionCwd, useStore } from "../store";
 import { ModelPalette } from "./ModelSelector";
 import { Chip, IconTune } from "./ui";
@@ -12,6 +14,21 @@ import { Chip, IconTune } from "./ui";
 const EMPTY_MODELS: ModelInfo[] = [];
 
 const EMPTY_ROSTER: string[] = [];
+
+/** Nominal popover width; narrower only when the viewport itself cannot hold it. */
+const POPOVER_WIDTH = 288;
+/** Gap between the trigger's bottom edge and the popover. */
+const POPOVER_GAP = 4;
+/** Breathing room kept between the popover and every viewport edge. */
+const VIEWPORT_EDGE = 8;
+
+interface PopoverGeometry {
+  left: number;
+  top: number;
+  width: number;
+  maxHeight: number;
+}
+
 /** The record value of one settings entry, or {} when unset/not a record. */
 function recordOf(value: OmpSettingValue | undefined): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
@@ -26,6 +43,11 @@ function recordOf(value: OmpSettingValue | undefined): Record<string, unknown> {
  *
  * The popover shows configured values and winning layers, never a claimed
  * actual: `get_subagents` does not report the resolved model.
+ *
+ * The popover is portaled to `document.body` and fixed-positioned (issue #634):
+ * the Agents pane body is an `overflow-y-auto` scroll box, which computes
+ * `overflow-x` to `auto` too, so an in-tree popover wider than the room left
+ * of its trigger was clipped at the pane edge.
  */
 export function SubagentModelsControl({ tabId }: { tabId: string }) {
   const t = useT();
@@ -43,6 +65,9 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
     /** False for remote sessions: their global layer cannot be read from here. */
     globalKnown: boolean;
   } | null>(null);
+  const [geometry, setGeometry] = useState<PopoverGeometry | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const cwd = sessionCwd(record);
 
   // Layer reads run on open, never while the popover is closed. A remote
@@ -72,18 +97,59 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
     };
   }, [open, cwd, instanceId]);
 
-  // Escape closes; the backdrop below handles pointer-outside.
-  useEffect(() => {
+  // Anchored before paint: below the trigger, right-aligned to it, clamped
+  // inside the visual viewport. Re-anchored on resize and on any scroll
+  // (capture phase — scroll does not bubble), so the popover follows the
+  // trigger when the pane body scrolls under it.
+  useLayoutEffect(() => {
     if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setOpen(false);
-      }
+    const place = (): void => {
+      const trigger = triggerRef.current;
+      if (trigger === null) return;
+      const rect = trigger.getBoundingClientRect();
+      // The visual viewport is the honest one under a compact keyboard or a
+      // pinch-zoom; inner{Width,Height} is the fallback where it is unsupported.
+      const visualViewport = window.visualViewport;
+      const viewportLeft = visualViewport?.offsetLeft ?? 0;
+      const viewportTop = visualViewport?.offsetTop ?? 0;
+      const viewportWidth = visualViewport?.width ?? window.innerWidth;
+      const viewportHeight = visualViewport?.height ?? window.innerHeight;
+      const width = Math.min(POPOVER_WIDTH, Math.max(0, viewportWidth - VIEWPORT_EDGE * 2));
+      const minLeft = viewportLeft + VIEWPORT_EDGE;
+      const maxLeft = viewportLeft + viewportWidth - VIEWPORT_EDGE - width;
+      const top = Math.max(viewportTop + VIEWPORT_EDGE, rect.bottom + POPOVER_GAP);
+      setGeometry({
+        left: Math.max(minLeft, Math.min(rect.right - width, maxLeft)),
+        top,
+        width,
+        maxHeight: Math.max(0, viewportTop + viewportHeight - VIEWPORT_EDGE - top),
+      });
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
   }, [open]);
+
+  // Once per opening: at the end of <body> the portal is otherwise the last
+  // stop in Tab order, so focus moves into it.
+  useEffect(() => {
+    if (open) panelRef.current?.focus({ preventScroll: true });
+  }, [open]);
+
+  // Fail closed: a press outside the trigger and the portaled panel dismisses.
+  // Suspended while the model palette is up — its Modal is portaled outside
+  // both refs, and its own overlay owns Escape until it closes.
+  useDismissal({
+    open: open && paletteAgent === null,
+    refs: [triggerRef, panelRef],
+    onClose: () => setOpen(false),
+    onEscape: () => setOpen(false),
+    restoreFocus: () => triggerRef.current?.focus(),
+  });
 
   if (record === undefined) return null;
 
@@ -108,10 +174,12 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
   const sessionModels = record.subagentModels;
 
   return (
-    <span className="relative">
+    <span>
       <button
+        ref={triggerRef}
         type="button"
         aria-label={t("rail.agents.modelsLabel")}
+        aria-haspopup="dialog"
         aria-expanded={open}
         title={t("rail.agents.modelsLabel")}
         onClick={() => setOpen((value) => !value)}
@@ -120,10 +188,21 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
         <IconTune className="size-3" />
         <span>{t("rail.agents.modelsButton")}</span>
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-40 mt-1 w-72 rounded-lg border border-line bg-raised p-2.5 shadow-xl">
+      {open &&
+        createPortal(
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-label={t("rail.agents.modelsTitle")}
+            tabIndex={-1}
+            className="fixed z-[70] overflow-y-auto rounded-lg border border-line bg-raised p-2.5 shadow-xl"
+            style={{
+              left: geometry?.left ?? 0,
+              top: geometry?.top ?? 0,
+              width: geometry?.width ?? POPOVER_WIDTH,
+              maxHeight: geometry?.maxHeight,
+            }}
+          >
             <p className="text-[11px] font-medium text-ink">{t("rail.agents.modelsTitle")}</p>
             <p className="mt-0.5 text-[10px] leading-relaxed text-ink-faint">
               {sessionModels === null
@@ -186,9 +265,9 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
             >
               {t("rail.agents.modelsRefresh")}
             </button>
-          </div>
-        </>
-      )}
+          </div>,
+          document.body,
+        )}
       {paletteAgent !== null && (
         <ModelPalette
           variant="subagent"
