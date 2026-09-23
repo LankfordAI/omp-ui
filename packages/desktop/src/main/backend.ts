@@ -110,6 +110,7 @@ import { DesktopNotifier } from "./desktop-notifier";
 import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
 import { openExternalSafe } from "./open-external";
+import { openPath } from "./system-open";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
 import { windowStatePath } from "./window-state";
 import { NO_BREADCRUMBS, type BreadcrumbSink } from "./breadcrumbs";
@@ -684,13 +685,9 @@ export class MainBackend {
         [CH.getProjectOpenAvailability]: () => this.projectOpener.availability(),
         [CH.openProject]: (projectPath: string, target: ProjectOpenTarget) =>
           this.projectOpener.open(projectPath, target),
-        // shell.openPath resolves with an error string on failure ("" on
-        // success); rejecting lets the renderer surface it instead of the
-        // click dying silently.
-        [CH.openPath]: async (absPath: string) => {
-          const failure = await shell.openPath(absPath);
-          if (failure !== "") throw new Error(failure);
-        },
+        // Rejecting lets the renderer surface a failure instead of the click
+        // dying silently.
+        [CH.openPath]: (absPath: string) => openPath(absPath),
         [CH.showPathInFolder]: (absPath: string) => {
           shell.showItemInFolder(absPath);
         },

@@ -1,4 +1,3 @@
-import { homedir } from "node:os";
 import type { ProjectOpenTarget } from "@omp-ui/core";
 import { describe, expect, it, vi } from "vitest";
 import { ProjectOpener, vscodeProjectUrl, type ProjectOpenHost } from "./project-open";
@@ -17,7 +16,7 @@ function makeHost(overrides: Partial<ProjectOpenHost> = {}) {
     overrides.getApplicationNameForProtocol ?? (() => "Visual Studio Code"),
   );
   const openExternal = vi.fn(overrides.openExternal ?? (async () => {}));
-  const openPath = vi.fn(overrides.openPath ?? (async () => ""));
+  const openPath = vi.fn(overrides.openPath ?? (async () => {}));
   const findExecutable = vi.fn(overrides.findExecutable ?? (() => null));
   const runLauncher = vi.fn(overrides.runLauncher ?? (async () => {}));
   const spawnDetached = vi.fn(overrides.spawnDetached ?? (async () => {}));
@@ -74,7 +73,7 @@ describe("ProjectOpener availability", () => {
   });
 
   it("shares one cached discovery result across availability checks and opens", async () => {
-    const { host, getApplicationNameForProtocol, spawnDetached } = makeHost();
+    const { host, getApplicationNameForProtocol, openExternal } = makeHost();
     const opener = new ProjectOpener(host, "linux", {});
 
     expect(opener.availability()).toEqual({ vsCode: true, terminal: false });
@@ -83,23 +82,20 @@ describe("ProjectOpener availability", () => {
     await opener.open("/work/two", "vscode");
 
     expect(getApplicationNameForProtocol).toHaveBeenCalledOnce();
-    expect(spawnDetached.mock.calls).toEqual([
-      ["xdg-open", ["vscode://file/work/one?windowId=_blank"], homedir()],
-      ["xdg-open", ["vscode://file/work/two?windowId=_blank"], homedir()],
+    expect(openExternal.mock.calls).toEqual([
+      ["vscode://file/work/one?windowId=_blank"],
+      ["vscode://file/work/two?windowId=_blank"],
     ]);
   });
 
   it("uses only the stable vscode scheme for discovery and launch", async () => {
-    const { host, getApplicationNameForProtocol, spawnDetached, openExternal } = makeHost();
+    const { host, getApplicationNameForProtocol, openExternal } = makeHost();
     const opener = new ProjectOpener(host, "linux", {});
 
     await opener.open("/work/project", "vscode");
 
     expect(getApplicationNameForProtocol.mock.calls).toEqual([["vscode://file/"]]);
-    expect(spawnDetached.mock.calls).toEqual([
-      ["xdg-open", ["vscode://file/work/project?windowId=_blank"], homedir()],
-    ]);
-    expect(openExternal).not.toHaveBeenCalled();
+    expect(openExternal.mock.calls).toEqual([["vscode://file/work/project?windowId=_blank"]]);
   });
 });
 
@@ -128,35 +124,25 @@ describe("vscodeProjectUrl", () => {
 });
 
 describe("ProjectOpener files launch", () => {
-  it("hands the exact project path to the pre-AppImage xdg-open spawn on Linux", async () => {
+  it("hands the exact project path to the system handler", async () => {
     const projectPath = '/work/a "quoted" project';
-    const { host, spawnDetached, openPath, openExternal } = makeHost();
+    const { host, openPath, openExternal, getApplicationNameForProtocol } = makeHost();
     const opener = new ProjectOpener(host, "linux", {});
 
     await opener.open(projectPath, "files");
 
-    expect(spawnDetached.mock.calls).toEqual([["xdg-open", [projectPath], homedir()]]);
-    expect(openPath).not.toHaveBeenCalled();
-    expect(openExternal).not.toHaveBeenCalled();
-  });
-
-  it("passes the exact project path to Electron's shell off Linux", async () => {
-    const projectPath = 'C:\\-projects\\a "quoted" folder';
-    const { host, openPath, openExternal, getApplicationNameForProtocol, spawnDetached } =
-      makeHost();
-    const opener = new ProjectOpener(host, "win32", {});
-
-    await opener.open(projectPath, "files");
-
     expect(openPath.mock.calls).toEqual([[projectPath]]);
-    expect(spawnDetached).not.toHaveBeenCalled();
     expect(openExternal).not.toHaveBeenCalled();
     expect(getApplicationNameForProtocol).not.toHaveBeenCalled();
   });
 
-  it("turns a nonempty openPath result into an actionable failure", async () => {
+  it("turns an openPath rejection into an actionable failure", async () => {
     const projectPath = "/work/missing project";
-    const { host } = makeHost({ openPath: async () => "No application is associated" });
+    const { host } = makeHost({
+      openPath: async () => {
+        throw new Error("No application is associated");
+      },
+    });
     const opener = new ProjectOpener(host, "darwin", {});
 
     await expect(opener.open(projectPath, "files")).rejects.toThrow(
@@ -168,19 +154,19 @@ describe("ProjectOpener files launch", () => {
 describe("ProjectOpener VS Code launch", () => {
   it("refuses to launch when stable VS Code is unavailable", async () => {
     const projectPath = "/work/project";
-    const { host, spawnDetached } = makeHost({ getApplicationNameForProtocol: () => "" });
+    const { host, openExternal } = makeHost({ getApplicationNameForProtocol: () => "" });
     const opener = new ProjectOpener(host, "linux", {});
 
     await expect(opener.open(projectPath, "vscode")).rejects.toThrow(
       `VS Code is not available to open "${projectPath}". Open the project in Files instead.`,
     );
-    expect(spawnDetached).not.toHaveBeenCalled();
+    expect(openExternal).not.toHaveBeenCalled();
   });
 
   it("re-probes after a launch rejection and retries exactly once when still registered", async () => {
     const projectPath = "/work/retry project";
-    const { host, getApplicationNameForProtocol, spawnDetached } = makeHost();
-    spawnDetached
+    const { host, getApplicationNameForProtocol, openExternal } = makeHost();
+    openExternal
       .mockRejectedValueOnce(new Error("stale handler"))
       .mockResolvedValueOnce(undefined);
     const opener = new ProjectOpener(host, "linux", {});
@@ -188,9 +174,9 @@ describe("ProjectOpener VS Code launch", () => {
     await opener.open(projectPath, "vscode");
 
     expect(getApplicationNameForProtocol).toHaveBeenCalledTimes(2);
-    expect(spawnDetached.mock.calls).toEqual([
-      ["xdg-open", ["vscode://file/work/retry%20project?windowId=_blank"], homedir()],
-      ["xdg-open", ["vscode://file/work/retry%20project?windowId=_blank"], homedir()],
+    expect(openExternal.mock.calls).toEqual([
+      ["vscode://file/work/retry%20project?windowId=_blank"],
+      ["vscode://file/work/retry%20project?windowId=_blank"],
     ]);
     expect(opener.availability()).toEqual({ vsCode: true, terminal: false });
     expect(getApplicationNameForProtocol).toHaveBeenCalledTimes(2);
@@ -198,18 +184,18 @@ describe("ProjectOpener VS Code launch", () => {
 
   it("does not retry when the handler disappears and clears the failed cache", async () => {
     const projectPath = "/work/disappearing";
-    const { host, getApplicationNameForProtocol, spawnDetached } = makeHost();
+    const { host, getApplicationNameForProtocol, openExternal } = makeHost();
     getApplicationNameForProtocol
       .mockReturnValueOnce("Visual Studio Code")
       .mockReturnValueOnce("")
       .mockReturnValue("Visual Studio Code");
-    spawnDetached.mockRejectedValueOnce(new Error("handler vanished"));
+    openExternal.mockRejectedValueOnce(new Error("handler vanished"));
     const opener = new ProjectOpener(host, "linux", {});
 
     await expect(opener.open(projectPath, "vscode")).rejects.toThrow(
       `Could not open "${projectPath}" in VS Code: handler vanished. Open the project in Files instead.`,
     );
-    expect(spawnDetached).toHaveBeenCalledOnce();
+    expect(openExternal).toHaveBeenCalledOnce();
     expect(getApplicationNameForProtocol).toHaveBeenCalledTimes(2);
 
     expect(opener.availability()).toEqual({ vsCode: true, terminal: false });
@@ -218,8 +204,8 @@ describe("ProjectOpener VS Code launch", () => {
 
   it("reports the retry cause, stops after one retry, and clears the failed cache", async () => {
     const projectPath = "/work/broken";
-    const { host, getApplicationNameForProtocol, spawnDetached } = makeHost();
-    spawnDetached
+    const { host, getApplicationNameForProtocol, openExternal } = makeHost();
+    openExternal
       .mockRejectedValueOnce(new Error("first launch failed"))
       .mockRejectedValueOnce(new Error("retry launch failed"));
     const opener = new ProjectOpener(host, "linux", {});
@@ -227,22 +213,12 @@ describe("ProjectOpener VS Code launch", () => {
     await expect(opener.open(projectPath, "vscode")).rejects.toThrow(
       `Could not open "${projectPath}" in VS Code: retry launch failed. Open the project in Files instead.`,
     );
-    expect(spawnDetached).toHaveBeenCalledTimes(2);
+    expect(openExternal).toHaveBeenCalledTimes(2);
     expect(getApplicationNameForProtocol).toHaveBeenCalledTimes(2);
 
     expect(opener.availability()).toEqual({ vsCode: true, terminal: false });
     expect(getApplicationNameForProtocol).toHaveBeenCalledTimes(3);
-    expect(spawnDetached).toHaveBeenCalledTimes(2);
-  });
-
-  it("hands the VS Code URL to Electron's shell off Linux", async () => {
-    const { host, openExternal, spawnDetached } = makeHost();
-    const opener = new ProjectOpener(host, "darwin", {});
-
-    await opener.open("/work/project", "vscode");
-
-    expect(openExternal.mock.calls).toEqual([["vscode://file/work/project?windowId=_blank"]]);
-    expect(spawnDetached).not.toHaveBeenCalled();
+    expect(openExternal).toHaveBeenCalledTimes(2);
   });
 
   it("rejects an unknown runtime target before invoking any host launch surface", async () => {

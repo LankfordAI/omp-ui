@@ -19,6 +19,7 @@ import {
   type UpdateTrain,
 } from "@omp-ui/core";
 import { UpdateController, type UpdateControllerDeps } from "./update-controller";
+import { openExternal } from "./system-open";
 
 // Main-process orchestration for omp-ui's own release updates (issue #18).
 // All the machine work — release lookup, package-format detection, the
@@ -615,13 +616,15 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     }
     this.publish({ t: "asset-downloaded", path: targetPath });
     // Best-effort installer handoff; the downloaded card keeps "Show in
-    // folder" as the escape hatch when the system handler declines.
+    // folder" as the escape hatch when the system handler declines. Stays on
+    // Electron's shell: a manual format never runs inside an AppImage
+    // (detectPackageFormat answers "appimage" whenever APPIMAGE is set).
     await shell.openPath(targetPath).catch(() => "");
   }
 
   /** Opens the pending release's GitHub page. */
   async openReleaseNotes(): Promise<void> {
-    if (this.state.releaseUrl !== null) await shell.openExternal(this.state.releaseUrl);
+    if (this.state.releaseUrl !== null) await openExternal(this.state.releaseUrl);
   }
 
   /** Reveals a downloaded manual installer in its folder. */
