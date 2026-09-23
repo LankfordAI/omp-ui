@@ -27,7 +27,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown } from "./Markdown";
 import { PlanCard } from "./PlanCard";
 import { AdvisoryNotes, ToolCard } from "./ToolCard";
-import { TranscriptContextMenu } from "./TranscriptContextMenu";
+import { SelectionContextMenu } from "./SelectionContextMenu";
 import { Chip, Disclosure, Empty, Label, type Tone } from "./ui";
 
 /** Re-entry threshold: this close to the tail still counts as following. */
@@ -824,7 +824,7 @@ export function TranscriptView({
       )}
 
       {menu !== null && (
-        <TranscriptContextMenu
+        <SelectionContextMenu
           x={menu.x}
           y={menu.y}
           markdown={menu.markdown}

@@ -3,9 +3,11 @@ import "@xterm/xterm/css/xterm.css";
 import { backend } from "../backend";
 import { useTheme } from "../lib/themes";
 import { useFontFamily } from "../lib/font-families";
+import { matchesHotkey } from "../lib/hotkeys";
 import { applyTerminalAppearance, createTerminal, type CreatedTerminal } from "../lib/terminal";
 import { findRecord, registerShellWriter, sessionCwd, useStore } from "../store";
 import { useT } from "../lib/i18n";
+import { useTerminalCopyMenu } from "./useTerminalCopyMenu";
 import { Button } from "./ui";
 
 /**
@@ -39,12 +41,20 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   const sendTuiHandoff = useStore((s) => s.sendTuiHandoff);
   const dismissTuiHandoff = useStore((s) => s.dismissTuiHandoff);
   const restartSession = useStore((s) => s.restartSession);
+  const copyMenu = useTerminalCopyMenu(termRef);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     const { term, fit } = createTerminal(host, theme, font);
     termRef.current = { term, fit };
+
+    // mod+j is this drawer's own toggle (App.tsx). xterm translates Ctrl+J to
+    // a line feed and stops the keydown before the window-level hotkey sees
+    // it, so with focus in the console the chord would run the shell's current
+    // line instead of closing the drawer (issue #637). Returning false makes
+    // xterm skip the event, which then bubbles to useHotkeys untouched.
+    term.attachCustomKeyEventHandler((e) => !matchesHotkey(e, "mod+j"));
 
     // No spawn here: after a mode-switch round trip the drawer can remount
     // while display:none, where fit() degenerates. The visible effect spawns.
@@ -110,6 +120,16 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
         t.term.write(`\x1b[31m${staged ? "omp" : "shell"} failed to start: ${msg}\x1b[0m\r\n`);
       });
   }, [visible, tabId, projectCwd, clearShellExited, handoff?.key]);
+
+  // Focus follows the drawer opening, as it follows the active terminal tab
+  // (issue #126, issue #637): the first open (the drawer mounts visible) and
+  // every reopen put the cursor in the shell. Keyed on `visible` alone — the
+  // spawn effect above also re-runs on a working-tree move or a handoff
+  // restage, which must not pull focus out of the composer. focus() is a
+  // browser no-op while #root is inert under a modal or the tab is hidden.
+  useEffect(() => {
+    if (visible) termRef.current?.term.focus();
+  }, [visible]);
 
   // Re-theme and re-font a live terminal in place. Deliberately NOT a dep of
   // the mount effect: rebuilding the terminal would drop the scrollback and
@@ -177,7 +197,7 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
       )}
       {/* The banner shares the column, so the host takes the remaining box
           instead of the full one; the ResizeObserver re-fits xterm to it. */}
-      <div ref={hostRef} className="min-h-0 w-full flex-1" />
+      <div ref={hostRef} className="min-h-0 w-full flex-1" onContextMenu={copyMenu.onContextMenu} />
       {/* Suppressed while a handoff exists — its banner owns the exited state
           (restart the session, not the program). */}
       {exitCode !== undefined && handoff === undefined && (
@@ -193,6 +213,7 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
           </Button>
         </div>
       )}
+      {copyMenu.menu}
     </div>
   );
 }

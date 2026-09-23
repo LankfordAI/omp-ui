@@ -15,6 +15,7 @@ import {
 } from "../lib/terminal";
 import { findInstance, findOwner, registerTermWriter, useStore } from "../store";
 import { useT } from "../lib/i18n";
+import { useTerminalCopyMenu } from "./useTerminalCopyMenu";
 import { FindBar } from "./FindBar";
 import { RemoteInstanceBanner } from "./RemoteInstanceBanner";
 import { Button, IconButton, IconClose } from "./ui";
@@ -84,6 +85,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   const [query, setQuery] = useState("");
   const [resultIndex, setResultIndex] = useState(0);
   const [resultCount, setResultCount] = useState(0);
+  const copyMenu = useTerminalCopyMenu(termRef);
 
   const deliverImages = useCallback(
     async ({ images, rejected }: ClipboardImages) => {
@@ -303,7 +305,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 [&>*]:pointer-events-auto">
         <RemoteInstanceBanner tabId={tabId} />
       </div>
-      <div ref={hostRef} className="h-full w-full" />
+      <div ref={hostRef} className="h-full w-full" onContextMenu={copyMenu.onContextMenu} />
       <span
         className="absolute right-3 top-3 z-10"
         onMouseDown={(event) => event.preventDefault()}
@@ -387,6 +389,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
           onClose={() => closeSearch(tabId)}
         />
       )}
+      {copyMenu.menu}
     </div>
   );
 }
