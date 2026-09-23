@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   BackendState,
   LiveState,
+  PlanHandoffDescendant,
   RemoteState,
   WorktreeReleaseResult,
   WorktreeSyncResult,
@@ -735,12 +736,16 @@ describe("deleteSession", () => {
     expect(h.useStore.getState().deleteConfirmation).toBeNull();
   });
 
-  it("stages the cascade confirmation even with the skip flag set", async () => {
+  it("erases the whole closure unasked when the skip flag is set", async () => {
     h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
       descendants: [
-        { tabId: "child-1", title: "Impl one", running: false },
-        { tabId: "child-2", title: "Impl two", running: true },
+        { tabId: "child-1", title: "Impl one", running: false, worktree: false },
+        { tabId: "child-2", title: "Impl two", running: true, worktree: false },
       ],
+    });
+    h.mockBackend.deleteSession.mockResolvedValueOnce({
+      deleted: [h.TAB, "child-1", "child-2"],
+      failed: [],
     });
     const state = h.stateWithRecord("sess-1", "live");
     state.skipDeleteConfirmation = true;
@@ -748,19 +753,35 @@ describe("deleteSession", () => {
 
     await h.useStore.getState().deleteSession(h.TAB);
 
-    expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
-    expect(h.useStore.getState().deleteConfirmation).toMatchObject({
-      tabId: h.TAB,
-      cascade: [
-        { tabId: "child-1", title: "Impl one", running: false },
-        { tabId: "child-2", title: "Impl two", running: true },
-      ],
+    expect(h.useStore.getState().deleteConfirmation).toBeNull();
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, true);
+  });
+
+  it("stages the cascade confirmation when a descendant may run in a worktree", async () => {
+    const state = h.stateWithRecord("sess-1", "live");
+    state.skipDeleteConfirmation = true;
+    h.useStore.setState({ state });
+
+    h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
+      descendants: [{ tabId: "child-1", title: "Impl one", running: false, worktree: true }],
     });
+    await h.useStore.getState().deleteSession(h.TAB);
+    expect(h.useStore.getState().deleteConfirmation?.cascade).toHaveLength(1);
+    h.useStore.getState().cancelDeleteSession();
+
+    // A remote instance on an older build omits the flag: unknown is not "no worktree".
+    h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
+      descendants: [{ tabId: "child-1", title: "Impl one", running: false } as PlanHandoffDescendant],
+    });
+    await h.useStore.getState().deleteSession(h.TAB);
+    expect(h.useStore.getState().deleteConfirmation?.cascade).toHaveLength(1);
+
+    expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
   });
 
   it("carries both the worktree fields and the cascade on the confirmation", async () => {
     h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
-      descendants: [{ tabId: "child-1", title: "Impl one", running: false }],
+      descendants: [{ tabId: "child-1", title: "Impl one", running: false, worktree: false }],
     });
     const state = h.stateWithRecord("sess-1", "live");
     state.projects[0]!.sessions[0]!.worktree = {
@@ -776,13 +797,13 @@ describe("deleteSession", () => {
       worktreeBranch: "omp-ui/abcd1234",
       worktreeBase: "main",
       worktreePath: "/wt",
-      cascade: [{ tabId: "child-1", title: "Impl one", running: false }],
+      cascade: [{ tabId: "child-1", title: "Impl one", running: false, worktree: false }],
     });
   });
 
   it("erases the root and every staged descendant on confirm", async () => {
     h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
-      descendants: [{ tabId: "child-1", title: "Impl one", running: false }],
+      descendants: [{ tabId: "child-1", title: "Impl one", running: false, worktree: false }],
     });
     h.mockBackend.deleteSession.mockResolvedValueOnce({
       deleted: [h.TAB, "child-1"],
@@ -815,7 +836,7 @@ describe("deleteSession", () => {
 
   it("removes successful cascade members and leaves failed tabs mounted", async () => {
     h.mockBackend.deleteSessionPreview.mockResolvedValueOnce({
-      descendants: [{ tabId: "child-1", title: "Impl one", running: false }],
+      descendants: [{ tabId: "child-1", title: "Impl one", running: false, worktree: false }],
     });
     h.mockBackend.deleteSession.mockResolvedValueOnce({
       deleted: [h.TAB],

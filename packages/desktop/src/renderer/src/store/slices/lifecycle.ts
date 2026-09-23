@@ -37,6 +37,7 @@ import {
 import { disposeTabRuntime } from "./rpc-command";
 import { findInstance, findOwner, findRecord, focusOn, forgetFocus } from "./view";
 import type {
+  DeleteConfirmation,
   LifecycleConfirmation,
   LifecycleConfirmationChoice,
   UiStore,
@@ -116,6 +117,25 @@ export type LifecycleSlice = Pick<
 };
 
 export type LifecycleDeps = Watchers;
+
+/**
+ * Whether the skip-confirmation setting covers this delete (issue #641).
+ * The store erases a covered delete without staging the dialog, and the
+ * dialog offers its opt-out only on covered deletes — ticking it could not
+ * suppress any other. A delete that removes a worktree checkout, the
+ * session's own or a plan-handoff descendant's, always asks: the checkout
+ * is force-removed with its uncommitted changes (ADR-0018, ADR-0021).
+ * `=== false`, not falsy: a remote instance on an older build omits the
+ * flag, and an unknown descendant is never erased unasked.
+ */
+export function skipConfirmationCovers(
+  confirmation: Pick<DeleteConfirmation, "worktreePath" | "cascade">,
+): boolean {
+  return (
+    confirmation.worktreePath === null &&
+    confirmation.cascade.every((descendant) => descendant.worktree === false)
+  );
+}
 
 export function createLifecycleSlice(
   set: SetState,
@@ -947,27 +967,24 @@ export function createLifecycleSlice(
       get().reportError(err);
       return;
     }
-    const cascade = preview.descendants;
+    const confirmation: DeleteConfirmation = {
+      tabId,
+      title: rec.title,
+      running: rec.live === "live",
+      hasFiles: rec.live !== "missing",
+      worktreeBranch: rec.worktree?.branch ?? null,
+      worktreeBase: rec.worktree?.base ?? null,
+      worktreePath: rec.worktree?.path ?? null,
+      cascade: preview.descendants,
+    };
     if (
       get().state?.skipDeleteConfirmation === true &&
-      !rec.worktree &&
-      cascade.length === 0
+      skipConfirmationCovers(confirmation)
     ) {
-      await eraseSession(tabId);
+      await eraseSession(tabId, confirmation.cascade.map((d) => d.tabId));
       return;
     }
-    set({
-      deleteConfirmation: {
-        tabId,
-        title: rec.title,
-        running: rec.live === "live",
-        hasFiles: rec.live !== "missing",
-        worktreeBranch: rec.worktree?.branch ?? null,
-        worktreeBase: rec.worktree?.base ?? null,
-        worktreePath: rec.worktree?.path ?? null,
-        cascade,
-      },
-    });
+    set({ deleteConfirmation: confirmation });
   };
 
   const confirmDeleteSession = async (skipFuture: boolean): Promise<void> => {

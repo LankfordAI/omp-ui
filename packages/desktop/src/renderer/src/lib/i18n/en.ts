@@ -108,6 +108,7 @@ export const en = {
   "dialog.delete.cannotUndo": "This cannot be undone.",
   "dialog.delete.alsoDeletes": "Also deletes {n} plan implementation descendant{s}",
   "dialog.delete.runningSuffix": " · running",
+  "dialog.delete.worktreeSuffix": " · worktree",
   "dialog.delete.more": "+{n} more",
   "dialog.delete.cascadeErased":
     "Their transcripts and artifacts are erased too, and any running agent among them is stopped.",
@@ -582,7 +583,7 @@ export const en = {
     "New sessions spawn every subagent on the session's own model unless a narrower choice says otherwise. Applies to sessions launched afterwards, and to running sessions whose per-agent choice is unset.",
   "settings.general.skipDeleteConfirmation": "Skip the delete confirmation",
   "settings.general.skipDeleteConfirmationHint":
-    "Deleting a session erases its whole lineage dir; skipping removes the warning.",
+    "Deleting a session erases its whole lineage dir and every plan implementation descendant; skipping removes the warning. A delete that removes a worktree checkout still asks.",
   "settings.general.experiments": "Experiments lab (beta)",
   "settings.general.experimentsHint":
     "Adds the Lab, the New experiment dialog, and the autoresearch chip for OMP's /autoresearch loop. Off hides those surfaces and leaves /autoresearch to OMP. Applies to sessions started afterwards.",

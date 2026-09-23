@@ -442,8 +442,8 @@ describe("session:delete cascade (issue #309)", () => {
     setupCascade();
     await expect(invoke(CH.deleteSessionPreview, "tab-s")).resolves.toEqual({
       descendants: [
-        { tabId: "tab-i1", title: "Implementation one", running: false },
-        { tabId: "tab-i2", title: "Implementation two", running: false },
+        { tabId: "tab-i1", title: "Implementation one", running: false, worktree: false },
+        { tabId: "tab-i2", title: "Implementation two", running: false, worktree: false },
       ],
     });
     await expect(invoke(CH.deleteSessionPreview, "tab-u")).resolves.toEqual({
@@ -460,8 +460,8 @@ describe("session:delete cascade (issue #309)", () => {
     await expect(invoke(CH.deleteSessionPreview, "tab-s")).resolves.toEqual({
       descendants: [
 
-        { tabId: "tab-i1", title: "Implementation one", running: true },
-        { tabId: "tab-i2", title: "Implementation two", running: false },
+        { tabId: "tab-i1", title: "Implementation one", running: true, worktree: false },
+        { tabId: "tab-i2", title: "Implementation two", running: false, worktree: false },
       ],
     });
   });

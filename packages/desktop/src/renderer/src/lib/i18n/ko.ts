@@ -97,6 +97,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.delete.cannotUndo": "이 작업은 되돌릴 수 없습니다.",
   "dialog.delete.alsoDeletes": "플랜 구현 하위 세션 {n}개도 삭제{s}",
   "dialog.delete.runningSuffix": " · 실행 중",
+  "dialog.delete.worktreeSuffix": " · 워크트리",
   "dialog.delete.more": "+{n}개 더",
   "dialog.delete.cascadeErased":
     "해당 세션의 대화록과 산출물도 삭제되고, 실행 중인 에이전트가 있으면 중지됩니다.",
@@ -534,7 +535,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.subagentInherit": "하위 에이전트가 세션 모델 상속",
   "settings.general.subagentInheritHint": "더 좁은 범위의 선택이 없으면 새 세션은 모든 하위 에이전트를 세션 자체 모델로 스폰합니다. 이후에 시작되는 세션과, 에이전트별 선택이 없는 실행 중 세션에 적용됩니다.",
   "settings.general.skipDeleteConfirmation": "삭제 확인 건너뛰기",
-  "settings.general.skipDeleteConfirmationHint": "세션을 삭제하면 전체 계보 디렉터리가 지워집니다. 건너뛰면 경고가 표시되지 않습니다.",
+  "settings.general.skipDeleteConfirmationHint": "세션을 삭제하면 전체 계보 디렉터리와 모든 플랜 구현 하위 세션이 지워집니다. 건너뛰면 경고가 표시되지 않습니다. 워크트리 체크아웃을 제거하는 삭제는 계속 확인을 요청합니다.",
   "settings.general.experiments": "실험실 (베타)",
   "settings.general.experimentsHint": "OMP의 /autoresearch 루프용 실험실, 새 실험 대화 상자, 자동 연구 칩을 추가합니다. 끄면 해당 화면이 숨겨지고 /autoresearch는 OMP에 남겨집니다. 이후에 시작되는 세션에 적용됩니다.",
   "settings.general.transcriptTextSize": "대화록 글자 크기",
