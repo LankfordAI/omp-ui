@@ -78,6 +78,7 @@ export {
   viewedClientId,
   worktreeSharers,
 } from "./store/slices/view";
+export { skipConfirmationCovers } from "./store/slices/lifecycle";
 export {
   USAGE_REFRESH_MS,
   QUEUE_SETTLE_REFRESH_MS,

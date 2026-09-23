@@ -271,6 +271,11 @@ export interface PlanHandoffDescendant {
   title: string;
   /** True when the descendant's omp process is currently running. */
   running: boolean;
+  /**
+   * True when the descendant runs in a worktree checkout; deleting it
+   * force-removes that checkout and any uncommitted changes (ADR-0018).
+   */
+  worktree: boolean;
 }
 
 /** The sessions that would be erased with a deleted session (issue #309). */

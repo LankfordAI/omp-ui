@@ -17,8 +17,9 @@ failure keeps that session's record visible and retryable and does not undo
 the deletions that succeeded. Because the confirmation names every session
 it will erase, a cascading delete always stages the confirmation even when
 skip-confirmation is on — the same precedent as a worktree session
-(ADR-0018). A read-only preview channel answers with the closure's titles
-and liveness before the delete runs.
+(ADR-0018) (superseded by the skip-confirmation addendum). A read-only
+preview channel answers with the closure's titles and liveness before the
+delete runs.
 
 ## Considered Options
 
@@ -46,10 +47,40 @@ and liveness before the delete runs.
 - **The preview and the delete must agree.** Both compute the closure from
   the registry in main with the same walk; the renderer never computes it.
 - **Skip-confirmation no longer covers a session with descendants.** It
-  still covers a plain leaf delete, as before.
+  still covers a plain leaf delete, as before. (superseded by the
+  skip-confirmation addendum)
 - **A failed descendant delete is a partial cascade, by design.** The
   failed session stays in the registry, still linked, still deletable; the
   rest of the closure is gone.
 - **A worktree descendant loses its checkout like any other worktree
   session** — but the merge-back offer belongs to the source session's
   confirmation; a descendant's branch is deleted without a prompt.
+
+## Skip-confirmation addendum (issue #641)
+
+- **Skip-confirmation covers a cascade.** With the setting on, deleting a
+  planning session erases its whole closure without staging the
+  confirmation, exactly like a leaf delete. The setting is the user's
+  explicit opt-out of the warning, and the sidebar already draws the
+  handoff tree. The old always-confirm rule also left the confirmation's
+  own "Do not show this warning again" checkbox persisting a setting that
+  could never suppress it.
+- **A worktree checkout in the closure still asks.** The fast path applies
+  only when neither the deleted session nor any descendant runs in a
+  worktree: deleting one force-removes its checkout and any uncommitted
+  changes (ADR-0018). The preview carries a per-descendant `worktree` flag
+  computed in main, so the renderer still never computes the closure. A
+  descendant without the flag (a remote instance on an older build) counts
+  as a worktree.
+- **The opt-out is offered only where it works.** One predicate,
+  `skipConfirmationCovers`, decides both the fast path and whether the
+  confirmation shows "Do not show this warning again". The confirmation
+  tags each worktree descendant in its list.
+- **Accepted race.** The fast path deletes with `cascade: true` and main
+  recomputes the closure at delete time, so a handoff registered in the IPC
+  gap joins unasked — the same property the confirmed path already has.
+- **Rejected: keep always-confirm and only hide the checkbox.** Honest, but
+  a user who turned the warning off still answers it on every
+  planning-session delete.
+- **Rejected: a second setting for cascades.** One more toggle for a
+  decision the existing toggle already expresses.

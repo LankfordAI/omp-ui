@@ -324,6 +324,7 @@ describe("DeleteSessionDialog", () => {
     );
     // The loss is named by the dirty check (issue #388), never in the base sentence.
     expect(dialog!.textContent).not.toContain("ncommitted changes");
+    expect(dialog!.textContent).not.toContain("Do not show this warning again");
   });
 
   it("stages a confirmation for a worktree session even with the skip flag set", async () => {
@@ -801,11 +802,11 @@ describe("DeleteSessionDialog", () => {
       worktreeBase: null,
       worktreePath: null,
       cascade: [
-        { tabId: "c1", title: "Impl one", running: false },
-        { tabId: "c2", title: "Impl two", running: true },
-        { tabId: "c3", title: "Impl three", running: false },
-        { tabId: "c4", title: "Impl four", running: false },
-        { tabId: "c5", title: "Impl five", running: false },
+        { tabId: "c1", title: "Impl one", running: false, worktree: false },
+        { tabId: "c2", title: "Impl two", running: true, worktree: false },
+        { tabId: "c3", title: "Impl three", running: false, worktree: true },
+        { tabId: "c4", title: "Impl four", running: false, worktree: false },
+        { tabId: "c5", title: "Impl five", running: false, worktree: false },
       ],
     });
     await flush();
@@ -814,11 +815,12 @@ describe("DeleteSessionDialog", () => {
     expect(text).toContain("Also deletes 5 plan implementation descendants");
     expect(text).toContain("Impl one");
     expect(text).toContain("Impl two · running");
-    expect(text).toContain("Impl three");
+    expect(text).toContain("Impl three · worktree");
     expect(text).toContain("Impl four");
     expect(text).not.toContain("Impl five");
     expect(text).toContain("+1 more");
     expect(text).toContain("Their transcripts and artifacts are erased too");
+    expect(text).not.toContain("Do not show this warning again");
     buttonByText("Delete 6 sessions");
     unmountDialog();
   });
@@ -837,12 +839,13 @@ describe("DeleteSessionDialog", () => {
       worktreeBranch: null,
       worktreeBase: null,
       worktreePath: null,
-      cascade: [{ tabId: "c1", title: "Impl one", running: false }],
+      cascade: [{ tabId: "c1", title: "Impl one", running: false, worktree: false }],
     });
     await flush();
 
     expect(document.body.textContent).toContain("Also deletes 1 plan implementation descendant");
     expect(document.body.textContent).not.toContain("more");
+    expect(document.body.textContent).toContain("Do not show this warning again");
     buttonByText("Delete 2 sessions");
     unmountDialog();
   });

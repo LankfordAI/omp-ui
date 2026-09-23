@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { MergeBackStatus } from "@omp-ui/core/types";
 import type { DeleteConfirmation } from "../store";
-import { findOwner, findRecord, runningSessionTitleOnCheckout, useStore } from "../store";
+import { findOwner, findRecord, runningSessionTitleOnCheckout, skipConfirmationCovers, useStore } from "../store";
 import { projectKey } from "../lib/project-key";
 import { Button, ConfirmDialog } from "./ui";
 import { shortBase } from "../lib/format";
@@ -13,6 +13,8 @@ import { useT } from "../lib/i18n";
  * project checkout or a scratch worktree (issue #385) — the delete follows
  * only when it does not stop on conflicts. The checkout's dirtiness is read
  * (issue #388) so the description names the loss only when there is one.
+ * The opt-out checkbox appears only where the skip setting can suppress this
+ * confirmation (issue #641): never for a worktree checkout in the closure.
  */
 export function DeleteSessionDialog({
   confirmation,
@@ -44,6 +46,7 @@ export function DeleteSessionDialog({
   const base = confirmation.worktreeBase;
   const worktreePath = confirmation.worktreePath;
   const n = confirmation.cascade.length;
+  const offerOptOut = skipConfirmationCovers(confirmation);
   // A session mid-turn in the project checkout: merging moves the destination
   // branch out from under it. The deleted session's own tab is excluded.
   const busyTitle = useStore((s) =>
@@ -202,6 +205,7 @@ export function DeleteSessionDialog({
                 <li key={d.tabId} className="truncate">
                   {d.title}
                   {d.running ? t("dialog.delete.runningSuffix") : ""}
+                  {d.worktree ? t("dialog.delete.worktreeSuffix") : ""}
                 </li>
               ))}
               {n > 4 && (
@@ -234,15 +238,17 @@ export function DeleteSessionDialog({
           <p className="text-xs leading-relaxed text-rose">{mergeError}</p>
         )}
 
-        <label className="flex cursor-pointer items-center gap-2.5 rounded-md border border-line bg-raised px-3 py-2.5 text-xs text-ink-mid transition-colors hover:border-line-strong hover:text-ink">
-          <input
-            type="checkbox"
-            checked={skipFuture}
-            onChange={(event) => setSkipFuture(event.target.checked)}
-            className="size-3.5 accent-current"
-          />
-          {t("dialog.delete.dontShowAgain")}
-        </label>
+        {offerOptOut && (
+          <label className="flex cursor-pointer items-center gap-2.5 rounded-md border border-line bg-raised px-3 py-2.5 text-xs text-ink-mid transition-colors hover:border-line-strong hover:text-ink">
+            <input
+              type="checkbox"
+              checked={skipFuture}
+              onChange={(event) => setSkipFuture(event.target.checked)}
+              className="size-3.5 accent-current"
+            />
+            {t("dialog.delete.dontShowAgain")}
+          </label>
+        )}
       </div>
     </ConfirmDialog>
   );

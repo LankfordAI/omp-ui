@@ -1479,6 +1479,7 @@ export class SessionManager {
           tabId: id,
           title: record.cachedTitle?.trim() || "New session",
           running: this.live.has(id),
+          worktree: record.worktree !== null,
         };
       }),
     };
