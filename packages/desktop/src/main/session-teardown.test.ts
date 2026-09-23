@@ -468,6 +468,17 @@ describe("live session teardown (issue #64)", () => {
     expect(fake.detachData).toHaveBeenCalled();
     expect(fake.kill).toHaveBeenCalled();
   });
+
+  it("killAll announces no session exit to the renderer", async () => {
+    const { backend } = setup();
+    await spawnPtySession();
+    const fake = fakePtys[0]!;
+
+    backend.killAll();
+    fake.exit(0);
+
+    expect(sent.filter((e) => e.channel === CH.onPtyExit)).toEqual([]);
+  });
 });
 
 describe("terminate escalation (issue #182)", () => {

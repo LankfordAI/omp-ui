@@ -9,7 +9,7 @@ const NOOP_DETACH_PTY_DATA = (): void => {};
 
 export interface LiveEntryBase {
   record: OwnedSessionRecord;
-  /** Suppresses this process's exit — set for a mode-switch kill and for a delete. */
+  /** Suppresses this process's exit — set for a mode-switch kill, a delete, a hibernation, and the quit-time killAll. */
   suppressExit?: boolean;
   /** Resolves once the child's exit has been observed. */
   readonly exited: Promise<void>;

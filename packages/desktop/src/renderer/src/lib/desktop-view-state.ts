@@ -15,7 +15,9 @@
  *
  * Vocabulary: a TAB is the renderer's view onto a live session; we RESTORE
  * tabs on relaunch, never "resume" (resume belongs to sessions). A hidden tab
- * was closed by the user and must stay dormant across the relaunch.
+ * was closed by the user and must stay dormant across the relaunch; so must a
+ * tab whose process was already gone (hibernated or exited) — restoring it
+ * would resume a session the user left dormant.
  *
  * The version gate: persisted `appVersion` and the running
  * `AppUpdateState.currentVersion` must BOTH be non-null and DIFFER for a
@@ -186,9 +188,12 @@ export function shouldRestoreDesktopView(
  * The shape a caller records its live view in before snapshotting.
  * `tabs` lists every tab (visible or hidden); `hidden` tabs are omitted from
  * the snapshot because the user closed them and they must stay dormant.
+ * `exited` marks tabs whose process is gone (idle or handoff hibernation,
+ * crash, exit); they are omitted too, so a relaunch leaves them dormant.
  */
 export interface ProjectedView {
   tabs: Array<{ tabId: string; hidden: boolean }>;
+  exited: Record<string, number>;
   activeTabId: string | null;
   focusedTabByProject: Record<string, string>;
   sidebarWidth: number;
@@ -198,8 +203,8 @@ export interface ProjectedView {
 
 /**
  * Build a snapshot from the live projected view. `tabIds` keeps visible tabs
- * in renderer order, deduplicated to first occurrence; `activeTabId` and
- * `focusedTabByProject` are copied as-is.
+ * whose process is still running, in renderer order, deduplicated to first
+ * occurrence; `activeTabId` and `focusedTabByProject` are copied as-is.
  */
 export function projectDesktopView(
   view: ProjectedView,
@@ -208,7 +213,7 @@ export function projectDesktopView(
   const tabIds: string[] = [];
   const seen = new Set<string>();
   for (const tab of view.tabs) {
-    if (tab.hidden) continue;
+    if (tab.hidden || view.exited[tab.tabId] !== undefined) continue;
     if (seen.has(tab.tabId)) continue;
     seen.add(tab.tabId);
     tabIds.push(tab.tabId);
