@@ -172,6 +172,39 @@ describe("PlanPreflightController", () => {
     expect(h.released).toEqual([TAB]);
   });
 
+  it("a re-presented request stays re-presented through delivery (ADR-0033)", async () => {
+    const h = harness();
+    const text = "<!doctype html><p>ship it</p>";
+    const abs = artifact(h, "ship-plan.html", text);
+    const frame = {
+      type: "extension_ui_request",
+      id: "p1",
+      method: "select",
+      title: `${PLAN_REVIEW_SENTINEL}${JSON.stringify({
+        title: "the plan",
+        planFilePath: "local://ship-plan.html",
+        planAbsPath: abs,
+        represented: true,
+      })}`,
+    } as RpcFrame;
+
+    expect(h.controller.claimFrame(TAB, frame, entry())).toBe(true);
+    await vi.waitFor(() => expect(h.delivered).toHaveLength(1));
+
+    // The rebuild must keep saying the review answers no agent tool call —
+    // losing the flag here would make the renderer wait for an advisor that
+    // will never review a turn that never ran.
+    const delivered = h.delivered[0]!.frame as Record<string, unknown>;
+    const title = (delivered.title as string).slice(PLAN_REVIEW_SENTINEL.length);
+    expect(JSON.parse(title)).toEqual({
+      title: "the plan",
+      planFilePath: "local://ship-plan.html",
+      planAbsPath: abs,
+      sourceHash: hashOf(text),
+      represented: true,
+    });
+  });
+
   it("a replacing generation aborts the old verification and stale completions die", async () => {
     const h = harness();
     const abs = artifact(h);

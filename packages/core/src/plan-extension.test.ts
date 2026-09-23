@@ -4,8 +4,9 @@ import * as path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  encodePlanPreflightReply,
   PLAN_COMMAND,
   PLAN_REVIEW_SENTINEL,
   PLAN_STATUS_KEY,
@@ -244,6 +245,8 @@ interface Harness {
   selects: string[];
   /** Choose what the next `ui.select` answers with. */
   answer: (value: string | undefined) => void;
+  /** Only with the `heldSelect` option: resolves the select in flight. */
+  release?: (value: string | undefined) => void;
   sent: SentMessage[];
   tools: () => string[];
   notices: string[];
@@ -251,7 +254,13 @@ interface Harness {
 
 function harness(
   factory: ExtensionFactory,
-  options?: { canSendMessages?: boolean; artifactsDir?: string | null; markdownPlan?: boolean },
+  options?: {
+    canSendMessages?: boolean;
+    artifactsDir?: string | null;
+    markdownPlan?: boolean;
+    /** Hold every select on a pending promise until `release` answers it. */
+    heldSelect?: boolean;
+  },
 ): Harness {
   const sent: SentMessage[] = [];
   const notices: string[] = [];
@@ -262,6 +271,7 @@ function harness(
   let proposalHandler: ((title: string) => Promise<ToolResult>) | undefined;
   let referencePath: string | null = null;
   let answer: string | undefined;
+  let releaseHeld: ((value: string | undefined) => void) | null = null;
 
   // A fresh class per harness: the extension patches prototype methods.
   class FakeSession {
@@ -333,6 +343,11 @@ function harness(
     },
     select: async (title) => {
       selects.push(title);
+      if (options?.heldSelect === true) {
+        return new Promise<string | undefined>((resolve) => {
+          releaseHeld = resolve;
+        });
+      }
       return answer;
     },
     notify: (message) => {
@@ -378,6 +393,15 @@ function harness(
     answer: (value) => {
       answer = value;
     },
+    ...(options?.heldSelect === true
+      ? {
+          release: (value: string | undefined) => {
+            const resolve = releaseHeld;
+            releaseHeld = null;
+            resolve?.(value);
+          },
+        }
+      : {}),
     sent,
     tools: () => [...tools],
     notices,
@@ -1079,5 +1103,118 @@ describe("plan mode tool ownership", () => {
     expect(h.guardArmed()).toBe(false);
     expect(h.proposalInstalled()).toBe(false);
     expect(h.root.enabled).toEqual(["read", "grep"]);
+  });
+});
+
+describe("re-presenting a plan (ADR-0033)", () => {
+  it("reviews exactly the named plan, newest file be damned", async () => {
+    const artifacts = tempArtifacts();
+    writePlanFile(artifacts, "auth-plan.html", 1_700_000_000); // older
+    writePlanFile(artifacts, "login-plan.html", 1_800_000_000); // newer
+    const h = harness(await loadExtension(), { artifactsDir: artifacts });
+    await h.run("on html");
+    h.answer("refine");
+    await h.run("review local://auth-plan.html Auth plan");
+
+    expect(h.reviewed()).toMatchObject({
+      title: "Auth plan",
+      planFilePath: "local://auth-plan.html",
+      represented: true,
+    });
+    // The named file skips omp's title resolver entirely.
+    expect(h.prepared).toEqual([]);
+  });
+
+  it("a re-presented execute pins, exits, and announces the retraction", async () => {
+    const artifacts = tempArtifacts();
+    writePlanFile(artifacts, "auth-plan.html", 1_700_000_000);
+    const h = harness(await loadExtension(), { artifactsDir: artifacts });
+    await h.run("on html");
+    h.answer("execute");
+    await h.run("review local://auth-plan.html Auth plan");
+
+    expect(h.referencePath()).toBe("local://auth-plan.html");
+    expect(h.guardArmed()).toBe(false);
+    // No blocked ToolResult tells the agent anything: the exit retraction is
+    // the only channel, so it must be sent (the agent path sends none).
+    expect(exits(h.sent)).toHaveLength(1);
+
+    const agentPath = harness(await loadExtension(), { artifactsDir: artifacts });
+    agentPath.answer("execute");
+    await agentPath.run("on html");
+    await agentPath.propose("auth");
+    expect(exits(agentPath.sent)).toHaveLength(0);
+  });
+
+  it("reads a preflight reply as a reply even in an md session", async () => {
+    const artifacts = tempArtifacts();
+    writePlanFile(artifacts, "auth-plan.html", 1_700_000_000);
+    const h = harness(await loadExtension(), { artifactsDir: artifacts });
+    await h.run("on md");
+    const reply = encodePlanPreflightReply("local://auth-plan.html", {
+      status: "failed",
+      sourceHash: null,
+      diagnostics: [
+        {
+          code: "HTML_PARSE_ERROR",
+          stage: "source",
+          repair: "source",
+          severity: "error",
+          message: "unclosed tag",
+        },
+      ],
+    });
+    h.answer(reply);
+    await h.run("review local://auth-plan.html Auth plan");
+
+    // The artifact is html even though the session format is md: the failed
+    // preflight reply must answer with diagnostics, NOT masquerade as a refine.
+    expect(
+      h.notices.some((n) => n.includes("Plan preflight failed for local://auth-plan.html")),
+    ).toBe(true);
+    expect(h.guardArmed()).toBe(true);
+    expect(h.referencePath()).toBeNull();
+  });
+
+  it("refuses a missing plan file with a notice and no gate", async () => {
+    const artifacts = tempArtifacts();
+    const h = harness(await loadExtension(), { artifactsDir: artifacts });
+    await h.run("on html");
+    await h.run("review local://gone-plan.html Gone");
+
+    expect(
+      h.notices.some((n) => n.includes("Plan file not found: local://gone-plan.html")),
+    ).toBe(true);
+    expect(h.selects).toEqual([]);
+  });
+
+  it("refuses a proposal while a re-presented review is open", async () => {
+    const artifacts = tempArtifacts();
+    writePlanFile(artifacts, "auth-plan.html", 1_700_000_000);
+    const h = harness(await loadExtension(), { artifactsDir: artifacts, heldSelect: true });
+    await h.run("on html");
+    const reviewing = h.run("review local://auth-plan.html Auth plan");
+    await vi.waitFor(() => expect(h.selects).toHaveLength(1));
+
+    const result = await h.propose("auth");
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain("already open");
+    expect(h.selects).toHaveLength(1); // no second gate stacked behind the first
+
+    h.answer("refine");
+    h.release?.("refine");
+    await reviewing;
+  });
+
+  it("warns instead of gating when Plan mode is off", async () => {
+    const artifacts = tempArtifacts();
+    writePlanFile(artifacts, "auth-plan.html", 1_700_000_000);
+    const h = harness(await loadExtension(), { artifactsDir: artifacts });
+    await h.run("review local://auth-plan.html Auth plan");
+
+    expect(
+      h.notices.some((n) => n.includes("needs Plan mode")),
+    ).toBe(true);
+    expect(h.selects).toEqual([]);
   });
 });

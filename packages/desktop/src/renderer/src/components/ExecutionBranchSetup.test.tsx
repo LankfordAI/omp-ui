@@ -155,6 +155,7 @@ function sessionRecord(tabId: string, title: string) {
     thinkingLevel: null,
     advisor: false,
     advisorModel: null, subagentModels: null,
+ proposedPlans: [],
     cachedTitle: title,
     cachedModified: "t",
     title,

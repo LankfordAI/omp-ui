@@ -19,6 +19,7 @@ function resizePointer(type: string, x: number): Event {
 const backendMock = {
   rpcSend: vi.fn(),
   getBranchDiff: vi.fn(),
+  dismissProposedPlan: vi.fn(async (): Promise<void> => {}),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -60,6 +61,7 @@ worktree: null,
           thinkingLevel: null,
           advisor: false,
           advisorModel: null, subagentModels: null,
+ proposedPlans: [],
           cachedTitle: "Inspect",
           cachedModified: "t",
           title: "Inspect",
@@ -146,7 +148,6 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     planDeferred: false,
     planReadiness: null,
     experimentProposal: null,
-    plans: [],
     advisorStats: null,
     mcpStatus: null,
     capabilities: null,
@@ -236,6 +237,54 @@ describe("desktop InspectorRail", () => {
     expect(button("collapse inspector")).toBeNull();
     expect(document.body.textContent).not.toContain("worker");
     expect(button("agents")).not.toBeNull();
+  });
+
+  it("an interrupted plan offers re-present and dismiss and counts on the badge (ADR-0033)", async () => {
+    const interrupted = backendState({
+      projects: [
+        {
+          ...state.projects[0]!,
+          sessions: state.projects[0]!.sessions.map((s) => ({
+            ...s,
+            proposedPlans: [
+              { key: "local://auth-plan.html", title: "add auth", status: "pending" as const },
+            ],
+          })),
+        },
+      ],
+    });
+    useStore.setState({ state: interrupted });
+    renderRail();
+
+    // The row is pending with no gate anywhere: interrupted, badge 1.
+    expect(button("plans")?.title).toBe("plans (1)");
+    act(() => button("plans")!.click());
+    expect(document.body.textContent).toContain("interrupted");
+    const represent = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "re-present",
+    );
+    const dismiss = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "dismiss",
+    );
+    expect(represent).toBeDefined();
+    expect(dismiss).toBeDefined();
+
+    backendMock.dismissProposedPlan.mockClear();
+    act(() => dismiss!.click());
+    await act(async () => {});
+    expect(backendMock.dismissProposedPlan).toHaveBeenCalledWith(
+      TAB,
+      "local://auth-plan.html",
+    );
+
+    // A running turn refuses the command, so the action is disabled.
+    act(() => button("plans")!.click()); // back to the strip
+    useStore.setState({ rpc: { [TAB]: runtime({ status: "running" }) } });
+    act(() => button("plans")!.click());
+    const busy = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "re-present",
+    );
+    expect(busy?.disabled).toBe(true);
   });
 
   it("renders Todos pane chrome from the catalog under both locales (issue #581)", () => {

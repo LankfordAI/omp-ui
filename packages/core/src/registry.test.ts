@@ -33,6 +33,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     advisor: false,
     advisorModel: null,
     subagentModels: null,
+    proposedPlans: [],
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",
@@ -983,6 +984,46 @@ describe("Registry mutations", () => {
       advisorModel: null,
       subagentModels: null,
     });
+  });
+
+  it("normalizes proposed plans on load without ever dropping the session", () => {
+    const file = tmpFile();
+    // A legacy record post-dates the field: absent must load as [].
+    const legacy: Record<string, unknown> = { ...sessionRecord({ tabId: "legacy" }) };
+    delete legacy.proposedPlans;
+    const mixed: Record<string, unknown> = {
+      ...sessionRecord({ tabId: "mixed" }),
+      proposedPlans: [
+        { key: "local://auth-plan.html", title: "add auth", status: "pending" },
+        { key: "local://ok-plan.md", title: "x", status: "sunset" },
+        { key: "/etc/passwd", title: "x", status: "executed" },
+        { key: "local://auth-plan.html", title: "dup", status: "executed" },
+        "not-an-object",
+        { key: "local://good-plan.md", title: "good", status: "executed" },
+      ],
+    };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy, mixed] }));
+    const reg = Registry.load(file);
+    // A malformed history row drops only itself; both sessions survive.
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["legacy", "mixed"]);
+    expect(reg.sessions[0]!.proposedPlans).toEqual([]);
+    expect(reg.sessions[1]!.proposedPlans).toEqual([
+      { key: "local://auth-plan.html", title: "add auth", status: "pending" },
+      { key: "local://good-plan.md", title: "good", status: "executed" },
+    ]);
+  });
+
+  it("round-trips proposed plans through addSession/updateSession", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord());
+    reg.updateSession("tab-1", {
+      proposedPlans: [{ key: "local://auth-plan.md", title: "add auth", status: "pending" }],
+    });
+    const reloaded = Registry.load(file);
+    expect(reloaded.sessions[0]!.proposedPlans).toEqual([
+      { key: "local://auth-plan.md", title: "add auth", status: "pending" },
+    ]);
   });
 
   it("updateSession applies partial patches", () => {

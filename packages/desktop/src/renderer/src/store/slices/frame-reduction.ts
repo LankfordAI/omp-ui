@@ -56,7 +56,6 @@ import {
   noteCapabilitiesSessionChange,
   rpcCommandMachinery,
 } from "./rpc-command";
-import { upsertPlan } from "./plan-execution";
 import { findRecord } from "./view";
 import type { UiStore } from "../types";
 
@@ -586,7 +585,6 @@ export function createFrameReductionSlice(
               planReview: { request: review, frame },
               // A fresh proposal is never deferred — it demands its verdict.
               planDeferred: false,
-              plans: upsertPlan(tab.plans, review.title, review.planFilePath),
             });
             const planItem = planProposalItem(
               review.title,

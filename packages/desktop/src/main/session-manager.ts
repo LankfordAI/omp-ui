@@ -479,6 +479,7 @@ export class SessionManager {
           advisor: req.advisor,
           advisorModel: req.advisorModel ?? null,
           subagentModels: null,
+          proposedPlans: [],
           cachedTitle: null,
           cachedModified: null,
         });
@@ -1214,6 +1215,12 @@ export class SessionManager {
     return this.planGates.gate(tabId);
   }
 
+  /** Stops tracking an interrupted plan (ADR-0033). */
+  dismissProposedPlan(tabId: string, planFilePath: string): void {
+    this.planGates.dismiss(tabId, planFilePath);
+  }
+
+
   setViewedTab(clientId: string, tabId: string | null): void {
     this.viewTracker.setViewedTab(clientId, tabId);
     this.browserPanes.noteViewed(clientId, tabId);
@@ -1543,6 +1550,9 @@ export class SessionManager {
       advisor: source.advisor,
       advisorModel: source.advisorModel,
       subagentModels: source.subagentModels,
+      // The fork's session dir starts without the source's local:// artifacts,
+      // so none of the source's plans can be re-presented from it.
+      proposedPlans: [],
       cachedTitle: source.cachedTitle,
       cachedModified: new Date().toISOString(),
     });

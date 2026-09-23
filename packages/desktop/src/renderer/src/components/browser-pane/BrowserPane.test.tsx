@@ -77,6 +77,7 @@ const session: SessionSummary = {
   thinkingLevel: null,
   advisor: false,
   advisorModel: null, subagentModels: null,
+ proposedPlans: [],
   cachedTitle: "Remote session",
   cachedModified: "t",
   title: "Remote session",

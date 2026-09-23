@@ -608,6 +608,14 @@ export const BACKEND_CHANNELS = {
     >([str(), str(), oneOf(PLAN_EXECUTE, PLAN_REFINE), nullable(str())]),
   },
   /**
+   * Stops tracking an interrupted plan (ADR-0033). A no-op for a plan whose
+   * review gate is live (it must be answered) or that is not pending.
+   */
+  dismissProposedPlan: {
+    channel: "plan:dismiss",
+    ...request<[tabId: string, planFilePath: string], void>([str(), str()]),
+  },
+  /**
    * Opens an absolute path with the system default handler (a browser for the
    * exported transcript HTML). Rejects when the handler reports a failure.
    */

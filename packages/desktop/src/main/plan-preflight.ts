@@ -48,6 +48,8 @@ export interface HeldPlanProposal {
   originalFrame: RpcFrame;
   planFilePath: string;
   planAbsPath: string;
+  /** Re-presented through the extension's \`review\` verb (ADR-0033). */
+  represented?: true;
   controller: AbortController;
   settled: boolean;
 }
@@ -184,6 +186,7 @@ export class PlanPreflightController implements FrameObserver {
       originalFrame: frame,
       planFilePath: review.planFilePath,
       planAbsPath,
+      ...(review.represented === true ? { represented: true as const } : {}),
       controller,
       settled: false,
     };
@@ -314,6 +317,7 @@ export class PlanPreflightController implements FrameObserver {
         planFilePath: held.planFilePath,
         planAbsPath: held.planAbsPath,
         sourceHash,
+        ...(held.represented === true ? { represented: true } : {}),
       })}`,
     };
     this.settle(held);

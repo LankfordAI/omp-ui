@@ -6,11 +6,9 @@ import {
   CH,
   PLAN_EXECUTE,
   PLAN_REVIEW_SENTINEL,
-  ProviderKeys,
   Registry,
   RpcClient,
   type BackendState,
-  type KeyCipher,
   type SpawnRequest,
 } from "@omp-ui/core";
 import { MainBackend } from "./backend";
@@ -34,6 +32,13 @@ const RpcClientMock = vi.mocked(RpcClient);
 vi.mock("electron", () => ({
   app: { isPackaged: false, getVersion: () => "0.0.0", getPath: () => os.tmpdir() },
   dialog: { showOpenDialog: vi.fn() },
+  // The default SessionManager wires the notifier; the plan gate reaches it on
+  // a proposal. An unsupported platform keeps the test silent.
+  Notification: class {
+    static isSupported(): boolean {
+      return false;
+    }
+  },
   safeStorage: {
     isEncryptionAvailable: () => true,
     getSelectedStorageBackend: () => "test_stub",
@@ -327,20 +332,17 @@ describe("plan-review gate on the wire (issue #215)", () => {
     })}`,
   });
 
-  // broadcast() is private in production; the injected manager must fan out
-  // on the backend's own chain, so the test reaches it through one named view.
-  const backendBroadcast = (
-    target: MainBackend,
-  ): (() => Promise<void>) =>
-    (target as unknown as { broadcast(): Promise<void> }).broadcast.bind(target);
-
   /**
-   * A MainBackend whose SessionManager is injected so the test drives the
-   * fake RpcClient directly. Spawns the /p/a session before returning, and
-   * the manager's gate mutations broadcast through the backend's own chain,
-   * exactly like the default manager's.
+   * A MainBackend whose real (default) SessionManager owns the registry
+   * instance the backend summarizes — exactly production — while the module-
+   * mocked RpcClient lets the test drive the child's frames directly. Spawns
+   * the /p/a session before returning.
    */
-  const gateBackend = async (): Promise<{ manager: SessionManager; rpc: FakeRpc }> => {
+  const gateBackend = async (): Promise<{
+    manager: SessionManager;
+    rpc: FakeRpc;
+    registryFile: string;
+  }> => {
     const registryFile = path.join(base, "registry.json");
     seedRegistry(registryFile, {
       projects: [
@@ -356,40 +358,16 @@ describe("plan-review gate on the wire (issue #215)", () => {
     fs.mkdirSync(path.join(sessionsRoot, LINEAGE_A), { recursive: true });
     fs.mkdirSync(path.join(sessionsRoot, LINEAGE_B), { recursive: true });
 
-    const cipher: KeyCipher = {
-      available: true,
-      backend: "test",
-      encrypt: (plain) => Buffer.from(plain),
-      decrypt: (blob) => blob.toString("utf8"),
-    };
-    const backendRef: { current: MainBackend | null } = { current: null };
-    const manager = new SessionManager({
-      registry: Registry.load(registryFile),
-      providerKeys: new ProviderKeys(
-        path.join(base, "provider-keys.json"),
-        cipher,
-        { OPENROUTER_API_KEY: "test-key" },
-      ),
-      getOmpPath: () => path.join(base, "omp"),
-      getSessionsRoot: () => sessionsRoot,
-      getArchiveRoot: () => path.join(base, "archive"),
-      getWorktreesRoot: () => path.join(base, "worktrees"),
-      send: () => {},
-      broadcast: () =>
-        backendRef.current === null
-          ? Promise.resolve()
-          : backendBroadcast(backendRef.current)(),
-    });
-    const backend = new MainBackend(win as never, registryFile, { sessions: manager });
+    rpcInstances.length = 0;
+    const backend = new MainBackend(win as never, registryFile);
     backend.registerIpc();
-    backendRef.current = backend;
     await invoke(CH.spawnSession, {
       origin: "resume",
       resumeTabId: TAB_A,
       cols: 80,
       rows: 24,
     });
-    return { manager, rpc: rpcInstances[0]! };
+    return { manager: backend.sessions, rpc: rpcInstances[0]!, registryFile };
   };
 
   const lastBroadcast = (): BackendState => {
@@ -449,6 +427,73 @@ describe("plan-review gate on the wire (issue #215)", () => {
     state = lastBroadcast();
     expect(sessionsOf(state, "/p/a")[0]!.pendingPlan).toBeNull();
     expect(sessionsOf(state, "/p/a")[0]!.planSettle).toBeNull();
+  });
+
+  it("records the proposal and keeps it pending past the process exit (ADR-0033)", async () => {
+    const { rpc, registryFile } = await gateBackend();
+    rpc.frame(proposalFrame("p1"));
+    await invoke(CH.toggleFavorite, "model-a");
+
+    expect(sessionsOf(lastBroadcast(), "/p/a")[0]!.proposedPlans).toEqual([
+      { key: "local://auth-plan.md", title: "add auth", status: "pending" },
+    ]);
+
+    // The gate dies with the process; the record does not. This is the restart:
+    // a fresh Registry.load reads exactly what the run persisted.
+    rpc.exit(0);
+    await invoke(CH.toggleFavorite, "model-b");
+    const state = sessionsOf(lastBroadcast(), "/p/a")[0]!;
+    expect(state.pendingPlan).toBeNull();
+    expect(state.proposedPlans).toEqual([
+      { key: "local://auth-plan.md", title: "add auth", status: "pending" },
+    ]);
+    expect(
+      Registry.load(registryFile).sessions.find((s) => s.tabId === TAB_A)!.proposedPlans,
+    ).toEqual([{ key: "local://auth-plan.md", title: "add auth", status: "pending" }]);
+  });
+
+  it("settles the row with the verdict; a re-proposal keeps one row", async () => {
+    const { manager, rpc } = await gateBackend();
+    rpc.frame(proposalFrame("p1"));
+    manager.rpcSend(TAB_A, {
+      type: "extension_ui_response",
+      id: "p1",
+      value: PLAN_EXECUTE,
+    });
+    await invoke(CH.toggleFavorite, "model-a");
+    expect(sessionsOf(lastBroadcast(), "/p/a")[0]!.proposedPlans).toEqual([
+      { key: "local://auth-plan.md", title: "add auth", status: "executed" },
+    ]);
+
+    // The same file proposed again returns its one row to pending, in place.
+    rpc.frame(proposalFrame("p2"));
+    await invoke(CH.toggleFavorite, "model-b");
+    expect(sessionsOf(lastBroadcast(), "/p/a")[0]!.proposedPlans).toEqual([
+      { key: "local://auth-plan.md", title: "add auth", status: "pending" },
+    ]);
+  });
+
+  it("dismisses only an interrupted plan, never a live gate", async () => {
+    const { rpc, registryFile } = await gateBackend();
+    rpc.frame(proposalFrame("p1"));
+
+    await invoke(CH.dismissProposedPlan, TAB_A, "local://auth-plan.md");
+    await invoke(CH.toggleFavorite, "model-a");
+    // The agent is blocked on the gate: dismissing it must be a no-op.
+    expect(sessionsOf(lastBroadcast(), "/p/a")[0]!.proposedPlans).toEqual([
+      { key: "local://auth-plan.md", title: "add auth", status: "pending" },
+    ]);
+
+    rpc.exit(0);
+    await invoke(CH.dismissProposedPlan, TAB_A, "local://auth-plan.md");
+    await invoke(CH.toggleFavorite, "model-b");
+    expect(sessionsOf(lastBroadcast(), "/p/a")[0]!.proposedPlans).toEqual([
+      { key: "local://auth-plan.md", title: "add auth", status: "dismissed" },
+    ]);
+    expect(
+      Registry.load(registryFile).sessions.find((s) => s.tabId === TAB_A)!.proposedPlans[0]!
+        .status,
+    ).toBe("dismissed");
   });
 });
 

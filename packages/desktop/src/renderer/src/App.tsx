@@ -28,7 +28,7 @@ import { IS_ELECTRON, IS_MAC, IS_WINDOWS } from "./lib/platform";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
 import { useAppViewport, useCompactShell } from "./lib/responsive";
 import { tabTitle } from "./lib/tab-title";
-import { findInstance, findOwner, useStore } from "./store";
+import { findInstance, findOwner, findRecord, useStore } from "./store";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers. */
 const HINTS: [combo: string, what: MessageKey][] = [
@@ -288,6 +288,7 @@ export default function App() {
   const setPlanMode = useStore((s) => s.setPlanMode);
   const activeTitle = useStore((s) => (s.activeTabId ? tabTitle(s.state, s.activeTabId) : undefined));
   const activeRuntime = useStore((s) => (s.activeTabId ? s.rpc[s.activeTabId] : undefined));
+  const activeRecord = useStore((s) => (s.activeTabId ? findRecord(s.state, s.activeTabId) : undefined));
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const compact = useCompactShell();
@@ -422,7 +423,8 @@ export default function App() {
   // underneath, hidden, exactly as a background tab is.
   const compactTitle =
     lab !== null ? t("lab.header.title") : activeTitle ?? t("app.compact.projectsAndSessions");
-  const badges = activeTab?.mode === "rpc-ui" ? inspectorBadges(activeRuntime) : null;
+  const badges =
+    activeTab?.mode === "rpc-ui" ? inspectorBadges(activeRuntime, activeRecord) : null;
   const inspectorCount = badges ? badges.todos + badges.agents + badges.plans : 0;
 
   return (

@@ -60,7 +60,6 @@ export type {
   LabView,
   LifecycleConfirmation,
   NewExperimentSpec,
-  PlanRecord,
   PlanRevisionNotes,
   RpcFailure,
   RpcTabState,
@@ -467,6 +466,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     refinePlan: plan.refinePlan,
     deferPlanReview: plan.deferPlanReview,
     showPlanReview: plan.showPlanReview,
+    representPlan: plan.representPlan,
+    dismissProposedPlan: plan.dismissProposedPlan,
     loadPlanText: plan.loadPlanText,
     setPlanReadiness: plan.setPlanReadiness,
 
