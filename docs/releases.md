@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.13.13](https://github.com/LankfordAI/omp-ui/releases/tag/v0.13.13). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- Installed as an AppImage, omp-ui opens a project in **VS Code** and **Files** from the pre-AppImage environment, as **Open in terminal** already did: the new VS Code window's integrated terminals no longer inherit `ARGV0`, `APPIMAGE`, `APPDIR`, or the `AppRun` `PATH` and `LD_LIBRARY_PATH` edits, so zsh runs commands under their own names ([#633](https://github.com/LankfordAI/omp-ui/issues/633)).
+
+Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 

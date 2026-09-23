@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 
 import type { ProjectOpenAvailability, ProjectOpenTarget } from "@omp-ui/core";
@@ -10,6 +11,8 @@ const VSCODE_PROTOCOL_URL = "vscode://file/";
 
 export interface ProjectOpenHost {
   getApplicationNameForProtocol(url: string): string;
+  /** Electron's shell handoffs, used off Linux only: on Linux they launch
+   *  xdg-open from omp-ui's own process.env and take no env (#633). */
   openExternal(url: string): Promise<void>;
   openPath(projectPath: string): Promise<string>;
   /** First PATH entry holding an executable `name` (exact filename,
@@ -18,8 +21,9 @@ export interface ProjectOpenHost {
   /** Short-lived launcher (macOS `open`, Windows `wt`): resolves on
    *  exit code 0, rejects on spawn error, nonzero exit, or signal. */
   runLauncher(file: string, args: string[], cwd: string): Promise<void>;
-  /** Long-lived terminal process: detached + unref'd; resolves on the
-   *  'spawn' event, rejects on 'error'. Never waits for exit. */
+  /** Long-lived process from withoutAppImageRuntime() — a terminal, or
+   *  Linux xdg-open: detached + unref'd; resolves on the 'spawn' event,
+   *  rejects on 'error'. Never waits for exit. */
   spawnDetached(file: string, args: string[], cwd: string): Promise<void>;
 }
 
@@ -236,7 +240,7 @@ export class ProjectOpener {
     const url = vscodeProjectUrl(projectPath);
     let firstCause: unknown;
     try {
-      await this.host.openExternal(url);
+      await (this.platform === "linux" ? this.xdgOpen(url) : this.host.openExternal(url));
       return;
     } catch (cause) {
       firstCause = cause;
@@ -245,7 +249,7 @@ export class ProjectOpener {
     this.vsCodeAvailable = undefined;
     if (this.availability().vsCode) {
       try {
-        await this.host.openExternal(url);
+        await (this.platform === "linux" ? this.xdgOpen(url) : this.host.openExternal(url));
         return;
       } catch (cause) {
         this.vsCodeAvailable = undefined;
@@ -266,9 +270,11 @@ export class ProjectOpener {
   }
 
   private async openInFiles(projectPath: string): Promise<void> {
-    let failure: string;
+    // Electron's openPath reports failure as a string; the Linux spawn rejects.
+    let failure = "";
     try {
-      failure = await this.host.openPath(projectPath);
+      if (this.platform === "linux") await this.xdgOpen(projectPath);
+      else failure = await this.host.openPath(projectPath);
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message : String(cause);
       throw new Error(
@@ -281,5 +287,22 @@ export class ProjectOpener {
         `Could not open "${projectPath}" in the system file manager: ${failure}.`,
       );
     }
+  }
+
+  /**
+   * Linux handoff to the desktop's default handler. Electron's
+   * shell.openExternal/openPath run this same xdg-open, but from omp-ui's own
+   * process.env with no way to replace it (Electron 43
+   * shell/common/platform_util_linux.cc, XDGUtil), so an AppImage's ARGV0,
+   * APPIMAGE, APPDIR and AppRun PATH edits reach the handler and everything it
+   * starts — VS Code's integrated terminals included (#633). spawnDetached
+   * starts it from withoutAppImageRuntime() and, as Electron does here, never
+   * waits for xdg-open's exit. The home cwd cannot vanish the way a deleted
+   * project directory can, so a rejection always means xdg-open itself could
+   * not start. Three call sites (VS Code attempt, VS Code retry, Files) need
+   * this launch in lockstep.
+   */
+  private xdgOpen(target: string): Promise<void> {
+    return this.host.spawnDetached("xdg-open", [target], homedir());
   }
 }
