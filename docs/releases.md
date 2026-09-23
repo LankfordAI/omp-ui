@@ -4,9 +4,13 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- A proposed plan no longer vanishes when its session process ends. Plans are persisted on the owned session record ([ADR-0033](adr/0033-proposed-plans-outlive-their-process.md)), so the proposed plans pane survives an app restart and an interrupted plan offers re-present — a real plan review for the same file through the plan extension, with no agent turn spent — and dismiss ([#636](https://github.com/LankfordAI/omp-ui/issues/636)).
+- Opening the console drawer now puts the cursor in its shell, mirroring the active terminal tab ([#637](https://github.com/LankfordAI/omp-ui/issues/637)).
+- Right-clicking a selection in the console drawer or a terminal tab opens the app's selection menu with Copy; until now a terminal selection had no copy route at all ([#638](https://github.com/LankfordAI/omp-ui/issues/638)).
+- The subagent models popover is no longer clipped by the Agents pane: it portals out of the pane's scroll box, clamps inside the viewport, and re-anchors on resize and scroll, so it stays whole at any inspector rail width ([#634](https://github.com/LankfordAI/omp-ui/issues/634)).
 - Installed as an AppImage, omp-ui opens a project in **VS Code** and **Files** from the pre-AppImage environment, as **Open in terminal** already did: the new VS Code window's integrated terminals no longer inherit `ARGV0`, `APPIMAGE`, `APPDIR`, or the `AppRun` `PATH` and `LD_LIBRARY_PATH` edits, so zsh runs commands under their own names ([#633](https://github.com/LankfordAI/omp-ui/issues/633)).
-
 - Installed as an AppImage, omp-ui hands transcript links, provider sign-in pages, release notes, and exported transcripts to your browser from the pre-AppImage environment. A browser omp-ui starts no longer inherits `ARGV0`, `APPIMAGE`, `APPDIR`, `OWD`, or the `AppRun` `PATH` and `LD_LIBRARY_PATH` edits, so the programs that browser opens later don't inherit them either. On Wayland, a browser that is already running now opens the page without raising its window ([#635](https://github.com/LankfordAI/omp-ui/issues/635)).
+- Deleting a planning session with the skip-delete-confirmation setting on now erases its whole plan-handoff closure without staging the confirmation, unless a worktree checkout is involved: the session's own or any descendant's ([#641](https://github.com/LankfordAI/omp-ui/issues/641)).
 
 Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
