@@ -250,3 +250,42 @@ export const BROWSER_PANE_INSTRUCTION_PARTS: readonly [string, string] = [
 export function browserPaneInstruction(cdpUrl: string): string {
   return BROWSER_PANE_INSTRUCTION_PARTS[0] + cdpUrl + BROWSER_PANE_INSTRUCTION_PARTS[1];
 }
+
+/** Encoded formats a clock stamp accepts and returns (CDP's three screenshot formats). */
+export type BrowserClockStampMime = "image/png" | "image/jpeg" | "image/webp";
+
+/** One clock-stamp job: one encoded image in, the same format out. */
+export interface BrowserClockStampRequest {
+  /** Bare base64 of the encoded image. */
+  data: string;
+  mimeType: BrowserClockStampMime;
+  /** 0–100 like CDP's `quality`; null = the encoder default. Ignored for PNG. */
+  quality: number | null;
+  /** The stamp text, already formatted by browserClockText. */
+  text: string;
+  /**
+   * CSS px the image's width spans (the capture's clip width, else the
+   * viewport's). The badge scales by image width / cssWidth, so it reads the
+   * same size whatever pixel density the capture came back at.
+   */
+  cssWidth: number;
+}
+
+/** GNOME-style date and time parts ("Sep 23, 2026" / "4:19 PM CDT"); an invalid locale tag falls back to "en". */
+export function formatBrowserClock(now: Date, locale: string): { date: string; time: string } {
+  const parts = (tag: string): { date: string; time: string } => ({
+    date: new Intl.DateTimeFormat(tag, { month: "short", day: "numeric", year: "numeric" }).format(now),
+    time: new Intl.DateTimeFormat(tag, { hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(now),
+  });
+  try {
+    return parts(locale);
+  } catch {
+    return parts("en");
+  }
+}
+
+/** The single-line stamp text: date, two spaces, time. */
+export function browserClockText(now: Date, locale: string): string {
+  const { date, time } = formatBrowserClock(now, locale);
+  return `${date}  ${time}`;
+}

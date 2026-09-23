@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   header: { width: 1280, height: 800, dsf: 1 } as BrowserPaneFrameHeader | null,
   observers: [] as ((entries: { contentRect: { width: number; height: number } }[]) => void)[],
   cropFrame: vi.fn(async () => new Uint8Array([0xff, 0xd8, 1])),
+  stampImage: vi.fn(async () => new Uint8Array([9, 9, 9])),
 }));
 
 vi.mock("../../lib/platform", () => ({
@@ -33,6 +34,13 @@ vi.mock("../../lib/browser-pane-frame", () => ({
     dispose() {},
   }),
   cropFrame: mocks.cropFrame,
+}));
+
+// jsdom has no OffscreenCanvas; the stamp's own geometry is covered by the
+// clock-stamp lib. Here it only answers "were the stamped bytes handed back".
+vi.mock("../../lib/clock-stamp", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  stampImage: mocks.stampImage,
 }));
 
 class ResizeObserverStub {
@@ -99,17 +107,19 @@ const group: ProjectGroup = {
     lastAdvisorModel: null,
     defaultModel: null,
     defaultAdvisorModel: null,
+    browserClock: false,
   },
   sessions: [session],
 };
 
-/** The tab under a remote instance in the given status; local when null. */
-function seed(instanceStatus: "joined" | "unreachable" | null): void {
+/** The tab under a remote instance in the given status; local when null. `clock` turns the project's browser clock on. */
+function seed(instanceStatus: "joined" | "unreachable" | null, clock = false): void {
+  const seeded: ProjectGroup = clock ? { ...group, project: { ...group.project, browserClock: true } } : group;
   useStore.setState({
     state: backendState(
       instanceStatus === null
-        ? { projects: [group] }
-        : { projects: [], remoteInstances: [remoteInstance({ id: INSTANCE, status: instanceStatus, projects: [group] })] },
+        ? { projects: [seeded] }
+        : { projects: [], remoteInstances: [remoteInstance({ id: INSTANCE, status: instanceStatus, projects: [seeded] })] },
     ),
     activeTabId: TAB,
     rpc: {
@@ -353,5 +363,45 @@ describe("BrowserPane element hand-back (#544)", () => {
     const queued = useStore.getState().rpc[TAB]?.composerQueue;
     expect(queued?.text.at(-1)).toContain("https://localhost:5173/\nselector: #save — <button> \"Save\"");
     expect(queued?.images.at(-1)?.mimeType).toBe("image/jpeg");
+  });
+});
+
+describe("BrowserPane browser clock (#642)", () => {
+  const attach = async (): Promise<void> => {
+    await act(async () => {
+      button("attach page to prompt")!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+  const queuedImages = () => useStore.getState().rpc[TAB]?.composerQueue?.images ?? [];
+
+  it("shows no clock and hands back the unstamped frame when the project's clock is off", async () => {
+    seed(null);
+    render();
+    expect(document.body.querySelector("time")).toBeNull();
+    await attach();
+    expect(mocks.stampImage).not.toHaveBeenCalled();
+    expect(queuedImages().at(-1)).toMatchObject({ data: btoa(String.fromCharCode(0xff, 0xd8)), mimeType: "image/jpeg" });
+  });
+
+  it("shows the clock and hands back the stamped frame when the project's clock is on", async () => {
+    seed(null, true);
+    render();
+    expect(document.body.querySelector('time[aria-label="System clock"]')).not.toBeNull();
+    await attach();
+    expect(queuedImages().at(-1)).toMatchObject({ data: btoa(String.fromCharCode(9, 9, 9)), mimeType: "image/jpeg" });
+  });
+
+  it("queues nothing and says so when stamping fails", async () => {
+    mocks.stampImage.mockRejectedValueOnce(new Error("encode failed"));
+    seed(null, true);
+    render();
+    const before = queuedImages().length;
+    await attach();
+    expect(queuedImages()).toHaveLength(before);
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't stamp the clock on the screenshot — nothing was attached",
+    );
   });
 });

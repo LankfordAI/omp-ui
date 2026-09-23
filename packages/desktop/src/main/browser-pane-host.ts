@@ -12,6 +12,7 @@ import {
   BROWSER_PANE_RESIZE_DEBOUNCE_MS,
   CH,
   encodeBrowserPaneFrameHeader,
+  browserClockText,
   isAllowedBrowserPaneTopLevelUrl,
   type BrowserPaneAgentState,
   type BrowserPaneDiagnostics,
@@ -21,6 +22,7 @@ import {
   type BrowserPanePickResult,
   type BrowserPaneNavigate,
   type BrowserPaneState,
+  type BrowserClockStampRequest,
 } from "@omp-ui/core";
 import { mintRemoteToken } from "@omp-ui/server";
 import {
@@ -70,6 +72,12 @@ export interface BrowserPaneHostDeps {
   /** Default console.warn. */
   /** Default: clear the Electron partition through the pane contents seam. */
   clearPartition?: (partition: string) => Promise<void>;
+  /** Whether the tab's project has the browser clock on; read at every screenshot. Default () => false. */
+  clockEnabled?: (tabId: string) => boolean;
+  /** The stamp text for "now". Default: browserClockText(new Date(), "en"). */
+  clockText?: () => string;
+  /** Stamps one image (main's ClockStamper). Default rejects: no stamper wired. */
+  stampImage?: (req: BrowserClockStampRequest) => Promise<string>;
   warn?: (message: string) => void;
 }
 
@@ -185,6 +193,9 @@ export class BrowserPaneHost {
   private readonly now: () => number;
   private readonly clearPartition: (partition: string) => Promise<void>;
   private readonly warn: (message: string) => void;
+  private readonly clockEnabled: (tabId: string) => boolean;
+  private readonly clockText: () => string;
+  private readonly stampImage: (req: BrowserClockStampRequest) => Promise<string>;
   private paneFactory: CreatePane | null;
   private remoteAccessPort: number | null = null;
   private denied: ReadonlySet<number> = new Set();
@@ -200,6 +211,13 @@ export class BrowserPaneHost {
       await clearBrowserPanePartition(partition);
     });
     this.warn = deps.warn ?? ((message) => console.warn(message));
+    this.clockEnabled = deps.clockEnabled ?? (() => false);
+    this.clockText = deps.clockText ?? (() => browserClockText(new Date(), "en"));
+    this.stampImage =
+      deps.stampImage ??
+      (async () => {
+        throw new Error("no clock stamper is wired");
+      });
   }
 
   /** Mints the tab's loopback listener + token if absent (reused after handleExit); null and a warning when listen fails. */
@@ -217,6 +235,7 @@ export class BrowserPaneHost {
         onClientCount: (n) => this.onClientCount(tabId, entry, n),
         onCommand: (method) => this.onCommand(tabId, entry, method),
         onCommandSettled: (method, params) => this.onCommandSettled(entry, method, params),
+        transformScreenshot: (result, params) => this.stampScreenshot(tabId, entry, result, params),
       });
     } catch (err) {
       entry.lastError = "listener-failed";
@@ -691,6 +710,41 @@ export class BrowserPaneHost {
 
   private onCommandSettled(entry: PaneEntry, method: string, params: object): void {
     if (clobbersMetrics(method, params)) this.scheduleMetricsReassert(entry);
+  }
+
+  /**
+   * The browser clock's agent path: a forwarded Page.captureScreenshot result
+   * gets the corner badge when the tab's project has the clock on. The image
+   * keeps its format, quality and (unless the badge cannot fit) its size. The
+   * badge is sized off the CSS width the image spans — the clip's, else the
+   * viewport's — not off targetDsf: an agent session's capture comes back at
+   * its own emulation's density, not the host's pinned dsf (#630).
+   */
+  private async stampScreenshot(tabId: string, entry: PaneEntry, result: unknown, params: object): Promise<unknown> {
+    if (!this.clockEnabled(tabId)) return result;
+    if (typeof result !== "object" || result === null) return result;
+    if (!("data" in result) || typeof result.data !== "string" || result.data === "") return result;
+    const data = result.data;
+    // The client's raw CDP params: every field is type-checked before use.
+    const p = params as { format?: unknown; quality?: unknown; clip?: { width?: unknown } | null };
+    const format = p.format === "jpeg" || p.format === "webp" ? p.format : "png";
+    const quality = typeof p.quality === "number" ? Math.min(100, Math.max(0, p.quality)) : null;
+    const clipWidth = p.clip?.width;
+    try {
+      const stamped = await this.stampImage({
+        data,
+        mimeType: `image/${format}`,
+        quality,
+        text: this.clockText(),
+        cssWidth: typeof clipWidth === "number" && clipWidth > 0 ? clipWidth : entry.size.width,
+      });
+      return { ...result, data: stamped };
+    } catch (err) {
+      throw new Error(
+        `omp-ui browser clock: the screenshot could not be stamped (${err instanceof Error ? err.message : String(err)})`,
+        { cause: err },
+      );
+    }
   }
 
   private onCommand(tabId: string, entry: PaneEntry, method: string): void {

@@ -218,6 +218,11 @@ export const BACKEND_CHANNELS = {
     channel: "project:setDefaultAdvisorModel",
     ...request<[projectPath: string, model: string | null], void>([str(), nullable(str())]),
   },
+  /** Turns the project's browser clock on or off (see CONTEXT.md "Browser clock"). */
+  setProjectBrowserClock: {
+    channel: "project:setBrowserClock",
+    ...request<[projectPath: string, on: boolean], void>([str(), bool()]),
+  },
   /**
    * The project layer's `task.agentModelOverrides` (ADR-0031): the map plus
    * the raw read, so an `unsupported` shape (flow mapping, anchor, duplicate

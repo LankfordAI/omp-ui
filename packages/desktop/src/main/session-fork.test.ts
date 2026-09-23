@@ -86,6 +86,7 @@ function setup(file: "active" | "archived" | "missing" = "active"): { sessionsRo
         lastAdvisorModel: null,
         defaultModel: null,
         defaultAdvisorModel: null,
+        browserClock: false,
       },
     ],
     sessions: [

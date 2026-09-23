@@ -231,6 +231,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
         lastAdvisorModel: null,
         defaultModel: null,
         defaultAdvisorModel: null,
+        browserClock: false,
       },
     ],
     sessions: [

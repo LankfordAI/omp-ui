@@ -152,6 +152,7 @@ describe("CommandPalette capabilities actions (issue #383)", () => {
               lastAdvisorModel: null,
               defaultModel: null,
               defaultAdvisorModel: null,
+              browserClock: false,
             },
             sessions: [{ ...CWD_RECORD, mode: "rpc-ui" }],
           },

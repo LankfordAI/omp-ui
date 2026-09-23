@@ -60,6 +60,7 @@ function setup(): { registryFile: string } {
         lastAdvisorModel: null,
         defaultModel: null,
         defaultAdvisorModel: null,
+        browserClock: false,
       },
     ],
   });

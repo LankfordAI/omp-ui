@@ -14,7 +14,7 @@ import {
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { BridgeListener, BridgeListenerDeps, CreateBridgeListener } from "./browser-pane-bridge";
 import type { CreatePane, CreatePaneOptions, PaneContents, PaneEvent } from "./browser-pane-contents";
-import { BrowserPaneHost } from "./browser-pane-host";
+import { BrowserPaneHost, type BrowserPaneHostDeps } from "./browser-pane-host";
 
 interface FakePane {
   pane: PaneContents;
@@ -130,7 +130,11 @@ interface Harness {
   frames(): Uint8Array[];
 }
 
-function harness(opts: { paneFails?: boolean; listenerFails?: boolean; now?: () => number } = {}): Harness {
+type ClockDeps = Pick<BrowserPaneHostDeps, "targetScaleFactor" | "clockEnabled" | "clockText" | "stampImage">;
+
+function harness(
+  opts: { paneFails?: boolean; listenerFails?: boolean; now?: () => number; clock?: ClockDeps } = {},
+): Harness {
   const sent: Harness["sent"] = [];
   const panes: FakePane[] = [];
   const listeners: Harness["listeners"] = [];
@@ -163,6 +167,7 @@ function harness(opts: { paneFails?: boolean; listenerFails?: boolean; now?: () 
     now: opts.now,
     clearPartition,
     warn: (message) => warnings.push(message),
+    ...opts.clock,
   });
   return {
     host,
@@ -829,6 +834,64 @@ describe("BrowserPaneHost endpoint, agent state, and denied ports (U7 host)", ()
         lastError: null,
       },
     ]);
+  });
+});
+
+describe("BrowserPaneHost browser clock screenshot stamp", () => {
+  const JPEG_CLIP = { format: "jpeg", quality: 40, clip: { x: 0, y: 0, width: 10, height: 10, scale: 2 } };
+
+  it("returns the capture untouched when the tab's project has the clock off", async () => {
+    const stampImage = vi.fn(async () => "c3RhbXBlZA==");
+    const h = harness({ clock: { stampImage } });
+    await h.host.ensureEndpoint("t1");
+    const result = { data: "cmF3" };
+    await expect(h.listeners[0]!.deps.transformScreenshot!(result, JPEG_CLIP)).resolves.toBe(result);
+    expect(stampImage).not.toHaveBeenCalled();
+  });
+
+  it("stamps in the capture's format and quality, sized off the clip's CSS width, else the viewport's", async () => {
+    const stampImage = vi.fn(async () => "c3RhbXBlZA==");
+    const clockEnabled = vi.fn((tabId: string) => tabId === "t1");
+    const h = harness({ clock: { targetScaleFactor: () => 2, clockEnabled, clockText: () => "10:42", stampImage } });
+    await h.host.ensureEndpoint("t1");
+    const { deps } = h.listeners[0]!;
+    await deps.onFirstClient();
+
+    const stamped = await deps.transformScreenshot!({ data: "cmF3", sentinel: 7 }, JPEG_CLIP);
+    expect(stampImage).toHaveBeenCalledWith({
+      data: "cmF3",
+      mimeType: "image/jpeg",
+      quality: 40,
+      text: "10:42",
+      cssWidth: 10,
+    });
+    expect(clockEnabled).toHaveBeenCalledWith("t1");
+    expect(stamped).toEqual({ data: "c3RhbXBlZA==", sentinel: 7 });
+
+    // No clip: the image spans the viewport, whatever dsf the host pins.
+    await deps.transformScreenshot!({ data: "cmF3" }, { format: "webp" });
+    expect(stampImage).toHaveBeenLastCalledWith({
+      data: "cmF3",
+      mimeType: "image/webp",
+      quality: null,
+      text: "10:42",
+      cssWidth: BROWSER_PANE_DEFAULT_VIEWPORT.width,
+    });
+  });
+
+  it("fails the capture with a browser clock error when the stamp rejects", async () => {
+    const h = harness({
+      clock: {
+        clockEnabled: () => true,
+        stampImage: async () => {
+          throw new Error("the clock stamper timed out");
+        },
+      },
+    });
+    await h.host.ensureEndpoint("t1");
+    await expect(h.listeners[0]!.deps.transformScreenshot!({ data: "cmF3" }, {})).rejects.toThrow(
+      /^omp-ui browser clock.*the clock stamper timed out/,
+    );
   });
 });
 

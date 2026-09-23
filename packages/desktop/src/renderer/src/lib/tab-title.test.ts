@@ -15,6 +15,7 @@ function group(path: string, tabId: string, title: string): ProjectGroup {
       lastAdvisorModel: null,
       defaultModel: null,
       defaultAdvisorModel: null,
+      browserClock: false,
     },
     sessions: [
       {

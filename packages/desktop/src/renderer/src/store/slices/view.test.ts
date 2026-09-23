@@ -49,7 +49,7 @@ function summary(
 
 function group(path: string, ...sessions: SessionSummary[]): ProjectGroup {
   return {
-    project: { path, name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null },
+    project: { path, name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false },
     sessions,
   };
 }

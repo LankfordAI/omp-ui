@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>omp-ui clock stamper</title>
+    <!--
+      The private, main-owned browser-clock surface (see CONTEXT.md "Browser
+      clock"). It is never shown, never served to remote clients, and loads NO
+      app bootstrap — only the stamp library entry below. Screenshots reach it
+      exclusively as a JSON argument to window.ompClockStamper.stamp.
+    -->
+    <script type="module" src="/src/clock-stamper.ts"></script>
+  </head>
+  <body></body>
+</html>

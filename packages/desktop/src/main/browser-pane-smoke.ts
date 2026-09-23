@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer, get as httpGet, type Server } from "node:http";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { app, BrowserWindow, clipboard } from "electron";
+import { app, BrowserWindow, clipboard, nativeImage } from "electron";
 import { WebSocket } from "ws";
 import {
   BROWSER_PANE_FPS,
@@ -16,6 +16,7 @@ import { keyEvents, type KeyLike } from "../renderer/src/lib/browser-pane-input"
 import { BrowserPaneHost } from "./browser-pane-host";
 import page from "./browser-pane-smoke-page.html?raw";
 import { smokeExitCode } from "./browser-pane-smoke-verdict";
+import { ClockStamper } from "./clock-stamper";
 
 /**
  * Electron-runtime smoke of the shipped browser pane host (#519 spec 5.7, #539).
@@ -34,6 +35,10 @@ import { smokeExitCode } from "./browser-pane-smoke-verdict";
  * the re-assert debounce; metrics-plain-screenshot expects the pin to survive a
  * screenshot that touches no emulation (#630). All three need --dsf>1 to prove
  * anything and record ok=null otherwise.
+ *
+ * clock-stamp turns the browser clock on and expects the real stamper page to
+ * change only the top-right quadrant of a PNG screenshot, and to grow a clip
+ * too small for the stamp.
  */
 
 const TAB = "smoke";
@@ -214,6 +219,9 @@ function waitForState(matches: (s: BrowserPaneState) => boolean, timeoutMs: numb
 }
 
 let host: BrowserPaneHost;
+/** The smoke's browser clock toggle; only clock-stamp turns it on. */
+let clockOn = false;
+const stamper = new ClockStamper();
 
 function smokeDiagnostics(): BrowserPaneDiagnostics | null {
   return host.diagnostics().find((row) => row.tabId === TAB) ?? null;
@@ -595,6 +603,68 @@ async function runMetricsClobberSteps(reader: PageReader): Promise<void> {
   );
 }
 
+const CLOCK_TEXT = "Sep 23, 2026  4:19 PM CDT";
+
+/**
+ * The browser clock through the real bridge, ClockStamper page, and encoder:
+ * the same PNG capture with the clock off and on must differ only in the
+ * top-right quadrant, and a 40x20 clip must come back taller than it was
+ * asked for (the stamp needs more room than the clip has).
+ */
+async function runClockStampStep(reader: PageReader): Promise<void> {
+  const dsf = flags.dsf ?? 1;
+  const capture = async (params: object): Promise<Electron.NativeImage> => {
+    const reply = await reader.client.call("Page.captureScreenshot", params, reader.sessionId);
+    const data = stringField(reply, "data");
+    if (data === null) throw new Error("Page.captureScreenshot returned no data");
+    return nativeImage.createFromBuffer(Buffer.from(data, "base64"));
+  };
+  const plain = { format: "png", captureBeyondViewport: false };
+  try {
+    // A focused caret blinks: A and B must be captures of a still page.
+    await reader.eval("document.activeElement?.blur()");
+    let a = await capture(plain);
+    for (let i = 0; i < 5; i += 1) {
+      const again = await capture(plain);
+      const stable = again.toBitmap().equals(a.toBitmap());
+      a = again;
+      if (stable) break;
+      await sleep(200);
+    }
+    clockOn = true;
+    const b = await capture(plain);
+    const sizeA = a.getSize();
+    const sizeB = b.getSize();
+    let differing = 0;
+    let outsideQuadrant = 0;
+    if (sizeA.width === sizeB.width && sizeA.height === sizeB.height) {
+      const bitmapA = a.toBitmap();
+      const bitmapB = b.toBitmap();
+      for (let px = 0; px < sizeA.width * sizeA.height; px += 1) {
+        const at = px * 4;
+        if (bitmapA.readUInt32LE(at) === bitmapB.readUInt32LE(at)) continue;
+        differing += 1;
+        const x = px % sizeA.width;
+        const y = Math.floor(px / sizeA.width);
+        if (x < sizeA.width / 2 || y >= sizeA.height / 2) outsideQuadrant += 1;
+      }
+    }
+    const clipped = await capture({ format: "jpeg", clip: { x: 0, y: 0, width: 40, height: 20, scale: 1 } });
+    const clipSize = clipped.getSize();
+    // The clip clobbers the HiDPI pin; let the re-assert land before later steps.
+    await sleep(METRICS_SETTLE_MS);
+    const ok =
+      sizeA.width === sizeB.width &&
+      sizeA.height === sizeB.height &&
+      differing > 0 &&
+      outsideQuadrant === 0 &&
+      clipSize.height > 20 * dsf;
+    recordStep("clock-stamp", ok, { sizeA, sizeB, differing, outsideQuadrant, clipSize, dsf }, null);
+  } finally {
+    clockOn = false;
+  }
+}
+
 async function runInputTest(reader: PageReader): Promise<void> {
   await sleep(300);
   try {
@@ -612,6 +682,11 @@ async function runInputTest(reader: PageReader): Promise<void> {
     await runMetricsClobberSteps(reader);
   } catch (err) {
     recordStep("metrics-clobber", false, { error: err instanceof Error ? err.message : String(err) }, null);
+  }
+  try {
+    await runClockStampStep(reader);
+  } catch (err) {
+    recordStep("clock-stamp", false, { error: err instanceof Error ? err.message : String(err) }, null);
   }
   // Keyboard coverage leaves a blinking caret focused, which is page-authored
   // animation rather than an idle host repaint. Remove it before measuring.
@@ -711,6 +786,7 @@ function finish(path: NonNullable<typeof bridge.quitPath>): void {
   bridge.quitPath = path;
   diagnosticsBeforeDispose = host.diagnostics();
   host.disposeAll();
+  stamper.dispose();
   bridge.appQuitLeak = host.diagnostics().some((row) => row.pageAlive);
   bridge.windowsAfterDispose = BrowserWindow.getAllWindows().length;
   devServer?.close();
@@ -792,6 +868,9 @@ async function main(): Promise<void> {
       warnings.push(message);
       console.warn(message);
     },
+    clockEnabled: () => clockOn,
+    clockText: () => CLOCK_TEXT,
+    stampImage: (req) => stamper.stamp(req),
   });
   const cdpUrl = await host.ensureEndpoint(TAB);
   if (cdpUrl === null) {

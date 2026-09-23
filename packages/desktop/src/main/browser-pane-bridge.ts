@@ -35,6 +35,12 @@ export interface BridgeListenerDeps {
   onCommand: (method: string) => void;
   /** The same command once Electron has answered it (resolved or rejected), with the params the client sent. */
   onCommandSettled: (method: string, params: object) => void;
+  /**
+   * Rewrites a successful `Page.captureScreenshot` result before the client
+   * sees it (the browser clock stamp). A throw becomes the command's CDP error.
+   * Absent: results pass through verbatim.
+   */
+  transformScreenshot?: (result: unknown, params: object) => Promise<unknown>;
   appVersion?: string;
   now?: () => number;
 }
@@ -115,6 +121,12 @@ export interface BridgeSessionDeps<T> {
   onCommand: (method: string) => void;
   /** The same command once Electron has answered it (resolved or rejected), with the params the client sent. */
   onCommandSettled: (method: string, params: object) => void;
+  /**
+   * Rewrites a successful `Page.captureScreenshot` result before the client
+   * sees it (the browser clock stamp). A throw becomes the command's CDP error.
+   * Absent: results pass through verbatim.
+   */
+  transformScreenshot?: (result: unknown, params: object) => Promise<unknown>;
   send: (client: T, frame: BridgeFrame) => void;
   /** Close the client's transport; the transport then calls `removeClient`. */
   close: (client: T) => void;
@@ -210,6 +222,14 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
     } finally {
       deps.onCommandSettled(method, params);
     }
+  }
+
+  /** A client command forwarded verbatim; screenshots then pass through the stamp hook. */
+  async function forwardClient(method: string, params: object, sessionId?: string): Promise<unknown> {
+    const result = await forward(method, params, sessionId);
+    return method === "Page.captureScreenshot" && deps.transformScreenshot !== undefined
+      ? deps.transformScreenshot(result, params)
+      : result;
   }
 
   /**
@@ -441,7 +461,7 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
         if (typeof field(params, "targetId") === "string" && !isOwnTarget(stringField(params, "targetId"))) {
           throw new Error("No target with given id found");
         }
-        reply(await forward(method, params));
+        reply(await forwardClient(method, params));
     }
   }
 
@@ -554,7 +574,7 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
             reply(method === "Page.close" ? {} : { success: true });
             return;
           }
-          reply(await forward(method, params, sid));
+          reply(await forwardClient(method, params, sid));
           return;
         }
         await handleRoot(c, method, params, reply);
@@ -638,6 +658,7 @@ export const createBridgeListener: CreateBridgeListener = (deps) =>
             debugger: pane.debugger,
             onCommand: deps.onCommand,
             onCommandSettled: deps.onCommandSettled,
+            transformScreenshot: deps.transformScreenshot,
             send: (ws, frame) => {
               if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
             },

@@ -39,6 +39,7 @@ const state = backendState({
         lastAdvisorModel: null,
         defaultModel: null,
         defaultAdvisorModel: null,
+        browserClock: false,
       },
       sessions: [
         {

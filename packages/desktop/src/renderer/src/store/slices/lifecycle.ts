@@ -61,6 +61,7 @@ export type LifecycleSlice = Pick<
   | "moveSession"
   | "setProjectDefaultModel"
   | "setProjectDefaultAdvisorModel"
+  | "setProjectBrowserClock"
   | "toggleFavorite"
   | "newSession"
   | "newWorktreeSession"
@@ -536,6 +537,14 @@ export function createLifecycleSlice(
     instanceId: string | null = null,
   ): Promise<void> => {
     await backendFor(instanceId).setProjectDefaultAdvisorModel(projectPath, model);
+  };
+
+  const setProjectBrowserClock = async (
+    projectPath: string,
+    on: boolean,
+    instanceId: string | null = null,
+  ): Promise<void> => {
+    await backendFor(instanceId).setProjectBrowserClock(projectPath, on);
   };
 
   const removeProject = async (
@@ -1158,6 +1167,7 @@ export function createLifecycleSlice(
     moveSession,
     setProjectDefaultModel,
     setProjectDefaultAdvisorModel,
+    setProjectBrowserClock,
     toggleFavorite,
     newSession,
     newWorktreeSession,

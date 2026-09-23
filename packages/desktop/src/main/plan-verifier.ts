@@ -335,7 +335,7 @@ class BrowserVerifierPage implements VerifierPage {
 }
 
 /** Permissions, downloads, and requests all deny except the trusted assets. */
-function guardSession(ses: Session): void {
+export function guardSession(ses: Session): void {
   ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   ses.setPermissionCheckHandler(() => false);
   ses.webRequest.onBeforeRequest((details, callback) => {

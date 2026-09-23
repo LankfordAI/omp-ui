@@ -25,6 +25,7 @@ const backendMock = {
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: "omp/advisor" })),
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
+  setProjectBrowserClock: vi.fn(async () => {}),
   remoteInstanceRequest: vi.fn(),
   remoteInstanceNotify: vi.fn(),
 };
@@ -91,6 +92,7 @@ const liveSessionState = backendState({
         lastAdvisorModel: null,
         defaultModel: null,
         defaultAdvisorModel: null,
+        browserClock: false,
       },
       sessions: [liveSession("tab-1")],
     },
@@ -107,6 +109,7 @@ const project: ProjectRecord = {
   lastAdvisorModel: "last/advisor",
   defaultModel: "pin/main",
   defaultAdvisorModel: "pin/advisor:high",
+  browserClock: false,
 };
 
 /** The joined instance owning the remote project in the routing test below. */
@@ -308,6 +311,15 @@ describe("ProjectSettings", () => {
     expect(document.body.textContent).not.toContain("pin/main");
   });
 
+  it("turns the project's browser clock on from the Browser tab", async () => {
+    await renderDialog();
+    await act(async () => tabButton("Browser").click());
+    const clock = switchFor("Clock");
+    expect(clock.getAttribute("aria-checked")).toBe("false");
+    await act(async () => clock.click());
+    expect(backendMock.setProjectBrowserClock).toHaveBeenCalledWith(PROJECT, true);
+  });
+
   it("moves selection and focus with arrow keys, Home, and End", async () => {
     await renderDialog();
 
@@ -324,10 +336,10 @@ describe("ProjectSettings", () => {
     expect(document.activeElement).toBe(tabButton("Skills"));
 
     await keydown(tabButton("Skills"), "End");
-    expect(tabButton("Default models").getAttribute("aria-selected")).toBe("true");
-    expect(document.activeElement).toBe(tabButton("Default models"));
+    expect(tabButton("Browser").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tabButton("Browser"));
 
-    await keydown(tabButton("Default models"), "Home");
+    await keydown(tabButton("Browser"), "Home");
     expect(tabButton("MCP servers").getAttribute("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(tabButton("MCP servers"));
   });
@@ -465,7 +477,7 @@ describe("ProjectSettings", () => {
     useStore.setState({
       state: backendState({
         defaultAdvisor: false,
-        projects: [{ project: { ...project, defaultAdvisorModel: null }, sessions: [] }],
+        projects: [{ project: { ...project, defaultAdvisorModel: null, browserClock: false }, sessions: [] }],
       }),
     });
     await renderDialog();

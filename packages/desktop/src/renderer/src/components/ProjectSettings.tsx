@@ -8,7 +8,7 @@ import { projectKey } from "../lib/project-key";
 import { findInstance, useStore } from "../store";
 import { McpServersPanel, SkillsScopePanel, ToolsScopePanel } from "./CapabilitiesViewer";
 import { ModelPalette } from "./ModelSelector";
-import { Button, Label, Modal } from "./ui";
+import { Button, Label, Modal, Switch } from "./ui";
 
 /**
  * The project's standing model pins (issue #257): the default main model and
@@ -336,26 +336,30 @@ export function ProjectModelPins({
   );
 }
 
-type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models";
+type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models" | "browser";
 
 const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
   { id: "mcp", labelKey: "project.settings.mcpServers" },
   { id: "skills", labelKey: "project.settings.skills" },
   { id: "tools", labelKey: "project.settings.tools" },
   { id: "models", labelKey: "project.settings.defaultModels" },
+  { id: "browser", labelKey: "project.settings.browser" },
 ];
 
 /**
  * The per-project settings dialog (issues #281, #383, #564): one modal holding
  * a project's standing configuration — MCP servers, the skills and tools
- * catalogs at project scope, and the default-model pins — behind a four-tab
- * strip, opened from the desktop project header and the compact actions sheet.
- * Session-scoped behavior (rosters, session-local switches, restart, TUI
- * reauth handoff) stays in CapabilitiesViewer; this dialog pins no session
- * tab, so every panel gets only the project scope — omitted viewer props keep
- * each panel exactly the manager it always was. Catalog switches write this
- * project's `.omp/config.yml` in place (core/project-config-writer.ts). The
- * active tab is dialog-local state, resetting to MCP servers on each open.
+ * catalogs at project scope, the default-model pins, and the browser clock —
+ * behind a five-tab strip, opened from the desktop project header and the
+ * compact actions sheet. Session-scoped behavior (rosters, session-local
+ * switches, restart, TUI reauth handoff) stays in CapabilitiesViewer; this
+ * dialog pins no session tab, so every panel gets only the project scope —
+ * omitted viewer props keep each panel exactly the manager it always was.
+ * Catalog switches write this project's `.omp/config.yml` in place
+ * (core/project-config-writer.ts); the browser clock is an omp-ui project
+ * flag stored in omp-ui's registry (`ProjectRecord.browserClock`), not in
+ * `.omp/config.yml`. The active tab is dialog-local state, resetting to MCP
+ * servers on each open.
  */
 export function ProjectSettings({
   project,
@@ -371,6 +375,7 @@ export function ProjectSettings({
   const t = useT();
   const [active, setActive] = useState<ProjectSettingsSectionId>("mcp");
   const tabRefs = useRef<Partial<Record<ProjectSettingsSectionId, HTMLButtonElement | null>>>({});
+  const setProjectBrowserClock = useStore((s) => s.setProjectBrowserClock);
 
   // WAI-ARIA tabs: roving tabindex, arrows/Home/End move selection AND focus.
   // Mirrors CapabilitiesViewer's onTabListKeyDown (CapabilitiesViewer.tsx).
@@ -489,6 +494,27 @@ export function ProjectSettings({
                 {t("project.settings.defaultModels")}
               </h3>
               <ProjectModelPins project={project} instanceId={instanceId} />
+            </section>
+          )}
+
+          {active === "browser" && (
+            <section aria-labelledby="project-settings-browser" className="px-4 py-4">
+              <h3 id="project-settings-browser" className="mb-3 font-display text-sm font-semibold text-ink">
+                {t("project.settings.browser")}
+              </h3>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-ink">{t("project.settings.browserClock")}</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+                    {t("project.settings.browserClockHint")}
+                  </p>
+                </div>
+                <Switch
+                  on={project.browserClock === true}
+                  label={t("project.settings.browserClock")}
+                  onChange={(next) => void setProjectBrowserClock(project.path, next, instanceId)}
+                />
+              </div>
             </section>
           )}
         </div>

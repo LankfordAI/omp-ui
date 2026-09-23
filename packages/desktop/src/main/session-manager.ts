@@ -6,6 +6,7 @@ import {
   base64Bytes,
   bracketedImagePaste,
   browserPaneSetMessage,
+  browserClockText,
   capabilityToolMutationMessage,
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
@@ -131,10 +132,10 @@ export interface SessionManagerDependencies {
    * (docs/development.md). Absent or blank means an ungated launch.
    */
   spawnGate?: SpawnGate;
-  /** Browser pane seams (#519): the page factory, the bridge listener, and the target page scale; tests fake all three. */
+  /** Browser pane seams (#519): the page factory, the bridge listener, the target page scale, and the clock stamper; tests fake them. */
   browserPane?: Pick<
     BrowserPaneHostDeps,
-    "createPane" | "createListener" | "targetScaleFactor" | "clearPartition"
+    "createPane" | "createListener" | "targetScaleFactor" | "clearPartition" | "stampImage"
   >;
 }
 
@@ -181,7 +182,12 @@ export class SessionManager {
       send: deps.send,
       getOmpModelArg: () => gateSelector(this.gate),
     });
-    this.browserPanes = new BrowserPaneHost({ send: deps.send, ...deps.browserPane });
+    this.browserPanes = new BrowserPaneHost({
+      send: deps.send,
+      ...deps.browserPane,
+      clockEnabled: (tabId) => this.browserClockEnabled(tabId),
+      clockText: () => browserClockText(new Date(), deps.registry.getSetting("localeId")),
+    });
     this.watcherHub = new WatcherHub({
       registry: deps.registry,
       getSessionsRoot: () => deps.getSessionsRoot(),
@@ -262,6 +268,13 @@ export class SessionManager {
       this.autoresearch,
       this.dialogGates,
     ];
+  }
+
+  /** The browser clock follows the tab's project (see CONTEXT.md "Browser clock"). */
+  private browserClockEnabled(tabId: string): boolean {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (record === undefined) return false;
+    return this.deps.registry.projects.find((p) => p.path === record.projectCwd)?.browserClock === true;
   }
 
   get liveCount(): number {

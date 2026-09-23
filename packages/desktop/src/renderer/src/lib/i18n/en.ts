@@ -959,6 +959,8 @@ export const en = {
   "browser.pick.hint": "click an element to attach its screenshot and selector — Esc cancels",
   "browser.pick.miss": "nothing to pick at that point",
   "browser.pick.framed": "selector inside a child frame: {selector}",
+  "browser.clock.label": "System clock",
+  "browser.clock.stampFailed": "Couldn't stamp the clock on the screenshot — nothing was attached",
   "browser.toolbar.fullscreen": "fill the column",
   "browser.toolbar.split": "back to split view",
   "browser.toolbar.close": "close browser pane",
@@ -1635,6 +1637,10 @@ export const en = {
   "project.settings.toolsHint":
     "Tool enable settings for this project's scope; they apply to sessions started afterwards.",
   "project.settings.defaultModels": "Default models",
+  "project.settings.browser": "Browser",
+  "project.settings.browserClock": "Clock",
+  "project.settings.browserClockHint":
+    "Shows the date and time above this project's browser pane and stamps it onto every browser screenshot — the camera button, element picks, and screenshots the agent takes.",
 
   "sidebar.status.workingLabel": "working",
   "sidebar.status.workingTitle": "Agent is working",

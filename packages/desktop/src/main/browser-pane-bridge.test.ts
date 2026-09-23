@@ -540,6 +540,63 @@ describe("createBridgeSession ownership", () => {
   });
 });
 
+describe("createBridgeSession screenshot transform", () => {
+  function stampingSession(out: BridgeFrame[], transformScreenshot: (result: unknown, params: object) => Promise<unknown>) {
+    const debug = new StubDebugger(async (method) => {
+      if (method === "Target.attachToTarget") return { sessionId: "S1" };
+      if (method === "Page.captureScreenshot") return { data: "raw" };
+      if (method === "Runtime.evaluate") return { result: { type: "number", value: 2 } };
+      return {};
+    });
+    const session = createBridgeSession<string>({
+      debugger: debug,
+      onCommand: () => {},
+      onCommandSettled: () => {},
+      transformScreenshot,
+      send: (_c, frame) => out.push(frame),
+      close: () => {},
+    });
+    session.addClient("a");
+    return session;
+  }
+  const stamp = async (result: unknown, params: object): Promise<unknown> => ({ stamped: result, params });
+
+  it("replies to session-scoped and root screenshots with the transformed result, and leaves other commands alone", async () => {
+    const out: BridgeFrame[] = [];
+    const session = stampingSession(out, stamp);
+    await session.handleClientMessage(
+      "a",
+      JSON.stringify({ id: 1, method: "Target.attachToTarget", params: { targetId: "P", flatten: true } }),
+    );
+    expect(out.at(-1)).toEqual({ id: 1, result: { sessionId: "S1" } });
+
+    const params = { format: "jpeg", quality: 40 };
+    await session.handleClientMessage(
+      "a",
+      JSON.stringify({ id: 2, method: "Page.captureScreenshot", params, sessionId: "S1" }),
+    );
+    expect(out.at(-1)).toEqual({ id: 2, sessionId: "S1", result: { stamped: { data: "raw" }, params } });
+
+    await session.handleClientMessage("a", JSON.stringify({ id: 3, method: "Page.captureScreenshot", params: {} }));
+    expect(out.at(-1)).toEqual({ id: 3, result: { stamped: { data: "raw" }, params: {} } });
+
+    await session.handleClientMessage(
+      "a",
+      JSON.stringify({ id: 4, method: "Runtime.evaluate", params: { expression: "1+1" }, sessionId: "S1" }),
+    );
+    expect(out.at(-1)).toEqual({ id: 4, sessionId: "S1", result: { result: { type: "number", value: 2 } } });
+  });
+
+  it("turns a throwing transform into the screenshot's CDP error", async () => {
+    const out: BridgeFrame[] = [];
+    const session = stampingSession(out, async () => {
+      throw new Error("stamp exploded");
+    });
+    await session.handleClientMessage("a", JSON.stringify({ id: 5, method: "Page.captureScreenshot", params: {} }));
+    expect(out.at(-1)).toEqual({ id: 5, error: { code: -32000, message: "stamp exploded" } });
+  });
+});
+
 // ---------------------------------------------------------------- target scoping (#531)
 
 /** A debugger whose root lists the whole app: the omp-ui renderer beside two same-context panes. */
