@@ -38,6 +38,7 @@ describe("desktop view state", () => {
           { tabId: "b", hidden: true },
           { tabId: "c", hidden: false },
         ],
+        exited: {},
         activeTabId: "c",
         focusedTabByProject: { "/proj-1": "a" },
         sidebarWidth: 416,
@@ -64,6 +65,7 @@ describe("desktop view state", () => {
           { tabId: "x", hidden: false },
           { tabId: "z", hidden: false },
         ],
+        exited: {},
         activeTabId: "z",
         focusedTabByProject: {},
         sidebarWidth: 272,
@@ -80,6 +82,7 @@ describe("desktop view state", () => {
     const projected = projectDesktopView(
       {
         tabs: [{ tabId: "t", hidden: false }],
+        exited: {},
         activeTabId: "t",
         focusedTabByProject: { "/a": "t", "/b": "t" },
         sidebarWidth: 272,
@@ -234,7 +237,7 @@ describe("desktop view state", () => {
   });
 
   it("returns false without throwing when setItem throws", () => {
-    const snapshot = projectDesktopView({ tabs: [], activeTabId: null, focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 }, "1.0.0");
+    const snapshot = projectDesktopView({ tabs: [], exited: {}, activeTabId: null, focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 }, "1.0.0");
     const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("storage denied");
     });
@@ -249,7 +252,7 @@ describe("desktop view state", () => {
     const storage = desktopViewStorage();
     expect(storage).not.toBeNull();
     const snapshot = projectDesktopView(
-      { tabs: [{ tabId: "t", hidden: false }], activeTabId: "t", focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 },
+      { tabs: [{ tabId: "t", hidden: false }], exited: {}, activeTabId: "t", focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 },
       "1.0.0",
     );
     expect(saveDesktopView(storage!, snapshot)).toBe(true);

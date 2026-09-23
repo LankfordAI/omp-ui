@@ -241,6 +241,7 @@ export function installDesktopViewPersistence(api: StoreApi<UiStore>): void {
     if (state.restoringTabs) return;
     if (
       state.tabs === previous.tabs &&
+      state.exited === previous.exited &&
       state.activeTabId === previous.activeTabId &&
       state.focusedTabByProject === previous.focusedTabByProject &&
       state.appUpdate.currentVersion === previous.appUpdate.currentVersion &&

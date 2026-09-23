@@ -289,7 +289,13 @@ export class SessionManager {
   }
 
   killAll(): void {
-    for (const entry of this.live.values()) this.killLive(entry);
+    // A quit is not a session death: announcing these exits would mark every
+    // tab exited in a still-attached renderer and persist an empty desktop
+    // view, so the update relaunch would restore nothing (issue #99).
+    for (const entry of this.live.values()) {
+      entry.suppressExit = true;
+      this.killLive(entry);
+    }
     this.live.clear();
     this.shellHost.killAll();
     this.browserPanes.disposeAll();

@@ -403,4 +403,45 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     expect(st.focusedTabByProject).not.toHaveProperty("/p/b");
     expect(st.focusedTabByProject["/p/a"]).toBe("pty-1");
   });
+
+  it("an update relaunch leaves a tab whose process was gone at quit dormant", async () => {
+    const first = await freshStore();
+    await first.useStore.getState().init();
+    first.useStore.setState({
+      tabs: [
+        tabInfo({ tabId: "pty-1", mode: "pty", projectCwd: "/p/a" }),
+        tabInfo({ tabId: "rpc-1", mode: "rpc-ui", projectCwd: "/p/b" }),
+      ],
+      rpc: {},
+    });
+    expect(readSnapshot().tabIds).toEqual(["pty-1", "rpc-1"]);
+
+    // Real path: main's hibernation event runs the store's teardownProcess.
+    const hibernated = mockBackend.onSessionHibernated.mock.calls[0]![0] as (tabId: string) => void;
+    hibernated("pty-1");
+    expect(readSnapshot().tabIds).toEqual(["rpc-1"]);
+
+    appUpdate = { ...idleAppUpdate, currentVersion: "1.2.0" };
+    const second = await freshStore();
+    await second.useStore.getState().init();
+
+    expect(mockBackend.spawnSession.mock.calls.map((c) => c[0]!.resumeTabId)).toEqual(["rpc-1"]);
+    expect(second.useStore.getState().tabs.map((t) => t.tabId)).toEqual(["rpc-1"]);
+  });
+
+  it("resuming a dormant tab puts it back in the persisted view", async () => {
+    const store = await freshStore();
+    await store.useStore.getState().init();
+    store.useStore.setState({
+      tabs: [tabInfo({ tabId: "pty-1", mode: "pty", projectCwd: "/p/a" })],
+      rpc: {},
+    });
+    const hibernated = mockBackend.onSessionHibernated.mock.calls[0]![0] as (tabId: string) => void;
+    hibernated("pty-1");
+    expect(readSnapshot().tabIds).toEqual([]);
+
+    await store.useStore.getState().resumeDead("pty-1");
+
+    expect(readSnapshot().tabIds).toEqual(["pty-1"]);
+  });
 });
