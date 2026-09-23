@@ -159,6 +159,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   if (base) fs.rmSync(base, { recursive: true, force: true });
 });
 
@@ -336,7 +337,9 @@ describe("plan-review gate on the wire (issue #215)", () => {
    * A MainBackend whose real (default) SessionManager owns the registry
    * instance the backend summarizes — exactly production — while the module-
    * mocked RpcClient lets the test drive the child's frames directly. Spawns
-   * the /p/a session before returning.
+   * the /p/a session before returning. The backend resolves omp at
+   * construction, so a fixture binary is pinned first: the spawn must not
+   * depend on an omp installed on the host (CI runners have none).
    */
   const gateBackend = async (): Promise<{
     manager: SessionManager;
@@ -357,6 +360,9 @@ describe("plan-review gate on the wire (issue #215)", () => {
     const sessionsRoot = path.join(base, "agent", "sessions");
     fs.mkdirSync(path.join(sessionsRoot, LINEAGE_A), { recursive: true });
     fs.mkdirSync(path.join(sessionsRoot, LINEAGE_B), { recursive: true });
+    const ompBin = path.join(base, "omp");
+    fs.writeFileSync(ompBin, "#!/bin/sh\n", { mode: 0o755 });
+    vi.stubEnv("OMP_UI_OMP_PATH", ompBin);
 
     rpcInstances.length = 0;
     const backend = new MainBackend(win as never, registryFile);
