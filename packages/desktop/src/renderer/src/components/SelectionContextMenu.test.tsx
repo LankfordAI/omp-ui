@@ -2,13 +2,13 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TranscriptContextMenu } from "./TranscriptContextMenu";
+import { SelectionContextMenu } from "./SelectionContextMenu";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root | null = null;
 
-type MenuProps = Parameters<typeof TranscriptContextMenu>[0];
+type MenuProps = Parameters<typeof SelectionContextMenu>[0];
 
 // The component portals into document.body, so queries below target body, not
 // the host container.
@@ -18,7 +18,7 @@ function renderMenu(overrides: Partial<MenuProps> = {}) {
   root = createRoot(host);
   act(() =>
     root!.render(
-      <TranscriptContextMenu
+      <SelectionContextMenu
         x={40}
         y={50}
         markdown={null}
@@ -47,7 +47,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-describe("TranscriptContextMenu", () => {
+describe("SelectionContextMenu", () => {
   it("always renders Copy and shows Copy as Markdown only with markdown", () => {
     renderMenu();
     expect(menuItems().map((el) => el.textContent)).toEqual(["Copy"]);

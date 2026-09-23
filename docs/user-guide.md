@@ -88,7 +88,9 @@ The queue count covers all displayable queued work, not only user follow-ups. It
 
 ### Use the console
 
-`Mod+J` opens a full-width login shell below the native composer. It runs in the session's effective working tree, including a worktree checkout. The shell starts from the environment omp-ui was launched with, without the AppImage's own variables, so commands behave as they do in a native terminal. Closing the console hides it without discarding its terminal instance. Terminal tabs do not have this separate console because the tab itself is already a terminal.
+`Mod+J` opens a full-width login shell below the native composer and puts the cursor in it, so you can type right away; `Mod+J` closes it again even while the shell has focus. It runs in the session's effective working tree, including a worktree checkout. The shell starts from the environment omp-ui was launched with, without the AppImage's own variables, so commands behave as they do in a native terminal. Closing the console hides it without discarding its terminal instance. Terminal tabs do not have this separate console because the tab itself is already a terminal.
+
+To copy terminal output, select it with the mouse, right-click the selection, and choose **Copy**; terminal tabs offer the same menu. When a program captures the mouse, such as vim or OMP's TUI, hold `Shift` while dragging to select on Linux and Windows.
 
 ## Plan mode and review
 

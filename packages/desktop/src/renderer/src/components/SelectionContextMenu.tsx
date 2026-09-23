@@ -6,9 +6,10 @@ import { useDismissal } from "../lib/use-dismissal";
 import { Panel } from "./ui";
 
 /**
- * Right-click menu for a live text selection in the native transcript
- * (issue #72). Follows the sidebar's terminal-menu pattern — one
- * fixed-position [role="menu"] portaled to document.body, dismissed by
+ * Right-click menu for a live text selection: the native transcript's DOM
+ * selection (issue #72) and an xterm selection in the console drawer or a
+ * terminal tab (issue #638). Follows the sidebar's terminal-menu pattern —
+ * one fixed-position [role="menu"] portaled to document.body, dismissed by
  * outside pointerdown or Escape, first item focused on open — rather than
  * introducing a second menu convention.
  *
@@ -22,7 +23,7 @@ import { Panel } from "./ui";
 const MENU_ITEM_CLASS =
   "block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none";
 
-export function TranscriptContextMenu({
+export function SelectionContextMenu({
   x,
   y,
   markdown,
@@ -74,7 +75,7 @@ export function TranscriptContextMenu({
             onClose();
           }}
         >
-          {t("transcript.contextmenu.copy")}
+          {t("selection.contextmenu.copy")}
         </button>
         {markdown !== null && copyMarkdown !== null && (
           <button
@@ -86,7 +87,7 @@ export function TranscriptContextMenu({
               onClose();
             }}
           >
-            {t("transcript.contextmenu.copyMarkdown")}
+            {t("selection.contextmenu.copyMarkdown")}
           </button>
         )}
       </Panel>

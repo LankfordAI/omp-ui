@@ -25,6 +25,11 @@ const mocks = vi.hoisted(() => ({
   restartSession: vi.fn(async (): Promise<boolean> => true),
   tuiHandoff: {} as Record<string, Handoff>,
   shellExited: {} as Record<string, number>,
+  focus: vi.fn(),
+  copyFallback: vi.fn(() => true),
+  keyHandler: null as ((e: KeyboardEvent) => boolean) | null,
+  selection: "",
+  host: null as HTMLElement | null,
 }));
 
 vi.mock("@xterm/xterm", () => ({
@@ -37,13 +42,27 @@ vi.mock("@xterm/xterm", () => ({
       this.options = options;
     }
 
-    open() {}
+    open(host: HTMLElement) {
+      mocks.host = host;
+    }
     loadAddon() {}
     onData() {
       return { dispose() {} };
     }
     write() {}
     refresh() {}
+    focus() {
+      mocks.focus();
+    }
+    attachCustomKeyEventHandler(handler: (e: KeyboardEvent) => boolean) {
+      mocks.keyHandler = handler;
+    }
+    hasSelection() {
+      return mocks.selection !== "";
+    }
+    getSelection() {
+      return mocks.selection;
+    }
     dispose() {}
   },
 }));
@@ -59,6 +78,7 @@ vi.mock("@xterm/addon-webgl", () => ({
     dispose() {}
   },
 }));
+vi.mock("../lib/clipboard", () => ({ copyFallback: mocks.copyFallback }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 vi.mock("../backend", () => ({
   backend: {
@@ -119,6 +139,9 @@ beforeEach(() => {
   mocks.shellSpawn.mockResolvedValue(undefined);
   mocks.restartSession.mockResolvedValue(true);
   mocks.CWD = "/tmp/project";
+  mocks.selection = "";
+  mocks.keyHandler = null;
+  mocks.host = null;
 });
 
 afterEach(async () => {
@@ -198,5 +221,68 @@ describe("ShellDrawer restart-session banner", () => {
     await act(async () => buttonByText("restart session")!.click());
 
     expect(mocks.dismissTuiHandoff).toHaveBeenCalledWith(mocks.TAB);
+  });
+});
+
+describe("ShellDrawer focus", () => {
+  it("focuses the console when it opens, never while hidden or on a respawn", async () => {
+    await render(false);
+    expect(mocks.focus).not.toHaveBeenCalled();
+
+    await render(true);
+    expect(mocks.focus).toHaveBeenCalledTimes(1);
+
+    // A working-tree move respawns the shell while the drawer stays open; the
+    // user may be typing in the composer, so focus stays where it is.
+    mocks.CWD = "/tmp/project-root";
+    await render(true);
+    expect(mocks.focus).toHaveBeenCalledTimes(1);
+
+    await render(false);
+    await render(true);
+    expect(mocks.focus).toHaveBeenCalledTimes(2);
+  });
+
+  it("hands mod+j to the app's console toggle instead of the shell", async () => {
+    await render(true);
+    const key = (init: KeyboardEventInit) => mocks.keyHandler!(new KeyboardEvent("keydown", init));
+    expect(key({ key: "j", ctrlKey: true })).toBe(false);
+    expect(key({ key: "j", metaKey: true })).toBe(false);
+    expect(key({ key: "J", ctrlKey: true, shiftKey: true })).toBe(true);
+    expect(key({ key: "k", ctrlKey: true })).toBe(true);
+    expect(key({ key: "j" })).toBe(true);
+  });
+});
+
+describe("ShellDrawer copy menu", () => {
+  const rightClick = (): MouseEvent => {
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 30, clientY: 40 });
+    act(() => {
+      mocks.host!.dispatchEvent(event);
+    });
+    return event;
+  };
+
+  it("copies exactly the xterm selection and hands focus back to the terminal", async () => {
+    mocks.selection = "echo hi";
+    await render(true);
+    mocks.focus.mockClear();
+
+    const event = rightClick();
+    expect(event.defaultPrevented).toBe(true);
+    const items = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    expect(items.map((el) => el.textContent)).toEqual(["Copy"]);
+
+    act(() => items[0]!.click());
+    expect(mocks.copyFallback).toHaveBeenCalledWith("echo hi");
+    expect(mocks.focus).toHaveBeenCalledTimes(1);
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("leaves a right-click without a selection alone", async () => {
+    await render(true);
+    const event = rightClick();
+    expect(event.defaultPrevented).toBe(false);
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
   });
 });

@@ -100,6 +100,15 @@ export function isAppHotkey(e: KeyboardEvent): boolean {
   return false;
 }
 
+/**
+ * Whether a keyboard event is exactly `combo`, matched the way `useHotkeys`
+ * dispatches. A focused surface that swallows keys (xterm) uses it to hand one
+ * app chord back to the window listener.
+ */
+export function matchesHotkey(e: KeyboardEvent, combo: string): boolean {
+  return !e.isComposing && comboCandidates(e).includes(combo);
+}
+
 export function useHotkeys(map: HotkeyMap): void {
   // Latest-ref so call sites can pass a fresh object literal every render.
   const mapRef = useRef(map);
