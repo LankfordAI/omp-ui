@@ -32,6 +32,7 @@ function group(path: string, tabId: string, title: string): ProjectGroup {
         thinkingLevel: null,
         advisor: false,
         advisorModel: null, subagentModels: null,
+ proposedPlans: [],
         cachedTitle: title,
         cachedModified: "2026-08-03T00:00:00.000Z",
         title,

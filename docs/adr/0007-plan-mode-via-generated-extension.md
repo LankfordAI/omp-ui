@@ -79,6 +79,8 @@ including Build. Across process replacement, the renderer resets mode to
 unknown; neither Plan nor Build is renderable until the replacement extension
 publishes that status.
 
+_Amended by [ADR-0033](0033-proposed-plans-outlive-their-process.md): the command gains a third verb, `review <planFilePath> [title]`, which re-raises the review select for an interrupted plan outside the toggle chain._
+
 
 ## Consequences
 

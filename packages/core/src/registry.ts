@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeTextAtomic } from "./atomic-write";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
+import { parseProposedPlans } from "./plan";
 import type {
   AgentMode,
   GlassChrome,
@@ -497,6 +498,9 @@ function parseRegistryData(raw: unknown): RegistryData | null {
         : null,
       planImplementationSource: s.planImplementationSource ?? null,
       experiment: s.experiment ?? null,
+      // Never a validity gate: a malformed history row drops only itself, so
+      // the session record (and its transcript link) always survives.
+      proposedPlans: parseProposedPlans(s.proposedPlans),
     }));
   const settingsValue =
     "settings" in raw && raw.settings !== null && typeof raw.settings === "object"

@@ -455,6 +455,7 @@ function stateWithRecord(
             advisor: false,
             advisorModel: null,
             subagentModels: null,
+            proposedPlans: [],
             cachedTitle: null,
             cachedModified: null,
             title: "New session",

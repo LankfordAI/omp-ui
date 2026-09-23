@@ -96,20 +96,6 @@ export interface PlanRevisionNotes {
   images?: ImageAttachment[];
 }
 
-/** One proposed plan this session has surfaced, newest first. */
-export interface PlanRecord {
-  /** The plan artifact path (the slug) — uniquely identifies the plan. */
-  key: string;
-  title: string;
-  /**
-   * `pending` while the agent waits on a verdict; settles on the others.
-   * `invalidated` is NOT a user verdict (issue #312 follow-up): the gate's
-   * validated source changed under review, so nothing was executed and no
-   * refinement was requested.
-   */
-  status: "pending" | "executed" | "refined" | "invalidated";
-}
-
 /**
  * The local preparation readiness PlanReview observed for the CURRENT
  * proposal (§6): the store's execution guard reads it, so execute requires
@@ -250,7 +236,6 @@ export interface RpcTabState {
   planDeferred: boolean;
   /** PlanReview's local preparation verdict for the current gate (§6 guard). */
   planReadiness: PlanReadiness | null;
-  plans: PlanRecord[];
   advisorStats: AdvisorStatsView | null;
   mcpStatus: McpRuntimeStatus | null;
   /** The root session's loaded skills/tool roster; null until first observed. */
@@ -860,6 +845,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice {
   ): Promise<void>;
   deferPlanReview(tabId: string): void;
   showPlanReview(tabId: string): void;
+  /** Re-raises the review for an interrupted plan (ADR-0033). */
+  representPlan(tabId: string, planFilePath: string, title: string): Promise<void>;
+  /** Stops tracking an interrupted plan; main refuses a live gate. */
+  dismissProposedPlan(tabId: string, planFilePath: string): Promise<void>;
   /** PlanReview publishes its local preparation readiness here (§6 guard). */
   setPlanReadiness(
     tabId: string,

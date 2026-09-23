@@ -64,6 +64,7 @@ function remoteProjectGroup(): ProjectGroup {
         thinkingLevel: null,
         advisor: false,
         advisorModel: null, subagentModels: null,
+ proposedPlans: [],
         cachedTitle: "Remote session",
         cachedModified: "2026-09-09T00:00:00.000Z",
         title: "Remote session",

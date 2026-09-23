@@ -679,6 +679,8 @@ export class MainBackend {
           verdict: PlanReviewVerdict,
           sourceHash: string | null,
         ) => this.sessions.answerPlanReview(tabId, frameId, verdict, sourceHash),
+        [CH.dismissProposedPlan]: (tabId: string, planFilePath: string) =>
+          this.sessions.dismissProposedPlan(tabId, planFilePath),
         [CH.getProjectOpenAvailability]: () => this.projectOpener.availability(),
         [CH.openProject]: (projectPath: string, target: ProjectOpenTarget) =>
           this.projectOpener.open(projectPath, target),

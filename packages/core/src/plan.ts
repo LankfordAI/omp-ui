@@ -1,4 +1,4 @@
-import type { PlanFormat } from "./types";
+import type { PlanFormat, ProposedPlan } from "./types";
 
 // The plan-mode wire contract. Pure — the type-only import is erased — because
 // the renderer imports it directly via the @omp-ui/core/plan subpath, exactly
@@ -17,13 +17,22 @@ export const PLAN_REVIEW_SENTINEL = "omp-ui:plan-review:";
 
 /**
  * Slash command the renderer sends to drive the mode. Takes `on`/`off`,
- * optionally followed by the plan format (`html`/`md`) on `on`.
+ * optionally followed by the plan format (`html`/`md`) on `on`, or
+ * `review <planFilePath> [title]` to re-present an interrupted plan (ADR-0033).
  */
 export const PLAN_COMMAND = "omp-ui-plan";
 
 /** Builds the extension slash command that toggles plan mode for one session. */
 export function planMessage(enabled: boolean, format: PlanFormat): string {
   return enabled ? `/${PLAN_COMMAND} on ${format}` : `/${PLAN_COMMAND} off`;
+}
+
+/** Builds the command that re-presents one plan's review (ADR-0033). */
+export function planReviewMessage(planFilePath: string, title: string): string {
+  const oneLine = title.replace(/\s+/g, " ").trim();
+  return oneLine === ""
+    ? `/${PLAN_COMMAND} review ${planFilePath}`
+    : `/${PLAN_COMMAND} review ${planFilePath} ${oneLine}`;
 }
 
 /** The two verdicts the renderer may give the approval `select`.
@@ -92,6 +101,8 @@ export interface PlanReviewRequest {
    * the artifact against it. Absent on markdown requests (never gated).
    */
   sourceHash?: string;
+  /** Re-presented through the `review` verb (ADR-0033); answers no agent tool call. */
+  represented?: true;
 }
 
 /** Parses the JSON published on {@link PLAN_STATUS_KEY}; null when malformed. */
@@ -127,6 +138,7 @@ export function parsePlanReviewTitle(title: string | undefined): PlanReviewReque
     ...(typeof record.sourceHash === "string" && /^[0-9a-f]{64}$/.test(record.sourceHash)
       ? { sourceHash: record.sourceHash }
       : {}),
+    ...(record.represented === true ? { represented: true as const } : {}),
   };
 }
 
@@ -142,6 +154,53 @@ export function isPlanArtifactPath(path: string | undefined | null): boolean {
  */
 export function isHtmlPlanPath(path: string | undefined | null): boolean {
   return typeof path === "string" && /-plan\.html$/i.test(path);
+}
+
+const PROPOSED_PLAN_STATUSES: readonly ProposedPlan["status"][] = [
+  "pending", "executed", "refined", "invalidated", "dismissed",
+];
+
+/**
+ * Records a proposal (ADR-0033): a new plan leads the list; a known one turns
+ * pending in place under the new title. Returns `plans` itself when nothing
+ * changes, so callers can skip the write.
+ */
+export function upsertProposedPlan(plans: ProposedPlan[], key: string, title: string): ProposedPlan[] {
+  const idx = plans.findIndex((p) => p.key === key);
+  if (idx === -1) return [{ key, title, status: "pending" }, ...plans];
+  const current = plans[idx]!;
+  if (current.status === "pending" && current.title === title) return plans;
+  return plans.map((p, i) => (i === idx ? { key, title, status: "pending" } : p));
+}
+
+/** Settles the pending plan `key`; returns `plans` itself when none is pending. */
+export function settleProposedPlan(
+  plans: ProposedPlan[],
+  key: string,
+  status: Exclude<ProposedPlan["status"], "pending">,
+): ProposedPlan[] {
+  const idx = plans.findIndex((p) => p.key === key && p.status === "pending");
+  if (idx === -1) return plans;
+  return plans.map((p, i) => (i === idx ? { ...p, status } : p));
+}
+
+/**
+ * The registry's reader: keeps each well-formed entry (the first per key) and
+ * drops the rest. A history row is disposable; the session record is not.
+ */
+export function parseProposedPlans(value: unknown): ProposedPlan[] {
+  if (!Array.isArray(value)) return [];
+  const out: ProposedPlan[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const { key, title, status } = entry as Record<string, unknown>;
+    if (typeof key !== "string" || !isPlanArtifactPath(key) || seen.has(key)) continue;
+    if (typeof title !== "string" || !inSet(PROPOSED_PLAN_STATUSES, status)) continue;
+    seen.add(key);
+    out.push({ key, title, status });
+  }
+  return out;
 }
 
 function parseObject(text: string | undefined): Record<string, unknown> | null {

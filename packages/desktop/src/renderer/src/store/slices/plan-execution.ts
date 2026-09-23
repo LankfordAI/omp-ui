@@ -4,11 +4,13 @@
 import type {
   BackendState,
   PlanImplementationSource,
+  PlanSettle,
 } from "@omp-ui/core/types";
 import {
   isHtmlPlanPath,
   PLAN_EXECUTE,
   PLAN_REFINE,
+  planReviewMessage,
 } from "@omp-ui/core/plan";
 import { backend } from "../../backend";
 import { strField } from "../../lib/fields";
@@ -28,7 +30,7 @@ import {
 import { noticeItem } from "../../lib/transcript";
 import { findRecord } from "./view";
 import type { GetState, SetState, StoreMachinery, Watchers } from "./shared";
-import type { PlanRecord, PlanRevisionNotes, RpcTabState } from "../types";
+import type { PlanRevisionNotes, RpcTabState } from "../types";
 export interface PlanExecutionSlice {
   executePlan(
     tabId: string,
@@ -38,6 +40,10 @@ export interface PlanExecutionSlice {
   refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
   deferPlanReview(tabId: string): void;
   showPlanReview(tabId: string): void;
+  /** Re-raises the review for an interrupted plan (ADR-0033). */
+  representPlan(tabId: string, planFilePath: string, title: string): Promise<void>;
+  /** Stops tracking an interrupted plan; main refuses a live gate. */
+  dismissProposedPlan(tabId: string, planFilePath: string): Promise<void>;
   loadPlanText(
     tabId: string,
     absPath: string | null,
@@ -74,35 +80,7 @@ const COMPACTION_HELD_NOTICE =
   "compaction did not finish within 15m — the implementation prompt was held. " +
   "Refresh state, then compact and send it again from this session.";
 
-/**
- * Records a freshly proposed plan in the session's history. Keyed by the plan
- * artifact path: a refined-and-reproposed plan updates its one pending entry
- * instead of stacking lookalike rows.
- */
-export function upsertPlan(
-  records: PlanRecord[],
-  title: string,
-  key: string,
-): PlanRecord[] {
-  const idx = records.findIndex((r) => r.key === key);
-  if (idx === -1) return [{ key, title, status: "pending" }, ...records];
-  const current = records[idx]!;
-  if (current.status === "pending" && current.title === title) return records;
-  return [
-    ...records.slice(0, idx),
-    { ...current, title, status: "pending" },
-    ...records.slice(idx + 1),
-  ];
-}
 
-/** Settles a proposed plan's record (keeps its position in the history). */
-function settlePlan(
-  records: PlanRecord[],
-  key: string,
-  status: PlanRecord["status"],
-): PlanRecord[] {
-  return records.map((r) => (r.key === key ? { ...r, status } : r));
-}
 
 export function createPlanExecutionSlice(
   set: SetState,
@@ -114,10 +92,9 @@ export function createPlanExecutionSlice(
   const settlePlanReview = (
     tabId: string,
     key: string,
-    verdict: Exclude<PlanRecord["status"], "pending">,
+    verdict: PlanSettle["verdict"],
   ): void => {
     m.patchRpc(tabId, {
-      plans: settlePlan(get().rpc[tabId]?.plans ?? [], key, verdict),
       planReview: null,
       planText: null,
       planHtml: null,
@@ -161,12 +138,12 @@ export function createPlanExecutionSlice(
                 // The hash survives late-join hydration (§6): a client that
                 // never saw the frame answers with the same identity.
                 ...(pending.sourceHash !== undefined ? { sourceHash: pending.sourceHash } : {}),
+                ...(pending.represented === true ? { represented: true as const } : {}),
               },
               // Minimal reconstructed frame: answerPlanSelect reads only `.id`.
               frame: { id: pending.frameId },
             },
             planDeferred: false,
-            plans: upsertPlan(tab.plans, pending.title, pending.planFilePath),
           });
           void get().loadPlanText(tabId, pending.planAbsPath);
         }
@@ -477,6 +454,9 @@ export function createPlanExecutionSlice(
     const planText = tab?.planText ?? null;
     const review = tab?.planReview?.request;
     const planKey = review?.planFilePath;
+    // A re-presented review (ADR-0033) answers no turn: no drafting turn ends,
+    // so no advisor review is coming and nothing may wait for one.
+    const represented = review?.represented === true;
     const planImplementationSource = review
       ? Object.freeze({
           sourceTabId: tabId,
@@ -510,7 +490,7 @@ export function createPlanExecutionSlice(
       // in the same turn and is left immediate. The watcher owns the gate; the
       // store just checks its own advisor config for whether a review is coming.
       const configured = get().rpc[tabId]?.advisorStats?.configured === true;
-      if ((options?.addressAdvisor ?? true) && configured) {
+      if ((options?.addressAdvisor ?? true) && configured && !represented) {
         concern.begin(tabId, {
           context,
           planText,
@@ -551,9 +531,14 @@ export function createPlanExecutionSlice(
       if (text === "" && !images?.length) return;
       // The planner's current turn continues after the refine verdict; the
       // notes steer it live, and omp appends images after the text block.
-      const message = text
-        ? `Revise the plan to incorporate these requested changes:\n\n${text}`
-        : "Revise the plan per the attached change notes.";
+      const represented = review?.represented === true;
+      // A live gate's ToolResult already named the file for the planner. A
+      // re-presented one answered no tool call, so the notes must name it.
+      const lead = represented ? `Revise the plan at ${planKey}` : "Revise the plan";
+      const body = text
+        ? `${lead} to incorporate these requested changes:\n\n${text}`
+        : `${lead} per the attached change notes.`;
+      const message = represented ? `${body}\n\nThen propose it again.` : body;
       void get().sendPrompt(tabId, message, "steer", images);
     };
     if (review !== undefined && isHtmlPlanPath(review.planFilePath)) {
@@ -566,6 +551,29 @@ export function createPlanExecutionSlice(
     }
     if (!answerPlanSelect(tabId, PLAN_REFINE)) return;
     sendNotes();
+  };
+
+  const representPlan = async (
+    tabId: string,
+    planFilePath: string,
+    title: string,
+  ): Promise<void> => {
+    const tab = get().rpc[tabId];
+    // omp refuses an extension command mid-stream, and one review at a time is
+    // the extension's own rule; the pane disables the action in both cases.
+    if (!tab || tab.status !== "ready" || tab.planReview !== null || !m.acceptsCommands(tabId)) return;
+    if (tab.plan?.enabled !== true) await get().setPlanMode(tabId, true);
+    await m.runCommand(tabId, { type: "prompt", message: planReviewMessage(planFilePath, title) });
+  };
+
+  const dismissProposedPlan = async (tabId: string, planFilePath: string): Promise<void> => {
+    try {
+      await backend.dismissProposedPlan(tabId, planFilePath);
+    } catch (err) {
+      // An older remote host has no plan:dismiss (ADR-0028: skew surfaces per call).
+      const reason = err instanceof Error ? err.message : String(err);
+      m.appendItem(tabId, noticeItem(`could not dismiss the plan: ${reason}`, "warn"));
+    }
   };
 
   const deferPlanReview = (tabId: string): void => {
@@ -629,6 +637,8 @@ export function createPlanExecutionSlice(
     deferPlanReview,
     showPlanReview,
     loadPlanText,
+    representPlan,
+    dismissProposedPlan,
     setPlanReadiness: (tabId, readiness) => m.patchRpc(tabId, { planReadiness: readiness }),
   };
 }

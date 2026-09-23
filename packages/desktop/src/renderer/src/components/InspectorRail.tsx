@@ -12,7 +12,9 @@ import { parseBranchDiff, type DiffFile } from "../lib/omp-diff";
 import { projectKey } from "../lib/project-key";
 import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
-import { findOwner, findRecord, sessionCwd, useStore, type PlanRecord, type RpcTabState } from "../store";
+import type { ProposedPlan, SessionSummary } from "@omp-ui/core/types";
+import { isInterruptedPlan, pendingPlanCount, proposedPlansFor } from "../lib/proposed-plans";
+import { findOwner, findRecord, sessionCwd, useStore, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
 import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { AGENT_TONE } from "../lib/agent-tone";
@@ -413,36 +415,52 @@ function SessionPane({ tabId }: { tabId: string }) {
 
 /* -------------------------------------------------- plans + branch diffs */
 
-const PLAN_TONE: Record<PlanRecord["status"], Tone> = {
+const PLAN_TONE: Record<ProposedPlan["status"], Tone> = {
   pending: "copper",
   executed: "signal",
   refined: "neutral",
   invalidated: "rose",
+  dismissed: "neutral",
 };
 const PLAN_LABEL_KEY: Record<
-  PlanRecord["status"],
-  "rail.plans.waiting" | "rail.plans.executed" | "rail.plans.sentBack" | "rail.plans.invalidated"
+  ProposedPlan["status"],
+  | "rail.plans.waiting"
+  | "rail.plans.executed"
+  | "rail.plans.sentBack"
+  | "rail.plans.invalidated"
+  | "rail.plans.dismissed"
 > = {
   pending: "rail.plans.waiting",
   executed: "rail.plans.executed",
   refined: "rail.plans.sentBack",
   invalidated: "rail.plans.invalidated",
+  dismissed: "rail.plans.dismissed",
 };
 
 /**
- * This session's proposed plans. The pending plan — the one omp's agent is
- * blocked on — is actionable: review re-opens the modal, request changes sends
- * the planner back to revise, and "not now" leaves it pending until later.
- * Settled plans stay as a dim record of the session's plan history.
+ * This session's proposed plans, from the main-owned record (ADR-0033), so the
+ * list survives a restart. The pending plan with a live gate — the one omp's
+ * agent is blocked on — is actionable: review re-opens the modal, request
+ * changes sends the planner back to revise, and "not now" leaves it pending
+ * until later. A pending plan whose gate died with its process is interrupted:
+ * re-present raises a real review without an agent turn, dismiss stops
+ * tracking it. Settled plans stay as a dim record of the session's plan history.
  */
 function PlansPane({ tabId }: { tabId: string }) {
   const t = useT();
-  const records = useStore((s) => s.rpc[tabId]?.plans) ?? [];
+  const record = useStore((s) => findRecord(s.state, tabId));
   const reviewPath = useStore((s) => s.rpc[tabId]?.planReview?.request.planFilePath);
   const deferred = useStore((s) => s.rpc[tabId]?.planDeferred === true);
+  const tabReady = useStore((s) => s.rpc[tabId]?.status === "ready");
+  const planUnavailable = useStore((s) => s.rpc[tabId]?.plan?.unavailable !== undefined);
   const showPlanReview = useStore((s) => s.showPlanReview);
   const deferPlanReview = useStore((s) => s.deferPlanReview);
   const refinePlan = useStore((s) => s.refinePlan);
+  const representPlan = useStore((s) => s.representPlan);
+  const dismissProposedPlan = useStore((s) => s.dismissProposedPlan);
+  const [representing, setRepresenting] = useState(false);
+
+  const records = proposedPlansFor(record);
 
   if (records.length === 0) {
     return (
@@ -453,31 +471,48 @@ function PlansPane({ tabId }: { tabId: string }) {
     );
   }
 
+  // Idle, no review or preflight hold or dialog open, bridge usable, no click in flight.
+  const canRepresent =
+    tabReady &&
+    reviewPath === undefined &&
+    record?.awaitingHumanAnswer !== true &&
+    !planUnavailable &&
+    !representing;
+  const represent = (plan: ProposedPlan): void => {
+    setRepresenting(true);
+    void representPlan(tabId, plan.key, plan.title).finally(() => setRepresenting(false));
+  };
+
   return (
     <div className="space-y-2 px-3 py-2.5">
-      {records.map((record) => {
-        const actionable = record.status === "pending" && record.key === reviewPath;
+      {records.map((plan) => {
+        const actionable = plan.status === "pending" && plan.key === reviewPath;
+        const interrupted = isInterruptedPlan(plan, record, reviewPath);
+        const tone = interrupted ? "copper" : PLAN_TONE[plan.status];
+        const label = interrupted ? t("rail.plans.interrupted") : t(PLAN_LABEL_KEY[plan.status]);
         return (
-          <div key={record.key} className="overflow-hidden rounded-md border border-line bg-raised">
+          <div key={plan.key} className="overflow-hidden rounded-md border border-line bg-raised">
             <button
               type="button"
               disabled={!actionable}
-              title={actionable ? t("rail.plans.openReview") : record.title}
+              title={
+                actionable
+                  ? t("rail.plans.openReview")
+                  : interrupted
+                    ? t("rail.plans.interruptedTitle")
+                    : plan.title
+              }
               onClick={() => showPlanReview(tabId)}
               className="flex w-full items-start gap-1.5 px-2 py-1.5 text-left disabled:hover:bg-transparent enabled:hover:bg-hover"
             >
-              <Dot
-                tone={PLAN_TONE[record.status]}
-                title={t(PLAN_LABEL_KEY[record.status])}
-                className="mt-1"
-              />
+              <Dot tone={tone} title={label} className="mt-1" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12px] font-medium text-ink">
-                  {record.title}
+                  {plan.title}
                 </span>
                 <span className="mt-0.5 flex items-center gap-1.5">
-                  <Chip mono tone={PLAN_TONE[record.status]}>
-                    {t(PLAN_LABEL_KEY[record.status])}
+                  <Chip mono tone={tone}>
+                    {label}
                   </Chip>
                   {actionable && deferred && (
                     <span className="text-[10px] text-ink-faint">{t("rail.plans.paused")}</span>
@@ -505,6 +540,27 @@ function PlansPane({ tabId }: { tabId: string }) {
                   onClick={() => deferPlanReview(tabId)}
                 >
                   {t("rail.plans.notNow")}
+                </Button>
+              </div>
+            )}
+            {interrupted && (
+              <div className="flex items-center gap-1 border-t border-line-soft bg-sunken px-2 py-1.5">
+                <Button
+                  size="xs"
+                  disabled={!canRepresent}
+                  title={canRepresent ? t("rail.plans.representTitle") : t("rail.plans.representBusy")}
+                  onClick={() => represent(plan)}
+                >
+                  {t("rail.plans.represent")}
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  className="ml-auto"
+                  title={t("rail.plans.dismissTitle")}
+                  onClick={() => void dismissProposedPlan(tabId, plan.key)}
+                >
+                  {t("rail.plans.dismiss")}
                 </Button>
               </div>
             )}
@@ -641,7 +697,10 @@ const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "r
   { id: "diffs", labelKey: "rail.tabs.diffs" },
 ];
 
-export function inspectorBadges(runtime: RpcTabState | undefined): Record<RailTab, number> {
+export function inspectorBadges(
+  runtime: RpcTabState | undefined,
+  record: SessionSummary | undefined,
+): Record<RailTab, number> {
   let openTodos = 0;
   for (const phase of runtime?.todos ?? []) {
     for (const task of phase.tasks ?? []) if (task.status !== "completed") openTodos += 1;
@@ -650,7 +709,7 @@ export function inspectorBadges(runtime: RpcTabState | undefined): Record<RailTa
     todos: openTodos,
     agents: runtime?.subagents.length ?? 0,
     session: 0,
-    plans: runtime?.planReview ? 1 : 0,
+    plans: pendingPlanCount(record, runtime?.planReview?.request.planFilePath),
     diffs: 0,
   };
 }
@@ -695,7 +754,8 @@ export function InspectorRail({ tabId }: { tabId: string }) {
     browserPaneOpen,
   });
   const displayedInspectorWidth = previewWidth ?? resolvedWidths.inspectorWidth;
-  const badges = inspectorBadges(runtime);
+  const record = useStore((s) => findRecord(s.state, tabId));
+  const badges = inspectorBadges(runtime, record);
   const close = (): void => {
     setOpen(false);
   };

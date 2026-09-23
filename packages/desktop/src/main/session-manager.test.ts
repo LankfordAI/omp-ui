@@ -2467,7 +2467,7 @@ describe("html plan preflight (issue #312 follow-up)", () => {
   });
 
   it("invalidates the gate when the artifact changed under review", async () => {
-    const { manager, sessionsRoot } = setup({ mode: "rpc-ui", planVerify: passedVerify() });
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui", planVerify: passedVerify() });
     await resumeRpc(manager);
     const abs = planFile(sessionsRoot);
     rpcInstances[0]!.frame(planFrame("p1", abs));
@@ -2494,6 +2494,11 @@ describe("html plan preflight (issue #312 follow-up)", () => {
       pending: null,
       settle: { frameId: "p1", verdict: "invalidated" },
     });
+    // ADR-0033: the persisted row settles too — invalidated is not a verdict
+    // the user gave, so the pane must not keep offering it as pending.
+    expect(
+      registry.sessions.find((s) => s.tabId === TAB)!.proposedPlans,
+    ).toEqual([{ key: "local://auth-plan.html", title: "add auth", status: "invalidated" }]);
   });
 
   it("lets refine answer without re-reading disk bytes", async () => {

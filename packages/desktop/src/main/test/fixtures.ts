@@ -76,6 +76,7 @@ export function ownedSessionRecord(
     advisor: false,
     advisorModel: null,
     subagentModels: null,
+    proposedPlans: [],
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",

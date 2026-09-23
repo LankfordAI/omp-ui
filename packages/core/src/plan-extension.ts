@@ -88,6 +88,14 @@ const TRANSITION_KEY = ${JSON.stringify(GOAL_MODE_TRANSITION_KEY)};
 
 /** The single tool name plan mode borrows so the plan file can be written. */
 const WRITE_TOOL = "write";
+/**
+ * The re-present gate (ADR-0033): a command-opened review is not an agent
+ * tool call, so exactly one may stand at a time and Plan mode must be armed.
+ */
+const REVIEW_ALREADY_OPEN =
+  "A plan review is already open; settle it before proposing another plan.";
+const REVIEW_NEEDS_PLAN_MODE =
+  "Re-presenting a plan needs Plan mode; turn Plan mode on first.";
 
 /**
  * Sent hidden when plan mode is entered, in place of omp's own per-turn
@@ -377,6 +385,9 @@ export default function (pi: PlanExtensionApi) {
   // cannot carry hidden instructions is never told it left a mode it was never
   // told it entered.
   let instructionDelivered = false;
+  // True while a command-opened review (the \`review\` verb, ADR-0033) blocks on
+  // its select. An agent proposal must not stack a second gate behind it.
+  let reviewOpen = false;
   // The unwrapped prototype method. Every read the extension itself does goes
   // through this, so the extension never sees its own fake.
   let realGetPlanModeState: ((this: PlanSession) => PlanModeState | undefined) | null = null;
@@ -877,45 +888,63 @@ export default function (pi: PlanExtensionApi) {
    * session whose agent wrote markdown anyway still falls through to omp's
    * resolver rather than stranding the gate.
    */
-  async function onProposal(active: PlanSession, dialog: PlanUi, title: string): Promise<ToolResult> {
-    let planFilePath: string | null = format === "html" ? resolveHtmlPlan(title) : null;
+  async function onProposal(
+    active: PlanSession,
+    dialog: PlanUi,
+    title: string,
+    named?: { planFilePath: string; title: string },
+  ): Promise<ToolResult> {
+    // A command-opened review (ADR-0033) answers no tool call; \`named\` carries
+    // the exact file it must show. While one stands, no proposal may stack.
+    const represent = named !== undefined;
+    if (!represent && reviewOpen) {
+      return { isError: true, content: [{ type: "text", text: REVIEW_ALREADY_OPEN }] };
+    }
+    let planFilePath: string | null = null;
     let details: { planFilePath?: string; title?: string } = {};
 
-    if (planFilePath !== null) {
-      details = { planFilePath, title };
+    if (named !== undefined) {
+      planFilePath = named.planFilePath;
+      details = { planFilePath: named.planFilePath, title: named.title };
     } else {
-      try {
-        const result = await active.preparePlanForReview(title);
-        details = result.details ?? {};
-        planFilePath = details.planFilePath ?? active.getPlanReferencePath() ?? null;
-        if (planFilePath === "") planFilePath = null;
-      } catch (err) {
-        // md is omp's own contract: its ToolError is the right answer. Under
-        // html the agent was told to write html, so answer in that spelling.
-        if (format !== "html") throw err;
-        planFilePath = null;
-      }
-      if (planFilePath === null) {
-        const slug = slugFromTitle(title);
-        publish();
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text:
-                "No plan file found for \\"" + title + "\\". Write the finalized plan to local://" +
-                (slug ?? "<slug>") +
-                "-plan.html with the write tool, then write the same slug to xd://propose again.",
-            },
-          ],
-        };
+      planFilePath = format === "html" ? resolveHtmlPlan(title) : null;
+      if (planFilePath !== null) {
+        details = { planFilePath, title };
+      } else {
+        try {
+          const result = await active.preparePlanForReview(title);
+          details = result.details ?? {};
+          planFilePath = details.planFilePath ?? active.getPlanReferencePath() ?? null;
+          if (planFilePath === "") planFilePath = null;
+        } catch (err) {
+          // md is omp's own contract: its ToolError is the right answer. Under
+          // html the agent was told to write html, so answer in that spelling.
+          if (format !== "html") throw err;
+          planFilePath = null;
+        }
+        if (planFilePath === null) {
+          const slug = slugFromTitle(title);
+          publish();
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text:
+                  "No plan file found for \\"" + title + "\\". Write the finalized plan to local://" +
+                  (slug ?? "<slug>") +
+                  "-plan.html with the write tool, then write the same slug to xd://propose again.",
+              },
+            ],
+          };
+        }
       }
     }
 
-    // An exhausted or stopped artifact answers locally without reopening
-    // validation (issue #312 follow-up) — service work stays bounded.
-    if (format === "html") {
+    // The artifact's own extension is the format (ADR-0033): a re-presented
+    // html plan is html even when the session's last toggle asked for md.
+    const html = /-plan\\.html$/i.test(planFilePath);
+    if (html && !represent) {
       if (preflightStopped.has(planFilePath)) {
         publish();
         return {
@@ -947,21 +976,25 @@ export default function (pi: PlanExtensionApi) {
       title: details.title ?? title,
       planFilePath,
       planAbsPath: absolutePlanPath(planFilePath),
+      ...(represent ? { represented: true } : {}),
     };
 
     let answer: string | undefined;
+    if (represent) reviewOpen = true;
     try {
       answer = await dialog.select(REVIEW_SENTINEL + JSON.stringify(request), [EXECUTE, REFINE]);
     } catch {
       // A dropped dialog is a refusal, never a silent approval.
       answer = undefined;
+    } finally {
+      if (represent) reviewOpen = false;
     }
 
     // A preflight-result reply means omp-ui's validator rejected the artifact
     // before any review was shown. This is not the user's refine: keep plan
     // mode armed, pin nothing, and hand back the located diagnostics.
     if (
-      format === "html" &&
+      html &&
       typeof answer === "string" &&
       answer.indexOf(PREFLIGHT_RESULT_PREFIX) === 0
     ) {
@@ -970,37 +1003,38 @@ export default function (pi: PlanExtensionApi) {
       if (failure === null) {
         // A malformed machine-prefixed reply is an application failure.
         preflightStopped.add(planFilePath);
+        const text = PREFLIGHT_APPLICATION + " (malformed preflight reply envelope)";
+        if (represent) dialog.notify(text, "error");
         return {
           isError: true,
-          content: [
-            {
-              type: "text",
-              text: PREFLIGHT_APPLICATION + " (malformed preflight reply envelope)",
-            },
-          ],
+          content: [{ type: "text", text }],
           details,
         };
       }
       preflightNoteAttempt(planFilePath, failure);
+      const text =
+        "Plan preflight failed for " + planFilePath + ":\\n" +
+        formatPreflightDiagnostics(failure) +
+        "\\n\\n" +
+        preflightGuidance(failure);
+      // A re-presented review answers no tool call: the diagnostics travel
+      // as a notice instead, and plan mode stays armed for the next round.
+      if (represent) {
+        dialog.notify(
+          "Plan preflight failed for " + planFilePath + ":\\n" + formatPreflightDiagnostics(failure),
+          "error",
+        );
+      }
       return {
         isError: true,
-        content: [
-          {
-            type: "text",
-            text:
-              "Plan preflight failed for " + planFilePath + ":\\n" +
-              formatPreflightDiagnostics(failure) +
-              "\\n\\n" +
-              preflightGuidance(failure),
-          },
-        ],
+        content: [{ type: "text", text }],
         details,
       };
     }
     // A real verdict (execute/refine) means the gate passed preflight and
     // reached a human: this artifact's repair budget resets. A dropped
     // dialog is not a success and keeps the budget spent.
-    if (format === "html" && (answer === EXECUTE || answer === REFINE)) {
+    if (html && (answer === EXECUTE || answer === REFINE)) {
       preflightFailures.delete(planFilePath);
       preflightStopped.delete(planFilePath);
     }
@@ -1028,8 +1062,11 @@ export default function (pi: PlanExtensionApi) {
     // mode so write access returns. Crucially the agent does NOT implement
     // here — the renderer issues a separate implementation prompt (same
     // session, compacted, or a fresh session), so stop and wait for it.
+    // The agent path answers with a ToolResult that already says plan mode
+    // exited; a re-presented review answers nothing, so its exit must carry
+    // the retraction itself (ADR-0033).
     active.setPlanReferencePath(planFilePath);
-    await exitPlanMode(active, { announce: false });
+    await exitPlanMode(active, represent ? undefined : { announce: false });
     approved = true;
     publish();
     return {
@@ -1196,8 +1233,34 @@ export default function (pi: PlanExtensionApi) {
           ctx.ui.notify("Plan mode unavailable: " + (reason ?? "no active omp session"), "error");
           return;
         }
-        // \`on|off\` then an optional format; absent verb toggles.
-        const tokens = args.trim().toLowerCase().split(/\\s+/).filter(t => t !== "");
+        // \`on|off [html|md]\` toggles; \`review <path> [title]\` re-presents an
+        // interrupted plan (ADR-0033). Only the verb is case-folded — the
+        // plan path is matched verbatim.
+        const rawTokens = args.trim().split(/\\s+/).filter(t => t !== "");
+        if (rawTokens[0]?.toLowerCase() === "review") {
+          const planFilePath = rawTokens[1] ?? "";
+          const reviewTitle = rawTokens.slice(2).join(" ");
+          const armed = realGetPlanModeState?.call(active)?.enabled === true || readOnly;
+          if (!armed) {
+            publish();
+            ctx.ui.notify(REVIEW_NEEDS_PLAN_MODE, "warning");
+            return;
+          }
+          const absPath = absolutePlanPath(planFilePath);
+          if (planFilePath === "" || absPath === null || !nodeFs.existsSync(absPath)) {
+            publish();
+            ctx.ui.notify("Plan file not found: " + planFilePath, "error");
+            return;
+          }
+          if (reviewOpen) {
+            ctx.ui.notify(REVIEW_ALREADY_OPEN, "warning");
+            return;
+          }
+          await onProposal(active, ctx.ui, reviewTitle, { planFilePath, title: reviewTitle });
+          publish();
+          return;
+        }
+        const tokens = rawTokens.map(t => t.toLowerCase());
         const on = realGetPlanModeState?.call(active)?.enabled === true || readOnly;
         const next = tokens[0] === "on" ? true : tokens[0] === "off" ? false : !on;
         if (tokens[1] === "html" || tokens[1] === "md") format = tokens[1];

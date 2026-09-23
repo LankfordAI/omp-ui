@@ -69,7 +69,7 @@ let root: Root | null = null;
 const state = backendState({
   projects: [{ project: { path: "/p", name: "P", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null }, sessions: [{
     tabId: TAB, sessionId: "s", lineageDir: "lineage", projectCwd: "/p", launchedAt: "t", mode: "rpc-ui",
-    worktree: null, planImplementationSource: null, experiment: null, agentMode: "build", compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null, cachedTitle: "Compose", cachedModified: "t", title: "Compose", status: "complete", live: "live", pendingPlan: null, planSettle: null, streamStalled: false,
+    worktree: null, planImplementationSource: null, experiment: null, agentMode: "build", compactionMethod: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null, proposedPlans: [], cachedTitle: "Compose", cachedModified: "t", title: "Compose", status: "complete", live: "live", pendingPlan: null, planSettle: null, streamStalled: false,
   }] }],
 });
 

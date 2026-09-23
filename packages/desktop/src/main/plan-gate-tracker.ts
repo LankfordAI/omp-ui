@@ -4,9 +4,12 @@ import {
   parsePlanStatus,
   PLAN_EXECUTE,
   PLAN_STATUS_KEY,
+  settleProposedPlan,
+  upsertProposedPlan,
   type AgentMode,
   type PendingPlan,
   type PlanSettle,
+  type ProposedPlan,
   type Registry,
   type RpcFrame,
 } from "@omp-ui/core";
@@ -65,6 +68,28 @@ export class PlanGateTracker implements FrameObserver {
     this.clear(tabId);
   }
 
+  /** Stops tracking an interrupted plan (ADR-0033). A live gate is answered, never dismissed. */
+  dismiss(tabId: string, planFilePath: string): void {
+    if (this.gates.get(tabId)?.pending?.planFilePath === planFilePath) return;
+    if (this.recordPlans(tabId, (plans) => settleProposedPlan(plans, planFilePath, "dismissed"))) {
+      void this.deps.broadcast();
+    }
+  }
+
+  /**
+   * Rewrites the session's persisted proposed plans (ADR-0033). `next` returns
+   * its input when nothing changes; that skips the registry write. Runs before
+   * the caller's broadcast so the summary reads the new record.
+   */
+  private recordPlans(tabId: string, next: (plans: ProposedPlan[]) => ProposedPlan[]): boolean {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (record === undefined) return false;
+    const updated = next(record.proposedPlans);
+    if (updated === record.proposedPlans) return false;
+    this.deps.registry.updateSession(tabId, { proposedPlans: updated });
+    return true;
+  }
+
   /**
    * The validated bytes changed under review (§6): the gate closes WITHOUT
    * a user verdict — `invalidated` is neither execute nor refine, so no
@@ -73,10 +98,12 @@ export class PlanGateTracker implements FrameObserver {
   invalidateGate(tabId: string): void {
     const gate = this.gates.get(tabId);
     if (gate === undefined || gate.pending === null) return;
+    const key = gate.pending.planFilePath;
     this.gates.set(tabId, {
       pending: null,
       settle: { frameId: gate.pending.frameId, verdict: "invalidated" },
     });
+    this.recordPlans(tabId, (plans) => settleProposedPlan(plans, key, "invalidated"));
     this.deps.attention?.planSettled(tabId);
     void this.deps.broadcast();
   }
@@ -103,9 +130,11 @@ export class PlanGateTracker implements FrameObserver {
         ...(review.sourceHash !== undefined ? { sourceHash: review.sourceHash } : {}),
         frameId,
         proposedAt: new Date().toISOString(),
+        ...(review.represented === true ? { represented: true as const } : {}),
       },
       settle: null, // a fresh gate replaces the last cycle's verdict
     });
+    this.recordPlans(tabId, (plans) => upsertProposedPlan(plans, review.planFilePath, review.title));
     this.deps.attention?.planProposed(tabId, review.title);
     void this.deps.broadcast();
   }
@@ -136,10 +165,10 @@ export class PlanGateTracker implements FrameObserver {
     const id = typeof control.id === "string" ? control.id : null;
     const gate = this.gates.get(tabId);
     if (id === null || !gate || gate.pending === null || gate.pending.frameId !== id) return;
-    this.gates.set(tabId, {
-      pending: null,
-      settle: { frameId: id, verdict: control.value === PLAN_EXECUTE ? "executed" : "refined" },
-    });
+    const key = gate.pending.planFilePath;
+    const verdict = control.value === PLAN_EXECUTE ? "executed" : "refined";
+    this.gates.set(tabId, { pending: null, settle: { frameId: id, verdict } });
+    this.recordPlans(tabId, (plans) => settleProposedPlan(plans, key, verdict));
     this.deps.attention?.planSettled(tabId);
     // Between the verdict and the implementation prompt the process is
     // quiet; suspend hibernation until the next agent_end or the lapse (issue #246).

@@ -442,15 +442,29 @@ while idle (issue #181).
 _Avoid_: stuck queue, ghost message
 
 **Proposed plans pane**:
-The inspector rail pane (ADR-0004 vocab) that lists the focus session's plan
-history — the pending plan first, with review / request changes / not now
-actions, then settled plans dimmed by verdict. The pending plan is one per
-session and is the same object the plan review shows: clicking it or the
+The inspector rail pane (ADR-0004 vocab) that lists every plan the focus
+session has proposed — the live pending plan first, with review / request
+changes / not now actions, then interrupted plans with re-present / dismiss,
+then settled plans dimmed by verdict. The list is main-process owned and
+persisted on the owned session record (ADR-0033), so it survives an app
+restart; the gate behind a pending plan does not. The live pending plan is one
+per session and is the same object the plan review shows: clicking it or the
 review action restores the review in that tab, request changes answers
 `refinePlan` without notes, and not now calls `deferPlanReview`. Only the
 focused tab's review renders; a background session's pending plan surfaces
 here (its sidebar row reads "answer needed") instead of stacking review on review.
 _Avoid_: plan inbox, plan queue, plan history
+
+**Interrupted plan**:
+A proposed plan still awaiting a verdict whose plan review gate ended with its
+session process — an app restart, a crash, or a relaunch — so no agent is
+blocked on it (ADR-0033). The proposed plans pane offers re-present, which
+raises a real plan review for the same file through the plan extension without
+an agent turn (preflight runs again on the file's current bytes, and the
+session enters Plan mode first if it left it), and dismiss, which stops
+tracking it; the file stays on disk. It never blocks the session, raises no
+notification, and does not make the sidebar row read "answer needed".
+_Avoid_: orphaned plan, stale plan, lost plan, abandoned plan
 
 **Branch diff pane**:
 The inspector rail pane that shows every working-tree change on the focus

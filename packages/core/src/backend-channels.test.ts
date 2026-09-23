@@ -80,6 +80,7 @@ const VALID_ARGS = {
   deleteSessionPreview: ["tab-1"],
   dismissAppUpdate: ["1.2.3", true],
   dismissOmpUpdate: ["1.2.3", false],
+  dismissProposedPlan: ["tab-1", "local://auth-plan.html"],
   downloadAppUpdate: [],
   downloadOmpUpdate: [],
   exportDiagnosticsBundle: [{ includeTranscripts: false, destinationPath: null }],

@@ -561,7 +561,6 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     planDeferred: false,
     planReadiness: null,
     experimentProposal: null,
-    plans: [],
     advisorStats: null,
     mcpStatus: null,
     goal: null,

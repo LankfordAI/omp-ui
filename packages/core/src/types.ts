@@ -342,6 +342,13 @@ export interface OwnedSessionRecord {
    * the first schema-1 records — legacy records normalize to null.
    */
   subagentModels: SubagentModelMap | null;
+  /**
+   * Every plan this session proposed for review, newest first (ADR-0033).
+   * Only the record of a proposal and its verdict persists — never the gate.
+   * Post-dates the first schema-1 records: absent loads as [], and a
+   * malformed entry drops only itself, never the session record.
+   */
+  proposedPlans: ProposedPlan[];
   cachedTitle: string | null;
   cachedModified: string | null;
 }
@@ -364,6 +371,11 @@ export interface PendingPlan {
    * only while the artifact still hashes to it (issue #312 follow-up).
    */
   sourceHash?: string;
+  /**
+   * The review was re-presented through the plan extension's `review` verb
+   * (ADR-0033): no agent tool call is blocked on it. Absent otherwise.
+   */
+  represented?: true;
 }
 
 /** Latest verdict that closed a gate, so renderers that did not answer can settle their rows. */
@@ -374,6 +386,21 @@ export interface PlanSettle {
    * under review, so no implementation started (issue #312 follow-up).
    */
   verdict: "executed" | "refined" | "invalidated";
+}
+
+/** One plan a session proposed for review (ADR-0033). Main-process owned, persisted. */
+export interface ProposedPlan {
+  /** The plan artifact, `local://<slug>-plan.{html,md}` — its identity. */
+  key: string;
+  /** The proposal title as the review request carried it. */
+  title: string;
+  /**
+   * `pending`: no verdict yet — a live gate while the summary's `pendingPlan`
+   * names this key, otherwise an interrupted plan. `invalidated` is not a user
+   * verdict (the validated source changed under review). `dismissed` is the
+   * user's decision to stop tracking an interrupted plan.
+   */
+  status: "pending" | "executed" | "refined" | "invalidated" | "dismissed";
 }
 
 export interface SessionSummary extends OwnedSessionRecord {
