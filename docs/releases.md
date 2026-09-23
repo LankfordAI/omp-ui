@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - A project can turn on the **browser clock** (Project settings → Browser → Clock). Its browser panes then show the date and time in a strip above the toolbar, and every pane screenshot carries a date/time badge in its top-right corner: the camera hand-back, element picks, and screenshots the agent takes. The badge is drawn on the image only; the page is never touched ([#642](https://github.com/LankfordAI/omp-ui/issues/642)).
+- After an update's `Restart now`, omp-ui reopens only the tabs whose sessions were live when it quit: a session that was hibernated or had exited stays dormant in the sidebar instead of being relaunched ([#643](https://github.com/LankfordAI/omp-ui/issues/643)).
 
 Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
