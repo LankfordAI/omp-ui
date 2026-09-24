@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
@@ -392,6 +392,134 @@ describe("UserBubble resolved file mentions", () => {
     expect(chips[1]!.textContent).toBe(`@${longPath}`);
     expect(chips[1]!.className).toContain("max-w-full");
     expect(chips[1]!.querySelector(".truncate")).not.toBeNull();
+    act(() => root.unmount());
+  });
+});
+
+describe("UserBubble copy affordances (issue #644)", () => {
+  /** CopyButton prefers `navigator.clipboard`; jsdom ships no Clipboard API. */
+  function stubClipboard(): Mock<(text: string) => Promise<void>> {
+    const writeText: Mock<(text: string) => Promise<void>> = vi.fn(() => Promise.resolve());
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    return writeText;
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis.navigator, "clipboard");
+    vi.useRealTimers();
+  });
+
+  /** The mention-expanded form of a prompt as omp stores it on the message. */
+  function mentionPrompt(prompt: string): RenderItem[] {
+    return historyToItems([
+      {
+        role: "user",
+        content: [{ type: "text", text: `${prompt}\n\n<file path="src/a.ts">\nraw body\n</file>` }],
+      },
+    ]);
+  }
+
+  function bubble(el: HTMLDivElement): HTMLElement {
+    const card = el.querySelector<HTMLDivElement>(".speaker-run > div.group");
+    if (!card) throw new Error("user bubble not found");
+    return card;
+  }
+
+  function copyChip(el: HTMLDivElement): HTMLButtonElement {
+    const button = [...bubble(el).querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "copy",
+    );
+    if (!button) throw new Error("copy chip not found");
+    return button;
+  }
+
+  it("copies the displayed prompt, without the resolved mention body", () => {
+    const writeText = stubClipboard();
+    const prompt = "Compare @src/a.ts and @src/b.ts";
+    const { el, root } = render(mentionPrompt(prompt));
+
+    act(() => copyChip(el).click());
+
+    expect(writeText).toHaveBeenCalledWith(prompt);
+    expect(writeText.mock.calls[0]?.[0]).not.toContain("<file");
+    expect(writeText.mock.calls[0]?.[0]).not.toContain("raw body");
+    act(() => root.unmount());
+  });
+
+  it("stays hidden until hover or keyboard focus", () => {
+    stubClipboard();
+    const { el, root } = render(mentionPrompt("anything"));
+    // The chip wrapper, like the other controls floating over content.
+    const wrapper = copyChip(el).parentElement!;
+    expect(wrapper.className).toContain("opacity-0");
+    expect(wrapper.className).toContain("group-hover:opacity-100");
+    expect(wrapper.className).toContain("group-focus-within:opacity-100");
+    // Reachable while invisible, which is what lets focus reveal it.
+    expect(wrapper.className).not.toContain("pointer-events-none");
+    act(() => root.unmount());
+  });
+
+  it("reports the copy in place, then reverts", async () => {
+    vi.useFakeTimers();
+    stubClipboard();
+    const { el, root } = render(mentionPrompt("anything"));
+    const button = copyChip(el);
+
+    act(() => button.click());
+    await act(async () => {});
+    expect(button.textContent).toBe("copied");
+
+    act(() => {
+      vi.advanceTimersByTime(1200);
+    });
+    expect(button.textContent).toBe("copy");
+    act(() => root.unmount());
+  });
+
+  it("renders no chip for a prompt with no prose", () => {
+    stubClipboard();
+    const items = historyToItems([
+      {
+        role: "user",
+        content: [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }],
+      },
+    ]);
+    const { el, root } = render(items);
+
+    expect(el.textContent).not.toContain("copy");
+    expect(bubble(el).querySelectorAll("button")).toHaveLength(0);
+    expect(el.querySelector("img")).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("carries the prompt's markdown source for the selection menu (issue #644)", () => {
+    stubClipboard();
+    const prompt = "Compare @src/a.ts and **bold**";
+    const { el, root } = render(
+      historyToItems([
+        {
+          role: "user",
+          content: [{ type: "text", text: `${prompt}\n\n<file path="src/a.ts">\nraw body\n</file>` }],
+        },
+      ]),
+    );
+
+    // The observable input to "Copy as Markdown" in the selection menu.
+    expect(bubble(el).getAttribute("data-markdown-source")).toBe(prompt);
+    act(() => root.unmount());
+  });
+
+  it("omits the markdown source when there is no prose to copy", () => {
+    stubClipboard();
+    const { el, root } = render(
+      historyToItems([
+        { role: "user", content: [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }] },
+      ]),
+    );
+    expect(bubble(el).hasAttribute("data-markdown-source")).toBe(false);
     act(() => root.unmount());
   });
 });
