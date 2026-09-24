@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { AppFeedback } from "./components/AppFeedback";
 import { AppUpdateCard } from "./components/AppUpdateCard";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
+import { ImageViewerHost } from "./components/ImageViewer";
 import { BrowserPaneClearDialog } from "./components/BrowserPaneClearDialog";
 import { DiagnosticsExportDialog } from "./components/DiagnosticsExportDialog";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
@@ -500,6 +501,7 @@ export default function App() {
         </div>
       </div>
       <CommandPalette />
+      <ImageViewerHost />
       {/* Both update cards share one corner stack (issue #19): cards that
           render null leave no gap; when both show, the app card sits on top. */}
       <div className="fixed right-[max(1rem,var(--safe-right))] bottom-[max(1rem,var(--safe-bottom))] z-40 flex w-80 max-w-[calc(100vw-var(--safe-left)-var(--safe-right)-2rem)] flex-col gap-2">
