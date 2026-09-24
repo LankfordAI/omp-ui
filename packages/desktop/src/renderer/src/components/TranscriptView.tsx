@@ -28,7 +28,7 @@ import { Markdown } from "./Markdown";
 import { PlanCard } from "./PlanCard";
 import { AdvisoryNotes, ToolCard } from "./ToolCard";
 import { SelectionContextMenu } from "./SelectionContextMenu";
-import { Chip, Disclosure, Empty, Label, type Tone } from "./ui";
+import { Chip, CopyButton, Disclosure, Empty, Label, type Tone } from "./ui";
 
 /** Re-entry threshold: this close to the tail still counts as following. */
 const AT_BOTTOM_SLACK = 64;
@@ -115,8 +115,10 @@ function AssistantBlock({ item }: { item: AssistantItem }) {
 
   return (
     // `data-markdown-source` carries the turn's raw markdown so the selection
-    // context menu can offer "Copy as Markdown" (issue #72); the attribute is
-    // assistant-only, which is exactly the intended mapping.
+    // context menu can offer "Copy as Markdown" (issue #72). The attribute marks
+    // a node whose displayed text is its own markdown source — assistant prose
+    // and user prompts both qualify; tool cards, code blocks, and thinking
+    // deliberately do not.
     <div
       className="animate-rise space-y-1.5"
       data-markdown-source={item.text !== "" ? item.text : undefined}
@@ -152,10 +154,11 @@ function AssistantBlock({ item }: { item: AssistantItem }) {
 type TranscriptMenuState = { x: number; y: number; text: string; markdown: string | null };
 
 /**
- * The turn's raw markdown when the selection starts inside assistant prose —
- * the only nodes carrying `data-markdown-source`. Tool cards, code blocks,
- * and thinking yield null, so "Copy as Markdown" hides there; that is the
- * issue's "where the selection maps cleanly onto a render item's source".
+ * The message's raw markdown when the selection starts inside prose that
+ * carries `data-markdown-source` — assistant turns and user prompts. Tool
+ * cards, code blocks, and thinking yield null, so "Copy as Markdown" hides
+ * there; that is the issue's "where the selection maps cleanly onto a render
+ * item's source".
  */
 function markdownSourceForSelection(sel: Selection): string | null {
   if (sel.rangeCount === 0 || sel.isCollapsed) return null;
@@ -181,7 +184,10 @@ function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
   return (
     <div className="speaker-run animate-rise flex flex-col items-end gap-1">
       {first && <Label className="speaker-label speaker-label-right">{t("transcript.speaker.you")}</Label>}
-      <div className="min-w-0 max-w-[72%] space-y-2 rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink">
+      <div
+        className="group relative min-w-0 max-w-[72%] space-y-2 rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink"
+        data-markdown-source={item.text !== "" ? item.text : undefined}
+      >
         {item.text !== "" && <Markdown text={item.text} />}
         {fileMentions.length > 0 && (
           <div
@@ -213,6 +219,19 @@ function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
                 className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
               />
             ))}
+          </div>
+        )}
+        {item.text !== "" && (
+          // Absolutely positioned so hovering never changes the bubble's height:
+          // follow mode re-pins on content size, and a reserved footer row would
+          // jitter it. Keyboard-reachable while invisible, so Tab into the bubble
+          // reveals the chip the same way hover does.
+          <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md border border-line bg-overlay/85 px-1 py-0.5 opacity-0 backdrop-glass transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+            <CopyButton
+              text={item.text}
+              label={t("common.button.copy")}
+              doneLabel={t("common.button.copied")}
+            />
           </div>
         )}
       </div>
