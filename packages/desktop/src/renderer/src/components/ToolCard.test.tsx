@@ -383,7 +383,44 @@ describe("tool result images (issue #520)", () => {
     expect(el.textContent).toContain("captured two frames");
     const imgs = [...el.querySelectorAll("img")];
     expect(imgs).toHaveLength(2);
-    expect(imgs[1]?.getAttribute("title")).toContain("2 of 2");
+    // The title moved onto the enlarge button around the img.
+    const triggers = [...el.querySelectorAll("button")].filter(
+      (b) => b.querySelector("img") !== null,
+    );
+    expect(triggers[1]?.getAttribute("title")).toContain("2 of 2");
     act(() => root.unmount());
+  });
+
+  it("dispatches the viewer event with every image in order and the clicked index (issue #645)", () => {
+    const seen: Array<{ detail?: { images: { src: string }[]; index: number } }> = [];
+    const onOpen = (e: Event): void => {
+      seen.push({ detail: (e as CustomEvent).detail });
+    };
+    window.addEventListener("omp-ui:image-viewer", onOpen);
+    try {
+      const { el, root } = renderCard(
+        tool({
+          resultText: "captured two frames",
+          images: [
+            { data: "AAAB", mimeType: "image/png" },
+            { data: "BBAC", mimeType: "image/jpeg" },
+          ],
+        }),
+      );
+      const triggers = [...el.querySelectorAll<HTMLButtonElement>("button")].filter(
+        (b) => b.querySelector("img") !== null,
+      );
+      expect(triggers).toHaveLength(2);
+      act(() => triggers[0]!.click());
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.detail?.index).toBe(0);
+      expect(seen[0]!.detail?.images.map((i) => i.src)).toEqual([
+        "data:image/png;base64,AAAB",
+        "data:image/jpeg;base64,BBAC",
+      ]);
+      act(() => root.unmount());
+    } finally {
+      window.removeEventListener("omp-ui:image-viewer", onOpen);
+    }
   });
 });

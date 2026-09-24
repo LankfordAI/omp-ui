@@ -14,6 +14,7 @@ import type { AdvisorNote, ToolItem } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { useStore } from "../store";
 import { DiffViewer } from "./DiffViewer";
+import { openImageViewer } from "./ImageViewer";
 import { linkify, Markdown } from "./Markdown";
 import { Chip, Chevron, Disclosure, Label, Panel, ProgressSweep, type Tone } from "./ui";
 
@@ -548,6 +549,15 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
     () => (item.resultText === undefined ? undefined : linkify(item.resultText)),
     [item.resultText],
   );
+  const toolViewerImages = useMemo(
+    () =>
+      (item.images ?? []).map((im, n) => ({
+        src: `data:${im.mimeType};base64,${im.data}`,
+        mimeType: im.mimeType,
+        label: t("transcript.tool.imageAlt", { n: n + 1 }),
+      })),
+    [item.images, t],
+  );
   const hasDiff = (item.diff?.length ?? 0) > 0;
   const longOutput = resultLines > LONG_OUTPUT_LINES;
   // A finished, quiet card earns its silence; anything unresolved or reviewable
@@ -715,19 +725,26 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
               className="flex flex-wrap gap-1.5"
             >
               {(item.images ?? []).map((image, i) => (
-                <img
+                <button
                   // Index-keyed deliberately, as in UserBubble: the list is fixed
                   // once rendered and the base64 payload is far too long a key.
                   key={i}
-                  src={`data:${image.mimeType};base64,${image.data}`}
-                  alt={t("transcript.tool.imageAlt", { n: i + 1 })}
+                  type="button"
+                  className="block cursor-zoom-in rounded border-0 p-0"
                   title={t("transcript.tool.imageTitle", {
                     mimeType: image.mimeType,
                     n: i + 1,
                     count: item.images!.length,
                   })}
-                  className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
-                />
+                  aria-label={t("image.viewer.open", { n: i + 1 })}
+                  onClick={() => openImageViewer(toolViewerImages, i)}
+                >
+                  <img
+                    src={`data:${image.mimeType};base64,${image.data}`}
+                    alt={t("transcript.tool.imageAlt", { n: i + 1 })}
+                    className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
+                  />
+                </button>
               ))}
             </div>
           )}

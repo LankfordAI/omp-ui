@@ -25,6 +25,7 @@ import type {
 import { findOwner, useStore } from "../store";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown } from "./Markdown";
+import { openImageViewer } from "./ImageViewer";
 import { PlanCard } from "./PlanCard";
 import { AdvisoryNotes, ToolCard } from "./ToolCard";
 import { SelectionContextMenu } from "./SelectionContextMenu";
@@ -180,6 +181,15 @@ function selectionWithin(root: HTMLElement | null, sel: Selection): boolean {
 function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
   const t = useT();
   const images = item.images ?? [];
+  const viewerImages = useMemo(
+    () =>
+      (item.images ?? []).map((im, n) => ({
+        src: `data:${im.mimeType};base64,${im.data}`,
+        mimeType: im.mimeType,
+        label: t("transcript.image.alt", { n: n + 1 }),
+      })),
+    [item.images, t],
+  );
   const fileMentions = item.fileMentions ?? [];
   return (
     <div className="speaker-run animate-rise flex flex-col items-end gap-1">
@@ -205,19 +215,26 @@ function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
         {images.length > 0 && (
           <div className="flex flex-wrap justify-end gap-1.5">
             {images.map((image, i) => (
-              <img
+              <button
                 // Index-keyed deliberately: a message's image list is fixed
                 // once rendered, and the base64 payload is far too long a key.
                 key={i}
-                src={`data:${image.mimeType};base64,${image.data}`}
-                alt={t("transcript.image.alt", { n: i + 1 })}
+                type="button"
+                className="block cursor-zoom-in rounded border-0 p-0"
                 title={t("transcript.image.title", {
                   mimeType: image.mimeType,
                   n: i + 1,
                   count: images.length,
                 })}
-                className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
-              />
+                aria-label={t("image.viewer.open", { n: i + 1 })}
+                onClick={() => openImageViewer(viewerImages, i)}
+              >
+                <img
+                  src={`data:${image.mimeType};base64,${image.data}`}
+                  alt={t("transcript.image.alt", { n: i + 1 })}
+                  className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
+                />
+              </button>
             ))}
           </div>
         )}

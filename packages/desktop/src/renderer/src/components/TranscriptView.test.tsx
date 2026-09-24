@@ -490,7 +490,12 @@ describe("UserBubble copy affordances (issue #644)", () => {
     const { el, root } = render(items);
 
     expect(el.textContent).not.toContain("copy");
-    expect(bubble(el).querySelectorAll("button")).toHaveLength(0);
+    // The image renders as an enlarge button, so count only copy chips.
+    expect(
+      [...bubble(el).querySelectorAll("button")].filter(
+        (b) => b.textContent === "copy",
+      ),
+    ).toHaveLength(0);
     expect(el.querySelector("img")).not.toBeNull();
     act(() => root.unmount());
   });
@@ -521,6 +526,43 @@ describe("UserBubble copy affordances (issue #644)", () => {
     );
     expect(bubble(el).hasAttribute("data-markdown-source")).toBe(false);
     act(() => root.unmount());
+  });
+});
+
+describe("UserBubble image enlarge trigger (issue #645)", () => {
+  it("dispatches the viewer event with every image in order and the clicked index", () => {
+    const seen: Array<{ detail?: { images: { src: string }[]; index: number } }> = [];
+    const onOpen = (e: Event): void => {
+      seen.push({ detail: (e as CustomEvent).detail });
+    };
+    window.addEventListener("omp-ui:image-viewer", onOpen);
+    try {
+      const { el, root } = render(
+        historyToItems([
+          {
+            role: "user",
+            content: [
+              { type: "image", data: "AAAB", mimeType: "image/png" },
+              { type: "image", data: "BBAC", mimeType: "image/jpeg" },
+            ],
+          },
+        ]),
+      );
+      const triggers = [...el.querySelectorAll<HTMLButtonElement>("button")].filter(
+        (b) => b.querySelector("img") !== null,
+      );
+      expect(triggers).toHaveLength(2);
+      act(() => triggers[1]!.click());
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.detail?.index).toBe(1);
+      expect(seen[0]!.detail?.images.map((i) => i.src)).toEqual([
+        "data:image/png;base64,AAAB",
+        "data:image/jpeg;base64,BBAC",
+      ]);
+      act(() => root.unmount());
+    } finally {
+      window.removeEventListener("omp-ui:image-viewer", onOpen);
+    }
   });
 });
 
