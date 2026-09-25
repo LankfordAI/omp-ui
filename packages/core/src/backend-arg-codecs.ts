@@ -19,6 +19,7 @@ import type {
   SessionMode,
   SpawnRequest,
   ScopedCapabilityMutation,
+  SttTranscribeRequest,
   TranscriptWidth,
   UpdateTrain,
   WorktreeReleaseOptions,
@@ -220,6 +221,12 @@ export const diagnosticsExportRequestCodec: ArgCodec<DiagnosticsExportRequest> =
   objectOf<DiagnosticsExportRequest>({
     includeTranscripts: bool(),
     destinationPath: nullable(str()),
+  });
+
+export const sttTranscribeRequestCodec: ArgCodec<SttTranscribeRequest> =
+  objectOf<SttTranscribeRequest>({
+    audioBase64: str(),
+    language: nullable(str()),
   });
 
 export const branchListOptionsCodec: ArgCodec<BranchListOptions> = objectOf<BranchListOptions>({

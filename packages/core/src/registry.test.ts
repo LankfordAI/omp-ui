@@ -77,6 +77,8 @@ describe("SETTINGS", () => {
       "agentRoster",
       "skipDeleteConfirmation",
       "experimentsEnabled",
+      "voiceInputEnabled",
+      "sttModel",
       "sessionOrderFrozen",
       "memoryDefaultsSeeded",
       "gettingStartedSeen",
@@ -123,6 +125,9 @@ describe("Registry.load", () => {
     // Issue #623: a fresh registry has never seen the Getting started checklist.
     expect(reg.getSetting("gettingStartedSeen")).toBe(false);
     expect(reg.getSetting("experimentsEnabled")).toBe(false);
+    // Issue #647: the mic button is off, and the dictation model auto-resolves.
+    expect(reg.getSetting("voiceInputEnabled")).toBe(false);
+    expect(reg.getSetting("sttModel")).toBeNull();
     // Issue #109: HTML is the default plan review rendition.
     expect(reg.getSetting("planFormat")).toBe("html");
     // Issue #246: idle rpc-ui sessions hibernate after a 30 min quiet window.
@@ -635,6 +640,8 @@ describe("Registry persistence", () => {
       ["skipDeleteConfirmation", (registry) => registry.setSetting("skipDeleteConfirmation", false)],
       ["gettingStartedSeen", (registry) => registry.setSetting("gettingStartedSeen", false)],
       ["experimentsEnabled", (registry) => registry.setSetting("experimentsEnabled", false)],
+      ["voiceInputEnabled", (registry) => registry.setSetting("voiceInputEnabled", false)],
+      ["sttModel", (registry) => registry.setSetting("sttModel", null)],
       ["themeId", (registry) => registry.setSetting("themeId", "graphite")],
       ["fontFamilyId", (registry) => registry.setSetting("fontFamilyId", "default")],
       ["transcriptWidth", (registry) => registry.setSetting("transcriptWidth", "wide")],

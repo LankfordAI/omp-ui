@@ -27,6 +27,8 @@ type SettingsHandlerChannels =
   | typeof CH.setSkipDeleteConfirmation
   | typeof CH.setGettingStartedSeen
   | typeof CH.setExperimentsEnabled
+  | typeof CH.setVoiceInputEnabled
+  | typeof CH.setSttModel
   | typeof CH.setThemeId
   | typeof CH.setFontFamilyId
   | typeof CH.setTranscriptWidth
@@ -77,6 +79,8 @@ export function registerSettingsHandlers(
     [CH.setSkipDeleteConfirmation]: (value: boolean) => commit("skipDeleteConfirmation", value),
     [CH.setGettingStartedSeen]: (value: boolean) => commit("gettingStartedSeen", value),
     [CH.setExperimentsEnabled]: (value: boolean) => commit("experimentsEnabled", value),
+    [CH.setVoiceInputEnabled]: (value: boolean) => commit("voiceInputEnabled", value),
+    [CH.setSttModel]: (value: string | null) => commit("sttModel", value),
     [CH.setThemeId]: (value: string) => commit("themeId", value),
     [CH.setFontFamilyId]: (value: string) => commit("fontFamilyId", value),
     [CH.setTranscriptWidth]: (value: TranscriptWidth) => commit("transcriptWidth", value),

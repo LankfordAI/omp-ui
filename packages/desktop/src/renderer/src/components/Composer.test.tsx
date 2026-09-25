@@ -11,6 +11,9 @@ const clipboardImageMock = vi.hoisted(() => ({
   hasClipboardImage: vi.fn(() => false),
   readClipboardImages: vi.fn(),
   readImageFiles: vi.fn(),
+  // The dictation hook encodes its WAV through this helper; the mock must
+  // keep the export real or finish() dies on an undefined function.
+  bytesToBase64: vi.fn((bytes: Uint8Array) => Buffer.from(bytes).toString("base64")),
 }));
 
 vi.mock("../lib/clipboard-image", () => clipboardImageMock);
@@ -49,6 +52,7 @@ const backendMock = {
   setSessionAdvisor: vi.fn(async () => {}),
   convertToWorktree: vi.fn(async () => {}),
   rpcSend: vi.fn(),
+  transcribeAudio: vi.fn(async () => ({ text: "dictated words" })),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
@@ -546,6 +550,131 @@ describe("Composer action row overflow", () => {
     expect(interrupt.classList.contains("shrink")).toBe(true);
     expect(interrupt.classList.contains("min-w-0")).toBe(true);
     expect(interrupt.querySelector("span.truncate")!.classList.contains("min-w-0")).toBe(true);
+  });
+});
+
+describe("Composer dictation (issue #647)", () => {
+  class PullStub {
+    onaudioprocess: ((e: { inputBuffer: { getChannelData: () => Float32Array } }) => void) | null =
+      null;
+    disconnect = vi.fn();
+    connect = vi.fn();
+    fire(chunk: Float32Array): void {
+      this.onaudioprocess?.({ inputBuffer: { getChannelData: () => chunk } });
+    }
+  }
+  const node = () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() });
+  let pull: PullStub;
+  let closeCalls: number;
+  let stopTrack: ReturnType<typeof vi.fn>;
+
+  class CtxStub {
+    sampleRate = 48_000;
+    destination = node();
+    constructor() {
+      pull = new PullStub();
+    }
+    createMediaStreamSource = () => node();
+    createGain = () => node();
+    createScriptProcessor = () => pull;
+    close = () => {
+      closeCalls += 1;
+      return Promise.resolve();
+    };
+  }
+
+  beforeEach(() => {
+    closeCalls = 0;
+    stopTrack = vi.fn();
+    vi.stubGlobal("AudioContext", CtxStub);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: stopTrack }] })) },
+    });
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    Reflect.deleteProperty(navigator, "mediaDevices");
+  });
+
+  const micButton = (): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.getAttribute("aria-label") === "dictate a message");
+
+  function enableVoice(): void {
+    useStore.setState((s) => ({ state: { ...s.state!, voiceInputEnabled: true } }));
+  }
+
+  async function settle(): Promise<void> {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  function stopButton(): HTMLButtonElement | undefined {
+    return [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      b.getAttribute("aria-label")?.startsWith("recording"),
+    );
+  }
+
+  it("hides the mic button while Voice input is off", () => {
+    seed("ready");
+    renderComposer();
+    expect(micButton()).toBeUndefined();
+    expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
+  });
+
+  it("inserts a transcript at the caret without submitting", async () => {
+    seed("ready");
+    enableVoice();
+    renderComposer();
+    const textarea = typeDraft("hello  world");
+    act(() => textarea.setSelectionRange(6, 6)); // the gap between the words
+    const mic = micButton();
+    expect(mic).toBeDefined();
+    await act(async () => mic!.click());
+    await settle();
+    expect(stopButton()?.getAttribute("aria-pressed")).toBe("true");
+    pull.fire(new Float32Array(48_000).fill(0.2));
+    await act(async () => stopButton()!.click());
+    await settle(); await settle();
+    expect(backendMock.transcribeAudio).toHaveBeenCalledTimes(1);
+    expect(sendPrompt).not.toHaveBeenCalled();
+    // Joined with spaces against non-space neighbours: "hello dictated words world".
+    expect(textarea.value).toBe("hello dictated words world");
+  });
+
+  it("Escape while recording cancels instead of aborting the turn", async () => {
+    seed("running");
+    enableVoice();
+    renderComposer();
+    await act(async () => micButton()!.click());
+    await settle();
+    pull.fire(new Float32Array(48_000).fill(0.2));
+    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    press(textarea, "Escape");
+    await settle();
+    expect(abortAgent).not.toHaveBeenCalled();
+    expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect(closeCalls).toBe(1);
+  });
+
+  it("a silent take never reaches the provider", async () => {
+    seed("ready");
+    enableVoice();
+    renderComposer();
+    await act(async () => micButton()!.click());
+    await settle();
+    pull.fire(new Float32Array(48_000));
+    await act(async () => stopButton()!.click());
+    await settle();
+    expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
+    expect(document.body.querySelector("textarea")!.value).toBe("");
   });
 });
 

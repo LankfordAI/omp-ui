@@ -48,6 +48,9 @@ import type {
   ScopedCapabilityMutation,
   SessionMode,
   SpawnRequest,
+  SttModelSnapshot,
+  SttTranscribeRequest,
+  SttTranscribeResult,
   TranscriptWidth,
   UpdateTrain,
   WebSearchProviderSnapshot,
@@ -95,6 +98,7 @@ import {
   sessionModeCodec,
   spawnRequestCodec,
   str,
+  sttTranscribeRequestCodec,
   trailingOptional,
   transcriptWidthCodec,
   updateTrainCodec,
@@ -332,6 +336,16 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setExperimentsEnabled",
     ...request<[on: boolean], void>([bool()]),
   },
+  /** Shows or hides the microphone button in every composer (issue #647). */
+  setVoiceInputEnabled: {
+    channel: "settings:setVoiceInputEnabled",
+    ...request<[on: boolean], void>([bool()]),
+  },
+  /** The app-wide dictation model: an omp STT selector, or null to auto-resolve. */
+  setSttModel: {
+    channel: "settings:setSttModel",
+    ...request<[model: string | null], void>([nullable(str())]),
+  },
   setThemeId: { channel: "settings:setThemeId", ...request<[id: string], void>([str()]) },
   setFontFamilyId: { channel: "settings:setFontFamilyId", ...request<[id: string], void>([str()]) },
   setTranscriptWidth: {
@@ -395,6 +409,25 @@ export const BACKEND_CHANNELS = {
   readWebSearchProviders: {
     channel: "web-search-providers:read",
     ...request<[], WebSearchProviderSnapshot>([]),
+  },
+  /**
+   * The installed omp's STT catalog (`omp models --kind stt --json`), each row
+   * marked callable per the credentials this app holds. Never a curated omp-ui
+   * list (ADR-0027 lineage). Never rejects for a failed probe — `discovered`
+   * and `error` say so (issue #647).
+   */
+  readSttModels: {
+    channel: "stt:readModels",
+    ...request<[], SttModelSnapshot>([]),
+  },
+  /**
+   * One dictation round trip: a 16 kHz mono PCM16 WAV (bare base64) posted to
+   * the selected model's provider from the main process, using the credential
+   * the app already resolved. The renderer never sees a key (issue #647).
+   */
+  transcribeAudio: {
+    channel: "stt:transcribe",
+    ...request<[req: SttTranscribeRequest], SttTranscribeResult>([sttTranscribeRequestCodec]),
   },
   /**
    * Provider credentials omp-ui supplies to every omp it launches, with the

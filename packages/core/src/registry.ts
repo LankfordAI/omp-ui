@@ -46,6 +46,10 @@ export interface RegistrySettings {
   skipDeleteConfirmation: boolean;
   /** Global feature flag for the Experiments Lab + autoresearch bridge (issue #571); default off. */
   experimentsEnabled: boolean;
+  /** Global mic button in every composer (issue #647); default off. */
+  voiceInputEnabled: boolean;
+  /** omp STT selector used app-wide; null = pick the preferred callable model. */
+  sttModel: string | null;
   /** One-time migration marker (#274): the sessions array order is explicit; load never re-sorts it. */
   sessionOrderFrozen: boolean;
   /** One-time seed marker (issue #570): memory defaults were applied to omp's global layer once. */
@@ -195,6 +199,15 @@ export const SETTINGS: SettingDescriptors = {
   experimentsEnabled: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
+  ),
+  voiceInputEnabled: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  sttModel: validatedSetting<string | null>(
+    () => null,
+    (value): value is string | null =>
+      value === null || (typeof value === "string" && value.length > 0),
   ),
   sessionOrderFrozen: validatedSetting(
     () => false,
