@@ -88,6 +88,7 @@ function fakePaneContents(): FakeBrowserPane {
     stopPainting: () => {},
     invalidate: () => {},
     setContentSize: () => {},
+    setZoomFactor: () => {},
     getContentSize: () => ({ width: 1280, height: 800 }),
     loadURL: vi.fn(async (next: string) => {
       url = next;

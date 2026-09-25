@@ -95,16 +95,10 @@ interface PaneEntry {
   cached: Uint8Array | null;
   header: BrowserPaneFrameHeader | null;
   size: { width: number; height: number };
-  /** The dsf of the last painted frame. */
-  dsf: number;
-  /** The rasterization scale aimed for on this page (min of targetScaleFactor() and BROWSER_PANE_MAX_DSF). */
+  /** This page's zoom = rasterization scale (min of targetScaleFactor() and BROWSER_PANE_MAX_DSF), fixed at creation. */
   targetDsf: number;
-  /** Whether the offscreen window is sized css*dsf or css; only ever moves window-scaled → window-css. */
-  metricsMode: "window-scaled" | "window-css";
   /** The window's first top-level document has committed; the metrics override is safe to send only then (#557). */
   documentCommitted: boolean;
-  /** applyMetrics sized the window but the commit gate deferred the override. */
-  metricsPending: boolean;
   reassertTimer: NodeJS.Timeout | undefined;
   agent: BrowserPaneAgentState;
   actingTimer: NodeJS.Timeout | undefined;
@@ -130,10 +124,7 @@ function newEntry(lastUrl: string | null): PaneEntry {
     header: null,
     size: { ...BROWSER_PANE_DEFAULT_VIEWPORT },
     targetDsf: 1,
-    metricsMode: "window-scaled",
-    dsf: 1,
     documentCommitted: false,
-    metricsPending: false,
     reassertTimer: undefined,
     agent: "detached",
     actingTimer: undefined,
@@ -151,28 +142,12 @@ function clampViewport(value: number): number {
   return Math.round(Math.min(BROWSER_PANE_MAX_VIEWPORT, Math.max(BROWSER_PANE_MIN_VIEWPORT, value)));
 }
 
-/**
- * What scale a frame was really painted at, plus whether the window came out
- * squared (a platform that auto-scales window DIPs by scaleFactor). The
- * metrics-override route sizes the offscreen window at css*dsf, which is
- * correct on Wayland but would multiply again on those platforms; the doubled
- * verdict triggers a one-shot shrink to CSS size in onPaint. A ratio of 1
- * means the override was ineffective — today's dsf-1 fallback, no regression.
- * A frame caught mid-resize matches none of them and keeps the last scale.
- */
-function paintedScale(
-  paintedWidth: number,
-  cssWidth: number,
-  target: number,
-  last: number,
-): { dsf: number; doubled: boolean } {
-  if (cssWidth <= 0) return { dsf: last, doubled: false };
-  const ratio = paintedWidth / cssWidth;
-  const near = (x: number): boolean => Math.abs(ratio - x) <= x * 0.02;
-  if (near(target)) return { dsf: target, doubled: false };
-  if (target > 1 && near(target * target)) return { dsf: ratio, doubled: true };
-  if (near(1)) return { dsf: 1, doubled: false };
-  return { dsf: last, doubled: false };
+/** The offscreen window's DIP size: the CSS viewport at the page zoom, clamped like any viewport. */
+function windowSize(entry: PaneEntry): { width: number; height: number } {
+  return {
+    width: Math.min(BROWSER_PANE_MAX_VIEWPORT, Math.round(entry.size.width * entry.targetDsf)),
+    height: Math.min(BROWSER_PANE_MAX_VIEWPORT, Math.round(entry.size.height * entry.targetDsf)),
+  };
 }
 
 /** `new URL(url).origin`, null for about:blank and anything unparsable. */
@@ -236,6 +211,7 @@ export class BrowserPaneHost {
         onCommand: (method) => this.onCommand(tabId, entry, method),
         onCommandSettled: (method, params) => this.onCommandSettled(entry, method, params),
         transformScreenshot: (result, params) => this.stampScreenshot(tabId, entry, result, params),
+        pageZoom: () => entry.targetDsf,
       });
     } catch (err) {
       entry.lastError = "listener-failed";
@@ -334,12 +310,26 @@ export class BrowserPaneHost {
       case "char":
         pane.sendInputEvent(event);
         return;
-      default:
+      case "mouseWheel": {
+        // Pane input is CSS px; the window is CSS × page zoom in DIPs (#646).
+        const d = entry.targetDsf;
         pane.sendInputEvent({
           ...event,
-          x: Math.min(entry.size.width, Math.max(0, event.x)),
-          y: Math.min(entry.size.height, Math.max(0, event.y)),
+          x: Math.min(entry.size.width, Math.max(0, event.x)) * d,
+          y: Math.min(entry.size.height, Math.max(0, event.y)) * d,
+          deltaX: event.deltaX * d,
+          deltaY: event.deltaY * d,
         });
+        return;
+      }
+      default: {
+        const d = entry.targetDsf;
+        pane.sendInputEvent({
+          ...event,
+          x: Math.min(entry.size.width, Math.max(0, event.x)) * d,
+          y: Math.min(entry.size.height, Math.max(0, event.y)) * d,
+        });
+      }
     }
   }
 
@@ -410,7 +400,6 @@ export class BrowserPaneHost {
         urlOrigin: entry.lastUrl === null ? null : safeOrigin(entry.lastUrl),
         frame: entry.header,
         targetDsf: entry.targetDsf,
-        metricsMode: entry.metricsMode,
         fps: Math.round(entry.fps * 10) / 10,
         lastEncodeMs: entry.lastEncodeMs,
         bridgePort: entry.listener?.port ?? null,
@@ -532,16 +521,16 @@ export class BrowserPaneHost {
 
   private async createPage(tabId: string, entry: PaneEntry): Promise<PaneContents | null> {
     entry.targetDsf = Math.min(this.targetScaleFactor(), BROWSER_PANE_MAX_DSF);
-    entry.dsf = 1;
     entry.documentCommitted = false;
-    entry.metricsPending = false;
+    const initial = windowSize(entry);
     let pane: PaneContents;
     try {
       const createPane = await this.factory();
       pane = await createPane({
         partition: BROWSER_PANE_PARTITION,
-        width: entry.size.width,
-        height: entry.size.height,
+        width: initial.width,
+        height: initial.height,
+        zoomFactor: entry.targetDsf,
         onPopup: (url) => {
           // #529: a popup becomes an in-pane navigation through the guard;
           // only web URLs qualify (about:blank popups carry nothing).
@@ -592,8 +581,7 @@ export class BrowserPaneHost {
       }),
     );
     pane.debugger.attach("1.3");
-    // Size the surface and pin the CSS viewport before the first paint so the
-    // page renders at target density from the start (#557).
+    // Size the window for the current viewport; the override waits for the first commit (#557).
     this.applyMetrics(entry, pane);
     if (entry.sinks.size > 0) this.startPainting(entry, pane);
     else pane.stopPainting();
@@ -617,18 +605,19 @@ export class BrowserPaneHost {
   }
 
   /**
-   * Re-assert the host geometry when it may have been lost: the window's first
-   * document committing (a deferred applyMetrics) or a CDP client detaching —
-   * Chromium's session teardown drops the viewport emulation the detached
-   * session owned (#557). The detach lands a tick after the count callback, so
-   * the re-pin rides the same debounce as an agent override command.
+   * Re-assert the host geometry when it may have been lost: any document commit
+   * — Chromium restores the origin's persisted zoom level at commit (#646) and
+   * returns the view to CSS bounds under a pinned override (#630) — or a CDP
+   * client detaching, whose session teardown drops the viewport emulation the
+   * detached session owned (#557). The detach lands a tick after the count
+   * callback, so the re-pin rides the same debounce as an agent override command.
    */
   private ensureMetrics(entry: PaneEntry, reason: "first-commit" | "client-detached"): void {
     const pane = entry.pane;
     if (pane === null || pane.isDestroyed()) return;
     if (reason === "first-commit") {
       entry.documentCommitted = true;
-      if (entry.metricsPending) this.applyMetrics(entry, pane);
+      this.applyMetrics(entry, pane);
       return;
     }
     if (entry.documentCommitted) this.scheduleMetricsReassert(entry);
@@ -648,18 +637,12 @@ export class BrowserPaneHost {
     // Electron's first paint of a fresh window is empty; an 8-byte frame would
     // poison the cache and the ensure answer.
     if (size.width === 0 || size.height === 0) return;
-    const { dsf, doubled } = paintedScale(size.width, entry.size.width, entry.targetDsf, entry.dsf);
-    entry.dsf = dsf;
-    if (doubled && entry.metricsMode === "window-scaled") {
-      // The platform squared the scale: drop to CSS-sized windows and re-pin.
-      entry.metricsMode = "window-css";
-      const pane = entry.pane;
-      if (pane !== null && !pane.isDestroyed()) this.applyMetrics(entry, pane);
-    }
     const t0 = this.now();
     const settled = entry.pane !== null && !entry.pane.isLoading();
     const jpeg = image.toJPEG(settled ? BROWSER_PANE_JPEG_QUALITY_SETTLED : BROWSER_PANE_JPEG_QUALITY);
-    const header: BrowserPaneFrameHeader = { width: size.width, height: size.height, dsf: entry.dsf };
+    // The window is CSS × page zoom and the zoom is fixed for the page's life, so
+    // every frame, mid-resize ones included, covers width / targetDsf CSS px.
+    const header: BrowserPaneFrameHeader = { width: size.width, height: size.height, dsf: entry.targetDsf };
     // One allocation per frame: header and JPEG land in the same buffer.
     const frame = Buffer.allocUnsafe(BROWSER_PANE_FRAME_HEADER_BYTES + jpeg.length);
     frame.set(encodeBrowserPaneFrameHeader(header), 0);
@@ -762,51 +745,35 @@ export class BrowserPaneHost {
   }
 
   /**
-   * Pin the CSS viewport at `entry.size` with deviceScaleFactor `targetDsf`
-   * so paints arrive at css*dsf. Measured sequence (Electron 43/Wayland):
-   * the window must sit at CSS size when the override lands, then grow —
-   * growing first leaves the surface at CSS pixels, and sending the override
-   * before the window's first document commits segfaults the GPU process.
-   * Before that commit this only marks the entry pending; `ensureMetrics`
-   * re-applies from the commit event. Until then the page paints CSS-sized at
-   * dsf 1 — exactly what Wayland did before this route existed.
-   *
-   * Every application clears the host session's own override first: Chromium
-   * ignores a re-sent identical override, so a pin another CDP session has
-   * overwritten (agent `setViewport`, a clipped `Page.captureScreenshot`, a
-   * detaching session) could otherwise never be restored (#630).
+   * Size the offscreen window at css × targetDsf; the page zoom set at creation
+   * lays `entry.size` CSS px out inside it and rasterizes at targetDsf (#646).
+   * Then make the host the last writer of the widget's device emulation with an
+   * override that reproduces exactly that state: the window size at
+   * deviceScaleFactor 1, under which Blink lays out windowWidth / zoom = the CSS
+   * size and reports dpr = zoom. An agent viewport, a clipped capture restoring
+   * an agent session's own params, or a session detaching with a viewport would
+   * otherwise leave the page at the agent's size: emulation is per CDP session
+   * and a clear from this session does not drop another session's override,
+   * while Chromium keeps the resized view when it drops one (#630). deviceScaleFactor 0
+   * is NOT neutral: it resolves to the screen's dsf — 1.5 under Wayland fractional
+   * scaling, never the offscreen view's 1 — and would then drive layout itself.
+   * The override is sent only after the window's first document commits, because
+   * emulation traffic earlier segfaults the GPU process (#557). It is cleared
+   * first because Chromium drops a re-sent override matching what this session
+   * last sent.
    */
   private applyMetrics(entry: PaneEntry, pane: PaneContents): void {
-    const d = entry.targetDsf;
-    const grow = entry.metricsMode === "window-scaled" ? d : 1;
-    if (!entry.documentCommitted) {
-      entry.metricsPending = true;
-      return;
-    }
-    entry.metricsPending = false;
-    const width = Math.min(BROWSER_PANE_MAX_VIEWPORT, Math.round(entry.size.width * grow));
-    const height = Math.min(BROWSER_PANE_MAX_VIEWPORT, Math.round(entry.size.height * grow));
-    // The widget's emulation is shared with every agent CDP session, and Chromium
-    // drops an Emulation.setDeviceMetricsOverride whose params equal what *this*
-    // session last sent — even after another session overwrote or disabled them.
-    // Clearing first makes the set below always reach the renderer. Before the
-    // first pin the clear is a no-op; the browser side runs at dispatch, so the
-    // resize below is not raced by it.
+    const { width, height } = windowSize(entry);
+    pane.setContentSize(width, height);
+    // Re-force the zoom: Chromium restores a per-origin zoom level at each
+    // commit, which would otherwise silently replace the page's density (#646).
+    pane.setZoomFactor(entry.targetDsf);
+    if (!entry.documentCommitted) return;
     void pane.debugger.sendCommand("Emulation.clearDeviceMetricsOverride").catch(() => {});
-    pane.setContentSize(entry.size.width, entry.size.height);
     void pane.debugger
-      .sendCommand("Emulation.setDeviceMetricsOverride", {
-        width: entry.size.width,
-        height: entry.size.height,
-        deviceScaleFactor: d,
-        mobile: false,
-      })
-      .then(() => {
-        // Growing after the pin is what turns the dpr into surface pixels.
-        if (grow > 1 && !pane.isDestroyed()) pane.setContentSize(width, height);
-      })
+      .sendCommand("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false })
       .catch(() => {
-        // A page that refuses the override paints 1x; paintedScale records dsf 1.
+        // Without the override the page is still right; only an agent viewport could linger.
       });
   }
   private noteLoadFailure(tabId: string, entry: PaneEntry, error: unknown): void {

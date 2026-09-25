@@ -50,6 +50,8 @@ export interface PaneContents {
   stopPainting(): void;
   invalidate(): void;
   setContentSize(width: number, height: number): void;
+  /** Force the page zoom; the per-origin level Chromium persists must never override the pane's (#646). */
+  setZoomFactor(factor: number): void;
   getContentSize(): { width: number; height: number };
   loadURL(url: string): Promise<void>;
   goBack(): void;
@@ -82,8 +84,11 @@ export interface PaneContents {
 
 export interface CreatePaneOptions {
   partition: string;
+  /** The offscreen window's DIP size: the CSS viewport times `zoomFactor`. */
   width: number;
   height: number;
+  /** The page zoom, which is the pane's rasterization scale (#646). */
+  zoomFactor: number;
   /** #529 popups: deny and hand the URL back for in-pane navigation through the guard. */
   onPopup: (url: string) => void;
 }
@@ -117,9 +122,10 @@ const ELECTRON_MODIFIERS: Record<BrowserPaneModifier, ElectronModifier> = {
 export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>): CreatePane {
   return async (opts) => {
     guardBrowserPaneSession(session.fromPartition(opts.partition), deniedPorts);
-    // Density comes from the host's Emulation.setDeviceMetricsOverride plus a
-    // css*dsf-sized window (#557); offscreen.deviceScaleFactor is ignored on
-    // Wayland (ADR-0029), so the window is created plain at 1x.
+    // Density is page zoom (#646): the window is CSS × zoom DIPs and the page
+    // lays out the CSS size at that zoom. Device emulation cannot raise raster
+    // density here (Blink lays emulated pages out at the offscreen view's dsf, 1),
+    // and offscreen.deviceScaleFactor is ignored on Wayland (ADR-0029).
     const win = new BrowserWindow({
       show: false,
       width: opts.width,
@@ -128,6 +134,7 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
       webPreferences: {
         offscreen: true,
         partition: opts.partition,
+        zoomFactor: opts.zoomFactor,
         // No preload at all: this page never reaches the backend bridge.
         sandbox: true,
         contextIsolation: true,
@@ -183,6 +190,9 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
       stopPainting: () => wc.stopPainting(),
       invalidate: () => wc.invalidate(),
       setContentSize: (width, height) => win.setContentSize(width, height),
+      // Re-forcing beats the per-origin level Chromium restores at commit and
+      // re-persists the pane's own level for that origin (#646).
+      setZoomFactor: (factor) => wc.setZoomFactor(factor),
       getContentSize() {
         const [width, height] = win.getContentSize();
         return { width: width ?? opts.width, height: height ?? opts.height };

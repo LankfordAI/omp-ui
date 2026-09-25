@@ -155,43 +155,58 @@ through a **loopback CDP bridge** the main process hosts:
   smoke measures p90 encode over 16 ms, the dsf is clamped to a pixel budget
   first and the frame-rate constant lowered second; a row whose fallback fired
   is recorded here with the measured value.
-- **HiDPI is calibrated, not assumed (#557).** `offscreen.deviceScaleFactor`
-  is honoured on X11, Windows and macOS and ignored on Wayland — and under
-  Wayland *fractional* scaling even `screen.getDisplayMatching().scaleFactor`
-  lies (reports 1 while the app window's own pages render at 1.5), so the host
-  takes its target from the app window's measured page `devicePixelRatio`
-  divided by the window's zoom factor, clamped to `BROWSER_PANE_MAX_DSF`.
-  The route is `Emulation.setDeviceMetricsOverride` at the CSS size with the
-  offscreen window sized `css × dsf` — but only after the window's first
-  document commits: sending the override to a never-committed offscreen window
-  segfaults the GPU process (measured, Electron 43/Wayland), and with the
-  pinned CSS viewport Chromium restores the window to CSS bounds at each
-  commit, so the host's sequence is resize-to-CSS, send the override, then
-  grow. The first frame still arbitrates: a paint at `ratio = paintWidth /
-  cssWidth` matches the target (Wayland, X11), the target squared (a platform
-  that auto-scales window DIPs — one-shot shrink to CSS-sized windows and
-  re-pin), or 1 (override ineffective — the old dsf-1 fallback, no
-  regression), always within 2 %; mid-resize frames keep the last scale, and
-  the header states what was painted. Device emulation is one state on the
-  widget but is tracked per CDP session, and Chromium ignores a re-sent
-  override whose params equal what that session last sent — so once an agent
-  session overwrites the pin (puppeteer `setViewport`), wipes it (a clipped or
-  `captureBeyondViewport` `Page.captureScreenshot` restores the agent
-  session's own empty params, disabling emulation on the widget), or takes it
-  along when it detaches, a plain re-send would never reach the renderer
-  (#630). Every application therefore clears the host's override before
-  setting it, and the host re-asserts through a 250 ms debounce after any
-  such command has been answered by Electron and after any decrease in CDP
-  clients (a client that keeps re-sending defers the revert; the user's
-  resize always wins).
-  Measured on the Linux reference (GNOME/Wayland, 1.5× fractional, software
-  raster, 800×600 CSS pane): target 1.5 → paint 1200×900 at page dpr 1.5,
-  encode p90 3.8 ms; target 2 → paint 1600×1200 at page dpr 2, encode p90
-  7.0 ms — inside the 16 ms gate, no frame-rate fallback. The squared-platform
-  correction branch cannot fire on Wayland (it never squares) and is covered
-  by the host unit tests. Monitor moves after creation are still not chased
-  in v1; `display-metrics-changed` and window moves only re-probe the target,
-  which applies at the next page create or resize.
+- **HiDPI is page zoom (#557; amended 2026-09-24, #646).** Under Wayland
+  *fractional* scaling `screen.getDisplayMatching().scaleFactor` lies (reports 1
+  while the app window's own pages render at 1.5), so the host takes its target
+  from the app window's measured page `devicePixelRatio` divided by the window's
+  zoom factor, clamped to `BROWSER_PANE_MAX_DSF`. Each page is created with
+  `webPreferences.zoomFactor` = target and its offscreen window sized
+  `css × target` DIPs: Chromium lays out the CSS size, reports
+  `devicePixelRatio` = target and rasterizes at target, so every frame header's
+  dsf is the page zoom by construction. The first route, which this amendment
+  withdraws, was `Emulation.setDeviceMetricsOverride` at the CSS size inside a
+  `css × dsf` window. It never rasterized above 1×: under device emulation Blink
+  lays out at the widget's real dsf (`ZoomFactorForViewportLayout` returns the
+  compositor override, which `ScreenMetricsEmulator` sets to the original screen
+  dsf, and the offscreen view reports 1). So the page filled only the top-left
+  `1/dsf` of every frame, and every check #557 and #630 relied on (`innerWidth`,
+  `devicePixelRatio`, `outerWidth`, paint size, header dsf) reads the same in
+  that state. The smoke now measures a 100 CSS px marker in the streamed frame.
+  The host still owns one override, `{width, height}` = window size with
+  `deviceScaleFactor: 1`, under which Blink lays out windowWidth / zoom = the
+  CSS size and reports dpr = zoom, so the host stays the last writer of the
+  widget's emulation. An agent `setViewport`, a clipped or
+  `captureBeyondViewport` capture (which restores the agent session's own
+  params), or a session detaching with a viewport would otherwise leave the
+  widget at the agent's size: emulation is per CDP session — a clear from the
+  host's session does not drop an agent's override — and Chromium keeps the
+  resized view when it drops one. `deviceScaleFactor: 0` is not neutral: it
+  resolves to the *screen's* dsf (1.5 under Wayland fractional scaling), never
+  the offscreen view's 1, and that emulated dsf — not the page zoom — then
+  drives layout. Every application clears the host's override before setting
+  it (Chromium ignores a re-sent identical override) and waits for the window's
+  first document commit (an override sent before it segfaults the GPU process);
+  every commit also re-forces `setZoomFactor(target)` because Chromium restores
+  the origin's persisted zoom level at commit, which would otherwise silently
+  replace the page's density. The host re-asserts through a 250 ms debounce
+  after any such command has been
+  answered and after any decrease in CDP clients. The pane's own input is scaled
+  from CSS to window DIPs by the host; CDP input is CSS and needs nothing. CDP
+  screenshot clips are DIP and Chromium scales them by the widget dsf only, so
+  the bridge scales a `Page.captureScreenshot` clip by the page zoom and turns a
+  clipless `captureBeyondViewport` into an explicit clip over
+  `Page.getLayoutMetrics().cssContentSize × zoom`. Screenshots therefore come
+  back at `css × zoom` pixels. Measured (Electron 43, GNOME/Wayland 1.5×, 959×1337
+  CSS): the old route painted 1439×2006 with a 100 CSS px marker at 100 px;
+  page zoom paints 1439×2006 with it at 150 px; an agent click at CSS
+  hits; an agent clip at (600, 900) is wrong without the bridge mapping and
+  right with it. Measured on the Linux reference (GNOME/Wayland, 1.5× fractional,
+  software raster, 800×600 CSS pane): target 1.5 → paint 1200×900 at page dpr
+  1.5, encode p90 3.8 ms; target 2 → paint 1600×1200 at page dpr 2, encode p90
+  7.0 ms — inside the 16 ms gate, no frame-rate fallback. Monitor moves after
+  creation are still not chased in v1; `display-metrics-changed` and window
+  moves only re-probe the target, which applies at the next page create or
+  resize.
 - **One loopback listener per live rpc tab, from spawn.** An idle tab costs one
   socket and no Chromium resources; the page and its renderer process exist
   only after first use. The token rotates with the listener.
@@ -283,11 +298,12 @@ through a **loopback CDP bridge** the main process hosts:
 
 ## Amendment — browser clock
 
-The bridge forwards CDP payloads verbatim **except** a successful
-`Page.captureScreenshot` result while the tab's project has the browser clock
-on (see CONTEXT.md "Browser clock", issue #642). That result's `data` is
-replaced with the same image, re-encoded in the requested format and quality,
-with a date/time badge in the top-right corner. The size is unchanged unless
+The bridge forwards CDP payloads verbatim **except** `Page.captureScreenshot`:
+its clip is mapped by the page zoom (see 'HiDPI is page zoom'), and a successful
+result while the tab's project has the browser clock on (see CONTEXT.md
+"Browser clock", issue #642). That result's `data` is replaced with the same
+image, re-encoded in the requested format and quality, with a date/time badge
+in the top-right corner. The size is unchanged unless
 the image is too small for the badge, in which case a strip is added on top.
 A stamping failure is returned to the client as the command's CDP error,
 never as an unstamped image. The page is never touched: the stamp is drawn in
