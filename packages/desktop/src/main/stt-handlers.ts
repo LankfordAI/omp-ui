@@ -7,6 +7,7 @@ import {
   type RequestHandlers,
   type Registry,
   type SttTranscribeRequest,
+  type OmpConfigRunner,
   type SttTranscribeResult,
 } from "@omp-ui/core";
 
@@ -17,6 +18,8 @@ interface SttHandlerDependencies {
   ompPath: string | null;
   /** Injected for tests; production uses global fetch. */
   fetchImpl?: typeof fetch;
+  /** Reuse the model probe's runner seam without spawning a test-only executable. */
+  runOmp?: OmpConfigRunner;
 }
 
 /** Upstream error bodies vary; dig out anything human-readable. */
@@ -44,7 +47,7 @@ export function registerSttHandlers(
   async function resolveModel(): Promise<string> {
     const stored = deps.registry.getSetting("sttModel");
     if (stored !== null) return stored;
-    const snapshot = await readSttModels({ ompPath: deps.ompPath });
+    const snapshot = await readSttModels({ ompPath: deps.ompPath }, deps.runOmp);
     const resolved = resolveSttSelector(snapshot.models);
     if (resolved === null) {
       throw new Error(
@@ -57,7 +60,7 @@ export function registerSttHandlers(
   }
 
   return {
-    [CH.readSttModels]: () => readSttModels({ ompPath: deps.ompPath }),
+    [CH.readSttModels]: () => readSttModels({ ompPath: deps.ompPath }, deps.runOmp),
     [CH.transcribeAudio]: async (req: SttTranscribeRequest): Promise<SttTranscribeResult> => {
       const model = await resolveModel();
       const route = parseSttSelector(model);

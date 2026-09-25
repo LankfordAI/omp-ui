@@ -108,11 +108,9 @@ describe("transcribeAudio", () => {
   });
 
   it("auto-resolves a null sttModel from the omp probe at call time", async () => {
-    // sttModel stays null; readSttModels runs `omp` via execFile, so point
-    // the probe at a shim that prints a callable catalog.
-    const shim = path.join(base, "omp");
-    fs.writeFileSync(shim, `#!/bin/sh\necho '${JSON.stringify({ models: [{ provider: "openrouter", kind: "stt", selector: "openrouter/openai/whisper-1", name: "Whisper 1" }] })}'\n`);
-    fs.chmodSync(shim, 0o755);
+    // Exercise the real catalog parsing without a Unix shell shim (Windows
+    // cannot spawn a shebang script via execFile).
+    const runOmp = async () => JSON.stringify({ models: [{ provider: "openrouter", kind: "stt", selector: "openrouter/openai/whisper-1", name: "Whisper 1" }] });
     process.env.OPENROUTER_API_KEY = "sk-or";
     try {
       const fetchImpl = vi.fn(async (_url: unknown, init: unknown) => {
@@ -120,7 +118,7 @@ describe("transcribeAudio", () => {
         expect(body.get("model")).toBe("openai/whisper-1");
         return new Response(JSON.stringify({ text: "resolved" }), { status: 200 });
       });
-      const h = registerSttHandlers({ registry, ompPath: shim, fetchImpl: fetchImpl as unknown as typeof fetch });
+      const h = registerSttHandlers({ registry, ompPath: "omp", runOmp, fetchImpl: fetchImpl as unknown as typeof fetch });
       await expect(h[CH.transcribeAudio](req)).resolves.toEqual({ text: "resolved" });
     } finally {
       delete process.env.OPENROUTER_API_KEY;
@@ -128,23 +126,19 @@ describe("transcribeAudio", () => {
   });
 
   it("rejects with the providers hint when nothing is callable", async () => {
-    const shim = path.join(base, "omp");
-    fs.writeFileSync(shim, "#!/bin/sh\necho '{\"models\":[]}'\n");
-    fs.chmodSync(shim, 0o755);
-    const h = registerSttHandlers({ registry, ompPath: shim, fetchImpl: vi.fn() as unknown as typeof fetch });
+    const runOmp = async () => JSON.stringify({ models: [] });
+    const h = registerSttHandlers({ registry, ompPath: "omp", runOmp, fetchImpl: vi.fn() as unknown as typeof fetch });
     await expect(h[CH.transcribeAudio](req)).rejects.toThrow(/no callable dictation model/);
   });
 });
 
 describe("readSttModels handler", () => {
   it("passes the probe snapshot through", async () => {
-    const shim = path.join(base, "omp");
-    fs.writeFileSync(
-      shim,
-      '#!/bin/sh\necho \'{"models":[{"provider":"openrouter","kind":"stt","selector":"openrouter/openai/whisper-1","name":"Whisper 1"},{"provider":"local","kind":"stt","selector":"local/whisper-base","name":"Whisper Base"}]}\'\n',
-    );
-    fs.chmodSync(shim, 0o755);
-    const h = registerSttHandlers({ registry, ompPath: shim, fetchImpl: vi.fn() as unknown as typeof fetch });
+    const runOmp = async () => JSON.stringify({ models: [
+      { provider: "openrouter", kind: "stt", selector: "openrouter/openai/whisper-1", name: "Whisper 1" },
+      { provider: "local", kind: "stt", selector: "local/whisper-base", name: "Whisper Base" },
+    ] });
+    const h = registerSttHandlers({ registry, ompPath: "omp", runOmp, fetchImpl: vi.fn() as unknown as typeof fetch });
     const snapshot = await h[CH.readSttModels]();
     expect(snapshot.discovered).toBe(true);
     expect(snapshot.models.map((m) => m.selector)).toEqual(["openrouter/openai/whisper-1"]);
