@@ -49,7 +49,7 @@ function button(label: string): HTMLButtonElement | undefined {
   );
 }
 
-function fire(el: Element, init: EventInit & { key?: string }): void {
+function fire(el: EventTarget, init: EventInit & { key?: string }): void {
   act(() => {
     el.dispatchEvent(
       new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }),
