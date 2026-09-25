@@ -125,3 +125,14 @@ export function StarIcon({ filled, className }: { filled?: boolean; className?: 
     </svg>
   );
 }
+
+/** Microphone — dictation in the composer (issue #647): capsule + stem + base. */
+export function IconMic({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <rect x="6" y="1.8" width="4" height="7.2" rx="2" />
+      <path d="M3.8 7.6a4.2 4.2 0 0 0 8.4 0" />
+      <path d="M8 11.8v2.4M5.8 14.2h4.4" />
+    </svg>
+  );
+}

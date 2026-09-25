@@ -1008,6 +1008,37 @@ export interface ProviderKeysSnapshot {
   backend: string;
 }
 
+/** One dictation model row discovered from omp's STT catalog (issue #647). */
+export interface SttModelOption {
+  /** omp selector, e.g. "openrouter/openai/whisper-large-v3-turbo". */
+  selector: string;
+  /** omp's provider group id: "openrouter" | "openai" | "local" | … */
+  provider: string;
+  name: string;
+  /** omp-ui can reach this one's endpoint with a credential it holds. */
+  callable: boolean;
+}
+
+/** The dictation-model picker's whole payload (issue #647). */
+export interface SttModelSnapshot {
+  models: SttModelOption[];
+  /** False when the omp probe failed; `models` then holds just the stored value. */
+  discovered: boolean;
+  error: string | null;
+}
+
+/** One dictation round trip: bare base64 WAV → provider transcript (issue #647). */
+export interface SttTranscribeRequest {
+  /** Bare base64 (no data-URI prefix) of a 16 kHz mono PCM16 WAV. */
+  audioBase64: string;
+  /** ISO-639-1 hint; null lets the provider auto-detect. */
+  language: string | null;
+}
+
+export interface SttTranscribeResult {
+  text: string;
+}
+
 /** One subscription row on the providers page. `accounts` are omp's own identity strings (email/org), never tokens. */
 export interface ProviderOAuthStatus {
   id: string;

@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { SttModelSnapshot } from "@omp-ui/core/types";
 import { cn } from "../../lib/cn";
 import {
   SCALE_STEPS,
@@ -6,6 +7,7 @@ import {
   useTranscriptScale,
 } from "../../lib/text-scale";
 import { useStore, type CompactionMethodsLoad } from "../../store";
+import { displayMessage } from "../../backend";
 import { ChoiceCapsule, Switch } from "../ui";
 import { currentLocaleId, UI_LOCALES, useT } from "../../lib/i18n";
 import { FIELD, Row } from "./rows";
@@ -163,6 +165,98 @@ function CompactionMethodPicker({
   );
 }
 
+type SttModelsLoad =
+  | { status: "loading" }
+  | { status: "loaded"; snapshot: SttModelSnapshot };
+
+/**
+ * The app-wide dictation model (issue #647). The rows come from the installed
+ * omp's STT catalog — never curated here (ADR-0027 lineage); each is labelled
+ * callable per the credentials main holds. A stored selector the current omp
+ * no longer publishes stays visible, pressed and labelled, like the
+ * compaction picker's unavailable row (ADR-0027 precedent); call-time
+ * resolution keeps working since routes derive from the selector.
+ */
+function DictationModelPicker({
+  value,
+  load,
+  onSelect,
+}: {
+  value: string | null;
+  load: SttModelsLoad;
+  onSelect: (selector: string | null) => void;
+}) {
+  const t = useT();
+  if (load.status === "loading") {
+    return <p className="text-[11px] text-ink-faint">{t("settings.omp.reading")}</p>;
+  }
+  const { snapshot } = load;
+  const options: Array<{ id: string | null; label: string; disabled?: boolean }> = [
+    { id: null, label: t("settings.general.dictationAuto") },
+  ];
+  if (value !== null && !snapshot.models.some((m) => m.selector === value)) {
+    options.push({
+      id: value,
+      label: `${value}${t("settings.general.dictationOptionOutside")}`,
+    });
+  }
+  for (const model of snapshot.models) {
+    options.push({
+      id: model.selector,
+      label: `${model.name} · ${model.selector}${
+        model.callable ? "" : t("settings.general.dictationOptionNotCallable")
+      }`,
+      // Pressed-but-labelled, never hidden: the unavailable-compaction pattern.
+      disabled: !model.callable && model.selector !== value,
+    });
+  }
+  const noCallable = !snapshot.models.some((m) => m.callable);
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <div
+        role="group"
+        aria-label={t("settings.general.dictationGroup")}
+        className="divide-y divide-line-soft rounded-md border border-line bg-raised"
+      >
+        {options.map((option) => {
+          const selected = option.id === value;
+          return (
+            <button
+              key={option.id ?? "auto"}
+              type="button"
+              aria-pressed={selected}
+              disabled={option.disabled}
+              onClick={() => {
+                if (option.id !== value) onSelect(option.id);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150",
+                option.disabled
+                  ? "cursor-not-allowed opacity-45"
+                  : selected
+                    ? "bg-hover text-ink"
+                    : "text-ink-mid hover:bg-hover/50 focus-visible:bg-hover/50 focus-visible:outline-none",
+              )}
+            >
+              <span className={cn("min-w-0 truncate font-mono text-[11px]", selected && "font-medium")}>
+                {option.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {snapshot.discovered && noCallable && (
+        <p className="text-[10px] text-ink-faint">{t("settings.general.dictationNoModels")}</p>
+      )}
+      {!snapshot.discovered && (
+        <p className="text-[10px] text-ink-faint">
+          {t("settings.general.dictationLoadFailed", { message: snapshot.error ?? "" })}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
@@ -211,6 +305,10 @@ export function GeneralPage() {
   const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
   const setSubagentModelInheritByDefault = useStore((s) => s.setSubagentModelInheritByDefault);
   const setExperimentsEnabled = useStore((s) => s.setExperimentsEnabled);
+  const setVoiceInputEnabled = useStore((s) => s.setVoiceInputEnabled);
+  const setSttModel = useStore((s) => s.setSttModel);
+  const readSttModels = useStore((s) => s.readSttModels);
+  const [sttModels, setSttModels] = useState<SttModelsLoad>({ status: "loading" });
   const scale = useTranscriptScale();
   const mode = state?.defaultMode ?? "pty";
   const agentMode = state?.defaultAgentMode ?? "plan";
@@ -219,6 +317,18 @@ export function GeneralPage() {
   useEffect(() => {
     void ensureCompactionMethods();
   }, [ensureCompactionMethods]);
+  // One probe per General mount, exactly like the Providers page's web-search
+  // read: the catalog belongs to the omp binary and the stored keys (issue #647).
+  useEffect(() => {
+    readSttModels().then(
+      (snapshot) => setSttModels({ status: "loaded", snapshot }),
+      (err: unknown) =>
+        setSttModels({
+          status: "loaded",
+          snapshot: { models: [], discovered: false, error: displayMessage(err) },
+        }),
+    );
+  }, [readSttModels]);
 
   return (
     <div className="divide-y divide-line-soft px-4">
@@ -363,6 +473,27 @@ export function GeneralPage() {
           on={state?.experimentsEnabled === true}
           onChange={(next) => void setExperimentsEnabled(next)}
           label={t("settings.general.experiments")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.voiceInput")}
+        hint={t("settings.general.voiceInputHint")}
+      >
+        <Switch
+          on={state?.voiceInputEnabled === true}
+          onChange={(next) => void setVoiceInputEnabled(next)}
+          label={t("settings.general.voiceInput")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.dictationModel")}
+        hint={t("settings.general.dictationModelHint")}
+        stacked
+      >
+        <DictationModelPicker
+          value={state?.sttModel ?? null}
+          load={sttModels}
+          onSelect={(selector) => void setSttModel(selector)}
         />
       </Row>
       <Row

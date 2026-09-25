@@ -39,6 +39,8 @@ import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
 import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, IconTune, Label, PerimeterGlow, PerimeterSweep } from "./ui";
+import { DictationControl, DictationStrip } from "./ComposerDictation";
+import { useDictation } from "../lib/use-dictation";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -590,12 +592,42 @@ export function Composer({
     [text, caret, atQuery],
   );
 
+  /** Splices a dictation transcript at the caret like pickMention does —
+   *  joined against non-space neighbours, never submitted (issue #647). A
+   *  transcript landing while a slash palette is open just edits the draft. */
+  const insertAtCaret = useCallback((spoken: string) => {
+    const at = box.current?.selectionStart ?? caret;
+    const before = text.slice(0, at);
+    const after = text.slice(at);
+    const lead = before !== "" && !/\s$/.test(before) ? " " : "";
+    const trail = after !== "" && !/^\s/.test(after) ? " " : "";
+    const next = before + lead + spoken + trail + after;
+    setText(next);
+    const caretNext = at + lead.length + spoken.length;
+    setCaret(caretNext);
+    // The DOM caret lags the state write by a commit; restore it explicitly.
+    requestAnimationFrame(() => {
+      if (box.current === null) return;
+      box.current.setSelectionRange(caretNext, caretNext);
+      box.current.focus({ preventScroll: true });
+    });
+  }, [text, caret]);
+
+  const voice = useDictation(tabId, insertAtCaret);
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // The palettes get first refusal on navigation keys while one is open.
     if (paletteOpen && palette.current?.handleKey(e) === true) return;
     if (mentionOpen && mentionPalette.current?.handleKey(e) === true) return;
 
     if (e.key === "Escape") {
+      // While recording, Escape discards the take before it means anything
+      // else (issue #647).
+      if (voice.phase === "recording" || voice.phase === "requesting") {
+        e.preventDefault();
+        voice.cancel();
+        return;
+      }
       // Escape only means something when there is a turn to stop; otherwise it
       // belongs to whatever else is listening.
       if (!running) return;
@@ -885,6 +917,7 @@ export function Composer({
             />
 
             <AttachmentButton disabled={unavailable} label={t("common.button.attachImages")} onClick={() => imagePicker.current?.click()} />
+            <DictationControl disabled={unavailable} voice={voice} />
 
 
             {queueChip && (
@@ -921,6 +954,7 @@ export function Composer({
           {compact && (
             <div className="flex min-h-11 items-center gap-1.5 px-1.5 pb-1.5">
               <AttachmentButton compact disabled={unavailable} label={t("common.button.attachImages")} onClick={() => imagePicker.current?.click()} />
+              <DictationControl compact disabled={unavailable} voice={voice} />
               <Button
                 variant="ghost"
                 title={t("composer.options.title")}
@@ -970,6 +1004,8 @@ export function Composer({
             </IconButton>
           </div>
         )}
+
+        <DictationStrip voice={voice} />
 
         {/* The worktree-conversion status lives here, not in the branch chip's
             popover (issue #227): the conversion runs on send, when the popover

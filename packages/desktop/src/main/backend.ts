@@ -117,6 +117,7 @@ import { windowStatePath } from "./window-state";
 import { NO_BREADCRUMBS, type BreadcrumbSink } from "./breadcrumbs";
 import { readExperimentDetail, readProjectExperiments, readRunLog } from "./experiments";
 import { registerSettingsHandlers } from "./settings-handlers";
+import { registerSttHandlers } from "./stt-handlers";
 import { registerRemoteHandlers } from "./remote-handlers";
 
 /** Owns application state and delegates every live child to SessionManager. */
@@ -624,6 +625,10 @@ export class MainBackend {
             (await readOmpCompactionMethods({ ompPath: this.ompPath, projectCwd: null }))
               .supported,
           onAppUpdateTrainChanged: () => this.appUpdater.onTrainChanged(),
+        }),
+        ...registerSttHandlers({
+          registry: this.registry,
+          ompPath: this.ompPath,
         }),
         // The appUpdateDismiss/ompUpdateDismiss channels only ever set a dismissal;
         // re-arming a dismissed card from Settings needs its own pair.
@@ -1252,6 +1257,8 @@ export class MainBackend {
       fontFamilyId: this.registry.getSetting("fontFamilyId"),
       transcriptWidth: this.registry.getSetting("transcriptWidth"),
       experimentsEnabled: this.registry.getSetting("experimentsEnabled"),
+      voiceInputEnabled: this.registry.getSetting("voiceInputEnabled"),
+      sttModel: this.registry.getSetting("sttModel"),
       glassChrome: this.registry.getSetting("glassChrome"),
       localeId: this.registry.getSetting("localeId"),
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),

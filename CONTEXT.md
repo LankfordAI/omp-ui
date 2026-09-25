@@ -248,6 +248,14 @@ omp's TUI as a bracketed paste (ADR-0006). omp re-encodes on ingest, so what
 returns in the transcript is omp's mime type, not the clipboard's.
 _Avoid_: upload, file, media
 
+**Dictation**:
+The composer's speech-to-text path (issue #647, ADR-0034): capture runs in
+the renderer's memory (no MediaRecorder/Blob), transcription runs in the main
+process against the model discovered from omp's STT catalog, and the result is
+inserted at the caret of the draft — never submitted. Gated app-wide by the
+Voice input setting.
+_Avoid_: voice typing, speech recognition, push-to-talk
+
 **Auto-title**:
 The name a new session gets from its first substantive prompt, in two phases.
 Phase one, at prompt time: a mechanically derived title from the prompt is

@@ -28,6 +28,7 @@ import type {
   RemoteInstancePatch,
   RemoteState,
   SessionMode,
+  SttModelSnapshot,
   TranscriptWidth,
   UpdateTrain,
   WorktreeReleaseOptions,
@@ -389,6 +390,10 @@ export interface SettingsSlice {
   setSubagentModelInheritByDefault(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   setExperimentsEnabled(on: boolean): Promise<void>;
+  /** Shows/hides the composer mic button app-wide (issue #647). */
+  setVoiceInputEnabled(on: boolean): Promise<void>;
+  /** The app-wide dictation model; null auto-resolves at call time. */
+  setSttModel(model: string | null): Promise<void>;
   setThemeId(id: string): Promise<void>;
   setFontFamilyId(id: string): Promise<void>;
   setTranscriptWidth(width: TranscriptWidth): Promise<void>;
@@ -415,6 +420,8 @@ export interface SettingsSlice {
   writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;
   /** The installed omp's own web-search provider ids (ADR-0027); never a curated list. */
   readWebSearchProviders(): Promise<WebSearchProviderSnapshot>;
+  /** The installed omp's STT catalog for the dictation picker (issue #647). */
+  readSttModels(): Promise<SttModelSnapshot>;
   readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
   setProviderKey(
     projectCwd: string | null,

@@ -208,6 +208,7 @@ export {
   type OmpCompactionMethods,
   type OmpConfigRunner,
 } from "./omp-settings";
+export * from "./stt";
 export {
   MEMORY_DEFAULT_SEED,
   seedMemoryDefaults,

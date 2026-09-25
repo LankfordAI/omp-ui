@@ -271,6 +271,19 @@ export const en = {
   // Inline status/error strips
   "composer.error.dismissPaste": "dismiss paste warning",
   "composer.error.dismissWorktree": "dismiss worktree error",
+  // Dictation (issue #647): the composer's speech-to-text path.
+  "composer.dictation.start": "dictate a message",
+  "composer.dictation.stop": "stop recording and transcribe",
+  "composer.dictation.requesting": "opening the microphone…",
+  "composer.dictation.recording": "recording — {seconds}s, click to stop",
+  "composer.dictation.transcribing": "transcribing…",
+  "composer.dictation.capped": "recording capped at 60 s — everything up to the cap was transcribed",
+  "composer.dictation.errorBlocked":
+    "microphone access was blocked — check your OS privacy settings",
+  "composer.dictation.errorBusy": "the microphone is busy or missing",
+  "composer.dictation.errorOpen": "could not open the microphone: {message}",
+  "composer.dictation.dismiss": "dismiss dictation message",
+  "composer.dictation.cancel": "cancel dictation",
   "composer.strip.converting": "cutting the worktree…",
   "composer.slash.new": "new live session in a new tab",
   "composer.slash.plan": "plan mode — read-only; a plan is drafted and reviewed on request",
@@ -595,6 +608,19 @@ export const en = {
   "settings.general.experiments": "Experiments lab (beta)",
   "settings.general.experimentsHint":
     "Adds the Lab, the New experiment dialog, and the autoresearch chip for OMP's /autoresearch loop. Off hides those surfaces and leaves /autoresearch to OMP. Applies to sessions started afterwards.",
+  "settings.general.voiceInput": "Voice input",
+  "settings.general.voiceInputHint":
+    "Adds a microphone button to every composer; recordings are transcribed by the provider below and inserted into the draft, never sent.",
+  "settings.general.dictationModel": "Dictation model",
+  "settings.general.dictationModelHint":
+    "Discovered from the installed OMP's speech-to-text catalog. Auto uses the first model a stored provider key makes callable.",
+  "settings.general.dictationGroup": "dictation model",
+  "settings.general.dictationAuto": "auto (first callable)",
+  "settings.general.dictationOptionNotCallable": " — no credential for this provider",
+  "settings.general.dictationOptionOutside": " — not in OMP's current catalog",
+  "settings.general.dictationNoModels":
+    "No dictation model is callable — add a provider key in Settings → Providers first.",
+  "settings.general.dictationLoadFailed": "model discovery failed: {message}",
   "settings.general.transcriptTextSize": "Transcript text size",
   "settings.general.transcriptTextSizeHint":
     "Native transcripts only — the rest of the chrome is an app, not a document.",

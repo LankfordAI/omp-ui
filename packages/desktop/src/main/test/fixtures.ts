@@ -23,6 +23,8 @@ interface RegistrySettings {
   modelFavorites: string[];
   skipDeleteConfirmation: boolean;
   experimentsEnabled: boolean;
+  voiceInputEnabled: boolean;
+  sttModel: string | null;
   sessionOrderFrozen: boolean;
   memoryDefaultsSeeded: boolean;
   gettingStartedSeen: boolean;
@@ -97,6 +99,8 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     modelFavorites: [],
     skipDeleteConfirmation: false,
     experimentsEnabled: false,
+    voiceInputEnabled: false,
+    sttModel: null,
     // Default false so seeds without the marker exercise the one-time
     // recency freeze exactly like pre-#274 registries do.
     sessionOrderFrozen: false,

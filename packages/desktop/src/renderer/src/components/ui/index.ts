@@ -5,6 +5,7 @@ export {
   IconClose,
   IconFlask,
   IconGrip,
+  IconMic,
   IconPlus,
   IconRefresh,
   IconSearch,

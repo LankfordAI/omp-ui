@@ -211,6 +211,22 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setVoiceInputEnabled(on) {
+      try {
+        await backend.setVoiceInputEnabled(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
+    async setSttModel(model) {
+      try {
+        await backend.setSttModel(model);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setThemeId(id) {
       const previousId = currentThemeId();
       applyTheme(resolveTheme(id));
@@ -392,6 +408,13 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       // Uncached on purpose: the list belongs to the installed omp version, the
       // probe is ~1 s, and re-mounting the Providers page is the retry path.
       return backend.readWebSearchProviders();
+    },
+
+    readSttModels() {
+      // Uncached on purpose, exactly like readWebSearchProviders: the catalog
+      // belongs to the installed omp version and the provider keys, both of
+      // which change without any event the store could subscribe to.
+      return backend.readSttModels();
     },
 
     async ensureCompactionSettings(projectCwd) {
