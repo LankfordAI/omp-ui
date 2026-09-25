@@ -4,7 +4,12 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.14.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.14.1). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- User prompts in the native transcript have a one-click Copy control; copying a selection as Markdown also works on prompts without including resolved @mention context ([#644](https://github.com/LankfordAI/omp-ui/issues/644)).
+- Click an Attachment or tool-result image in the native transcript to open it large, switch between fit and actual size, and step through related images ([#645](https://github.com/LankfordAI/omp-ui/issues/645)).
+- Browser pane screenshots and streamed frames now rasterize at the requested pixel density, including on HiDPI displays ([#646](https://github.com/LankfordAI/omp-ui/issues/646)).
+- Dictation adds a microphone control to the composer: record a take, transcribe it into the draft at the caret, then edit or send it yourself. Voice input is off by default and uses the selected speech-to-text model ([#647](https://github.com/LankfordAI/omp-ui/issues/647)).
+
+Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
