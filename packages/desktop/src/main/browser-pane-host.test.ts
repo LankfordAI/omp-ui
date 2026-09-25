@@ -47,6 +47,7 @@ function fakePane(opts: CreatePaneOptions): FakePane {
     stopPainting: vi.fn(),
     invalidate: vi.fn(),
     setContentSize: vi.fn(),
+    setZoomFactor: vi.fn(),
     getContentSize: () => ({ width: opts.width, height: opts.height }),
     loadURL: vi.fn(async (next: string) => {
       url = next;
@@ -285,21 +286,22 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     host.subscribe("t1", "c1", true);
     await flush();
     const pane = panes[0]!.pane;
-    // Window at css*2 (the BROWSER_PANE_MAX_DSF clamp), CSS viewport pinned at 2x.
+    // Window at css*2 (the BROWSER_PANE_MAX_DSF clamp), the page zoomed 2x inside it.
+    expect(panes[0]!.opts).toMatchObject({ width: 2560, height: 1600, zoomFactor: 2 });
     expect(pane.setContentSize).toHaveBeenCalledWith(2560, 1600);
     expect(pane.debugger.sendCommand).toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", {
-      width: 1280,
-      height: 800,
-      deviceScaleFactor: 2,
+      width: 2560,
+      height: 1600,
+      deviceScaleFactor: 1,
       mobile: false,
     });
     panes[0]!.paint(2560, 1600, Buffer.from([1]));
     const frame = sent.find((s) => s.channel === CH.onBrowserPaneFrame)?.args[1] as Uint8Array;
     expect(decodeBrowserPaneFrame(frame)?.header).toEqual({ width: 2560, height: 1600, dsf: 2 });
-    expect(host.diagnostics()[0]).toMatchObject({ targetDsf: 2, metricsMode: "window-scaled" });
+    expect(host.diagnostics()[0]).toMatchObject({ targetDsf: 2 });
   });
 
-  it("drops an empty paint and stamps the dsf the frame was really painted at", async () => {
+  it("drops an empty paint", async () => {
     const sent: Harness["sent"] = [];
     const panes: FakePane[] = [];
     const host = new BrowserPaneHost({
@@ -318,14 +320,9 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     panes[0]!.paint(0, 0, Buffer.alloc(0));
     expect(sent.filter((s) => s.channel === CH.onBrowserPaneFrame)).toHaveLength(0);
     expect(await host.ensure("t1")).toMatchObject({ status: "available", frame: null });
-    // A route that yields nothing (override ineffective) falls back to dsf 1, never a false 2.
-    panes[0]!.paint(1280, 800, Buffer.from([1]));
-    const frame = sent.find((s) => s.channel === CH.onBrowserPaneFrame)?.args[1] as Uint8Array;
-    expect(decodeBrowserPaneFrame(frame)?.header).toEqual({ width: 1280, height: 800, dsf: 1 });
-    expect(host.diagnostics()[0]?.frame).toEqual({ width: 1280, height: 800, dsf: 1 });
   });
 
-  it("sizes the window and header for a fractional target density", async () => {
+  it("sizes the window, zoom, override and header for a fractional density, and maps pane input to window DIPs", async () => {
     const sent: Harness["sent"] = [];
     const panes: FakePane[] = [];
     const host = new BrowserPaneHost({
@@ -341,52 +338,23 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     host.subscribe("t1", "c1", true);
     await flush();
     const pane = panes[0]!.pane;
+    expect(panes[0]!.opts).toMatchObject({ width: 1920, height: 1200, zoomFactor: 1.5 });
     expect(pane.setContentSize).toHaveBeenCalledWith(1920, 1200);
     expect(pane.debugger.sendCommand).toHaveBeenCalledWith("Emulation.setDeviceMetricsOverride", {
-      width: 1280,
-      height: 800,
-      deviceScaleFactor: 1.5,
+      width: 1920,
+      height: 1200,
+      deviceScaleFactor: 1,
       mobile: false,
     });
     panes[0]!.paint(1920, 1200, Buffer.from([1]));
     const frame = sent.find((s) => s.channel === CH.onBrowserPaneFrame)?.args[1] as Uint8Array;
     expect(decodeBrowserPaneFrame(frame)?.header).toEqual({ width: 1920, height: 1200, dsf: 1.5 });
-    expect(host.diagnostics()[0]).toMatchObject({ targetDsf: 1.5, metricsMode: "window-scaled" });
-  });
-
-  it("shrinks the window once when a platform squares the scale, then converges", async () => {
-    const sent: Harness["sent"] = [];
-    const panes: FakePane[] = [];
-    const host = new BrowserPaneHost({
-      send: (channel, ...args) => sent.push({ channel, args }),
-      createPane: async (opts) => {
-        const fake = fakePane(opts);
-        panes.push(fake);
-        return fake.pane;
-      },
-      targetScaleFactor: () => 2,
-    });
-    await host.ensureEndpoint("t1");
-    host.subscribe("t1", "c1", true);
-    await flush();
-    const pane = panes[0]!.pane;
-    // A window-DIP-auto-scaled platform paints css*2*2: the header tells the truth
-    // for that frame and the host shrinks the window to CSS size once.
-    panes[0]!.paint(5120, 3200, Buffer.from([1]));
-    expect(decodeBrowserPaneFrame(sent.at(-1)?.args[1] as Uint8Array)?.header.dsf).toBe(4);
-    expect(pane.setContentSize).toHaveBeenLastCalledWith(1280, 800);
-    expect(pane.debugger.sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
-      width: 1280,
-      height: 800,
-      deviceScaleFactor: 2,
-      mobile: false,
-    });
-    expect(host.diagnostics()[0]).toMatchObject({ targetDsf: 2, metricsMode: "window-css" });
-    panes[0]!.paint(2560, 1600, Buffer.from([2]));
-    expect(decodeBrowserPaneFrame(sent.at(-1)?.args[1] as Uint8Array)?.header).toEqual({
-      width: 2560,
-      height: 1600,
-      dsf: 2,
+    expect(host.diagnostics()[0]).toMatchObject({ targetDsf: 1.5 });
+    host.input("t1", { type: "mouseDown", x: 100, y: 50, button: "left", clickCount: 1 });
+    expect(pane.sendInputEvent).toHaveBeenLastCalledWith({ type: "mouseDown", x: 150, y: 75, button: "left", clickCount: 1 });
+    host.input("t1", { type: "mouseWheel", x: 10, y: 20, deltaX: 0, deltaY: -100, hasPreciseScrollingDeltas: false });
+    expect(pane.sendInputEvent).toHaveBeenLastCalledWith({
+      type: "mouseWheel", x: 15, y: 30, deltaX: 0, deltaY: -150, hasPreciseScrollingDeltas: false,
     });
   });
 
@@ -413,8 +381,7 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     vi.advanceTimersByTime(1);
     expect(setContentSize).toHaveBeenCalledTimes(sizes + 1);
     expect(setContentSize).toHaveBeenLastCalledWith(1280, 800);
-    // Clear, then size, then set: the clear is what makes Chromium accept the
-    // otherwise-identical override again.
+    // Clear, then set: the clear is what makes Chromium accept the otherwise-identical override again.
     expect(sendCommand).toHaveBeenCalledTimes(overrides + 2);
     expect(sendCommand).toHaveBeenNthCalledWith(overrides + 1, "Emulation.clearDeviceMetricsOverride");
     expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
@@ -424,10 +391,8 @@ describe("BrowserPaneHost sink registry (U2)", () => {
       mobile: false,
     });
     const clearOrder = sendCommand.mock.invocationCallOrder[overrides]!;
-    const sizeOrder = setContentSize.mock.invocationCallOrder[sizes]!;
     const setOrder = sendCommand.mock.invocationCallOrder[overrides + 1]!;
-    expect(clearOrder).toBeLessThan(sizeOrder);
-    expect(sizeOrder).toBeLessThan(setOrder);
+    expect(clearOrder).toBeLessThan(setOrder);
     // The bridge override command itself never marks the agent as acting.
     expect(h.states().every((s) => s.agent !== "acting")).toBe(true);
   });
@@ -826,7 +791,6 @@ describe("BrowserPaneHost endpoint, agent state, and denied ports (U7 host)", ()
         urlOrigin: "https://example.com",
         frame: { width: 1280, height: 800, dsf: 1 },
         targetDsf: 1,
-        metricsMode: "window-scaled",
         fps: 0,
         lastEncodeMs: 5,
         bridgePort: 41000,

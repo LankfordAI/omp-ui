@@ -9,6 +9,7 @@ import {
   createBridgeListener,
   createBridgeSession,
   gateBridgeRequest,
+  zoomScreenshotParams,
   type BridgeFrame,
   type BridgeListener,
   type BridgeRequest,
@@ -594,6 +595,89 @@ describe("createBridgeSession screenshot transform", () => {
     });
     await session.handleClientMessage("a", JSON.stringify({ id: 5, method: "Page.captureScreenshot", params: {} }));
     expect(out.at(-1)).toEqual({ id: 5, error: { code: -32000, message: "stamp exploded" } });
+  });
+});
+
+describe("createBridgeSession screenshot zoom (#646)", () => {
+  it("scales a clip by the zoom and passes zoom 1, window captures and plain captures through", async () => {
+    const clipped = { format: "png", clip: { x: 600, y: 900, width: 40, height: 40, scale: 1 }, captureBeyondViewport: true };
+    expect(await zoomScreenshotParams(clipped, 1.5, async () => null)).toEqual({
+      format: "png",
+      clip: { x: 900, y: 1350, width: 60, height: 60, scale: 1 },
+      captureBeyondViewport: true,
+    });
+    expect(await zoomScreenshotParams(clipped, 1, async () => null)).toBe(clipped);
+    const windowed = { ...clipped, fromSurface: false };
+    expect(await zoomScreenshotParams(windowed, 1.5, async () => null)).toBe(windowed);
+    let asked = 0;
+    const plain = { captureBeyondViewport: false };
+    const contentSize = async (): Promise<{ width: number; height: number }> => {
+      asked += 1;
+      return { width: 1, height: 1 };
+    };
+    expect(await zoomScreenshotParams(plain, 1.5, contentSize)).toBe(plain);
+    expect(asked).toBe(0);
+  });
+
+  it("turns a clipless beyond-viewport capture into a clip over the CSS content size", async () => {
+    const params = { format: "png", captureBeyondViewport: true };
+    expect(await zoomScreenshotParams(params, 1.5, async () => ({ width: 800, height: 3000 }))).toEqual({
+      format: "png",
+      captureBeyondViewport: true,
+      clip: { x: 0, y: 0, width: 1200, height: 4500, scale: 1 },
+    });
+    expect(await zoomScreenshotParams(params, 1.5, async () => null)).toBe(params);
+  });
+
+  it("sends Electron the zoom-mapped screenshot on the client's session and stamps with the client's params", async () => {
+    const out: BridgeFrame[] = [];
+    const seen: Array<[string, object, string | undefined]> = [];
+    const debug = new StubDebugger(async (method, params, sessionId) => {
+      seen.push([method, params, sessionId]);
+      if (method === "Target.attachToTarget") return { sessionId: "S1" };
+      if (method === "Page.getLayoutMetrics") return { cssContentSize: { width: 800, height: 3000 } };
+      if (method === "Page.captureScreenshot") return { data: "raw" };
+      return {};
+    });
+    const stamp = async (result: unknown, params: object): Promise<unknown> => ({ stamped: result, params });
+    const session = createBridgeSession<string>({
+      debugger: debug,
+      onCommand: () => {},
+      onCommandSettled: () => {},
+      transformScreenshot: stamp,
+      pageZoom: () => 1.5,
+      send: (_c, frame) => out.push(frame),
+      close: () => {},
+    });
+    session.addClient("a");
+    await session.handleClientMessage(
+      "a",
+      JSON.stringify({ id: 1, method: "Target.attachToTarget", params: { targetId: "P", flatten: true } }),
+    );
+    const clientParams = { format: "png", clip: { x: 600, y: 900, width: 40, height: 40, scale: 1 } };
+    await session.handleClientMessage(
+      "a",
+      JSON.stringify({ id: 2, method: "Page.captureScreenshot", params: clientParams, sessionId: "S1" }),
+    );
+    expect(seen.at(-1)).toEqual([
+      "Page.captureScreenshot",
+      { format: "png", clip: { x: 900, y: 1350, width: 60, height: 60, scale: 1 } },
+      "S1",
+    ]);
+    expect(out.at(-1)).toEqual({ id: 2, sessionId: "S1", result: { stamped: { data: "raw" }, params: clientParams } });
+
+    seen.length = 0;
+    await session.handleClientMessage(
+      "a",
+      JSON.stringify({ id: 3, method: "Page.captureScreenshot", params: { captureBeyondViewport: true }, sessionId: "S1" }),
+    );
+    expect(seen.map(([method]) => method)).toEqual(["Page.getLayoutMetrics", "Page.captureScreenshot"]);
+    expect(seen[0]![2]).toBe("S1");
+    expect(seen[1]).toEqual([
+      "Page.captureScreenshot",
+      { captureBeyondViewport: true, clip: { x: 0, y: 0, width: 1200, height: 4500, scale: 1 } },
+      "S1",
+    ]);
   });
 });
 

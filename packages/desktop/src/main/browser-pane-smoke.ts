@@ -30,11 +30,14 @@ import { ClockStamper } from "./clock-stamper";
  * `--once` writes the summary and exits: 0 pass, 2 listener, 3 paint,
  * 4 input, 5 watchdog. Interactive mode finishes on `q` + Enter.
  *
- * The metrics-* steps clobber the host's HiDPI pin the way an agent does
- * (metrics-agent-viewport, metrics-clip-screenshot) and expect it back within
- * the re-assert debounce; metrics-plain-screenshot expects the pin to survive a
- * screenshot that touches no emulation (#630). All three need --dsf>1 to prove
- * anything and record ok=null otherwise.
+ * The metrics-* steps measure what the host streams, not what JS reports.
+ * metrics-raster reads a 100 CSS px marker out of the newest frame and expects
+ * 100 × dsf pixels. metrics-agent-viewport / metrics-clip-screenshot clobber the
+ * host's emulation the way an agent does and expect layout, dpr and marker back
+ * within the re-assert debounce; metrics-plain-screenshot expects them to
+ * survive a capture that touches no emulation (#630); those three need --dsf>1.
+ * metrics-agent-clip-region and metrics-agent-fullpage capture through the real
+ * bridge and expect the named region at css × dsf pixels (#646).
  *
  * clock-stamp turns the browser clock on and expects the real stamper page to
  * change only the top-right quadrant of a PNG screenshot, and to grow a clip
@@ -162,6 +165,8 @@ const frames = {
   /** ms since start of every frame (decodable or not); the idle step reports offsets from it. */
   at: [] as number[],
   idlePaintsIn3s: null as number | null,
+  /** JPEG bytes of the newest decodable frame (the host allocates one buffer per frame). */
+  lastJpeg: null as Uint8Array | null,
 };
 const states: StateRow[] = [];
 const inputTest: InputStep[] = [];
@@ -240,6 +245,7 @@ function recordFrame(frame: Uint8Array): void {
   const { header, jpeg } = decoded;
   if (frames.firstFrameIsJpeg === null) frames.firstFrameIsJpeg = isJpeg(jpeg);
   frames.lastHeader = header;
+  frames.lastJpeg = jpeg;
   const key = `${header.width}x${header.height}@${header.dsf}`;
   if (!frames.sizesSeen.includes(key)) frames.sizesSeen.push(key);
   frames.bytes.push(jpeg.length);
@@ -529,19 +535,65 @@ async function runDomSteps(reader: PageReader): Promise<void> {
 /** Debounce (250 ms) + resize + paint: how long a clobbered pin needs to come back. */
 const METRICS_SETTLE_MS = 600;
 
+const MARKER_CSS = 100;
+
+/** Frame px width of a 100 CSS px red marker pinned at the viewport's top-left, read from the host's newest frame. */
+async function markerFramePx(reader: PageReader): Promise<number | null> {
+  // Toggling the shade forces a repaint even when the marker already exists.
+  await reader.eval(
+    `(() => { let m = document.getElementById("smoke-marker"); if (m === null) { m = document.createElement("div"); m.id = "smoke-marker"; document.body.appendChild(m); } const shade = m.style.background === "rgb(255, 0, 0)" ? "rgb(254, 0, 0)" : "rgb(255, 0, 0)"; m.style.cssText = "position:fixed;left:0;top:0;width:${MARKER_CSS}px;height:${MARKER_CSS}px;z-index:2147483647;background:" + shade; return true; })()`,
+  );
+  await nextFrameLatency();
+  const jpeg = frames.lastJpeg;
+  if (jpeg === null) return null;
+  const image = nativeImage.createFromBuffer(Buffer.from(jpeg));
+  const { width } = image.getSize();
+  const bitmap = image.toBitmap(); // BGRA
+  let run = 0;
+  for (let x = 0; x < width; x += 1) {
+    const at = (4 * width + x) * 4; // row 4: inside the marker, clear of the frame edge
+    const red = bitmap.readUInt8(at + 2) > 200 && bitmap.readUInt8(at + 1) < 90 && bitmap.readUInt8(at) < 90;
+    if (!red) break;
+    run += 1;
+  }
+  return run;
+}
+
+function rasterMatches(px: number | null, dsf: number): boolean {
+  return px !== null && Math.abs(px - MARKER_CSS * dsf) <= 3;
+}
+
+/** What the page and the newest frame report about the host's geometry. */
+interface MetricsRead {
+  dpr: number;
+  inner: number[];
+  markerPx: number | null;
+  lastHeader: { width: number; height: number; dsf: number } | null;
+}
+
 /**
  * Agent CDP traffic that overwrites or disables the widget's device emulation
  * (#630): a puppeteer viewport and a clipped screenshot. Each must leave the
- * page back at the host's CSS size and dsf once the re-assert has landed; a
- * plain screenshot must leave the pin alone.
+ * page back at the host's CSS size, dsf and raster once the re-assert has
+ * landed; a plain screenshot must leave the pin alone. metrics-raster first
+ * proves the page really rasterizes at dsf (#646), and the agent-capture steps
+ * check that the bridge maps an agent's screenshot clips by the page zoom.
  */
 async function runMetricsClobberSteps(reader: PageReader): Promise<void> {
   const wantDsf = flags.dsf ?? 1;
-  const want = { dpr: wantDsf, inner: [flags.size.width, flags.size.height] };
-  const readMetrics = async (): Promise<{ dpr: number; inner: number[]; lastHeader: typeof frames.lastHeader }> => {
+  const want = { dpr: wantDsf, inner: [flags.size.width, flags.size.height], markerPx: MARKER_CSS * wantDsf };
+  const readMetrics = async (): Promise<MetricsRead> => {
     const [dpr, w, h] = await reader.eval<[number, number, number]>("[devicePixelRatio, innerWidth, innerHeight]");
-    return { dpr, inner: [w, h], lastHeader: frames.lastHeader };
+    return { dpr, inner: [w, h], markerPx: await markerFramePx(reader), lastHeader: frames.lastHeader };
   };
+  /** Layout, dpr and rasterization all back at the host's values. */
+  const pinned = (got: MetricsRead): boolean =>
+    got.dpr === wantDsf && got.inner[0] === want.inner[0] && got.inner[1] === want.inner[1] && rasterMatches(got.markerPx, wantDsf);
+
+  // The page fills its frame and rasterizes at dsf: at 1 this still proves the
+  // marker spans the whole CSS viewport, not a 1/dsf corner (#646).
+  const rasterGot = await readMetrics();
+  recordStep("metrics-raster", pinned(rasterGot), { ...rasterGot, want }, null);
 
   const clobbers: Array<[string, string, object]> = [
     [
@@ -565,13 +617,8 @@ async function runMetricsClobberSteps(reader: PageReader): Promise<void> {
     await reader.client.call(method, params, reader.sessionId);
     await sleep(METRICS_SETTLE_MS);
     const got = await readMetrics();
-    const back =
-      got.dpr === wantDsf &&
-      got.inner[0] === want.inner[0] &&
-      got.inner[1] === want.inner[1] &&
-      got.lastHeader?.dsf === wantDsf;
     // At dsf 1 the agent's override equals the host's pin: nothing to prove.
-    if (wantDsf > 1) recordStep(name, back, { ...got, want }, null);
+    if (wantDsf > 1) recordStep(name, pinned(got), { ...got, want }, null);
     else recordStep(name, null, { ...got, want, note: "needs --dsf>1" }, null);
   }
 
@@ -588,10 +635,9 @@ async function runMetricsClobberSteps(reader: PageReader): Promise<void> {
   );
   await sleep(METRICS_SETTLE_MS);
   const got = await readMetrics();
-  const back = got.dpr === wantDsf && got.inner[0] === want.inner[0] && got.inner[1] === want.inner[1];
   recordStep(
     "metrics-plain-screenshot",
-    wantDsf > 1 ? back : null,
+    wantDsf > 1 ? pinned(got) : null,
     {
       ...got,
       want,
@@ -601,6 +647,68 @@ async function runMetricsClobberSteps(reader: PageReader): Promise<void> {
     },
     null,
   );
+
+  await runAgentCaptureSteps(reader, wantDsf);
+  await reader.eval('(document.getElementById("smoke-marker")?.remove(), true)');
+}
+
+function greenPixel(bitmap: Buffer, width: number, x: number, y: number): boolean {
+  const at = (y * width + x) * 4; // BGRA
+  return bitmap.readUInt8(at + 1) > 150 && bitmap.readUInt8(at + 2) < 80 && bitmap.readUInt8(at) < 80;
+}
+
+/**
+ * Screenshots through the real bridge (#646): a client's CSS clip must come
+ * back as that region at css × dsf pixels, and a clipless captureBeyondViewport
+ * (puppeteer fullPage) as the whole CSS content at the same density.
+ */
+async function runAgentCaptureSteps(reader: PageReader, dsf: number): Promise<void> {
+  const capture = async (params: object): Promise<Electron.NativeImage> => {
+    const reply = await reader.client.call("Page.captureScreenshot", params, reader.sessionId);
+    const data = stringField(reply, "data");
+    if (data === null) throw new Error("Page.captureScreenshot returned no data");
+    return nativeImage.createFromBuffer(Buffer.from(data, "base64"));
+  };
+  await reader.eval(
+    '(() => { let p = document.getElementById("smoke-probe"); if (p === null) { p = document.createElement("div"); p.id = "smoke-probe"; document.body.appendChild(p); } p.style.cssText = "position:absolute;left:300px;top:200px;width:40px;height:40px;background:rgb(0,200,0);z-index:2147483647"; window.scrollTo(0, 0); return true; })()',
+  );
+  try {
+    const region = await capture({
+      format: "png",
+      clip: { x: 300, y: 200, width: 40, height: 40, scale: 1 },
+      captureBeyondViewport: true,
+      fromSurface: true,
+    });
+    const regionSize = region.getSize();
+    const wantRegion = Math.round(40 * dsf);
+    recordStep(
+      "metrics-agent-clip-region",
+      Math.abs(regionSize.width - wantRegion) <= 1 &&
+        Math.abs(regionSize.height - wantRegion) <= 1 &&
+        greenPixel(region.toBitmap(), regionSize.width, Math.floor(regionSize.width / 2), Math.floor(regionSize.height / 2)),
+      { size: regionSize, want: wantRegion, dsf },
+      null,
+    );
+    // The clipped capture restores the agent session's emulation; let the host re-assert land.
+    await sleep(METRICS_SETTLE_MS);
+
+    const metrics = await reader.client.call("Page.getLayoutMetrics", {}, reader.sessionId);
+    const cssSize = isObject(metrics) && isObject(metrics.cssContentSize) ? metrics.cssContentSize : null;
+    const cssWidth = cssSize !== null && typeof cssSize.width === "number" ? cssSize.width : null;
+    const full = await capture({ format: "png", captureBeyondViewport: true, fromSurface: true });
+    const fullSize = full.getSize();
+    recordStep(
+      "metrics-agent-fullpage",
+      cssWidth !== null &&
+        Math.abs(fullSize.width - cssWidth * dsf) <= 2 &&
+        greenPixel(full.toBitmap(), fullSize.width, Math.round(320 * dsf), Math.round(220 * dsf)),
+      { size: fullSize, cssWidth, dsf },
+      null,
+    );
+    await sleep(METRICS_SETTLE_MS);
+  } finally {
+    await reader.eval('(document.getElementById("smoke-probe")?.remove(), true)');
+  }
 }
 
 const CLOCK_TEXT = "Sep 23, 2026  4:19 PM CDT";
@@ -752,7 +860,6 @@ function summary(): object {
       dprReported,
       lastFrame: frames.lastHeader,
       targetDsf: paneRow?.targetDsf ?? null,
-      metricsMode: paneRow?.metricsMode ?? null,
     },
     frames: {
       count: frames.count,

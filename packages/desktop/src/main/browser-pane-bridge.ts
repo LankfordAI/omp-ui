@@ -15,7 +15,8 @@ import type { PaneContents, PaneDebugger } from "./browser-pane-contents";
 // `Target` domain, and a tab target they can auto-attach to. Electron's
 // `webContents.debugger` is a *page*-level session with a root that only
 // partially speaks `Target`. The root shim below papers over exactly that gap
-// and forwards everything else verbatim — session ids included — so the pane
+// and forwards everything else verbatim — session ids included — except screenshot
+// clips, which `zoomScreenshotParams` maps from CSS to DIP by the page zoom, so the pane
 // stays a plain Chromium page as far as the client can tell.
 //
 // Two layers, split so the shim is testable without sockets:
@@ -41,6 +42,8 @@ export interface BridgeListenerDeps {
    * Absent: results pass through verbatim.
    */
   transformScreenshot?: (result: unknown, params: object) => Promise<unknown>;
+  /** The page's zoom, which is its rasterization scale; `Page.captureScreenshot` clips are mapped by it. Default 1. */
+  pageZoom?: () => number;
   appVersion?: string;
   now?: () => number;
 }
@@ -127,6 +130,8 @@ export interface BridgeSessionDeps<T> {
    * Absent: results pass through verbatim.
    */
   transformScreenshot?: (result: unknown, params: object) => Promise<unknown>;
+  /** The page's zoom, which is its rasterization scale; `Page.captureScreenshot` clips are mapped by it. Default 1. */
+  pageZoom?: () => number;
   send: (client: T, frame: BridgeFrame) => void;
   /** Close the client's transport; the transport then calls `removeClient`. */
   close: (client: T) => void;
@@ -193,6 +198,34 @@ function readTargetInfos(result: unknown): unknown[] {
   return Array.isArray(infos) ? infos : [];
 }
 
+/**
+ * CDP clips (`Page.Viewport`) are DIP, and Chromium maps them through the
+ * widget's device scale only (1 in the pane, whose density is page zoom), so a
+ * client's CSS clip would land on the wrong region (#646). Scales a clip
+ * by the zoom; a clipless `captureBeyondViewport` (puppeteer fullPage), which
+ * Chromium would size in CSS px, becomes an explicit clip over the CSS content
+ * size. Everything else, and zoom 1, passes through untouched.
+ */
+export async function zoomScreenshotParams(
+  params: object,
+  zoom: number,
+  cssContentSize: () => Promise<{ width: number; height: number } | null>,
+): Promise<object> {
+  if (zoom === 1 || field(params, "fromSurface") === false) return params;
+  const clip = field(params, "clip");
+  if (isObject(clip)) {
+    const { x, y, width, height } = clip;
+    if (typeof x !== "number" || typeof y !== "number" || typeof width !== "number" || typeof height !== "number") {
+      return params;
+    }
+    return { ...params, clip: { ...clip, x: x * zoom, y: y * zoom, width: width * zoom, height: height * zoom } };
+  }
+  if (field(params, "captureBeyondViewport") !== true) return params;
+  const size = await cssContentSize();
+  if (size === null) return params;
+  return { ...params, clip: { x: 0, y: 0, width: size.width * zoom, height: size.height * zoom, scale: 1 } };
+}
+
 export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSession<T> {
   const dbg = deps.debugger;
   const clients = new Map<T, ClientState<T>>();
@@ -224,12 +257,29 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
     }
   }
 
-  /** A client command forwarded verbatim; screenshots then pass through the stamp hook. */
+  /** `Page.getLayoutMetrics().cssContentSize` on the capturing session; null when unreadable. */
+  async function cssContentSize(sessionId?: string): Promise<{ width: number; height: number } | null> {
+    let metrics: unknown;
+    try {
+      metrics = await cmd("Page.getLayoutMetrics", {}, sessionId);
+    } catch {
+      return null;
+    }
+    const size = field(metrics, "cssContentSize");
+    const width = field(size, "width");
+    const height = field(size, "height");
+    return typeof width === "number" && typeof height === "number" && width > 0 && height > 0
+      ? { width, height }
+      : null;
+  }
+
+  /** A client command forwarded to Electron; screenshots are zoom-mapped on the way in and stamped on the way out. */
   async function forwardClient(method: string, params: object, sessionId?: string): Promise<unknown> {
-    const result = await forward(method, params, sessionId);
-    return method === "Page.captureScreenshot" && deps.transformScreenshot !== undefined
-      ? deps.transformScreenshot(result, params)
-      : result;
+    if (method !== "Page.captureScreenshot") return forward(method, params, sessionId);
+    const sent = await zoomScreenshotParams(params, deps.pageZoom?.() ?? 1, () => cssContentSize(sessionId));
+    const result = await forward(method, sent, sessionId);
+    // The stamp sizes its badge off the CSS clip the client asked for.
+    return deps.transformScreenshot === undefined ? result : deps.transformScreenshot(result, params);
   }
 
   /**
@@ -659,6 +709,7 @@ export const createBridgeListener: CreateBridgeListener = (deps) =>
             onCommand: deps.onCommand,
             onCommandSettled: deps.onCommandSettled,
             transformScreenshot: deps.transformScreenshot,
+            pageZoom: deps.pageZoom,
             send: (ws, frame) => {
               if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
             },
