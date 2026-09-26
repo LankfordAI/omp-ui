@@ -2,15 +2,22 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { backendState } from "../test/fixtures";
+import type { ProjectGroup } from "@omp-ui/core/types";
+import { backendState, remoteInstance } from "../test/fixtures";
 import type { Dictation } from "./use-dictation";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 const TAB = "tab-voice";
+const INSTANCE = "inst-remote";
 const transcribeAudio = vi.fn();
+// A proxied take would land here instead of on the local backend (#659).
+const remoteInstanceRequest = vi.fn(async () => ({ text: "must not be routed" }));
 Object.assign(window, {
-  ompBackend: { transcribeAudio: (req: unknown) => transcribeAudio(req) },
+  ompBackend: {
+    transcribeAudio: (req: unknown) => transcribeAudio(req),
+    remoteInstanceRequest,
+  },
 });
 
 // Dynamic import is required: store.ts captures window.ompBackend at module
@@ -70,60 +77,64 @@ let latest: Dictation;
 const inserted: string[] = [];
 
 function Probe(): null {
-  latest = useDictation(TAB, (text) => inserted.push(text));
+  latest = useDictation((text) => inserted.push(text));
   return null;
 }
 
-function mount(voiceInputEnabled: boolean): void {
+function mount(voiceInputEnabled: boolean, ownerId: string | null = null): void {
+  const group: ProjectGroup = {
+    project: {
+      path: "/p",
+      name: "P",
+      addedAt: "t",
+      lastModel: null,
+      lastThinkingLevel: null,
+      lastAdvisor: null,
+      lastAdvisorModel: null,
+      defaultModel: null,
+      defaultAdvisorModel: null,
+      browserClock: false,
+    },
+    sessions: [
+      {
+        tabId: TAB,
+        sessionId: "s",
+        lineageDir: "l",
+        projectCwd: "/p",
+        launchedAt: "t",
+        mode: "rpc-ui",
+        worktree: null,
+        planImplementationSource: null,
+        experiment: null,
+        agentMode: "build",
+        compactionMethod: null,
+        model: null,
+        thinkingLevel: null,
+        advisor: false,
+        advisorModel: null,
+        subagentModels: null,
+        proposedPlans: [],
+        cachedTitle: null,
+        cachedModified: null,
+        title: "Voice",
+        status: "complete",
+        live: "live",
+        pendingPlan: null,
+        planSettle: null,
+        streamStalled: false,
+      },
+    ],
+  };
   useStore.setState({
-    state: backendState({
-      voiceInputEnabled,
-      projects: [
-        {
-          project: {
-            path: "/p",
-            name: "P",
-            addedAt: "t",
-            lastModel: null,
-            lastThinkingLevel: null,
-            lastAdvisor: null,
-            lastAdvisorModel: null,
-            defaultModel: null,
-            defaultAdvisorModel: null,
-            browserClock: false,
+    state: backendState(
+      ownerId === null
+        ? { voiceInputEnabled, projects: [group] }
+        : {
+            voiceInputEnabled,
+            projects: [],
+            remoteInstances: [remoteInstance({ id: ownerId, projects: [group] })],
           },
-          sessions: [
-            {
-              tabId: TAB,
-              sessionId: "s",
-              lineageDir: "l",
-              projectCwd: "/p",
-              launchedAt: "t",
-              mode: "rpc-ui",
-              worktree: null,
-              planImplementationSource: null,
-              experiment: null,
-              agentMode: "build",
-              compactionMethod: null,
-              model: null,
-              thinkingLevel: null,
-              advisor: false,
-              advisorModel: null,
-              subagentModels: null,
-              proposedPlans: [],
-              cachedTitle: null,
-              cachedModified: null,
-              title: "Voice",
-              status: "complete",
-              live: "live",
-              pendingPlan: null,
-              planSettle: null,
-              streamStalled: false,
-            },
-          ],
-        },
-      ],
-    }),
+    ),
   });
   const host = document.createElement("div");
   document.body.append(host);
@@ -147,6 +158,7 @@ beforeEach(() => {
   stopTrack = vi.fn();
   inserted.length = 0;
   transcribeAudio.mockReset();
+  remoteInstanceRequest.mockClear();
   getUserMedia = vi.fn(async () => fakeStream());
   vi.stubGlobal("AudioContext", AudioContextStub);
   vi.stubGlobal("webkitAudioContext", AudioContextStub);
@@ -204,6 +216,20 @@ describe("useDictation", () => {
     expect(Math.round((atob(req.audioBase64).length - 44) / 2)).toBe(16_000);
     expect(stopTrack).toHaveBeenCalledTimes(1);
     expect(closeCalls).toBe(1);
+  });
+
+  it("transcribes a remote-owned tab through the local main (#659)", async () => {
+    mount(true, INSTANCE);
+    transcribeAudio.mockResolvedValue({ text: "dictated across the wire" });
+    act(() => latest.toggle());
+    await settle();
+    processor.fire(VOICE);
+    act(() => latest.toggle());
+    await settle();
+    expect(transcribeAudio).toHaveBeenCalledTimes(1);
+    expect(remoteInstanceRequest).not.toHaveBeenCalled();
+    expect(inserted).toEqual(["dictated across the wire"]);
+    expect(latest.phase).toBe("off");
   });
 
   it("discards a silent take without a provider call", async () => {

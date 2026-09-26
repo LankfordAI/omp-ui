@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { backendFor } from "../backend";
-import { findOwner, useStore } from "../store";
+import { backend } from "../backend";
+import { useStore } from "../store";
 import { bytesToBase64 } from "./clipboard-image";
 import { t as translate } from "./i18n";
 import { concatChunks, encodeWavPcm16, resampleLinear, STT_SAMPLE_RATE } from "./stt-wav";
@@ -54,9 +54,8 @@ function closeCapture(cap: Capture): Promise<void> {
   return cap.ctx.close().catch(() => undefined);
 }
 
-export function useDictation(tabId: string, onInsert: (text: string) => void): Dictation {
+export function useDictation(onInsert: (text: string) => void): Dictation {
   const voiceInputEnabled = useStore((s) => s.state?.voiceInputEnabled === true);
-  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const supported = voiceInputEnabled && navigator.mediaDevices !== undefined;
   const [phase, setPhase] = useState<DictationPhase>("off");
   const [seconds, setSeconds] = useState(0);
@@ -75,8 +74,6 @@ export function useDictation(tabId: string, onInsert: (text: string) => void): D
   // current one without re-subscribing every render.
   const onInsertRef = useRef(onInsert);
   onInsertRef.current = onInsert;
-  const instanceRef = useRef(instanceId);
-  instanceRef.current = instanceId;
 
   const stopTick = useCallback((): void => {
     if (tick.current !== null) {
@@ -118,7 +115,10 @@ export function useDictation(tabId: string, onInsert: (text: string) => void): D
         return;
       }
       try {
-        const result = await backendFor(instanceRef.current).transcribeAudio({
+        // The local main transcribes whatever tab is focused (issue #659): the
+        // mic, the `sttModel` setting, and the provider credential all belong
+        // to this app, and `stt:transcribe` rides no instance proxy.
+        const result = await backend.transcribeAudio({
           audioBase64: bytesToBase64(encodeWavPcm16(mono16, STT_SAMPLE_RATE)),
           // null lets the provider auto-detect; omp-ui does not guess locales.
           language: null,

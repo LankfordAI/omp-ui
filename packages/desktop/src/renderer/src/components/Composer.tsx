@@ -613,7 +613,7 @@ export function Composer({
     });
   }, [text, caret]);
 
-  const voice = useDictation(tabId, insertAtCaret);
+  const voice = useDictation(insertAtCaret);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // The palettes get first refusal on navigation keys while one is open.
