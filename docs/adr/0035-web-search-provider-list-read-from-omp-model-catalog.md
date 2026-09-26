@@ -80,3 +80,9 @@ The catalog is the better publication on every axis ADR-0027 cared about:
   `readWebSearchProviders` discovers at least one provider. Against a binary
   with no `models --kind search`, it fails loudly — the supported binary is
   18.2.11+.
+
+- **The value-side follow-up landed.** #661 /
+  [ADR-0036](0036-preferred-web-search-provider-binds-to-the-web-model-role.md)
+  binds the row's value to `modelRoles.web` on binaries that dropped
+  `providers.webSearchOrder`. The enumeration contract this ADR set stands
+  unchanged: catalog ids, closed select, per-binary truth.

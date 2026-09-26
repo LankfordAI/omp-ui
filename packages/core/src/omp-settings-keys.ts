@@ -32,6 +32,10 @@ export const MEMORY_SETTING_GROUP: OmpSettingGroup = {
  * setting renders as a read-only JSON span on the omp page (rows.tsx), so the Providers page
  * carries a dedicated closed select for webSearchOrder instead. webSearchExclude has no editor
  * here — it is read only to warn when a chosen provider is one omp will always skip.
+ * These are the LEGACY binding: allowlisted so pre-18.2.x binaries stay readable and
+ * writable. On modern omp the Providers page binds the same control to the `web` role of
+ * OMP_MODEL_ROLES_KEY instead (ADR-0036); nothing is written to these keys unless the
+ * snapshot still publishes them.
  */
 export const WEB_SEARCH_SETTING_GROUP: OmpSettingGroup = {
   title: "Web search",
@@ -112,7 +116,11 @@ export const OMP_SETTING_KEYS: readonly string[] = [
 ];
 /** modelRoles is a record edited per-role, so it is handled apart from the scalar list. */
 export const OMP_MODEL_ROLES_KEY = "modelRoles";
-/** omp's built-in roles, in omp's own order (v17.2.7 config/model-roles.ts MODEL_ROLE_IDS). */
+/** omp's built-in roles, in omp's own order (v17.2.7 config/model-roles.ts MODEL_ROLE_IDS).
+ *  omp 18.2.x added a `web` role, deliberately NOT listed here: the Providers page owns it
+ *  as a closed select (ADR-0036), because the omp page's free-text row would bypass the
+ *  ADR-0027 list contract. OmpPage.commitRole spreads the whole record, so the web sibling
+ *  round-trips untouched. */
 export const OMP_MODEL_ROLE_IDS = [
   "default",
   "smol",

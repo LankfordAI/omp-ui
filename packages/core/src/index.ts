@@ -214,12 +214,17 @@ export {
   seedMemoryDefaults,
 } from "./memory-defaults";
 export {
+  mergeWebSearchRole,
   normalizeWebSearchOrder,
   parseWebSearchProviderCatalog,
   unknownWebSearchProviders,
   WEB_SEARCH_CUSTOM_OPTION,
   webSearchOrderForOption,
+  webSearchRoleLayer,
+  webSearchRoleSelection,
+  webSearchSelectorForOption,
   webSearchSelection,
+  type WebSearchRoleSelection,
   type WebSearchSelection,
 } from "./web-search-order";
 export { getScopedCapabilities, setScopedCapability } from "./capability-catalog";

@@ -9,12 +9,17 @@ import type {
   WebSearchProviderSnapshot,
 } from "@omp-ui/core/types";
 import {
+  mergeWebSearchRole,
   normalizeWebSearchOrder,
   unknownWebSearchProviders,
   WEB_SEARCH_CUSTOM_OPTION,
   webSearchOrderForOption,
+  webSearchRoleLayer,
+  webSearchRoleSelection,
+  webSearchSelectorForOption,
   webSearchSelection,
 } from "@omp-ui/core/web-search-order";
+import { OMP_MODEL_ROLES_KEY } from "@omp-ui/core/omp-settings-keys";
 import { displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
 import { useStore } from "../../store";
@@ -340,12 +345,49 @@ const WEB_SEARCH_ORDER_KEY = "providers.webSearchOrder";
 const WEB_SEARCH_EXCLUDE_KEY = "providers.webSearchExclude";
 const WEB_SEARCH_TOOL_KEY = "web_search.enabled";
 
+/** The notes both bindings show under the select: undiscovered list, exclusion, tool off. */
+function WebSearchNotes({
+  chosen,
+  excludedOrder,
+  toolOff,
+  undiscovered,
+}: {
+  chosen: string | null;
+  excludedOrder: string[];
+  toolOff: boolean;
+  undiscovered: boolean;
+}) {
+  const t = useT();
+  return (
+    <>
+      {undiscovered && (
+        <p className="text-[11px] leading-relaxed text-ink-faint">
+          {t("settings.providers.webSearchUndiscovered")}
+        </p>
+      )}
+      {chosen !== null && excludedOrder.includes(chosen) && (
+        <p className="text-[11px] leading-relaxed text-rose">
+          {t("settings.providers.webSearchExcluded", { provider: chosen })}
+        </p>
+      )}
+      {toolOff && (
+        <p className="text-[11px] leading-relaxed text-ink-faint">
+          {t("settings.providers.webSearchToolOff")}
+        </p>
+      )}
+    </>
+  );
+}
+
 /**
  * Which provider the native web_search tool tries first. The value and its layer come from
- * omp's own snapshot (never a parallel omp-ui preference); the choices come from the installed
- * omp; the write goes through `omp config set` to the GLOBAL layer only. An order omp-ui cannot
- * represent as "one provider first" stays visible as a labelled custom state rather than being
- * silently collapsed.
+ * omp's own snapshot (never a parallel omp-ui preference): `providers.webSearchOrder` on
+ * binaries that still publish it, else the `web` role of `modelRoles` — omp 18.2.x moved
+ * the preference there (ADR-0036). The write goes through `omp config set` to the GLOBAL
+ * layer only either way; the choices still come from the installed binary (ADR-0027,
+ * ADR-0035). A value this control cannot represent as "one provider first" — a hand-written
+ * multi-order, or a non-`web/<id>` selector — stays visible as a labelled state rather
+ * than being silently collapsed.
  */
 function WebSearchProviderRow({
   load,
@@ -392,60 +434,162 @@ function WebSearchProviderRow({
     );
   }
 
-  const entry = entries.get(WEB_SEARCH_ORDER_KEY);
-  // omp without the key cannot be configured from here — readOmpSettings'
-  // per-entry rule, so the row is simply absent.
-  if (entry === undefined) return null;
-  if (entry.type !== "array") {
-    // A future omp may reshape it into something this control cannot model; show
-    // the raw value rather than guess a writer.
+  const legacy = entries.get(WEB_SEARCH_ORDER_KEY);
+  const roleEntry = legacy === undefined ? entries.get(OMP_MODEL_ROLES_KEY) : undefined;
+  // omp without either key cannot be configured from here — readOmpSettings'
+  // per-entry rule, so the row is simply absent. When both are published the
+  // legacy one wins, keeping the pre-18.2.x path exactly as shipped (ADR-0036).
+  if (legacy === undefined && roleEntry === undefined) return null;
+
+  if (legacy !== undefined) {
+    if (legacy.type !== "array") {
+      // A future omp may reshape it into something this control cannot model; show
+      // the raw value rather than guess a writer.
+      return (
+        <Row
+          title={t("settings.providers.webSearchOrder")}
+          hint={legacy.description}
+          badge={layerBadge(legacy.layer)}
+        >
+          <span className="max-w-56 truncate font-mono text-[11px] text-ink-mid">
+            {legacy.value === undefined ? "—" : JSON.stringify(legacy.value)}
+          </span>
+        </Row>
+      );
+    }
+
+    const order = normalizeWebSearchOrder(legacy.value);
+    const selection = webSearchSelection(legacy.value);
+    const list = discovery.status === "loaded" ? discovery.snapshot.providers : [];
+    const undiscovered =
+      discovery.status === "loaded" && !discovery.snapshot.discovered;
+    const extra = unknownWebSearchProviders(order, list);
+    const selectValue =
+      selection.kind === "automatic"
+        ? ""
+        : selection.kind === "provider"
+          ? selection.provider
+          : WEB_SEARCH_CUSTOM_OPTION;
+    const excludedOrder = normalizeWebSearchOrder(entries.get(WEB_SEARCH_EXCLUDE_KEY)?.value);
+    const chosen = selection.kind === "provider" ? selection.provider : null;
+    const toolOff = entries.get(WEB_SEARCH_TOOL_KEY)?.value === false;
+    const pending = pendingKey === WEB_SEARCH_ORDER_KEY;
+
+    return (
+      <div className="pt-1">
+        <Row
+          title={t("settings.providers.webSearchOrder")}
+          hint={
+            legacy.layer === "project"
+              ? t("settings.providers.webSearchProjectOverride")
+              : t("settings.providers.webSearchHint")
+          }
+          badge={layerBadge(legacy.layer)}
+        >
+          <select
+            aria-label={t("settings.providers.webSearchAria")}
+            value={selectValue}
+            disabled={pending}
+            onChange={(event) =>
+              commit(WEB_SEARCH_ORDER_KEY, webSearchOrderForOption(event.target.value))
+            }
+            className={FIELD}
+          >
+            <option value="">{t("settings.providers.webSearchAutomatic")}</option>
+            {list.map((id) => (
+              <option key={id} value={id}>
+                {id}
+              </option>
+            ))}
+            {extra.map((id) => (
+              <option key={id} value={id}>
+                {t("settings.providers.webSearchUnknown", { provider: id })}
+              </option>
+            ))}
+            {selection.kind === "custom" && (
+              <option value={WEB_SEARCH_CUSTOM_OPTION} disabled>
+                {t("settings.providers.webSearchCustom", { order: order.join(" → ") })}
+              </option>
+            )}
+          </select>
+        </Row>
+        <WebSearchNotes
+          chosen={chosen}
+          excludedOrder={excludedOrder}
+          toolOff={toolOff}
+          undiscovered={undiscovered}
+        />
+      </div>
+    );
+  }
+
+  if (roleEntry === undefined) return null;
+  if (
+    roleEntry.type !== "record" ||
+    typeof roleEntry.value !== "object" ||
+    roleEntry.value === null ||
+    Array.isArray(roleEntry.value)
+  ) {
+    // Same rule as the legacy branch: a shape this control cannot model shows
+    // the raw value rather than a guessed writer.
     return (
       <Row
         title={t("settings.providers.webSearchOrder")}
-        hint={entry.description}
-        badge={layerBadge(entry.layer)}
+        hint={roleEntry.description}
+        badge={layerBadge(roleEntry.layer)}
       >
         <span className="max-w-56 truncate font-mono text-[11px] text-ink-mid">
-          {entry.value === undefined ? "—" : JSON.stringify(entry.value)}
+          {roleEntry.value === undefined ? "—" : JSON.stringify(roleEntry.value)}
         </span>
       </Row>
     );
   }
 
-  const order = normalizeWebSearchOrder(entry.value);
-  const selection = webSearchSelection(entry.value);
+  const record = roleEntry.value as Record<string, unknown>;
+  const selection = webSearchRoleSelection(record);
   const list = discovery.status === "loaded" ? discovery.snapshot.providers : [];
   const undiscovered =
     discovery.status === "loaded" && !discovery.snapshot.discovered;
-  const extra = unknownWebSearchProviders(order, list);
+  const chosen = selection.kind === "provider" ? selection.provider : null;
+  const extras = chosen !== null ? unknownWebSearchProviders([chosen], list) : [];
   const selectValue =
     selection.kind === "automatic"
       ? ""
       : selection.kind === "provider"
         ? selection.provider
         : WEB_SEARCH_CUSTOM_OPTION;
+  const roleLayer = webSearchRoleLayer(roleEntry.value, roleEntry.globalValue);
   const excludedOrder = normalizeWebSearchOrder(entries.get(WEB_SEARCH_EXCLUDE_KEY)?.value);
-  const chosen = selection.kind === "provider" ? selection.provider : null;
   const toolOff = entries.get(WEB_SEARCH_TOOL_KEY)?.value === false;
-  const pending = pendingKey === WEB_SEARCH_ORDER_KEY;
+  const pending = pendingKey === OMP_MODEL_ROLES_KEY;
 
   return (
     <div className="pt-1">
       <Row
         title={t("settings.providers.webSearchOrder")}
         hint={
-          entry.layer === "project"
+          roleLayer === "project"
             ? t("settings.providers.webSearchProjectOverride")
             : t("settings.providers.webSearchHint")
         }
-        badge={layerBadge(entry.layer)}
+        badge={layerBadge(roleLayer)}
       >
         <select
           aria-label={t("settings.providers.webSearchAria")}
           value={selectValue}
           disabled={pending}
           onChange={(event) =>
-            commit(WEB_SEARCH_ORDER_KEY, webSearchOrderForOption(event.target.value))
+            // REPLACE-not-merge (ADR-0031): the whole merged GLOBAL record goes
+            // out — merged against globalValue, never the effective value — with
+            // `web` omitted for Automatic, because an empty selector resolves to
+            // no provider at all, the modelRoles.advisor trap (ADR-0005).
+            commit(
+              OMP_MODEL_ROLES_KEY,
+              mergeWebSearchRole(
+                roleEntry.globalValue,
+                webSearchSelectorForOption(event.target.value),
+              ),
+            )
           }
           className={FIELD}
         >
@@ -455,33 +599,26 @@ function WebSearchProviderRow({
               {id}
             </option>
           ))}
-          {extra.map((id) => (
+          {extras.map((id) => (
             <option key={id} value={id}>
               {t("settings.providers.webSearchUnknown", { provider: id })}
             </option>
           ))}
-          {selection.kind === "custom" && (
+          {selection.kind === "selector" && (
             <option value={WEB_SEARCH_CUSTOM_OPTION} disabled>
-              {t("settings.providers.webSearchCustom", { order: order.join(" → ") })}
+              {t("settings.providers.webSearchRoleCustom", {
+                selector: selection.selector,
+              })}
             </option>
           )}
         </select>
       </Row>
-      {undiscovered && (
-        <p className="text-[11px] leading-relaxed text-ink-faint">
-          {t("settings.providers.webSearchUndiscovered")}
-        </p>
-      )}
-      {chosen !== null && excludedOrder.includes(chosen) && (
-        <p className="text-[11px] leading-relaxed text-rose">
-          {t("settings.providers.webSearchExcluded", { provider: chosen })}
-        </p>
-      )}
-      {toolOff && (
-        <p className="text-[11px] leading-relaxed text-ink-faint">
-          {t("settings.providers.webSearchToolOff")}
-        </p>
-      )}
+      <WebSearchNotes
+        chosen={chosen}
+        excludedOrder={excludedOrder}
+        toolOff={toolOff}
+        undiscovered={undiscovered}
+      />
     </div>
   );
 }

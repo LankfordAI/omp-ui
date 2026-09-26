@@ -701,6 +701,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.providers.webSearchAria": "우선 웹 검색 제공자",
   "settings.providers.webSearchAutomatic": "자동 — omp 기본 순서",
   "settings.providers.webSearchCustom": "사용자 지정 순서: {order}",
+  "settings.providers.webSearchRoleCustom": "사용자 지정 셀렉터: {selector}",
   "settings.providers.webSearchUnknown": "{provider} (이 omp 목록에 없음)",
   "settings.providers.webSearchHint":
     "네이티브 web_search 도구가 먼저 시도하는 제공자입니다. 목록에 없는 제공자도 omp의 기본 순서로 사용할 수 있으며, 제공자는 위 또는 환경 변수에 자격 증명이 있어야 합니다. 변경 이후 시작하는 세션부터 적용됩니다.",

@@ -1332,12 +1332,13 @@ describe("Settings Providers page web-search order (issue #394)", () => {
     value: OmpSettingValue | undefined,
     layer: OmpSettingsSnapshot["entries"][number]["layer"] = "global",
     type: OmpSettingsSnapshot["entries"][number]["type"] = "array",
+    globalValue?: OmpSettingValue,
   ): OmpSettingsSnapshot["entries"][number] => ({
     key,
     type,
     description: "",
     value,
-    globalValue: undefined,
+    globalValue,
     options: null,
     layer,
   });
@@ -1487,11 +1488,215 @@ describe("Settings Providers page web-search order (issue #394)", () => {
     );
   });
 
-  it("renders no row when omp does not publish the key", async () => {
+  it("renders no row when omp publishes neither the legacy key nor modelRoles", async () => {
     seedWebSearch([entryFor("advisor.enabled", true, "default", "boolean")]);
     await renderSettings();
     expect(orderSelect()).toBeNull();
     expect(document.body.textContent).not.toContain("Preferred provider");
+  });
+
+  describe("Preferred provider bound to modelRoles.web (issue #661)", () => {
+    it("renders Automatic and the catalog on a modern snapshot", async () => {
+      seedWebSearch([entryFor("modelRoles", { advisor: "x/adv" }, "global", "record")]);
+      await renderSettings();
+      const select = orderSelect()!;
+      expect(select.value).toBe("");
+      expect([...select.options].map((option) => option.value)).toEqual([
+        "",
+        "brave",
+        "exa",
+      ]);
+    });
+
+    it("writes the whole merged record with the chosen selector", async () => {
+      seedWebSearch([
+        entryFor("modelRoles", { advisor: "x/adv" }, "global", "record", {
+          advisor: "x/adv",
+        }),
+      ]);
+      await renderSettings();
+      await choose("brave");
+      expect(backendMock.writeOmpSetting).toHaveBeenCalledTimes(1);
+      expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("modelRoles", {
+        advisor: "x/adv",
+        web: "web/brave",
+      });
+    });
+
+    it("merges against the global layer, never the effective value", async () => {
+      seedWebSearch([
+        entryFor(
+          "modelRoles",
+          { advisor: "proj/adv", web: "web/exa" },
+          "project",
+          "record",
+          { advisor: "glob/adv" },
+        ),
+      ]);
+      await renderSettings();
+      await choose("brave");
+      expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("modelRoles", {
+        advisor: "glob/adv",
+        web: "web/brave",
+      });
+      const writeCalls = backendMock.writeOmpSetting.mock.calls as unknown as [string, unknown][];
+      expect(JSON.stringify(writeCalls[0]?.[1])).not.toContain("proj/adv");
+    });
+
+    it("deletes the web key when Automatic is chosen", async () => {
+      seedWebSearch([
+        entryFor(
+          "modelRoles",
+          { advisor: "x/adv", web: "web/brave" },
+          "global",
+          "record",
+          { advisor: "x/adv", web: "web/brave" },
+        ),
+      ]);
+      await renderSettings();
+      await choose("");
+      expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("modelRoles", {
+        advisor: "x/adv",
+      });
+    });
+
+    it("keeps a configured id outside the catalog selectable", async () => {
+      seedWebSearch([
+        entryFor("modelRoles", { web: "web/bogus" }, "global", "record", {
+          web: "web/bogus",
+        }),
+      ]);
+      await renderSettings();
+      const select = orderSelect()!;
+      expect(select.value).toBe("bogus");
+      expect(
+        [...select.options].some((option) =>
+          (option.textContent ?? "").includes("not in this omp's list"),
+        ),
+      ).toBe(true);
+      await choose("brave");
+      expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("modelRoles", {
+        web: "web/brave",
+      });
+    });
+
+    it("shows a non-web selector as the disabled custom option", async () => {
+      seedWebSearch([
+        entryFor("modelRoles", { web: "@role" }, "global", "record", {
+          web: "@role",
+        }),
+      ]);
+      await renderSettings();
+      const select = orderSelect()!;
+      const custom = [...select.options].find(
+        (option) => option.value === "__custom__",
+      );
+      expect(custom?.textContent).toBe("Custom selector: @role");
+      expect(custom?.disabled).toBe(true);
+      expect(select.value).toBe("__custom__");
+      await choose("brave");
+      expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("modelRoles", {
+        web: "web/brave",
+      });
+    });
+
+    it("badges the web role's own layer, not the record's", async () => {
+      seedWebSearch([
+        entryFor(
+          "modelRoles",
+          { advisor: "glob/adv", web: "web/exa" },
+          "project",
+          "record",
+          { advisor: "glob/adv", web: "web/brave" },
+        ),
+      ]);
+      await renderSettings();
+      expect(
+        [...document.body.querySelectorAll("span")].some(
+          (el) => el.textContent === "project",
+        ),
+      ).toBe(true);
+      expect(document.body.textContent).toContain(
+        "The focused project's .omp/config.yml sets its own order",
+      );
+    });
+
+    it("stays unbadged when only a sibling role is project-overridden", async () => {
+      seedWebSearch([
+        entryFor(
+          "modelRoles",
+          { advisor: "proj/adv", web: "web/brave" },
+          "project",
+          "record",
+          { advisor: "glob/adv", web: "web/brave" },
+        ),
+      ]);
+      await renderSettings();
+      expect(
+        [...document.body.querySelectorAll("span")].some(
+          (el) => el.textContent === "project",
+        ),
+      ).toBe(false);
+      expect(document.body.textContent).toContain(
+        "The provider the native web_search tool tries first",
+      );
+    });
+
+    it("prefers the legacy key when omp publishes both", async () => {
+      seedWebSearch([
+        entryFor("providers.webSearchOrder", [], "default"),
+        entryFor("modelRoles", { web: "web/exa" }, "global", "record", {
+          web: "web/exa",
+        }),
+      ]);
+      await renderSettings();
+      // The legacy entry drives the row: Automatic (empty order), not exa.
+      expect(orderSelect()!.value).toBe("");
+      await choose("brave");
+      expect(backendMock.writeOmpSetting).toHaveBeenCalledTimes(1);
+      expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+        "providers.webSearchOrder",
+        ["brave"],
+      );
+    });
+
+    it("carries the tool-off note over and keeps the select enabled", async () => {
+      seedWebSearch([
+        entryFor("modelRoles", { web: "web/brave" }, "global", "record", {
+          web: "web/brave",
+        }),
+        entryFor("web_search.enabled", false, "default", "boolean"),
+      ]);
+      await renderSettings();
+      expect(document.body.textContent).toContain(
+        "The web_search tool is switched off (web_search.enabled)",
+      );
+      expect(orderSelect()!.disabled).toBe(false);
+    });
+
+    it("warns when the role-bound provider is also excluded", async () => {
+      seedWebSearch([
+        entryFor("modelRoles", { web: "web/brave" }, "global", "record", {
+          web: "web/brave",
+        }),
+        entryFor("providers.webSearchExclude", ["brave"], "default"),
+      ]);
+      await renderSettings();
+      expect(document.body.textContent).toContain(
+        "brave is also listed in providers.webSearchExclude, so omp always skips it.",
+      );
+    });
+
+    it("renders with the undiscovered note when the catalog read failed", async () => {
+      seedWebSearch([entryFor("modelRoles", {}, "default", "record")], []);
+      await renderSettings();
+      const select = orderSelect()!;
+      expect(select.value).toBe("");
+      expect([...select.options].map((option) => option.value)).toEqual([""]);
+      expect(document.body.textContent).toContain(
+        "This omp did not publish its provider list",
+      );
+    });
   });
 });
 
