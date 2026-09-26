@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.15.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.15.1). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- Plan review opens again: proposing a plan no longer fails with `VERIFIER_UNAVAILABLE`, a regression in v0.15.1 ([#657](https://github.com/LankfordAI/omp-ui/issues/657)).
+
+Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 

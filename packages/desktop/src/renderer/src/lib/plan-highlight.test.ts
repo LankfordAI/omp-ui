@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-vi.mock("../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {}) } }));
 import type { ThemedToken } from "shiki/core";
 import { composePlanSource, parsePlanSource } from "./plan-source";
 import { planHighlightTransform, type CodeTokenizer } from "./plan-highlight";

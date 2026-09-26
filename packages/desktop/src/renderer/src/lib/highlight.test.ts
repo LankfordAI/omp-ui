@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
-vi.mock("../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {}) } }));
+import { describe, expect, it } from "vitest";
 import type { GrammarState, ThemedToken } from "shiki/core";
 import {
   advanceStreamHighlight,

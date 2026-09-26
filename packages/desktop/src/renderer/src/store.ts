@@ -8,7 +8,7 @@ import { backend } from "./backend";
 import type { PlanExecutionOptions } from "./lib/plan-concerns";
 import { projectKey } from "./lib/project-key";
 import { IS_ELECTRON } from "./lib/platform";
-import { applyTheme, currentThemeId, resolveTheme } from "./lib/themes";
+import { applyTheme, currentThemeId, resolveTheme, subscribeTheme, type Theme } from "./lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "./lib/font-families";
 import {
   applyTranscriptWidth,
@@ -98,6 +98,25 @@ export {
   registerShellWriter,
   registerTermWriter,
 } from "./store/slices/shared";
+
+// Native chrome is painted by the OS, not CSS — the frameless titlebar overlay
+// only changes through main. This lives here rather than in lib/themes.ts so
+// the theme module stays bridge-free: the preload-less plan verifier page
+// imports it (issue #657). A mocked bridge may lack the method and main
+// already swallows platform errors, so neither may take a theme switch down.
+function paintWindowChrome(theme: Theme): void {
+  try {
+    void backend
+      .setWindowChrome(theme.tokens["--color-void"], theme.tokens["--color-ink-mid"])
+      .catch(() => {});
+  } catch {
+    // No bridge method: native chrome keeps its previous colour.
+  }
+}
+// lib/themes.ts applied the persisted theme while it evaluated, before this
+// subscription existed, so paint that one now.
+paintWindowChrome(resolveTheme(currentThemeId()));
+subscribeTheme(paintWindowChrome);
 
 // StrictMode double-invokes effects in dev, and the preload listener API has
 // no unsubscribe — init must be idempotent or every listener registers twice.

@@ -8,6 +8,7 @@ import type {
   SessionSummary,
 } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "./lib/rpc-types";
+import { applyTheme, resolveTheme } from "./lib/themes";
 import {
   backendState as makeBackendState,
   remoteInstance,
@@ -439,6 +440,23 @@ describe("settings", () => {
       h.useStore.getState().writeOmpSetting("advisor.enabled", true),
     ).rejects.toThrow("unknown setting");
     expect(h.useStore.getState().errorNotices).toEqual([]);
+  });
+
+  it("repaints native window chrome with each applied theme, including a rollback", async () => {
+    // Pin the starting theme: earlier cases may have left another applied.
+    applyTheme(resolveTheme("graphite"));
+    h.mockBackend.setWindowChrome.mockClear();
+    h.mockBackend.setThemeId.mockRejectedValueOnce(new Error("registry locked"));
+
+    await h.useStore.getState().setThemeId("light");
+
+    // The optimistic switch and its rollback each reach main's titlebar
+    // overlay (issue #657 moved this from lib/themes.ts into the store).
+    const chrome = (id: string) => {
+      const { tokens } = resolveTheme(id);
+      return [tokens["--color-void"], tokens["--color-ink-mid"]];
+    };
+    expect(h.mockBackend.setWindowChrome.mock.calls).toEqual([chrome("light"), chrome("graphite")]);
   });
 });
 

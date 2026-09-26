@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-vi.mock("../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {}) } }));
 import type { DiagramRenderer } from "../lib/plan-diagrams";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";

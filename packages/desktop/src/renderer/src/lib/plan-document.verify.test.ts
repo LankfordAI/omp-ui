@@ -4,7 +4,6 @@
 // delivered through the injected LayoutProbe, which is exactly the seam §3
 // gives the reviewed pipeline.
 import { afterEach, describe, expect, it, vi } from "vitest";
-vi.mock("../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {}) } }));
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import {

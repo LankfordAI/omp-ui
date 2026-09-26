@@ -1,6 +1,4 @@
 import { useSyncExternalStore } from "react";
-import { backend } from "../backend";
-
 import themeSourcesJson from "./theme-sources.json";
 
 /**
@@ -244,12 +242,15 @@ export function resolveTheme(id: string | undefined): Theme {
 }
 
 let current: Theme = DEFAULT_THEME;
-const listeners = new Set<() => void>();
+const listeners = new Set<(theme: Theme) => void>();
 
 /**
  * The single runtime writer. Everything a palette touches that is not a
- * Tailwind utility — `color-scheme`, the persisted mirror, the native window
- * chrome — is repainted here, so no caller has to remember the list.
+ * Tailwind utility — `color-scheme` and the persisted mirror — is repainted
+ * here, so no caller has to remember the list. Native window chrome follows
+ * through `subscribeTheme` in the store, which owns the backend bridge: this
+ * module stays bridge-free because the preload-less plan verifier page imports
+ * it (issue #657).
  *
  * Every side effect is individually guarded rather than assumed: the store
  * calls this during its own boot, and the store's tests run in vitest's node
@@ -278,22 +279,11 @@ export function applyTheme(theme: Theme): void {
     // Storage unavailable (or no DOM at all): the palette still applies.
   }
 
-  // Native chrome is painted by the OS, not CSS — the frameless titlebar
-  // overlay only changes through main. The bridge is absent under test, and
-  // main already swallows platform errors, so neither a missing bridge nor a
-  // rejected call may take the switch down with it.
-  try {
-    void backend
-      ?.setWindowChrome(theme.tokens["--color-void"], theme.tokens["--color-ink-mid"])
-      ?.catch(() => {});
-  } catch {
-    // No bridge: native chrome keeps its previous colour.
-  }
-
-  for (const cb of listeners) cb();
+  for (const cb of listeners) cb(theme);
 }
 
-function subscribe(cb: () => void): () => void {
+/** Runs `cb` with every applied theme; returns the unsubscribe. */
+export function subscribeTheme(cb: (theme: Theme) => void): () => void {
   listeners.add(cb);
   return () => listeners.delete(cb);
 }
@@ -305,7 +295,7 @@ export function currentThemeId(): string {
 
 /** Current theme, live across every consumer (terminal, code blocks, chrome). */
 export function useTheme(): Theme {
-  return useSyncExternalStore(subscribe, () => current);
+  return useSyncExternalStore(subscribeTheme, () => current);
 }
 
 // Boot from the persisted mirror so the palette is right on the first paint,
