@@ -4,9 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- The **browser pane** streams as a live capture surface instead of copying frame pixels through the main process: panning, typing, and animation in the page stay smooth, and screenshot attachments keep working after clearing the pane's data ([#651](https://github.com/LankfordAI/omp-ui/issues/651), [#655](https://github.com/LankfordAI/omp-ui/issues/655)).
-
-Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+Nothing since [v0.15.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.15.1). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
