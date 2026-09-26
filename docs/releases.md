@@ -4,11 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Plan review opens again: proposing a plan no longer fails with `VERIFIER_UNAVAILABLE`, a regression in v0.15.1 ([#657](https://github.com/LankfordAI/omp-ui/issues/657)).
-- Joined remote host headers gain a **Refresh state** button: a joined host re-reads its session state on the live socket behind a 5-second watchdog, and any other host redials, so a missed event or half-open socket no longer leaves the session list stale ([#658](https://github.com/LankfordAI/omp-ui/issues/658)).
-- Dictation in the composer works on tabs owned by a joined remote instance again: transcription always runs in this app's main, where the microphone, the `sttModel` setting, and the provider credential live, instead of failing with `channel stt:transcribe is not proxied` ([ADR-0034](adr/0034-dictation-captured-in-renderer-transcribed-in-main.md), [#659](https://github.com/LankfordAI/omp-ui/issues/659)).
-
-Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+Nothing since [v0.15.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.15.2). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
