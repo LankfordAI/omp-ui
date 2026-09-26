@@ -1694,6 +1694,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "remoteinstances.action.cancel": "취소",
   "remoteinstances.action.remove": "제거",
   "remoteinstances.action.reconnect": "다시 연결",
+  "remoteinstances.action.refreshState": "상태 새로 고침",
   "remoteinstances.action.registerProject": "{nickname}에 프로젝트 등록",
   "remoteinstances.action.settings": "원격 인스턴스 설정",
   "remoteinstances.action.toggle": "{nickname} 접기 또는 펼치기",

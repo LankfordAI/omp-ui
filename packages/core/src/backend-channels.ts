@@ -1161,6 +1161,11 @@ export const BACKEND_CHANNELS = {
     channel: "remote-instance:reconnect",
     ...request<[id: string], void>([str()]),
   },
+  /** Re-reads a joined instance's owner state on the live socket; dials now from any other status. */
+  refreshRemoteInstanceState: {
+    channel: "remote-instance:refreshState",
+    ...request<[id: string], void>([str()]),
+  },
   /** Forwards one allowlisted request to the named instance; rejects `unknown instance`, `not joined`, or `channel not proxied`. */
   remoteInstanceRequest: {
     channel: "remote-instance:request",

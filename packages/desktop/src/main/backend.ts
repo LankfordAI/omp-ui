@@ -941,6 +941,7 @@ export class MainBackend {
           this.remoteInstances.update(id, patch),
         [CH.removeRemoteInstance]: (id: string) => this.remoteInstances.remove(id),
         [CH.reconnectRemoteInstance]: (id: string) => this.remoteInstances.reconnect(id),
+        [CH.refreshRemoteInstanceState]: (id: string) => this.remoteInstances.refresh(id),
         [CH.remoteInstanceRequest]: (instanceId: string, channel: string, args: unknown[]) =>
           this.remoteInstances.request(instanceId, channel, args),
         [CH.previewDiagnosticsBundle]: async () =>

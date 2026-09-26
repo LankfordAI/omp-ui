@@ -19,6 +19,7 @@ const backendMock = {
   updateRemoteInstance: vi.fn(async () => {}),
   removeRemoteInstance: vi.fn(async () => {}),
   reconnectRemoteInstance: vi.fn(async () => {}),
+  refreshRemoteInstanceState: vi.fn(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });
 

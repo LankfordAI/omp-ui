@@ -400,6 +400,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async refreshRemoteInstanceState(id) {
+      try {
+        await backend.refreshRemoteInstanceState(id);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     readOmpSettings(projectCwd) {
       return backend.readOmpSettings(projectCwd);
     },

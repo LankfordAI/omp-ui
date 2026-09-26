@@ -309,6 +309,7 @@ const mockBackend = {
   updateRemoteInstance: vi.fn(async () => {}),
   removeRemoteInstance: vi.fn(async () => {}),
   reconnectRemoteInstance: vi.fn(async () => {}),
+  refreshRemoteInstanceState: vi.fn(async () => {}),
   remoteInstanceRequest: vi.fn(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async (instanceId: string, channel: string, args: unknown[]): Promise<unknown> => undefined,

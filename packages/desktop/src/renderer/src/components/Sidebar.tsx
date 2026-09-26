@@ -535,6 +535,7 @@ function RemoteInstanceSection({
   const openProjectPicker = useStore((st) => st.openProjectPicker);
   const openSettings = useStore((st) => st.openSettings);
   const reconnectRemoteInstance = useStore((st) => st.reconnectRemoteInstance);
+  const refreshRemoteInstanceState = useStore((st) => st.refreshRemoteInstanceState);
   const moveProject = useStore((st) => st.moveProject);
   const [open, setOpen] = useState(true);
   const joined = instance.status === "joined";
@@ -605,6 +606,14 @@ function RemoteInstanceSection({
               <IconButton
                 label={t("remoteinstances.action.reconnect")}
                 onClick={() => void reconnectRemoteInstance(instance.id)}
+              >
+                <IconRefresh />
+              </IconButton>
+            )}
+            {joined && (
+              <IconButton
+                label={t("remoteinstances.action.refreshState")}
+                onClick={() => void refreshRemoteInstanceState(instance.id)}
               >
                 <IconRefresh />
               </IconButton>

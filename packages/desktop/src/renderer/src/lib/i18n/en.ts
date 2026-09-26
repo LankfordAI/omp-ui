@@ -1835,6 +1835,7 @@ export const en = {
   "remoteinstances.action.cancel": "Cancel",
   "remoteinstances.action.remove": "Remove",
   "remoteinstances.action.reconnect": "Reconnect",
+  "remoteinstances.action.refreshState": "Refresh state",
   "remoteinstances.action.registerProject": "Register project on {nickname}",
   "remoteinstances.action.settings": "Remote instance settings",
   "remoteinstances.action.toggle": "Collapse or expand {nickname}",

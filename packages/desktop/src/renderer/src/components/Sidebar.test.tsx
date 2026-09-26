@@ -73,6 +73,7 @@ const backendMock = {
   setAppUpdateInstallOnQuit: vi.fn(),
   dismissAppUpdate: vi.fn(),
   onAppUpdateState: vi.fn(),
+  refreshRemoteInstanceState: vi.fn(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -2010,13 +2011,19 @@ describe("Sidebar remote instances (issue #416)", () => {
     expect(section.textContent).toContain("box-a");
     expect(section.textContent).toContain("Remote Project");
     expect(section.querySelector('[title="joined"]')).not.toBeNull();
-    // Register project is offered only while joined; Reconnect is not.
+    // Register project and Refresh state are offered while joined; Reconnect is not.
     expect(section.querySelector('button[aria-label="Register project on box-a"]')).not.toBeNull();
     expect(section.querySelector('button[aria-label="Reconnect"]')).toBeNull();
 
     act(() => section.querySelector<HTMLButtonElement>('button[aria-label="Register project on box-a"]')!.click());
     expect(useStore.getState().projectPickerOpen).toBe(true);
     expect(useStore.getState().projectPickerInstanceId).toBe("inst-a");
+
+    // #658: the joined stale-state escape hatch — re-reads the host's state.
+    const refresh = section.querySelector<HTMLButtonElement>('button[aria-label="Refresh state"]')!;
+    expect(refresh).not.toBeNull();
+    act(() => refresh.click());
+    expect(backendMock.refreshRemoteInstanceState).toHaveBeenCalledWith("inst-a");
 
     // New session on the remote group targets that instance.
     act(() => section.querySelector<HTMLButtonElement>('button[aria-label="new session"]')!.click());
@@ -2035,6 +2042,8 @@ describe("Sidebar remote instances (issue #416)", () => {
     expect(section.querySelector("section")?.className).toContain("opacity-60");
     expect(section.querySelector('button[aria-label="Register project on box-a"]')).toBeNull();
     expect(section.querySelector('button[aria-label="Reconnect"]')).not.toBeNull();
+    // While not joined the header shows Reconnect, not the state refresh (#658).
+    expect(section.querySelector('button[aria-label="Refresh state"]')).toBeNull();
     const spawn = section.querySelector<HTMLButtonElement>('button[aria-label="new session"]')!;
     expect(spawn.disabled).toBe(true);
     expect(section.querySelector<HTMLButtonElement>('button[aria-label="remove project"]')!.disabled).toBe(true);

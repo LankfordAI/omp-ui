@@ -74,6 +74,8 @@ interface FakeHost extends RemoteHost {
   projects: ProjectGroup[];
   /** What `state:get` answers as `modelFavorites`; raw values exercise malformed input (#440). */
   favorites: unknown;
+  /** Makes the next `state:get` hang unanswered (refresh watchdog test, #658). */
+  holdNextStateGet(): void;
 }
 
 function fakeHost(
@@ -83,6 +85,7 @@ function fakeHost(
   const notified: FakeHost["notified"] = [];
   const notifyWaiters: Array<{ ch: string; resolve: (args: unknown[]) => void }> = [];
   const sinks = new Set<(channel: string, args: unknown[]) => void>();
+  let holdStateGet = false;
   const host: FakeHost = {
     requests,
     notified,
@@ -98,6 +101,9 @@ function fakeHost(
     },
     nextNotify(ch) {
       return new Promise((resolve) => notifyWaiters.push({ ch, resolve }));
+    },
+    holdNextStateGet() {
+      holdStateGet = true;
     },
   };
   const record = (ch: string, args: unknown[]): void => {
@@ -115,7 +121,11 @@ function fakeHost(
               return { instanceId: opts.instanceId ?? REMOTE_INSTANCE_ID, version: REMOTE_VERSION };
             },
           }),
-      [CH.getState]: () => ({ projects: host.projects, modelFavorites: host.favorites }),
+      [CH.getState]: () => {
+        if (!holdStateGet) return { projects: host.projects, modelFavorites: host.favorites };
+        holdStateGet = false;
+        return new Promise<never>(() => {});
+      },
       [CH.toggleFavorite]: (key: string) => {
         requests.push({ ch: CH.toggleFavorite, args: [key] });
       },
@@ -831,5 +841,89 @@ describe("duplicate tab ids", () => {
     expect(
       vi.mocked(console.warn).mock.calls.filter((c) => String(c[0]).includes("t-remote")),
     ).toHaveLength(1);
+  });
+});
+
+describe("state refresh (#658)", () => {
+  it("joined: re-reads state:get on the live socket and re-projects projects and favorites", async () => {
+    const host = fakeHost();
+    const server = await serve(host);
+    const h = harness();
+    const instance = await join(h, server.port);
+
+    // A session appeared remotely with no event delivered — the stale case.
+    host.projects = projectGroups(["/remote/a", "/remote/b"]);
+    host.favorites = ["anthropic/claude-opus-5"];
+    await h.manager.refresh(instance.id);
+    const [summary] = await h.until((s) => s[0]!.projects.length === 2);
+    expect(summary!.projects.map((g) => g.project.path)).toEqual(["/remote/a", "/remote/b"]);
+    expect(summary!.modelFavorites).toEqual(["anthropic/claude-opus-5"]);
+    expect(summary!.status).toBe("joined");
+    // The re-adopt rebuilt ownership: the new session's tab routes to this instance.
+    expect(h.manager.ownerOf("t-remote-1")).toBe(instance.id);
+    // No reconnect happened: same socket, no second handshake.
+    expect(host.requests.filter((r) => r.ch === CH.getInstanceIdentity)).toHaveLength(1);
+  });
+
+  it("unreachable: cancels the pending retry and dials at once", async () => {
+    const host = fakeHost();
+    const server = await serve(host);
+    const port = server.port;
+    const h = harness();
+    const instance = await join(h, port);
+    await server.close();
+    servers.pop();
+    await h.until(status("unreachable"));
+    const pending = h.timers.at(-1)!;
+
+    await serve(host, { port });
+    await h.manager.refresh(instance.id);
+    expect(pending.cleared).toBe(true);
+    expect(h.manager.summaries()[0]!.status).toBe("joined");
+  });
+
+  it("self: resolves without dialing, requesting, or scheduling", async () => {
+    const host = fakeHost({ instanceId: "local-app-id" });
+    const server = await serve(host);
+    const h = harness({ localInstanceId: "local-app-id" });
+    const instance = await join(h, server.port);
+    expect(instance.status).toBe("self");
+    const requests = host.requests.length;
+
+    await h.manager.refresh(instance.id);
+    expect(h.manager.summaries()[0]!.status).toBe("self");
+    expect(h.timers.filter((t) => !t.cleared)).toEqual([]);
+    expect(host.requests).toHaveLength(requests);
+  });
+
+  it("zombie socket: the 5s watchdog settles unreachable, arms the base-delay retry, and the rejoin heals", async () => {
+    const host = fakeHost();
+    const server = await serve(host);
+    const h = harness();
+    const instance = await join(h, server.port);
+
+    // The socket never closes and never answers: only the watchdog can end this.
+    host.holdNextStateGet();
+    const refreshing = h.manager.refresh(instance.id);
+    const watchdog = h.timers.at(-1)!;
+    expect(watchdog.ms).toBe(5000);
+    h.fireTimer();
+    await refreshing;
+
+    const [down] = await h.until(status("unreachable"));
+    expect(down!.error).toBe("connection lost");
+    // Projects survive the loss, and the retry starts at the base delay.
+    expect(down!.projects.map((g) => g.project.path)).toEqual(["/remote/a"]);
+    expect(h.timers.filter((t) => !t.cleared).map((t) => t.ms)).toEqual([1000]);
+
+    h.fireTimer();
+    const [up] = await h.until(status("joined"));
+    expect(up!.projects.map((g) => g.project.path)).toEqual(["/remote/a"]);
+    expect(h.timers.filter((t) => !t.cleared)).toEqual([]);
+  });
+
+  it("unknown instance: rejects like every other admin channel", async () => {
+    const h = harness();
+    await expect(h.manager.refresh("nope")).rejects.toThrow("unknown instance nope");
   });
 });

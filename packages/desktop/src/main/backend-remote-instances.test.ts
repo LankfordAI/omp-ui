@@ -82,4 +82,11 @@ describe("remote instances wiring (issue #416)", () => {
       "unknown instance nope",
     );
   });
+
+  it("refuses a state refresh for an unknown instance", async () => {
+    boot();
+    await expect(invoke(CH.refreshRemoteInstanceState, "nope")).rejects.toThrow(
+      "unknown instance nope",
+    );
+  });
 });

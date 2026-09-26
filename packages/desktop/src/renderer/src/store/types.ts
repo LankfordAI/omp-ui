@@ -415,6 +415,8 @@ export interface SettingsSlice {
   updateRemoteInstance(id: string, patch: RemoteInstancePatch): Promise<void>;
   removeRemoteInstance(id: string): Promise<void>;
   reconnectRemoteInstance(id: string): Promise<void>;
+  /** Re-reads a joined instance's session list; dials now from any other status (#658). */
+  refreshRemoteInstanceState(id: string): Promise<void>;
   readOmpSettings(projectCwd: string | null): Promise<OmpSettingsSnapshot>;
   ensureCompactionSettings(projectCwd: string): Promise<void>;
   writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;

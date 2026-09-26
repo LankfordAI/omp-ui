@@ -53,6 +53,9 @@ export interface RemoteInstanceManagerDeps {
 const RETRY_BASE_MS = 1000;
 const RETRY_CAP_MS = 30_000;
 
+/** A joined socket that has not answered state:get this long is a zombie: refresh settles it as lost. */
+const REFRESH_STATE_TIMEOUT_MS = 5_000;
+
 const CREDENTIAL_UNREADABLE = "stored credential could not be read";
 const CREDENTIAL_REJECTED = "credential rejected — sign in again";
 const CONNECTION_LOST = "connection lost";
@@ -202,6 +205,57 @@ export class RemoteInstanceManager {
     const entry = this.#entry(id);
     entry.attempt = 0;
     await this.#dial(entry);
+  }
+
+  /**
+   * Re-reads the instance's owner state now. Joined: one `state:get` on the
+   * live socket behind a watchdog — a dead-but-unresponsive socket settles
+   * as lost (backoff redial from the base delay) instead of leaving the
+   * sidebar stale forever. Any other status except `self`: resets the backoff
+   * and dials, exactly like {@link reconnect}; a `self` entry holds no socket
+   * and dialing it only re-detects itself.
+   */
+  async refresh(id: string): Promise<void> {
+    const entry = this.#entry(id);
+    if (entry.status === "self") return;
+    const client = entry.client;
+    if (entry.status !== "joined" || client === null) {
+      entry.attempt = 0;
+      await this.#dial(entry);
+      return;
+    }
+    const generation = entry.generation;
+    let timer: NodeJS.Timeout | undefined;
+    const raced = await Promise.race([
+      client
+        .request<BackendState>("state:get", [])
+        .then((state) => ({ state, error: null }))
+        .catch((err: unknown) => ({
+          state: null,
+          error: err instanceof Error ? err.message : String(err),
+        })),
+      new Promise<{ state: null; error: string }>((resolve) => {
+        timer = this.#setTimer(
+          () => resolve({ state: null, error: CONNECTION_LOST }),
+          REFRESH_STATE_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    if (timer !== undefined) this.#clearTimer(timer);
+    // onClose or a concurrent dial may have replaced the socket mid-flight;
+    // whichever generation owns the entry now answers for it.
+    if (entry.generation !== generation || entry.client !== client) return;
+    if (raced.state !== null) {
+      this.#adopt(entry, raced.state.projects);
+      entry.modelFavorites = this.#favorites(raced.state.modelFavorites);
+      entry.attempt = 0;
+      this.#set(entry, {});
+      return;
+    }
+    // The socket owns neither an answer nor a close event: take it down and
+    // let the loss path arm the retry, so a late close cannot double-arm it.
+    this.#detach(entry);
+    this.#lost(entry, raced.error);
   }
 
   /** Forwards one allowlisted request to a joined instance. */

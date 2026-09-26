@@ -126,6 +126,7 @@ const VALID_ARGS = {
   regenerateRemoteToken: [],
   retitleSession: ["/project", "Fix it now", "USER: the login button is broken\nASSISTANT: fixed"],
   reconnectRemoteInstance: ["inst-1"],
+  refreshRemoteInstanceState: ["inst-1"],
   releaseWorktree: ["tab-1", { keepBranch: false, mergedInto: null }],
   resolveMergeDestination: ["/project", "main"],
   createBranch: ["/project", "release/x", "main"],
