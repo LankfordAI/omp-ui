@@ -1,9 +1,18 @@
 import type { OmpBackend } from "@omp-ui/core/types";
 import { makeBackendClient } from "@omp-ui/core/backend-channels";
+import { createDesktopPaneFrameReceiver, type DesktopPaneMedia } from "./lib/browser-pane-desktop-stream";
 
 // The only module touching window.ompBackend (ADR-0002) — components import
 // this, never the global.
-export const backend: OmpBackend = window.ompBackend;
+const suppliedBackend = window.ompBackend;
+const desktopReceiver = "onBrowserPaneFrame" in suppliedBackend ? null : createDesktopPaneFrameReceiver();
+export const desktopPaneMedia: DesktopPaneMedia | null = desktopReceiver;
+if (desktopReceiver !== null) {
+  window.addEventListener("pagehide", () => desktopReceiver.dispose(), { once: true });
+}
+export const backend: OmpBackend = "onBrowserPaneFrame" in suppliedBackend
+  ? suppliedBackend
+  : { ...suppliedBackend, onBrowserPaneFrame: desktopReceiver!.onFrame };
 
 const instanceBackends = new Map<string, OmpBackend>();
 

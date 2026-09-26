@@ -14,8 +14,9 @@ import {
   type BrowserPaneInputEvent,
   type BrowserPanePickResult,
 } from "@omp-ui/core/browser-pane";
-import { backend } from "../../backend";
-import { createFramePainter, cropFrame, type FramePainter } from "../../lib/browser-pane-frame";
+import { backend, desktopPaneMedia } from "../../backend";
+import { createFramePainter, cropFrame, type PanePainter } from "../../lib/browser-pane-frame";
+import { createMediaPainter } from "../../lib/browser-pane-media";
 import {
   compositionCancel,
   compositionEnd,
@@ -41,8 +42,8 @@ import { BrowserPaneClock } from "./BrowserPaneClock";
 
 /**
  * The browser pane (issue #519, ADR-0029): the session's shared page, painted
- * from JPEG frames main streams over the backend, with input translated back
- * to the page. One component, three postures — a desktop split beside the
+ * from local tab capture or remote JPEG frames, with input translated back
+ * to the page. One component, three postures: a desktop split beside the
  * transcript, the full transcript column, or the compact shell's bottom sheet.
  */
 export type BrowserPanePosture = "split" | "column" | "sheet";
@@ -190,7 +191,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
     committed: null,
     preedit: false,
   });
-  const painterRef = useRef<FramePainter | null>(null);
+  const painterRef = useRef<PanePainter | null>(null);
   /** The newest pointer move waiting for the next animation frame (latest wins). */
   const pendingMove = useRef<BrowserPaneInputEvent[] | null>(null);
   const moveFrame = useRef(0);
@@ -216,19 +217,28 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
     if (ensure === "idle" && !instanceDown) void ensureBrowserPane(tabId);
   }, [ensure, instanceDown, tabId, ensureBrowserPane]);
 
-  // Frames flow through the writer registry, never through React state.
+  // Frames paint directly from tab capture or the JPEG registry, never through React state.
   useEffect(() => {
+    if (!active || instanceDown) return;
     const canvas = canvasRef.current;
     if (canvas === null) return;
-    const painter = createFramePainter(canvas, (header) => noteBrowserPaneFrame(tabId, header));
+    const onHeader = (header: Parameters<typeof noteBrowserPaneFrame>[1]): void => noteBrowserPaneFrame(tabId, header);
+    let painter: PanePainter;
+    let unregister: (() => void) | undefined;
+    if (instanceId === null && desktopPaneMedia !== null) {
+      painter = createMediaPainter(canvas, desktopPaneMedia, tabId, onHeader);
+    } else {
+      const frames = createFramePainter(canvas, onHeader);
+      painter = frames;
+      unregister = registerBrowserPaneWriter(tabId, (frame) => frames.write(frame));
+    }
     painterRef.current = painter;
-    const unregister = registerBrowserPaneWriter(tabId, (frame) => painter.write(frame));
     return () => {
-      unregister();
+      unregister?.();
       painter.dispose();
       painterRef.current = null;
     };
-  }, [tabId, noteBrowserPaneFrame]);
+  }, [tabId, active, instanceId, instanceDown, noteBrowserPaneFrame]);
 
   // The sink registry (#529): this renderer takes frames while the tab is the
   // viewed one; a down instance drops the subscription and re-subscribes the
@@ -445,8 +455,8 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
 
   const attach = async (): Promise<void> => {
     const painter = painterRef.current;
-    const jpeg = painter?.lastJpeg() ?? null;
     const header = painter?.header() ?? null;
+    const jpeg = await painter?.jpeg() ?? null;
     if (jpeg === null || header === null) return;
     const bytes = await handBack(jpeg, header.dsf);
     if (bytes === null) return;

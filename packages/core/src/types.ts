@@ -1137,7 +1137,7 @@ export interface BrowserPaneDiagnostics {
   /** The page's zoom, which is its rasterization scale (page dpr / app zoom, clamped); every frame header carries it. */
   targetDsf: number;
   fps: number;
-  lastEncodeMs: number | null;
+  lastFrameProcessMs: number | null;
   bridgePort: number | null;
   partition: "persist:browser-pane";
   lastError: string | null;

@@ -16,12 +16,49 @@ through a **loopback CDP bridge** the main process hosts:
 - Desktop main creates one hidden `BrowserWindow` per live rpc-ui tab with
   `webPreferences.offscreen`, in the app-wide `persist:browser-pane` partition,
   with `sandbox`, `contextIsolation`, no `nodeIntegration`, and no preload
-  (the plan verifier's isolation recipe). `paint` frames are `toJPEG(70)` while
-  the page loads and `toJPEG(85)` once it settles (#557), at
-  `setFrameRate(30)` only while a renderer is subscribed; the pane follows the
-  app's hardware-acceleration setting. Every frame carries an eight-byte header
-  (`u16` width, height, dsf×100, reserved) so a frame and its dimensions can
-  never arrive out of order.
+  (the plan verifier's isolation recipe). Native painting stays stopped; the
+  offscreen frame rate and every publication ceiling remain 30 fps.
+- A **local desktop viewer uses Chromium tab capture** (#651). Main mints a
+  single-use `webContents.getMediaSourceId(requester)` lease for the
+  requesting window's top-level frame and records a single-use, 10-second
+  permission grant for that page. Chromium asks the captured page's session
+  to approve tab capture; the pane partition approves only a `media` request
+  with no media types from the lease's requester origin and keeps denying
+  everything else. The renderer reads the `MediaStream` through
+  `MediaStreamTrackProcessor` with `maxBufferSize: 1`, draws each `VideoFrame`
+  to the canvas and closes it. Leases carry a page generation that strictly
+  increases on page creation and destruction; main sends `media-geometry` on
+  resize and on subscribe/port-ready replay and `media-ended` on destruction.
+  The renderer requests one lease per change and never polls. Because Chromium
+  captures odd dimensions at the next lower even size and resamples, the host
+  pads the compositor surface to even dimensions after the root metrics
+  override resolves; CSS viewport and devicePixelRatio stay unchanged, and
+  the renderer crops to the logical pixels.
+- **Remote viewers and joined remote-instance panes keep JPEG.** Chromium
+  encodes a private flattened CDP session's screencast at quality 70 while
+  loading and 85 when settled, without `maxWidth` or `maxHeight`. CDP capture
+  starts only after document commit and while a JPEG viewer is subscribed;
+  a desktop tab-capture viewer keeps the page alive but never starts it. Main
+  keeps one unpublished encoded event, replaces it with the newest, and ACKs
+  every event once on its originating session. Repeated ACK tokens are not
+  deduplicated. JPEG SOF markers supply each frame's physical dimensions; an
+  even-surface padding column or row is removed by rewriting only the SOF
+  size, which is valid because a trailing odd pixel never changes a
+  component's block grid for sampling factors 1–2. The unchanged eight-byte
+  header (`u16` width, height, dsf×100, reserved) keeps the logical
+  dimensions with the JPEG, including frames racing a resize.
+- Desktop pane media bypasses contextBridge through a main-owned MessagePort.
+  Its fixed-channel handshake accepts only the window's current top-level frame;
+  preload transfers the port into the main world without exposing ipcRenderer.
+  For local panes the port carries only lease requests, leases and geometry
+  notices. For joined remote-instance panes main filters subscriptions before
+  structured-cloning bytes, allows one image awaiting ACK per window, and keeps
+  the newest pending frame per subscribed tab with fair scheduling. ACK follows
+  canvas paint or intentional drop, not callback entry. Port generations fence
+  stale ACKs and delivery IDs never reset; port replacement settles pending
+  lease requests as `null`. Reload, renderer crash and window teardown release
+  upstream subscriptions and desktop viewers; an ordinary port replacement
+  retains them. Hidden panes stop their capture tracks and dispose their writers.
 - `browser-pane:frame` remains **lossy** in `BACKEND_CHANNELS`, but remote
   images travel only on a separate authenticated `/ws/frames` WebSocket.
   The reliable `/ws` connection supplies a random 256-bit pairing key; the
@@ -33,7 +70,7 @@ through a **loopback CDP bridge** the main process hosts:
   ACK follows its local relay handoff, whose downstream frame pairs have
   independent bounds. No viewer waits for another viewer's ACK. The existing
   eight-byte pane header is unchanged inside the sequenced transport envelope.
-  Main still encodes one JPEG per paint and caches the last frame per pane.
+  Main caches one unchanged encoded JPEG frame per pane for new viewers.
 - Renderers send JSON back: `browser-pane:input` mirrors Electron's
   `sendInputEvent` unions plus `insertText` and macOS edit verbs, in CSS px;
   `browser-pane:navigate`, `browser-pane:resize` (desktop renderers only —
@@ -145,16 +182,40 @@ through a **loopback CDP bridge** the main process hosts:
   bound outstanding image delivery; a separate frame socket prevents image
   head-of-line blocking on the reliable connection. The accepted state is
   per remote transport pair, not per paint sink in `BrowserPaneHost`.
+- **Desktop JPEG screencast, screenshot pull, raw bitmaps or shared textures
+  for local panes (rejected, #651).** Measured on Electron 43.2.0 at
+  2271×2006, normal GPU, headless Ozone, against a 100 ms pane
+  input-to-painted p95 budget: the CDP screencast over the acknowledged
+  MessagePort reached 185–195 ms p95 (source-to-capture and capture-to-main
+  latency dominate; `setFrameRate(60)` did not help, and the pinned protocol
+  has no `maxFramesInFlight`). A fresh `Page.captureScreenshot` per frame gave
+  5–7.5 fps at 202–333 ms p95. Raw `toBitmap` over the MessagePort peaked at
+  23.5 fps and 129 ms p95 with dirty-rect unions. Offscreen shared textures
+  delivered no frames on headless Ozone. Tab capture gave 30 painted fps and
+  45–63 ms p95 with no main-process pixel work.
 
 ## Consequences
 
-- **Frame cost is bounded and measured.** Encoding is ~4 ms at 1280×800 and
-  ~15 ms at 2560×1600 on the Linux reference, ~13–40 KB per frame; at 30 fps
-  and 1080p that is under a quarter of the main thread. Idle pages paint
-  nothing, but a focused caret repaints a full frame every 600 ms. If a platform
-  smoke measures p90 encode over 16 ms, the dsf is clamped to a pixel budget
-  first and the frame-rate constant lowered second; a row whose fallback fired
-  is recorded here with the measured value.
+- **Main-thread frame work is bounded (#651).** Local desktop panes move no
+  pixels through main; a lease is one IPC round trip per page generation or
+  geometry change. For JPEG viewers Chromium's encoder threads do the
+  compression; main decodes only selected base64 payloads, inspects their
+  JPEG headers, assembles the wire frame and fans it out. `lastFrameProcessMs`
+  measures that JavaScript-side work, not asynchronous compression.
+  Measure event-loop delay, UI input latency, painted fps and retained memory
+  separately; do not lower density, JPEG quality or the 30 fps ceiling to hide
+  a delivery regression. Disable/navigation/disposal fence old generations,
+  stop and detach their private sessions, and release retained events. Capture
+  failures surface through the pane error field without retrying indefinitely;
+  a new document or an off/on subscription can explicitly restart capture. A
+  failed or ended tab capture waits for the next geometry or generation notice.
+  The host-owned session never changes agent-client counts, and agent screenshot
+  or recording sessions do not own or stop it.
+- **The pane partition grants exactly one permission shape.** Tab capture
+  needs the captured page's session to approve a `media` request. The grant is
+  minted only with a lease, bound to that page and the requester's origin,
+  consumed on first use and expires after 10 s. A page's own camera,
+  microphone or other permission request remains denied.
 - **HiDPI is page zoom (#557; amended 2026-09-24, #646).** Under Wayland
   *fractional* scaling `screen.getDisplayMatching().scaleFactor` lies (reports 1
   while the app window's own pages render at 1.5), so the host takes its target

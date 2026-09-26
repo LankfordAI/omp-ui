@@ -82,14 +82,10 @@ function fakePaneContents(): FakeBrowserPane {
   let url = "";
   const handlers = new Map<PaneEvent, Set<(...args: unknown[]) => void>>();
   return {
-    onPaint: () => () => {},
-    setFrameRate: () => {},
-    startPainting: () => {},
-    stopPainting: () => {},
-    invalidate: () => {},
     setContentSize: () => {},
     setZoomFactor: () => {},
     getContentSize: () => ({ width: 1280, height: 800 }),
+    mediaSourceId: (requester) => `source-${requester}`,
     loadURL: vi.fn(async (next: string) => {
       url = next;
     }),
@@ -116,8 +112,13 @@ function fakePaneContents(): FakeBrowserPane {
       attach: () => {},
       detach: () => {},
       isAttached: () => true,
-      sendCommand: async () => ({}),
+      sendCommand: async (method) => {
+        if (method === "Target.getTargetInfo") return { targetInfo: { type: "page", targetId: "page" } };
+        if (method === "Target.attachToTarget") return { sessionId: "capture" };
+        return {};
+      },
       on: () => {},
+      off: () => {},
     },
     userAgent: "fake-ua",
     on: (event, cb) => {

@@ -1,9 +1,7 @@
+import { EventEmitter } from "node:events";
 import {
   BROWSER_PANE_ACTING_MS,
   BROWSER_PANE_DEFAULT_VIEWPORT,
-  BROWSER_PANE_FPS,
-  BROWSER_PANE_JPEG_QUALITY,
-  BROWSER_PANE_JPEG_QUALITY_SETTLED,
   BROWSER_PANE_MAX_VIEWPORT,
   BROWSER_PANE_MIN_VIEWPORT,
   BROWSER_PANE_RESIZE_DEBOUNCE_MS,
@@ -15,45 +13,33 @@ import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { BridgeListener, BridgeListenerDeps, CreateBridgeListener } from "./browser-pane-bridge";
 import type { CreatePane, CreatePaneOptions, PaneContents, PaneEvent } from "./browser-pane-contents";
 import { BrowserPaneHost, type BrowserPaneHostDeps } from "./browser-pane-host";
+import { jpegDimensions } from "./browser-pane-capture";
 
 interface FakePane {
   pane: PaneContents;
   opts: CreatePaneOptions;
-  /** Delivers one paint at the given physical size. */
-  paint(width: number, height: number, jpeg: Buffer): void;
-  /** The toJPEG mock of the most recent paint. */
-  lastJpegQuality(): number | undefined;
-  setLoading(on: boolean): void;
+  /** Delivers a JPEG with the given SOF dimensions on the capture session. */
+  frame(width: number, height: number, payload?: Buffer, sessionId?: string): Buffer;
   emit(event: PaneEvent, ...args: unknown[]): void;
   setUrl(url: string): void;
 }
 
-function fakePane(opts: CreatePaneOptions): FakePane {
+function fakePane(opts: CreatePaneOptions, autoCommit = true): FakePane {
   const handlers = new Map<PaneEvent, Set<(...args: unknown[]) => void>>();
-  let paintCb: Parameters<PaneContents["onPaint"]>[0] | null = null;
+  const debuggerEvents = new EventEmitter();
+  let captureSession = 0;
   let url = "";
-  let loading = false;
-  let toJPEG: Mock<(quality: number) => Buffer> | undefined;
   let destroyed = false;
   const pane: PaneContents = {
-    onPaint: (cb) => {
-      paintCb = cb;
-      return () => {
-        paintCb = null;
-      };
-    },
-    setFrameRate: vi.fn(),
-    startPainting: vi.fn(),
-    stopPainting: vi.fn(),
-    invalidate: vi.fn(),
     setContentSize: vi.fn(),
     setZoomFactor: vi.fn(),
     getContentSize: () => ({ width: opts.width, height: opts.height }),
+    mediaSourceId: (requester) => `source-${requester}`,
     loadURL: vi.fn(async (next: string) => {
       url = next;
       // Real Electron commits every load with did-stop-loading; the host gates
       // the metrics override on that first commit (#557).
-      for (const cb of handlers.get("did-stop-loading") ?? []) cb();
+      if (autoCommit) for (const cb of handlers.get("did-stop-loading") ?? []) cb();
     }),
     goBack: vi.fn(),
     goForward: vi.fn(),
@@ -63,7 +49,7 @@ function fakePane(opts: CreatePaneOptions): FakePane {
     canGoForward: () => true,
     getURL: () => url,
     getTitle: () => "Fake",
-    isLoading: () => loading,
+    isLoading: () => false,
     sendInputEvent: vi.fn(),
     insertText: vi.fn(async () => {}),
     imeSetComposition: vi.fn(async () => {}),
@@ -78,8 +64,13 @@ function fakePane(opts: CreatePaneOptions): FakePane {
       attach: vi.fn(),
       detach: vi.fn(),
       isAttached: () => true,
-      sendCommand: vi.fn(async () => ({})),
-      on: vi.fn(),
+      sendCommand: vi.fn(async (method: string) => {
+        if (method === "Target.getTargetInfo") return { targetInfo: { type: "page", targetId: "page" } };
+        if (method === "Target.attachToTarget") return { sessionId: `capture-${++captureSession}` };
+        return {};
+      }),
+      on: (event, callback) => { debuggerEvents.on(event, callback); },
+      off: (event, callback) => { debuggerEvents.off(event, callback); },
     },
     userAgent: "fake-ua",
     on: (event, cb) => {
@@ -101,13 +92,13 @@ function fakePane(opts: CreatePaneOptions): FakePane {
   return {
     pane,
     opts,
-    paint: (width, height, jpeg) => {
-      toJPEG = vi.fn<(quality: number) => Buffer>(() => jpeg);
-      paintCb?.({ x: 0, y: 0, width, height }, { toJPEG, getSize: () => ({ width, height }) });
-    },
-    lastJpegQuality: () => toJPEG?.mock.calls.at(-1)?.[0],
-    setLoading: (on) => {
-      loading = on;
+    frame: (width, height, payload = Buffer.alloc(0), sessionId = `capture-${captureSession}`) => {
+      const header = Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 0, 0, 0, 1, 1, 0x11, 0]);
+      header.writeUInt16BE(height, 7);
+      header.writeUInt16BE(width, 9);
+      const jpeg = Buffer.concat([header, payload, Buffer.from([0xff, 0xd9])]);
+      debuggerEvents.emit("message", {}, "Page.screencastFrame", { data: jpeg.toString("base64"), sessionId: 1 }, sessionId);
+      return jpeg;
     },
     emit: (event, ...args) => {
       for (const cb of handlers.get(event) ?? []) cb(...args);
@@ -131,10 +122,10 @@ interface Harness {
   frames(): Uint8Array[];
 }
 
-type ClockDeps = Pick<BrowserPaneHostDeps, "targetScaleFactor" | "clockEnabled" | "clockText" | "stampImage">;
+type ClockDeps = Pick<BrowserPaneHostDeps, "targetScaleFactor" | "clockEnabled" | "clockText" | "stampImage" | "onDesktopMedia">;
 
 function harness(
-  opts: { paneFails?: boolean; listenerFails?: boolean; now?: () => number; clock?: ClockDeps } = {},
+  opts: { paneFails?: boolean; listenerFails?: boolean; autoCommit?: boolean; now?: () => number; clock?: ClockDeps } = {},
 ): Harness {
   const sent: Harness["sent"] = [];
   const panes: FakePane[] = [];
@@ -144,7 +135,7 @@ function harness(
   const clearPartition = vi.fn<(partition: string) => Promise<void>>(async () => {});
   const createPane = vi.fn<CreatePane>(async (paneOpts) => {
     if (opts.paneFails === true) throw new Error("no gpu");
-    const fake = fakePane(paneOpts);
+    const fake = fakePane(paneOpts, opts.autoCommit);
     panes.push(fake);
     return fake.pane;
   });
@@ -187,7 +178,7 @@ function harness(
 
 /** Microtask drain: factory settle → shared in-flight promise → sink callbacks. */
 const flush = async (): Promise<void> => {
-  for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  for (let i = 0; i < 30; i += 1) await Promise.resolve();
 };
 
 afterEach(() => {
@@ -195,79 +186,46 @@ afterEach(() => {
 });
 
 describe("BrowserPaneHost sink registry (U2)", () => {
-  it("creates the page on the first sink, paints at BROWSER_PANE_FPS, and stops when the last sink leaves", async () => {
-    const h = harness();
-    await h.host.ensureEndpoint("t1");
-    h.host.subscribe("t1", "c1", true);
-    await flush();
-    expect(h.createPane).toHaveBeenCalledTimes(1);
-    const pane = h.panes[0]!.pane;
-    expect(pane.setFrameRate).toHaveBeenCalledWith(BROWSER_PANE_FPS);
-    expect(pane.startPainting).toHaveBeenCalledTimes(1);
-    expect(pane.debugger.attach).toHaveBeenCalledWith("1.3");
-    // No cached frame yet: the page is asked to paint instead of a replay.
-    expect(pane.invalidate).toHaveBeenCalledTimes(1);
-    expect(h.frames()).toEqual([]);
-
-    h.host.subscribe("t1", "c2", true);
-    await flush();
-    expect(h.createPane).toHaveBeenCalledTimes(1);
-    expect(pane.startPainting).toHaveBeenCalledTimes(1);
-
-    h.host.subscribe("t1", "c1", false);
-    expect(pane.stopPainting).not.toHaveBeenCalled();
-    h.host.subscribe("t1", "c2", false);
-    expect(pane.stopPainting).toHaveBeenCalledTimes(1);
-  });
-
-  it("stops painting immediately after creation when nobody is subscribed", async () => {
+  it("captures only while subscribed, keeps the page alive and replays the cache", async () => {
     const h = harness();
     await h.host.ensure("t1");
-    const pane = h.panes[0]!.pane;
-    expect(pane.stopPainting).toHaveBeenCalledTimes(1);
-    expect(pane.startPainting).not.toHaveBeenCalled();
-    expect(pane.loadURL).toHaveBeenCalledWith("about:blank");
+    const fake = h.panes[0]!;
+    fake.frame(1280, 800);
+    expect(h.frames()).toEqual([]);
+    h.host.subscribe("t1", "c1", true);
+    await flush();
+    const jpeg = fake.frame(1280, 800);
+    expect(decodeBrowserPaneFrame(h.frames()[0]!)?.header).toEqual({ width: 1280, height: 800, dsf: 1 });
+    expect(Buffer.from(decodeBrowserPaneFrame(h.frames()[0]!)!.jpeg)).toEqual(jpeg);
+    h.host.subscribe("t1", "c2", true);
+    await flush();
+    expect(h.frames()[1]).toBe(h.frames()[0]);
+    h.host.subscribe("t1", "c1", false);
+    h.host.subscribe("t1", "c2", false);
+    fake.frame(900, 600);
+    await flush();
+    expect(h.frames()).toHaveLength(2);
+    expect(h.host.diagnostics()[0]).toMatchObject({ pageAlive: true, subscribers: 0, fps: 0 });
+    expect(await h.host.ensure("t1")).toMatchObject({ status: "available", frame: { width: 1280, height: 800, dsf: 1 } });
+    h.host.disposeAll();
   });
 
-  it("noteViewed drops the client's sink from every other tab", async () => {
+  it("noteViewed stops only the pages the client left", async () => {
     const h = harness();
     await Promise.all([h.host.ensureEndpoint("t1"), h.host.ensureEndpoint("t2")]);
     h.host.subscribe("t1", "c1", true);
     h.host.subscribe("t2", "c1", true);
     await flush();
-    const [p1, p2] = h.panes.map((p) => p.pane);
     h.host.noteViewed("c1", "t2");
-    expect(p1!.stopPainting).toHaveBeenCalledTimes(1);
-    expect(p2!.stopPainting).not.toHaveBeenCalled();
+    h.panes[0]!.frame(1280, 800);
+    h.panes[1]!.frame(900, 600);
+    expect(h.frames().map((frame) => decodeBrowserPaneFrame(frame)?.header.width)).toEqual([900]);
     h.host.noteViewed("c1", null);
-    expect(p2!.stopPainting).toHaveBeenCalledTimes(1);
-  });
-
-  it("sends frames only while sinks exist and replays the cached frame to a newcomer", async () => {
-    const h = harness();
-    await h.host.ensure("t1");
-    const fake = h.panes[0]!;
-    const jpeg = Buffer.from([0xff, 0xd8, 1, 2, 3]);
-    fake.paint(1280, 800, jpeg);
-    expect(h.frames()).toEqual([]);
-
-    h.host.subscribe("t1", "c1", true);
+    h.panes[1]!.frame(800, 600);
     await flush();
-    // Replay, not invalidate: the cache answers the newcomer.
-    expect(fake.pane.invalidate).not.toHaveBeenCalled();
-    const [replayed] = h.frames();
-    const decoded = decodeBrowserPaneFrame(replayed!);
-    expect(decoded?.header).toEqual({ width: 1280, height: 800, dsf: 1 });
-    expect(Buffer.from(decoded!.jpeg).equals(jpeg)).toBe(true);
-
-    fake.paint(1280, 800, Buffer.from([9, 9]));
-    expect(h.frames()).toHaveLength(2);
-    h.host.subscribe("t1", "c1", false);
-    fake.paint(1280, 800, Buffer.from([7]));
-    expect(h.frames()).toHaveLength(2);
-
-    const result = await h.host.ensure("t1");
-    expect(result).toMatchObject({ status: "available", frame: { width: 1280, height: 800, dsf: 1 } });
+    expect(h.frames()).toHaveLength(1);
+    expect(h.host.livePageCount()).toBe(2);
+    h.host.disposeAll();
   });
 
   it("clamps the target scale into the window size, the override, and the frame header", async () => {
@@ -295,13 +253,13 @@ describe("BrowserPaneHost sink registry (U2)", () => {
       deviceScaleFactor: 1,
       mobile: false,
     });
-    panes[0]!.paint(2560, 1600, Buffer.from([1]));
+    panes[0]!.frame(2560, 1600);
     const frame = sent.find((s) => s.channel === CH.onBrowserPaneFrame)?.args[1] as Uint8Array;
     expect(decodeBrowserPaneFrame(frame)?.header).toEqual({ width: 2560, height: 1600, dsf: 2 });
     expect(host.diagnostics()[0]).toMatchObject({ targetDsf: 2 });
   });
 
-  it("drops an empty paint", async () => {
+  it("drops a JPEG with empty dimensions", async () => {
     const sent: Harness["sent"] = [];
     const panes: FakePane[] = [];
     const host = new BrowserPaneHost({
@@ -316,8 +274,7 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     await host.ensureEndpoint("t1");
     host.subscribe("t1", "c1", true);
     await flush();
-    // Electron's first paint of a fresh window is 0×0: never a frame, never cached.
-    panes[0]!.paint(0, 0, Buffer.alloc(0));
+    panes[0]!.frame(0, 0);
     expect(sent.filter((s) => s.channel === CH.onBrowserPaneFrame)).toHaveLength(0);
     expect(await host.ensure("t1")).toMatchObject({ status: "available", frame: null });
   });
@@ -346,7 +303,7 @@ describe("BrowserPaneHost sink registry (U2)", () => {
       deviceScaleFactor: 1,
       mobile: false,
     });
-    panes[0]!.paint(1920, 1200, Buffer.from([1]));
+    panes[0]!.frame(1920, 1200);
     const frame = sent.find((s) => s.channel === CH.onBrowserPaneFrame)?.args[1] as Uint8Array;
     expect(decodeBrowserPaneFrame(frame)?.header).toEqual({ width: 1920, height: 1200, dsf: 1.5 });
     expect(host.diagnostics()[0]).toMatchObject({ targetDsf: 1.5 });
@@ -484,18 +441,6 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     expect(h.states().at(-1)?.agent).toBe("detached");
   });
 
-  it("encodes loading frames at 70 and settled frames at 85", async () => {
-    const h = harness();
-    await h.host.ensure("t1");
-    const fake = h.panes[0]!;
-    fake.setLoading(true);
-    fake.paint(1280, 800, Buffer.from([1]));
-    expect(fake.lastJpegQuality()).toBe(BROWSER_PANE_JPEG_QUALITY);
-    fake.setLoading(false);
-    fake.paint(1280, 800, Buffer.from([1]));
-    expect(fake.lastJpegQuality()).toBe(BROWSER_PANE_JPEG_QUALITY_SETTLED);
-  });
-
   it("subscribing to a tab whose page cannot be created is a no-op and ensure answers create-failed", async () => {
     const h = harness({ paneFails: true });
     h.host.subscribe("t1", "c1", true);
@@ -504,6 +449,85 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     await expect(h.host.ensure("t1")).resolves.toEqual({ status: "unavailable", reason: "create-failed" });
     expect(h.warnings.some((w) => w.includes("no gpu"))).toBe(true);
     expect(h.host.diagnostics()).toEqual([]);
+  });
+
+  it("waits for the first commit and clears old document frames before navigation", async () => {
+    vi.useFakeTimers();
+    const h = harness({ autoCommit: false });
+    await h.host.ensure("t1");
+    h.host.subscribe("t1", "c1", true);
+    await flush();
+    const fake = h.panes[0]!;
+    fake.frame(100, 100);
+    expect(h.frames()).toEqual([]);
+    fake.emit("did-navigate");
+    await flush();
+    fake.frame(200, 100);
+    expect(h.frames().map((frame) => decodeBrowserPaneFrame(frame)?.header.width)).toEqual([200]);
+    fake.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+    fake.frame(300, 100, undefined, "capture-1");
+    expect(await h.host.ensure("t1")).toMatchObject({ frame: null });
+    h.host.subscribe("t1", "c2", true);
+    await flush();
+    expect(h.frames()).toHaveLength(1);
+    fake.emit("did-navigate");
+    await flush();
+    fake.frame(400, 100, undefined, "capture-1");
+    fake.frame(500, 100);
+    vi.advanceTimersByTime(34);
+    expect(h.frames().map((frame) => decodeBrowserPaneFrame(frame)?.header.width)).toEqual([200, 500]);
+    fake.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true });
+    fake.emit("did-navigate-in-page");
+    fake.frame(600, 100);
+    vi.advanceTimersByTime(34);
+    expect(h.frames().map((frame) => decodeBrowserPaneFrame(frame)?.header.width)).toEqual([200, 500, 600]);
+    h.host.disposeAll();
+  });
+
+  it("discards destroyed-page frames and cache when a page is recreated", async () => {
+    const h = harness();
+    await h.host.ensure("t1");
+    h.host.subscribe("t1", "c1", true);
+    await flush();
+    const old = h.panes[0]!;
+    old.frame(100, 100);
+    old.emit("destroyed");
+    old.frame(200, 100);
+    expect(await h.host.ensure("t1")).toMatchObject({ frame: null });
+    await flush();
+    old.frame(300, 100);
+    h.panes[1]!.frame(400, 100);
+    expect(h.frames().map((frame) => decodeBrowserPaneFrame(frame)?.header.width)).toEqual([100, 400]);
+    h.host.disposeAll();
+  });
+
+  it("bounds capture errors, recovers on commit and preserves unrelated load errors on success", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    await h.host.ensure("t1");
+    const fake = h.panes[0]!;
+    const command = vi.mocked(fake.pane.debugger.sendCommand);
+    const normal = command.getMockImplementation()!;
+    command.mockImplementation(async (method, params, sessionId) => {
+      if (method === "Page.startScreencast") throw new Error("x".repeat(800));
+      return normal(method, params, sessionId);
+    });
+    h.host.subscribe("t1", "c1", true);
+    await flush();
+    expect(h.states().at(-1)?.error).toBe(`capture-failed: ${"x".repeat(500)}`);
+    fake.frame(100, 100);
+    expect(h.frames()).toEqual([]);
+    command.mockImplementation(normal);
+    fake.emit("did-navigate");
+    await flush();
+    fake.frame(200, 100);
+    expect(h.states().at(-1)?.error).toBeNull();
+    fake.emit("did-fail-load", {}, -105, "NAME_NOT_RESOLVED", "https://missing.invalid/", true);
+    fake.frame(300, 100);
+    vi.advanceTimersByTime(34);
+    expect(h.host.diagnostics()[0]).toMatchObject({ lastError: "load-failed: NAME_NOT_RESOLVED" });
+    expect(h.frames().map((frame) => decodeBrowserPaneFrame(frame)?.header.width)).toEqual([200, 300]);
+    h.host.disposeAll();
   });
 });
 
@@ -780,7 +804,7 @@ describe("BrowserPaneHost endpoint, agent state, and denied ports (U7 host)", ()
     fake.emit("did-navigate");
     h.host.subscribe("t1", "c1", true);
     await flush();
-    fake.paint(1280, 800, Buffer.from([1]));
+    fake.frame(1280, 800);
     expect(h.host.diagnostics()).toEqual([
       {
         tabId: "t1",
@@ -792,7 +816,7 @@ describe("BrowserPaneHost endpoint, agent state, and denied ports (U7 host)", ()
         frame: { width: 1280, height: 800, dsf: 1 },
         targetDsf: 1,
         fps: 0,
-        lastEncodeMs: 5,
+        lastFrameProcessMs: expect.any(Number),
         bridgePort: 41000,
         partition: "persist:browser-pane",
         lastError: null,
@@ -902,5 +926,114 @@ describe("BrowserPaneHost session-level visibility (#556)", () => {
     h.host.subscribe("t1", "c1", true);
     await flush();
     expect(h.panes).toHaveLength(1);
+  });
+});
+
+describe("BrowserPaneHost desktop media", () => {
+  it("leases committed viewed pages without JPEG capture and recreates desktop-only pages", async () => {
+    const media = vi.fn();
+    const h = harness({ autoCommit: false, clock: { onDesktopMedia: media } });
+    expect(h.host.mediaLease("unknown", 42)).toBeNull();
+    await h.host.ensure("tab");
+    h.host.setDesktopViewer("tab", "desktop", true);
+    expect(h.host.mediaLease("tab", 42)).toBeNull();
+    const first = h.panes[0]!;
+    first.emit("did-navigate");
+    await flush();
+    const lease = h.host.mediaLease("tab", 42)!;
+    expect(lease).toMatchObject({ sourceId: "source-42", geometry: { width: 1280, height: 800 } });
+    expect(vi.mocked(first.pane.debugger.sendCommand).mock.calls.some(([method]) => method === "Page.startScreencast")).toBe(false);
+    first.emit("did-navigate-in-page");
+    await flush();
+    expect(h.host.mediaLease("tab", 42)?.generation).toBe(lease.generation);
+    media.mockClear();
+    h.host.setDesktopViewer("tab", "desktop", true);
+    expect(media).toHaveBeenCalledWith("tab", { type: "media-geometry", tabId: "tab", generation: lease.generation, geometry: lease.geometry });
+    h.host.subscribe("tab", "remote", true);
+    await flush();
+    expect(vi.mocked(first.pane.debugger.sendCommand).mock.calls.some(([method]) => method === "Page.startScreencast")).toBe(true);
+    h.host.subscribe("tab", "remote", false);
+    await h.host.clearData();
+    await flush();
+    expect(first.pane.destroy).toHaveBeenCalledOnce();
+    const ended = media.mock.calls.find(([, message]) => message.type === "media-ended")![1];
+    expect(ended.generation).toBeGreaterThan(lease.generation);
+    h.panes[1]!.emit("did-navigate");
+    await flush();
+    expect(h.host.mediaLease("tab", 42)!.generation).toBeGreaterThan(ended.generation);
+    expect(vi.mocked(h.panes[1]!.pane.debugger.sendCommand).mock.calls.some(([method]) => method === "Page.startScreencast")).toBe(false);
+    h.host.noteViewed("desktop", "other");
+    expect(h.host.mediaLease("tab", 42)).toBeNull();
+    expect(h.panes[1]!.pane.isDestroyed()).toBe(false);
+    h.host.disposeAll();
+  });
+
+  it("pads only after override completion and publishes logical JPEG dimensions", async () => {
+    vi.useFakeTimers();
+    const media = vi.fn();
+    const h = harness({ autoCommit: false, clock: { targetScaleFactor: () => 1.5, onDesktopMedia: media } });
+    await h.host.ensure("tab");
+    const fake = h.panes[0]!;
+    h.host.resize("tab", 1514, 1337);
+    vi.advanceTimersByTime(BROWSER_PANE_RESIZE_DEBOUNCE_MS);
+    h.host.setDesktopViewer("tab", "desktop", true);
+    expect(fake.pane.setContentSize).toHaveBeenLastCalledWith(2271, 2006);
+    expect(media).not.toHaveBeenCalled();
+    const command = vi.mocked(fake.pane.debugger.sendCommand);
+    const normal = command.getMockImplementation()!;
+    // Executor form: the node tsconfig lib is ES2022.
+    let resolveOverride!: (value: unknown) => void;
+    const override = new Promise<unknown>((resolve) => { resolveOverride = resolve; });
+    command.mockImplementation((method, params, session) => method === "Emulation.setDeviceMetricsOverride"
+      ? override : normal(method, params, session));
+    fake.emit("did-navigate");
+    expect(h.host.mediaLease("tab", 42)).toBeNull();
+    expect(fake.pane.setContentSize).toHaveBeenLastCalledWith(2271, 2006);
+    resolveOverride({});
+    await flush();
+    expect(fake.pane.setContentSize).toHaveBeenLastCalledWith(2272, 2006);
+    expect(media.mock.invocationCallOrder[0]).toBeGreaterThan(vi.mocked(fake.pane.setContentSize).mock.invocationCallOrder.at(-1)!);
+    expect(h.host.mediaLease("tab", 42)?.geometry).toEqual({ width: 2271, height: 2006, dsf: 1.5, surfaceWidth: 2272, surfaceHeight: 2006 });
+    h.host.subscribe("tab", "remote", true);
+    await flush();
+    fake.frame(2272, 2006);
+    const frame = decodeBrowserPaneFrame(h.frames()[0]!)!;
+    expect(frame.header).toEqual({ width: 2271, height: 2006, dsf: 1.5 });
+    expect(jpegDimensions(Buffer.from(frame.jpeg))).toEqual({ width: 2271, height: 2006 });
+    h.host.disposeAll();
+  });
+
+  it.each(["destroy", "navigation", "resize"])("fences pending geometry after %s", async (change) => {
+    vi.useFakeTimers();
+    const media = vi.fn();
+    const h = harness({ autoCommit: false, clock: { onDesktopMedia: media } });
+    await h.host.ensure("tab");
+    h.host.resize("tab", 1001, 801);
+    vi.advanceTimersByTime(BROWSER_PANE_RESIZE_DEBOUNCE_MS);
+    const fake = h.panes[0]!;
+    let resolveOverride!: (value: unknown) => void;
+    const override = new Promise<unknown>((resolve) => { resolveOverride = resolve; });
+    vi.mocked(fake.pane.debugger.sendCommand).mockImplementation((method) => method === "Emulation.setDeviceMetricsOverride"
+      ? override : Promise.resolve({}));
+    fake.emit("did-navigate");
+    if (change === "destroy") h.host.dispose("tab");
+    else if (change === "navigation") fake.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+    else {
+      h.host.resize("tab", 1201, 901);
+      vi.advanceTimersByTime(BROWSER_PANE_RESIZE_DEBOUNCE_MS);
+      vi.mocked(fake.pane.debugger.sendCommand).mockClear();
+    }
+    media.mockClear();
+    vi.mocked(fake.pane.setContentSize).mockClear();
+    resolveOverride({});
+    await flush();
+    if (change === "resize") {
+      expect(fake.pane.setContentSize).toHaveBeenCalledExactlyOnceWith(1202, 902);
+      expect(media).toHaveBeenCalledWith("tab", expect.objectContaining({ geometry: expect.objectContaining({ width: 1201, height: 901 }) }));
+    } else {
+      expect(fake.pane.setContentSize).not.toHaveBeenCalled();
+      expect(media).not.toHaveBeenCalled();
+    }
+    h.host.disposeAll();
   });
 });

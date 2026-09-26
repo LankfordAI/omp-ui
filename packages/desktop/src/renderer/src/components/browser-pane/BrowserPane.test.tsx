@@ -29,7 +29,7 @@ vi.mock("../../lib/platform", () => ({
 vi.mock("../../lib/browser-pane-frame", () => ({
   createFramePainter: () => ({
     write() {},
-    lastJpeg: () => new Uint8Array([0xff, 0xd8]),
+    jpeg: async () => new Uint8Array([0xff, 0xd8]),
     header: () => mocks.header,
     dispose() {},
   }),
@@ -53,6 +53,7 @@ class ResizeObserverStub {
 (globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
 
 const ompBackend = {
+  onBrowserPaneFrame: vi.fn(),
   browserPaneEnsure: vi.fn(async () => ({ status: "not-live" as const })),
   browserPaneSubscribe: vi.fn(),
   browserPaneResize: vi.fn(),

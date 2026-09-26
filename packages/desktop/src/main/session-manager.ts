@@ -64,6 +64,7 @@ import {
 } from "@omp-ui/core";
 import type { Attention } from "./desktop-notifier";
 import { BrowserPaneHost, type BrowserPaneHostDeps } from "./browser-pane-host";
+import type { DesktopMediaLease } from "../browser-pane-desktop-protocol";
 import type { BreadcrumbSink } from "./breadcrumbs";
 import type { FrameObserver } from "./frame-observer";
 import {
@@ -135,7 +136,7 @@ export interface SessionManagerDependencies {
   /** Browser pane seams (#519): the page factory, the bridge listener, the target page scale, and the clock stamper; tests fake them. */
   browserPane?: Pick<
     BrowserPaneHostDeps,
-    "createPane" | "createListener" | "targetScaleFactor" | "clearPartition" | "stampImage"
+    "createPane" | "createListener" | "targetScaleFactor" | "clearPartition" | "stampImage" | "onDesktopMedia"
   >;
 }
 
@@ -1153,6 +1154,12 @@ export class SessionManager {
   }
   browserPaneSubscribe(tabId: string, clientId: string, on: boolean): void {
     this.browserPanes.subscribe(tabId, clientId, on);
+  }
+  browserPaneSetDesktopViewer(tabId: string, clientId: string, on: boolean): void {
+    this.browserPanes.setDesktopViewer(tabId, clientId, on);
+  }
+  browserPaneMediaLease(tabId: string, requesterWebContentsId: number): DesktopMediaLease | null {
+    return this.browserPanes.mediaLease(tabId, requesterWebContentsId);
   }
   browserPaneResize(tabId: string, width: number, height: number): void {
     this.browserPanes.resize(tabId, width, height);

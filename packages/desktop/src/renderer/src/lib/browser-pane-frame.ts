@@ -1,19 +1,17 @@
 import { decodeBrowserPaneFrame, type BrowserPaneFrameHeader } from "@omp-ui/core/browser-pane";
 
-/**
- * Paints browser pane wire frames onto a canvas (issue #519, spec 6.4).
- * Latest wins: while one JPEG decodes, the newest arrival is parked and
- * decoded next; anything older is discarded — a slow decoder shows the
- * freshest page, never a backlog. The decoder is injectable because jsdom
- * has no `createImageBitmap`.
- */
-export interface FramePainter {
-  /** Settles after drawing or intentionally dropping this delivery. */
-  write(frame: Uint8Array): Promise<void>;
-  /** JPEG bytes (header stripped) of the last frame drawn; the attach button's source. */
-  lastJpeg(): Uint8Array | null;
+/** A canvas-backed browser pane image, supplied by local media or remote JPEG frames. */
+export interface PanePainter {
+  /** JPEG bytes of the last frame drawn; the attach button's source. */
+  jpeg(): Promise<Uint8Array | null>;
   header(): BrowserPaneFrameHeader | null;
   dispose(): void;
+}
+
+/** Latest JPEG wins: while one decodes, only the newest arrival waits for the decoder. */
+export interface FramePainter extends PanePainter {
+  /** Settles after drawing or intentionally dropping this delivery. */
+  write(frame: Uint8Array): Promise<void>;
 }
 
 type Decoded = { header: BrowserPaneFrameHeader; jpeg: Uint8Array };
@@ -48,12 +46,12 @@ export function createFramePainter(
       if (canvas.width !== header.width || canvas.height !== header.height) {
         canvas.width = header.width;
         canvas.height = header.height;
-        onHeader(header);
-      } else if (last === null || last.header.dsf !== header.dsf) {
-        onHeader(header);
       }
       ctx?.drawImage(bitmap, 0, 0);
       last = frame;
+      // Clear-data recreation can reset the consumer while this painter survives
+      // with the same canvas dimensions. The store suppresses unchanged metadata.
+      onHeader(header);
     } catch {
       // A frame the decoder or canvas rejects is dropped; the next one repaints.
     } finally {
@@ -81,7 +79,7 @@ export function createFramePainter(
         }
       });
     },
-    lastJpeg() {
+    async jpeg() {
       return last?.jpeg ?? null;
     },
     header() {

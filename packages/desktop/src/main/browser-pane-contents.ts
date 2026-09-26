@@ -1,11 +1,12 @@
-import { BrowserWindow, session } from "electron";
+import { BrowserWindow, session, webContents } from "electron";
 import {
+  BROWSER_PANE_FPS,
   isAllowedBrowserPaneSubframeUrl,
   isAllowedBrowserPaneTopLevelUrl,
   type BrowserPaneInputEvent,
   type BrowserPaneModifier,
 } from "@omp-ui/core";
-import { guardBrowserPaneSession } from "./browser-pane-guard";
+import { createMediaCaptureGrants, guardBrowserPaneSession } from "./browser-pane-guard";
 
 /**
  * The browser pane's page seam (#519, ADR-0029). `PaneContents` is the only
@@ -24,9 +25,15 @@ export interface PaneDebugger {
     cb: (event: unknown, method: string, params: unknown, sessionId?: string) => void,
   ): void;
   on(event: "detach", cb: (event: unknown, reason: string) => void): void;
+  off(
+    event: "message",
+    cb: (event: unknown, method: string, params: unknown, sessionId?: string) => void,
+  ): void;
+  off(event: "detach", cb: (event: unknown, reason: string) => void): void;
 }
 
 export type PaneEvent =
+  | "did-start-navigation"
   | "did-navigate"
   | "did-navigate-in-page"
   | "did-start-loading"
@@ -36,23 +43,12 @@ export type PaneEvent =
   | "destroyed"
   | "context-menu";
 
-export interface PaintImage {
-  toJPEG(quality: number): Buffer;
-  getSize(): { width: number; height: number };
-}
-
 export interface PaneContents {
-  onPaint(
-    cb: (dirtyRect: { x: number; y: number; width: number; height: number }, image: PaintImage) => void,
-  ): () => void;
-  setFrameRate(fps: number): void;
-  startPainting(): void;
-  stopPainting(): void;
-  invalidate(): void;
   setContentSize(width: number, height: number): void;
   /** Force the page zoom; the per-origin level Chromium persists must never override the pane's (#646). */
   setZoomFactor(factor: number): void;
   getContentSize(): { width: number; height: number };
+  mediaSourceId(requesterWebContentsId: number): string;
   loadURL(url: string): Promise<void>;
   goBack(): void;
   goForward(): void;
@@ -120,8 +116,10 @@ const ELECTRON_MODIFIERS: Record<BrowserPaneModifier, ElectronModifier> = {
  * every request so a bridge port minted later is still unreachable (#531).
  */
 export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>): CreatePane {
+  // One ledger for the partition: the guard is installed once per Session.
+  const mediaGrants = createMediaCaptureGrants();
   return async (opts) => {
-    guardBrowserPaneSession(session.fromPartition(opts.partition), deniedPorts);
+    guardBrowserPaneSession(session.fromPartition(opts.partition), deniedPorts, mediaGrants);
     // Density is page zoom (#646): the window is CSS × zoom DIPs and the page
     // lays out the CSS size at that zoom. Device emulation cannot raise raster
     // density here (Blink lays emulated pages out at the offscreen view's dsf, 1),
@@ -146,6 +144,8 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
     });
     win.setMenuBarVisibility(false);
     const wc = win.webContents;
+    wc.setFrameRate(BROWSER_PANE_FPS);
+    wc.stopPainting();
     wc.setWindowOpenHandler(({ url }) => {
       opts.onPopup(url);
       return { action: "deny" };
@@ -174,21 +174,6 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
     });
     const userAgent = wc.getUserAgent();
     return {
-      onPaint(cb) {
-        const handler = (
-          _event: Electron.Event,
-          dirtyRect: Electron.Rectangle,
-          image: Electron.NativeImage,
-        ): void => cb(dirtyRect, image);
-        wc.on("paint", handler);
-        return () => {
-          if (!wc.isDestroyed()) wc.off("paint", handler);
-        };
-      },
-      setFrameRate: (fps) => wc.setFrameRate(fps),
-      startPainting: () => wc.startPainting(),
-      stopPainting: () => wc.stopPainting(),
-      invalidate: () => wc.invalidate(),
       setContentSize: (width, height) => win.setContentSize(width, height),
       // Re-forcing beats the per-origin level Chromium restores at commit and
       // re-persists the pane's own level for that origin (#646).
@@ -196,6 +181,14 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
       getContentSize() {
         const [width, height] = win.getContentSize();
         return { width: width ?? opts.width, height: height ?? opts.height };
+      },
+      mediaSourceId(requesterWebContentsId) {
+        const requester = webContents.fromId(requesterWebContentsId);
+        if (requester === undefined || requester.isDestroyed()) throw new Error("Pane media requester is unavailable");
+        const sourceId = wc.getMediaSourceId(requester);
+        // Chromium asks this page's (deny-all) session to approve the requester's capture.
+        mediaGrants.issue(wc.id, requester.getURL());
+        return sourceId;
       },
       loadURL: (url) => wc.loadURL(url),
       goBack: () => wc.navigationHistory.goBack(),

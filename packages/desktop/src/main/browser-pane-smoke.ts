@@ -158,7 +158,7 @@ const frames = {
   firstFrameIsJpeg: null as boolean | null,
   sizesSeen: [] as string[],
   lastHeader: null as { width: number; height: number; dsf: number } | null,
-  encodeMs: [] as number[],
+  frameProcessMs: [] as number[],
   gapMs: [] as number[],
   bytes: [] as number[],
   lastAt: null as number | null,
@@ -251,8 +251,8 @@ function recordFrame(frame: Uint8Array): void {
   frames.bytes.push(jpeg.length);
   if (frames.lastAt !== null) frames.gapMs.push(now - frames.lastAt);
   frames.lastAt = now;
-  const encode = smokeDiagnostics()?.lastEncodeMs;
-  if (encode !== null && encode !== undefined) frames.encodeMs.push(encode);
+  const processMs = smokeDiagnostics()?.lastFrameProcessMs;
+  if (processMs !== null && processMs !== undefined) frames.frameProcessMs.push(processMs);
   if (pendingLatency !== null) {
     pendingLatency.resolve(now - pendingLatency.sentAt);
     pendingLatency = null;
@@ -865,7 +865,7 @@ function summary(): object {
       count: frames.count,
       firstFrameIsJpeg: frames.firstFrameIsJpeg,
       sizesSeen: frames.sizesSeen,
-      encodeMs: { p50: percentile(frames.encodeMs, 0.5), p90: percentile(frames.encodeMs, 0.9) },
+      frameProcessMs: { p50: percentile(frames.frameProcessMs, 0.5), p90: percentile(frames.frameProcessMs, 0.9) },
       gapMs: { p50: percentile(frames.gapMs, 0.5), p90: percentile(frames.gapMs, 0.9) },
       bytes: { p50: percentile(frames.bytes, 0.5) },
       idlePaintsIn3s: frames.idlePaintsIn3s,
@@ -1027,7 +1027,7 @@ async function main(): Promise<void> {
     lastCount = frames.count;
     const diag = smokeDiagnostics();
     console.log(
-      `STATUS frames=${frames.count} fps(5s)=${fps5.toFixed(1)} encodeMs p50/p90=${percentile(frames.encodeMs, 0.5)}/${percentile(frames.encodeMs, 0.9)} bytes p50=${percentile(frames.bytes, 0.5)} cdpClients=${diag?.cdpClients ?? 0} agent=${diag?.agentState ?? "-"}`,
+      `STATUS frames=${frames.count} fps(5s)=${fps5.toFixed(1)} frameProcessMs p50/p90=${percentile(frames.frameProcessMs, 0.5)}/${percentile(frames.frameProcessMs, 0.9)} bytes p50=${percentile(frames.bytes, 0.5)} cdpClients=${diag?.cdpClients ?? 0} agent=${diag?.agentState ?? "-"}`,
     );
   }, 5_000);
 

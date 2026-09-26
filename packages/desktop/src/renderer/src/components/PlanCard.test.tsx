@@ -23,8 +23,10 @@ const planPrepared = vi.hoisted(() => ({ state: null as PreparedPlanState | null
  */
 const bridge = vi.hoisted(() => ({
   rpcSend: vi.fn(),
+  setWindowChrome: vi.fn(async () => {}),
   answerPlanReview: vi.fn(async () => ({ status: "accepted" as const })),
 }));
+vi.mock("../backend", () => ({ backend: bridge }));
 
 vi.mock("../lib/use-prepared-plan-document", async (importOriginal) => {
   const original = await importOriginal<typeof PreparedPlanHook>();
@@ -52,9 +54,6 @@ vi.mock("../lib/plan-diagrams", async (importOriginal) => {
 });
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-// The bridge is present so a submission attempt from a historical card would
-// be recorded rather than silently reaching a real backend.
-Object.assign(window, { ompBackend: bridge });
 
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;

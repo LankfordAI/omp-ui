@@ -66,11 +66,69 @@ export function browserPaneRequestCancelled(
 
 const guarded = new WeakSet<Session>();
 
+/** How long a minted tab-capture token stays redeemable; Electron documents ~10 s. */
+const MEDIA_GRANT_MS = 10_000;
+
+/** Serialized requester origin; file:// renderers (packaged app) all share one key. */
+function originKey(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "file:" ? "file:" : parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Single-use permission grants for the desktop renderer's tab capture of a pane
+ * page (#651). Chromium asks the *captured* page's session for `media` with no
+ * media types and the requester's security origin. Page-originated camera or
+ * microphone requests name media types and stay denied.
+ */
+export function createMediaCaptureGrants(now: () => number = Date.now): MediaCaptureGrants {
+  const grants = new Map<number, { origin: string; expires: number }>();
+  return {
+    /** Records one redeemable grant for `paneWebContentsId`, replacing any older one. */
+    issue(paneWebContentsId: number, requesterUrl: string): void {
+      const origin = originKey(requesterUrl);
+      if (origin === null) return;
+      grants.set(paneWebContentsId, { origin, expires: now() + MEDIA_GRANT_MS });
+    },
+    consume(
+      paneWebContentsId: number,
+      permission: string,
+      details: { mediaTypes?: readonly string[]; securityOrigin?: string },
+    ): boolean {
+      const grant = grants.get(paneWebContentsId);
+      if (grant === undefined || permission !== "media") return false;
+      if (details.mediaTypes === undefined || details.mediaTypes.length !== 0) return false;
+      if (details.securityOrigin === undefined || originKey(details.securityOrigin) !== grant.origin) return false;
+      grants.delete(paneWebContentsId);
+      return now() <= grant.expires;
+    },
+  };
+}
+
+export interface MediaCaptureGrants {
+  issue(paneWebContentsId: number, requesterUrl: string): void;
+  consume(
+    paneWebContentsId: number,
+    permission: string,
+    details: { mediaTypes?: readonly string[]; securityOrigin?: string },
+  ): boolean;
+}
+
 /** Installs the deny-everything handlers on the pane partition once (idempotent per Session). */
-export function guardBrowserPaneSession(ses: Session, deniedPorts: () => ReadonlySet<number>): void {
+export function guardBrowserPaneSession(
+  ses: Session,
+  deniedPorts: () => ReadonlySet<number>,
+  mediaGrants: MediaCaptureGrants,
+): void {
   if (guarded.has(ses)) return;
   guarded.add(ses);
-  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  ses.setPermissionRequestHandler((wc, permission, callback, details) =>
+    callback(mediaGrants.consume(wc.id, permission, details as { mediaTypes?: string[]; securityOrigin?: string })),
+  );
   ses.setPermissionCheckHandler(() => false);
   ses.on("will-download", (event) => event.preventDefault());
   ses.webRequest.onBeforeRequest((details, callback) => {

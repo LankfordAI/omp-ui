@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // jsdom for the module graph only: the canvas gate imports ./themes, whose
 // chain reads window at boot. No DOM behaviour is exercised here.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+vi.mock("../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {}) } }));
 import {
   DiagramSyntaxError,
   fitDarkPaint,

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {}) } }));
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { GrammarState, ThemedToken } from "shiki/core";

@@ -14,6 +14,7 @@ function debuggerWith(replies: Record<string, unknown>): PaneDebugger {
       return reply ?? {};
     }),
     on: vi.fn(),
+    off: vi.fn(),
   };
 }
 

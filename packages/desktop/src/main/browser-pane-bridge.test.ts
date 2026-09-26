@@ -15,6 +15,7 @@ import {
   type BridgeRequest,
 } from "./browser-pane-bridge";
 import type { PaneContents, PaneDebugger } from "./browser-pane-contents";
+import { createBrowserPaneCapture, type CapturedPaneFrame } from "./browser-pane-capture";
 
 // U5: the root shim replayed against real omp 18.1.21 + puppeteer 25.3 traffic
 // captured through the #526 prototype. U6: the request gate and one real
@@ -124,6 +125,13 @@ class FixtureDebugger implements PaneDebugger {
   on(event: string, cb: MessageListener | ((event: unknown, reason: string) => void)): void {
     // Overload dispatch: the "message" signature is the one stored.
     if (event === "message") this.listeners.push(cb as MessageListener);
+  }
+  off(event: "message", cb: MessageListener): void;
+  off(event: "detach", cb: (event: unknown, reason: string) => void): void;
+  off(event: string, cb: MessageListener | ((event: unknown, reason: string) => void)): void {
+    if (event !== "message") return;
+    const index = this.listeners.indexOf(cb as MessageListener);
+    if (index !== -1) this.listeners.splice(index, 1);
   }
 
   emit(method: string, params: TargetEventParams | undefined, sessionId: string | undefined): void {
@@ -448,6 +456,13 @@ class StubDebugger implements PaneDebugger {
     // Overload dispatch: the "message" signature is the one stored.
     if (event === "message") this.listeners.push(cb as MessageListener);
   }
+  off(event: "message", cb: MessageListener): void;
+  off(event: "detach", cb: (event: unknown, reason: string) => void): void;
+  off(event: string, cb: MessageListener | ((event: unknown, reason: string) => void)): void {
+    if (event !== "message") return;
+    const index = this.listeners.indexOf(cb as MessageListener);
+    if (index !== -1) this.listeners.splice(index, 1);
+  }
   emit(method: string, params: unknown, sessionId: string): void {
     for (const cb of this.listeners) cb({}, method, params, sessionId);
   }
@@ -461,6 +476,58 @@ class StubDebugger implements PaneDebugger {
 }
 
 describe("createBridgeSession ownership", () => {
+  it("keeps host capture private through client recording, screenshots and detach", async () => {
+    const out: BridgeFrame[] = [];
+    const commands: Array<{ method: string; params: object; sessionId?: string }> = [];
+    let nextSession = 0;
+    const debug = new StubDebugger(async (method, params, sessionId) => {
+      commands.push({ method, params, sessionId });
+      if (method === "Target.attachToTarget") {
+        const attached = `S${++nextSession}`;
+        debug.emit("Target.attachedToTarget", {
+          sessionId: attached, targetInfo: { targetId: "P", type: "page" },
+        }, "");
+        return { sessionId: attached };
+      }
+      if (method === "Page.captureScreenshot") return { data: "screenshot" };
+      if (method === "Target.detachFromTarget") {
+        debug.emit("Target.detachedFromTarget", params, "");
+      }
+      return {};
+    });
+    const bridge = createBridgeSession<string>({
+      debugger: debug, onCommand() {}, onCommandSettled() {},
+      send: (_client, frame) => out.push(frame), close() {},
+    });
+    const frames: CapturedPaneFrame[] = [];
+    const errors: Error[] = [];
+    const capture = createBrowserPaneCapture(debug, {
+      fps: 30, quality: 85, onFrame: (frame) => frames.push(frame), onError: (error) => errors.push(error),
+    });
+    capture.setEnabled(true);
+    for (let i = 0; i < 30; i += 1) await Promise.resolve();
+    bridge.addClient("agent");
+    await bridge.handleClientMessage("agent", JSON.stringify({
+      id: 1, method: "Target.attachToTarget", params: { targetId: "P", flatten: true },
+    }));
+    expect(out.some((frame) => eventParams(frame)?.sessionId === "S1")).toBe(false);
+    debug.emit("Runtime.consoleAPICalled", { type: "log" }, "S1");
+    expect(out.some((frame) => frame.sessionId === "S1")).toBe(false);
+    for (const [id, method] of [[2, "Page.startScreencast"], [3, "Page.captureScreenshot"], [4, "Page.stopScreencast"]] as const) {
+      await bridge.handleClientMessage("agent", JSON.stringify({ id, method, sessionId: "S2" }));
+    }
+    await bridge.removeClient("agent");
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 100, 0, 200, 1, 1, 0x11, 0, 0xff, 0xd9]);
+    debug.emit("Page.screencastFrame", { data: jpeg.toString("base64"), sessionId: 7 }, "S1");
+    expect(frames).toMatchObject([{ jpeg, width: 200, height: 100 }]);
+    expect(errors).toEqual([]);
+    expect(commands.filter((command) => command.method === "Page.stopScreencast").map((command) => command.sessionId)).toEqual(["S2"]);
+    expect(commands.filter((command) => command.method === "Target.detachFromTarget").map((command) => command.params)).toEqual([{ sessionId: "S2" }]);
+    expect(out.some((frame) => frame.sessionId === "S1" || frame.method === "Page.screencastFrame")).toBe(false);
+    capture.dispose();
+    for (let i = 0; i < 30; i += 1) await Promise.resolve();
+  });
+
   it("buffers a root attach that arrives before the reply naming its owner", async () => {
     const out: BridgeFrame[] = [];
     const debug: StubDebugger = new StubDebugger(async (method) => {
@@ -875,8 +942,8 @@ describe("gateBridgeRequest", () => {
 // ---------------------------------------------------------------- U6: listener
 
 function fakePane(userAgent: string): PaneContents {
-  // Only the two members the bridge reads exist; the host owns the rest of the seam.
-  const pane = { debugger: new StubDebugger(), userAgent } as unknown as PaneContents;
+  // The bridge reads debugger/userAgent; the host owns the rest of the seam.
+  const pane = { debugger: new StubDebugger(), userAgent, mediaSourceId: () => "unused" } as unknown as PaneContents;
   return pane;
 }
 

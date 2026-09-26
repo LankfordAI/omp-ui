@@ -30,7 +30,9 @@ import {
   type BridgeListener,
   type CreateBridgeListener,
 } from "./browser-pane-bridge";
-import type { CreatePane, PaneContents, PaintImage } from "./browser-pane-contents";
+import type { CreatePane, PaneContents } from "./browser-pane-contents";
+import { createBrowserPaneCapture, trimJpegToWidthHeight, type BrowserPaneCapture, type CapturedPaneFrame } from "./browser-pane-capture";
+import type { DesktopMediaGeometry, DesktopMediaLease, DesktopMediaMessage } from "../browser-pane-desktop-protocol";
 import { pickElement } from "./browser-pane-pick";
 
 /**
@@ -62,6 +64,7 @@ const METRICS_REASSERT_MS = 250;
 
 export interface BrowserPaneHostDeps {
   send: (channel: string, ...args: unknown[]) => void;
+  onDesktopMedia?: (tabId: string, message: Exclude<DesktopMediaMessage, { type: "media-lease" }>) => void;
   /** Default: the Electron-backed factory; tests pass a fake. */
   createPane?: CreatePane;
   /** Effective page devicePixelRatio of the app window (1 on unknown); clamped to BROWSER_PANE_MAX_DSF. Default () => 1. */
@@ -82,6 +85,11 @@ export interface BrowserPaneHostDeps {
 }
 
 interface PaneEntry {
+  tabId: string;
+  desktopViewers: Set<string>;
+  mediaGeneration: number;
+  geometry: DesktopMediaGeometry | null;
+  metricsRevision: number;
   listener: BridgeListener | null;
   pane: PaneContents | null;
   /** Concurrent page creations share this. */
@@ -103,16 +111,21 @@ interface PaneEntry {
   agent: BrowserPaneAgentState;
   actingTimer: NodeJS.Timeout | undefined;
   cdpClients: number;
-  painting: boolean;
+  capture: BrowserPaneCapture | null;
   resizeTimer: NodeJS.Timeout | undefined;
   fps: number;
-  lastPaintAt: number | null;
-  lastEncodeMs: number | null;
+  lastFrameAt: number | null;
+  lastFrameProcessMs: number | null;
   lastError: string | null;
 }
 
-function newEntry(lastUrl: string | null): PaneEntry {
+function newEntry(tabId: string, lastUrl: string | null): PaneEntry {
   return {
+    tabId,
+    desktopViewers: new Set(),
+    mediaGeneration: 0,
+    geometry: null,
+    metricsRevision: 0,
     listener: null,
     pane: null,
     paneInFlight: null,
@@ -129,11 +142,11 @@ function newEntry(lastUrl: string | null): PaneEntry {
     agent: "detached",
     actingTimer: undefined,
     cdpClients: 0,
-    painting: false,
+    capture: null,
     resizeTimer: undefined,
     fps: 0,
-    lastPaintAt: null,
-    lastEncodeMs: null,
+    lastFrameAt: null,
+    lastFrameProcessMs: null,
     lastError: null,
   };
 }
@@ -172,11 +185,14 @@ export class BrowserPaneHost {
   private readonly clockText: () => string;
   private readonly stampImage: (req: BrowserClockStampRequest) => Promise<string>;
   private paneFactory: CreatePane | null;
+  private readonly onDesktopMedia: BrowserPaneHostDeps["onDesktopMedia"];
+  private mediaGeneration = 0;
   private remoteAccessPort: number | null = null;
   private denied: ReadonlySet<number> = new Set();
 
   constructor(deps: BrowserPaneHostDeps) {
     this.send = deps.send;
+    this.onDesktopMedia = deps.onDesktopMedia;
     this.paneFactory = deps.createPane ?? null;
     this.targetScaleFactor = deps.targetScaleFactor ?? (() => 1);
     this.createListener = deps.createListener ?? createBridgeListener;
@@ -245,22 +261,50 @@ export class BrowserPaneHost {
     const entry = this.entries.get(tabId);
     if (entry === undefined) return;
     if (!on) {
-      if (entry.sinks.delete(clientId) && entry.sinks.size === 0) this.stopPainting(entry);
+      if (entry.sinks.delete(clientId) && entry.sinks.size === 0) this.stopCapture(entry);
       return;
     }
     entry.sinks.add(clientId);
     void this.ensurePage(tabId, entry).then((pane) => {
       if (pane === null || !entry.sinks.has(clientId)) return;
-      this.startPainting(entry, pane);
+      this.syncCapture(entry);
       if (entry.cached !== null) this.send(CH.onBrowserPaneFrame, tabId, entry.cached);
-      else pane.invalidate();
     });
   }
 
+  setDesktopViewer(tabId: string, clientId: string, on: boolean): void {
+    const entry = this.entries.get(tabId);
+    if (entry === undefined) return;
+    if (!on) {
+      entry.desktopViewers.delete(clientId);
+      return;
+    }
+    entry.desktopViewers.add(clientId);
+    void this.ensurePage(tabId, entry);
+    if (entry.documentCommitted && entry.geometry !== null) {
+      this.onDesktopMedia?.(tabId, { type: "media-geometry", tabId, generation: entry.mediaGeneration, geometry: entry.geometry });
+    }
+  }
+
+  mediaLease(tabId: string, requesterWebContentsId: number): DesktopMediaLease | null {
+    const entry = this.entries.get(tabId);
+    if (entry === undefined || entry.desktopViewers.size === 0 || !entry.documentCommitted ||
+      entry.geometry === null || entry.pane === null || entry.pane.isDestroyed()) return null;
+    try {
+      return {
+        sourceId: entry.pane.mediaSourceId(requesterWebContentsId),
+        generation: entry.mediaGeneration,
+        geometry: entry.geometry,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   /**
-   * Sets the session-level pane posture (#556). Painting stays bound to
-   * `subscribe`, not to this flag — an open pane nobody is viewing still
-   * paints nothing; the flag is purely what every viewer renders.
+   * Sets the session-level pane posture (#556). Capture stays bound to
+   * `subscribe`, not to this flag. An open pane nobody is viewing captures
+   * nothing; the flag is purely what every viewer renders.
    */
   setOpen(tabId: string, open: boolean): void {
     const entry = this.entries.get(tabId);
@@ -274,7 +318,8 @@ export class BrowserPaneHost {
   noteViewed(clientId: string, tabId: string | null): void {
     for (const [id, entry] of this.entries) {
       if (id === tabId) continue;
-      if (entry.sinks.delete(clientId) && entry.sinks.size === 0) this.stopPainting(entry);
+      if (entry.sinks.delete(clientId) && entry.sinks.size === 0) this.stopCapture(entry);
+      entry.desktopViewers.delete(clientId);
     }
   }
 
@@ -394,14 +439,14 @@ export class BrowserPaneHost {
       rows.push({
         tabId,
         pageAlive: entry.pane !== null && !entry.pane.isDestroyed(),
-        subscribers: entry.sinks.size,
+        subscribers: entry.sinks.size + entry.desktopViewers.size,
         cdpClients: entry.cdpClients,
         agentState: entry.agent,
         urlOrigin: entry.lastUrl === null ? null : safeOrigin(entry.lastUrl),
         frame: entry.header,
         targetDsf: entry.targetDsf,
         fps: Math.round(entry.fps * 10) / 10,
-        lastEncodeMs: entry.lastEncodeMs,
+        lastFrameProcessMs: entry.lastFrameProcessMs,
         bridgePort: entry.listener?.port ?? null,
         partition: BROWSER_PANE_PARTITION,
         lastError: entry.lastError,
@@ -426,7 +471,7 @@ export class BrowserPaneHost {
       if (entry.pane === null) continue;
       this.destroyPage(entry);
       this.emitState(tabId, entry);
-      if (entry.sinks.size > 0) resubscribe.push(tabId);
+      if (entry.sinks.size > 0 || entry.desktopViewers.size > 0) resubscribe.push(tabId);
     }
     await this.clearPartition(BROWSER_PANE_PARTITION);
     for (const tabId of resubscribe) {
@@ -434,8 +479,7 @@ export class BrowserPaneHost {
       if (entry === undefined) continue;
       void this.ensurePage(tabId, entry).then((pane) => {
         if (pane === null || entry.sinks.size === 0) return;
-        this.startPainting(entry, pane);
-        pane.invalidate();
+        this.syncCapture(entry);
       });
     }
   }
@@ -456,7 +500,7 @@ export class BrowserPaneHost {
     // (#556), matching the newEntry that replaces this one below.
     entry.open = false;
     if (opts?.forgetUrl === true) this.entries.delete(tabId);
-    else this.entries.set(tabId, newEntry(entry.lastUrl));
+    else this.entries.set(tabId, newEntry(tabId, entry.lastUrl));
     this.emitState(tabId, entry);
     if (listener !== null) this.recomputeDeniedPorts();
   }
@@ -468,7 +512,7 @@ export class BrowserPaneHost {
   private entry(tabId: string): PaneEntry {
     let entry = this.entries.get(tabId);
     if (entry === undefined) {
-      entry = newEntry(null);
+      entry = newEntry(tabId, null);
       this.entries.set(tabId, entry);
     }
     return entry;
@@ -504,6 +548,14 @@ export class BrowserPaneHost {
     return entry.paneInFlight;
   }
   private destroyPage(entry: PaneEntry): void {
+    entry.capture?.dispose();
+    entry.capture = null;
+    entry.documentCommitted = false;
+    entry.geometry = null;
+    entry.metricsRevision += 1;
+    entry.fps = 0;
+    entry.lastFrameAt = null;
+    entry.lastFrameProcessMs = null;
     clearTimeout(entry.resizeTimer);
     entry.resizeTimer = undefined;
     clearTimeout(entry.reassertTimer);
@@ -512,9 +564,12 @@ export class BrowserPaneHost {
     entry.offPane = [];
     const pane = entry.pane;
     entry.pane = null;
-    entry.painting = false;
     entry.cached = null;
     entry.header = null;
+    if (pane !== null) {
+      entry.mediaGeneration = ++this.mediaGeneration;
+      this.onDesktopMedia?.(entry.tabId, { type: "media-ended", tabId: entry.tabId, generation: entry.mediaGeneration });
+    }
     pane?.destroy();
   }
 
@@ -550,17 +605,30 @@ export class BrowserPaneHost {
       return null;
     }
     entry.pane = pane;
+    entry.mediaGeneration = ++this.mediaGeneration;
     entry.lastError = null;
     entry.offPane.push(
-      pane.onPaint((_dirtyRect, image) => this.onPaint(tabId, entry, image)),
+      pane.on("did-start-navigation", (details) => {
+        const navigation = details as { isMainFrame?: boolean; isSameDocument?: boolean };
+        if (!navigation.isMainFrame || navigation.isSameDocument) return;
+        entry.documentCommitted = false;
+        entry.geometry = null;
+        entry.metricsRevision += 1;
+        this.stopCapture(entry);
+        entry.cached = null;
+        entry.header = null;
+      }),
       pane.on("did-navigate", () => this.noteCommitted(tabId, entry, pane)),
-      pane.on("did-navigate-in-page", () => this.noteCommitted(tabId, entry, pane)),
+      pane.on("did-navigate-in-page", () => this.noteCommitted(tabId, entry, pane, false)),
       pane.on("did-start-loading", () => {
         entry.lastError = null;
+        entry.capture?.setQuality(BROWSER_PANE_JPEG_QUALITY);
         this.emitState(tabId, entry);
       }),
       pane.on("did-stop-loading", () => {
         this.ensureMetrics(entry, "first-commit");
+        entry.capture?.setQuality(BROWSER_PANE_JPEG_QUALITY_SETTLED);
+        this.syncCapture(entry);
         this.emitState(tabId, entry);
       }),
       pane.on("did-fail-load", (...args) => {
@@ -574,17 +642,27 @@ export class BrowserPaneHost {
       pane.on("page-title-updated", () => this.emitState(tabId, entry)),
       pane.on("destroyed", () => {
         if (entry.pane !== pane) return;
-        entry.pane = null;
-        entry.painting = false;
-        entry.offPane = [];
+        this.destroyPage(entry);
         this.emitState(tabId, entry);
       }),
     );
     pane.debugger.attach("1.3");
+    entry.capture = createBrowserPaneCapture(pane.debugger, {
+      fps: BROWSER_PANE_FPS,
+      quality: pane.isLoading() ? BROWSER_PANE_JPEG_QUALITY : BROWSER_PANE_JPEG_QUALITY_SETTLED,
+      onFrame: (frame) => {
+        if (entry.pane === pane) this.onFrame(tabId, entry, frame);
+      },
+      onError: (error) => {
+        if (entry.pane !== pane) return;
+        entry.lastError = `capture-failed: ${error.message.slice(0, 500)}`;
+        entry.fps = 0;
+        entry.lastFrameAt = null;
+        this.emitState(tabId, entry);
+      },
+    });
     // Size the window for the current viewport; the override waits for the first commit (#557).
     this.applyMetrics(entry, pane);
-    if (entry.sinks.size > 0) this.startPainting(entry, pane);
-    else pane.stopPainting();
     // A remembered URL the guard now cancels rejects here; the state still emits.
     void pane.loadURL(entry.lastUrl ?? "about:blank").catch((err: unknown) => {
       this.noteLoadFailure(tabId, entry, err);
@@ -597,8 +675,10 @@ export class BrowserPaneHost {
    * A committed error page for a refused URL (the request layer cancelled an
    * agent's Page.navigate) must not become the URL a recreated pane reloads.
    */
-  private noteCommitted(tabId: string, entry: PaneEntry, pane: PaneContents): void {
+  private noteCommitted(tabId: string, entry: PaneEntry, pane: PaneContents, restartCapture = true): void {
+    if (restartCapture) this.stopCapture(entry);
     this.ensureMetrics(entry, "first-commit");
+    this.syncCapture(entry);
     const url = pane.getURL();
     if (isAllowedBrowserPaneTopLevelUrl(url)) entry.lastUrl = url;
     this.emitState(tabId, entry);
@@ -632,44 +712,49 @@ export class BrowserPaneHost {
     }, METRICS_REASSERT_MS);
   }
 
-  private onPaint(tabId: string, entry: PaneEntry, image: PaintImage): void {
-    const size = image.getSize();
-    // Electron's first paint of a fresh window is empty; an 8-byte frame would
-    // poison the cache and the ensure answer.
-    if (size.width === 0 || size.height === 0) return;
+  private onFrame(tabId: string, entry: PaneEntry, captured: CapturedPaneFrame): void {
+    if (!entry.documentCommitted || entry.sinks.size === 0) return;
     const t0 = this.now();
-    const settled = entry.pane !== null && !entry.pane.isLoading();
-    const jpeg = image.toJPEG(settled ? BROWSER_PANE_JPEG_QUALITY_SETTLED : BROWSER_PANE_JPEG_QUALITY);
-    // The window is CSS × page zoom and the zoom is fixed for the page's life, so
-    // every frame, mid-resize ones included, covers width / targetDsf CSS px.
-    const header: BrowserPaneFrameHeader = { width: size.width, height: size.height, dsf: entry.targetDsf };
+    let { jpeg, width, height } = captured;
+    const geometry = entry.geometry;
+    if (geometry !== null && width === geometry.surfaceWidth && height === geometry.surfaceHeight &&
+      (width !== geometry.width || height !== geometry.height)) {
+      const trimmed = trimJpegToWidthHeight(jpeg, geometry.width, geometry.height);
+      if (trimmed !== null) {
+        jpeg = trimmed;
+        width = geometry.width;
+        height = geometry.height;
+      }
+    }
+    const header: BrowserPaneFrameHeader = { width, height, dsf: entry.targetDsf };
     // One allocation per frame: header and JPEG land in the same buffer.
     const frame = Buffer.allocUnsafe(BROWSER_PANE_FRAME_HEADER_BYTES + jpeg.length);
     frame.set(encodeBrowserPaneFrameHeader(header), 0);
     frame.set(jpeg, BROWSER_PANE_FRAME_HEADER_BYTES);
     const t1 = this.now();
-    entry.lastEncodeMs = t1 - t0;
-    if (entry.lastPaintAt !== null && t1 > entry.lastPaintAt) {
-      const instant = 1000 / (t1 - entry.lastPaintAt);
+    entry.lastFrameProcessMs = captured.processMs + t1 - t0;
+    if (entry.lastFrameAt !== null && t1 > entry.lastFrameAt) {
+      const instant = 1000 / (t1 - entry.lastFrameAt);
       entry.fps = entry.fps === 0 ? instant : entry.fps + FPS_EWMA_ALPHA * (instant - entry.fps);
     }
-    entry.lastPaintAt = t1;
+    entry.lastFrameAt = t1;
     entry.cached = frame;
     entry.header = header;
+    if (entry.lastError?.startsWith("capture-failed:") === true) {
+      entry.lastError = null;
+      this.emitState(tabId, entry);
+    }
     if (entry.sinks.size > 0) this.send(CH.onBrowserPaneFrame, tabId, frame);
   }
 
-  private startPainting(entry: PaneEntry, pane: PaneContents): void {
-    if (entry.painting) return;
-    entry.painting = true;
-    pane.setFrameRate(BROWSER_PANE_FPS);
-    pane.startPainting();
+  private syncCapture(entry: PaneEntry): void {
+    entry.capture?.setEnabled(entry.documentCommitted && entry.sinks.size > 0);
   }
 
-  private stopPainting(entry: PaneEntry): void {
-    if (!entry.painting) return;
-    entry.painting = false;
-    entry.pane?.stopPainting();
+  private stopCapture(entry: PaneEntry): void {
+    entry.capture?.setEnabled(false);
+    entry.fps = 0;
+    entry.lastFrameAt = null;
   }
 
   private onClientCount(tabId: string, entry: PaneEntry, n: number): void {
@@ -760,7 +845,8 @@ export class BrowserPaneHost {
    * The override is sent only after the window's first document commits, because
    * emulation traffic earlier segfaults the GPU process (#557). It is cleared
    * first because Chromium drops a re-sent override matching what this session
-   * last sent.
+   * last sent. Only after it resolves, round the compositor surface up to even
+   * dimensions for tab capture; the override keeps logical page pixels unchanged.
    */
   private applyMetrics(entry: PaneEntry, pane: PaneContents): void {
     const { width, height } = windowSize(entry);
@@ -769,9 +855,25 @@ export class BrowserPaneHost {
     // commit, which would otherwise silently replace the page's density (#646).
     pane.setZoomFactor(entry.targetDsf);
     if (!entry.documentCommitted) return;
+    const revision = ++entry.metricsRevision;
+    const generation = entry.mediaGeneration;
+    const surfaceWidth = width + width % 2;
+    const surfaceHeight = height + height % 2;
     void pane.debugger.sendCommand("Emulation.clearDeviceMetricsOverride").catch(() => {});
     void pane.debugger
       .sendCommand("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false })
+      .then(() => {
+        if (this.entries.get(entry.tabId) !== entry || entry.pane !== pane || pane.isDestroyed() ||
+          !entry.documentCommitted || revision !== entry.metricsRevision || generation !== entry.mediaGeneration) return;
+        if (surfaceWidth !== width || surfaceHeight !== height) pane.setContentSize(surfaceWidth, surfaceHeight);
+        const previous = entry.geometry;
+        const geometry = { width, height, dsf: entry.targetDsf, surfaceWidth, surfaceHeight };
+        entry.geometry = geometry;
+        if (previous === null || previous.width !== width || previous.height !== height || previous.dsf !== geometry.dsf ||
+          previous.surfaceWidth !== surfaceWidth || previous.surfaceHeight !== surfaceHeight) {
+          this.onDesktopMedia?.(entry.tabId, { type: "media-geometry", tabId: entry.tabId, generation, geometry });
+        }
+      })
       .catch(() => {
         // Without the override the page is still right; only an agent viewport could linger.
       });

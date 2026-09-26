@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserPaneRequestCancelled, isDeniedLoopbackRequest } from "./browser-pane-guard";
+import { browserPaneRequestCancelled, createMediaCaptureGrants, isDeniedLoopbackRequest } from "./browser-pane-guard";
 
 const DENIED = new Set([9222, 443, 80]);
 
@@ -66,5 +66,34 @@ describe("browserPaneRequestCancelled (#531 layer 3)", () => {
       expect(cancelled("http://127.0.0.1:3000/app.js", type)).toBe(false);
     }
     expect(cancelled("ws://127.0.0.1:9222/token", "webSocket")).toBe(true);
+  });
+});
+
+describe("createMediaCaptureGrants (#651 desktop tab capture)", () => {
+  const tabCapture = { mediaTypes: [], securityOrigin: "file:///" };
+
+  it("approves exactly one tab capture by the requester that minted the token", () => {
+    const grants = createMediaCaptureGrants(() => 0);
+    grants.issue(7, "file:///app/renderer/index.html");
+    expect(grants.consume(7, "media", tabCapture)).toBe(true);
+    expect(grants.consume(7, "media", tabCapture)).toBe(false);
+  });
+
+  it("keeps page camera/microphone requests, other pages and other origins denied", () => {
+    const grants = createMediaCaptureGrants(() => 0);
+    grants.issue(7, "http://localhost:5173/");
+    expect(grants.consume(8, "media", { mediaTypes: [], securityOrigin: "http://localhost:5173/" })).toBe(false);
+    expect(grants.consume(7, "media", { mediaTypes: ["video"], securityOrigin: "http://localhost:5173/" })).toBe(false);
+    expect(grants.consume(7, "media", { mediaTypes: [], securityOrigin: "https://evil.test/" })).toBe(false);
+    expect(grants.consume(7, "notifications", { mediaTypes: [], securityOrigin: "http://localhost:5173/" })).toBe(false);
+    expect(grants.consume(7, "media", { mediaTypes: [], securityOrigin: "http://localhost:5173/" })).toBe(true);
+  });
+
+  it("expires an unredeemed grant with the token's ten-second lifetime", () => {
+    let now = 0;
+    const grants = createMediaCaptureGrants(() => now);
+    grants.issue(7, "file:///app/index.html");
+    now = 10_001;
+    expect(grants.consume(7, "media", tabCapture)).toBe(false);
   });
 });

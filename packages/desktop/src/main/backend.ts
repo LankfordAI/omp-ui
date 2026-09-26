@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { app, dialog, ipcMain, screen, shell, type BrowserWindow } from "electron";
+import { app, dialog, ipcMain, MessageChannelMain, screen, shell, type BrowserWindow, type MessagePortMain } from "electron";
 import {
   CH,
   browseDirectories,
@@ -119,6 +119,8 @@ import { readExperimentDetail, readProjectExperiments, readRunLog } from "./expe
 import { registerSettingsHandlers } from "./settings-handlers";
 import { registerSttHandlers } from "./stt-handlers";
 import { registerRemoteHandlers } from "./remote-handlers";
+import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
+import { createDesktopPaneStream } from "./browser-pane-desktop-stream";
 
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
@@ -173,6 +175,11 @@ export class MainBackend {
   /** The app window's real page devicePixelRatio; screen.scaleFactor lies on Wayland fractional scaling (#557). */
   private panePageDpr = 1;
   private paneDprProbeTimer: NodeJS.Timeout | undefined;
+  private readonly desktopPaneStream = createDesktopPaneStream();
+  private desktopPanePort: MessagePortMain | null = null;
+  private desktopPaneSubscribe: ChannelTable["notify"][typeof CH.browserPaneSubscribe] | null = null;
+  private readonly desktopPaneSubscriptions = new Map<string, Map<string, "media" | "jpeg">>();
+  private desktopPaneStopped = false;
 
   constructor(
     private readonly win: BrowserWindow,
@@ -277,13 +284,20 @@ export class MainBackend {
             }
           },
           stampImage: (req) => this.clockStamper.stamp(req),
+          onDesktopMedia: (tabId, message) => this.forwardDesktopMedia(tabId, message),
         },
       });
     // Probe the window's true page dpr when the shell loads (and reloads) and
     // whenever the display geometry could have changed (#557). Every hook is
     // guarded: the unit-test fake windows carry only the sink surface.
-    if (typeof win.webContents.on === "function")
+    if (typeof win.webContents.on === "function") {
       win.webContents.on("did-finish-load", () => this.probePanePageDpr());
+      win.webContents.on("did-start-navigation", (details) => {
+        if (details.isMainFrame && !details.isSameDocument) this.resetDesktopPaneStream();
+      });
+      win.webContents.on("render-process-gone", () => this.resetDesktopPaneStream());
+      win.webContents.on("destroyed", () => this.resetDesktopPaneStream());
+    }
     // try/catch: the unit-test electron mocks are partial and throw on any
     // `screen` property access; a missing hook only costs a re-probe.
     try {
@@ -455,6 +469,11 @@ export class MainBackend {
    * loop across a mutual join (#498).
    */
   private sendToRenderers(channel: string, args: unknown[]): void {
+    if (channel === CH.onBrowserPaneFrame) {
+      const [tabId, frame] = args;
+      if (typeof tabId === "string" && frame instanceof Uint8Array) this.desktopPaneStream.offer(tabId, frame);
+      return;
+    }
     if (this.win.isDestroyed()) return;
     const wc = this.win.webContents;
     // A crashed renderer is not "destroyed" — sending into it throws
@@ -975,9 +994,18 @@ export class MainBackend {
     // an OS notification (issue #271). Remote renderers reach the same handler through the
     // WebSocket transport and never mark the desktop.
     const viewed = table.notify[CH.tabViewed];
+    const subscribe = table.notify[CH.browserPaneSubscribe];
+    this.desktopPaneSubscribe = subscribe;
     const notify: ChannelTable["notify"] = {
       ...table.notify,
+      [CH.browserPaneSubscribe]: (tabId: string, clientId: string, on: boolean) => {
+        this.setDesktopPaneSubscription(tabId, clientId, on);
+      },
       [CH.tabViewed]: (clientId: string, tabId: string | null) => {
+        for (const [id, clients] of this.desktopPaneSubscriptions) {
+          if (id !== tabId && clients.has(clientId)) this.setDesktopPaneSubscription(id, clientId, false);
+        }
+        this.desktopPaneStream.noteViewed(clientId, tabId);
         viewed(clientId, tabId);
         this.sessions.noteDesktopClientId(clientId);
         if (tabId !== null) this.notifier.viewedChanged(tabId);
@@ -994,6 +1022,121 @@ export class MainBackend {
         dispatchNotify(desktopTable, channel, args),
       );
     }
+    ipcMain.on(DESKTOP_PANE_PORT_REQUEST, (event) => {
+      const wc = this.win.webContents;
+      if (this.desktopPaneStopped || this.win.isDestroyed() || wc.isDestroyed() ||
+        event.sender !== wc || event.senderFrame !== wc.mainFrame) return;
+      this.disconnectDesktopPanePort();
+      const { port1, port2 } = new MessageChannelMain();
+      this.desktopPanePort = port1;
+      let ready = false;
+      port1.on("message", (message: { data: unknown }) => {
+        if (this.desktopPanePort !== port1) return;
+        const data = message.data;
+        if (typeof data !== "object" || data === null || !("type" in data)) return;
+        if (data.type === "ready" && !ready) {
+          ready = true;
+          for (const [tabId, clients] of this.desktopPaneSubscriptions) {
+            for (const [clientId, path] of clients) {
+              if (path === "media") this.sessions.browserPaneSetDesktopViewer(tabId, clientId, true);
+            }
+          }
+          this.desktopPaneStream.ready((delivery) => {
+            if (this.desktopPanePort !== port1) return;
+            try {
+              // Structured clone, not transfer: the pane and remote sinks still own these bytes.
+              port1.postMessage(delivery);
+            } catch {
+              this.disconnectDesktopPanePort();
+            }
+          });
+        } else if (data.type === "ack" && "id" in data && typeof data.id === "number") {
+          this.desktopPaneStream.ack(data.id);
+        } else if (data.type === "media-lease-request" && "requestId" in data &&
+          typeof data.requestId === "number" && Number.isFinite(data.requestId) &&
+          "tabId" in data && typeof data.tabId === "string") {
+          let localViewer = false;
+          if (this.remoteInstances.ownerOf(data.tabId) === null) {
+            for (const path of this.desktopPaneSubscriptions.get(data.tabId)?.values() ?? []) {
+              if (path === "media") { localViewer = true; break; }
+            }
+          }
+          const lease = localViewer ? this.sessions.browserPaneMediaLease(data.tabId, wc.id) : null;
+          try {
+            port1.postMessage({ type: "media-lease", requestId: data.requestId, tabId: data.tabId, lease });
+          } catch {
+            this.disconnectDesktopPanePort();
+          }
+        }
+      });
+      port1.on("close", () => {
+        if (this.desktopPanePort === port1) this.disconnectDesktopPanePort();
+      });
+      port1.start();
+      try {
+        wc.mainFrame.postMessage(DESKTOP_PANE_PORT, null, [port2]);
+      } catch {
+        port2.close();
+        this.disconnectDesktopPanePort();
+      }
+    });
+  }
+
+  private setDesktopPaneSubscription(tabId: string, clientId: string, on: boolean): void {
+    let clients = this.desktopPaneSubscriptions.get(tabId);
+    const previous = clients?.get(clientId);
+    const path = on ? (this.remoteInstances.ownerOf(tabId) === null ? "media" : "jpeg") : previous;
+    if (previous !== undefined && (!on || previous !== path)) {
+      clients!.delete(clientId);
+      if (previous === "media") this.sessions.browserPaneSetDesktopViewer(tabId, clientId, false);
+      else {
+        this.desktopPaneStream.subscribe(tabId, clientId, false);
+        this.desktopPaneSubscribe?.(tabId, clientId, false);
+      }
+      if (clients!.size === 0) this.desktopPaneSubscriptions.delete(tabId);
+    }
+    if (!on) return;
+    if (clients === undefined || clients.size === 0) {
+      clients = new Map();
+      this.desktopPaneSubscriptions.set(tabId, clients);
+    }
+    clients.set(clientId, path!);
+    if (path === "media") this.sessions.browserPaneSetDesktopViewer(tabId, clientId, true);
+    else {
+      // Cached frames can arrive synchronously from the routed handler.
+      this.desktopPaneStream.subscribe(tabId, clientId, true);
+      this.desktopPaneSubscribe?.(tabId, clientId, true);
+    }
+  }
+
+  private forwardDesktopMedia(tabId: string, message: Exclude<DesktopMediaMessage, { type: "media-lease" }>): void {
+    const clients = this.desktopPaneSubscriptions.get(tabId);
+    if (clients === undefined) return;
+    let viewed = false;
+    for (const path of clients.values()) {
+      if (path === "media") { viewed = true; break; }
+    }
+    if (!viewed) return;
+    try {
+      this.desktopPanePort?.postMessage(message);
+    } catch {
+      this.disconnectDesktopPanePort();
+    }
+  }
+
+  private disconnectDesktopPanePort(): void {
+    const port = this.desktopPanePort;
+    this.desktopPanePort = null;
+    this.desktopPaneStream.disconnect();
+    port?.close();
+  }
+
+  private resetDesktopPaneStream(): void {
+    this.disconnectDesktopPanePort();
+    for (const [tabId, clients] of this.desktopPaneSubscriptions) {
+      for (const clientId of clients.keys()) this.setDesktopPaneSubscription(tabId, clientId, false);
+    }
+    this.desktopPaneStream.reset();
   }
 
   /**
@@ -1083,6 +1226,8 @@ export class MainBackend {
    * the process is going away either way.
    */
   killAll(): Promise<void> {
+    this.desktopPaneStopped = true;
+    this.resetDesktopPaneStream();
     this.notifier.dispose();
     this.providerOAuth.dispose();
     this.planVerifier.dispose();

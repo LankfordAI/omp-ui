@@ -77,6 +77,22 @@ npm run themes:generate --workspace @omp-ui/desktop
 npm run themes:check --workspace @omp-ui/desktop
 ```
 
+The browser-pane smoke reports `frameProcessMs` for main-thread base64 decoding,
+JPEG-header inspection and frame assembly. It does not measure Chromium's
+asynchronous JPEG compression. The host smoke covers raster density, input,
+agent screenshots and clock stamping, but bypasses desktop delivery: local
+panes paint from a tab-capture `MediaStream`, and joined remote-instance panes
+from MessagePort JPEGs. Use a full `dev:headless` run to measure desktop
+painting, input-to-paint latency, ACK backpressure, hidden-tab filtering and
+renderer reload recovery. Send pane text input only with an editable element
+focused: on Electron 43.2.0, `insertText` with nothing focused hangs the pane
+renderer (#656). Keep workload, density,
+quality and GPU mode fixed between baseline and changed runs; report software
+rendering separately. Verify the raster marker and JPEG payload size throughout:
+the pre-existing accelerated static-canvas resize defect (#653) can otherwise
+turn a detailed fixture into an almost empty image. A retained image of seeded
+pixels avoids that fixture failure without reducing frame dimensions or quality.
+
 No lane rebuilds `node-pty` for Electron: the addon is Node-API, so the copy
 `npm ci` installs — a prebuild on Windows and macOS, a node-gyp build on Linux —
 is the copy electron-builder packs. The package verifiers only prove that copy

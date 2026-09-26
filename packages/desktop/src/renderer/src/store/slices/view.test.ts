@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+vi.mock("../../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {}) } }));
 import type { BackendState, ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import type { RpcTabState, TabInfo } from "../../store";
 import { backendState, remoteInstance, rpcTabState, tabInfo } from "../../test/fixtures";

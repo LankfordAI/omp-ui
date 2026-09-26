@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+vi.mock("../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {}) } }));
 import { composePlanSource, parsePlanSource } from "./plan-source";
 import { planDiagramTransform, renderMermaid, type PlanCanvas } from "./plan-diagrams";
 

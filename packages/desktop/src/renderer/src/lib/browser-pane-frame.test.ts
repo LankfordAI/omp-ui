@@ -39,9 +39,27 @@ describe("browser pane frame completion", () => {
     h.decodes[0]!.resolve(bitmap);
     await painted;
     expect(h.drawImage).toHaveBeenCalledWith(bitmap, 0, 0);
-    expect(h.painter.lastJpeg()).toEqual(new Uint8Array([1]));
+    expect(await h.painter.jpeg()).toEqual(new Uint8Array([1]));
     expect(h.painter.header()).toEqual({ width: 1280, height: 800, dsf: 1 });
     expect(bitmap.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores attachment readiness after metadata is cleared at unchanged dimensions", async () => {
+    const h = harness();
+    let attachmentReady = false;
+    h.onHeader.mockImplementation(() => { attachmentReady = true; });
+    const first = h.painter.write(frame(1));
+    h.decodes[0]!.resolve(h.bitmap());
+    await first;
+    expect(attachmentReady).toBe(true);
+
+    // The store invalidates metadata when clear-data recreates the host page.
+    attachmentReady = false;
+    const recreated = h.painter.write(frame(2));
+    h.decodes[1]!.resolve(h.bitmap());
+    await recreated;
+    expect(attachmentReady).toBe(true);
+    expect(await h.painter.jpeg()).toEqual(new Uint8Array([2]));
   });
 
   it("settles replaced parked writes without decoding them and paints only the newest next", async () => {
@@ -59,7 +77,7 @@ describe("browser pane frame completion", () => {
     expect(latestSettled).toBe(false);
     h.decodes[1]!.resolve(h.bitmap());
     await latest;
-    expect(h.painter.lastJpeg()).toEqual(new Uint8Array([3]));
+    expect(await h.painter.jpeg()).toEqual(new Uint8Array([3]));
     expect(h.drawImage).toHaveBeenCalledTimes(2);
   });
 
@@ -75,7 +93,7 @@ describe("browser pane frame completion", () => {
     await Promise.resolve();
     expect(bitmap.close).toHaveBeenCalledTimes(1);
     expect(h.drawImage).not.toHaveBeenCalled();
-    expect(h.painter.lastJpeg()).toBeNull();
+    expect(await h.painter.jpeg()).toBeNull();
   });
 
   it("settles invalid bytes and decode failure without starving the next valid frame", async () => {
@@ -89,7 +107,7 @@ describe("browser pane frame completion", () => {
     expect(h.decodes.map((entry) => entry.marker)).toEqual([1, 2]);
     h.decodes[1]!.resolve(h.bitmap());
     await next;
-    expect(h.painter.lastJpeg()).toEqual(new Uint8Array([2]));
+    expect(await h.painter.jpeg()).toEqual(new Uint8Array([2]));
     expect(h.drawImage).toHaveBeenCalledTimes(1);
   });
 
@@ -102,10 +120,10 @@ describe("browser pane frame completion", () => {
     h.decodes[0]!.resolve(bitmap);
     await failed;
     expect(bitmap.close).toHaveBeenCalledTimes(1);
-    expect(h.painter.lastJpeg()).toBeNull();
+    expect(await h.painter.jpeg()).toBeNull();
     h.decodes[1]!.resolve(h.bitmap());
     await next;
-    expect(h.painter.lastJpeg()).toEqual(new Uint8Array([2]));
+    expect(await h.painter.jpeg()).toEqual(new Uint8Array([2]));
   });
 
   it("intentionally drops frames when the canvas has no drawing context", async () => {
@@ -114,6 +132,6 @@ describe("browser pane frame completion", () => {
     const painter = createFramePainter(canvas, () => {}, decode);
     await painter.write(frame(1));
     expect(decode).not.toHaveBeenCalled();
-    expect(painter.lastJpeg()).toBeNull();
+    expect(await painter.jpeg()).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
+vi.mock("../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {}) } }));
 import { preparePlanDocument, verifyPlanStructure } from "./plan-document";
 import { PLAN_DOCUMENT_CSP } from "./plan-guardrails";
 import { currentThemeId, DEFAULT_THEME_ID, mixHex, resolveTheme } from "./themes";
