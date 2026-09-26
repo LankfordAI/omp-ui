@@ -414,7 +414,7 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
 
     readWebSearchProviders() {
       // Uncached on purpose: the list belongs to the installed omp version, the
-      // probe is ~1 s, and re-mounting the Providers page is the retry path.
+      // catalog read is ~1–3 s, and re-mounting the Providers page is the retry path.
       return backend.readWebSearchProviders();
     },
 

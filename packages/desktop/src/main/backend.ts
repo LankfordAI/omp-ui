@@ -840,8 +840,8 @@ export class MainBackend {
             fs.rmSync(tmp, { recursive: true, force: true });
           }
         },
-        // The provider list is omp-version-scoped, not app state: one probe per
-        // Providers mount, no cache, no broadcast (ADR-0027).
+        // The provider list is omp-version-scoped, not app state: one catalog read
+        // per Providers mount, no cache, no broadcast (ADR-0027, ADR-0035).
         [CH.readWebSearchProviders]: () => readWebSearchProviders({ ompPath: this.ompPath }),
         // Each write answers with the refreshed snapshot in the same round trip,
         // so the page never has to guess what the store now holds.

@@ -1,43 +1,69 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeWebSearchOrder,
-  parseWebSearchProviderList,
+  parseWebSearchProviderCatalog,
   unknownWebSearchProviders,
-  WEB_SEARCH_AUTO_CHOICE,
   WEB_SEARCH_CUSTOM_OPTION,
   webSearchOrderForOption,
   webSearchSelection,
 } from "./web-search-order";
 
-/** omp 18.1.10's own rejection line for `omp search --provider=<sentinel>`. */
-const STDERR_18_1_10 =
-  'error: Expected --provider to be one of: auto, perplexity, gemini, anthropic, codex, ' +
-  "xai, zai, exa, tinyfish, jina, kagi, tavily, firecrawl, brave, kimi, parallel, synthetic, " +
-  'searxng, startpage, duckduckgo, ecosia, google, mojeek, public; got "omp-ui-provider-probe"';
+/** One catalog row per v18.3.2: `omp models --kind search --json`. */
+function searchRow(id: string, extra: Record<string, unknown> = {}) {
+  return {
+    provider: "web",
+    kind: "search",
+    id,
+    selector: `web/${id}`,
+    name: id,
+    ...extra,
+  };
+}
 
-describe("parseWebSearchProviderList", () => {
-  it("reads omp's ids in omp's order and drops the auto sentinel", () => {
-    const providers = parseWebSearchProviderList(STDERR_18_1_10);
-    expect(providers).not.toBeNull();
-    expect(providers).toHaveLength(23);
-    expect(providers?.[0]).toBe("perplexity");
-    expect(providers).toContain("brave");
-    expect(providers?.[providers.length - 1]).toBe("public");
-    expect(providers).not.toContain(WEB_SEARCH_AUTO_CHOICE);
+describe("parseWebSearchProviderCatalog", () => {
+  it("keeps web/search ids in catalog order", () => {
+    expect(
+      parseWebSearchProviderCatalog({
+        models: [searchRow("brave"), searchRow("exa"), searchRow("perplexity")],
+      }),
+    ).toEqual(["brave", "exa", "perplexity"]);
   });
 
-  it("returns null when omp reword the message", () => {
-    expect(parseWebSearchProviderList("error: invalid --provider value")).toBeNull();
+  it("returns null for shapes without a models array", () => {
+    for (const json of [undefined, null, {}, [], "brave", { models: "brave" }]) {
+      expect(parseWebSearchProviderCatalog(json)).toBeNull();
+    }
   });
 
-  it("returns null for a list that carries nothing but the sentinel", () => {
-    expect(parseWebSearchProviderList("Expected --provider to be one of: auto; got x")).toBeNull();
+  it("drops rows that are not web/search and rows without a usable id", () => {
+    expect(
+      parseWebSearchProviderCatalog({
+        models: [
+          { provider: "anthropic", kind: "chat", id: "claude" },
+          { provider: "local", kind: "search", id: "ollama-web" },
+          { provider: "web", kind: "stt", id: "whisper" },
+          searchRow(""),
+          searchRow("exa", { id: 42 }),
+          searchRow("brave", { id: undefined }),
+          "not a row",
+          null,
+          searchRow("brave"),
+        ],
+      }),
+    ).toEqual(["brave"]);
   });
 
-  it("collapses duplicates and blank members", () => {
-    expect(parseWebSearchProviderList("Expected --provider to be one of: brave, brave, , exa ; got x")).toEqual(
-      ["brave", "exa"],
-    );
+  it("collapses duplicates to the first occurrence", () => {
+    expect(
+      parseWebSearchProviderCatalog({
+        models: [searchRow("brave"), searchRow("brave"), searchRow("exa")],
+      }),
+    ).toEqual(["brave", "exa"]);
+  });
+
+  it("returns null when the catalog holds no usable row", () => {
+    expect(parseWebSearchProviderCatalog({ models: [] })).toBeNull();
+    expect(parseWebSearchProviderCatalog({ models: [{ provider: "web", kind: "chat", id: "x" }] })).toBeNull();
   });
 });
 

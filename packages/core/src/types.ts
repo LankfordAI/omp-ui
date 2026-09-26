@@ -703,7 +703,7 @@ export interface OmpSettingsSnapshot {
  * Declared here so the shared channel spec stays transport-agnostic.
  */
 export interface WebSearchProviderSnapshot {
-  /** omp's own provider ids in omp's own order, without the `auto` sentinel. */
+  /** omp's own provider ids in omp's catalog order. */
   providers: string[];
   /** False when this omp published nothing; the page then lists configured ids only. */
   discovered: boolean;

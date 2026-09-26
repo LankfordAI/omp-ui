@@ -6,31 +6,26 @@
 // list in which UNLISTED providers keep omp's own fallback order. omp-ui therefore
 // offers exactly one word — "which provider first" — and writes a one-element array.
 
-/** The sentinel omp's own `omp search --provider` choices give to "no preference". */
-export const WEB_SEARCH_AUTO_CHOICE = "auto";
-
-/**
- * The value the discovery probe passes to `--provider`. It is not a provider id, so omp
- * rejects it and prints the ids it accepts — the only machine-readable publication of
- * that list in 18.1.10 (ADR-0027). Never writable as a preference.
- */
-export const WEB_SEARCH_PROBE_SENTINEL = "omp-ui-provider-probe";
-
 /** Select value for the display-only "several providers already ordered" state. */
 export const WEB_SEARCH_CUSTOM_OPTION = "__custom__";
 
-/** `Expected --provider to be one of: auto, exa, …; got "…"` */
-const CHOICE_LIST_RE = /Expected --provider to be one of:\s*([^;]+);/;
-
-/** omp's provider ids from a probe's stderr text; null when it published no list. */
-export function parseWebSearchProviderList(text: string): string[] | null {
-  const match = CHOICE_LIST_RE.exec(text);
-  if (match === null || match[1] === undefined) return null;
+/**
+ * Parse of `omp models --kind search --json` → provider ids, in catalog
+ * order. Unparseable shapes and catalogs with no usable row yield null;
+ * rows are dropped unless kind is "search", provider is "web", and id is a
+ * non-empty string. Duplicates collapse to the first occurrence.
+ */
+export function parseWebSearchProviderCatalog(json: unknown): string[] | null {
+  const models = (json as { models?: unknown } | null)?.models;
+  if (!Array.isArray(models)) return null;
   const seen = new Set<string>();
   const providers: string[] = [];
-  for (const raw of match[1].split(",")) {
-    const id = raw.trim();
-    if (id === "" || id === WEB_SEARCH_AUTO_CHOICE || seen.has(id)) continue;
+  for (const raw of models) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const row = raw as Record<string, unknown>;
+    if (row["kind"] !== "search" || row["provider"] !== "web") continue;
+    const id = row["id"];
+    if (typeof id !== "string" || id === "" || seen.has(id)) continue;
     seen.add(id);
     providers.push(id);
   }
