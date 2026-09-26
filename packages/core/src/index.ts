@@ -215,11 +215,9 @@ export {
 } from "./memory-defaults";
 export {
   normalizeWebSearchOrder,
-  parseWebSearchProviderList,
+  parseWebSearchProviderCatalog,
   unknownWebSearchProviders,
-  WEB_SEARCH_AUTO_CHOICE,
   WEB_SEARCH_CUSTOM_OPTION,
-  WEB_SEARCH_PROBE_SENTINEL,
   webSearchOrderForOption,
   webSearchSelection,
   type WebSearchSelection,

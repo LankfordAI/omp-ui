@@ -1,6 +1,8 @@
+import * as os from "node:os";
 import { describe, expect, it } from "vitest";
 import { resolveOmpBinary } from "./paths";
 import {
+  execOmpConfigRunner,
   parseEnumOptions,
   readOmpCompactionMethods,
   readOmpSettings,
@@ -510,17 +512,38 @@ describe("writeOmpSetting", () => {
 });
 
 describe("readWebSearchProviders", () => {
-  /** omp 18.1.10's rejection of the probe sentinel. */
-  const ENUM_STDERR =
-    'error: Expected --provider to be one of: auto, exa, brave, duckduckgo; got "omp-ui-provider-probe"';
+  /**
+   * A trimmed `omp models --kind search --json` from v18.3.2 — the real
+   * row shape minus the cost/context fields — plus the junk rows that
+   * exercise the drop rules: wrong kind, wrong provider, non-string id,
+   * and a duplicate.
+   */
+  const CATALOG_18_3_2 = JSON.stringify({
+    models: [
+      { provider: "web", kind: "search", id: "brave", selector: "web/brave", name: "Brave" },
+      { provider: "web", kind: "search", id: "duckduckgo", selector: "web/duckduckgo", name: "DuckDuckGo" },
+      { provider: "anthropic", kind: "chat", id: "claude", selector: "anthropic/claude", name: "Claude" },
+      { provider: "web", kind: "search", id: "exa", selector: "web/exa", name: "Exa" },
+      { provider: "local", kind: "search", id: "ollama-web", selector: "local/ollama-web", name: "Ollama web" },
+      { provider: "web", kind: "search", id: 42, selector: "web/42", name: "Junk" },
+      { provider: "web", kind: "search", id: "brave", selector: "web/brave", name: "Brave again" },
+      { provider: "web", kind: "search", id: "perplexity", selector: "web/perplexity", name: "Perplexity" },
+    ],
+  });
+
+  const FAILURE = {
+    providers: [],
+    discovered: false,
+    error: "this omp did not publish a provider list",
+  };
 
   interface Probe {
     calls: { args: readonly string[]; env: NodeJS.ProcessEnv }[];
   }
 
   /**
-   * A probe runner: `fakeRunner` routes on `--json`, which would send this
-   * probe's args down its "human" branch, so discovery records instead.
+   * A recording runner: `fakeRunner` routes on `--json`, which would send
+   * this read's args down its config branch, so discovery records instead.
    */
   function probeRunner(
     respond: () => Promise<string>,
@@ -536,46 +559,40 @@ describe("readWebSearchProviders", () => {
     return Object.assign(run, { calls });
   }
 
-  it("reads the ids omp lists when it rejects the sentinel", async () => {
-    const run = probeRunner(() => Promise.reject(new Error(ENUM_STDERR)));
+  it("reads the ids in catalog order, dropping rows that are not web/search", async () => {
+    const run = probeRunner(() => Promise.resolve(CATALOG_18_3_2));
     expect(await readWebSearchProviders({ ompPath: OMP }, run)).toEqual({
-      providers: ["exa", "brave", "duckduckgo"],
+      providers: ["brave", "duckduckgo", "exa", "perplexity"],
       discovered: true,
       error: null,
     });
   });
 
-  it("probes with omp's own flag and an replaced HOME, never a credential-carrying env", async () => {
-    const run = probeRunner(() => Promise.reject(new Error(ENUM_STDERR)));
+  it("probes under a replaced HOME, never a credential-carrying env", async () => {
+    const run = probeRunner(() => Promise.resolve(CATALOG_18_3_2));
     await readWebSearchProviders({ ompPath: OMP }, run);
     expect(run.calls).toHaveLength(1);
-    expect(run.calls[0]?.args).toEqual(["search", "--provider=omp-ui-provider-probe"]);
+    expect(run.calls[0]?.args).toEqual(["models", "--kind", "search", "--json"]);
     expect(run.calls[0]?.env.HOME).not.toBe(process.env.HOME);
   });
 
-  it("degrades to a short reason when omp accepts the sentinel", async () => {
-    const run = probeRunner(() => Promise.resolve(""));
-    const snapshot = await readWebSearchProviders({ ompPath: OMP }, run);
-    expect(snapshot).toEqual({
-      providers: [],
-      discovered: false,
-      error: "this omp did not publish a provider list",
-    });
-  });
-
-  it("keeps omp's raw stderr out of the result when the probe fails for another reason", async () => {
-    const run = probeRunner(() =>
-      Promise.reject(new Error("Error: command search not found\nUSAGE\n$ omp search")),
+  it("degrades to the synthetic reason, never omp's message, when the catalog read fails", async () => {
+    const unparseable = await readWebSearchProviders(
+      { ompPath: OMP },
+      probeRunner(() => Promise.resolve("<html>not json</html>")),
     );
-    const snapshot = await readWebSearchProviders({ ompPath: OMP }, run);
-    expect(snapshot.providers).toEqual([]);
-    expect(snapshot.discovered).toBe(false);
-    expect(snapshot.error).not.toContain("USAGE");
-    expect(snapshot.error).not.toContain("command search not found");
+    expect(unparseable).toEqual(FAILURE);
+    const rejected = await readWebSearchProviders(
+      { ompPath: OMP },
+      probeRunner(() =>
+        Promise.reject(new Error("Error: command models not found\nUSAGE\n$ omp models")),
+      ),
+    );
+    expect(rejected).toEqual(FAILURE);
   });
 
   it("spawns nothing without an omp binary", async () => {
-    const run = probeRunner(() => Promise.reject(new Error(ENUM_STDERR)));
+    const run = probeRunner(() => Promise.resolve(CATALOG_18_3_2));
     expect(await readWebSearchProviders({ ompPath: null }, run)).toEqual({
       providers: [],
       discovered: false,
@@ -617,11 +634,20 @@ describe("readWebSearchProviders", () => {
     if (ompPath === null) return;
     const snapshot = await readOmpSettings({ ompPath, projectCwd: null });
     if (snapshot.error !== null) return;
-    const published = new Set(snapshot.entries.map((e) => e.key));
-    for (const key of ["providers.webSearchOrder", "providers.webSearchExclude"]) {
-      expect(published.has(key), `omp no longer publishes ${key}`).toBe(true);
-    }
+    // The generation marker is checked against omp's designed listing, not
+    // the snapshot: readOmpSettings emits only allowlisted keys, and
+    // providers.webSearchTimeoutSeconds is deliberately not one of them.
+    const listed = JSON.parse(
+      await execOmpConfigRunner(ompPath)(["config", "list", "--json"], {
+        cwd: os.tmpdir(),
+        env: process.env,
+      }),
+    ) as Record<string, unknown>;
+    expect(
+      listed["providers.webSearchTimeoutSeconds"],
+      "omp no longer publishes providers.webSearchTimeoutSeconds",
+    ).toBeDefined();
     const discovered = await readWebSearchProviders({ ompPath });
-    expect(discovered.providers.length, "omp published no web-search provider list").toBeGreaterThan(0);
+    expect(discovered.providers.length, "omp published no web-search provider catalog").toBeGreaterThan(0);
   }, 30_000);
 });

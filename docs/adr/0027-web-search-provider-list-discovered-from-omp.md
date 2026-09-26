@@ -1,5 +1,7 @@
 # The web-search provider list is discovered from omp
 
+_Superseded by [ADR-0035](0035-web-search-provider-list-read-from-omp-model-catalog.md): the probe is gone with omp's_ `search --provider` _flag; the closed-list principle it defended stands unchanged._
+
 Settings → Providers carries one **Web search order** control (issue #394): which
 provider omp's native `web_search` tool tries first. Its value is omp's own
 `providers.webSearchOrder`, read through the settings snapshot and written through

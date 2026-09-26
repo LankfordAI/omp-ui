@@ -10,10 +10,7 @@ import {
   SUBAGENT_CONCURRENCY_SETTING_GROUP,
   SUBAGENT_MODEL_SETTING_GROUP,
 } from "./omp-settings-keys";
-import {
-  parseWebSearchProviderList,
-  WEB_SEARCH_PROBE_SENTINEL,
-} from "./web-search-order";
+import { parseWebSearchProviderCatalog } from "./web-search-order";
 import type {
   OmpSettingEntry,
   OmpSettingLayer,
@@ -369,15 +366,20 @@ export async function readOmpCompactionMethods(
 }
 
 /**
- * The provider ids the installed omp accepts for the native web_search tool.
+ * The provider ids the installed omp accepts for the native web_search tool,
+ * read from its model catalog: `omp models --kind search --json` rows shaped
+ * `{"provider":"web","kind":"search","id":"brave","selector":"web/brave",…}`.
+ * This replaced ADR-0027's flag-validation probe, obsolete once omp dropped
+ * that flag in 18.2.x (ADR-0035).
  *
- * omp publishes them nowhere structured: `providers.webSearchOrder` is a plain array whose
- * pristine default is also `[]`, so neither `config list --json` nor the pristine read can
- * enumerate them (verified, omp 18.1.10). They surface in exactly one machine-readable place
- * — the arg-validation rejection of `omp search --provider=<sentinel>`, which fires before
- * any query handling and before any network call. The probe runs under an empty HOME so it
- * can neither read nor send a credential. Never throws; omp's raw stderr stays out of the
- * result — an undiscoverable list is a short reason plus an empty array (ADR-0027).
+ * Deliberate difference from `readSttModels`: this runs under
+ * `pristineEnvironment`, not the live `process.env` — the search kind is not
+ * key-gated (verified, omp 18.3.2: pristine and live catalogs are
+ * byte-identical, network cut), so the read neither needs nor may carry a
+ * credential. If a future omp starts key-gating search rows, that is the
+ * signal to revisit this. Never throws; every failure — missing binary,
+ * rejected spawn, unparseable stdout, empty catalog — answers with the same
+ * short synthetic reason and an empty list, never omp's raw stderr.
  */
 export async function readWebSearchProviders(
   { ompPath }: { ompPath: string | null },
@@ -386,23 +388,24 @@ export async function readWebSearchProviders(
   if (ompPath === null) {
     return { providers: [], discovered: false, error: "omp binary not found" };
   }
+  const failure: WebSearchProviderSnapshot = {
+    providers: [],
+    discovered: false,
+    error: "this omp did not publish a provider list",
+  };
   let neutralCwd: string | null = null;
   let pristineHome: string | null = null;
   try {
     neutralCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-wssearch-"));
     pristineHome = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-wssearch-"));
-    const text = await run(
-      ["search", `--provider=${WEB_SEARCH_PROBE_SENTINEL}`],
-      { cwd: neutralCwd, env: pristineEnvironment(pristineHome) },
-    ).then(
-      // omp accepted the sentinel, so it publishes no closed list: nothing was learned.
-      () => "",
-      (err: unknown) => errorMessage(err),
-    );
-    const providers = parseWebSearchProviderList(text);
-    return providers === null
-      ? { providers: [], discovered: false, error: "this omp did not publish a provider list" }
-      : { providers, discovered: true, error: null };
+    const text = await run(["models", "--kind", "search", "--json"], {
+      cwd: neutralCwd,
+      env: pristineEnvironment(pristineHome),
+    });
+    const providers = parseWebSearchProviderCatalog(JSON.parse(text));
+    return providers === null ? failure : { providers, discovered: true, error: null };
+  } catch {
+    return failure;
   } finally {
     removeTempDirs(neutralCwd, pristineHome);
   }
