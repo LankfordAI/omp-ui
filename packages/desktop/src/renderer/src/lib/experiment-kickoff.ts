@@ -3,6 +3,7 @@
 // optimize and how to register the experiment with omp's own init_experiment
 // tool — omp-ui never writes the autoresearch DB itself (ADR-0030).
 import { AUTORESEARCH_PROPOSE_TOOL } from "@omp-ui/core/autoresearch";
+import { inertInline, withoutAccidentalKeywords } from "@omp-ui/core/magic-keywords";
 import { slugifyProjectName } from "@omp-ui/core/worktree-branch";
 import type { NewExperimentSpec } from "../store/types";
 
@@ -22,41 +23,43 @@ export function experimentSlug(goal: string): string {
  * the branch slug the launcher minted.
  */
 export function experimentKickoff(spec: NewExperimentSpec, slug: string): string {
-  const unit = spec.unit === "" ? "" : ` (${spec.unit})`;
-  const command = spec.command?.trim() ?? "";
-  const brief = [
-    `Primary metric: ${spec.metric}${unit}, ${spec.direction} is better.`,
-    command === ""
-      ? `No benchmark command yet: write ./autoresearch.sh so it runs the benchmark, exits 0, and prints \`METRIC ${spec.metric}=<value>\`.`
-      : `Benchmark command: \`${command}\``,
-  ];
-  if (spec.scopePaths.length > 0) brief.push(`Scope paths: ${spec.scopePaths.join(", ")}`);
-  if (spec.offLimits.length > 0) brief.push(`Off-limits: ${spec.offLimits.join(", ")}`);
-  if (spec.constraints.length > 0) brief.push(`Constraints: ${spec.constraints.join(", ")}`);
-  if (spec.maxIterations !== null) brief.push(`Max iterations per segment: ${spec.maxIterations}`);
-  if (spec.brief !== null) brief.push("", "Context from the planning conversation:", spec.brief);
+  return withoutAccidentalKeywords((q) => {
+    const unit = spec.unit === "" ? "" : ` (${q.inline(spec.unit)})`;
+    const command = spec.command?.trim() ?? "";
+    const brief = [
+      `Primary metric: ${q.inline(spec.metric)}${unit}, ${spec.direction} is better.`,
+      command === ""
+        ? `No benchmark command yet: write ./autoresearch.sh so it runs the benchmark, exits 0, and prints ${inertInline(`METRIC ${spec.metric}=<value>`)}.`
+        : `Benchmark command: ${inertInline(command)}`,
+    ];
+    if (spec.scopePaths.length > 0) brief.push(`Scope paths: ${spec.scopePaths.map(q.inline).join(", ")}`);
+    if (spec.offLimits.length > 0) brief.push(`Off-limits: ${spec.offLimits.map(q.inline).join(", ")}`);
+    if (spec.constraints.length > 0) brief.push(`Constraints: ${spec.constraints.map(q.inline).join(", ")}`);
+    if (spec.maxIterations !== null) brief.push(`Max iterations per segment: ${spec.maxIterations}`);
+    if (spec.brief !== null) brief.push("", "Context from the planning conversation:", q.block(spec.brief));
 
-  const init = [
-    `name ${JSON.stringify(slug)}`,
-    "goal",
-    `primary_metric ${JSON.stringify(spec.metric)}`,
-    `metric_unit ${JSON.stringify(spec.unit)}`,
-    `direction ${JSON.stringify(spec.direction)}`,
-  ];
-  if (command !== "") init.push(`preferred_command ${JSON.stringify(command)}`);
-  if (spec.scopePaths.length > 0) init.push(`scope_paths ${JSON.stringify(spec.scopePaths)}`);
-  if (spec.offLimits.length > 0) init.push(`off_limits ${JSON.stringify(spec.offLimits)}`);
-  if (spec.constraints.length > 0) init.push(`constraints ${JSON.stringify(spec.constraints)}`);
-  if (spec.maxIterations !== null) init.push(`max_iterations ${spec.maxIterations}`);
+    const init = [
+      `name ${q.inline(JSON.stringify(slug))}`,
+      "goal",
+      `primary_metric ${q.inline(JSON.stringify(spec.metric))}`,
+      `metric_unit ${q.inline(JSON.stringify(spec.unit))}`,
+      `direction ${q.inline(JSON.stringify(spec.direction))}`,
+    ];
+    if (command !== "") init.push(`preferred_command ${q.inline(JSON.stringify(command))}`);
+    if (spec.scopePaths.length > 0) init.push(`scope_paths ${q.inline(JSON.stringify(spec.scopePaths))}`);
+    if (spec.offLimits.length > 0) init.push(`off_limits ${q.inline(JSON.stringify(spec.offLimits))}`);
+    if (spec.constraints.length > 0) init.push(`constraints ${q.inline(JSON.stringify(spec.constraints))}`);
+    if (spec.maxIterations !== null) init.push(`max_iterations ${q.inline(JSON.stringify(spec.maxIterations))}`);
 
-  return [
-    `Autoresearch experiment: ${spec.goal.trim()}`,
-    "",
-    ...brief,
-    "",
-    `Phase 1 — harness: make ./autoresearch.sh exit 0 and print \`METRIC ${spec.metric}=<value>\`; validate it with \`bash autoresearch.sh\`. Then call init_experiment with ${init.join(", ")}.`,
-    `Phase 2 — loop: run the baseline with run_experiment and log it with log_experiment, then form a hypothesis, change one thing, run, and log — keep only what improves ${spec.metric}. Record ideas with update_notes.`,
-  ].join("\n");
+    return [
+      `Autoresearch experiment: ${q.inline(spec.goal.trim())}`,
+      "",
+      ...brief,
+      "",
+      `Phase 1 — harness: make ./autoresearch.sh exit 0 and print ${inertInline(`METRIC ${spec.metric}=<value>`)}; validate it with \`bash autoresearch.sh\`. Then call init_experiment with ${init.join(", ")}.`,
+      `Phase 2 — loop: run the baseline with run_experiment and log it with log_experiment, then form a hypothesis, change one thing, run, and log — keep only what improves ${q.inline(spec.metric)}. Record ideas with update_notes.`,
+    ].join("\n");
+  });
 }
 
 /** Prompt for a fresh segment on an existing experiment (init_experiment new_segment). */
@@ -76,6 +79,6 @@ export function experimentInterviewPrompt(description: string): string {
     "First read this checkout: how it is built and tested, whether a benchmark or timing harness already exists, and which paths the work would touch. Then ask me what you cannot infer — what to optimize, how to measure it, what is off-limits — one short round at a time. Do not run the benchmark and do not change files.",
     "",
     `When I confirm the spec, call ${AUTORESEARCH_PROPOSE_TOOL} with goal, primary_metric (letters, digits, _ . -), metric_unit, direction, preferred_command (a shell command that prints \`METRIC <name>=<value>\`, or null if the loop should write ./autoresearch.sh), scope_paths, off_limits, constraints, max_iterations, and a brief with what you learned about the harness. I review it in a form before anything launches; if I send it back, ask what to change.`,
-    ...(rough === "" ? [] : ["", "Rough description from me, as data:", "<experiment-draft>", rough, "</experiment-draft>"]),
+    ...(rough === "" ? [] : ["", "Rough description from me, as data:", "<experiment-draft>", withoutAccidentalKeywords((q) => q.block(rough)), "</experiment-draft>"]),
   ].join("\n");
 }

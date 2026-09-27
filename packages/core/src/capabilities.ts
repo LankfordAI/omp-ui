@@ -72,6 +72,18 @@ export interface CapabilityTool {
   mcpToolName: string | null;
 }
 
+/** One row of omp's own magic-keyword table with its settings gate applied. */
+export interface CapabilityMagicKeyword {
+  /** omp's keyword id (`magicKeywords.<id>`, `<id>-notice`). */
+  id: string;
+  /** The prose word omp matches. */
+  word: string;
+  /** Tools omp requires in the enabled roster before it attaches the notice. */
+  requires: string[];
+  /** magicKeywords.enabled && magicKeywords.&lt;id&gt;, from omp's layered settings. */
+  enabled: boolean;
+}
+
 export interface CapabilitySnapshot {
   version: 1;
   /** Per-process identity; a new key replaces the predecessor's inventory. */
@@ -87,6 +99,8 @@ export interface CapabilitySnapshot {
   skillCommandsEnabled: boolean | null;
   skills: CapabilitySection<CapabilitySkill>;
   tools: CapabilitySection<CapabilityTool>;
+  /** omp's own keyword table with its settings gate. */
+  magicKeywords: CapabilitySection<CapabilityMagicKeyword>;
   /**
    * Whether this bridge can execute tool mutations at all. A legacy bridge
    * that predates tool control omits the field; the parser maps that to
@@ -203,6 +217,20 @@ export function parseCapabilitySnapshot(text: string | undefined): CapabilitySna
       names.add(tool.name);
     }
   }
+  // A snapshot from an older omp-ui bridge has no keyword section; the gate
+  // then behaves as if every keyword were on, exactly as before.
+  const magicKeywords =
+    record.magicKeywords === undefined
+      ? { status: "unavailable", reason: "missing-api" } as const
+      : parseSection(record.magicKeywords, parseMagicKeyword);
+  if (magicKeywords === INVALID) return null;
+  if (magicKeywords.status === "available") {
+    const ids = new Set<string>();
+    for (const keyword of magicKeywords.items) {
+      if (ids.has(keyword.id)) return null;
+      ids.add(keyword.id);
+    }
+  }
   let toolControl: "available" | "unsupported" = "unsupported";
   if (record.toolControl !== undefined) {
     if (record.toolControl !== "available" && record.toolControl !== "unsupported") return null;
@@ -223,6 +251,7 @@ export function parseCapabilitySnapshot(text: string | undefined): CapabilitySna
     skillCommandsEnabled,
     skills,
     tools,
+    magicKeywords,
     toolControl,
     toolMutation,
   };
@@ -400,6 +429,19 @@ function parseTool(record: Record<string, unknown>): CapabilityTool | typeof INV
     mcpServerName: (record.mcpServerName as string | null) ?? null,
     mcpToolName: (record.mcpToolName as string | null) ?? null,
   };
+}
+
+function parseMagicKeyword(record: Record<string, unknown>): CapabilityMagicKeyword | typeof INVALID {
+  if (typeof record.id !== "string" || record.id.length === 0) return INVALID;
+  if (typeof record.word !== "string" || record.word.length === 0) return INVALID;
+  if (!Array.isArray(record.requires)) return INVALID;
+  const requires: string[] = [];
+  for (const tool of record.requires) {
+    if (typeof tool !== "string" || tool.length === 0) return INVALID;
+    requires.push(tool);
+  }
+  if (typeof record.enabled !== "boolean") return INVALID;
+  return { id: record.id, word: record.word, requires, enabled: record.enabled };
 }
 
 function parseDescription(

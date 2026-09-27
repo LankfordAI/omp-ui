@@ -17,9 +17,7 @@ import { strField } from "../../lib/fields";
 import { AdvisorReplyWatcher } from "../../lib/advisor-reply";
 import {
   PlanConcernWatcher,
-  withConcerns,
-  withExecutionDestination,
-  withKeywords,
+  composeImplementationPrompt,
   type PlanExecutionContext,
   type PlanExecutionOptions,
 } from "../../lib/plan-concerns";
@@ -27,7 +25,7 @@ import {
   STALL_CONTINUE_LEAD,
   StallContinueWatcher,
 } from "../../lib/stall-continue";
-import { noticeItem } from "../../lib/transcript";
+import { noticeItem, type AdvisorNote } from "../../lib/transcript";
 import { findRecord } from "./view";
 import type { GetState, SetState, StoreMachinery, Watchers } from "./shared";
 import type { PlanRevisionNotes, RpcTabState } from "../types";
@@ -65,7 +63,7 @@ export interface PlanExecutionDeps {
     tabId: string,
     planText: string | null,
     planImplementationSource: Readonly<PlanImplementationSource>,
-    concerns: string | null,
+    concerns: readonly AdvisorNote[],
     options?: PlanExecutionOptions,
   ): Promise<void>;
 }
@@ -264,16 +262,15 @@ export function createPlanExecutionSlice(
     context: PlanExecutionContext,
     planText: string | null,
     planImplementationSource: Readonly<PlanImplementationSource> | undefined,
-    concerns: string | null,
+    concerns: readonly AdvisorNote[],
     options?: PlanExecutionOptions,
   ): void => {
-    const message = withKeywords(
-      withExecutionDestination(
-        withConcerns(EXECUTION_PROMPT, concerns),
-        options?.destination,
-      ),
-      options ?? {},
-    );
+    const message = composeImplementationPrompt({
+      lead: EXECUTION_PROMPT,
+      plan: null,
+      concerns,
+      options,
+    });
     if (context === "fresh" || context === "worktree") {
       if (!planImplementationSource) return;
       void deps.spawnFreshImplementation(
@@ -504,7 +501,7 @@ export function createPlanExecutionSlice(
         context,
         planText,
         planImplementationSource,
-        null,
+        [],
         options,
       );
     };

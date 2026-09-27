@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { extensionToMime } from "./images";
+import { inertBlock, keywordsIn, unclosedFence } from "./magic-keywords";
 import type { ImageAttachment, ResolvedMentionContext } from "./types";
 
 /**
@@ -89,8 +90,8 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(1)} ${unit}`;
 }
 
-function skipBlock(mention: string, reason: "binary file" | "too large", size: number): string {
-  return `\n\n<file path="${mention}">\n(skipped auto-read: ${reason}, ${formatBytes(size)})\n</file>`;
+function skipBody(reason: "binary file" | "too large", size: number): string {
+  return `(skipped auto-read: ${reason}, ${formatBytes(size)})`;
 }
 
 /** omp's buildDirectoryListing, minus the mtime-age annotations. */
@@ -121,7 +122,7 @@ export async function resolveFileMentions(
 ): Promise<ResolvedMentionContext> {
   const root = path.resolve(projectCwd);
   const images: ImageAttachment[] = [];
-  let contextText = "";
+  const blocks: { mention: string; body: string }[] = [];
 
   for (const mention of extractMentions(message)) {
     const resolved = path.resolve(root, mention);
@@ -137,37 +138,64 @@ export async function resolveFileMentions(
 
     try {
       if (stat.isDirectory()) {
-        contextText += `\n\n<file path="${mention}">\n${await directoryListing(resolved)}\n</file>`;
+        blocks.push({ mention, body: await directoryListing(resolved) });
         continue;
       }
 
       const mimeType = extensionToMime(path.extname(mention));
       if (mimeType !== undefined) {
         if (stat.size > OMP_MAX_AUTO_READ_IMAGE_BYTES) {
-          contextText += skipBlock(mention, "too large", stat.size);
+          blocks.push({ mention, body: skipBody("too large", stat.size) });
           continue;
         }
         const buf = await fs.readFile(resolved);
         images.push({ type: "image", data: buf.toString("base64"), mimeType });
-        contextText += `\n\n<file path="${mention}">\n[Image attached]\n</file>`;
+        blocks.push({ mention, body: "[Image attached]" });
         continue;
       }
 
       // Size before the null-byte sniff: no read happens for an oversize file.
       if (stat.size > MAX_TEXT_BYTES) {
-        contextText += skipBlock(mention, "too large", stat.size);
+        blocks.push({ mention, body: skipBody("too large", stat.size) });
         continue;
       }
       const buf = await fs.readFile(resolved);
       if (buf.includes(0)) {
-        contextText += skipBlock(mention, "binary file", stat.size);
+        blocks.push({ mention, body: skipBody("binary file", stat.size) });
         continue;
       }
-      contextText += `\n\n<file path="${mention}">\n${buf.toString("utf8")}\n</file>`;
+      blocks.push({ mention, body: buf.toString("utf8") });
     } catch {
       // Deleted between stat and read — contributes nothing, like omp.
     }
   }
 
-  return { contextText, images };
+  const render = (body: (block: { body: string }) => string): string =>
+    blocks.map((block) => `\n\n<file path="${block.mention}">\n${body(block)}\n</file>`).join("");
+  // A body with an unclosed fence or an early `</file>` would turn a prose
+  // line the user never typed into prose omp matches. When the blocks arm
+  // anything beyond what the draft already armed, rebuild every body inert.
+  const verbatim = render((block) => block.body);
+  if (sameKeywords(keywordsIn(message), keywordsIn(message + verbatim))) {
+    return { contextText: verbatim, images };
+  }
+  // A draft left inside an open fence would swallow the blocks and let a body
+  // line close it, so close the draft's own fence first.
+  const closer = unclosedFence(message);
+  return {
+    contextText: (closer === null ? "" : `\n${closer}`) + render((block) => inertBlock(block.body)),
+    images,
+  };
+}
+
+/** True when two keyword sets hold exactly the same words. */
+function sameKeywords(
+  a: ReadonlySet<string>,
+  b: ReadonlySet<string>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const keyword of a) {
+    if (!b.has(keyword)) return false;
+  }
+  return true;
 }

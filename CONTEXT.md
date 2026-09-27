@@ -366,14 +366,19 @@ must never send the agent to rewrite valid source.
 _Avoid_: plan lint, plan validation prompt, renderer check
 
 **Magic keyword**:
-One of omp's three prose keywords — `ultrathink`, `orchestrate`, `workflowz` —
-which, submitted as standalone prose, make omp append a hidden system notice
-steering the turn (and, for `ultrathink` under auto-thinking, resolve the turn
-to the model's highest thinking level). The composer paints each with its own
-gradient exactly as omp's editor does; the plan review stages them as
-switches that lead the implementation prompt in omp's notice order. omp's own
-config (`magicKeywords.*`) can disable each one, which makes the word inert
-literal text — omp-ui mirrors typing, so it neither detects nor overrides that.
+One of omp's four prose keywords — `ultrathink`, `orchestrate`, `workflowz`,
+`jevify` — which, submitted as standalone prose, make omp append a hidden
+system notice steering the turn (and, for `ultrathink` under auto-thinking,
+resolve the turn to the model's highest thinking level). The composer paints
+a keyword only when omp will actually attach its notice: the word survives
+omp's matcher, its `magicKeywords.*` setting is on, and the session has
+every tool it requires (`orchestrate`: `task`; `workflowz`: `task`+`eval`;
+`jevify`: `eval`) — stricter than omp's own editor, which checks only the
+master setting. The plan review stages the first three as switches that lead
+the implementation prompt in omp's notice order, and disables any the
+`magicKeywords.*` settings switch off. Prompts omp-ui builds for the user —
+plan seeds, advisor notes, branch names, file blocks, one-shots — never arm
+a keyword from text the user did not type.
 _Avoid_: reserved word, hotword, slash command
 
 **Slash palette**:

@@ -1,3 +1,4 @@
+import { withoutAccidentalKeywords } from "@omp-ui/core/magic-keywords";
 import { collectNewConcerns, noteKey, renderConcernsBlock } from "./advisor-concerns";
 import type { AdvisorNote, RenderItem } from "./transcript";
 
@@ -157,8 +158,9 @@ export class AdvisorReplyWatcher {
       return;
     }
 
-    const message = renderConcernsBlock(notes, ADVISOR_REPLY_LEAD);
-    if (message === null) return; // unreachable with notes.length > 0
+    const message = withoutAccidentalKeywords(
+      (q) => renderConcernsBlock(notes, ADVISOR_REPLY_LEAD, q)!,
+    );
 
     st.cursor = items.length;
     st.replies += 1;

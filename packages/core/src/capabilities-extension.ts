@@ -9,6 +9,7 @@ import {
 } from "./capabilities";
 import { writeLineageArtifact } from "./lineage-artifact";
 import {
+  generatedOmpSettingReaderSource,
   generatedPollTimerSource,
   generatedRootBindingSource,
   generatedSessionIdSource,
@@ -113,6 +114,7 @@ interface SessionLike {
   queuedMessageCount?: unknown;
   version?: unknown;
   ompVersion?: unknown;
+  settings?: unknown;
 }
 
 interface SkillRow {
@@ -138,6 +140,13 @@ interface ToolRow {
   mcpDigest: string;
 }
 
+interface KeywordRow {
+  id: string;
+  word: string;
+  requires: string[];
+  enabled: boolean;
+}
+
 interface SectionSample<T> {
   reason: string | null;
   rows: T[];
@@ -159,6 +168,7 @@ interface DraftSnapshot {
   skillCommandsEnabled: boolean | null;
   skills: DraftSection;
   tools: DraftSection;
+  magicKeywords: DraftSection;
   toolControl: string;
   toolMutation: DraftToolMutation | null;
 }
@@ -268,6 +278,14 @@ export default function (pi: ExtensionApi) {
 
   ${generatedSessionIdSource("SessionLike")}
 
+  let keywordTable: unknown = null;
+  // @ts-expect-error -- literal specifier resolved by omp's extension loader (ADR-0036)
+  void import("@oh-my-pi/pi-coding-agent/modes/magic-keywords").then(
+    (mod: unknown) => { keywordTable = (mod as Record<string, unknown> | null)?.MAGIC_KEYWORDS ?? null; },
+    () => undefined,
+  );
+  ${generatedOmpSettingReaderSource()}
+
   function probeVersion(): string | null {
     try {
       const candidates = [pi.pi?.version, pi.pi?.ompVersion, rootSession?.version, rootSession?.ompVersion];
@@ -289,6 +307,43 @@ export default function (pi: ExtensionApi) {
     }
   }
 
+  /**
+   * omp's own keyword table with its settings gate: enabled =
+   * magicKeywords.enabled && magicKeywords.&lt;id&gt;. "Cannot tell" is never
+   * published as "off": an unreadable setting fails the whole section.
+   */
+  function sampleMagicKeywords(root: SessionLike | null): SectionSample<KeywordRow> {
+    if (root === null || !Array.isArray(keywordTable) || settingLookup === null) {
+      return { reason: "missing-api", rows: [] };
+    }
+    try {
+      const master = readOmpSetting(root.settings, "magicKeywords.enabled");
+      if (typeof master !== "boolean") return { reason: "read-failed", rows: [] };
+      const rows: KeywordRow[] = [];
+      for (const entry of keywordTable as Record<string, unknown>[]) {
+        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+        if (typeof entry.id !== "string" || entry.id.length === 0) continue;
+        if (typeof entry.word !== "string" || entry.word.length === 0) continue;
+        if (!Array.isArray(entry.requires)) continue;
+        const requires: string[] = [];
+        let requiresOk = true;
+        for (const tool of entry.requires as unknown[]) {
+          if (typeof tool !== "string" || tool.length === 0) {
+            requiresOk = false;
+            break;
+          }
+          requires.push(tool);
+        }
+        if (!requiresOk) continue;
+        const own = readOmpSetting(root.settings, "magicKeywords." + entry.id);
+        if (typeof own !== "boolean") return { reason: "read-failed", rows: [] };
+        rows.push({ id: entry.id, word: entry.word, requires, enabled: master && own });
+      }
+      return { reason: null, rows };
+    } catch {
+      return { reason: "read-failed", rows: [] };
+    }
+  }
   function nameSet(root: SessionLike, method: string): Set<string> | null {
     const fn = (root as unknown as Record<string, unknown>)[method];
     if (typeof fn !== "function") return null;
@@ -657,6 +712,7 @@ export default function (pi: ExtensionApi) {
     skillCommandsEnabled: boolean | null,
     skills: SectionSample<SkillRow>,
     tools: SectionSample<ToolRow>,
+    keywords: SectionSample<KeywordRow>,
     toolControl: string,
     mutation: DraftToolMutation | null,
   ): string {
@@ -666,10 +722,13 @@ export default function (pi: ExtensionApi) {
     const toolRows = tools.reason === null
       ? tools.rows.map((row) => [row.name, row.description, row.descriptionTruncated, row.source, row.enabled, row.direct, row.xdev, row.evalBridge, row.mcpDigest])
       : ["unavailable", tools.reason];
+    const keywordRows = keywords.reason === null
+      ? keywords.rows.map((row) => [row.id, row.word, row.requires.join(","), row.enabled])
+      : ["unavailable", keywords.reason];
     const mutationRow = mutation === null
       ? null
       : [mutation.id, mutation.name, mutation.enabled, mutation.status];
-    return JSON.stringify([sessionIdValue, skillCommandsEnabled, skillRows, toolRows, toolControl, mutationRow]);
+    return JSON.stringify([sessionIdValue, skillCommandsEnabled, skillRows, toolRows, keywordRows, toolControl, mutationRow]);
   }
 
   function publish(force: boolean): void {
@@ -684,8 +743,9 @@ export default function (pi: ExtensionApi) {
     const skillCommandsEnabled = probeSkillCommands(root);
     const skills = sampleSkills(root);
     const tools = sampleTools(root);
+    const keywords = sampleMagicKeywords(root);
     const toolControl = controlStateOf(root) ? "available" : "unsupported";
-    const digest = digestOf(sessionIdValue, skillCommandsEnabled, skills, tools, toolControl, toolMutation);
+    const digest = digestOf(sessionIdValue, skillCommandsEnabled, skills, tools, keywords, toolControl, toolMutation);
     if (!force && digest === lastDigest) return;
     const snapshot: DraftSnapshot = {
       version: 1,
@@ -719,6 +779,9 @@ export default function (pi: ExtensionApi) {
             }),
           }
         : { status: "unavailable", reason: tools.reason },
+      magicKeywords: keywords.reason === null
+        ? { status: "available", items: keywords.rows }
+        : { status: "unavailable", reason: keywords.reason },
       toolControl,
       toolMutation,
     };

@@ -15,11 +15,9 @@ import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
 import { currentLocaleId, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
-import {
-  keywordPalette,
-  magicKeywordSegments,
-  SHIMMER_PERIOD_MS,
-} from "../lib/magic-keywords";
+import { keywordPalette, SHIMMER_PERIOD_MS } from "../lib/keyword-colors";
+import { magicKeywordSegments } from "@omp-ui/core/magic-keywords";
+import { firingKeywords } from "../lib/magic-keyword-gate";
 import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
 import { composerPaintRuns } from "../lib/composer-paint";
 import { queueChipView } from "../lib/queue-chip";
@@ -258,9 +256,15 @@ export function Composer({
   /**
    * omp's magic keywords ("orchestrate" and friends) each append a hidden
    * notice that steers the turn, and the gradient is the only sign the word did
-   * anything — so the composer paints them exactly as omp's own editor does.
+   * anything. The glow means omp will actually attach that notice: the word
+   * matches omp's matcher AND its `magicKeywords.*` settings are on AND the
+   * session has every tool it requires — stricter than omp's own editor, which
+   * checks only the master setting. The gate comes from the capabilities
+   * bridge; until a snapshot lands, every known keyword paints.
    */
-  const segments = useMemo(() => magicKeywordSegments(text), [text]);
+  const capabilities = useStore((s) => s.rpc[tabId]?.capabilities ?? null);
+  const firing = useMemo(() => firingKeywords(capabilities), [capabilities]);
+  const segments = useMemo(() => magicKeywordSegments(text, firing), [text, firing]);
   /** First armed keyword in the draft; its palette runs the border ring. */
   const glowKeyword = useMemo(
     () => segments.find((s) => s.keyword !== null)?.keyword ?? null,
@@ -279,8 +283,8 @@ export function Composer({
    * ordinary prose, which is exactly what omp will do with it.
    */
   const runs = useMemo(
-    () => composerPaintRuns(text, known, phase),
-    [text, known, phase],
+    () => composerPaintRuns(text, known, phase, firing),
+    [text, known, phase, firing],
   );
 
   // The listing is refetched on every open so files created mid-session

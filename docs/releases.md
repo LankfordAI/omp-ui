@@ -4,7 +4,10 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.15.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.15.2). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- `jevify` — omp 18.3.2's fourth magic keyword — now paints in the composer with its own ramp ([#662](https://github.com/LankfordAI/omp-ui/issues/662)).
+- The keyword glow and the plan review's switches follow omp's own `magicKeywords.*` settings and each keyword's tool requirements; a keyword omp switched off shows disabled and is never dispatched ([#663](https://github.com/LankfordAI/omp-ui/issues/663)).
+- Plan seeds, advisor replies, experiment kickoffs, busy-route `@file` blocks, and title one-shots no longer arm keywords from text the user never typed ([#664](https://github.com/LankfordAI/omp-ui/issues/664)).
+- Goal mode works again on omp 18.3.2: the bridge reads `goal.enabled` through omp's config registry ([#665](https://github.com/LankfordAI/omp-ui/issues/665)).
 
 ## Choose a download
 

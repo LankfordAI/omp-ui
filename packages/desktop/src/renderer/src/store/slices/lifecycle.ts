@@ -15,13 +15,11 @@ import type {
 } from "@omp-ui/core/types";
 import { backend, backendFor } from "../../backend";
 import {
-  withConcerns,
-  withExecutionDestination,
-  withKeywords,
+  composeImplementationPrompt,
   type PlanExecutionOptions,
 } from "../../lib/plan-concerns";
-import { planSeedText } from "../../lib/plan-seed";
-import { noticeItem, settleRunningItems } from "../../lib/transcript";
+import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
+import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
 import { randomId } from "../../lib/random-id";
 import { projectKey } from "../../lib/project-key";
@@ -112,7 +110,7 @@ export type LifecycleSlice = Pick<
     tabId: string,
     planText: string | null,
     planImplementationSource: Readonly<PlanImplementationSource>,
-    concerns: string | null,
+    concerns: readonly AdvisorNote[],
     options?: PlanExecutionOptions,
   ): Promise<void>;
 };
@@ -315,7 +313,7 @@ export function createLifecycleSlice(
     srcTabId: string,
     planText: string | null,
     planImplementationSource: Readonly<PlanImplementationSource>,
-    concerns: string | null = null,
+    concerns: readonly AdvisorNote[] = [],
     options?: PlanExecutionOptions,
   ): Promise<void> => {
     const owner = findOwner(get().state, srcTabId);
@@ -405,20 +403,13 @@ export function createLifecycleSlice(
     if (!(await m.applyStagedParams(freshId, options ?? {}))) return;
     const lead = "A plan was approved for this project. Implement it now.";
     const body = planSeedText(planText);
-    const seed = body
-      ? `${lead}\n\n${body}\n\nProceed with the implementation.`
-      : lead;
-    const accepted = await get().sendPrompt(
-      freshId,
-      withKeywords(
-        withExecutionDestination(
-          withConcerns(seed, concerns),
-          options?.destination,
-        ),
-        options ?? {},
-      ),
-      "prompt",
-    );
+    const seed = composeImplementationPrompt({
+      lead,
+      plan: body === null ? null : { body, info: planSeedInfo(planText!) },
+      concerns,
+      options,
+    });
+    const accepted = await get().sendPrompt(freshId, seed, "prompt");
     if (!accepted) return;
 
     set((state) => ({

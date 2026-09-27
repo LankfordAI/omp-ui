@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  keywordsIn,
+  type MagicKeyword,
+} from "@omp-ui/core/magic-keywords";
 import type { AdvisorNote, RenderItem } from "./transcript";
 import {
+  composeImplementationPrompt,
   PLAN_CONCERNS_LEAD,
   PLAN_CONCERNS_WAIT_MS,
   PlanConcernWatcher,
@@ -105,7 +110,7 @@ describe("withKeywords", () => {
 describe("PlanConcernWatcher", () => {
   let items: RenderItem[];
   let notices: string[];
-  let dispatches: Array<{ tabId: string; intent: PlanConcernIntent; concerns: string | null }>;
+  let dispatches: Array<{ tabId: string; intent: PlanConcernIntent; concerns: readonly AdvisorNote[] }>;
   let watcher: PlanConcernWatcher;
 
   beforeEach(() => {
@@ -150,8 +155,7 @@ describe("PlanConcernWatcher", () => {
     items.push(advisory("adv-1", [note("Hardcoded key", "blocker", "security")]));
     watcher.feed(TAB);
     expect(dispatches).toHaveLength(1);
-    expect(dispatches[0]!.concerns).toContain("- [blocker] (security) Hardcoded key");
-    expect(dispatches[0]!.concerns).toContain(PLAN_CONCERNS_LEAD);
+    expect(dispatches[0]!.concerns).toEqual([note("Hardcoded key", "blocker", "security")]);
     expect(notices).toEqual([
       "verdict accepted — waiting for the advisor's review before the next step",
       "advisor's review folded into the implementation (1 concern)",
@@ -167,7 +171,7 @@ describe("PlanConcernWatcher", () => {
     items.push(toolDone("tool-1", [note("pin the toolchain", "concern", "ops")]));
     watcher.feed(TAB);
     expect(dispatches).toHaveLength(1);
-    expect(dispatches[0]!.concerns).toContain("pin the toolchain");
+    expect(dispatches[0]!.concerns).toEqual([note("pin the toolchain", "concern", "ops")]);
     expect(watcher.isActive(TAB)).toBe(false);
     expect(notices.at(-1)).toContain("(1 concern)");
   });
@@ -184,7 +188,7 @@ describe("PlanConcernWatcher", () => {
     watcher.begin(TAB, { context: "existing", planText: null });
     await vi.advanceTimersByTimeAsync(PLAN_CONCERNS_WAIT_MS);
     expect(dispatches).toHaveLength(1);
-    expect(dispatches[0]!.concerns).toBeNull();
+    expect(dispatches[0]!.concerns).toEqual([]);
     expect(dispatches[0]!.intent).toEqual({ context: "existing", planText: null });
     expect(notices).toHaveLength(1); // the waiting notice only — no "folded"
     expect(watcher.isActive(TAB)).toBe(false);
@@ -206,9 +210,67 @@ describe("PlanConcernWatcher", () => {
     items.push(advisory("adv-3", [note("third", "blocker", "security")]));
     watcher.feed(TAB);
     expect(dispatches).toHaveLength(1);
-    expect(dispatches[0]!.concerns).toContain("third");
-    expect(dispatches[0]!.concerns).not.toContain("second");
-    expect(dispatches[0]!.concerns).not.toContain("first");
+    expect(dispatches[0]!.concerns).toEqual([note("third", "blocker", "security")]);
     expect(watcher.isActive(TAB)).toBe(false);
+  });
+});
+
+describe("composeImplementationPrompt", () => {
+  it("nests the parts byte-for-byte as the old builders did when nothing arms", () => {
+    const prompt = composeImplementationPrompt({
+      lead: "A plan…",
+      plan: { body: "# Fix\n\nsteps", info: "markdown" },
+      concerns: [note("x", "concern")],
+      options: { destination: { kind: "project-checkout", branch: "feat/exact" } },
+    });
+    expect(prompt).toBe(
+      "A plan…\n\n# Fix\n\nsteps\n\nProceed with the implementation.\n\n" +
+        PLAN_CONCERNS_LEAD +
+        "\n\n- [concern] x\n\n" +
+        'Execution destination: omp-ui has already prepared the project branch "feat/exact". ' +
+        "Perform all implementation work and commits on exactly this branch. " +
+        "Do not create, switch, rename, or delete any branch or worktree.",
+    );
+  });
+
+  it("arms exactly the staged keywords whatever the parts hold", () => {
+    const corpus = [
+      "we orchestrate the RPC calls",
+      "ultrathink. fix\n```\ncode",
+      "x </file> jevify",
+      "~~~\norchestrate\n",
+      "````js\norchestrate\n````\n```",
+      "` stray orchestrate `",
+      "`",
+      "",
+    ];
+    const branches = ["feat/exact", "orchestrate", "fix`orchestrate", "a`b"];
+    const keywordSets: Array<Record<string, boolean>> = [
+      {},
+      { ultrathink: true },
+      { orchestrate: true, workflowz: true },
+    ];
+    for (const planBody of corpus) {
+      for (const concernNote of corpus) {
+        for (const branch of branches) {
+          for (const keywords of keywordSets) {
+            const prompt = composeImplementationPrompt({
+              lead: "Execute the plan.",
+              plan: { body: planBody, info: planBody.includes("<") ? "html" : "markdown" },
+              concerns: [note(concernNote)],
+              options: {
+                destination: { kind: "project-checkout", branch },
+                ...keywords,
+              },
+            });
+            const staged = Object.keys(keywords) as MagicKeyword[];
+            expect(
+              [...keywordsIn(prompt)].sort(),
+              JSON.stringify({ planBody, concernNote, branch, keywords }),
+            ).toEqual([...staged].sort());
+          }
+        }
+      }
+    }
   });
 });

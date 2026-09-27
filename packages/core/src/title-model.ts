@@ -1,3 +1,4 @@
+import { inertBlock, keywordsIn } from "./magic-keywords";
 import { runOmpOnce, type OmpOneShotSpawn } from "./omp-process";
 
 /**
@@ -142,6 +143,18 @@ function limitHead(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : text.slice(0, maxChars);
 }
 
+/**
+ * A draft as one-shot data, framed so it arms no keyword. The masked wrapper
+ * hides the word from omp's matcher, but the word still reaches the tiny
+ * model as prose (a title carrying "ultrathink" measurably raised its
+ * thinking level), and a stray `</user>` or fence could hand it back to the
+ * matcher — so any draft that would arm on its own rides inside a fence.
+ */
+function userPayload(text: string): string {
+  if (keywordsIn(text).size === 0) return `<user>${text}</user>`;
+  return `<user>\n${inertBlock(text)}\n</user>`;
+}
+
 /** Keeps the tail: re-titling reads a session from where it stopped. */
 function limitTail(text: string, maxChars: number): string {
   return text.length <= maxChars
@@ -213,7 +226,7 @@ export function parseTitleOutput(stdout: string): string | null {
 async function runSmallModelCompletion(
   req: TitleRequest,
   systemPrompt: string,
-  payload = `<user>${limitHead(req.prompt, TITLE_PAYLOAD_MAX_CHARS)}</user>`,
+  payload = userPayload(limitHead(req.prompt, TITLE_PAYLOAD_MAX_CHARS)),
 ): Promise<string | null> {
   const argv = ["-p", "--no-session", "--cwd", req.projectCwd];
   // Omitted when unset, so omp resolves the same default chain it uses itself.
@@ -260,9 +273,9 @@ function escapeData(value: string): string {
  */
 export async function retitleSessionWithOmp(req: RetitleRequest): Promise<string | null> {
   const transcript = limitTail(req.transcript, RETITLE_TRANSCRIPT_MAX_CHARS);
-  const payload =
-    `<retitle><previous>${escapeData(limitHead(req.previousTitle, 200))}</previous>` +
-    `<transcript>${transcript}</transcript></retitle>`;
+  const previous = `<previous>${escapeData(limitHead(req.previousTitle, 200))}</previous>`;
+  const body = keywordsIn(transcript).size === 0 ? transcript : `\n${inertBlock(transcript)}\n`;
+  const payload = `<retitle>${previous}<transcript>${body}</transcript></retitle>`;
   const stdout = await runSmallModelCompletion(
     { ...req, prompt: "" },
     REGENERATE_TITLE_SYSTEM_PROMPT,

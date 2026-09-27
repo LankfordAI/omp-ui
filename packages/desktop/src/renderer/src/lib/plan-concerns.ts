@@ -1,7 +1,13 @@
 import type { PlanImplementationSource } from "@omp-ui/core/types";
+import {
+  type KeywordQuoting,
+  type MagicKeyword,
+  VERBATIM_QUOTING,
+  withoutAccidentalKeywords,
+} from "@omp-ui/core/magic-keywords";
 import { collectNewConcerns, renderConcernsBlock } from "./advisor-concerns";
 import type { ModelInfo } from "./rpc-types";
-import type { RenderItem } from "./transcript";
+import type { AdvisorNote, RenderItem } from "./transcript";
 
 /**
  * Where an approved plan is implemented, chosen on the review pane.
@@ -30,15 +36,16 @@ export type PlanExecutionDestination =
 export function withExecutionDestination(
   base: string,
   destination: PlanExecutionDestination | undefined,
+  quote: KeywordQuoting = VERBATIM_QUOTING,
 ): string {
   if (destination === undefined) return base;
   if (destination.kind === "worktree") {
-    return `${base}\n\nExecution destination: this session already runs in the worktree branch ${JSON.stringify(destination.branch)}. Perform all implementation work and commits on exactly this branch in the existing worktree. Do not create or switch to another branch or worktree.`;
+    return `${base}\n\nExecution destination: this session already runs in the worktree branch ${quote.inline(JSON.stringify(destination.branch))}. Perform all implementation work and commits on exactly this branch in the existing worktree. Do not create or switch to another branch or worktree.`;
   }
   if (destination.branch === null) {
     return `${base}\n\nExecution destination: omp-ui has selected the project's current detached checkout. Perform all implementation work and commits in exactly this checkout. Do not change checkout, branch, or worktree state.`;
   }
-  return `${base}\n\nExecution destination: omp-ui has already prepared the project branch ${JSON.stringify(destination.branch)}. Perform all implementation work and commits on exactly this branch. Do not create, switch, rename, or delete any branch or worktree.`;
+  return `${base}\n\nExecution destination: omp-ui has already prepared the project branch ${quote.inline(JSON.stringify(destination.branch))}. Perform all implementation work and commits on exactly this branch. Do not create, switch, rename, or delete any branch or worktree.`;
 }
 
 /**
@@ -76,27 +83,57 @@ export interface PlanExecutionOptions {
   worktree?: { branch: string; baseRef: string | null; baseBranch: string | null } | null;
 }
 
+/** The keywords plan review can stage, in omp's notice order. */
+export const STAGED_KEYWORDS = ["ultrathink", "orchestrate", "workflowz"] as const satisfies readonly MagicKeyword[];
+
+export type StagedKeyword = (typeof STAGED_KEYWORDS)[number];
+
 /**
  * Prepends the armed magic keywords. omp builds each hidden notice from the
  * keyword in the prompt text itself, so each word must lead as standalone
  * prose — blank-line separation keeps the ported LEFT/RIGHT boundary rules
- * (lib/magic-keywords.ts) matching. The order is fixed to omp's notice-push
+ * (@omp-ui/core/magic-keywords) matching. The order is fixed to omp's notice-push
  * order (AgentSession.#createMagicKeywordNotices: ultrathink, orchestrate,
  * workflow), never the order the switches were flipped, so the dispatched
- * prompt is deterministic.
+ * prompt is deterministic. `jevify` (bulk classification) is not a
+ * plan-implementation mode, so plan review never stages it.
  */
 export function withKeywords(
   base: string,
   keywords: Pick<PlanExecutionOptions, "ultrathink" | "orchestrate" | "workflowz">,
 ): string {
-  const lead = [
-    keywords.ultrathink === true ? "ultrathink" : null,
-    keywords.orchestrate === true ? "orchestrate" : null,
-    keywords.workflowz === true ? "workflowz" : null,
-  ]
-    .filter((k): k is string => k !== null)
-    .join("\n\n");
+  const lead = STAGED_KEYWORDS.filter((k) => keywords[k] === true).join("\n\n");
   return lead === "" ? base : `${lead}\n\n${base}`;
+}
+
+export interface ImplementationPromptParts {
+  lead: string;
+  /** Fresh sessions only: the seeded plan and its fence info. */
+  plan: { body: string; info: "markdown" | "html" } | null;
+  concerns: readonly AdvisorNote[];
+  options: PlanExecutionOptions | undefined;
+}
+
+/**
+ * The one place an implementation prompt is built. Composed verbatim first;
+ * when the verbatim bytes would arm a keyword the user never typed — a plan
+ * saying "we orchestrate the RPC calls", a branch name, a concerns note —
+ * every un-authored field rebuilds inert-quoted. The staged keywords then
+ * lead, so the armed set is exactly what review switched on.
+ */
+export function composeImplementationPrompt(parts: ImplementationPromptParts): string {
+  const body = withoutAccidentalKeywords((q) => {
+    const head =
+      parts.plan === null
+        ? parts.lead
+        : `${parts.lead}\n\n${q.block(parts.plan.body, parts.plan.info)}\n\nProceed with the implementation.`;
+    return withExecutionDestination(
+      withConcerns(head, renderConcernsBlock(parts.concerns, PLAN_CONCERNS_LEAD, q)),
+      parts.options?.destination,
+      q,
+    );
+  });
+  return withKeywords(body, parts.options ?? {});
 }
 
 export interface PlanConcernIntent {
@@ -111,7 +148,7 @@ export interface PlanConcernCallbacks {
   /** Transcript notice ("verdict accepted — waiting…", "…folded (N concerns)"). */
   onNotice(tabId: string, text: string): void;
   /** Fire the implementation dispatch once a review (or the deadline) settles. */
-  onDispatch(tabId: string, intent: PlanConcernIntent, concerns: string | null): void;
+  onDispatch(tabId: string, intent: PlanConcernIntent, concerns: readonly AdvisorNote[]): void;
 }
 
 interface ActiveWait {
@@ -172,13 +209,12 @@ export class PlanConcernWatcher {
     if (!wait) return;
     this.cancel(tabId);
     const notes = collectNewConcerns(this.callbacks.getItems(tabId), wait.baseline);
-    const concerns = renderConcernsBlock(notes, PLAN_CONCERNS_LEAD);
-    if (concerns) {
+    if (notes.length > 0) {
       this.callbacks.onNotice(
         tabId,
         `advisor's review folded into the implementation (${notes.length} concern${notes.length === 1 ? "" : "s"})`,
       );
     }
-    this.callbacks.onDispatch(tabId, wait.intent, concerns);
+    this.callbacks.onDispatch(tabId, wait.intent, notes);
   }
 }

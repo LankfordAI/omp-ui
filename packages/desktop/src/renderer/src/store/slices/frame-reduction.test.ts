@@ -593,6 +593,7 @@ describe("handleRpcFrame routing", () => {
           })),
         },
         tools: { status: "unavailable", reason: "read-failed" },
+        magicKeywords: { status: "unavailable", reason: "missing-api" },
       });
 
     const publish = (statusText: string): void =>

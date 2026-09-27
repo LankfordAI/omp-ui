@@ -6,6 +6,10 @@
  * finding worth acting on?" — can never disagree with the block that is
  * actually dispatched.
  */
+import {
+  type KeywordQuoting,
+  VERBATIM_QUOTING,
+} from "@omp-ui/core/magic-keywords";
 import type { AdvisorNote, RenderItem } from "./transcript";
 
 export function noteKey(n: AdvisorNote): string {
@@ -36,12 +40,16 @@ export function collectNewConcerns(items: RenderItem[], fromIndex: number): Advi
 }
 
 /** Renders concerns as an explicit instruction block under `lead`, or null when none. */
-export function renderConcernsBlock(notes: AdvisorNote[], lead: string): string | null {
+export function renderConcernsBlock(
+  notes: readonly AdvisorNote[],
+  lead: string,
+  quote: KeywordQuoting = VERBATIM_QUOTING,
+): string | null {
   if (notes.length === 0) return null;
   const lines = notes.map((note) => {
     const severity = note.severity ?? "note";
     const who = note.advisor ? ` (${note.advisor})` : "";
     return `- [${severity}]${who} ${note.note}`;
   });
-  return `${lead}\n\n${lines.join("\n")}`;
+  return `${lead}\n\n${quote.block(lines.join("\n"))}`;
 }

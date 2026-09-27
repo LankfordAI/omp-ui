@@ -1,4 +1,5 @@
-import { keywordColors, magicKeywordSegments } from "./magic-keywords";
+import { magicKeywordSegments, type MagicKeyword } from "@omp-ui/core/magic-keywords";
+import { keywordColors } from "./keyword-colors";
 import { mentionRanges } from "./mentions";
 
 export interface ComposerPaintRun {
@@ -12,12 +13,13 @@ export function composerPaintRuns(
   text: string,
   knownPaths: ReadonlySet<string>,
   phase: number,
+  firing: ReadonlySet<MagicKeyword>,
 ): ComposerPaintRun[] {
   const mentions = mentionRanges(text, knownPaths);
   const out: ComposerPaintRun[] = [];
   let base = 0;
   let mentionIndex = 0;
-  for (const segment of magicKeywordSegments(text)) {
+  for (const segment of magicKeywordSegments(text, firing)) {
     if (segment.keyword !== null) {
       keywordColors(segment.keyword, phase).forEach((color, index) => {
         out.push({ text: segment.text[index]!, color });

@@ -438,6 +438,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "plan.keyword.workflowz":
     "결정론적 다중 서브에이전트 workflow로 구현 진행 — omp의 {keyword} keyword가 프롬프트 맨 앞에 붙습니다.",
   "plan.review.armKeyword": "구현에 {keyword} 적용",
+  "plan.review.keywordOff": "omp의 magicKeywords 설정에서 꺼져 있어 omp가 무시합니다.",
   "plan.review.dispatchReady": "전송 준비됨",
   "plan.review.switchingBranch": "브랜치 전환 중…",
   "plan.review.executeIn": "{contextLabel}에서 실행",

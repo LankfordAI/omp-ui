@@ -1382,6 +1382,56 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
     expect(String(promptFrame()!.message).startsWith("ultrathink\n\nworkflowz\n\n")).toBe(true);
   });
 
+  it("holds a keyword omp's settings switched off disabled, and never dispatches it", async () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({
+          capabilities: {
+            version: 1,
+            processKey: "p",
+            sessionId: null,
+            revision: 1,
+            updatedAt: 0,
+            ompVersion: null,
+            skillCommandsEnabled: null,
+            skills: { status: "unavailable", reason: "missing-api" },
+            tools: { status: "unavailable", reason: "missing-api" },
+            magicKeywords: {
+              status: "available",
+              items: [
+                { id: "ultrathink", word: "ultrathink", requires: [], enabled: true },
+                { id: "orchestrate", word: "orchestrate", requires: ["task"], enabled: true },
+                { id: "workflow", word: "workflowz", requires: ["task", "eval"], enabled: false },
+                { id: "jevify", word: "jevify", requires: ["eval"], enabled: true },
+              ],
+            },
+            toolControl: "unsupported",
+            toolMutation: null,
+          },
+        }),
+      },
+    });
+    render();
+    const workflowSwitch = document.body.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="workflowz the implementation"]',
+    )!;
+    expect(workflowSwitch.disabled).toBe(true);
+    expect(workflowSwitch.getAttribute("title")).toBe(
+      "Off in omp's magicKeywords settings — omp would ignore it.",
+    );
+    // The switch is inert: clicking cannot arm it, and execute stays clean.
+    await act(async () => {
+      workflowSwitch.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      executeButton().click();
+      await Promise.resolve();
+    });
+    const message = String(promptFrame()!.message);
+    expect(message).not.toContain("workflowz\n\n");
+  });
+
   it("a staged model pick flows to the set_model frame at execute", async () => {
     const MODEL_A = { id: "a", name: "Model A", provider: "p" };
     const MODEL_B = { id: "b", name: "Model B", provider: "p" };

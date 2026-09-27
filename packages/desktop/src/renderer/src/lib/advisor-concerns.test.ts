@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AdvisorNote, RenderItem } from "./transcript";
+import { keywordsIn, INERT_QUOTING } from "@omp-ui/core/magic-keywords";
 import { collectNewConcerns, renderConcernsBlock } from "./advisor-concerns";
 
 const note = (text: string, severity?: string, advisor?: string): AdvisorNote => ({
@@ -78,5 +79,13 @@ describe("renderConcernsBlock", () => {
     expect(block).toBe(
       "LEAD:\n\n- [note] no sev\n- [blocker] sev one\n- [concern] (ops) sev two",
     );
+  });
+
+  it("keeps a keyword-bearing note verbatim unless the caller quotes it inert", () => {
+    const notes = [{ note: "we orchestrate retries" }];
+    expect(renderConcernsBlock(notes, "LEAD:")).toBe("LEAD:\n\n- [note] we orchestrate retries");
+    const inert = renderConcernsBlock(notes, "LEAD:", INERT_QUOTING)!;
+    expect(keywordsIn(inert).size).toBe(0);
+    expect(inert).toContain("we orchestrate retries");
   });
 });

@@ -14,6 +14,7 @@ import {
 import { writeLineageArtifact } from "./lineage-artifact";
 import {
   generatedAsRecordSource,
+  generatedOmpSettingReaderSource,
   generatedPollTimerSource,
   generatedModeTransitionSource,
   generatedSessionIdSource,
@@ -158,7 +159,7 @@ interface SessionLike {
   hasPostPromptWork?: unknown;
   queuedMessageCount?: unknown;
   goalRuntime?: unknown;
-  settings?: { get?: (key: string) => unknown };
+  settings?: unknown;
   sessionManager?: Record<string, unknown>;
   getGoalModeState?: () => unknown;
   setGoalModeState?: (state: unknown) => void;
@@ -264,6 +265,7 @@ export default function (pi: ExtensionApi) {
   // ---------------------------------------------------------------- readers
 
   ${generatedSessionIdSource("SessionLike")}
+  ${generatedOmpSettingReaderSource()}
 
   function stateOf(session: SessionLike | null): StateLike | null {
     const read = session?.getGoalModeState;
@@ -302,14 +304,8 @@ export default function (pi: ExtensionApi) {
   }
 
   function runtimeSettingOn(): boolean | null {
-    const get = asRecord(rootSession?.settings)?.get;
-    if (typeof get !== "function") return null;
-    try {
-      const value = (get as (key: string) => unknown).call(rootSession?.settings, "goal.enabled");
-      return typeof value === "boolean" ? value : null;
-    } catch {
-      return null;
-    }
+    const value = readOmpSetting(rootSession?.settings, "goal.enabled");
+    return typeof value === "boolean" ? value : null;
   }
 
   /** The composed plan read — including the plan bridge's own guard view. */
@@ -421,7 +417,7 @@ export default function (pi: ExtensionApi) {
       ? MANAGER_APIS
       : MANAGER_APIS.filter((name) => typeof manager[name] !== "function");
     if (missingManager.length > 0) return "sessionManager is missing: " + missingManager.join(", ");
-    if (typeof asRecord(session.settings)?.get !== "function") return "session settings cannot be read";
+    if (typeof readOmpSetting(session.settings, "goal.enabled") !== "boolean") return "omp's settings registry cannot be read";
     const runtime = asRecord(session.goalRuntime);
     if (runtime === null) return "this omp session exposes no goalRuntime";
     const missingRuntime = RUNTIME_APIS.filter((name) => typeof runtime[name] !== "function");

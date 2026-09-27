@@ -187,6 +187,18 @@ describe("generateTitleWithOmp", () => {
     expect(args.at(-2)).toBe("--");
     expect(args.at(-1)).toBe("<user>@package.json --help is broken</user>");
   });
+
+  it("inert-fences a draft that carries a magic keyword", async () => {
+    const fake = fakeOmp("<title>T</title>");
+    await generateTitleWithOmp({
+      ompPath: "/bin/omp",
+      projectCwd: "/p",
+      model: null,
+      prompt: "ultrathink. fix it",
+      spawn: fake.spawn,
+    });
+    expect(fake.argv[0]!.at(-1)).toBe("<user>\n```text\nultrathink. fix it\n```\n</user>");
+  });
 });
 
 describe("payload caps", () => {
