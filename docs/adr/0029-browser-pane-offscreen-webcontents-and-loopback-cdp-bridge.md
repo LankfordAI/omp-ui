@@ -244,10 +244,16 @@ through a **loopback CDP bridge** the main process hosts:
   resized view when it drops one. `deviceScaleFactor: 0` is not neutral: it
   resolves to the *screen's* dsf (1.5 under Wayland fractional scaling), never
   the offscreen view's 1, and that emulated dsf — not the page zoom — then
-  drives layout. Every application clears the host's override before setting
-  it (Chromium ignores a re-sent identical override) and waits for the window's
-  first document commit (an override sent before it segfaults the GPU process);
-  every commit also re-forces `setZoomFactor(target)` because Chromium restores
+  drives layout. The host clears the override first only when it re-asserts
+  params its session last applied, or that state is unknown (Chromium ignores a
+  re-sent identical override); a size-changing resize carries new params and
+  sets directly. The #653 probe matrix (Electron 43/44, GPU path) showed the
+  accelerated-canvas loss follows the window's own surface resize — no
+  emulation command and no host-side re-apply restores the layer, only a
+  page-side redraw — so that condition is params bookkeeping, not a raster
+  fix. It also waits for the window's first document commit (an override sent
+  before it segfaults the GPU process); every commit also re-forces
+  `setZoomFactor(target)` because
   the origin's persisted zoom level at commit, which would otherwise silently
   replace the page's density. The host re-asserts through a 250 ms debounce
   after any such command has been

@@ -441,6 +441,85 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     expect(h.states().at(-1)?.agent).toBe("detached");
   });
 
+  it("sends the override alone on a size-changing resize and keeps clear-then-set on an identical re-pin", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    await h.host.ensureEndpoint("t1");
+    await h.host.ensure("t1");
+    const sendCommand = vi.mocked(h.panes[0]!.pane.debugger.sendCommand);
+    // The first pin after the first commit: the session's state was unknown ⇒ clear, then set.
+    expect(sendCommand.mock.calls.filter((c) => c[0] === "Emulation.clearDeviceMetricsOverride")).toHaveLength(1);
+    expect(sendCommand.mock.calls.filter((c) => c[0] === "Emulation.setDeviceMetricsOverride")).toHaveLength(1);
+
+    // A size change carries new params, which Chromium applies without the clear;
+    // re-sending it there was dead weight (#653's probe matrix ruled the clear out
+    // as the canvas-loss trigger — the resize itself is).
+    h.host.resize("t1", 900, 600);
+    vi.advanceTimersByTime(BROWSER_PANE_RESIZE_DEBOUNCE_MS);
+    await flush();
+    expect(sendCommand.mock.calls.filter((c) => c[0] === "Emulation.clearDeviceMetricsOverride")).toHaveLength(1);
+    expect(sendCommand.mock.calls.filter((c) => c[0] === "Emulation.setDeviceMetricsOverride")).toHaveLength(2);
+    expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
+      width: 900,
+      height: 600,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+
+    // A clobber re-asserts the params Chromium last accepted — that re-send IS dropped,
+    // so the re-pin stays clear-then-set (#630 ordering unchanged).
+    const total = sendCommand.mock.calls.length;
+    h.listeners[0]!.deps.onCommandSettled("Emulation.clearDeviceMetricsOverride", {});
+    vi.advanceTimersByTime(250);
+    await flush();
+    expect(sendCommand).toHaveBeenCalledTimes(total + 2);
+    expect(sendCommand).toHaveBeenNthCalledWith(total + 1, "Emulation.clearDeviceMetricsOverride");
+    expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
+      width: 900,
+      height: 600,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    const clearOrder = sendCommand.mock.invocationCallOrder[total]!;
+    const setOrder = sendCommand.mock.invocationCallOrder[total + 1]!;
+    expect(clearOrder).toBeLessThan(setOrder);
+  });
+
+  it("re-clears after an apply whose set was rejected: unknown state is the safe default", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    await h.host.ensureEndpoint("t1");
+    await h.host.ensure("t1");
+    const sendCommand = vi.mocked(h.panes[0]!.pane.debugger.sendCommand);
+    const normal = sendCommand.getMockImplementation()!;
+    let failNextSet = true;
+    sendCommand.mockImplementation(async (method, params, sessionId) => {
+      if (failNextSet && method === "Emulation.setDeviceMetricsOverride") {
+        failNextSet = false;
+        throw new Error("Target is detached");
+      }
+      return normal(method, params, sessionId);
+    });
+    // The size-changing resize skips the clear and the set fails: what Chromium holds
+    // now is unknown, so the remembered params must not suppress the next clear.
+    h.host.resize("t1", 900, 600);
+    vi.advanceTimersByTime(BROWSER_PANE_RESIZE_DEBOUNCE_MS);
+    await flush();
+    expect(sendCommand.mock.calls.filter((c) => c[0] === "Emulation.clearDeviceMetricsOverride")).toHaveLength(1);
+    const total = sendCommand.mock.calls.length;
+    h.listeners[0]!.deps.onCommandSettled("Emulation.clearDeviceMetricsOverride", {});
+    vi.advanceTimersByTime(250);
+    await flush();
+    expect(sendCommand).toHaveBeenCalledTimes(total + 2);
+    expect(sendCommand).toHaveBeenNthCalledWith(total + 1, "Emulation.clearDeviceMetricsOverride");
+    expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
+      width: 900,
+      height: 600,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+  });
+
   it("subscribing to a tab whose page cannot be created is a no-op and ensure answers create-failed", async () => {
     const h = harness({ paneFails: true });
     h.host.subscribe("t1", "c1", true);
