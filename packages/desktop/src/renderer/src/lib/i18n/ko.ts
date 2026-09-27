@@ -448,6 +448,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "plan.review.proposedPlan": "제안된 플랜",
   "plan.review.fileUnreadable":
     "플랜 파일을 읽을 수 없습니다. 내용을 아는 경우에만 실행하세요. 그렇지 않으면 수정을 요청해 에이전트가 다시 작성하도록 하세요.",
+  "plan.review.preparing": "플랜 준비 중…",
   "plan.review.sendBack": "돌려보내기",
   "plan.review.refineHint": "플래너가 수정할 내용을 설명하세요.",
   "plan.review.refineKeys": "Enter 수정 요청 · Shift+Enter 줄바꿈",

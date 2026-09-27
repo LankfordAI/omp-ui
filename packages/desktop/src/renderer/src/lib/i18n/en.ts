@@ -485,6 +485,9 @@ export const en = {
   "plan.review.proposedPlan": "proposed plan",
   "plan.review.fileUnreadable":
     "The plan file could not be read. Execute only if you know what it contains — otherwise refine and let the agent rewrite it.",
+  // The document area's state while preparation is still in flight (#652):
+  // a surface waiting on a document says so, it never paints a blank frame.
+  "plan.review.preparing": "preparing the plan…",
   // PlanReview refine pane
   "plan.review.sendBack": "send it back",
   "plan.review.refineHint": "Describe what the planner should revise.",

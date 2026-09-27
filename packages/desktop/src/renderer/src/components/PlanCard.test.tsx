@@ -184,6 +184,26 @@ describe("PlanCard html plan documents (issues #285, #312)", () => {
       planPrepared.state = null;
     }
   });
+  it("says the plan is being prepared instead of painting an empty iframe while it waits", async () => {
+    // Issue #652: a card whose preparation had not reported an outcome
+    // rendered srcDoc="" — a blank white canvas with nothing to name it.
+    planPrepared.state = { status: "pending" };
+    try {
+      render(htmlPlanItem("<h1>Fix</h1>"));
+
+      const disclosure = document.body.querySelector<HTMLButtonElement>("button")!;
+      await act(async () => disclosure.click());
+      await until(() => document.body.textContent!.includes("preparing the plan"));
+
+      expect(planFrame()).toBeNull();
+      expect(document.body.querySelector("iframe")).toBeNull();
+      // Waiting is not a verdict: no failure wording, no raw-source block.
+      expect(document.body.textContent).not.toContain("could not be displayed");
+      expect(document.body.querySelector("pre[data-selectable]")).toBeNull();
+    } finally {
+      planPrepared.state = null;
+    }
+  });
   it("shows the prepared document under an incomplete-verification note when the probe cannot conclude", async () => {
     // The historical card must agree with the review dock (issue #415): a
     // timed-out local check over a prepared document says the CHECK did not

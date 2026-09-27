@@ -1,5 +1,5 @@
 import type { PlanDiagnostic, PlanRenderResult } from "@omp-ui/core/plan";
-import { preparePlanDocument } from "./plan-document";
+import { preparePlanDocument, type PreparedPlanDocument } from "./plan-document";
 import {
   probePlanLayout,
   type LayoutProbe,
@@ -40,7 +40,28 @@ export async function preparePlanForReview(
   options: PlanReviewOptions = {},
 ): Promise<PreparedReviewOutcome> {
   const widths = options.widths ?? [800];
-  const prepared = await preparePlanDocument(html, theme);
+  let prepared: PreparedPlanDocument;
+  try {
+    prepared = await preparePlanDocument(html, theme);
+  } catch (err) {
+    // preparePlanDocument contracts never to reject; if an unguarded stage
+    // throws anyway (issue #652), name it as the application failure it is
+    // instead of rejecting into the surface's unhandled-rejection void.
+    return {
+      status: "failed",
+      doc: null,
+      diagnostics: [
+        {
+          code: "RENDER_INVARIANT",
+          stage: "prepare",
+          repair: "application",
+          severity: "error",
+          message: "preparation threw outside the pipeline's diagnostics",
+          detail: (err instanceof Error ? err.message : String(err)).slice(0, 1000),
+        },
+      ],
+    };
+  }
   if (options.preparedByteLimit !== undefined && utf8Length(prepared.doc) > options.preparedByteLimit) {
     return {
       status: "unavailable",

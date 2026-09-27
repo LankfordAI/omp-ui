@@ -9,6 +9,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Plan seeds, advisor replies, experiment kickoffs, busy-route `@file` blocks, and title one-shots no longer arm keywords from text the user never typed ([#664](https://github.com/LankfordAI/omp-ui/issues/664)).
 - Goal mode works again on omp 18.3.2: the bridge reads `goal.enabled` through omp's config registry ([#665](https://github.com/LankfordAI/omp-ui/issues/665)).
 - A remote browser that disconnects while viewing a browser pane now releases that frame subscription on the host; with no viewer left, capture stops while the page survives ([#654](https://github.com/LankfordAI/omp-ui/issues/654)).
+- The HTML plan review and transcript plan card never show a blank white document again: while preparation runs they say so, and a preparation that throws or never settles names itself with the raw source still readable ([#652](https://github.com/LankfordAI/omp-ui/issues/652)).
 
 ## Choose a download
 

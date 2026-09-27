@@ -3,7 +3,7 @@ import { useT } from "../lib/i18n";
 import { usePreparedPlanDocument } from "../lib/use-prepared-plan-document";
 import type { PlanItem } from "../lib/transcript";
 import { Markdown } from "./Markdown";
-import { PlanDiagnostics, PlanFallback } from "./PlanFallback";
+import { PlanDiagnostics, PlanFallback, PlanPreparing } from "./PlanFallback";
 import { Chip, Disclosure, Label, Panel } from "./ui";
 
 /**
@@ -40,16 +40,17 @@ export function PlanCard({ item }: { item: PlanItem }) {
           <Disclosure summary={<Label>{t("plan.card.show")}</Label>}>
             <div className="mt-1">
               {html ? (
-                prepared.status === "failed" ||
-                (prepared.status === "unavailable" && prepared.doc === null) ? (
+                prepared.status === "pending" ? (
+                  <PlanPreparing className="h-[28rem]" />
+                ) : prepared.doc === null || prepared.status === "failed" ? (
                   <PlanFallback
-                    diagnostics={prepared.status === "failed" ? prepared.diagnostics : []}
+                    diagnostics={prepared.diagnostics}
                     source={item.text}
                     className="h-[28rem]"
                   />
                 ) : (
                   <div className="flex h-[28rem] min-h-0 flex-col gap-1.5">
-                    {prepared.status === "unavailable" && prepared.doc !== null && (
+                    {prepared.status === "unavailable" && (
                       // Same truthful summary as the review dock: the document
                       // below is real; only the layout check did not finish
                       // (issue #415).
@@ -64,13 +65,7 @@ export function PlanCard({ item }: { item: PlanItem }) {
                     <iframe
                       title={t("plan.card.proposedPlan")}
                       sandbox=""
-                      srcDoc={
-                        prepared.status === "ready"
-                          ? prepared.doc
-                          : prepared.status === "unavailable"
-                            ? (prepared.doc ?? "")
-                            : ""
-                      }
+                      srcDoc={prepared.doc}
                       className="min-h-0 w-full flex-1 rounded-md border border-line bg-surface"
                     />
                   </div>
