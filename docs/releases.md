@@ -11,6 +11,8 @@ This guide explains what users receive from a release and how maintainers publis
 - A remote browser that disconnects while viewing a browser pane now releases that frame subscription on the host; with no viewer left, capture stops while the page survives ([#654](https://github.com/LankfordAI/omp-ui/issues/654)).
 - The HTML plan review and transcript plan card never show a blank white document again: while preparation runs they say so, and a preparation that throws or never settles names itself with the raw source still readable ([#652](https://github.com/LankfordAI/omp-ui/issues/652)).
 - Typing into a browser pane whose page has nothing focused no longer freezes it: plain commits now type as key events, and only a live IME commit rides the debugger ([#656](https://github.com/LankfordAI/omp-ui/issues/656)).
+- The **Preferred provider** list in Settings is read from omp's model catalog, so web-search provider discovery finds providers on omp 18.3.2, which dropped the `providers.webSearchOrder`/`webSearchExclude` settings ([#649](https://github.com/LankfordAI/omp-ui/issues/649), [#660](https://github.com/LankfordAI/omp-ui/issues/660)).
+- Choosing a preferred web-search provider now binds omp's `modelRoles.web` role, so the selection reaches omp's own web dispatch instead of a UI-only ordering ([#661](https://github.com/LankfordAI/omp-ui/issues/661)).
 
 ## Choose a download
 
