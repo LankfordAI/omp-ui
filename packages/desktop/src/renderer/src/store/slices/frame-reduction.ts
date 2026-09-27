@@ -482,11 +482,14 @@ export function createFrameReductionSlice(
           m.patchRpc(tabId, { model, session });
           noteCapabilitiesSessionChange(tabId, session.sessionId, get, m);
           if (model) {
+            // Persist the SELECTOR: under auto the frame's thinkingLevel is a
+            // per-turn classification output, and writing it would convert the
+            // session from auto to a pinned level.
             void backend
               .setSessionModel(
                 tabId,
                 `${model.provider}/${model.id}`,
-                session.thinkingLevel,
+                session.thinkingConfigured === "auto" ? "auto" : session.thinkingLevel,
               )
               .catch(() => {});
           }

@@ -41,6 +41,9 @@ export function ComposerSheet({
   const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
   const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
+  const thinkingConfigured = useStore(
+    (s) => s.rpc[tabId]?.session.thinkingConfigured ?? null,
+  );
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const abortAgent = useStore((s) => s.abortAgent);
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
@@ -57,7 +60,11 @@ export function ComposerSheet({
           </div>
           {efforts.length > 0 && (
             <div className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(5rem,1fr))] gap-2">
-              {efforts.map((effort) => <Button key={effort} disabled={unavailable} selected={effort === thinkingLevel} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11 min-w-0 justify-center px-2 font-mono">{effort}</Button>)}
+              {/* omp's automatic selector rides above the ladder — same row
+                  styling, and the effort rows un-highlight while it is on:
+                  under auto the resolved level is not the user's choice. */}
+              <Button disabled={unavailable} selected={thinkingConfigured === "auto"} tone="iris" onClick={() => void setThinkingLevel(tabId, "auto")} className="min-h-11 min-w-0 justify-center px-2 font-mono" title={t("composer.thinking.autoTitle", { level: thinkingLevel ?? "—" })}>{t("composer.thinking.auto")}</Button>
+              {efforts.map((effort) => <Button key={effort} disabled={unavailable} selected={thinkingConfigured !== "auto" && effort === thinkingLevel} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11 min-w-0 justify-center px-2 font-mono">{effort}</Button>)}
             </div>
           )}
         </section>

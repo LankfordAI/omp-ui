@@ -220,7 +220,13 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const suggestion = branch.suggestion;
 
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
-  const currentThinking = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
+  // Stage the SELECTOR, not the resolved value: under auto the concrete
+  // thinkingLevel drifts every turn, and staging it would silently convert
+  // the dispatch (and the receiving session's record) to a pinned level.
+  const currentThinking = useStore(
+    (s) =>
+      s.rpc[tabId]?.session.thinkingConfigured ?? s.rpc[tabId]?.session.thinkingLevel ?? null,
+  );
   const availableModels = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY_MODELS);
   const sessionRecord = useStore((s) => findRecord(s.state, tabId));
   // The session's owning instance (issue #416): its advisor defaults live on
@@ -727,6 +733,23 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                         <span className="px-1.5 pb-1 pt-0.5">
                           <Label>{t("plan.review.thinking")}</Label>
                         </span>
+                        {/* omp's automatic selector, above the ladder. The
+                            advisor menu gets no such row: the advisor binds
+                            one model[:level] selector at process start and
+                            `auto` is not a suffix — it keeps omp's default. */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLevelMenu(null);
+                            setStagedThinking("auto");
+                          }}
+                          className={cn(
+                            "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                            stagedThinking === "auto" ? "text-iris" : "text-ink-mid",
+                          )}
+                        >
+                          {t("composer.thinking.auto")}
+                        </button>
                         {mainEfforts.map((effort) => (
                           <button
                             key={effort}

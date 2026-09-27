@@ -260,6 +260,10 @@ export const en = {
   "composer.thinking.title": "thinking level — click to pick ({efforts})",
   "composer.thinking.fallback": "think —",
   "composer.thinking.label": "thinking",
+  // Auto thinking selector (omp's per-prompt classifier); the level word
+  // stays a lowercase literal in every locale.
+  "composer.thinking.auto": "auto",
+  "composer.thinking.autoTitle": "auto — omp classifies each prompt; this turn: {level}",
   // Compact prompt-options surface
   "composer.options.title": "prompt options",
   "composer.model.fallback": "no model",

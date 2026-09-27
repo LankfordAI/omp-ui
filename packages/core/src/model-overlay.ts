@@ -27,22 +27,30 @@ export function modelOverlayPath(lineageDir: string): string {
  * returns the path to pass as `--config` — or null when there is nothing to
  * pin and omp's own `modelRoles.default` should decide untouched.
  *
- * `role: null` means "whichever model omp resolves", so the overlay is simply
- * not written — there is no "default model" literal to pin.
+ * `role: null` means "whichever model omp resolves", so the model block is
+ * simply not written — there is no "default model" literal to pin.
+ *
+ * `autoThinking` selects omp's automatic per-prompt thinking classifier via
+ * the settings key `defaultThinkingLevel: "auto"` — omp's `model:level`
+ * suffix grammar does NOT include `auto`, so the role's selector string must
+ * never carry one (callers strip it). With `role: null`, the overlay carries
+ * the settings key alone: the user picked auto without pinning a model.
  */
 export function writeDefaultModelOverlay(
   lineageDir: string,
   role: ModelRole | null,
+  autoThinking = false,
 ): string | null {
   const file = modelOverlayPath(lineageDir);
-  if (role === null) {
+  if (role === null && !autoThinking) {
     removeLineageArtifact(file);
     return null;
   }
-  return writeLineageArtifact(
-    lineageDir,
-    file,
-    `modelRoles:\n  default: ${yamlQuote(formatModelRole(role))}\n`,
-  );
+  const modelBlock =
+    role === null
+      ? ""
+      : `modelRoles:\n  default: ${yamlQuote(formatModelRole(role))}\n`;
+  const autoBlock = autoThinking ? 'defaultThinkingLevel: "auto"\n' : "";
+  return writeLineageArtifact(lineageDir, file, modelBlock + autoBlock);
 }
 

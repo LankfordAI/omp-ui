@@ -58,4 +58,25 @@ describe("writeDefaultModelOverlay", () => {
     const file = writeDefaultModelOverlay(dir, { model: 'a/b"c' })!;
     expect(fs.readFileSync(file, "utf8")).toBe('modelRoles:\n  default: "a/b\\"c"\n');
   });
+
+  it("writes defaultThinkingLevel alongside a suffix-free selector under auto", () => {
+    const dir = tmpDir();
+    const file = writeDefaultModelOverlay(dir, { model: "vllm/Qwen3.8-Flash-Next" }, true)!;
+    expect(fs.readFileSync(file, "utf8")).toBe(
+      'modelRoles:\n  default: "vllm/Qwen3.8-Flash-Next"\ndefaultThinkingLevel: "auto"\n',
+    );
+  });
+
+  it("auto + null role writes a settings-only overlay", () => {
+    const dir = tmpDir();
+    const file = writeDefaultModelOverlay(dir, null, true)!;
+    expect(fs.readFileSync(file, "utf8")).toBe('defaultThinkingLevel: "auto"\n');
+  });
+
+  it("auto with no model clears when auto is later turned off", () => {
+    const dir = tmpDir();
+    const file = writeDefaultModelOverlay(dir, null, true)!;
+    expect(writeDefaultModelOverlay(dir, null, false)).toBeNull();
+    expect(fs.existsSync(file)).toBe(false);
+  });
 });

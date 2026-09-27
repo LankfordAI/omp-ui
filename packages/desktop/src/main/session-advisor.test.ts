@@ -53,7 +53,7 @@ let base: string;
  * transcript lazily, on the first turn, so this is the state of every session
  * between "new session" and the first prompt.
  */
-function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build"; agentMode?: "plan" | "build" }): { sessionsRoot: string } {
+function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build"; agentMode?: "plan" | "build"; thinkingLevel?: string }): { sessionsRoot: string } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-adv-"));
   const agentDir = path.join(base, "agent");
   process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -104,7 +104,7 @@ function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build
         launchedAt: "2026-07-29T16:18:42.427Z",
         mode: "rpc-ui",
         model: "openrouter/openai/gpt-5.6",
-        thinkingLevel: "high",
+        thinkingLevel: opts.thinkingLevel ?? "high",
         advisor: true,
         advisorModel: null,
         ...(opts.agentMode !== undefined ? { agentMode: opts.agentMode } : {}),
@@ -210,6 +210,20 @@ describe("session:setAdvisor", () => {
     expect(fs.readFileSync(modelOverlay!, "utf8")).toBe(
       'modelRoles:\n  default: "openrouter/openai/gpt-5.6:high"\n',
     );
+  });
+
+  it("reapplies an auto thinking record through the settings overlay, never a :auto suffix", async () => {
+    setup({ materialized: false, thinkingLevel: "auto" });
+    await resume();
+
+    await invoke(CH.setSessionAdvisor, TAB, false, null);
+
+    const overlays = rpcOptions.at(-1)?.configOverlays ?? [];
+    const modelOverlay = overlays.find((file) => path.basename(file) === "omp-ui-model.yml");
+    expect(modelOverlay).toBeDefined();
+    const text = fs.readFileSync(modelOverlay!, "utf8");
+    expect(text).toBe('modelRoles:\n  default: "openrouter/openai/gpt-5.6"\ndefaultThinkingLevel: "auto"\n');
+    expect(text).not.toContain("gpt-5.6:auto");
   });
 
   it("tells the renderer the agent died when the relaunch fails", async () => {

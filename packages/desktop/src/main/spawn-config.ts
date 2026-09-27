@@ -50,18 +50,24 @@ export function writeSessionOverlays(
   // The gate pins every launch, resume included; otherwise the record's own pin,
   // unchanged. A gated level comes from the selector alone — a run that wants the
   // record's thinking level asks omp for it, so record.thinkingLevel is not consulted.
-  const role =
+  // omp's automatic selector is never a `:level` suffix — an auto pin (record or
+  // gate) strips the level here and rides the `defaultThinkingLevel` overlay key
+  // instead, so no spawn ever composes `${model}:auto`.
+  const auto =
+    gate.model !== null ? gate.model.level === "auto" : record.thinkingLevel === "auto";
+  const pinnedRole =
     gate.model ??
     (record.model === null
       ? null
       : parseModelRole(
-          record.thinkingLevel === null
+          record.thinkingLevel === null || record.thinkingLevel === "auto"
             ? record.model
             : `${record.model}:${record.thinkingLevel}`,
         ));
-  if (role !== null) {
+  const role = auto && pinnedRole !== null ? { model: pinnedRole.model } : pinnedRole;
+  if (role !== null || auto) {
     try {
-      const overlay = writeDefaultModelOverlay(absLineageDir, role);
+      const overlay = writeDefaultModelOverlay(absLineageDir, role, auto);
       if (overlay !== null) overlays.push(overlay);
     } catch (err) {
       console.warn("[model] could not write the default-model overlay:", err);

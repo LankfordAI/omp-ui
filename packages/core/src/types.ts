@@ -84,8 +84,9 @@ export interface ProjectRecord {
   addedAt: string;
   /** Main model most recently used in this project. */
   lastModel: string | null;
-  /** Main-model thinking level most recently used in this project; legacy
-   *  registries without the field are normalized to null at parse time. */
+  /** Main-model thinking level most recently used in this project — a
+   *  concrete level word or omp's `auto` selector; legacy registries without
+   *  the field are normalized to null at parse time. */
   lastThinkingLevel: string | null;
   /** Advisor state most recently used in this project; null defers to omp
    *  config. Legacy registries without the field are normalized to null at
@@ -335,8 +336,10 @@ export interface OwnedSessionRecord {
   /** Main model selected for this session, as omp's `provider/id` selector.
    *  Normalized to null at parse time when absent. */
   model: string | null;
-  /** Main-model thinking level selected for this session. Normalized to null
-   *  at parse time when absent. */
+  /** Main-model thinking level selected for this session — a concrete level
+   *  word, or `"auto"` (omp's automatic per-prompt selector; applied at spawn
+   *  via the `defaultThinkingLevel` settings overlay, never a `:auto` model
+   *  suffix). Normalized to null at parse time when absent. */
   thinkingLevel: string | null;
   advisor: boolean;
   /**

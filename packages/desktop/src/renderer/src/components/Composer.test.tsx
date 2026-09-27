@@ -252,6 +252,82 @@ describe("desktop floating Composer card", () => {
   });
 });
 
+describe("Composer auto thinking selector", () => {
+  const asDesktop = (): void => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  };
+  const seedEfforts = (sessionPatch: Record<string, unknown>): void => {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: {
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          model: { ...s.rpc[TAB]!.model!, thinking: { efforts: ["low", "medium", "xhigh"] } },
+          session: { ...s.rpc[TAB]!.session, ...sessionPatch },
+        },
+      },
+    }));
+  };
+  const pill = (): HTMLButtonElement => {
+    const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) =>
+        button.title.startsWith("thinking level") || button.title.startsWith("auto —"),
+    );
+    expect(found).toBeDefined();
+    return found!;
+  };
+  // Rows live in the popup beside the pill inside the effort anchor.
+  const menuRows = (): HTMLButtonElement[] =>
+    [...pill().closest("span.relative")!.querySelectorAll<HTMLButtonElement>("button")].slice(1);
+
+  it("reads auto while the selector is configured, with the resolution in the tooltip", () => {
+    asDesktop();
+    seedEfforts({ thinkingLevel: "xhigh", thinkingConfigured: "auto" });
+    renderComposer();
+    expect(pill().textContent).toBe("auto");
+    expect(pill().title).toContain("this turn: xhigh");
+  });
+
+  it("reads the concrete level while the selector is null", () => {
+    asDesktop();
+    seedEfforts({ thinkingLevel: "medium", thinkingConfigured: null });
+    renderComposer();
+    expect(pill().textContent).toBe("medium");
+    expect(pill().title).toContain("click to pick");
+  });
+
+  it("offers auto above the ladder and dispatches level auto", async () => {
+    asDesktop();
+    seedEfforts({ thinkingLevel: "medium", thinkingConfigured: null });
+    const setThinkingLevel = vi.fn(async () => {});
+    useStore.setState({ setThinkingLevel });
+    renderComposer();
+    act(() => pill().click());
+    expect(menuRows().map((row) => row.textContent?.trim())).toEqual([
+      "auto",
+      "low",
+      "medium",
+      "xhigh",
+    ]);
+    await act(async () => menuRows()[0]!.click());
+    expect(setThinkingLevel).toHaveBeenCalledWith(TAB, "auto");
+  });
+
+  it("highlights auto and never the drifting resolved row while configured auto", () => {
+    asDesktop();
+    seedEfforts({ thinkingLevel: "medium", thinkingConfigured: "auto" });
+    renderComposer();
+    act(() => pill().click());
+    const rowBy = (label: string): HTMLButtonElement =>
+      menuRows().find((row) => row.textContent?.trim() === label)!;
+    expect(rowBy("auto").classList.contains("text-iris")).toBe(true);
+    expect(rowBy("medium").classList.contains("text-iris")).toBe(false);
+  });
+});
+
 describe("Composer relaunch handoff", () => {
   it("disables every process control while starting and restores them when ready", () => {
     Object.defineProperty(window, "matchMedia", {

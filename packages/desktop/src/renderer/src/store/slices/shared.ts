@@ -935,11 +935,14 @@ export function createMachinery(
       session,
     });
     if (model) {
+      // get_state reports only the RESOLVED level: persist the selector when
+      // the session runs under auto, or every refresh would repin a
+      // classification output into the record.
       void backend
         .setSessionModel(
           tabId,
           `${model.provider}/${model.id}`,
-          session.thinkingLevel,
+          session.thinkingConfigured === "auto" ? "auto" : session.thinkingLevel,
         )
         .catch(() => {});
     }

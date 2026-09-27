@@ -93,6 +93,45 @@ describe("reduceAgentEvent", () => {
     expect(reduced.transcript).toEqual({ frame, stall: null });
   });
 
+  it("persists a concrete thinking_level_changed frame (no configured field)", () => {
+    const tab = rpcTabState({
+      status: "ready",
+      model: { id: "m1", name: "M1", provider: "p" },
+    });
+    const reduced = reduceAgentEvent(tab, runtime(), {
+      type: "thinking_level_changed",
+      thinkingLevel: "high",
+    });
+    expect(reduced.patch.rpc).toMatchObject({
+      session: { thinkingLevel: "high", thinkingConfigured: null },
+    });
+    expect(
+      reduced.effects.some((effect) => effect.type === "set-session-model"),
+    ).toBe(true);
+  });
+
+  it("paints an auto frame's resolution but never persists it", () => {
+    // The trap: persisting a classification output would convert the session
+    // from auto to a pinned level and re-pin it on the next resume.
+    const tab = rpcTabState({
+      status: "ready",
+      model: { id: "m1", name: "M1", provider: "p" },
+      session: { ...emptySessionRuntime(), thinkingLevel: "low", thinkingConfigured: "auto" },
+    });
+    const reduced = reduceAgentEvent(tab, runtime(), {
+      type: "thinking_level_changed",
+      thinkingLevel: "xhigh",
+      configured: "auto",
+      resolved: "xhigh",
+    });
+    expect(reduced.patch.rpc).toMatchObject({
+      session: { thinkingLevel: "xhigh", thinkingConfigured: "auto" },
+    });
+    expect(
+      reduced.effects.some((effect) => effect.type === "set-session-model"),
+    ).toBe(false);
+  });
+
 });
 
 describe("handleRpcFrame routing", () => {
@@ -2900,6 +2939,83 @@ describe("handleRpcFrame routing", () => {
     expect(levelIdx).toBeLessThan(promptIdx);
   });
 
+  it("a staged auto level dispatches set_thinking_level auto on the existing session", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          model: { id: "m1", name: "M1", provider: "p" },
+          session: { ...emptySessionRuntime(), thinkingLevel: "low", thinkingConfigured: "auto" },
+        }),
+      },
+    });
+    openReview("auto-existing");
+    h.useStore.getState().executePlan(h.TAB, "existing", {
+      model: { id: "m1", name: "M1", provider: "p" },
+      thinkingLevel: "auto",
+      advisor: false,
+      advisorModel: null,
+    });
+    await h.flushMicrotasks();
+    const onTab = (s: (typeof h.sent)[number]) => s.tabId === h.TAB;
+    const setLevel = h.sent.find(
+      (s) => onTab(s) && s.cmd.type === "set_thinking_level",
+    );
+    expect(setLevel?.cmd).toMatchObject({ level: "auto" });
+    h.respond(h.TAB, setLevel!.cmd, {});
+    await h.flushMicrotasks();
+    const levelIdx = h.sent.findIndex(
+      (s) => onTab(s) && s.cmd.type === "set_thinking_level",
+    );
+    const promptIdx = h.sent.findIndex(
+      (s) =>
+        onTab(s) &&
+        s.cmd.type === "prompt" &&
+        String(s.cmd.message).includes("execute the approved plan"),
+    );
+    expect(levelIdx).toBeGreaterThanOrEqual(0);
+    expect(levelIdx).toBeLessThan(promptIdx);
+    expect(h.mockBackend.setSessionModel).toHaveBeenLastCalledWith(
+      h.TAB,
+      "p/m1",
+      "auto",
+    );
+  });
+
+  it("a fresh session receives a staged auto level before the implementation prompt", async () => {
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
+    openReviewWithPlan("auto-fresh");
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh", {
+      advisor: false,
+      advisorModel: null,
+      thinkingLevel: "auto",
+    });
+    await h.flushMicrotasks();
+    h.useStore.setState({
+      rpc: {
+        ...h.useStore.getState().rpc,
+        "fresh-tab": rpcTabState({ status: "ready", planText: null }),
+      },
+    });
+    await h.flushMicrotasks();
+    const onFresh = (s: (typeof h.sent)[number]) => s.tabId === "fresh-tab";
+    const setLevel = h.sent.find(
+      (s) => onFresh(s) && s.cmd.type === "set_thinking_level",
+    );
+    expect(setLevel?.cmd).toMatchObject({ level: "auto" });
+    h.respond("fresh-tab", setLevel!.cmd, {});
+    await h.flushMicrotasks();
+    const levelIdx = h.sent.findIndex(
+      (s) => onFresh(s) && s.cmd.type === "set_thinking_level",
+    );
+    const promptIdx = h.sent.findIndex(
+      (s) => onFresh(s) && s.cmd.type === "prompt",
+    );
+    expect(levelIdx).toBeGreaterThanOrEqual(0);
+    expect(levelIdx).toBeLessThan(promptIdx);
+  });
+
   it("still shows a plain select dialog when the title is not a plan review", () => {
     h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
@@ -3053,6 +3169,37 @@ describe("handleRpcFrame routing", () => {
     ]);
   });
 
+  it("a configured:auto frame updates the pill state without touching the record", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          model: { id: "m1", name: "M1", provider: "p" },
+          session: { ...emptySessionRuntime(), thinkingLevel: "low", thinkingConfigured: "auto" },
+        }),
+      },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "thinking_level_changed",
+      thinkingLevel: "xhigh",
+      configured: "auto",
+      resolved: "xhigh",
+    });
+    await h.flushMicrotasks();
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.session.thinkingLevel).toBe("xhigh");
+    expect(tab.session.thinkingConfigured).toBe("auto");
+    expect(h.mockBackend.setSessionModel).not.toHaveBeenCalled();
+
+    // The concrete follow-up frame (the user picked a level) persists as before.
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "thinking_level_changed",
+      thinkingLevel: "medium",
+    });
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.session.thinkingConfigured).toBeNull();
+    expect(h.mockBackend.setSessionModel).toHaveBeenCalledWith(h.TAB, "p/m1", "medium");
+  });
+
   it("session_info_update and config_update merge into session/model", () => {
     const store = h.useStore.getState();
     store.handleRpcFrame(h.TAB, {
@@ -3073,6 +3220,24 @@ describe("handleRpcFrame routing", () => {
       sessionId: "sess-9",
       thinkingLevel: "low",
     });
+  });
+
+  it("a config_update under auto persists the selector, not the frame's resolved level", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          model: { id: "m1", name: "M1", provider: "p" },
+          session: { ...emptySessionRuntime(), thinkingLevel: "low", thinkingConfigured: "auto" },
+        }),
+      },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "config_update",
+      model: { id: "m2", name: "M Two", provider: "p" },
+      thinkingLevel: "low",
+    });
+    await h.flushMicrotasks();
+    expect(h.mockBackend.setSessionModel).toHaveBeenCalledWith(h.TAB, "p/m2", "auto");
   });
 });
 

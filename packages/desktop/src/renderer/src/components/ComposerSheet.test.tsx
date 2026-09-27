@@ -147,6 +147,31 @@ describe("ComposerSheet", () => {
     expect(setThinkingLevel).toHaveBeenCalledWith(TAB, "high");
   });
 
+  it("renders auto above the ladder and dispatches level auto", async () => {
+    seed("ready");
+    render(true);
+    const auto = buttonByText("auto");
+    const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("button")];
+    expect(buttons.indexOf(auto)).toBeLessThan(buttons.indexOf(buttonByText("low")));
+    await act(async () => auto.click());
+    expect(setThinkingLevel).toHaveBeenCalledWith(TAB, "auto");
+  });
+
+  it("marks auto selected and the resolved effort unselected while configured auto", () => {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: {
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          session: { ...s.rpc[TAB]!.session, thinkingLevel: "medium", thinkingConfigured: "auto" },
+        },
+      },
+    }));
+    render(true);
+    expect(buttonByText("auto").getAttribute("aria-pressed")).toBe("true");
+    expect(buttonByText("medium").getAttribute("aria-pressed")).toBe("false");
+  });
+
   it("hides the while-running section while idle", () => {
     seed("ready");
     render(true);
