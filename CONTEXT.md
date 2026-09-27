@@ -720,12 +720,14 @@ _Avoid_: secret, token, API config, credential vault
 
 **Web search order**:
 The Settings → Providers choice naming which provider OMP's native `web_search`
-tool tries first. It is OMP's `providers.webSearchOrder` global value written one
-provider deep — unlisted providers keep OMP's own fallback order afterward — and
-the provider list comes from the installed OMP binary, never transcribed into
-omp-ui (ADR-0027). `web_search.enabled` only gates whether the tool exists at all;
-a value badged `project` belongs to that project's `.omp/config.yml`, not to this
-choice.
+tool tries first. On OMP ≥ 18.2.x its value is the `web` role of `modelRoles` —
+an OMP selector `web/<provider>` — and on older binaries the global
+`providers.webSearchOrder` value written one provider deep; unlisted providers
+keep OMP's own fallback order either way, and the provider list comes from the
+installed OMP binary, never transcribed into omp-ui (ADR-0027, ADR-0035,
+ADR-0036). `web_search.enabled` only gates whether the tool exists at all;
+a value badged `project` belongs to that project's `.omp/config.yml`, not to
+this choice.
 _Avoid_: search provider picker, search backend, engine, fallback list
 
 **Theme**:

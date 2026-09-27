@@ -774,6 +774,7 @@ export const en = {
   "settings.providers.webSearchAria": "Preferred web-search provider",
   "settings.providers.webSearchAutomatic": "Automatic — omp's default order",
   "settings.providers.webSearchCustom": "Custom order: {order}",
+  "settings.providers.webSearchRoleCustom": "Custom selector: {selector}",
   "settings.providers.webSearchUnknown": "{provider} (not in this omp's list)",
   "settings.providers.webSearchHint":
     "The provider the native web_search tool tries first. Unlisted providers stay available in omp's own order, and a provider needs its credential above or in the environment. Applies to sessions started after the change.",
