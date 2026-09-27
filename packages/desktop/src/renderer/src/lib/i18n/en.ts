@@ -473,6 +473,7 @@ export const en = {
   "plan.keyword.workflowz":
     "Drive the implementation as a deterministic multi-subagent workflow — omp's {keyword} keyword leads the prompt.",
   "plan.review.armKeyword": "{keyword} the implementation",
+  "plan.review.keywordOff": "Off in omp's magicKeywords settings — omp would ignore it.",
   // PlanReview dispatch summary and execute button
   "plan.review.dispatchReady": "ready to dispatch",
   "plan.review.switchingBranch": "switching branch…",

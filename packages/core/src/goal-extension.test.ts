@@ -108,15 +108,41 @@ interface Session {
   [key: string]: unknown;
 }
 
+
+/** Serves the module specifiers the generated bridge's literal imports resolve to. */
+function fakeRequire(specifier: string): unknown {
+  if (specifier === "@oh-my-pi/pi-coding-agent/config/registry") {
+    return {
+      lookup: (id: string) => ({
+        get: (settings: unknown) =>
+          (settings as { values?: Record<string, unknown> } | null)?.values?.[id],
+      }),
+    };
+  }
+  throw new Error("generated bridge required an unowned module: " + specifier);
+}
+
+/** A module space where omp's bundled registry does not resolve. */
+function throwRequire(specifier: string): unknown {
+  throw new Error("Cannot find package '@oh-my-pi/pi-coding-agent' from " + specifier);
+}
+
 /** Transpiles the generated file and instantiates one factory per fake class. */
-function harness(): Harness {
+function harness(options: { registry?: boolean } = {}): Harness {
   const file = writeGoalExtension(tempLineage());
   const source = fs.readFileSync(file, "utf8");
   const { outputText } = ts.transpileModule(source, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   });
   const loaded = { exports: {} as { default?: (api: unknown) => void } };
-  Function("module", "exports", outputText)(loaded, loaded.exports);
+  // The generated file reaches omp's config registry through a literal dynamic
+  // import, which CommonJS transpilation turns into require() (ADR-0036); the
+  // harness owns that specifier, so a stray one is a loud failure.
+  Function("module", "exports", "require", outputText)(
+    loaded,
+    loaded.exports,
+    options.registry === false ? throwRequire : fakeRequire,
+  );
   const factory = loaded.exports.default;
   if (!factory) throw new Error("generated goal extension has no default factory");
 
@@ -174,6 +200,11 @@ function harness(): Harness {
       this.saved = options.saved
         ? { mode: options.saved.mode, goal: options.saved.goal }
         : null;
+      // The bridge reads `settings.values` through the registry fake, so the
+      // values view must follow `goalSetting` live (ADR-0036).
+      Object.defineProperty(this, "settings", {
+        get: () => ({ values: { "goal.enabled": this.goalSetting } }),
+      });
       const runtime = this.goalRuntime as Record<string, unknown>;
       for (const name of options.without ?? []) delete runtime[name];
       for (const name of options.throwing ?? []) {
@@ -187,10 +218,6 @@ function harness(): Harness {
     }
 
     // --- omp surface the bridge drives -------------------------------------
-
-    settings = {
-      get: (key: string): unknown => (key === "goal.enabled" ? this.goalSetting : undefined),
-    };
 
     sessionManager = {
       getSessionId: (): string => this.id,
@@ -479,7 +506,12 @@ function harness(): Harness {
   return {
     AgentSession: FakeAgentSession as unknown as Harness["AgentSession"],
     invoke,
-    arm: (): Promise<void> => invoke(""),
+    // The bridge's literal registry import settles a few microtasks after the
+    // factory runs (ADR-0036); let it land before the first publish.
+    arm: async (): Promise<void> => {
+      await flush();
+      await invoke("");
+    },
     command: ({ command, args, sessionId }): Promise<void> => {
       const session = sessionId ?? "";
       const snapshot = statuses.at(-1);
@@ -1062,6 +1094,16 @@ describe("modes, settings and tools gate goal activation", () => {
     const created = await send(h, root, "goal not now");
     expect(created.text).toContain("vibe");
     expect(root.state).toBeNull();
+  });
+
+  it("refuses every command when omp's settings registry cannot be imported", async () => {
+    const h = harness({ registry: false });
+    const root = await armed(h, "session-x");
+    expect(h.snapshot().available).toBe(false);
+    expect(h.snapshot().unavailable).toBe("omp's settings registry cannot be read");
+    const shown = await send(h, root, "goal show");
+    expect(shown.ok).toBe(false);
+    expect(shown.text).toContain("settings registry");
   });
 
   it("refuses when goal.enabled is off, yet keeps status and drop usable", async () => {

@@ -546,6 +546,7 @@ describe("session capabilities bridge (issue #374)", () => {
         },
       ],
     },
+    magicKeywords: { status: "unavailable", reason: "missing-api" },
   };
   const capabilitiesFrame = (id: string, statusText: string) => ({
     type: "extension_ui_request",
@@ -720,6 +721,7 @@ describe("session tool control (issue #379)", () => {
       skillCommandsEnabled: true,
       skills: { status: "available", items: [] },
       tools: { status: "available", items: [toolRow("read", true), toolRow("write", true)] },
+      magicKeywords: { status: "unavailable", reason: "missing-api" },
       toolControl: "available",
       toolMutation: null,
       ...overrides,

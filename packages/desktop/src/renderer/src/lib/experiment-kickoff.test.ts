@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { keywordsIn } from "@omp-ui/core/magic-keywords";
 import type { NewExperimentSpec } from "../store/types";
 import { experimentInterviewPrompt, experimentKickoff } from "./experiment-kickoff";
 
@@ -71,6 +72,16 @@ describe("experimentKickoff", () => {
     );
     expect(text).not.toContain("Context from the planning conversation:\n\n");
   });
+
+  it("arms nothing from a keyword-bearing goal or a broken-fence brief", () => {
+    const text = experimentKickoff(
+      spec({ goal: "orchestrate the deploy", brief: "prior ```\nunclosed" }),
+      "orchestrate-the-deploy",
+    );
+    expect([...keywordsIn(text)]).toEqual([]);
+    expect(text).toContain("orchestrate the deploy");
+    expect(text).toContain("prior ```\nunclosed");
+  });
 });
 
 describe("experimentInterviewPrompt", () => {
@@ -83,5 +94,11 @@ describe("experimentInterviewPrompt", () => {
   it("wraps a trimmed rough description as data", () => {
     const text = experimentInterviewPrompt("  make the unit tests faster \n");
     expect(text).toContain("<experiment-draft>\nmake the unit tests faster\n</experiment-draft>");
+  });
+
+  it("arms nothing from a draft that says jevify", () => {
+    const text = experimentInterviewPrompt("jevify the logs");
+    expect([...keywordsIn(text)]).toEqual([]);
+    expect(text).toContain("jevify the logs");
   });
 });

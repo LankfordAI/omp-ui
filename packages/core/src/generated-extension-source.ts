@@ -113,3 +113,35 @@ export function generatedShutdownCleanupSource(sessionType: string): string {
   }
 }`;
 }
+
+/**
+ * Reads omp's own layered settings from inside a generated extension
+ * (ADR-0036). The literal dynamic import resolves through omp's bundled-module
+ * shim; a computed specifier does not. `readOmpSetting` returns undefined when
+ * the registry, the setting, or the value is unreadable — never a guess.
+ */
+export function generatedOmpSettingReaderSource(): string {
+  return `let settingLookup: ((id: string) => unknown) | null = null;
+// @ts-expect-error -- omp's extension loader maps this LITERAL specifier to its bundled config
+// registry (ADR-0036); a computed specifier does not resolve.
+void import("@oh-my-pi/pi-coding-agent/config/registry").then(
+  (mod: unknown) => {
+    const lookup = (mod as Record<string, unknown> | null)?.lookup;
+    if (typeof lookup === "function") settingLookup = lookup as (id: string) => unknown;
+  },
+  () => undefined,
+);
+
+/** omp's effective value of registered setting \`id\` for \`settings\`; undefined when unreadable. */
+function readOmpSetting(settings: unknown, id: string): unknown {
+  if (settingLookup === null || settings === null || typeof settings !== "object") return undefined;
+  try {
+    const setting = settingLookup(id) as { get?: unknown } | undefined;
+    return typeof setting?.get === "function"
+      ? (setting.get as (s: unknown) => unknown).call(setting, settings)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}`;
+}

@@ -895,6 +895,7 @@ const baseSnapshot = (patch: Partial<CapabilitySnapshot> = {}): CapabilitySnapsh
   skillCommandsEnabled: true,
   skills: { status: "available", items: [] },
   tools: { status: "available", items: [] },
+  magicKeywords: { status: "unavailable", reason: "missing-api" },
   // Tool-capable bridge by default: the roster-control cases opt out of it
   // explicitly, the way a legacy snapshot arrives with the field absent.
   toolControl: "available",

@@ -1570,6 +1570,7 @@ describe("session capability roster (issue #374)", () => {
     },
     // Tool control is on so a mutation may bind to this roster; the roster's
     // own membership stays unread until a case supplies it (#379).
+    magicKeywords: { status: "unavailable", reason: "missing-api" },
     toolControl: "available",
     toolMutation: null,
     tools,
@@ -1705,6 +1706,7 @@ describe("session-local tool control (issue #379)", () => {
     skillCommandsEnabled: true,
     skills: { status: "unavailable", reason: "missing-api" },
     tools: { status: "available", items },
+    magicKeywords: { status: "unavailable", reason: "missing-api" },
     toolControl: "available",
     toolMutation: null,
   });

@@ -1,31 +1,52 @@
 /**
- * omp's "magic keywords" — `ultrathink`, `orchestrate`, `workflowz` — painted in
- * the composer the way omp's own TUI editor paints them.
+ * omp's "magic keywords" — `ultrathink`, `orchestrate`, `workflowz`, `jevify` —
+ * matched the way omp itself matches them.
  *
  * Typing one of these as standalone prose makes omp append a hidden system
- * notice that steers the turn (`AgentSession.prompt` → `#createMagicKeywordNotices`,
- * omp v17.1.8). The gradient is the only signal the user gets that the word did
- * something, so the match rules here are a faithful port of omp's rather than an
+ * notice that steers the turn (`AgentSession.prompt` → `#createMagicKeywordNotices`).
+ * The composer's glow and every prompt omp-ui composes are gated on this
+ * matcher, so the match rules here are a faithful port of omp's rather than an
  * approximation: a keyword that glows but does not fire — or fires without
  * glowing — is worse than no affordance at all.
  *
- * Ported from omp v17.1.8 `src/modes/{markdown-prose,magic-keyword-boundary,
- * gradient-highlight,orchestrate,ultrathink,workflow}.ts`.
+ * Ported from omp 18.3.2 `packages/tui/src/prompt/{markdown-prose,magic-keywords}.ts`
+ * and `packages/coding-agent/src/modes/magic-keywords.ts`. Four keywords.
  *
- * Pure: zero imports, no DOM, no Node. The component turns segments into spans,
- * exactly as `fuzzy.ts#highlightRuns` feeds the palettes.
+ * Pure: zero imports, no DOM, no Node. Shared by the main process (file blocks,
+ * one-shots) and the renderer (paint); colours live in the renderer.
  */
 
-export type MagicKeyword = "ultrathink" | "orchestrate" | "workflowz";
+/** One row of omp's MAGIC_KEYWORDS table. */
+export interface MagicKeywordSpec {
+  /** omp's id: the `magicKeywords.<id>` setting and the `<id>-notice` custom type. */
+  readonly id: string;
+  /** The standalone prose word omp matches, case-sensitively. */
+  readonly word: string;
+  /** Hue ramp endpoints in degrees; hue(t) = (start + t * (end - start)) mod 360. */
+  readonly hue: readonly [number, number];
+  /** Tools that must be in the enabled roster before omp attaches the notice. */
+  readonly requires: readonly string[];
+}
+
+/** omp 18.3.2 MAGIC_KEYWORDS, in omp's notice-push order. */
+export const MAGIC_KEYWORDS = [
+  { id: "ultrathink", word: "ultrathink", hue: [0, 330], requires: [] },
+  { id: "orchestrate", word: "orchestrate", hue: [150, 280], requires: ["task"] },
+  { id: "workflow", word: "workflowz", hue: [30, 150], requires: ["task", "eval"] },
+  { id: "jevify", word: "jevify", hue: [300, 420], requires: ["eval"] },
+] as const satisfies readonly MagicKeywordSpec[];
+
+export type MagicKeyword = (typeof MAGIC_KEYWORDS)[number]["word"];
+
+export const ALL_MAGIC_KEYWORDS: ReadonlySet<MagicKeyword> = new Set(
+  MAGIC_KEYWORDS.map((k) => k.word),
+);
 
 /** A run of the draft: `keyword` is null for ordinary prose. */
 export interface KeywordSegment {
   text: string;
   keyword: MagicKeyword | null;
 }
-
-/** Time for the gradient to sweep one full cycle across each keyword. */
-export const SHIMMER_PERIOD_MS = 1800;
 
 // ---------------------------------------------------------------------------
 // Prose masking — port of omp's markdown-prose.ts
@@ -185,23 +206,13 @@ function maskTagAt(text: string, i: number, n: number, masked: Uint8Array): numb
 }
 
 /**
- * Return a copy of `text` with identical length (indices map 1:1) where every
- * character inside a non-prose region is replaced by a space. Non-prose regions
- * are markdown fenced code blocks, inline code spans, and HTML/XML tags together
- * with the content they enclose. Newlines are preserved. Text with no construct
- * that could open such a region is returned unchanged.
- *
- * The equal length is the whole point: matches are found in the mask, then
- * sliced out of the original.
+ * Phase 1 of the mask: mark every line inside (or opening/closing) a fenced
+ * code block in `masked`, line by line. Returns the marker run of a fence `text`
+ * opens and never closes (e.g. "~~~" or "````"), or null when every fence is
+ * balanced.
  */
-export function maskNonProse(text: string): string {
-  if (!text.includes("`") && !text.includes("<") && !text.includes("~~~")) {
-    return text;
-  }
+function maskFences(text: string, masked: Uint8Array): string | null {
   const n = text.length;
-  const masked = new Uint8Array(n);
-
-  // Phase 1: fenced code blocks, line by line.
   let fenceChar = "";
   let fenceLen = 0;
   let lineStart = 0;
@@ -235,6 +246,28 @@ export function maskNonProse(text: string): string {
     if (nl === n) break;
     lineStart = nl + 1;
   }
+  return fenceChar === "" ? null : fenceChar.repeat(fenceLen);
+}
+
+/**
+ * Return a copy of `text` with identical length (indices map 1:1) where every
+ * character inside a non-prose region is replaced by a space. Non-prose regions
+ * are markdown fenced code blocks, inline code spans, and HTML/XML tags together
+ * with the content they enclose. Newlines are preserved. Text with no construct
+ * that could open such a region is returned unchanged.
+ *
+ * The equal length is the whole point: matches are found in the mask, then
+ * sliced out of the original.
+ */
+export function maskNonProse(text: string): string {
+  if (!text.includes("`") && !text.includes("<") && !text.includes("~~~")) {
+    return text;
+  }
+  const n = text.length;
+  const masked = new Uint8Array(n);
+
+  // Phase 1: fenced code blocks, line by line.
+  maskFences(text, masked);
 
   // Phase 2: inline code spans and HTML/XML, over not-yet-masked regions.
   let i = 0;
@@ -270,8 +303,18 @@ export function maskNonProse(text: string): string {
   return arr.join("");
 }
 
+/**
+ * The marker run ("```", "~~~~", …) of a fenced block `text` opens and never
+ * closes; null when every fence is balanced. Appending the run closes the
+ * block, so a draft left inside an open fence cannot swallow what follows.
+ */
+export function unclosedFence(text: string): string | null {
+  if (!text.includes("`") && !text.includes("~~~")) return null;
+  return maskFences(text, new Uint8Array(text.length));
+}
+
 // ---------------------------------------------------------------------------
-// Keyword specs — port of magic-keyword-boundary.ts and the three keyword modules
+// Keyword matching — port of magic-keyword-boundary.ts and the keyword modules
 // ---------------------------------------------------------------------------
 
 /**
@@ -283,90 +326,37 @@ export function maskNonProse(text: string): string {
 const LEFT = String.raw`(?<![\p{L}\p{N}_./\\-])(?<!::)`;
 const RIGHT = String.raw`(?![\p{L}\p{N}_/\\-])(?!\.[\p{L}\p{N}_-])(?!\()`;
 
-/** Colour stops in a keyword's border ring (`keywordPalette`). */
-const STOPS = 14;
-
-interface Spec {
-  keyword: MagicKeyword;
-  /** Case-sensitive by design: omp fires on the lowercase word only. */
-  match: RegExp;
-  /** Hue in degrees at t ∈ [0, 1) along the keyword's ramp. */
-  hue: (t: number) => number;
-  /** The ramp as 14 stops, `hsl(H 90% 62%)`, for the conic border ring. */
-  palette: readonly string[];
-}
-
-/** Builds a spec from omp's hue ramp for that keyword. */
-function spec(keyword: MagicKeyword, hue: (t: number) => number): Spec {
-  const palette: string[] = [];
-  for (let i = 0; i < STOPS; i++) {
-    palette.push(`hsl(${Math.round(hue(i / STOPS))} 90% 62%)`);
-  }
-  return { keyword, match: new RegExp(`${LEFT}${keyword}${RIGHT}`, "gu"), hue, palette };
-}
-
-const SPECS: readonly Spec[] = [
-  // Rainbow, stopping short of the wrap back to red.
-  spec("ultrathink", (t) => t * 330),
-  // Cool teal → violet.
-  spec("orchestrate", (t) => 150 + t * 130),
-  // Warm amber → green.
-  spec("workflowz", (t) => 30 + t * 120),
-];
-
-/**
- * One CSS colour per character of `keyword`, sampled continuously from the
- * keyword's hue ramp. `phase` ∈ [0, 1) rotates the sample cyclically to
- * animate the shimmer; values outside the range wrap.
- *
- * omp's terminal editor quantizes this ramp to 14 ANSI stops; sampling the
- * ramp directly keeps the same endpoints while letting the sweep advance a
- * uniform hue delta per frame — the stepped pick made the GUI shimmer stall
- * and lurch (issue #204).
- */
-export function keywordColors(keyword: MagicKeyword, phase: number): string[] {
-  const { hue } = SPECS.find((s) => s.keyword === keyword)!;
-  // Wrap into [0, 1) so negative inputs and values >= 1 stay well-defined.
-  const wrapped = ((phase % 1) + 1) % 1;
-  const n = keyword.length;
-  const colors: string[] = [];
-  for (let i = 0; i < n; i++) {
-    colors.push(`hsl(${Math.round(hue((i / n + wrapped) % 1))} 90% 62%)`);
-  }
-  return colors;
-}
-
-/**
- * The 14-stop ring for `keyword` — the conic gradient the composer runs
- * around its border while the keyword is armed. The stops sample the same
- * hue ramp keywordColors draws from (the browser interpolates between them),
- * so the border and the characters can never disagree about a keyword's
- * colours.
- */
-export function keywordPalette(keyword: MagicKeyword): readonly string[] {
-  return SPECS.find((s) => s.keyword === keyword)!.palette;
-}
+// Case-sensitive by design: omp fires on the lowercase word only. Built once
+// from the table, in omp's notice-push order.
+const MATCHES: ReadonlyArray<{ word: MagicKeyword; match: RegExp }> = MAGIC_KEYWORDS.map(
+  (k) => ({ word: k.word, match: new RegExp(`${LEFT}${k.word}${RIGHT}`, "gu") }),
+);
 
 /**
  * Splits `text` into alternating prose and keyword runs. Matching happens
  * against the masked copy so a keyword inside a code span, fence, or XML
  * section never lights up — omp would not fire its notice for one either — while
- * the emitted text is always sliced from the original.
+ * the emitted text is always sliced from the original. `allowed` drops matches
+ * for words outside the set.
  *
  * Segments are never empty, and their texts rejoin to exactly `text`.
  */
-export function magicKeywordSegments(text: string): KeywordSegment[] {
+export function magicKeywordSegments(
+  text: string,
+  allowed: ReadonlySet<MagicKeyword> = ALL_MAGIC_KEYWORDS,
+): KeywordSegment[] {
   if (text === "") return [];
   const masked = maskNonProse(text);
   const hits: { start: number; end: number; keyword: MagicKeyword }[] = [];
-  for (const { keyword, match } of SPECS) {
+  for (const { word, match } of MATCHES) {
+    if (!allowed.has(word)) continue;
     for (const m of masked.matchAll(match)) {
       const start = m.index;
-      hits.push({ start, end: start + m[0].length, keyword });
+      hits.push({ start, end: start + m[0].length, keyword: word });
     }
   }
   if (hits.length === 0) return [{ text, keyword: null }];
-  // The three literals are distinct and none contains another, so matches can
+  // The four literals are distinct and none contains another, so matches can
   // never overlap — ordering them is enough, no merge pass.
   hits.sort((a, b) => a.start - b.start);
 
@@ -379,4 +369,69 @@ export function magicKeywordSegments(text: string): KeywordSegment[] {
   }
   if (last < text.length) segments.push({ text: text.slice(last), keyword: null });
   return segments;
+}
+
+/** The keywords omp would match in `text` (settings and tools aside). */
+export function keywordsIn(text: string): ReadonlySet<MagicKeyword> {
+  const found = new Set<MagicKeyword>();
+  for (const segment of magicKeywordSegments(text)) {
+    if (segment.keyword !== null) found.add(segment.keyword);
+  }
+  return found;
+}
+
+// ---------------------------------------------------------------------------
+// Inert quoting — framing that keeps un-authored text from arming keywords
+// ---------------------------------------------------------------------------
+
+/** Length of the longest run of backticks in `text`. */
+function longestBacktickRun(text: string): number {
+  let longest = 0;
+  let run = 0;
+  for (let i = 0; i < text.length; i++) {
+    run = text[i] === "`" ? run + 1 : 0;
+    if (run > longest) longest = run;
+  }
+  return longest;
+}
+
+/**
+ * A fenced block nothing inside can escape: the fence is one backtick longer than any run in
+ * `text` (min 3) and `info` holds no backtick. The caller places it at a line start and
+ * follows it with a newline or the end of the text.
+ */
+export function inertBlock(text: string, info = "text"): string {
+  const fence = "`".repeat(Math.max(3, longestBacktickRun(text) + 1));
+  return `${fence}${info}\n${text}\n${fence}`;
+}
+
+/** A single-line code span: newlines fold to spaces; padded when empty or backtick-edged. */
+export function inertInline(text: string): string {
+  const flat = text.replace(/\s*[\r\n]+\s*/g, " ");
+  const run = "`".repeat(longestBacktickRun(flat) + 1);
+  const pad = flat === "" || flat.startsWith("`") || flat.endsWith("`") ? " " : "";
+  return `${run}${pad}${flat}${pad}${run}`;
+}
+
+export interface KeywordQuoting {
+  block(text: string, info?: string): string;
+  inline(text: string): string;
+}
+
+/** Emit fields exactly as given. */
+export const VERBATIM_QUOTING: KeywordQuoting = { block: (t) => t, inline: (t) => t };
+
+/** Emit fields framed so nothing inside can arm a keyword. */
+export const INERT_QUOTING: KeywordQuoting = { block: inertBlock, inline: inertInline };
+
+/**
+ * Builds with every un-authored field verbatim; when that text would arm any keyword, rebuilds
+ * with every field inert. `build` must not contain intended keywords — withKeywords() prepends
+ * those afterwards.
+ */
+export function withoutAccidentalKeywords(
+  build: (quote: KeywordQuoting) => string,
+): string {
+  const verbatim = build(VERBATIM_QUOTING);
+  return keywordsIn(verbatim).size === 0 ? verbatim : build(INERT_QUOTING);
 }

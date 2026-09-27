@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchList } from "@omp-ui/core/types";
+import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { backendState, rpcTabState } from "../test/fixtures";
 import { emptySessionRuntime, type SlashCommandInfo } from "../lib/rpc-types";
 import { markerItem, noticeItem } from "../lib/transcript";
@@ -1394,6 +1395,26 @@ describe("desktop Composer running sweep", () => {
   });
 });
 
+/** A capabilities snapshot carrying only the keyword rows, tools unreadable. */
+function gateSnapshot(
+  items: Array<{ id: string; word: string; requires: string[]; enabled: boolean }>,
+): CapabilitySnapshot {
+  return {
+    version: 1,
+    processKey: "p",
+    sessionId: null,
+    revision: 1,
+    updatedAt: 0,
+    ompVersion: null,
+    skillCommandsEnabled: null,
+    skills: { status: "unavailable", reason: "missing-api" },
+    tools: { status: "unavailable", reason: "missing-api" },
+    magicKeywords: { status: "available", items },
+    toolControl: "unsupported",
+    toolMutation: null,
+  };
+}
+
 describe("Composer keyword glow", () => {
   it("runs the armed keyword's ring around the box, phase-locked palette", () => {
     seed("ready"); renderComposer();
@@ -1410,6 +1431,77 @@ describe("Composer keyword glow", () => {
     expect(document.body.querySelector("[data-perimeter-glow]")).toBeNull();
     typeDraft("fix `orchestrate` now");
     expect(document.body.querySelector("[data-perimeter-glow]")).toBeNull();
+  });
+
+  it("rings jevify with its own wrap-past-red palette", () => {
+    seed("ready"); renderComposer();
+    typeDraft("please jevify this");
+    const glow = document.body.querySelector<HTMLElement>("[data-perimeter-glow]");
+    expect(glow).not.toBeNull();
+    expect(glow!.style.getPropertyValue("--perimeter-glow")).toContain("hsl(300 90% 62%)");
+  });
+
+  it("shows no ring for a keyword omp's settings switched off", () => {
+    seed("ready");
+    act(() => {
+      useStore.setState((s) => ({
+        rpc: {
+          ...s.rpc,
+          [TAB]: { ...s.rpc[TAB]!, capabilities: gateSnapshot([
+            { id: "ultrathink", word: "ultrathink", requires: [], enabled: true },
+            { id: "orchestrate", word: "orchestrate", requires: ["task"], enabled: false },
+          ]) },
+        },
+      }));
+    });
+    renderComposer();
+    typeDraft("please orchestrate this");
+    expect(document.body.querySelector("[data-perimeter-glow]")).toBeNull();
+    typeDraft("please ultrathink this");
+    expect(document.body.querySelector("[data-perimeter-glow]")).not.toBeNull();
+  });
+
+  it("shows no ring for a keyword whose tool the session lacks", () => {
+    seed("ready");
+    act(() => {
+      useStore.setState((s) => ({
+        rpc: {
+          ...s.rpc,
+          [TAB]: {
+            ...s.rpc[TAB]!,
+            capabilities: {
+              ...gateSnapshot([
+                { id: "ultrathink", word: "ultrathink", requires: [], enabled: true },
+                { id: "orchestrate", word: "orchestrate", requires: ["task"], enabled: true },
+              ]),
+              tools: {
+                status: "available",
+                items: [
+                  {
+                    name: "read",
+                    description: "",
+                    descriptionTruncated: false,
+                    source: "builtin",
+                    sourcePath: null,
+                    enabled: true,
+                    direct: null,
+                    xdev: null,
+                    evalBridge: null,
+                    mcpServerName: null,
+                    mcpToolName: null,
+                  },
+                ],
+              },
+            },
+          },
+        },
+      }));
+    });
+    renderComposer();
+    typeDraft("please orchestrate this");
+    expect(document.body.querySelector("[data-perimeter-glow]")).toBeNull();
+    typeDraft("please ultrathink this");
+    expect(document.body.querySelector("[data-perimeter-glow]")).not.toBeNull();
   });
 });
 

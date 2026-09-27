@@ -23,3 +23,8 @@ export function planSeedText(planText: string | null): string | null {
   // shell always survives the strip, so `stripped` is never the empty string.
   return stripped.replace(/<[^>]*>/g, "").trim() === "" ? null : stripped;
 }
+
+/** The fence info string planSeedText's body deserves: html docs keep their tags. */
+export function planSeedInfo(planText: string): "markdown" | "html" {
+  return /^\s*(?:<!doctype|<html)/i.test(planText) ? "html" : "markdown";
+}

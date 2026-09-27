@@ -6,6 +6,7 @@ import type {
 // (core/plan, advisor-stats, mcp-status imports moved to the frame-reduction slice for #295)
 import { backend } from "./backend";
 import type { PlanExecutionOptions } from "./lib/plan-concerns";
+import type { AdvisorNote } from "./lib/transcript";
 import { projectKey } from "./lib/project-key";
 import { IS_ELECTRON } from "./lib/platform";
 import { applyTheme, currentThemeId, resolveTheme, subscribeTheme, type Theme } from "./lib/themes";
@@ -130,7 +131,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       tabId: string,
       planText: string | null,
       planImplementationSource: Readonly<PlanImplementationSource>,
-      concerns: string | null,
+      concerns: readonly AdvisorNote[],
       options?: PlanExecutionOptions,
     ) =>
       lifecycle.spawnFreshImplementation(tabId, planText, planImplementationSource, concerns, options),

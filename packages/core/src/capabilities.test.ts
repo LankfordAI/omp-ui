@@ -27,6 +27,16 @@ function tool(overrides: Record<string, unknown> = {}): Record<string, unknown> 
   };
 }
 
+function magicKeyword(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "orchestrate",
+    word: "orchestrate",
+    requires: ["task"],
+    enabled: true,
+    ...overrides,
+  };
+}
+
 function skill(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     name: "grill",
@@ -51,6 +61,7 @@ function snapshot(overrides: Record<string, unknown> = {}): Record<string, unkno
     skillCommandsEnabled: true,
     skills: { status: "available", items: [skill()] },
     tools: { status: "available", items: [tool()] },
+    magicKeywords: { status: "available", items: [magicKeyword()] },
     toolControl: "available",
     toolMutation: { id: "mut-1", name: "alpha", enabled: true, status: "applied" },
     ...overrides,
@@ -204,6 +215,50 @@ describe("parseCapabilitySnapshot", () => {
     const parsed = parse(snapshot({ toolMutation: null }));
     expect(parsed).not.toBeNull();
     expect(parsed!.toolMutation).toBeNull();
+  });
+
+  it("parses a valid magic keyword section", () => {
+    const parsed = parse(
+      snapshot({
+        magicKeywords: {
+          status: "available",
+          items: [
+            magicKeyword(),
+            magicKeyword({ id: "jevify", word: "jevify", requires: ["eval"], enabled: false }),
+            magicKeyword({ id: "ultrathink", word: "ultrathink", requires: [] }),
+          ],
+        },
+      }),
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed!.magicKeywords).toEqual({
+      status: "available",
+      items: [
+        { id: "orchestrate", word: "orchestrate", requires: ["task"], enabled: true },
+        { id: "jevify", word: "jevify", requires: ["eval"], enabled: false },
+        { id: "ultrathink", word: "ultrathink", requires: [], enabled: true },
+      ],
+    });
+  });
+
+  it("reports a missing keyword section as unavailable, not empty", () => {
+    const legacy = snapshot();
+    delete legacy.magicKeywords;
+    const parsed = parse(legacy);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.magicKeywords).toEqual({ status: "unavailable", reason: "missing-api" });
+  });
+
+  it.each([
+    { magicKeywords: { status: "available", items: [magicKeyword(), magicKeyword()] } },
+    { magicKeywords: { status: "available", items: [magicKeyword({ enabled: "yes" })] } },
+    { magicKeywords: { status: "available", items: [magicKeyword({ requires: "task" })] } },
+    { magicKeywords: { status: "available", items: [magicKeyword({ requires: ["task", 4] })] } },
+    { magicKeywords: { status: "available", items: [magicKeyword({ id: "" })] } },
+    { magicKeywords: { status: "available", items: [magicKeyword({ word: "" })] } },
+    { magicKeywords: { status: "present" } },
+  ])("rejects a malformed magic keyword section %p", (overrides) => {
+    expect(parse(snapshot(overrides))).toBeNull();
   });
 });
 

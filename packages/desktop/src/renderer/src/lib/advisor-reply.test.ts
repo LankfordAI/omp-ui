@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { keywordsIn } from "@omp-ui/core/magic-keywords";
 import type { AdvisorNote, RenderItem } from "./transcript";
 import {
   ADVISOR_REPLY_CAP_NOTICE,
@@ -81,6 +82,16 @@ describe("AdvisorReplyWatcher", () => {
     expect(notices).toHaveLength(1);
     expect(notices[0]!.level).toBe("info");
     expect(notices[0]!.text).toMatch(/answering it \(1 finding\)/);
+  });
+
+  it("arms nothing when a note itself speaks a keyword", async () => {
+    watcher.feed(TAB);
+    items.push(advisory("adv-1", [note("we orchestrate retries")]));
+    watcher.feed(TAB);
+    await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
+    expect(replies).toHaveLength(1);
+    expect([...keywordsIn(replies[0]!.message)]).toEqual([]);
+    expect(replies[0]!.message).toContain("we orchestrate retries");
   });
 
   it("collapses the same note arriving on a card and a tool result into one listed finding", async () => {

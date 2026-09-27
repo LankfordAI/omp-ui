@@ -12,6 +12,7 @@ import {
 } from "./capabilities";
 import { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabilities-extension";
 import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { MAGIC_KEYWORDS } from "./magic-keywords";
 
 const dirs: string[] = [];
 
@@ -40,6 +41,7 @@ interface FakeSession {
   sessionManager: { getSessionId?: () => unknown } | undefined;
   skills: unknown[] | undefined;
   skillsSettings: { enableSkillCommands?: unknown } | undefined;
+  settings: { values: Record<string, unknown> };
   toolInfos: Record<string, unknown>[];
   toolByName: Map<string, unknown>;
   enabledNames: string[];
@@ -73,7 +75,53 @@ interface CapabilitiesHarness {
   latest: () => CapabilitySnapshot;
 }
 
-function executableExtension(): CapabilitiesHarness {
+/** The module space the generated bridge's literal imports resolve to (ADR-0036). */
+interface CapabilitiesSeam {
+  require(specifier: string): unknown;
+  settings: Record<string, unknown>;
+}
+
+function keywordSettings(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const values: Record<string, unknown> = { "magicKeywords.enabled": true };
+  for (const keyword of MAGIC_KEYWORDS) values[`magicKeywords.${keyword.id}`] = true;
+  return { ...values, ...overrides };
+}
+
+function registryRequire(settingsBySession: unknown): unknown {
+  return {
+    lookup: (id: string) => ({
+      get: (settings: unknown) =>
+        (settings as { values?: Record<string, unknown> } | null)?.values?.[id] ??
+        (settingsBySession as Record<string, unknown>)[id],
+    }),
+  };
+}
+
+/** The full bridge environment: registry and omp's own keyword table. */
+function fullSeam(settings: Record<string, unknown> = keywordSettings()): CapabilitiesSeam {
+  return {
+    settings,
+    require: (specifier: string): unknown => {
+      if (specifier === "@oh-my-pi/pi-coding-agent/config/registry") return registryRequire(settings);
+      if (specifier === "@oh-my-pi/pi-coding-agent/modes/magic-keywords") {
+        return { MAGIC_KEYWORDS };
+      }
+      throw new Error("generated bridge required an unowned module: " + specifier);
+    },
+  };
+}
+
+/** A module space where neither bundled specifier resolves. */
+function emptySeam(): CapabilitiesSeam {
+  return {
+    settings: keywordSettings(),
+    require: (specifier: string): unknown => {
+      throw new Error("Cannot find package '@oh-my-pi/pi-coding-agent' from " + specifier);
+    },
+  };
+}
+
+function executableExtension(seam: CapabilitiesSeam = fullSeam()): CapabilitiesHarness {
   class FakeAgentSession {
     id: string;
     version = "18.1.10";
@@ -84,6 +132,7 @@ function executableExtension(): CapabilitiesHarness {
     sessionManager: { getSessionId?: () => unknown } | undefined;
     skills: unknown[] | undefined = [];
     skillsSettings: { enableSkillCommands?: unknown } | undefined = { enableSkillCommands: true };
+    settings = { values: { ...seam.settings } };
     toolInfos: Record<string, unknown>[] = [
       { name: "alpha", description: "base tool", source: "builtin", sourcePath: "/pkg/alpha.ts" },
     ];
@@ -166,7 +215,9 @@ function executableExtension(): CapabilitiesHarness {
   const source = fs.readFileSync(writeCapabilitiesExtension(tempLineage()), "utf8");
   const output = transpile(source, ts.ModuleKind.CommonJS).outputText;
   const loaded = { exports: {} as { default?: (api: unknown) => void } };
-  Function("module", "exports", output)(loaded, loaded.exports);
+  // The bridge reaches omp's registry and keyword table through literal dynamic
+  // imports, which CommonJS transpilation turns into require() (ADR-0036).
+  Function("module", "exports", "require", output)(loaded, loaded.exports, seam.require);
   const factory = loaded.exports.default;
   if (!factory) throw new Error("generated extension has no default factory");
 
@@ -181,7 +232,6 @@ function executableExtension(): CapabilitiesHarness {
       handler = options.handler;
     },
   });
-
   const invoke = async (args: string): Promise<void> => {
     if (!handler) throw new Error("generated extension did not register its command");
     await handler(args, {
@@ -200,7 +250,12 @@ function executableExtension(): CapabilitiesHarness {
     FakeAgentSession,
     published,
     invoke,
-    arm: (): Promise<void> => invoke(""),
+    // The bridge's literal imports settle a few microtasks after the factory
+    // runs (ADR-0036); let them land before the first publish.
+    arm: async (): Promise<void> => {
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+      await invoke("");
+    },
     latest: (): CapabilitySnapshot => {
       const value = published.at(-1);
       if (!value) throw new Error("generated extension published no snapshot");
@@ -782,3 +837,53 @@ describe("generated capabilities extension: tool mutation", () => {
     expect(snapshot.toolControl).toBe("available");
   });
 });
+describe("magic keyword gate publishing", () => {
+  it("publishes omp's rows with enabled = magicKeywords.enabled && magicKeywords.<id>", async () => {
+    const h = executableExtension(fullSeam(keywordSettings({ "magicKeywords.orchestrate": false })));
+    await armRoot(h);
+    const section = h.latest().magicKeywords;
+    expect(section.status).toBe("available");
+    if (section.status !== "available") return;
+    expect(section.items.map((row) => row.id)).toEqual(MAGIC_KEYWORDS.map((k) => k.id));
+    expect(section.items.map((row) => row.word)).toEqual(MAGIC_KEYWORDS.map((k) => k.word));
+    expect(section.items.map((row) => row.requires)).toEqual(MAGIC_KEYWORDS.map((k) => [...k.requires]));
+    expect(section.items.map((row) => row.enabled)).toEqual([true, false, true, true]);
+    const off = executableExtension(fullSeam(keywordSettings({ "magicKeywords.enabled": false })));
+    await armRoot(off);
+    const master = off.latest().magicKeywords;
+    expect(master.status).toBe("available");
+    if (master.status !== "available") return;
+    expect(master.items.every((row) => row.enabled === false)).toBe(true);
+  });
+
+  it("reports read-failed, not off, when a setting is not a boolean", async () => {
+    const h = executableExtension(fullSeam(keywordSettings({ "magicKeywords.jevify": "off" })));
+    await armRoot(h);
+    expect(h.latest().magicKeywords).toEqual({ status: "unavailable", reason: "read-failed" });
+  });
+
+  it("reports missing-api when the registry does not resolve", async () => {
+    const h = executableExtension(emptySeam());
+    await armRoot(h);
+    expect(h.latest().magicKeywords).toEqual({ status: "unavailable", reason: "missing-api" });
+  });
+
+  it("republishes on the next poll tick after a live setting change", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = executableExtension();
+      const root = await armRoot(h);
+      expect(h.published).toHaveLength(1);
+      const values = root.settings.values;
+      values["magicKeywords.workflow"] = false;
+      await vi.advanceTimersByTimeAsync(2_000);
+      const section = h.latest().magicKeywords;
+      expect(section.status).toBe("available");
+      if (section.status !== "available") return;
+      expect(section.items.map((row) => row.enabled)).toEqual([true, true, false, true]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+

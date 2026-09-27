@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { OwnedSessionRecord } from "@omp-ui/core/types";
-import type { MagicKeyword } from "./magic-keywords";
+import type { StagedKeyword } from "./plan-concerns";
 import type { ModelInfo } from "./rpc-types";
 
-const EMPTY_KEYWORDS: Record<MagicKeyword, boolean> = {
+const EMPTY_KEYWORDS: Record<StagedKeyword, boolean> = {
   ultrathink: false,
   orchestrate: false,
   workflowz: false,
@@ -21,7 +21,7 @@ export function usePlanDispatchStaging(
   const [stagedAdvisorModel, setStagedAdvisorModel] = useState<string | null>(
     sessionRecord?.advisorModel ?? null,
   );
-  const [keywords, setKeywords] = useState<Record<MagicKeyword, boolean>>(EMPTY_KEYWORDS);
+  const [keywords, setKeywords] = useState<Record<StagedKeyword, boolean>>(EMPTY_KEYWORDS);
   const [pickingModel, setPickingModel] = useState(false);
   const [pickingAdvisorModel, setPickingAdvisorModel] = useState(false);
   const [seededFor, setSeededFor] = useState<unknown>(null);
@@ -37,7 +37,7 @@ export function usePlanDispatchStaging(
     setPickingAdvisorModel(false);
   }
 
-  const setKeyword = (keyword: MagicKeyword, armed: boolean): void => {
+  const setKeyword = (keyword: StagedKeyword, armed: boolean): void => {
     setKeywords((current) => ({ ...current, [keyword]: armed }));
   };
 

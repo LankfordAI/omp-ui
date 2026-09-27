@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { parseModelRole } from "@omp-ui/core/model-role";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { useT, type MessageKey } from "../lib/i18n";
-import { keywordColors, type MagicKeyword } from "../lib/magic-keywords";
-import type { PlanExecutionContext, PlanExecutionOptions } from "../lib/plan-concerns";
+import { keywordColors } from "../lib/keyword-colors";
+import { keywordsOffInSettings } from "../lib/magic-keyword-gate";
+import type { PlanExecutionContext, PlanExecutionOptions, StagedKeyword } from "../lib/plan-concerns";
 import { usePreparedPlanDocument } from "../lib/use-prepared-plan-document";
 import { shortModelLabel } from "../lib/format";
 import { projectKey } from "../lib/project-key";
@@ -57,7 +58,7 @@ const EMPTY_MODELS: ModelInfo[] = [];
 type CompactReviewStep = "review" | "refine" | "setup";
 
 /** The aside's keyword rows, in omp's notice-push order. */
-const KEYWORD_ROWS: ReadonlyArray<{ keyword: MagicKeyword; hintKey: MessageKey }> = [
+const KEYWORD_ROWS: ReadonlyArray<{ keyword: StagedKeyword; hintKey: MessageKey }> = [
   {
     keyword: "ultrathink",
     hintKey: "plan.keyword.ultrathink",
@@ -73,7 +74,7 @@ const KEYWORD_ROWS: ReadonlyArray<{ keyword: MagicKeyword; hintKey: MessageKey }
 ];
 
 /** A magic keyword painted with its own gradient, as the composer paints it (static phase). */
-function KeywordLabel({ keyword }: { keyword: MagicKeyword }) {
+function KeywordLabel({ keyword }: { keyword: StagedKeyword }) {
   return (
     <span className="font-mono text-[11px] font-medium" aria-label={keyword}>
       {keywordColors(keyword, 0).map((color, i) => (
@@ -254,7 +255,17 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
     pickingAdvisorModel,
     setPickingAdvisorModel,
   } = usePlanDispatchStaging(review, sessionRecord, currentModel, currentThinking);
-  const { ultrathink, orchestrate, workflowz } = keywords;
+  // omp's `magicKeywords.*` settings, from the capabilities bridge: a keyword
+  // omp has switched off is shown disabled and never dispatched or summarized.
+  // The settings apply to the whole project (global config plus .omp/config.yml,
+  // which worktree sessions link), so the planning session's gate also holds
+  // for fresh and worktree receivers; tool gating is deliberately not applied
+  // here — the receiving roster differs from this one.
+  const capabilities = useStore((s) => s.rpc[tabId]?.capabilities ?? null);
+  const off = useMemo(() => keywordsOffInSettings(capabilities), [capabilities]);
+  const ultrathink = keywords.ultrathink && !off.has("ultrathink");
+  const orchestrate = keywords.orchestrate && !off.has("orchestrate");
+  const workflowz = keywords.workflowz && !off.has("workflowz");
   const [levelMenu, setLevelMenu] = useState<"main" | "advisor" | null>(null);
 
   // A new proposal resets navigation and checkout staging. Dispatch parameters
@@ -954,7 +965,9 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                       </span>
                     </div>
                     <Switch
-                      on={keywords[keyword]}
+                      on={keywords[keyword] && !off.has(keyword)}
+                      disabled={off.has(keyword)}
+                      title={off.has(keyword) ? t("plan.review.keywordOff") : undefined}
                       onChange={(armed) => setKeyword(keyword, armed)}
                       label={t("plan.review.armKeyword", { keyword })}
                     />
