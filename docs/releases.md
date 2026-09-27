@@ -4,15 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- `jevify` — omp 18.3.2's fourth magic keyword — now paints in the composer with its own ramp ([#662](https://github.com/LankfordAI/omp-ui/issues/662)).
-- The keyword glow and the plan review's switches follow omp's own `magicKeywords.*` settings and each keyword's tool requirements; a keyword omp switched off shows disabled and is never dispatched ([#663](https://github.com/LankfordAI/omp-ui/issues/663)).
-- Plan seeds, advisor replies, experiment kickoffs, busy-route `@file` blocks, and title one-shots no longer arm keywords from text the user never typed ([#664](https://github.com/LankfordAI/omp-ui/issues/664)).
-- Goal mode works again on omp 18.3.2: the bridge reads `goal.enabled` through omp's config registry ([#665](https://github.com/LankfordAI/omp-ui/issues/665)).
-- A remote browser that disconnects while viewing a browser pane now releases that frame subscription on the host; with no viewer left, capture stops while the page survives ([#654](https://github.com/LankfordAI/omp-ui/issues/654)).
-- The HTML plan review and transcript plan card never show a blank white document again: while preparation runs they say so, and a preparation that throws or never settles names itself with the raw source still readable ([#652](https://github.com/LankfordAI/omp-ui/issues/652)).
-- Typing into a browser pane whose page has nothing focused no longer freezes it: plain commits now type as key events, and only a live IME commit rides the debugger ([#656](https://github.com/LankfordAI/omp-ui/issues/656)).
-- The **Preferred provider** list in Settings is read from omp's model catalog, so web-search provider discovery finds providers on omp 18.3.2, which dropped the `providers.webSearchOrder`/`webSearchExclude` settings ([#649](https://github.com/LankfordAI/omp-ui/issues/649), [#660](https://github.com/LankfordAI/omp-ui/issues/660)).
-- Choosing a preferred web-search provider now binds omp's `modelRoles.web` role, so the selection reaches omp's own web dispatch instead of a UI-only ordering ([#661](https://github.com/LankfordAI/omp-ui/issues/661)).
+Nothing since [v0.16.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.16.0). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
