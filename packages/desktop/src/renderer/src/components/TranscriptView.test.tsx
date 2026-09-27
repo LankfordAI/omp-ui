@@ -624,12 +624,15 @@ describe("PlanCard (issue #93)", () => {
     );
     expect(disclosure).toBeDefined();
     act(() => disclosure!.click());
+    // The card names the wait while preparation is in flight (#652), so the
+    // iframe appears when the preparation reports a document, not before.
+    for (let i = 0; i < 5 && el.querySelector("iframe") === null; i += 1) {
+      await act(async () => {});
+    }
 
     const frame = el.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
     expect(frame).not.toBeNull();
     expect(frame!.getAttribute("sandbox")).toBe("");
-    // preparePlanDocument is async now (issue #285): flush the effect chain.
-    await act(async () => {});
     expect(frame!.getAttribute("srcdoc")).toContain(html);
     expect(frame!.getAttribute("srcdoc")).toContain('id="omp-ui-plan-guardrails"');
     act(() => root.unmount());

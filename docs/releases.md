@@ -8,6 +8,7 @@ This guide explains what users receive from a release and how maintainers publis
 - The keyword glow and the plan review's switches follow omp's own `magicKeywords.*` settings and each keyword's tool requirements; a keyword omp switched off shows disabled and is never dispatched ([#663](https://github.com/LankfordAI/omp-ui/issues/663)).
 - Plan seeds, advisor replies, experiment kickoffs, busy-route `@file` blocks, and title one-shots no longer arm keywords from text the user never typed ([#664](https://github.com/LankfordAI/omp-ui/issues/664)).
 - Goal mode works again on omp 18.3.2: the bridge reads `goal.enabled` through omp's config registry ([#665](https://github.com/LankfordAI/omp-ui/issues/665)).
+- The HTML plan review and transcript plan card never show a blank white document again: while preparation runs they say so, and a preparation that throws or never settles names itself with the raw source still readable ([#652](https://github.com/LankfordAI/omp-ui/issues/652)).
 
 ## Choose a download
 

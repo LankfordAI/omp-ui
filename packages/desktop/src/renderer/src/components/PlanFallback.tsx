@@ -107,3 +107,21 @@ export function PlanDiagnostics({
     </div>
   );
 }
+
+/** Status while preparation is still in flight (issue #652): an empty-srcDoc
+ * iframe is a blank white document, never a status — the surface must say what
+ * it is waiting for instead of rendering one. */
+export function PlanPreparing({ className }: { className?: string }) {
+  const t = useT();
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex min-h-0 flex-1 items-center justify-center rounded-md border border-line bg-sunken px-3 py-6",
+        className,
+      )}
+    >
+      <p className="text-sm text-ink-dim">{t("plan.review.preparing")}</p>
+    </div>
+  );
+}

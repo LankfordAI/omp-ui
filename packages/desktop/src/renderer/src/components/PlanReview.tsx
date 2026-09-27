@@ -18,7 +18,7 @@ import { usePlanDispatchStaging } from "../lib/use-plan-dispatch-staging";
 import { ExecutionBranchSetup, useExecutionBranch } from "./ExecutionBranchSetup";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
-import { PlanDiagnostics, PlanFallback } from "./PlanFallback";
+import { PlanDiagnostics, PlanFallback, PlanPreparing } from "./PlanFallback";
 import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
 import { mintBranchName, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
@@ -494,22 +494,17 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             {(!compact || compactStep === "review") && (
               <div className={cn("plan-review-preview min-h-0 flex-1", planHtml && "flex flex-col")}>
                 {planHtml ? (
-                  prepared.status === "failed" ||
-                  (prepared.status === "unavailable" && prepared.doc === null) ? (
+                  prepared.status === "pending" ? (
+                    <PlanPreparing className="min-h-0 flex-1" />
+                  ) : prepared.doc === null || prepared.status === "failed" ? (
                     <PlanFallback
-                      diagnostics={
-                        prepared.status === "failed"
-                          ? prepared.diagnostics
-                          : prepared.status === "unavailable"
-                            ? prepared.diagnostics
-                            : []
-                      }
+                      diagnostics={prepared.diagnostics}
                       source={planText ?? planHtml}
                       className="min-h-0 flex-1"
                     />
                   ) : (
                     <div className="flex min-h-0 flex-1 flex-col gap-2">
-                      {prepared.status === "unavailable" && prepared.doc !== null && (
+                      {prepared.status === "unavailable" && (
                         // The prepared document IS displayed below: the probe
                         // could not conclude (an application failure), so the
                         // heading says verification was incomplete — never
@@ -523,13 +518,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                       <iframe
                         title={t("plan.review.proposedPlan")}
                         sandbox=""
-                        srcDoc={
-                          prepared.status === "ready"
-                            ? prepared.doc
-                            : prepared.status === "unavailable"
-                              ? (prepared.doc ?? "")
-                              : ""
-                        }
+                        srcDoc={prepared.doc}
                         className="min-h-0 w-full flex-1 rounded-md border border-line bg-surface"
                       />
                     </div>

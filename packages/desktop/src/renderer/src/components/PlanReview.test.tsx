@@ -1610,18 +1610,19 @@ describe("PlanReview plan rendering (issue #109)", () => {
     });
     render();
 
-    const frame = planFrame();
-    expect(frame).not.toBeNull();
+    // The document area names the wait instead of painting an empty frame
+    // first (issue #652): the iframe is there when preparation reports a doc.
+    await until(() => planFrame() !== null);
+    const frame = planFrame()!;
     // The empty token list is the whole security story: no scripts, no
     // same-origin access, no forms, no popups, no navigation.
-    expect(frame!.getAttribute("sandbox")).toBe("");
+    expect(frame.getAttribute("sandbox")).toBe("");
     // Diagram substitution + guardrail injection resolve asynchronously.
-    await act(async () => {});
-    expect(frame!.getAttribute("srcdoc")).toContain("<h1>Fix</h1><p>html-body</p>");
-    expect(frame!.getAttribute("srcdoc")).toContain('id="omp-ui-plan-guardrails"');
+    expect(frame.getAttribute("srcdoc")).toContain("<h1>Fix</h1><p>html-body</p>");
+    expect(frame.getAttribute("srcdoc")).toContain('id="omp-ui-plan-guardrails"');
     // The document also carries its own restrictive policy, so the sandbox is
     // not the only thing keeping it inert.
-    expect(frame!.getAttribute("srcdoc")).toContain(
+    expect(frame.getAttribute("srcdoc")).toContain(
       '<meta http-equiv="Content-Security-Policy"',
     );
     expect(document.body.textContent).not.toContain("markdown-only-body");
@@ -1698,6 +1699,28 @@ describe("PlanReview plan rendering (issue #109)", () => {
     expect(buttonByText("refine").disabled).toBe(false);
     expect(executeButton().disabled).toBe(true);
   });
+  it("says the plan is being prepared instead of painting an empty iframe while it waits", async () => {
+    // The blank white pane of issue #652: `pending` bound srcDoc="" and
+    // Chromium painted an empty about:srcdoc the theme never reached.
+    planPrepared.state = { status: "pending" };
+    useStore.setState({
+      rpc: {
+        [TAB]: tabState({ planText: "<h1>Fix</h1>", planHtml: "<h1>Fix</h1>" }, true),
+      },
+    });
+    render();
+    await act(async () => {});
+
+    expect(planFrame()).toBeNull();
+    expect(document.body.querySelector("iframe")).toBeNull();
+    expect(document.body.textContent).toContain("preparing the plan");
+    // Waiting is not a verdict: no diagnostic is claimed about the source,
+    // and execute still waits for a ready preparation.
+    expect(document.body.querySelector("pre[data-selectable]")).toBeNull();
+    expect(document.body.textContent).not.toContain("could not be displayed");
+    expect(executeButton().disabled).toBe(true);
+    expect(buttonByText("refine").disabled).toBe(false);
+  });
   it("shows the prepared document under an incomplete-verification note when the probe cannot conclude", async () => {
     // The false-failure state from issue #415: a valid prepared document in
     // the iframe while the local probe timed out. The note must say the
@@ -1749,6 +1772,9 @@ describe("PlanReview mermaid diagrams (issue #285)", () => {
     });
     render();
 
+    // The iframe only exists once preparation reports a document (#652), so
+    // the wait is for the frame itself before its srcdoc fills.
+    await until(() => planFrame() !== null);
     const frame = planFrame()!;
     // The real mermaid renderer measures text, which jsdom does not implement;
     // the smoke test covers real rendering. Here the block must be substituted
@@ -1782,6 +1808,7 @@ describe("PlanReview code highlighting (issue #319)", () => {
     applyTheme(resolveTheme("graphite")); // pin the plane theme for this case
     render();
 
+    await until(() => planFrame() !== null);
     const frame = planFrame()!;
     // The tokenizer is stubbed at the module seam (issue #329); real shiki is
     // covered by lib/plan-highlight.smoke.test.ts.
