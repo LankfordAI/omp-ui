@@ -162,6 +162,7 @@ export type BrowserPaneInputEvent =
       modifiers?: BrowserPaneModifier[];
     }
   | { type: "keyDown" | "keyUp" | "char"; keyCode: string; modifiers?: BrowserPaneModifier[] }
+  /** Committed text (IME, paste, agent): host routes by its preedit latch, debugger commit while live, char events otherwise; empty text inserts nothing (#656). */
   | { type: "insertText"; text: string }
   /** Live IME preedit (#541): CDP Input.imeSetComposition; empty text cancels. Offsets are UTF-16 units. */
   | { type: "imeSetComposition"; text: string; selectionStart: number; selectionEnd: number }

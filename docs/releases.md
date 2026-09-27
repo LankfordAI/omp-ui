@@ -10,6 +10,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Goal mode works again on omp 18.3.2: the bridge reads `goal.enabled` through omp's config registry ([#665](https://github.com/LankfordAI/omp-ui/issues/665)).
 - A remote browser that disconnects while viewing a browser pane now releases that frame subscription on the host; with no viewer left, capture stops while the page survives ([#654](https://github.com/LankfordAI/omp-ui/issues/654)).
 - The HTML plan review and transcript plan card never show a blank white document again: while preparation runs they say so, and a preparation that throws or never settles names itself with the raw source still readable ([#652](https://github.com/LankfordAI/omp-ui/issues/652)).
+- Typing into a browser pane whose page has nothing focused no longer freezes it: plain commits now type as key events, and only a live IME commit rides the debugger ([#656](https://github.com/LankfordAI/omp-ui/issues/656)).
 
 ## Choose a download
 

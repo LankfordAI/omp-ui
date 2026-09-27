@@ -327,6 +327,20 @@ through a **loopback CDP bridge** the main process hosts:
   `Input.imeSetComposition` over main's root debugger session, so candidates
   render live; the commit still travels as `insertText` and replaces the
   composition (#541). Native German QWERTZ/AltGr remains unchanged.
+- **Pane text never calls Electron's `webContents.insertText` (#656).** On
+  Electron 43.2.0 that call freezes an offscreen page whose active element is
+  `BODY`. The host splits the `insertText` wire on a per-pane preedit latch:
+  while a forwarded nonempty `Input.imeSetComposition` waits for its commit,
+  the commit travels as CDP `Input.insertText` on the root debugger session
+  and replaces the preedit with exact composition events (#541); every other
+  `insertText` becomes CDP char key events, one per code point (Chromium rejects
+  a multi-code-point char parameter). They type at the widget-focused caret
+  across frames and shadow DOM, and do nothing without an editable focused.
+  The latch clears on commit, empty preedit (#550), main-frame navigation, or
+  page destruction. `Input.insertText` is never sent unlatched: on 43.2.0 it
+  re-focuses a stale editable after a scripted `blur()`. The char route adds
+  the `keypress` the old silent call omitted; ordinary typing already sends
+  char events.
 - **Platform gates are smokes, not assumptions.** Offscreen paint on GPU and
   software paths, dsf, input into an unfocused hidden window, OS keymaps, ⌘
   chords, right-click semantics, non-ASCII `insertText`, the omp handshake,

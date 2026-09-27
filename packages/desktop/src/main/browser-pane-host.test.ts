@@ -51,7 +51,8 @@ function fakePane(opts: CreatePaneOptions, autoCommit = true): FakePane {
     getTitle: () => "Fake",
     isLoading: () => false,
     sendInputEvent: vi.fn(),
-    insertText: vi.fn(async () => {}),
+    commitComposition: vi.fn(async () => {}),
+    typeChar: vi.fn(async () => {}),
     imeSetComposition: vi.fn(async () => {}),
     focus: vi.fn(),
     selectAll: vi.fn(),
@@ -677,10 +678,30 @@ describe("BrowserPaneHost page lifecycle", () => {
     h.host.input("t1", { type: "edit", command: "selectAll" });
     expect(pane.selectAll).toHaveBeenCalledTimes(1);
     h.host.input("t1", { type: "insertText", text: "한🙂" });
-    expect(pane.insertText).toHaveBeenCalledWith("한🙂");
+    expect(pane.typeChar).toHaveBeenCalledWith("한🙂");
+    expect(pane.commitComposition).not.toHaveBeenCalled();
     h.host.input("t1", { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
     expect(pane.imeSetComposition).toHaveBeenCalledWith("ㅎ", 1, 1);
     expect(pane.sendInputEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: "imeSetComposition" }));
+    h.host.input("t1", { type: "insertText", text: "" });
+    expect(pane.commitComposition).not.toHaveBeenCalled();
+    h.host.input("t1", { type: "insertText", text: "한" });
+    expect(pane.commitComposition).toHaveBeenCalledWith("한");
+    expect(pane.typeChar).toHaveBeenCalledTimes(1);
+    h.host.input("t1", { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
+    h.host.input("t1", { type: "imeSetComposition", text: "", selectionStart: 0, selectionEnd: 0 });
+    h.host.input("t1", { type: "insertText", text: "y" });
+    expect(pane.commitComposition).toHaveBeenCalledTimes(1);
+    expect(pane.typeChar).toHaveBeenLastCalledWith("y");
+    h.host.input("t1", { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
+    h.panes[0]!.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+    h.host.input("t1", { type: "insertText", text: "z" });
+    expect(pane.commitComposition).toHaveBeenCalledTimes(1);
+    expect(pane.typeChar).toHaveBeenLastCalledWith("z");
+    h.host.input("t1", { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
+    h.panes[0]!.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true });
+    h.host.input("t1", { type: "insertText", text: "한" });
+    expect(pane.commitComposition).toHaveBeenCalledTimes(2);
   });
 
   it("drops input for a tab without a page", () => {

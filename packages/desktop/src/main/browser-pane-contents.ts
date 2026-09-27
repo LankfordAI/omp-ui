@@ -62,7 +62,10 @@ export interface PaneContents {
   sendInputEvent(
     event: Exclude<BrowserPaneInputEvent, { type: "insertText" | "edit" | "imeSetComposition" }>,
   ): void;
-  insertText(text: string): Promise<void>;
+  /** Replace a tracked live preedit with exact IME events via root CDP Input.insertText (#541, #656). */
+  commitComposition(text: string): Promise<void>;
+  /** Type at the widget-focused caret via CDP char events; no-op without an editable (#656). */
+  typeChar(text: string): Promise<void>;
   imeSetComposition(text: string, selectionStart: number, selectionEnd: number): Promise<void>;
   focus(): void;
   selectAll(): void;
@@ -173,6 +176,17 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
       }
     });
     const userAgent = wc.getUserAgent();
+    // Input uses the root debugger session, which the host attaches for the pane's life.
+    // Repair an external detach once rather than silently dropping committed text (#656).
+    const rootCommand = async (method: string, params: object): Promise<void> => {
+      try {
+        await wc.debugger.sendCommand(method, params);
+      } catch (err) {
+        if (wc.debugger.isAttached()) throw err;
+        wc.debugger.attach("1.3");
+        await wc.debugger.sendCommand(method, params);
+      }
+    };
     return {
       setContentSize: (width, height) => win.setContentSize(width, height),
       // Re-forcing beats the per-origin level Chromium restores at commit and
@@ -231,7 +245,11 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
             });
         }
       },
-      insertText: (text) => wc.insertText(text),
+      commitComposition: (text) => rootCommand("Input.insertText", { text }),
+      // Chromium rejects multi-code-point char text on 43.2.0; dispatch each code point (#656).
+      typeChar: async (text) => {
+        for (const ch of text) await rootCommand("Input.dispatchKeyEvent", { type: "char", text: ch });
+      },
       // Preedit has no Electron API; the page's root debugger session carries it as CDP (#541).
       imeSetComposition: (text, selectionStart, selectionEnd) =>
         wc.debugger
