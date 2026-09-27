@@ -84,10 +84,11 @@ agent screenshots and clock stamping, but bypasses desktop delivery: local
 panes paint from a tab-capture `MediaStream`, and joined remote-instance panes
 from MessagePort JPEGs. Use a full `dev:headless` run to measure desktop
 painting, input-to-paint latency, ACK backpressure, hidden-tab filtering and
-renderer reload recovery. Send pane text input only with an editable element
-focused: on Electron 43.2.0, `insertText` with nothing focused hangs the pane
-renderer (#656). Keep workload, density,
-quality and GPU mode fixed between baseline and changed runs; report software
+renderer reload recovery. Pane text input is safe on a body-focused page: the
+host types a plain `insertText` as CDP char events and rides only a latched IME
+commit over the root debugger session, never `webContents.insertText` (#656).
+Keep workload, density, quality and GPU mode fixed between baseline and changed
+runs; report software
 rendering separately. Verify the raster marker and JPEG payload size throughout:
 the pre-existing accelerated static-canvas resize defect (#653) can otherwise
 turn a detailed fixture into an almost empty image. A retained image of seeded

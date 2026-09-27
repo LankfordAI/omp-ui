@@ -119,6 +119,8 @@ interface PaneEntry {
   lastFrameAt: number | null;
   lastFrameProcessMs: number | null;
   lastError: string | null;
+  /** True between a forwarded nonempty preedit and its commit, cancel, or main-frame navigation (#656). */
+  preedit: boolean;
 }
 
 function newEntry(tabId: string, lastUrl: string | null): PaneEntry {
@@ -151,6 +153,7 @@ function newEntry(tabId: string, lastUrl: string | null): PaneEntry {
     lastFrameAt: null,
     lastFrameProcessMs: null,
     lastError: null,
+    preedit: false,
   };
 }
 
@@ -345,9 +348,18 @@ export class BrowserPaneHost {
     if (entry === undefined || pane === null) return;
     switch (event.type) {
       case "insertText":
-        void pane.insertText(event.text).catch(() => {});
+        if (event.text === "") return;
+        if (entry.preedit) {
+          // A live composition needs replacement with exact IME events (#541, #656).
+          entry.preedit = false;
+          void pane.commitComposition(event.text).catch(() => {});
+        } else {
+          // No composition: a char event is a no-op without an editable caret (#656).
+          void pane.typeChar(event.text).catch(() => {});
+        }
         return;
       case "imeSetComposition":
+        entry.preedit = event.text !== "";
         void pane.imeSetComposition(event.text, event.selectionStart, event.selectionEnd).catch(() => {});
         return;
       case "edit":
@@ -554,6 +566,7 @@ export class BrowserPaneHost {
     entry.capture?.dispose();
     entry.capture = null;
     entry.documentCommitted = false;
+    entry.preedit = false;
     // The page's debugger session dies with it; a replacement starts with unknown state.
     entry.lastOverride = null;
     entry.geometry = null;
@@ -622,6 +635,7 @@ export class BrowserPaneHost {
         this.stopCapture(entry);
         entry.cached = null;
         entry.header = null;
+        entry.preedit = false;
       }),
       pane.on("did-navigate", () => this.noteCommitted(tabId, entry, pane)),
       pane.on("did-navigate-in-page", () => this.noteCommitted(tabId, entry, pane, false)),

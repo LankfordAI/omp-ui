@@ -435,6 +435,28 @@ async function runDomSteps(reader: PageReader): Promise<void> {
   const darwin = process.platform === "darwin";
   const inputValue = (): Promise<string> => reader.eval<string>("document.querySelector('#input').value");
 
+  // #656: no editable has ever been focused; insertion is a no-op and the page stays responsive.
+  // Do not await a frame: a correct no-op has nothing to paint.
+  const noEditBefore = await inputValue();
+  input({ type: "insertText", text: "x한" });
+  await sleep(150);
+  const noEditValue = await Promise.race([
+    inputValue(),
+    new Promise<string>((resolvePromise) => setTimeout(() => resolvePromise("HUNG"), 2000)),
+  ]);
+  const noEditActive = noEditValue === "HUNG" ? "HUNG" : await Promise.race([
+    reader.eval<string>("document.activeElement?.tagName"),
+    new Promise<string>((resolvePromise) => setTimeout(() => resolvePromise("HUNG"), 2000)),
+  ]);
+  recordStep("insert-text-no-editable", noEditValue === noEditBefore && noEditActive === "BODY",
+    { before: noEditBefore, after: noEditValue, active: noEditActive }, null);
+  // A frozen renderer cannot serve the remaining DOM probes; report exit 4 now,
+  // rather than waiting for the unrelated once watchdog (exit 5).
+  if (noEditValue === "HUNG" || noEditActive === "HUNG") {
+    if (flags.once) finish("once");
+    return;
+  }
+
   const btn = await center(reader, "#btn");
   let latency = await clickAt(btn.x, btn.y);
   await sleep(100);
