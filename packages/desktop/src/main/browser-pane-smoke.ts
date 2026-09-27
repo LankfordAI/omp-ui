@@ -6,6 +6,8 @@ import { app, BrowserWindow, clipboard, nativeImage } from "electron";
 import { WebSocket } from "ws";
 import {
   BROWSER_PANE_FPS,
+  BROWSER_PANE_MAX_VIEWPORT,
+  BROWSER_PANE_MIN_VIEWPORT,
   CH,
   decodeBrowserPaneFrame,
   type BrowserPaneDiagnostics,
@@ -38,6 +40,13 @@ import { ClockStamper } from "./clock-stamper";
  * survive a capture that touches no emulation (#630); those three need --dsf>1.
  * metrics-agent-clip-region and metrics-agent-fullpage capture through the real
  * bridge and expect the named region at css × dsf pixels (#646).
+ *
+ * resize-canvas draws a static canvas once, resizes the pane away and back, and
+ * reports the marker's state (#653). The probe matrix in the issue found the
+ * loss follows the window's surface resize itself, not the host's emulation
+ * traffic, with no host-side restore — a compositor loss with intact page
+ * pixels is therefore reported ok=null (informational); a stalled capture or a
+ * page-side pixel loss still fails the run.
  *
  * clock-stamp turns the browser clock on and expects the real stamper page to
  * change only the top-right quadrant of a PNG screenshot, and to grow a clip
@@ -711,6 +720,110 @@ async function runAgentCaptureSteps(reader: PageReader, dsf: number): Promise<vo
   }
 }
 
+/**
+ * #653: a canvas drawn exactly once, resized away and back. The probe matrix
+ * in the issue showed the window's own surface resize — not the host's
+ * emulation traffic — drops an unchanged canvas layer from composited frames
+ * on the GPU path, with no host-side restore: only a page-side redraw brings
+ * it back. So the pixel check is informational (ok=null) while the pixels are
+ * intact in the page: a loss there is the open Chromium bug, not a regression
+ * this repo can fix. What the step does gate hard: a stalled capture (no
+ * frame after a resize) and a page-side getImageData miss (the page losing
+ * canvas pixels is a real defect). See the issue for the full probe matrix.
+ */
+async function runResizeCanvasStep(reader: PageReader): Promise<void> {
+  const dsf = flags.dsf ?? 1;
+  const clamp = (value: number): number =>
+    Math.round(Math.min(BROWSER_PANE_MAX_VIEWPORT, Math.max(BROWSER_PANE_MIN_VIEWPORT, value)));
+  const w2 = clamp(flags.size.width * 0.55);
+  const h2 = clamp(flags.size.height * 1.15);
+  const install = await reader.eval<[number, number, number]>(
+    `(() => {
+      const old = document.getElementById("smoke-canvas");
+      if (old !== null) old.remove();
+      const dpr = devicePixelRatio;
+      const c = document.createElement("canvas");
+      c.id = "smoke-canvas";
+      c.style.cssText = "position:fixed;left:0;top:0;width:100%;height:100%;z-index:2147483647";
+      c.width = Math.round(innerWidth * dpr);
+      c.height = Math.round(innerHeight * dpr);
+      const x = c.getContext("2d");
+      const img = x.createImageData(c.width, c.height);
+      let s = 126115979 >>> 0;
+      for (let i = 0; i < img.data.length; i += 4) {
+        s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+        img.data[i] = s & 255; img.data[i + 1] = (s >>> 8) & 255; img.data[i + 2] = (s >>> 16) & 255; img.data[i + 3] = 255;
+      }
+      x.putImageData(img, 0, 0);
+      x.fillStyle = "rgb(0,255,255)";
+      x.fillRect(0, Math.round(50 * dpr), Math.round(100 * dpr), Math.round(100 * dpr));
+      document.body.appendChild(c);
+      return [c.width, c.height, dpr];
+    })()`,
+  );
+  const stageCounts: number[] = [frames.count];
+  const stalled: string[] = [];
+  const resizeAndWait = async (label: string, width: number, height: number): Promise<void> => {
+    const before = frames.count;
+    host.resize(TAB, width, height);
+    await sleep(METRICS_SETTLE_MS);
+    const deadline = performance.now() + LATENCY_TIMEOUT_MS;
+    while (frames.count === before && performance.now() < deadline) await sleep(50);
+    if (frames.count === before) stalled.push(label);
+    stageCounts.push(frames.count);
+  };
+  try {
+    await resizeAndWait("shrink", w2, h2);
+    await resizeAndWait("restore", flags.size.width, flags.size.height);
+    let frameCyan = false;
+    let badSamples = 0;
+    const jpeg = frames.lastJpeg;
+    if (jpeg !== null) {
+      const image = nativeImage.createFromBuffer(Buffer.from(jpeg));
+      const { width } = image.getSize();
+      const bitmap = image.toBitmap(); // BGRA
+      frameCyan = true;
+      for (let x = Math.round(20 * dsf); x <= Math.round(80 * dsf); x += 1) {
+        const at = (Math.round(100 * dsf) * width + x) * 4;
+        if (bitmap.readUInt8(at + 1) > 180 && bitmap.readUInt8(at) > 180 && bitmap.readUInt8(at + 2) < 120) continue;
+        frameCyan = false;
+        badSamples += 1;
+      }
+    }
+    const page = await reader.eval<[number, number, number, number]>(
+      `(() => { const c = document.getElementById("smoke-canvas"); if (c === null) return [-1, -1, -1, -1]; const d = c.getContext("2d").getImageData(${Math.round(50 * dsf)}, ${Math.round(100 * dsf)}, 1, 1).data; return [d[0], d[1], d[2], d[3]]; })()`,
+    );
+    const pageCyan = page[1] > 180 && page[2] > 180 && page[0] < 120;
+    const stalledFail = stalled.length > 0;
+    const pageFail = !frameCyan && !pageCyan;
+    recordStep(
+      "resize-canvas",
+      stalledFail || pageFail ? false : frameCyan ? true : null,
+      {
+        size: [w2, h2],
+        backing: install,
+        stageCounts,
+        stalled,
+        frameCyan,
+        badSamples,
+        pageCyan,
+        page,
+        ...(stalledFail
+          ? { note: "capture stalled: no frame after a resize" }
+          : pageFail
+            ? { note: "the page itself lost the canvas pixels, not just the compositor" }
+            : frameCyan
+              ? {}
+              : { note: "#653 known compositor loss: the surface resize dropped an unchanged canvas layer; informational until an upstream fix" }),
+      },
+      null,
+    );
+  } finally {
+    // clock-stamp's quadrant diff and idle-paints must see the untouched fixture.
+    await reader.eval('(document.getElementById("smoke-canvas")?.remove(), true)');
+  }
+}
+
 const CLOCK_TEXT = "Sep 23, 2026  4:19 PM CDT";
 
 /**
@@ -790,6 +903,11 @@ async function runInputTest(reader: PageReader): Promise<void> {
     await runMetricsClobberSteps(reader);
   } catch (err) {
     recordStep("metrics-clobber", false, { error: err instanceof Error ? err.message : String(err) }, null);
+  }
+  try {
+    await runResizeCanvasStep(reader);
+  } catch (err) {
+    recordStep("resize-canvas", false, { error: err instanceof Error ? err.message : String(err) }, null);
   }
   try {
     await runClockStampStep(reader);

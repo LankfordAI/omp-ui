@@ -107,6 +107,8 @@ interface PaneEntry {
   targetDsf: number;
   /** The window's first top-level document has committed; the metrics override is safe to send only then (#557). */
   documentCommitted: boolean;
+  /** The override params this debugger session last applied successfully; null = unknown (fresh session). */
+  lastOverride: { width: number; height: number } | null;
   reassertTimer: NodeJS.Timeout | undefined;
   agent: BrowserPaneAgentState;
   actingTimer: NodeJS.Timeout | undefined;
@@ -138,6 +140,7 @@ function newEntry(tabId: string, lastUrl: string | null): PaneEntry {
     size: { ...BROWSER_PANE_DEFAULT_VIEWPORT },
     targetDsf: 1,
     documentCommitted: false,
+    lastOverride: null,
     reassertTimer: undefined,
     agent: "detached",
     actingTimer: undefined,
@@ -551,6 +554,8 @@ export class BrowserPaneHost {
     entry.capture?.dispose();
     entry.capture = null;
     entry.documentCommitted = false;
+    // The page's debugger session dies with it; a replacement starts with unknown state.
+    entry.lastOverride = null;
     entry.geometry = null;
     entry.metricsRevision += 1;
     entry.fps = 0;
@@ -647,6 +652,8 @@ export class BrowserPaneHost {
       }),
     );
     pane.debugger.attach("1.3");
+    // A new page is a new debugger session: Chromium's "last sent" emulation state is empty.
+    entry.lastOverride = null;
     entry.capture = createBrowserPaneCapture(pane.debugger, {
       fps: BROWSER_PANE_FPS,
       quality: pane.isLoading() ? BROWSER_PANE_JPEG_QUALITY : BROWSER_PANE_JPEG_QUALITY_SETTLED,
@@ -844,8 +851,12 @@ export class BrowserPaneHost {
    * scaling, never the offscreen view's 1 — and would then drive layout itself.
    * The override is sent only after the window's first document commits, because
    * emulation traffic earlier segfaults the GPU process (#557). It is cleared
-   * first because Chromium drops a re-sent override matching what this session
-   * last sent. Only after it resolves, round the compositor surface up to even
+   * first only when it re-asserts params this session last sent (or that state
+   * is unknown): Chromium drops a re-sent identical override, and the clear is
+   * dead weight when the params are new. The #653 probe matrix showed the
+   * accelerated-canvas loss follows the window's own surface resize, not this
+   * disable→enable cycle, so the condition is bookkeeping, not a raster fix.
+   * Only after the set resolves, round the compositor surface up to even
    * dimensions for tab capture; the override keeps logical page pixels unchanged.
    */
   private applyMetrics(entry: PaneEntry, pane: PaneContents): void {
@@ -859,12 +870,19 @@ export class BrowserPaneHost {
     const generation = entry.mediaGeneration;
     const surfaceWidth = width + width % 2;
     const surfaceHeight = height + height % 2;
-    void pane.debugger.sendCommand("Emulation.clearDeviceMetricsOverride").catch(() => {});
+    const last = entry.lastOverride;
+    // A re-send of identical params is dropped by Chromium, so only that case
+    // needs the clear (#630). A size change carries new params and applies on
+    // its own. Unknown state (fresh session or failed apply) clears: the safe
+    // default.
+    const needsClear = last === null || (last.width === width && last.height === height);
+    if (needsClear) void pane.debugger.sendCommand("Emulation.clearDeviceMetricsOverride").catch(() => {});
     void pane.debugger
       .sendCommand("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false })
       .then(() => {
         if (this.entries.get(entry.tabId) !== entry || entry.pane !== pane || pane.isDestroyed() ||
           !entry.documentCommitted || revision !== entry.metricsRevision || generation !== entry.mediaGeneration) return;
+        entry.lastOverride = { width, height };
         if (surfaceWidth !== width || surfaceHeight !== height) pane.setContentSize(surfaceWidth, surfaceHeight);
         const previous = entry.geometry;
         const geometry = { width, height, dsf: entry.targetDsf, surfaceWidth, surfaceHeight };
@@ -876,6 +894,8 @@ export class BrowserPaneHost {
       })
       .catch(() => {
         // Without the override the page is still right; only an agent viewport could linger.
+        // The send raced a teardown or detach; state is unknown, so the next apply clears.
+        if (this.entries.get(entry.tabId) === entry && entry.pane === pane) entry.lastOverride = null;
       });
   }
   private noteLoadFailure(tabId: string, entry: PaneEntry, error: unknown): void {
