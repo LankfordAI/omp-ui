@@ -824,7 +824,7 @@ describe("startRemoteServer paired frame stream", () => {
     await frameBarrier(replacement.ws);
   });
 
-  it("retires the pairing key and companion when reliable closes without synthetic unsubscribe", async () => {
+  it("retires the pairing key and companion without releasing a subscription another live pair holds", async () => {
     const { base, host } = await serve();
     const old = await connect(base, TOKEN);
     const key = frameKeys.get(old)!;
@@ -844,6 +844,40 @@ describe("startRemoteServer paired frame stream", () => {
     host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(5)]);
     await frameBarrier(newerFrames.ws);
     expect(newerFrames.deliveries.map((frame) => frame.payload[0])).toEqual([5]);
+  });
+
+  it("releases host subscriptions upstream when the reliable connection departs", async () => {
+    const { base, host } = await serve();
+    const reliable = await connect(base, TOKEN);
+    const frames = await connectFrames(base, frameKeys.get(reliable)!);
+    await subscribe(reliable, "a");
+    await subscribe(reliable, "b");
+    // The server closes the companion synchronously after the release loop in the same close
+    // handler, so the companion's 1001 proves every notify has already been recorded.
+    const closed = new Promise<number>((resolve) => frames.ws.once("close", (code) => resolve(code)));
+    await closeSocket(reliable);
+    expect(await closed).toBe(1001);
+    expect(host.notified).toEqual([
+      { ch: CH.browserPaneSubscribe, args: ["a", "viewer", true] },
+      { ch: CH.browserPaneSubscribe, args: ["b", "viewer", true] },
+      { ch: CH.browserPaneSubscribe, args: ["a", "viewer", false] },
+      { ch: CH.browserPaneSubscribe, args: ["b", "viewer", false] },
+    ]);
+  });
+
+  it("holds a shared-client subscription upstream until the last pair releases it", async () => {
+    const { base, host } = await serve();
+    const first = await connect(base, TOKEN);
+    const second = await connect(base, TOKEN);
+    await subscribe(first, "tab", "shared");
+    await subscribe(second, "tab", "shared");
+    await subscribe(first, "tab", "shared", false);
+    expect(host.notified.filter((n) => n.args[2] === false)).toEqual([]);
+    await subscribe(second, "tab", "shared", false);
+    expect(host.notified.at(-1)).toEqual({ ch: CH.browserPaneSubscribe, args: ["tab", "shared", false] });
+    expect(host.notified.filter((n) => n.args[2] === false)).toHaveLength(1);
+    await closeSocket(first);
+    await closeSocket(second);
   });
 });
 

@@ -425,6 +425,15 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     flushFrame(pair);
   };
 
+  /** Releases one viewer tuple upstream only after no live pair still holds it: two sockets from one
+   *  browser share a stable client id, and the host's sink set is keyed by that id alone. */
+  const releaseUpstream = (tabId: string, clientId: string): void => {
+    for (const other of pairs.values()) {
+      if (other.subscriptions.get(tabId)?.has(clientId) === true) return;
+    }
+    table.notify[CH.browserPaneSubscribe](tabId, clientId, false);
+  };
+
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     let url: URL;
     try {
@@ -485,6 +494,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
               pair.subscriptions.set(tabId, viewers);
             }
             viewers.add(clientId);
+            table.notify[CH.browserPaneSubscribe](tabId, clientId, true);
           } else {
             const viewers = pair.subscriptions.get(tabId);
             viewers?.delete(clientId);
@@ -493,13 +503,17 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
               pair.pending.delete(tabId);
               if (pair.inFlight?.tabId === tabId) pair.replayInFlight = false;
             }
+            releaseUpstream(tabId, clientId);
           }
-          table.notify[CH.browserPaneSubscribe](tabId, clientId, on);
         },
       } as ChannelTable["notify"],
     };
     ws.on("close", () => {
       pairs.delete(key);
+      // End capture upstream for the departed viewers unless another live pair holds the same tuple.
+      for (const [tabId, viewers] of pair.subscriptions) {
+        for (const clientId of viewers) releaseUpstream(tabId, clientId);
+      }
       pair.subscriptions.clear();
       pair.pending.clear();
       pair.inFlight = null;
