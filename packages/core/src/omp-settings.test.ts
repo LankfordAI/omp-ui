@@ -10,6 +10,7 @@ import {
   writeOmpSetting,
   OMP_MAX_CONCURRENCY_KEY,
   OMP_MODEL_ROLES_KEY,
+  OMP_TELEMETRY_EXPORT_KEY,
   PYTHON_INTERPRETER_KEY,
   pristineEnvironment,
   type OmpConfigRunner,
@@ -267,6 +268,28 @@ describe("readOmpSettings", () => {
     expect(snapshot.entries.some((e) => e.key === OMP_MAX_CONCURRENCY_KEY)).toBe(false);
   });
 
+  it("emits the allowlisted telemetry.otlpExportEnabled boolean", async () => {
+    const schema = entry(true, "boolean", "Allow OMP to export traces, logs, and metrics using OTEL_* endpoints.");
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
+        {
+          global: { [OMP_TELEMETRY_EXPORT_KEY]: schema },
+          pristine: { [OMP_TELEMETRY_EXPORT_KEY]: schema },
+        },
+        null,
+      ),
+    );
+    expect(snapshot.error).toBeNull();
+    expect(
+      snapshot.entries.find((e) => e.key === OMP_TELEMETRY_EXPORT_KEY),
+    ).toMatchObject({
+      type: "boolean",
+      value: true,
+      layer: "default",
+    });
+  });
+
   it("emits the python keys with omp's schema and scraped enum members", async () => {
     const snapshot = await readOmpSettings(
       { ompPath: OMP, projectCwd: null },
@@ -447,6 +470,24 @@ describe("writeOmpSetting", () => {
       writeOmpSetting({ ompPath: OMP, key: "skills.someFutureKey", value: true }, run),
     ).rejects.toThrow(/refusing to write unlisted omp setting/);
     expect(run.calls).toBe(0);
+  });
+
+  it("admits telemetry.otlpExportEnabled to the write boundary", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: OMP_TELEMETRY_EXPORT_KEY, value: false },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      "telemetry.otlpExportEnabled",
+      "false",
+      "--json",
+    ]);
   });
 
   it("refuses a missing binary without invoking the runner", async () => {

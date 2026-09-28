@@ -19,11 +19,14 @@ import {
   webSearchSelectorForOption,
   webSearchSelection,
 } from "@omp-ui/core/web-search-order";
-import { OMP_MODEL_ROLES_KEY } from "@omp-ui/core/omp-settings-keys";
+import {
+  OMP_MODEL_ROLES_KEY,
+  OMP_TELEMETRY_EXPORT_KEY,
+} from "@omp-ui/core/omp-settings-keys";
 import { displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
 import { useStore } from "../../store";
-import { Button, Chip, Dot, Empty, Label, Panel } from "../ui";
+import { Button, Chip, Dot, Empty, Label, Panel, Switch } from "../ui";
 import { FIELD, Row, layerBadge } from "./rows";
 import { t, useT } from "../../lib/i18n";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
@@ -623,6 +626,53 @@ function WebSearchProviderRow({
   );
 }
 
+/**
+ * The OTLP export opt-out (issue #670). Bound to omp's own snapshot entry:
+ * a binary that does not publish the key (omp < 18.4.0) renders no row, and a
+ * future non-boolean shape shows the raw value rather than a guessed writer —
+ * the same two rules WebSearchProviderRow applies. The hint is omp's own
+ * description, which carries the next-launch timing.
+ */
+function PrivacyRow({
+  entry,
+  pendingKey,
+  commit,
+}: {
+  entry: OmpSettingEntry | undefined;
+  pendingKey: string | null;
+  commit: (key: string, value: OmpSettingValue) => void;
+}) {
+  const t = useT();
+  if (entry === undefined) return null;
+  if (entry.type !== "boolean") {
+    return (
+      <Row
+        title={t("settings.providers.telemetryExport")}
+        hint={entry.description}
+        badge={layerBadge(entry.layer)}
+      >
+        <span className="max-w-56 truncate font-mono text-[11px] text-ink-mid">
+          {entry.value === undefined ? "—" : JSON.stringify(entry.value)}
+        </span>
+      </Row>
+    );
+  }
+  return (
+    <Row
+      title={t("settings.providers.telemetryExport")}
+      hint={entry.description}
+      badge={layerBadge(entry.layer)}
+    >
+      <Switch
+        on={entry.value === true}
+        onChange={(next) => commit(OMP_TELEMETRY_EXPORT_KEY, next)}
+        label={t("settings.providers.telemetryExport")}
+        disabled={pendingKey === OMP_TELEMETRY_EXPORT_KEY}
+      />
+    </Row>
+  );
+}
+
 export function ProvidersPage({
   projectCwd,
   load,
@@ -890,6 +940,19 @@ export function ProvidersPage({
           </div>
         ) : null}
       </div>
+
+      {ompEntries.has(OMP_TELEMETRY_EXPORT_KEY) && (
+        <div className="space-y-0.5">
+          <Label>{t("settings.providers.privacy")}</Label>
+          <div className="divide-y divide-line-soft">
+            <PrivacyRow
+              entry={ompEntries.get(OMP_TELEMETRY_EXPORT_KEY)}
+              pendingKey={pendingKey}
+              commit={commit}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
