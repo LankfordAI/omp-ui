@@ -21,6 +21,34 @@ export interface ModelInfo {
   supportsComputerUse?: boolean;
 }
 
+/** Providers whose models reach a priority-serving tier the session setting
+ *  controls (issue #689). Arm 1 of the composer's fast-mode visibility gate. */
+const FAST_MODE_FAMILY_PROVIDERS: Record<string, true> = { openai: true, "openai-codex": true };
+const FAST_MODE_FAMILY_APIS: Record<string, true> = { "anthropic-messages": true };
+/** Providers excluded even when the row carries a family `api` value:
+ *  Fireworks' tier is provider-scoped — `active` would misreport what the
+ *  session toggle controls — and Copilot has no session tier at all. */
+const FAST_MODE_UNCONTROLLABLE_PROVIDERS: Record<string, true> = {
+  fireworks: true,
+  "github-copilot": true,
+};
+
+/** Whether fast mode is plausibly controllable for this model. Not a truth
+ *  source — omp resolves support per model (including OpenRouter's
+ *  `identity.class`, which no frame carries); rows it can't decide ride
+ *  arm 2 of the gate (live state), and a wrong yes is caught by the
+ *  set_fast_mode refusal path. A null model (not yet resolved) is no. */
+export function modelSupportsFastMode(model: ModelInfo | null): boolean {
+  if (model === null) return false;
+  // Wire strings index these tables, so compare against `true` rather than
+  // the value: `model.api === "constructor"` must not read as support.
+  if (FAST_MODE_UNCONTROLLABLE_PROVIDERS[model.provider] === true) return false;
+  return (
+    FAST_MODE_FAMILY_PROVIDERS[model.provider] === true ||
+    FAST_MODE_FAMILY_APIS[model.api ?? ""] === true
+  );
+}
+
 export interface SlashCommandInfo {
   name: string;
   description: string;

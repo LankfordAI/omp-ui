@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Native sessions gained a fast-mode control in the Session HUD and composer options sheet, showing the enabled-vs-active split so a provider-declined fast mode reads as declined (#677).
+- The composer shows a fast-mode toggle beside the model and thinking pills when the current model has a priority tier or the session already carries fast-mode state (#689).
 
 ## Choose a download
 

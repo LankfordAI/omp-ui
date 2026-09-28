@@ -238,4 +238,29 @@ describe("ComposerSheet", () => {
     await act(async () => sw.click());
     expect(setFastMode).toHaveBeenCalledWith(TAB, true);
   });
+
+  // Placement rule (issue #689): exactly one fast control per sheet — the
+  // model/effort section while the gate is open, the session section while
+  // it is closed. Two switches with one accessible name is the defect.
+  const fastSwitches = (): HTMLButtonElement[] =>
+    [...document.body.querySelectorAll<HTMLButtonElement>('button[role="switch"][aria-label="fast mode"]')];
+
+  it("rides the model/effort section on a family-backed model, quiet state", () => {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: { [TAB]: { ...s.rpc[TAB]!, model: { ...s.rpc[TAB]!.model!, provider: "openai" } } },
+    }));
+    render(true);
+    const switches = fastSwitches();
+    expect(switches).toHaveLength(1);
+    expect(switches[0]!.closest("section")!.textContent).toContain("model & effort");
+  });
+
+  it("keeps the always-available session-section row on an unsupported quiet model", () => {
+    seed("ready");
+    render(true);
+    const switches = fastSwitches();
+    expect(switches).toHaveLength(1);
+    expect(switches[0]!.closest("section")!.textContent).toContain("session");
+  });
 });

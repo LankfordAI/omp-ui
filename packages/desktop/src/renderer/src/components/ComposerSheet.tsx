@@ -1,4 +1,4 @@
-import type { PromptRoute } from "../lib/rpc-types";
+import { modelSupportsFastMode, type PromptRoute } from "../lib/rpc-types";
 import { useT } from "../lib/i18n";
 import { queueChipView } from "../lib/queue-chip";
 import { findOwner, useStore } from "../store";
@@ -45,6 +45,14 @@ export function ComposerSheet({
   const thinkingConfigured = useStore(
     (s) => s.rpc[tabId]?.session.thinkingConfigured ?? null,
   );
+  const model = useStore((s) => s.rpc[tabId]?.model ?? null);
+  const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
+  const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
+  // One fast control per sheet: the gate's yes puts it in the model/effort
+  // section beside the pills it belongs to (issue #689); its no keeps #677's
+  // always-available row in the session section, so the affordance is never
+  // hidden — and the sheet never carries two switches with one label.
+  const fastVisible = modelSupportsFastMode(model) || fastEnabled || fastActive;
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const abortAgent = useStore((s) => s.abortAgent);
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
@@ -68,15 +76,22 @@ export function ComposerSheet({
               {efforts.map((effort) => <Button key={effort} disabled={unavailable} selected={thinkingConfigured !== "auto" && effort === thinkingLevel} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11 min-w-0 justify-center px-2 font-mono">{effort}</Button>)}
             </div>
           )}
+          {fastVisible && (
+            <div className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
+              <FastModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
+            </div>
+          )}
         </section>
         <section className="rounded-xl border border-line bg-raised/60 p-3">
           <Label>{t("composer.sheet.session")}</Label>
           <div className="mt-2 space-y-2">
             <AdvisorControl tabId={tabId} disabled={unavailable} layout="sheet" />
             <BuildPlanControl tabId={tabId} layout="sheet" disabled={unavailable} className="min-h-11" />
-            <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
-              <FastModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
-            </div>
+            {!fastVisible && (
+              <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
+                <FastModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
+              </div>
+            )}
             <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t("composer.sheet.branch")}</span>
               <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} instanceId={instanceId} />{queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>}</span>

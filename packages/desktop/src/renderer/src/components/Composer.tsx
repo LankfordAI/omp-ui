@@ -21,7 +21,7 @@ import { firingKeywords } from "../lib/magic-keyword-gate";
 import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
 import { composerPaintRuns } from "../lib/composer-paint";
 import { queueChipView } from "../lib/queue-chip";
-import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
+import { modelSupportsFastMode, type PromptRoute, type SlashCommandInfo } from "../lib/rpc-types";
 import { slashCompletion } from "../lib/slash-completion";
 import { findInstance, findOwner, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
@@ -33,6 +33,7 @@ import { ComposerSheet } from "./ComposerSheet";
 import { answerPendingQuestion, freeTextTarget } from "./ExtensionDialogHost";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
+import { FastModeControl } from "./FastModeControl";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
@@ -139,6 +140,8 @@ export function Composer({
   const record = owner?.record;
   const dead = record?.live !== "live";
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
+  const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
+  const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
   const compact = useCompactShell();
   const compactSurface = useStore((s) => s.compactSurface);
   const showCompactSurface = useStore((s) => s.showCompactSurface);
@@ -927,6 +930,10 @@ export function Composer({
                 )}
               </span>
             </Capsule>
+
+            {(modelSupportsFastMode(currentModel) || fastEnabled || fastActive) && (
+              <FastModeControl tabId={tabId} disabled={unavailable} />
+            )}
 
             <AdvisorControl tabId={tabId} disabled={unavailable} />
 
