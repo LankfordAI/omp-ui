@@ -42,11 +42,11 @@ import { ClockStamper } from "./clock-stamper";
  * bridge and expect the named region at css × dsf pixels (#646).
  *
  * resize-canvas draws a static canvas once, resizes the pane away and back, and
- * reports the marker's state (#653). The probe matrix in the issue found the
- * loss follows the window's surface resize itself, not the host's emulation
- * traffic, with no host-side restore — a compositor loss with intact page
- * pixels is therefore reported ok=null (informational); a stalled capture or a
- * page-side pixel loss still fails the run.
+ * gates the marker's presence in the composited frame (#653). The probe matrix in
+ * the issue found the window's own surface resize drops an unchanged canvas layer
+ * and no host-side emulation command restores it; the host now ends a
+ * size-changing apply with a page-side canvas kick, so a compositor miss fails
+ * the run. A stalled capture or a page-side pixel loss still fails it.
  *
  * clock-stamp turns the browser clock on and expects the real stamper page to
  * change only the top-right quadrant of a PNG screenshot, and to grow a clip
@@ -743,15 +743,15 @@ async function runAgentCaptureSteps(reader: PageReader, dsf: number): Promise<vo
 }
 
 /**
- * #653: a canvas drawn exactly once, resized away and back. The probe matrix
- * in the issue showed the window's own surface resize — not the host's
- * emulation traffic — drops an unchanged canvas layer from composited frames
- * on the GPU path, with no host-side restore: only a page-side redraw brings
- * it back. So the pixel check is informational (ok=null) while the pixels are
- * intact in the page: a loss there is the open Chromium bug, not a regression
- * this repo can fix. What the step does gate hard: a stalled capture (no
- * frame after a resize) and a page-side getImageData miss (the page losing
- * canvas pixels is a real defect). See the issue for the full probe matrix.
+ * #653: a canvas drawn exactly once, resized away and back. The window's own
+ * surface resize — not the host's emulation traffic — drops an unchanged
+ * canvas layer from composited frames on the GPU path (the probe matrix in the
+ * issue), and no host-side command re-arms it, so the host ends every
+ * size-changing apply with one inert page-side redraw. The step therefore
+ * gates hard: a frame without the canvas after a resize is a kick regression.
+ * Software raster never loses the layer and passes vacuously. A stalled
+ * capture (no frame after a resize) and a page-side getImageData miss also
+ * fail the run.
  */
 async function runResizeCanvasStep(reader: PageReader): Promise<void> {
   const dsf = flags.dsf ?? 1;
@@ -820,7 +820,7 @@ async function runResizeCanvasStep(reader: PageReader): Promise<void> {
     const pageFail = !frameCyan && !pageCyan;
     recordStep(
       "resize-canvas",
-      stalledFail || pageFail ? false : frameCyan ? true : null,
+      stalledFail || pageFail || !frameCyan ? false : true,
       {
         size: [w2, h2],
         backing: install,
@@ -836,7 +836,7 @@ async function runResizeCanvasStep(reader: PageReader): Promise<void> {
             ? { note: "the page itself lost the canvas pixels, not just the compositor" }
             : frameCyan
               ? {}
-              : { note: "#653 known compositor loss: the surface resize dropped an unchanged canvas layer; informational until an upstream fix" }),
+              : { note: "#653 regression: the frame lost the canvas after the surface resize; the host's post-resize kick failed" }),
       },
       null,
     );

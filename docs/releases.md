@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.16.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.16.0). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- Keep the browser pane's canvas visible across resizes on GPU rendering (#653).
+
+Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
