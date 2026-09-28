@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { displayMessage } from "../backend";
+import type { PythonCheckSnapshot } from "@omp-ui/core/types";
+import { backend, displayMessage } from "../backend";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, Modal } from "./ui";
@@ -9,7 +10,9 @@ import { CheckIcon } from "./ui/icons";
  * The first-run Getting started checklist (issue #623): four gates a fresh
  * install must pass — the managed omp binary, a provider credential, a
  * registered project, a first owned session — each read live from backend
- * state the app already fetches, with one working action per unmet step.
+ * state the app already fetches, with one working action per unmet step,
+ * plus one environment probe: omp's own `setup python --check` verdict on
+ * whether its eval tool can run Python (#671).
  * Per-renderer visibility only: the sole persisted fact is `gettingStartedSeen`,
  * written once on dismissal.
  */
@@ -92,13 +95,42 @@ export function GettingStarted() {
 
   useEffect(reread, [reread]);
 
+  // The Python probe (#671) rides its own channel with the same generation
+  // discipline as the credentials read: a stale answer must never overwrite
+  // a fresher one, and a failed read leaves the step open but actionable —
+  // never a false "done".
+  const [python, setPython] = useState<PythonCheckSnapshot | null>(null);
+  const pythonGen = useRef(0);
+  const rereadPython = useCallback((): void => {
+    const g = (pythonGen.current += 1);
+    backend.checkPython().then(
+      (snap) => {
+        if (g === pythonGen.current) setPython(snap);
+      },
+      (err) => {
+        if (g !== pythonGen.current) return;
+        setPython({
+          status: "error",
+          pythonPath: null,
+          version: null,
+          error: displayMessage(err),
+        });
+      },
+    );
+  }, []);
+
+  useEffect(rereadPython, [rereadPython]);
+
   // The step's own action opened Settings; when the user closes it, the keys
-  // they typed there are the news this read must pick up.
+  // and the Python rows they typed there are the news these reads pick up.
   const previousSettingsPage = useRef(settingsPage);
   useEffect(() => {
-    if (previousSettingsPage.current !== null && settingsPage === null) reread();
+    if (previousSettingsPage.current !== null && settingsPage === null) {
+      reread();
+      rereadPython();
+    }
     previousSettingsPage.current = settingsPage;
-  }, [settingsPage, reread]);
+  }, [settingsPage, reread, rereadPython]);
 
   // A finished subscription sign-in adds accounts (main refreshed its cache
   // before publishing "done"), same transition guard as ProvidersPage.
@@ -140,6 +172,21 @@ export function GettingStarted() {
     ) : (
       t("app.gettingstarted.hintBinary")
     );
+
+  const pythonHint =
+    python === null
+      ? t("app.gettingstarted.hintPythonChecking")
+      : python.status === "ok"
+        ? python.version !== null
+          ? t("app.gettingstarted.hintPythonOk", { version: python.version })
+          : python.pythonPath !== null
+            ? t("app.gettingstarted.hintPythonOkPath", { path: python.pythonPath })
+            : t("app.gettingstarted.hintPythonOkGeneric")
+        : python.status === "unavailable"
+          ? python.pythonPath !== null
+            ? t("app.gettingstarted.hintPythonBrokenPath", { path: python.pythonPath })
+            : t("app.gettingstarted.hintPythonMissing")
+          : t("app.gettingstarted.hintPythonError", { reason: python.error ?? "" });
 
   const firstProject = projects?.[0];
   return (
@@ -203,6 +250,25 @@ export function GettingStarted() {
               }
             >
               {t("app.gettingstarted.actionNewSession")}
+            </Button>
+          }
+        />
+        <Step
+          done={python?.status === "ok"}
+          title={t("app.gettingstarted.stepPython")}
+          hint={pythonHint}
+          action={
+            <Button
+              variant="solid"
+              onClick={() =>
+                python !== null && python.status === "unavailable"
+                  ? openSettings("omp")
+                  : rereadPython()
+              }
+            >
+              {python !== null && python.status === "unavailable"
+                ? t("app.gettingstarted.actionOpenPythonSettings")
+                : t("app.gettingstarted.actionCheck")}
             </Button>
           }
         />

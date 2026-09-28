@@ -206,6 +206,7 @@ const VALID_ARGS = {
   toggleFavorite: ["model"],
   updateRemoteInstance: ["inst-1", { nickname: "box" }],
   writeOmpSetting: ["theme", { custom: true }],
+  checkPython: [],
 } satisfies { [Method in InboundMethod]: MethodArgs<Method> };
 
 function recordingTransport() {

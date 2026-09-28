@@ -4,6 +4,7 @@ import type {
   OmpSettingLayer,
   OmpSettingValue,
 } from "@omp-ui/core/types";
+import { PYTHON_INTERPRETER_KEY } from "@omp-ui/core/omp-settings-keys";
 import { cn } from "../../lib/cn";
 import { Chip, Switch } from "../ui";
 import { useT } from "../../lib/i18n";
@@ -180,7 +181,11 @@ export function SettingControl({
       if (raw.trim() === "" || !Number.isFinite(value)) return;
       commit(entry.key, value);
     } else {
-      if (raw === "") return;
+      // Empty is a real write ONLY for python.interpreter, whose documented
+      // value for "let omp discover one" is "" (verified: `omp config set
+      // python.interpreter "" --json` clears the override). Every other string
+      // key keeps an empty draft a no-op.
+      if (raw === "" && entry.key !== PYTHON_INTERPRETER_KEY) return;
       commit(entry.key, raw);
     }
   };

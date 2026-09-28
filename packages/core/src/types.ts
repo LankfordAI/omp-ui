@@ -715,6 +715,24 @@ export interface WebSearchProviderSnapshot {
 }
 
 /**
+ * The result of omp's own `setup python --check --json` probe, read by the
+ * main process (core/python-check.ts, issue #671). Declared here so the
+ * shared channel spec stays transport-agnostic.
+ */
+export interface PythonCheckSnapshot {
+  /** "ok" — omp resolved a usable interpreter. "unavailable" — it did not.
+   *  "error" — the probe itself could not run or could not be understood. */
+  status: "ok" | "unavailable" | "error";
+  /** The interpreter omp named, on a pass and on a configured-but-broken
+   *  fail (verified: `available:false` still reports the configured path). */
+  pythonPath: string | null;
+  /** First line of `<pythonPath> --version`, when a pass let us ask. */
+  version: string | null;
+  /** Short reason when status is "error"; null otherwise. */
+  error: string | null;
+}
+
+/**
  * One skill file discovered on disk at a scope (issue #383, ADR-0025). A
  * capability catalog entry is config truth — what omp CAN load — never a
  * claim that a live session loaded it; the roster in the session-pinned

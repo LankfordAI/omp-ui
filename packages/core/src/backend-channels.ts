@@ -38,6 +38,7 @@ import type {
   ProjectSubagentModelsResult,
   ProviderKeysSnapshot,
   PushResult,
+  PythonCheckSnapshot,
   ProviderOAuthState,
   ProviderOAuthStatus,
   RemoteBind,
@@ -403,6 +404,13 @@ export const BACKEND_CHANNELS = {
     channel: "omp-settings:write",
     ...request<[key: string, value: OmpSettingValue], void>([str(), ompSettingValueCodec]),
   },
+  /**
+   * omp's own readiness answer for its eval tool's Python kernel (issue #671).
+   * Probes the LOCAL install; deliberately not added to REMOTE_PROXY_CHANNELS —
+   * the Getting started checklist is about this machine. The renderer client
+   * (preload and web transports) derives this method automatically.
+   */
+  checkPython: { channel: "python:check", ...request<[], PythonCheckSnapshot>([]) },
   /**
    * The installed omp's own web-search provider ids, discovered by probing its `omp search`
    * flag validation. Never a curated omp-ui list (ADR-0027). Never rejects for an

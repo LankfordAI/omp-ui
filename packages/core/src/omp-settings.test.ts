@@ -11,6 +11,7 @@ import {
   OMP_MAX_CONCURRENCY_KEY,
   OMP_MODEL_ROLES_KEY,
   OMP_TELEMETRY_EXPORT_KEY,
+  PYTHON_INTERPRETER_KEY,
   pristineEnvironment,
   type OmpConfigRunner,
 } from "./omp-settings";
@@ -288,6 +289,49 @@ describe("readOmpSettings", () => {
       layer: "default",
     });
   });
+
+  it("emits the python keys with omp's schema and scraped enum members", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
+        {
+          global: {
+            [PYTHON_INTERPRETER_KEY]: entry(
+              "",
+              "string",
+              "Optional path to an exact Python executable. When set, automatic Python runtime discovery is skipped.",
+            ),
+            "python.kernelMode": entry(
+              "session",
+              "enum",
+              "Keep the IPython kernel alive across eval calls or start fresh each time",
+            ),
+          },
+          pristine: {
+            [PYTHON_INTERPRETER_KEY]: entry("", "string", ""),
+            "python.kernelMode": entry("session", "enum", ""),
+          },
+          human: "python.kernelMode = session (session|per-call)",
+        },
+        null,
+      ),
+    );
+    expect(snapshot.error).toBeNull();
+    const python = snapshot.entries.filter((e) => e.key.startsWith("python."));
+    expect(python.map((e) => e.key)).toEqual([PYTHON_INTERPRETER_KEY, "python.kernelMode"]);
+    expect(python[0]).toMatchObject({
+      type: "string",
+      value: "",
+      options: null,
+      layer: "default",
+    });
+    expect(python[1]).toMatchObject({
+      type: "enum",
+      value: "session",
+      options: ["session", "per-call"],
+      layer: "default",
+    });
+  });
 });
 
 describe("OpenRouter variant", () => {
@@ -538,6 +582,18 @@ describe("writeOmpSetting", () => {
       },
     );
     expect(seen).toEqual(["config", "set", OMP_MAX_CONCURRENCY_KEY, "8", "--json"]);
+  });
+
+  it("writes the python.interpreter empty-string auto-detect sentinel verbatim", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: PYTHON_INTERPRETER_KEY, value: "" },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", PYTHON_INTERPRETER_KEY, "", "--json"]);
   });
 
   it("propagates omp's stderr message unchanged", async () => {

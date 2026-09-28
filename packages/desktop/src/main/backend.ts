@@ -23,6 +23,7 @@ import {
   readOmpAdvisorDefaults,
   readOmpModelRole,
   readOmpSettings,
+  checkPythonSetup,
   readOmpCompactionMethods,
   readWebSearchProviders,
   readJudgeModels,
@@ -810,6 +811,7 @@ export class MainBackend {
           readOmpSettings({ ompPath: this.ompPath, projectCwd }),
         [CH.writeOmpSetting]: (key: string, value: OmpSettingValue) =>
           writeOmpSetting({ ompPath: this.ompPath, key, value }),
+        [CH.checkPython]: () => checkPythonSetup({ ompPath: this.ompPath }),
         /**
          * Roster refresh (ADR-0031): bundled names via `omp agents unpack`
          * into a throwaway dir, plus the user agent dir and every registered

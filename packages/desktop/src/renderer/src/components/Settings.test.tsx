@@ -847,6 +847,105 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
   });
 });
 
+describe("Settings omp Python section (issue #671)", () => {
+  const pythonEntries = (): OmpSettingsSnapshot["entries"] => [
+    {
+      key: "python.interpreter",
+      type: "string",
+      description: "Optional path to an exact Python executable.",
+      value: "",
+      globalValue: undefined,
+      options: null,
+      layer: "default",
+    },
+    {
+      key: "python.kernelMode",
+      type: "enum",
+      description: "Keep the IPython kernel alive across eval calls or start fresh each time",
+      value: "session",
+      globalValue: undefined,
+      options: ["session", "per-call"],
+      layer: "global",
+    },
+  ];
+
+  function seedPython(entries: OmpSettingsSnapshot["entries"]): void {
+    backendMock.readOmpSettings.mockResolvedValue({ ...emptyOmpSettings, entries });
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  async function commitInterpreter(value: string): Promise<void> {
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="python.interpreter"]',
+    )!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+  }
+
+  it("renders the section, writes kernelMode, and commits an interpreter path", async () => {
+    seedPython(pythonEntries());
+    await renderSettings();
+
+    expect(document.body.textContent).toContain("Python");
+    const select = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="python.kernelMode"]',
+    )!;
+    expect([...select.options].map((option) => option.value)).toEqual(["session", "per-call"]);
+    await act(async () => {
+      select.value = "per-call";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("python.kernelMode", "per-call");
+
+    await commitInterpreter("/usr/bin/python3");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "python.interpreter",
+      "/usr/bin/python3",
+    );
+  });
+
+  it("clearing the interpreter commits the auto-detect sentinel", async () => {
+    seedPython([
+      {
+        ...pythonEntries()[0]!,
+        value: "/opt/py",
+        globalValue: "/opt/py",
+        layer: "global" as const,
+      },
+      pythonEntries()[1]!,
+    ]);
+    await renderSettings();
+    await commitInterpreter("");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("python.interpreter", "");
+  });
+
+  it("renders no Python rows on an omp that predates the keys", async () => {
+    seedPython([]);
+    await renderSettings();
+    expect(
+      document.querySelector('input[aria-label="python.interpreter"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('select[aria-label="python.kernelMode"]'),
+    ).toBeNull();
+  });
+});
+
 describe("Settings Memory page (issue #213)", () => {
   const memoryEntries: OmpSettingsSnapshot["entries"] = [
     {
