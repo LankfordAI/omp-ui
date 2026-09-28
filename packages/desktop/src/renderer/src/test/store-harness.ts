@@ -538,6 +538,7 @@ beforeEach(() => {
     remote: idleRemoteState,
     providerOAuth: idleProviderOAuth,
     lab: null,
+    stats: null,
     experimentDialog: null,
     experiments: {},
   });

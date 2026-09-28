@@ -386,6 +386,7 @@ describe("Lab view", () => {
       activeTabId: h.TAB,
       focusedTabByProject: { "/p": h.TAB },
       lab: null,
+      stats: null,
     });
   });
 

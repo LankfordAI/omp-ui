@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.17.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.17.0). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- A global [Stats view](adr/0037-stats-view-reads-omp-stats-db-read-only.md) — cross-session totals, per-day and per-model rollups, Projects, and per-session cost — opened from the command palette and read from omp's stats database through a ported read-only reader ([#668](https://github.com/LankfordAI/omp-ui/issues/668)).
+
+Since [v0.17.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.17.0): add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 

@@ -176,6 +176,9 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   // a remote palette toggles the remote's own favorites, never host state.
   // Instance-scoped rather than project-scoped, so it rides here directly.
   "favorites:toggle",
+  // Cross-session stats follow the owning instance (#668): the stats DB is
+  // that host's own ~/.omp/stats.db, read by that instance's core.
+  "stats:overview",
 ]);
 
 /** Events a joined instance emits that are mirrored to local sinks unchanged. */

@@ -13,6 +13,7 @@ import { NewExperimentDialog } from "./components/NewExperimentDialog";
 import { NewWorktreeSessionDialog } from "./components/NewWorktreeSessionDialog";
 import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
 import { Lab } from "./components/lab/Lab";
+import { Stats } from "./components/stats/Stats";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { ProjectPicker } from "./components/ProjectPicker";
@@ -281,6 +282,7 @@ export default function App() {
   const newSession = useStore((s) => s.newSession);
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
   const lab = useStore((s) => s.lab);
+  const stats = useStore((s) => s.stats);
   const experimentDialog = useStore((s) => s.experimentDialog);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
   const settingsPage = useStore((s) => s.settingsPage);
@@ -423,7 +425,7 @@ export default function App() {
   // The Lab takes the main pane whole (issue #559): the tabs stay mounted
   // underneath, hidden, exactly as a background tab is.
   const compactTitle =
-    lab !== null ? t("lab.header.title") : activeTitle ?? t("app.compact.projectsAndSessions");
+    stats !== null ? t("stats.header.title") : lab !== null ? t("lab.header.title") : activeTitle ?? t("app.compact.projectsAndSessions");
   const badges =
     activeTab?.mode === "rpc-ui" ? inspectorBadges(activeRuntime, activeRecord) : null;
   const inspectorCount = badges ? badges.todos + badges.agents + badges.plans : 0;
@@ -479,7 +481,7 @@ export default function App() {
              * with it and the session becomes unrecoverable in place.
              */}
             {tabs.map((t) => {
-              const shown = lab === null && t.tabId === activeTabId && !t.hidden;
+              const shown = lab === null && stats === null && t.tabId === activeTabId && !t.hidden;
               return (
                 <div
                   key={t.tabId}
@@ -496,7 +498,8 @@ export default function App() {
               );
             })}
             {lab !== null && experimentsEnabled && <Lab view={lab} />}
-            {visibleTabs.length === 0 && (lab === null || !experimentsEnabled) && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
+            {stats !== null && <Stats />}
+            {visibleTabs.length === 0 && (lab === null || !experimentsEnabled) && stats === null && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
           </div>
         </div>
       </div>

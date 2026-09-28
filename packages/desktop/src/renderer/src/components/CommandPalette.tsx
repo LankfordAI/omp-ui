@@ -98,6 +98,7 @@ export function CommandPalette() {
   const openGettingStarted = useStore((s) => s.openGettingStarted);
   const openLab = useStore((s) => s.openLab);
   const openExperimentDialog = useStore((s) => s.openExperimentDialog);
+  const openStats = useStore((s) => s.openStats);
   const t = useT();
   const localeId = currentLocaleId();
 
@@ -170,6 +171,13 @@ export function CommandPalette() {
         run: () => openLab(null, null),
       });
     }
+    out.push({
+      id: "app:stats",
+      group: t("palette.group.app"),
+      name: t("palette.action.stats"),
+      desc: t("palette.action.statsDesc"),
+      run: () => openStats(),
+    });
 
     const tab = activeTabId === null ? undefined : tabs.find((t) => t.tabId === activeTabId);
     if (tab) {
@@ -267,7 +275,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openLab, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

@@ -48,6 +48,7 @@ import type {
   ScopedCapabilityMutation,
   SessionMode,
   SpawnRequest,
+  StatsOverview,
   SttModelSnapshot,
   SttTranscribeRequest,
   SttTranscribeResult,
@@ -794,6 +795,15 @@ export const BACKEND_CHANNELS = {
       [projectCwd: string, tabId: string | null, experimentId: number, runId: number],
       RunLogResult
     >([str(), nullable(str()), num(), num()]),
+  },
+  /**
+   * Cross-session usage read from omp's stats.db (ADR-0037, issue #668).
+   * `rangeDays` null = all time. Never rejects — a missing or foreign DB
+   * lands in `.dbPath` / `.error` like memoryOverview.
+   */
+  statsOverview: {
+    channel: "stats:overview",
+    ...request<[rangeDays: number | null], StatsOverview>([nullable(num())]),
   },
   /**
    * Lists resolved, redacted MCP servers and per-file errors; null projectCwd

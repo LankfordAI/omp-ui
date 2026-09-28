@@ -190,6 +190,7 @@ const VALID_ARGS = {
   spawnSession: [spawnRequest],
   setSessionToolEnabled: ["tab-1", "proc-1", "sess-1", "web search", true],
   startProviderOAuth: ["openai-codex"],
+  statsOverview: [7],
   suggestBranchName: ["/project", "plan"],
   refreshAgentRoster: [],
   setProjectSubagentModel: ["/project", "scout", null],

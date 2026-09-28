@@ -30,6 +30,7 @@ import {
   listBranches,
   mergeWorktreeBranch,
   readMemoryOverview,
+  readStatsOverview,
   readMergeBackStatus,
   resolveMergeDestination,
   pullBranch,
@@ -789,6 +790,9 @@ export class MainBackend {
         // getBranchDiff: it touches no registry/BackendState field and never
         // calls broadcast().
         [CH.memoryOverview]: (projectCwd: string) => readMemoryOverview(projectCwd),
+        // The stats overview is the same kind of stateless core read (ADR-0037):
+        // omp owns the DB, omp-ui only reads it.
+        [CH.statsOverview]: (rangeDays: number | null) => readStatsOverview(rangeDays),
         [CH.autoresearchOverview]: (projectCwd: string) =>
           readProjectExperiments(this.registry.sessions, projectCwd),
         [CH.autoresearchExperiment]: (projectCwd: string, tabId: string | null, experimentId: number) =>
