@@ -3,17 +3,19 @@ import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
 import type { NativeGoal } from "@omp-ui/core/goal";
+import type { LimitsView } from "@omp-ui/core/limits";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
 import { useCompactShell } from "../lib/responsive";
-import { useT, type MessageKey } from "../lib/i18n";
+import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
 import { projectKey } from "../lib/project-key";
 import type { ContextUsage } from "../lib/rpc-types";
 import { findInstance, findOwner, findRecord, useStore } from "../store";
+import type { RpcTabState } from "../store/types";
 import { useDismissal } from "../lib/use-dismissal";
 import { buildTitleTranscript } from "../lib/session-transcript";
 import { ConsoleToggle } from "./ConsoleDrawer";
@@ -488,6 +490,132 @@ function ContextCluster({
   );
 }
 
+/** Snapshots older than this render faint: a hint, not a live number (issue #673). */
+const LIMITS_STALE_MS = 10 * 60 * 1000;
+/** Countdown redraw cadence while a future window reset is visible. */
+const LIMITS_TICK_MS = 30_000;
+
+/**
+ * The provider rate-window readout, as the limits bridge published it
+ * (issue #673). Quiet mono chrome like AdvisorCluster: one compact row of
+ * `label percent` pairs, colored like the context fill, with the nearest
+ * future reset as a countdown and every window's absolute reset time in the
+ * tooltip. Absent — never a placeholder — when the provider reports nothing.
+ */
+function LimitsCluster({ limits }: { limits: LimitsView }) {
+  const t = useT();
+  const [, setTick] = useState(0);
+  const now = Date.now();
+  const hasFutureReset = limits.windows.some(
+    (window) => window.resetsAtMs !== null && window.resetsAtMs > now,
+  );
+  useEffect(() => {
+    if (!hasFutureReset) return;
+    const timer = window.setInterval(() => setTick((n) => n + 1), LIMITS_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [hasFutureReset]);
+  const stale =
+    limits.fetchedAtMs > 0 && now - limits.fetchedAtMs > LIMITS_STALE_MS;
+  const windows = limits.windows
+    .map((window) =>
+      t("hud.limits.windowLine", {
+        label: window.label,
+        percent:
+          window.percent !== null
+            ? `${window.percent.toFixed(1)}%`
+            : t("hud.limits.unknownPercent"),
+        reset:
+          window.resetsAtMs === null
+            ? t("hud.limits.unknownReset")
+            : window.resetsAtMs <= now
+              ? t("hud.limits.resetNow")
+              : new Date(window.resetsAtMs).toLocaleString(localeTag()),
+      }),
+    )
+    .join("\n");
+  const details = t("hud.limits.details", {
+    provider: limits.provider ?? "?",
+    age:
+      limits.fetchedAtMs > 0
+        ? formatDuration(Math.max(0, now - limits.fetchedAtMs))
+        : "?",
+    windows,
+  });
+  const nextReset = limits.windows
+    .map((window) => window.resetsAtMs)
+    .filter((at): at is number => at !== null && at > now)
+    .sort((a, b) => a - b)[0];
+  const tone = (percent: number | null): string =>
+    stale
+      ? "text-ink-faint"
+      : percent === null
+        ? "text-ink-dim"
+        : percent > 90
+          ? "text-rose"
+          : percent > 70
+            ? "text-copper"
+            : "text-ink-dim";
+  return (
+    <div
+      className="titlebar-limits flex shrink-0 items-center gap-1.5 font-mono text-[10px] tabular-nums"
+      title={details}
+    >
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+        {t("hud.limits.label")}
+      </span>
+      {limits.windows.map((window) => (
+        <span key={window.id} className={cn("tabular-nums", tone(window.percent))}>
+          {window.label}
+          {window.percent !== null ? ` ${Math.round(window.percent)}%` : ""}
+        </span>
+      ))}
+      {nextReset !== undefined && !stale && (
+        <span className="text-ink-dim">
+          {t("hud.limits.resetsIn", { duration: formatDuration(nextReset - now) })}
+        </span>
+      )}
+      {limits.bankedResets > 0 && (
+        <Chip mono title={t("hud.limits.bankedResets", { count: limits.bankedResets })}>
+          ×{limits.bankedResets}
+        </Chip>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The transient quota chip (issue #673): the retry layer waited on a rate
+ * window (`auto_retry_start` carrying the UsageLimit bit) or rotated to a
+ * sibling credential (`auto_retry_end` recovery). It lives exactly through
+ * the turn that experienced it — the reducer clears it at agent_start — and
+ * never claims success: a rotation this frame recorded still rides a turn
+ * that may end in the rose transcript marker.
+ */
+function QuotaChip({
+  event,
+  className,
+}: {
+  event: NonNullable<RpcTabState["quotaEvent"]>;
+  className?: string;
+}) {
+  const t = useT();
+  const wait =
+    event.delayMs !== undefined
+      ? t("hud.limits.chipWait", {
+          delay: t("hud.limits.chipDelay", { duration: formatDuration(event.delayMs) }),
+        })
+      : t("hud.limits.chipWait", { delay: "" });
+  return event.kind === "rotation" ? (
+    <Chip tone="iris" className={className} title={t("hud.limits.chipRotation")}>
+      {t("hud.limits.chipRotation")}
+    </Chip>
+  ) : (
+    <Chip tone="copper" className={className} title={wait}>
+      {wait}
+    </Chip>
+  );
+}
+
 /**
  * The second context/cost readout, for the advisor. Quiet and neutral (never
  * the signal accent — this is chrome, not liveness): an `adv` tag, a compact
@@ -768,12 +896,15 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const refreshState = useStore((s) => s.refreshState);
   const refreshStats = useStore((s) => s.refreshStats);
   const refreshAdvisorStats = useStore((s) => s.refreshAdvisorStats);
+  const refreshLimits = useStore((s) => s.refreshLimits);
   const advisor = useStore((s) => findRecord(s.state, tabId)?.advisor);
   const advisorStats = useStore((s) => s.rpc[tabId]?.advisorStats);
   const mcpFailureCount = useStore((s) => s.rpc[tabId]?.mcpStatus?.failedServers.length ?? 0);
   const plan = useStore((s) => s.rpc[tabId]?.plan);
   const goal = useStore((s) => s.rpc[tabId]?.goal);
   const autoresearch = useStore((s) => s.rpc[tabId]?.autoresearch);
+  const limits = useStore((s) => s.rpc[tabId]?.limits);
+  const quotaEvent = useStore((s) => s.rpc[tabId]?.quotaEvent);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
@@ -786,6 +917,23 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const ensureCompactionSettings = useStore((s) => s.ensureCompactionSettings);
   const compactionSettings = useStore((s) =>
     projectCwd !== undefined ? s.compactionSettings[projectCwd] : undefined,
+  );
+
+  // The cluster renders only when the bridge reached a provider that reports
+  // windows; an unavailable or empty snapshot renders nothing (issue #673).
+  const limitsCluster =
+    limits !== undefined && limits !== null && limits.available === true && limits.windows.length > 0 ? (
+      <span
+        className={cn("titlebar-limits-cluster shrink-0", !compact && "[app-region:no-drag]")}
+      >
+        <LimitsCluster limits={limits} />
+      </span>
+    ) : null;
+  const quotaChip = quotaEvent != null && (
+    <QuotaChip
+      event={quotaEvent}
+      className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
+    />
   );
 
   // Fetch while the entry is absent: on first mount, and again whenever a
@@ -871,6 +1019,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
     void refreshState(tabId);
     void refreshStats(tabId);
     if (status !== "running" && session?.isStreaming !== true) void refreshAdvisorStats(tabId);
+    void refreshLimits(tabId);
   };
 
   if (compact) {
@@ -895,11 +1044,13 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <Sheet open={surface === "session-actions"} placement="bottom" label={t("hud.actions.sessionActions")} onClose={closeCompactSurface}>
           <div className="space-y-4 p-4">
             <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
-            {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree) && (
+            {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || limitsCluster) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
                 {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.context")}</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
                 {stats && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{t("hud.stats.compact", { cost: formatCost(stats.cost), tokens: compactNum(stats.tokens.total), premium: stats.premiumRequests })}</span></div>}
+                {quotaEvent != null && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{quotaChip}</div>}
+                {limitsCluster && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{limitsCluster}</div>}
                 {showAdvisor && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.advisorTotal")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={t("hud.advisor.totalUsage", { tokens: exactNum(advisorStats.totalTokens), cost: formatCost(advisorStats.cost) })}>{t("hud.advisor.compactTotal", { tokens: compactNum(advisorStats.totalTokens), spend: advisorStats.subscription && advisorStats.cost === 0 ? t("hud.advisor.subscriptionShort") : formatCost(advisorStats.cost) })}</span></div>}
                 {notices.length > 0 && <div className="flex flex-wrap gap-1.5">{notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}</div>}
               </div>
@@ -959,6 +1110,12 @@ export function SessionHud({ tabId }: { tabId: string }) {
       <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
 
       <span className="min-w-0 flex-1" />
+      {/* Quota signals (issue #673): the transient rotation/wait chip and the
+          durable rate-window cluster, each gated on its own state so either
+          can be absent without dropping the other. Both sit in no-drag boxes
+          like every other control in this row. */}
+      {quotaChip}
+      {limitsCluster}
 
       {/* Main usage and main spend read as one group (issue #107). The wrapper keeps
           `usage` and `stats` independent conditionals: either can be null without

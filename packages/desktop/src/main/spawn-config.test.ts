@@ -29,6 +29,7 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     goal: () => write("goal"),
     browserPane: () => write("browserPane"),
     autoresearch: () => write("autoresearch"),
+    limits: () => write("limits"),
   };
 }
 
@@ -47,6 +48,7 @@ describe("writeRpcExtensions", () => {
         "/goal.ts",
         "/browserPane.ts",
         "/autoresearch.ts",
+        "/limits.ts",
       ],
       loaded: {
         plan: false,
@@ -56,6 +58,7 @@ describe("writeRpcExtensions", () => {
         goal: true,
         browserPane: true,
         autoresearch: true,
+        limits: true,
       },
     });
     expect(warning).toHaveBeenCalledTimes(2);

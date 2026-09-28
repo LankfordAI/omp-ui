@@ -6,6 +6,7 @@ import {
   PLAN_STATUS_KEY,
 } from "@omp-ui/core/plan";
 import { parseAdvisorStats, ADVISOR_STATS_KEY } from "@omp-ui/core/advisor-stats";
+import { parseLimits, LIMITS_STATUS_KEY } from "@omp-ui/core/limits";
 import {
   MCP_RUNTIME_STATUS_KEY,
   parseMcpRuntimeStatus,
@@ -155,6 +156,9 @@ export function createFrameReductionSlice(
     },
     [ADVISOR_STATS_KEY]: (tabId, text) => {
       m.patchRpc(tabId, { advisorStats: parseAdvisorStats(text) });
+    },
+    [LIMITS_STATUS_KEY]: (tabId, text) => {
+      m.patchRpc(tabId, { limits: parseLimits(text) });
     },
     [MCP_RUNTIME_STATUS_KEY]: (tabId, text) => {
       const mcpStatus = parseMcpRuntimeStatus(text);

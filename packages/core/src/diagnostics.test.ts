@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { planExtensionPath } from "./plan-extension";
 import { advisorOverlayPath } from "./advisor-overlay";
+import { limitsExtensionPath } from "./limits-extension";
 import {
   collectDiagnosticsBundle,
   previewDiagnosticsBundle,
@@ -383,6 +384,7 @@ describe("collectDiagnosticsBundle", () => {
     fs.mkdirSync(dead, { recursive: true });
     fs.writeFileSync(planExtensionPath(live), "plan ext");
     fs.writeFileSync(advisorOverlayPath(live), "overlay");
+    fs.writeFileSync(limitsExtensionPath(live), "limits ext");
     fs.writeFileSync(planExtensionPath(dead), "not collected");
     const result = await collectDiagnosticsBundle(
       options({
@@ -398,6 +400,7 @@ describe("collectDiagnosticsBundle", () => {
       .sort();
     expect(names).toEqual([
       `extensions/live/${path.basename(advisorOverlayPath(live))}`,
+      `extensions/live/${path.basename(limitsExtensionPath(live))}`,
       `extensions/live/${path.basename(planExtensionPath(live))}`,
     ]);
   });

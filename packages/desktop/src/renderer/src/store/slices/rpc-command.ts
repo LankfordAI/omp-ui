@@ -574,6 +574,7 @@ function freshRpcTabState(
     mcpStatus: null,
     goal: null,
     autoresearch: null,
+    limits: null,
     capabilities: null,
     capabilitiesLoad: "idle",
     capabilitiesToolPending: null,
@@ -725,6 +726,10 @@ export function createRpcCommandSlice(
       // record flag would let a stale `advisor` (race with the broadcast after the
       // advisor-toggle relaunch) skip the arm and starve the readout forever.
       void get().refreshAdvisorStats(tabId);
+      // Arm the limits bridge for the same reason (issue #673): one cheap,
+      // idempotent shot at ready; the bridge then auto-refreshes at turn ends
+      // past omp's five-minute usage-probe cooldown.
+      void get().refreshLimits(tabId);
       // The roster is a backend read, not a command: boot takes one whether
       // or not the session ever publishes, so an open viewer is never stuck
       // on "idle" for want of a turn (issue #374).

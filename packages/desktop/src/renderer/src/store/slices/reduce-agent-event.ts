@@ -1,6 +1,6 @@
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
 import { formatDuration } from "../../lib/duration";
-import { boolField, field, numField, strField } from "../../lib/fields";
+import { arrField, boolField, field, numField, strField } from "../../lib/fields";
 import { noticeItem, type NoticeItem } from "../../lib/transcript";
 import type { LastTurnMeta, RpcTabState } from "../types";
 import type { TabRuntime } from "./shared";
@@ -10,6 +10,8 @@ export const USAGE_REFRESH_MS = 500;
 
 /** pi-ai's StreamTimeoutError classifier bit (Flag.Timeout, pi-ai error/flags.ts). */
 const OMP_ERROR_FLAG_TIMEOUT = 0x0004_0000;
+/** pi-ai's UsageLimit classifier bit (Flag.UsageLimit, pi-ai error/flags.ts). */
+const OMP_ERROR_FLAG_USAGE_LIMIT = 0x0008_0000;
 /** Every built-in provider's stall/first-event watchdog message (pi-ai providers/*). */
 const STALL_MESSAGE_RE =
   /stream (stalled|timed out) while waiting for the (next|first) event/i;
@@ -123,6 +125,37 @@ function isStreamStallEnd(lastTurn: LastTurnMeta): boolean {
     STALL_MESSAGE_RE.test(lastTurn.errorMessage ?? "")
   );
 }
+/**
+ * The quota chip's source event, or null when the frame says nothing about
+ * rate windows (issue #673). `auto_retry_end` recoveries outrank the wait
+ * signal: omp's retry layer records "credential" when a sibling rotation
+ * unblocked the attempt and "wait" when a UsageLimit delay did. Mid-request
+ * rotation the retry layer never records is structurally invisible here.
+ */
+function retryQuotaEvent(
+  type: string | undefined,
+  frame: object,
+  now: number,
+): { at: number; kind: "rotation" | "wait"; delayMs?: number } | null {
+  if (type === "auto_retry_start") {
+    if (((numField(frame, "errorId") ?? 0) & OMP_ERROR_FLAG_USAGE_LIMIT) === 0)
+      return null;
+    const delayMs = numField(frame, "delayMs");
+    return {
+      at: now,
+      kind: "wait",
+      ...(delayMs !== undefined && delayMs > 0 ? { delayMs } : {}),
+    };
+  }
+  if (type !== "auto_retry_end") return null;
+  let waited = false;
+  for (const entry of arrField(frame, "retryErrors")) {
+    const recovery = strField(field(entry, "retryRecovery"), "recovery");
+    if (recovery === "credential") return { at: now, kind: "rotation" };
+    if (recovery === "wait") waited = true;
+  }
+  return waited ? { at: now, kind: "wait" } : null;
+}
 
 /**
  * Purely reduces an observed agent event to state, transcript, and ordered
@@ -157,6 +190,16 @@ export function reduceAgentEvent(
     type === "auto_retry_start" ? stallNotice(tab, frame, now) : null;
   if (retryStall !== null) {
     rpc.stallCount = retryStall.count;
+    hasRpcPatch = true;
+  }
+
+  // Quota signal beside the stall signal (issue #673): a UsageLimit-bit
+  // auto_retry_start means the retry layer is waiting on a rate window; an
+  // auto_retry_end whose recorded recoveries name a credential switch means
+  // a sibling rotation unblocked the turn. Pure frame reads — no new wire.
+  const quotaEvent = retryQuotaEvent(type, frame, now);
+  if (quotaEvent !== null) {
+    rpc.quotaEvent = quotaEvent;
     hasRpcPatch = true;
   }
 
@@ -214,6 +257,7 @@ export function reduceAgentEvent(
   if (type === "agent_start") {
     rpc.status = "running";
     rpc.lastTurn = undefined;
+    rpc.quotaEvent = undefined;
     hasRpcPatch = true;
     effects.push(
       { phase: "after-commit", type: "restart-stream-stall-timer" },

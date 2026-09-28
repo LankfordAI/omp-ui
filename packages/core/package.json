@@ -13,6 +13,7 @@
     "./project-files-limit": "./src/project-files-limit.ts",
     "./compaction-threshold": "./src/compaction-threshold.ts",
     "./advisor-stats": "./src/advisor-stats.ts",
+    "./limits": "./src/limits.ts",
     "./mcp-status": "./src/mcp-status.ts",
     "./capabilities": "./src/capabilities.ts",
     "./magic-keywords": "./src/magic-keywords.ts",

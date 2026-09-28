@@ -4,10 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GoalSnapshot, NativeGoal } from "@omp-ui/core/goal";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
+import type { LimitsView } from "@omp-ui/core/limits";
 import type { BackendState, ExperimentRecord, ProjectExperiments } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import { backendState, remoteInstance, rpcTabState, tabInfo } from "../test/fixtures";
-import type { ExperimentsCache } from "../store/types";
+import type { ExperimentsCache, RpcTabState } from "../store/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 Object.assign(window, { ompBackend: {} });
@@ -1074,5 +1075,120 @@ describe("retitle affordance (issue #433)", () => {
   it("is disabled while the transcript has no exchange to read", () => {
     const host = renderWide();
     expect(host.querySelector<HTMLButtonElement>('button[aria-label="retitle"]')!.disabled).toBe(true);
+  });
+});
+
+describe("SessionHud provider quota readout (issue #673)", () => {
+  const renderWide = (): HTMLElement => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    return host;
+  };
+
+  const seedLimits = (
+    limits: LimitsView | null,
+    quotaEvent?: RpcTabState["quotaEvent"],
+  ): void => {
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          limits,
+          ...(quotaEvent === undefined ? {} : { quotaEvent }),
+        },
+      },
+    });
+  };
+
+  it("renders the rate windows and their nearest reset countdown", () => {
+    seedLimits({
+      available: true,
+      provider: "anthropic",
+      windows: [
+        { id: "anthropic:5h", label: "5 hour", percent: 72, resetsAtMs: Date.now() + 40 * 60_000 },
+        { id: "anthropic:week", label: "week", percent: null, resetsAtMs: null },
+      ],
+      bankedResets: 2,
+      fetchedAtMs: Date.now() - 60_000,
+    });
+    const host = renderWide();
+    const cluster = host.querySelector<HTMLElement>(".titlebar-limits")!;
+    expect(cluster.textContent).toContain("5 hour 72%");
+    expect(cluster.textContent).toContain("week");
+    expect(cluster.textContent).toContain("resets in");
+    // An unknown percent still gets a row; the tooltip names it.
+    expect(cluster.getAttribute("title")).toContain("usage unknown");
+    expect(cluster.getAttribute("title")).toContain("anthropic rate limits, fetched");
+    expect(cluster.textContent).toContain("×2");
+  });
+
+  it("hides the cluster when the bridge reports unavailable", () => {
+    seedLimits({
+      available: false,
+      unavailable: "this omp build does not report provider usage",
+      provider: null,
+      windows: [],
+      bankedResets: 0,
+      fetchedAtMs: 0,
+    });
+    const host = renderWide();
+    expect(host.querySelector(".titlebar-limits")).toBeNull();
+  });
+
+  it("hides the cluster for a provider that reports no windows", () => {
+    seedLimits({
+      available: true,
+      provider: "mistral",
+      windows: [],
+      bankedResets: 0,
+      fetchedAtMs: Date.now(),
+    });
+    const host = renderWide();
+    expect(host.querySelector(".titlebar-limits")).toBeNull();
+  });
+
+  it("shows the credential-switch chip and the wait chip with its delay", () => {
+    seedLimits(null, { at: Date.now(), kind: "rotation" });
+    const host = renderWide();
+    expect(host.textContent).toContain("credential switched");
+    host.remove();
+    root = null;
+    seedLimits(null, { at: Date.now(), kind: "wait", delayMs: 65_000 });
+    const host2 = renderWide();
+    expect(host2.textContent).toContain("rate limit — waiting for 1m 05s");
+  });
+
+  it("keeps the new readouts inside no-drag boxes in the wide face", () => {
+    seedLimits(
+      {
+        available: true,
+        provider: "anthropic",
+        windows: [{ id: "anthropic:5h", label: "5 hour", percent: 32, resetsAtMs: Date.now() + 60_000 }],
+        bankedResets: 0,
+        fetchedAtMs: Date.now(),
+      },
+      { at: Date.now(), kind: "rotation" },
+    );
+    const host = renderWide();
+    const hud = host.firstElementChild as HTMLElement;
+    const carvedOut = (el: HTMLElement): boolean => {
+      for (let n: HTMLElement | null = el; n; n = n.parentElement) {
+        if (n.classList.contains("[app-region:no-drag]")) return true;
+        if (n === hud) return false;
+      }
+      return false;
+    };
+    const cluster = host.querySelector<HTMLElement>(".titlebar-limits-cluster")!;
+    expect(carvedOut(cluster)).toBe(true);
+    const chip = [...hud.querySelectorAll<HTMLElement>("span")].find(
+      (s) => s.textContent === "credential switched",
+    )!;
+    expect(carvedOut(chip)).toBe(true);
   });
 });
