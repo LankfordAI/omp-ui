@@ -425,3 +425,77 @@ describe("tool result images (issue #520)", () => {
     }
   });
 });
+
+describe("generate_image captions (issue #672)", () => {
+  it("renders model, dimensions, and quality under the thumbnail", () => {
+    const { el, root } = renderCard(
+      tool({
+        resultText: "Generated 1 image(s)",
+        imageModel: "gpt-image-1",
+        images: [
+          { data: "AAAB", mimeType: "image/webp", size: "1024x1536", quality: "high" },
+        ],
+      }),
+    );
+    const caption = [...el.querySelectorAll("span")].find((s) =>
+      s.textContent?.includes("gpt-image-1"),
+    );
+    expect(caption?.textContent).toBe("gpt-image-1 · 1024 × 1536 px · high");
+    act(() => root.unmount());
+  });
+
+  it("renders no caption when provenance is absent (strip identical to today)", () => {
+    const { el, root } = renderCard(
+      tool({ resultText: "", images: [{ data: "AAAB", mimeType: "image/png" }] }),
+    );
+    const imgs = [...el.querySelectorAll("img")];
+    expect(imgs).toHaveLength(1);
+    // No caption span rides under the thumbnail's column wrapper.
+    expect(imgs[0]!.parentElement!.parentElement!.textContent).toBe("");
+    act(() => root.unmount());
+  });
+
+  it("degrades an unparseable size to the raw provider string", () => {
+    const { el, root } = renderCard(
+      tool({
+        imageModel: "dall-e-3",
+        images: [{ data: "AAAB", mimeType: "image/png", size: "hd-portrait" }],
+      }),
+    );
+    expect(el.textContent).toContain("dall-e-3 · hd-portrait");
+    act(() => root.unmount());
+  });
+
+  it("dispatches the viewer event with model and quality on each image", () => {
+    const seen: Array<{
+      detail?: { images: Array<{ src: string; model?: string; quality?: string }>; index: number };
+    }> = [];
+    const onOpen = (e: Event): void => {
+      seen.push({ detail: (e as CustomEvent).detail });
+    };
+    window.addEventListener("omp-ui:image-viewer", onOpen);
+    try {
+      const { el, root } = renderCard(
+        tool({
+          imageModel: "gpt-image-1",
+          images: [
+            { data: "AAAB", mimeType: "image/webp", size: "1024x1536", quality: "high" },
+          ],
+        }),
+      );
+      const trigger = [...el.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.querySelector("img") !== null,
+      )!;
+      act(() => trigger.click());
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.detail?.images[0]).toMatchObject({
+        src: "data:image/webp;base64,AAAB",
+        model: "gpt-image-1",
+        quality: "high",
+      });
+      act(() => root.unmount());
+    } finally {
+      window.removeEventListener("omp-ui:image-viewer", onOpen);
+    }
+  });
+});
