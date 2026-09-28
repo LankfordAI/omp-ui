@@ -18,6 +18,12 @@ Instructions for coding agents working in this repository.
   feature requests against the upstream OMP repository. Where OMP's
   current state constrains this UI, work around it inside `omp-ui` where
   possible; if no workaround exists, surface the constraint to the user.
+- Filing anything on another project's tracker (Chromium, Electron, ...) is a
+  user decision: never open an upstream issue, bug report, PR, or feature
+  request — on a web page or through any CLI or API — without the user's
+  explicit confirmation of that exact filing. When a plan prescribes an
+  upstream request, deliver the draft and ask; do not treat the plan as the
+  confirmation.
 - A verification run that boots the app uses `npm run dev:headless`
   (`docs/development.md`, "Verification runs"): it maps no window and takes no
   focus. Never launch the visible app (`npm run dev`) for a check unless the user

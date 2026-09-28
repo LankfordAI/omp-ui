@@ -336,10 +336,19 @@ through a **loopback CDP bridge** the main process hosts:
   `insertText` becomes CDP char key events, one per code point (Chromium rejects
   a multi-code-point char parameter). They type at the widget-focused caret
   across frames and shadow DOM, and do nothing without an editable focused.
-  The latch clears on commit, empty preedit (#550), main-frame navigation, or
-  page destruction. `Input.insertText` is never sent unlatched: on 43.2.0 it
-  re-focuses a stale editable after a scripted `blur()`. The char route adds
-  the `keypress` the old silent call omitted; ordinary typing already sends
+  The latch is a three-state proof (`none` → `live` → `dead`): it ends on
+  commit, empty preedit (#550), main-frame navigation, page destruction, or any
+  host-dispatched `mouseDown`/`keyDown`, which the page processes as a
+  composition commit or blur before any later command. A dead conversion drops
+  its follow-up preedit updates and commits as char events.
+  `Input.insertText` is issued only for a composition no dispatched input can
+  have ended: on 43.2.0 it is `ImeCommitText`, which with nothing focused
+  re-focuses the document's *last* focused editable element (caret preserved;
+  no-op only once that element is gone or hidden) and after a blur inserts
+  there instead of nowhere. A focus change the page causes by script, invisible
+  to the host, is the named residual; no query-then-commit sequence closes it
+  without a race.
+  The char route adds the `keypress` the old silent call omitted; ordinary typing already sends
   char events.
 - **Platform gates are smokes, not assumptions.** Offscreen paint on GPU and
   software paths, dsf, input into an unfocused hidden window, OS keymaps, ⌘
