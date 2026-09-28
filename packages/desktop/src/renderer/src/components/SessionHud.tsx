@@ -21,6 +21,7 @@ import { buildTitleTranscript } from "../lib/session-transcript";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
 import { BuildPlanControl } from "./BuildPlanControl";
+import { FastModeControl, fastModeState } from "./FastModeControl";
 import { WorktreeChip } from "./WorktreeChip";
 import { Button, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconRefresh, IconTune, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
@@ -732,7 +733,14 @@ function ModesPopover({
   const setFollowUpMode = useStore((s) => s.setFollowUpMode);
   const setInterruptMode = useStore((s) => s.setInterruptMode);
   const abortRetry = useStore((s) => s.abortRetry);
+  const setFastMode = useStore((s) => s.setFastMode);
   const [open, setOpen] = useState(false);
+  const fastState = fastModeState(
+    session?.fastModeEnabled ?? false,
+    session?.fastModeActive ?? false,
+  );
+  const fastValue = t(`hud.fast.${fastState}`);
+  const fastTitle = t(`hud.fast.${fastState}Title`);
   const anchor = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   // Portaled + fixed: the wide HUD root is overflow-hidden inside the h-9 title
@@ -795,6 +803,21 @@ function ModesPopover({
             hint={modeCopy.rowHints.interrupt}
             optionHints={modeCopy.interruptHints}
           />
+          {/* Fast mode is always reachable here: the HUD chip hides on plain-off
+              sessions, so this row is the desktop entry point (issue #677). The
+              switch carries the setting; the value text carries the truth. */}
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <Label>{t("hud.fast.labelLong")}</Label>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="font-mono text-[10px] text-ink-faint">{fastValue}</span>
+              <Switch
+                on={session?.fastModeEnabled ?? false}
+                label={t("hud.fast.labelLong")}
+                title={fastTitle}
+                onChange={(next) => void setFastMode(tabId, next)}
+              />
+            </span>
+          </div>
           <div className="mt-3 flex items-center justify-between gap-2 border-t border-line-soft pt-2.5">
             <Button
               variant="ghost"
@@ -1005,6 +1028,17 @@ export function SessionHud({ tabId }: { tabId: string }) {
       className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
     />
   );
+  // Fast mode renders its chip only when the setting or the truth is on, so
+  // an ordinary session's row stays quiet; the modes popover carries the
+  // always-available toggle (issue #677).
+  const fastChip =
+    (session?.fastModeEnabled === true || session?.fastModeActive === true) && (
+      <FastModeControl
+        tabId={tabId}
+        disabled={status === "starting"}
+        className={compact ? "shrink-0" : "shrink-0 [app-region:no-drag]"}
+      />
+    );
   // Which host this session lives on (issue #416): quiet mono chip, the URL in
   // the tooltip. Local sessions carry no chip — most sessions are local, and a
   // "this app" chip on every one would say nothing.
@@ -1032,6 +1066,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {agentModeChip}
           {goalChip}
           {autoresearchChip}
+          {fastChip}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
@@ -1067,6 +1102,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <Button onClick={refresh} className={sheetAction}><IconRefresh />{t("hud.actions.refresh")}</Button>
                 <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-3"><span className="text-xs">{t("hud.actions.autoCompact")}</span><Switch on={session?.autoCompactionEnabled ?? false} label={t("hud.actions.autoCompact")} onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
               </div>
+              <div className="mt-2 rounded-md border border-line px-3">
+                <FastModeControl tabId={tabId} layout="sheet" />
+              </div>
             </div>
           </div>
           <CompactModes tabId={tabId} autoRetry={autoRetry} onAutoRetry={updateAutoRetry} />
@@ -1095,6 +1133,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {agentModeChip}
       {goalChip}
       {autoresearchChip}
+      {fastChip}
       {/* Remote sessions retain the informational and finish-capable chip;
           only host-local open rows are suppressed (issue #435). */}
       {worktree && (

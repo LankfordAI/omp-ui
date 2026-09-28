@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.17.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.17.1). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- Native sessions gained a fast-mode control in the Session HUD and composer options sheet, showing the enabled-vs-active split so a provider-declined fast mode reads as declined (#677).
 
 ## Choose a download
 

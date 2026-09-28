@@ -65,6 +65,7 @@ export type SessionParamsSlice = Pick<
   | "setFollowUpMode"
   | "setInterruptMode"
   | "setAutoCompaction"
+  | "setFastMode"
   | "setAutoRetry"
   | "abortRetry"
   | "compactSession"
@@ -541,6 +542,25 @@ export function createSessionParamsSlice(
     m.patchSession(tabId, { autoCompactionEnabled: enabled });
   };
 
+  /**
+   * omp's fast mode: `enabled` is the session setting, `active` the computed
+   * truth. The response always reports both as computed values, so there is
+   * no optimistic patch. A same-value enable is NOT skipped: after a direct
+   * Anthropic rejection the setting is already true while `active` is false,
+   * and only an explicit enable clears that sticky fallback (rpc.md).
+   */
+  const setFastMode = async (tabId: string, enabled: boolean): Promise<void> => {
+    const resp = await m.runCommand(tabId, { type: "set_fast_mode", enabled });
+    if (resp === null) return; // failure already recorded; state untouched
+    const data = respData(resp);
+    m.patchSession(tabId, {
+      fastModeEnabled: boolField(data, "enabled") ?? enabled,
+      ...(boolField(data, "active") !== undefined
+        ? { fastModeActive: boolField(data, "active") === true }
+        : {}),
+    });
+  };
+
   const setAutoRetry = async (tabId: string, enabled: boolean): Promise<void> => {
     await m.runCommand(tabId, { type: "set_auto_retry", enabled });
   };
@@ -751,7 +771,7 @@ export function createSessionParamsSlice(
     const invoked = boolField(respData(resp), "agentInvoked");
     if (invoked === false) settle({ status: "done" });
     else if (invoked === true) settle({ status: "agent" });
-    if (command.name === "compact") await m.refreshUsage(tabId);
+    if (command.name === "compact" || command.name === "fast") await m.refreshUsage(tabId);
     // `agentInvoked` absent (older runtime): stay running — prompt_result's
     // id mapping or the next agent_start settles it.
   };
@@ -942,6 +962,7 @@ export function createSessionParamsSlice(
     setFollowUpMode,
     setInterruptMode,
     setAutoCompaction,
+    setFastMode,
     setAutoRetry,
     abortRetry,
     compactSession,

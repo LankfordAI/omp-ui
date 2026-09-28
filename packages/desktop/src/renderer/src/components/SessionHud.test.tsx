@@ -1192,3 +1192,92 @@ describe("SessionHud provider quota readout (issue #673)", () => {
     expect(carvedOut(chip)).toBe(true);
   });
 });
+
+describe("SessionHud fast mode chip (issue #677)", () => {
+  const desktop = (): void => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  };
+
+  const seedFast = (enabled: boolean, active: boolean): void => {
+    useStore.setState((state) => ({
+      rpc: {
+        ...state.rpc,
+        [TAB]: {
+          ...state.rpc[TAB]!,
+          session: {
+            ...state.rpc[TAB]!.session!,
+            fastModeEnabled: enabled,
+            fastModeActive: active,
+          },
+        },
+      },
+    }));
+  };
+
+  const renderWide = (): HTMLElement => {
+    desktop();
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    return host;
+  };
+
+  it("hides the chip when fast mode is neither enabled nor active", () => {
+    seedFast(false, false);
+    const host = renderWide();
+    expect(host.textContent).not.toContain("fast");
+  });
+
+  it("shows the signal chip when only active is true (Fireworks provider tier)", () => {
+    seedFast(false, true);
+    const host = renderWide();
+    const chip = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="fast mode active — priority serving live · click to turn off"]',
+    )!;
+    expect(chip).not.toBeNull();
+    expect(chip.querySelector("span")?.classList.contains("bg-signal")).toBe(true);
+  });
+
+  it("shows the copper declined chip when the setting is on but the provider refused", () => {
+    seedFast(true, false);
+    const host = renderWide();
+    const chip = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="fast mode enabled but the provider declined it · click to retry"]',
+    )!;
+    expect(chip).not.toBeNull();
+    expect(chip.querySelector("span")?.classList.contains("bg-copper")).toBe(true);
+  });
+
+  it("a chip click sends set_fast_mode with the toggled setting", () => {
+    const setFastMode = vi.fn(async () => {});
+    useStore.setState({ setFastMode });
+    seedFast(true, true);
+    const host = renderWide();
+    const chip = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="fast mode active — priority serving live · click to turn off"]',
+    )!;
+    act(() => chip.click());
+    expect(setFastMode).toHaveBeenCalledWith(TAB, false);
+  });
+
+  it("the modes popover row carries the always-available switch", () => {
+    const setFastMode = vi.fn(async () => {});
+    useStore.setState({ setFastMode });
+    seedFast(false, false);
+    const host = renderWide();
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
+    act(() => trigger.click());
+    const sw = document.body.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="fast mode"]',
+    )!;
+    expect(sw).not.toBeNull();
+    expect(sw.getAttribute("role")).toBe("switch");
+    expect(sw.getAttribute("title")).toBe("fast mode off · click to enable priority serving");
+    act(() => sw.click());
+    expect(setFastMode).toHaveBeenCalledWith(TAB, true);
+  });
+});

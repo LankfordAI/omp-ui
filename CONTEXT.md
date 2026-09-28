@@ -236,6 +236,16 @@ under it applies omp's `defaultThinkingLevel: "auto"` settings overlay — the
 `model:level` selector grammar has no `:auto` suffix.
 _Avoid_: treating the resolved level as "the" thinking level while auto is on
 
+**Fast mode**:
+omp's per-session serving preference: the *setting* is what `/fast` toggles
+(`fastModeEnabled`), the *active* state (`fastModeActive`) is whether priority
+serving is actually live. The two can disagree — a provider can decline
+`speed: "fast"`, leaving the setting on while nothing is active, and a
+provider-level tier can keep serving active while the session setting is off.
+omp-ui's native control shows the truth and switches the setting; terminal
+tabs stay on omp's own `/fast`.
+_Avoid_: turbo, priority mode as a UI label — `fast` is the wire word
+
 **Subscription sign-in**:
 Signing in to a model provider's subscription plan (currently ChatGPT,
 provider id `openai-codex`) from Settings → Providers, under a
