@@ -58,6 +58,7 @@ import type {
   PlanExecutionContext,
   PlanExecutionOptions,
 } from "../lib/plan-concerns";
+import type { GitResolutionTrigger } from "../lib/git-resolution-prompt";
 import type {
   ModelInfo,
   PromptRoute,
@@ -774,6 +775,15 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * when main rejected — already reported to the error notices.
    */
   syncWorktreeSession(tabId: string, source: string): Promise<WorktreeSyncResult | null>;
+  /** Issue #675: spawn a session in the given checkout seeded with a git
+   * resolution playbook (divergence integration or a stopped merge). Routes
+   * through the checkout's owner instance; reuses the worktree when the path
+   * is one, so the session lands in the checkout the branch chip shows. */
+  spawnGitResolution(
+    projectCwd: string,
+    trigger: GitResolutionTrigger,
+    instanceId?: string | null,
+  ): Promise<void>;
   /**
    * Renames a worktree session's branch in the checkout and on its record
    * (issues #386, #389); false when main rejected — already reported.

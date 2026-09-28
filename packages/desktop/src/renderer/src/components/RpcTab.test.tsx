@@ -36,7 +36,7 @@ const backendMock = {
     repoRoot: null, current: null, branches: [], defaultBranch: null,
     upstreamRef: null, upstreamRemote: null, hasUpstream: false,
     // Not a git repo at all: no remote to push to.
-    ahead: 0, behind: 0, upstreamFetchedAt: null, upstreamRefreshError: null, defaultRemote: null,
+    ahead: 0, behind: 0, mergeInProgress: false, upstreamFetchedAt: null, upstreamRefreshError: null, defaultRemote: null,
   })),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
   setProjectDefaultModel: vi.fn(async () => {}),
@@ -80,7 +80,7 @@ function seed(selectedSubagent: string | null): void {
       "/p": {
         repoRoot: null, current: null, branches: [], defaultBranch: null,
         upstreamRef: null, upstreamRemote: null, hasUpstream: false,
-        ahead: 0, behind: 0, upstreamFetchedAt: null, upstreamRefreshError: null, defaultRemote: null,
+        ahead: 0, behind: 0, mergeInProgress: false, upstreamFetchedAt: null, upstreamRefreshError: null, defaultRemote: null,
       },
     },
     rpc: {

@@ -18,6 +18,7 @@ const OFF_REPO: BranchList = {
   hasUpstream: false,
   ahead: 0,
   behind: 0,
+  mergeInProgress: false,
   upstreamFetchedAt: null,
   upstreamRefreshError: null,
   // OFF_REPO: not a git repo, so there is no remote at all.

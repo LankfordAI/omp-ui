@@ -29,6 +29,7 @@ const listing: BranchList = {
   hasUpstream: false,
   ahead: 0,
   behind: 0,
+  mergeInProgress: false,
   upstreamFetchedAt: null,
   upstreamRefreshError: null,
   // The repo has an origin: the done row's publish target and PR host.

@@ -253,6 +253,7 @@ describe("listBranches", () => {
       hasUpstream: false,
       ahead: 0,
       behind: 0,
+      mergeInProgress: false,
       upstreamFetchedAt: null,
       upstreamRefreshError: null,
       defaultRemote: null,
@@ -290,6 +291,20 @@ describe("listBranches", () => {
     expect(list.upstreamRemote).toBeNull();
     expect(list.hasUpstream).toBe(false);
     expect([list.ahead, list.behind]).toEqual([0, 0]);
+  });
+
+  it("reports mergeInProgress only while a conflicted merge is stopped in the checkout", async () => {
+    const dir = await tmpRepo();
+    await commitFile(dir, "conflict.txt", "line\n", "seed");
+    await gitIn(dir, ["checkout", "-q", "-b", "side"]);
+    await commitFile(dir, "conflict.txt", "side\n", "side edit");
+    await gitIn(dir, ["checkout", "-q", "main"]);
+    await commitFile(dir, "conflict.txt", "main\n", "main edit");
+    expect((await listBranches(dir)).mergeInProgress).toBe(false);
+    await expect(gitIn(dir, ["merge", "--no-edit", "side"])).rejects.toThrow();
+    expect((await listBranches(dir)).mergeInProgress).toBe(true);
+    await gitIn(dir, ["merge", "--abort"]);
+    expect((await listBranches(dir)).mergeInProgress).toBe(false);
   });
 
   it("resolves defaultRemote as origin, else the sole remote, else null", async () => {

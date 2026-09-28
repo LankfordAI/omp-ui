@@ -1442,3 +1442,131 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
     expect(h.useStore.getState().focusedTabByProject).toEqual({});
   });
 });
+
+describe("spawnGitResolution (issue #675)", () => {
+  const FRESH = "resolve-1";
+  const diverged = {
+    kind: "diverged" as const,
+    branch: "main",
+    upstream: "origin/main",
+    cwd: "/p",
+  };
+
+  /** Registered local project "/p"; the spawn lands on FRESH. */
+  function seedSpawn(): void {
+    h.backendState = h.stateWithRecord("sess-1", "dormant");
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: FRESH });
+  }
+
+  /** Answers every command sent so far, returning the prompt messages. */
+  function answerSent(): string[] {
+    const prompts: string[] = [];
+    for (const { tabId, cmd } of h.sent.splice(0)) {
+      h.respond(tabId, cmd, {});
+      if (cmd.type === "prompt") prompts.push(String(cmd.message));
+    }
+    return prompts;
+  }
+
+  it("spawns in the project checkout and seeds the playbook once the boot reports ready", async () => {
+    seedSpawn();
+    const launch = h.useStore.getState().spawnGitResolution("/p", diverged);
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      planMode: false,
+      worktree: null,
+    });
+    const mounted = h.useStore.getState();
+    expect(mounted.tabs.map((tab) => tab.tabId)).toEqual([FRESH]);
+    expect(mounted.activeTabId).toBe(FRESH);
+    // Nothing goes to omp before the process reports ready.
+    expect(h.sent).toEqual([]);
+
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState() } });
+    await h.flushMicrotasks();
+    const seeded = answerSent();
+    expect(seeded).toHaveLength(1);
+    expect(seeded[0]).toContain("Integrate the diverged branch in this checkout: /p");
+    expect(seeded[0]).toContain("origin/main");
+    await launch;
+    expect(h.sent).toEqual([]);
+  });
+
+  it("reuses the checkout's worktree and spawns under its registered project", async () => {
+    const wt = { path: "/p/.omp-ui/wt/abc", branch: "wt/abc", base: "main" };
+    h.backendState = h.stateWithRecord("sess-1", "dormant", wt);
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: FRESH });
+
+    const launch = h.useStore.getState().spawnGitResolution(wt.path, {
+      kind: "merge",
+      branch: wt.branch,
+      cwd: wt.path,
+    });
+    await h.flushMicrotasks();
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ projectCwd: "/p", worktree: { reuse: wt } }),
+    );
+
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState() } });
+    await h.flushMicrotasks();
+    const seeded = answerSent();
+    expect(seeded).toHaveLength(1);
+    expect(seeded[0]).toContain(
+      "A merge is in progress in this checkout: /p/.omp-ui/wt/abc",
+    );
+    await launch;
+  });
+
+  it("reports a rejected spawn and mounts no tab", async () => {
+    seedSpawn();
+    h.mockBackend.spawnSession.mockRejectedValueOnce(
+      new Error("no model provider configured"),
+    );
+    await h.useStore.getState().spawnGitResolution("/p", diverged);
+    expect(h.useStore.getState().tabs).toEqual([]);
+    expect(h.errorMessages()).toEqual([
+      expect.stringContaining("no model provider configured"),
+    ]);
+    expect(h.sent).toEqual([]);
+  });
+
+  it("sends nothing when the boot exits before ready", async () => {
+    seedSpawn();
+    const launch = h.useStore.getState().spawnGitResolution("/p", diverged);
+    await h.flushMicrotasks();
+    h.useStore.setState({ exited: { [FRESH]: 1 } });
+    await launch;
+    expect(h.sent).toEqual([]);
+    expect(h.errorMessages()).toEqual([]);
+  });
+
+  it("reports a boot that never finishes starting and sends nothing", async () => {
+    vi.useFakeTimers();
+    try {
+      seedSpawn();
+      const launch = h.useStore.getState().spawnGitResolution("/p", diverged);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await launch;
+      expect(h.sent).toEqual([]);
+      expect(h.errorMessages().join("\n")).toContain("never finished starting");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

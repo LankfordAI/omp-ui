@@ -18,6 +18,7 @@ import {
   composeImplementationPrompt,
   type PlanExecutionOptions,
 } from "../../lib/plan-concerns";
+import { gitResolutionPrompt, type GitResolutionTrigger } from "../../lib/git-resolution-prompt";
 import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
@@ -33,7 +34,7 @@ import {
   type Watchers,
 } from "./shared";
 import { disposeTabRuntime } from "./rpc-command";
-import { findInstance, findOwner, findRecord, focusOn, forgetFocus } from "./view";
+import { findInstance, findOwner, findRecord, findWorktreeAt, focusOn, forgetFocus } from "./view";
 import type {
   DeleteConfirmation,
   LifecycleConfirmation,
@@ -112,6 +113,11 @@ export type LifecycleSlice = Pick<
     planImplementationSource: Readonly<PlanImplementationSource>,
     concerns: readonly AdvisorNote[],
     options?: PlanExecutionOptions,
+  ): Promise<void>;
+  spawnGitResolution(
+    projectCwd: string,
+    trigger: GitResolutionTrigger,
+    instanceId?: string | null,
   ): Promise<void>;
 };
 
@@ -440,6 +446,71 @@ export function createLifecycleSlice(
         err,
       );
     }
+  };
+
+  /**
+   * Issue #675: the branch chip's resolve row. Spawns one fresh rpc-ui
+   * session in the checkout the chip shows — reusing the registered
+   * worktree when that path is a session's checkout, never minting a new
+   * one — and seeds it with the resolution playbook once it reports ready.
+   */
+  const spawnGitResolution = async (
+    projectCwd: string,
+    trigger: GitResolutionTrigger,
+    instanceId?: string | null,
+  ): Promise<void> => {
+    const owner = findWorktreeAt(get().state, trigger.cwd);
+    const spawnProjectCwd = owner?.projectCwd ?? projectCwd;
+    const spawnInstanceId = owner?.instanceId ?? instanceId ?? null;
+    const worktree: SpawnWorktree = owner !== null ? { reuse: owner.worktree } : null;
+    const { advisor, advisorModel } = await resolveSpawnParams(
+      spawnProjectCwd,
+      { mode: "rpc-ui" },
+      spawnInstanceId,
+    );
+    let freshId: string;
+    try {
+      ({ tabId: freshId } = await backendFor(spawnInstanceId).spawnSession({
+        origin: "new",
+        projectCwd: spawnProjectCwd,
+        mode: "rpc-ui",
+        advisor,
+        advisorModel,
+        cols: 80,
+        rows: 24,
+        planMode: false,
+        worktree,
+      }));
+    } catch (err) {
+      get().reportError(err); // the branch chip has no dialog to render it inline
+      return;
+    }
+    set((s) => ({
+      tabs: [
+        ...s.tabs,
+        { tabId: freshId, mode: "rpc-ui", projectCwd: spawnProjectCwd, hidden: false, instanceId: spawnInstanceId },
+      ],
+      ...focusOn(s, freshId, projectKey(spawnInstanceId, spawnProjectCwd)),
+      exited: dropExited(s.exited, freshId),
+    }));
+    await m.pollUntilSettled(freshId);
+    if (get().rpc[freshId]?.status !== "ready") {
+      // An errored boot owns a failure banner and an exited one owns an
+      // exit notice; a boot that simply never reported is the silence #622
+      // hides behind — say so rather than prompt into the void.
+      if (
+        get().rpc[freshId]?.status !== "error" &&
+        get().exited[freshId] === undefined
+      ) {
+        get().reportError(
+          new Error(
+            "the resolution session never finished starting — open a session in the checkout and resolve manually",
+          ),
+        );
+      }
+      return;
+    }
+    await get().sendPrompt(freshId, gitResolutionPrompt(trigger), "prompt");
   };
 
   /**
@@ -1150,6 +1221,7 @@ export function createLifecycleSlice(
     dropTab,
     eraseSession,
     spawnFreshImplementation,
+    spawnGitResolution,
     restartSession,
     addProject,
     removeProject,
