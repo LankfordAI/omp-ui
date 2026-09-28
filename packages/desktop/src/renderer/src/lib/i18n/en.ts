@@ -890,6 +890,12 @@ export const en = {
   "settings.omp.subagentRosterEmpty": "no agents discovered yet — refresh to enumerate omp's agents",
   "settings.omp.modelRoleLabel": "model role {role}",
   "settings.omp.modelRolePlaceholder": "model[:level] — blank = unset",
+  "settings.omp.judgePlaceholder": "provider/model — blank = unset",
+  "settings.omp.judgeBrowse": "browse…",
+  "settings.omp.judgeUnset": "Unset — omp's built-in judge chain",
+  "settings.omp.judgeOutsideCatalog": " · not in omp's catalog",
+  "settings.omp.judgeNone": "omp published no judge-kind models",
+  "settings.omp.judgeLoadFailed": "could not read omp's judge catalog: {message}",
   "settings.omp.mcpNote":
     "MCP servers resolve per project from native and translated tool configs (issue #36); the global list applies to every project.",
   "settings.omp.mcpFocusFirst":

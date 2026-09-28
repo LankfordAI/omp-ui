@@ -121,6 +121,7 @@ const VALID_ARGS = {
   readPlanFile: ["tab-1", "/tmp/plan.html"],
   readProviderKeys: [null],
   readProviderOAuth: [],
+  readJudgeModels: [],
   readSttModels: [],
   readWebSearchProviders: [],
   regenerateRemoteToken: [],
