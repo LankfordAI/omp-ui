@@ -300,6 +300,46 @@ test("highlights lift verbatim, linkify refs, and drop stale bullets", () => {
   ]);
 });
 
+test("only the previous Highlights section dedupes lifted bullets", () => {
+  const releasesDoc = ["## Unreleased", "", "- Keep the canvas visible across resizes (#653).", ""].join("\n");
+  const finalized = (prevBody) =>
+    finalizeNotes({ entries: new Map(), untracked: [], issueMeta: new Map(), releasesDoc, prevBody, url }).highlights;
+
+  // A ref mentioned only in the auto-generated change list is a different
+  // change (dc56344's dedup guards forgotten clears, not split-shipped issues).
+  const whatsChanged = [
+    "## Highlights",
+    "",
+    "This release ships 1 change in 1 commit from 1 contributor.",
+    "",
+    "* Unrelated prose ([#640](https://github.com/octo/widgets/issues/640)).",
+    "",
+    "## What's Changed",
+    "",
+    "### Fixes",
+    "",
+    "- add the #653 resize-canvas smoke step ([#653](https://github.com/octo/widgets/issues/653)) by @a in [9a15e75](https://github.com/octo/widgets/commit/9a15e75)",
+  ].join("\n");
+  assert.deepEqual(finalized(whatsChanged), [
+    "Keep the canvas visible across resizes ([#653](https://github.com/octo/widgets/issues/653)).",
+  ]);
+
+  // The forgotten-clear case still drops: the prose already shipped as a highlight.
+  const highlighted = [
+    "## Highlights",
+    "",
+    "This release ships 1 change in 1 commit from 1 contributor.",
+    "",
+    "* Keep the canvas visible across resizes ([#653](https://github.com/octo/widgets/issues/653)).",
+  ].join("\n");
+  assert.deepEqual(finalized(highlighted), []);
+
+  // A hand-written body without the heading suppresses nothing.
+  assert.deepEqual(finalized("Curated by hand, mentions #653 somewhere."), [
+    "Keep the canvas visible across resizes ([#653](https://github.com/octo/widgets/issues/653)).",
+  ]);
+});
+
 test("a lifted bullet's relative doc link becomes a blob URL at the tag", () => {
   const doc = [
     "# Release notes", "", "## Unreleased", "",

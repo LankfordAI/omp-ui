@@ -12,6 +12,10 @@ const RE = {
   prMerge: /Merge pull request #([0-9]+)/i,
   conventional: /^([a-z]+)(?:\(([^)]*)\))?(!)?:\s*(.*)$/,
   refTail: /\s*\((?:(?:[A-Za-z]+\s+)?#\d+[,)?\s]*)+\)\s*$/,
+  // Heading of the rendered Highlights section in a previous release body;
+  // highlightsSection() slices the section body itself, because a
+  // $-anchored pattern under m would stop at the first newline.
+  highlights: /^## Highlights\n/m,
   unreleased: /## Unreleased\n([\s\S]*?)(?=\n## |\s*$)/,
   bullet: /^\s*[-*]\s+(.*)$/,
   // Markdown link syntax with the target isolated: group 2 is the <…> form,
@@ -124,8 +128,15 @@ function cleanTitle(title) {
   return (title ?? "").replace(/^\[(Feature|Bug|Chore)\]:\s*/i, "").trim();
 }
 
-function bareNumbers(text) {
-  return [...text.matchAll(RE.bare)].map((match) => Number(match[2]));
+// The rendered Highlights section of a previous release body, up to the next
+// "## " heading or the end. A hand-written body without the heading yields "":
+// no dedup, the safe direction (a forgotten clear then costs a duplicate once).
+function highlightsSection(body) {
+  const heading = RE.highlights.exec(body);
+  if (!heading) return "";
+  const rest = body.slice(heading.index + heading[0].length);
+  const next = /^## /m.exec(rest);
+  return next ? rest.slice(0, next.index) : rest;
 }
 
 export function groupCommits(commits, { branchChildren }) {
@@ -270,7 +281,15 @@ export function liftHighlights(markdown, previousRefs, url) {
 }
 
 export function finalizeNotes({ entries, untracked, issueMeta, releasesDoc, prevBody, url }) {
-  const previousRefs = new Set(bareNumbers(prevBody ?? ""));
+  // Dedup only catches forgotten-clear bullets, whose curated prose lived in
+  // the previous Highlights section. A ref mentioned elsewhere in the body —
+  // a What's Changed commit subject touching the same issue — belongs to a
+  // different change and must not swallow the new bullet (#667).
+  // RE.token (not the keyword-first parseRefs) so a linkified ([#N](url))
+  // bullet counts as a ref, which is how every lifted bullet renders.
+  const previousRefs = new Set(
+    [...highlightsSection(prevBody ?? "").matchAll(RE.token)].map((tok) => Number(tok[1] ?? tok[2])),
+  );
   const highlights = liftHighlights(releasesDoc, previousRefs, url);
   const planned = [];
   for (const entry of entries.values()) {
