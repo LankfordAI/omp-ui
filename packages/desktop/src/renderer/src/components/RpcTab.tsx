@@ -13,7 +13,8 @@ import { PlanReview } from "./PlanReview";
 import { RemoteInstanceBanner } from "./RemoteInstanceBanner";
 import { SessionHud } from "./SessionHud";
 import { SubagentView } from "./SubagentView";
-import { TranscriptView, TuiHandoffButton } from "./TranscriptView";
+import { linkify } from "./Markdown";
+import { TranscriptView, ShareLinkRow, TuiHandoffButton } from "./TranscriptView";
 import { Button, Chip, CopyButton, Panel, ProgressSweep, Sheet } from "./ui";
 import { BrowserPane } from "./browser-pane/BrowserPane";
 import { BrowserPaneSplit, useDesktopPanelWidths } from "./browser-pane/BrowserPaneSplit";
@@ -115,9 +116,10 @@ function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
                 data-selectable
                 className="max-w-full overflow-auto whitespace-pre-wrap break-words text-left text-ink-mid"
               >
-                {item.output}
+                {linkify(item.output)}
               </pre>
             )}
+            <ShareLinkRow item={item} />
             {/* A refused verb can be the session's first input, which leaves
                 the hero undocked — so this surface needs the handoff too. */}
             <TuiHandoffButton item={item} tabId={tabId} />

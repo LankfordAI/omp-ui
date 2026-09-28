@@ -4,6 +4,7 @@ import { AppUpdateCard } from "./components/AppUpdateCard";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
 import { ImageViewerHost } from "./components/ImageViewer";
 import { BrowserPaneClearDialog } from "./components/BrowserPaneClearDialog";
+import { ShareSessionDialog } from "./components/ShareSessionDialog";
 import { DiagnosticsExportDialog } from "./components/DiagnosticsExportDialog";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { GettingStarted } from "./components/GettingStarted";
@@ -273,6 +274,7 @@ export default function App() {
   const diagnosticsDialogOpen = useStore((s) => s.diagnosticsDialogOpen);
   const gettingStartedOpen = useStore((s) => s.gettingStartedOpen);
   const browserPaneClearDialogOpen = useStore((s) => s.browserPaneClearDialogOpen);
+  const shareConfirmTab = useStore((s) => s.shareConfirmTab);
   const capabilitiesViewer = useStore((s) => s.capabilitiesViewer);
   const projectSettings = useStore((s) => s.projectSettings);
   const closeProjectSettings = useStore((s) => s.closeProjectSettings);
@@ -517,6 +519,7 @@ export default function App() {
       {projectPickerOpen && <ProjectPicker />}
       {diagnosticsDialogOpen && <DiagnosticsExportDialog />}
       {browserPaneClearDialogOpen && <BrowserPaneClearDialog />}
+      {shareConfirmTab !== null && <ShareSessionDialog tabId={shareConfirmTab} />}
       {capabilitiesModal !== null && (
         <CapabilitiesViewer
           scopeCwd={capabilitiesModal.scopeCwd}

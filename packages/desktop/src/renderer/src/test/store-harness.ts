@@ -348,6 +348,23 @@ const mockBackend = {
 // recording, and nothing auto-accepts on a test's behalf.
 const openedUrls: string[] = [];
 
+/** In-memory localStorage for the node-env store tests: the first-share
+ *  privacy flag (lib/share-privacy, issue #679) must behave there exactly
+ * as the real storage does in the renderer. */
+const storageMap: Record<string, string> = {};
+const localStorageStub = {
+  getItem: (key: string): string | null => storageMap[key] ?? null,
+  setItem: (key: string, value: string): void => {
+    storageMap[key] = value;
+  },
+  removeItem: (key: string): void => {
+    delete storageMap[key];
+  },
+  clear: (): void => {
+    for (const key of Object.keys(storageMap)) delete storageMap[key];
+  },
+};
+
 const windowStub = {
   ompBackend: mockBackend,
   alert: (msg: string): never => {
@@ -362,6 +379,8 @@ const windowStub = {
     openedUrls.push(String(url ?? ""));
     return null;
   },
+  // localStorage for the node-environment store tests (issue #679).
+  localStorage: localStorageStub,
   get setTimeout() {
     return globalThis.setTimeout;
   },
@@ -515,6 +534,7 @@ beforeEach(() => {
   rpcCommandMachinery.resetForTests();
   resetTabRuntimesForTests();
   sent.length = 0;
+  localStorageStub.clear();
   openedUrls.length = 0;
   backendState = makeBackendState();
   useStore.setState({
@@ -531,6 +551,7 @@ beforeEach(() => {
     compactionSettings: {},
     deleteConfirmation: null,
     gettingStartedOpen: false,
+    shareConfirmTab: null,
     lifecycleConfirmation: null,
     errorNotices: [],
     appUpdate: idleAppUpdate,
@@ -594,4 +615,6 @@ export const h = {
   deferred,
   /** The error notices the store recorded, in arrival order (issue #373). */
   errorMessages: () => useStore.getState().errorNotices.map((n) => n.message),
+  /** The window stub's storage map: tests seed/read the share-privacy flag. */
+  storageMap,
 };

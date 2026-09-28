@@ -2454,3 +2454,98 @@ describe("runShellCommand (issue #678)", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(0);
   });
 });
+
+describe("shareSession (issue #679)", () => {
+  /** The per-install first-share privacy flag, seen. */
+  const seenPrivacy = (): void => {
+    h.storageMap["omp-ui.sharePrivacySeen"] = "1";
+  };
+
+  beforeEach(() => {
+    h.useStore.setState({
+      state: h.stateWithRecord("sess-1"),
+      rpc: { [h.TAB]: rpcTabState() },
+    });
+    h.sent.length = 0;
+  });
+
+  it("forwards /share through the slash-command chain when advertised and seen", async () => {
+    seenPrivacy();
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState({ commands: [{ name: "share", description: "" }] }) },
+    });
+    const promise = h.useStore.getState().shareSession(h.TAB);
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/share" });
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+      kind: "command",
+      name: "share",
+      status: "running",
+    });
+    expect(h.useStore.getState().shareConfirmTab).toBeNull();
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await promise;
+  });
+
+  it("matches the share command by alias", async () => {
+    seenPrivacy();
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          commands: [{ name: "share-session", aliases: ["share"], description: "" }],
+        }),
+      },
+    });
+    const promise = h.useStore.getState().shareSession(h.TAB);
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/share" });
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await promise;
+  });
+
+  it("leaves a notice and sends nothing when the command is not advertised", async () => {
+    seenPrivacy();
+    await h.useStore.getState().shareSession(h.TAB);
+    expect(h.sent).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]!.items[0]).toMatchObject({
+      kind: "notice",
+      level: "info",
+      text: "this omp session does not offer /share — update omp to publish the share command",
+    });
+  });
+
+  it("opens the first-share dialog and sends nothing while the flag is unseen", async () => {
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState({ commands: [{ name: "share", description: "" }] }) },
+    });
+    await h.useStore.getState().shareSession(h.TAB);
+    expect(h.sent).toHaveLength(0);
+    expect(h.useStore.getState().shareConfirmTab).toBe(h.TAB);
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(0);
+  });
+
+  it("confirmSharePrivacy writes the flag, clears the slot, and forwards once", async () => {
+    h.useStore.setState({
+      shareConfirmTab: h.TAB,
+      rpc: { [h.TAB]: rpcTabState({ commands: [{ name: "share", description: "" }] }) },
+    });
+    const promise = h.useStore.getState().confirmSharePrivacy(h.TAB);
+    expect(h.useStore.getState().shareConfirmTab).toBeNull();
+    expect(h.storageMap["omp-ui.sharePrivacySeen"]).toBe("1");
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(1);
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await promise;
+    // A later share skips the dialog: the flag persisted.
+    const later = h.useStore.getState().shareSession(h.TAB);
+    h.respond(h.TAB, h.sent.at(-1)!.cmd, { agentInvoked: false });
+    await later;
+    expect(h.useStore.getState().shareConfirmTab).toBeNull();
+  });
+
+  it("cancelSharePrivacy closes without forwarding or persisting", async () => {
+    h.useStore.setState({ shareConfirmTab: h.TAB });
+    h.useStore.getState().cancelSharePrivacy();
+    expect(h.useStore.getState().shareConfirmTab).toBeNull();
+    expect(h.sent).toHaveLength(0);
+    expect(h.storageMap["omp-ui.sharePrivacySeen"]).toBeUndefined();
+  });
+});

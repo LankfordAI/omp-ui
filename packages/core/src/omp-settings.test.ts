@@ -11,6 +11,7 @@ import {
   OMP_MAX_CONCURRENCY_KEY,
   OMP_MODEL_ROLES_KEY,
   OMP_TELEMETRY_EXPORT_KEY,
+  SHARE_SETTING_GROUP,
   PYTHON_INTERPRETER_KEY,
   pristineEnvironment,
   type OmpConfigRunner,
@@ -287,6 +288,35 @@ describe("readOmpSettings", () => {
       type: "boolean",
       value: true,
       layer: "default",
+    });
+  });
+
+  it("emits the allowlisted share keys for the first-share dialog", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
+        {
+          global: {
+            "share.store": entry("blob", "enum", "Where /share uploads the encrypted session blob"),
+            "share.serverUrl": entry("https://my.omp.sh/s", "string", "Share viewer/upload base"),
+            "share.redactSecrets": entry(true, "boolean", "Run the secret obfuscator over /share snapshots"),
+          },
+          pristine: {},
+        },
+        null,
+      ),
+    );
+    expect(snapshot.error).toBeNull();
+    expect(snapshot.entries.map((e) => e.key)).toEqual(SHARE_SETTING_GROUP.keys);
+    expect(snapshot.entries.find((e) => e.key === "share.store")).toMatchObject({
+      type: "enum",
+      value: "blob",
+      layer: "global",
+    });
+    expect(snapshot.entries.find((e) => e.key === "share.redactSecrets")).toMatchObject({
+      type: "boolean",
+      value: true,
+      layer: "global",
     });
   });
 
@@ -744,6 +774,10 @@ describe("readWebSearchProviders", () => {
       listed["providers.webSearchTimeoutSeconds"],
       "omp no longer publishes providers.webSearchTimeoutSeconds",
     ).toBeDefined();
+    // The first-share dialog's effective read (issue #679).
+    for (const key of SHARE_SETTING_GROUP.keys) {
+      expect(listed[key], `omp no longer publishes ${key}`).toBeDefined();
+    }
     const discovered = await readWebSearchProviders({ ompPath });
     expect(discovered.providers.length, "omp published no web-search provider catalog").toBeGreaterThan(0);
   }, 30_000);

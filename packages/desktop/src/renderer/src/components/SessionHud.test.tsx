@@ -22,6 +22,7 @@ const PLAN_MODE_TOOLTIP_WITH_PATH = "Plan mode — read-only exploration — /pl
 const PLAN_MODE_TOOLTIP_WITHOUT_PATH = "Plan mode — read-only exploration — no plan drafted";
 const compactSession = vi.fn(async () => "acked" as const);
 const exportHtml = vi.fn(async () => {});
+const shareSession = vi.fn(async () => {});
 const branchSession = vi.fn(async () => {});
 const newSession = vi.fn(async () => {});
 const toggleConsole = vi.fn();
@@ -100,7 +101,7 @@ beforeEach(() => {
     },
     compactSurface: null,
     compactionSettings: {},
-    compactSession, exportHtml, branchSession, newSession, toggleConsole,
+    compactSession, exportHtml, shareSession, branchSession, newSession, toggleConsole,
   });
 });
 
@@ -162,6 +163,21 @@ describe("wide Session HUD", () => {
     expect(trigger.disabled).toBe(false);
     act(() => trigger.click());
     expect(newSession).toHaveBeenCalledWith("/p", undefined, null);
+  });
+
+  it("shares from the title-bar icon strip (#679)", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const trigger = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="publish an encrypted snapshot of this session"]',
+    )!;
+    expect(trigger.disabled).toBe(false);
+    act(() => trigger.click());
+    expect(shareSession).toHaveBeenCalledWith(TAB);
   });
 
   it("shows a remote worktree chip with only remote-safe actions (#435)", () => {
@@ -520,7 +536,7 @@ describe("compact Session HUD", () => {
     act(() => root!.render(<SessionHud tabId={TAB} />));
     const actions = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("session actions"))!;
     act(() => actions.click());
-    for (const label of ["build", "plan", "compact", "auto-compact", "export", "Capabilities", "branch", "new", "refresh", "steering", "follow-up", "interrupt", "auto-retry", "abort retry"]) {
+    for (const label of ["build", "plan", "compact", "auto-compact", "export", "share", "Capabilities", "branch", "new", "refresh", "steering", "follow-up", "interrupt", "auto-retry", "abort retry"]) {
       expect(document.body.textContent).toContain(label);
     }
     const compact = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "compact")!;
@@ -528,8 +544,11 @@ describe("compact Session HUD", () => {
     const branch = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "branch")!;
     const fresh = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "new")!;
     act(() => { compact.click(); exportButton.click(); branch.click(); fresh.click(); });
+    const share = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "share")!;
+    act(() => share.click());
     expect(compactSession).toHaveBeenCalledWith(TAB);
     expect(exportHtml).toHaveBeenCalledWith(TAB);
+    expect(shareSession).toHaveBeenCalledWith(TAB);
     expect(branchSession).toHaveBeenCalledWith(TAB);
     // #82: "new" runs the same spawn as /new and mod+shift+n, not an in-tab reset.
     expect(newSession).toHaveBeenCalledWith("/p", undefined, null);

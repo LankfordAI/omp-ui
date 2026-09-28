@@ -645,6 +645,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** True while the diagnostic-bundle export dialog is open (issue #413). */
   diagnosticsDialogOpen: boolean;
   browserPaneClearDialogOpen: boolean;
+  /** The tab whose first-share privacy dialog is open (issue #679); null = closed. */
+  shareConfirmTab: string | null;
   worktreeDialogProject: string | null;
   worktreeDialogInstanceId: string | null;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
@@ -682,6 +684,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   closeDiagnosticsDialog(): void;
   openBrowserPaneClearDialog(): void;
   closeBrowserPaneClearDialog(): void;
+  /** Records the first-share privacy flag and forwards /share for the tab (issue #679). */
+  confirmSharePrivacy(tabId: string): Promise<void>;
+  cancelSharePrivacy(): void;
   openCapabilitiesViewer(
     scopeCwd: string | null,
     tabId?: string,
@@ -877,6 +882,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     options?: { waitForCompletion?: boolean },
   ): Promise<CompactionOutcome>;
   exportHtml(tabId: string): Promise<void>;
+  /** Shares the session through omp's /share, gated on the first-share privacy
+   *  dialog (issue #679). Native (rpc-ui) sessions only; the command must be
+   *  advertised by the tab or the action leaves a notice instead of sending. */
+  shareSession(tabId: string): Promise<void>;
   branchSession(tabId: string): Promise<void>;
   renameSessionTo(tabId: string, name: string): Promise<void>;
   /** Re-title a live session from its transcript digest (issue #433). A user action, never automatic. */
