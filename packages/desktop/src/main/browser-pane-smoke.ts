@@ -99,6 +99,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** A frozen pane answers no DOM probe; the #656 steps report HUNG rather than stall the watchdog. */
+function raceHung<T>(probe: Promise<T>): Promise<T | "HUNG"> {
+  return Promise.race([probe, new Promise<"HUNG">((r) => setTimeout(() => r("HUNG"), 2000))]);
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -498,6 +503,43 @@ async function runDomSteps(reader: PageReader): Promise<void> {
   await sleep(100);
   value = await inputValue();
   recordStep("ime-composition", preedit === "user한🙂ㅎ" && value === "user한🙂한", { preedit, value }, await pending);
+
+
+  // #656 blur shape: the field had focus and lost it without any host input;
+  // char typing must stay inert and must never re-focus it.
+  await reader.eval("document.querySelector('#input').blur()");
+  await sleep(80);
+  const blurBefore = await inputValue();
+  pending = nextFrameLatency();
+  input({ type: "insertText", text: "x한" });
+  await sleep(150);
+  const blurValue = await raceHung(inputValue());
+  const blurActive = blurValue === "HUNG" ? "HUNG" : await raceHung(reader.eval<string>("document.activeElement?.tagName"));
+  recordStep("insert-text-after-blur",
+    blurValue === blurBefore && blurActive === "BODY",
+    { before: blurBefore, after: blurValue, active: blurActive }, await pending);
+  if (blurValue === "HUNG" || blurActive === "HUNG") { if (flags.once) finish("once"); return; }
+
+  // #656 click-away commit: a conversion interrupted by a host-dispatched click commits nothing
+  // into the page — no re-focus, no duplicate text.
+  await reader.eval("document.querySelector('#input').value = 'base'");
+  await clickAt(field.x, field.y);
+  await sleep(100);
+  await reader.eval("document.querySelector('#input').setSelectionRange(4, 4)");
+  input({ type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
+  await sleep(80);
+  const awayPreedit = await raceHung(inputValue());
+  await clickAt(flags.size.width - 40, 40);
+  await sleep(80);
+  pending = nextFrameLatency();
+  input({ type: "insertText", text: "한" });
+  await sleep(150);
+  const awayValue = await raceHung(inputValue());
+  const awayActive = await raceHung(reader.eval<string>("document.activeElement?.tagName"));
+  recordStep("ime-commit-after-click-away",
+    awayPreedit === "baseㅎ" && awayValue === "baseㅎ" && awayActive === "BODY",
+    { preedit: awayPreedit, after: awayValue, active: awayActive }, await pending);
+  if (awayValue === "HUNG" || awayActive === "HUNG") { if (flags.once) finish("once"); return; }
 
   const mid = { x: Math.round(flags.size.width / 2), y: Math.round(flags.size.height / 2) };
   pending = nextFrameLatency();

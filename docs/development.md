@@ -85,8 +85,9 @@ panes paint from a tab-capture `MediaStream`, and joined remote-instance panes
 from MessagePort JPEGs. Use a full `dev:headless` run to measure desktop
 painting, input-to-paint latency, ACK backpressure, hidden-tab filtering and
 renderer reload recovery. Pane text input is safe on a body-focused page: the
-host types a plain `insertText` as CDP char events and rides only a latched IME
-commit over the root debugger session, never `webContents.insertText` (#656).
+host types a plain `insertText` as CDP char events and rides only a provably-live
+IME commit over the root debugger session; a click into the page mid-conversion
+drops the debugger route entirely, never `webContents.insertText` (#656).
 Keep workload, density, quality and GPU mode fixed between baseline and changed
 runs; report software
 rendering separately. Verify the raster marker and JPEG payload size throughout:

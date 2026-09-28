@@ -94,6 +94,14 @@ export interface BrowserPaneHostDeps {
   warn?: (message: string) => void;
 }
 
+/**
+ * What the host proves about the page's IME composition between its own commands (#656).
+ * `live`: a nonempty preedit was forwarded and no dispatched input could have ended it.
+ * `dead`: the composition is over — a dispatched mouseDown/keyDown blurred or committed it —
+ * and its commit must not reach `Input.insertText`, which would re-focus the last editable.
+ */
+type PanePreedit = "none" | "live" | "dead";
+
 interface PaneEntry {
   tabId: string;
   desktopViewers: Set<string>;
@@ -131,8 +139,8 @@ interface PaneEntry {
   lastFrameAt: number | null;
   lastFrameProcessMs: number | null;
   lastError: string | null;
-  /** True between a forwarded nonempty preedit and its commit, cancel, or main-frame navigation (#656). */
-  preedit: boolean;
+  /** Transitions in `input()`; clears on main-frame navigation and page destroy (#656). */
+  preedit: PanePreedit;
 }
 
 function newEntry(tabId: string, lastUrl: string | null): PaneEntry {
@@ -166,7 +174,7 @@ function newEntry(tabId: string, lastUrl: string | null): PaneEntry {
     lastFrameAt: null,
     lastFrameProcessMs: null,
     lastError: null,
-    preedit: false,
+    preedit: "none",
   };
 }
 
@@ -362,18 +370,30 @@ export class BrowserPaneHost {
     switch (event.type) {
       case "insertText":
         if (event.text === "") return;
-        if (entry.preedit) {
-          // A live composition needs replacement with exact IME events (#541, #656).
-          entry.preedit = false;
-          void pane.commitComposition(event.text).catch(() => {});
-        } else {
-          // No composition: a char event is a no-op without an editable caret (#656).
-          void pane.typeChar(event.text).catch(() => {});
+        {
+          const route = entry.preedit;
+          entry.preedit = "none";
+          if (route === "live") {
+            // A composition the host knows nothing ended: replace it with exact IME events (#541, #656).
+            void pane.commitComposition(event.text).catch(() => {});
+          } else {
+            // No known composition: a char event is a no-op without an editable caret (#656).
+            void pane.typeChar(event.text).catch(() => {});
+          }
         }
         return;
       case "imeSetComposition":
-        entry.preedit = event.text !== "";
-        void pane.imeSetComposition(event.text, event.selectionStart, event.selectionEnd).catch(() => {});
+        if (event.text === "") {
+          // An empty update is the cancel the page can always honor (#550).
+          entry.preedit = "none";
+          void pane.imeSetComposition(event.text, event.selectionStart, event.selectionEnd).catch(() => {});
+        } else if (entry.preedit === "dead") {
+          // The page ended its composition on dispatched input; a forwarded preedit now would
+          // start a fresh one wherever that input landed (#656).
+        } else {
+          entry.preedit = "live";
+          void pane.imeSetComposition(event.text, event.selectionStart, event.selectionEnd).catch(() => {});
+        }
         return;
       case "edit":
         pane[event.command]();
@@ -381,8 +401,23 @@ export class BrowserPaneHost {
       case "keyDown":
       case "keyUp":
       case "char":
+        // A dispatched keyDown commits a live page composition (Enter) or moves the caret
+        // out of the preedit (arrows); the composer never emits one while converting (#656).
+        if (event.type === "keyDown" && entry.preedit === "live") entry.preedit = "dead";
         pane.sendInputEvent(event);
         return;
+      case "mouseDown": {
+        // The click commits or blurs the page's composition before any later command
+        // reaches the renderer; the latched commit must not ride ImeCommitText anymore (#656).
+        if (entry.preedit === "live") entry.preedit = "dead";
+        const d = entry.targetDsf;
+        pane.sendInputEvent({
+          ...event,
+          x: Math.min(entry.size.width, Math.max(0, event.x)) * d,
+          y: Math.min(entry.size.height, Math.max(0, event.y)) * d,
+        });
+        return;
+      }
       case "mouseWheel": {
         // Pane input is CSS px; the window is CSS × page zoom in DIPs (#646).
         const d = entry.targetDsf;
@@ -579,7 +614,7 @@ export class BrowserPaneHost {
     entry.capture?.dispose();
     entry.capture = null;
     entry.documentCommitted = false;
-    entry.preedit = false;
+    entry.preedit = "none";
     // The page's debugger session dies with it; a replacement starts with unknown state.
     entry.lastOverride = null;
     entry.geometry = null;
@@ -648,7 +683,7 @@ export class BrowserPaneHost {
         this.stopCapture(entry);
         entry.cached = null;
         entry.header = null;
-        entry.preedit = false;
+        entry.preedit = "none";
       }),
       pane.on("did-navigate", () => this.noteCommitted(tabId, entry, pane)),
       pane.on("did-navigate-in-page", () => this.noteCommitted(tabId, entry, pane, false)),

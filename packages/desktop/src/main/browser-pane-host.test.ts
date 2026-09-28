@@ -725,6 +725,36 @@ describe("BrowserPaneHost page lifecycle", () => {
     expect(kicks()).toBe(1); // same size: clear+set re-pin, no surface resize, no kick
   });
 
+  it("kills the debugger commit once dispatched input can have ended the composition", async () => {
+    const h = harness();
+    await h.host.ensure("t1");
+    const pane = h.panes[0]!.pane;
+    h.host.input("t1", { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
+    h.host.input("t1", { type: "mouseDown", x: 10, y: 10, button: "left", clickCount: 1 });
+    // Absorbing: updates between the click and the commit are dropped.
+    h.host.input("t1", { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
+    expect(pane.imeSetComposition).toHaveBeenCalledTimes(1);
+    h.host.input("t1", { type: "insertText", text: "한" });
+    expect(pane.commitComposition).not.toHaveBeenCalled();
+    expect(pane.typeChar).toHaveBeenCalledWith("한");
+    // The char commit ends the dead state: a fresh conversion is live again and commits exactly.
+    h.host.input("t1", { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
+    expect(pane.imeSetComposition).toHaveBeenCalledTimes(2);
+    h.host.input("t1", { type: "insertText", text: "한" });
+    expect(pane.commitComposition).toHaveBeenCalledWith("한");
+    // keyDown ends a live composition the same way; keyUp and char do not.
+    h.host.input("t1", { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
+    h.host.input("t1", { type: "keyUp", keyCode: "a" });
+    h.host.input("t1", { type: "char", keyCode: "a" });
+    h.host.input("t1", { type: "insertText", text: "한" });
+    expect(pane.commitComposition).toHaveBeenCalledTimes(2);
+    h.host.input("t1", { type: "imeSetComposition", text: "ㅎ", selectionStart: 1, selectionEnd: 1 });
+    h.host.input("t1", { type: "keyDown", keyCode: "Return" });
+    h.host.input("t1", { type: "insertText", text: "y" });
+    expect(pane.commitComposition).toHaveBeenCalledTimes(2);
+    expect(pane.typeChar).toHaveBeenLastCalledWith("y");
+  });
+
   it("drops input for a tab without a page", () => {
     const h = harness();
     expect(() => h.host.input("t1", { type: "keyDown", keyCode: "a" })).not.toThrow();

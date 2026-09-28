@@ -62,9 +62,16 @@ export interface PaneContents {
   sendInputEvent(
     event: Exclude<BrowserPaneInputEvent, { type: "insertText" | "edit" | "imeSetComposition" }>,
   ): void;
-  /** Replace a tracked live preedit with exact IME events via root CDP Input.insertText (#541, #656). */
+  /**
+   * Replace a tracked live preedit with exact IME events via root CDP Input.insertText (#541, #656).
+   * The host issues this only for a composition no dispatched input could have ended: on 43.2.0
+   * Input.insertText is ImeCommitText, which re-focuses the last-focused editable when none is focused.
+   */
   commitComposition(text: string): Promise<void>;
-  /** Type at the widget-focused caret via CDP char events; no-op without an editable (#656). */
+  /**
+   * Type at the widget-focused caret via CDP char events; no-op without an editable (#656).
+   * Never re-focuses a stale field, so it carries every commit outside a provably-live composition.
+   */
   typeChar(text: string): Promise<void>;
   imeSetComposition(text: string, selectionStart: number, selectionEnd: number): Promise<void>;
   focus(): void;
