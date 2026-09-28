@@ -141,6 +141,24 @@ export interface CommandItem {
   /** Concatenated command_output text; absent until a frame arrives. */
   output?: string;
 }
+/** One "!" composer command: omp's concurrent bash RPC, no model turn. */
+export interface ShellItem {
+  kind: "shell";
+  id: string;
+  /** The line after the leading "!", forwarded verbatim. */
+  command: string;
+  status: "running" | "done" | "failed" | "cancelled";
+  /** Response output; absent until the bash response lands. */
+  output?: string;
+  /** Absent on a cancelled run — omp omits exitCode there. */
+  exitCode?: number;
+  truncated?: boolean;
+  /** omp's failure text when status === "failed". */
+  error?: string;
+  /** False only from a recorded excludeFromContext entry (omp-ui never sends it). */
+  shared?: boolean;
+  timestamp?: number;
+}
 
 export type RenderItem =
   | UserItem
@@ -151,7 +169,8 @@ export type RenderItem =
   | IrcItem
   | MarkerItem
   | PlanItem
-  | CommandItem;
+  | CommandItem
+  | ShellItem;
 
 let counter = 0;
 
@@ -170,6 +189,10 @@ export function noticeItem(text: string, level?: NoticeItem["level"]): NoticeIte
 
 export function commandItem(name: string, args: string): CommandItem {
   return { kind: "command", id: `command-${++counter}`, name, args, status: "running" };
+}
+
+export function shellItem(command: string): ShellItem {
+  return { kind: "shell", id: `shell-${++counter}`, command, status: "running", timestamp: Date.now() };
 }
 
 /**
@@ -228,6 +251,9 @@ export function itemSearchText(item: RenderItem): string {
       break;
     case "command":
       fields.push(item.name, item.args, item.output, item.error);
+      break;
+    case "shell":
+      fields.push(item.command, item.output, item.error);
       break;
   }
   const text = fields
@@ -882,6 +908,20 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
           });
         }
       }
+      continue;
+    }
+    if (role === "bashExecution") {
+      items.push({
+        kind: "shell",
+        id: `shell-${++counter}`,
+        command: str(raw.command) ?? "",
+        status: raw.cancelled === true ? "cancelled" : "done",
+        output: str(raw.output) ?? "",
+        exitCode: numField(raw, "exitCode"),
+        truncated: raw.truncated === true,
+        shared: raw.excludeFromContext !== true,
+        timestamp: numField(raw, "timestamp"),
+      });
       continue;
     }
     if (role === "toolResult") {

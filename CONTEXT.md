@@ -89,10 +89,16 @@ _Avoid_: lineage, parent session
 **Render item**:
 One entry in the native transcript, reduced from the `AgentSessionEvent`
 stream by `lib/transcript.ts`: `user`, `assistant`, `tool`, `advisory`,
-`notice`, `irc`, `marker`, or `command`. Items are derived state — the session
+`notice`, `irc`, `marker`, `command`, or `shell`. Items are derived state — the session
 file stays the source of truth, and an unknown event type adds nothing rather
 than breaking the transcript.
 _Avoid_: message, bubble, row
+
+**Shell command**:
+A composer draft prefixed `!`, dispatched as OMP's concurrent `bash` RPC and
+recorded in the session without a model turn; its output is visible to the
+model. Renders as a `shell` item.
+_Avoid_: bang command, exec row
 
 **Marker**:
 A hairline lifecycle rule in the transcript (`agent started`, compaction,

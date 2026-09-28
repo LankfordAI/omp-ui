@@ -906,6 +906,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
       { status: "pending" | "ready" | "failed" | "unavailable"; identity?: string } | null,
   ): void;
   runSlashCommand(tabId: string, line: string): Promise<void>;
+  /** One "!" draft as omp's concurrent bash command; settles its shell row
+   *  from the response. No model turn (issue #678). */
+  runShellCommand(tabId: string, command: string): Promise<void>;
+  /** omp's abort_bash: cancels every bash running in the tab's process. */
+  abortShellCommands(tabId: string): Promise<void>;
   /**
    * One `/goal` or `/guided-goal` line as a command against the session's own
    * goal bridge (issue #381). Never sends goal prose to the model: with no

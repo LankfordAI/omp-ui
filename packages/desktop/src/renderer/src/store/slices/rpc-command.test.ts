@@ -755,6 +755,47 @@ describe("late-ack silence budget (issue #335)", () => {
   });
 });
 
+describe("bash timeout exemption (issue #678)", () => {
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+  });
+
+  it("never fails a pending bash on silence, even while a strict command expires", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const bash = h.useStore
+        .getState()
+        .rpcCommand(h.TAB, { type: "bash", command: "sleep 45" }, { quiet: true });
+      let bashSettled = false;
+      void bash.then(
+        () => (bashSettled = true),
+        () => (bashSettled = true),
+      );
+      // The serial chain keeps its normal budget in the same tab.
+      const strict = h.useStore.getState().rpcCommand(h.TAB, { type: "get_state" });
+      const typed = expect(strict).rejects.toMatchObject({
+        name: "RpcCommandTimeoutError",
+        command: "get_state",
+      });
+      const bashCmd = h.sent.find((s) => s.cmd.type === "bash")!.cmd;
+      // A quiet tab: lastFrameAt stays stale, so the #335 re-arm would fail
+      // the bash at the 30 s mark without the exemption. Past 2× the window
+      // the bash is still pending while the strict command has expired.
+      await vi.advanceTimersByTimeAsync(61_000);
+      await typed;
+      expect(bashSettled).toBe(false);
+      expect(h.rpcCommandMachinery.snapshotPending(h.TAB).size).toBe(1);
+
+      h.respond(h.TAB, bashCmd, { exitCode: 0, output: "done\n" });
+      await expect(bash).resolves.toMatchObject({ type: "response" });
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("pending commands are abandoned when the process goes away (issue #338)", () => {
   /**
    * Sends a loud prompt on `store`, tears its process down, then outlives the

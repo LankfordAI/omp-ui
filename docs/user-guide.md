@@ -93,6 +93,8 @@ The queue count covers all displayable queued work, not only user follow-ups. It
 
 `Mod+J` opens a full-width login shell below the native composer and puts the cursor in it, so you can type right away; `Mod+J` closes it again even while the shell has focus. It runs in the session's effective working tree, including a worktree checkout. The shell starts from the environment omp-ui was launched with, without the AppImage's own variables, so commands behave as they do in a native terminal. Closing the console hides it without discarding its terminal instance. Terminal tabs do not have this separate console because the tab itself is already a terminal.
 
+Type `!` at the start of a native composer draft to run a shell command through the session without spending a model turn: `!git status` executes immediately, its output lands in the transcript as its own row and in the model's context, and a non-zero exit shows on the row. While a command runs its row offers a **stop** control, which cancels every shell command running in that session. Commands run in the session's working tree; `cd` inside one command does not carry over to the next. The embedded TUI in terminal tabs keeps its own `!` handling, including cwd tracking.
+
 To copy terminal output, select it with the mouse, right-click the selection, and choose **Copy**; terminal tabs offer the same menu. When a program captures the mouse, such as vim or OMP's TUI, hold `Shift` while dragging to select on Linux and Windows.
 
 ## Plan mode and review

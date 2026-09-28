@@ -1049,6 +1049,65 @@ describe("historyToItems", () => {
     const items = historyToItems(["junk", null, { role: "user", content: "hi" }]);
     expect(items).toHaveLength(1);
   });
+
+  it("maps bashExecution entries to shell items in message order", () => {
+    const items = historyToItems([
+      { role: "user", content: "check this" },
+      {
+        role: "bashExecution",
+        command: "echo hello",
+        output: "hello\n",
+        exitCode: 0,
+        cancelled: false,
+        timestamp: 42,
+      },
+      { role: "assistant", content: [{ type: "text", text: "ok" }] },
+    ]);
+    const shell = items.find((i) => i.kind === "shell");
+    expect(shell).toMatchObject({
+      kind: "shell",
+      command: "echo hello",
+      status: "done",
+      output: "hello\n",
+      exitCode: 0,
+      shared: true,
+      timestamp: 42,
+    });
+    expect(items.indexOf(shell!)).toBe(1);
+  });
+
+  it("maps a cancelled bashExecution and a non-zero exit", () => {
+    const cancelled = historyToItems([
+      {
+        role: "bashExecution",
+        command: "sleep 45",
+        output: "[Command cancelled]\n",
+        cancelled: true,
+      },
+    ])[0];
+    if (cancelled?.kind !== "shell") throw new Error("expected a shell item");
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.exitCode).toBeUndefined();
+
+    const failing = historyToItems([
+      { role: "bashExecution", command: "false", output: "", exitCode: 3, cancelled: false },
+    ])[0];
+    expect(failing).toMatchObject({ kind: "shell", status: "done", exitCode: 3 });
+  });
+
+  it("marks an excludeFromContext entry as not shared", () => {
+    const item = historyToItems([
+      {
+        role: "bashExecution",
+        command: "git log",
+        output: "…",
+        exitCode: 0,
+        cancelled: false,
+        excludeFromContext: true,
+      },
+    ])[0];
+    expect(item).toMatchObject({ kind: "shell", shared: false });
+  });
 });
 
 describe("preExchange", () => {
@@ -1067,6 +1126,7 @@ describe("preExchange", () => {
     ["plan", { kind: "plan", id: "p1", title: "Ship it", planFilePath: "PLAN.md", planAbsPath: null, text: null, status: "pending" }],
     ["advisory", { kind: "advisory", id: "ad1", notes: [] }],
     ["irc", { kind: "irc", id: "i1", from: "Main", text: "ping" }],
+    ["shell", { kind: "shell", id: "sh1", command: "ls", status: "done" }],
   ];
 
   it.each(exchangeItems)("is false once a %s item is present", (_kind, item) => {
@@ -1105,6 +1165,19 @@ describe("itemSearchText", () => {
     expect(itemSearchText(item)).toContain("3 servers online");
   });
 
+  it("includes a shell row's command and output", () => {
+    const item: RenderItem = {
+      kind: "shell",
+      id: "sh1",
+      command: "git log --oneline",
+      status: "done",
+      output: "deadbeef fix it",
+    };
+    const text = itemSearchText(item);
+    expect(text).toContain("git log --oneline");
+    expect(text).toContain("deadbeef fix it");
+  });
+
   it("is a marker's label", () => {
     expect(itemSearchText(markerItem("THINKING LEVEL"))).toBe("THINKING LEVEL");
   });
@@ -1134,6 +1207,14 @@ describe("findMatches", () => {
   it("returns [] for an empty or whitespace query", () => {
     expect(findMatches(items, "")).toEqual([]);
     expect(findMatches(items, "   ")).toEqual([]);
+  });
+
+  it("finds shell rows by command and output text", () => {
+    const shell: RenderItem[] = [
+      { kind: "shell", id: "sh1", command: "seq 1 3", status: "done", output: "1\n2\n3\n" },
+    ];
+    expect(findMatches(shell, "seq")).toEqual(["sh1"]);
+    expect(findMatches(shell, "2\n3")).toEqual(["sh1"]);
   });
 });
 

@@ -15,7 +15,7 @@ import { backend, backendFor } from "../../backend";
 import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
 import { t } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
-import { arrField, boolField, field, strField } from "../../lib/fields";
+import { arrField, boolField, field, numField, strField } from "../../lib/fields";
 import {
   parseModelInfo,
   parseSessionStats,
@@ -30,12 +30,15 @@ import {
   historyToItems,
   markerItem,
   noticeItem,
+  shellItem,
   type CommandItem,
+  type ShellItem,
 } from "../../lib/transcript";
 import { randomId } from "../../lib/random-id";
 import {
   COMPACT_SETTLE_DEADLINE_MS,
   RPC_COMMAND_TIMEOUT_MS,
+  RpcCommandAbandonedError,
   dropPlanHandoff,
   respData,
   type GetState,
@@ -75,6 +78,8 @@ export type SessionParamsSlice = Pick<
   | "regenerateSessionTitle"
   | "setPlanMode"
   | "runSlashCommand"
+  | "runShellCommand"
+  | "abortShellCommands"
   | "runGoalCommand"
   | "setTodos"
   | "refreshState"
@@ -776,6 +781,58 @@ export function createSessionParamsSlice(
     // id mapping or the next agent_start settles it.
   };
 
+  /** Display cap for a shell row's output — same budget as slash output. */
+  const SHELL_OUTPUT_CAP = 64 * 1024;
+
+  /**
+   * One "!" composer draft as omp's concurrent bash RPC (issue #678): no
+   * model turn — the shell row settles from the command's own completion
+   * response, and omp records a bashExecution entry so the model still
+   * sees the output.
+   */
+  const runShellCommand = async (tabId: string, command: string): Promise<void> => {
+    if (!m.acceptsCommands(tabId)) return;
+    const item = shellItem(command);
+    m.appendItem(tabId, item);
+    const settle = (patch: Partial<ShellItem>): void => {
+      m.patchItems(tabId, (i) =>
+        i.kind === "shell" && i.id === item.id && i.status === "running"
+          ? { ...i, ...patch }
+          : i,
+      );
+    };
+    try {
+      // Quiet: a long user command must not strobe `busy` (the agent-working
+      // sweeps), and a failed command is the row's story, not a session
+      // banner. The bus never expires a bash (issue #678), so the only
+      // rejections here are omp failures and process abandonment.
+      const resp = await get().rpcCommand(tabId, { type: "bash", command }, { quiet: true });
+      const data = respData(resp);
+      const raw = strField(data, "output") ?? "";
+      settle({
+        status: boolField(data, "cancelled") === true ? "cancelled" : "done",
+        output:
+          raw.length <= SHELL_OUTPUT_CAP
+            ? raw
+            : `${raw.slice(0, SHELL_OUTPUT_CAP)}\n… output truncated`,
+        exitCode: numField(data, "exitCode"),
+        truncated: boolField(data, "truncated") === true,
+      });
+      void m.refreshUsage(tabId);
+    } catch (err) {
+      settle({
+        status: err instanceof RpcCommandAbandonedError ? "cancelled" : "failed",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
+  const abortShellCommands = async (tabId: string): Promise<void> => {
+    // omp aborts every running bash in the process; each row settles
+    // cancelled from its own response. Never optimistic here.
+    await m.runCommand(tabId, { type: "abort_bash" }, { quiet: true });
+  };
+
   /**
    * One goal-family line, dispatched as a command rather than as prose (issue
    * #381). The row keeps the line the user typed; the wire carries the hidden
@@ -972,6 +1029,8 @@ export function createSessionParamsSlice(
     regenerateSessionTitle,
     setPlanMode,
     runSlashCommand,
+    runShellCommand,
+    abortShellCommands,
     runGoalCommand,
     setTodos,
     refreshState,

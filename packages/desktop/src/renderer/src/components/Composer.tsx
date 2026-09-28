@@ -172,6 +172,7 @@ export function Composer({
   const abortAgent = useStore((s) => s.abortAgent);
   const abortAndPrompt = useStore((s) => s.abortAndPrompt);
   const runSlashCommand = useStore((s) => s.runSlashCommand);
+  const runShellCommand = useStore((s) => s.runShellCommand);
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const convertSessionToWorktree = useStore((s) => s.convertSessionToWorktree);
 
@@ -475,6 +476,27 @@ export function Composer({
       // An image with no words is a legitimate prompt ("what is this?"), so
       // emptiness is judged on the whole draft, not the text alone.
       if ((message === "" && payload.length === 0) || unavailable || converting) return;
+      // A leading "!" is omp's bash command, dispatched concurrently over
+      // rpc-ui with no model turn (issue #678). Like slash, it takes no
+      // images and gets no @-resolution; the draft goes out verbatim. It
+      // is never a dialog answer, never a worktree conversion, never a
+      // prompt — so the draft is committed here, before those paths run.
+      if (message.startsWith("!")) {
+        // Consecutive duplicates make ↑ recall useless.
+        if (history.current[history.current.length - 1] !== message) {
+          history.current.push(message);
+        }
+        recall.current = null;
+        setText("");
+        clearImages();
+        setDismissedFor(null);
+        setMentionDismissedFor(null);
+        if (message.length > 1) {
+          void runShellCommand(tabId, message.slice(1).trimStart());
+          box.current?.focus({ preventScroll: true });
+        }
+        return;
+      }
       // While a free-text-capable question heads the tab's extension
       // queue, this box *is* the card's Other field (issue #421): Enter
       // answers it instead of prompting. A leading "/" stays a command and
@@ -556,6 +578,7 @@ export function Composer({
       cwd,
       instanceId,
       runSlashCommand,
+      runShellCommand,
       abortAndPrompt,
       sendPrompt,
       onPrompt,
