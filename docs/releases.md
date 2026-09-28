@@ -4,6 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- The thinking menu in the composer, the prompt-options sheet, and the plan-review staging menu now offers `auto`: the pill reads `auto` while the tooltip and the Session rail show each turn's resolved level, and the session record keeps `auto` verbatim so no classification result is written back (#666).
 - Browser pane text input never calls `webContents.insertText`; a click away from the field mid-conversion can no longer drop the committed text into a stale field ([#656](https://github.com/LankfordAI/omp-ui/issues/656)).
 - Keep the browser pane's canvas visible across resizes on GPU rendering (#653).
 
