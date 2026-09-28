@@ -18,6 +18,7 @@ export const SESSION_COMMANDS = {
   cycle_model: { lateAck: true },
   get_available_models: { lateAck: true },
   bash: { lateAck: true },
+  abort_bash: { lateAck: false },
   get_state: { lateAck: false },
   get_messages: { lateAck: false },
   get_available_commands: { lateAck: false },

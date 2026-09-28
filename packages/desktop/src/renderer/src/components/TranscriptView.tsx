@@ -20,6 +20,7 @@ import type {
   MarkerItem,
   NoticeItem,
   RenderItem,
+  ShellItem,
   UserItem,
 } from "../lib/transcript";
 import { findOwner, useStore } from "../store";
@@ -442,6 +443,75 @@ function CommandRow({ item, tabId }: { item: CommandItem; tabId?: string }) {
 }
 
 /**
+ * One "!" shell command: the line as typed, a running caret with a stop
+ * control while omp's bash response is outstanding, then the settled output,
+ * exit code, or failure (issue #678). Styling follows CommandRow.
+ */
+function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
+  const t = useT();
+  const abortShellCommands = useStore((s) => s.abortShellCommands);
+  return (
+    <div className="animate-rise rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55]">
+      <div className="flex items-baseline gap-1.5">
+        <span className="shrink-0 text-ink-faint">$</span>
+        <span
+          data-selectable
+          className={cn(
+            "min-w-0 break-words",
+            item.status === "failed" ? "text-rose" : "text-ink",
+          )}
+        >
+          {item.command}
+        </span>
+        {item.status === "running" && tabId !== undefined && (
+          <>
+            <span className="animate-caret inline-block shrink-0 align-baseline text-signal">▍</span>
+            <button
+              type="button"
+              className="ml-auto shrink-0 rounded border border-line px-1.5 py-0.5 text-[11px] text-ink-mid hover:text-ink"
+              onClick={() => void abortShellCommands(tabId)}
+            >
+              {t("transcript.shell.stop")}
+            </button>
+          </>
+        )}
+        {item.status === "done" && item.exitCode !== undefined && item.exitCode !== 0 && (
+          <span className="ml-auto shrink-0 text-rose">exit {item.exitCode}</span>
+        )}
+        {item.status === "done" && (item.exitCode === undefined || item.exitCode === 0) && (
+          <span className="ml-auto shrink-0 text-ink-faint">✓</span>
+        )}
+        {item.status === "cancelled" && (
+          <span className="ml-auto shrink-0 text-ink-faint">{t("transcript.shell.cancelled")}</span>
+        )}
+      </div>
+      {item.status === "failed" && item.error !== undefined && (
+        <p
+          data-selectable
+          className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-snug text-rose"
+        >
+          {item.error}
+        </p>
+      )}
+      {item.truncated === true && (
+        <p className="mt-1 text-[11px] text-ink-faint">{t("transcript.shell.truncated")}</p>
+      )}
+      {item.shared === false && (
+        <p className="mt-1 text-[11px] text-ink-faint">{t("transcript.shell.notShared")}</p>
+      )}
+      {item.output !== undefined && item.output !== "" && (
+        <pre
+          data-selectable
+          className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words text-ink-mid"
+        >
+          {item.output}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/**
  * What a transcript row that threw during render collapses to. The message
  * itself is unrecoverable (same props → same throw), so this shows just enough
  * to report: the row died, and why.
@@ -485,6 +555,7 @@ const SPEAKER: Record<RenderItem["kind"], string> = {
   marker: "meta",
   plan: "tool",
   command: "command",
+  shell: "shell",
 };
 
 function buildRuns(items: RenderItem[]): Run[] {
@@ -565,6 +636,8 @@ const TranscriptRow = memo(function TranscriptRow({
       return <PlanCard item={item} />;
     case "command":
       return <CommandRow item={item} tabId={tabId} />;
+    case "shell":
+      return <ShellRow item={item} tabId={tabId} />;
   }
 });
 

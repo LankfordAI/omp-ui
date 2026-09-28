@@ -1325,6 +1325,53 @@ describe("Composer slash completion (#382)", () => {
   });
 });
 
+describe("Composer shell dispatch (issue #678)", () => {
+  const runShellCommand = vi.fn(async () => {});
+
+  beforeEach(() => {
+    useStore.setState({ runShellCommand });
+  });
+
+  it("runs a leading ! as a shell command, never a prompt", async () => {
+    seed("ready"); renderComposer();
+    const textarea = typeDraft("!echo hi");
+    press(textarea, "Enter");
+    await act(async () => {});
+    expect(runShellCommand).toHaveBeenCalledWith(TAB, "echo hi");
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(runSlashCommand).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("");
+  });
+
+  it("dispatches ! mid-stream instead of steering", async () => {
+    seed("running"); renderComposer();
+    const textarea = typeDraft("!git status");
+    press(textarea, "Enter");
+    await act(async () => {});
+    expect(runShellCommand).toHaveBeenCalledWith(TAB, "git status");
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing for a bare !", async () => {
+    seed("ready"); renderComposer();
+    const textarea = typeDraft("!");
+    press(textarea, "Enter");
+    await act(async () => {});
+    expect(runShellCommand).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("");
+  });
+
+  it("never triggers on a mid-line !", async () => {
+    seed("ready"); renderComposer();
+    const textarea = typeDraft("look at this !");
+    press(textarea, "Enter");
+    await act(async () => {});
+    expect(runShellCommand).not.toHaveBeenCalled();
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "look at this !", "prompt", []);
+  });
+});
+
 describe("Composer width refit", () => {
   it("re-fits when the box width changes without a text change", () => {
     let ro: (() => void) | null = null;

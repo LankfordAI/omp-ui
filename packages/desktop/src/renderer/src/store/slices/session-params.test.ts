@@ -2356,3 +2356,101 @@ describe("fast mode (issue #677)", () => {
     expect(session.fastModeActive).toBe(true);
   });
 });
+
+describe("runShellCommand (issue #678)", () => {
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+  });
+
+  it("sends the bash frame and settles the shell row done from the response", async () => {
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "echo hello");
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "bash", command: "echo hello" });
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+      kind: "shell",
+      command: "echo hello",
+      status: "running",
+    });
+    h.respond(h.TAB, h.sent[0]!.cmd, { exitCode: 0, output: "hello\n", cancelled: false });
+    await promise;
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+      kind: "shell",
+      status: "done",
+      output: "hello\n",
+      exitCode: 0,
+    });
+  });
+
+  it("settles done with the failing exit code — the command ran", async () => {
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "false");
+    h.respond(h.TAB, h.sent[0]!.cmd, { exitCode: 3, output: "" });
+    await promise;
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+      kind: "shell",
+      status: "done",
+      exitCode: 3,
+    });
+  });
+
+  it("settles cancelled from a cancelled response, without an exit code", async () => {
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "sleep 45");
+    h.respond(h.TAB, h.sent[0]!.cmd, {
+      cancelled: true,
+      output: "[Command cancelled]\n",
+    });
+    await promise;
+    await h.flushMicrotasks();
+    const row = h.useStore.getState().rpc[h.TAB]!.items.at(-1)!;
+    if (row.kind !== "shell") throw new Error("expected a shell item");
+    expect(row).toMatchObject({ kind: "shell", status: "cancelled" });
+    expect(row.exitCode).toBeUndefined();
+  });
+
+  it("settles failed with omp's error text and paints no session banner", async () => {
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "echo hi");
+    h.respond(h.TAB, h.sent[0]!.cmd, "bash failed", false);
+    await promise;
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+      kind: "shell",
+      status: "failed",
+      error: "bash failed",
+    });
+    expect(h.useStore.getState().rpc[h.TAB]!.failure).toBeUndefined();
+  });
+
+  it("caps a huge output with the head-preserving truncation note", async () => {
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "seq 1 100000");
+    h.respond(h.TAB, h.sent[0]!.cmd, { exitCode: 0, output: "x".repeat(70 * 1024) });
+    await promise;
+    await h.flushMicrotasks();
+    const row = h.useStore.getState().rpc[h.TAB]!.items.at(-1)!;
+    if (row.kind !== "shell") throw new Error("expected a shell item");
+    expect(row).toMatchObject({ status: "done" });
+    expect(row.output!.length).toBeLessThan(66 * 1024);
+    expect(row).toMatchObject({ output: expect.stringContaining("… output truncated") });
+  });
+
+  it("never titles the session and stays quiet on busy", async () => {
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "echo hi");
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeFalsy();
+    expect(h.useStore.getState().rpc[h.TAB]!.busy).toBeFalsy();
+    h.respond(h.TAB, h.sent[0]!.cmd, { exitCode: 0, output: "hi\n" });
+    await promise;
+    await h.flushMicrotasks();
+  });
+
+  it("abortShellCommands sends abort_bash", async () => {
+    const promise = h.useStore.getState().abortShellCommands(h.TAB);
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "abort_bash" });
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await promise;
+  });
+
+  it("sends nothing when the tab cannot take commands", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "starting" }) } });
+    await h.useStore.getState().runShellCommand(h.TAB, "echo hi");
+    expect(h.sent).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(0);
+  });
+});

@@ -326,6 +326,14 @@ export const rpcCommandMachinery = {
       const expire = (): void => {
         const entry = tabPending.get(id);
         if (!entry) return;
+        // A bash command is dispatched off the serial chain and emits no
+        // frames while it runs, so silence proves nothing: never fail it on
+        // the window (issue #678). Process death still settles it through
+        // abandon, and omp's own bash timeout bounds the child server-side.
+        if (entry.command === "bash") {
+          entry.timer = window.setTimeout(expire, timeoutMs);
+          return;
+        }
         // A late-ack command's window measures omp's silence: while frames
         // keep arriving the process is alive and merely slow, so re-arm for
         // the remainder of the quiet window instead of failing a healthy
