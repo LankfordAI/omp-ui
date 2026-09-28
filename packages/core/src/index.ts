@@ -209,6 +209,13 @@ export {
   type OmpCompactionMethods,
   type OmpConfigRunner,
 } from "./omp-settings";
+export {
+  checkPythonSetup,
+  execOmpProbeRunner,
+  execInterpreterVersion,
+  type OmpProbeRunner,
+  type InterpreterVersionReader,
+} from "./python-check";
 export * from "./stt";
 export * from "./judge-models";
 export {

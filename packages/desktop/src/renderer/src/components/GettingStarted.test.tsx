@@ -10,6 +10,7 @@ import type {
   ProviderKeyStatus,
   ProviderOAuthState,
   ProviderOAuthStatus,
+  PythonCheckSnapshot,
   SessionSummary,
 } from "@omp-ui/core/types";
 import { backendState } from "../test/fixtures";
@@ -40,6 +41,12 @@ const emptyKeys: ProviderKeysSnapshot = {
   backend: "test_stub",
 };
 
+// The python row's live answer, overridden per case (issue #671). A box so
+// afterEach can restore the default without touching vi.fn implementations.
+const pythonSnapshot: { snapshot: PythonCheckSnapshot } = {
+  snapshot: { status: "ok", pythonPath: "/usr/bin/python3", version: "Python 3.12.11", error: null },
+};
+
 // store.ts captures the preload bridge at module load, so install the mock
 // before dynamically importing either the store or GettingStarted.
 const backendMock = {
@@ -49,6 +56,7 @@ const backendMock = {
   readProviderOAuth: vi.fn(async (): Promise<ProviderOAuthStatus[]> => []),
   downloadOmpUpdate: vi.fn(async () => {}),
   checkOmpUpdate: vi.fn(async () => {}),
+  checkPython: vi.fn(async (): Promise<PythonCheckSnapshot> => pythonSnapshot.snapshot),
   setGettingStartedSeen: vi.fn(async () => {}),
   onPtyData: vi.fn(),
   onPtyExit: vi.fn(),
@@ -194,6 +202,12 @@ function click(el: HTMLElement): void {
 beforeEach(() => {
   backendMock.readProviderKeys.mockResolvedValue(emptyKeys);
   backendMock.readProviderOAuth.mockResolvedValue([]);
+  pythonSnapshot.snapshot = {
+    status: "ok",
+    pythonPath: "/usr/bin/python3",
+    version: "Python 3.12.11",
+    error: null,
+  };
 });
 
 afterEach(() => {
@@ -351,6 +365,71 @@ describe("Getting started checklist rows (issue #623)", () => {
     await renderChecklist();
     expect(buttonWithText("New session")).toBeNull();
     expect(buttonWithText("Add project")).toBeNull();
+  });
+});
+
+describe("Getting started Python readiness row (issue #671)", () => {
+  // The binary row is pinned done so "Check" belongs to the Python row alone.
+  const binaryInstalled = {
+    ompUpdate: ompUpdateState({ status: "up-to-date", installedVersion: "18.2.4" }),
+  };
+
+  it("reads done and names the version on a passing probe", async () => {
+    seed(binaryInstalled);
+    await renderChecklist();
+    expect(document.body.textContent).toContain("Python 3.12.11 — the eval tool is ready.");
+    expect(buttonWithText("Check")).toBeNull();
+    expect(backendMock.checkPython).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Open Python settings for a configured-but-broken interpreter", async () => {
+    pythonSnapshot.snapshot = {
+      status: "unavailable",
+      pythonPath: "/opt/py",
+      version: null,
+      error: null,
+    };
+    seed(binaryInstalled);
+    await renderChecklist();
+    expect(document.body.textContent).toContain(
+      "The configured interpreter (/opt/py) is not usable.",
+    );
+    const open = buttonWithText("Open Python settings");
+    expect(open).not.toBeNull();
+    click(open!);
+    expect(useStore.getState().settingsPage).toBe("omp");
+  });
+
+  it("re-checks on demand when the probe itself failed", async () => {
+    pythonSnapshot.snapshot = {
+      status: "error",
+      pythonPath: null,
+      version: null,
+      error: "boom",
+    };
+    seed(binaryInstalled);
+    await renderChecklist();
+    expect(document.body.textContent).toContain("This omp could not answer the Python check: boom");
+    const check = buttonWithText("Check");
+    expect(check).not.toBeNull();
+    click(check!);
+    expect(backendMock.checkPython).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-runs the probe when Settings closes", async () => {
+    seed();
+    await renderChecklist();
+    expect(backendMock.checkPython).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useStore.getState().openSettings("omp");
+    });
+    expect(backendMock.checkPython).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useStore.getState().closeSettings();
+    });
+    expect(backendMock.checkPython).toHaveBeenCalledTimes(2);
   });
 });
 

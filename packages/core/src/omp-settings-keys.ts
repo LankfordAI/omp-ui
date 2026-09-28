@@ -67,6 +67,9 @@ export const SUBAGENT_CONCURRENCY_SETTING_GROUP: OmpSettingGroup = {
   keys: [OMP_MAX_CONCURRENCY_KEY],
 };
 
+/** The exact-interpreter override; "" means "let omp discover one" (issue #671). */
+export const PYTHON_INTERPRETER_KEY = "python.interpreter";
+
 /** The omp settings the settings surface exposes, grouped for the omp page. */
 export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
   {
@@ -107,6 +110,12 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       "git.enabled",
       "colorBlindMode",
     ],
+  },
+  {
+    // Python for the eval tool (#671). An omp that publishes neither key
+    // renders no section — readOmpSettings' per-key rule already covers it.
+    title: "Python",
+    keys: [PYTHON_INTERPRETER_KEY, "python.kernelMode"],
   },
 ];
 export const OMP_SETTING_KEYS: readonly string[] = [
