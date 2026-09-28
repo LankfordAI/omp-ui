@@ -126,6 +126,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     status: "ready",
     goal: null,
     autoresearch: null,
+    limits: null,
     items: [],
     transcriptRevision: 0,
     todos: [{ phase: "work", tasks: [{ content: "First task", status: "pending" }] }],

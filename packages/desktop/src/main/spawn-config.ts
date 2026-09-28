@@ -18,6 +18,7 @@ import {
   writeDefaultModelOverlay,
   writeMcpStatusExtension,
   writeGoalExtension,
+  writeLimitsExtension,
   writePlanExtension,
   writeSubagentModelOverlay,
 } from "@omp-ui/core";
@@ -141,6 +142,7 @@ export const RPC_BRIDGE_IDS = [
   "goal",
   "browserPane",
   "autoresearch",
+  "limits",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
 export type RpcBridgeWriters = Record<RpcBridgeId, (lineageDir: string) => string>;
@@ -153,6 +155,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   goal: writeGoalExtension,
   browserPane: writeBrowserPaneExtension,
   autoresearch: writeAutoresearchExtension,
+  limits: writeLimitsExtension,
 };
 
 const RPC_BRIDGES: ReadonlyArray<{
@@ -168,6 +171,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "goal", logId: "goal", warning: "goal", enabled: () => true },
   { id: "browserPane", logId: "browser-pane", warning: "browser-pane", enabled: () => true },
   { id: "autoresearch", logId: "autoresearch", warning: "autoresearch", enabled: (enabled) => enabled },
+  { id: "limits", logId: "limits", warning: "limits", enabled: () => true },
 ];
 export interface RpcExtensionWriteResult {
   paths: string[];

@@ -3,6 +3,7 @@
 // compaction, plan, todos, refreshes, subagent drill-down.
 import type { BackendState, ImageAttachment } from "@omp-ui/core/types";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
+import { LIMITS_COMMAND } from "@omp-ui/core/limits";
 import { planMessage } from "@omp-ui/core/plan";
 import { parseExperimentProposalTitle } from "@omp-ui/core/autoresearch";
 import {
@@ -78,6 +79,7 @@ export type SessionParamsSlice = Pick<
   | "refreshState"
   | "refreshStats"
   | "refreshAdvisorStats"
+  | "refreshLimits"
   | "refreshSubagents"
   | "openSubagent"
   | "closeSubagent"
@@ -862,6 +864,20 @@ export function createSessionParamsSlice(
     );
   };
 
+  const refreshLimits = async (tabId: string): Promise<void> => {
+    // The bridge answers by publishing over setStatus. Quiet: the arm rides
+    // every boot and HUD refresh, and a busy sweep per shot would strobe the
+    // command indicator for a readout the user never invoked (issue #673).
+    await m.runCommand(
+      tabId,
+      {
+        type: "prompt",
+        message: `/${LIMITS_COMMAND}`,
+      },
+      { allowDuringBoot: true, quiet: true },
+    );
+  };
+
   const refreshSubagents = async (tabId: string): Promise<void> => {
     // Heartbeat-driven (every subagent_* frame) — quiet, or the busy sweeps
     // strobe for the lifetime of every spawned subagent.
@@ -940,6 +956,7 @@ export function createSessionParamsSlice(
     refreshState,
     refreshStats,
     refreshAdvisorStats,
+    refreshLimits,
     refreshSubagents,
     openSubagent,
     closeSubagent,

@@ -45,6 +45,7 @@ import type {
 } from "@omp-ui/core/browser-pane";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
+import type { LimitsView } from "@omp-ui/core/limits";
 import type { McpRuntimeStatus } from "@omp-ui/core/mcp-status";
 import type {
   CapabilitySectionId,
@@ -254,6 +255,14 @@ export interface RpcTabState {
    * DB is the record of runs, read through the Lab's channels.
    */
   autoresearch: AutoresearchSnapshot | null;
+  /** Rate-window snapshot as the limits bridge published it (issue #673); null until first observed. */
+  limits: LimitsView | null;
+  /**
+   * The retry layer rotated a credential or waited on a rate window during
+   * THIS turn (issue #673): set by auto_retry frames, cleared at the next
+   * agent_start, so the chip lives exactly through the turn that experienced it.
+   */
+  quotaEvent?: { at: number; kind: "rotation" | "wait"; delayMs?: number } | null;
   /** How the roster read went; the viewer's own state machine (issue #374). */
   capabilitiesLoad:
     | "idle"
@@ -905,6 +914,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   refreshState(tabId: string): Promise<void>;
   refreshStats(tabId: string): Promise<void>;
   refreshAdvisorStats(tabId: string): Promise<void>;
+  refreshLimits(tabId: string): Promise<void>;
   refreshSubagents(tabId: string): Promise<void>;
   openSubagent(tabId: string, key: string): void;
   closeSubagent(tabId: string): void;

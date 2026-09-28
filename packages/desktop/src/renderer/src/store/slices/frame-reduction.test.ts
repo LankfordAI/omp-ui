@@ -499,6 +499,119 @@ describe("handleRpcFrame routing", () => {
     expect(tab.advisorStats?.active).toBe(true);
   });
 
+  describe("provider quota readout (issue #673)", () => {
+    it("claims the limits frame as state, not as displayed text", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: "lim1",
+        method: "setStatus",
+        statusKey: "omp-ui:limits",
+        statusText: JSON.stringify({
+          available: true,
+          provider: "anthropic",
+          windows: [
+            { id: "anthropic:5h", label: "5 hour", percent: 32, resetsAtMs: 1_761_700_000_000 },
+          ],
+          bankedResets: 1,
+          fetchedAtMs: 1_761_600_000_000,
+        }),
+      });
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.limits).toMatchObject({
+        available: true,
+        provider: "anthropic",
+        bankedResets: 1,
+        windows: [{ id: "anthropic:5h", percent: 32 }],
+      });
+      // Quota windows are state, never a status chip.
+      expect(tab.extensionStatus).toEqual({});
+    });
+
+    it("sets the wait chip from the UsageLimit bit without touching the stall path", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "agent_start",
+      });
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "auto_retry_start",
+        attempt: 1,
+        maxAttempts: 10,
+        delayMs: 3000,
+        errorId: 0x0008_0000,
+        errorMessage: "429 rate limit exceeded",
+      });
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.quotaEvent).toMatchObject({ kind: "wait", delayMs: 3000 });
+      // The Timeout-bit stall notice stays out: this is not a stream stall.
+      expect(tab.stallCount).toBe(0);
+      expect(tab.items.filter((i) => i.kind === "notice")).toEqual([]);
+    });
+
+    it("upgrades the chip to rotation when a recovery names a credential switch", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "auto_retry_start",
+        attempt: 1,
+        maxAttempts: 3,
+        delayMs: 1000,
+        errorId: 0x0008_0000,
+      });
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "auto_retry_end",
+        success: true,
+        attempt: 2,
+        retryErrors: [
+          { errorId: 0x0008_0000, retryRecovery: { recovery: "credential" } },
+        ],
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.quotaEvent).toMatchObject({
+        kind: "rotation",
+      });
+    });
+
+    it("keeps the wait kind when the recovery only waited", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "auto_retry_end",
+        success: true,
+        attempt: 2,
+        retryErrors: [{ retryRecovery: { recovery: "wait" } }],
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.quotaEvent).toMatchObject({
+        kind: "wait",
+      });
+    });
+
+    it("clears the chip at the next agent_start", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "auto_retry_start",
+        attempt: 1,
+        maxAttempts: 3,
+        delayMs: 1000,
+        errorId: 0x0008_0000,
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.quotaEvent).toMatchObject({ kind: "wait" });
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+      expect(h.useStore.getState().rpc[h.TAB]!.quotaEvent).toBeUndefined();
+    });
+
+    it("leaves quotaEvent absent for a retry with neither signal", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "auto_retry_start",
+        attempt: 1,
+        maxAttempts: 3,
+        delayMs: 2000,
+        errorMessage: "connection reset",
+      });
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "auto_retry_end",
+        success: true,
+        attempt: 1,
+        retryErrors: [{ retryRecovery: { recovery: "plain" } }],
+      });
+      expect(
+        h.useStore.getState().rpc[h.TAB]!.quotaEvent ?? null,
+      ).toBeNull();
+    });
+  });
+
   describe("MCP runtime failure state", () => {
     const statusFrame = (statusText: string, id = "mcp-status") => ({
       type: "extension_ui_request",

@@ -112,6 +112,7 @@ export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     mcpStatus: null,
     goal: null,
     autoresearch: null,
+    limits: null,
     capabilities: null,
     capabilitiesLoad: "idle",
     advisorReply: true,

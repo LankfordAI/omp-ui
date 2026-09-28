@@ -107,6 +107,7 @@ export {
   advisorStatsExtensionPath,
   writeAdvisorStatsExtension,
 } from "./advisor-stats-extension";
+export { limitsExtensionPath, writeLimitsExtension } from "./limits-extension";
 export { mcpStatusExtensionPath, writeMcpStatusExtension } from "./mcp-status-extension";
 export { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabilities-extension";
 export { goalExtensionPath, writeGoalExtension } from "./goal-extension";
@@ -135,6 +136,13 @@ export {
   parseAdvisorStats,
   type AdvisorStatsView,
 } from "./advisor-stats";
+export {
+  LIMITS_COMMAND,
+  LIMITS_STATUS_KEY,
+  parseLimits,
+  type LimitsView,
+  type LimitsWindow,
+} from "./limits";
 export {
   isHtmlPlanPath,
   isPlanArtifactPath,
