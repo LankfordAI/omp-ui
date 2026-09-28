@@ -1358,6 +1358,16 @@ export const en = {
   "hud.context.autoCompactThreshold":
     "omp auto-compacts when context exceeds {threshold} of {window} tokens ({percent}% of window)",
   "hud.context.usage": "{tokens} of {window} context tokens ({percent}%){threshold}",
+  // Session HUD fast mode (issue #677): `enabled` is the setting, `active`
+  // the computed truth; the declined pair names the split honestly.
+  "hud.fast.declined": "on — provider declined",
+  "hud.fast.declinedTitle": "fast mode enabled but the provider declined it · click to retry",
+  "hud.fast.label": "fast",
+  "hud.fast.labelLong": "fast mode",
+  "hud.fast.off": "off",
+  "hud.fast.offTitle": "fast mode off · click to enable priority serving",
+  "hud.fast.on": "on",
+  "hud.fast.onTitle": "fast mode active — priority serving live · click to turn off",
   "hud.metrics.advisorTotal": "advisor total",
   "hud.metrics.context": "context",
   "hud.metrics.spend": "spend",

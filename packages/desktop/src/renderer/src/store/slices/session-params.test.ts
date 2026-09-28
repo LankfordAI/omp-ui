@@ -2262,3 +2262,97 @@ describe("reconcilePendingDialogs (issue #555)", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).toBeNull();
   });
 });
+
+describe("fast mode (issue #677)", () => {
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+  });
+
+  it("setFastMode sends set_fast_mode and patches both fields from the response", async () => {
+    const promise = h.useStore.getState().setFastMode(h.TAB, true);
+    const cmd = h.sent[0]!.cmd;
+    expect(cmd).toMatchObject({ type: "set_fast_mode", enabled: true });
+    h.respond(h.TAB, cmd, { enabled: true, active: true });
+    await promise;
+    expect(h.useStore.getState().rpc[h.TAB]!.session.fastModeEnabled).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.session.fastModeActive).toBe(true);
+  });
+
+  it("a declined enable stores enabled-true-active-false, and a same-value retry still sends", async () => {
+    const first = h.useStore.getState().setFastMode(h.TAB, true);
+    h.respond(h.TAB, h.sent[0]!.cmd, { enabled: true, active: false });
+    await first;
+    const session = h.useStore.getState().rpc[h.TAB]!.session;
+    expect(session.fastModeEnabled).toBe(true);
+    expect(session.fastModeActive).toBe(false);
+    // The declined retry IS a same-value enable: it must not be skipped.
+    const retry = h.useStore.getState().setFastMode(h.TAB, true);
+    expect(h.sent.at(-1)!.cmd).toMatchObject({ type: "set_fast_mode", enabled: true });
+    h.respond(h.TAB, h.sent.at(-1)!.cmd, { enabled: true, active: true });
+    await retry;
+    expect(h.useStore.getState().rpc[h.TAB]!.session.fastModeActive).toBe(true);
+  });
+
+  it("a Fireworks disable stores the provider-tier active truth alongside enabled-false", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          session: { ...emptySessionRuntime(), fastModeEnabled: true, fastModeActive: true },
+        }),
+      },
+    });
+    const promise = h.useStore.getState().setFastMode(h.TAB, false);
+    h.respond(h.TAB, h.sent[0]!.cmd, { enabled: false, active: true });
+    await promise;
+    const session = h.useStore.getState().rpc[h.TAB]!.session;
+    expect(session.fastModeEnabled).toBe(false);
+    expect(session.fastModeActive).toBe(true);
+  });
+
+  it("an unavailable-model failure records the command and leaves the state untouched", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          session: { ...emptySessionRuntime(), fastModeEnabled: false, fastModeActive: false },
+        }),
+      },
+    });
+    const promise = h.useStore.getState().setFastMode(h.TAB, true);
+    h.respond(
+      h.TAB,
+      h.sent[0]!.cmd,
+      "Fast mode is unavailable for the current model.",
+      false,
+    );
+    await promise;
+    expect(h.useStore.getState().rpc[h.TAB]!.failure).toMatchObject({
+      command: "set_fast_mode",
+      fatal: false,
+    });
+    const session = h.useStore.getState().rpc[h.TAB]!.session;
+    expect(session.fastModeEnabled).toBe(false);
+    expect(session.fastModeActive).toBe(false);
+  });
+
+  it("typing /fast refreshes state so the chip converges without a frame", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          commands: [{ name: "fast", description: "" }],
+        }),
+      },
+    });
+    const promise = h.useStore.getState().runSlashCommand(h.TAB, "/fast");
+    h.respond(h.TAB, h.sent[0]!.cmd, { agentInvoked: false });
+    await h.flushMicrotasks();
+    const state = h.sent.find((s) => s.cmd.type === "get_state");
+    expect(state).toBeDefined();
+    h.respond(h.TAB, state!.cmd, { fastModeEnabled: true, fastModeActive: true });
+    const stats = h.sent.find((s) => s.cmd.type === "get_session_stats");
+    if (stats !== undefined) h.respond(h.TAB, stats.cmd, {});
+    await promise;
+    const session = h.useStore.getState().rpc[h.TAB]!.session;
+    expect(session.fastModeEnabled).toBe(true);
+    expect(session.fastModeActive).toBe(true);
+  });
+});

@@ -860,6 +860,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setFollowUpMode(tabId: string, mode: string): Promise<void>;
   setInterruptMode(tabId: string, mode: string): Promise<void>;
   setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
+  setFastMode(tabId: string, enabled: boolean): Promise<void>;
   setAutoRetry(tabId: string, enabled: boolean): Promise<void>;
   abortRetry(tabId: string): Promise<void>;
   /**

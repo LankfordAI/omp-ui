@@ -7,6 +7,7 @@ import { BranchChip } from "./BranchChip";
 import { ComposerActions } from "./ComposerActions";
 import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
+import { FastModeControl } from "./FastModeControl";
 import { Button, Chip, Label, Sheet } from "./ui";
 
 /** Stable empty so the per-field selector doesn't fire on every store tick. */
@@ -73,6 +74,9 @@ export function ComposerSheet({
           <div className="mt-2 space-y-2">
             <AdvisorControl tabId={tabId} disabled={unavailable} layout="sheet" />
             <BuildPlanControl tabId={tabId} layout="sheet" disabled={unavailable} className="min-h-11" />
+            <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
+              <FastModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
+            </div>
             <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t("composer.sheet.branch")}</span>
               <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} instanceId={instanceId} />{queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>}</span>

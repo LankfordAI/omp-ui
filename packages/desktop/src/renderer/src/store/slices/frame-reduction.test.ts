@@ -3335,6 +3335,33 @@ describe("handleRpcFrame routing", () => {
     });
   });
 
+  it("a config_update keeps seeded fast-mode fields and patches the ones it carries", () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          session: { ...emptySessionRuntime(), fastModeEnabled: true, fastModeActive: true },
+        }),
+      },
+    });
+    // Today's frame carries neither key: the absent-key rule holds both.
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "config_update",
+      model: { id: "m2", name: "M Two", provider: "openai" },
+      thinkingLevel: "low",
+    });
+    let session = h.useStore.getState().rpc[h.TAB]!.session;
+    expect(session.fastModeEnabled).toBe(true);
+    expect(session.fastModeActive).toBe(true);
+    // A frame that DOES carry one patches it and keeps the rest.
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "config_update",
+      fastModeActive: false,
+    });
+    session = h.useStore.getState().rpc[h.TAB]!.session;
+    expect(session.fastModeEnabled).toBe(true);
+    expect(session.fastModeActive).toBe(false);
+  });
+
   it("a config_update under auto persists the selector, not the frame's resolved level", async () => {
     h.useStore.setState({
       rpc: {

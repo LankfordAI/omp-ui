@@ -42,6 +42,7 @@ const state = backendState({
 });
 
 const setThinkingLevel = vi.fn(async () => {});
+const setFastMode = vi.fn(async () => {});
 const sendPrompt = vi.fn(async () => true);
 const abortAgent = vi.fn(async () => {});
 let onSubmitRoute: (route: string) => void;
@@ -68,6 +69,7 @@ function seed(status: "ready" | "running"): void {
     }) },
     compactSurface: "composer-options",
     sendPrompt,
+    setFastMode,
     abortAgent,
     setThinkingLevel,
   });
@@ -203,5 +205,37 @@ describe("ComposerSheet", () => {
     expect(close).not.toBeNull();
     act(() => close.click());
     expect(onClose).toHaveBeenCalledOnce();
+  });
+  it("fast mode shows the declined wording and the switch drives set_fast_mode", async () => {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: {
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          session: { ...s.rpc[TAB]!.session, fastModeEnabled: true, fastModeActive: false },
+        },
+      },
+    }));
+    render(true);
+    expect(document.body.textContent).toContain("on — provider declined");
+    const sw = document.querySelector<HTMLButtonElement>(
+      `button[role="switch"][aria-label="fast mode"]`,
+    )!;
+    expect(sw).not.toBeNull();
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    await act(async () => sw.click());
+    expect(setFastMode).toHaveBeenCalledWith(TAB, false);
+  });
+
+  it("the fast mode switch on an off session sends enable", async () => {
+    seed("ready");
+    render(true);
+    const sw = document.querySelector<HTMLButtonElement>(
+      `button[role="switch"][aria-label="fast mode"]`,
+    )!;
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(document.body.textContent).toContain("fast mode");
+    await act(async () => sw.click());
+    expect(setFastMode).toHaveBeenCalledWith(TAB, true);
   });
 });

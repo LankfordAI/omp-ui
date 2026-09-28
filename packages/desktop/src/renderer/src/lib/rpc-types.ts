@@ -59,6 +59,14 @@ export interface SessionRuntime {
   followUpMode: string | null;
   interruptMode: string | null;
   autoCompactionEnabled: boolean;
+  /** omp's fast-mode SETTING (the /fast toggle). Frame- and get_state-owned;
+  *  no record seed — get_state reports it directly at boot. */
+  fastModeEnabled: boolean;
+  /** Whether priority serving is ACTUALLY live: provider rejection can leave
+  *  this false while fastModeEnabled is true; Fireworks' provider tier can
+  *  leave it true while fastModeEnabled is false. Never derive one from the
+  *  other; display reads this, the switch reads the setting. */
+  fastModeActive: boolean;
   sessionId: string | null;
   sessionFile: string | null;
   messageCount: number;
@@ -119,6 +127,8 @@ export function emptySessionRuntime(): SessionRuntime {
     followUpMode: null,
     interruptMode: null,
     autoCompactionEnabled: false,
+    fastModeEnabled: false,
+    fastModeActive: false,
     sessionId: null,
     sessionFile: null,
     messageCount: 0,
@@ -251,6 +261,8 @@ export function parseSessionRuntime(value: unknown, previous: SessionRuntime): S
     interruptMode: strField(value, "interruptMode") ?? previous.interruptMode,
     autoCompactionEnabled:
       boolField(value, "autoCompactionEnabled") ?? previous.autoCompactionEnabled,
+    fastModeEnabled: boolField(value, "fastModeEnabled") ?? previous.fastModeEnabled,
+    fastModeActive: boolField(value, "fastModeActive") ?? previous.fastModeActive,
     sessionId: strField(value, "sessionId") ?? previous.sessionId,
     sessionFile: strField(value, "sessionFile") ?? previous.sessionFile,
     messageCount: numField(value, "messageCount") ?? previous.messageCount,
