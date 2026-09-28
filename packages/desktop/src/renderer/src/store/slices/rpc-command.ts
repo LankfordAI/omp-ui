@@ -525,7 +525,16 @@ export function disposeTabRuntime(
   m.discardTabRuntime(tabId);
 }
 
-function freshRpcTabState(advisorReply: boolean): RpcTabState {
+/**
+ * `thinkingConfigured` seeds the automatic-thinking selector from the session
+ * record (`"auto"` when the record stores it): get_state has no configured
+ * field, so without the seed an auto session's pill would show the boot-time
+ * resolved level until the first per-turn frame.
+ */
+function freshRpcTabState(
+  advisorReply: boolean,
+  thinkingConfigured: string | null,
+): RpcTabState {
   return {
     status: "starting",
     items: [],
@@ -534,7 +543,7 @@ function freshRpcTabState(advisorReply: boolean): RpcTabState {
     model: null,
     availableModels: [],
     commands: [],
-    session: emptySessionRuntime(),
+    session: { ...emptySessionRuntime(), thinkingConfigured },
     stats: null,
     subagents: [],
     subagentItems: {},
@@ -627,8 +636,10 @@ export function createRpcCommandSlice(
       // exist synchronously before any command can produce another frame.
       m.createTabRuntime(tabId);
       m.patchRuntime(tabId, { pendingNotices });
+      const seedConfigured =
+        findRecord(get().state, tabId)?.thinkingLevel === "auto" ? "auto" : null;
       m.patchRpc(tabId, {
-        ...freshRpcTabState(get().state?.advisorAutoReply ?? true),
+        ...freshRpcTabState(get().state?.advisorAutoReply ?? true, seedConfigured),
         selectedSubagent: prior?.selectedSubagent ?? null,
         subagentItems: prior?.subagentItems ?? {},
         // The pane's open/fullscreen posture survives the reboot (#528); the
@@ -642,7 +653,10 @@ export function createRpcCommandSlice(
         set((s) => ({
           rpc: {
             ...s.rpc,
-            [tabId]: freshRpcTabState(get().state?.advisorAutoReply ?? true),
+            [tabId]: freshRpcTabState(
+              get().state?.advisorAutoReply ?? true,
+              seedConfigured,
+            ),
           },
         }));
       }
@@ -661,6 +675,10 @@ export function createRpcCommandSlice(
       // history (get_messages) is fetched, so don't read it from thin air.
       if (!get().state) set({ state: await backend.getState() });
       const rec = findRecord(get().state, tabId);
+      // Boot can outrun the state read above, so the seed may have read thin
+      // air; re-assert it from the record before get_state merges over it.
+      if (rec?.thinkingLevel === "auto")
+        m.patchSession(tabId, { thinkingConfigured: "auto" });
       // get_state is the canary: if it fails, the tab is dead, not "ready".
       const stateFailure = await get()
         .rpcCommand(tabId, { type: "get_state" })

@@ -1186,6 +1186,101 @@ describe("prompting, slash commands, and session ops", () => {
     );
   });
 
+  it("setThinkingLevel auto selects the automatic mode without overwriting the resolved level", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          model: { id: "m1", name: "M1", provider: "p" },
+          session: { ...emptySessionRuntime(), thinkingLevel: "low" },
+        }),
+      },
+    });
+    const promise = h.useStore.getState().setThinkingLevel(h.TAB, "auto");
+    expect(h.sent.at(-1)!.cmd).toMatchObject({
+      type: "set_thinking_level",
+      level: "auto",
+    });
+    await settleAll({});
+    await promise;
+    const session = h.useStore.getState().rpc[h.TAB]!.session;
+    expect(session.thinkingConfigured).toBe("auto");
+    // The pill reads the selector; the resolved value waits for the next frame.
+    expect(session.thinkingLevel).toBe("low");
+    expect(h.mockBackend.setSessionModel).toHaveBeenCalledWith(
+      h.TAB,
+      "p/m1",
+      "auto",
+    );
+  });
+
+  it("a concrete set clears the auto selector and persists the level", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          model: { id: "m1", name: "M1", provider: "p" },
+          session: { ...emptySessionRuntime(), thinkingLevel: "low", thinkingConfigured: "auto" },
+        }),
+      },
+    });
+    const promise = h.useStore.getState().setThinkingLevel(h.TAB, "xhigh");
+    await settleAll({});
+    await promise;
+    const session = h.useStore.getState().rpc[h.TAB]!.session;
+    expect(session.thinkingLevel).toBe("xhigh");
+    expect(session.thinkingConfigured).toBeNull();
+    expect(h.mockBackend.setSessionModel).toHaveBeenCalledWith(
+      h.TAB,
+      "p/m1",
+      "xhigh",
+    );
+  });
+
+  it("setModel under auto persists auto, not the resolved level", async () => {
+    h.backendState = h.stateWithRecord(null);
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: {
+        [h.TAB]: rpcTabState({
+          session: { ...emptySessionRuntime(), thinkingLevel: "low", thinkingConfigured: "auto" },
+        }),
+      },
+    });
+    const model = { id: "claude-opus-5", name: "Opus 5", provider: "anthropic" };
+    const promise = h.useStore.getState().setModel(h.TAB, model);
+    await settleAll(model);
+    await promise;
+    expect(h.mockBackend.setSessionModel).toHaveBeenCalledWith(
+      h.TAB,
+      "anthropic/claude-opus-5",
+      "auto",
+    );
+  });
+
+  it("refreshState under auto persists the selector, not get_state's resolved level", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          model: { id: "m1", name: "M1", provider: "p" },
+          session: { ...emptySessionRuntime(), thinkingLevel: "low", thinkingConfigured: "auto" },
+        }),
+      },
+    });
+    const promise = h.useStore.getState().refreshState(h.TAB);
+    await settleAll({
+      model: { id: "m1", name: "M1", provider: "p" },
+      thinkingLevel: "low",
+    });
+    await promise;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.session.thinkingLevel).toBe("low");
+    expect(tab.session.thinkingConfigured).toBe("auto");
+    expect(h.mockBackend.setSessionModel).toHaveBeenCalledWith(
+      h.TAB,
+      "p/m1",
+      "auto",
+    );
+  });
+
   it("setAdvisorModel persists the advisor tuple through one backend call", async () => {
     await h.useStore.getState().setAdvisorModel(h.TAB, "openrouter/a/b:high");
     expect(h.mockBackend.setSessionAdvisor).toHaveBeenCalledWith(

@@ -126,3 +126,49 @@ describe("writeSessionOverlays — subagent overlay (ADR-0031)", () => {
     expect(overlays).toContain(subagentModelOverlayPath(dir));
   });
 });
+
+describe("writeSessionOverlays — auto thinking selector", () => {
+  it("pins the model without a :auto suffix and adds the settings key", () => {
+    const dir = tmp();
+    const overlays = writeSessionOverlays(
+      ownedSessionRecord({ model: "p/m", thinkingLevel: "auto" }),
+      dir,
+    );
+    const file = overlays.find((f) => path.basename(f) === "omp-ui-model.yml");
+    expect(file).toBeDefined();
+    const text = fs.readFileSync(file!, "utf8");
+    expect(text).toBe('modelRoles:\n  default: "p/m"\ndefaultThinkingLevel: "auto"\n');
+    expect(text).not.toContain("p/m:auto");
+  });
+
+  it("writes the settings-only overlay when auto is picked without a model", () => {
+    const dir = tmp();
+    const overlays = writeSessionOverlays(
+      ownedSessionRecord({ model: null, thinkingLevel: "auto" }),
+      dir,
+    );
+    const file = overlays.find((f) => path.basename(f) === "omp-ui-model.yml");
+    expect(file).toBeDefined();
+    expect(fs.readFileSync(file!, "utf8")).toBe('defaultThinkingLevel: "auto"\n');
+  });
+
+  it("a concrete level still composes the :level suffix as before", () => {
+    const dir = tmp();
+    const overlays = writeSessionOverlays(
+      ownedSessionRecord({ model: "p/m", thinkingLevel: "xhigh" }),
+      dir,
+    );
+    const file = overlays.find((f) => path.basename(f) === "omp-ui-model.yml");
+    expect(fs.readFileSync(file!, "utf8")).toBe('modelRoles:\n  default: "p/m:xhigh"\n');
+  });
+
+  it("an auto gate pin strips the suffix and sets the settings key", () => {
+    const dir = tmp();
+    const overlays = writeSessionOverlays(ownedSessionRecord({ model: null, thinkingLevel: null }), dir, {
+      model: { model: "p/m", level: "auto" },
+      advisorModel: null,
+    });
+    const file = overlays.find((f) => path.basename(f) === "omp-ui-model.yml");
+    expect(fs.readFileSync(file!, "utf8")).toBe('modelRoles:\n  default: "p/m"\ndefaultThinkingLevel: "auto"\n');
+  });
+});

@@ -48,6 +48,11 @@ export interface ContextUsage {
 
 export interface SessionRuntime {
   thinkingLevel: string | null;
+  /** omp's automatic-thinking selector, `"auto"` or null. The selector the
+  *  user configured; `thinkingLevel` always carries the current RESOLVED
+  *  level. Frame- and seed-owned: get_state has no configured field, so
+  *  parseSessionRuntime can only keep the previous value. */
+  thinkingConfigured: string | null;
   isStreaming: boolean;
   isCompacting: boolean;
   steeringMode: string | null;
@@ -107,6 +112,7 @@ export type PromptRoute =
 export function emptySessionRuntime(): SessionRuntime {
   return {
     thinkingLevel: null,
+    thinkingConfigured: null,
     isStreaming: false,
     isCompacting: false,
     steeringMode: null,
@@ -235,6 +241,9 @@ export function parseSessionRuntime(value: unknown, previous: SessionRuntime): S
   // absent key keeps the previous value instead of resetting the HUD.
   return {
     thinkingLevel: strField(value, "thinkingLevel") ?? previous.thinkingLevel,
+    // get_state reports only the resolved level (no `configured` field), so
+    // the selector is owned by frames and the record seed — never here.
+    thinkingConfigured: previous.thinkingConfigured,
     isStreaming: boolField(value, "isStreaming") ?? previous.isStreaming,
     isCompacting: boolField(value, "isCompacting") ?? previous.isCompacting,
     steeringMode: strField(value, "steeringMode") ?? previous.steeringMode,

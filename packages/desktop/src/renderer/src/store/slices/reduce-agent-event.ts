@@ -187,9 +187,21 @@ export function reduceAgentEvent(
   if (type === "thinking_level_changed") {
     const thinkingLevel = strField(frame, "thinkingLevel");
     if (thinkingLevel !== undefined && thinkingLevel !== "") {
-      rpc.session = { ...tab.session, thinkingLevel };
+      // Under omp's automatic selector the frame carries `configured:"auto"`
+      // and its thinkingLevel is a per-prompt classification output, not the
+      // user's choice — paint the resolved level but NEVER persist it: that
+      // would silently convert the session from auto to a pinned level and
+      // re-pin it on the next resume. A frame without `configured` is a
+      // concrete change (manual pick, TUI, cycle) and persists as before.
+      const configured = strField(frame, "configured");
+      const isAuto = configured === "auto";
+      rpc.session = {
+        ...tab.session,
+        thinkingLevel,
+        thinkingConfigured: isAuto ? "auto" : null,
+      };
       hasRpcPatch = true;
-      if (tab.model !== null)
+      if (!isAuto && tab.model !== null)
         effects.push({
           phase: "after-commit",
           type: "set-session-model",

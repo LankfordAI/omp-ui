@@ -455,7 +455,14 @@ export function createSessionParamsSlice(
       if (resp === null) return;
       const selected = parseModelInfo(respData(resp)) ?? model;
       m.patchRpc(tabId, { model: selected });
-      const thinkingLevel = get().rpc[tabId]?.session.thinkingLevel ?? null;
+      // Persist the SELECTOR, not the resolved level: under auto the store's
+      // thinkingLevel is a classification output, and freezing it here would
+      // silently pin the model switch to whatever the last turn resolved to.
+      const session = get().rpc[tabId]?.session;
+      const thinkingLevel =
+        session?.thinkingConfigured === "auto"
+          ? "auto"
+          : session?.thinkingLevel ?? null;
       await backend.setSessionModel(
         tabId,
         `${selected.provider}/${selected.id}`,
@@ -476,7 +483,16 @@ export function createSessionParamsSlice(
         level,
       });
       if (resp === null) return;
-      m.patchSession(tabId, { thinkingLevel: level });
+      // A concrete set that changes nothing emits no frame, so the store must
+      // update optimistically. `auto` flips only the selector — the pill's
+      // concrete value stays the current resolved level until the next
+      // resolution frame says otherwise. The record stores "auto" verbatim.
+      m.patchSession(
+        tabId,
+        level === "auto"
+          ? { thinkingConfigured: "auto" }
+          : { thinkingLevel: level, thinkingConfigured: null },
+      );
       const model = get().rpc[tabId]?.model;
       await backend.setSessionModel(
         tabId,

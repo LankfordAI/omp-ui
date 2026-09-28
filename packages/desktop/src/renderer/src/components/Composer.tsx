@@ -131,6 +131,9 @@ export function Composer({
   }, [commands, experimentsEnabled, localeId, t]);
   const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
+  const thinkingConfigured = useStore(
+    (s) => s.rpc[tabId]?.session.thinkingConfigured ?? null,
+  );
   const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
   const owner = useStore((s) => findOwner(s.state, tabId));
   const record = owner?.record;
@@ -860,10 +863,14 @@ export function Composer({
                 <button
                   type="button"
                   disabled={unavailable}
+                  // Under auto the pill reads the SELECTOR, never the drifting
+                  // resolved level; the tooltip carries this turn's resolution.
                   title={
-                    efforts.length > 0
-                      ? t("composer.thinking.title", { efforts: efforts.join(", ") })
-                      : t("composer.thinking.level")
+                    thinkingConfigured === "auto"
+                      ? t("composer.thinking.autoTitle", { level: thinkingLevel ?? "—" })
+                      : efforts.length > 0
+                        ? t("composer.thinking.title", { efforts: efforts.join(", ") })
+                        : t("composer.thinking.level")
                   }
                   onClick={() => {
                     if (efforts.length > 0) setEffortMenu((m) => !m);
@@ -873,13 +880,30 @@ export function Composer({
                     "shrink-0 rounded-r-[5px] font-mono text-[11px] tabular-nums text-iris",
                   )}
                 >
-                  {thinkingLevel ?? t("composer.thinking.fallback")}
+                  {thinkingConfigured === "auto"
+                    ? t("composer.thinking.auto")
+                    : thinkingLevel ?? t("composer.thinking.fallback")}
                 </button>
                 {effortMenu && (
                   <div className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
                     <span className="px-1.5 pb-1 pt-0.5">
                       <Label>{t("composer.thinking.label")}</Label>
                     </span>
+                    <button
+                      type="button"
+                      disabled={unavailable}
+                      title={t("composer.thinking.autoTitle", { level: thinkingLevel ?? "—" })}
+                      onClick={() => {
+                        setEffortMenu(false);
+                        void setThinkingLevel(tabId, "auto");
+                      }}
+                      className={cn(
+                        "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                        thinkingConfigured === "auto" ? "text-iris" : "text-ink-mid",
+                      )}
+                    >
+                      {t("composer.thinking.auto")}
+                    </button>
                     {efforts.map((effort) => (
                       <button
                         key={effort}
@@ -891,7 +915,9 @@ export function Composer({
                         }}
                         className={cn(
                           "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
-                          effort === thinkingLevel ? "text-iris" : "text-ink-mid",
+                          thinkingConfigured !== "auto" && effort === thinkingLevel
+                            ? "text-iris"
+                            : "text-ink-mid",
                         )}
                       >
                         {effort}

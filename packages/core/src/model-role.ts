@@ -5,7 +5,10 @@
 export interface ModelRole {
   /** `provider/model` with any `:<level>` suffix stripped. */
   model: string;
-  /** omp's thinking-level suffix (`high`, `low`, …), when the value carried one. */
+  /** omp's thinking-level suffix (`high`, `low`, …), when the value carried one.
+   *  Note: `auto` parses as a level word but is omp's automatic-thinking
+   *  selector, not a `:level` suffix omp accepts — the spawn path strips it and
+   *  writes the `defaultThinkingLevel` settings overlay key instead. */
   level?: string;
 }
 

@@ -367,7 +367,13 @@ function SessionPane({ tabId }: { tabId: string }) {
             <Mono>{model?.provider ?? "—"}</Mono>
           </Row>
           <Row label={t("rail.session.thinking")}>
-            <Mono>{session?.thinkingLevel ?? "—"}</Mono>
+            {/* Under the automatic selector the row shows the selector and
+                what this turn resolved to, never the resolved level alone. */}
+            <Mono>
+              {session?.thinkingConfigured === "auto"
+                ? `auto → ${session.thinkingLevel ?? "—"}`
+                : session?.thinkingLevel ?? "—"}
+            </Mono>
           </Row>
           <Row label={t("rail.session.context")}>
             <Mono>{model?.contextWindow ? compactNum(model.contextWindow) : "—"}</Mono>

@@ -200,8 +200,10 @@ _Avoid_: toolbar, header, status bar
 **Session parameter memory**:
 The five composer parameters — main model, main thinking level, advisor on/off,
 advisor model, and advisor thinking level — are remembered per project and
-seed the next session. Each live session also records its own main model and
-thinking level, so the advisor's required relaunch reapplies them instead of
+seed the next session. A remembered main thinking level is a concrete level
+word or the `auto` selector (see **Auto thinking**). Each live session also
+records its own main model and thinking level, so the advisor's required
+relaunch reapplies them instead of
 falling back to a different model. Advisor model + level remain one omp
 `model[:level]` selector; a null selector defers to `modelRoles.advisor` and is
 never the empty string. The advisor state itself remains session-scoped; the
@@ -222,6 +224,17 @@ updates the project's last-used fields, and there is no project "default
 subagent models" pin — the project layer for subagents is omp's own
 `.omp/config.yml`, not a registry field.
 _Avoid_: resetting model on advisor toggle
+
+**Auto thinking**:
+omp's automatic thinking selector: instead of one static level, omp classifies
+each user prompt with its judge model and runs the turn at the level that
+classification resolved, clamped into the model's effort ladder. The composer
+pill and the records show the *selector* — `auto` — while it is on; the pill's
+tooltip and the Session rail's thinking row show the turn's *resolved* level
+(`auto → xhigh`). Switching the model keeps the selector. Spawning a session
+under it applies omp's `defaultThinkingLevel: "auto"` settings overlay — the
+`model:level` selector grammar has no `:auto` suffix.
+_Avoid_: treating the resolved level as "the" thinking level while auto is on
 
 **Subscription sign-in**:
 Signing in to a model provider's subscription plan (currently ChatGPT,

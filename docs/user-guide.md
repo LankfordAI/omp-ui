@@ -68,7 +68,7 @@ The HUD's queue controls set separate policies for steering messages, follow-ups
 
 The composer controls what the next native turn receives:
 
-- Pick the main model and thinking level next to the prompt.
+- Pick the main model and thinking level next to the prompt. The thinking menu also offers `auto`: OMP then classifies each prompt with its judge model and runs the turn at the level that resolution picked. While `auto` is set the pill reads `auto`, the tooltip shows what the current turn resolved to, and the Session pane's thinking row reads `auto → level`. Changing the model keeps `auto`.
 - Toggle the advisor, then choose its model and thinking level. Changing the advisor state, model, or thinking level restarts and resumes the session because OMP binds them at process startup. The session transcript remains intact.
 - Switch between Build and Plan. This is an in-process change and keeps a half-written draft in place.
 - Use the branch chip to inspect or switch local branches, pull a branch that is only behind its upstream, create a branch, or prepare a worktree before the first prompt.

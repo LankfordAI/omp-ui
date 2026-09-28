@@ -2260,3 +2260,85 @@ describe("PlanReview dev/test advisor override (issue #372)", () => {
     expect(palette.textContent).toContain("use omp's configured advisor");
   });
 });
+
+describe("PlanReview auto thinking staging", () => {
+  const levelButton = (): HTMLButtonElement =>
+    document.body.querySelector<HTMLButtonElement>(
+      "button[title=\"the session's thinking level for the implementation\"]",
+    )!;
+  // The open popup lives beside its trigger inside the relative anchor; the
+  // panel root itself carries `animate-rise`, so scope by the trigger.
+  const ladderRows = (trigger: HTMLButtonElement): HTMLButtonElement[] =>
+    [...trigger.closest("span.relative")!.querySelectorAll<HTMLButtonElement>("button")].slice(1);
+  const seedModel = (sessionPatch: Record<string, unknown> = {}): void => {
+    seed();
+    useStore.setState((s) => ({
+      rpc: {
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          model: {
+            id: "m1",
+            name: "Model M1",
+            provider: "p",
+            thinking: { efforts: ["low", "medium", "xhigh"] },
+          },
+          session: { ...s.rpc[TAB]!.session, ...sessionPatch },
+        },
+      },
+    }));
+  };
+
+  it("seeds the staged level from the selector, not the resolved value", () => {
+    seedModel({ thinkingLevel: "medium", thinkingConfigured: "auto" });
+    render();
+    expect(levelButton().textContent).toBe("auto");
+  });
+
+  it("offers auto above the ladder and stages it on click", () => {
+    seedModel();
+    render();
+    act(() => levelButton().click());
+    expect(ladderRows(levelButton()).map((row) => row.textContent?.trim())).toEqual([
+      "auto",
+      "low",
+      "medium",
+      "xhigh",
+    ]);
+    act(() => ladderRows(levelButton())[0]!.click());
+    expect(levelButton().textContent).toBe("auto");
+  });
+
+  it("keeps the advisor menu free of an auto row — the advisor binds one selector at start", () => {
+    seedModel();
+    act(() =>
+      useStore.setState((s) => ({
+        state: {
+          ...s.state!,
+          projects: s.state!.projects.map((group) => ({
+            ...group,
+            sessions: group.sessions.map((session) =>
+              session.tabId === TAB
+                ? { ...session, advisor: true, advisorModel: "p/adv" }
+                : session,
+            ),
+          })),
+        },
+        rpc: {
+          [TAB]: {
+            ...s.rpc[TAB]!,
+            availableModels: [
+              { id: "adv", name: "Adv", provider: "p", thinking: { efforts: ["low", "high"] } },
+            ],
+          },
+        },
+      })),
+    );
+    render();
+    const advisorLevel = document.body.querySelector<HTMLButtonElement>(
+      'button[title="the advisor\'s thinking level for the implementation"]',
+    );
+    expect(advisorLevel).not.toBeNull();
+    act(() => advisorLevel!.click());
+    expect(ladderRows(advisorLevel!).map((row) => row.textContent?.trim())).toEqual(["low", "high"]);
+  });
+});

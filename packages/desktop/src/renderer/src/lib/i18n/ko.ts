@@ -236,6 +236,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.thinking.title": "thinking 수준 — 클릭하여 선택 ({efforts})",
   "composer.thinking.fallback": "think —",
   "composer.thinking.label": "thinking",
+  "composer.thinking.auto": "auto",
+  "composer.thinking.autoTitle": "자동 — omp가 프롬프트마다 분류합니다. 이번 턴: {level}",
   "composer.options.title": "프롬프트 옵션",
   "composer.model.fallback": "모델 없음",
   "composer.queue.queued": "대기열: {n}",
