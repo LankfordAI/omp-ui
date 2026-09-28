@@ -33,6 +33,7 @@ import {
   dropPlanHandoff,
   isLateAckCommand,
   respData,
+  clearRewindPrefill,
   type GetState,
   type SetState,
   type StoreMachinery,
@@ -56,6 +57,7 @@ export type RpcCommandSlice = Pick<
   | "setInitialPrompt"
   | "renameSession"
   | "setSessionToolEnabled"
+  | "reloadHistory"
 >;
 
 /**
@@ -513,6 +515,9 @@ export function disposeTabRuntime(
   deps: Watchers,
   m: StoreMachinery,
 ): void {
+  // A relaunch must never prefill a prompt staged for the old lifetime
+  // (issue #680).
+  clearRewindPrefill(tabId);
   deps.concern.cancel(tabId);
   deps.advisorReply.cancel(tabId);
   // The roster belongs to the dying process, not to whatever session reuses
@@ -1129,6 +1134,7 @@ export function createRpcCommandSlice(
     setInitialPrompt,
     renameSession,
     setSessionToolEnabled,
+    reloadHistory: loadHistory,
     reconcileGoals,
     reconcileAutoresearch,
   };

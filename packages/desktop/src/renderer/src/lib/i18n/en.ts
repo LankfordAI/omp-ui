@@ -161,6 +161,15 @@ export const en = {
   "dialog.lifecycle.removeTitle": "Remove project?",
   "dialog.lifecycle.removeBody": "Remove project {path} and its session records? Files on disk are kept.",
   "dialog.lifecycle.removeAction": "Remove project",
+  "dialog.lifecycle.rewindTitle": "Rewind to this prompt?",
+  "dialog.lifecycle.rewindBody":
+    "Rewind the session to this prompt? {count} later turns stop being the current branch — they stay in the session file as another branch.",
+  "dialog.lifecycle.rewindAction": "Rewind",
+  "dialog.lifecycle.navigateTitle": "Navigate the tree here?",
+  "dialog.lifecycle.navigateBody":
+    "Move the session's leaf to this entry? {count} later turns stop being the current branch — they stay in the session file as another branch.",
+  "dialog.lifecycle.navigateSummarize": "Ask the model to summarize the abandoned turns",
+  "dialog.lifecycle.navigateAction": "Navigate",
   "dialog.lifecycle.working": "Working…",
 
   // AppFeedback.tsx — backend-failure acknowledgment dialog (issue #373)
@@ -181,6 +190,35 @@ export const en = {
     "This session is not running, so its title cannot be regenerated. Resume the session first, then re-title it.",
   "session.error.retitleNoTranscript":
     "This session has no exchange to re-title from yet. Send a prompt, let the assistant answer, then try again.",
+  "session.error.rewindBusy":
+    "Rewind needs a live, idle native session. Wait for the turn to finish (or stop it), then try again.",
+  "session.error.rewindCorrelation":
+    "Could not match this prompt to a session entry, so nothing was rewound. Refresh the session and try again.",
+  "session.error.navigateUnconfirmed":
+    "The tree bridge did not report a result for this jump. Refresh the session before navigating again.",
+  "session.error.navigateFailed": "The session could not navigate to that entry.",
+
+  // TranscriptView.tsx / SessionTreeViewer.tsx — rewind affordances (issue #680)
+  "transcript.rewind.here": "rewind here",
+  "transcript.rewind.edit": "edit and resend",
+  "transcript.rewind.done":
+    "rewound — later turns stay in the session file as another branch",
+  "transcript.rewind.navigated": "navigated — the transcript shows the branch you jumped to",
+  "transcript.rewind.busy": "Rewind is available when the session is idle.",
+
+  // SessionTreeViewer.tsx — the session tree navigator (issue #680)
+  "session.tree.title": "Session tree",
+  "session.tree.kicker": "Session action",
+  "session.tree.empty": "The tree bridge has not published a snapshot yet. Refresh the session.",
+  "session.tree.unavailable": "The session tree is unavailable: {reason}",
+  "session.tree.active": "current branch",
+  "session.tree.current": "leaf",
+  "session.tree.navigate": "navigate here",
+  "session.tree.summarize": "summarize abandoned turns",
+  "session.tree.busy": "Navigation is available when the session is idle.",
+  "session.tree.reasonMissingApi": "this omp build exposes no tree API",
+  "session.tree.reasonReadFailed": "the tree could not be read",
+  "session.tree.reasonPayloadTooLarge": "the tree is too large to publish",
 
   // AdvisorControl.tsx, PlanReview.tsx — dev/test advisor override (issue #372)
   "advisor.override.badge": "dev/test",
@@ -1071,6 +1109,8 @@ export const en = {
   "palette.action.capabilitiesSession": "Capabilities for this session",
   "palette.action.capabilitiesSessionDesc":
     "what this live session loaded — roster, session-local switches, MCP runtime status",
+  "palette.action.sessionTree": "Session tree",
+  "palette.action.sessionTreeDesc": "rewind to a prompt or jump between branches of {title}",
   "palette.action.lab": "Open the Lab",
   "palette.action.labDesc": "every project's autoresearch experiments",
   "palette.action.stats": "Open Stats",
@@ -1336,6 +1376,8 @@ export const en = {
   "hud.actions.autoCompactTitle": "auto-compact when the context window fills",
   "hud.actions.branch": "branch",
   "hud.actions.branchTitle": "branch this session into a new tab",
+  "hud.actions.tree": "tree",
+  "hud.actions.treeTitle": "show the session tree — rewind to any prompt or jump between branches",
   "hud.actions.compact": "compact",
   "hud.actions.copied": "copied",
   "hud.actions.copy": "copy",

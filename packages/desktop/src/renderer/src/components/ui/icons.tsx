@@ -136,3 +136,23 @@ export function IconMic({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/** Counter-clockwise arrow — rewind to a prompt (issue #680). */
+export function IconRewind({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M3 8a5 5 0 1 0 1.6-3.7" />
+      <path d="M3 2.6v2.9h2.9" />
+    </svg>
+  );
+}
+
+/** Pencil — edit and resend (issue #680). */
+export function IconPencil({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M11.2 2.4l2.4 2.4L5.6 12.8l-3 .6.6-3z" />
+      <path d="M9.6 4l2.4 2.4" />
+    </svg>
+  );
+}

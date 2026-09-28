@@ -377,7 +377,7 @@ function imagesField(content: unknown, details: unknown): Pick<ToolItem, "images
   };
 }
 
-function userContentFromContent(
+export function userContentFromContent(
   content: unknown,
 ): Pick<UserItem, "text" | "fileMentions" | "images"> {
   const blocks = typeof content === "string" ? [] : contentBlocks(content);

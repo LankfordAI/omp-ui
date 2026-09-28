@@ -932,6 +932,13 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
+  const openSessionTreeView = useStore((s) => s.openSessionTreeView);
+  // The tree navigator needs a live process (its bridge publishes over
+  // setStatus); a dormant tab hides it (issue #680).
+  const treeAvailable = useStore((s) => {
+    const rec = findRecord(s.state, tabId);
+    return rec?.live === "live" && rec.mode === "rpc-ui";
+  });
   const compact = useCompactShell();
   const surface = useStore((s) => s.compactSurface);
   const showCompactSurface = useStore((s) => s.showCompactSurface);
@@ -1098,6 +1105,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />{t("hud.actions.export")}</Button>
                 <Button onClick={() => openCapabilitiesViewer(null, undefined, "mcp", instanceId)} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>
                 <Button title={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.branch")}</Button>
+                {treeAvailable && (
+                  <Button title={t("hud.actions.treeTitle")} onClick={() => openSessionTreeView(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.tree")}</Button>
+                )}
                 <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd, undefined, instanceId); }} className={sheetAction}><IconNew />{t("hud.actions.new")}</Button>
                 <Button onClick={refresh} className={sheetAction}><IconRefresh />{t("hud.actions.refresh")}</Button>
                 <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-3"><span className="text-xs">{t("hud.actions.autoCompact")}</span><Switch on={session?.autoCompactionEnabled ?? false} label={t("hud.actions.autoCompact")} onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
@@ -1232,6 +1242,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <IconButton label={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)}>
           <IconBranch />
         </IconButton>
+        {treeAvailable && (
+          <IconButton label={t("hud.actions.treeTitle")} onClick={() => openSessionTreeView(tabId)}>
+            <IconBranch />
+          </IconButton>
+        )}
         {/* Same command as the composer's bare /new and mod+shift+n: spawn a
             new live session tab in this project, not an in-tab reset (#82). */}
         <IconButton
