@@ -279,6 +279,28 @@ describe("branch switching (issue #35)", () => {
     });
   });
 
+  it("strips the Electron invoke wrapper from a pull failure (issue #674)", async () => {
+    h.mockBackend.pullBranch.mockRejectedValueOnce(
+      new Error("Error invoking remote method 'branch:pull': Error: Aborting"),
+    );
+    h.useStore.setState({ branchActivity: {} });
+
+    await expect(h.useStore.getState().pullGitBranch("/p")).resolves.toBe("Aborting");
+  });
+
+  it("strips the Electron invoke wrapper from a checkout failure (issue #674)", async () => {
+    h.mockBackend.checkoutBranch.mockRejectedValueOnce(
+      new Error(
+        "Error invoking remote method 'branch:checkout': Error: will overwrite local changes",
+      ),
+    );
+    h.useStore.setState({ branchActivity: {} });
+
+    await expect(
+      h.useStore.getState().checkoutGitBranch("/p", "feature/x"),
+    ).resolves.toBe("will overwrite local changes");
+  });
+
   it("pullGitBranch coalesces pulls, locally refreshes, and increments only its revision once", async () => {
     const previous: BranchList = {
       repoRoot: "/p",

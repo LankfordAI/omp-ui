@@ -447,7 +447,11 @@ export function createBranchService(
       throw new Error("Cannot pull: branch has diverged; merge or rebase manually.");
     }
 
-    await runGit(root, ["pull", "--ff-only"], networkOptions(PULL_TIMEOUT_MS));
+    // --quiet keeps the implicit fetch's report ("From …", "[new tag] …") out
+    // of stderr, which the runner turns into the rejection message verbatim;
+    // git's actionable refusals ("error: … Aborting") survive it unchanged.
+    // Same stance as the periodic upstream fetch's own --quiet.
+    await runGit(root, ["pull", "--ff-only", "--quiet"], networkOptions(PULL_TIMEOUT_MS));
 
     if (entry !== null) {
       entry.generation += 1;

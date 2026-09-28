@@ -12,7 +12,7 @@ import type {
   MergeDestination,
   PushResult,
 } from "@omp-ui/core/types";
-import { backendFor } from "../../backend";
+import { backendFor, displayMessage } from "../../backend";
 import { projectKey } from "../../lib/project-key";
 import type { GetState, SetState } from "./shared";
 import type { BranchActivity } from "../types";
@@ -173,7 +173,7 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     try {
       await backendFor(instanceId).checkoutBranch(projectCwd, name, opts);
     } catch (err) {
-      return err instanceof Error ? err.message : String(err);
+      return displayMessage(err);
     }
     await get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
     return null;
@@ -196,7 +196,7 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
       await get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
       return null;
     } catch (err) {
-      return err instanceof Error ? err.message : String(err);
+      return displayMessage(err);
     } finally {
       if (pulled) {
         set((s) => ({

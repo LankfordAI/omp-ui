@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
@@ -426,7 +427,7 @@ export function BranchChip({
       closeMenu();
     } catch (err) {
       // Only a transport failure throws.
-      setError(err instanceof Error ? err.message : String(err));
+      setError(displayMessage(err));
       setConfirm(null);
     }
   };

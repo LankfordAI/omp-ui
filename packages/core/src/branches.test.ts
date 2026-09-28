@@ -414,8 +414,13 @@ describe("listBranches", () => {
     await service.listBranches("/repo", { fetchUpstream: true });
     await service.pullBranch("/repo");
 
+    const pullCall = fake.calls.find((call) => call.args[0] === "pull");
     const fetchOptions = fake.calls.find((call) => call.args[0] === "fetch")?.options;
-    const pullOptions = fake.calls.find((call) => call.args[0] === "pull")?.options;
+    const pullOptions = pullCall?.options;
+    // The implicit fetch's report ("From …", "[new tag] …") lands on stderr,
+    // which the runner rethrows verbatim; --quiet keeps it out of the pull's
+    // failure message (issue #674).
+    expect(pullCall?.args).toContain("--quiet");
     expect(fetchOptions?.timeoutMs).toBe(5_000);
     expect(pullOptions?.timeoutMs).toBe(30_000);
     for (const options of [fetchOptions, pullOptions]) {
@@ -559,7 +564,16 @@ describe("pullBranch", () => {
     fs.writeFileSync(path.join(fixture.local, ".seed"), "local dirty content\n");
     const before = await revParse(fixture.local);
 
-    await expect(pullBranch(fixture.local)).rejects.toThrow(/local changes.*overwritten by merge/is);
+    const failure = await pullBranch(fixture.local).then(
+      () => null,
+      (err: unknown) => err as Error,
+    );
+    expect(failure?.message).toMatch(/local changes.*overwritten by merge/is);
+    // The implicit fetch's report must stay out of the message the popover
+    // shows (issue #674): the fixture's pull has real objects to fetch, so
+    // without --quiet git's "From …"/"Updating …" chatter leads this message.
+    expect(failure?.message).not.toMatch(/^From /m);
+    expect(failure?.message).not.toMatch(/^Updating /m);
     expect(await revParse(fixture.local)).toBe(before);
     expect(fs.readFileSync(path.join(fixture.local, ".seed"), "utf8")).toBe(
       "local dirty content\n",
