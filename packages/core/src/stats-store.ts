@@ -4,7 +4,6 @@ import * as path from "node:path";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { resolveProfile } from "./paths";
 import type {
-  StatsDayPoint,
   StatsModelRow,
   StatsOverview,
   StatsProjectRow,
