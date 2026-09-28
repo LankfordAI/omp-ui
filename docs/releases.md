@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Browser pane text input never calls `webContents.insertText`; a click away from the field mid-conversion can no longer drop the committed text into a stale field ([#656](https://github.com/LankfordAI/omp-ui/issues/656)).
+- Keep the browser pane's canvas visible across resizes on GPU rendering (#653).
 
 Since [v0.16.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.16.0): add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 

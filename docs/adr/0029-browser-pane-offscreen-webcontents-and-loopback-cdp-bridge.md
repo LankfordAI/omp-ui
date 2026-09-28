@@ -251,7 +251,11 @@ through a **loopback CDP bridge** the main process hosts:
   accelerated-canvas loss follows the window's own surface resize — no
   emulation command and no host-side re-apply restores the layer, only a
   page-side redraw — so that condition is params bookkeeping, not a raster
-  fix. It also waits for the window's first document commit (an override sent
+  fix. As the #653 workaround the host ends every size-changing apply with one
+  inert `Runtime.evaluate` that redraws every light-DOM 2D canvas via
+  self-`drawImage`, which re-arms the dropped layer on the next frame; the
+  underlying defect remains Chromium's. It also waits for the window's first
+  document commit (an override sent
   before it segfaults the GPU process); every commit also re-forces
   `setZoomFactor(target)` because
   the origin's persisted zoom level at commit, which would otherwise silently

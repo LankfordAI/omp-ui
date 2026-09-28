@@ -460,12 +460,13 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     await flush();
     expect(sendCommand.mock.calls.filter((c) => c[0] === "Emulation.clearDeviceMetricsOverride")).toHaveLength(1);
     expect(sendCommand.mock.calls.filter((c) => c[0] === "Emulation.setDeviceMetricsOverride")).toHaveLength(2);
-    expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
-      width: 900,
-      height: 600,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
+    // The size-changing apply ends with the #653 canvas kick after the set; the
+    // set must stay the last geometry command (#557/#630 order unchanged).
+    expect(sendCommand.mock.calls.filter((c) => c[0] !== "Runtime.evaluate").at(-1)).toEqual([
+      "Emulation.setDeviceMetricsOverride",
+      { width: 900, height: 600, deviceScaleFactor: 1, mobile: false },
+    ]);
+    expect(sendCommand.mock.calls.at(-1)?.[0]).toBe("Runtime.evaluate");
 
     // A clobber re-asserts the params Chromium last accepted — that re-send IS dropped,
     // so the re-pin stays clear-then-set (#630 ordering unchanged).
@@ -702,6 +703,26 @@ describe("BrowserPaneHost page lifecycle", () => {
     h.panes[0]!.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true });
     h.host.input("t1", { type: "insertText", text: "한" });
     expect(pane.commitComposition).toHaveBeenCalledTimes(2);
+  });
+
+  it("kicks canvas layers once per surface resize and never for a same-size re-pin", async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    await h.host.ensure("t1");
+    const dbg = vi.mocked(h.panes[0]!.pane.debugger.sendCommand);
+    const kicks = () => dbg.mock.calls.filter(([m]) => m === "Runtime.evaluate").length;
+    expect(kicks()).toBe(0); // creation and the auto-commit apply share one size
+    h.host.resize("t1", 900, 700);
+    vi.advanceTimersByTime(BROWSER_PANE_RESIZE_DEBOUNCE_MS);
+    await flush();
+    expect(kicks()).toBe(1);
+    expect(dbg.mock.calls.find(([m]) => m === "Runtime.evaluate")?.[1]).toMatchObject({
+      expression: expect.stringContaining("drawImage"),
+    });
+    h.host.resize("t1", 900, 700);
+    vi.advanceTimersByTime(BROWSER_PANE_RESIZE_DEBOUNCE_MS);
+    await flush();
+    expect(kicks()).toBe(1); // same size: clear+set re-pin, no surface resize, no kick
   });
 
   it("kills the debugger commit once dispatched input can have ended the composition", async () => {

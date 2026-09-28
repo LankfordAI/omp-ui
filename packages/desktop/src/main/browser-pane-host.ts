@@ -61,6 +61,16 @@ function clobbersMetrics(method: string, params: object): boolean {
 }
 /** How long after the last clobbering agent command the host re-asserts its own geometry. */
 const METRICS_REASSERT_MS = 250;
+/** #653: an inert page-side redraw of every light-DOM 2D canvas. A surface resize
+ * drops an unchanged accelerated canvas layer from composited frames and no
+ * host-side command re-arms its texture; any content write does. Self-draw
+ * reproduces the identical pixels and leaves nothing the page can observe — no
+ * DOM, style, or global mutation. WebGL canvases return null for a "2d"
+ * getContext and are left to their own draw loops (#653 probe matrix). */
+const CANVAS_RESIZE_KICK =
+  '(() => { let n = 0; for (const c of document.querySelectorAll("canvas")) '
+  + '{ try { const x = c.getContext("2d"); if (x !== null && c.width > 0 && c.height > 0) { x.drawImage(c, 0, 0); n += 1; } } catch (e) {} }'
+  + ' return n; })()';
 
 export interface BrowserPaneHostDeps {
   send: (channel: string, ...args: unknown[]) => void;
@@ -117,6 +127,8 @@ interface PaneEntry {
   documentCommitted: boolean;
   /** The override params this debugger session last applied successfully; null = unknown (fresh session). */
   lastOverride: { width: number; height: number } | null;
+  /** The last window size pushed to the offscreen surface; drives the #653 resize kick. */
+  lastWindowSize: { width: number; height: number } | null;
   reassertTimer: NodeJS.Timeout | undefined;
   agent: BrowserPaneAgentState;
   actingTimer: NodeJS.Timeout | undefined;
@@ -151,6 +163,7 @@ function newEntry(tabId: string, lastUrl: string | null): PaneEntry {
     targetDsf: 1,
     documentCommitted: false,
     lastOverride: null,
+    lastWindowSize: null,
     reassertTimer: undefined,
     agent: "detached",
     actingTimer: undefined,
@@ -907,9 +920,14 @@ export class BrowserPaneHost {
    * disable→enable cycle, so the condition is bookkeeping, not a raster fix.
    * Only after the set resolves, round the compositor surface up to even
    * dimensions for tab capture; the override keeps logical page pixels unchanged.
+   * The #653 loss follows this surface resize itself, so a size-changing apply
+   * ends with one inert page-side redraw that re-arms the dropped canvas layer.
    */
   private applyMetrics(entry: PaneEntry, pane: PaneContents): void {
     const { width, height } = windowSize(entry);
+    const lastWindow = entry.lastWindowSize;
+    const resized = lastWindow !== null && (lastWindow.width !== width || lastWindow.height !== height);
+    entry.lastWindowSize = { width, height };
     pane.setContentSize(width, height);
     // Re-force the zoom: Chromium restores a per-origin zoom level at each
     // commit, which would otherwise silently replace the page's density (#646).
@@ -940,6 +958,12 @@ export class BrowserPaneHost {
           previous.surfaceWidth !== surfaceWidth || previous.surfaceHeight !== surfaceHeight) {
           this.onDesktopMedia?.(entry.tabId, { type: "media-geometry", tabId: entry.tabId, generation, geometry });
         }
+        // #653: the surface resize itself drops unchanged accelerated canvas layers
+        // with no host-side restore, so re-arm them from the page. A failed kick
+        // changes nothing else; the next size change tries again.
+        if (resized) void pane.debugger
+          .sendCommand("Runtime.evaluate", { expression: CANVAS_RESIZE_KICK, returnByValue: true })
+          .catch(() => {});
       })
       .catch(() => {
         // Without the override the page is still right; only an agent viewport could linger.
