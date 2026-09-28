@@ -575,6 +575,8 @@ export interface BranchList {
   ahead: number;
   /** Commits on the upstream but not the current branch. */
   behind: number;
+  /** True when the checkout holds a merge stopped on conflicts (MERGE_HEAD present). Worktree-scoped, like MERGE_HEAD itself. */
+  mergeInProgress: boolean;
   /** Unix timestamp in milliseconds of the last successful network refresh. */
   upstreamFetchedAt: number | null;
   /** Most recent network refresh error, retained until a refresh succeeds. */

@@ -3,6 +3,7 @@ import type {
   OwnedSessionRecord,
   RemoteInstanceSummary,
   SessionSummary,
+  SessionWorktree,
 } from "@omp-ui/core/types";
 import type { CapabilitySectionId } from "@omp-ui/core/capabilities";
 import type { StateCreator, StoreApi } from "zustand";
@@ -529,6 +530,32 @@ export function worktreeSharers(
   return (state?.projects ?? []).flatMap((project) =>
     project.sessions.filter((s) => s.tabId !== tabId && s.worktree?.path === worktreePath),
   );
+}
+
+/** The registered project and worktree whose checkout is at `path`, or null
+ * when that path is no session's worktree (i.e. it is a project root). */
+export function findWorktreeAt(
+  state: BackendState | null,
+  path: string,
+): { instanceId: string | null; projectCwd: string; worktree: SessionWorktree } | null {
+  if (state === null) return null;
+  for (const project of state.projects) {
+    for (const s of project.sessions) {
+      if (s.worktree?.path === path) {
+        return { instanceId: null, projectCwd: s.projectCwd, worktree: s.worktree };
+      }
+    }
+  }
+  for (const instance of state.remoteInstances) {
+    for (const project of instance.projects) {
+      for (const s of project.sessions) {
+        if (s.worktree?.path === path) {
+          return { instanceId: instance.id, projectCwd: s.projectCwd, worktree: s.worktree };
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /**

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { BranchList, PushResult } from "@omp-ui/core/types";
 import { backendState as makeBackendState } from "../test/fixtures";
 import type { RpcTabState } from "../store";
@@ -19,6 +19,7 @@ const fixture: BranchList = {
   hasUpstream: false,
   ahead: 0,
   behind: 0,
+  mergeInProgress: false,
   upstreamFetchedAt: null,
   upstreamRefreshError: null,
   // The chip's publish row reads this (issue #414): the repo's push target.
@@ -282,6 +283,7 @@ describe("BranchChip", () => {
           hasUpstream: false,
           ahead: 0,
           behind: 0,
+          mergeInProgress: false,
           upstreamFetchedAt: null,
           upstreamRefreshError: null,
         },
@@ -498,7 +500,7 @@ describe("BranchChip", () => {
     [
       "diverged upstream",
       { current: "main", upstreamRef: "origin/main", hasUpstream: true, ahead: 2, behind: 3 },
-      "2 ahead, 3 behind origin/main — merge or rebase manually",
+      "2 ahead, 3 behind origin/main — merge or rebase first",
     ],
   ] as const)("guides a branch with %s", async (_label, patch, guidance) => {
     seedBranch(patch);
@@ -1144,5 +1146,93 @@ describe("BranchChip push, publish, and pull request rows (issue #414)", () => {
 
     expect(document.body.textContent).toContain("cannot build a pull-request URL for this remote");
     expect(window.open).not.toHaveBeenCalled();
+  });
+});
+
+describe("BranchChip resolve row (issue #675)", () => {
+  /** The spawn action the row dispatches through, stubbed at the store. */
+  let spawnResolve: Mock;
+  beforeEach(() => {
+    spawnResolve = vi.fn(async () => {});
+    useStore.setState({ spawnGitResolution: spawnResolve });
+  });
+
+  const divergedUpstream = {
+    upstreamRef: "origin/main",
+    upstreamRemote: "origin",
+    hasUpstream: true,
+    ahead: 2,
+    behind: 3,
+  };
+
+  it("offers the integrate row for a diverged branch", async () => {
+    seedBranch(divergedUpstream);
+    render();
+    await act(async () => chip().click());
+
+    await act(async () => buttonByText("integrate with origin/main…").click());
+    expect(spawnResolve).toHaveBeenCalledWith(
+      "/p",
+      { kind: "diverged", branch: "main", upstream: "origin/main", cwd: "/p" },
+      null,
+    );
+    expect(chip().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("offers the merge row while a conflicted merge is stopped, and it outranks divergence", async () => {
+    seedBranch({ ...divergedUpstream, mergeInProgress: true });
+    render();
+    await act(async () => chip().click());
+
+    const rows = [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(
+      (candidate) =>
+        candidate.textContent?.startsWith("integrate with") ||
+        candidate.textContent === "resolve merge conflicts…",
+    );
+    expect(rows.map((row) => row.textContent)).toEqual(["resolve merge conflicts…"]);
+    expect(document.body.textContent).toContain(
+      "a merge is in progress in this checkout — conflicts are waiting",
+    );
+
+    await act(async () => rows[0]!.click());
+    expect(spawnResolve).toHaveBeenCalledWith(
+      "/p",
+      { kind: "merge", branch: "main", cwd: "/p" },
+      null,
+    );
+  });
+
+  it.each([
+    ["behind-only", { upstreamRef: "origin/main", upstreamRemote: "origin", hasUpstream: true, ahead: 0, behind: 2 }],
+    ["ahead-only", { upstreamRef: "origin/main", upstreamRemote: "origin", hasUpstream: true, ahead: 2, behind: 0 }],
+    ["clean", { upstreamRef: "origin/main", upstreamRemote: "origin", hasUpstream: true, ahead: 0, behind: 0 }],
+  ] as const)("never shows the row for a %s checkout", async (_label, patch) => {
+    seedBranch(patch);
+    render();
+    await act(async () => chip().click());
+
+    expect(document.body.textContent).not.toContain("integrate with");
+    expect(document.body.textContent).not.toContain("resolve merge conflicts…");
+  });
+
+  it("confirms first when a session on the checkout is mid-turn", async () => {
+    const info = seedBranch(divergedUpstream);
+    seedBusy();
+    useStore.setState({ branches: { "/p": info } });
+    render();
+    await act(async () => chip().click());
+    await act(async () => buttonByText("integrate with origin/main…").click());
+
+    expect(spawnResolve).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(
+      "is mid-turn — the agent will change the same checkout",
+    );
+
+    await act(async () => buttonByText("resolve anyway").click());
+    expect(spawnResolve).toHaveBeenCalledWith(
+      "/p",
+      { kind: "diverged", branch: "main", upstream: "origin/main", cwd: "/p" },
+      null,
+    );
   });
 });

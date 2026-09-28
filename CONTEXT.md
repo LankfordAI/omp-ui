@@ -560,6 +560,11 @@ record's checkout may be shared — forking a worktree session, and a plan
 handoff from a worktree planning session (issue #316), give the new record
 the same `path`/`branch`/`base`, and the last record deleted removes the
 checkout.
+The composer's branch chip also resolves the git state it shows: a checkout
+diverged from its upstream or stopped on merge conflicts offers a
+resolve-with-an-agent row that spawns a session in that checkout seeded with
+the resolution playbook (issue #675); the row's click is consent, and push is
+never implied.
 _Avoid_: sandbox session, isolated session, branch session, close the
 worktree, merge & close, merge & return as the sole exit
 

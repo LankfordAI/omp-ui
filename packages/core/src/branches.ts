@@ -110,6 +110,7 @@ function emptyBranchList(): BranchList {
     hasUpstream: false,
     ahead: 0,
     behind: 0,
+    mergeInProgress: false,
     upstreamFetchedAt: null,
     upstreamRefreshError: null,
     defaultRemote: null,
@@ -249,6 +250,16 @@ export function createBranchService(
   const readStatus = async (root: string): Promise<ParsedBranchStatus> =>
     parseBranchStatus(await runGit(root, ["status", "--porcelain=v2", "--branch"]));
 
+  /** Probe: true when this checkout is mid-merge; a failed rev-parse is the answer false. */
+  const readMergeHead = async (root: string): Promise<boolean> => {
+    try {
+      await runGit(root, ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const readLocalBranches = async (root: string): Promise<string[]> =>
     (await runGit(root, ["for-each-ref", "refs/heads", "--format=%(refname:short)"]))
       .split("\n")
@@ -353,17 +364,19 @@ export function createBranchService(
       return emptyBranchList();
     }
 
-    const [statusRead, branchesRead, defaultBranchRead, defaultRemoteRead] =
+    const [statusRead, branchesRead, defaultBranchRead, defaultRemoteRead, mergeHeadRead] =
       await Promise.allSettled([
         readStatus(root),
         readLocalBranches(root),
         readDefaultBranch(root, runGit),
         resolveDefaultRemote(root, runGit),
+        readMergeHead(root),
       ]);
     if (statusRead.status === "rejected") throw statusRead.reason;
     if (branchesRead.status === "rejected") throw branchesRead.reason;
     if (defaultBranchRead.status === "rejected") throw defaultBranchRead.reason;
     if (defaultRemoteRead.status === "rejected") throw defaultRemoteRead.reason;
+    if (mergeHeadRead.status === "rejected") throw mergeHeadRead.reason;
     let status = statusRead.value;
     const current = status.head;
     const branches = branchesRead.value;
@@ -410,6 +423,7 @@ export function createBranchService(
       hasUpstream: upstreamAvailable,
       ahead,
       behind,
+      mergeInProgress: mergeHeadRead.value,
       upstreamFetchedAt: entry?.fetchedAt ?? null,
       upstreamRefreshError: entry?.refreshError ?? null,
       defaultRemote,

@@ -42,6 +42,7 @@ const backendMock = {
     hasUpstream: false,
     ahead: 0,
     behind: 0,
+    mergeInProgress: false,
     upstreamFetchedAt: null,
     upstreamRefreshError: null,
     // Not a git repo at all: no remote to push to.
@@ -94,6 +95,7 @@ function seed(status: "starting" | "ready" | "running", dead = false): void {
         hasUpstream: false,
         ahead: 0,
         behind: 0,
+        mergeInProgress: false,
         upstreamFetchedAt: null,
         upstreamRefreshError: null,
         // Not a git repo at all: no remote to push to.
@@ -1585,7 +1587,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
   const gitBranches = {
     repoRoot: "/p", current: "main", branches: ["main", "feature/x"], defaultBranch: "main",
     upstreamRef: null, upstreamRemote: null, hasUpstream: false, ahead: 0, behind: 0,
-    upstreamFetchedAt: null, upstreamRefreshError: null, defaultRemote: "origin",
+    mergeInProgress: false, upstreamFetchedAt: null, upstreamRefreshError: null, defaultRemote: "origin",
   };
 
   // The worktree section lives in the non-compact action row, but the global

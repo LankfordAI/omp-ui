@@ -923,6 +923,7 @@ describe("branch:changed subscription (issue #498)", () => {
     hasUpstream: false,
     ahead: 0,
     behind: 0,
+    mergeInProgress: false,
     upstreamFetchedAt: null,
     upstreamRefreshError: null,
     defaultRemote: null,

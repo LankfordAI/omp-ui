@@ -137,6 +137,7 @@ describe("newExperiment", () => {
           hasUpstream: false,
           ahead: 0,
           behind: 0,
+          mergeInProgress: false,
           upstreamFetchedAt: null,
           upstreamRefreshError: null,
           defaultRemote: null,

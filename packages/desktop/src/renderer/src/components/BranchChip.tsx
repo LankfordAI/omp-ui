@@ -3,6 +3,7 @@ import { displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
+import type { GitResolutionTrigger } from "../lib/git-resolution-prompt";
 import { useDismissal } from "../lib/use-dismissal";
 import { runningSessionTitleOnCheckout, useStore } from "../store";
 import { Button, ICON_STROKE } from "./ui";
@@ -27,7 +28,10 @@ import { WorktreeBranchFields, type WorkspaceSelection } from "./WorktreeBranchF
  * of on the first prompt (issue #314), running the same conversion the first
  * send runs. Neutral chrome only — signal mint is reserved for agent
  * liveness (ADR-0004), and neither branch identity nor upstream drift is
- * liveness, so divergence escalates to copper and failures to rose.
+ * liveness, so divergence escalates to copper and failures to rose. A
+ * diverged or mid-merge checkout also offers an agent-resolution row (issue
+ * #675): clicking it spawns a session in that checkout seeded with the
+ * resolution playbook.
  *
  * Upstream reads are transport-only: the store owns every git call, coalesces
  * concurrent refreshes, and keeps the last good snapshot when one fails, so
@@ -49,7 +53,8 @@ const NETWORK_REFRESH_DEBOUNCE_MS = 250;
 type Pending =
   | { kind: "checkout"; branch: string }
   | { kind: "pull" }
-  | { kind: "push"; branch: string };
+  | { kind: "push"; branch: string }
+  | { kind: "resolve" };
 
 
 export function BranchChip({
@@ -119,6 +124,7 @@ export function BranchChip({
   const pullGitBranch = useStore((s) => s.pullGitBranch);
   const pushGitBranch = useStore((s) => s.pushGitBranch);
   const getPullRequestUrl = useStore((s) => s.getPullRequestUrl);
+  const spawnGitResolution = useStore((s) => s.spawnGitResolution);
   // A session mid-turn on this checkout: a plain checkout or a fast-forward
   // would move the working tree out from under it, so both earn a confirm.
   const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd));
@@ -226,14 +232,22 @@ export function BranchChip({
 
   if (projectCwd === undefined || info === undefined || info.repoRoot === null) return null;
 
-  const { current, upstreamRef, hasUpstream, ahead, behind, defaultBranch, defaultRemote } =
+  const { current, upstreamRef, hasUpstream, ahead, behind, defaultBranch, defaultRemote, mergeInProgress } =
     info;
   // hasUpstream is the resolution test, not the configuration test: a branch
   // whose remote ref was deleted keeps its configured upstreamRef and loses
   // hasUpstream, and that pair is exactly the "unavailable" state below.
   const resolvable = current !== null && upstreamRef !== null && hasUpstream;
   const diverged = resolvable && ahead > 0 && behind > 0;
-
+  // A mid-merge checkout outranks divergence: it is the fact git itself
+  // asserts, and its playbook covers divergence too. `diverged` already
+  // requires a resolvable upstream, so the non-null gates below are what
+  // TypeScript needs, not extra conditions.
+  const resolveTrigger: GitResolutionTrigger | null = mergeInProgress
+    ? { kind: "merge", branch: current, cwd: projectCwd }
+    : diverged && current !== null && upstreamRef !== null
+      ? { kind: "diverged", branch: current, upstream: upstreamRef, cwd: projectCwd }
+      : null;
   /**
    * The chip's tooltip elaborates only what the chip itself shows: the behind
    * count. Ahead and diverged readings are popover business — the chip stays a
@@ -250,7 +264,9 @@ export function BranchChip({
    * its own explanation.
    */
   const note: { text: string; tone: "quiet" | "copper" } | null =
-    current === null
+    mergeInProgress
+      ? { text: t("composer.branch.mergeInProgress"), tone: "copper" }
+      : current === null
       ? { text: t("composer.branch.detached"), tone: "quiet" }
       : upstreamRef === null
         ? { text: t("composer.branch.noUpstream"), tone: "quiet" }
@@ -401,6 +417,22 @@ export function BranchChip({
   };
 
   /**
+   * The resolve row's click (issue #675): a fresh session in this checkout,
+   * seeded with the resolution playbook. Click is consent, but a session
+   * mid-turn on the same checkout earns the chip's busy confirm first —
+   * the agent will edit and commit in that tree.
+   */
+  const attemptResolve = async (): Promise<void> => {
+    if (resolveTrigger === null || refreshing || pulling || pushing) return;
+    if (busyTitle !== null && confirm?.kind !== "resolve") {
+      setConfirm({ kind: "resolve" });
+      return;
+    }
+    void spawnGitResolution(projectCwd, resolveTrigger, instanceId);
+    closeMenu();
+  };
+
+  /**
    * Pushes — or publishes, the same `git push` with no upstream yet (issue
    * #414) — the branch the row names. Like the pull it mirrors, sharing a
    * branch out from a mid-turn session confirms first: the snapshot goes as
@@ -534,7 +566,9 @@ export function BranchChip({
                   ? t("composer.branch.confirmPull", { title: busyTitle! })
                   : confirm.kind === "push"
                     ? t("composer.branch.confirmPush", { title: busyTitle! })
-                    : t("composer.branch.confirmSwitch", { title: busyTitle! })}
+                    : confirm.kind === "resolve"
+                      ? t("composer.branch.confirmResolve", { title: busyTitle! })
+                      : t("composer.branch.confirmSwitch", { title: busyTitle! })}
               </div>
               <div className="flex gap-1.5 px-1.5 pb-0.5">
                 {confirm.kind === "pull" ? (
@@ -554,6 +588,14 @@ export function BranchChip({
                     onClick={() => void attemptPush(confirm.branch)}
                   >
                     {pushing ? t("composer.branch.pushing") : t("composer.branch.pushAnyway")}
+                  </Button>
+                ) : confirm.kind === "resolve" ? (
+                  <Button
+                    size="xs"
+                    tone="copper"
+                    onClick={() => void attemptResolve()}
+                  >
+                    {t("composer.branch.resolveAnyway")}
                   </Button>
                 ) : (
                   <Button
@@ -720,6 +762,19 @@ export function BranchChip({
                   className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
                   {t("composer.branch.pullRequest")}
+                </button>
+              )}
+              {resolveTrigger !== null && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={refreshing || pulling || pushing}
+                  onClick={() => void attemptResolve()}
+                  className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
+                >
+                  {resolveTrigger.kind === "diverged"
+                    ? t("composer.branch.resolveDiverged", { upstream: resolveTrigger.upstream })
+                    : t("composer.branch.resolveMerge")}
                 </button>
               )}
               {note !== null && (
