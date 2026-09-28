@@ -795,6 +795,8 @@ export const en = {
     "{provider} is also listed in providers.webSearchExclude, so omp always skips it.",
   "settings.providers.webSearchToolOff":
     "The web_search tool is switched off (web_search.enabled), so no provider is consulted.",
+  "settings.providers.privacy": "Privacy",
+  "settings.providers.telemetryExport": "Telemetry export",
   "settings.providers.noneConfigured":
     "No provider credentials — omp can only offer models that need no key",
   "settings.providers.someConfigured":

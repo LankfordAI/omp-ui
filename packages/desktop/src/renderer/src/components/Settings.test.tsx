@@ -1706,6 +1706,92 @@ describe("Settings Providers page web-search order (issue #394)", () => {
   });
 });
 
+describe("Settings Providers page privacy toggle (issue #670)", () => {
+  const TELEMETRY_KEY = "telemetry.otlpExportEnabled";
+
+  const entryFor = (
+    value: OmpSettingValue | undefined,
+    layer: OmpSettingsSnapshot["entries"][number]["layer"] = "default",
+    type: OmpSettingsSnapshot["entries"][number]["type"] = "boolean",
+    description = "Allow OMP to export traces, logs, and metrics using OTEL_* endpoints.",
+  ): OmpSettingsSnapshot["entries"][number] => ({
+    key: TELEMETRY_KEY,
+    type,
+    description,
+    value,
+    globalValue: undefined,
+    options: null,
+    layer,
+  });
+
+  /** Mounts Providers with `entries` in the omp snapshot and no credentials. */
+  function seedPrivacy(entries: OmpSettingsSnapshot["entries"]): void {
+    backendMock.readOmpSettings.mockResolvedValueOnce({ ...emptyOmpSettings, entries });
+    backendMock.readProviderKeys.mockResolvedValueOnce({
+      providers: [],
+      encryptionAvailable: true,
+      backend: "secret-service",
+    });
+    backendMock.readProviderOAuth.mockResolvedValueOnce([]);
+    backendMock.readWebSearchProviders.mockResolvedValueOnce(emptyWebSearchProviders);
+    useStore.setState({
+      settingsPage: "providers",
+      state: null,
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  const telemetrySwitch = (): HTMLButtonElement | null =>
+    document.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="Telemetry export"]',
+    );
+
+  it("renders the switch at omp's published value", async () => {
+    seedPrivacy([entryFor(true)]);
+    await renderSettings();
+    expect(telemetrySwitch()?.getAttribute("aria-checked")).toBe("true");
+    expect(document.body.textContent).toContain(
+      "Allow OMP to export traces, logs, and metrics using OTEL_* endpoints.",
+    );
+  });
+
+  it("writes the flipped literal through the omp-settings channel", async () => {
+    seedPrivacy([entryFor(true)]);
+    await renderSettings();
+    const sw = telemetrySwitch()!;
+    click(sw);
+    await act(async () => {});
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(TELEMETRY_KEY, false);
+  });
+
+  it("hides the Privacy section when the binary does not publish the key", async () => {
+    seedPrivacy([]);
+    await renderSettings();
+    expect(telemetrySwitch()).toBeNull();
+    expect(document.body.textContent).not.toContain("Privacy");
+  });
+
+  it("shows a non-boolean shape read-only, with no switch", async () => {
+    seedPrivacy([entryFor("yes", "global", "string")]);
+    await renderSettings();
+    expect(telemetrySwitch()).toBeNull();
+    const raw = [...document.querySelectorAll("span")].find(
+      (span) => span.textContent === JSON.stringify("yes"),
+    );
+    expect(raw?.textContent).toBe('"yes"');
+  });
+
+  it("badges a project-layer override", async () => {
+    seedPrivacy([entryFor(false, "project")]);
+    await renderSettings();
+    expect(telemetrySwitch()?.getAttribute("aria-checked")).toBe("false");
+    expect(document.body.textContent).toContain("project");
+  });
+});
+
 describe("Settings Appearance page transcript width and glass chrome (issues #391, #393)", () => {
   const seedAppearance = (): void => {
     useStore.setState({

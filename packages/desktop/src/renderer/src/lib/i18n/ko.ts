@@ -719,6 +719,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "{provider}은(는) providers.webSearchExclude에도 지정되어 있어 omp가 항상 건너뜁니다.",
   "settings.providers.webSearchToolOff":
     "web_search 도구(web_search.enabled)가 꺼져 있어 어떤 제공자도 호출되지 않습니다.",
+  "settings.providers.privacy": "개인정보 보호",
+  "settings.providers.telemetryExport": "텔레메트리 내보내기",
   "settings.providers.noneConfigured": "프로바이더 credential 없음 — omp는 키가 필요 없는 모델만 제공할 수 있습니다",
   "settings.providers.someConfigured": "프로바이더 {total}개 중 {configured}개에 credential 있음",
   "settings.providers.encryptedPrefix": "추가한 키는 OS credential store에서 암호화됩니다(",

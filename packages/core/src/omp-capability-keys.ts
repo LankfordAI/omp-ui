@@ -4,7 +4,7 @@
 // these same constants, so a scope panel's rows and the write allowlist can
 // never drift from each other.
 //
-// Mirrored from omp 18.1.10 source — packages/coding-agent/src/discovery/
+// Mirrored from omp 18.4.0 source — packages/coding-agent/src/discovery/
 // {builtin,claude,agents,codex}.ts (skill roots, provider priorities, and the
 // skills.enableX gates), src/config/settings-schema.ts (the `skills.*` keys and
 // their defaults), and src/tools/index.ts + src/sdk.ts (each tool's gate key).
@@ -88,6 +88,11 @@ export const CUSTOM_SKILLS_PRIORITY = 1_000;
  * Tools whose availability is not a settings key at all (eval, task, hub, the
  * memory tools) cannot be catalogued honestly and are absent here; the live
  * roster shows them.
+ *
+ * Absent by decision since the 18.4.0 bump: the `find` tool gates on
+ * `find.enabled`, a tri-state enum (auto|on|off) — the catalog models gates
+ * as enabled: boolean | null and setScopedCapability writes booleans, so an
+ * enum gate cannot join it until a tri-state row exists.
  */
 export interface ToolGate {
   tool: string;
@@ -114,8 +119,9 @@ export const TOOL_ENABLED_KEYS: readonly ToolGate[] = [
   { tool: "tts", key: "speechgen.enabled" },
 ];
 
-/** Every `skills.*` key omp 18.1.10 publishes, in omp's schema order. */
+/** Every `skills.*` key omp 18.4.0 publishes, in omp's schema order. */
 export const SKILLS_SETTING_KEYS: readonly string[] = [
+  "skills.registryUrl",
   "skills.enabled",
   "skills.enableSkillCommands",
   "skills.enableCodexUser",
@@ -166,7 +172,7 @@ export const SKILL_GATE_KEYS: readonly string[] = [
 ];
 
 /**
- * omp's schema defaults for the gate keys (settings-schema.ts, 18.1.10). Only
+ * omp's schema defaults for the gate keys (settings-schema.ts, 18.4.0). Only
  * a fallback: when the settings read succeeds, omp's own published value wins.
  */
 export const SKILL_GATE_DEFAULTS: Readonly<Record<string, boolean>> = {
