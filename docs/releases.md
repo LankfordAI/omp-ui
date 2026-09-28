@@ -4,16 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- A global [Stats view](adr/0037-stats-view-reads-omp-stats-db-read-only.md) — cross-session totals, per-day and per-model rollups, Projects, and per-session cost — opened from the command palette and read from omp's stats database through a ported read-only reader ([#668](https://github.com/LankfordAI/omp-ui/issues/668)).
-- The omp settings page gained a **judge** model-role row whose **browse…** list comes from the installed binary's `omp models --kind judge` catalog; leaving it blank keeps omp's built-in judge chain ([#669](https://github.com/LankfordAI/omp-ui/issues/669)).
-- Settings → Providers grew a **Privacy** section exposing omp's OTLP telemetry-export opt-out as a switch — no terminal needed to stop trace, log, and metric export ([#670](https://github.com/LankfordAI/omp-ui/issues/670)).
-- The omp settings page gained a **Python** section (`python.interpreter`, `python.kernelMode`) and the Getting started checklist now reports `omp setup python --check`, so a machine without a working interpreter says so before an eval call fails opaque ([#671](https://github.com/LankfordAI/omp-ui/issues/671)).
-- The native transcript's generate_image tool card now shows the image model the tool actually ran plus each returned image's size and quality ([#672](https://github.com/LankfordAI/omp-ui/issues/672)).
-- The Session HUD grew a provider-quota readout — rate-limit windows with percent used and time to reset — and says so when a provider credential rotates or a saved reset is banked ([#673](https://github.com/LankfordAI/omp-ui/issues/673)).
-- A branch pull failure now shows git's actionable refusal alone, not Electron's IPC wrapper and fetch chatter ahead of it ([#674](https://github.com/LankfordAI/omp-ui/issues/674)).
-- The composer's branch chip offers a resolve-with-an-agent row when a checkout has diverged from its upstream or stopped on merge conflicts; the click is consent and push is never implied ([#675](https://github.com/LankfordAI/omp-ui/issues/675)).
-
-Since [v0.17.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.17.0): add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+Nothing since [v0.17.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.17.1). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
