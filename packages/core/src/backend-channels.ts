@@ -18,6 +18,7 @@ import type {
   ImageAttachment,
   McpServersResult,
   InstanceIdentity,
+  JudgeModelSnapshot,
   McpSetEnabledRequest,
   MemoryOverview,
   ExperimentDetail,
@@ -420,6 +421,16 @@ export const BACKEND_CHANNELS = {
   readSttModels: {
     channel: "stt:readModels",
     ...request<[], SttModelSnapshot>([]),
+  },
+  /**
+   * The installed omp's judge-kind model catalog (`omp models --kind judge
+   * --json`) for the judge role row (issue #669). Never a curated omp-ui list
+   * (ADR-0027 lineage); never rejects for a failed probe — `discovered` and
+   * `error` say so.
+   */
+  readJudgeModels: {
+    channel: "judge:readModels",
+    ...request<[], JudgeModelSnapshot>([]),
   },
   /**
    * One dictation round trip: a 16 kHz mono PCM16 WAV (bare base64) posted to

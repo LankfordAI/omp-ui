@@ -133,7 +133,9 @@ Memory configuration applies to sessions started after the change. Existing omp 
 
 ## omp
 
-This page is a schema-driven view over omp-ui's curated allowlist of omp configuration keys. The installed omp version supplies each reported key's description, value type, enum choices, validation, value, and effective layer. If that version does not report an allowlisted key, omp-ui omits it. The page groups the available controls under model roles, advisor, context, providers, and display.
+This page is a schema-driven view over omp-ui's curated allowlist of omp configuration keys. The installed omp version supplies each reported key's description, value type, enum choices, validation, value, and effective layer. If that version does not report an allowlisted key, omp-ui omits it. The page groups the available controls under model roles (the chat roles plus the judge role), advisor, context, providers, and display.
+
+The **judge** row binds `modelRoles.judge`, the model-kind role omp 18.4.0 uses for structured judgment (issue #669). Its **browse…** list comes from the installed binary's `omp models --kind judge` catalog — never a curated omp-ui list ([ADR-0027](adr/0027-web-search-provider-list-discovered-from-omp.md) lineage). The value is an opaque provider/model selector: unlike the chat roles it takes no thinking-level suffix, so a trailing `:word` is part of the model id and is round-tripped verbatim. Leaving the field blank unsets the role and lets omp resolve its built-in judge chain; the per-kind retry chains (`retry.fallbackChains.judge`) stay config-file-only.
 
 The web-search provider order is not on this page: it is edited on **Providers**, beside the credentials it depends on.
 

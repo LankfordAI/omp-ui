@@ -1030,6 +1030,20 @@ export interface SttModelSnapshot {
   error: string | null;
 }
 
+/** One `omp models --kind judge` row for the judge role picker (issue #669). */
+export interface JudgeModelOption {
+  /** omp selector, e.g. "openrouter/typesafe/jev-1.13"; stored verbatim. */
+  selector: string;
+  name: string;
+}
+
+/** The judge-role picker's whole payload; `discovered` false => probe failed. */
+export interface JudgeModelSnapshot {
+  models: JudgeModelOption[];
+  discovered: boolean;
+  error: string | null;
+}
+
 /** One dictation round trip: bare base64 WAV → provider transcript (issue #647). */
 export interface SttTranscribeRequest {
   /** Bare base64 (no data-URI prefix) of a 16 kHz mono PCM16 WAV. */

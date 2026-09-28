@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateState,
+  JudgeModelSnapshot,
   MemoryOverview,
   OmpSettingValue,
   OmpSettingsSnapshot,
@@ -150,6 +151,11 @@ const backendMock = {
   ),
   readWebSearchProviders: vi.fn(async () => emptyWebSearchProviders),
   readSttModels: vi.fn(async () => ({ models: [], discovered: true, error: null })),
+  readJudgeModels: vi.fn(async (): Promise<JudgeModelSnapshot> => ({
+    models: [],
+    discovered: true,
+    error: null,
+  })),
   setVoiceInputEnabled: vi.fn(async () => {}),
   setSttModel: vi.fn(async () => {}),
   memoryOverview: vi.fn(),
@@ -1878,6 +1884,148 @@ describe("Settings omp Subagent concurrency section (issue #569)", () => {
     await renderSettings();
     expect(document.body.textContent).not.toContain("Subagent concurrency");
     expect(field()).toBeNull();
+  });
+});
+
+describe("Settings omp page judge role row (issue #669)", () => {
+  const catalog = {
+    models: [
+      { selector: "openrouter/typesafe/jev-1.13", name: "Jev 1.13" },
+      { selector: "local/jev-mini", name: "Jev Mini" },
+    ],
+    discovered: true,
+    error: null,
+  };
+
+  function seedJudge(record: Record<string, unknown>): void {
+    backendMock.readOmpSettings.mockResolvedValue({
+      ...emptyOmpSettings,
+      entries: [
+        {
+          key: "modelRoles",
+          type: "record",
+          description: "",
+          value: record,
+          globalValue: undefined,
+          options: null,
+          layer: "global",
+        },
+      ],
+    });
+    backendMock.readJudgeModels.mockResolvedValue(catalog);
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  const judgeField = (): HTMLInputElement =>
+    document.querySelector<HTMLInputElement>('input[aria-label="model role judge"]')!;
+
+  const judgeOptions = (): HTMLButtonElement[] => [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '[role="group"][aria-label="model role judge"] button',
+    ),
+  ];
+
+  async function openBrowse(): Promise<void> {
+    await act(async () => {
+      click(buttonWithText("browse…")!);
+    });
+  }
+
+  async function commitText(value: string): Promise<void> {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(judgeField(), value);
+      judgeField().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      judgeField().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+  }
+
+  it("renders the judge row beside the chat roles without probing", async () => {
+    seedJudge({ default: "anthropic/claude-opus" });
+    await renderSettings();
+    expect(judgeField()).not.toBeNull();
+    expect(
+      document.querySelector('input[aria-label="model role default"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('input[aria-label="model role advisor"]'),
+    ).not.toBeNull();
+    expect(backendMock.readJudgeModels).not.toHaveBeenCalled();
+  });
+
+  it("lazily lists the catalog on Browse and commits the merged record", async () => {
+    seedJudge({ default: "anthropic/claude-opus", web: "web/brave" });
+    await renderSettings();
+    await openBrowse();
+    expect(backendMock.readJudgeModels).toHaveBeenCalledTimes(1);
+    expect(judgeOptions().map((b) => b.textContent)).toEqual([
+      "Unset — omp's built-in judge chain",
+      "Jev 1.13 · openrouter/typesafe/jev-1.13",
+      "Jev Mini · local/jev-mini",
+    ]);
+    await act(async () => {
+      click(judgeOptions()[1]!);
+    });
+    // The whole merged record goes out (replace-not-merge); the sibling web
+    // value survives; the selector is committed verbatim, no :level appended.
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledTimes(1);
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("modelRoles", {
+      default: "anthropic/claude-opus",
+      web: "web/brave",
+      judge: "openrouter/typesafe/jev-1.13",
+    });
+  });
+
+  it("shows a stored value outside the catalog pressed and labelled", async () => {
+    seedJudge({ judge: "openrouter/jev-2:latest" });
+    await renderSettings();
+    await openBrowse();
+    const outside = judgeOptions().find((b) =>
+      b.textContent!.includes("not in omp's catalog"),
+    )!;
+    expect(outside.textContent).toBe("openrouter/jev-2:latest · not in omp's catalog");
+    expect(outside.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("commits an unset pick that deletes only the judge key", async () => {
+    seedJudge({ default: "x/y", judge: "openrouter/typesafe/jev-1.13" });
+    await renderSettings();
+    await openBrowse();
+    await act(async () => {
+      click(judgeOptions()[0]!); // Unset
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("modelRoles", {
+      default: "x/y",
+    });
+  });
+
+  it("renders the failure note and keeps the field working when undiscovered", async () => {
+    seedJudge({});
+    backendMock.readJudgeModels.mockResolvedValueOnce({
+      models: [],
+      discovered: false,
+      error: "omp binary not found",
+    });
+    await renderSettings();
+    await openBrowse();
+    expect(document.body.textContent).toContain(
+      "could not read omp's judge catalog: omp binary not found",
+    );
+    await commitText("openrouter/manual-judge");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("modelRoles", {
+      judge: "openrouter/manual-judge",
+    });
   });
 });
 

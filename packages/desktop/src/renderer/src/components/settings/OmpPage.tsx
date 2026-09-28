@@ -8,7 +8,12 @@ import { findRecord, sessionCwd, useStore } from "../../store";
 import { Button, Empty, Label } from "../ui";
 import { CommitField, Row, SettingControl, layerBadge } from "./rows";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
-import { OMP_MAX_CONCURRENCY_KEY, OMP_SUBAGENT_MODELS_KEY } from "@omp-ui/core/omp-settings-keys";
+import {
+  OMP_JUDGE_ROLE_ID,
+  OMP_MAX_CONCURRENCY_KEY,
+  OMP_SUBAGENT_MODELS_KEY,
+} from "@omp-ui/core/omp-settings-keys";
+import { JudgeRoleRow } from "./JudgeRoleRow";
 import { SubagentModelsSection } from "./SubagentModelsSection";
 import { SubagentConcurrencySection } from "./SubagentConcurrencySection";
 import { useT } from "../../lib/i18n";
@@ -163,6 +168,15 @@ export function OmpPage({
                 />
               </div>
             ))}
+            <JudgeRoleRow
+              value={
+                typeof rolesRecord[OMP_JUDGE_ROLE_ID] === "string"
+                  ? (rolesRecord[OMP_JUDGE_ROLE_ID] as string)
+                  : ""
+              }
+              pending={pendingKey === OMP_MODEL_ROLES_KEY}
+              onCommit={(raw) => commitRole(OMP_JUDGE_ROLE_ID, raw)}
+            />
           </div>
         </section>
       )}

@@ -119,8 +119,10 @@ export const OMP_MODEL_ROLES_KEY = "modelRoles";
 /** omp's built-in roles, in omp's own order (v17.2.7 config/model-roles.ts MODEL_ROLE_IDS).
  *  omp 18.2.x added a `web` role, deliberately NOT listed here: the Providers page owns it
  *  as a closed select (ADR-0036), because the omp page's free-text row would bypass the
- *  ADR-0027 list contract. OmpPage.commitRole spreads the whole record, so the web sibling
- *  round-trips untouched. */
+ *  ADR-0027 list contract. omp 18.4.0 added a `judge` kind role, likewise NOT listed here:
+ *  the generic row would offer the model[:level] thinking suffix, which judgment selectors
+ *  never take — JudgeRoleRow renders it from its own catalog instead (issue #669).
+ *  OmpPage.commitRole spreads the whole record, so these siblings round-trip untouched. */
 export const OMP_MODEL_ROLE_IDS = [
   "default",
   "smol",
@@ -133,3 +135,10 @@ export const OMP_MODEL_ROLE_IDS = [
   "task",
   "advisor",
 ] as const;
+
+/** omp's model-kind role for structured judgment (omp 18.4.0, issue #669).
+ *  NOT in OMP_MODEL_ROLE_IDS: the generic chat row would offer the
+ *  model[:level] thinking suffix, which judgment selectors never take.
+ *  JudgeRoleRow renders it; commitRole's merged-record spread keeps every
+ *  sibling role in one write. */
+export const OMP_JUDGE_ROLE_ID = "judge";

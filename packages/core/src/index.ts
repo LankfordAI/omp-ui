@@ -210,6 +210,7 @@ export {
   type OmpConfigRunner,
 } from "./omp-settings";
 export * from "./stt";
+export * from "./judge-models";
 export {
   MEMORY_DEFAULT_SEED,
   seedMemoryDefaults,

@@ -11,6 +11,7 @@ import type {
   GlassChrome,
   BranchListOptions,
   ImageAttachment,
+  JudgeModelSnapshot,
   LiveState,
   MergeBackResult,
   MergeBackStatus,
@@ -425,6 +426,8 @@ export interface SettingsSlice {
   /** The installed omp's STT catalog for the dictation picker (issue #647). */
   readSttModels(): Promise<SttModelSnapshot>;
   readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
+  /** The installed omp's judge-kind catalog for the judge role row (issue #669). */
+  readJudgeModels(): Promise<JudgeModelSnapshot>;
   setProviderKey(
     projectCwd: string | null,
     envName: string,

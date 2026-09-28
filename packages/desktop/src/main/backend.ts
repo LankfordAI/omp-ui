@@ -25,6 +25,7 @@ import {
   readOmpSettings,
   readOmpCompactionMethods,
   readWebSearchProviders,
+  readJudgeModels,
   readBranchDiff,
   readInstalledOmpVersion,
   listBranches,
@@ -847,6 +848,9 @@ export class MainBackend {
         // The provider list is omp-version-scoped, not app state: one catalog read
         // per Providers mount, no cache, no broadcast (ADR-0027, ADR-0035).
         [CH.readWebSearchProviders]: () => readWebSearchProviders({ ompPath: this.ompPath }),
+        // The judge catalog belongs to the installed omp version and the
+        // provider keys: one probe per browse, no cache (issue #669).
+        [CH.readJudgeModels]: () => readJudgeModels({ ompPath: this.ompPath }),
         // Each write answers with the refreshed snapshot in the same round trip,
         // so the page never has to guess what the store now holds.
         [CH.readProviderKeys]: (projectCwd: string | null) => this.providerSnapshot(projectCwd),
