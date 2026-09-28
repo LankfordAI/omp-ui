@@ -6,6 +6,7 @@ import type { BranchList } from "@omp-ui/core/types";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { backendState, rpcTabState } from "../test/fixtures";
 import { emptySessionRuntime, type SlashCommandInfo } from "../lib/rpc-types";
+import { t } from "../lib/i18n";
 import { markerItem, noticeItem } from "../lib/transcript";
 
 const clipboardImageMock = vi.hoisted(() => ({
@@ -70,6 +71,7 @@ const sendPrompt = vi.fn(async () => true);
 const abortAndPrompt = vi.fn(async () => {});
 const abortAgent = vi.fn(async () => {});
 const runSlashCommand = vi.fn(async () => {});
+const setFastMode = vi.fn(async () => {});
 let root: Root | null = null;
 
 const state = backendState({
@@ -108,7 +110,7 @@ function seed(status: "starting" | "ready" | "running", dead = false): void {
       session: { ...emptySessionRuntime(), thinkingLevel: "medium" },
       hasRenamed: true,
     }) },
-    compactSurface: null, sendPrompt, abortAndPrompt, abortAgent,
+    compactSurface: null, sendPrompt, abortAndPrompt, abortAgent, setFastMode,
   });
 }
 
@@ -327,6 +329,66 @@ describe("Composer auto thinking selector", () => {
       menuRows().find((row) => row.textContent?.trim() === label)!;
     expect(rowBy("auto").classList.contains("text-iris")).toBe(true);
     expect(rowBy("medium").classList.contains("text-iris")).toBe(false);
+  });
+});
+
+describe("Composer fast mode pill (issue #689)", () => {
+  // The pill row is the non-compact surface: matches: false → desktop shell.
+  const asDesktop = (): void => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  };
+  const seedFast = (patch: {
+    provider?: string;
+    fastModeEnabled?: boolean;
+    fastModeActive?: boolean;
+  }): void => {
+    asDesktop();
+    seed("ready");
+    const { provider, ...session } = patch;
+    useStore.setState((s) => ({
+      rpc: {
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          model: provider ? { ...s.rpc[TAB]!.model!, provider } : s.rpc[TAB]!.model,
+          session: { ...s.rpc[TAB]!.session, ...session },
+        },
+      },
+    }));
+    renderComposer();
+  };
+  const pill = (): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "fast",
+    );
+
+  it("stays quiet on an unsupported model with no fast state", () => {
+    seedFast({});
+    expect(pill()).toBeUndefined();
+  });
+
+  it("joins the pill row on a family-backed model and enables on click", async () => {
+    seedFast({ provider: "openai" });
+    const button = pill();
+    expect(button).toBeDefined();
+    expect(button!.getAttribute("aria-label")).toBe(t("hud.fast.offTitle"));
+    await act(async () => button!.click());
+    expect(setFastMode).toHaveBeenCalledWith(TAB, true);
+  });
+
+  it("reads on for a quiet provider whose session has active tier state (arm 2)", () => {
+    seedFast({ fastModeActive: true });
+    expect(pill()!.getAttribute("aria-label")).toBe(t("hud.fast.onTitle"));
+  });
+
+  it("titles the declined pair and retries the enable on click", async () => {
+    seedFast({ provider: "openai", fastModeEnabled: true, fastModeActive: false });
+    const button = pill();
+    expect(button!.getAttribute("aria-label")).toBe(t("hud.fast.declinedTitle"));
+    await act(async () => button!.click());
+    expect(setFastMode).toHaveBeenCalledWith(TAB, true);
   });
 });
 
