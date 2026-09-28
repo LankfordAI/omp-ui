@@ -576,7 +576,24 @@ export interface LabSlice {
   startNewSegment(tabId: string): Promise<void>;
 }
 
-export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice {
+/**
+ * The Stats main-pane surface (CONTEXT.md "Stats view"): the range it reads.
+ * `null` on the store means the surface is closed; any tab activation
+ * through `focusOn` closes it (issue #668).
+ */
+export interface StatsView {
+  /** null = all time; 7 / 30 = the range presets. */
+  rangeDays: number | null;
+}
+
+export interface StatsSlice {
+  stats: StatsView | null;
+  openStats(rangeDays?: number | null): void;
+  setStatsRange(rangeDays: number | null): void;
+  closeStats(): void;
+}
+
+export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice {
   state: BackendState | null;
   tabs: TabInfo[];
   activeTabId: string | null;

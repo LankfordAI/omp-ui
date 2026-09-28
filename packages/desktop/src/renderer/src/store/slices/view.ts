@@ -105,13 +105,14 @@ export interface ViewSlice {
  * Keeps global and per-project focus in lockstep for every tab activation.
  * `key` is the tab's projectKey(instanceId, projectCwd); undefined when the
  * tab is unknown, in which case only the global focus moves. Activating a tab
- * also closes the Lab (issue #559): the main pane shows one thing at a time.
+ * also closes the Lab and the Stats view (issues #559, #668): the main pane
+ * shows one thing at a time.
  */
 export function focusOn(
   state: Pick<UiStore, "activeTabId" | "focusedTabByProject">,
   tabId: string,
   key: string | undefined,
-): Pick<UiStore, "activeTabId" | "focusedTabByProject" | "lab"> {
+): Pick<UiStore, "activeTabId" | "focusedTabByProject" | "lab" | "stats"> {
   return {
     activeTabId: tabId,
     focusedTabByProject:
@@ -119,6 +120,7 @@ export function focusOn(
         ? state.focusedTabByProject
         : { ...state.focusedTabByProject, [key]: tabId },
     lab: null,
+    stats: null,
   };
 }
 

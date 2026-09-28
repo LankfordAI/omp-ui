@@ -25,6 +25,7 @@ import { applyLocale, currentLocaleId, resolveLocale } from "./lib/i18n";
 import { createBranchesSlice } from "./store/slices/branches";
 import { createBrowserPaneSlice } from "./store/slices/browser-pane";
 import { createFrameReductionSlice } from "./store/slices/frame-reduction";
+import { createStatsSlice } from "./store/slices/stats";
 import { createLabSlice } from "./store/slices/lab";
 import { createLifecycleSlice } from "./store/slices/lifecycle";
 import { createPlanExecutionSlice } from "./store/slices/plan-execution";
@@ -169,6 +170,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   });
   const browserPane = createBrowserPaneSlice(set, get, m);
   const lab = createLabSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });
+  const stats = createStatsSlice(set, get);
 
   /**
    * Repaints the document to match the registry's persisted themeId. The
@@ -378,6 +380,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...sessionParams,
     ...browserPane,
     ...lab,
+    ...stats,
     state: null,
     exited: {},
     hibernated: {},

@@ -1099,6 +1099,78 @@ export interface MemoryOverview {
   error: string | null;
 }
 
+/** One cross-session total over omp's stats.db (ADR-0037, issue #668). */
+export interface StatsTotals {
+  requests: number;
+  failed: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  premiumRequests: number;
+  cost: number;
+  unpricedRequests: number;
+  /** Epoch ms of the first/last recorded request; null when the range is empty. */
+  firstTs: number | null;
+  lastTs: number | null;
+}
+
+/** One UTC-day aggregate point for the Stats view's bars. */
+export interface StatsDayPoint {
+  ts: number;
+  requests: number;
+  failed: number;
+  totalTokens: number;
+  cost: number;
+}
+
+/** Per-model usage inside a Stats range, requests-descending by default. */
+export interface StatsModelRow {
+  model: string;
+  provider: string;
+  requests: number;
+  failed: number;
+  totalTokens: number;
+  premiumRequests: number;
+  cost: number;
+}
+
+/** Per-project (folder) usage inside a Stats range, requests-descending by default. */
+export interface StatsProjectRow {
+  folder: string;
+  requests: number;
+  totalTokens: number;
+  cost: number;
+}
+
+/** One session's whole-life aggregate from omp's stats.db. */
+export interface StatsSessionRow {
+  sessionFile: string;
+  requests: number;
+  startedAt: number;
+  endedAt: number;
+  totalTokens: number;
+  cost: number;
+  unpricedRequests: number;
+  models: string[];
+  toolCalls: number;
+}
+
+/** One read of omp's stats.db; `dbPath` null = omp has not recorded stats yet. */
+export interface StatsOverview {
+  dbPath: string | null;
+  /** Foreign/corrupt/locked file — a state, not a rejection (ADR-0017). */
+  error: string | null;
+  /** False when the hourly rollup tables are absent or stale-versioned: raw scans. */
+  rollups: boolean;
+  totals: StatsTotals;
+  days: StatsDayPoint[];
+  models: StatsModelRow[];
+  projects: StatsProjectRow[];
+  sessions: StatsSessionRow[];
+}
+
 /** One file inside a diagnostics bundle section (issue #413). */
 export interface DiagnosticsSectionFile {
   name: string;

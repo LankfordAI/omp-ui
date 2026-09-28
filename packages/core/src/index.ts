@@ -182,6 +182,7 @@ export {
   readExperimentLogPath,
   readExperimentRuns,
 } from "./autoresearch-store";
+export { readStatsOverview, statsDbCandidates, statsDbPath } from "./stats-store";
 export {
   formatModelRole,
   getOmpAgentDir,

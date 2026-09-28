@@ -867,3 +867,11 @@ The agent's pending `propose_experiment` call — a blocked select the New
 experiment dialog answers with launch or revise. Never launched by the agent
 itself. Closing the dialog is `revise`, not a deferral.
 _Avoid_: experiment draft, auto-configure, wizard step
+
+**Stats view**:
+The global cross-session usage surface — totals, per-day and per-model
+rollups, Projects, and per-session cost — read from omp's stats database,
+opened from the command palette. It takes the main pane in place of the
+tabs and is deliberately not a **Tab**: it is not a view onto a session.
+Reads only; the database belongs to omp.
+_Avoid_: stats tab, usage dashboard, analytics page
