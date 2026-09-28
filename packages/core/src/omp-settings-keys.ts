@@ -43,6 +43,19 @@ export const WEB_SEARCH_SETTING_GROUP: OmpSettingGroup = {
 };
 
 /**
+ * The privacy keys. Allowlisted but NOT in OMP_SETTING_GROUPS: the Providers
+ * page renders its own switch for the telemetry opt-out (issue #670), so the
+ * omp page shows no duplicate row for it. Allowlisted so the write boundary
+ * covers the key; readOmpSettings' per-entry rule hides it on binaries that
+ * do not publish it (omp < 18.4.0).
+ */
+export const OMP_TELEMETRY_EXPORT_KEY = "telemetry.otlpExportEnabled";
+export const PRIVACY_SETTING_GROUP: OmpSettingGroup = {
+  title: "Privacy",
+  keys: [OMP_TELEMETRY_EXPORT_KEY],
+};
+
+/**
  * The subagent model override record (ADR-0031). Allowlisted but NOT in
  * OMP_SETTING_GROUPS: a record renders as a read-only JSON span on the omp
  * page (rows.tsx), so the page's "Subagent models" section carries one row
@@ -113,6 +126,7 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...OMP_SETTING_GROUPS.flatMap((group) => group.keys),
   ...MEMORY_SETTING_GROUP.keys,
   ...WEB_SEARCH_SETTING_GROUP.keys,
+  ...PRIVACY_SETTING_GROUP.keys,
 ];
 /** modelRoles is a record edited per-role, so it is handled apart from the scalar list. */
 export const OMP_MODEL_ROLES_KEY = "modelRoles";
