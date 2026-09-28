@@ -4,11 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- The thinking menu in the composer, the prompt-options sheet, and the plan-review staging menu now offers `auto`: the pill reads `auto` while the tooltip and the Session rail show each turn's resolved level, and the session record keeps `auto` verbatim so no classification result is written back (#666).
-- Browser pane text input never calls `webContents.insertText`; a click away from the field mid-conversion can no longer drop the committed text into a stale field ([#656](https://github.com/LankfordAI/omp-ui/issues/656)).
-- Keep the browser pane's canvas visible across resizes on GPU rendering (#653).
-
-Since [v0.16.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.16.0): add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+Nothing since [v0.17.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.17.0). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
