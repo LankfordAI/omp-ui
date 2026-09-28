@@ -61,8 +61,13 @@ export interface ToolItem {
   /** tool_execution_start.intent — the human headline ("Reading hello.txt"). */
   intent?: string;
   resultText?: string;
-  /** Image blocks from tool_result content, same shape as UserItem.images (issue #520). */
-  images?: { data: string; mimeType: string }[];
+  /** Image blocks from tool_result content, same shape as UserItem.images (issue #520).
+   *  size/quality: generate_image details.images provenance, omp >= 18.4.0 (issue #672). */
+  images?: { data: string; mimeType: string; size?: string; quality?: string }[];
+  /** details.model — the image model the tool actually ran (generate_image, issue #672).
+   *  Pre-18.4.0 transcripts carry the catalog model here, which is what omp itself
+   *  displayed at the time; field presence is the gate, no version check. */
+  imageModel?: string;
   /** tool_execution_update.partialResult text, while running. */
   partialText?: string;
   diff?: DiffRow[];
@@ -312,10 +317,38 @@ function imagesFromContent(content: unknown): { data: string; mimeType: string }
   return images;
 }
 
-/** Conditional `images` field for a content payload — absent when it has no image blocks. */
-function imagesField(content: unknown): Pick<ToolItem, "images"> {
-  const images = imagesFromContent(content);
-  return images.length > 0 ? { images } : {};
+/** generate_image details.images: image blocks live in details, not content (issue #672). */
+function imagesFromDetails(
+  details: unknown,
+): { data: string; mimeType: string; size?: string; quality?: string }[] {
+  if (!isObj(details) || !Array.isArray(details.images)) return [];
+  const out: { data: string; mimeType: string; size?: string; quality?: string }[] = [];
+  for (const im of details.images) {
+    if (!isObj(im)) continue;
+    const data = str(im.data);
+    if (data === undefined) continue;
+    out.push({
+      data,
+      mimeType: str(im.mimeType) ?? "image/png",
+      ...(str(im.size) !== undefined ? { size: str(im.size) } : {}),
+      ...(str(im.quality) !== undefined ? { quality: str(im.quality) } : {}),
+    });
+  }
+  return out;
+}
+
+/** Conditional images/imageModel — content blocks first, then generate_image details. */
+function imagesField(content: unknown, details: unknown): Pick<ToolItem, "images" | "imageModel"> {
+  let images = imagesFromContent(content);
+  let imageModel: string | undefined;
+  if (images.length === 0) {
+    images = imagesFromDetails(details);
+    if (images.length > 0) imageModel = strField(details, "model") ?? undefined;
+  }
+  return {
+    ...(images.length > 0 ? { images } : {}),
+    ...(imageModel !== undefined ? { imageModel } : {}),
+  };
 }
 
 function userContentFromContent(
@@ -668,7 +701,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
         ...detailFacts(details),
-        ...imagesField(result ? result.content : undefined),
+        ...imagesField(result ? result.content : undefined, details),
       };
       const idx = toolCallId
         ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
@@ -867,7 +900,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
         ...detailFacts(details),
-        ...imagesField(raw.content),
+        ...imagesField(raw.content, details),
       };
     }
   }

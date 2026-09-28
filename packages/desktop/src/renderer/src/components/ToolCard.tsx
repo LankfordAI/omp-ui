@@ -9,7 +9,7 @@ import {
 } from "../lib/highlight";
 import { strField } from "../lib/fields";
 import type { ThemedToken } from "shiki/core";
-import { useT } from "../lib/i18n";
+import { useT, type MessageKey } from "../lib/i18n";
 import type { AdvisorNote, ToolItem } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { useStore } from "../store";
@@ -485,6 +485,21 @@ function argSummary(args: unknown): string {
   return first.length > 90 ? `${first.slice(0, 90)}…` : first;
 }
 
+/** generate_image provenance for one thumbnail (issue #672); null when nothing is known. */
+function imageCaption(
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+  model: string | undefined,
+  image: { size?: string; quality?: string },
+): string | null {
+  const parts: string[] = [];
+  if (model) parts.push(model);
+  const dims = /(\d+)\s*[xX×]\s*(\d+)/.exec(image.size ?? "");
+  if (dims) parts.push(t("image.viewer.dimensions", { width: dims[1], height: dims[2] }));
+  else if (image.size) parts.push(image.size);
+  if (image.quality) parts.push(image.quality);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 /* ------------------------------------------------------------- notes */
 
 const SEVERITY_TONE: Record<string, Tone> = {
@@ -555,8 +570,10 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
         src: `data:${im.mimeType};base64,${im.data}`,
         mimeType: im.mimeType,
         label: t("transcript.tool.imageAlt", { n: n + 1 }),
+        ...(item.imageModel !== undefined ? { model: item.imageModel } : {}),
+        ...(im.quality !== undefined ? { quality: im.quality } : {}),
       })),
-    [item.images, t],
+    [item.images, item.imageModel, t],
   );
   const hasDiff = (item.diff?.length ?? 0) > 0;
   const longOutput = resultLines > LONG_OUTPUT_LINES;
@@ -724,28 +741,35 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
               aria-label={t("transcript.tool.imageLabel")}
               className="flex flex-wrap gap-1.5"
             >
-              {(item.images ?? []).map((image, i) => (
-                <button
-                  // Index-keyed deliberately, as in UserBubble: the list is fixed
-                  // once rendered and the base64 payload is far too long a key.
-                  key={i}
-                  type="button"
-                  className="block cursor-zoom-in rounded border-0 p-0"
-                  title={t("transcript.tool.imageTitle", {
-                    mimeType: image.mimeType,
-                    n: i + 1,
-                    count: item.images!.length,
-                  })}
-                  aria-label={t("image.viewer.open", { n: i + 1 })}
-                  onClick={() => openImageViewer(toolViewerImages, i)}
-                >
-                  <img
-                    src={`data:${image.mimeType};base64,${image.data}`}
-                    alt={t("transcript.tool.imageAlt", { n: i + 1 })}
-                    className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
-                  />
-                </button>
-              ))}
+              {(item.images ?? []).map((image, i) => {
+                const caption = imageCaption(t, item.imageModel, image);
+                return (
+                  <div key={i} className="flex flex-col items-start gap-1">
+                    {/* Index-keyed deliberately, as in UserBubble: the list is fixed
+                        once rendered and the base64 payload is far too long a key. */}
+                    <button
+                      type="button"
+                      className="block cursor-zoom-in rounded border-0 p-0"
+                      title={t("transcript.tool.imageTitle", {
+                        mimeType: image.mimeType,
+                        n: i + 1,
+                        count: item.images!.length,
+                      })}
+                      aria-label={t("image.viewer.open", { n: i + 1 })}
+                      onClick={() => openImageViewer(toolViewerImages, i)}
+                    >
+                      <img
+                        src={`data:${image.mimeType};base64,${image.data}`}
+                        alt={t("transcript.tool.imageAlt", { n: i + 1 })}
+                        className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
+                      />
+                    </button>
+                    {caption && (
+                      <span className="font-mono text-[10px] text-ink-faint">{caption}</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 

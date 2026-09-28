@@ -154,6 +154,46 @@ describe("ImageViewer", () => {
     expect(dialog()?.textContent).toContain("this image could not be decoded");
   });
 
+  it("appends model and quality to the header once the image decodes (issue #672)", async () => {
+    await mount();
+    act(() =>
+      openImageViewer(
+        [{ src: PNG, mimeType: "image/png", label: "x", model: "gpt-image-1", quality: "high" }],
+        0,
+      ),
+    );
+    const el = img()!;
+    Object.defineProperty(el, "naturalWidth", { configurable: true, value: 1024 });
+    Object.defineProperty(el, "naturalHeight", { configurable: true, value: 1024 });
+    act(() => el.dispatchEvent(new Event("load")));
+    expect(dialog()?.textContent).toContain("gpt-image-1");
+    expect(dialog()?.textContent).toContain("high");
+  });
+
+  it("drops model and quality when the image fails to decode (issue #672)", async () => {
+    await mount();
+    act(() =>
+      openImageViewer(
+        [{ src: PNG, mimeType: "image/png", label: "x", model: "gpt-image-1", quality: "high" }],
+        0,
+      ),
+    );
+    act(() => img()!.dispatchEvent(new Event("error")));
+    expect(dialog()?.textContent).not.toContain("gpt-image-1");
+    expect(dialog()?.textContent).not.toContain("high");
+  });
+
+  it("keeps the header text unchanged for plain images (issue #672 regression)", async () => {
+    await mount();
+    act(() => openImageViewer([{ src: PNG, mimeType: "image/png", label: "x" }], 0));
+    expect(dialog()?.textContent).toContain("image/png");
+    const el = img()!;
+    Object.defineProperty(el, "naturalWidth", { configurable: true, value: 1600 });
+    Object.defineProperty(el, "naturalHeight", { configurable: true, value: 900 });
+    act(() => el.dispatchEvent(new Event("load")));
+    expect(dialog()?.querySelector("header")?.textContent).toContain("image/png · 1600 × 900 px");
+  });
+
   it("the close button closes it", async () => {
     await mount();
     act(() => openImageViewer([{ src: PNG, mimeType: "image/png", label: "x" }], 0));

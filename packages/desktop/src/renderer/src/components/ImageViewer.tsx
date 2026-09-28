@@ -12,11 +12,15 @@ declare global {
   }
 }
 
-/** One displayable image. `src` is the data: URI the thumbnail already renders. */
+/** One displayable image. `src` is the data: URI the thumbnail already renders.
+ *  model/quality: generate_image provenance (issue #672); optional so every
+ *  existing dispatcher (user attachments, eval screenshots) stays unchanged. */
 export interface ViewerImage {
   src: string;
   mimeType: string;
   label: string;
+  model?: string;
+  quality?: string;
 }
 
 interface ViewerOpenDetail {
@@ -98,12 +102,23 @@ export function ImageViewer({
           {t("image.viewer.heading", { n: index + 1, count: images.length })}
         </h2>
         <span className="min-w-0 truncate font-mono text-[10px] text-ink-faint">
-          {failed
-            ? t("image.viewer.failed")
-            : size === null
-              ? image.mimeType
-              : `${image.mimeType} · ${t("image.viewer.dimensions", size)}`}
+          {[
+            failed
+              ? t("image.viewer.failed")
+              : size === null
+                ? image.mimeType
+                : `${image.mimeType} · ${t("image.viewer.dimensions", size)}`,
+            !failed && image.model,
+            !failed && image.quality,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </span>
+        {!failed && (image.model ?? image.quality) && (
+          <span className="sr-only">
+            {[image.model, image.quality].filter(Boolean).join(" · ")}
+          </span>
+        )}
         <span className="min-w-0 flex-1" />
         {many && (
           <>

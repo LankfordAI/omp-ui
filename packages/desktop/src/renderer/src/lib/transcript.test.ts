@@ -348,6 +348,75 @@ describe("reduceEvent tool executions", () => {
     expect(tool(noData, "ti4")).not.toHaveProperty("images");
   });
 
+  it("sources thumbnails and provenance from generate_image details (issue #672)", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "gi1",
+      toolName: "generate_image",
+      result: {
+        content: [{ type: "text", text: "Provider: openai\nModel: gpt-image-1\nGenerated 1 image(s)" }],
+        details: {
+          provider: "openai",
+          model: "gpt-image-1",
+          imageCount: 1,
+          images: [{ data: "AAAB", mimeType: "image/webp", size: "1024x1536", quality: "high" }],
+        },
+      },
+    });
+    const t = tool(items, "gi1");
+    expect(t?.images).toEqual([
+      { data: "AAAB", mimeType: "image/webp", size: "1024x1536", quality: "high" },
+    ]);
+    expect(t?.imageModel).toBe("gpt-image-1");
+  });
+
+  it("lets content image blocks win over details.images without growing a caption (issue #672)", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "gi2",
+      result: {
+        content: [{ type: "image", data: "CCCC", mimeType: "image/png" }],
+        details: { model: "gpt-image-1", images: [{ data: "AAAB", mimeType: "image/webp" }] },
+      },
+    });
+    const t = tool(items, "gi2");
+    expect(t?.images).toEqual([{ data: "CCCC", mimeType: "image/png" }]);
+    expect(t).not.toHaveProperty("imageModel");
+  });
+
+  it("skips details.images entries without data and leaves fields absent when empty (issue #672)", () => {
+    const noData = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "gi3",
+      result: {
+        content: [{ type: "text", text: "ok" }],
+        details: { model: "m", images: [{ mimeType: "image/png" }] },
+      },
+    });
+    expect(tool(noData, "gi3")).not.toHaveProperty("images");
+    expect(tool(noData, "gi3")).not.toHaveProperty("imageModel");
+    const empty = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "gi4",
+      result: {
+        content: [{ type: "text", text: "No image data returned." }],
+        details: { model: "m", images: [] },
+      },
+    });
+    expect(tool(empty, "gi4")).not.toHaveProperty("images");
+    expect(tool(empty, "gi4")).not.toHaveProperty("imageModel");
+  });
+
+  it("never grows an orphan caption: model without images stays unpaired (issue #672)", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "gi5",
+      result: { content: [{ type: "text", text: "ok" }], details: { model: "gpt-image-1" } },
+    });
+    expect(tool(items, "gi5")).not.toHaveProperty("images");
+    expect(tool(items, "gi5")).not.toHaveProperty("imageModel");
+  });
+
   it("captures the start intent as the card headline", () => {
     const items = reduceEvent([], {
       type: "tool_execution_start",
@@ -888,6 +957,32 @@ describe("historyToItems", () => {
       { role: "toolResult", toolCallId: "ta", content: [{ type: "text", text: "ok" }] },
     ]);
     expect(tool(items, "ta")).not.toHaveProperty("images");
+  });
+
+  it("restores generate_image provenance on backfill (issue #672)", () => {
+    // The resume path must not lose the details-sourced thumbnails or caption.
+    const items = historyToItems([
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "tg", name: "generate_image", arguments: {} }],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tg",
+        content: [{ type: "text", text: "Provider: openai\nModel: gpt-image-1\nGenerated 1 image(s)" }],
+        details: {
+          provider: "openai",
+          model: "gpt-image-1",
+          imageCount: 1,
+          images: [{ data: "AAAB", mimeType: "image/webp", size: "1024x1536", quality: "high" }],
+        },
+      },
+    ]);
+    expect(tool(items, "tg")).toMatchObject({
+      status: "done",
+      images: [{ data: "AAAB", mimeType: "image/webp", size: "1024x1536", quality: "high" }],
+      imageModel: "gpt-image-1",
+    });
   });
 
   it("matches live display fields when resolved context is backfilled", () => {
