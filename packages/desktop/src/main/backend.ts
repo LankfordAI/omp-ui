@@ -75,6 +75,7 @@ import {
   type BackendState,
   type ChannelTable,
   type BranchListOptions,
+  type CollabAccess,
   type ConsoleProgram,
   type ImageAttachment,
   type McpSetEnabledRequest,
@@ -990,6 +991,13 @@ export class MainBackend {
           });
           return result.canceled || !result.filePath ? null : result.filePath;
         },
+        /** Live Collab hosting is terminal-tab only (issue #686): the tracker
+         * drives omp's own registry CLI and the PTY keystroke route. */
+        [CH.collabList]: () => this.sessions.collabSnapshots(),
+        [CH.collabShare]: (tabId: string, access: CollabAccess) =>
+          this.sessions.collabShare(tabId, access),
+        [CH.collabStop]: (tabId: string) => this.sessions.collabStop(tabId),
+        [CH.collabLink]: (tabId: string, view: boolean) => this.sessions.collabLink(tabId, view),
       },
       notify: {
         [CH.ptyWrite]: (tabId: string, data: string) => this.sessions.ptyWrite(tabId, data),

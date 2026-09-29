@@ -86,6 +86,7 @@ function fakeHandle(opts: { id: string }): PtyHandle {
   // The fake only fakes the handle; launchShell wires its callbacks itself.
   return {
     id: fake.id,
+    pid: 41_000 + fakeShells.length,
     onData: (cb) => {
       fake.dataCb = cb;
       return () => {

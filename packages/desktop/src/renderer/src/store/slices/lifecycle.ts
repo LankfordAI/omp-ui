@@ -279,6 +279,21 @@ export function createLifecycleSlice(
           (th, id) => dropTuiHandoff(th, id),
           s.tuiHandoff,
         ),
+        // Live-share state is the dying process's (issue #686): its registry
+        // row dies with it, and a stale sharing chip must not haunt a future
+        // tab id. The dialog closes with the tab it described.
+        collab: gone.reduce(
+          (shares, id) => {
+            if (shares[id] === undefined) return shares;
+            const next = { ...shares };
+            delete next[id];
+            return next;
+          },
+          s.collab,
+        ),
+        ...(s.shareLiveTab !== null && gone.includes(s.shareLiveTab)
+          ? { shareLiveTab: null }
+          : {}),
       };
     });
   };

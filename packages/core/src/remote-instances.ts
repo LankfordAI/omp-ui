@@ -104,6 +104,11 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "shell:spawn",
   "browser-pane:ensure",
   "browser-pane:pick",
+  // Collab commands carry the owning tab (#686): a remote control-plane tab
+  // drives the owner's tracker, which writes into the owner's PTY child.
+  "collab:share",
+  "collab:stop",
+  "collab:link",
 ]);
 
 /** Notify channels whose first argument is the owning tabId. */
@@ -194,4 +199,5 @@ export const REMOTE_TAB_EVENTS: ReadonlySet<string> = new Set<string>([
   "shell:exit",
   "browser-pane:frame",
   "browser-pane:state",
+  "collab:changed",
 ]);

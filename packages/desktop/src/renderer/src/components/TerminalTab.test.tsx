@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => {
     // Mutable stub state: tests flip `searchOpen` and re-render.
     store: {
       state: null,
+      collab: {},
       exited: {} as Record<string, number>,
       searchOpen: {} as Record<string, boolean>,
       ptyRedrawRevision: {} as Record<string, number>,

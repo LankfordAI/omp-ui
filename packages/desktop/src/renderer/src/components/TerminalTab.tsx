@@ -18,6 +18,7 @@ import { useT } from "../lib/i18n";
 import { useTerminalCopyMenu } from "./useTerminalCopyMenu";
 import { FindBar } from "./FindBar";
 import { RemoteInstanceBanner } from "./RemoteInstanceBanner";
+import { CollabChip } from "./CollabChip";
 import { Button, IconButton, IconClose } from "./ui";
 
 /**
@@ -307,9 +308,10 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
       </div>
       <div ref={hostRef} className="h-full w-full" onContextMenu={copyMenu.onContextMenu} />
       <span
-        className="absolute right-3 top-3 z-10"
+        className="absolute right-3 top-3 z-10 flex items-center gap-2"
         onMouseDown={(event) => event.preventDefault()}
       >
+        <CollabChip tabId={tabId} />
         <Button
           variant="outline"
           tone="neutral"

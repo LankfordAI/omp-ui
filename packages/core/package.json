@@ -22,6 +22,7 @@
     "./host-bridge": "./src/host-bridge.ts",
     "./goal": "./src/goal.ts",
     "./vibe": "./src/vibe.ts",
+    "./collab": "./src/collab.ts",
     "./omp-settings-keys": "./src/omp-settings-keys.ts",
     "./subagent-model": "./src/subagent-model.ts",
     "./web-search-order": "./src/web-search-order.ts",

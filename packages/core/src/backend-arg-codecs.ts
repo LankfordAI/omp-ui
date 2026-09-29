@@ -188,6 +188,8 @@ export const projectOpenTargetCodec: ArgCodec<ProjectOpenTarget> = oneOf(
 );
 export const consoleProgramCodec: ArgCodec<ConsoleProgram> = oneOf("shell", "omp-tui");
 export const remoteBindCodec: ArgCodec<RemoteBind> = oneOf("localhost", "lan");
+/** The omp collab access levels (issue #686). */
+export const collabAccessCodec: ArgCodec<"full" | "view"> = oneOf("full", "view");
 export const updateTrainCodec: ArgCodec<UpdateTrain> = oneOf("stable", "nightly");
 
 export const remoteInstanceSecretCodec: ArgCodec<RemoteInstanceInput["secret"]> = {

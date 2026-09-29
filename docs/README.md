@@ -17,6 +17,7 @@ This documentation covers installing, using, configuring, troubleshooting, devel
 - [Settings](settings.md) covers app preferences, provider credentials, the managed omp binary, memory, themes, and session defaults.
 - [Remote access](remote-access.md) configures the browser client, authentication, network binding, and HTTPS expectations.
 - [Remote instances](remote-instances.md) joins other omp-ui apps as remote instances: their projects and sessions in this sidebar, what crosses and what stays host-local, reconnection, and credential storage.
+- [Live session sharing](collab-sharing.md) hands one running terminal session to teammates as a live Collab room: access levels, links, trust model, and room lifetime.
 - [Troubleshooting](troubleshooting.md) provides symptom-based checks for installation, startup, sessions, providers, updates, and remote access.
 - [Architecture](architecture.md) describes the core, desktop, server, and renderer boundaries and their data flow.
 - [Development](development.md) covers prerequisites, local commands, repository conventions, and validation workflows.

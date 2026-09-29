@@ -140,6 +140,8 @@ const mockBackend = {
     error: null,
   })),
   onProviderOAuthState: vi.fn(),
+  onCollabChanged: vi.fn(),
+  collabList: vi.fn(async () => []),
   readProviderOAuth: vi.fn(async () => []),
   startProviderOAuth: vi.fn(async () => {}),
   submitProviderOAuthInput: vi.fn(async () => {}),

@@ -24,6 +24,7 @@ import {
 import { applyLocale, currentLocaleId, resolveLocale } from "./lib/i18n";
 import { createBranchesSlice } from "./store/slices/branches";
 import { createBrowserPaneSlice } from "./store/slices/browser-pane";
+import { createCollabSlice } from "./store/slices/collab";
 import { createFrameReductionSlice } from "./store/slices/frame-reduction";
 import { createStatsSlice } from "./store/slices/stats";
 import { createLabSlice } from "./store/slices/lab";
@@ -56,6 +57,7 @@ export type {
   BranchActivity,
   BrowserPaneView,
   CapabilitiesToolFeedbackStatus,
+  CollabTabView,
   CompactSurface,
   CompactionMethodsLoad,
   DeleteConfirmation,
@@ -173,6 +175,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const browserPane = createBrowserPaneSlice(set, get, m);
   const lab = createLabSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });
   const stats = createStatsSlice(set, get);
+  const collab = createCollabSlice(set, get);
   const sideQuestions = createSideQuestionsSlice(get, m);
   const subagentControl = createSubagentControlSlice(get, m);
   /**
@@ -385,6 +388,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...browserPane,
     ...lab,
     ...stats,
+    ...collab,
     ...sideQuestions,
     ...subagentControl,
     state: null,
@@ -462,6 +466,17 @@ export const useStore = create<UiStore>()((set, get, api) => {
       );
       backend.onRemoteState((remote) => get().replaceRemote(remote));
       backend.onProviderOAuthState((s) => get().replaceProviderOAuth(s));
+      backend.onCollabChanged((tabId, state) => get().applyCollabState(tabId, state));
+      // Live-share state (issue #686): the snapshot of every PTY tab as main
+      // last saw omp's registry. The channel is local-only — a remote web
+      // renderer's bridge rejects it, and the silence is the truth there:
+      // hosting lives on the host's machine.
+      void backend
+        .collabList()
+        .then((snapshots) => {
+          for (const snap of snapshots) get().applyCollabState(snap.tabId, snap.state);
+        })
+        .catch(() => {});
       const [state, appUpdate, ompUpdate, remote, providerOAuth] = await Promise.all([
         backend.getState(),
         backend.getAppUpdateState(),

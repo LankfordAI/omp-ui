@@ -79,6 +79,7 @@ import type {
   SubagentInfo,
   TodoPhase,
 } from "../lib/rpc-types";
+import type { CollabAccess, CollabTabState } from "@omp-ui/core/collab";
 import type { RenderItem } from "../lib/transcript";
 
 export interface TabInfo {
@@ -664,6 +665,14 @@ export interface StatsSlice {
   closeStats(): void;
 }
 
+/**
+ * One tab's live-share posture (issue #686): `off` = no host this tab (omp
+ * exposes none or `/collab stop` ran), `sharing` carries the registry row's
+ * state. Native tabs cannot host at all — omp's command lives in the TUI —
+ * a fact the dialog reads from tab mode, not from this map.
+ */
+export type CollabTabView = { kind: "off" } | { kind: "sharing"; state: CollabTabState };
+
 export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice {
   state: BackendState | null;
   tabs: TabInfo[];
@@ -698,6 +707,24 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   errorNotices: ErrorNotice[];
   reportError(error: unknown): void;
   dismissError(id: string): void;
+  /** Per-tab live-share state (issue #686); absent = off. */
+  collab: Record<string, CollabTabView>;
+  /** The tab whose Share-live dialog is open (issue #686); null = closed. */
+  shareLiveTab: string | null;
+  /** The tab/access a first live share (issue #686) awaits privacy
+   *  confirmation for; null = closed. */
+  shareLiveConfirmTab: { tabId: string; access: CollabAccess } | null;
+  openShareLive(tabId: string): void;
+  /** Records the privacy flag and starts the pending live share. */
+  confirmShareLivePrivacy(): void;
+  cancelShareLivePrivacy(): void;
+  closeShareLive(): void;
+  /** `/collab` (full) or `/collab view` into the tab's TUI via main. */
+  startCollab(tabId: string, access: CollabAccess): Promise<void>;
+  stopCollab(tabId: string): Promise<void>;
+  /** One generation-bound link; `view` asks for the read-only variant. */
+  collabLink(tabId: string, view: boolean): Promise<string>;
+  applyCollabState(tabId: string, state: CollabTabState | null): void;
   projectPickerOpen: boolean;
   /** The instance a picked directory registers on; null = local (issue #416). */
   projectPickerInstanceId: string | null;

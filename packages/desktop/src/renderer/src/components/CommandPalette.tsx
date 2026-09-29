@@ -93,6 +93,7 @@ export function CommandPalette() {
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
   const toggleBrowserPane = useStore((s) => s.toggleBrowserPane);
   const shareSession = useStore((s) => s.shareSession);
+  const openShareLive = useStore((s) => s.openShareLive);
   const checkAppUpdate = useStore((s) => s.checkAppUpdate);
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const openSettings = useStore((s) => s.openSettings);
@@ -232,6 +233,19 @@ export function CommandPalette() {
           },
         );
       }
+      // Live sharing (issue #686) is omp's /collab, which lives in the TUI:
+      // a terminal tab hosts it directly; a native tab's dialog says so
+      // plainly instead of pretending an off switch it does not have.
+      out.push({
+        id: "session:share-live",
+        group: t("palette.group.session"),
+        name: t("palette.action.shareLive"),
+        desc: t(
+          tab.mode === "pty" ? "palette.action.shareLiveDesc" : "palette.action.shareLiveDescNative",
+          { title },
+        ),
+        run: () => openShareLive(tab.tabId),
+      });
       // The session-pinned viewer (#379's door): live roster, session-local
       // switches, MCP runtime status, resolved at the session's own working
       // tree — a worktree session's checkout (#325). Gated to native tabs
@@ -297,7 +311,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, shareSession, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, shareSession, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

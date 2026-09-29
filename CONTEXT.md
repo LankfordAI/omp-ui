@@ -272,6 +272,36 @@ omp-ui's native control shows the truth and switches the setting; terminal
 tabs stay on omp's own `/fast`.
 _Avoid_: turbo, priority mode as a UI label — `fast` is the wire word
 
+**Share live**:
+Exposing one running **terminal session** to teammates as a live **Collab
+room** through omp's `/collab`. omp hosts the room from inside the session's
+TUI; omp-ui opens it, reads its state from omp's local registry, and closes it.
+Terminal tabs only: the command lives in the TUI, and the RPC protocol exposes
+no collab surface, so a native session's dialog reads as unavailable. It is
+distinct from the HUD's **share** control, which uploads an encrypted static
+snapshot, and from **remote access**, which reaches whole-instance omp-ui users.
+_Avoid_: live share (as a noun), collab (as a verb), mirror, broadcast
+
+**Collab room**:
+The live room omp hosts for one session's current **generation**, reached from
+a join link whose URL fragment carries the room key (so the relay never sees
+plaintext). It follows the session, not the tab: `/new`, `/resume`, and a
+branch switch end the room and rotate the key, so a stale link stops working —
+the intended revocation path, alongside stop and closing the session. Full
+rooms publish a **control link** (the chosen access) and a separate read-only
+**view-only link**; a view-only room publishes only the read-only one. A room
+omp-ui surfaces is always one of its own PTY children, matched by OS pid — a
+foreign host started outside omp-ui is never shown.
+_Avoid_: session link, invite, share link (that is the snapshot's), stream
+
+**Guest**:
+A teammate who joins a **Collab room** from a link — in a browser at
+`my.omp.sh` or another `omp` with `omp join`. A full room's guest can prompt,
+interrupt, and answer approvals (their turns land in the transcript like the
+local user's); a view-only guest watches only. Everything a guest drives runs
+tools on the host machine, so full access is a keyboard handoff.
+_Avoid_: viewer, collaborator, remote user (that is the browser transport's)
+
 **Subscription sign-in**:
 Signing in to a model provider's subscription plan (currently ChatGPT,
 provider id `openai-codex`) from Settings → Providers, under a

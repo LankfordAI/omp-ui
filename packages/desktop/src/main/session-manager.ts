@@ -66,8 +66,12 @@ import {
   type SpawnRequest,
   type WorktreeReleaseOptions,
   type WorktreeReleaseResult,
+  type CollabAccess,
+  type CollabCliDeps,
+  type CollabTabSnapshot,
   type WorktreeSyncResult,
 } from "@omp-ui/core";
+import { CollabTracker } from "./collab-tracker";
 import type { Attention } from "./desktop-notifier";
 import { BrowserPaneHost, type BrowserPaneHostDeps } from "./browser-pane-host";
 import type { DesktopMediaLease } from "../browser-pane-desktop-protocol";
@@ -148,6 +152,8 @@ export interface SessionManagerDependencies {
   >;
   /** Posts one immediate OS notification for the host notify tool (#688); absent = notifications report as disabled. */
   hostNotify?: (tabId: string, title: string | null, message: string) => string;
+  /** Registry probe seams for the collab watcher (#686); tests fake them. */
+  collabCli?: CollabCliDeps;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -183,6 +189,8 @@ export class SessionManager {
   private readonly vibes: VibeStatusTracker;
   /** The open blocking dialogs per tab — the summary's `pendingDialogs` (#555). */
   private readonly dialogGates = new DialogGateTracker();
+  /** The omp collab local-registry watcher for terminal tabs (issue #686). */
+  private readonly collab: CollabTracker;
   private readonly gate: SpawnGate;
 
   constructor(private readonly deps: SessionManagerDependencies) {
@@ -300,6 +308,16 @@ export class SessionManager {
       this.autoresearch,
       this.dialogGates,
     ];
+    this.collab = new CollabTracker({
+      getOmpPath: deps.getOmpPath,
+      livePtyEntries: () =>
+        [...this.live.entries()].flatMap(([tabId, entry]) =>
+          entry.kind === "pty" ? [{ tabId, pid: entry.pty.pid }] : [],
+        ),
+      writePty: (tabId, data) => this.ptyWrite(tabId, data),
+      send: deps.send,
+      cli: deps.collabCli,
+    });
   }
 
   /** The browser clock follows the tab's project (see CONTEXT.md "Browser clock"). */
@@ -342,6 +360,7 @@ export class SessionManager {
       this.killLive(entry);
     }
     this.live.clear();
+    this.collab.dispose();
     this.shellHost.killAll();
     this.browserPanes.disposeAll();
     this.watcherHub.disposeAll();
@@ -374,6 +393,7 @@ export class SessionManager {
       this.live.delete(tabId);
       this.turns.clear(tabId);
       for (const obs of this.frameObservers) obs.onExit(tabId);
+      this.collab.noteLiveChange();
       this.deps.attention?.sessionExit(tabId);
       this.hostBridge.forget(tabId);
     }
@@ -733,6 +753,7 @@ export class SessionManager {
     });
     const entry = createPtyLiveEntry(record, ptyHandle);
     this.live.set(record.tabId, entry);
+    this.collab.noteLiveChange();
     wirePtyData(entry, ptyHandle, (data) =>
       this.deps.send(CH.onPtyData, record.tabId, data),
     );
@@ -1326,6 +1347,23 @@ export class SessionManager {
   autoresearchSnapshot(tabId: string): AutoresearchSnapshot | undefined {
     return this.autoresearch.snapshot(tabId);
   }
+
+  /** Every live terminal tab's Collab host state (issue #686); `null` is off. */
+  collabSnapshots(): CollabTabSnapshot[] {
+    return this.collab.snapshots();
+  }
+
+  collabShare(tabId: string, access: CollabAccess): Promise<void> {
+    return this.collab.share(tabId, access);
+  }
+
+  collabStop(tabId: string): void {
+    this.collab.stop(tabId);
+  }
+
+  collabLink(tabId: string, view: boolean): Promise<string> {
+    return this.collab.link(tabId, view);
+  }
   bridgeAvailability(
     tabId: string,
   ): { plan: boolean; advisorStats: boolean } | undefined {
@@ -1738,6 +1776,7 @@ export class SessionManager {
     const { resumeTabId: tabId } = req;
     await this.killAndReap(tabId, entry);
     this.live.delete(tabId);
+    this.collab.noteLiveChange();
     if (between) await between();
     try {
       await this.spawnInner(req);

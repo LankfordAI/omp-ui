@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type { RemoteState } from "@omp-ui/core/types";
-import QRCode from "qrcode";
 import { cn } from "../../lib/cn";
 import { useStore } from "../../store";
 import {
@@ -13,6 +12,7 @@ import {
   Switch,
 } from "../ui";
 import { CommitField, FIELD, Row } from "./rows";
+import { PairingQr } from "../PairingQr";
 import { t, useT } from "../../lib/i18n";
 
 function remoteStatusLine(r: RemoteState): string {
@@ -35,56 +35,6 @@ function remoteStatusTone(
   if (status === "starting") return "copper";
   if (status === "error") return "rose";
   return "neutral";
-}
-
-/**
- * The QR of the pairing URL. Rendered as an SVG string rather than a canvas: qrcode's `browser`
- * field remaps its entry and stubs `fs`, so `toString(..., { type: "svg" })` is the one route that
- * needs no polyfill in either the renderer or the web bundle.
- */
-function PairingQr({ url, hasPassword }: { url: string; hasPassword: boolean }) {
-  const [svg, setSvg] = useState("");
-  const t = useT();
-
-  useEffect(() => {
-    let live = true;
-    setSvg("");
-    void QRCode.toString(url, {
-      type: "svg",
-      margin: 1,
-      // Deliberately NOT theme tokens: a scannable QR needs true black on true white, and a
-      // camera does not care about the app's palette.
-      color: { dark: "#000000", light: "#ffffff" },
-    }).then(
-      (out) => {
-        if (live) setSvg(out);
-      },
-      () => {
-        // A QR that will not render must not take the page down — the URL above still copies.
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [url]);
-
-  if (svg === "") return null;
-  return (
-    <Panel className="flex items-center gap-3 px-4 py-3">
-      <div
-        className="size-32 shrink-0 rounded-md bg-white p-1.5"
-        dangerouslySetInnerHTML={{ __html: svg }}
-      />
-      <div className="min-w-0">
-        <Label>{t("settings.remote.scanToPair")}</Label>
-        <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
-          {hasPassword
-            ? t("settings.remote.pairPassword")
-            : t("settings.remote.pairToken")}
-        </p>
-      </div>
-    </Panel>
-  );
 }
 
 /**
@@ -338,7 +288,11 @@ export function RemotePage() {
       )}
 
       {remote.status === "listening" && primaryUrl !== null && (
-        <PairingQr url={primaryUrl} hasPassword={remote.hasPassword} />
+        <PairingQr
+          url={primaryUrl}
+          title={t("settings.remote.scanToPair")}
+          caption={remote.hasPassword ? t("settings.remote.pairPassword") : t("settings.remote.pairToken")}
+        />
       )}
     </div>
   );

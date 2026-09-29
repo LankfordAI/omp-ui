@@ -178,6 +178,14 @@ The **browser pane** is a live web page inside a native tab that you and the age
 
 The agent doesn't reach for the pane first for everything: it prefers configured CLIs and APIs for structured service work and reserves the pane for rendered interaction, browser state, browser-only authentication, and pages you explicitly ask it to look at — no permission prompt appears either way, and you can always ask it to open a page.
 
+## Share a terminal session live
+
+**Share live** hands one running **terminal session** to teammates as a live **Collab room** ([#686](https://github.com/LankfordAI/omp-ui/issues/686)): they watch the session as it runs from a link and, with a control link, steer it — prompt, interrupt, and answer its approvals. OMP hosts the room through its `/collab` command; omp-ui opens it, shows the links and the guest count, and retires them when the room ends. It is terminal-tab only: native sessions do not expose the command, and the dialog says so.
+
+Open it from the command palette (**Share live**) on a terminal tab. Choose **full** or **view-only** and start sharing; omp types `/collab` into the session itself, and the share is confirmed when omp's registry shows the room. A full room publishes a **control link** (with a QR code) and a separate read-only **view-only link**; a view-only room publishes its one read-only link. While the room is up the tab carries a `live` chip, the dialog tracks guests and relay state, and **stop sharing** closes the room. `/new`, `/resume`, and a branch switch end the room and rotate the key, so links you handed out stop working — the intended revocation path, along with stop and closing the session.
+
+The trust model matters before the first share: a link is secret material (the room key rides in its fragment, invisible to the relay), full-access guests drive a session that runs tools on this machine, and everything said while guests watch is visible to them. The dialog and [Live session sharing](collab-sharing.md) state this at every step.
+
 ## Worktree sessions
 
 A **worktree session** runs OMP in a dedicated git worktree on its own branch. The checkout lives under omp-ui's app-data directory and shares the project's git object store. The registered project remains its project for sidebar grouping and remembered session parameters, but the worktree is its effective working tree — including for project-scope MCP configuration, which omp-ui resolves and writes through a `.omp` link in the checkout that points at the project's own directory.
@@ -234,7 +242,7 @@ For provider and other app configuration, see [Settings](settings.md).
 
 ## Command palette and compact shell
 
-Press `Mod+K` to open the command palette. Search is fuzzy across sessions, projects, and actions. Use it to focus a non-missing owned session, start a session in a named project, add a project, terminate the focused agent, switch the focused session to native or terminal mode, run **View capabilities** — MCP servers, skills, tools for the focused session's working tree — open **Session tree** for the focused native session ([rewinding and the session tree](#rewinding-and-the-session-tree)), check app or OMP updates, or open Settings. `Down` and `Ctrl+N` select the next result; `Up` and `Ctrl+P` select the previous result. Selection wraps at either end. Press `Enter` to run the selected action or `Escape` to close the palette.
+Press `Mod+K` to open the command palette. Search is fuzzy across sessions, projects, and actions. Use it to focus a non-missing owned session, start a session in a named project, add a project, terminate the focused agent, switch the focused session to native or terminal mode, run **View capabilities** — MCP servers, skills, tools for the focused session's working tree — open **Session tree** for the focused native session ([rewinding and the session tree](#rewinding-and-the-session-tree)), **Share live** a terminal session ([live sharing](#share-a-terminal-session-live)), check app or OMP updates, or open Settings. `Down` and `Ctrl+N` select the next result; `Up` and `Ctrl+P` select the previous result. Selection wraps at either end. Press `Enter` to run the selected action or `Escape` to close the palette.
 
 Below 900 pixels, omp-ui uses the **compact shell**. The top-left control opens projects and sessions, the title opens the same sheet, and the top-right inspector control opens the inspector sheet for a native tab. Native session actions move into a bottom sheet. The prompt's model, effort, advisor, mode, branch, queue, and interrupt controls move into the prompt-options sheet.
 
@@ -282,4 +290,5 @@ See [Troubleshooting](troubleshooting.md) when a session cannot resume, a worktr
 - [Getting started](getting-started.md)
 - [Settings](settings.md)
 - [Remote access](remote-access.md)
+- [Live session sharing](collab-sharing.md)
 - [Troubleshooting](troubleshooting.md)

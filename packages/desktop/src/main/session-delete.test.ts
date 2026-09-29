@@ -164,6 +164,7 @@ beforeEach(() => {
     });
     return {
       id: opts.id,
+      pid: spawnedSignals.length + 43_000,
       onData: () => vi.fn(),
       onExit: (cb) => {
         exitCb = cb;

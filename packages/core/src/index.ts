@@ -143,6 +143,7 @@ export * from "./host-bridge";
 export * from "./browser-pane";
 export * from "./goal";
 export * from "./vibe";
+export * from "./collab";
 export * from "./autoresearch";
 export * from "./session-tree";
 export * from "./side-questions";
@@ -310,6 +311,7 @@ export {
   type OmpOneShotSpawn,
   type RunOmpOnceOptions,
 } from "./omp-process";
+export * from "./collab-cli";
 export { withoutAppImageRuntime } from "./appimage-env";
 export {
   generateBranchNameWithOmp,

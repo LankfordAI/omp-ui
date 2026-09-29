@@ -66,6 +66,7 @@ import type {
 } from "./types";
 import type { SubagentModelMap } from "./subagent-model";
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
+import type { CollabAccess, CollabTabSnapshot, CollabTabState } from "./collab";
 import type {
   BrowserPaneEnsureResult,
   BrowserPaneInputEvent,
@@ -82,6 +83,7 @@ import {
   any,
   browserPaneInputCodec,
   browserPaneNavigateCodec,
+  collabAccessCodec,
   arrayOf,
   diagnosticsExportRequestCodec,
   bool,
@@ -1015,6 +1017,39 @@ export const BACKEND_CHANNELS = {
     ...request<[tabId: string, image: ImageAttachment], void>([str(), imageAttachmentCodec]),
   },
   ptyWrite: { channel: "pty:write", ...notify<[tabId: string, data: string]>([str(), str()]) },
+  /**
+   * One Collab host snapshot per live terminal tab (issue #686): `null` is
+   * "not hosting". The host data comes from omp's own local registry CLI —
+   * omp-ui never speaks the relay protocol.
+   */
+  collabList: {
+    channel: "collab:list",
+    ...request<[], CollabTabSnapshot[]>([]),
+  },
+  /**
+   * Injects `/collab` (or `/collab view`) into the terminal tab's TUI and
+   * resolves once omp's registry shows the host; rejects when no host row
+   * appears or the tab has no live terminal.
+   */
+  collabShare: {
+    channel: "collab:share",
+    ...request<[tabId: string, access: CollabAccess], void>([str(), collabAccessCodec]),
+  },
+  /** Injects `/collab stop`; the next poll confirms the row clearing. */
+  collabStop: { channel: "collab:stop", ...request<[tabId: string], void>([str()]) },
+  /**
+   * One generation-bound link for the tab's current host — control, or
+   * view-only with `view`. Rejects with omp's own refusal.
+   */
+  collabLink: {
+    channel: "collab:link",
+    ...request<[tabId: string, view: boolean], string>([str(), bool()]),
+  },
+  /** Per-tab Collab state changed; `null` means the tab stopped hosting. */
+  onCollabChanged: {
+    channel: "collab:changed",
+    ...event<[tabId: string, state: CollabTabState | null]>(),
+  },
   ptyResize: {
     channel: "pty:resize",
     ...notify<[tabId: string, cols: number, rows: number]>([str(), num(), num()]),

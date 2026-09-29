@@ -147,6 +147,7 @@ beforeEach(() => {
     fakePtys.push(fake);
     const handle: PtyHandle = {
       id: fake.id,
+      pid: 42_000 + fakePtys.length,
       onData: (cb) => {
         fake.dataCb = cb;
         return () => {

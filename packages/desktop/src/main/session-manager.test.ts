@@ -151,6 +151,7 @@ function fakePaneContents(): FakeBrowserPane {
   };
 }
 let nextPtyDiesOn: "default" | "SIGKILL" | "never" = "never";
+let nextFakePid = 50_000;
 let base = "";
 
 function fakeHandle(diesOn: "default" | "SIGKILL" | "never"): FakePty {
@@ -176,6 +177,7 @@ function fakeHandle(diesOn: "default" | "SIGKILL" | "never"): FakePty {
 function asPtyHandle(id: string, fake: FakePty): PtyHandle {
   return {
     id,
+    pid: nextFakePid++,
     onData: (cb) => {
       fake.dataCb = cb;
       return () => {
@@ -276,6 +278,9 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
     providerKeys,
     hasOAuthProvider: opts.hasOAuthProvider,
     getOmpPath: () => "/test/omp",
+    // The collab poll never shells out in tests: every probe reads as a CLI
+    // hiccup, which holds the last snapshot (issue #686).
+    collabCli: { exec: async () => ({ stdout: "", stderr: "stub", code: 1 }) },
     getSessionsRoot: () => sessionsRoot,
     getArchiveRoot: () => archiveRoot,
     getWorktreesRoot: () => path.join(base, "worktrees"),
