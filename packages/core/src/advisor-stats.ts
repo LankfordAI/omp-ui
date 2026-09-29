@@ -16,6 +16,30 @@ export const ADVISOR_STATS_KEY = "omp-ui:advisorStats";
 /** Slash command the renderer sends to pull fresh advisor stats. */
 export const ADVISOR_STATS_COMMAND = "omp-ui-advisor-stats";
 
+export type AdvisorMemberStatus =
+  | "running"
+  | "paused"
+  | "no_model"
+  | "error"
+  | "quota_exhausted"
+  | "unknown";
+
+const MEMBER_STATUSES: readonly string[] = ["running", "paused", "no_model", "error", "quota_exhausted"];
+
+/** One advisor of the root session's roster (ADR-0039). */
+export interface AdvisorRosterMember {
+  name: string;
+  status: AdvisorMemberStatus;
+  /** "provider/id"; null unless the advisor is running. */
+  model: string | null;
+  contextWindow: number;
+  contextTokens: number;
+  cost: number;
+  totalTokens: number;
+  /** getAdvisorStatusOverview().yielded; null when unreadable. */
+  yielded: boolean | null;
+}
+
 /**
  * The stable advisor wire view. Configuration, model, subscription, and
  * context fields describe the root advisor. Cost and total tokens cover the
@@ -46,6 +70,10 @@ export interface AdvisorStatsView {
   cost: number;
   /** Cumulative root-plus-descendant advisor tokens of all kinds. */
   totalTokens: number;
+  /** Root session's advisors only; [] when omp reports none (older omp). */
+  advisors: AdvisorRosterMember[];
+  /** omp's getAdvisorConfigWarnings(); [] when unsupported. */
+  configWarnings: string[];
 }
 
 /** Parses the JSON published on {@link ADVISOR_STATS_KEY}; null when malformed. */
@@ -62,7 +90,7 @@ export function parseAdvisorStats(text: string | undefined): AdvisorStatsView | 
   if (record.available !== true) {
     // An unavailable publisher still carries the reason to show.
     if (typeof record.unavailable === "string") {
-      return { available: false, unavailable: record.unavailable, configured: false, active: false, model: null, subscription: false, contextWindow: 0, contextTokens: 0, cost: 0, totalTokens: 0 };
+      return { available: false, unavailable: record.unavailable, configured: false, active: false, model: null, subscription: false, contextWindow: 0, contextTokens: 0, cost: 0, totalTokens: 0, advisors: [], configWarnings: [] };
     }
     return null;
   }
@@ -76,7 +104,31 @@ export function parseAdvisorStats(text: string | undefined): AdvisorStatsView | 
     contextTokens: num(record.contextTokens),
     cost: num(record.cost),
     totalTokens: num(record.totalTokens),
+    advisors: parseMembers(record.advisors),
+    configWarnings: Array.isArray(record.configWarnings)
+      ? record.configWarnings.filter((w): w is string => typeof w === "string")
+      : [],
   };
+}
+
+function parseMembers(value: unknown): AdvisorRosterMember[] {
+  if (!Array.isArray(value)) return [];
+  const out: AdvisorRosterMember[] = [];
+  for (const item of value) {
+    if (item === null || typeof item !== "object") continue;
+    const m = item as Record<string, unknown>;
+    out.push({
+      name: typeof m.name === "string" ? m.name : "advisor",
+      status: typeof m.status === "string" && MEMBER_STATUSES.includes(m.status) ? (m.status as AdvisorMemberStatus) : "unknown",
+      model: typeof m.model === "string" ? m.model : null,
+      contextWindow: num(m.contextWindow),
+      contextTokens: num(m.contextTokens),
+      cost: num(m.cost),
+      totalTokens: num(m.totalTokens),
+      yielded: typeof m.yielded === "boolean" ? m.yielded : null,
+    });
+  }
+  return out;
 }
 
 function num(value: unknown): number {

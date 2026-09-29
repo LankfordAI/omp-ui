@@ -543,6 +543,7 @@ export default function App() {
         <ProjectSettings
           project={projectSettingsProject}
           instanceId={projectSettings.instanceId}
+          initialSection={projectSettings.section}
           onClose={closeProjectSettings}
         />
       )}

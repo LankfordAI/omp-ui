@@ -15,6 +15,8 @@ import { generatedPollTimerSource } from "./generated-extension-source";
  * still decides. If the guard cannot be enforced, accounting becomes
  * unavailable but the prompt continues.
  *
+ * The published roster (`advisors`, `configWarnings`) describes the root
+ * session's advisors only (ADR-0039); aggregate cost/tokens are unchanged.
  * Root `getAdvisorStats()` supplies configuration, model, subscription, and
  * context fields. Cost and total tokens add the root and every descendant.
  * Descendant snapshots survive disposal, while a root session-id change clears
@@ -54,7 +56,8 @@ interface StatsSession {
   sessionManager?: { getSessionId?: () => string | undefined };
   isAdvisorEnabled?: () => boolean;
   setAdvisorEnabled?: (enabled: boolean) => void;
-  getAdvisorStatusOverview?: () => { configured?: boolean };
+  getAdvisorStatusOverview?: () => { configured?: boolean; advisors?: Array<{ yielded?: boolean }> };
+  getAdvisorConfigWarnings?: () => string[];
   getAdvisorCost?: () => number;
   getAdvisorAgent?: () => { state?: { messages?: unknown[] } } | undefined;
   modelRegistry?: { isUsingOAuth?: (model: unknown) => boolean };
@@ -66,6 +69,15 @@ interface StatsSession {
     contextTokens?: number;
     cost?: number;
     tokens?: { total?: number };
+    advisors?: Array<{
+      name?: string;
+      status?: string;
+      model?: { provider?: string; id?: string };
+      contextWindow?: number;
+      contextTokens?: number;
+      cost?: number;
+      tokens?: { total?: number };
+    }>;
   };
 }
 
@@ -362,6 +374,32 @@ export default function (pi: ExtensionApi) {
     } catch {
       /* a billing probe failure must never break the publish */
     }
+    let overview: { advisors?: Array<{ yielded?: boolean }> } | undefined;
+    try {
+      overview = root.getAdvisorStatusOverview?.();
+    } catch {
+      /* roster still publishes */
+    }
+    const raw = Array.isArray(stats.advisors) ? stats.advisors : [];
+    const overviewAdvisors = overview?.advisors;
+    const aligned = Array.isArray(overviewAdvisors) && overviewAdvisors.length === raw.length;
+    const advisors = raw.map((a, i) => ({
+      name: typeof a.name === "string" ? a.name : "advisor",
+      status: typeof a.status === "string" ? a.status : "unknown",
+      model: a.model?.provider && a.model?.id ? a.model.provider + "/" + a.model.id : null,
+      contextWindow: finite(a.contextWindow),
+      contextTokens: finite(a.contextTokens),
+      cost: finite(a.cost),
+      totalTokens: finite(a.tokens?.total),
+      yielded: aligned && typeof overviewAdvisors![i]?.yielded === "boolean" ? overviewAdvisors![i].yielded! : null,
+    }));
+    let configWarnings: string[] = [];
+    try {
+      const w = root.getAdvisorConfigWarnings?.();
+      if (Array.isArray(w)) configWarnings = w.filter((x) => typeof x === "string");
+    } catch {
+      /* ignore */
+    }
     ui.setStatus(STATUS_KEY, JSON.stringify({
       available: true,
       configured: stats.configured === true,
@@ -372,6 +410,8 @@ export default function (pi: ExtensionApi) {
       contextTokens: finite(stats.contextTokens),
       cost,
       totalTokens,
+      advisors,
+      configWarnings,
     }));
     lastProbe = probeAdvisor();
   }

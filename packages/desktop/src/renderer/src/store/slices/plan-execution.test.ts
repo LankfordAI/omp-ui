@@ -461,6 +461,8 @@ describe("re-presented reviews (ADR-0033)", () => {
     contextTokens: 0,
     cost: 0,
     totalTokens: 0,
+    advisors: [],
+    configWarnings: [],
   };
 
   const implementationPrompts = () =>

@@ -251,7 +251,7 @@ describe("wide Session HUD", () => {
           },
           advisorStats: {
             available: true, configured: true, active: false, model: "root/advisor", subscription: false,
-            contextWindow: 1000, contextTokens: 200, cost: 0.273, totalTokens: 320_000,
+            contextWindow: 1000, contextTokens: 200, cost: 0.273, totalTokens: 320_000, advisors: [], configWarnings: [],
           },
         },
       },
@@ -351,7 +351,7 @@ describe("wide Session HUD", () => {
           },
           advisorStats: {
             available: true, configured: true, active: false, model: null, subscription: false,
-            contextWindow: 1000, contextTokens: 200, cost: 0.1, totalTokens: 0,
+            contextWindow: 1000, contextTokens: 200, cost: 0.1, totalTokens: 0, advisors: [], configWarnings: [],
           },
         },
       },
@@ -572,7 +572,7 @@ describe("compact Session HUD", () => {
           ...useStore.getState().rpc[TAB]!,
           advisorStats: {
             available: true, configured: true, active: false, model: "root/advisor", subscription: false,
-            contextWindow: 200_000, contextTokens: 12_000, cost: 0.375, totalTokens: 456_000,
+            contextWindow: 200_000, contextTokens: 12_000, cost: 0.375, totalTokens: 456_000, advisors: [], configWarnings: [],
           },
         },
       },

@@ -26,7 +26,7 @@ describe("parseAdvisorStats", () => {
       contextWindow: 200000,
       contextTokens: 41234,
       cost: 0.4132,
-      totalTokens: 901200,
+      totalTokens: 901200, advisors: [], configWarnings: [],
     });
   });
 
@@ -42,7 +42,7 @@ describe("parseAdvisorStats", () => {
       contextWindow: 0,
       contextTokens: 0,
       cost: 0,
-      totalTokens: 0,
+      totalTokens: 0, advisors: [], configWarnings: [],
     });
   });
 
@@ -68,7 +68,7 @@ describe("parseAdvisorStats", () => {
       contextWindow: 0,
       contextTokens: 0,
       cost: 0,
-      totalTokens: 0,
+      totalTokens: 0, advisors: [], configWarnings: [],
     });
   });
 
@@ -79,5 +79,32 @@ describe("parseAdvisorStats", () => {
     expect(parseAdvisorStats("[]")).toBeNull();
     // An empty payload is neither available nor a reason — no stats at all.
     expect(parseAdvisorStats(JSON.stringify({}))).toBeNull();
+  });
+});
+
+describe("parseAdvisorStats roster", () => {
+  const base = { available: true, configured: true, active: true, model: "m", contextWindow: 1, contextTokens: 1, cost: 1, totalTokens: 1 };
+  it("keeps well-formed members, drops malformed ones and maps unknown status", () => {
+    const view = parseAdvisorStats(
+      JSON.stringify({
+        ...base,
+        advisors: [
+          { name: "a", status: "running", model: "p/m", cost: 2, totalTokens: 5, yielded: true },
+          "junk",
+          { name: "b", status: "weird" },
+        ],
+        configWarnings: ["w", 3],
+      }),
+    );
+    expect(view?.advisors.map((a) => [a.name, a.status, a.model, a.cost, a.yielded])).toEqual([
+      ["a", "running", "p/m", 2, true],
+      ["b", "unknown", null, 0, null],
+    ]);
+    expect(view?.configWarnings).toEqual(["w"]);
+  });
+  it("accepts an old frame with neither field", () => {
+    const view = parseAdvisorStats(JSON.stringify(base));
+    expect(view?.advisors).toEqual([]);
+    expect(view?.configWarnings).toEqual([]);
   });
 });

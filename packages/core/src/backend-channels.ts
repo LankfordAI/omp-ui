@@ -49,6 +49,8 @@ import type {
   ResolvedMentionContext,
   ScopedCapabilitiesResult,
   ScopedCapabilityMutation,
+  WatchdogRosterResult,
+  WatchdogWriteRequest,
   SessionMode,
   SpawnRequest,
   StatsOverview,
@@ -100,6 +102,7 @@ import {
   remoteInstancePatchCodec,
   rpcFrameCodec,
   scopedCapabilityMutationCodec,
+  watchdogWriteCodec,
   sessionModeCodec,
   spawnRequestCodec,
   str,
@@ -951,6 +954,25 @@ export const BACKEND_CHANNELS = {
     ...request<[req: ScopedCapabilityMutation], ScopedCapabilitiesResult>(
       [scopedCapabilityMutationCodec],
     ),
+  },
+  /**
+   * The advisor roster files (ADR-0039): omp's WATCHDOG.yml discovered and
+   * merged for `scopeCwd` (null = user file only), plus both editable files.
+   * Reads only; a filesystem failure answers `{status:"error"}`.
+   */
+  getWatchdogRoster: {
+    channel: "watchdog:roster",
+    ...request<[scopeCwd: string | null], WatchdogRosterResult>([nullable(str())]),
+  },
+  /**
+   * Replaces one WATCHDOG.yml with the serialized document. Rejects a stale
+   * `baseHash`, an unparseable/lossy on-disk file, duplicate names and unknown
+   * tools. Answers with the refreshed roster; running sessions apply it on
+   * relaunch.
+   */
+  setWatchdogRoster: {
+    channel: "watchdog:roster:set",
+    ...request<[req: WatchdogWriteRequest], WatchdogRosterResult>([watchdogWriteCodec]),
   },
   /**
    * Session-local enable/disable of one registered tool in a pinned live

@@ -320,7 +320,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
             contextWindow: 0,
             contextTokens: 0,
             cost: 0,
-            totalTokens: 0,
+            totalTokens: 0, advisors: [], configWarnings: [],
           };
         }
         if (!availability.plan || !availability.advisorStats) {

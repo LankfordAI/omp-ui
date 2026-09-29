@@ -254,6 +254,7 @@ export {
   type WebSearchSelection,
 } from "./web-search-order";
 export { getScopedCapabilities, setScopedCapability } from "./capability-catalog";
+export { getWatchdogRoster, setWatchdogRoster } from "./watchdog-config";
 export {
   captureLoginShellKeys,
   maskKey,

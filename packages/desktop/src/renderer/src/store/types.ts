@@ -1,4 +1,5 @@
 import type { SessionCommand } from "@omp-ui/core/session-command";
+import type { ProjectSettingsSectionId } from "../components/ProjectSettings";
 import type {
   AgentMode,
   ApprovalMode,
@@ -701,7 +702,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     section: CapabilitySectionId;
     instanceId: string | null;
   } | null;
-	projectSettings: { projectCwd: string; instanceId: string | null } | null;
+	projectSettings: { projectCwd: string; instanceId: string | null; section?: ProjectSettingsSectionId } | null;
   /**
    * Bumped per PTY tab when its remote instance rejoins (issue #416): the
    * terminal re-sends its size so the remote PTY repaints at the right shape.
@@ -738,7 +739,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     instanceId?: string | null,
   ): void;
   closeCapabilitiesViewer(): void;
-	openProjectSettings(projectCwd: string, instanceId?: string | null): void;
+	openProjectSettings(projectCwd: string, instanceId?: string | null, section?: ProjectSettingsSectionId): void;
 	closeProjectSettings(): void;
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;

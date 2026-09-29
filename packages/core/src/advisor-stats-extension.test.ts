@@ -37,6 +37,8 @@ interface PublishedStats {
   contextTokens?: number;
   cost?: number;
   totalTokens?: number;
+  advisors?: Array<{ name: string; status: string; model: string | null; cost: number; totalTokens: number; yielded: boolean | null }>;
+  configWarnings?: string[];
 }
 
 function executableExtension() {
@@ -271,6 +273,45 @@ describe("generated advisor stats extension", () => {
       cost: 2.25,
       totalTokens: 350,
     });
+  });
+
+  it("publishes the root roster with provider/id models, aligned yielded flags and warnings", async () => {
+    const harness = executableExtension();
+    await harness.arm();
+    const root = new harness.FakeAgentSession("root", true, { cost: 1, totalTokens: 10 });
+    Object.assign(root.stats, {
+      advisors: [
+        { name: "a", status: "running", model: { provider: "p", id: "m" }, contextWindow: 10, contextTokens: 5, cost: 0.5, tokens: { total: 7 } },
+        { name: "b", status: "paused", cost: 0, tokens: { total: 0 } },
+      ],
+    });
+    Object.assign(root, {
+      getAdvisorStatusOverview: () => ({ configured: true, advisors: [{ yielded: true }, { yielded: false }] }),
+      getAdvisorConfigWarnings: () => ["w1"],
+    });
+    await root.prompt();
+    expect(harness.latest().advisors).toMatchObject([
+      { name: "a", status: "running", model: "p/m", cost: 0.5, totalTokens: 7, yielded: true },
+      { name: "b", status: "paused", model: null, yielded: false },
+    ]);
+    expect(harness.latest().configWarnings).toEqual(["w1"]);
+    expect(harness.latest().cost).toBe(1);
+  });
+
+  it("publishes an empty roster for older omp and survives throwing roster probes", async () => {
+    const harness = executableExtension();
+    await harness.arm();
+    const root = new harness.FakeAgentSession("root", true, { cost: 2 });
+    Object.assign(root, {
+      getAdvisorStatusOverview: () => {
+        throw new Error("boom");
+      },
+      getAdvisorConfigWarnings: () => {
+        throw new Error("boom");
+      },
+    });
+    await root.prompt();
+    expect(harness.latest()).toMatchObject({ available: true, cost: 2, advisors: [], configWarnings: [] });
   });
 
   it("counts multiple and nested descendants once across repeated prompts", async () => {
