@@ -121,6 +121,9 @@ function makeScope(): Scope {
   fs.writeFileSync(path.join(agentDir, "WATCHDOG.yml"), USER_WATCHDOG);
   // `base` doubles as the omp cwd, so this is the project-scope file.
   fs.writeFileSync(path.join(base, "WATCHDOG.yml"), PROJECT_WATCHDOG);
+  // omp's `Gcn` discovers WATCHDOG.md beside the .yml; the catalog must list
+  // it while omp stays warning-free with the file present (#691).
+  fs.writeFileSync(path.join(base, "WATCHDOG.md"), "Watch module boundaries; verify before approving.");
   return { base, home, lineage };
 }
 
@@ -286,6 +289,9 @@ describe.skipIf(!ompPath)("watchdog roster parity live (real omp)", () => {
       await harness.kill();
     }
 
+    // The .md instruction file is live for omp (attention block) yet must
+    // surface in the catalog with no advisor or warning drift (#691).
+    expect(catalog.sharedInstructions).toContain(path.join(scope.base, "WATCHDOG.md"));
     // The ADR-0039 parity claim itself: same advisor names on both sides.
     expect(new Set(view.advisors.map((a) => a.name))).toEqual(
       new Set(catalog.effective.map((a) => a.name)),

@@ -19,12 +19,16 @@ import { advisorSlug, effectiveAdvisorTools, resolveWatchdogTool } from "./watch
 /**
  * omp's WATCHDOG.yml discovery, merge and writer (ADR-0039). Ports omp 18.4.2
  * `bCs` (discovery), `lCt` (merge), `uCt` (edit target), `zva`/`Tcn` (writer).
+ * Also ports omp 18.4.3 `qbs`/`Gcn` (WATCHDOG.md instructions-file discovery,
+ * #691); instruction files are listed, never parsed or edited.
  */
 
 const MAX_WALK = 64;
 const MAX_STRING = 64 * 1024;
 const MAX_ADVISORS = 64;
-const FILE_NAMES = ["WATCHDOG.yml", "WATCHDOG.yaml"] as const;
+const CONFIG_FILE_NAMES = ["WATCHDOG.yml", "WATCHDOG.yaml"] as const;
+/** omp `Gcn` — free-form instruction files; discovered, never parsed or edited. */
+const INSTRUCTION_FILE_NAMES = ["WATCHDOG.md"] as const;
 const FILE_KEYS = ["instructions", "maxNotesPerUpdate", "advisors"];
 const ENTRY_KEYS = ["name", "model", "tools", "instructions", "enabled", "maxNotesPerUpdate"];
 
@@ -57,9 +61,14 @@ function vcsRootOf(cwd: string): string | null {
 }
 
 /** omp `bCs` + sort from `lCt`: user first, then project files farthest ancestor first. */
-function discoverCandidates(cwd: string | null, agentDir: string, home: string): Candidate[] {
+function discoverCandidates(
+  cwd: string | null,
+  agentDir: string,
+  home: string,
+  names: readonly string[],
+): Candidate[] {
   const out: Candidate[] = [];
-  for (const name of FILE_NAMES) {
+  for (const name of names) {
     const file = path.join(agentDir, name);
     if (isFile(file)) out.push({ scope: "user", file, depth: 0 });
   }
@@ -78,7 +87,7 @@ function discoverCandidates(cwd: string | null, agentDir: string, home: string):
       for (const base of bases) {
         const baseIsOmp = path.basename(base) === ".omp";
         if (!baseIsOmp && dotDir && !inOmp) continue;
-        for (const name of FILE_NAMES) {
+        for (const name of names) {
           const file = path.join(base, name);
           if (isFile(file)) projects.push({ scope: "project", file, depth });
         }
@@ -269,7 +278,8 @@ export async function getWatchdogRoster(
     const agentDir = getOmpAgentDir(env);
     const userTarget = editTarget(agentDir);
     const projectTarget = scopeCwd === null ? null : editTarget(projectTargetDir(scopeCwd));
-    const candidates = discoverCandidates(scopeCwd, agentDir, home);
+    const candidates = discoverCandidates(scopeCwd, agentDir, home, CONFIG_FILE_NAMES);
+    const instructionCandidates = discoverCandidates(scopeCwd, agentDir, home, INSTRUCTION_FILE_NAMES);
 
     const merged = new Map<string, WatchdogEffectiveAdvisor>();
     const sharedInstructions: string[] = [];
@@ -296,6 +306,9 @@ export async function getWatchdogRoster(
         });
       }
     }
+    // omp `Gcn` wraps every discovered .md in the attention block with no
+    // trim gate, unlike the .yml `instructions:` hasText rule above.
+    for (const c of instructionCandidates) sharedInstructions.push(c.file);
     const targets = new Set([userTarget, projectTarget].filter((p): p is string => p !== null));
     return {
       status: "available",
@@ -303,7 +316,8 @@ export async function getWatchdogRoster(
       project: projectTarget === null ? null : fileView("project", projectTarget),
       effective: [...merged.values()],
       sharedInstructions,
-      otherFiles: candidates.map((c) => c.file).filter((f) => !targets.has(f)),
+      otherFiles: [...candidates.map((c) => c.file), ...instructionCandidates.map((c) => c.file)]
+        .filter((f) => !targets.has(f)),
       warnings,
     };
   } catch (err) {
