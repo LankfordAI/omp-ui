@@ -4,21 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Native sessions gained a fast-mode control in the Session HUD and composer options sheet, showing the enabled-vs-active split so a provider-declined fast mode reads as declined (#677).
-- A native composer draft prefixed `!` runs as a shell command — OMP's concurrent `bash` RPC with no model turn — in a new `shell` render item whose stop control sends `abort_bash`; resumed sessions show their shell history (#678).
-- The composer shows a fast-mode toggle beside the model and thinking pills when the current model has a priority tier or the session already carries fast-mode state (#689).
-- The usage receipt now ends its timing parts with the turn's decode rate (`57 t/s`), the generated tokens over the post-ttft window (#690).
-- A tab opened or reloaded while its session is mid-turn now reads as running (composer sweep, steer/abort actions, and the running guards) instead of ready until the next turn (#692; continues #434).
-- A native session gained a share control in the Session HUD, the command palette, and the transcript that runs omp's encrypted `/share` snapshot link; the command row linkifies its output and the first share per install opens a privacy dialog reading the effective share settings (#679).
-- Every prompt in a live native transcript can rewind or edit-and-resend, and the session tree — opened from the HUD's tree control or the command palette — shows the whole lineage and jumps the leaf anywhere, optionally summarizing the turns left behind (#680).
-- A session can pin omp's tool approval mode — always-ask, write, yolo, or inherit — on the config-overlay rail, and `Allow tool:` prompts now answer from a dedicated approval card instead of the generic dialog queue (#681).
-- The Inspector rail grew a Side questions pane for omp's `/btw` exchanges: questions asked against the session's context that never enter the transcript, with history kept in omp's own `btw-history/` files so it survives hibernation (#682).
-- The Agents pane and the subagent view gained steer, kill, and revive controls over a generated bridge that replays Agent Hub's own ordering and refusals — a kill tombstones the row so its history stays readable, and a parked agent revives (#684).
-- The Session HUD's advisor readout opens the roster panel, and the settings Advisors tab edits the project and global `WATCHDOG.yml` files that define it, with a restart affordance so saved changes take effect (#685).
-- Native sessions can hold OMP's vibe mode: the session's model directs worker sessions through omp's own `vibe_*` tools over a per-lineage generated bridge, with a HUD chip, a palette command, and a worker roster in the Agents pane (#683).
-- The advisor catalog now discovers `WATCHDOG.md` instruction files beside the `WATCHDOG.yml` pair, surfacing their text as shared instructions without parsing them as advisors (#691).
-- A terminal session can share live as a Collab room through omp's `/collab` — full or view-only, with guest count, relay state, and a `live` chip on the tab; a branch or restart retires the links (#686).
-- omp-ui registers host tools and the read-only `omp-ui://plan` scheme with omp's rpc-ui host, so a session can read back its own plan artifact and post a desktop notification, both answered by the main process (#688).
+Nothing since [v0.18.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.18.0). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
