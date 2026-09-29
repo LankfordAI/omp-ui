@@ -120,7 +120,7 @@ describe("WATCHDOG.md instruction files", () => {
   });
 
   it("never contributes advisors, warnings, or parsed text", async () => {
-    const { repo, sub } = mdFixture(true);
+    const { sub } = mdFixture(true);
     write(path.join(sub, "WATCHDOG.md"), "advisors: [");
     const r = await effective(sub);
     expect(r.effective.map((e) => e.slug)).toEqual(["a", "b"]);
