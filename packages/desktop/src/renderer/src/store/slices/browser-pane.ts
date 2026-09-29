@@ -18,6 +18,7 @@ export type BrowserPaneSlice = Pick<
   | "handleBrowserPaneState"
   | "noteBrowserPaneFrame"
   | "queueComposerAttachment"
+  | "queueComposerText"
   | "drainComposerQueue"
 >;
 
@@ -199,6 +200,20 @@ export function createBrowserPaneSlice(
                 text: text === "" ? queue.text : [...queue.text, text],
               },
             },
+          },
+        };
+      });
+    },
+    queueComposerText(tabId, text) {
+      if (text === "") return;
+      set((s) => {
+        const tab = s.rpc[tabId];
+        if (!tab) return s;
+        const queue = tab.composerQueue ?? { images: [], text: [] };
+        return {
+          rpc: {
+            ...s.rpc,
+            [tabId]: { ...tab, composerQueue: { ...queue, text: [...queue.text, text] } },
           },
         };
       });

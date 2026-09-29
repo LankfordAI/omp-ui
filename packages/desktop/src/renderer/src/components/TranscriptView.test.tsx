@@ -13,7 +13,7 @@ import {
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
 import { localeTag } from "../lib/i18n";
-import { rpcTabState } from "../test/fixtures";
+import { backendState, rpcTabState } from "../test/fixtures";
 import { useStore } from "../store";
 import { TranscriptView, type FindState } from "./TranscriptView";
 
@@ -933,5 +933,108 @@ describe("in-session find (issue #270)", () => {
     expect(el.textContent).not.toContain("jump to latest");
     expect(scrollIntoViewSpy).not.toHaveBeenCalled();
     act(() => root.unmount());
+  });
+});
+
+describe("rewind affordances (issue #680)", () => {
+  const TAB = "tab-rewind";
+
+  function liveRpcState(status: "ready" | "running" = "ready"): void {
+    const record = {
+      tabId: TAB,
+      sessionId: "s",
+      lineageDir: "d",
+      projectCwd: "/p",
+      launchedAt: "t",
+      mode: "rpc-ui" as const,
+      worktree: null,
+      planImplementationSource: null,
+      experiment: null,
+      agentMode: "plan" as const,
+      compactionMethod: null,
+      model: null,
+      thinkingLevel: null,
+      advisor: false,
+      advisorModel: null,
+      subagentModels: null,
+      proposedPlans: [],
+      cachedTitle: null,
+      cachedModified: null,
+      title: "t",
+      status: null,
+      live: "live" as const,
+      pendingPlan: null,
+      planSettle: null,
+      streamStalled: false,
+    };
+    useStore.setState({
+      state: { ...backendState(), projects: [{ project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false }, sessions: [record] }] },
+      rpc: { [TAB]: rpcTabState({ status }) },
+    });
+  }
+
+  function rewindButton(el: HTMLElement, label: string): HTMLButtonElement | undefined {
+    return [...el.querySelectorAll("button")].find(
+      (b) => b.getAttribute("aria-label") === label,
+    );
+  }
+
+  it("renders the two affordances only for a live rpc-ui tab", () => {
+    const user: RenderItem = { kind: "user", id: "u1", text: "hello" };
+    liveRpcState();
+    const { el, root } = render([user], TAB);
+    expect(rewindButton(el, "rewind here")).toBeDefined();
+    expect(rewindButton(el, "edit and resend")).toBeDefined();
+    act(() => root.unmount());
+
+    // A dormant tab has no process to branch: no affordance.
+    useStore.setState({
+      state: {
+        ...backendState(),
+        projects: [
+          {
+            project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false },
+            sessions: [{ ...useStore.getState().state!.projects[0]!.sessions[0]!, live: "dormant" }],
+          },
+        ],
+      },
+    });
+    const second = render([user], TAB);
+    expect(rewindButton(second.el, "rewind here")).toBeUndefined();
+    act(() => second.root.unmount());
+
+    // No tabId (the subagent read-only view) shows nothing either.
+    liveRpcState();
+    const third = render([user]);
+    expect(rewindButton(third.el, "rewind here")).toBeUndefined();
+    act(() => third.root.unmount());
+  });
+
+  it("stages the click's position among user items and disables while running", () => {
+    const stageRewind = vi.fn(async () => {});
+    useStore.setState({ stageRewind });
+    liveRpcState();
+    const items: RenderItem[] = [
+      { kind: "user", id: "u1", text: "first" },
+      assistant("a1", "answer"),
+      { kind: "user", id: "u2", text: "second" },
+    ];
+    const { el, root } = render(items, TAB);
+    // The second user row is position 1 among user items.
+    const rows = [...el.querySelectorAll(".speaker-run.items-end")];
+    const secondBubble = rows[1]!;
+    const button = [...secondBubble.querySelectorAll("button")].find(
+      (b) => b.getAttribute("aria-label") === "edit and resend",
+    )!;
+    act(() => button.click());
+    expect(stageRewind).toHaveBeenCalledWith(TAB, 1, true);
+    act(() => root.unmount());
+
+    // Running: the affordances render but are disabled (the guard re-checks).
+    liveRpcState("running");
+    const second = render(items, TAB);
+    const running = rewindButton(second.el, "rewind here");
+    expect(running?.hasAttribute("disabled")).toBe(true);
+    act(() => second.root.unmount());
   });
 });

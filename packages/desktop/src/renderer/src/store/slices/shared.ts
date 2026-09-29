@@ -364,6 +364,39 @@ export function persistedPlanHandoffs(state: BackendState): Record<string, strin
   return result;
 }
 
+/**
+ * The edit-and-resend prefill staged per tab (issue #680): the clicked
+ * prompt's visible text/images, captured at staging because staging→confirm
+ * can outlive a stream tick that would change the items. The confirmation
+ * state itself stays data-only per the #373 contract; this is the module-map
+ * idiom `rpcBooting` uses. `disposeTabRuntime` clears it so a relaunch can
+ * never prefill a stale prompt.
+ */
+const rewindPrefills = new Map<
+  string,
+  { text: string; images: { data: string; mimeType: string }[] }
+>();
+
+export function setRewindPrefill(
+  tabId: string,
+  prefill: { text: string; images: { data: string; mimeType: string }[] },
+): void {
+  rewindPrefills.set(tabId, prefill);
+}
+
+export function takeRewindPrefill(tabId: string): {
+  text: string;
+  images: { data: string; mimeType: string }[];
+} | null {
+  const prefill = rewindPrefills.get(tabId) ?? null;
+  rewindPrefills.delete(tabId);
+  return prefill;
+}
+
+export function clearRewindPrefill(tabId: string): void {
+  rewindPrefills.delete(tabId);
+}
+
 export function dropPlanHandoff(
   handedOffFor: Record<string, string>,
   tabId: string,

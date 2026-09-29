@@ -338,7 +338,28 @@ export type LifecycleConfirmationChoice =
       mode: SessionMode;
     }
   | { kind: "remove-project"; projectPath: string; instanceId: string | null }
-  | { kind: "remove-remote-instance"; instanceId: string; nickname: string };
+  | { kind: "remove-remote-instance"; instanceId: string; nickname: string }
+  | {
+      /** Rewind the live tab to one user prompt via omp's in-place `branch`
+       *  (issue #680). `entryId` stays valid even if the leaf moves: entries
+       *  are never deleted. `laterTurns` is the dialog's count of discarded
+       *  transcript rows. */
+      kind: "rewind";
+      tabId: string;
+      entryId: string;
+      laterTurns: number;
+      editResend: boolean;
+    }
+  | {
+      /** Jump the live tab's leaf onto another tree entry through the tree
+       *  bridge (issue #680, Phase 2). `summarize` asks omp for a summary
+       *  turn across the abandoned tail. */
+      kind: "navigate";
+      tabId: string;
+      entryId: string;
+      summarize: boolean;
+      laterTurns: number;
+    };
 
 export type LifecycleConfirmation = {
   /** Identity across renders: stale button/Escape invocations must not act. */
@@ -631,6 +652,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   deleteConfirmation: DeleteConfirmation | null;
   /** A pending session/project decision awaiting DOM confirmation (issue #373). */
   lifecycleConfirmation: LifecycleConfirmation | null;
+  /** Stages one pending session decision (#373); every caller of a
+   *  confirmation-gated action reaches it through the store. */
+  stageLifecycleConfirmation(choice: LifecycleConfirmationChoice): void;
   confirmLifecycleAction(id: string): Promise<void>;
   cancelLifecycleAction(id: string): void;
   /** Backend failures awaiting acknowledgment, oldest first (issue #373). */
@@ -649,6 +673,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   worktreeDialogInstanceId: string | null;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
   finishWorktreeTab: string | null;
+  /** The session tree navigator (issue #680, Phase 2): the pinned live tab
+   *  whose tree is open; null = closed. */
+  sessionTreeView: { tabId: string } | null;
   /** The capabilities viewer's resolved working tree (a worktree session's
    *  checkout, else the project root); null = global scope. `tabId` is the
    *  pinned live session whose roster the skills/tools tabs show. */
@@ -682,6 +709,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   closeDiagnosticsDialog(): void;
   openBrowserPaneClearDialog(): void;
   closeBrowserPaneClearDialog(): void;
+  /** Opens the tree navigator for a live tab and arms its bridge (issue #680). */
+  openSessionTreeView(tabId: string): void;
+  closeSessionTreeView(): void;
   openCapabilitiesViewer(
     scopeCwd: string | null,
     tabId?: string,
@@ -710,6 +740,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** Records the painted frame's size; a no-op while the dimensions are unchanged. */
   noteBrowserPaneFrame(tabId: string, header: BrowserPaneFrameHeader): void;
   queueComposerAttachment(tabId: string, image: ImageAttachment, text: string): void;
+  /** Queues prose with no image — the rewind's edit-and-resend prefill
+   *  (issue #680); the composer drains it like an attachment hand-back. */
+  queueComposerText(tabId: string, text: string): void;
   /** Takes the queued attachments; null when nothing is queued. */
   drainComposerQueue(tabId: string): { images: ImageAttachment[]; text: string[] } | null;
   setHostScope(scope: string): void;
@@ -878,7 +911,32 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   ): Promise<CompactionOutcome>;
   exportHtml(tabId: string): Promise<void>;
   branchSession(tabId: string): Promise<void>;
+  /**
+   * Rewinds a live native session to one user prompt in place via omp's
+   * `branch` RPC (issue #680): the discarded turns stay in the session file
+   * as a non-leaf branch. Staging correlates the clicked transcript row with
+   * its entry id and stages the confirmation; `performRewind` is the accepted
+   * effect, run only by the lifecycle confirmation.
+   */
+  stageRewind(tabId: string, itemIndex: number, editResend: boolean): Promise<void>;
+  performRewind(tabId: string, entryId: string, editResend: boolean): Promise<void>;
+  /** Re-reads the current branch's model context into the transcript
+   *  (get_messages → items, wholesale replace). The boot hydration contract,
+   *  reused after an in-place rewind (issue #680). */
+  reloadHistory(tabId: string): Promise<void>;
+  /**
+   * Jumps the live tab's leaf onto another tree entry through the tree
+   * bridge (issue #680, Phase 2): dispatches the hidden navigate command,
+   * settles from the published snapshot, then reloads history. The accepted
+   * effect of the `navigate` lifecycle confirmation.
+   */
+  performNavigate(tabId: string, entryId: string, summarize: boolean): Promise<void>;
   renameSessionTo(tabId: string, name: string): Promise<void>;
+  /** The navigator's rewind: the entry id comes from the tree, so no
+   *  positional correlation runs (issue #680). */
+  stageRewindEntry(tabId: string, entryId: string, editResend: boolean): Promise<void>;
+  /** Stages a tree jump for a non-prompt entry (issue #680, Phase 2). */
+  stageNavigate(tabId: string, entryId: string, summarize: boolean): Promise<void>;
   /** Re-title a live session from its transcript digest (issue #433). A user action, never automatic. */
   regenerateSessionTitle(tabId: string): Promise<void>;
   setPlanMode(tabId: string, enabled: boolean): Promise<void>;
@@ -916,6 +974,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * goal bridge (issue #381). Never sends goal prose to the model: with no
    * usable bridge it settles the row with the reason instead. */
   runGoalCommand(tabId: string, line: string): Promise<void>;
+  /** Dispatches one hidden bridge command quietly (issue #680). */
+  runHiddenCommand(tabId: string, command: string, args: string): Promise<void>;
   setTodos(tabId: string, phases: TodoPhase[]): Promise<void>;
   refreshState(tabId: string): Promise<void>;
   refreshStats(tabId: string): Promise<void>;

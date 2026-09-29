@@ -85,6 +85,8 @@ export type LifecycleSlice = Pick<
   | "sendTuiHandoff"
   | "dismissTuiHandoff"
 > & {
+  /** Stages one pending session decision; any slice may ask for it. */
+  stageLifecycleConfirmation(choice: LifecycleConfirmationChoice): void;
   prepareRpcRelaunch(tabId: string): void;
   resolveSpawnParams(
     projectCwd: string,
@@ -911,6 +913,29 @@ export function createLifecycleSlice(
       await performSwitchMode(confirmation.tabId, confirmation.mode);
       return;
     }
+    if (confirmation.kind === "rewind") {
+      // Stale target rule (issue #680): the entry id is durable — entries are
+      // never deleted — so only the tab's liveness needs re-checking. A tab
+      // whose process died meanwhile dismisses harmlessly; resume first.
+      const rec = findRecord(get().state, confirmation.tabId);
+      if (!rec || rec.live !== "live" || rec.mode !== "rpc-ui") return;
+      await get().performRewind(
+        confirmation.tabId,
+        confirmation.entryId,
+        confirmation.editResend,
+      );
+      return;
+    }
+    if (confirmation.kind === "navigate") {
+      const rec = findRecord(get().state, confirmation.tabId);
+      if (!rec || rec.live !== "live" || rec.mode !== "rpc-ui") return;
+      await get().performNavigate(
+        confirmation.tabId,
+        confirmation.entryId,
+        confirmation.summarize,
+      );
+      return;
+    }
     if (confirmation.kind === "remove-remote-instance") {
       // Already forgotten meanwhile (another renderer, or the instance's
       // own removal): nothing to send.
@@ -1215,6 +1240,7 @@ export function createLifecycleSlice(
     lifecycleConfirmation: null,
     confirmLifecycleAction,
     cancelLifecycleAction,
+    stageLifecycleConfirmation,
     prepareRpcRelaunch,
     resolveSpawnParams,
     teardownProcess,

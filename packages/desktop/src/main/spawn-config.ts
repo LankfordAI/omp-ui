@@ -20,6 +20,7 @@ import {
   writeGoalExtension,
   writeLimitsExtension,
   writePlanExtension,
+  writeTreeExtension,
   writeSubagentModelOverlay,
 } from "@omp-ui/core";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
@@ -143,6 +144,7 @@ export const RPC_BRIDGE_IDS = [
   "browserPane",
   "autoresearch",
   "limits",
+  "tree",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
 export type RpcBridgeWriters = Record<RpcBridgeId, (lineageDir: string) => string>;
@@ -156,6 +158,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   browserPane: writeBrowserPaneExtension,
   autoresearch: writeAutoresearchExtension,
   limits: writeLimitsExtension,
+  tree: writeTreeExtension,
 };
 
 const RPC_BRIDGES: ReadonlyArray<{
@@ -172,6 +175,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "browserPane", logId: "browser-pane", warning: "browser-pane", enabled: () => true },
   { id: "autoresearch", logId: "autoresearch", warning: "autoresearch", enabled: (enabled) => enabled },
   { id: "limits", logId: "limits", warning: "limits", enabled: () => true },
+  { id: "tree", logId: "tree", warning: "tree", enabled: () => true },
 ];
 export interface RpcExtensionWriteResult {
   paths: string[];
