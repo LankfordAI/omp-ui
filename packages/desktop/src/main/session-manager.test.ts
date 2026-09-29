@@ -418,6 +418,7 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.subagentControlArmMessage(),
     ]);
   });
 
@@ -440,7 +441,8 @@ describe("MCP runtime status bridge", () => {
       ?.map((command) => command.message);
     // Off above, on here: the arm command is appended last only with the flag
     // set, and the bridge file rides into `extensions` with it.
-    expect(messages?.at(-1)).toBe(Core.autoresearchArmMessage());
+    // The subagent-control arm now rides after it (issue #684).
+    expect(messages?.at(-2)).toBe(Core.autoresearchArmMessage());
     expect(options?.extensions).toContainEqual(
       expect.stringMatching(/omp-ui-autoresearch\.ts$/),
     );
@@ -464,6 +466,7 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.subagentControlArmMessage(),
     ]);
   });
 
@@ -495,6 +498,7 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.subagentControlArmMessage(),
     ]);
     expect(RpcClientMock).toHaveBeenCalledTimes(1);
     expect(warning).toHaveBeenCalledWith(
@@ -591,6 +595,7 @@ describe("session capabilities bridge (issue #374)", () => {
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.subagentControlArmMessage(),
     ]);
 
     // Bridged but silent so far: the viewer sees "starting", not an empty roster.
@@ -643,6 +648,7 @@ describe("session capabilities bridge (issue #374)", () => {
       Core.goalArmMessage(),
       Core.planMessage(false, "html"),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.subagentControlArmMessage(),
     ]);
     await expect(manager.getSessionCapabilities(TAB)).resolves.toEqual({
       status: "bridge-unavailable",
@@ -4785,7 +4791,7 @@ describe("hibernation (issue #246)", () => {
       id: lastProbeId(rpc),
       command: "get_state",
       success: true,
-      data: { queuedMessageCount: 0, isStreaming: false },
+      data: { queuedMessageCount: 0, isStreaming: false, hasPendingAsyncWork: false },
     });
   };
 
@@ -4945,7 +4951,7 @@ describe("hibernation (issue #246)", () => {
         id: lastProbeId(rpc),
         command: "get_state",
         success: true,
-        data: { queuedMessageCount: 1, isStreaming: false },
+        data: { queuedMessageCount: 1, isStreaming: false, hasPendingAsyncWork: false },
       });
       await flush();
       expect(rpc.kill).not.toHaveBeenCalled();
@@ -4966,7 +4972,8 @@ describe("hibernation (issue #246)", () => {
   for (const [label, data] of [
     ["an empty payload", {}],
     ["a non-numeric queuedMessageCount", { queuedMessageCount: "0" }],
-    ["an absent isStreaming", { queuedMessageCount: 0 }],
+    ["an absent isStreaming", { queuedMessageCount: 0, hasPendingAsyncWork: false }],
+    ["an absent hasPendingAsyncWork", { queuedMessageCount: 0, isStreaming: false }],
   ] as const) {
     it(`refuses to hibernate on a malformed get_state reply (${label})`, async () => {
       vi.useFakeTimers();
@@ -4994,6 +5001,31 @@ describe("hibernation (issue #246)", () => {
       }
     });
   }
+  it("refuses to hibernate while background async work (e.g. a running subagent) is pending (issue #684)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      rpc.frame({
+        type: "response",
+        id: lastProbeId(rpc),
+        command: "get_state",
+        success: true,
+        data: { queuedMessageCount: 0, isStreaming: false, hasPendingAsyncWork: true },
+      });
+      await flush();
+      // A parked root with a live background child (subagent or async job)
+      // is not idle: killing the root would reap the child's process.
+      expect(rpc.kill).not.toHaveBeenCalled();
+      expect(manager.isLive(TAB)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("leaves no dangling probe timer when the probe answer arrives early", async () => {
     vi.useFakeTimers();
@@ -5012,7 +5044,7 @@ describe("hibernation (issue #246)", () => {
         id: lastProbeId(rpc),
         command: "get_state",
         success: true,
-        data: { queuedMessageCount: 1, isStreaming: false },
+        data: { queuedMessageCount: 1, isStreaming: false, hasPendingAsyncWork: false },
       });
       await flush();
       expect(vi.getTimerCount()).toBe(1);

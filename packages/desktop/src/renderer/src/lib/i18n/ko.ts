@@ -1463,6 +1463,13 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.agents.closeAgent": "에이전트 {agent} 닫기",
   "rail.agents.openAgent": "에이전트 {agent} 열기",
   "rail.agents.typeTitle": "에이전트 유형: {type}",
+  "rail.agents.steer": "스티어",
+  "rail.agents.kill": "강제 종료",
+  "rail.agents.revive": "재가동",
+  "rail.agents.steerPlaceholder": "이 에이전트에게 방향 지시…",
+  "rail.agents.steerSend": "전송",
+  "rail.agents.sendFailed": "하위 에이전트 브리지가 해당 요청을 받지 못했습니다",
+  "rail.agents.steerTooLong": "스티어 텍스트가 {limit}자를 초과합니다",
 
   "rail.stats.messages": "메시지",
   "rail.stats.user": "사용자",

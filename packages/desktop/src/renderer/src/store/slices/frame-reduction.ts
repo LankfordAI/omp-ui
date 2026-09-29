@@ -14,6 +14,10 @@ import {
 import { GOAL_STATUS_KEY, parseGoalSnapshot } from "@omp-ui/core/goal";
 import { BTW_STATUS_KEY, parseBtwSnapshot } from "@omp-ui/core/side-questions";
 import {
+  SUBAGENT_CONTROL_STATUS_KEY,
+  parseSubagentControlSnapshot,
+} from "@omp-ui/core/subagent-control";
+import {
   AUTORESEARCH_STATUS_KEY,
   AUTORESEARCH_WIDGET_KEY,
   parseAutoresearchSnapshot,
@@ -55,6 +59,7 @@ import {
   acceptAutoresearchSnapshot,
   acceptCapabilitySnapshot,
   acceptGoalSnapshot,
+  acceptSubagentControlSnapshot,
   disposeTabRuntime,
   noteCapabilitiesSessionChange,
   rpcCommandMachinery,
@@ -194,6 +199,11 @@ export function createFrameReductionSlice(
       // A malformed or over-budget publish keeps the last good snapshot.
       const snapshot = parseBtwSnapshot(text);
       if (snapshot !== null) m.patchRpc(tabId, { sideQuestions: snapshot });
+    },
+    [SUBAGENT_CONTROL_STATUS_KEY]: (tabId, text) => {
+      // A malformed or over-budget publish keeps the last good snapshot.
+      const snapshot = parseSubagentControlSnapshot(text);
+      if (snapshot !== null) acceptSubagentControlSnapshot(tabId, snapshot, get, m);
     },
     [CAPABILITIES_STATUS_KEY]: (tabId, text) => {
       const snapshot = parseCapabilitySnapshot(text);

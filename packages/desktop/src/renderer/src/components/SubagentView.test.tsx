@@ -18,7 +18,8 @@ class ResizeObserverStub {
 (globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
 
 // store.ts captures window.ompBackend at module evaluation.
-Object.assign(window, { ompBackend: { rpcSend: vi.fn() } });
+const rpcSendMock = vi.fn();
+Object.assign(window, { ompBackend: { rpcSend: rpcSendMock } });
 
 const { useStore } = await import("../store");
 const { SubagentView } = await import("./SubagentView");
@@ -70,33 +71,84 @@ function renderView(agentKey = "agent-1"): void {
   act(() => root!.render(<SubagentView tabId={TAB} agentKey={agentKey} />));
 }
 
+/** The prompt frames sent so far, each answered so nothing dangles. */
+function sentPrompts(): string[] {
+  const frames: string[] = [];
+  for (const call of rpcSendMock.mock.calls) {
+    const frame = call[1] as { id: string; message?: string };
+    if (typeof frame.message === "string") {
+      frames.push(frame.message);
+      act(() => {
+        useStore.getState().handleRpcFrame(TAB, {
+          type: "response",
+          id: frame.id,
+          command: "prompt",
+          success: true,
+          data: {},
+        });
+      });
+    }
+  }
+  return frames;
+}
+
 beforeEach(() => {
   document.body.innerHTML = "";
 });
 
 afterEach(() => {
+  rpcSendMock.mockClear();
   if (root) act(() => root!.unmount());
   root = null;
 });
 
 describe("SubagentView", () => {
-  it("renders the banner and the buffered transcript through TranscriptView", () => {
+  it("renders the banner, the control strip, and the buffered transcript through TranscriptView", () => {
     seed();
     renderView();
     const text = document.body.textContent ?? "";
-    // Banner: back control, name, type chip, status, task label, read-only note.
+    // Banner: back control, name, type chip, status, task label, controls.
     expect(text).toContain("‹ main agent");
     expect(text).toContain("worker");
     expect(text).toContain("task");
     expect(text).toContain("running");
     expect(text).toContain("map the store");
-    expect(text).toContain("read-only subagent view");
+    // A running agent is controllable (issue #684): steer + kill, no read-only.
+    expect(document.body.querySelector('button[aria-label="steer"]')).not.toBeNull();
+    expect(document.body.querySelector('button[aria-label="kill"]')).not.toBeNull();
+    expect(document.body.querySelector('button[aria-label="revive"]')).toBeNull();
+    expect(text).not.toContain("read-only subagent view");
     // Full transcript surface: user prompt, assistant text, tool card with intent.
     expect(text).toContain("hello from worker");
     expect(text).toContain("Listing src");
     // The usage receipt (model id) renders — the proof this is TranscriptView,
     // not the old SubagentRow, which never surfaced model/usage.
     expect(text).toContain("m1");
+  });
+
+  it("a running agent's controls dispatch quiet bridge frames (issue #684)", async () => {
+    seed();
+    renderView();
+    const kill = document.body.querySelector<HTMLButtonElement>('button[aria-label="kill"]')!;
+    await act(async () => void kill.click());
+    const frames = sentPrompts();
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toContain('"agentId":"agent-1"');
+    expect(frames[0]).toContain('"action":"kill"');
+  });
+
+  it("a parked agent offers revive and kill (issue #684)", () => {
+    seed({ subagents: [{ id: "agent-1", name: "worker", status: "parked" }] });
+    renderView();
+    expect(document.body.querySelector('button[aria-label="revive"]')).not.toBeNull();
+    expect(document.body.querySelector('button[aria-label="steer"]')).toBeNull();
+  });
+
+  it("a settled agent keeps the read-only banner with no controls (issue #684)", () => {
+    seed({ subagents: [] });
+    renderView();
+    expect(document.body.textContent).toContain("read-only subagent view");
+    expect(document.body.querySelector('button[aria-label="kill"]')).toBeNull();
   });
 
   it("back returns to the main agent", () => {

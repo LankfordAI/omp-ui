@@ -127,6 +127,9 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     status: "ready",
     goal: null,
     sideQuestions: null,
+    subagentControl: null,
+    subagentControlBusy: {},
+    subagentControlError: null,
     autoresearch: null,
     limits: null,
     items: [],
@@ -439,11 +442,16 @@ describe("desktop InspectorRail", () => {
     renderRail();
     act(() => railTab("agents")!.click());
 
-    // The roster is live agents UNION retained ones; retained render dimmed.
+    // The roster is live agents UNION retained ones; retained render dimmed
+    // (the dim lives on the row container, which now holds the control strip).
     expect(document.body.textContent).toContain("worker");
     expect(document.body.textContent).toContain("agent-2");
-    expect(button("open agent agent-2")?.className).toContain("opacity-50");
-    expect(button("open agent worker")?.className).not.toContain("opacity-50");
+    expect(button("open agent agent-2")?.parentElement?.parentElement?.className).toContain(
+      "opacity-50",
+    );
+    expect(button("open agent worker")?.parentElement?.parentElement?.className).not.toContain(
+      "opacity-50",
+    );
 
     // Clicking a row selects it — the subagent view opens in the main pane.
     act(() => button("open agent worker")!.click());
@@ -457,6 +465,38 @@ describe("desktop InspectorRail", () => {
     // Settled agents open too — their retained buffer renders in the view.
     act(() => button("open agent agent-2")!.click());
     expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBe("agent-2");
+  });
+
+  it("row controls kill without toggling the row's selection (issue #684)", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          subagents: [{ id: "agent-1", name: "worker", status: "running" }],
+        }),
+      },
+    });
+    renderRail();
+    act(() => railTab("agents")!.click());
+    const kill = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="kill"]',
+    )!;
+    // The strip sits inside the row; pressing it must not open the view.
+    act(() => kill.click());
+    expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBeNull();
+    const frame = backendMock.rpcSend.mock.calls.find(
+      (call) => typeof (call[1] as { message?: unknown }).message === "string",
+    )![1] as { id: string; message: string };
+    expect(frame.message).toContain('"action":"kill"');
+    expect(frame.message).toContain('"agentId":"agent-1"');
+    act(() => {
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "response",
+        id: frame.id,
+        command: "prompt",
+        success: true,
+        data: {},
+      });
+    });
   });
   it("re-reads an open project diff only when that project's revision changes", async () => {
     const initial = deferred<BranchDiff>();

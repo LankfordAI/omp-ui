@@ -39,7 +39,7 @@ interface HibernateRecord {
   /** In-flight pre-kill get_state probe; the matching response frame settles it. */
   probeId: string | null;
   /** Settles the probe's promise; null on timeout or failure. */
-  probeResolve: ((state: { parked: number; streaming: boolean } | null) => void) | null;
+  probeResolve: ((state: { parked: number; streaming: boolean; asyncWork: boolean } | null) => void) | null;
   /** The probe's fallback timer; owned by the record, cleared on settle or teardown. */
   probeTimer: NodeJS.Timeout | undefined;
 }
@@ -132,14 +132,16 @@ export class HibernationTracker implements FrameObserver {
       const data = isObject(control.data) ? control.data : control.frame;
       const parked = data.queuedMessageCount;
       const streaming = data.isStreaming;
+      const asyncWork = data.hasPendingAsyncWork;
       if (
         !(typeof parked === "number" && Number.isFinite(parked)) ||
-        typeof streaming !== "boolean"
+        typeof streaming !== "boolean" ||
+        typeof asyncWork !== "boolean"
       ) {
         resolve(null);
         return;
       }
-      resolve({ parked, streaming });
+      resolve({ parked, streaming, asyncWork });
       return;
     }
     switch (frame.type) {
@@ -307,7 +309,7 @@ export class HibernationTracker implements FrameObserver {
   private probeState(
     tabId: string,
     entry: LiveEntry,
-  ): Promise<{ parked: number; streaming: boolean } | null> {
+  ): Promise<{ parked: number; streaming: boolean; asyncWork: boolean } | null> {
     const rec = this.recordFor(tabId);
     if (entry.kind !== "rpc-ui") return Promise.resolve(null);
     const rpc = entry.rpc;
@@ -350,7 +352,14 @@ export class HibernationTracker implements FrameObserver {
     if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return "setting-off";
     const current = this.deps.getLive(tabId);
     if (current !== entry) return current !== undefined ? "replaced" : "gone";
-    if (state === null || state.parked > 0 || state.streaming) return "rearm";
+    // A child subagent turn must not be reaped with its parent (issue #684).
+    // A foreground child keeps the root streaming (covered by `streaming`);
+    // a background child is an asyncJobManager job — running or parked with
+    // a live job — and `hasPendingAsyncWork` reports exactly that. The field
+    // is binary-verified in the get_state payload; strict presence keeps a
+    // stale omp (pre-field) on the safe side: null verdict → rearm, no kill.
+    if (state === null || state.parked > 0 || state.streaming || state.asyncWork)
+      return "rearm";
     if (!this.hibernable(entry, tabId, policy)) return "rearm";
     const reap = this.deps.hibernate(tabId, entry);
     this.inFlight.set(tabId, reap);

@@ -188,13 +188,15 @@ describe("compact browser pane ownership", () => {
 });
 
 describe("RpcTab subagent view", () => {
-  it("swaps the main column to the read-only subagent view while selected", () => {
+  it("swaps the main column to the subagent view while selected", () => {
     seed("agent-1");
     renderTab();
     expect(document.body.textContent).toContain("sub transcript");
-    expect(document.body.textContent).toContain("read-only subagent view");
+    // A running subagent is controllable (issue #684): no read-only note.
+    expect(document.body.textContent).not.toContain("read-only subagent view");
+    expect(document.body.querySelector('button[aria-label="kill"]')).not.toBeNull();
     expect(document.body.textContent).not.toContain("main transcript");
-    // No composer: a subagent cannot be prompted or steered.
+    // No composer: the subagent view is not a chat surface.
     expect(document.body.querySelector("textarea")).toBeNull();
   });
 
