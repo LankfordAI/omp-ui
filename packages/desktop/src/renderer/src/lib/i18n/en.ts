@@ -239,6 +239,9 @@ export const en = {
   "transcript.empty.hint": "Send a prompt to start the session.",
   "transcript.usage.cache": "cache",
   "transcript.usage.ttft": "ttft",
+  // Decode rate unit (generated tokens over the post-ttft window); like ttft,
+  // stays a lowercase literal in every locale.
+  "transcript.usage.rate": "t/s",
   "transcript.usage.via": "via {provider}",
   "transcript.usage.gateway": "gateway: {provider}",
   "transcript.usage.upstream": "upstream: {provider}",

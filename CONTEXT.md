@@ -109,7 +109,8 @@ _Avoid_: divider, separator, system message
 **Usage receipt**:
 A dim, quiet one-line receipt under an assistant message. It starts with the
 requested model and may name OMP's routed upstream provider inline, followed by
-in/out tokens, cache reads, cost, ttft, and duration from `message_end.usage`.
+in/out tokens, cache reads, cost, ttft, duration, and the decode rate (generated
+tokens over the post-ttft window) from `message_end.usage`.
 Its hover detail may include the provider response ID when OMP supplies it. It
 is a receipt, not telemetry.
 _Avoid_: stats line, metrics, footer
