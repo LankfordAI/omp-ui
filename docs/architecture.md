@@ -186,6 +186,13 @@ two-level grammar. The catalogs reach the renderer over the
 open them unpinned, project settings embeds them at the project's scope, and
 the session-pinned viewer is unchanged.
 
+The advisor roster (ADR-0039) adds two channels, `watchdog:roster` and
+`watchdog:roster:set`, over omp's `WATCHDOG.yml`: core reproduces omp's
+discovery/merge ([`watchdog-config.ts`](../packages/core/src/watchdog-config.ts))
+and rewrites a whole file only when it can do so losslessly. The advisor-stats
+frame gains additive `advisors` and `configWarnings` fields describing the root
+session's roster; aggregate cost and tokens are unchanged.
+
 ### Slash commands in native sessions
 
 A native session's composer accepts the same slash commands as the terminal TUI. A few commands map to omp-ui surfaces and never reach the child; every other command line is forwarded to OMP.

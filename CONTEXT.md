@@ -204,6 +204,14 @@ autoresearch mode is on, an `autoresearch` chip sits beside the goal chip and
 opens the **Lab** on that experiment (ADR-0030).
 _Avoid_: toolbar, header, status bar
 
+**Advisor roster**:
+The set of advisors omp resolved from `WATCHDOG.yml` for a live session (user
+and project files, merged by name); the legacy single advisor is a one-entry
+roster named `default`. The composer's advisor switch stays the ceiling over
+every entry, and the advisor model pin is the fallback for entries with no
+`model:` of their own. Edits apply when the session relaunches.
+_Avoid_: advisor list, watchdog, advisor team, multi-advisor mode
+
 **Session parameter memory**:
 The five composer parameters — main model, main thinking level, advisor on/off,
 advisor model, and advisor thinking level — are remembered per project and

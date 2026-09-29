@@ -1,5 +1,7 @@
 # Advisor accounting, delivered by a second generated extension
 
+> Amended by ADR-0039: the wire gains additive roster fields; the "no per-advisor breakdown" premise no longer holds on omp ≥ 18.4.2.
+
 The Session HUD shows a quiet `adv` readout beside main model usage. Its meter
 and model describe the parent advisor. Its spend and token total cover advisor
 activity in the parent and every task descendant. An omp extension generated

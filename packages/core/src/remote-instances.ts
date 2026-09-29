@@ -155,6 +155,8 @@ const PROJECT_PROXY_CHANNELS: readonly string[] = [
   "mcp:setEnabled",
   "capabilities:scoped",
   "capabilities:scoped:set",
+  "watchdog:roster",
+  "watchdog:roster:set",
   "project-files:list",
   "file-mentions:resolve",
   // The Lab reads a joined instance's experiments from that instance's own

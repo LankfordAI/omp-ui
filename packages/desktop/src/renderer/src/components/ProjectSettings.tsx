@@ -7,6 +7,7 @@ import type { ModelInfo } from "../lib/rpc-types";
 import { projectKey } from "../lib/project-key";
 import { findInstance, useStore } from "../store";
 import { McpServersPanel, SkillsScopePanel, ToolsScopePanel } from "./CapabilitiesViewer";
+import { AdvisorRosterEditor } from "./AdvisorRoster";
 import { ModelPalette } from "./ModelSelector";
 import { Button, Label, Modal, Switch } from "./ui";
 
@@ -336,21 +337,22 @@ export function ProjectModelPins({
   );
 }
 
-type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models" | "browser";
+export type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models" | "advisors" | "browser";
 
 const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
   { id: "mcp", labelKey: "project.settings.mcpServers" },
   { id: "skills", labelKey: "project.settings.skills" },
   { id: "tools", labelKey: "project.settings.tools" },
   { id: "models", labelKey: "project.settings.defaultModels" },
+  { id: "advisors", labelKey: "project.settings.advisors" },
   { id: "browser", labelKey: "project.settings.browser" },
 ];
 
 /**
  * The per-project settings dialog (issues #281, #383, #564): one modal holding
  * a project's standing configuration — MCP servers, the skills and tools
- * catalogs at project scope, the default-model pins, and the browser clock —
- * behind a five-tab strip, opened from the desktop project header and the
+ * catalogs at project scope, the default-model pins, the advisor roster (WATCHDOG.yml), and the browser clock —
+ * behind a six-tab strip, opened from the desktop project header and the
  * compact actions sheet. Session-scoped behavior (rosters, session-local
  * switches, restart, TUI reauth handoff) stays in CapabilitiesViewer; this
  * dialog pins no session tab, so every panel gets only the project scope —
@@ -365,7 +367,10 @@ export function ProjectSettings({
   project,
   instanceId = null,
   onClose,
+  initialSection,
 }: {
+  /** Tab to open on; defaults to MCP servers. */
+  initialSection?: ProjectSettingsSectionId;
   /** `null` renders nothing — removal auto-close is enforced by App's lookup. */
   project: ProjectRecord | null;
   /** The remote instance owning the project (issue #416); null for this host. */
@@ -373,7 +378,7 @@ export function ProjectSettings({
   onClose: () => void;
 }) {
   const t = useT();
-  const [active, setActive] = useState<ProjectSettingsSectionId>("mcp");
+  const [active, setActive] = useState<ProjectSettingsSectionId>(initialSection ?? "mcp");
   const tabRefs = useRef<Partial<Record<ProjectSettingsSectionId, HTMLButtonElement | null>>>({});
   const setProjectBrowserClock = useStore((s) => s.setProjectBrowserClock);
 
@@ -397,7 +402,7 @@ export function ProjectSettings({
   if (project === null) return null;
 
   return (
-    <Modal onClose={onClose} width="w-[40rem]" labelledBy="project-settings-title">
+    <Modal onClose={onClose} width="w-[44rem]" labelledBy="project-settings-title">
       <section>
         <header className="border-b border-line px-4 py-3.5">
           <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
@@ -494,6 +499,16 @@ export function ProjectSettings({
                 {t("project.settings.defaultModels")}
               </h3>
               <ProjectModelPins project={project} instanceId={instanceId} />
+            </section>
+          )}
+
+          {active === "advisors" && (
+            <section aria-labelledby="project-settings-advisors" className="pb-3">
+              <h3 id="project-settings-advisors" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+                {t("project.settings.advisors")}
+              </h3>
+              <AdvisorRosterEditor scopeCwd={project.path} instanceId={instanceId} />
+              <p className="px-4 pt-2 text-[11px] text-ink-faint">{t("project.settings.advisorsHint")}</p>
             </section>
           )}
 

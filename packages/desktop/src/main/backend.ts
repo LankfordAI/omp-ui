@@ -17,6 +17,8 @@ import {
   generateTitleWithOmp,
   getArchiveRoot,
   getScopedCapabilities,
+  getWatchdogRoster,
+  setWatchdogRoster,
   getOmpAgentDir,
   getSessionsRoot,
   hydrateSessionFile,
@@ -77,6 +79,7 @@ import {
   type ImageAttachment,
   type McpSetEnabledRequest,
   type ScopedCapabilityMutation,
+  type WatchdogWriteRequest,
   type LiveState,
   type OmpSettingValue,
   type OwnedSessionRecord,
@@ -910,6 +913,8 @@ export class MainBackend {
           getScopedCapabilities(scopeCwd, this.ompPath),
         [CH.setScopedCapability]: (req: ScopedCapabilityMutation) =>
           setScopedCapability(req, this.ompPath),
+        [CH.getWatchdogRoster]: (scopeCwd: string | null) => getWatchdogRoster(scopeCwd),
+        [CH.setWatchdogRoster]: (req: WatchdogWriteRequest) => setWatchdogRoster(req),
         [CH.restartSession]: (tabId: string) => this.sessions.restart(tabId),
         [CH.getSessionCapabilities]: (tabId: string) =>
           this.sessions.getSessionCapabilities(tabId),

@@ -218,6 +218,17 @@ Tools rows are also controls. Each registered tool row whose enabled state OMP r
 
 A toggle is rejected rather than queued while the session is busy — a running turn, a queued prompt, an abort, an unresolved human-answer request, a session lifecycle operation, or another tool toggle still settling. A prompt you send immediately after an accepted toggle waits for that toggle. Disabling `write` is refused while Plan mode is on: the row says `write` is required to write plan artifacts while Plan mode is on, entering Plan adds it only when you had it off, and exiting removes only that borrowed addition, so every other selection you made during Plan survives. Note that current OMP runtimes keep `write` enabled no matter what any session asks — a Build-mode attempt to disable it reports that the runtime retained it, and there is nothing for Plan to borrow. The switch controls enabled membership only: **Direct**, **xd://**, and **Eval** remain independent observed facts, and changing membership can legitimately re-partition which paths reach a tool, which the viewer then reports as OMP confirmed it. MCP tools can be toggled individually without touching server configuration or connection state; `/mcp reload` or an OMP settings change may re-enable a server's tools, which stays the MCP manager's contract. An older bridge whose snapshots predate tool control still lists the roster but shows no switches.
 
+### Advisor roster
+
+omp can run several advisors from a `WATCHDOG.yml` (global in `~/.omp/agent`,
+project at the repository root). Click the `adv` readout in the Session HUD to
+see each advisor's status, model, tools, context, and spend. **Edit roster…**
+opens the project settings **Advisors** tab, where you can edit the Project or
+Global file. Entries without a model follow the advisor model from the composer;
+the composer's advisor switch turns every entry off. Saved changes apply when a
+session restarts (the panel offers a **Restart** button); comments in the file
+are not preserved, and files with syntax errors or unknown keys are read-only.
+
 For provider and other app configuration, see [Settings](settings.md).
 
 ## Command palette and compact shell

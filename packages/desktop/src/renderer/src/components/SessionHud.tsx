@@ -14,7 +14,7 @@ import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
 import { projectKey } from "../lib/project-key";
 import type { ContextUsage } from "../lib/rpc-types";
-import { findInstance, findOwner, findRecord, useStore } from "../store";
+import { findInstance, findOwner, findRecord, sessionCwd, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
 import { useDismissal } from "../lib/use-dismissal";
 import { buildTitleTranscript } from "../lib/session-transcript";
@@ -22,6 +22,7 @@ import { ConsoleToggle } from "./ConsoleDrawer";
 import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { FastModeControl, fastModeState } from "./FastModeControl";
+import { AdvisorRosterView } from "./AdvisorRoster";
 import { ApprovalModeControl } from "./ApprovalModeControl";
 import { WorktreeChip } from "./WorktreeChip";
 import { Button, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconRefresh, IconTune, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
@@ -635,10 +636,38 @@ function QuotaChip({
  * context meter, the fill percent, and cost. Hidden until the extension has
  * published real stats.
  */
-function AdvisorCluster({ stats }: { stats: AdvisorStatsView }) {
+function AdvisorCluster({
+  stats,
+  tabId,
+  instanceId,
+  cwd,
+  projectCwd,
+}: {
+  stats: AdvisorStatsView;
+  tabId: string;
+  instanceId: string | null;
+  cwd: string | null;
+  projectCwd: string | null;
+}) {
   const t = useT();
-  const window = stats.contextWindow > 0 ? stats.contextWindow : 0;
-  const percent = window > 0 ? (stats.contextTokens / window) * 100 : 0;
+  const openProjectSettings = useStore((s) => s.openProjectSettings);
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const rect = anchor.current?.getBoundingClientRect();
+      if (rect) setPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open]);
+  useDismissal({ open, refs: [anchor, panelRef], onClose: () => setOpen(false), onEscape: () => setOpen(false) });
+  const ctxWindow = stats.contextWindow > 0 ? stats.contextWindow : 0;
+  const percent = ctxWindow > 0 ? (stats.contextTokens / ctxWindow) * 100 : 0;
   // A subscription-billed root advisor legitimately accrues $0. Descendant
   // usage can still make the session-tree total nonzero, which stays numeric.
   const spend = stats.subscription && stats.cost === 0 ? t("hud.advisor.subscriptionShort") : formatCost(stats.cost);
@@ -649,21 +678,51 @@ function AdvisorCluster({ stats }: { stats: AdvisorStatsView }) {
   const exact = t("hud.advisor.contextUsage", {
     model: stats.model ? ` · ${stats.model}` : "",
     tokens: exactNum(stats.contextTokens),
-    window: window > 0 ? exactNum(window) : "?",
+    window: ctxWindow > 0 ? exactNum(ctxWindow) : "?",
     percent: percent.toFixed(2),
     billing,
     totalTokens: exactNum(stats.totalTokens),
   });
   return (
-    <div className="titlebar-advisor hidden shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 lg:flex [app-region:no-drag]" title={exact}>
+    <div ref={anchor} className="relative hidden shrink-0 lg:block [app-region:no-drag]">
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-label={t("advisor.roster.title")}
+      onClick={() => setOpen(!open)}
+      className="titlebar-advisor flex items-center gap-1.5 rounded px-1.5 py-0.5"
+      title={exact}
+    >
       <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t("hud.advisor.shortLabel")}</span>
-      <Meter fraction={window > 0 ? stats.contextTokens / window : 0} className="w-14" title={exact} />
+      <Meter fraction={ctxWindow > 0 ? stats.contextTokens / ctxWindow : 0} className="w-14" title={exact} />
       <span className="font-mono text-[10px] tabular-nums text-ink-dim" title={exact}>
         {percent.toFixed(1)}%
       </span>
       <span className="font-mono text-[10px] tabular-nums text-ink-faint" title={exact}>
         {spend}
       </span>
+    </button>
+    {open && pos && createPortal(
+      <div ref={panelRef} className="fixed z-[70]" style={pos}>
+        <Panel className="edge-lit animate-rise w-[24rem] p-2.5">
+          <AdvisorRosterView
+            tabId={tabId}
+            instanceId={instanceId}
+            cwd={cwd}
+            onEdit={
+              projectCwd === null
+                ? undefined
+                : () => {
+                    setOpen(false);
+                    openProjectSettings(projectCwd, instanceId, "advisors");
+                  }
+            }
+          />
+        </Panel>
+      </div>,
+      document.body,
+    )}
     </div>
   );
 }
@@ -948,6 +1007,8 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const quotaEvent = useStore((s) => s.rpc[tabId]?.quotaEvent);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
+  const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId))) ?? null;
+  const openProjectSettingsForRoster = useStore((s) => s.openProjectSettings);
   const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const openSessionTreeView = useStore((s) => s.openSessionTreeView);
@@ -1120,6 +1181,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 {stats && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{t("hud.stats.compact", { cost: formatCost(stats.cost), tokens: compactNum(stats.tokens.total), premium: stats.premiumRequests })}</span></div>}
                 {quotaEvent != null && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{quotaChip}</div>}
                 {limitsCluster && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{limitsCluster}</div>}
+                {showAdvisor && (advisorStats.advisors.length > 0 || advisorStats.configWarnings.length > 0) && <AdvisorRosterView tabId={tabId} instanceId={instanceId} cwd={cwd} onEdit={projectCwd ? () => openProjectSettingsForRoster(projectCwd, instanceId, "advisors") : undefined} />}
                 {showAdvisor && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.advisorTotal")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={t("hud.advisor.totalUsage", { tokens: exactNum(advisorStats.totalTokens), cost: formatCost(advisorStats.cost) })}>{t("hud.advisor.compactTotal", { tokens: compactNum(advisorStats.totalTokens), spend: advisorStats.subscription && advisorStats.cost === 0 ? t("hud.advisor.subscriptionShort") : formatCost(advisorStats.cost) })}</span></div>}
                 {notices.length > 0 && <div className="flex flex-wrap gap-1.5">{notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}</div>}
               </div>
@@ -1215,7 +1277,13 @@ export function SessionHud({ tabId }: { tabId: string }) {
       )}
 
       {showAdvisor && (
-        <AdvisorCluster stats={advisorStats} />
+        <AdvisorCluster
+          stats={advisorStats}
+          tabId={tabId}
+          instanceId={instanceId}
+          cwd={cwd}
+          projectCwd={projectCwd ?? null}
+        />
       )}
 
       {notices.length > 0 && (

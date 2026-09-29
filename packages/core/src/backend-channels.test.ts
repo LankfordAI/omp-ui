@@ -171,6 +171,15 @@ const VALID_ARGS = {
   setRemotePassword: ["password"],
   setRemotePort: [8080],
   setScopedCapability: [{ scopeCwd: null, kind: "tool", tool: "bash", enabled: true }],
+  getWatchdogRoster: [null],
+  setWatchdogRoster: [
+    {
+      scopeCwd: null,
+      scope: "user",
+      baseHash: null,
+      document: { instructions: null, maxNotesPerUpdate: null, advisors: [] },
+    },
+  ],
   setSessionAdvisor: ["tab-1", true, null],
   setSessionApprovalMode: ["tab-1", null],
   setSessionModel: ["tab-1", null, null],

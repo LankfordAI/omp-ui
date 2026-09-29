@@ -814,6 +814,71 @@ export interface ScopedCapabilitiesResult {
   ompVersion: string | null;
 }
 
+export type WatchdogScope = "user" | "project";
+
+export interface WatchdogAdvisorEntry {
+  name: string;
+  model: string | null;
+  /** null = omitted (omp's default tools). */
+  tools: string[] | null;
+  instructions: string | null;
+  enabled: boolean | null;
+  maxNotesPerUpdate: number | null;
+}
+
+export interface WatchdogDocument {
+  instructions: string | null;
+  maxNotesPerUpdate: number | null;
+  advisors: WatchdogAdvisorEntry[];
+}
+
+export interface WatchdogFileView {
+  scope: WatchdogScope;
+  path: string;
+  exists: boolean;
+  /** sha1 of the file text; null when absent. */
+  hash: string | null;
+  document: WatchdogDocument;
+  /** Reasons a save would lose data; Save is disabled while non-empty. */
+  blocking: string[];
+  /** Non-blocking caveats. */
+  notices: string[];
+}
+
+export interface WatchdogEffectiveAdvisor {
+  name: string;
+  slug: string;
+  sourcePath: string;
+  sourceScope: WatchdogScope;
+  model: string | null;
+  tools: string[];
+  toolsExplicit: boolean;
+  enabled: boolean;
+  instructions: string | null;
+  maxNotesPerUpdate: number | null;
+}
+
+export type WatchdogRosterResult =
+  | {
+      status: "available";
+      user: WatchdogFileView;
+      project: WatchdogFileView | null;
+      effective: WatchdogEffectiveAdvisor[];
+      /** Paths of files contributing file-level instructions. */
+      sharedInstructions: string[];
+      /** Discovered files that are neither editable target. */
+      otherFiles: string[];
+      warnings: string[];
+    }
+  | { status: "error"; message: string };
+
+export interface WatchdogWriteRequest {
+  scopeCwd: string | null;
+  scope: WatchdogScope;
+  baseHash: string | null;
+  document: WatchdogDocument;
+}
+
 /**
  * One capability mutation, routed by scope (issue #383): a null `scopeCwd`
  * writes omp's global layer through `omp config set`; a working tree writes

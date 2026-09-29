@@ -24,6 +24,9 @@ import type {
   TranscriptWidth,
   UpdateTrain,
   WorktreeReleaseOptions,
+  WatchdogAdvisorEntry,
+  WatchdogDocument,
+  WatchdogWriteRequest,
 } from "./types";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 
@@ -306,6 +309,52 @@ export const scopedCapabilityMutationCodec: ArgCodec<ScopedCapabilityMutation> =
       kind,
       key: str().decode(fields["key"], `${path}.key`),
       enabled: bool().decode(fields["enabled"], `${path}.enabled`),
+    };
+  },
+};
+
+const watchdogText: ArgCodec<string> = codec("a string of at most 64 KiB", (v) => typeof v === "string" && v.length <= 65_536);
+const watchdogEntryCodec: ArgCodec<WatchdogAdvisorEntry> = {
+  expected: "a WATCHDOG advisor entry",
+  decode(value, path) {
+    const f = record().decode(value, path);
+    exactKeys(f, ["name", "model", "tools", "instructions", "enabled", "maxNotesPerUpdate"], path);
+    return {
+      name: watchdogText.decode(f["name"], `${path}.name`),
+      model: nullable(watchdogText).decode(f["model"], `${path}.model`),
+      tools: nullable(arrayOf(watchdogText)).decode(f["tools"], `${path}.tools`),
+      instructions: nullable(watchdogText).decode(f["instructions"], `${path}.instructions`),
+      enabled: nullable(bool()).decode(f["enabled"], `${path}.enabled`),
+      maxNotesPerUpdate: nullable(num()).decode(f["maxNotesPerUpdate"], `${path}.maxNotesPerUpdate`),
+    };
+  },
+};
+const watchdogDocumentCodec: ArgCodec<WatchdogDocument> = {
+  expected: "a WATCHDOG document",
+  decode(value, path) {
+    const f = record().decode(value, path);
+    exactKeys(f, ["instructions", "maxNotesPerUpdate", "advisors"], path);
+    const advisors = arrayOf(watchdogEntryCodec).decode(f["advisors"], `${path}.advisors`);
+    if (advisors.length > 64) fail(`${path}.advisors`, "at most 64 entries");
+    return {
+      instructions: nullable(watchdogText).decode(f["instructions"], `${path}.instructions`),
+      maxNotesPerUpdate: nullable(num()).decode(f["maxNotesPerUpdate"], `${path}.maxNotesPerUpdate`),
+      advisors,
+    };
+  },
+};
+
+/** The WATCHDOG.yml full-document write (ADR-0039), strict like the capability mutation. */
+export const watchdogWriteCodec: ArgCodec<WatchdogWriteRequest> = {
+  expected: "a WATCHDOG write request",
+  decode(value, path) {
+    const f = record().decode(value, path);
+    exactKeys(f, ["scopeCwd", "scope", "baseHash", "document"], path);
+    return {
+      scopeCwd: nullable(str()).decode(f["scopeCwd"], `${path}.scopeCwd`),
+      scope: oneOf("user", "project").decode(f["scope"], `${path}.scope`),
+      baseHash: nullable(str()).decode(f["baseHash"], `${path}.baseHash`),
+      document: watchdogDocumentCodec.decode(f["document"], `${path}.document`),
     };
   },
 };

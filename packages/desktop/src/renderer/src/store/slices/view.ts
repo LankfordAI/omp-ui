@@ -5,6 +5,7 @@ import type {
   SessionSummary,
   SessionWorktree,
 } from "@omp-ui/core/types";
+import type { ProjectSettingsSectionId } from "../../components/ProjectSettings";
 import type { CapabilitySectionId } from "@omp-ui/core/capabilities";
 import type { StateCreator, StoreApi } from "zustand";
 import { backend } from "../../backend";
@@ -58,7 +59,7 @@ export interface ViewSlice {
     section: CapabilitySectionId;
     instanceId: string | null;
   } | null;
-	projectSettings: { projectCwd: string; instanceId: string | null } | null;
+	projectSettings: { projectCwd: string; instanceId: string | null; section?: ProjectSettingsSectionId } | null;
   ptyRedrawRevision: Record<string, number>;
   compactSurface: CompactSurface | null;
   sidebarCollapsed: boolean;
@@ -95,7 +96,7 @@ export interface ViewSlice {
     instanceId?: string | null,
   ): void;
   closeCapabilitiesViewer(): void;
-	openProjectSettings(projectCwd: string, instanceId?: string | null): void;
+	openProjectSettings(projectCwd: string, instanceId?: string | null, section?: ProjectSettingsSectionId): void;
 	closeProjectSettings(): void;
   showCompactSurface(surface: CompactSurface): void;
   closeCompactSurface(): void;
@@ -457,8 +458,8 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   closeCapabilitiesViewer() {
     set({ capabilitiesViewer: null });
   },
-	openProjectSettings(projectCwd, instanceId = null) {
-		set({ projectSettings: { projectCwd, instanceId } });
+	openProjectSettings(projectCwd, instanceId = null, section) {
+		set({ projectSettings: { projectCwd, instanceId, section } });
 	},
 	closeProjectSettings() {
 		set({ projectSettings: null });
