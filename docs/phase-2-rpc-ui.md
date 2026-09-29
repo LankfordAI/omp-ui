@@ -95,8 +95,8 @@ Two distinct kinds of traffic share stdout:
 | `extension_ui_request` | Extension needs UI (see below) |
 | `extension_error` | An extension threw |
 | `subagent_lifecycle` / `subagent_progress` / `subagent_event` | Subagent tracking |
-| `host_tool_call` / `host_tool_cancel` / `host_tool_update` / `host_tool_result` | OMP invoking a GUI-registered host tool |
-| `host_uri_request` / `host_uri_cancel` / `host_uri_result` | OMP resolving a GUI-registered URI scheme |
+| `host_tool_call` / `host_tool_cancel` / `host_tool_update` / `host_tool_result` | OMP invoking a GUI-registered host tool — main answers for spawns it owns ([ADR-0043](adr/0043-host-tools-answer-what-the-main-process-owns.md)) |
+| `host_uri_request` / `host_uri_cancel` / `host_uri_result` | OMP resolving a GUI-registered URI scheme — `omp-ui://plan` is answered in main ([ADR-0043](adr/0043-host-tools-answer-what-the-main-process-owns.md)) |
 
 **2. The streaming content itself — raw `AgentSessionEvent` objects** emitted
 onto stdout as they occur (`rpc-mode.ts:10`: "Events: AgentSessionEvent objects

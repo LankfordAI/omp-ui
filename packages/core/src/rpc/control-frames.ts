@@ -21,7 +21,11 @@ export type RpcControlFrame =
   | { kind: "ready"; frame: WireRecord }
   | { kind: "omp_ui_error"; message: string; frame: WireRecord }
   | { kind: "ext_request"; id: unknown; method: unknown; frame: WireRecord }
-  | { kind: "ext_response"; id: unknown; value: unknown; frame: WireRecord };
+  | { kind: "ext_response"; id: unknown; value: unknown; frame: WireRecord }
+  | { kind: "host_tool_call"; id: unknown; frame: WireRecord }
+  | { kind: "host_tool_cancel"; id: unknown; frame: WireRecord }
+  | { kind: "host_uri_request"; id: unknown; frame: WireRecord }
+  | { kind: "host_uri_cancel"; id: unknown; frame: WireRecord };
 
 /**
  * One normalization of the control-frame grammar, shared by the renderer's
@@ -55,6 +59,14 @@ export function normalizeControlFrame(wire: unknown): RpcControlFrame | null {
       return { kind: "ext_request", id: frame.id, method: frame.method, frame };
     case "extension_ui_response":
       return { kind: "ext_response", id: frame.id, value: frame.value, frame };
+    case "host_tool_call":
+      return { kind: "host_tool_call", id: frame.id, frame };
+    case "host_tool_cancel":
+      return { kind: "host_tool_cancel", id: frame.id, frame };
+    case "host_uri_request":
+      return { kind: "host_uri_request", id: frame.id, frame };
+    case "host_uri_cancel":
+      return { kind: "host_uri_cancel", id: frame.id, frame };
     default:
       return null;
   }

@@ -363,6 +363,38 @@ describe("DesktopNotifier", () => {
     expect(win.focuses).toBe(1);
   });
 
+  it("notifyNow posts immediately with an explicit title and focuses on click", () => {
+    const { notifier, win, sent } = setup();
+    expect(notifier.notifyNow(TAB, "Ship it", "deploy done")).toBe("posted");
+    // No attention delay: the notification is up before any timer runs.
+    expect(state.instances).toHaveLength(1);
+    expect(state.instances[0]!.options).toEqual({
+      title: "Ship it",
+      body: "deploy done",
+      icon: "/icons/app.png",
+    });
+    state.instances[0]!.clickHandlers[0]!();
+    expect(win.focuses).toBe(1);
+    expect(sent).toEqual([{ channel: CH.onFocusSession, args: [TAB] }]);
+  });
+
+  it("notifyNow falls back to the session title and honors the master switch", () => {
+    const { notifier, flags } = setup();
+    expect(notifier.notifyNow(TAB, null, "hi")).toBe("posted");
+    expect(state.instances[0]!.options.title).toBe("My session");
+    flags.enabled = false;
+    expect(notifier.notifyNow(TAB, null, "hi")).toBe("notifications are disabled in Settings");
+    expect(state.instances).toHaveLength(1);
+  });
+
+  it("notifyNow reports a show failure once per kind", () => {
+    const { notifier } = setup();
+    state.showError = new Error("dbus gone");
+    expect(notifier.notifyNow(TAB, null, "a")).toBe("the desktop refused to show the notification");
+    expect(notifier.notifyNow(TAB, null, "b")).toBe("the desktop refused to show the notification");
+    expect(console.warn).toHaveBeenCalledTimes(1);
+  });
+
   it("a constructor failure clears the entry and warns once", async () => {
     const { notifier } = setup();
     state.ctorError = new Error("no notification daemon");

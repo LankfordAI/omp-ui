@@ -11,6 +11,8 @@ import {
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
   deleteSessionFiles,
+  setHostToolsCommand,
+  setHostUriSchemesCommand,
   autoresearchArmMessage,
   goalArmMessage,
   vibeArmMessage,
@@ -81,6 +83,7 @@ import {
 import { DialogGateTracker } from "./dialog-gate-tracker";
 import { HibernationTracker } from "./hibernation-tracker";
 import { CapabilityControlTracker } from "./capability-control-tracker";
+import { HostBridge } from "./host-bridge";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { PlanPreflightController } from "./plan-preflight";
 import { readConfinedPlanFile } from "./plan-file";
@@ -143,6 +146,8 @@ export interface SessionManagerDependencies {
     BrowserPaneHostDeps,
     "createPane" | "createListener" | "targetScaleFactor" | "clearPartition" | "stampImage" | "onDesktopMedia"
   >;
+  /** Posts one immediate OS notification for the host notify tool (#688); absent = notifications report as disabled. */
+  hostNotify?: (tabId: string, title: string | null, message: string) => string;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -165,6 +170,8 @@ export class SessionManager {
   private readonly viewTracker: ViewTracker;
   private readonly planGates: PlanGateTracker;
   private readonly planPreflight: PlanPreflightController;
+  /** The main-process answerer for host tool/URI frames (issue #688, ADR-0043). */
+  private readonly hostBridge: HostBridge;
   /** One in-flight execute re-check per tab (§6: atomic settle reservation). */
   private readonly planAnswerReservations = new Set<string>();
   private readonly frameObservers: FrameObserver[] = [];
@@ -250,6 +257,21 @@ export class SessionManager {
         // latch is cleared BEFORE this check, so the transition cannot be lost.
         if (!this.awaitingHumanAnswer(tabId)) this.stallWatchdog.humanAnswered(tabId);
       },
+    });
+    this.hostBridge = new HostBridge({
+      readPlanFile: (root, absPath) => readConfinedPlanFile(root, absPath),
+      planSnapshot: (tabId, absPath) => this.planSnapshotFor(tabId, absPath),
+      planRoot: (tabId) => {
+        const record = deps.registry.sessions.find((session) => session.tabId === tabId);
+        return record === undefined ? null : path.resolve(deps.getSessionsRoot(), record.lineageDir);
+      },
+      notify: (tabId, title, message) =>
+        deps.hostNotify?.(tabId, title, message) ?? "notifications are disabled in Settings",
+      capabilitySessionId: (tabId) => {
+        const entry = this.live.get(tabId);
+        return entry?.kind === "rpc-ui" ? entry.capabilities?.sessionId ?? null : null;
+      },
+      log: (message) => console.warn(`[host-bridge] ${message}`),
     });
     this.stallWatchdog = new StallWatchdog({
       registry: deps.registry,
@@ -353,6 +375,7 @@ export class SessionManager {
       this.turns.clear(tabId);
       for (const obs of this.frameObservers) obs.onExit(tabId);
       this.deps.attention?.sessionExit(tabId);
+      this.hostBridge.forget(tabId);
     }
     if (!entry.suppressExit) {
       this.deps.send(CH.onPtyExit, tabId, exitCode);
@@ -737,7 +760,10 @@ export class SessionManager {
     // reuses the endpoint, so the agent's remembered URL stays valid (#519).
     const cdpUrl = bridgeLoaded.browserPane ? await this.browserPanes.ensureEndpoint(record.tabId) : null;
     entry.browserPaneArmed = cdpUrl !== null;
-    const initialCommands: Array<{ type: "prompt"; id: string; message: string }> = [];
+    // The registration commands ride at the tail: like every initialCommand
+    // they land before the first turn either way, but the host tool/scheme
+    // registration must never precede a bridge arm that could turn first.
+    const initialCommands: object[] = [];
     if (bridgeLoaded.mcpStatus) {
       initialCommands.push({
         type: "prompt",
@@ -803,6 +829,7 @@ export class SessionManager {
         message: subagentControlArmMessage(),
       });
     }
+    initialCommands.push(setHostUriSchemesCommand(), setHostToolsCommand());
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate, this.subagentSpawnConfig());
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
@@ -817,7 +844,16 @@ export class SessionManager {
       configOverlays,
       extensions,
       initialCommands,
+      onInputFrame: (frame) => {
+        // Host traffic is answered on the input-order seam BEFORE delivery:
+        // the ownership mark must exist before the renderer's stub can answer
+        // (see HostBridge#track). A killed spawn must not answer through its
+        // successor's pipe — identity first, same fence as every capture.
+        if (this.live.get(record.tabId) !== entry) return;
+        this.hostBridge.route(record.tabId, frame, (answer) => rpc.send(answer));
+      },
       onFrame: (frame) => {
+        if (this.live.get(record.tabId) === entry) this.hostBridge.noteFrame(record.tabId, frame);
         const control = normalizeControlFrame(frame);
         if (
           control !== null &&
@@ -1396,6 +1432,16 @@ export class SessionManager {
     // is consumed here — only the acknowledged answer path may settle those.
     // Markdown gates and all other extension traffic pass through unchanged.
     const control = normalizeControlFrame(cmd);
+    // #688: a host result for a request main already owns (answered,
+    // cancelled, or watchdog-settled) is consumed here — the renderer's
+    // fallback stub must never double-answer omp.
+    if (
+      (cmd.type === "host_tool_result" || cmd.type === "host_uri_result") &&
+      typeof cmd.id === "string" &&
+      this.hostBridge.answeredIds(tabId).has(cmd.id)
+    ) {
+      return;
+    }
     if (control !== null && control.kind === "ext_response" && typeof control.id === "string") {
       if (this.planPreflight.holdsFrame(tabId, control.id)) return;
       const gate = this.planGates.gate(tabId);

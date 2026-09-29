@@ -3238,6 +3238,8 @@ describe("handleRpcFrame routing", () => {
     expect(h.sent.pop()!.cmd).toMatchObject({
       type: "host_tool_result",
       id: "h1",
+      isError: true,
+      result: { content: [{ type: "text", text: expect.any(String) }] },
     });
   });
 
@@ -3253,8 +3255,19 @@ describe("handleRpcFrame routing", () => {
     expect(h.sent.pop()!.cmd).toMatchObject({
       type: "host_uri_result",
       id: "u1",
-      error: "omp-ui registers no uri schemes",
+      isError: true,
+      error: "omp-ui could not answer this URI request",
     });
+  });
+
+  it("stays silent on host cancel frames", () => {
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, { type: "host_tool_cancel", id: "c1", targetId: "h1" });
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, { type: "host_uri_cancel", id: "c2", targetId: "u1" });
+    expect(h.sent).toHaveLength(0);
   });
 
   it("command_output attaches to the newest running command row", () => {

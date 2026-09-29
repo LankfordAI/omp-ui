@@ -29,6 +29,12 @@ import {
   parseCapabilitySnapshot,
 } from "@omp-ui/core/capabilities";
 import { normalizeControlFrame } from "@omp-ui/core/rpc/control-frames";
+import {
+  hostToolErrorResult,
+  hostUriErrorResult,
+  parseHostToolCall,
+  parseHostUriRequest,
+} from "@omp-ui/core/host-bridge";
 import { backend } from "../../backend";
 import {
   extensionCancelResponse,
@@ -746,20 +752,32 @@ export function createFrameReductionSlice(
           return;
         }
         case "host_tool_call":
-          // No host tools are registered — answer with an error, never hang the agent.
-          backend.rpcSend(tabId, {
-            type: "host_tool_result",
-            id: "id" in frame ? frame.id : undefined,
-            error: "omp-ui does not register host tools",
-          });
+        case "host_uri_request": {
+          // Fallback only: the main process owns host traffic on every
+          // rpc-ui tab it spawned, and its rpcSend fence consumes this
+          // answer when main already did (#688). Reaching the child means
+          // nobody answered — so answer an error, never hang the agent.
+          const toolCall = parseHostToolCall(frame);
+          if (toolCall !== null) {
+            backend.rpcSend(
+              tabId,
+              hostToolErrorResult(toolCall.id, "omp-ui could not answer this host tool call"),
+            );
+            return;
+          }
+          const uriRequest = parseHostUriRequest(frame);
+          if (uriRequest !== null) {
+            backend.rpcSend(
+              tabId,
+              hostUriErrorResult(uriRequest.id, "omp-ui could not answer this URI request"),
+            );
+          }
           return;
-        case "host_uri_request":
-          // Same discipline: omp awaits a result for every uri request.
-          backend.rpcSend(tabId, {
-            type: "host_uri_result",
-            id: "id" in frame ? frame.id : undefined,
-            error: "omp-ui registers no uri schemes",
-          });
+        }
+        case "host_tool_cancel":
+        case "host_uri_cancel":
+          // omp stopped waiting for the request it cancelled; settle silently —
+          // this frame type is host traffic, never an agent event.
           return;
         default: {
           const reduction = reduceAgentEvent(

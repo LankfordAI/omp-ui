@@ -131,6 +131,45 @@ export class DesktopNotifier implements Attention {
     for (const tabId of [...this.tabs.keys()]) this.drop(tabId);
   }
 
+  // --- direct post (host tool, issue #688) -------------------------------
+
+  /**
+   * Posts one OS notification NOW, outside the attention pipeline: the model
+   * asked for this interrupt by name, so the delayed post's suppression rules
+   * (focused-and-viewed, turn activity) do not apply — only the Settings
+   * switch and platform support do. Returns the text the tool result reports
+   * back to the model.
+   */
+  notifyNow(tabId: string, title: string | null, message: string): string {
+    if (!this.enabled()) return "notifications are disabled in Settings";
+    let notification: Notification;
+    try {
+      const icon = this.deps.icon();
+      notification = new Notification({
+        title: title !== null ? title : this.deps.titleOf(tabId),
+        body: message,
+        ...(icon !== null ? { icon } : {}),
+      });
+    } catch (err) {
+      if (!this.warnedShowFailure) {
+        this.warnedShowFailure = true;
+        console.warn("[notifier] could not create notification:", err);
+      }
+      return "the desktop refused to create the notification";
+    }
+    notification.on("click", () => this.focusSession(tabId));
+    try {
+      notification.show();
+    } catch (err) {
+      if (!this.warnedShowFailure) {
+        this.warnedShowFailure = true;
+        console.warn("[notifier] could not show notification:", err);
+      }
+      return "the desktop refused to show the notification";
+    }
+    return "posted";
+  }
+
   // --- internals ---------------------------------------------------------
 
   /**
