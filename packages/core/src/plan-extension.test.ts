@@ -260,6 +260,8 @@ function harness(
     markdownPlan?: boolean;
     /** Hold every select on a pending promise until `release` answers it. */
     heldSelect?: boolean;
+    /** Report vibe mode on, the way the vibe bridge's session reports it. */
+    vibeEnabled?: boolean;
   },
 ): Harness {
   const sent: SentMessage[] = [];
@@ -284,6 +286,9 @@ function harness(
     };
     getPlanModeState(): { enabled: boolean } | undefined {
       return planState;
+    }
+    getVibeModeState(): { enabled: boolean } | undefined {
+      return options?.vibeEnabled === true ? { enabled: true } : undefined;
     }
     setPlanModeState(state: { enabled: boolean } | undefined): void {
       planState = state;
@@ -614,6 +619,16 @@ describe("plan mode transitions", () => {
     expect(h.guardArmed()).toBe(false);
     expect(h.tools()).toEqual(["read", "grep", "write"]);
     expect(exits(h.sent)).toHaveLength(1);
+  });
+
+  it("refuses entry while vibe mode holds the mode slot", async () => {
+    const h = harness(await loadExtension(), { vibeEnabled: true });
+    await h.run("on html");
+
+    expect(h.notices).toContain("Exit vibe mode before entering Plan mode.");
+    expect(h.status()?.enabled).toBe(false);
+    expect(h.guardArmed()).toBe(false);
+    expect(entries(h.sent)).toHaveLength(0);
   });
 });
 

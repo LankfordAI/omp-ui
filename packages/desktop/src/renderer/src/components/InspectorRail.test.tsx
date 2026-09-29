@@ -126,6 +126,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
   return {
     status: "ready",
     goal: null,
+    vibe: null,
     sideQuestions: null,
     subagentControl: null,
     subagentControlBusy: {},

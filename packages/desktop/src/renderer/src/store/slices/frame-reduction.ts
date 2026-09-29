@@ -12,6 +12,7 @@ import {
   parseMcpRuntimeStatus,
 } from "@omp-ui/core/mcp-status";
 import { GOAL_STATUS_KEY, parseGoalSnapshot } from "@omp-ui/core/goal";
+import { VIBE_STATUS_KEY, parseVibeSnapshot } from "@omp-ui/core/vibe";
 import { BTW_STATUS_KEY, parseBtwSnapshot } from "@omp-ui/core/side-questions";
 import {
   SUBAGENT_CONTROL_STATUS_KEY,
@@ -59,6 +60,7 @@ import {
   acceptAutoresearchSnapshot,
   acceptCapabilitySnapshot,
   acceptGoalSnapshot,
+  acceptVibeSnapshot,
   acceptSubagentControlSnapshot,
   disposeTabRuntime,
   noteCapabilitiesSessionChange,
@@ -194,6 +196,10 @@ export function createFrameReductionSlice(
     [GOAL_STATUS_KEY]: (tabId, text) => {
       const snapshot = parseGoalSnapshot(text);
       if (snapshot !== null) acceptGoalSnapshot(tabId, snapshot, get, m);
+    },
+    [VIBE_STATUS_KEY]: (tabId, text) => {
+      const snapshot = parseVibeSnapshot(text);
+      if (snapshot !== null) acceptVibeSnapshot(tabId, snapshot, get, m);
     },
     [BTW_STATUS_KEY]: (tabId, text) => {
       // A malformed or over-budget publish keeps the last good snapshot.

@@ -113,6 +113,7 @@ export { limitsExtensionPath, writeLimitsExtension } from "./limits-extension";
 export { mcpStatusExtensionPath, writeMcpStatusExtension } from "./mcp-status-extension";
 export { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabilities-extension";
 export { goalExtensionPath, writeGoalExtension } from "./goal-extension";
+export { vibeExtensionPath, writeVibeExtension } from "./vibe-extension";
 export { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-pane-extension";
 export { treeExtensionPath, writeTreeExtension } from "./tree-extension";
 export {
@@ -140,6 +141,7 @@ export {
 export * from "./capabilities";
 export * from "./browser-pane";
 export * from "./goal";
+export * from "./vibe";
 export * from "./autoresearch";
 export * from "./session-tree";
 export * from "./side-questions";

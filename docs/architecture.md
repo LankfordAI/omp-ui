@@ -203,6 +203,7 @@ A native session's composer accepts the same slash commands as the terminal TUI.
 | `/plan`, `/no-plan` (bare) | Toggle plan mode through the generated extension described above. |
 | `/mcp`, `/mcp list` (bare) | Open the capabilities viewer's MCP tab for the session's own working tree. Every other `/mcp …` subcommand forwards normally — including `/mcp reload`, which the viewer's MCP footer sends. |
 | `/goal …`, `/guided-goal …` | Never forwarded as prose: OMP's `/goal` spec is TUI-only, so a forwarded line would reach the model as text and start a turn that talks about the goal instead of changing it. The composer dispatches a hidden command to the generated goal bridge instead, whose reply settles the command row ([ADR-0024](adr/0024-goal-mode-in-native-sessions.md)). Terminal tabs keep forwarding the line to OMP's own TUI. |
+| `/vibe …` | Never forwarded as prose: OMP's `/vibe` spec is TUI-only, so a forwarded line would reach the model as text and start a turn that talks about workers instead of spawning them. The composer dispatches a hidden command to the generated vibe bridge instead, whose published result settles the command row ([ADR-0041](adr/0041-vibe-mode-in-native-sessions-drives-omp-worker-tools.md)). Verbs the native bridge does not carry (`scope`, `undo`, …) answer with that reason rather than falling through as prose. Terminal tabs keep forwarding the line to OMP's own TUI. |
 | `/btw <question>`, `/btw` | Never forwarded as prose: OMP's `/btw` is TUI-only (`handleTui`, no `handle`), so a forwarded line would become a normal model turn and pollute the transcript ([#682](https://github.com/LankfordAI/omp-ui/issues/682)). In a native tab the composer sends a hidden command to the generated side-questions bridge and opens the Side questions pane, adding no transcript row; bare `/btw` opens the pane. Terminal tabs keep forwarding the line to OMP's own TUI. |
 | `/autoresearch start` | Bare `start` opens the New experiment dialog for the session's project; `start <text>` starts the experiment interview in this session with the text as the rough description ([#567](https://github.com/LankfordAI/omp-ui/issues/567), [ADR-0032](adr/0032-experiments-configured-in-conversation.md)). `/autoresearch lab` opens the Lab, likewise never forwarded. Every other `/autoresearch…` form — bare, a goal, `off`, `clear` — forwards verbatim: it is OMP's own extension command, which dispatches over rpc-ui without a dialog ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)). |
 | Any other advertised command | Forwards as a `prompt` frame with the command acknowledgement lifecycle below. |
@@ -259,6 +260,39 @@ it. Automatic prompts (advisor reply, stall auto-continue) stand down while a go
 owns the session, and an active goal vetoes session hibernation, since hibernating
 the process would kill the loop doing the work. A paused or budget-limited idle
 goal owns no loop and applies no veto.
+
+### Vibe mode
+
+A native session can hold OMP's vibe mode: the model becomes a director that
+spawns and steers worker sessions with OMP's own `vibe_*` tools. The mode, the
+workers, their tiers, and their screens belong to OMP. omp-ui stores no director
+of its own and re-implements no worker semantics: a per-lineage generated
+extension activates the tools and drives their `execute` implementations, and
+publishes what the runtime reports
+([ADR-0041](adr/0041-vibe-mode-in-native-sessions-drives-omp-worker-tools.md)).
+
+The channel follows the goal bridge: `ui.setStatus("omp-ui:vibe", <json>)`
+publishes a monotonic `VibeSnapshot` — availability, the mode flag, the worker
+roster (state, tier, turn count), and any correlated command result — keyed in
+main by the process that answered, carried to late subscribers on
+`SessionSummary.vibe`, and polled every 1.5 s while the mode is on because
+workers move without a command. A command row settles from the snapshot's
+`requestId` correlation, never from a model turn. On resume the bridge replays
+OMP's `custom:vibe-session-lifecycle` transcript entries: a saved-on mode
+survives a crashed process, workers whose transcripts survived but whose
+screens did not are reported `parked`, and an explicitly killed worker stays
+killed — omp-ui tombstones the kill rather than resurrecting the row.
+
+Three interlocks keep the single persisted mode slot honest: vibe entry refuses
+Plan mode and an unfinished goal; goal start refuses an active vibe mode; and
+plan entry refuses an active vibe mode — each refused in the renderer's toggle
+*and* in the generated bridges, so neither the raw RPC path nor a race window
+slips past. The bridges' entry and exit share one transition chain under
+`Symbol.for("omp-ui:mode-transition")`, and every rpc spawn arms them in the
+order mcp, goal, vibe, plan, so vibe's restore re-checks the goal bridge's
+restored state before re-arming a saved mode. A vibe mode with work in flight
+vetoes session hibernation beside the goal veto; an idle roster owns no loop and
+applies none.
 
 ### Experiments (autoresearch)
 

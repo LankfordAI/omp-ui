@@ -55,6 +55,7 @@ import type {
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
 import type { GoalSnapshot } from "@omp-ui/core/goal";
+import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { BtwSnapshot } from "@omp-ui/core/side-questions";
 import type {
   SubagentControlAction,
@@ -262,6 +263,13 @@ export interface RpcTabState {
    * Display state only: the child process owns the goal and its continuation.
    */
   goal: GoalSnapshot | null;
+  /**
+   * The session's vibe snapshot as the root vibe bridge published it (issue
+   * #683): the director's mode flag and worker roster. Display state only —
+   * the child process owns omp's vibe runtime; a malformed publish leaves the
+   * last good snapshot standing.
+   */
+  vibe: VibeSnapshot | null;
   /**
    * The session's side questions (`/btw`) as the bridge published them (issue
    * #682). Display state only: the child process owns the history files. A
@@ -1021,6 +1029,13 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * goal bridge (issue #381). Never sends goal prose to the model: with no
    * usable bridge it settles the row with the reason instead. */
   runGoalCommand(tabId: string, line: string): Promise<void>;
+  /**
+   * One `/vibe` line as a command against the session's own vibe bridge
+   * (issue #683). Never sends director prose to the model: with no usable
+   * bridge it settles the row with the reason instead. Worker traffic
+   * (`/vibe spawn|send|wait|kill`) rides the bridge's hidden command channel,
+   * not the prompt path. */
+  runVibeCommand(tabId: string, line: string): Promise<void>;
   /** Dispatches one hidden bridge command quietly (issue #680). */
   runHiddenCommand(tabId: string, command: string, args: string): Promise<void>;
   /**

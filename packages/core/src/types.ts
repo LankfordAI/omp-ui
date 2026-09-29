@@ -3,6 +3,7 @@
 import type { BrowserPaneAgentState } from "./browser-pane";
 import type { RpcFrame } from "./rpc/codec";
 import type { GoalSnapshot } from "./goal";
+import type { VibeSnapshot } from "./vibe";
 import type { AutoresearchSnapshot } from "./autoresearch";
 import type { SubagentModelMap } from "./subagent-model";
 import type { ProjectConfigMapRead, ProjectConfigRead, ProjectConfigValue } from "./project-config-writer";
@@ -473,6 +474,13 @@ export interface SessionSummary extends OwnedSessionRecord {
    * omp's runtime inside the child stays the only owner.
    */
   goal?: GoalSnapshot;
+  /**
+   * The live session's vibe snapshot as its own bridge published it (issue #683).
+   * Ephemeral runtime state like `goal`: never persisted, absent for a session
+   * with no live vibe bridge, and never a copy of omp's worker state — omp's
+   * runtime inside the child stays the only owner.
+   */
+  vibe?: VibeSnapshot;
   /**
    * The live session's autoresearch snapshot as its own bridge published it
    * (ADR-0030). Ephemeral runtime state like `goal`: never persisted, absent

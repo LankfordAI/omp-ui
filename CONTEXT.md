@@ -898,6 +898,35 @@ tab, so a replaced process's goal cannot be shown by its successor; a stale or
 malformed publish leaves the last good snapshot standing.
 _Avoid_: goal status (a field of the snapshot), goal cache, goal mirror
 
+**Vibe mode**:
+OMP's director mode: the model of a *live session* spawns and steers worker
+sessions through OMP's own `vibe_*` tools. The mode, its workers, their tiers,
+and their screens are OMP's; omp-ui invokes those tools' implementations through
+a per-lineage generated extension and never keeps a parallel roster of its own
+or asks a model to role-play a director. Offered in native sessions only — a
+terminal tab leaves `/vibe` to OMP's own TUI.
+_Avoid_: agent mode, swarm, multi-agent mode (for the feature; the workers are
+the agents), director (for the mode; the director is the root session inside it)
+
+**Worker**:
+One OMP session a *vibe mode* director spawned through `vibe_spawn`, identified
+by OMP's friendly name and reported with its state, tier, and turn count. A
+worker killed explicitly stays killed — the bridge tombstones the kill instead
+of resurrecting it; a worker whose transcript survived a process replacement
+but whose screen did not is reported `parked`.
+_Avoid_: subagent (omp-ui's `task` delegation is the subagent; a worker is
+spawned by the session's own model in vibe mode), background job, screen (the
+screen is the runtime surface a worker lives on)
+
+**Vibe snapshot**:
+The reduced, monotonic view of one session's vibe mode that the generated
+extension publishes over the existing extension-status frame: availability plus
+its reason, whether the mode is on, the worker roster, and any correlated
+command result. Keyed in main by the process that answered, not the tab; a
+stale or malformed publish leaves the last good snapshot standing.
+_Avoid_: vibe status (a field of the snapshot), worker list (a section of the
+snapshot), vibe cache
+
 **Experiment**:
 One row of OMP's autoresearch `sessions` table — its goal, metric, direction,
 branch, baseline, segments, notes, and runs — not an omp-ui record. It is

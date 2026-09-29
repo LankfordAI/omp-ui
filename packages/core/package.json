@@ -20,6 +20,7 @@
     "./magic-keywords": "./src/magic-keywords.ts",
     "./browser-pane": "./src/browser-pane.ts",
     "./goal": "./src/goal.ts",
+    "./vibe": "./src/vibe.ts",
     "./omp-settings-keys": "./src/omp-settings-keys.ts",
     "./subagent-model": "./src/subagent-model.ts",
     "./web-search-order": "./src/web-search-order.ts",

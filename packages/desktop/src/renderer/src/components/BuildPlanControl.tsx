@@ -20,6 +20,7 @@ export function BuildPlanControl({
   const t = useT();
   const plan = useStore((s) => s.rpc[tabId]?.plan);
   const goal = useStore((s) => s.rpc[tabId]?.goal);
+  const vibe = useStore((s) => s.rpc[tabId]?.vibe);
   const setPlanMode = useStore((s) => s.setPlanMode);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const planEnabled = plan?.enabled ?? false;
@@ -29,6 +30,10 @@ export function BuildPlanControl({
   // decision whose authority lives in the generated plan extension, so raw RPC
   // and the race window stay refused (issue #381).
   const goalBlocksPlan = goal?.goal != null && goal.goal.status !== "complete";
+  // Vibe mode owns the same single mode slot omp persists; entering Plan
+  // while the director runs would overwrite it (issue #683). The generated
+  // plan extension refuses the same race on the bridge side.
+  const vibeBlocksPlan = vibe?.enabled === true;
   const sheet = layout === "sheet";
 
   const select = (target: boolean) => {
@@ -48,13 +53,19 @@ export function BuildPlanControl({
         return {
           value: mode,
           label: mode,
-          disabled: disabled || (target && unavailable !== undefined) || (target && goalBlocksPlan),
+          disabled:
+            disabled ||
+            (target && unavailable !== undefined) ||
+            (target && goalBlocksPlan) ||
+            (target && vibeBlocksPlan),
           title: target
             ? unavailable !== undefined
               ? t("hud.mode.planUnavailable", { unavailable })
               : goalBlocksPlan
                 ? t("hud.mode.planGoalBlocked")
-                : t("hud.mode.planDescription")
+                : vibeBlocksPlan
+                  ? t("hud.mode.planVibeBlocked")
+                  : t("hud.mode.planDescription")
             : t("hud.mode.buildDescription"),
           className: sheet ? "flex-1 justify-center" : "text-[11px]",
           selectedClassName: alternate ? "bg-iris-wash text-iris" : "bg-hover text-ink",

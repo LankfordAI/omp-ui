@@ -14,6 +14,7 @@ import { projectKey } from "../lib/project-key";
 import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
 import type { ProposedPlan, SessionSummary } from "@omp-ui/core/types";
+import type { VibeWorker, VibeWorkerState } from "@omp-ui/core/vibe";
 import { isInterruptedPlan, pendingPlanCount, proposedPlansFor } from "../lib/proposed-plans";
 import { findOwner, findRecord, sessionCwd, useStore, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
@@ -25,6 +26,15 @@ import { SideQuestionsPane } from "./SideQuestionsPane";
 import { SubagentModelsControl } from "./SubagentModelsControl";
 import { SubagentControls, useSubagentControlNotice } from "./SubagentControls";
 import { Button, Chip, CopyButton, Dot, Empty, ICON_STROKE, IconRefresh, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
+
+/** Vibe worker state → tone, matching the roster's copper-pulse convention. */
+const VIBE_TONE: Record<VibeWorkerState, Tone> = {
+  starting: "neutral",
+  running: "copper",
+  idle: "neutral",
+  parked: "neutral",
+  dead: "rose",
+};
 
 interface BranchDiffLoad {
   status: "idle" | "loading" | "error" | "loaded";
@@ -253,6 +263,130 @@ function AgentsPane({ tabId }: { tabId: string }) {
         </p>
       )}
     </Section>
+  );
+}
+
+/**
+ * The vibe director's worker roster (issue #683), rendered under the regular
+ * subagent roster while vibe mode is on. Rows are omp's own workers read back
+ * through the bridge: tier chip, state, turn/queue counts, current tool, and
+ * the latest distilled intent. A row opens the worker's transcript through
+ * the same subagent drill-down the Task agents use — worker ids key omp's
+ * subagent channel directly. Parked and dead rows are tombstones (read-only):
+ * their runtime scope died, and only the transcript survived.
+ */
+function VibeRoster({ tabId }: { tabId: string }) {
+  const t = useT();
+  const vibe = useStore((s) => s.rpc[tabId]?.vibe) ?? null;
+  const selected = useStore((s) => s.rpc[tabId]?.selectedSubagent) ?? null;
+  const openSubagent = useStore((s) => s.openSubagent);
+  const closeSubagent = useStore((s) => s.closeSubagent);
+  const runVibeCommand = useStore((s) => s.runVibeCommand);
+  if (vibe === null || !vibe.enabled) return null;
+  return (
+    <Section
+      title={t("rail.vibe.title", { count: vibe.workers.length })}
+      action={
+        <Button
+          size="xs"
+          title={t("rail.vibe.listTitle")}
+          onClick={() => void runVibeCommand(tabId, "/vibe list")}
+        >
+          {t("rail.vibe.list")}
+        </Button>
+      }
+    >
+      {vibe.workers.length === 0 ? (
+        <Empty title={t("rail.vibe.emptyTitle")} hint={t("rail.vibe.emptyHint")} />
+      ) : (
+        <ul className="space-y-1">
+          {vibe.workers.map((worker) => (
+            <VibeWorkerRow
+              key={worker.id}
+              worker={worker}
+              selected={selected === worker.id}
+              onOpen={() =>
+                selected === worker.id ? closeSubagent(tabId) : openSubagent(tabId, worker.id)
+              }
+              onKill={() => void runVibeCommand(tabId, `/vibe kill ${worker.id}`)}
+            />
+          ))}
+        </ul>
+      )}
+    </Section>
+  );
+}
+
+function VibeWorkerRow({
+  worker,
+  selected,
+  onOpen,
+  onKill,
+}: {
+  worker: VibeWorker;
+  selected: boolean;
+  onOpen: () => void;
+  onKill: () => void;
+}) {
+  const t = useT();
+  const tomb = worker.killed || worker.state === "parked" || worker.state === "dead";
+  const activity =
+    worker.turnMessage ?? worker.currentTool ?? worker.lastIntent ?? "";
+  return (
+    <li className="animate-slide-in">
+      <div
+        className={cn(
+          "w-full rounded-md border border-line bg-raised px-2 py-1.5 transition-colors hover:bg-hover",
+          tomb && "opacity-50",
+          selected && "bg-hover",
+        )}
+      >
+        <button
+          type="button"
+          aria-label={t(selected ? "rail.vibe.closeWorker" : "rail.vibe.openWorker", { worker: worker.id })}
+          aria-pressed={selected}
+          onClick={onOpen}
+          className="block w-full text-left"
+        >
+          <div className="flex items-center gap-1.5">
+            <Dot
+              tone={VIBE_TONE[worker.state]}
+              pulse={worker.state === "running"}
+              title={worker.killed ? t("rail.vibe.killed") : worker.state}
+            />
+            <span className="min-w-0 flex-1 truncate font-display text-[12px] text-ink">
+              {worker.id}
+            </span>
+            <Chip mono title={t("rail.vibe.tierTitle", { cli: worker.cli })}>
+              {worker.cli}
+            </Chip>
+          </div>
+          <div className="mt-0.5 flex items-baseline gap-1.5 pl-3">
+            <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+              {worker.state}
+              {worker.queued > 0 && ` +${worker.queued}`}
+            </span>
+            {worker.turns > 0 && (
+              <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+                {t("rail.vibe.turns", { count: worker.turns })}
+              </span>
+            )}
+            {activity !== "" && (
+              <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim" title={activity}>
+                {activity}
+              </span>
+            )}
+          </div>
+        </button>
+        {!worker.killed && worker.state !== "parked" && (
+          <div className="mt-1 flex justify-end">
+            <Button size="xs" tone="rose" onClick={onKill} title={t("rail.vibe.killTitle", { worker: worker.id })}>
+              {t("rail.vibe.kill")}
+            </Button>
+          </div>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -818,7 +952,12 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   const pane = (
     <>
       {tab === "todos" && <TodoPanel tabId={tabId} />}
-      {tab === "agents" && <AgentsPane tabId={tabId} />}
+      {tab === "agents" && (
+        <>
+          <AgentsPane tabId={tabId} />
+          <VibeRoster tabId={tabId} />
+        </>
+      )}
       {tab === "session" && <SessionPane tabId={tabId} />}
       {tab === "plans" && <PlansPane tabId={tabId} />}
       {tab === "diffs" && <DiffsPane tabId={tabId} />}

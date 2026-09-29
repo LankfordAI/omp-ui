@@ -53,6 +53,7 @@ describe("reduceAgentEvent", () => {
     lastFrameAt: 1_000,
     capabilitiesGeneration: 0,
     goalRequests: new Map(),
+    vibeRequests: new Map(),
   });
 
   it("returns agent_start intents without mutating its inputs", () => {

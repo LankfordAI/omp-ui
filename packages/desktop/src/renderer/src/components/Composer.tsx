@@ -12,6 +12,7 @@ import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
 import { GOAL_COMMAND } from "@omp-ui/core/goal";
 import { BTW_COMMAND } from "@omp-ui/core/side-questions";
 import { AUTORESEARCH_COMMAND } from "@omp-ui/core/autoresearch";
+import { VIBE_COMMAND } from "@omp-ui/core/vibe";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
 import { currentLocaleId, useT, type MessageKey } from "../lib/i18n";
@@ -102,6 +103,15 @@ export function Composer({
       },
       { ...UI_GUIDED_GOAL_COMMAND, description: t("composer.slash.guidedGoal") },
       { ...UI_BTW_COMMAND, description: t("composer.slash.btw") },
+      {
+        ...UI_VIBE_COMMAND,
+        description: t("composer.slash.vibe"),
+        subcommands: UI_VIBE_SUBCOMMANDS.map((sub) => ({
+          name: sub.name,
+          ...(sub.usage === undefined ? {} : { usage: sub.usage }),
+          description: t(sub.key),
+        })),
+      },
       ...(experimentsEnabled
         ? [
             {
@@ -128,6 +138,7 @@ export function Composer({
           c.name !== CAPABILITIES_COMMAND &&
           c.name !== GOAL_COMMAND &&
           c.name !== BTW_COMMAND &&
+          c.name !== VIBE_COMMAND &&
           c.name !== AUTORESEARCH_COMMAND &&
           !owned.has(c.name),
       ),
@@ -1172,6 +1183,30 @@ const UI_BTW_COMMAND: SlashCommandInfo = {
   source: "omp-ui",
   input: { hint: "<question>" },
 };
+
+/**
+ * omp's `/vibe` is TUI-only and absent from `get_available_commands`, so the
+ * palette would never show it; the store intercepts the line in native tabs
+ * (issue #683) and the hidden `omp-ui-vibe` driver never appears as a row.
+ */
+const UI_VIBE_COMMAND: SlashCommandInfo = {
+  name: "vibe",
+  description: "vibe mode — this session directs worker sessions of its own",
+  source: "omp-ui",
+  input: { hint: "[verb …]" },
+  subcommands: [],
+};
+
+/** Palette copy for each vibe verb, resolved against the locale at build time. */
+const UI_VIBE_SUBCOMMANDS: { name: string; usage?: string; key: MessageKey }[] = [
+  { name: "on", key: "composer.slash.vibeOn" },
+  { name: "off", key: "composer.slash.vibeOff" },
+  { name: "spawn", usage: "[--good] [--name NAME] PROMPT", key: "composer.slash.vibeSpawn" },
+  { name: "send", usage: "WORKER MESSAGE", key: "composer.slash.vibeSend" },
+  { name: "wait", key: "composer.slash.vibeWait" },
+  { name: "kill", usage: "WORKER", key: "composer.slash.vibeKill" },
+  { name: "list", key: "composer.slash.vibeList" },
+];
 
 /**
  * omp's `/autoresearch`, offered as omp-ui's own row (ADR-0030): `start` and

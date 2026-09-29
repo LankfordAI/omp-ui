@@ -371,6 +371,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     sessionParams.reconcilePendingDialogs(state);
     rpcCommandSlice.reconcileGoals(state);
     rpcCommandSlice.reconcileAutoresearch(state);
+    rpcCommandSlice.reconcileVibe(state);
   };
 
 
