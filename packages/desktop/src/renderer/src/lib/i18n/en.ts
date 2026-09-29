@@ -1608,6 +1608,13 @@ export const en = {
   "rail.agents.closeAgent": "close agent {agent}",
   "rail.agents.openAgent": "open agent {agent}",
   "rail.agents.typeTitle": "agent type: {type}",
+  "rail.agents.steer": "steer",
+  "rail.agents.kill": "kill",
+  "rail.agents.revive": "revive",
+  "rail.agents.steerPlaceholder": "steer this agent…",
+  "rail.agents.steerSend": "send",
+  "rail.agents.sendFailed": "the subagent bridge never received that request",
+  "rail.agents.steerTooLong": "steer text is longer than {limit} characters",
 
   "rail.stats.messages": "messages",
   "rail.stats.user": "user",

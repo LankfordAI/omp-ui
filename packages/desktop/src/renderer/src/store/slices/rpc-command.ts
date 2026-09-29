@@ -3,6 +3,7 @@ import type { SessionCommand } from "@omp-ui/core/session-command";
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
 import type { GoalSnapshot } from "@omp-ui/core/goal";
+import type { SubagentControlSnapshot } from "@omp-ui/core/subagent-control";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type {
   CapabilitySnapshot,
@@ -220,6 +221,25 @@ export function acceptGoalSnapshot(
         }
       : item,
   );
+  return true;
+}
+
+/**
+ * The one acceptance rule for a subagent-control snapshot (issue #684),
+ * shared by the `setStatus` push path and any future summary hydration: a
+ * same-process snapshot replaces only when its revision is strictly newer, a
+ * new process always wins (a respawn's arm republishes cleanly), and results
+ * are replaced wholesale — they are transient result chrome, not a record.
+ */
+export function acceptSubagentControlSnapshot(
+  tabId: string,
+  snapshot: SubagentControlSnapshot,
+  get: GetState,
+  m: StoreMachinery,
+): boolean {
+  const retained = get().rpc[tabId]?.subagentControl ?? null;
+  if (!isNewerSnapshot(retained, snapshot)) return false;
+  m.patchRpc(tabId, { subagentControl: snapshot });
   return true;
 }
 
@@ -534,6 +554,10 @@ export function disposeTabRuntime(
     goal: null,
     // Likewise the side-question topics: the next process republishes its own.
     sideQuestions: null,
+    // Likewise the subagent control results: the next process's arm republishes.
+    subagentControl: null,
+    subagentControlBusy: {},
+    subagentControlError: null,
     autoresearch: null,
   });
   rpcCommandMachinery.abandon(tabId, reason, m);
@@ -594,8 +618,9 @@ function freshRpcTabState(
     limits: null,
     capabilities: null,
     capabilitiesLoad: "idle",
-    capabilitiesToolPending: null,
-    capabilitiesToolFeedback: null,
+    subagentControl: null,
+    subagentControlBusy: {},
+    subagentControlError: null,
     advisorReply,
   };
 }
