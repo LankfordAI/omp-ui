@@ -481,6 +481,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     refreshAvailableModels: rpcCommandSlice.refreshAvailableModels,
     refreshCapabilities: rpcCommandSlice.refreshCapabilities,
     setSessionToolEnabled: rpcCommandSlice.setSessionToolEnabled,
+    reloadHistory: rpcCommandSlice.reloadHistory,
     rpcCommand: rpcCommandSlice.rpcCommand,
     handleRpcFrame: frame.handleRpcFrame,
 

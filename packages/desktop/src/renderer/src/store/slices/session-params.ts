@@ -35,6 +35,17 @@ import {
   type CommandItem,
   type ShellItem,
 } from "../../lib/transcript";
+import {
+  correlatePromptEntry,
+  discardedEntryCount,
+  entryUserPrompt,
+} from "../../lib/session-rewind";
+import {
+  parseTreeSnapshot,
+  TREE_STATUS_KEY,
+  treeNavigateMessage,
+  type TreeSnapshot,
+} from "@omp-ui/core/session-tree";
 import { randomId } from "../../lib/random-id";
 import {
   COMPACT_SETTLE_DEADLINE_MS,
@@ -42,6 +53,8 @@ import {
   RpcCommandAbandonedError,
   dropPlanHandoff,
   respData,
+  setRewindPrefill,
+  takeRewindPrefill,
   type GetState,
   type SetState,
   type StoreMachinery,
@@ -76,6 +89,11 @@ export type SessionParamsSlice = Pick<
   | "exportHtml"
   | "shareSession"
   | "branchSession"
+  | "stageRewind"
+  | "performRewind"
+  | "performNavigate"
+  | "stageRewindEntry"
+  | "stageNavigate"
   | "renameSessionTo"
   | "regenerateSessionTitle"
   | "setPlanMode"
@@ -83,6 +101,7 @@ export type SessionParamsSlice = Pick<
   | "runShellCommand"
   | "abortShellCommands"
   | "runGoalCommand"
+  | "runHiddenCommand"
   | "setTodos"
   | "refreshState"
   | "refreshStats"
@@ -671,6 +690,234 @@ export function createSessionParamsSlice(
     }
   };
 
+  /**
+   * The liveness/idle guard every rewind and navigate affordance shares,
+   * plus the `get_entries` read the correlation needs (issue #680). Null
+   * means the click was refused or the read failed, and the reason has
+   * already been reported.
+   */
+  const readEntriesForRewind = async (
+    tabId: string,
+  ): Promise<Record<string, unknown> | null> => {
+    const rec = findRecord(get().state, tabId);
+    const tab = get().rpc[tabId];
+    // Streaming is refused, not queued: `branch`/`navigateTree` switch the
+    // live process in place, and doing it mid-turn races the agent.
+    if (
+      !rec ||
+      rec.mode !== "rpc-ui" ||
+      rec.live !== "live" ||
+      !m.acceptsCommands(tabId) ||
+      !tab ||
+      tab.session.isStreaming ||
+      tab.status === "running" ||
+      tab.busy
+    ) {
+      get().reportError(t("session.error.rewindBusy"));
+      return null;
+    }
+    // Direct rpcCommand, never runCommand: an older omp without
+    // `get_entries` degrades quietly (the `openSubagent` pattern) — the
+    // correlation failure owns the story, not the failure panel.
+    const resp = await get()
+      .rpcCommand(tabId, { type: "get_entries" }, { quiet: true })
+      .catch(() => null);
+    if (resp === null) {
+      get().reportError(t("session.error.rewindCorrelation"));
+      return null;
+    }
+    const data = respData(resp);
+    return data !== null && typeof data === "object"
+      ? (data as Record<string, unknown>)
+      : null;
+  };
+  /**
+   * The "rewind here" / "edit and resend" affordance (issue #680). Neither
+   * the event stream nor get_messages carries omp entry ids, so the clicked
+   * row's position among user items is correlated against the leaf-path
+   * entries at click time; a failed correlation refuses the rewind rather
+   * than guessing an id. The staged confirmation carries only the resolved
+   * entry id — the prompt's visible text/images ride the module-map prefill
+   * because staging→confirm can outlive a stream tick.
+   */
+  const stageRewind = async (
+    tabId: string,
+    itemIndex: number,
+    editResend: boolean,
+  ): Promise<void> => {
+    // Guard first: a refused click reports the reason, whatever the
+    // transcript looks like at the instant of the click.
+    const data = await readEntriesForRewind(tabId);
+    if (data === null) return;
+    const items = get().rpc[tabId]?.items;
+    const clicked = items?.filter((i) => i.kind === "user")[itemIndex];
+    if (items === undefined || clicked === undefined || clicked.kind !== "user") return;
+    const entryId = correlatePromptEntry(
+      items,
+      arrField(data, "entries"),
+      field(data, "leafId"),
+      itemIndex,
+    );
+    if (entryId === null) {
+      get().reportError(t("session.error.rewindCorrelation"));
+      return;
+    }
+    // Rows strictly after the clicked user row: what the dialog counts as
+    // discarded. (The clicked prompt's own later siblings on the path.)
+    const clickedAt = items.indexOf(clicked);
+    const laterTurns = Math.max(0, items.length - clickedAt - 1);
+    setRewindPrefill(tabId, {
+      text: clicked.text,
+      // Visible prose only — omp's raw entry text still carries @-routing
+      // context; the images are omp's re-encoded mime types.
+      images: clicked.images ?? [],
+    });
+    get().stageLifecycleConfirmation({
+      kind: "rewind",
+      tabId,
+      entryId,
+      laterTurns,
+      editResend,
+    });
+  };
+
+  /**
+   * The navigator's rewind: same effect, but the entry id comes from the
+   * tree itself, so no positional correlation runs (issue #680). The entry
+   * must still be a user message — `branch` throws on anything else.
+   */
+  const stageRewindEntry = async (
+    tabId: string,
+    entryId: string,
+    editResend: boolean,
+  ): Promise<void> => {
+    const data = await readEntriesForRewind(tabId);
+    if (data === null) return;
+    const prompt = entryUserPrompt(arrField(data, "entries"), entryId);
+    if (prompt === null) {
+      get().reportError(t("session.error.rewindCorrelation"));
+      return;
+    }
+    const laterTurns =
+      discardedEntryCount(
+        arrField(data, "entries"),
+        field(data, "leafId"),
+        entryId,
+      ) ?? 0;
+    setRewindPrefill(tabId, prompt);
+    get().stageLifecycleConfirmation({
+      kind: "rewind",
+      tabId,
+      entryId,
+      laterTurns,
+      editResend,
+    });
+  };
+
+  /** Stages a tree jump for an entry that is not a user prompt (issue #680). */
+  const stageNavigate = async (
+    tabId: string,
+    entryId: string,
+    summarize: boolean,
+  ): Promise<void> => {
+    const data = await readEntriesForRewind(tabId);
+    if (data === null) return;
+    const laterTurns =
+      discardedEntryCount(
+        arrField(data, "entries"),
+        field(data, "leafId"),
+        entryId,
+      ) ?? 0;
+    get().stageLifecycleConfirmation({
+      kind: "navigate",
+      tabId,
+      entryId,
+      summarize,
+      laterTurns,
+    });
+  };
+
+  /** The accepted rewind effect (issue #680), run only by the confirmation. */
+  const performRewind = async (
+    tabId: string,
+    entryId: string,
+    editResend: boolean,
+  ): Promise<void> => {
+    try {
+      const resp = await m.runCommand(tabId, { type: "branch", entryId });
+      if (resp === null) return; // failure already reported by runCommand
+      if (boolField(respData(resp), "cancelled")) {
+        // A hook cancelled the branch; nothing moved and nothing reloads.
+        takeRewindPrefill(tabId);
+        return;
+      }
+      await get().reloadHistory(tabId);
+      // Identity belt-and-braces: the new session file in the same lineage
+      // dir is adopted by the watcher, but applyRpcState merges
+      // sessionId/sessionFile from get_state even if this runtime omits
+      // session_info_update on branch (the boot pattern).
+      void m.runCommand(tabId, { type: "get_state" }, { quiet: true });
+      const source = takeRewindPrefill(tabId);
+      if (editResend && source !== null) {
+        if (source.text !== "") get().queueComposerText(tabId, source.text);
+        for (const image of source.images)
+          void get().queueComposerAttachment(tabId, { type: "image", ...image }, "");
+      }
+      m.appendItem(tabId, noticeItem(t("transcript.rewind.done"), "info"));
+    } catch (err) {
+      takeRewindPrefill(tabId);
+      throw err;
+    }
+  };
+
+  /**
+   * The accepted tree-jump effect (issue #680, Phase 2): rides the generated
+   * bridge, whose published snapshot field — not the prompt ack — settles
+   * completion (the `runGoalCommand` correlation discipline, simplified:
+   * navigation results are per-process and monotonic in `revision`).
+   */
+  const performNavigate = async (
+    tabId: string,
+    entryId: string,
+    summarize: boolean,
+  ): Promise<void> => {
+    const publishedTree = (): TreeSnapshot | null => {
+      const text = get().rpc[tabId]?.extensionStatus[TREE_STATUS_KEY];
+      return text === undefined ? null : parseTreeSnapshot(text);
+    };
+    const before = publishedTree()?.revision ?? 0;
+    const resp = await m.runCommand(tabId, {
+      type: "prompt",
+      message: treeNavigateMessage(entryId, summarize),
+    });
+    if (resp === null) return;
+    // The navigate handler publishes its result before the ack chain drains;
+    // wait for a snapshot newer than the dispatch, then read its verdict.
+    await m.pollUntil(
+      tabId,
+      (tab) => {
+        const text = tab?.extensionStatus[TREE_STATUS_KEY];
+        const snapshot = text === undefined ? null : parseTreeSnapshot(text);
+        return (snapshot?.revision ?? 0) > before;
+      },
+      summarize ? 120_000 : RPC_COMMAND_TIMEOUT_MS,
+    );
+    const result = publishedTree()?.navigation;
+    if (result === undefined || result.entryId !== entryId) {
+      get().reportError(t("session.error.navigateUnconfirmed"));
+      return;
+    }
+    if (!result.ok) {
+      get().reportError(
+        result.error ?? t("session.error.navigateFailed"),
+      );
+      return;
+    }
+    await get().reloadHistory(tabId);
+    void m.runCommand(tabId, { type: "get_state" }, { quiet: true });
+    m.appendItem(tabId, noticeItem(t("transcript.rewind.navigated"), "info"));
+  };
+
   const renameSessionTo = async (tabId: string, name: string): Promise<void> => {
     const resp = await m.runCommand(tabId, { type: "set_session_name", name });
     if (resp === null) return;
@@ -919,6 +1166,23 @@ export function createSessionParamsSlice(
     });
   };
 
+  /**
+   * One hidden bridge command as a quiet prompt (the `refreshLimits` shape,
+   * issue #680): the bridge's published snapshot — not the ack — answers for
+   * it, so the transcript gets no row and the busy sweep no strobe.
+   */
+  const runHiddenCommand = async (
+    tabId: string,
+    command: string,
+    args: string,
+  ): Promise<void> => {
+    await m.runCommand(
+      tabId,
+      { type: "prompt", message: `/${command}${args === "" ? "" : ` ${args}`}` },
+      { allowDuringBoot: true, quiet: true },
+    );
+  };
+
   const setTodos = async (tabId: string, phases: TodoPhase[]): Promise<void> => {
     const resp = await m.runCommand(tabId, { type: "set_todos", phases });
     if (resp === null) return;
@@ -1046,6 +1310,11 @@ export function createSessionParamsSlice(
     exportHtml,
     shareSession,
     branchSession,
+    stageRewind,
+    performRewind,
+    performNavigate,
+    stageRewindEntry,
+    stageNavigate,
     renameSessionTo,
     regenerateSessionTitle,
     setPlanMode,
@@ -1053,6 +1322,7 @@ export function createSessionParamsSlice(
     runShellCommand,
     abortShellCommands,
     runGoalCommand,
+    runHiddenCommand,
     setTodos,
     refreshState,
     refreshStats,

@@ -23,14 +23,23 @@ import type {
   ShellItem,
   UserItem,
 } from "../lib/transcript";
-import { findOwner, useStore } from "../store";
+import { findOwner, findRecord, useStore } from "../store";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown, linkify, OpenExternalLink } from "./Markdown";
 import { openImageViewer } from "./ImageViewer";
 import { PlanCard } from "./PlanCard";
 import { AdvisoryNotes, ToolCard } from "./ToolCard";
 import { SelectionContextMenu } from "./SelectionContextMenu";
-import { Chip, CopyButton, Disclosure, Empty, Label, type Tone } from "./ui";
+import {
+  Chip,
+  CopyButton,
+  Disclosure,
+  Empty,
+  IconPencil,
+  IconRewind,
+  Label,
+  type Tone,
+} from "./ui";
 
 /** Re-entry threshold: this close to the tail still counts as following. */
 const AT_BOTTOM_SLACK = 64;
@@ -179,8 +188,38 @@ function selectionWithin(root: HTMLElement | null, sel: Selection): boolean {
 
 /* ------------------------------------------------------------ small kinds */
 
-function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
+function UserBubble({
+  item,
+  first,
+  tabId,
+  position,
+}: {
+  item: UserItem;
+  first: boolean;
+  /** The owning tab; the rewind affordances exist only on a live native tab. */
+  tabId?: string;
+  /** Index among the tab's user items; the rewind correlation's positional key. */
+  position?: number;
+}) {
   const t = useT();
+  const stageRewind = useStore((s) => s.stageRewind);
+  // The affordances exist only on a live native tab (issue #680): a PTY tab
+  // has no entry tree to correlate against, and a dormant one no process to
+  // branch. The NoticeLine pattern — one narrow store read per row.
+  const rewindable = useStore(
+    (s) =>
+      tabId !== undefined &&
+      position !== undefined &&
+      findRecord(s.state, tabId)?.live === "live" &&
+      findRecord(s.state, tabId)?.mode === "rpc-ui",
+  );
+  // Streaming is refused, not queued — `branch` switches the live process
+  // in place (the action re-checks the same rule).
+  const rewindBusy = useStore(
+    (s) =>
+      tabId !== undefined &&
+      (s.rpc[tabId]?.status === "running" || s.rpc[tabId]?.busy === true),
+  );
   const images = item.images ?? [];
   const viewerImages = useMemo(
     () =>
@@ -191,6 +230,7 @@ function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
       })),
     [item.images, t],
   );
+  const rewindTitle = rewindBusy ? t("transcript.rewind.busy") : undefined;
   const fileMentions = item.fileMentions ?? [];
   return (
     <div className="speaker-run animate-rise flex flex-col items-end gap-1">
@@ -239,17 +279,43 @@ function UserBubble({ item, first }: { item: UserItem; first: boolean }) {
             ))}
           </div>
         )}
-        {item.text !== "" && (
+        {(item.text !== "" || rewindable) && (
           // Absolutely positioned so hovering never changes the bubble's height:
           // follow mode re-pins on content size, and a reserved footer row would
           // jitter it. Keyboard-reachable while invisible, so Tab into the bubble
           // reveals the chip the same way hover does.
           <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md border border-line bg-overlay/85 px-1 py-0.5 opacity-0 backdrop-glass transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-            <CopyButton
-              text={item.text}
-              label={t("common.button.copy")}
-              doneLabel={t("common.button.copied")}
-            />
+            {item.text !== "" && (
+              <CopyButton
+                text={item.text}
+                label={t("common.button.copy")}
+                doneLabel={t("common.button.copied")}
+              />
+            )}
+            {rewindable && tabId !== undefined && (
+              <>
+                <button
+                  type="button"
+                  className="grid size-6 shrink-0 place-items-center rounded-md text-ink-dim transition-colors duration-150 hover:bg-hover hover:text-ink disabled:cursor-default disabled:text-ink-faint"
+                  aria-label={t("transcript.rewind.here")}
+                  title={rewindTitle}
+                  disabled={rewindBusy}
+                  onClick={() => void stageRewind(tabId, position ?? 0, false)}
+                >
+                  <IconRewind />
+                </button>
+                <button
+                  type="button"
+                  className="grid size-6 shrink-0 place-items-center rounded-md text-ink-dim transition-colors duration-150 hover:bg-hover hover:text-ink disabled:cursor-default disabled:text-ink-faint"
+                  aria-label={t("transcript.rewind.edit")}
+                  title={rewindTitle}
+                  disabled={rewindBusy}
+                  onClick={() => void stageRewind(tabId, position ?? 0, true)}
+                >
+                  <IconPencil />
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -632,15 +698,19 @@ const TranscriptRow = memo(function TranscriptRow({
   count,
   first,
   tabId,
+  userPosition,
 }: {
   item: RenderItem;
   count: number;
   first: boolean;
   tabId?: string;
+  /** Index among the transcript's user items (issue #680). A plain number:
+   *  stable per item, so the row stays shallow-compare stable (#187). */
+  userPosition?: number;
 }) {
   switch (item.kind) {
     case "user":
-      return <UserBubble item={item} first={first} />;
+      return <UserBubble item={item} first={first} tabId={tabId} position={userPosition} />;
     case "assistant":
       return <AssistantBlock item={item} />;
     case "tool":
@@ -728,6 +798,16 @@ export function TranscriptView({
   }
 
   const runs = useMemo(() => buildRuns(items), [items]);
+  // The rewind correlation's positional key (issue #680): each user item's
+  // index among user items. The map is rebuilt with the items, but the value
+  // handed to each row is a stable primitive, so a stream tick leaves every
+  // historical row's props shallow-equal (#187).
+  const userPositions = useMemo(() => {
+    const positions = new Map<string, number>();
+    let n = 0;
+    for (const item of items) if (item.kind === "user") positions.set(item.id, n++);
+    return positions;
+  }, [items]);
   const scale = useTranscriptScale();
 
   // Length alone misses streaming, which mutates the last item in place.
@@ -916,7 +996,15 @@ export function TranscriptView({
                 return (
                   <div key={item.id} data-item-id={item.id} className={findClass}>
                     <ErrorBoundary fallback={(error) => <BrokenRow error={error} />}>
-                      <TranscriptRow item={item} count={count} first={i === 0} tabId={tabId} />
+                      <TranscriptRow
+                        item={item}
+                        count={count}
+                        first={i === 0}
+                        tabId={tabId}
+                        userPosition={
+                          item.kind === "user" ? userPositions.get(item.id) : undefined
+                        }
+                      />
                     </ErrorBoundary>
                   </div>
                 );

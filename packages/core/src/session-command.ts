@@ -21,6 +21,8 @@ export const SESSION_COMMANDS = {
   abort_bash: { lateAck: false },
   get_state: { lateAck: false },
   get_messages: { lateAck: false },
+  get_entries: { lateAck: false },
+  get_tree: { lateAck: false },
   get_available_commands: { lateAck: false },
   get_session_stats: { lateAck: false },
   get_subagents: { lateAck: false },

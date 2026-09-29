@@ -26,6 +26,7 @@ import { randomId } from "../../lib/random-id";
 import { projectKey } from "../../lib/project-key";
 import { markSharePrivacySeen } from "../../lib/share-privacy";
 import type { CompactSurface, ErrorNotice, UiStore } from "../types";
+import { TREE_COMMAND } from "@omp-ui/core/session-tree";
 
 export type { CompactSurface } from "../types";
 
@@ -48,6 +49,9 @@ export interface ViewSlice {
   worktreeDialogInstanceId: string | null;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
   finishWorktreeTab: string | null;
+  /** The session tree navigator (issue #680, Phase 2): the pinned live tab
+   *  whose tree is open; null = closed. Same shape as `capabilitiesViewer`. */
+  sessionTreeView: { tabId: string } | null;
   capabilitiesViewer: {
     scopeCwd: string | null;
     tabId?: string;
@@ -81,6 +85,9 @@ export interface ViewSlice {
   closeWorktreeDialog(): void;
   openFinishWorktree(tabId: string): void;
   closeFinishWorktree(): void;
+  /** Opens the tree navigator for a live tab and arms its bridge (issue #680). */
+  openSessionTreeView(tabId: string): void;
+  closeSessionTreeView(): void;
   openCapabilitiesViewer(
     scopeCwd: string | null,
     tabId?: string,
@@ -347,6 +354,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   worktreeDialogProject: null,
   worktreeDialogInstanceId: null,
   finishWorktreeTab: null,
+  sessionTreeView: null,
   capabilitiesViewer: null,
 	projectSettings: null,
   ptyRedrawRevision: {},
@@ -428,6 +436,15 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   closeFinishWorktree() {
     set({ finishWorktreeTab: null });
+  },
+  openSessionTreeView(tabId) {
+    set({ sessionTreeView: { tabId } });
+    // The quiet arm prompt binds the bridge's UI context and publishes the
+    // first snapshot; a process without the bridge simply never publishes.
+    void get().runHiddenCommand(tabId, TREE_COMMAND, "show");
+  },
+  closeSessionTreeView() {
+    set({ sessionTreeView: null });
   },
   openCapabilitiesViewer(scopeCwd, tabId, section = "mcp", instanceId = null) {
     set({

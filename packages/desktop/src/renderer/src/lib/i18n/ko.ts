@@ -149,6 +149,15 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.lifecycle.removeTitle": "프로젝트를 제거할까요?",
   "dialog.lifecycle.removeBody": "프로젝트 {path} 및 해당 세션 기록을 제거할까요? 디스크의 파일은 유지됩니다.",
   "dialog.lifecycle.removeAction": "프로젝트 제거",
+  "dialog.lifecycle.rewindTitle": "이 프롬프트로 되돌릴까요?",
+  "dialog.lifecycle.rewindBody":
+    "세션을 이 프롬프트로 되돌릴까요? 이후 {count}개 턴은 현재 브랜치에서 제외되지만, 세션 파일에는 다른 브랜치로 그대로 남습니다.",
+  "dialog.lifecycle.rewindAction": "되돌리기",
+  "dialog.lifecycle.navigateTitle": "트리의 이 위치로 이동할까요?",
+  "dialog.lifecycle.navigateBody":
+    "세션의 리프를 이 항목으로 옮길까요? 이후 {count}개 턴은 현재 브랜치에서 제외되지만, 세션 파일에는 다른 브랜치로 그대로 남습니다.",
+  "dialog.lifecycle.navigateSummarize": "버려진 턴을 요약하도록 모델에게 요청",
+  "dialog.lifecycle.navigateAction": "이동",
   "dialog.lifecycle.working": "처리 중…",
 
   // AppFeedback.tsx — 백엔드 오류 확인 다이얼로그 (이슈 #373)
@@ -163,6 +172,34 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "session.error.advisorDisable": "어드바이저를 끄지 못했습니다: {reason}\n\n에이전트가 중지되었습니다. 계속하려면 세션을 다시 시작하세요.",
   "session.error.retitleNotLive": "이 세션은 실행 중이 아니라 제목을 다시 생성할 수 없습니다. 세션을 먼저 다시 시작한 뒤 제목을 다시 생성하세요.",
   "session.error.retitleNoTranscript": "이 세션에는 제목을 다시 생성할 대화가 아직 없습니다. 프롬프트를 보내고 어시스턴트가 답한 뒤 다시 시도하세요.",
+  "session.error.rewindBusy":
+    "되돌리기는 실행 중이고 대기 상태인 네이티브 세션에서만 사용할 수 있습니다. 턴이 끝날 때까지 기다리거나 중지한 뒤 다시 시도하세요.",
+  "session.error.rewindCorrelation":
+    "이 프롬프트를 세션 항목과 일치시킬 수 없어 되돌리지 않았습니다. 세션을 새로 고친 뒤 다시 시도하세요.",
+  "session.error.navigateUnconfirmed":
+    "트리 브리지가 이 이동의 결과를 보고하지 않았습니다. 세션을 새로 고친 뒤 다시 이동하세요.",
+  "session.error.navigateFailed": "세션을 해당 항목으로 이동하지 못했습니다.",
+
+  // TranscriptView.tsx / SessionTreeViewer.tsx — 되돌리기 작업 (이슈 #680)
+  "transcript.rewind.here": "여기로 되돌리기",
+  "transcript.rewind.edit": "수정 후 재전송",
+  "transcript.rewind.done": "되돌렸습니다 — 이후 턴은 세션 파일에 다른 브랜치로 남아 있습니다",
+  "transcript.rewind.navigated": "이동했습니다 — 트랜스크립트가 이동한 브랜치를 표시합니다",
+  "transcript.rewind.busy": "되돌리기는 세션이 대기 중일 때 사용할 수 있습니다.",
+
+  // SessionTreeViewer.tsx — 세션 트리 내비게이터 (이슈 #680)
+  "session.tree.title": "세션 트리",
+  "session.tree.kicker": "세션 작업",
+  "session.tree.empty": "트리 브리지가 아직 스냅샷을 게시하지 않았습니다. 세션을 새로 고치세요.",
+  "session.tree.unavailable": "세션 트리를 사용할 수 없습니다: {reason}",
+  "session.tree.active": "현재 브랜치",
+  "session.tree.current": "리프",
+  "session.tree.navigate": "여기로 이동",
+  "session.tree.summarize": "버려진 턴 요약",
+  "session.tree.busy": "이동은 세션이 대기 중일 때 사용할 수 있습니다.",
+  "session.tree.reasonMissingApi": "이 omp 빌드는 트리 API를 제공하지 않습니다",
+  "session.tree.reasonReadFailed": "트리를 읽을 수 없습니다",
+  "session.tree.reasonPayloadTooLarge": "트리가 게시하기에 너무 큽니다",
 
   // AdvisorControl.tsx, PlanReview.tsx — 개발/테스트 어드바이저 재정의 (이슈 #372)
   "advisor.override.badge": "개발/테스트",
@@ -965,6 +1002,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "이 라이브 세션이 로드한 내용 — 목록, 세션 현지 스위치, MCP 실행 상태",
   "palette.action.share": "세션 공유",
   "palette.action.shareDesc": "{title} — 대화록 암호화 링크",
+  "palette.action.sessionTree": "세션 트리",
+  "palette.action.sessionTreeDesc": "{title}의 프롬프트로 되돌리거나 브랜치 간 이동",
   "palette.action.lab": "Lab 열기",
   "palette.action.labDesc": "모든 프로젝트의 autoresearch 실험",
   "palette.action.stats": "통계 열기",
@@ -1203,6 +1242,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.actions.autoCompactTitle": "컨텍스트 창이 가득 차면 자동으로 압축",
   "hud.actions.branch": "분기",
   "hud.actions.branchTitle": "이 세션을 새 탭으로 분기",
+  "hud.actions.tree": "트리",
+  "hud.actions.treeTitle": "세션 트리 표시 — 임의 프롬프트로 되돌리거나 브랜치 간 이동",
   "hud.actions.compact": "압축",
   "hud.actions.copied": "복사됨",
   "hud.actions.copy": "복사",

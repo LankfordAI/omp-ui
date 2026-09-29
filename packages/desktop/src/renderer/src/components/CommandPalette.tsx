@@ -87,6 +87,7 @@ export function CommandPalette() {
   const newSession = useStore((s) => s.newSession);
   const openProjectPicker = useStore((s) => s.openProjectPicker);
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
+  const openSessionTreeView = useStore((s) => s.openSessionTreeView);
   const terminate = useStore((s) => s.terminate);
   const switchMode = useStore((s) => s.switchMode);
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
@@ -245,6 +246,17 @@ export function CommandPalette() {
           run: () => openCapabilitiesViewer(scopeCwd, tab.tabId, "mcp"),
         });
       }
+      // The tree navigator (issue #680) needs a live native process: its
+      // bridge publishes over setStatus, so dormant tabs hide it.
+      if (tab.mode === "rpc-ui" && findRecord(state, tab.tabId)?.live === "live") {
+        out.push({
+          id: "session:tree",
+          group: t("palette.group.session"),
+          name: t("palette.action.sessionTree"),
+          desc: t("palette.action.sessionTreeDesc", { title }),
+          run: () => openSessionTreeView(tab.tabId),
+        });
+      }
     }
 
     out.push({
@@ -285,7 +297,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, shareSession, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, shareSession, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

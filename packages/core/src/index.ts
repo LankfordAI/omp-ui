@@ -112,6 +112,7 @@ export { mcpStatusExtensionPath, writeMcpStatusExtension } from "./mcp-status-ex
 export { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabilities-extension";
 export { goalExtensionPath, writeGoalExtension } from "./goal-extension";
 export { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-pane-extension";
+export { treeExtensionPath, writeTreeExtension } from "./tree-extension";
 export {
   autoresearchExtensionPath,
   writeAutoresearchExtension,
@@ -130,6 +131,7 @@ export * from "./capabilities";
 export * from "./browser-pane";
 export * from "./goal";
 export * from "./autoresearch";
+export * from "./session-tree";
 export {
   ADVISOR_STATS_COMMAND,
   ADVISOR_STATS_KEY,

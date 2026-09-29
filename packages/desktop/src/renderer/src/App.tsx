@@ -10,6 +10,7 @@ import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { GettingStarted } from "./components/GettingStarted";
 import { inspectorBadges } from "./components/InspectorRail";
 import { CapabilitiesViewer } from "./components/CapabilitiesViewer";
+import { SessionTreeViewer } from "./components/SessionTreeViewer";
 import { NewExperimentDialog } from "./components/NewExperimentDialog";
 import { NewWorktreeSessionDialog } from "./components/NewWorktreeSessionDialog";
 import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
@@ -276,6 +277,7 @@ export default function App() {
   const browserPaneClearDialogOpen = useStore((s) => s.browserPaneClearDialogOpen);
   const shareConfirmTab = useStore((s) => s.shareConfirmTab);
   const capabilitiesViewer = useStore((s) => s.capabilitiesViewer);
+  const sessionTreeView = useStore((s) => s.sessionTreeView);
   const projectSettings = useStore((s) => s.projectSettings);
   const closeProjectSettings = useStore((s) => s.closeProjectSettings);
   const state = useStore((s) => s.state);
@@ -319,6 +321,14 @@ export default function App() {
       findOwner(state, capabilitiesViewer.tabId) === undefined)
       ? null
       : capabilitiesViewer;
+
+  // The tree navigator pins to its record too: deleting the session closes
+  // the viewer, like the capabilities modal above (issue #680).
+  const treeModal =
+    sessionTreeView === null ||
+    (state !== null && findOwner(state, sessionTreeView.tabId) === undefined)
+      ? null
+      : sessionTreeView;
 
   // Turning the feature off must not leave an open Lab or dialog behind: close
   // both, which stops the Lab's refresh timer through closeLab.
@@ -528,6 +538,7 @@ export default function App() {
           instanceId={capabilitiesModal.instanceId}
         />
       )}
+      {treeModal !== null && <SessionTreeViewer />}
       {projectSettingsProject !== null && projectSettings !== null && (
         <ProjectSettings
           project={projectSettingsProject}

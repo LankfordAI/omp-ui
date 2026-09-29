@@ -69,6 +69,24 @@ function lifecycleCopy(
         action: t("remoteinstances.action.remove"),
         target: null,
       };
+    case "rewind":
+      // The count and the "still in the file" note in the body are the whole
+      // story (issue #680): no session title — the tab is the target.
+      return {
+        tone: "copper",
+        title: t("dialog.lifecycle.rewindTitle"),
+        body: t("dialog.lifecycle.rewindBody", { count: confirmation.laterTurns }),
+        action: t("dialog.lifecycle.rewindAction"),
+        target: null,
+      };
+    case "navigate":
+      return {
+        tone: "copper",
+        title: t("dialog.lifecycle.navigateTitle"),
+        body: t("dialog.lifecycle.navigateBody", { count: confirmation.laterTurns }),
+        action: t("dialog.lifecycle.navigateAction"),
+        target: null,
+      };
   }
 }
 
