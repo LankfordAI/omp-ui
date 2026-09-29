@@ -89,6 +89,12 @@ describe("tools rule", () => {
     expect(effectiveAdvisorTools(["search", "grep", "read"])).toEqual(["grep", "read"]);
     expect(effectiveAdvisorTools(["nope"])).toEqual(["read", "grep", "glob", "recall"]);
   });
+
+  it("resolves mixed-case names and aliases like omp's resolver", () => {
+    expect(effectiveAdvisorTools(["Read"])).toEqual(["read"]);
+    expect(effectiveAdvisorTools(["SEARCH"])).toEqual(["grep"]);
+    expect(effectiveAdvisorTools(["NOPE"])).toEqual(["read", "grep", "glob", "recall"]);
+  });
 });
 
 describe("serialize / parse", () => {
