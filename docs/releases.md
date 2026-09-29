@@ -7,6 +7,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Native sessions gained a fast-mode control in the Session HUD and composer options sheet, showing the enabled-vs-active split so a provider-declined fast mode reads as declined (#677).
 - A native composer draft prefixed `!` runs as a shell command — OMP's concurrent `bash` RPC with no model turn — in a new `shell` render item whose stop control sends `abort_bash`; resumed sessions show their shell history (#678).
 - The composer shows a fast-mode toggle beside the model and thinking pills when the current model has a priority tier or the session already carries fast-mode state (#689).
+- The usage receipt now ends its timing parts with the turn's decode rate (`57 t/s`), the generated tokens over the post-ttft window (#690).
 
 ## Choose a download
 

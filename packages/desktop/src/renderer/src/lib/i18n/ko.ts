@@ -227,6 +227,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.empty.hint": "프롬프트를 보내 세션을 시작하세요.",
   "transcript.usage.cache": "cache",
   "transcript.usage.ttft": "ttft",
+  "transcript.usage.rate": "t/s",
   "transcript.usage.via": "{provider} 경유",
   "transcript.usage.gateway": "게이트웨이: {provider}",
   "transcript.usage.upstream": "업스트림: {provider}",

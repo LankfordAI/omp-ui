@@ -65,6 +65,17 @@ function UsageStrip({ item }: { item: AssistantItem }) {
   if (item.ttftMs !== undefined && item.ttftMs > 0)
     parts.push(`${t("transcript.usage.ttft")} ${formatDuration(item.ttftMs)}`);
   if (item.durationMs !== undefined && item.durationMs > 0) parts.push(formatDuration(item.durationMs));
+  // Decode rate: generated tokens over the post-ttft window only. Unlike omp
+  // stats' tokens/s this excludes time to first token, and it renders only
+  // when both halves of the subtraction exist — no ttft means no honest rate.
+  if (
+    usage.output > 0 &&
+    item.durationMs !== undefined && item.ttftMs !== undefined &&
+    item.durationMs > item.ttftMs && item.ttftMs > 0
+  ) {
+    const rate = (usage.output * 1000) / (item.durationMs - item.ttftMs);
+    parts.push(`${rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1)} ${t("transcript.usage.rate")}`);
+  }
   if (item.stopReason && item.stopReason !== "end_turn" && item.stopReason !== "stop") {
     parts.push(item.stopReason);
   }

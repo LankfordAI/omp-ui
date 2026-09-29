@@ -363,6 +363,121 @@ describe("UsageStrip", () => {
     expect(tooltip).not.toContain("response:");
     act(() => root.unmount());
   });
+
+  it("renders the decode rate after the duration", () => {
+    const timestamp = new Date(2026, 7, 5, 14, 32, 7).getTime();
+    const item: RenderItem = {
+      kind: "assistant",
+      id: "a1",
+      text: "done",
+      thinking: "",
+      streaming: false,
+      model: "anthropic/claude-sonnet-4.5",
+      usage: { input: 63_600, output: 1513, cacheRead: 0, cacheWrite: 0, total: 65_113, cost: 0 },
+      ttftMs: 340,
+      durationMs: 26_800,
+      stopReason: "max_tokens",
+      timestamp,
+    };
+    const { el, root } = render([item]);
+
+    const strip = el.querySelector<HTMLDivElement>("div.text-ink-faint");
+    expect(strip).not.toBeNull();
+    const inline = [...strip!.querySelectorAll("span")].filter((s) => !s.hasAttribute("title"));
+    const texts = inline.map((s) => s.textContent);
+    // 1513 tokens over the 26.8s − 340ms window → 57.18, rendered rounded.
+    const rate = texts.indexOf("57 t/s");
+    expect(rate).toBeGreaterThan(-1);
+    expect(texts[rate - 1]).toBe("26.8s");
+    expect(texts[rate - 2]).toBe("ttft 340ms");
+    // The stop reason still lands after the rate…
+    expect(texts.indexOf("max_tokens")).toBeGreaterThan(rate);
+    // …and the completion time stays the trailing span, rate part before it.
+    const allSpans = [...strip!.querySelectorAll("span")];
+    expect(allSpans[allSpans.length - 1]!.hasAttribute("title")).toBe(true);
+    expect(allSpans.findIndex((s) => s.textContent === "57 t/s")).toBeLessThan(allSpans.length - 1);
+    act(() => root.unmount());
+  });
+
+  it("shows one decimal for slow rates and nothing for zero-output turns", () => {
+    const slow: RenderItem = {
+      kind: "assistant",
+      id: "a1",
+      text: "done",
+      thinking: "",
+      streaming: false,
+      model: "local/qwen3-8b",
+      usage: { input: 120, output: 42, cacheRead: 0, cacheWrite: 0, total: 162, cost: 0 },
+      ttftMs: 200,
+      durationMs: 6_200,
+    };
+    const { el, root } = render([slow]);
+    const strip = el.querySelector<HTMLDivElement>("div.text-ink-faint");
+    expect(strip).not.toBeNull();
+    // 42 over 6.0s is exactly 7: one decimal below 10 so a slow model never reads 0.
+    expect(strip!.textContent).toContain("7.0 t/s");
+    act(() => root.unmount());
+
+    const aborted: RenderItem = {
+      kind: "assistant",
+      id: "a2",
+      text: "",
+      thinking: "",
+      streaming: false,
+      model: "local/qwen3-8b",
+      usage: { input: 120, output: 0, cacheRead: 0, cacheWrite: 0, total: 120, cost: 0 },
+      ttftMs: 200,
+      durationMs: 6_200,
+      stopReason: "aborted",
+    };
+    const { el: el2, root: root2 } = render([aborted]);
+    const strip2 = el2.querySelector<HTMLDivElement>("div.text-ink-faint");
+    expect(strip2).not.toBeNull();
+    const inline2 = [...strip2!.querySelectorAll("span")].filter((s) => !s.hasAttribute("title"));
+    expect(inline2.some((s) => s.textContent!.includes("t/s"))).toBe(false);
+    // The rest of the receipt still settles normally around the missing rate.
+    expect(inline2.map((s) => s.textContent)).toContain("aborted");
+    act(() => root2.unmount());
+  });
+
+  it("suppresses the rate without a usable post-ttft window", () => {
+    // Clock-skewed gateway: duration no longer than ttft → never ∞, never negative.
+    const skewed: RenderItem = {
+      kind: "assistant",
+      id: "a1",
+      text: "done",
+      thinking: "",
+      streaming: false,
+      model: "anthropic/claude-sonnet-4.5",
+      usage: { input: 120, output: 300, cacheRead: 0, cacheWrite: 0, total: 420, cost: 0 },
+      ttftMs: 340,
+      durationMs: 300,
+    };
+    const { el, root } = render([skewed]);
+    const strip = el.querySelector<HTMLDivElement>("div.text-ink-faint");
+    expect(strip).not.toBeNull();
+    expect(strip!.textContent).toContain("300ms");
+    expect(strip!.textContent).not.toContain("t/s");
+    act(() => root.unmount());
+
+    // Hydrated older session file: duration present, ttft never recorded.
+    const noTtft: RenderItem = {
+      kind: "assistant",
+      id: "a2",
+      text: "done",
+      thinking: "",
+      streaming: false,
+      model: "anthropic/claude-sonnet-4.5",
+      usage: { input: 120, output: 1513, cacheRead: 0, cacheWrite: 0, total: 1633, cost: 0 },
+      durationMs: 26_800,
+    };
+    const { el: el2, root: root2 } = render([noTtft]);
+    const strip2 = el2.querySelector<HTMLDivElement>("div.text-ink-faint");
+    expect(strip2).not.toBeNull();
+    expect(strip2!.textContent).toContain("26.8s");
+    expect(strip2!.textContent).not.toContain("t/s");
+    act(() => root2.unmount());
+  });
 });
 
 describe("UserBubble resolved file mentions", () => {
