@@ -12,6 +12,8 @@ export const WATCHDOG_KNOWN_TOOLS = [
   "recall", "reflect", "learn", "manage_skill",
 ] as const;
 
+/** omp's resolver lowercases the typed name before alias/known-tool lookup
+ *  (binary `Xyo`), so `tools: [Read]` is valid to omp; mirror that here. */
 export const WATCHDOG_TOOL_ALIASES: Readonly<Record<string, string>> = { search: "grep" };
 
 /** Tools that let an advisor mutate files or run commands. */
@@ -24,7 +26,8 @@ export function advisorSlug(name: string): string {
 
 /** Resolves one typed tool name to a known tool, or null. */
 export function resolveWatchdogTool(name: string): string | null {
-  const aliased = WATCHDOG_TOOL_ALIASES[name] ?? name;
+  const key = name.toLowerCase();
+  const aliased = WATCHDOG_TOOL_ALIASES[key] ?? key;
   return (WATCHDOG_KNOWN_TOOLS as readonly string[]).includes(aliased) ? aliased : null;
 }
 
