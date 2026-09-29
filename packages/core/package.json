@@ -24,6 +24,7 @@
     "./web-search-order": "./src/web-search-order.ts",
     "./capability-catalog": "./src/capability-catalog.ts",
     "./stream-activity": "./src/stream-activity.ts",
+    "./approval": "./src/approval.ts",
     "./extension-dialog": "./src/extension-dialog.ts",
     "./rpc/control-frames": "./src/rpc/control-frames.ts",
     "./remote-instances": "./src/remote-instances.ts",

@@ -72,6 +72,7 @@ function session(
     mode: "rpc-ui",
     agentMode: "build",
     compactionMethod: null,
+    approvalMode: null,
     model: null,
     thinkingLevel: null,
     advisor: false,

@@ -2261,6 +2261,71 @@ describe("reconcilePendingDialogs (issue #555)", () => {
     h.useStore.getState().reconcilePendingDialogs(state);
     expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).toBeNull();
   });
+
+  // Approvals (issue #681): main counts the select as a plain blocking dialog
+  // while the renderer splits it into approvalPrompt — same id-based compare.
+  const approvalDialog = (id: string, tool = "Bash"): Record<string, unknown> => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title: `Allow tool: ${tool}\nls -la`,
+    options: ["Approve", "Deny"],
+  });
+  const emptyPrompt = { toolName: "Bash", origin: null, reason: null, details: [], providerSafety: [] };
+
+  it("hydrates a held approval and keeps it out of the queue, idempotently", () => {
+    const q = dialog("q1");
+    const appr = approvalDialog("a1");
+    const state = stateWithDialogs([q, appr]);
+    h.useStore.setState({ state, rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(ids(tab.extensionQueue)).toEqual(["q1"]);
+    expect(tab.approvalPrompt).toMatchObject({ frame: appr, prompt: { toolName: "Bash" } });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toBe(tab.extensionQueue);
+    expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toBe(tab.approvalPrompt);
+  });
+
+  it("drops an approval the summary no longer lists", () => {
+    const held = { prompt: emptyPrompt, frame: approvalDialog("a1") };
+    const state = stateWithDialogs([]);
+    h.useStore.setState({ state, rpc: { [h.TAB]: rpcTabState({ approvalPrompt: held }) } });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toBeNull();
+  });
+
+  it("reconciles the next stacked approval once a sibling answers the held one", () => {
+    const state = stateWithDialogs([approvalDialog("a2", "Edit")]);
+    const held = { prompt: emptyPrompt, frame: approvalDialog("a1") };
+    h.useStore.setState({ state, rpc: { [h.TAB]: rpcTabState({ approvalPrompt: held }) } });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toMatchObject({
+      frame: { id: "a2" },
+      prompt: { toolName: "Edit" },
+    });
+  });
+
+  it("answerApprovalPrompt sends the exact verdict and skips the send after exit", () => {
+    const frame = approvalDialog("a1");
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().acceptApprovalPrompt(h.TAB, emptyPrompt, frame);
+
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "Deny")).toBe(true);
+    expect(h.sent.at(-1)).toMatchObject({
+      tabId: h.TAB,
+      cmd: { type: "extension_ui_response", id: "a1", value: "Deny" },
+    });
+    expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toBeNull();
+    // Nothing held: the card's second click is a no-op.
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "Approve")).toBe(false);
+
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ approvalPrompt: { prompt: emptyPrompt, frame } }) }, exited: { [h.TAB]: 1 } });
+    const before = h.sent.length;
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "Approve")).toBe(true);
+    expect(h.sent.length).toBe(before); // the process is gone; nothing to release
+    expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toBeNull();
+  });
 });
 
 describe("fast mode (issue #677)", () => {

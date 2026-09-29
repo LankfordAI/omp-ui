@@ -42,6 +42,9 @@ export type SessionStatus =
 
 export type SessionMode = "pty" | "rpc-ui";
 export type AgentMode = "plan" | "build";
+/** omp's `tools.approvalMode` tiers (issue #681, ADR-0038): `always-ask`
+ *  gates every tool, `write` gates mutating tools, `yolo` gates nothing. */
+export type ApprovalMode = "always-ask" | "write" | "yolo";
 export type LiveState = "live" | "dormant" | "archived" | "missing";
 
 /**
@@ -333,6 +336,11 @@ export interface OwnedSessionRecord {
   /** Compaction method captured for a fresh native session; null for
    *  terminal-origin sessions. Normalized to null at parse time when absent. */
   compactionMethod: string | null;
+  /** Session-pinned omp approval mode; null = inherit omp's global/project
+   *  tools.approvalMode. Applied as a --config overlay at spawn (ADR-0005
+   *  pattern); changing it relaunches. Post-dates schema-1: absent normalizes
+   *  to null at parse time. */
+  approvalMode: ApprovalMode | null;
   /** Main model selected for this session, as omp's `provider/id` selector.
    *  Normalized to null at parse time when absent. */
   model: string | null;

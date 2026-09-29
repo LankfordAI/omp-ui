@@ -152,6 +152,7 @@ function sessionRecord(tabId: string, title: string) {
     planImplementationSource: null, experiment: null,
     agentMode: "build" as const,
     compactionMethod: null,
+    approvalMode: null,
     model: null,
     thinkingLevel: null,
     advisor: false,

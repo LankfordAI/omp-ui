@@ -108,6 +108,7 @@ function mount(voiceInputEnabled: boolean, ownerId: string | null = null): void 
         experiment: null,
         agentMode: "build",
         compactionMethod: null,
+        approvalMode: null,
         model: null,
         thinkingLevel: null,
         advisor: false,

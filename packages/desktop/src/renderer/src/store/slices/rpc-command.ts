@@ -583,6 +583,7 @@ function freshRpcTabState(
     planDeferred: false,
     planReadiness: null,
     experimentProposal: null,
+    approvalPrompt: null,
     advisorStats: null,
     mcpStatus: null,
     goal: null,

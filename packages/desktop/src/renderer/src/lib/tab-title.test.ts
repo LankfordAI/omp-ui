@@ -29,6 +29,7 @@ function group(path: string, tabId: string, title: string): ProjectGroup {
         planImplementationSource: null, experiment: null,
         agentMode: "build",
         compactionMethod: null,
+        approvalMode: null,
         model: null,
         thinkingLevel: null,
         advisor: false,

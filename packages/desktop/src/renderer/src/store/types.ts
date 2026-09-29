@@ -1,6 +1,7 @@
 import type { SessionCommand } from "@omp-ui/core/session-command";
 import type {
   AgentMode,
+  ApprovalMode,
   AdvisorDefaults,
   AppUpdateRestartResult,
   AppUpdateState,
@@ -54,6 +55,7 @@ import type {
 } from "@omp-ui/core/capabilities";
 import type { GoalSnapshot } from "@omp-ui/core/goal";
 import type { AutoresearchSnapshot, ExperimentProposal } from "@omp-ui/core/autoresearch";
+import type { ApprovalPrompt } from "@omp-ui/core/approval";
 import type { CompactionThresholdSettings } from "@omp-ui/core/compaction-threshold";
 import type {
   PlanExecutionContext,
@@ -235,6 +237,10 @@ export interface RpcTabState {
   planReview: { request: PlanReviewRequest; frame: unknown } | null;
   /** The agent's pending propose_experiment select, until Launch or Cancel answers it (issue #567). */
   experimentProposal: { proposal: ExperimentProposal; frame: unknown } | null;
+  /** The agent's pending `Allow tool:` select, until Allow or Deny answers it
+   *  (issue #681). Routed here instead of extensionQueue; the approval card
+   *  renders it while main still counts the frame as a blocking dialog. */
+  approvalPrompt: { prompt: ApprovalPrompt; frame: unknown } | null;
   planText: string | null;
   planHtml: string | null;
   planDeferred: boolean;
@@ -891,6 +897,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     advisor: boolean,
     advisorModel: string | null,
   ): Promise<void>;
+  /** Pins the session's approval mode (issue #681); a live rpc session relaunches. */
+  setSessionApprovalMode(tabId: string, mode: ApprovalMode | null): Promise<void>;
   setAdvisorModel(tabId: string, selector: string | null): Promise<void>;
   setModel(tabId: string, model: ModelInfo): Promise<void>;
   setThinkingLevel(tabId: string, level: string): Promise<void>;
@@ -901,6 +909,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setFastMode(tabId: string, enabled: boolean): Promise<void>;
   setAutoRetry(tabId: string, enabled: boolean): Promise<void>;
   abortRetry(tabId: string): Promise<void>;
+  /** Holds an approval frame on its tab, split out of the generic queue (issue #681). */
+  acceptApprovalPrompt(tabId: string, prompt: ApprovalPrompt, frame: unknown): void;
+  /** Answers the pending approval (skipping the send when the process exited) and clears it. False when none is held. */
+  answerApprovalPrompt(tabId: string, verdict: "Approve" | "Deny"): boolean;
   /**
    * Compacts the context. Resolves `acked` only when omp acknowledged the
    * compaction (#336), `pending` when it is still running past the response

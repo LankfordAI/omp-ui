@@ -99,6 +99,14 @@ export const en = {
   "dialog.extension.questionNotAnswered": "not answered",
   "dialog.extension.questionReviewing": ", reviewing",
 
+  // ApprovalCard.tsx — the dedicated tool-approval card (issue #681)
+  "dialog.approval.title": "Allow tool",
+  "dialog.approval.origin": "MCP server tool",
+  "dialog.approval.reason": "Reason",
+  "dialog.approval.safety": "Provider safety checks",
+  "dialog.approval.allow": "Allow",
+  "dialog.approval.deny": "Deny",
+
   // DeleteSessionDialog.tsx
   "dialog.delete.kicker": "Irreversible action",
   "dialog.delete.title": "Delete “{title}”?",
@@ -186,6 +194,10 @@ export const en = {
     "Could not enable the advisor: {reason}\n\nThe agent has stopped — resume the session to continue.",
   "session.error.advisorDisable":
     "Could not disable the advisor: {reason}\n\nThe agent has stopped — resume the session to continue.",
+  "session.error.approvalBusy":
+    "Could not relaunch the session with the new approval mode because an in-flight command did not settle. The session is still running.",
+  "session.error.approval":
+    "Could not change the approval mode: {reason}\n\nThe agent has stopped — resume the session to continue.",
   "session.error.retitleNotLive":
     "This session is not running, so its title cannot be regenerated. Resume the session first, then re-title it.",
   "session.error.retitleNoTranscript":
@@ -944,6 +956,13 @@ export const en = {
   "settings.omp.subagentConcurrencyClear": "clear",
   "settings.omp.subagentConcurrencyUnsupported":
     "This project's task.maxConcurrency can't be edited here: {reason}",
+  "settings.omp.approval": "Tool approval",
+  "settings.omp.approvalHint":
+    "Which omp tools ask for approval. always-ask gates every tool, write gates the mutating ones, yolo gates none. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. An unset key means yolo — omp's own default. Changes apply to sessions started afterwards.",
+  "settings.omp.approvalInherit": "inherit",
+  "settings.omp.approvalClear": "clear",
+  "settings.omp.approvalUnsupported":
+    "This project's tools.approvalMode can't be edited here: {reason}",
   "settings.omp.subagentRefresh": "refresh agents",
   "settings.omp.subagentRefreshing": "refreshing…",
   "settings.omp.subagentRosterEmpty": "no agents discovered yet — refresh to enumerate omp's agents",
@@ -1419,6 +1438,18 @@ export const en = {
   "hud.fast.offTitle": "fast mode off · click to enable priority serving",
   "hud.fast.on": "on",
   "hud.fast.onTitle": "fast mode active — priority serving live · click to turn off",
+  // Session HUD approval mode (issue #681, ADR-0038): the chip only ever
+  // marks a PINNED session; inherit is the quiet default.
+  "hud.approval.labelLong": "approval mode",
+  "hud.approval.chipTitle": "approval mode pinned to {mode} · change it under session modes",
+  "hud.approval.effective": "omp resolves: {mode}",
+  "hud.approval.relaunchHint": "Changing the mode relaunches the session.",
+  "hud.approval.ptyHint": "A terminal session shows its prompts in its own terminal.",
+  "hud.approval.subagentHint": "Subagents ignore the session mode — your tools.approval policy governs them.",
+  "hud.approval.alwaysAskTitle": "always-ask — every tool waits for your approval",
+  "hud.approval.writeTitle": "write — mutating tools wait for your approval",
+  "hud.approval.yoloTitle": "yolo — nothing waits for approval",
+  "hud.approval.inheritTitle": "inherit — omp's own config decides",
   "hud.metrics.advisorTotal": "advisor total",
   "hud.metrics.context": "context",
   "hud.metrics.spend": "spend",

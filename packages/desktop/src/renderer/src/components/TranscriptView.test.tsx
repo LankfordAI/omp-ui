@@ -996,6 +996,7 @@ describe("rewind affordances (issue #680)", () => {
       experiment: null,
       agentMode: "plan" as const,
       compactionMethod: null,
+      approvalMode: null,
       model: null,
       thinkingLevel: null,
       advisor: false,

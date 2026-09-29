@@ -1493,6 +1493,29 @@ describe("test-run spawn gate (issue #371)", () => {
   });
 });
 
+describe("session approval mode pinning (issue #681)", () => {
+  it("copies the pinned mode to a full-fidelity fork", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSessionApprovalMode(TAB, "write");
+    // forkSessionFile reads the source transcript — seed one in the lineage dir.
+    const transcript = path.join(
+      sessionsRoot,
+      LINEAGE,
+      "2026-08-13T00-00-00-000Z_appr-src.jsonl",
+    );
+    fs.writeFileSync(
+      transcript,
+      `${JSON.stringify({ type: "session", id: "appr-src", cwd: "/proj" })}\n`,
+    );
+
+    const { tabId: forkTabId } = await manager.forkSession(TAB);
+
+    expect(registry.sessions.find((s) => s.tabId === forkTabId)).toMatchObject({
+      approvalMode: "write",
+    });
+  });
+});
+
 describe("plan implementation handoff persistence (issue #238)", () => {
   const handoff = {
     sourceTabId: TAB,

@@ -394,6 +394,33 @@ fine. Application failures say "omp-ui could not verify" and stop — they
 must never send the agent to rewrite valid source.
 _Avoid_: plan lint, plan validation prompt, renderer check
 
+**Approval card**:
+The transcript card that answers one of omp's tool-approval prompts — an
+`extension_ui_request` whose title begins `Allow tool: ` and whose options are
+exactly Approve and Deny (issue #681, ADR-0038). The frame router splits it
+out of the generic extension dialog queue so the card renders its tool name,
+origin, policy reason, and argument details directly; the main process keeps
+counting the frame as an ordinary blocking dialog, so awaiting-answer, the
+stall guard, and remote hydration behave unchanged. Answering sends exactly
+`"Approve"` or `"Deny"` — omp's runner compares only against `"Approve"`, and
+no session-wide "always allow" verb exists over rpc. Closing the card or
+pressing Escape answers Deny: a dropped dialog is a refusal, never a silent
+approval.
+_Avoid_: approval dialog, permission prompt, tool gate card
+
+**Approval mode**:
+A session's pinned omp `tools.approvalMode` tier — `always-ask` (every tool
+waits), `write` (mutating tools wait), `yolo` (nothing waits) — or *inherit*,
+meaning no pin and omp resolves its own global/project config (where an
+absent key means yolo). omp binds the mode at process start, so the pin rides
+a `--config` overlay written at spawn and changing it relaunches the session
+(ADR-0005 rail, ADR-0038). The mode governs the session's own tool loop only:
+subagents run under the user's `tools.approval` policy regardless, and a
+terminal session's prompts appear in its own embedded TUI, never as an
+approval card. Defaults live in omp's own config (ADR-0025), never in a
+second store.
+_Avoid_: permission mode, tool policy setting, auto-approve flag
+
 **Magic keyword**:
 One of omp's four prose keywords — `ultrathink`, `orchestrate`, `workflowz`,
 `jevify` — which, submitted as standalone prose, make omp append a hidden

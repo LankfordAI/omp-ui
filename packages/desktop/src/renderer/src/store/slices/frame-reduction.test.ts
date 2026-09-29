@@ -351,6 +351,63 @@ describe("handleRpcFrame routing", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toHaveLength(1);
   });
 
+  it("routes an approval select to the approval card, never the queue (issue #681)", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "a1",
+      method: "select",
+      title: "Allow tool: Bash\nOrigin: MCP server tool\nls -la",
+      options: ["Approve", "Deny"],
+    });
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.extensionQueue).toHaveLength(0);
+    expect(tab.approvalPrompt).toMatchObject({
+      frame: { id: "a1" },
+      prompt: { toolName: "Bash", origin: "mcp", details: ["ls -la"] },
+    });
+  });
+
+  it("leaves an extension-faked approval wording in the generic queue (issue #681)", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "a2",
+      method: "select",
+      title: "Allow tool: Something",
+      options: ["Approve", "Deny", "Always for this session"],
+    });
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.approvalPrompt).toBeNull();
+    expect(tab.extensionQueue).toHaveLength(1);
+  });
+
+  it("holds the oldest approval while parallel calls stack (issue #681)", () => {
+    const store = h.useStore.getState();
+    store.handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "a1",
+      method: "select",
+      title: "Allow tool: Bash\nls",
+      options: ["Approve", "Deny"],
+    });
+    store.handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "a2",
+      method: "select",
+      title: "Allow tool: Edit\nedit",
+      options: ["Approve", "Deny"],
+    });
+    // The older frame stays answerable; the second is already counted by main
+    // and reconciles in once the first is answered.
+    expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toMatchObject({ frame: { id: "a1" } });
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "Approve")).toBe(true);
+    expect(h.sent.pop()!.cmd).toMatchObject({
+      type: "extension_ui_response",
+      id: "a1",
+      value: "Approve",
+    });
+    expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toBeNull();
+  });
+
   it("records a setWidget's text in extensionStatus AND still answers it", () => {
     h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",

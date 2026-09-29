@@ -189,6 +189,7 @@ export function createLifecycleSlice(
       planHtml: null,
       planDeferred: false,
       experimentProposal: null,
+      approvalPrompt: null,
       failure: undefined,
       // A fresh process has no renderer-observed checkpoint: resetting it
       // also stops the #100 notice from citing the dead process's

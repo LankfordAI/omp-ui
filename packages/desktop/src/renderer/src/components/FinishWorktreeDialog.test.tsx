@@ -123,6 +123,7 @@ const summary: SessionSummary = {
   planImplementationSource: null, experiment: null,
   agentMode: "build",
   compactionMethod: null,
+  approvalMode: null,
   model: null,
   thinkingLevel: null,
   advisor: false,

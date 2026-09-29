@@ -90,6 +90,19 @@ export const SUBAGENT_CONCURRENCY_SETTING_GROUP: OmpSettingGroup = {
   keys: [OMP_MAX_CONCURRENCY_KEY],
 };
 
+/**
+ * The tool-approval tier (issue #681, ADR-0038). Allowlisted but NOT in
+ * OMP_SETTING_GROUPS: omp publishes no `options` for this key, so the generic
+ * row would render the enum as free text — the page's dedicated "Tool
+ * approval" section renders a select and edits the Global or Project layer
+ * explicitly instead (the Subagent concurrency pattern).
+ */
+export const APPROVAL_SETTING_KEY = "tools.approvalMode";
+export const APPROVAL_SETTING_GROUP: OmpSettingGroup = {
+  title: "Tool approval",
+  keys: [APPROVAL_SETTING_KEY],
+};
+
 /** The exact-interpreter override; "" means "let omp discover one" (issue #671). */
 export const PYTHON_INTERPRETER_KEY = "python.interpreter";
 
@@ -147,6 +160,7 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...WEB_SEARCH_SETTING_GROUP.keys,
   ...PRIVACY_SETTING_GROUP.keys,
   ...SHARE_SETTING_GROUP.keys,
+  ...APPROVAL_SETTING_GROUP.keys,
 ];
 /** modelRoles is a record edited per-role, so it is handled apart from the scalar list. */
 export const OMP_MODEL_ROLES_KEY = "modelRoles";

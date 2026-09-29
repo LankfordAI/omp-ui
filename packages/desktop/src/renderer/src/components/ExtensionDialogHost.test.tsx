@@ -22,7 +22,7 @@ function runtime(queue: unknown[]): RpcTabState {
     session: emptySessionRuntime(), stats: null, subagents: [], subagentItems: {}, selectedSubagent: null,
     subagentMarkers: new Map(), stallCount: 0, extensionStatus: {},
     extensionQueue: queue, busy: false, initialPrompt: null, autoTitleSent: null, hasRenamed: true,
-    plan: null, planReview: null, planReadiness: null, experimentProposal: null,
+    plan: null, planReview: null, planReadiness: null, experimentProposal: null, approvalPrompt: null,
     planHtml: null, planText: null, planDeferred: false, advisorStats: null, mcpStatus: null, advisorReply: true, capabilities: null, capabilitiesLoad: "idle", goal: null, autoresearch: null, limits: null,
     browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null } };
 }

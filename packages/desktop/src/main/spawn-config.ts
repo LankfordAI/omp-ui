@@ -9,6 +9,7 @@ import {
   unarchiveSession,
   readOmpCompactionMethods,
   type OwnedSessionRecord,
+  writeApprovalOverlay,
   writeAdvisorOverlay,
   writeAutoresearchExtension,
   writeBrowserPaneExtension,
@@ -89,6 +90,12 @@ export function writeSessionOverlays(
     if (overlay !== null) overlays.push(overlay);
   } catch (err) {
     console.warn("[subagents] could not write the overlay:", err);
+  }
+  try {
+    const overlay = writeApprovalOverlay(absLineageDir, record.approvalMode);
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[approval] could not write the overlay:", err);
   }
   return overlays;
 }

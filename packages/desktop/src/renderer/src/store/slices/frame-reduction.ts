@@ -28,6 +28,7 @@ import {
   extensionCancelResponse,
   routeExtensionRequest,
 } from "../../lib/extension-router";
+import { parseApprovalPrompt } from "@omp-ui/core/approval";
 import { arrField, boolField, field, strField } from "../../lib/fields";
 import {
   parseCommandList,
@@ -607,6 +608,13 @@ export function createFrameReductionSlice(
             // The agent is blocked on this select; the New experiment dialog
             // answers it (issue #567). Never the generic queue.
             get().acceptExperimentProposal(tabId, proposal, frame);
+            return;
+          }
+          const approval = parseApprovalPrompt(strField(frame, "title"), field(frame, "options"));
+          if (approval) {
+            // The tool runner is blocked on this select; the approval card
+            // answers it (issue #681). Never the generic queue.
+            get().acceptApprovalPrompt(tabId, approval, frame);
             return;
           }
           const entry = extensionStatusEntry(frame);

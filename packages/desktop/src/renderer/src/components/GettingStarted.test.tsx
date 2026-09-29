@@ -121,6 +121,7 @@ function sessionSummary(): SessionSummary {
     launchedAt: "t",
     mode: "rpc-ui",
     compactionMethod: null,
+    approvalMode: null,
     model: null,
     thinkingLevel: null,
     advisor: false,
