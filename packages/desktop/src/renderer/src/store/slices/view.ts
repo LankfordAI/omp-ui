@@ -21,6 +21,7 @@ import {
   clampPanelWidth,
   INSPECTOR_DEFAULT_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
+  type RailTab,
 } from "../../lib/panel-layout";
 import { randomId } from "../../lib/random-id";
 import { projectKey } from "../../lib/project-key";
@@ -65,6 +66,14 @@ export interface ViewSlice {
   sidebarWidth: number;
   inspectorWidth: number;
   inspectorOpen: boolean;
+  /**
+   * A pending request to show one rail pane for a tab (issue #682). The rail's
+   * own selection is a module map nothing else can poke, so the request
+   * carries a `nonce` the mounted rail compares against the last one it
+   * handled; the rail applies it, opens itself, and remembers the pane.
+   */
+  railPaneFocus: Record<string, { pane: RailTab; nonce: number }>;
+  focusRailPane(tabId: string, pane: RailTab): void;
   /** Split browser pane width preference (issue #519); persisted beside the other two. */
   browserPaneWidth: number;
   /** Sidebar host filter (issue #507): "all" | "local" | a joined instance id.
@@ -363,6 +372,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
   inspectorWidth: INSPECTOR_DEFAULT_WIDTH,
   inspectorOpen: false,
+  railPaneFocus: {},
   browserPaneWidth: BROWSER_PANE_DEFAULT_WIDTH,
   hostScope: "all",
   errorNotices: [],
@@ -480,6 +490,14 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   setInspectorOpen(open) {
     set({ inspectorOpen: open });
+  },
+  focusRailPane(tabId, pane) {
+    set((s) => ({
+      railPaneFocus: {
+        ...s.railPaneFocus,
+        [tabId]: { pane, nonce: (s.railPaneFocus[tabId]?.nonce ?? 0) + 1 },
+      },
+    }));
   },
   setBrowserPaneWidth(width) {
     set({ browserPaneWidth: clampPanelWidth("browserPane", width) });

@@ -12,6 +12,7 @@ import {
   parseMcpRuntimeStatus,
 } from "@omp-ui/core/mcp-status";
 import { GOAL_STATUS_KEY, parseGoalSnapshot } from "@omp-ui/core/goal";
+import { BTW_STATUS_KEY, parseBtwSnapshot } from "@omp-ui/core/side-questions";
 import {
   AUTORESEARCH_STATUS_KEY,
   AUTORESEARCH_WIDGET_KEY,
@@ -188,6 +189,11 @@ export function createFrameReductionSlice(
     [GOAL_STATUS_KEY]: (tabId, text) => {
       const snapshot = parseGoalSnapshot(text);
       if (snapshot !== null) acceptGoalSnapshot(tabId, snapshot, get, m);
+    },
+    [BTW_STATUS_KEY]: (tabId, text) => {
+      // A malformed or over-budget publish keeps the last good snapshot.
+      const snapshot = parseBtwSnapshot(text);
+      if (snapshot !== null) m.patchRpc(tabId, { sideQuestions: snapshot });
     },
     [CAPABILITIES_STATUS_KEY]: (tabId, text) => {
       const snapshot = parseCapabilitySnapshot(text);

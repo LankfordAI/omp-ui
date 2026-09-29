@@ -31,6 +31,7 @@ import { createLifecycleSlice } from "./store/slices/lifecycle";
 import { createPlanExecutionSlice } from "./store/slices/plan-execution";
 import { createRpcCommandSlice } from "./store/slices/rpc-command";
 import { createSessionParamsSlice } from "./store/slices/session-params";
+import { createSideQuestionsSlice } from "./store/slices/side-questions";
 import { createSettingsSlice } from "./store/slices/settings";
 import {
   browserPaneWriters,
@@ -171,6 +172,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const browserPane = createBrowserPaneSlice(set, get, m);
   const lab = createLabSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });
   const stats = createStatsSlice(set, get);
+  const sideQuestions = createSideQuestionsSlice(get, m);
 
   /**
    * Repaints the document to match the registry's persisted themeId. The
@@ -381,6 +383,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...browserPane,
     ...lab,
     ...stats,
+    ...sideQuestions,
     state: null,
     exited: {},
     hibernated: {},

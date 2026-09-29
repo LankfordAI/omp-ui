@@ -7,6 +7,7 @@ import {
   INSPECTOR_DEFAULT_WIDTH,
   INSPECTOR_MIN_WIDTH,
   resolveDesktopPanelWidths,
+  type RailTab,
 } from "../lib/panel-layout";
 import { parseBranchDiff, type DiffFile } from "../lib/omp-diff";
 import { projectKey } from "../lib/project-key";
@@ -20,6 +21,7 @@ import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { AGENT_TONE } from "../lib/agent-tone";
 import { compactNum, exactNum, formatCost, shortBase } from "../lib/format";
 import { TodoPanel } from "./TodoPanel";
+import { SideQuestionsPane } from "./SideQuestionsPane";
 import { SubagentModelsControl } from "./SubagentModelsControl";
 import { Button, Chip, CopyButton, Dot, Empty, ICON_STROKE, IconRefresh, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
 
@@ -40,8 +42,6 @@ interface BranchDiffLoad {
  * icons. (The console moved to the composer drawer — issue #33.)
  */
 
-export type RailTab = "todos" | "agents" | "session" | "plans" | "diffs";
-
 /**
  * Rail selection is per-session and deliberately module-level: it is view
  * preference, not session state, so it must not round-trip through the store —
@@ -49,6 +49,8 @@ export type RailTab = "todos" | "agents" | "session" | "plans" | "diffs";
  */
 const selectedTab = new Map<string, RailTab>();
 // Open posture is shared renderer view state; selected panes remain per-tab.
+/** The last `railPaneFocus` nonce each tab's rail applied, so a request lands once. */
+const handledFocus = new Map<string, number>();
 
 /* ------------------------------------------------------------------- icons */
 
@@ -88,6 +90,12 @@ function TabIcon({ tab }: { tab: RailTab }) {
           <path d="M2.8 4.4h8.6v6.6a1.2 1.2 0 0 1-1.2 1.2H4A1.2 1.2 0 0 1 2.8 11z" {...ICON_STROKE} />
           <path d="M12.4 3.4v4.6M10.1 5.7h4.6" {...ICON_STROKE} />
           <path d="M6 2H4.4A1.4 1.4 0 0 0 3 3.4v1.8M10 14h1.6a1.4 1.4 0 0 0 1.4-1.4v-1.8" {...ICON_STROKE} />
+        </>
+      )}
+      {tab === "btw" && (
+        <>
+          <path d="M2.8 3.2h10.4a1 1 0 0 1 1 1v5.6a1 1 0 0 1-1 1H8.2l-3 2.4v-2.4H2.8a1 1 0 0 1-1-1V4.2a1 1 0 0 1 1-1z" {...ICON_STROKE} />
+          <path d="M6.6 6.2c0-.9.7-1.5 1.5-1.5s1.4.6 1.4 1.3c0 .9-1.4 1.1-1.4 2M8.1 9.4v.1" {...ICON_STROKE} />
         </>
       )}
     </svg>
@@ -695,12 +703,13 @@ function DiffsPane({ tabId }: { tabId: string }) {
 
 /* -------------------------------------------------------------- the rail */
 
-const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.session" | "rail.tabs.plans" | "rail.tabs.diffs" }[] = [
+const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.session" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" }[] = [
   { id: "todos", labelKey: "rail.tabs.todos" },
   { id: "agents", labelKey: "rail.tabs.agents" },
   { id: "session", labelKey: "rail.tabs.session" },
   { id: "plans", labelKey: "rail.tabs.plans" },
   { id: "diffs", labelKey: "rail.tabs.diffs" },
+  { id: "btw", labelKey: "rail.tabs.btw" },
 ];
 
 export function inspectorBadges(
@@ -717,6 +726,8 @@ export function inspectorBadges(
     session: 0,
     plans: pendingPlanCount(record, runtime?.planReview?.request.planFilePath),
     diffs: 0,
+    // Answered topics: what the user can read back.
+    btw: (runtime?.sideQuestions?.topics ?? []).filter((topic) => topic.status === "complete").length,
   };
 }
 
@@ -749,6 +760,19 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   useEffect(() => {
     setPreviewWidth(null);
   }, [inspectorWidth]);
+
+  // Another surface (the composer's `/btw`) asked for a pane: select it,
+  // open the rail, and remember it like a click would.
+  const focusRequest = useStore((s) => s.railPaneFocus[tabId]);
+  const showCompactSurface = useStore((s) => s.showCompactSurface);
+  useEffect(() => {
+    if (focusRequest === undefined || handledFocus.get(tabId) === focusRequest.nonce) return;
+    handledFocus.set(tabId, focusRequest.nonce);
+    selectedTab.set(tabId, focusRequest.pane);
+    setTab(focusRequest.pane);
+    if (compact) showCompactSurface("inspector");
+    else setOpen(true);
+  }, [focusRequest, tabId, compact, setOpen, showCompactSurface]);
 
   const resolvedWidths = resolveDesktopPanelWidths({
     viewportWidth,
@@ -784,13 +808,14 @@ export function InspectorRail({ tabId }: { tabId: string }) {
       {tab === "session" && <SessionPane tabId={tabId} />}
       {tab === "plans" && <PlansPane tabId={tabId} />}
       {tab === "diffs" && <DiffsPane tabId={tabId} />}
+      {tab === "btw" && <SideQuestionsPane tabId={tabId} />}
     </>
   );
 
   if (compact) {
     return (
       <Sheet open={surface === "inspector"} placement="right" label={t("rail.chrome.inspector")} onClose={closeCompactSurface}>
-        <div className="sticky top-0 z-10 grid grid-cols-5 border-b border-line bg-sunken">
+        <div className="sticky top-0 z-10 grid grid-cols-6 border-b border-line bg-sunken">
           {TABS.map(({ id, labelKey }) => {
             const label = t(labelKey);
             return (

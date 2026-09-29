@@ -12,6 +12,9 @@ export const BROWSER_PANE_MAX_WIDTH = 1600;
 export const MAIN_CONTENT_MIN_WIDTH = 320;
 export const PANEL_KEYBOARD_STEP = 16;
 
+/** The inspector rail's panes; the strip shows them in this order. */
+export type RailTab = "todos" | "agents" | "session" | "plans" | "diffs" | "btw";
+
 export type DesktopPanel = "sidebar" | "inspector" | "browserPane";
 
 const PANEL_BOUNDS = {

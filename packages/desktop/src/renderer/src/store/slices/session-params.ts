@@ -182,6 +182,17 @@ const localCommands: readonly LocalCommand[] = [
       return get().runGoalCommand(tabId, line);
     },
   },
+  {
+    // omp's /btw is TUI-only: over rpc the line would reach the model as
+    // literal prompt text (issue #682). A native tab drives the side-questions
+    // bridge instead; a terminal tab's TUI keeps omp's own implementation.
+    match: /^\/btw(?:\s[\s\S]*)?$/,
+    run(tabId, get, line) {
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
+      if (tab?.mode !== "rpc-ui") return false;
+      return get().runSideQuestionCommand(tabId, line);
+    },
+  },
   // omp-ui's autoresearch surfaces (ADR-0030, #567): `start` is the New
   // experiment dialog (its own agent interview with text), `lab` the Lab.
   // Bare `/autoresearch`, `off`, `clear`, and anything else stay omp's own

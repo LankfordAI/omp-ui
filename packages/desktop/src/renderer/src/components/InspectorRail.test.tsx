@@ -126,6 +126,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
   return {
     status: "ready",
     goal: null,
+    sideQuestions: null,
     autoresearch: null,
     limits: null,
     items: [],
@@ -228,7 +229,7 @@ describe("desktop InspectorRail", () => {
 
     // The strip is the whole rail: feature icons with badges, no expand control.
     expect(button("expand inspector")).toBeNull();
-    for (const label of ["todos", "agents", "session", "plans", "diffs"]) {
+    for (const label of ["todos", "agents", "session", "plans", "diffs", "side questions"]) {
       expect(button(label)).not.toBeNull();
     }
     expect(button("memory")).toBeNull();
@@ -557,5 +558,117 @@ describe("desktop InspectorRail", () => {
     renderRail();
     expect(document.body.querySelector('[role="dialog"][aria-label="inspector"]')).not.toBeNull();
     expect(document.body.querySelector('[role="separator"]')).toBeNull();
+  });
+});
+
+describe("Side questions pane (issue #682)", () => {
+  const topic = (id: string, question: string, status: "complete" | "error" | "cancelled", answer = "") => ({
+    id,
+    question,
+    answer,
+    status,
+    updatedAt: Date.now(),
+    turns: [{ question, answer, status, updatedAt: Date.now() }],
+  });
+  const snapshot = (patch: Partial<NonNullable<RpcTabState["sideQuestions"]>> = {}) => ({
+    available: true,
+    active: null,
+    topics: [],
+    publishedAt: 1,
+    ...patch,
+  });
+  const btwFrames = (verb: string): string[] =>
+    backendMock.rpcSend.mock.calls
+      .map(([, cmd]) => (cmd as { message?: unknown }).message)
+      .filter((message): message is string => typeof message === "string" && message.startsWith(`/omp-ui-btw ${verb} `));
+
+  beforeEach(() => backendMock.rpcSend.mockReset());
+
+  it("opens only its own pane from the sixth icon and refreshes on mount", () => {
+    renderRail();
+    act(() => railTab("side questions")!.click());
+    expect(button("side questions")?.getAttribute("aria-pressed")).toBe("true");
+    expect(document.body.textContent).toContain(t("rail.btw.emptyTitle"));
+    expect(document.body.textContent).not.toContain("First task");
+    expect(btwFrames("refresh")).toHaveLength(1);
+  });
+
+  it("badges answered topics only", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          sideQuestions: snapshot({
+            topics: [topic("a", "one", "complete", "x"), topic("b", "two", "error"), topic("c", "three", "cancelled")],
+          }),
+        }),
+      },
+    });
+    renderRail();
+    expect(railTab("side questions")?.title).toBe("side questions (1)");
+  });
+
+  it("renders topics with status chips and expands a row into its answer", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          sideQuestions: snapshot({
+            topics: [topic("a", "why is the sky blue?", "complete", "Rayleigh scattering"), topic("b", "broken one", "error")],
+          }),
+        }),
+      },
+    });
+    renderRail();
+    act(() => railTab("side questions")!.click());
+    expect(document.body.textContent).toContain("why is the sky blue?");
+    expect(document.body.textContent).toContain(t("rail.btw.statusComplete"));
+    expect(document.body.textContent).toContain(t("rail.btw.statusError"));
+    expect(document.body.textContent).not.toContain("Rayleigh scattering");
+    const row = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) =>
+      b.textContent?.includes("why is the sky blue?"),
+    )!;
+    act(() => row.click());
+    expect(document.body.textContent).toContain("Rayleigh scattering");
+  });
+
+  it("shows the running card and Cancel sends the cancel frame; asking is disabled meanwhile", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          sideQuestions: snapshot({ active: { topicId: "t", question: "in flight", answer: "partial words" } }),
+        }),
+      },
+    });
+    renderRail();
+    act(() => railTab("side questions")!.click());
+    expect(document.body.textContent).toContain("in flight");
+    expect(document.body.textContent).toContain("partial words");
+    expect(document.body.querySelector<HTMLInputElement>(`input[aria-label="${t("rail.btw.askPlaceholder")}"]`)?.disabled).toBe(true);
+    const cancel = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === t("rail.btw.cancel"),
+    )!;
+    act(() => cancel.click());
+    expect(btwFrames("cancel")).toHaveLength(1);
+  });
+
+  it("renders the unavailable and busy banners", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          sideQuestions: snapshot({ available: false, unavailableReason: "no ephemeral API here", busy: "still running" }),
+        }),
+      },
+    });
+    renderRail();
+    act(() => railTab("side questions")!.click());
+    expect(document.body.textContent).toContain("no ephemeral API here");
+    expect(document.body.textContent).toContain("still running");
+  });
+
+  it("selects and opens the pane when another surface asks for it", () => {
+    renderRail();
+    expect(button("collapse inspector")).toBeNull();
+    act(() => useStore.getState().focusRailPane(TAB, "btw"));
+    expect(button("collapse inspector")).not.toBeNull();
+    expect(button("side questions")?.getAttribute("aria-pressed")).toBe("true");
   });
 });

@@ -532,6 +532,8 @@ export function disposeTabRuntime(
     // The goal belongs to the dying process too; a pending command row settles
     // as failed by the abandoned rpc call it rode, never by optimism.
     goal: null,
+    // Likewise the side-question topics: the next process republishes its own.
+    sideQuestions: null,
     autoresearch: null,
   });
   rpcCommandMachinery.abandon(tabId, reason, m);
@@ -587,6 +589,7 @@ function freshRpcTabState(
     advisorStats: null,
     mcpStatus: null,
     goal: null,
+    sideQuestions: null,
     autoresearch: null,
     limits: null,
     capabilities: null,
