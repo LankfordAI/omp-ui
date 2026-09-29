@@ -126,6 +126,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
   return {
     status: "ready",
     goal: null,
+    vibe: null,
     sideQuestions: null,
     autoresearch: null,
     limits: null,

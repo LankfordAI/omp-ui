@@ -100,6 +100,13 @@ export interface TabRuntime {
    * reboot or abandon drops it with everything else process-local.
    */
   goalRequests: Map<string, string>;
+  /**
+   * Vibe commands awaiting their correlated result: requestId → transcript
+   * command-row id (issue #683). Same discipline as `goalRequests`: the result
+   * rides a published snapshot, and a snapshot from another client or an older
+   * generation must never settle this row.
+   */
+  vibeRequests: Map<string, string>;
 }
 
 export interface StoreMachinery {
@@ -423,6 +430,7 @@ function freshTabRuntime(): TabRuntime {
     slashCommandItems: new Map(),
     capabilitiesGeneration: 0,
     goalRequests: new Map(),
+    vibeRequests: new Map(),
   };
 }
 /** Test seam for the renderer store harness's whole-state reset. */

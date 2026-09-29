@@ -3,6 +3,7 @@ import type { SessionCommand } from "@omp-ui/core/session-command";
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
 import type { GoalSnapshot } from "@omp-ui/core/goal";
+import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type {
   CapabilitySnapshot,
@@ -207,6 +208,46 @@ export function acceptGoalSnapshot(
   const result = snapshot.result;
   if (result === null) return true;
   const requests = m.runtime(tabId).goalRequests;
+  const itemId = requests.get(result.requestId);
+  if (itemId === undefined) return true;
+  requests.delete(result.requestId);
+  m.patchItems(tabId, (item) =>
+    item.kind === "command" && item.id === itemId && item.status === "running"
+      ? {
+          ...item,
+          status: result.ok ? "done" : "failed",
+          output: result.text,
+          ...(result.ok ? {} : { error: result.text }),
+        }
+      : item,
+  );
+  return true;
+}
+
+/**
+ * The one acceptance rule for a vibe snapshot (issue #683), shared by the
+ * `setStatus` push path and by the boot-time summary, with
+ * {@link acceptGoalSnapshot}'s discipline: same-process snapshots must carry
+ * a strictly newer revision, a different processKey always replaces what an
+ * older generation left behind, and a malformed publish never reaches here —
+ * the parser refused it.
+ *
+ * Accepting the snapshot settles this tab's pending vibe command row whose
+ * requestId the result carries; a result addressed to another client or an
+ * older generation matches no entry in this tab's map.
+ */
+export function acceptVibeSnapshot(
+  tabId: string,
+  snapshot: VibeSnapshot,
+  get: GetState,
+  m: StoreMachinery,
+): boolean {
+  const retained = get().rpc[tabId]?.vibe ?? null;
+  if (!isNewerSnapshot(retained, snapshot)) return false;
+  m.patchRpc(tabId, { vibe: snapshot });
+  const result = snapshot.result;
+  if (result === null) return true;
+  const requests = m.runtime(tabId).vibeRequests;
   const itemId = requests.get(result.requestId);
   if (itemId === undefined) return true;
   requests.delete(result.requestId);
@@ -532,6 +573,9 @@ export function disposeTabRuntime(
     // The goal belongs to the dying process too; a pending command row settles
     // as failed by the abandoned rpc call it rode, never by optimism.
     goal: null,
+    // The vibe roster is the dying process's director state: omp's worker
+    // scopes died with it, and the successor republishes its own (#683).
+    vibe: null,
     // Likewise the side-question topics: the next process republishes its own.
     sideQuestions: null,
     autoresearch: null,
@@ -589,6 +633,7 @@ function freshRpcTabState(
     advisorStats: null,
     mcpStatus: null,
     goal: null,
+    vibe: null,
     sideQuestions: null,
     autoresearch: null,
     limits: null,
@@ -616,6 +661,8 @@ export function createRpcCommandSlice(
   reconcileGoals(state: BackendState): void;
   /** The autoresearch twin of `reconcileGoals`, run beside it (ADR-0030). */
   reconcileAutoresearch(state: BackendState): void;
+  /** The vibe twin of `reconcileGoals`, run beside it (issue #683). */
+  reconcileVibe(state: BackendState): void;
 } {
   // The bodies moved from the root closure keep their original names.
   const {
@@ -1130,6 +1177,25 @@ export function createRpcCommandSlice(
     }
   };
 
+  /**
+   * Hydrates the vibe snapshot each tab's live process reports (issue #683),
+   * with `reconcileGoals`' semantics: the summary carries it for late joiners,
+   * the shared acceptance helper keeps a live frame and a hydrated record in
+   * agreement, and a tab whose process died shows none.
+   */
+  const reconcileVibe = (state: BackendState): void => {
+    for (const [tabId, tab] of Object.entries(get().rpc)) {
+      const rec = findRecord(state, tabId);
+      const snapshot = rec?.vibe;
+      if (snapshot === undefined) {
+        if (tab.vibe !== null && rec?.live !== "live")
+          m.patchRpc(tabId, { vibe: null });
+        continue;
+      }
+      acceptVibeSnapshot(tabId, snapshot, get, m);
+    }
+  };
+
   return {
     bootRpcTab,
     refreshAvailableModels,
@@ -1141,5 +1207,6 @@ export function createRpcCommandSlice(
     reloadHistory: loadHistory,
     reconcileGoals,
     reconcileAutoresearch,
+    reconcileVibe,
   };
 }

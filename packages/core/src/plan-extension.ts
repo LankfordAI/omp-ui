@@ -271,6 +271,8 @@ const HTML_UNAVAILABLE =
 
 /** What Plan entry answers with when a goal still owns the mode slot. */
 const PLAN_GOAL_BLOCK = "Drop the current goal before entering Plan mode.";
+/** What Plan entry answers with when vibe mode owns the mode slot. */
+const PLAN_VIBE_BLOCK = "Exit vibe mode before entering Plan mode.";
 
 /** What omp's plan-mode write guard reads, and what the wrapper below fakes. */
 interface PlanModeState {
@@ -323,6 +325,8 @@ interface PlanSession {
   hasBuiltInTool?: (name: string) => boolean;
   /** omp's goal state, read only to decide whether Plan may take the mode slot. */
   getGoalModeState?: () => unknown;
+  /** omp's vibe state, read only to decide whether Plan may take the mode slot. */
+  getVibeModeState?: () => unknown;
   /**
    * Delivers a hidden instruction into the conversation. Unsupported surface
    * like the rest of this session access; absent on an older omp, in which
@@ -1221,6 +1225,23 @@ export default function (pi: PlanExtensionApi) {
     return PLAN_GOAL_BLOCK;
   }
 
+  /**
+   * Vibe mode owns the same single mode slot: an active director (workers or
+   * not, the flag alone) blocks Plan entry, mirroring the goal bridge's veto
+   * of vibe entry in the other direction.
+   */
+  function vibeActive(active: PlanSession): boolean {
+    const read = active.getVibeModeState;
+    if (typeof read !== "function") return false;
+    try {
+      const state: unknown = read.call(active);
+      if (state === null || typeof state !== "object" || !("enabled" in state)) return false;
+      return state.enabled === true;
+    } catch {
+      return false;
+    }
+  }
+
   pi.registerCommand(COMMAND, {
     description: "omp-ui plan mode control",
     handler: (args: string, ctx: { ui: PlanUi }) =>
@@ -1275,6 +1296,7 @@ export default function (pi: PlanExtensionApi) {
           const blocked = await inTransition(async () => {
             const reason = goalBlocksPlan(active);
             if (reason !== null) return reason;
+            if (vibeActive(active)) return PLAN_VIBE_BLOCK;
             await enterPlanMode(active);
             return null;
           });

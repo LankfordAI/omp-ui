@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
 import type { NativeGoal } from "@omp-ui/core/goal";
+import type { VibeSnapshot } from "@omp-ui/core/vibe";
+import { vibeWorkLive } from "@omp-ui/core/vibe";
 import type { LimitsView } from "@omp-ui/core/limits";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import { cn } from "../lib/cn";
@@ -276,6 +278,52 @@ function GoalChip({
   );
 }
 
+/**
+ * Vibe mode, as the root bridge reports it (issue #683): the glanceable half
+ * is mode-on and how many workers are under the director; live work pulses
+ * copper like the agent roster does. Clicking opens the Agents pane, which
+ * carries the full roster — the chip never duplicates it.
+ */
+function VibeChip({
+  vibe,
+  tabId,
+  className,
+}: {
+  vibe: VibeSnapshot;
+  tabId: string;
+  className?: string;
+}) {
+  const t = useT();
+  const setInspectorOpen = useStore((s) => s.setInspectorOpen);
+  const focusRailPane = useStore((s) => s.focusRailPane);
+  const working = vibeWorkLive(vibe);
+  const title = t(
+    working
+      ? "hud.vibe.working"
+      : vibe.workers.length > 0
+        ? "hud.vibe.idleWorkers"
+        : "hud.vibe.noWorkers",
+    { count: vibe.workers.length },
+  );
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setInspectorOpen(true);
+        focusRailPane(tabId, "agents");
+      }}
+      title={`${title}. ${t("hud.vibe.openTitle")}`}
+      aria-label={title}
+      className={cn("shrink-0 rounded border border-transparent", className)}
+    >
+      <Chip tone="copper" mono>
+        {working && <Dot tone="copper" />}
+        {t("hud.vibe.label")}
+        <span className="opacity-70">{vibe.workers.length}</span>
+      </Chip>
+    </button>
+  );
+}
 /**
  * One session's autoresearch mode, as the root bridge reports it (ADR-0030,
  * issue #559). The chip is the glanceable half: is the loop on, is a turn
@@ -1002,6 +1050,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const mcpFailureCount = useStore((s) => s.rpc[tabId]?.mcpStatus?.failedServers.length ?? 0);
   const plan = useStore((s) => s.rpc[tabId]?.plan);
   const goal = useStore((s) => s.rpc[tabId]?.goal);
+  const vibe = useStore((s) => s.rpc[tabId]?.vibe);
   const autoresearch = useStore((s) => s.rpc[tabId]?.autoresearch);
   const limits = useStore((s) => s.rpc[tabId]?.limits);
   const quotaEvent = useStore((s) => s.rpc[tabId]?.quotaEvent);
@@ -1106,6 +1155,16 @@ export function SessionHud({ tabId }: { tabId: string }) {
       className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
     />
   );
+  // The vibe chip sits beside the goal chip while the director mode is on
+  // (issue #683); the goal and vibe modes are mutually exclusive, so at most
+  // one of the two renders.
+  const vibeChip = vibe?.enabled === true && (
+    <VibeChip
+      vibe={vibe}
+      tabId={tabId}
+      className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
+    />
+  );
   // The autoresearch chip sits beside it while omp's mode is on (ADR-0030).
   const autoresearchChip = autoresearch?.mode === "on" && (
     <AutoresearchChip
@@ -1159,6 +1218,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {instanceChip}
           {agentModeChip}
           {goalChip}
+          {vibeChip}
           {autoresearchChip}
           {fastChip}
           {approvalChip}
@@ -1232,6 +1292,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {instanceChip}
       {agentModeChip}
       {goalChip}
+      {vibeChip}
       {autoresearchChip}
       {fastChip}
       {approvalChip}

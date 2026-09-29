@@ -12,6 +12,12 @@ import {
   goalMessage,
   type GoalCommandRequest,
 } from "@omp-ui/core/goal";
+import {
+  VIBE_ARGS_BYTE_LIMIT,
+  vibeMessage,
+  type VibeCommandRequest,
+  type VibeSubcommand,
+} from "@omp-ui/core/vibe";
 import { backend, backendFor } from "../../backend";
 import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
 import { t } from "../../lib/i18n";
@@ -105,6 +111,7 @@ export type SessionParamsSlice = Pick<
   | "runShellCommand"
   | "abortShellCommands"
   | "runGoalCommand"
+  | "runVibeCommand"
   | "runHiddenCommand"
   | "setTodos"
   | "refreshState"
@@ -180,6 +187,17 @@ const localCommands: readonly LocalCommand[] = [
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui") return false;
       return get().runGoalCommand(tabId, line);
+    },
+  },
+  {
+    // omp's /vibe is TUI-only: over rpc the line would reach the model as
+    // literal prompt text (issue #683). A native tab drives the root vibe
+    // bridge instead; a terminal tab's TUI keeps omp's own implementation.
+    match: /^\/vibe(?:\s[\s\S]*)?$/i,
+    run(tabId, get, line) {
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
+      if (tab?.mode !== "rpc-ui") return false;
+      return get().runVibeCommand(tabId, line);
     },
   },
   {
@@ -1291,6 +1309,119 @@ export function createSessionParamsSlice(
   };
 
   /**
+   * One `/vibe` line, dispatched as a command against the session's own vibe
+   * bridge (issue #683) rather than as prose. The row keeps the line the user
+   * typed; the wire carries the hidden bridge command with this client's
+   * requestId, and the bridge's published snapshot — never the prompt ack —
+   * supplies the outcome. The human subcommand is translated here into the
+   * JSON args the bridge's worker tools expect, so worker prompts never reach
+   * the model. An unavailable bridge is answered with an actionable reason and
+   * sends nothing at all.
+   */
+  const runVibeCommand = async (tabId: string, line: string): Promise<void> => {
+    const message = line.startsWith("/") ? line : `/${line}`;
+    const body = message.slice(1).trim();
+    const spaceAt = body.search(/\s/);
+    // The interceptor's regex guarantees the family word `vibe`; what steers
+    // the bridge is the subcommand after it.
+    const afterHead = spaceAt === -1 ? "" : body.slice(spaceAt + 1).trim();
+    const subSpace = afterHead.search(/\s/);
+    const name = (subSpace === -1 ? afterHead : afterHead.slice(0, subSpace)).toLowerCase();
+    const rest = subSpace === -1 ? "" : afterHead.slice(subSpace + 1).trim();
+    const item = commandItem("vibe", afterHead);
+    m.appendItem(tabId, item);
+    const settle = (patch: Partial<CommandItem>): void => {
+      m.patchItems(tabId, (i) =>
+        i.kind === "command" && i.id === item.id && i.status === "running"
+          ? { ...i, ...patch }
+          : i,
+      );
+    };
+    const snapshot = get().rpc[tabId]?.vibe ?? null;
+    if (snapshot === null) {
+      settle({ status: "failed", error: t("composer.vibe.needsRestart") });
+      return;
+    }
+    if (!snapshot.available) {
+      settle({
+        status: "failed",
+        error: t("composer.vibe.unavailable", {
+          reason: snapshot.unavailable ?? t("composer.vibe.unavailableUnknown"),
+        }),
+      });
+      return;
+    }
+    // Translate the human subcommand into the bridge's JSON worker-tool args.
+    // An unknown verb and `on`/`toggle` carry no args; a mode verb settles even
+    // while the mode is off, but the worker verbs need it on (the bridge says
+    // so), so those are only refused here if the shape is empty.
+    let command: VibeSubcommand;
+    let args = "";
+    if (name === "" || name === "vibe" || name === "on") command = "toggle";
+    else if (name === "off") command = "off";
+    else if (name === "list") command = "list";
+    else if (name === "spawn") {
+      const good = /^--good\b(?:\s+|$)/.test(rest);
+      const named = rest.replace(/^--good\b\s*/i, "").match(/^--name\s+(\S+)\s+([\s\S]*)$/i);
+      const cli = good ? "good" : "fast";
+      const prompt = named ? named[2]!.trim() : rest.replace(/^--good\b\s*/i, "").trim();
+      if (prompt === "") {
+        settle({ status: "failed", error: t("composer.vibe.spawnNeedsPrompt") });
+        return;
+      }
+      command = "spawn";
+      args = JSON.stringify(named ? { cli, prompt, name: named[1] } : { cli, prompt });
+    } else if (name === "send") {
+      const sendId = rest.split(/\s+/)[0] ?? "";
+      const text = rest.slice(sendId.length).trim();
+      if (sendId === "" || text === "") {
+        settle({ status: "failed", error: t("composer.vibe.sendNeedsArgs") });
+        return;
+      }
+      command = "send";
+      args = JSON.stringify({ session: sendId, message: text });
+    } else if (name === "kill") {
+      if (rest === "") {
+        settle({ status: "failed", error: t("composer.vibe.killNeedsId") });
+        return;
+      }
+      command = "kill";
+      args = JSON.stringify({ session: rest.split(/\s+/)[0] });
+    } else if (name === "wait") {
+      const ids = rest.split(/\s+/).filter((token) => token !== "");
+      command = "wait";
+      args = JSON.stringify(ids.length > 0 ? { sessions: ids } : {});
+    } else {
+      // omp's own /vibe verb (scope, undo, …) has no rpc surface; the bridge
+      // answers none of them, and prose would reach the director as a prompt.
+      settle({ status: "failed", error: t("composer.vibe.unsupportedVerb", { verb: name }) });
+      return;
+    }
+    if (new TextEncoder().encode(args).length > VIBE_ARGS_BYTE_LIMIT) {
+      settle({ status: "failed", error: t("composer.vibe.tooLong") });
+      return;
+    }
+    const request: VibeCommandRequest = {
+      requestId: randomId(),
+      sessionId: snapshot.sessionId,
+      processKey: snapshot.processKey,
+      command,
+      args,
+    };
+    m.runtime(tabId).vibeRequests.set(request.requestId, item.id);
+    const resp = await m.runCommand(tabId, {
+      type: "prompt",
+      message: vibeMessage(request),
+    });
+    if (resp !== null) return;
+    m.runtime(tabId).vibeRequests.delete(request.requestId);
+    settle({
+      status: "failed",
+      error: get().rpc[tabId]?.failure?.message ?? "command failed",
+    });
+  };
+
+  /**
    * One hidden bridge command as a quiet prompt (the `refreshLimits` shape,
    * issue #680): the bridge's published snapshot — not the ack — answers for
    * it, so the transcript gets no row and the busy sweep no strobe.
@@ -1449,6 +1580,7 @@ export function createSessionParamsSlice(
     runShellCommand,
     abortShellCommands,
     runGoalCommand,
+    runVibeCommand,
     runHiddenCommand,
     setTodos,
     refreshState,

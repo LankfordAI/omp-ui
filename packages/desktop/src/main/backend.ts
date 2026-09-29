@@ -1492,6 +1492,9 @@ export class MainBackend {
     // state, so a session with no live process reports none instead of a
     // remembered one (issue #381).
     const goal = this.sessions.goalSnapshot(record.tabId);
+    // Ephemeral like the goal snapshot: the bridge inside the live child owns
+    // vibe state, so a session with no live process reports none (#683).
+    const vibe = this.sessions.vibeSnapshot(record.tabId);
     const autoresearch = this.sessions.autoresearchSnapshot(record.tabId);
     const bridgeAvailability = this.sessions.bridgeAvailability(record.tabId);
     return {
@@ -1510,6 +1513,7 @@ export class MainBackend {
       pendingDialogs: this.sessions.pendingDialogs(record.tabId),
       ...(goal === undefined ? {} : { goal }),
       ...(autoresearch === undefined ? {} : { autoresearch }),
+      ...(vibe === undefined ? {} : { vibe }),
     };
   }
 

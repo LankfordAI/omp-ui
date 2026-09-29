@@ -407,7 +407,8 @@ describe("MCP runtime status bridge", () => {
     // The flush precedes the mode command; the mode command is published on
     // every spawn, Build included (issue #142; regression #256). The goal arm
     // rides before the mode command so goal restoration answers Plan entry's
-    // unfinished-goal check (issue #381); the capabilities arm follows, then
+    // unfinished-goal check (issue #381); the vibe arm follows goal so its
+    // restore reads a settled goal state, then the capabilities arm follows,
     // the browser-pane endpoint. The autoresearch arm (issue #559) follows the
     // pane endpoint only while experimentsEnabled is on (off by default).
     const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
@@ -415,6 +416,7 @@ describe("MCP runtime status bridge", () => {
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
       Core.goalArmMessage(),
+      Core.vibeArmMessage(),
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
@@ -461,6 +463,7 @@ describe("MCP runtime status bridge", () => {
     expect(commands?.map((command) => command.message)).toEqual([
       Core.mcpRuntimeStatusMessage(),
       Core.goalArmMessage(),
+      Core.vibeArmMessage(),
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
@@ -492,6 +495,7 @@ describe("MCP runtime status bridge", () => {
       ?.map((command) => command.message);
     expect(messages).toEqual([
       Core.goalArmMessage(),
+      Core.vibeArmMessage(),
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
@@ -588,6 +592,7 @@ describe("session capabilities bridge (issue #374)", () => {
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
       Core.goalArmMessage(),
+      Core.vibeArmMessage(),
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
@@ -641,6 +646,7 @@ describe("session capabilities bridge (issue #374)", () => {
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
       Core.goalArmMessage(),
+      Core.vibeArmMessage(),
       Core.planMessage(false, "html"),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
     ]);
@@ -5904,6 +5910,73 @@ describe("hibernation (issue #246)", () => {
       }),
     });
   };
+  /** One vibe snapshot as the session's own bridge publishes it (issue #683). */
+  let vibeRevision = 0;
+  const vibeFrame = (
+    rpc: (typeof rpcInstances)[number],
+    workers: Array<{ state: string; killed: boolean; queued: number }>,
+    enabled = true,
+  ): void => {
+    vibeRevision += 1;
+    rpc.frame({
+      type: "extension_ui_request",
+      id: "vibe-frame-" + vibeRevision,
+      method: "setStatus",
+      statusKey: Core.VIBE_STATUS_KEY,
+      statusText: JSON.stringify({
+        version: 1,
+        processKey: "proc-vibe",
+        sessionId: "session-1",
+        revision: vibeRevision,
+        available: true,
+        unavailable: null,
+        enabled,
+        workers: workers.map((worker, index) => ({
+          id: "Worker" + index,
+          cli: "fast",
+          state: worker.state,
+          killed: worker.killed,
+          model: null,
+          turns: 1,
+          queued: worker.queued,
+          turnMessage: null,
+          currentTool: null,
+          lastIntent: null,
+          createdAt: 1,
+        })),
+        result: null,
+      }),
+    });
+  };
+
+  it("never idles out a session whose vibe workers are still running (issue #683)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+      addNewerSibling(registry);
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+
+      rpc.frame({ type: "agent_end" });
+      vibeFrame(rpc, [{ state: "running", killed: false, queued: 0 }]);
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      await flush();
+      expect(rpc.kill).not.toHaveBeenCalled();
+      expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(false);
+      expect(manager.liveCount).toBe(1);
+
+      // A settled worker keeps the roster but owns no loop: idle rules apply.
+      vibeFrame(rpc, [{ state: "idle", killed: false, queued: 0 }]);
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      cleanProbe(rpc);
+      await flush();
+      expect(rpc.kill).toHaveBeenCalledTimes(1);
+      expect(manager.liveCount).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("never idles out a session whose goal is still working (issue #381)", async () => {
     vi.useFakeTimers();

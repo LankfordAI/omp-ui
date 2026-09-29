@@ -13,6 +13,7 @@ import {
   deleteSessionFiles,
   autoresearchArmMessage,
   goalArmMessage,
+  vibeArmMessage,
   mintLineageDirName,
   settledWithin,
   forkSessionFile,
@@ -50,6 +51,7 @@ import {
   type RpcFrame,
   type ResumeSpawnRequest,
   type GoalSnapshot,
+  type VibeSnapshot,
   type AutoresearchSnapshot,
   type CapabilityToolMutationRequest,
   type SessionCapabilitiesResult,
@@ -82,6 +84,7 @@ import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { PlanPreflightController } from "./plan-preflight";
 import { readConfinedPlanFile } from "./plan-file";
 import { GoalStatusTracker } from "./goal-status-tracker";
+import { VibeStatusTracker } from "./vibe-status-tracker";
 import { AutoresearchStatusTracker } from "./autoresearch-status-tracker";
 import { prepareResumeRecord, writeRpcExtensions, writeRpcOverlays, writeSessionOverlays, type SubagentSpawnConfig } from "./spawn-config";
 import { StallWatchdog } from "./stall-watchdog";
@@ -169,6 +172,7 @@ export class SessionManager {
   private readonly toolControl: CapabilityControlTracker;
   private readonly goals: GoalStatusTracker;
   private readonly autoresearch: AutoresearchStatusTracker;
+  private readonly vibes: VibeStatusTracker;
   /** The open blocking dialogs per tab — the summary's `pendingDialogs` (#555). */
   private readonly dialogGates = new DialogGateTracker();
   private readonly gate: SpawnGate;
@@ -207,8 +211,9 @@ export class SessionManager {
       isViewed: (tabId) => this.viewTracker.isViewed(tabId),
       hibernate: (tabId, entry) => this.hibernate(tabId, entry),
       runSerialized: (tabId, work) => this.enqueueOp(tabId, "hibernate", work),
-      /** An active goal or a live continuation keeps the child's loop running (issue #381). */
-      preventsHibernation: (tabId) => this.goals.preventsHibernation(tabId),
+      /** An active goal, a live continuation, or a running worker keeps the child's loop alive (#381, #683). */
+      preventsHibernation: (tabId) =>
+        this.goals.preventsHibernation(tabId) || this.vibes.preventsHibernation(tabId),
     });
     this.planGates = new PlanGateTracker({
       registry: deps.registry,
@@ -259,6 +264,7 @@ export class SessionManager {
       getLive: (tabId) => this.live.get(tabId),
     });
     this.goals = new GoalStatusTracker({ broadcast: () => this.deps.broadcast() });
+    this.vibes = new VibeStatusTracker({ broadcast: () => this.deps.broadcast() });
     this.autoresearch = new AutoresearchStatusTracker({ broadcast: () => this.deps.broadcast() });
     this.frameObservers = [
       this.hibernation,
@@ -267,6 +273,7 @@ export class SessionManager {
       this.stallWatchdog,
       this.toolControl,
       this.goals,
+      this.vibes,
       this.autoresearch,
       this.dialogGates,
     ];
@@ -745,6 +752,16 @@ export class SessionManager {
         type: "prompt",
         id: `omp-ui-initial-goal-${randomUUID()}`,
         message: goalArmMessage(),
+      });
+    }
+    // The vibe bridge arms after goal and before plan: its restore re-checks
+    // the goal bridge's restored state before re-arming a saved vibe mode, and
+    // a plan command must never run against an unrestored mode slot.
+    if (bridgeLoaded.vibe) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-vibe-${randomUUID()}`,
+        message: vibeArmMessage(),
       });
     }
     if (bridgeLoaded.plan) {
@@ -1251,6 +1268,11 @@ export class SessionManager {
   /** The live session's goal snapshot, as its own bridge published it (issue #381). */
   goalSnapshot(tabId: string): GoalSnapshot | undefined {
     return this.goals.snapshot(tabId);
+  }
+
+  /** The live session's vibe snapshot, as its own bridge published it (issue #683). */
+  vibeSnapshot(tabId: string): VibeSnapshot | undefined {
+    return this.vibes.snapshot(tabId);
   }
 
   /** The live session's autoresearch snapshot, as its own bridge published it (issue #559). */
