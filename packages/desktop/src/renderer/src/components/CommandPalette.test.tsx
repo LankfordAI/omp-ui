@@ -201,3 +201,58 @@ describe("CommandPalette capabilities actions (issue #383)", () => {
     expect(document.body.textContent).not.toContain("Capabilities for this session");
   });
 });
+
+describe("CommandPalette share action (issue #679)", () => {
+  function renderWithTab(mode: "rpc-ui" | "pty"): void {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    useStore.setState({
+      projectPickerOpen: false,
+      shareConfirmTab: null,
+      state: backendState({
+        defaultAdvisor: false,
+        projects: [
+          {
+            project: {
+              path: "/p",
+              name: "P",
+              addedAt: "t",
+              lastModel: null,
+              lastThinkingLevel: null,
+              lastAdvisor: null,
+              lastAdvisorModel: null,
+              defaultModel: null,
+              defaultAdvisorModel: null,
+              browserClock: false,
+            },
+            sessions: [{ ...CWD_RECORD, mode: "rpc-ui" }],
+          },
+        ],
+      }),
+      tabs: [tabInfo({ tabId: "tab-1", mode })],
+      activeTabId: "tab-1",
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<CommandPalette />));
+    act(() => openPalette());
+  }
+
+  it("runs shareSession for a native tab", () => {
+    const shareSession = vi.fn(async () => {});
+    useStore.setState({ shareSession });
+    renderWithTab("rpc-ui");
+    expect(document.body.textContent).toContain("Share session");
+    typeQuery("Share session");
+    pressPalette("Enter");
+    expect(shareSession).toHaveBeenCalledWith("tab-1");
+  });
+
+  it("offers no share row for a terminal tab — its TUI owns /share", () => {
+    renderWithTab("pty");
+    expect(document.body.textContent).not.toContain("Share session");
+  });
+});

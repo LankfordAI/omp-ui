@@ -822,6 +822,50 @@ describe("command rows (slash-command parity)", () => {
     act(() => root.unmount());
   });
 
+  it("renders a share URL as a linkified pre with an open link and copy row", () => {
+    const shareOutput =
+      "Share URL: https://my.omp.sh/s/abc123#kZ9_a\nNote: large content was trimmed to fit the share size limit.";
+    const { el, root } = render([command("done", { output: shareOutput })], TAB);
+    // The bare URL autolinks inside the pre, fragment intact (issue #679).
+    const preLink = [...el.querySelectorAll("a")].find((a) =>
+      a.getAttribute("title")?.endsWith("#kZ9_a"),
+    );
+    expect(preLink).toBeDefined();
+    // The dedicated affordance row: open + copy the URL alone.
+    const openLink = [...el.querySelectorAll("a")].find(
+      (a) => a.textContent === "open share link",
+    );
+    expect(openLink).toBeDefined();
+    expect(openLink!.getAttribute("title")).toBe("https://my.omp.sh/s/abc123#kZ9_a");
+    const copy = [...el.querySelectorAll("button")].find((b) => b.textContent === "copy");
+    expect(copy).toBeDefined();
+    act(() => root.unmount());
+  });
+
+  it("routes the share link click through window.open, never a navigation", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { el, root } = render([
+      command("done", { output: "Share URL: https://my.omp.sh/s/abc#key" }),
+    ]);
+    const link = [...el.querySelectorAll("a")].find((a) => a.getAttribute("title")?.includes("#key"))!;
+    expect(link.getAttribute("href")).toBeNull();
+    act(() => link.click());
+    expect(open).toHaveBeenCalledWith(
+      "https://my.omp.sh/s/abc#key",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    open.mockRestore();
+    act(() => root.unmount());
+  });
+
+  it("adds no share row for output without a Share URL line", () => {
+    const { el, root } = render([command("done", { output: "Share URL: not-a-url" })], TAB);
+    expect([...el.querySelectorAll("a")].some((a) => a.textContent === "open share link")).toBe(false);
+    expect(el.textContent).toContain("Share URL: not-a-url");
+    act(() => root.unmount());
+  });
+
   it("withholds the handoff in the subagent view, which owns no tab", () => {
     const { el, root } = render([command("done", { output: TUI_REFUSAL })]);
     expect(el.textContent).toContain("the TUI client");

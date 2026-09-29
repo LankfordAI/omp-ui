@@ -24,6 +24,7 @@ import {
 } from "../../lib/panel-layout";
 import { randomId } from "../../lib/random-id";
 import { projectKey } from "../../lib/project-key";
+import { markSharePrivacySeen } from "../../lib/share-privacy";
 import type { CompactSurface, ErrorNotice, UiStore } from "../types";
 import { TREE_COMMAND } from "@omp-ui/core/session-tree";
 
@@ -42,6 +43,8 @@ export interface ViewSlice {
   /** The diagnostic-bundle export dialog (issue #413). */
   diagnosticsDialogOpen: boolean;
   browserPaneClearDialogOpen: boolean;
+  /** The tab whose first-share privacy dialog is open (issue #679); null = closed. */
+  shareConfirmTab: string | null;
   worktreeDialogProject: string | null;
   worktreeDialogInstanceId: string | null;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
@@ -75,6 +78,9 @@ export interface ViewSlice {
   dismissGettingStarted(): void;
   openBrowserPaneClearDialog(): void;
   closeBrowserPaneClearDialog(): void;
+  /** Records the first-share privacy flag and forwards /share for the tab (issue #679). */
+  confirmSharePrivacy(tabId: string): Promise<void>;
+  cancelSharePrivacy(): void;
   openWorktreeDialog(projectCwd: string, instanceId?: string | null): void;
   closeWorktreeDialog(): void;
   openFinishWorktree(tabId: string): void;
@@ -344,6 +350,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   gettingStartedOpen: false,
   diagnosticsDialogOpen: false,
   browserPaneClearDialogOpen: false,
+  shareConfirmTab: null,
   worktreeDialogProject: null,
   worktreeDialogInstanceId: null,
   finishWorktreeTab: null,
@@ -409,6 +416,14 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   closeBrowserPaneClearDialog() {
     set({ browserPaneClearDialogOpen: false });
+  },
+  async confirmSharePrivacy(tabId) {
+    markSharePrivacySeen();
+    set({ shareConfirmTab: null });
+    await get().runSlashCommand(tabId, "/share");
+  },
+  cancelSharePrivacy() {
+    set({ shareConfirmTab: null });
   },
   openWorktreeDialog(projectCwd, instanceId = null) {
     set({ worktreeDialogProject: projectCwd, worktreeDialogInstanceId: instanceId });

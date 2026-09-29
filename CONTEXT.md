@@ -188,8 +188,8 @@ _Avoid_: timestamp overlay, watermark, system tray clock
 
 **Session HUD**:
 The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
-meter, spend, and the session controls (compact, auto-compact, export, branch,
-new, refresh, queue modes). While auto-compact is enabled, the context meter
+meter, spend, and the session controls (compact, auto-compact, export, share,
+branch, new, refresh, queue modes). While auto-compact is enabled, the context
 carries a notch at the compaction threshold — the token count where omp
 auto-compacts. Model, thinking level, and the advisor live in the
 composer instead, next to the text they affect. With the advisor enabled, a

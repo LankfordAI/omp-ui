@@ -92,6 +92,7 @@ export function CommandPalette() {
   const switchMode = useStore((s) => s.switchMode);
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
   const toggleBrowserPane = useStore((s) => s.toggleBrowserPane);
+  const shareSession = useStore((s) => s.shareSession);
   const checkAppUpdate = useStore((s) => s.checkAppUpdate);
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
   const openSettings = useStore((s) => s.openSettings);
@@ -220,6 +221,15 @@ export function CommandPalette() {
             desc: t("palette.action.browserPaneDesc", { title }),
             run: () => toggleBrowserPane(tab.tabId),
           },
+          // omp's /share rides this tab's own prompt channel (issue #679); a
+          // terminal tab's TUI owns the command itself, so no row there.
+          {
+            id: "session:share",
+            group: t("palette.group.session"),
+            name: t("palette.action.share"),
+            desc: t("palette.action.shareDesc", { title }),
+            run: () => void shareSession(tab.tabId),
+          },
         );
       }
       // The session-pinned viewer (#379's door): live roster, session-local
@@ -287,7 +297,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, shareSession, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

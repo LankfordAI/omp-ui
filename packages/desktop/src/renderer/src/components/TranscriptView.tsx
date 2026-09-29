@@ -25,7 +25,7 @@ import type {
 } from "../lib/transcript";
 import { findOwner, findRecord, useStore } from "../store";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { Markdown } from "./Markdown";
+import { Markdown, linkify, OpenExternalLink } from "./Markdown";
 import { openImageViewer } from "./ImageViewer";
 import { PlanCard } from "./PlanCard";
 import { AdvisoryNotes, ToolCard } from "./ToolCard";
@@ -500,10 +500,35 @@ function CommandRow({ item, tabId }: { item: CommandItem; tabId?: string }) {
           data-selectable
           className="mt-1 overflow-auto whitespace-pre-wrap break-words text-ink-mid"
         >
-          {item.output}
+          {linkify(item.output)}
         </pre>
       )}
+      <ShareLinkRow item={item} />
       <TuiHandoffButton item={item} tabId={tabId} />
+    </div>
+  );
+}
+
+/**
+ * Open + copy affordance for omp's `/share` reply (issue #679). The row's
+ * own `<pre>` already shows every output line verbatim — with the bare URL
+ * autolinked — so this only adds the explicit affordances; it appears on a
+ * command row whose output carries the share line, mirroring how
+ * `TuiHandoffButton` sniffs output text.
+ */
+// omp's headless /share answers "Share URL: <https url with #key>" on the
+// command's output (issue #679). Match the whole URL, scheme-gated so a
+// malformed line stays inert text.
+const SHARE_URL = /^Share URL: (https?:\/\/\S+)$/m;
+
+export function ShareLinkRow({ item }: { item: CommandItem }) {
+  const t = useT();
+  const url = item.output === undefined ? null : item.output.match(SHARE_URL)?.[1];
+  if (url === undefined || url === null) return null;
+  return (
+    <div className="mt-1 flex items-center gap-1.5">
+      <OpenExternalLink href={url}>{t("transcript.command.shareOpen")}</OpenExternalLink>
+      <CopyButton text={url} label={t("common.button.copy")} doneLabel={t("common.button.copied")} />
     </div>
   );
 }

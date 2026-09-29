@@ -93,7 +93,7 @@ function MathExpression({ text, display }: { text: string; display: boolean }): 
  * absence also kills middle-click/drag), clicks route window.open — intercepted
  * by main's setWindowOpenHandler → openExternalSafe (issue #101).
  */
-function OpenExternalLink({ href, children }: { href: string; children: ReactNode }) {
+export function OpenExternalLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <a
       role="link"

@@ -115,6 +115,17 @@ function IconExport() {
   );
 }
 
+function IconShare() {
+  return (
+    <Svg>
+      <circle cx="3.2" cy="8" r="1.7" {...ICON_STROKE} />
+      <circle cx="12.8" cy="3.8" r="1.7" {...ICON_STROKE} />
+      <circle cx="12.8" cy="12.2" r="1.7" {...ICON_STROKE} />
+      <path d="M4.8 7.1l6.4-2.7M4.8 8.9l6.4 2.7" {...ICON_STROKE} />
+    </Svg>
+  );
+}
+
 function IconBranch() {
   return (
     <Svg>
@@ -914,6 +925,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const compactSession = useStore((s) => s.compactSession);
   const setAutoCompaction = useStore((s) => s.setAutoCompaction);
   const exportHtml = useStore((s) => s.exportHtml);
+  const shareSession = useStore((s) => s.shareSession);
   const branchSession = useStore((s) => s.branchSession);
   const newSession = useStore((s) => s.newSession);
   const refreshState = useStore((s) => s.refreshState);
@@ -1103,6 +1115,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />
                 <Button tone="copper" disabled={session?.isCompacting === true || compacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />{t("hud.actions.compact")}</Button>
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />{t("hud.actions.export")}</Button>
+                <Button title={t("hud.actions.shareTitle")} onClick={() => void shareSession(tabId)} className={sheetAction}><IconShare />{t("hud.actions.share")}</Button>
                 <Button onClick={() => openCapabilitiesViewer(null, undefined, "mcp", instanceId)} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>
                 <Button title={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.branch")}</Button>
                 {treeAvailable && (
@@ -1222,6 +1235,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <BrowserPaneToggle tabId={tabId} />
         <IconButton label={t("hud.actions.exportTitle")} onClick={() => void exportHtml(tabId)}>
           <IconExport />
+        </IconButton>
+        <IconButton label={t("hud.actions.shareTitle")} onClick={() => void shareSession(tabId)}>
+          <IconShare />
         </IconButton>
         {/* The button opens the global catalog (issue #383) — it needs no
             session cwd. The badge still counts THIS session's failed MCP

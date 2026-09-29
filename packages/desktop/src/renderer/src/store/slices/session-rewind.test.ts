@@ -319,7 +319,6 @@ describe("rewind to a prompt (issue #680)", () => {
     const confirmation = h.useStore.getState().lifecycleConfirmation!;
     const confirmed = h.useStore.getState().confirmLifecycleAction(confirmation.id);
     await h.flushMicrotasks();
-    const promptCmd = h.sent.find((s) => s.cmd.type === "prompt")!;
     h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
       id: "u1",

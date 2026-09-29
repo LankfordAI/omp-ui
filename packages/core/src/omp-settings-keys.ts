@@ -43,6 +43,16 @@ export const WEB_SEARCH_SETTING_GROUP: OmpSettingGroup = {
 };
 
 /**
+ * The /share targets. Allowlisted but NOT in OMP_SETTING_GROUPS: the
+ * first-share privacy dialog reads the effective values; the omp page
+ * shows no duplicate row, and no omp-ui surface writes these keys.
+ */
+export const SHARE_SETTING_GROUP: OmpSettingGroup = {
+  title: "Share",
+  keys: ["share.store", "share.serverUrl", "share.redactSecrets"],
+};
+
+/**
  * The privacy keys. Allowlisted but NOT in OMP_SETTING_GROUPS: the Providers
  * page renders its own switch for the telemetry opt-out (issue #670), so the
  * omp page shows no duplicate row for it. Allowlisted so the write boundary
@@ -136,6 +146,7 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...MEMORY_SETTING_GROUP.keys,
   ...WEB_SEARCH_SETTING_GROUP.keys,
   ...PRIVACY_SETTING_GROUP.keys,
+  ...SHARE_SETTING_GROUP.keys,
 ];
 /** modelRoles is a record edited per-role, so it is handled apart from the scalar list. */
 export const OMP_MODEL_ROLES_KEY = "modelRoles";

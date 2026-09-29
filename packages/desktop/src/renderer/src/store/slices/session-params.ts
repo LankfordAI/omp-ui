@@ -15,6 +15,7 @@ import { backend, backendFor } from "../../backend";
 import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
 import { t } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
+import { hasSeenSharePrivacy } from "../../lib/share-privacy";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
 import {
   parseModelInfo,
@@ -86,6 +87,7 @@ export type SessionParamsSlice = Pick<
   | "abortRetry"
   | "compactSession"
   | "exportHtml"
+  | "shareSession"
   | "branchSession"
   | "stageRewind"
   | "performRewind"
@@ -650,6 +652,24 @@ export function createSessionParamsSlice(
       ...noticeItem(path ? `exported to ${path}` : "export finished", "info"),
       ...(path === undefined ? {} : { path }),
     });
+  };
+
+  const shareSession = async (tabId: string): Promise<void> => {
+    // An unadvertised slash line would reach the model as literal prompt text
+    // (runSlashCommand's fallback), so a share with no omp-side command ends
+    // here instead (issue #679).
+    const advertised = get().rpc[tabId]?.commands.some(
+      (c) => c.name === "share" || (c.aliases?.includes("share") ?? false),
+    );
+    if (!advertised) {
+      m.appendItem(tabId, noticeItem(t("notice.share.needsOmpCommand"), "info"));
+      return;
+    }
+    if (!hasSeenSharePrivacy()) {
+      set({ shareConfirmTab: tabId });
+      return;
+    }
+    await get().runSlashCommand(tabId, "/share");
   };
 
   const branchSession = async (tabId: string): Promise<void> => {
@@ -1288,6 +1308,7 @@ export function createSessionParamsSlice(
     abortRetry,
     compactSession,
     exportHtml,
+    shareSession,
     branchSession,
     stageRewind,
     performRewind,
