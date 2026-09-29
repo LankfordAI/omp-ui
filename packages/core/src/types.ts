@@ -872,9 +872,9 @@ export type WatchdogRosterResult =
       user: WatchdogFileView;
       project: WatchdogFileView | null;
       effective: WatchdogEffectiveAdvisor[];
-      /** Paths of files contributing file-level instructions. */
+      /** Paths of files contributing file-level instructions — WATCHDOG.yml scopes with an `instructions:` value and every discovered WATCHDOG.md. */
       sharedInstructions: string[];
-      /** Discovered files that are neither editable target. */
+      /** Discovered files that are neither editable target, including read-only WATCHDOG.md instruction files. */
       otherFiles: string[];
       warnings: string[];
     }

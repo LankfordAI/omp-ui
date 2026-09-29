@@ -188,10 +188,12 @@ the session-pinned viewer is unchanged.
 
 The advisor roster (ADR-0039) adds two channels, `watchdog:roster` and
 `watchdog:roster:set`, over omp's `WATCHDOG.yml`: core reproduces omp's
-discovery/merge ([`watchdog-config.ts`](../packages/core/src/watchdog-config.ts))
-and rewrites a whole file only when it can do so losslessly. The advisor-stats
-frame gains additive `advisors` and `configWarnings` fields describing the root
-session's roster; aggregate cost and tokens are unchanged.
+discovery/merge ([`watchdog-config.ts`](../packages/core/src/watchdog-config.ts)),
+including omp's read-only `WATCHDOG.md` instructions-file discovery, which is
+listed in the roster result but never parsed or edited (#691), and rewrites a
+whole file only when it can do so losslessly. The advisor-stats frame gains
+additive `advisors` and `configWarnings` fields describing the root session's
+roster; aggregate cost and tokens are unchanged.
 
 ### Slash commands in native sessions
 

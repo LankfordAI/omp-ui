@@ -82,6 +82,81 @@ describe("discovery and precedence", () => {
   });
 });
 
+describe("WATCHDOG.md instruction files", () => {
+  // Same fixture shape as the dot-directory precedence test: user file, cwd
+  // .omp and plain bases, ancestor, and a dot-directory file the walk must
+  // skip because it sits on the ancestor path.
+  const mdFixture = (yml: boolean): { repo: string; sub: string; hidden: string } => {
+    const repo = path.join(root, "repo");
+    const sub = path.join(repo, ".hidden", "x");
+    write(path.join(repo, ".git", "HEAD"), "");
+    write(path.join(agentDir, "WATCHDOG.md"), "user instructions");
+    write(path.join(sub, ".omp", "WATCHDOG.md"), "cwd .omp instructions");
+    write(path.join(sub, "WATCHDOG.md"), "cwd instructions");
+    write(path.join(repo, "WATCHDOG.md"), "ancestor instructions");
+    const hidden = path.join(repo, ".hidden", "WATCHDOG.md");
+    write(hidden, "hidden instructions");
+    if (yml) {
+      write(path.join(agentDir, "WATCHDOG.yml"), "advisors:\n  - name: a\n");
+      write(path.join(repo, "WATCHDOG.yml"), "advisors:\n  - name: b\n");
+    }
+    return { repo, sub, hidden };
+  };
+  // Walk order: user first, then depth-descending, .omp base before plain at equal depth.
+  const mdOrder = (repo: string, sub: string): string[] => [
+    path.join(agentDir, "WATCHDOG.md"),
+    path.join(repo, "WATCHDOG.md"),
+    path.join(sub, ".omp", "WATCHDOG.md"),
+    path.join(sub, "WATCHDOG.md"),
+  ];
+
+  it("is discovered with the same walk as the config files", async () => {
+    const { repo, sub, hidden } = mdFixture(false);
+    const r = await effective(sub);
+    expect(r.otherFiles).toEqual(mdOrder(repo, sub));
+    expect(r.otherFiles).not.toContain(hidden);
+    expect(r.sharedInstructions).toEqual(mdOrder(repo, sub));
+    expect(r.sharedInstructions).not.toContain(hidden);
+  });
+
+  it("never contributes advisors, warnings, or parsed text", async () => {
+    const { repo, sub } = mdFixture(true);
+    write(path.join(sub, "WATCHDOG.md"), "advisors: [");
+    const r = await effective(sub);
+    expect(r.effective.map((e) => e.slug)).toEqual(["a", "b"]);
+    expect(r.warnings).toEqual([]);
+    const texts = [r.user, r.project].filter((v) => v !== null).flatMap((v) => [...v.blocking, ...v.notices]);
+    expect(texts.join("\n")).not.toContain("advisors: [");
+  });
+
+  it("is not an edit target", async () => {
+    const repo = path.join(root, "only-md");
+    write(path.join(repo, ".git", "HEAD"), "");
+    write(path.join(repo, "WATCHDOG.md"), "instructions only");
+    const r = await effective(repo);
+    expect(r.project!.exists).toBe(false);
+    expect(r.project!.path).toBe(path.join(repo, "WATCHDOG.yml"));
+    expect(r.otherFiles).toContain(path.join(repo, "WATCHDOG.md"));
+  });
+
+  it("counts a whitespace-only file (omp Gcn has no trim gate, unlike the .yml instructions: rule)", async () => {
+    const repo = path.join(root, "blank-md");
+    write(path.join(repo, ".git", "HEAD"), "");
+    write(path.join(repo, "WATCHDOG.md"), "   \n");
+    const r = await effective(repo);
+    expect(r.sharedInstructions).toContain(path.join(repo, "WATCHDOG.md"));
+    expect(r.otherFiles).toContain(path.join(repo, "WATCHDOG.md"));
+  });
+
+  it("null scope still finds the user instruction file", async () => {
+    write(path.join(agentDir, "WATCHDOG.md"), "user instructions");
+    const r = await effective(null);
+    expect(r.project).toBeNull();
+    expect(r.sharedInstructions).toEqual([path.join(agentDir, "WATCHDOG.md")]);
+    expect(r.otherFiles).toEqual([path.join(agentDir, "WATCHDOG.md")]);
+  });
+});
+
 describe("tools rule", () => {
   it("applies defaults, none, alias, dedupe and all-unknown fallback", () => {
     expect(effectiveAdvisorTools(null)).toEqual(["read", "grep", "glob", "recall"]);
