@@ -1644,6 +1644,13 @@ export const en = {
   "rail.vibe.killTitle": "kill worker {worker}",
   "rail.vibe.openWorker": "open worker {worker}",
   "rail.vibe.closeWorker": "close worker {worker}",
+  "rail.agents.steer": "steer",
+  "rail.agents.kill": "kill",
+  "rail.agents.revive": "revive",
+  "rail.agents.steerPlaceholder": "steer this agent…",
+  "rail.agents.steerSend": "send",
+  "rail.agents.sendFailed": "the subagent bridge never received that request",
+  "rail.agents.steerTooLong": "steer text is longer than {limit} characters",
 
   "rail.stats.messages": "messages",
   "rail.stats.user": "user",

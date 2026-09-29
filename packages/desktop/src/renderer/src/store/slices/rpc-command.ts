@@ -4,6 +4,7 @@ import type { SessionCommand } from "@omp-ui/core/session-command";
 import type { BackendState } from "@omp-ui/core/types";
 import type { GoalSnapshot } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
+import type { SubagentControlSnapshot } from "@omp-ui/core/subagent-control";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type {
   CapabilitySnapshot,
@@ -261,6 +262,25 @@ export function acceptVibeSnapshot(
         }
       : item,
   );
+  return true;
+}
+
+/**
+ * The one acceptance rule for a subagent-control snapshot (issue #684),
+ * shared by the `setStatus` push path and any future summary hydration: a
+ * same-process snapshot replaces only when its revision is strictly newer, a
+ * new process always wins (a respawn's arm republishes cleanly), and results
+ * are replaced wholesale — they are transient result chrome, not a record.
+ */
+export function acceptSubagentControlSnapshot(
+  tabId: string,
+  snapshot: SubagentControlSnapshot,
+  get: GetState,
+  m: StoreMachinery,
+): boolean {
+  const retained = get().rpc[tabId]?.subagentControl ?? null;
+  if (!isNewerSnapshot(retained, snapshot)) return false;
+  m.patchRpc(tabId, { subagentControl: snapshot });
   return true;
 }
 
@@ -578,6 +598,10 @@ export function disposeTabRuntime(
     vibe: null,
     // Likewise the side-question topics: the next process republishes its own.
     sideQuestions: null,
+    // Likewise the subagent control results: the next process's arm republishes.
+    subagentControl: null,
+    subagentControlBusy: {},
+    subagentControlError: null,
     autoresearch: null,
   });
   rpcCommandMachinery.abandon(tabId, reason, m);
@@ -639,8 +663,9 @@ function freshRpcTabState(
     limits: null,
     capabilities: null,
     capabilitiesLoad: "idle",
-    capabilitiesToolPending: null,
-    capabilitiesToolFeedback: null,
+    subagentControl: null,
+    subagentControlBusy: {},
+    subagentControlError: null,
     advisorReply,
   };
 }
@@ -750,6 +775,12 @@ export function createRpcCommandSlice(
         .then(
           (resp) => {
             m.applyRpcState(tabId, resp);
+            // The snapshot is the only evidence a mid-turn attach ever gets:
+            // its agent_start went by before this tab existed. Later frames are
+            // ordered after this reply, so an agent_end still settles it.
+            if (get().rpc[tabId]?.session.isStreaming === true) {
+              m.patchRpc(tabId, { status: "running" });
+            }
             return null;
           },
           (err: unknown) =>
@@ -815,7 +846,12 @@ export function createRpcCommandSlice(
           },
         });
       } else {
-        m.patchRpc(tabId, { status: "ready" });
+        // "running" here came from the snapshot above or a live agent_start
+        // that landed mid-boot; the stamp must not erase either. The tab was
+        // reset to "starting" at boot entry, so nothing stale can be carried in.
+        m.patchRpc(tabId, {
+          status: get().rpc[tabId]?.status === "running" ? "running" : "ready",
+        });
         // Boot reset the tab to fresh state before this ran, so a pending
         // gate on the record hydrates now instead of being clobbered.
         const bootedState = get().state;

@@ -507,6 +507,60 @@ describe("bootRpcTab", () => {
     h.useStore.setState({ state: { ...h.backendState, advisorAutoReply: true } });
     expect(h.useStore.getState().rpc[h.TAB]!.advisorReply).toBe(true);
   });
+
+  describe("attach mid-turn (issue #692)", () => {
+    // Dedicated tab ids: rpcBooting short-circuits a second boot of one id.
+    const boot = async (
+      tabId: string,
+      streaming: boolean,
+      beforeState?: () => void,
+    ) => {
+      h.backendState = h.stateWithRecord(null);
+      h.useStore.setState({ state: h.backendState });
+      const p = h.useStore.getState().bootRpcTab(tabId);
+      for (let wave = 0; wave < 6; wave++) {
+        await h.flushMicrotasks();
+        for (const { cmd } of h.sent.splice(0)) {
+          if (cmd.type === "get_state") {
+            beforeState?.();
+            h.respond(tabId, cmd, { isStreaming: streaming });
+          } else {
+            h.respond(tabId, cmd, {});
+          }
+        }
+      }
+      await p;
+    };
+    const rpcOf = (tabId: string) => h.useStore.getState().rpc[tabId]!;
+
+    it("boots running when get_state reports a turn in flight", async () => {
+      const tab = `${h.TAB}-midturn-a`;
+      await boot(tab, true);
+      expect(rpcOf(tab).status).toBe("running");
+      expect(rpcOf(tab).session.isStreaming).toBe(true);
+    });
+
+    it("still settles to ready when that turn ends", async () => {
+      const tab = `${h.TAB}-midturn-b`;
+      await boot(tab, true);
+      h.useStore.getState().handleRpcFrame(tab, { type: "agent_end" });
+      expect(rpcOf(tab).status).toBe("ready");
+    });
+
+    it("boots ready when get_state reports an idle session", async () => {
+      const tab = `${h.TAB}-midturn-c`;
+      await boot(tab, false);
+      expect(rpcOf(tab).status).toBe("ready");
+    });
+
+    it("keeps a running status set by an agent_start that lands mid-boot", async () => {
+      const tab = `${h.TAB}-midturn-d`;
+      await boot(tab, false, () =>
+        h.useStore.getState().handleRpcFrame(tab, { type: "agent_start" }),
+      );
+      expect(rpcOf(tab).status).toBe("running");
+    });
+  });
 });
 
 describe("rpcCommand / handleRpcFrame correlation", () => {

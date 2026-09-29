@@ -20,6 +20,7 @@ import {
 import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
 import { MCP_RUNTIME_STATUS_KEY } from "@omp-ui/core/mcp-status";
 import { CAPABILITIES_STATUS_KEY } from "@omp-ui/core/capabilities";
+import { SUBAGENT_CONTROL_STATUS_KEY } from "@omp-ui/core/subagent-control";
 import {
   AUTORESEARCH_STATUS_KEY,
   AUTORESEARCH_WIDGET_KEY,
@@ -181,6 +182,18 @@ describe("handleRpcFrame routing", () => {
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
     expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("running");
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "prompt_result" });
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
+  });
+
+  it("a prompt_result that invoked no agent leaves a running turn running (#692)", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, { type: "prompt_result", agentInvoked: false });
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("running");
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, { type: "prompt_result", agentInvoked: true });
     expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
   });
 
@@ -450,6 +463,24 @@ describe("handleRpcFrame routing", () => {
       statusText: undefined,
     });
     expect(h.useStore.getState().rpc[h.TAB]!.extensionStatus).toEqual({});
+  });
+
+  it("routes the subagent-control status key to its snapshot and never a HUD chip", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "e-sac",
+      method: "setStatus",
+      statusKey: SUBAGENT_CONTROL_STATUS_KEY,
+      statusText: JSON.stringify({
+        available: true,
+        processKey: "p-1",
+        revision: 1,
+        results: [],
+      }),
+    });
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.extensionStatus).toEqual({});
+    expect(tab.subagentControl?.processKey).toBe("p-1");
   });
 
   it("auto-cancels a non-status extension request with a marker", () => {

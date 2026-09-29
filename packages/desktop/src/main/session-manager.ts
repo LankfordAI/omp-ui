@@ -14,6 +14,7 @@ import {
   autoresearchArmMessage,
   goalArmMessage,
   vibeArmMessage,
+  subagentControlArmMessage,
   mintLineageDirName,
   settledWithin,
   forkSessionFile,
@@ -790,6 +791,16 @@ export class SessionManager {
         type: "prompt",
         id: `omp-ui-initial-autoresearch-${randomUUID()}`,
         message: autoresearchArmMessage(),
+      });
+    }
+    // The control bridge binds ui on the first prompt (root-binding patch) and
+    // on arm; the arm also resolves the registry globals so the first verb
+    // never races module loading (no dependency ordering needed).
+    if (bridgeLoaded.subagentControl) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-subagent-control-${randomUUID()}`,
+        message: subagentControlArmMessage(),
       });
     }
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate, this.subagentSpawnConfig());

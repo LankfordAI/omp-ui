@@ -17,6 +17,7 @@ import { modelOverlayPath } from "./model-overlay";
 import { planExtensionPath } from "./plan-extension";
 import { treeExtensionPath } from "./tree-extension";
 import { sideQuestionsExtensionPath } from "./side-questions-extension";
+import { subagentControlExtensionPath } from "./subagent-control-extension";
 import { buildZip } from "./zip-writer";
 import type { RegistrySettings } from "./registry";
 import type {
@@ -96,7 +97,7 @@ const LOG_FILES = [
   "breadcrumbs.log.old",
 ] as const;
 
-/** The 12 generated per-session files (9 extensions + 3 overlays). */
+/** The 13 generated per-session files (10 extensions + 3 overlays). */
 const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   planExtensionPath,
   goalExtensionPath,
@@ -107,6 +108,7 @@ const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   browserPaneExtensionPath,
   treeExtensionPath,
   sideQuestionsExtensionPath,
+  subagentControlExtensionPath,
   advisorOverlayPath,
   modelOverlayPath,
   compactionMethodOverlayPath,

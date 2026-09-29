@@ -151,10 +151,13 @@ The rpc-ui tab's main pane while a subagent is selected in the Agents
 pane: the full transcript surface — tool cards, thinking, usage receipts —
 rendered read-only from that subagent's own event stream, backfilled from
 its transcript file (`get_subagent_messages`) so the whole run shows, not
-just what streamed since the click. A banner names the agent and its
-status and leads back to the main agent; the composer disappears because
-a subagent cannot be prompted or steered. It is a view onto the same live
-session, never a separate session or tab.
+just what streamed since the click. A banner names the agent, its status,
+and its steer/kill controls — steer replaces its next instruction, kill
+aborts and tombstones it, a parked one revives
+([ADR-0040](docs/adr/0040-subagent-control-via-generated-bridge.md)) — but
+there is no composer: it is not a chat surface and its transcript cannot be
+appended to. It is a view
+onto the same live session, never a separate session or tab.
 _Avoid_: subagent tab, agent window, subagent chat
 
 **Subagent model**:

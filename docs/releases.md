@@ -8,6 +8,7 @@ This guide explains what users receive from a release and how maintainers publis
 - A native composer draft prefixed `!` runs as a shell command — OMP's concurrent `bash` RPC with no model turn — in a new `shell` render item whose stop control sends `abort_bash`; resumed sessions show their shell history (#678).
 - The composer shows a fast-mode toggle beside the model and thinking pills when the current model has a priority tier or the session already carries fast-mode state (#689).
 - The usage receipt now ends its timing parts with the turn's decode rate (`57 t/s`), the generated tokens over the post-ttft window (#690).
+- A tab opened or reloaded while its session is mid-turn now reads as running (composer sweep, steer/abort actions, and the running guards) instead of ready until the next turn (#692; continues #434).
 
 ## Choose a download
 

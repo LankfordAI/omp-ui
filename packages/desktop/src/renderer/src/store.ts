@@ -33,6 +33,7 @@ import { createRpcCommandSlice } from "./store/slices/rpc-command";
 import { createSessionParamsSlice } from "./store/slices/session-params";
 import { createSideQuestionsSlice } from "./store/slices/side-questions";
 import { createSettingsSlice } from "./store/slices/settings";
+import { createSubagentControlSlice } from "./store/slices/subagent-control";
 import {
   browserPaneWriters,
   createMachinery,
@@ -173,7 +174,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const lab = createLabSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });
   const stats = createStatsSlice(set, get);
   const sideQuestions = createSideQuestionsSlice(get, m);
-
+  const subagentControl = createSubagentControlSlice(get, m);
   /**
    * Repaints the document to match the registry's persisted themeId. The
    * registry stays authoritative; lib/themes.ts keeps only a localStorage
@@ -385,6 +386,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...lab,
     ...stats,
     ...sideQuestions,
+    ...subagentControl,
     state: null,
     exited: {},
     hibernated: {},

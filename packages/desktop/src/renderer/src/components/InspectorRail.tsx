@@ -24,6 +24,7 @@ import { compactNum, exactNum, formatCost, shortBase } from "../lib/format";
 import { TodoPanel } from "./TodoPanel";
 import { SideQuestionsPane } from "./SideQuestionsPane";
 import { SubagentModelsControl } from "./SubagentModelsControl";
+import { SubagentControls, useSubagentControlNotice } from "./SubagentControls";
 import { Button, Chip, CopyButton, Dot, Empty, ICON_STROKE, IconRefresh, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
 
 /** Vibe worker state → tone, matching the roster's copper-pulse convention. */
@@ -164,6 +165,9 @@ function AgentsPane({ tabId }: { tabId: string }) {
   const openSubagent = useStore((s) => s.openSubagent);
   const closeSubagent = useStore((s) => s.closeSubagent);
   const refreshSubagents = useStore((s) => s.refreshSubagents);
+  // The last refusal (local, or omp's own sentence from the last settled
+  // result), shown under the roster until a later dispatch replaces it (#684).
+  const notice = useSubagentControlNotice(tabId);
 
   // The roster is the live list UNION agents whose buffers outlived them:
   // settled agents stay visible (dimmed) until the session resets.
@@ -204,35 +208,40 @@ function AgentsPane({ tabId }: { tabId: string }) {
             const settled = !liveIds.has(agent.id);
             return (
               <li key={agent.id} className="animate-slide-in">
-                <button
-                  type="button"
-                  aria-label={t(selected === agent.id ? "rail.agents.closeAgent" : "rail.agents.openAgent", { agent: agent.name ?? agent.agent ?? agent.id })}
-                  aria-pressed={selected === agent.id}
-                  onClick={() =>
-                    selected === agent.id
-                      ? closeSubagent(tabId)
-                      : openSubagent(tabId, agent.id)
-                  }
+                <div
                   className={cn(
-                    "w-full rounded-md border border-line bg-raised px-2 py-1.5 text-left transition-colors hover:bg-hover",
+                    "w-full rounded-md border border-line bg-raised px-2 py-1.5 transition-colors hover:bg-hover",
                     settled && "opacity-50",
                     selected === agent.id && "bg-hover",
                   )}
                 >
                   <div className="flex items-center gap-1.5">
-                    <Dot
-                      tone={AGENT_TONE[status] ?? "neutral"}
-                      pulse={AGENT_TONE[status] === "copper"}
-                      title={status}
-                    />
-                    <span className="min-w-0 flex-1 truncate font-display text-[12px] text-ink">
-                      {agent.name ?? agent.agent ?? agent.id}
-                    </span>
+                    <button
+                      type="button"
+                      aria-label={t(selected === agent.id ? "rail.agents.closeAgent" : "rail.agents.openAgent", { agent: agent.name ?? agent.agent ?? agent.id })}
+                      aria-pressed={selected === agent.id}
+                      onClick={() =>
+                        selected === agent.id
+                          ? closeSubagent(tabId)
+                          : openSubagent(tabId, agent.id)
+                      }
+                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                    >
+                      <Dot
+                        tone={AGENT_TONE[status] ?? "neutral"}
+                        pulse={AGENT_TONE[status] === "copper"}
+                        title={status}
+                      />
+                      <span className="min-w-0 flex-1 truncate font-display text-[12px] text-ink">
+                        {agent.name ?? agent.agent ?? agent.id}
+                      </span>
+                    </button>
                     {agent.agent && agent.name && (
                       <Chip mono title={t("rail.agents.typeTitle", { type: agent.agent })}>
                         {agent.agent}
                       </Chip>
                     )}
+                    <SubagentControls tabId={tabId} agentId={agent.id} status={status} />
                   </div>
                   <div className="mt-0.5 flex items-baseline gap-1.5 pl-3">
                     <span className="shrink-0 font-mono text-[10px] text-ink-faint">{status}</span>
@@ -242,11 +251,16 @@ function AgentsPane({ tabId }: { tabId: string }) {
                       </span>
                     )}
                   </div>
-                </button>
+                </div>
               </li>
             );
           })}
         </ul>
+      )}
+      {notice !== null && (
+        <p className="mt-1 rounded-md border border-rose-dim/50 bg-rose-wash px-2 py-1 text-[10px] text-rose">
+          {notice}
+        </p>
       )}
     </Section>
   );
