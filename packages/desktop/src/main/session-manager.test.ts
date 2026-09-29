@@ -64,7 +64,15 @@ const rpcInstances: {
   send: Mock;
   exit: (code: number) => void;
   frame: (frame: unknown) => void;
+  inputFrame: (frame: unknown) => void;
 }[] = [];
+/** The arm/prompt messages among a spawn's initial commands: host registration commands (#688) carry no message, and tests that assert the arm order filter them out. */
+function armMessages(initialCommands: unknown): unknown[] {
+  const commands = initialCommands as Array<{ message?: unknown }> | undefined;
+  return commands !== undefined
+    ? commands.map((command) => command.message).filter((message) => message !== undefined)
+    : [];
+}
 const watcherDisposes: Mock[] = [];
 /** Browser pane seams (#519): one fake page per creation, one fake bridge listener per mint. */
 interface FakeBrowserPane extends PaneContents {
@@ -207,7 +215,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult> } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -279,6 +287,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
         crumbs.push({ at: new Date(0).toISOString(), seq: crumbs.length + 1, kind, ...fields }),
       entries: () => crumbs.slice(),
     },
+    hostNotify: opts.hostNotify,
     browserPane: {
       createPane: async () => {
         const pane = fakePaneContents();
@@ -362,13 +371,20 @@ beforeEach(() => {
   RpcClientMock.mockReset();
   RpcClientMock.mockImplementation(function (
     this: unknown,
-    opts: { onExit: (code: number | null) => void; onFrame: (frame: unknown) => void },
+    opts: { onExit: (code: number | null) => void; onFrame: (frame: unknown) => void; onInputFrame?: (frame: unknown) => void },
   ) {
     const instance = {
       kill: vi.fn(),
       send: vi.fn(),
       exit: (code: number) => opts.onExit(code),
-      frame: (frame: unknown) => opts.onFrame(frame),
+      // The real client fires onInputFrame for EVERY inbound frame before
+      // delivering it, so `frame` drives both seams; `inputFrame` exercises
+      // the route-before-delivery seam alone.
+      frame: (frame: unknown) => {
+        opts.onInputFrame?.(frame);
+        opts.onFrame(frame);
+      },
+      inputFrame: (frame: unknown) => opts.onInputFrame?.(frame),
     };
     rpcInstances.push(instance);
     return instance;
@@ -411,8 +427,7 @@ describe("MCP runtime status bridge", () => {
     // restore reads a settled goal state, then the capabilities arm follows,
     // the browser-pane endpoint. The autoresearch arm (issue #559) follows the
     // pane endpoint only while experimentsEnabled is on (off by default).
-    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
-      ?.map((command) => command.message);
+    const messages = armMessages(options?.initialCommands);
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
       Core.goalArmMessage(),
@@ -439,8 +454,7 @@ describe("MCP runtime status bridge", () => {
     });
 
     const options = RpcClientMock.mock.calls.at(-1)?.[0];
-    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
-      ?.map((command) => command.message);
+    const messages = armMessages(options?.initialCommands);
     // Off above, on here: the arm command is appended last only with the flag
     // set, and the bridge file rides into `extensions` with it.
     // The subagent-control arm now rides after it (issue #684).
@@ -459,10 +473,7 @@ describe("MCP runtime status bridge", () => {
     rows: 24,
     planMode: true, });
 
-    const commands = RpcClientMock.mock.calls.at(-1)?.[0].initialCommands as
-      | Array<{ message?: unknown }>
-      | undefined;
-    expect(commands?.map((command) => command.message)).toEqual([
+    expect(armMessages(RpcClientMock.mock.calls.at(-1)?.[0].initialCommands)).toEqual([
       Core.mcpRuntimeStatusMessage(),
       Core.goalArmMessage(),
       Core.vibeArmMessage(),
@@ -494,8 +505,7 @@ describe("MCP runtime status bridge", () => {
     expect(options?.extensions).toContainEqual(
       expect.stringMatching(/omp-ui-capabilities\.ts$/),
     );
-    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)
-      ?.map((command) => command.message);
+    const messages = armMessages(options?.initialCommands);
     expect(messages).toEqual([
       Core.goalArmMessage(),
       Core.vibeArmMessage(),
@@ -589,9 +599,7 @@ describe("session capabilities bridge (issue #374)", () => {
     expect(options?.extensions).toContainEqual(
       expect.stringMatching(/omp-ui-capabilities\.ts$/),
     );
-    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)?.map(
-      (command) => command.message,
-    );
+    const messages = armMessages(options?.initialCommands);
     // The arm command rides after the MCP flush and the mode command.
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
@@ -645,9 +653,7 @@ describe("session capabilities bridge (issue #374)", () => {
     expect(options?.extensions).not.toContainEqual(
       expect.stringMatching(/omp-ui-capabilities\.ts$/),
     );
-    const messages = (options?.initialCommands as Array<{ message?: unknown }> | undefined)?.map(
-      (command) => command.message,
-    );
+    const messages = armMessages(options?.initialCommands);
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
       Core.goalArmMessage(),
@@ -6257,5 +6263,170 @@ describe("browser pane lifecycle (#519, U1)", () => {
     expect(manager.browserPaneDiagnostics()).toMatchObject([{ tabId: TAB, subscribers: 1 }]);
     manager.setViewedTab("renderer", null);
     expect(manager.browserPaneDiagnostics()).toMatchObject([{ tabId: TAB, subscribers: 0 }]);
+  });
+});
+
+describe("host tools and host URIs (issue #688, ADR-0043)", () => {
+  const reviewFrame = (planAbsPath: string): Record<string, unknown> => ({
+    type: "extension_ui_request",
+    id: "e1",
+    method: "select",
+    title: `${Core.PLAN_REVIEW_SENTINEL}${JSON.stringify({
+      title: "Ship it",
+      planFilePath: "local://plan-abc-plan.md",
+      planAbsPath,
+    })}`,
+  });
+  /** Microtask drain: settles the synchronous notify answer path. */
+  const settled = async (): Promise<void> => {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  };
+  /** The plan read is real fs I/O — await the answer landing, not a guessed duration. */
+  const waitSent = (rpc: (typeof rpcInstances)[number], id: string): Promise<void> =>
+    vi.waitFor(() => expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({ id })));
+
+  it("registers the scheme and the tool on every rpc-ui spawn", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await manager.spawn({
+      origin: "new",
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+    });
+    const commands = RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands as
+      | Array<Record<string, unknown>>
+      | undefined;
+    expect(commands).toContainEqual(
+      expect.objectContaining({ type: "set_host_uri_schemes", id: "omp-ui-host-uri-1" }),
+    );
+    expect(commands).toContainEqual(
+      expect.objectContaining({ type: "set_host_tools", id: "omp-ui-host-tools-1" }),
+    );
+  });
+
+  it("answers a host tool call on the owning spawn's pipe", async () => {
+    const notices: [string, string | null, string][] = [];
+    const { manager } = setup({ mode: "rpc-ui", hostNotify: (tabId, title, message) => {
+      notices.push([tabId, title, message]);
+      return "posted";
+    } });
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+    const rpc = rpcInstances[0]!;
+    rpc.inputFrame({
+      type: "host_tool_call",
+      id: "h1",
+      toolCallId: "tc1",
+      toolName: "omp-ui_notify",
+      arguments: { message: "deploy done", title: "proj" },
+    });
+    await settled();
+    expect(notices).toEqual([[TAB, "proj", "deploy done"]]);
+    expect(rpc.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "host_tool_result",
+        id: "h1",
+        result: { content: [{ type: "text", text: "posted" }] },
+      }),
+    );
+  });
+
+  it("consumes the renderer's fenced fallback for an answered request", async () => {
+    const { manager } = setup({ mode: "rpc-ui", hostNotify: () => "posted" });
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+    const rpc = rpcInstances[0]!;
+    rpc.inputFrame({
+      type: "host_tool_call",
+      id: "h1",
+      toolCallId: "tc1",
+      toolName: "omp-ui_notify",
+      arguments: { message: "hi" },
+    });
+    await settled();
+    rpc.send.mockClear();
+    // The renderer stub's fallback answer for the SAME id must not reach the pipe.
+    manager.rpcSend(TAB, {
+      type: "host_tool_result",
+      id: "h1",
+      isError: true,
+      result: { content: [{ type: "text", text: "omp-ui could not answer this host tool call" }] },
+    });
+    expect(rpc.send).not.toHaveBeenCalled();
+    // An id main never owned passes through untouched.
+    manager.rpcSend(TAB, { type: "host_tool_result", id: "other", isError: true });
+    expect(rpc.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers omp-ui://plan from the path captured at the review frame", async () => {
+    const { manager, sessionsRoot } = setup({ mode: "rpc-ui" });
+    const lineage = path.join(sessionsRoot, LINEAGE);
+    fs.mkdirSync(lineage, { recursive: true });
+    const planAbs = path.join(lineage, "plan-abc-plan.md");
+    fs.writeFileSync(planAbs, "# captured plan");
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+    const rpc = rpcInstances[0]!;
+    // The review frame rides the delivery seam — noteFrame captures the plan path from onFrame, mirroring the real client's both-seams order.
+    rpc.frame(reviewFrame(planAbs));
+    rpc.inputFrame({ type: "host_uri_request", id: "u1", operation: "read", url: "omp-ui://plan" });
+    await waitSent(rpc, "u1");
+    expect(rpc.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "host_uri_result",
+        id: "u1",
+        content: "# captured plan",
+        contentType: "text/markdown",
+      }),
+    );
+  });
+
+  it("answers a plan read with an error when the session never proposed one", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+    const rpc = rpcInstances[0]!;
+    rpc.inputFrame({ type: "host_uri_request", id: "u1", operation: "read", url: "omp-ui://plan" });
+    await settled();
+    expect(rpc.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "host_uri_result",
+        id: "u1",
+        isError: true,
+        error: "no plan has been proposed for this session yet",
+      }),
+    );
+  });
+
+  it("a killed spawn never answers through its successor's pipe", async () => {
+    const { manager } = setup({ mode: "rpc-ui", hostNotify: () => "posted" });
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+    const predecessor = rpcInstances[0]!;
+    predecessor.kill.mockImplementation(() => predecessor.exit(0));
+    await manager.restart(TAB);
+    expect(rpcInstances).toHaveLength(2);
+    const successor = rpcInstances[1]!;
+    predecessor.inputFrame({
+      type: "host_tool_call",
+      id: "h1",
+      toolCallId: "tc1",
+      toolName: "omp-ui_notify",
+      arguments: { message: "late" },
+    });
+    await settled();
+    expect(predecessor.send).not.toHaveBeenCalled();
+    expect(successor.send).not.toHaveBeenCalled();
+    // The successor's own traffic still answers fine.
+    successor.inputFrame({
+      type: "host_tool_call",
+      id: "h2",
+      toolCallId: "tc2",
+      toolName: "omp-ui_notify",
+      arguments: { message: "now" },
+    });
+    await settled();
+    expect(successor.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "host_tool_result", id: "h2" }),
+    );
   });
 });

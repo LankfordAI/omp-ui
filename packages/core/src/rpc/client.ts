@@ -45,6 +45,13 @@ export interface RpcClientOpts {
    * answer `login`.
    */
   bare?: boolean;
+  /**
+   * Fires for EVERY reassembled frame in input order — before the ready
+   * interception and before `onFrame` forwarding — so a main-process
+   * answerer sees frames regardless of whether they were forwarded (the
+   * renderer-race fence depends on seeing them first).
+   */
+  onInputFrame?: (frame: RpcFrame) => void;
   onFrame: (frame: RpcFrame) => void;
   onExit: (code: number | null) => void;
   onError: (msg: string) => void;
@@ -151,6 +158,9 @@ export class RpcClient {
   }
 
   #onFrame(frame: RpcFrame): void {
+    // The input-order hook fires before the ready interception and before
+    // forwarding, so a main-process answerer sees every frame first.
+    this.#opts.onInputFrame?.(frame);
     if (!this.#readySeen && isReadyFrame(frame)) {
       this.#readySeen = true;
       clearTimeout(this.#readyTimer);

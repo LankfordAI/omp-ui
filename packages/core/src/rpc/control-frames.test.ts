@@ -41,6 +41,23 @@ describe("normalizeControlFrame", () => {
     });
   });
 
+  it("discriminates the host frames (issue #688)", () => {
+    const toolCall = { type: "host_tool_call", id: "h1", toolCallId: "c1", toolName: "omp-ui_notify", arguments: {} };
+    expect(normalizeControlFrame(toolCall)).toEqual({ kind: "host_tool_call", id: "h1", frame: toolCall });
+    expect(normalizeControlFrame({ type: "host_tool_cancel", id: "h2", targetId: "h1" })).toMatchObject({
+      kind: "host_tool_cancel",
+      id: "h2",
+    });
+    expect(normalizeControlFrame({ type: "host_uri_request", id: "h3", operation: "read", url: "omp-ui://plan" })).toMatchObject({
+      kind: "host_uri_request",
+      id: "h3",
+    });
+    expect(normalizeControlFrame({ type: "host_uri_cancel", id: "h4", targetId: "h1" })).toMatchObject({
+      kind: "host_uri_cancel",
+      id: "h4",
+    });
+  });
+
   it("returns null for non-frames and agent-event frames — never throws", () => {
     for (const wire of [
       null,
@@ -51,7 +68,7 @@ describe("normalizeControlFrame", () => {
       { type: "token_path" },
       { type: "agent_end" },
       { type: "session_info_update" },
-      { type: "host_tool_call", id: "x" },
+      { type: "host_tool_update", id: "h5", toolCallId: "c1", partialContent: [] },
       { hello: "world" },
     ]) {
       expect(normalizeControlFrame(wire)).toBeNull();

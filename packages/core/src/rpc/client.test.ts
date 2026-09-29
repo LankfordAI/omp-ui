@@ -198,6 +198,36 @@ describe("RpcClient handshake", () => {
     expect(h.frames).toHaveLength(1);
   });
 
+  it("fires onInputFrame for every frame in input order, before forwarding (#688)", async () => {
+    const fake = fakeProc();
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "rpc-lineage-"));
+    lineageDirs.push(base);
+    const seen: string[] = [];
+    const typeOf = (f: unknown): string => String((f as { type?: unknown }).type);
+    new RpcClient({
+      cwd: "/proj",
+      lineageDir: base,
+      ompPath: "/opt/bun/bin/omp",
+      onInputFrame: (f) => seen.push(`in:${typeOf(f)}`),
+      onFrame: (f) => seen.push(`fwd:${typeOf(f)}`),
+      onExit: () => {},
+      onError: () => {},
+      spawnProcess: () => fake.proc,
+    });
+    fake.stdout.write(readyFrame());
+    await tick();
+    fake.stdout.write(`${JSON.stringify({ type: "host_tool_call", id: "h1", toolName: "t", toolCallId: "c", arguments: {} })}\n`);
+    await tick();
+    // ready is intercepted for negotiation yet still reaches the input hook
+    // first — an answerer must see every frame regardless of forwarding.
+    expect(seen).toEqual([
+      "in:ready",
+      "fwd:ready",
+      "in:host_tool_call",
+      "fwd:host_tool_call",
+    ]);
+  });
+
   it("adopts maxFrameBytes from the ready frame", async () => {
     const h = harness();
     h.fake.stdout.write(readyFrame(64));

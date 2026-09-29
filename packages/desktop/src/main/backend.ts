@@ -277,6 +277,9 @@ export class MainBackend {
         breadcrumb: this.breadcrumbs,
         spawnGate: this.spawnGate,
         planVerify: (html, themeId, signal) => this.planVerifier.verify(html, themeId, signal),
+        // The host notify tool posts through the same notifier, bypassing the
+        // attention pipeline's delay and suppression (#688).
+        hostNotify: (tabId, title, message) => this.notifier.notifyNow(tabId, title, message),
         browserPane: {
           // Cache the app window's real page dpr; screen.scaleFactor lies on Wayland
           // fractional scaling (reports 1 while the page renders at 1.5) (#557).
