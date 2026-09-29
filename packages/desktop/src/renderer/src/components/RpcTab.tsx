@@ -7,6 +7,7 @@ import { useT } from "../lib/i18n";
 import { Composer } from "./Composer";
 import { ConsoleDrawer } from "./ConsoleDrawer";
 import { ExtensionDialogHost } from "./ExtensionDialogHost";
+import { ApprovalCard } from "./ApprovalCard";
 import { FindBar } from "./FindBar";
 import { InspectorRail } from "./InspectorRail";
 import { PlanReview } from "./PlanReview";
@@ -397,6 +398,10 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                     on switch; a half-typed editor draft resets, while pending
                     requests themselves live in the store. */}
                 {active && <PlanReview tabId={tabId} />}
+                {/* The approval card rides along for the same reason (issue
+                    #681): a session blocked behind the subagent view must
+                    stay answerable. */}
+                {active && <ApprovalCard tabId={tabId} />}
                 {/* No composer here (issue #421): the card keeps its own
                     free-text field for editor/input frames. */}
                 <ExtensionDialogHost tabId={tabId} composerVisible={false} />
@@ -451,6 +456,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                     floating && "pointer-events-none absolute inset-x-0 bottom-3 z-10",
                   )}
                 >
+                  <ApprovalCard tabId={tabId} />
                   <ExtensionDialogHost
                     tabId={tabId}
                     composerVisible={!compact && !(planReviewOpen && active)}

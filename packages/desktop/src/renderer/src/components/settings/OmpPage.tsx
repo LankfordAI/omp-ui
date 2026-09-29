@@ -9,6 +9,7 @@ import { Button, Empty, Label } from "../ui";
 import { CommitField, Row, SettingControl, layerBadge } from "./rows";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
 import {
+  APPROVAL_SETTING_KEY,
   OMP_JUDGE_ROLE_ID,
   OMP_MAX_CONCURRENCY_KEY,
   OMP_SUBAGENT_MODELS_KEY,
@@ -16,6 +17,7 @@ import {
 import { JudgeRoleRow } from "./JudgeRoleRow";
 import { SubagentModelsSection } from "./SubagentModelsSection";
 import { SubagentConcurrencySection } from "./SubagentConcurrencySection";
+import { ApprovalModeSection } from "./ApprovalModeSection";
 import { useT } from "../../lib/i18n";
 
 export function OmpPage({
@@ -191,6 +193,14 @@ export function OmpPage({
 
       <SubagentConcurrencySection
         entry={byKey.get(OMP_MAX_CONCURRENCY_KEY)}
+        projectCwd={projectCwd}
+        pendingKey={pendingKey}
+        commit={commit}
+        retry={retry}
+      />
+
+      <ApprovalModeSection
+        entry={byKey.get(APPROVAL_SETTING_KEY)}
         projectCwd={projectCwd}
         pendingKey={pendingKey}
         commit={commit}

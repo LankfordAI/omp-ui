@@ -5,13 +5,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GoalSnapshot, NativeGoal } from "@omp-ui/core/goal";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type { LimitsView } from "@omp-ui/core/limits";
-import type { BackendState, ExperimentRecord, ProjectExperiments } from "@omp-ui/core/types";
+import type { BackendState, ExperimentRecord, OmpSettingsSnapshot, ProjectExperiments } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import { backendState, remoteInstance, rpcTabState, tabInfo } from "../test/fixtures";
 import type { ExperimentsCache, RpcTabState } from "../store/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-Object.assign(window, { ompBackend: {} });
+const readOmpSettings = vi.fn((): Promise<OmpSettingsSnapshot> =>
+  Promise.resolve({ entries: [], agentDir: null, projectConfigPath: null, error: null }),
+);
+Object.assign(window, {
+  ompBackend: {
+    // The approval-mode sheet row reads omp's config when it opens to show
+    // the inherit default; everything else in this file drives the store.
+    readOmpSettings,
+    setSessionApprovalMode: vi.fn(async () => {}),
+  },
+});
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../store");
 const { SessionHud } = await import("./SessionHud");
@@ -55,6 +65,7 @@ const state = backendState({
           planImplementationSource: null, experiment: null,
           agentMode: "build",
           compactionMethod: null,
+          approvalMode: null,
           model: null,
           thinkingLevel: null,
           advisor: false,
@@ -1298,5 +1309,100 @@ describe("SessionHud fast mode chip (issue #677)", () => {
     expect(sw.getAttribute("title")).toBe("fast mode off · click to enable priority serving");
     act(() => sw.click());
     expect(setFastMode).toHaveBeenCalledWith(TAB, true);
+  });
+});
+
+
+describe("SessionHud approval mode control (issue #681)", () => {
+  const desktop = (): void => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  };
+
+  const seedApproval = (mode: "always-ask" | "write" | "yolo" | null): void => {
+    useStore.setState((s) => ({
+      state: {
+        ...s.state!,
+        projects: s.state!.projects.map((group) => ({
+          ...group,
+          sessions: group.sessions.map((rec) =>
+            rec.tabId === TAB ? { ...rec, approvalMode: mode } : rec,
+          ),
+        })),
+      },
+    }));
+  };
+
+  const renderWide = (): HTMLElement => {
+    desktop();
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    return host;
+  };
+
+  it("renders no chip while the session inherits omp's config", () => {
+    seedApproval(null);
+    const host = renderWide();
+    expect(host.querySelector('[title*="approval mode pinned"]')).toBeNull();
+  });
+
+  it("shows a chip naming the pinned tier", () => {
+    seedApproval("write");
+    const host = renderWide();
+    expect(
+      host.querySelector('[title="approval mode pinned to write · change it under session modes"]'),
+    ).not.toBeNull();
+  });
+
+  it("the modes popover row offers inherit plus the tiers and calls the setter", () => {
+    const setSessionApprovalMode = vi.fn(async () => {});
+    useStore.setState({ setSessionApprovalMode });
+    seedApproval("write");
+    const host = renderWide();
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
+    act(() => trigger.click());
+    const pick = (label: string): HTMLButtonElement => {
+      const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent === label,
+      );
+      if (!found) throw new Error(`no "${label}" choice`);
+      return found;
+    };
+    act(() => pick("yolo").click());
+    expect(setSessionApprovalMode).toHaveBeenCalledWith(TAB, "yolo");
+    act(() => pick("inherit").click());
+    expect(setSessionApprovalMode).toHaveBeenCalledWith(TAB, null);
+    expect(pick("always-ask").title).toContain("every tool waits");
+  });
+
+  it("shows the resolved omp value while inheriting", async () => {
+    readOmpSettings.mockResolvedValueOnce({
+      entries: [
+        {
+          key: "tools.approvalMode",
+          type: "enum",
+          description: "",
+          value: "always-ask",
+          globalValue: "always-ask",
+          options: null,
+          layer: "global",
+        },
+      ],
+      agentDir: null,
+      projectConfigPath: null,
+      error: null,
+    });
+    seedApproval(null);
+    const host = renderWide();
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
+    act(() => trigger.click());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain("omp resolves: always-ask");
   });
 });

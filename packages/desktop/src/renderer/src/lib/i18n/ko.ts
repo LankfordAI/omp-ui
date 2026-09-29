@@ -89,6 +89,14 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.extension.questionNotAnswered": "미답변",
   "dialog.extension.questionReviewing": ", 검토 중",
 
+  // ApprovalCard.tsx — 전용 도구 승인 카드 (issue #681)
+  "dialog.approval.title": "도구 허용",
+  "dialog.approval.origin": "MCP 서버 도구",
+  "dialog.approval.reason": "사유",
+  "dialog.approval.safety": "제공자 안전 검사",
+  "dialog.approval.allow": "허용",
+  "dialog.approval.deny": "거부",
+
   "dialog.delete.kicker": "되돌릴 수 없는 작업",
   "dialog.delete.title": "“{title}”을(를) 삭제할까요?",
   "dialog.delete.merging": "병합 중…",
@@ -170,6 +178,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "session.error.advisorBusy": "진행 중인 세션 명령이 완료되지 않아 어드바이저를 다시 시작하지 못했습니다. 세션은 계속 실행 중입니다.",
   "session.error.advisorEnable": "어드바이저를 켜지 못했습니다: {reason}\n\n에이전트가 중지되었습니다. 계속하려면 세션을 다시 시작하세요.",
   "session.error.advisorDisable": "어드바이저를 끄지 못했습니다: {reason}\n\n에이전트가 중지되었습니다. 계속하려면 세션을 다시 시작하세요.",
+  "session.error.approvalBusy": "진행 중인 명령이 완료되지 않아 새 승인 모드로 세션을 다시 시작하지 못했습니다. 세션은 계속 실행 중입니다.",
+  "session.error.approval": "승인 모드를 변경하지 못했습니다: {reason}\n\n에이전트가 중지되었습니다. 계속하려면 세션을 다시 시작하세요.",
   "session.error.retitleNotLive": "이 세션은 실행 중이 아니라 제목을 다시 생성할 수 없습니다. 세션을 먼저 다시 시작한 뒤 제목을 다시 생성하세요.",
   "session.error.retitleNoTranscript": "이 세션에는 제목을 다시 생성할 대화가 아직 없습니다. 프롬프트를 보내고 어시스턴트가 답한 뒤 다시 시도하세요.",
   "session.error.rewindBusy":
@@ -847,6 +857,13 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.omp.subagentConcurrencyClear": "지우기",
   "settings.omp.subagentConcurrencyUnsupported":
     "이 프로젝트의 task.maxConcurrency는 여기서 편집할 수 없습니다: {reason}",
+  "settings.omp.approval": "도구 승인",
+  "settings.omp.approvalHint":
+    "어떤 omp 도구가 승인을 요청하는지 설정합니다. always-ask는 모든 도구, write는 변경을 수반하는 도구에만 승인을 요구하고, yolo은 요구하지 않습니다. Global 편집은 omp config set으로 이루어지고, Project 편집은 프로젝트의 .omp/config.yml에 이 키 하나만 쓰며, Project 값을 지우면 Global로 대체됩니다. 키가 없으면 omp 기본값인 yolo입니다. 변경 사항은 이후에 시작된 세션에 적용됩니다.",
+  "settings.omp.approvalInherit": "상속",
+  "settings.omp.approvalClear": "지우기",
+  "settings.omp.approvalUnsupported":
+    "이 프로젝트의 tools.approvalMode는 여기서 편집할 수 없습니다: {reason}",
   "settings.omp.subagentRefresh": "에이전트 새로고침",
   "settings.omp.subagentRefreshing": "새로고침 중…",
   "settings.omp.subagentRosterEmpty": "발견된 에이전트 없음 — 새로고침으로 omp 에이전트 열거",
@@ -1280,6 +1297,18 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.fast.offTitle": "빠른 모드 꺼짐 · 클릭하여 우선 처리 활성화",
   "hud.fast.on": "켜짐",
   "hud.fast.onTitle": "빠른 모드 활성 — 우선 처리 작동 중 · 클릭하여 끄기",
+  // Session HUD 승인 모드 (issue #681, ADR-0038): 칩은 고정(PIN)된 세션에만
+  // 표시되며, 상속이 조용한 기본값이다.
+  "hud.approval.labelLong": "승인 모드",
+  "hud.approval.chipTitle": "승인 모드가 {mode}으로 고정됨 · 세션 모드에서 변경",
+  "hud.approval.effective": "omp 해석 결과: {mode}",
+  "hud.approval.relaunchHint": "모드를 변경하면 세션이 다시 시작됩니다.",
+  "hud.approval.ptyHint": "터미널 세션은 프롬프트를 자체 터미널에 표시합니다.",
+  "hud.approval.subagentHint": "서브에이전트는 세션 모드를 무시하며 — tools.approval 정책만 따릅니다.",
+  "hud.approval.alwaysAskTitle": "always-ask — 모든 도구가 승인을 기다립니다",
+  "hud.approval.writeTitle": "write — 변경 도구가 승인을 기다립니다",
+  "hud.approval.yoloTitle": "yolo — 아무것도 승인을 기다리지 않습니다",
+  "hud.approval.inheritTitle": "상속 — omp 자체 설정이 결정합니다",
   "hud.metrics.advisorTotal": "어드바이저 합계",
   "hud.metrics.context": "컨텍스트",
   "hud.metrics.spend": "지출",

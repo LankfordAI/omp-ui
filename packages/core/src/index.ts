@@ -70,10 +70,12 @@ export * from "./session-command";
 export { settledWithin } from "./promise-utils";
 export { writeTextAtomic } from "./atomic-write";
 export { BLOCKING_DIALOG_METHODS, isBlockingDialogMethod } from "./extension-dialog";
+export * from "./approval";
 export { escapeHtml } from "./html";
 export { watchLineageDir, type LineageEvent } from "./watcher";
 export { watchGitHead, type WatchGitHeadOptions } from "./watcher";
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
+export { approvalOverlayPath, writeApprovalOverlay } from "./approval-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
 export {
   compactionMethodOverlayPath,

@@ -1,6 +1,7 @@
 import type {
   AdvisorDefaults,
   AgentMode,
+  ApprovalMode,
   AppUpdateRestartResult,
   AppUpdateState,
   BackendState,
@@ -75,6 +76,7 @@ import type { RpcFrame } from "./rpc/codec";
 import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
 import {
   agentModeCodec,
+  approvalModeCodec,
   any,
   browserPaneInputCodec,
   browserPaneNavigateCodec,
@@ -263,6 +265,23 @@ export const BACKEND_CHANNELS = {
   setProjectMaxConcurrency: {
     channel: "project:setMaxConcurrency",
     ...request<[projectCwd: string, value: number | null], void>([str(), nullable(num())]),
+  },
+  /**
+   * The project layer's `tools.approvalMode` (issue #681): the value plus the
+   * raw read, so an `unsupported` shape surfaces verbatim and the section can
+   * explain itself.
+   */
+  getProjectApprovalMode: {
+    channel: "project:getApprovalMode",
+    ...request<[projectCwd: string], ProjectScalarResult>([str()]),
+  },
+  /**
+   * Writes the project's `tools.approvalMode` — one key, siblings untouched.
+   * null deletes the project override so the value falls back to global.
+   */
+  setProjectApprovalMode: {
+    channel: "project:setApprovalMode",
+    ...request<[projectCwd: string, value: ApprovalMode | null], void>([str(), nullable(approvalModeCodec)]),
   },
   /**
    * Moves an owned session to sit immediately before `beforeTabId` in its
@@ -572,6 +591,16 @@ export const BACKEND_CHANNELS = {
   setSessionAdvisor: {
     channel: "session:setAdvisor",
     ...request<[tabId: string, advisor: boolean, advisorModel: string | null], void>([str(), bool(), nullable(str())]),
+  },
+  /**
+   * Re-pins a session's approval mode (issue #681, ADR-0038). omp binds
+   * `tools.approvalMode` at process start, so a live session is respawned
+   * with `--resume`; a dormant one just records the choice for its next
+   * launch. null = inherit omp's own config (the overlay artifact is removed).
+   */
+  setSessionApprovalMode: {
+    channel: "session:setApprovalMode",
+    ...request<[tabId: string, mode: ApprovalMode | null], void>([str(), nullable(approvalModeCodec)]),
   },
   /** omp's advisor defaults for a project (global config plus project overlay). */
   getAdvisorDefaults: {

@@ -73,6 +73,7 @@ export function ownedSessionRecord(
     launchedAt: "2026-07-29T10:00:00.000Z",
     mode: "rpc-ui",
     compactionMethod: null,
+    approvalMode: null,
     model: null,
     thinkingLevel: null,
     advisor: false,

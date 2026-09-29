@@ -22,6 +22,7 @@ import { ConsoleToggle } from "./ConsoleDrawer";
 import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { FastModeControl, fastModeState } from "./FastModeControl";
+import { ApprovalModeControl } from "./ApprovalModeControl";
 import { WorktreeChip } from "./WorktreeChip";
 import { Button, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconRefresh, IconTune, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
@@ -829,6 +830,10 @@ function ModesPopover({
               />
             </span>
           </div>
+          {/* Approval mode is always reachable here, like fast mode: the chip
+              only marks a pinned session, so this row is the entry point for
+              inherit and for un-pinning (issue #681). */}
+          <ApprovalModeControl tabId={tabId} layout="sheet" />
           <div className="mt-3 flex items-center justify-between gap-2 border-t border-line-soft pt-2.5">
             <Button
               variant="ghost"
@@ -933,6 +938,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const refreshAdvisorStats = useStore((s) => s.refreshAdvisorStats);
   const refreshLimits = useStore((s) => s.refreshLimits);
   const advisor = useStore((s) => findRecord(s.state, tabId)?.advisor);
+  const approvalMode = useStore((s) => findRecord(s.state, tabId)?.approvalMode ?? null);
   const advisorStats = useStore((s) => s.rpc[tabId]?.advisorStats);
   const mcpFailureCount = useStore((s) => s.rpc[tabId]?.mcpStatus?.failedServers.length ?? 0);
   const plan = useStore((s) => s.rpc[tabId]?.plan);
@@ -1061,6 +1067,14 @@ export function SessionHud({ tabId }: { tabId: string }) {
   // Which host this session lives on (issue #416): quiet mono chip, the URL in
   // the tooltip. Local sessions carry no chip — most sessions are local, and a
   // "this app" chip on every one would say nothing.
+  // The pinned approval tier (issue #681): quiet by default — an inheriting
+  // session renders no chip, mirroring the fastChip gating above.
+  const approvalChip = approvalMode !== null && (
+    <ApprovalModeControl
+      tabId={tabId}
+      className={compact ? "shrink-0" : "shrink-0 [app-region:no-drag]"}
+    />
+  );
   const instanceChip = instance !== undefined && (
     <Chip mono title={instance.url} className={compact ? undefined : "shrink-0 [app-region:no-drag]"}>
       {instance.nickname}
@@ -1086,6 +1100,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {goalChip}
           {autoresearchChip}
           {fastChip}
+          {approvalChip}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
@@ -1157,6 +1172,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {goalChip}
       {autoresearchChip}
       {fastChip}
+      {approvalChip}
       {/* Remote sessions retain the informational and finish-capable chip;
           only host-local open rows are suppressed (issue #435). */}
       {worktree && (

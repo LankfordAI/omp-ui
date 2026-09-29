@@ -167,6 +167,11 @@ const backendMock = {
   ),
   setProjectMaxConcurrency: vi.fn(async () => {}),
   setSessionSubagentModels: vi.fn(async () => {}),
+  setSessionApprovalMode: vi.fn(async () => {}),
+  getProjectApprovalMode: vi.fn(
+    async (): Promise<ProjectScalarResult> => ({ value: undefined, layer: { shape: "absent" } }),
+  ),
+  setProjectApprovalMode: vi.fn(async () => {}),
   refreshAgentRoster: vi.fn(async () => []),
   setSubagentModelInheritByDefault: vi.fn(async () => {}),
   getRemoteState: vi.fn(async () => idleRemote),
@@ -2214,3 +2219,120 @@ describe("Settings omp page judge role row (issue #669)", () => {
   });
 });
 
+
+describe("Settings omp Tool approval section (issue #681)", () => {
+  const approvalEntry = (globalValue?: string): OmpSettingsSnapshot["entries"][number] => ({
+    key: "tools.approvalMode",
+    type: "enum",
+    description: "Approval policy for tool calls",
+    value: globalValue ?? "yolo",
+    globalValue,
+    options: null,
+    layer: "default",
+  });
+
+  /** Seeds the omp page with the approval entry alone; `focused` drives projectCwd. */
+  function seedApproval(entry: OmpSettingsSnapshot["entries"][number], focused = true): void {
+    backendMock.readOmpSettings.mockResolvedValue({ ...emptyOmpSettings, entries: [entry] });
+    backendMock.getProjectApprovalMode.mockResolvedValue({
+      value: undefined,
+      layer: { shape: "absent" as const },
+    });
+    const tab = tabInfo();
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: focused ? [tab] : [],
+      activeTabId: focused ? tab.tabId : null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  const select = (): HTMLSelectElement =>
+    document.querySelector<HTMLSelectElement>('select[aria-label="tools.approvalMode"]')!;
+
+  const scopeButtons = (): HTMLButtonElement[] => [
+    ...document.body.querySelectorAll<HTMLButtonElement>(
+      '[role="group"][aria-label="edit scope"] button',
+    ),
+  ];
+
+  async function pick(value: string): Promise<void> {
+    await act(async () => {
+      select().value = value;
+      select().dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+
+  it("renders the section and commits the global tier through omp config set", async () => {
+    seedApproval(approvalEntry("yolo"));
+    await renderSettings();
+    expect(document.body.textContent).toContain("Tool approval");
+
+    click(scopeButtons()[0]!); // Global
+    expect([...select().options].map((o) => o.value)).toEqual([
+      "always-ask",
+      "write",
+      "yolo",
+    ]);
+    await pick("write");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("tools.approvalMode", "write");
+    expect(backendMock.setProjectApprovalMode).not.toHaveBeenCalled();
+  });
+
+  it("defaults to the project layer with a focused session and writes the project channel", async () => {
+    seedApproval(approvalEntry("yolo"));
+    await renderSettings();
+    expect(backendMock.getProjectApprovalMode).toHaveBeenCalledWith("/project");
+    // An absent project layer IS the inherit state, selectable first.
+    expect(select().value).toBe("inherit");
+    expect([...select().options].map((o) => o.value)).toEqual([
+      "inherit",
+      "always-ask",
+      "write",
+      "yolo",
+    ]);
+    await pick("always-ask");
+    expect(backendMock.setProjectApprovalMode).toHaveBeenCalledWith("/project", "always-ask");
+    expect(backendMock.writeOmpSetting).not.toHaveBeenCalled();
+  });
+
+  it("inherit on the project layer deletes the override", async () => {
+    seedApproval(approvalEntry("yolo"));
+    backendMock.getProjectApprovalMode.mockResolvedValueOnce({
+      value: "write",
+      layer: { shape: "value" as const, value: "write" },
+    });
+    await renderSettings();
+    expect(select().value).toBe("write");
+    await pick("inherit");
+    expect(backendMock.setProjectApprovalMode).toHaveBeenCalledWith("/project", null);
+  });
+
+  it("shows the unset placeholder at the global layer with no delete write", async () => {
+    seedApproval(approvalEntry(undefined));
+    await renderSettings();
+    click(scopeButtons()[0]!); // Global
+    expect(select().value).toBe("");
+    await pick("inherit");
+    // The global layer has no delete rail: inherit there means "no key", and
+    // the placeholder already shows that — a same-value write would lie.
+    expect(backendMock.writeOmpSetting).not.toHaveBeenCalled();
+  });
+
+  it("renders nothing when omp predates the key", async () => {
+    backendMock.readOmpSettings.mockResolvedValue(emptyOmpSettings);
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+    expect(document.body.textContent).not.toContain("Tool approval");
+    expect(backendMock.getProjectApprovalMode).not.toHaveBeenCalled();
+  });
+});

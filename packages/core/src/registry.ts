@@ -5,6 +5,7 @@ import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseProposedPlans } from "./plan";
 import type {
   AgentMode,
+  ApprovalMode,
   GlassChrome,
   OwnedSessionRecord,
   PlanFormat,
@@ -328,6 +329,10 @@ function isSessionMode(value: unknown): value is SessionMode {
   return value === "pty" || value === "rpc-ui";
 }
 
+function isApprovalMode(value: unknown): value is ApprovalMode {
+  return value === "always-ask" || value === "write" || value === "yolo";
+}
+
 /**
  * Absent, or the present value passes `check`. For the rare field that
  * rejects null (agentMode) — everything else wants `optNullable`.
@@ -451,6 +456,8 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // first).
     optional(value, "agentMode", (v) => v === "plan" || v === "build") &&
     optNullable(value, "compactionMethod", isStr) &&
+    // approvalMode post-dates schema-1 records; absent loads as null (inherit).
+    optNullable(value, "approvalMode", isApprovalMode) &&
     optNullable(value, "model", isStr) &&
     optNullable(value, "thinkingLevel", isStr) &&
     // advisorModel post-dates the first schema-1 records: requiring it here
@@ -506,6 +513,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,
       compactionMethod: s.compactionMethod ?? null,
+      approvalMode: s.approvalMode ?? null,
       subagentModels: s.subagentModels ?? null,
       agentMode: s.agentMode ?? "build",
       worktree: s.worktree
@@ -759,6 +767,22 @@ export class Registry {
         project.lastAdvisor = advisor;
         project.lastAdvisorModel = advisorModel;
       }
+      return true;
+    });
+  }
+
+  /**
+   * Pins this session's omp approval mode (issue #681, ADR-0038). Session
+   * scope only, deliberately without setSessionAdvisor's project last-used
+   * mirror: a new session inherits omp's own config, not what some earlier
+   * session was pinned to.
+   */
+  setSessionApprovalMode(tabId: string, mode: ApprovalMode | null): void {
+    this.#transaction((draft) => {
+      const record = draft.sessions.find((session) => session.tabId === tabId);
+      if (!record) return false;
+      if (record.approvalMode === mode) return false;
+      record.approvalMode = mode;
       return true;
     });
   }

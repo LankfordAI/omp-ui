@@ -115,6 +115,7 @@ const CWD_RECORD = {
   planImplementationSource: null, experiment: null,
   agentMode: "build" as const,
   compactionMethod: null,
+  approvalMode: null,
   model: null,
   thinkingLevel: null,
   advisor: false,

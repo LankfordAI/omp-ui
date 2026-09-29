@@ -28,6 +28,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     launchedAt: "2026-07-29T10:00:00.000Z",
     mode: "pty",
     compactionMethod: null,
+    approvalMode: null,
     model: null,
     thinkingLevel: null,
     advisor: false,
@@ -860,6 +861,19 @@ describe("Registry mutations", () => {
     expect(Registry.load(file).sessions[0]).toMatchObject({ advisor: true, advisorModel: "a/b" });
   });
 
+  it("setSessionApprovalMode persists across reload without touching projects", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/proj");
+    reg.addSession(sessionRecord());
+    reg.setSessionApprovalMode("tab-1", "always-ask");
+    expect(Registry.load(file).sessions[0]).toMatchObject({ approvalMode: "always-ask" });
+    // No project last-used mirror: a pin is a session decision, not memory.
+    expect(Registry.load(file).projects[0]).not.toMatchObject({ lastApprovalMode: "always-ask" });
+    reg.setSessionApprovalMode("tab-1", null);
+    expect(Registry.load(file).sessions[0]).toMatchObject({ approvalMode: null });
+  });
+
   it("remembers the complete model and advisor tuples per project", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
@@ -1024,6 +1038,20 @@ describe("Registry mutations", () => {
       advisorModel: null,
       subagentModels: null,
     });
+  });
+
+  it("loads a legacy record without approvalMode as inherit and drops a bad tier", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord({ tabId: "legacy" }) };
+    delete legacy.approvalMode;
+    const bad: Record<string, unknown> = {
+      ...sessionRecord({ tabId: "bad" }),
+      approvalMode: "yolo-forever",
+    };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy, bad] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["legacy"]);
+    expect(reg.sessions[0]!.approvalMode).toBeNull();
   });
 
   it("normalizes proposed plans on load without ever dropping the session", () => {
@@ -1506,6 +1534,7 @@ describe("legacy registries with absent optional fields (issue #294)", () => {
       thinkingLevel: null,
       advisor: false,
       compactionMethod: null,
+      approvalMode: null,
       agentMode: "build",
       worktree: null,
       planImplementationSource: null, experiment: null,

@@ -56,6 +56,7 @@ import {
   type SetSessionToolEnabledResult,
   type SessionMode,
   type SubagentModelMap,
+  type ApprovalMode,
   type SessionWorktree,
   type SpawnRequest,
   type WorktreeReleaseOptions,
@@ -494,6 +495,7 @@ export class SessionManager {
           agentMode: "build",
           compactionMethod:
             req.mode === "rpc-ui" ? this.deps.registry.getSetting("defaultCompactionMethod") : null,
+          approvalMode: null,
           model: project?.defaultModel ?? project?.lastModel ?? null,
           thinkingLevel: project?.lastThinkingLevel ?? null,
           advisor: req.advisor,
@@ -864,6 +866,36 @@ export class SessionManager {
         resumeTabId: tabId,
         advisor,
         advisorModel,
+        cols: 80,
+        rows: 24,
+      });
+    });
+  }
+
+  /**
+   * Pins a session's approval mode (issue #681, ADR-0038) and relaunches it
+   * with `--resume` when live: omp binds `tools.approvalMode` at process
+   * start, and the new spawn re-reads the persisted record (whose overlay
+   * `writeSessionOverlays` rewrites), so the resume request carries no key.
+   */
+  async setSessionApprovalMode(tabId: string, mode: ApprovalMode | null): Promise<void> {
+    return this.enqueueOp(tabId, "relaunch", async () => {
+      const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (!record) return;
+      const changed = record.approvalMode !== mode;
+      this.deps.registry.setSessionApprovalMode(tabId, mode);
+      if (!changed) {
+        await this.deps.broadcast();
+        return;
+      }
+      const entry = this.live.get(tabId);
+      if (!entry) {
+        await this.deps.broadcast();
+        return;
+      }
+      await this.relaunch(entry, {
+        origin: "resume",
+        resumeTabId: tabId,
         cols: 80,
         rows: 24,
       });
@@ -1572,6 +1604,7 @@ export class SessionManager {
       mode: source.mode,
       agentMode: source.agentMode,
       compactionMethod: source.compactionMethod,
+      approvalMode: source.approvalMode,
       model: source.model,
       thinkingLevel: source.thinkingLevel,
       advisor: source.advisor,

@@ -1,11 +1,12 @@
 // Session parameter domain (decomposed for #295): prompting, slash commands,
 // and every per-session parameter command — model, advisor, modes, retry,
 // compaction, plan, todos, refreshes, subagent drill-down.
-import type { BackendState, ImageAttachment } from "@omp-ui/core/types";
+import type { ApprovalMode, BackendState, ImageAttachment } from "@omp-ui/core/types";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { LIMITS_COMMAND } from "@omp-ui/core/limits";
 import { planMessage } from "@omp-ui/core/plan";
 import { parseExperimentProposalTitle } from "@omp-ui/core/autoresearch";
+import { parseApprovalPrompt } from "@omp-ui/core/approval";
 import {
   GOAL_OBJECTIVE_CHAR_LIMIT,
   goalMessage,
@@ -68,6 +69,8 @@ import type { CompactionOutcome, UiStore } from "../types";
 export type SessionParamsSlice = Pick<
   UiStore,
   | "advisorDefaults"
+  | "acceptApprovalPrompt"
+  | "answerApprovalPrompt"
   | "answerExtension"
   | "reconcilePendingDialogs"
   | "sendPrompt"
@@ -75,6 +78,7 @@ export type SessionParamsSlice = Pick<
   | "abortAndPrompt"
   | "loadAdvisorDefaults"
   | "setSessionAdvisor"
+  | "setSessionApprovalMode"
   | "setAdvisorModel"
   | "setModel"
   | "setThinkingLevel"
@@ -271,6 +275,38 @@ export function createSessionParamsSlice(
   };
 
   /**
+   * Holds a live approval frame on its tab (issue #681). The OLDEST unanswered
+   * frame wins: a second stacked approval while one is held is already counted
+   * by main's tracker and reconciles in once the first is answered — replacing
+   * the held frame would strand the runner blocked on the older one.
+   */
+  const acceptApprovalPrompt: SessionParamsSlice["acceptApprovalPrompt"] = (
+    tabId,
+    prompt,
+    frame,
+  ) => {
+    const held = get().rpc[tabId]?.approvalPrompt;
+    if (held !== undefined && held !== null) return; // replayed, or an older frame still waits
+    m.patchRpc(tabId, { approvalPrompt: { prompt, frame } });
+  };
+
+  /** Answers the held approval. Exit-guarded like the experiment proposal. */
+  const answerApprovalPrompt: SessionParamsSlice["answerApprovalPrompt"] = (tabId, verdict) => {
+    const held = get().rpc[tabId]?.approvalPrompt;
+    if (!held) return false;
+    // The agent is blocked on this reply — clear only after sending. An exited
+    // process has nothing to release; the card was still worth showing.
+    if (get().exited[tabId] === undefined)
+      backend.rpcSend(tabId, {
+        type: "extension_ui_response",
+        id: strField(held.frame, "id"),
+        value: verdict,
+      });
+    m.patchRpc(tabId, { approvalPrompt: null });
+    return true;
+  };
+
+  /**
    * Reconciles each open rpc tab's blocking-dialog queue against the
    * main-process-owned list on the session summary (issue #555). The record
    * wins: a frame another client answered drops out, a frame this client
@@ -302,9 +338,16 @@ export function createSessionParamsSlice(
       // queue compare, or the two lists would disagree on every pass.
       const generic: unknown[] = [];
       let proposalFrame: unknown = undefined;
+      let approvalFrame: unknown = undefined;
       for (const frame of pending) {
         if (parseExperimentProposalTitle(strField(frame, "title")) !== null) proposalFrame = frame;
-        else generic.push(frame);
+        // An `Allow tool:` select is main's generic blocking dialog but the
+        // renderer's approvalPrompt (issue #681): same split, same reason. The
+        // OLDEST held frame wins — parallel tool calls can stack — and each
+        // answer releases exactly one blocked runner, the next reconciling in.
+        else if (parseApprovalPrompt(strField(frame, "title"), field(frame, "options")) !== null) {
+          if (approvalFrame === undefined) approvalFrame = frame;
+        } else generic.push(frame);
       }
       const localIds = tab.extensionQueue.map((q) => strField(q, "id"));
       const remoteIds = generic.map((q) => strField(q, "id"));
@@ -317,6 +360,17 @@ export function createSessionParamsSlice(
       } else if (strField(proposalFrame, "id") !== heldId) {
         const proposal = parseExperimentProposalTitle(strField(proposalFrame, "title"));
         if (proposal !== null) get().acceptExperimentProposal(tabId, proposal, proposalFrame);
+      }
+      const heldApprovalId =
+        tab.approvalPrompt === null ? undefined : strField(tab.approvalPrompt.frame, "id");
+      if (approvalFrame === undefined) {
+        if (tab.approvalPrompt !== null) m.patchRpc(tabId, { approvalPrompt: null });
+      } else if (strField(approvalFrame, "id") !== heldApprovalId) {
+        const prompt = parseApprovalPrompt(
+          strField(approvalFrame, "title"),
+          field(approvalFrame, "options"),
+        );
+        if (prompt !== null) m.patchRpc(tabId, { approvalPrompt: { prompt, frame: approvalFrame } });
       }
     }
   };
@@ -461,6 +515,65 @@ export function createSessionParamsSlice(
           reason,
         }),
       );
+    }
+  };
+
+  const setSessionApprovalMode = async (
+    tabId: string,
+    mode: ApprovalMode | null,
+  ): Promise<void> => {
+    if (!m.acceptsCommands(tabId)) return;
+    const tab = get().rpc[tabId];
+    const rec = findRecord(get().state, tabId);
+    const changedLive =
+      rec?.live === "live" && rec.mode === "rpc-ui" && rec.approvalMode !== mode;
+    if (changedLive && tab) {
+      // Same drain as setSessionAdvisor: the relaunch must not strand a loud
+      // command, and commands still pending means busy, not relaunch.
+      const commandIds = rpcCommandMachinery.snapshotPending(tabId, {
+        includeQuiet: false,
+      });
+      const parameterActions = [
+        ...(pendingSessionParameterActions.get(tabId) ?? []),
+      ];
+      const deadline = Date.now() + RPC_COMMAND_TIMEOUT_MS + 1_000;
+      m.patchRpc(tabId, { commandAdmissionBlocked: true });
+      await m.pollUntil(
+        tabId,
+        (current) =>
+          current !== undefined &&
+          [...commandIds].every((id) => !rpcCommandMachinery.hasPending(tabId, id)),
+        RPC_COMMAND_TIMEOUT_MS + 1_000,
+      );
+      const remainingMs = Math.max(0, deadline - Date.now());
+      if (parameterActions.length > 0 && remainingMs > 0) {
+        await Promise.race([
+          Promise.allSettled(parameterActions),
+          new Promise<void>((resolve) => window.setTimeout(resolve, remainingMs)),
+        ]);
+      }
+      const current = get().rpc[tabId];
+      const commandsRemain =
+        current === undefined ||
+        [...commandIds].some((id) => rpcCommandMachinery.hasPending(tabId, id));
+      const parametersRemain = parameterActions.some((action) =>
+        pendingSessionParameterActions.get(tabId)?.has(action),
+      );
+      if (commandsRemain || parametersRemain) {
+        if (current) m.patchRpc(tabId, { commandAdmissionBlocked: false });
+        get().reportError(t("session.error.approvalBusy"));
+        return;
+      }
+      deps.prepareRpcRelaunch(tabId);
+    }
+    try {
+      await backend.setSessionApprovalMode(tabId, mode);
+    } catch (err) {
+      // Changing the approval mode relaunches the agent, so a failure here
+      // means the session is down, not merely that a setting did not stick
+      // (the advisor's honesty rule at the same seam).
+      const reason = err instanceof Error ? err.message : String(err);
+      get().reportError(t("session.error.approval", { reason }));
     }
   };
 
@@ -1290,12 +1403,15 @@ export function createSessionParamsSlice(
   return {
     advisorDefaults: {},
     answerExtension,
+    acceptApprovalPrompt,
+    answerApprovalPrompt,
     reconcilePendingDialogs,
     sendPrompt,
     abortAgent,
     abortAndPrompt,
     loadAdvisorDefaults,
     setSessionAdvisor,
+    setSessionApprovalMode,
     setAdvisorModel,
     setModel,
     setThinkingLevel,
