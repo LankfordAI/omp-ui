@@ -184,6 +184,18 @@ describe("handleRpcFrame routing", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
   });
 
+  it("a prompt_result that invoked no agent leaves a running turn running (#692)", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, { type: "prompt_result", agentInvoked: false });
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("running");
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, { type: "prompt_result", agentInvoked: true });
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
+  });
+
   it("refreshes get_state and get_session_stats live on message_end while the agent runs", () => {
     h.useStore.setState({
       rpc: { [`${h.TAB}-live`]: rpcTabState({ status: "running" }) },

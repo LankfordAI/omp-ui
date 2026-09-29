@@ -728,6 +728,12 @@ export function createRpcCommandSlice(
         .then(
           (resp) => {
             m.applyRpcState(tabId, resp);
+            // The snapshot is the only evidence a mid-turn attach ever gets:
+            // its agent_start went by before this tab existed. Later frames are
+            // ordered after this reply, so an agent_end still settles it.
+            if (get().rpc[tabId]?.session.isStreaming === true) {
+              m.patchRpc(tabId, { status: "running" });
+            }
             return null;
           },
           (err: unknown) =>
@@ -793,7 +799,12 @@ export function createRpcCommandSlice(
           },
         });
       } else {
-        m.patchRpc(tabId, { status: "ready" });
+        // "running" here came from the snapshot above or a live agent_start
+        // that landed mid-boot; the stamp must not erase either. The tab was
+        // reset to "starting" at boot entry, so nothing stale can be carried in.
+        m.patchRpc(tabId, {
+          status: get().rpc[tabId]?.status === "running" ? "running" : "ready",
+        });
         // Boot reset the tab to fresh state before this ran, so a pending
         // gate on the record hydrates now instead of being clobbered.
         const bootedState = get().state;

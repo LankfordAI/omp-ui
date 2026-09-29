@@ -705,20 +705,24 @@ export function createFrameReductionSlice(
           // Settles a slash-command row whose response carried no
           // `agentInvoked` (older runtime): the wire id maps back to the item.
           const id = "id" in frame && typeof frame.id === "string" ? frame.id : null;
+          const invoked =
+            boolField(frame, "agentInvoked") ??
+            boolField(field(frame, "data"), "agentInvoked");
           const byRequest = m.runtime(tabId).slashCommandItems;
           const itemId = id !== null ? byRequest?.get(id) : undefined;
           if (byRequest !== undefined && id !== null && itemId !== undefined) {
             byRequest.delete(id);
-            const invoked =
-              boolField(frame, "agentInvoked") ??
-              boolField(field(frame, "data"), "agentInvoked");
             m.patchItems(tabId, (i) =>
               i.kind === "command" && i.id === itemId && i.status === "running"
                 ? { ...i, status: invoked === true ? "agent" : "done" }
                 : i,
             );
           }
-          m.patchRpc(tabId, { status: "ready" });
+          // A prompt that ran no agent (a slash command, the boot's extension
+          // arms) says nothing about a turn already in flight: stamping
+          // "ready" here erased the running status of a tab that attached
+          // mid-turn (#692).
+          if (invoked !== false) m.patchRpc(tabId, { status: "ready" });
           return;
         }
         case "omp_ui_notice": {
