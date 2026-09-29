@@ -161,11 +161,12 @@ chip shows OMP's reason and `/goal resume` decides whether the work continues.
 
 ## Inspector rail
 
-The **inspector rail** is the right-hand icon strip in a native tab. It has five panes. Selecting an icon opens one pane; selecting the active icon again closes it. The selected pane is remembered per tab, and badges show open todo, subagent, and pending-plan counts.
+The **inspector rail** is the right-hand icon strip in a native tab. It has six panes. Selecting an icon opens one pane; selecting the active icon again closes it. The selected pane is remembered per tab, and badges show open todo, subagent, pending-plan, and answered side-question counts.
 
 - **Todos** shows OMP's todo phases and task states for the focused session.
 - **Agents** lists live and settled subagents. Select one to open the **subagent view** in the main transcript area. That read-only view backfills the subagent's own transcript and renders its thinking, tool cards, and usage receipts. Its banner names the agent and status and returns to the main agent. There is no composer because a subagent cannot be prompted or steered. The main session keeps running behind the view.
 - **Session** shows the session ID and file, model and thinking level, queue configuration, context, message and tool counts, token totals, cost, and premium requests.
+- **Side questions** holds your `/btw` exchanges: quick questions asked against this session's context that never enter the transcript or any later turn. Type `/btw <question>` in the composer (it opens the pane) or use the pane's ask box; bare `/btw` just opens the pane. Only one side question runs at a time — Cancel stops it. Select an answered topic to read it and ask a follow-up, which sees only that topic's earlier turns plus the session. Topics are stored as OMP's own `btw-history/` files beside the session, so they return after the session hibernates or resumes. Terminal tabs keep OMP's own `/btw` overlay and history.
 - **Plans** shows proposed plans and the actions for a pending review.
 - **Diffs** shows every tracked and untracked working-tree change on the effective git branch. This is a branch diff, not a per-session edit history, so it can include changes made outside the focused session.
 

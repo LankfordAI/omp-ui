@@ -10,6 +10,7 @@ import {
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
 import { GOAL_COMMAND } from "@omp-ui/core/goal";
+import { BTW_COMMAND } from "@omp-ui/core/side-questions";
 import { AUTORESEARCH_COMMAND } from "@omp-ui/core/autoresearch";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
@@ -100,6 +101,7 @@ export function Composer({
         })),
       },
       { ...UI_GUIDED_GOAL_COMMAND, description: t("composer.slash.guidedGoal") },
+      { ...UI_BTW_COMMAND, description: t("composer.slash.btw") },
       ...(experimentsEnabled
         ? [
             {
@@ -125,6 +127,7 @@ export function Composer({
           c.name !== PLAN_COMMAND &&
           c.name !== CAPABILITIES_COMMAND &&
           c.name !== GOAL_COMMAND &&
+          c.name !== BTW_COMMAND &&
           c.name !== AUTORESEARCH_COMMAND &&
           !owned.has(c.name),
       ),
@@ -1156,6 +1159,18 @@ const UI_GUIDED_GOAL_COMMAND: SlashCommandInfo = {
   description: "the agent interviews you, then sets the goal it agrees on",
   source: "omp-ui",
   input: { hint: "[rough objective]" },
+};
+
+/**
+ * omp's `/btw` is TUI-only and absent from `get_available_commands`, so the
+ * palette would never show it; the store intercepts the line in native tabs
+ * (issue #682) and the hidden `omp-ui-btw` driver never appears as a row.
+ */
+const UI_BTW_COMMAND: SlashCommandInfo = {
+  name: "btw",
+  description: "ask a side question without touching the transcript",
+  source: "omp-ui",
+  input: { hint: "<question>" },
 };
 
 /**

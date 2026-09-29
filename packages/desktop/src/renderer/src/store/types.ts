@@ -54,6 +54,8 @@ import type {
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
 import type { GoalSnapshot } from "@omp-ui/core/goal";
+import type { BtwSnapshot } from "@omp-ui/core/side-questions";
+import type { RailTab } from "../lib/panel-layout";
 import type { AutoresearchSnapshot, ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { ApprovalPrompt } from "@omp-ui/core/approval";
 import type { CompactionThresholdSettings } from "@omp-ui/core/compaction-threshold";
@@ -255,6 +257,12 @@ export interface RpcTabState {
    * Display state only: the child process owns the goal and its continuation.
    */
   goal: GoalSnapshot | null;
+  /**
+   * The session's side questions (`/btw`) as the bridge published them (issue
+   * #682). Display state only: the child process owns the history files. A
+   * malformed publish leaves the last good snapshot standing.
+   */
+  sideQuestions: BtwSnapshot | null;
   /**
    * The session's autoresearch snapshot as the root bridge published it
    * (ADR-0030): mode, goal and last tool activity. Display state only — omp's
@@ -738,6 +746,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setSidebarWidth(width: number): void;
   setInspectorWidth(width: number): void;
   setInspectorOpen(open: boolean): void;
+  /** A pending request to show one rail pane for a tab; the mounted rail applies each `nonce` once (issue #682). */
+  railPaneFocus: Record<string, { pane: RailTab; nonce: number }>;
+  focusRailPane(tabId: string, pane: RailTab): void;
   setBrowserPaneWidth(width: number): void;
   /** Opens the tab's browser pane and asks main to ensure its page exists. */
   openBrowserPane(tabId: string): void;
@@ -997,6 +1008,18 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   runGoalCommand(tabId: string, line: string): Promise<void>;
   /** Dispatches one hidden bridge command quietly (issue #680). */
   runHiddenCommand(tabId: string, command: string, args: string): Promise<void>;
+  /**
+   * One composer `/btw` line in a native tab (issue #682): text asks a side
+   * question, bare `/btw` focuses the Side questions pane. Never reaches the
+   * model as prose and appends no transcript row.
+   */
+  runSideQuestionCommand(tabId: string, line: string): Promise<void>;
+  /** Asks one side question, or a follow-up on `topicId`, through the bridge. */
+  askSideQuestion(tabId: string, question: string, topicId?: string): Promise<void>;
+  /** Cancels the running side question. */
+  cancelSideQuestion(tabId: string): Promise<void>;
+  /** Asks the bridge to re-read `btw-history/` and republish. */
+  refreshSideQuestions(tabId: string): Promise<void>;
   setTodos(tabId: string, phases: TodoPhase[]): Promise<void>;
   refreshState(tabId: string): Promise<void>;
   refreshStats(tabId: string): Promise<void>;

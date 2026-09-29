@@ -121,12 +121,20 @@ on chrome destroys the property that a glance answers "is it working?".
 _Avoid_: primary colour, brand colour, green
 
 **Inspector rail**:
-The right-hand icon strip in an rpc-ui tab, with five panes behind it —
-Todos, Agents, Session, Plans, Diffs. The strip is the permanent posture:
+The right-hand icon strip in an rpc-ui tab, with six panes behind it —
+Todos, Agents, Session, Plans, Diffs, Side questions. The strip is the permanent posture:
 pressing an icon opens just that one pane beside it, re-pressing the active
 icon (or the pane's close control) dismisses it, and badge counts live on
 the strip icons. Remembers its selected pane per tab.
 _Avoid_: right sidebar, panel, drawer
+
+**Side question**:
+An OMP `/btw` exchange asked against the live session's context without
+entering the main transcript or any later turn. A native tab shows them in the
+**Inspector rail**'s _Side questions_ pane (one running at a time, follow-ups on
+an answered topic, history kept in the session's own `btw-history/` files so it
+survives hibernation); a terminal tab's TUI keeps OMP's own `/btw`.
+_Avoid_: side chat, tangent, btw thread
 
 **Project actions sheet**:
 The bottom sheet a compact-shell project header's ⋯ button opens: the

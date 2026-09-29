@@ -116,6 +116,10 @@ export { goalExtensionPath, writeGoalExtension } from "./goal-extension";
 export { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-pane-extension";
 export { treeExtensionPath, writeTreeExtension } from "./tree-extension";
 export {
+  sideQuestionsExtensionPath,
+  writeSideQuestionsExtension,
+} from "./side-questions-extension";
+export {
   autoresearchExtensionPath,
   writeAutoresearchExtension,
 } from "./autoresearch-extension";
@@ -134,6 +138,7 @@ export * from "./browser-pane";
 export * from "./goal";
 export * from "./autoresearch";
 export * from "./session-tree";
+export * from "./side-questions";
 export {
   ADVISOR_STATS_COMMAND,
   ADVISOR_STATS_KEY,

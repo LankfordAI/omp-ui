@@ -34,7 +34,8 @@
     "./experiment-types": "./src/experiment-types.ts",
     "./update-types": "./src/update-types.ts",
     "./session-command": "./src/session-command.ts",
-    "./session-tree": "./src/session-tree.ts"
+    "./session-tree": "./src/session-tree.ts",
+    "./side-questions": "./src/side-questions.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",
