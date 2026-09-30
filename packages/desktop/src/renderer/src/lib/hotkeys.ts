@@ -75,7 +75,7 @@ function comboCandidates(e: KeyboardEvent): string[] {
 }
 
 /** Bare letters belong to whatever the user is typing into. */
-function isTypingTarget(target: EventTarget | null): boolean {
+export function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;

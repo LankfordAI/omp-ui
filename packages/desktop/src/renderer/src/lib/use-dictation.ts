@@ -31,6 +31,8 @@ export interface Dictation {
   supported: boolean;
   /** off→start capture; recording→stop and transcribe. */
   toggle(): void;
+  /** Stop and transcribe (release of the push-to-talk key, issue #707). */
+  stop(): void;
   /** Discard the take (Escape while recording). */
   cancel(): void;
   dismissError(): void;
@@ -63,6 +65,8 @@ export function useDictation(onInsert: (text: string) => void): Dictation {
   const capture = useRef<Capture | null>(null);
   const tick = useRef<number | null>(null);
   const disposed = useRef(false);
+  /** Released during `requesting` (issue #707): finish as soon as capture opens. */
+  const pendingStop = useRef(false);
   /** Phase as of the last transition, readable from async continuations that
    *  may resolve before the state write renders. */
   const phaseRef = useRef<DictationPhase>("off");
@@ -136,6 +140,7 @@ export function useDictation(onInsert: (text: string) => void): Dictation {
   );
 
   const cancel = useCallback((): void => {
+    pendingStop.current = false;
     if (phaseRef.current === "requesting") {
       // Nothing to discard yet; the resolving getUserMedia sees a phase other
       // than "requesting" and stops the stream itself.
@@ -146,6 +151,16 @@ export function useDictation(onInsert: (text: string) => void): Dictation {
     void teardown();
     goto("off");
   }, [goto, teardown]);
+
+  const stop = useCallback((): void => {
+    if (capture.current !== null) {
+      void finish(false);
+      return;
+    }
+    // Released before getUserMedia resolved (quick tap): finish as soon
+    // as capture starts rather than dropping the take.
+    if (phaseRef.current === "requesting") pendingStop.current = true;
+  }, [finish]);
 
   const toggle = useCallback((): void => {
     if (!supported) return;
@@ -184,6 +199,11 @@ export function useDictation(onInsert: (text: string) => void): Dictation {
         source.connect(processor);
         processor.connect(sink);
         capture.current = { stream, ctx, source, processor, sink, chunks, startedAt: Date.now() };
+        if (pendingStop.current) {
+          pendingStop.current = false;
+          void finish(false);
+          return;
+        }
         setSeconds(0);
         goto("recording");
         const step = (): void => {
@@ -230,5 +250,5 @@ export function useDictation(onInsert: (text: string) => void): Dictation {
     };
   }, [stopTick]);
 
-  return { phase, seconds, error, supported, toggle, cancel, dismissError };
+  return { phase, seconds, error, supported, toggle, stop, cancel, dismissError };
 }
