@@ -10,7 +10,7 @@ const backendMock = {
   collabList: vi.fn(async () => []),
   collabShare: vi.fn(async () => {}),
   collabStop: vi.fn(async () => {}),
-  collabLink: vi.fn(async () => "https://my.omp.sh/room#key"),
+  collabLink: vi.fn(async (_tabId: string, _view: boolean) => "https://my.omp.sh/room#key"),
   onCollabChanged: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
