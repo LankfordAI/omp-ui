@@ -27,7 +27,7 @@ import { FastModeControl, fastModeState } from "./FastModeControl";
 import { AdvisorRosterView } from "./AdvisorRoster";
 import { ApprovalModeControl } from "./ApprovalModeControl";
 import { WorktreeChip } from "./WorktreeChip";
-import { Button, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconRefresh, IconTune, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
+import { Button, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconRefresh, IconSessionTree, IconTune, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
 /**
  * The instrument's status bar: one line that answers "is it alive, what is it
@@ -1256,7 +1256,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <Button onClick={() => openCapabilitiesViewer(null, undefined, "mcp", instanceId)} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>
                 <Button title={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.branch")}</Button>
                 {treeAvailable && (
-                  <Button title={t("hud.actions.treeTitle")} onClick={() => openSessionTreeView(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.tree")}</Button>
+                  <Button title={t("hud.actions.treeTitle")} onClick={() => openSessionTreeView(tabId)} className={sheetAction}><IconSessionTree />{t("hud.actions.tree")}</Button>
                 )}
                 <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd, undefined, instanceId); }} className={sheetAction}><IconNew />{t("hud.actions.new")}</Button>
                 <Button onClick={refresh} className={sheetAction}><IconRefresh />{t("hud.actions.refresh")}</Button>
@@ -1405,7 +1405,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         </IconButton>
         {treeAvailable && (
           <IconButton label={t("hud.actions.treeTitle")} onClick={() => openSessionTreeView(tabId)}>
-            <IconBranch />
+            <IconSessionTree />
           </IconButton>
         )}
         {/* Same command as the composer's bare /new and mod+shift+n: spawn a
