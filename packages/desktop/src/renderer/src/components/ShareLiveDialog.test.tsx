@@ -112,15 +112,25 @@ describe("ShareLiveDialog", () => {
     expect(backendMock.collabStop).toHaveBeenCalledWith(TAB);
   });
 
-  it("a view-only host asks for one link and flags the offline relay", async () => {
+  it("a view-only host fetches its one read-only link and flags the offline relay", async () => {
     useStore.setState({
       collab: {
         [TAB]: { kind: "sharing", state: state({ status: "view", relayConnected: false }) },
       },
     });
+    // omp refuses a control link for a view-only host; mirror that so a
+    // wrong flag cannot hide behind an all-success mock.
+    backendMock.collabLink.mockImplementation((_tabId: string, view: boolean) =>
+      view
+        ? Promise.resolve("https://my.omp.sh/room#key")
+        : Promise.reject(new Error("host does not publish control access")),
+    );
     await render();
     await act(async () => {});
     expect(backendMock.collabLink).toHaveBeenCalledTimes(1);
+    expect(backendMock.collabLink).toHaveBeenCalledWith(TAB, true);
+    expect(text()).toContain("view-only link");
+    expect(text()).not.toContain("control link");
     expect(text()).toContain("relay offline");
   });
 
