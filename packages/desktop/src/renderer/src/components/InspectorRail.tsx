@@ -9,7 +9,7 @@ import {
   resolveDesktopPanelWidths,
   type RailTab,
 } from "../lib/panel-layout";
-import { parseBranchDiff, type DiffFile } from "../lib/omp-diff";
+import { diffCounts, parseBranchDiff, type DiffFile } from "../lib/omp-diff";
 import { projectKey } from "../lib/project-key";
 import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
@@ -751,6 +751,8 @@ function DiffsPane({ tabId }: { tabId: string }) {
   const currentBranch = useStore((s) => (key ? s.branches[key]?.current : undefined));
   const branchDiffRevision = useStore((s) => (key ? (s.branchDiffRevision[key] ?? 0) : 0));
   const [load, setLoad] = useState<BranchDiffLoad>({ status: "idle" });
+  // Keyed by path so an open file stays open across a branchDiffRevision re-read.
+  const [openPaths, setOpenPaths] = useState<ReadonlySet<string>>(new Set());
   const requestIdRef = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -817,6 +819,15 @@ function DiffsPane({ tabId }: { tabId: string }) {
       />
     );
   }
+  const totals = files.reduce(
+    (acc, f) => {
+      const c = diffCounts(f.rows);
+      return { added: acc.added + c.added, removed: acc.removed + c.removed };
+    },
+    { added: 0, removed: 0 },
+  );
+  const expandable = files.filter((f) => f.rows.length > 0);
+  const allOpen = expandable.length > 0 && expandable.every((f) => openPaths.has(f.path));
   return (
     <div>
       <div className="flex items-center gap-1.5 border-b border-line-soft px-3 py-2">
@@ -840,9 +851,42 @@ function DiffsPane({ tabId }: { tabId: string }) {
           <IconRefresh />
         </IconButton>
       </div>
+      <div className="flex items-center gap-2 px-3 pt-2 text-[11px]">
+        <span className="text-ink-dim">{t("diff.rail.summary", { files: files.length })}</span>
+        <span className="tabular-nums">
+          <span className="text-signal">+{totals.added}</span> <span className="text-rose">−{totals.removed}</span>
+        </span>
+        <span className="flex-1" />
+        {expandable.length > 0 && (
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => setOpenPaths(allOpen ? new Set() : new Set(expandable.map((f) => f.path)))}
+          >
+            {allOpen ? t("diff.rail.collapseAll") : t("diff.rail.expandAll")}
+          </Button>
+        )}
+      </div>
       <div className="space-y-2 px-3 py-2.5">
         {files.map((file) => (
-          <DiffViewer key={file.path} rows={file.rows} path={file.path} op={file.op} />
+          <DiffViewer
+            key={file.path}
+            rows={file.rows}
+            path={file.path}
+            op={file.op}
+            patch={file.patch}
+            renamedFrom={file.renamedFrom}
+            binary={file.binary}
+            open={openPaths.has(file.path)}
+            onOpenChange={(v) =>
+              setOpenPaths((prev) => {
+                const next = new Set(prev);
+                if (v) next.add(file.path);
+                else next.delete(file.path);
+                return next;
+              })
+            }
+          />
         ))}
       </div>
     </div>

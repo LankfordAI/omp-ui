@@ -13,7 +13,7 @@ import { useT, type MessageKey } from "../lib/i18n";
 import type { AdvisorNote, ToolItem } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { useStore } from "../store";
-import { DiffViewer } from "./DiffViewer";
+import { DiffViewer, OpChip } from "./DiffViewer";
 import { openImageViewer } from "./ImageViewer";
 import { linkify, Markdown } from "./Markdown";
 import { Chip, Chevron, Disclosure, Label, Panel, ProgressSweep, type Tone } from "./ui";
@@ -676,7 +676,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
 
           {(item.path || item.op) && !hasDiff && (
             <div className="flex flex-wrap items-center gap-1.5">
-              {item.op && <Chip tone={item.op === "create" ? "signal" : "neutral"}>{item.op}</Chip>}
+              <OpChip op={item.op} />
               {item.path && <PathChip value={item.path} />}
             </div>
           )}
