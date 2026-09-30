@@ -4,17 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- A view-only Collab host now shows its one read-only join link instead of an error toast; the control link is only fetched when the host actually publishes control access (#694).
-- The branch diff pane counts deleted lines that begin with `-- ` as deletions instead of grey header rows (#695).
-- Untracked files in the branch diff pane no longer count an extra blank added line (#696).
-- Renamed and binary files in the branch diff pane are labelled instead of showing an empty `modified +0 −0` card (#697).
-- Branch diff rows show line numbers from the hunk headers (#698).
-- Expanded diffs hide the git file header lines (#699).
-- An expanded diff shows every row in one selectable scroller, in the branch diff pane and the native transcript (#700).
-- Diff rows are syntax highlighted (#701).
-- Paired changed lines highlight the changed words (#702).
-- The branch diff pane shows a file count and `+`/`−` totals with expand all / collapse all (#703).
-- The session tree button in the Session HUD has its own hierarchy icon instead of sharing the branch icon, mirrored beside the session tree navigator's title (#705).
+Nothing since [v0.18.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.18.1). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
 
 ## Choose a download
 
