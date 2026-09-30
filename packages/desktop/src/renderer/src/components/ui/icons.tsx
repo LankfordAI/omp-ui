@@ -156,3 +156,15 @@ export function IconPencil({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/** Root, spine, and two elbowed children — the session tree navigator (issue #680). */
+export function IconSessionTree({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <circle cx="4" cy="3.2" r="1.7" />
+      <circle cx="12" cy="7.6" r="1.7" />
+      <circle cx="12" cy="12.8" r="1.7" />
+      <path d="M4 4.9v7.9h6.3M4 7.6h6.3" />
+    </svg>
+  );
+}

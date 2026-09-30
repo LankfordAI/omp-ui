@@ -11,6 +11,7 @@ export {
   IconRefresh,
   IconRewind,
   IconSearch,
+  IconSessionTree,
   IconTune,
   StarIcon,
 } from "./icons";

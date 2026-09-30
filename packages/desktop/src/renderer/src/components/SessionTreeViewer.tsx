@@ -6,7 +6,7 @@ import {
 import { useMemo, useState, type JSX } from "react";
 import { useT, type MessageKey } from "../lib/i18n";
 import { useStore } from "../store";
-import { Chip, ICON_STROKE, Label, Modal } from "./ui";
+import { Chip, ICON_STROKE, IconSessionTree, Label, Modal } from "./ui";
 import { IconPencil, IconRewind } from "./ui";
 
 /**
@@ -20,7 +20,7 @@ import { IconPencil, IconRewind } from "./ui";
  * only source; the viewer never reads the transcript store itself.
  */
 
-/** The branch glyph, matching the HUD's; local because the HUD owns its set. */
+/** The branch glyph — a prompt row you can branch from, and "navigate here". Local because the HUD owns IconBranch. */
 function IconTreeBranch() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className="size-3.5 shrink-0" {...ICON_STROKE}>
@@ -128,7 +128,7 @@ export function SessionTreeViewer(): JSX.Element | null {
     >
       <div className="flex items-baseline justify-between gap-3 pr-10">
         <div className="flex items-baseline gap-2">
-          <IconTreeBranch />
+          <IconSessionTree className="shrink-0" />
           <h2 id="session-tree-viewer-title" className="text-sm font-semibold text-ink">
             {t("session.tree.title")}
           </h2>
