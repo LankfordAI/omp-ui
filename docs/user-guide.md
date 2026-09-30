@@ -168,7 +168,7 @@ The **inspector rail** is the right-hand icon strip in a native tab. It has six 
 - **Session** shows the session ID and file, model and thinking level, queue configuration, context, message and tool counts, token totals, cost, and premium requests.
 - **Side questions** holds your `/btw` exchanges: quick questions asked against this session's context that never enter the transcript or any later turn. Type `/btw <question>` in the composer (it opens the pane) or use the pane's ask box; bare `/btw` just opens the pane. Only one side question runs at a time — Cancel stops it. Select an answered topic to read it and ask a follow-up, which sees only that topic's earlier turns plus the session. Topics are stored as OMP's own `btw-history/` files beside the session, so they return after the session hibernates or resumes. Terminal tabs keep OMP's own `/btw` overlay and history.
 - **Plans** shows proposed plans and the actions for a pending review.
-- **Diffs** shows every tracked and untracked working-tree change on the effective git branch. This is a branch diff, not a per-session edit history, so it can include changes made outside the focused session.
+- **Diffs** shows every tracked and untracked working-tree change on the effective git branch. This is a branch diff, not a per-session edit history, so it can include changes made outside the focused session. The pane header shows the file count and total `+`/`−` lines, with **expand all** / **collapse all**. Each file card expands to every row with line numbers, syntax highlighting, and word-level marks inside changed lines; renamed files show `renamed` and the old path, and binary files show `binary`.
 
 On compact screens, the inspector opens as a right-side sheet with the same five panes.
 

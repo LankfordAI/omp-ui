@@ -4,7 +4,16 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.18.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.18.0). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- The branch diff pane counts deleted lines that begin with `-- ` as deletions instead of grey header rows (#695).
+- Untracked files in the branch diff pane no longer count an extra blank added line (#696).
+- Renamed and binary files in the branch diff pane are labelled instead of showing an empty `modified +0 −0` card (#697).
+- Branch diff rows show line numbers from the hunk headers (#698).
+- Expanded diffs hide the git file header lines (#699).
+- An expanded diff shows every row in one selectable scroller, in the branch diff pane and the native transcript (#700).
+- Diff rows are syntax highlighted (#701).
+- Paired changed lines highlight the changed words (#702).
+- The branch diff pane shows a file count and `+`/`−` totals with expand all / collapse all (#703).
+- The diff op chip is localized, and `delete` shows in rose (#704).
 
 ## Choose a download
 

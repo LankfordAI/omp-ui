@@ -589,6 +589,26 @@ describe("desktop InspectorRail", () => {
     expect(chip!.title).toBe(MERGE_BASE);
   });
 
+  it("summarizes the branch diff pane and expands/collapses every file", async () => {
+    const two = diffResult("feature/alpha", "a.txt", "one\n");
+    two.untracked.push({ path: "b.txt", text: "two\n", binary: false });
+    backendMock.getBranchDiff.mockResolvedValueOnce(two);
+    useStore.setState({ state });
+    renderRail();
+    act(() => railTab("diffs")!.click());
+    await act(async () => {});
+    expect(document.body.textContent).toContain("2 file(s)");
+    const toggle = () =>
+      [...document.body.querySelectorAll("button")].find((b) => /^(expand|collapse) all$/.test(b.textContent ?? ""))!;
+    const expanded = () =>
+      [...document.body.querySelectorAll("button[aria-expanded]")].map((b) => b.getAttribute("aria-expanded"));
+    act(() => toggle().click());
+    expect(expanded()).toEqual(["true", "true"]);
+    expect(toggle().textContent).toBe("collapse all");
+    act(() => toggle().click());
+    expect(expanded()).toEqual(["false", "false"]);
+  });
+
 
   it("renders compact inspector sheets without a resize separator", () => {
     Object.defineProperty(window, "matchMedia", {
