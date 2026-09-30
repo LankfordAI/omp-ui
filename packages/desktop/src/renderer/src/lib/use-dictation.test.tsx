@@ -30,7 +30,9 @@ class ProcessorStub {
   onaudioprocess: ((event: { inputBuffer: { getChannelData: () => Float32Array } }) => void) | null =
     null;
   disconnect = vi.fn();
-  connect = vi.fn();
+  connect = vi.fn((): void => {
+    if (fireOnConnect !== null) this.fire(fireOnConnect);
+  });
   fire(chunk: Float32Array): void {
     this.onaudioprocess?.({ inputBuffer: { getChannelData: () => chunk } });
   }
@@ -43,8 +45,10 @@ class NodeStub {
 }
 
 let processor: ProcessorStub;
-let closeCalls: number;
 let stopTrack: ReturnType<typeof vi.fn>;
+let closeCalls: number;
+/** When set, the processor tap fires this buffer the moment it connects. */
+let fireOnConnect: Float32Array | null = null;
 
 class AudioContextStub {
   sampleRate = 48_000;
@@ -158,6 +162,7 @@ beforeEach(() => {
   closeCalls = 0;
   stopTrack = vi.fn();
   inserted.length = 0;
+  fireOnConnect = null;
   transcribeAudio.mockReset();
   remoteInstanceRequest.mockClear();
   getUserMedia = vi.fn(async () => fakeStream());
@@ -285,6 +290,42 @@ describe("useDictation", () => {
     expect(latest.phase).toBe("off");
     expect(stopTrack).toHaveBeenCalledTimes(1);
     // No AudioContext was ever built for a discarded prompt.
+    expect(closeCalls).toBe(0);
+  });
+
+  it("a release during requesting transcribes once capture opens (#707)", async () => {
+    // The quick tap: key up before getUserMedia resolved. `fireOnConnect`
+    // hands the pending finish one buffer so the take is real signal.
+    fireOnConnect = VOICE;
+    mount(true);
+    transcribeAudio.mockResolvedValue({ text: "quick tap" });
+    act(() => latest.toggle());
+    expect(latest.phase).toBe("requesting");
+    act(() => latest.stop());
+    await settle();
+    await settle();
+    expect(transcribeAudio).toHaveBeenCalledTimes(1);
+    expect(inserted).toEqual(["quick tap"]);
+    expect(latest.phase).toBe("off");
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancel clears a pending stop (#707)", async () => {
+    const gate = Promise.withResolvers<MediaStream>();
+    getUserMedia.mockImplementationOnce(() => gate.promise);
+    mount(true);
+    act(() => latest.toggle());
+    act(() => latest.stop());
+    expect(latest.phase).toBe("requesting");
+    act(() => latest.cancel());
+    await act(async () => {
+      gate.resolve(fakeStream());
+      await Promise.resolve();
+    });
+    expect(transcribeAudio).not.toHaveBeenCalled();
+    expect(latest.phase).toBe("off");
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    // The discarded prompt never built an AudioContext.
     expect(closeCalls).toBe(0);
   });
 

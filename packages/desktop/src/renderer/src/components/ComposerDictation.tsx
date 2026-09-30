@@ -37,7 +37,7 @@ export function DictationControl({
       pressed={recording}
       disabled={disabled || voice.phase === "transcribing" || voice.phase === "requesting"}
       onClick={voice.toggle}
-      className={cn(compact && "size-11")}
+      className={cn(compact && "size-11", recording && "text-rose")}
     >
       <IconMic className={compact ? "size-4" : undefined} />
     </IconButton>

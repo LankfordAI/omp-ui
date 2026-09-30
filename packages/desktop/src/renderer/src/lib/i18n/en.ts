@@ -343,10 +343,10 @@ export const en = {
   "composer.error.dismissPaste": "dismiss paste warning",
   "composer.error.dismissWorktree": "dismiss worktree error",
   // Dictation (issue #647): the composer's speech-to-text path.
-  "composer.dictation.start": "dictate a message",
+  "composer.dictation.start": "dictate a message (hold R)",
   "composer.dictation.stop": "stop recording and transcribe",
   "composer.dictation.requesting": "opening the microphone…",
-  "composer.dictation.recording": "recording — {seconds}s, click to stop",
+  "composer.dictation.recording": "recording — {seconds}s, release R or click to stop",
   "composer.dictation.transcribing": "transcribing…",
   "composer.dictation.capped": "recording capped at 60 s — everything up to the cap was transcribed",
   "composer.dictation.errorBlocked":

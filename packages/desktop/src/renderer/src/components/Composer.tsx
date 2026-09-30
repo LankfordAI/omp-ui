@@ -42,6 +42,7 @@ import type { WorkspaceSelection } from "./WorktreeBranchFields";
 import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, IconTune, Label, PerimeterGlow, PerimeterSweep } from "./ui";
 import { DictationControl, DictationStrip } from "./ComposerDictation";
 import { useDictation } from "../lib/use-dictation";
+import { useDictationHotkey } from "../lib/use-dictation-hotkey";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -661,7 +662,7 @@ export function Composer({
   }, [text, caret]);
 
   const voice = useDictation(insertAtCaret);
-
+  useDictationHotkey(tabId, voice);
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // The palettes get first refusal on navigation keys while one is open.
     if (paletteOpen && palette.current?.handleKey(e) === true) return;

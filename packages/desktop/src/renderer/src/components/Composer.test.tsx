@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { BranchList } from "@omp-ui/core/types";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { backendState, rpcTabState } from "../test/fixtures";
@@ -707,7 +707,8 @@ describe("Composer dictation (issue #647)", () => {
   const node = () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() });
   let pull: PullStub;
   let closeCalls: number;
-  let stopTrack: ReturnType<typeof vi.fn>;
+  let stopTrack: Mock;
+  let getUserMediaMock: Mock;
 
   class CtxStub {
     sampleRate = 48_000;
@@ -728,9 +729,10 @@ describe("Composer dictation (issue #647)", () => {
     closeCalls = 0;
     stopTrack = vi.fn();
     vi.stubGlobal("AudioContext", CtxStub);
+    getUserMediaMock = vi.fn(async () => ({ getTracks: () => [{ stop: stopTrack }] }));
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: stopTrack }] })) },
+      value: { getUserMedia: getUserMediaMock },
     });
     vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
@@ -743,10 +745,10 @@ describe("Composer dictation (issue #647)", () => {
 
   const micButton = (): HTMLButtonElement | undefined =>
     [...document.body.querySelectorAll<HTMLButtonElement>("button")]
-      .find((b) => b.getAttribute("aria-label") === "dictate a message");
+      .find((b) => b.getAttribute("aria-label")?.startsWith("dictate a message"));
 
   function enableVoice(): void {
-    useStore.setState((s) => ({ state: { ...s.state!, voiceInputEnabled: true } }));
+    useStore.setState((s) => ({ state: { ...s.state!, voiceInputEnabled: true }, activeTabId: TAB }));
   }
 
   async function settle(): Promise<void> {
@@ -816,6 +818,108 @@ describe("Composer dictation (issue #647)", () => {
     await settle();
     expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
     expect(document.body.querySelector("textarea")!.value).toBe("");
+  });
+
+  function pushKey(
+    target: EventTarget,
+    type: "keydown" | "keyup",
+    init: KeyboardEventInit = {},
+  ): void {
+    act(() =>
+      target.dispatchEvent(
+        new KeyboardEvent(type, { key: "r", bubbles: true, cancelable: true, ...init }),
+      ),
+    );
+  }
+
+  /** Focus off the composer so bare `r` belongs to the window, not a field. */
+  function unfocus(): void {
+    act(() => document.body.querySelector<HTMLTextAreaElement>("textarea")?.blur());
+  }
+
+  it("hold R on the window records, release R transcribes at the caret (#707)", async () => {
+    seed("ready");
+    enableVoice();
+    renderComposer();
+    const textarea = typeDraft("hello  world");
+    act(() => textarea.setSelectionRange(6, 6));
+    unfocus();
+    pushKey(document.body, "keydown");
+    await settle();
+    expect(getUserMediaMock).toHaveBeenCalledTimes(1);
+    const stop = stopButton();
+    expect(stop?.getAttribute("aria-pressed")).toBe("true");
+    expect(stop?.classList.contains("text-rose")).toBe(true);
+    pull.fire(new Float32Array(48_000).fill(0.2));
+    pushKey(document.body, "keyup");
+    await settle(); await settle();
+    expect(backendMock.transcribeAudio).toHaveBeenCalledTimes(1);
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("hello dictated words world");
+    // The red paint leaves with the live phase.
+    expect(micButton()?.classList.contains("text-rose")).toBe(false);
+  });
+
+  it("R while the composer textarea is focused stays typing, never records (#707)", async () => {
+    seed("ready");
+    enableVoice();
+    renderComposer();
+    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    pushKey(textarea, "keydown");
+    await settle();
+    expect(getUserMediaMock).not.toHaveBeenCalled();
+    expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
+    expect(stopButton()).toBeUndefined();
+  });
+
+  it("a backgrounded tab's composer ignores R (#707)", async () => {
+    seed("ready");
+    enableVoice();
+    renderComposer();
+    useStore.setState({ activeTabId: "another-tab" });
+    unfocus();
+    pushKey(document.body, "keydown");
+    await settle();
+    expect(getUserMediaMock).not.toHaveBeenCalled();
+    expect(stopButton()).toBeUndefined();
+  });
+
+  it("auto-repeat keydowns neither restart nor stop the take (#707)", async () => {
+    seed("ready");
+    enableVoice();
+    renderComposer();
+    unfocus();
+    pushKey(document.body, "keydown");
+    await settle();
+    pushKey(document.body, "keydown", { repeat: true });
+    await settle();
+    expect(getUserMediaMock).toHaveBeenCalledTimes(1);
+    expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
+    expect(stopButton()?.getAttribute("aria-pressed")).toBe("true");
+    pull.fire(new Float32Array(48_000).fill(0.2));
+    pushKey(document.body, "keyup");
+    await settle(); await settle();
+    expect(backendMock.transcribeAudio).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape on the window mid-take discards without transcribing (#707)", async () => {
+    seed("running");
+    enableVoice();
+    renderComposer();
+    unfocus();
+    pushKey(document.body, "keydown");
+    await settle();
+    pull.fire(new Float32Array(48_000).fill(0.2));
+    act(() =>
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      ),
+    );
+    await settle();
+    expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
+    expect(abortAgent).not.toHaveBeenCalled();
+    expect(micButton()).toBeDefined();
+    expect(stopButton()).toBeUndefined();
   });
 });
 
