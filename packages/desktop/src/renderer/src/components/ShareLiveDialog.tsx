@@ -39,13 +39,19 @@ export function ShareLiveDialog({ tabId }: { tabId: string }) {
     setViewUrl(null);
     if (generation === null) return;
     let live = true;
-    void collabLink(tabId, false).then(
-      (url) => live && setControlUrl(url),
-      () => {},
-    );
-    // A view-only host has no separate control link to hide behind: its
-    // single link already is the read-only one.
-    if (status === "full") {
+    if (status === "view") {
+      // A view-only host publishes one link only: omp refuses a control
+      // link for it ("does not publish control access"), so ask for the
+      // read-only one directly.
+      void collabLink(tabId, true).then(
+        (url) => live && setViewUrl(url),
+        () => {},
+      );
+    } else {
+      void collabLink(tabId, false).then(
+        (url) => live && setControlUrl(url),
+        () => {},
+      );
       void collabLink(tabId, true).then(
         (url) => live && setViewUrl(url),
         () => {},
