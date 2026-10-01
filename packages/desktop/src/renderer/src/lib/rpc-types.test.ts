@@ -51,4 +51,28 @@ describe("modelSupportsFastMode", () => {
     expect(modelSupportsFastMode(model({ provider: "constructor" }))).toBe(false);
     expect(modelSupportsFastMode(model({ provider: "test", api: "constructor" }))).toBe(false);
   });
+
+  it("reads OpenRouter rows by slug family", () => {
+    expect(modelSupportsFastMode(model({ provider: "openrouter", id: "openai/gpt-5.2" }))).toBe(true);
+    expect(modelSupportsFastMode(model({ provider: "openrouter", id: "openai/gpt-5.6:high" }))).toBe(true);
+    expect(
+      modelSupportsFastMode(model({ provider: "openrouter", id: "google/gemini-2.5-pro" })),
+    ).toBe(true);
+    expect(
+      modelSupportsFastMode(model({ provider: "openrouter", id: "~google/gemini-flash-latest" })),
+    ).toBe(true);
+    // Anthropic fast serving via OpenRouter is the separate `-fast` sibling slug;
+    // the tier itself is ignored in transit, so the toggle would never go active.
+    expect(
+      modelSupportsFastMode(model({ provider: "openrouter", id: "anthropic/claude-opus-5" })),
+    ).toBe(false);
+    // Not OpenAI- or Gemini-class despite the prefix look.
+    expect(modelSupportsFastMode(model({ provider: "openrouter", id: "x-ai/grok-4-fast" }))).toBe(false);
+    expect(modelSupportsFastMode(model({ provider: "openrouter", id: "google/gemma-3-4b-it" }))).toBe(false);
+    // A routing colon (`:exacto`) is not a level suffix and must not be stripped
+    // into a match — the tail check only removes known levels.
+    expect(
+      modelSupportsFastMode(model({ provider: "openrouter", id: "x-ai/grok-4:exacto" })),
+    ).toBe(false);
+  });
 });

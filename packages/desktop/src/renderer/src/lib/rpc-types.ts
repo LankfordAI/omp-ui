@@ -33,16 +33,36 @@ const FAST_MODE_UNCONTROLLABLE_PROVIDERS: Record<string, true> = {
   "github-copilot": true,
 };
 
+/** OpenRouter id prefixes whose bundled catalog row is OpenAI- or Gemini-class —
+ *  the two families omp's OpenRouter transport can carry a priority tier on
+ *  (its family resolver reads `identity.class`, which no frame carries; the
+ *  catalog's class agrees with the slug prefix for every OpenRouter row).
+ *  `anthropic/…` is deliberately absent: the Anthropic priority tier is ignored
+ *  via OpenRouter — fast Anthropic serving there is the separate 2x `-fast`
+ *  sibling slug, a model switch, not this toggle — so the pill would sit
+ *  permanently declined. `google/gemma…` / `google/veo…` are not Gemini-class. */
+const FAST_MODE_OPENROUTER_PREFIXES = ["openai/", "google/gemini"] as const;
+/** omp's thinking suffix, as in `modelRoles` selectors; OpenRouter also uses
+ *  colons for routing (`:exacto`), so only a known level tail is a level. */
+const LEVEL_SUFFIX = /:(off|minimal|low|medium|high|xhigh|max|auto)$/;
+
+function openRouterFastCapable(id: string): boolean {
+  const slug = (id.endsWith("-") ? id.slice(0, -1) : id).replace(LEVEL_SUFFIX, "");
+  // `~slug` catalog aliases (e.g. `~google/gemini-flash-latest`) route like their base row.
+  const base = slug.startsWith("~") ? slug.slice(1) : slug;
+  return FAST_MODE_OPENROUTER_PREFIXES.some((prefix) => base.startsWith(prefix));
+}
+
 /** Whether fast mode is plausibly controllable for this model. Not a truth
- *  source — omp resolves support per model (including OpenRouter's
- *  `identity.class`, which no frame carries); rows it can't decide ride
- *  arm 2 of the gate (live state), and a wrong yes is caught by the
- *  set_fast_mode refusal path. A null model (not yet resolved) is no. */
+ *  source — omp resolves support per model; rows it can't decide ride arm 2
+ *  of the gate (live state), and a wrong yes is caught by the set_fast_mode
+ *  refusal path. A null model (not yet resolved) is no. */
 export function modelSupportsFastMode(model: ModelInfo | null): boolean {
   if (model === null) return false;
   // Wire strings index these tables, so compare against `true` rather than
   // the value: `model.api === "constructor"` must not read as support.
   if (FAST_MODE_UNCONTROLLABLE_PROVIDERS[model.provider] === true) return false;
+  if (model.provider === "openrouter") return openRouterFastCapable(model.id);
   return (
     FAST_MODE_FAMILY_PROVIDERS[model.provider] === true ||
     FAST_MODE_FAMILY_APIS[model.api ?? ""] === true
