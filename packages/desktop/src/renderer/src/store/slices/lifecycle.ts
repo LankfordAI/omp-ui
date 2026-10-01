@@ -726,6 +726,10 @@ export function createLifecycleSlice(
         ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
         exited: dropExited(s.exited, tabId),
       }));
+      // A fresh session is the moment the user checks what the remote has
+      // (issue #708): fire the upstream read the chip's badge needs, without
+      // awaiting it — a slow fetch must never delay the tab landing.
+      void get().refreshBranches(projectCwd, { fetchUpstream: true }, instanceId);
     } catch (err) {
       get().reportError(err);
     }

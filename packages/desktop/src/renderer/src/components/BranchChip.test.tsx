@@ -586,6 +586,96 @@ describe("BranchChip", () => {
     }
   });
 
+  // The poll (issue #708): a foregrounded window never earns a focus event,
+  // so the badge needs a timer. Fake timers must be installed BEFORE render:
+  // the effect creates the interval at mount.
+  it("polls upstream every 60s while the window stays visible (issue #708)", async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      render();
+      backendMock.listBranches.mockClear();
+
+      await act(async () => {
+        vi.advanceTimersByTime(60_000);
+        await Promise.resolve();
+      });
+      expect(backendMock.listBranches).toHaveBeenCalledTimes(1);
+      expect(backendMock.listBranches).toHaveBeenCalledWith("/p", { fetchUpstream: true });
+
+      await act(async () => {
+        vi.advanceTimersByTime(60_000);
+        await Promise.resolve();
+      });
+      expect(backendMock.listBranches).toHaveBeenCalledTimes(2);
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips poll ticks while the window is hidden (issue #708)", async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    try {
+      render();
+      backendMock.listBranches.mockClear();
+
+      await act(async () => {
+        vi.advanceTimersByTime(60_000);
+        await Promise.resolve();
+      });
+      expect(backendMock.listBranches).not.toHaveBeenCalled();
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips poll ticks while the popover is open (issue #708)", async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      render();
+      await act(async () => {
+        chip().click();
+        await Promise.resolve();
+      });
+      backendMock.listBranches.mockClear();
+
+      await act(async () => {
+        vi.advanceTimersByTime(60_000);
+        await Promise.resolve();
+      });
+      // The open popover already fetched on open; a tick must not disable
+      // the pull/push rows mid-deliberation.
+      expect(backendMock.listBranches).not.toHaveBeenCalled();
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops polling once the chip unmounts (issue #708)", async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      render();
+      backendMock.listBranches.mockClear();
+      act(() => root!.unmount());
+      root = null;
+
+      await act(async () => {
+        vi.advanceTimersByTime(60_000);
+        await Promise.resolve();
+      });
+      expect(backendMock.listBranches).not.toHaveBeenCalled();
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("asks for Pull anyway before changing a running rpc-ui session's tree", async () => {
     const info = branchInfo({
       upstreamRef: "origin/main",

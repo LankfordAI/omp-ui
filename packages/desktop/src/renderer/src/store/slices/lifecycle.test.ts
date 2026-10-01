@@ -1118,6 +1118,53 @@ describe("newWorktreeSession (issue #225, #390)", () => {
   });
 });
 
+describe("newSession fetches the project's upstream listing (issue #708)", () => {
+  /** A registered project and a spawn that lands with a fresh tab. */
+  const seed = (): void => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: "fresh" });
+  };
+
+  it("fires one network refresh after a successful spawn", async () => {
+    seed();
+
+    await h.useStore.getState().newSession("/p");
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.listBranches).toHaveBeenCalledTimes(1);
+    expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", { fetchUpstream: true });
+  });
+
+  it("fetches nothing when the spawn fails", async () => {
+    seed();
+    h.mockBackend.spawnSession.mockRejectedValueOnce(new Error("pty spawn failed"));
+
+    await h.useStore.getState().newSession("/p");
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
+  });
+
+  it("lands the tab without waiting for the listing", async () => {
+    seed();
+    const listing = h.deferred<never>();
+    h.mockBackend.listBranches.mockReturnValue(listing.promise);
+
+    await h.useStore.getState().newSession("/p");
+
+    // The refresh is fire-and-forget after the set: a slow remote must never
+    // delay the tab landing, so the tab is present while the fetch is pending.
+    const st = h.useStore.getState();
+    expect(st.tabs.map((t) => t.tabId)).toEqual(["fresh"]);
+    expect(st.activeTabId).toBe("fresh");
+    expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", { fetchUpstream: true });
+  });
+});
+
 describe("focusedTabByProject tracks every tab-activation path (issue #99)", () => {
   const projectState = (
     sessions: BackendState["projects"][0]["sessions"],
