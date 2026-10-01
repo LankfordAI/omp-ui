@@ -49,6 +49,11 @@ import { WorktreeBranchFields, type WorkspaceSelection } from "./WorktreeBranchF
  */
 const NETWORK_REFRESH_DEBOUNCE_MS = 250;
 
+/** While the window stays visible, re-check upstream this often (issue #708).
+ * Must stay >= the core's FETCH_FRESH_MS: staggered ticks from several chips
+ * only coalesce there, so a shorter interval would spend real fetches. */
+const NETWORK_POLL_INTERVAL_MS = 60_000;
+
 /** The checkout, pull, or push awaiting the busy-session confirm. */
 type Pending =
   | { kind: "checkout"; branch: string }
@@ -147,8 +152,13 @@ export function BranchChip({
   /** Focus returns here when Escape closes the popover. */
   const triggerRef = useRef<HTMLButtonElement>(null);
 
+  /** menuOpen mirror for the poll tick; a ref so opening the menu never
+   * restarts the interval (it must stay out of the effect's dep array). */
+  const menuOpenRef = useRef(false);
+
   const closeMenu = (): void => {
     setMenuOpen(false);
+    menuOpenRef.current = false;
     setFilter("");
     setMode("list");
     setName("");
@@ -193,7 +203,8 @@ export function BranchChip({
 
   // Regaining the window is the cheapest honest moment to learn the branch
   // moved elsewhere. Both events fire on one alt-tab, so they share a debounce,
-  // and a backgrounded window never spends a fetch.
+  // and a backgrounded window never spends a fetch. A window that stays
+  // foregrounded never earns a focus event, so a poll covers it (issue #708).
   useEffect(() => {
     if (projectCwd === undefined) return;
     let timer: number | undefined;
@@ -207,8 +218,17 @@ export function BranchChip({
     };
     window.addEventListener("focus", scheduleNetworkRefresh);
     document.addEventListener("visibilitychange", scheduleNetworkRefresh);
+    // A foregrounded window never earns a focus event, so the badge would
+    // otherwise age forever (issue #708): poll while visible. The core's
+    // fetch-fresh window and failure cooldown bound the network cost; a tick
+    // skips an open popover so it never disables the row mid-deliberation.
+    const poll = window.setInterval(() => {
+      if (document.visibilityState !== "visible" || menuOpenRef.current) return;
+      void refreshBranches(projectCwd, { fetchUpstream: true }, instanceId);
+    }, NETWORK_POLL_INTERVAL_MS);
     return () => {
       window.clearTimeout(timer);
+      window.clearInterval(poll);
       window.removeEventListener("focus", scheduleNetworkRefresh);
       document.removeEventListener("visibilitychange", scheduleNetworkRefresh);
     };
@@ -372,6 +392,7 @@ export function BranchChip({
       return;
     }
     setMenuOpen(true);
+    menuOpenRef.current = true;
     // Fresh list *and* fresh upstream on every open — another tab (or the user
     // in a terminal) may have switched branches, and the remote may have moved.
     void refreshBranches(projectCwd, { fetchUpstream: true }, instanceId);
