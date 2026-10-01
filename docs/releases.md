@@ -4,7 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.18.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.18.1). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- Hold `R` anywhere outside a text field while a native-transcript tab is showing to dictate; releasing transcribes into your draft at the caret, and Escape or switching away discards the take (#707).
+- The branch chip's behind-count now refreshes while the window is visible, without opening the chip's popover (#708).
 
 ## Choose a download
 
