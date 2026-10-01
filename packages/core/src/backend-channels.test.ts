@@ -115,6 +115,14 @@ const VALID_ARGS = {
   openPath: ["/tmp/transcript.html"],
   openProject: ["/project", "files"],
   ptyPasteImage: ["tab-1", { type: "image", data: "base64", mimeType: "image/png" }],
+  attachDocument: [
+    "tab-1",
+    [{ type: "document", name: "spec.pdf", data: "base64", mimeType: "application/pdf" }],
+  ],
+  ptyPasteDocument: [
+    "tab-1",
+    { type: "document", name: "spec.pdf", data: "base64", mimeType: "application/pdf" },
+  ],
   ptyResize: ["tab-1", 120, 40],
   ptyWrite: ["tab-1", "input"],
   pullBranch: ["/project"],
@@ -345,6 +353,16 @@ describe("transport dispatch", () => {
     [CH.addProject, [{ secret: "do-not-echo" }], "argument 0"],
     [CH.openProject, ["/project", "secret-target"], "argument 1"],
     [CH.ptyPasteImage, ["tab-1", { type: "secret-type", data: "x", mimeType: "x" }], "argument 1.type"],
+    [
+      CH.ptyPasteDocument,
+      ["tab-1", { type: "document", name: "s", data: "x", path: "/t/x.pdf", mimeType: "application/pdf" }],
+      "argument 1",
+    ],
+    [
+      CH.attachDocument,
+      ["tab-1", [{ type: "document", name: "s", mimeType: "application/pdf" }]],
+      "argument 1",
+    ],
     [CH.setRemotePort, [Number.POSITIVE_INFINITY], "argument 0"],
     [CH.getState, ["secret-extra"], "expected at most 0"],
     [

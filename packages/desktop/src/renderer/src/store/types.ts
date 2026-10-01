@@ -10,6 +10,7 @@ import type {
   ExperimentDetail,
   ProjectExperiments,
   BranchList,
+  DocumentAttachment,
   GlassChrome,
   BranchListOptions,
   ImageAttachment,
@@ -40,6 +41,7 @@ import type {
   WorktreeSyncResult,
   PushResult,
 } from "@omp-ui/core/types";
+import type { DocumentRef } from "../lib/document-context";
 import type {
   BrowserPaneFrameHeader,
   BrowserPaneState,
@@ -109,6 +111,8 @@ export interface RpcFailure {
 export interface PlanRevisionNotes {
   text: string;
   images?: ImageAttachment[];
+  /** Resolved scratch paths; refinePlan re-sends them with zero re-upload. */
+  documents?: DocumentRef[];
 }
 
 /**
@@ -198,7 +202,7 @@ export interface RpcTabState {
    * Attachments handed to the composer from outside it — the browser pane's
    * attach-to-prompt button. Drained once by the composer's effect.
    */
-  composerQueue?: { images: ImageAttachment[]; text: string[] };
+  composerQueue?: { images: ImageAttachment[]; documents?: DocumentAttachment[]; text: string[] };
   subagentMarkers: Map<string, string>;
   subagentAckLevel?: "progress" | "events";
   extensionStatus: Record<string, string>;
@@ -812,11 +816,16 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** Records the painted frame's size; a no-op while the dimensions are unchanged. */
   noteBrowserPaneFrame(tabId: string, header: BrowserPaneFrameHeader): void;
   queueComposerAttachment(tabId: string, image: ImageAttachment, text: string): void;
+  queueComposerDocument(tabId: string, document: DocumentAttachment, text: string): void;
   /** Queues prose with no image — the rewind's edit-and-resend prefill
    *  (issue #680); the composer drains it like an attachment hand-back. */
   queueComposerText(tabId: string, text: string): void;
   /** Takes the queued attachments; null when nothing is queued. */
-  drainComposerQueue(tabId: string): { images: ImageAttachment[]; text: string[] } | null;
+  drainComposerQueue(tabId: string): {
+    images: ImageAttachment[];
+    documents?: DocumentAttachment[];
+    text: string[];
+  } | null;
   setHostScope(scope: string): void;
   restartSession(tabId: string): Promise<boolean>;
   addProject(path: string, instanceId?: string | null): Promise<void>;
@@ -945,12 +954,14 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     message: string,
     route?: PromptRoute,
     images?: ImageAttachment[],
+    docRefs?: DocumentRef[],
   ): Promise<boolean>;
   abortAgent(tabId: string): Promise<void>;
   abortAndPrompt(
     tabId: string,
     message: string,
     images?: ImageAttachment[],
+    docRefs?: DocumentRef[],
   ): Promise<void>;
   loadAdvisorDefaults(projectCwd: string, instanceId?: string | null): Promise<void>;
   setSessionAdvisor(

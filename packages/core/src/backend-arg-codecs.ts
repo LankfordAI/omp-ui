@@ -8,6 +8,7 @@ import type {
   BranchListOptions,
   ConsoleProgram,
   DiagnosticsExportRequest,
+  DocumentAttachment,
   GlassChrome,
   ImageAttachment,
   McpSetEnabledRequest,
@@ -215,6 +216,24 @@ export const imageAttachmentCodec: ArgCodec<ImageAttachment> = objectOf<ImageAtt
   data: str(),
   mimeType: str(),
 });
+
+/** Exactly one of data/path must be present; main's resolver enforces it too. */
+export const documentAttachmentCodec: ArgCodec<DocumentAttachment> = {
+  expected: "a { type: document, name, mimeType, data | path } attachment",
+  decode(value, path) {
+    const doc = objectOf<DocumentAttachment>({
+      type: lit("document"),
+      name: str(),
+      mimeType: str(),
+      data: optional(str()),
+      path: optional(str()),
+    }).decode(value, path);
+    if ((doc.data === undefined) === (doc.path === undefined)) {
+      fail(path, "exactly one of data/path");
+    }
+    return doc;
+  },
+};
 
 export const mcpSetEnabledRequestCodec: ArgCodec<McpSetEnabledRequest> =
   objectOf<McpSetEnabledRequest>({

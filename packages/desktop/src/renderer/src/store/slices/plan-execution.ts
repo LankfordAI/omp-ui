@@ -525,7 +525,8 @@ export function createPlanExecutionSlice(
       if (planKey) settlePlanReview(tabId, planKey, "refined");
       const text = notes?.text?.trim() ?? "";
       const images = notes?.images;
-      if (text === "" && !images?.length) return;
+      const documents = notes?.documents;
+      if (text === "" && !images?.length && !documents?.length) return;
       // The planner's current turn continues after the refine verdict; the
       // notes steer it live, and omp appends images after the text block.
       const represented = review?.represented === true;
@@ -536,7 +537,8 @@ export function createPlanExecutionSlice(
         ? `${lead} to incorporate these requested changes:\n\n${text}`
         : `${lead} per the attached change notes.`;
       const message = represented ? `${body}\n\nThen propose it again.` : body;
-      void get().sendPrompt(tabId, message, "steer", images);
+      // Refine notes carry resolved scratch paths, never raw bytes (ADR-0044).
+      void get().sendPrompt(tabId, message, "steer", images, documents);
     };
     if (review !== undefined && isHtmlPlanPath(review.planFilePath)) {
       // Refine needs the same gate identity but NOT unchanged disk bytes —

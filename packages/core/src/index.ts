@@ -339,6 +339,14 @@ export {
   type SupportedImageMime,
 } from "./images";
 export {
+  clearDocumentScratch,
+  documentScratchDir,
+  DOCUMENT_MIME,
+  MAX_DOCUMENT_BATCH_BYTES,
+  MAX_DOCUMENT_BYTES,
+  resolveDocument,
+} from "./documents";
+export {
   deleteSessionFiles,
   findNewestSessionFile,
   resolveSessionLocation,

@@ -11,6 +11,7 @@ import type {
   ConsoleProgram,
   DeleteSessionPreview,
   DeleteSessionResult,
+  DocumentAttachment,
   DiagnosticsExportRequest,
   DiagnosticsExportResult,
   DiagnosticsPreview,
@@ -89,6 +90,7 @@ import {
   bool,
   branchListOptionsCodec,
   checkoutOptionsCodec,
+  documentAttachmentCodec,
   consoleProgramCodec,
   glassChromeCodec,
   imageAttachmentCodec,
@@ -1015,6 +1017,33 @@ export const BACKEND_CHANNELS = {
   ptyPasteImage: {
     channel: "pty:pasteImage",
     ...request<[tabId: string, image: ImageAttachment], void>([str(), imageAttachmentCodec]),
+  },
+  /**
+   * Materializes PDF Document Attachments to scratch files on the machine
+   * that owns the tab's session (local or joined-remote) and returns their
+   * absolute paths, which the composer appends to the prompt as an
+   * attached-documents block (ADR-0044). The rpc frame carries no document
+   * field; omp's `read` tool consumes the path.
+   */
+  attachDocument: {
+    channel: "session:attachDocument",
+    ...request<[tabId: string, documents: DocumentAttachment[]], string[]>([
+      str(),
+      arrayOf(documentAttachmentCodec),
+    ]),
+  },
+  /**
+   * Terminal-tab twin of attachDocument: writes the scratch file on the
+   * owning instance and bracketed-pastes the bare path into the PTY, like
+   * pty:pasteImage but with a .pdf extension — omp's TUI treats a non-image
+   * path as ordinary text and the agent reads it.
+   */
+  ptyPasteDocument: {
+    channel: "pty:pasteDocument",
+    ...request<[tabId: string, document: DocumentAttachment], void>([
+      str(),
+      documentAttachmentCodec,
+    ]),
   },
   ptyWrite: { channel: "pty:write", ...notify<[tabId: string, data: string]>([str(), str()]) },
   /**

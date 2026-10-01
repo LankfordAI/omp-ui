@@ -3,6 +3,8 @@ import { parseModelRole } from "@omp-ui/core/model-role";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { useT, type MessageKey } from "../lib/i18n";
+import { backend, displayMessage } from "../backend";
+import type { DocumentRef } from "../lib/document-context";
 import { keywordColors } from "../lib/keyword-colors";
 import { keywordsOffInSettings } from "../lib/magic-keyword-gate";
 import type { PlanExecutionContext, PlanExecutionOptions, StagedKeyword } from "../lib/plan-concerns";
@@ -19,7 +21,7 @@ import { ExecutionBranchSetup, useExecutionBranch } from "./ExecutionBranchSetup
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
 import { PlanDiagnostics, PlanFallback, PlanPreparing } from "./PlanFallback";
-import { AttachmentButton, Button, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
+import { AttachmentButton, Button, Chip, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
 import { mintBranchName, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
 import { WorktreeBranchFields } from "./WorktreeBranchFields";
@@ -189,7 +191,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   } | null>(null);
   /** Change notes for the planner; text + optional images ride a steer prompt. */
   const [changes, setChanges] = useState("");
-  const { images, pasteError, onPaste, pickImages, dropImage, clearImages } = useImageDraft();
+  const { images, documents, pasteError, onPaste, pickFiles, dropImage, dropDocument, clearDraft, setPasteError } = useImageDraft();
   /**
    * Fold the advisor's review of the plan turn (it lands only after an execute
    * verdict lets the turn end) into the implementation prompt. Inert on
@@ -203,7 +205,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   const planTitle = useStore((s) => s.rpc[tabId]?.planReview?.request.title);
 
   /** The paperclip's hidden file input; picked images ride the same draft path as paste. */
-  const imagePicker = useRef<HTMLInputElement>(null);
+  const filePicker = useRef<HTMLInputElement>(null);
   const branch = useExecutionBranch({
     tabId,
     proposalKey: review,
@@ -365,16 +367,35 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
         (worktreeSel.baseBranch !== null && worktreeSel.baseBranch.trim() === "")
       : branchApplies && (branch.checkingOut || branch.branchInvalid));
 
-  const refine = () => {
-    const notes = { text: changes, images: images.length ? images : undefined };
-    refinePlan(tabId, changes.trim() !== "" || images.length > 0 ? notes : undefined);
+  const refine = async () => {
+    // Materialize the PDFs before the draft is spent (ADR-0044): a refusal
+    // keeps the notes draft intact, the same keep-draft shape as Composer.
+    let docRefs: DocumentRef[] = [];
+    if (documents.length > 0) {
+      try {
+        const paths = await backend.attachDocument(tabId, documents);
+        docRefs = documents.map((document, i) => ({ name: document.name, path: paths[i]! }));
+      } catch (err) {
+        setPasteError(displayMessage(err));
+        return;
+      }
+    }
+    const notes = {
+      text: changes,
+      images: images.length ? images : undefined,
+      documents: docRefs.length ? docRefs : undefined,
+    };
+    refinePlan(
+      tabId,
+      changes.trim() !== "" || images.length > 0 || docRefs.length > 0 ? notes : undefined,
+    );
     // The draft has been spent. RpcTab keeps this pane mounted for the whole
     // life of an active tab, so refine → revised proposal never unmounts it and
     // nothing else would ever clear these — the stale notes would reappear on
     // the next review, re-submittable by accident (issue #113). "Not now" keeps
     // its draft on purpose: deferring asks for no revision.
     setChanges("");
-    clearImages();
+    clearDraft();
   };
   // Close (X) / "not now": defer without answering the gate with notes the
   // user did not finish writing. The plan stays pending in the plans tab.
@@ -427,7 +448,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
     // (which would silently drop them). Shift+Enter keeps a true newline.
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      refine();
+      void refine();
     }
   };
 
@@ -546,7 +567,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <span className="text-[10px] text-ink-faint">{t("plan.review.refineKeys")}</span>
-                  <AttachmentButton disabled={false} label={t("common.button.attachImages")} onClick={() => imagePicker.current?.click()} />
+                  <AttachmentButton disabled={false} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
                 </div>
               </div>
               <div className="mt-2 rounded-lg border border-line bg-raised focus-within:border-line-strong">
@@ -579,6 +600,28 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                     </Label>
                   </div>
                 )}
+                {documents.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-2 pt-2 pb-1.5">
+                    {documents.map((document, i) => (
+                      <Chip key={i} tone="iris" mono truncate title={document.path ?? document.mimeType}>
+                        <span className="min-w-0 truncate">{document.name}</span>
+                        <IconButton
+                          label={t("composer.attachment.documentRemove", { n: i + 1 })}
+                          tone="rose"
+                          onClick={() => dropDocument(i)}
+                          className="size-4 rounded-full border border-line-strong bg-overlay"
+                        >
+                          <IconClose />
+                        </IconButton>
+                      </Chip>
+                    ))}
+                    <Label className="ml-0.5">
+                      {documents.length === 1
+                        ? t("composer.attachment.document")
+                        : t("composer.attachment.documents")}
+                    </Label>
+                  </div>
+                )}
                 <textarea
                   rows={3}
                   value={changes}
@@ -590,14 +633,14 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
                   className="block w-full resize-none bg-transparent px-3 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus:outline-none"
                 />
                 <input
-                  ref={imagePicker}
+                  ref={filePicker}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,application/pdf"
                   multiple
                   tabIndex={-1}
                   aria-hidden
                   className="sr-only"
-                  onChange={(event) => void pickImages(event)}
+                  onChange={(event) => void pickFiles(event)}
                 />
               </div>
               {pasteError && <p className="mt-1 text-[11px] text-rose">{pasteError}</p>}

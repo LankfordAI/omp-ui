@@ -14,8 +14,11 @@ import { backendState, remoteInstance, rpcTabState, tabInfo } from "../test/fixt
 
 const clipboardImageMock = vi.hoisted(() => ({
   hasClipboardImage: vi.fn(() => false),
+  hasClipboardDocument: vi.fn(() => false),
   readClipboardImages: vi.fn(),
+  readClipboardDocuments: vi.fn(),
   readImageFiles: vi.fn(),
+  readDocumentFiles: vi.fn(),
 }));
 
 vi.mock("../lib/clipboard-image", () => clipboardImageMock);
@@ -358,8 +361,14 @@ beforeEach(() => {
   backendMock.listBranches.mockResolvedValue(branches);
   backendMock.suggestBranchName.mockResolvedValue(null);
   clipboardImageMock.hasClipboardImage.mockReset().mockReturnValue(false);
+  clipboardImageMock.hasClipboardDocument.mockReset().mockReturnValue(false);
   clipboardImageMock.readClipboardImages.mockReset();
+  clipboardImageMock.readClipboardDocuments.mockReset();
   clipboardImageMock.readImageFiles.mockReset().mockResolvedValue({ images: [], rejected: [] });
+  clipboardImageMock.readDocumentFiles.mockReset().mockResolvedValue({
+    documents: [],
+    rejected: [],
+  });
   setCompact(false);
   seed();
 });
@@ -1165,11 +1174,11 @@ describe("PlanReview refine attachment picker (issue #65)", () => {
   it("offers a paperclip that opens a multi-image picker", () => {
     render();
     const input = imagePicker();
-    const button = document.body.querySelector<HTMLButtonElement>('button[title="attach images"]')!;
+    const button = document.body.querySelector<HTMLButtonElement>('button[title="attach files"]')!;
     const click = vi.spyOn(input, "click");
 
     expect(button).not.toBeNull();
-    expect(input.accept).toBe("image/*");
+    expect(input.accept).toBe("image/*,application/pdf");
     expect(input.multiple).toBe(true);
     expect(input.classList.contains("sr-only")).toBe(true);
     act(() => button.click());

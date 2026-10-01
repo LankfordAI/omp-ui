@@ -77,6 +77,7 @@ import {
   type BranchListOptions,
   type CollabAccess,
   type ConsoleProgram,
+  type DocumentAttachment,
   type ImageAttachment,
   type McpSetEnabledRequest,
   type ScopedCapabilityMutation,
@@ -938,6 +939,10 @@ export class MainBackend {
           resolveFileMentions(projectCwd, message),
         [CH.ptyPasteImage]: (tabId: string, image: ImageAttachment) =>
           this.sessions.ptyPasteImage(tabId, image),
+        [CH.attachDocument]: (tabId: string, documents: DocumentAttachment[]) =>
+          this.sessions.attachDocument(tabId, documents),
+        [CH.ptyPasteDocument]: (tabId: string, document: DocumentAttachment) =>
+          this.sessions.ptyPasteDocument(tabId, document),
         [CH.shellSpawn]: (
           tabId: string,
           cwd: string,

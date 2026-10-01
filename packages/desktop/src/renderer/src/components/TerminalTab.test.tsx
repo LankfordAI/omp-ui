@@ -18,12 +18,16 @@ const mocks = vi.hoisted(() => {
     findPrevious: vi.fn(),
     focus: vi.fn(),
     hasClipboardImage: vi.fn(() => false),
+    hasClipboardDocument: vi.fn(() => false),
     onDidChangeResults: vi.fn(() => ({ dispose: vi.fn() })),
     ptyPasteImage: vi.fn(),
+    ptyPasteDocument: vi.fn(),
     ptyResize: vi.fn(),
     ptyWrite: vi.fn(),
     readClipboardImages: vi.fn(),
+    readClipboardDocuments: vi.fn(),
     readImageFiles: vi.fn(),
+    readDocumentFiles: vi.fn(),
     registerTermWriter: vi.fn(() => vi.fn()),
     resumeDead,
     // Mutable stub state: tests flip `searchOpen` and re-render.
@@ -92,14 +96,18 @@ vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 vi.mock("../backend", () => ({
   backend: {
     ptyPasteImage: mocks.ptyPasteImage,
+    ptyPasteDocument: mocks.ptyPasteDocument,
     ptyResize: mocks.ptyResize,
     ptyWrite: mocks.ptyWrite,
   },
 }));
 vi.mock("../lib/clipboard-image", () => ({
   hasClipboardImage: mocks.hasClipboardImage,
+  hasClipboardDocument: mocks.hasClipboardDocument,
   readClipboardImages: mocks.readClipboardImages,
+  readClipboardDocuments: mocks.readClipboardDocuments,
   readImageFiles: mocks.readImageFiles,
+  readDocumentFiles: mocks.readDocumentFiles,
 }));
 const themeMock = vi.hoisted(() => ({
   id: "graphite",
@@ -158,7 +166,11 @@ function choose(input: HTMLInputElement, files: File[], value: string): void {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.hasClipboardImage.mockReturnValue(false);
+  mocks.hasClipboardDocument.mockReturnValue(false);
   mocks.ptyPasteImage.mockResolvedValue(undefined);
+  mocks.ptyPasteDocument.mockResolvedValue(undefined);
+  mocks.readDocumentFiles.mockResolvedValue({ documents: [], rejected: [] });
+  mocks.readImageFiles.mockResolvedValue({ images: [], rejected: [] });
   mocks.store.exited = {};
   mocks.store.searchOpen = {};
 });
@@ -204,12 +216,12 @@ describe("TerminalTab attachment picker", () => {
       .mockResolvedValueOnce({ images: [IMAGE_ONE], rejected: [] });
 
     const input = renderTerminal();
-    expect(input.accept).toBe("image/*");
+    expect(input.accept).toBe("image/*,application/pdf");
     expect(input.multiple).toBe(true);
     const openPicker = vi.spyOn(input, "click");
     act(() => {
       const button = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-        (candidate) => candidate.textContent?.trim() === "attach images",
+        (candidate) => candidate.textContent?.trim() === "attach files",
       )!;
       button.click();
     });

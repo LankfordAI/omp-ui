@@ -1,4 +1,5 @@
-import type { ImageAttachment } from "@omp-ui/core/types";
+import type { DocumentAttachment, ImageAttachment } from "@omp-ui/core/types";
+import { sanitizeDocumentName } from "./document-context";
 
 /**
  * Reads image files from paste, drop, or picker input.
@@ -78,6 +79,74 @@ export async function readImageFiles(files: Iterable<File>): Promise<ClipboardIm
   return out;
 }
 
+/** The one document mime handled today; the picker's accept attribute mirrors it. */
+export const DOCUMENT_MIME = "application/pdf";
+
+/** Per-document ceiling; main re-checks it at materialization. */
+export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
+
+function tooLargeDocument(name: string, bytes: number): string {
+  const mb = (bytes / (1024 * 1024)).toFixed(1);
+  return `${name} is ${mb} MB — over the 20 MB document limit`;
+}
+
+export interface ClipboardDocuments {
+  documents: DocumentAttachment[];
+  /** Human-readable reasons items were dropped, for the composer to surface. */
+  rejected: string[];
+}
+
+/**
+ * Reads picker/paste PDF files, preserving input order. An empty MIME type
+ * is accepted when the name ends in .pdf — some Chromium paths report none
+ * for file-manager items. Non-PDF files are skipped silently: the dialog's
+ * accept attribute already filters, and the images' silent-skip precedent
+ * applies (readImageFiles:55).
+ */
+export async function readDocumentFiles(files: Iterable<File>): Promise<ClipboardDocuments> {
+  const out: ClipboardDocuments = { documents: [], rejected: [] };
+  for (const file of files) {
+    if (file.type !== DOCUMENT_MIME && !(file.type === "" && /\.pdf$/i.test(file.name))) continue;
+    if (file.size > MAX_DOCUMENT_BYTES) {
+      out.rejected.push(tooLargeDocument(file.name || "pasted document", file.size));
+      continue;
+    }
+    try {
+      const buffer = await file.arrayBuffer();
+      // Re-check post-read: `size` is advisory for some virtual clipboard files.
+      if (buffer.byteLength > MAX_DOCUMENT_BYTES) {
+        out.rejected.push(tooLargeDocument(file.name || "pasted document", buffer.byteLength));
+        continue;
+      }
+      out.documents.push({
+        type: "document",
+        name: sanitizeDocumentName(file.name || "document.pdf"),
+        data: bytesToBase64(new Uint8Array(buffer)),
+        mimeType: DOCUMENT_MIME,
+      });
+    } catch {
+      out.rejected.push(`could not read ${file.name || "the pasted document"}`);
+    }
+  }
+  return out;
+}
+
+/** Whether a paste/drop carries at least one PDF, without reading the bytes. */
+export function hasClipboardDocument(data: DataTransfer | null): boolean {
+  if (data === null) return false;
+  for (const item of data.items) {
+    if (item.kind === "file" && documentFile(item.type, item.getAsFile()?.name ?? "")) return true;
+  }
+  for (const file of data.files) {
+    if (documentFile(file.type, file.name)) return true;
+  }
+  return false;
+}
+
+function documentFile(type: string, name: string): boolean {
+  return type === DOCUMENT_MIME || (type === "" && /\.pdf$/i.test(name));
+}
+
 /**
  * Every image file on a DataTransfer, in clipboard order.
  *
@@ -115,4 +184,26 @@ export function hasClipboardImage(data: DataTransfer | null): boolean {
     if (file.type.startsWith("image/")) return true;
   }
   return false;
+}
+
+/**
+ * Every PDF file on a DataTransfer, in clipboard order — the document twin
+ * of readClipboardImages, with the same items-before-files fallback.
+ */
+export async function readClipboardDocuments(
+  data: DataTransfer | null,
+): Promise<ClipboardDocuments> {
+  if (data === null) return { documents: [], rejected: [] };
+  const files: File[] = [];
+  for (const item of data.items) {
+    if (item.kind !== "file" || !documentFile(item.type, item.getAsFile()?.name ?? "")) continue;
+    const file = item.getAsFile();
+    if (file !== null) files.push(file);
+  }
+  if (files.length === 0) {
+    for (const file of data.files) {
+      if (documentFile(file.type, file.name)) files.push(file);
+    }
+  }
+  return readDocumentFiles(files);
 }

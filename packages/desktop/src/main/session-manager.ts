@@ -24,6 +24,8 @@ import {
   isHtmlPlanPath,
   isWithin,
   mcpRuntimeStatusMessage,
+  MAX_DOCUMENT_BATCH_BYTES,
+  resolveDocument,
   normalizeControlFrame,
   parseCapabilitySnapshot,
   planMessage,
@@ -50,6 +52,7 @@ import {
   type DeleteSessionPreview,
   type DeleteSessionResult,
   type ImageAttachment,
+  type DocumentAttachment,
   type OwnedSessionRecord,
   type RpcFrame,
   type ResumeSpawnRequest,
@@ -1241,6 +1244,35 @@ export class SessionManager {
       throw new Error(`image is over omp's ${MAX_IMAGE_BYTES / (1024 * 1024)} MB input limit`);
     }
     const file = writeImageToScratch(image);
+    pty.write(bracketedImagePaste(file));
+  }
+
+  /**
+   * Materializes PDF Document Attachments on THIS machine — for a joined
+   * remote tab the request was routed here by routeByTab, so "this machine"
+   * is the remote host (ADR-0044). Returns the scratch paths; the composer
+   * composes them into the prompt's attached-documents block.
+   */
+  async attachDocument(tabId: string, documents: DocumentAttachment[]): Promise<string[]> {
+    if (!this.deps.registry.sessions.some((s) => s.tabId === tabId)) {
+      throw new Error(`unknown session tab ${tabId}`);
+    }
+    let batchBytes = 0;
+    for (const doc of documents) batchBytes += doc.data === undefined ? 0 : base64Bytes(doc.data);
+    if (batchBytes > MAX_DOCUMENT_BATCH_BYTES) {
+      throw new Error(
+        `attached documents are ${(batchBytes / (1024 * 1024)).toFixed(1)} MB — over the 48 MB batch limit`,
+      );
+    }
+    return documents.map((doc) => resolveDocument(doc));
+  }
+
+  async ptyPasteDocument(tabId: string, document: DocumentAttachment): Promise<void> {
+    const entry = this.live.get(tabId);
+    if (entry?.kind !== "pty") throw new Error("session is not running in terminal mode");
+    const pty = entry.pty;
+    // One document per paste: same one-anchor-per-paste discipline as images.
+    const file = resolveDocument(document);
     pty.write(bracketedImagePaste(file));
   }
 

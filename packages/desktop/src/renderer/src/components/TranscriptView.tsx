@@ -243,6 +243,7 @@ function UserBubble({
   );
   const rewindTitle = rewindBusy ? t("transcript.rewind.busy") : undefined;
   const fileMentions = item.fileMentions ?? [];
+  const documents = item.documents ?? [];
   return (
     <div className="speaker-run animate-rise flex flex-col items-end gap-1">
       {first && <Label className="speaker-label speaker-label-right">{t("transcript.speaker.you")}</Label>}
@@ -287,6 +288,26 @@ function UserBubble({
                   className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
                 />
               </button>
+            ))}
+          </div>
+        )}
+        {documents.length > 0 && (
+          <div
+            role="group"
+            aria-label={t("transcript.document.label")}
+            className="flex max-w-full flex-wrap justify-end gap-1.5"
+          >
+            {documents.map((document, i) => (
+              <Chip
+                // Path alone can repeat when the same file is attached twice.
+                key={`${document.path}#${i}`}
+                tone="iris"
+                mono
+                truncate
+                title={t("transcript.document.alt", { name: document.name, path: document.path })}
+              >
+                {document.name}
+              </Chip>
             ))}
           </div>
         )}

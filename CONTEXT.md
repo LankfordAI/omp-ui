@@ -327,6 +327,17 @@ omp's TUI as a bracketed paste (ADR-0006). omp re-encodes on ingest, so what
 returns in the transcript is omp's mime type, not the clipboard's.
 _Avoid_: upload, file, media
 
+**Document Attachment**:
+A PDF on an outgoing prompt (ADR-0044). omp's rpc protocol carries no document
+field, so the bytes ship to the machine that owns the session — local or joined
+remote — and materialize as a scratch file under the OS temp dir; the prompt
+text then ends with an `<attached documents>` block naming each display name and
+absolute path, where omp's `read` tool converts the PDF to text. Native
+transcript derivation parses the block back into chips; a rewind or refine
+re-attaches by path, with no byte re-upload. A terminal tab delivers the same
+scratch path as a plain paste.
+_Avoid_: upload, media, doc
+
 **Dictation**:
 The composer's speech-to-text path (issue #647, ADR-0034): capture runs in
 the renderer's memory (no MediaRecorder/Blob), transcription runs in the main
