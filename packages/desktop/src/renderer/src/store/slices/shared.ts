@@ -381,12 +381,20 @@ export function persistedPlanHandoffs(state: BackendState): Record<string, strin
  */
 const rewindPrefills = new Map<
   string,
-  { text: string; images: { data: string; mimeType: string }[] }
+  {
+    text: string;
+    images: { data: string; mimeType: string }[];
+    documents?: { name: string; path: string }[];
+  }
 >();
 
 export function setRewindPrefill(
   tabId: string,
-  prefill: { text: string; images: { data: string; mimeType: string }[] },
+  prefill: {
+    text: string;
+    images: { data: string; mimeType: string }[];
+    documents?: { name: string; path: string }[];
+  },
 ): void {
   rewindPrefills.set(tabId, prefill);
 }
@@ -394,6 +402,7 @@ export function setRewindPrefill(
 export function takeRewindPrefill(tabId: string): {
   text: string;
   images: { data: string; mimeType: string }[];
+  documents?: { name: string; path: string }[];
 } | null {
   const prefill = rewindPrefills.get(tabId) ?? null;
   rewindPrefills.delete(tabId);

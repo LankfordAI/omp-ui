@@ -101,6 +101,9 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:capabilities",
   "session:tool-enabled",
   "pty:pasteImage",
+  // Document Attachments materialize on the owning instance's machine (ADR-0044).
+  "session:attachDocument",
+  "pty:pasteDocument",
   "shell:spawn",
   "browser-pane:ensure",
   "browser-pane:pick",

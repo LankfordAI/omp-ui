@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, screen } from "electron";
-import { clearImageScratch, formatModelRole } from "@omp-ui/core";
+import { clearDocumentScratch, clearImageScratch, formatModelRole } from "@omp-ui/core";
 import { MainBackend } from "./backend";
 import { appUpdateEnabledForBuild } from "./app-update-policy";
 import { openExternalSafe } from "./open-external";
@@ -402,6 +402,7 @@ if (!app.requestSingleInstanceLock()) {
     void backend?.killAll();
     // Pasted-image scratch files are only ever needed by a live omp process.
     clearImageScratch();
+    clearDocumentScratch();
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();

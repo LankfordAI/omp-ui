@@ -13,7 +13,7 @@ import { GOAL_COMMAND } from "@omp-ui/core/goal";
 import { BTW_COMMAND } from "@omp-ui/core/side-questions";
 import { AUTORESEARCH_COMMAND } from "@omp-ui/core/autoresearch";
 import { VIBE_COMMAND } from "@omp-ui/core/vibe";
-import { backendFor } from "../backend";
+import { backend, backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { currentLocaleId, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
@@ -22,6 +22,7 @@ import { magicKeywordSegments } from "@omp-ui/core/magic-keywords";
 import { firingKeywords } from "../lib/magic-keyword-gate";
 import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
 import { composerPaintRuns } from "../lib/composer-paint";
+import type { DocumentRef } from "../lib/document-context";
 import { queueChipView } from "../lib/queue-chip";
 import { modelSupportsFastMode, type PromptRoute, type SlashCommandInfo } from "../lib/rpc-types";
 import { slashCompletion } from "../lib/slash-completion";
@@ -213,7 +214,20 @@ export function Composer({
    */
   const [files, setFiles] = useState<{ list: string[]; truncated: boolean } | null>(null);
   const [effortMenu, setEffortMenu] = useState(false);
-  const { images, pasteError, onPaste, pickImages, addImages, dropImage, clearImages, dismissError } = useImageDraft();
+  const {
+    images,
+    documents,
+    pasteError,
+    onPaste,
+    pickFiles,
+    addImages,
+    addDocuments,
+    dropImage,
+    dropDocument,
+    clearDraft,
+    setPasteError,
+    dismissError,
+  } = useImageDraft();
   /** Whether the box has focus — omp shimmers a keyword only while it does. */
   const [focused, setFocused] = useState(false);
   /**
@@ -239,7 +253,7 @@ export function Composer({
   const [phase, setPhase] = useState(0);
 
   const box = useRef<HTMLTextAreaElement | null>(null);
-  const imagePicker = useRef<HTMLInputElement | null>(null);
+  const filePicker = useRef<HTMLInputElement | null>(null);
   const composer = useRef<HTMLDivElement | null>(null);
   const palette = useRef<SlashPaletteHandle | null>(null);
   const mentionPalette = useRef<MentionPaletteHandle | null>(null);
@@ -428,10 +442,11 @@ export function Composer({
     const queued = drainComposerQueue(tabId);
     if (queued === null) return;
     addImages(queued.images);
+    addDocuments(queued.documents ?? []);
     const lines = queued.text.join("\n");
     if (lines !== "") setText((prev) => (prev === "" ? lines : `${prev}\n${lines}`));
     box.current?.focus({ preventScroll: true });
-  }, [composerQueue, tabId, drainComposerQueue, addImages]);
+  }, [composerQueue, tabId, drainComposerQueue, addImages, addDocuments]);
   useDismissal({
     open: effortMenu,
     refs: effortAnchor,
@@ -488,9 +503,15 @@ export function Composer({
     async (route: PromptRoute | "interrupt") => {
       let message = text.trim();
       let payload = images;
-      // An image with no words is a legitimate prompt ("what is this?"), so
-      // emptiness is judged on the whole draft, not the text alone.
-      if ((message === "" && payload.length === 0) || unavailable || converting) return;
+      let docRefs: DocumentRef[] = [];
+      // An image or PDF with no words is a legitimate prompt ("what is
+      // this?"), so emptiness is judged on the whole draft, not the text alone.
+      if (
+        (message === "" && payload.length === 0 && documents.length === 0) ||
+        unavailable ||
+        converting
+      )
+        return;
       // A leading "!" is omp's bash command, dispatched concurrently over
       // rpc-ui with no model turn (issue #678). Like slash, it takes no
       // images and gets no @-resolution; the draft goes out verbatim. It
@@ -503,7 +524,7 @@ export function Composer({
         }
         recall.current = null;
         setText("");
-        clearImages();
+        clearDraft();
         setDismissedFor(null);
         setMentionDismissedFor(null);
         if (message.length > 1) {
@@ -527,7 +548,7 @@ export function Composer({
         if (outcome !== "not-answerable") {
           if (outcome === "answered") {
             setText("");
-            clearImages();
+            clearDraft();
           }
           box.current?.focus({ preventScroll: true });
           return;
@@ -547,9 +568,26 @@ export function Composer({
       if (message !== "" && history.current[history.current.length - 1] !== message) {
         history.current.push(message);
       }
+      // Materialize the PDFs on the machine that owns the session *before*
+      // the draft is committed (ADR-0044): a rejection returns with text,
+      // images, and documents intact — the keep-draft shape of the worktree
+      // conversion. This must live here, not the slice: the send calls below
+      // are fire-and-forget and could never restore a cleared draft.
+      if (!message.startsWith("/") && documents.length > 0) {
+        try {
+          const paths = await backend.attachDocument(tabId, documents);
+          docRefs = documents.map((document, i) => ({
+            name: document.name,
+            path: paths[i]!,
+          }));
+        } catch (err) {
+          setPasteError(displayMessage(err));
+          return;
+        }
+      }
       recall.current = null;
       setText("");
-      clearImages();
+      clearDraft();
       setDismissedFor(null);
       setMentionDismissedFor(null);
 
@@ -578,15 +616,17 @@ export function Composer({
       }
 
       if (route === "interrupt") {
-        void abortAndPrompt(tabId, message, payload);
+        void abortAndPrompt(tabId, message, payload, docRefs);
       } else {
-        void sendPrompt(tabId, message, route, payload);
+        void sendPrompt(tabId, message, route, payload, docRefs);
       }
       box.current?.focus({ preventScroll: true });
     },
     [
       text,
       images,
+      documents,
+      setPasteError,
       unavailable,
       compact,
       tabId,
@@ -726,8 +766,9 @@ export function Composer({
           ? t("composer.placeholder.running")
           : t("composer.placeholder.idle");
 
-  // An image alone is sendable: "what is this?" is in the picture, not the text.
-  const canSend = (trimmed !== "" || images.length > 0) && !unavailable && !converting;
+  // An image or PDF alone is sendable: "what is this?" is in the attachment, not the text.
+  const canSend =
+    (trimmed !== "" || images.length > 0 || documents.length > 0) && !unavailable && !converting;
   const lines = text === "" ? 0 : text.split("\n").length;
 
   return (
@@ -831,6 +872,27 @@ export function Composer({
                   {t("composer.vision.noVision")}
                 </Chip>
               )}
+            </div>
+          )}
+          {documents.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-2 pt-2 pb-1.5">
+              {documents.map((document, i) => (
+                <Chip key={i} tone="iris" truncate title={document.path ?? document.mimeType}>
+                  <span className="min-w-0 truncate">{document.name}</span>
+                  <IconButton
+                    label={t("composer.attachment.documentRemove", { n: i + 1 })}
+                    disabled={unavailable}
+                    tone="rose"
+                    onClick={() => dropDocument(i)}
+                    className="size-4 rounded-full border border-line-strong bg-overlay"
+                  >
+                    <IconClose />
+                  </IconButton>
+                </Chip>
+              ))}
+              <Label className="ml-0.5">
+                {documents.length} {documents.length === 1 ? t("composer.attachment.document") : t("composer.attachment.documents")}
+              </Label>
             </div>
           )}
           {/* The mirror draws the glyphs; the textarea above it owns the caret,
@@ -991,7 +1053,7 @@ export function Composer({
               finishTabId={finishTabId}
             />
 
-            <AttachmentButton disabled={unavailable} label={t("common.button.attachImages")} onClick={() => imagePicker.current?.click()} />
+            <AttachmentButton disabled={unavailable} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
             <DictationControl disabled={unavailable} voice={voice} />
 
 
@@ -1028,7 +1090,7 @@ export function Composer({
           )}
           {compact && (
             <div className="flex min-h-11 items-center gap-1.5 px-1.5 pb-1.5">
-              <AttachmentButton compact disabled={unavailable} label={t("common.button.attachImages")} onClick={() => imagePicker.current?.click()} />
+              <AttachmentButton compact disabled={unavailable} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
               <DictationControl compact disabled={unavailable} voice={voice} />
               <Button
                 variant="ghost"
@@ -1053,15 +1115,15 @@ export function Composer({
             </div>
           )}
           <input
-            ref={imagePicker}
+            ref={filePicker}
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf"
             multiple
             disabled={unavailable}
             tabIndex={-1}
             aria-hidden
             className="sr-only"
-            onChange={(event) => void pickImages(event)}
+            onChange={(event) => void pickFiles(event)}
           />
         </div>
 

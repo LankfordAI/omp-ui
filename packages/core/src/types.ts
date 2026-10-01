@@ -75,6 +75,24 @@ export interface ImageAttachment {
   mimeType: string;
 }
 
+/**
+ * A PDF carried into a session as a scratch file on the session's machine
+ * (ADR-0044). The rpc protocol has no document field, so the bytes are
+ * materialized to a path on the owning instance and the prompt text names
+ * that path for omp's `read` tool. Exactly one of `data`/`path` is set;
+ * main enforces it.
+ */
+export interface DocumentAttachment {
+  type: "document";
+  /** File name for display and for the prompt block; sanitized to exclude < > and newlines. */
+  name: string;
+  mimeType: string;
+  /** Bare base64 of the bytes; omitted when the file already exists at `path`. */
+  data?: string;
+  /** Absolute path on the owning instance; only used by rewind prefill. */
+  path?: string;
+}
+
 export type ProjectOpenTarget = "vscode" | "files" | "terminal";
 
 export interface ProjectOpenAvailability {

@@ -6,8 +6,11 @@ import { useImageDraft } from "./use-image-draft";
 
 const clipboardImageMock = vi.hoisted(() => ({
   hasClipboardImage: vi.fn(() => false),
+  hasClipboardDocument: vi.fn(() => false),
   readClipboardImages: vi.fn(),
+  readClipboardDocuments: vi.fn(),
   readImageFiles: vi.fn(),
+  readDocumentFiles: vi.fn(),
 }));
 
 vi.mock("./clipboard-image", () => clipboardImageMock);
@@ -16,6 +19,12 @@ vi.mock("./clipboard-image", () => clipboardImageMock);
 
 const IMAGE_ONE = { type: "image" as const, data: "one", mimeType: "image/png" };
 const IMAGE_TWO = { type: "image" as const, data: "two", mimeType: "image/jpeg" };
+const DOC_ONE = {
+  type: "document" as const,
+  name: "spec.pdf",
+  data: "cGRm",
+  mimeType: "application/pdf",
+};
 
 /** The reader is mocked, so any stand-in object carries the paste through. */
 const CLIP = {} as unknown as DataTransfer;
@@ -26,15 +35,16 @@ function Probe() {
   return (
     <div>
       <textarea data-testid="box" onPaste={(e) => void draft.onPaste(e)} />
-      <input data-testid="picker" type="file" onChange={(e) => void draft.pickImages(e)} />
+      <input data-testid="picker" type="file" onChange={(e) => void draft.pickFiles(e)} />
       <span data-testid="count">{draft.images.length}</span>
+      <span data-testid="doc-count">{draft.documents.length}</span>
       <span data-testid="error">{draft.pasteError ?? ""}</span>
       {draft.images.map((image, i) => (
         <button key={i} data-testid={`drop-${i}`} onClick={() => draft.dropImage(i)}>
           {image.data}
         </button>
       ))}
-      <button data-testid="clear" onClick={draft.clearImages}>
+      <button data-testid="clear" onClick={draft.clearDraft}>
         clear
       </button>
       <button data-testid="dismiss" onClick={draft.dismissError}>
@@ -79,8 +89,14 @@ async function pick(files: File[], value: string): Promise<void> {
 
 beforeEach(() => {
   clipboardImageMock.hasClipboardImage.mockReset().mockReturnValue(false);
+  clipboardImageMock.hasClipboardDocument.mockReset().mockReturnValue(false);
   clipboardImageMock.readClipboardImages.mockReset();
+  clipboardImageMock.readClipboardDocuments.mockReset();
   clipboardImageMock.readImageFiles.mockReset().mockResolvedValue({ images: [], rejected: [] });
+  clipboardImageMock.readDocumentFiles.mockReset().mockResolvedValue({
+    documents: [],
+    rejected: [],
+  });
 });
 
 afterEach(() => {
@@ -209,22 +225,29 @@ describe("useImageDraft edits", () => {
     expect(byId("drop-0").textContent).toBe("two");
   });
 
-  it("clearImages empties images and error together; dismissError keeps the images", async () => {
+  it("clearDraft empties images, documents, and error together; dismissError keeps them", async () => {
     clipboardImageMock.readImageFiles.mockResolvedValue({
       images: [IMAGE_ONE],
       rejected: ["broken.png could not be read"],
     });
+    clipboardImageMock.readDocumentFiles.mockResolvedValue({
+      documents: [DOC_ONE],
+      rejected: [],
+    });
     mount();
     await pick([new File(["one"], "one.png", { type: "image/png" })], "mixed");
     expect(byId("count").textContent).toBe("1");
+    expect(byId("doc-count").textContent).toBe("1");
     expect(byId("error").textContent).toBe("broken.png could not be read");
 
     act(() => (byId("dismiss") as HTMLButtonElement).click());
     expect(byId("error").textContent).toBe("");
     expect(byId("count").textContent).toBe("1");
+    expect(byId("doc-count").textContent).toBe("1");
 
     act(() => (byId("clear") as HTMLButtonElement).click());
     expect(byId("count").textContent).toBe("0");
     expect(byId("error").textContent).toBe("");
+    expect(byId("doc-count").textContent).toBe("0");
   });
 });

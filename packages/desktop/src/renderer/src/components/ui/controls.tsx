@@ -283,12 +283,12 @@ export function UpdateCard({
 export function AttachmentButton({
   compact = false,
   disabled,
-  label = "attach images",
+  label,
   onClick,
 }: {
   compact?: boolean;
   disabled: boolean;
-  label?: string;
+  label: string;
   onClick: () => void;
 }) {
   return (

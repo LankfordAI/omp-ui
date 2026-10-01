@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasClipboardDocument,
   hasClipboardImage,
+  MAX_DOCUMENT_BYTES,
   MAX_IMAGE_BYTES,
+  readClipboardDocuments,
   readClipboardImages,
+  readDocumentFiles,
   readImageFiles,
 } from "./clipboard-image";
 
@@ -34,6 +38,7 @@ const textOnly = {
 } as unknown as DataTransfer;
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+const PDF_BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46, 45, 46, 46]);
 
 /** Independent base64 reference, so the expectation is not the code under test. */
 function b64(bytes: Uint8Array): string {
@@ -254,5 +259,124 @@ describe("readClipboardImages", () => {
       ],
     } as unknown as DataTransfer);
     expect(images).toHaveLength(1);
+  });
+});
+
+describe("hasClipboardDocument", () => {
+  it("is true for a pdf item and false for an image or text", () => {
+    expect(
+      hasClipboardDocument(transfer([{ name: "a.pdf", type: "application/pdf", bytes: PDF_BYTES }])),
+    ).toBe(true);
+    expect(hasClipboardDocument(transfer([{ name: "a.png", type: "image/png", bytes: PNG }]))).toBe(
+      false,
+    );
+    expect(hasClipboardDocument(textOnly)).toBe(false);
+    expect(hasClipboardDocument(null)).toBe(false);
+  });
+
+  it("is true for an extension-only file the clipboard reports without a mime type", () => {
+    expect(
+      hasClipboardDocument(transfer([{ name: "from-manager.pdf", type: "", bytes: PDF_BYTES }])),
+    ).toBe(true);
+  });
+});
+
+describe("readDocumentFiles", () => {
+  it("reads picker pdfs as bare base64 with the name carried, in order", async () => {
+    const other = new Uint8Array([1, 2]);
+    const files = transfer([
+      { name: "spec.pdf", type: "application/pdf", bytes: PDF_BYTES },
+      { name: "invoice.pdf", type: "application/pdf", bytes: other },
+    ]).files;
+
+    expect(await readDocumentFiles(files)).toEqual({
+      documents: [
+        { type: "document", name: "spec.pdf", data: b64(PDF_BYTES), mimeType: "application/pdf" },
+        { type: "document", name: "invoice.pdf", data: b64(other), mimeType: "application/pdf" },
+      ],
+      rejected: [],
+    });
+  });
+
+  it("skips non-pdfs silently, beside accepted ones", async () => {
+    const files = transfer([
+      { name: "photo.png", type: "image/png", bytes: PNG },
+      { name: "spec.pdf", type: "application/pdf", bytes: PDF_BYTES },
+    ]).files;
+
+    const { documents, rejected } = await readDocumentFiles(files);
+    expect(documents).toHaveLength(1);
+    expect(rejected).toEqual([]);
+  });
+
+  it("accepts an extension-only file the file manager reports without a mime type", async () => {
+    const { documents } = await readDocumentFiles(
+      transfer([{ name: "from-manager.pdf", type: "", bytes: PDF_BYTES }]).files,
+    );
+    expect(documents[0]?.mimeType).toBe("application/pdf");
+  });
+
+  it("refuses a document over the 20 MB ceiling, naming it", async () => {
+    const { documents, rejected } = await readDocumentFiles(
+      transfer([
+        { name: "huge.pdf", type: "application/pdf", bytes: PDF_BYTES, size: MAX_DOCUMENT_BYTES + 1 },
+      ]).files,
+    );
+    expect(documents).toEqual([]);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toContain("huge.pdf");
+    expect(rejected[0]).toContain("20 MB");
+  });
+
+  it("catches an oversize payload whose reported size lied", async () => {
+    const { documents, rejected } = await readDocumentFiles([
+      {
+        name: "liar.pdf",
+        type: "application/pdf",
+        size: 10,
+        arrayBuffer: async () => new ArrayBuffer(MAX_DOCUMENT_BYTES + 1),
+      } as unknown as File,
+    ]);
+    expect(documents).toEqual([]);
+    expect(rejected[0]).toContain("liar.pdf");
+  });
+
+  it("sanitizes block-shaping characters out of the carried name", async () => {
+    const { documents } = await readDocumentFiles(
+      transfer([{ name: "a<b>.pdf", type: "application/pdf", bytes: PDF_BYTES }]).files,
+    );
+    expect(documents[0]?.name).toBe("ab.pdf");
+  });
+});
+
+describe("readClipboardDocuments", () => {
+  it("reads pdfs in clipboard order and ignores images and text", async () => {
+    const { documents, rejected } = await readClipboardDocuments(
+      transfer([
+        { name: "a.png", type: "image/png", bytes: PNG },
+        { name: "a.pdf", type: "application/pdf", bytes: PDF_BYTES },
+      ]),
+    );
+    expect(rejected).toEqual([]);
+    expect(documents).toEqual([
+      { type: "document", name: "a.pdf", data: b64(PDF_BYTES), mimeType: "application/pdf" },
+    ]);
+    expect(await readClipboardDocuments(textOnly)).toEqual({ documents: [], rejected: [] });
+    expect(await readClipboardDocuments(null)).toEqual({ documents: [], rejected: [] });
+  });
+
+  it("falls back to `files` when `items` yields nothing (drag-and-drop)", async () => {
+    const { documents } = await readClipboardDocuments({
+      items: [],
+      files: [
+        {
+          name: "dropped.pdf",
+          type: "application/pdf",
+          size: PDF_BYTES.byteLength,
+          arrayBuffer: async () => PDF_BYTES.buffer.slice(0, PDF_BYTES.byteLength),
+        },
+      ],
+    } as unknown as DataTransfer);
+    expect(documents).toHaveLength(1);
   });
 });

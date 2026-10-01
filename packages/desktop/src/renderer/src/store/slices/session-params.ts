@@ -20,6 +20,8 @@ import {
 } from "@omp-ui/core/vibe";
 import { backend, backendFor } from "../../backend";
 import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
+import { withDocumentContext, type DocumentRef } from "../../lib/document-context";
+import { DOCUMENT_MIME } from "../../lib/clipboard-image";
 import { t } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { hasSeenSharePrivacy } from "../../lib/share-privacy";
@@ -409,6 +411,7 @@ export function createSessionParamsSlice(
     message: string,
     route: PromptRoute = "steer",
     images?: ImageAttachment[],
+    docRefs?: DocumentRef[],
   ): Promise<boolean> => {
     if (!m.acceptsCommands(tabId)) return false;
     if (route === "advisor_reply" || route === "stall_continue") {
@@ -435,7 +438,12 @@ export function createSessionParamsSlice(
       route === "follow_up" || route === "advisor_reply" || route === "stall_continue"
         ? "followUp"
         : "steer";
-    const wireMessage = withAttachmentRoutingContext(message, images?.length ?? 0);
+    // The document block attaches to the prose; the image routing suffix
+    // stays last, preserving stripAttachmentRoutingContext's endsWith round-trip.
+    const wireMessage = withAttachmentRoutingContext(
+      withDocumentContext(message, docRefs ?? []),
+      images?.length ?? 0,
+    );
     const cmd = { type: "prompt" as const, message: wireMessage, streamingBehavior };
     // `images` is omitted entirely when empty: omp's own client sends no key
     // rather than an empty array, and every byte here is on one JSON line.
@@ -451,6 +459,7 @@ export function createSessionParamsSlice(
     tabId: string,
     message: string,
     images?: ImageAttachment[],
+    docRefs?: DocumentRef[],
   ): Promise<void> => {
     if (!m.acceptsCommands(tabId)) return;
     set((state) => ({ handedOffFor: dropPlanHandoff(state.handedOffFor, tabId) }));
@@ -458,7 +467,10 @@ export function createSessionParamsSlice(
     advisorReplyWatcher.reset(tabId);
     stallContinueWatcher.reset(tabId);
     const type = "abort_and_prompt";
-    const wireMessage = withAttachmentRoutingContext(message, images?.length ?? 0);
+    const wireMessage = withAttachmentRoutingContext(
+      withDocumentContext(message, docRefs ?? []),
+      images?.length ?? 0,
+    );
     await m.runCommand(
       tabId,
       images?.length ? { type, message: wireMessage, images } : { type, message: wireMessage },
@@ -911,8 +923,10 @@ export function createSessionParamsSlice(
     setRewindPrefill(tabId, {
       text: clicked.text,
       // Visible prose only — omp's raw entry text still carries @-routing
-      // context; the images are omp's re-encoded mime types.
+      // context; the images are omp's re-encoded mime types. Documents
+      // re-send by scratch path: the file already lives on the owner (ADR-0044).
       images: clicked.images ?? [],
+      documents: clicked.documents ?? [],
     });
     get().stageLifecycleConfirmation({
       kind: "rewind",
@@ -1004,6 +1018,14 @@ export function createSessionParamsSlice(
         if (source.text !== "") get().queueComposerText(tabId, source.text);
         for (const image of source.images)
           void get().queueComposerAttachment(tabId, { type: "image", ...image }, "");
+        // Path-only re-attach: zero re-upload; a swept file fails at send
+        // with `document not found` and the draft survives for re-pick.
+        for (const document of source.documents ?? [])
+          get().queueComposerDocument(
+            tabId,
+            { type: "document", mimeType: DOCUMENT_MIME, ...document },
+            "",
+          );
       }
       m.appendItem(tabId, noticeItem(t("transcript.rewind.done"), "info"));
     } catch (err) {

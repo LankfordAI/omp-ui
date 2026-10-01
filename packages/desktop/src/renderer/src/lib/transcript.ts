@@ -2,6 +2,7 @@ import { formatDuration } from "./duration";
 import { stripAttachmentRoutingContext } from "./attachment-routing";
 import { boolField, field, isObj, numField, str, strField } from "./fields";
 import { splitResolvedMentionContext } from "./mentions";
+import { splitDocumentContext, type DocumentRef } from "./document-context";
 import { parseOmpDiff, type DiffRow } from "./omp-diff";
 
 export interface AdvisorNote {
@@ -21,6 +22,8 @@ export interface UserItem {
    * webp), so the mime type here is omp's, not the clipboard's.
    */
   images?: { data: string; mimeType: string }[];
+  /** PDF Document Attachments parsed back out of the attached-documents block (ADR-0044). */
+  documents?: DocumentRef[];
   /** Epoch ms the prompt was sent (live) or written (backfill); the catch-up digest windows off it (issue #273). */
   timestamp?: number;
 }
@@ -379,7 +382,7 @@ function imagesField(content: unknown, details: unknown): Pick<ToolItem, "images
 
 export function userContentFromContent(
   content: unknown,
-): Pick<UserItem, "text" | "fileMentions" | "images"> {
+): Pick<UserItem, "text" | "fileMentions" | "images" | "documents"> {
   const blocks = typeof content === "string" ? [] : contentBlocks(content);
   const rawText =
     typeof content === "string"
@@ -390,11 +393,16 @@ export function userContentFromContent(
           .join("\n");
   const images = imagesFromContent(content);
   const visibleText = stripAttachmentRoutingContext(rawText, images.length);
-  const { text, paths } = splitResolvedMentionContext(visibleText);
+  // File blocks precede the document block on the wire, and the mention
+  // splitter anchors its close at end-of-text — the document block must go
+  // first or the file block would never parse as terminal.
+  const { text: docless, documents } = splitDocumentContext(visibleText);
+  const { text, paths } = splitResolvedMentionContext(docless);
   return {
     text,
     ...(paths.length > 0 ? { fileMentions: paths } : {}),
     ...(images.length > 0 ? { images } : {}),
+    ...(documents.length > 0 ? { documents } : {}),
   };
 }
 

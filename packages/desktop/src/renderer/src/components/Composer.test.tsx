@@ -11,8 +11,11 @@ import { markerItem, noticeItem } from "../lib/transcript";
 
 const clipboardImageMock = vi.hoisted(() => ({
   hasClipboardImage: vi.fn(() => false),
+  hasClipboardDocument: vi.fn(() => false),
   readClipboardImages: vi.fn(),
+  readClipboardDocuments: vi.fn(),
   readImageFiles: vi.fn(),
+  readDocumentFiles: vi.fn(),
   // The dictation hook encodes its WAV through this helper; the mock must
   // keep the export real or finish() dies on an undefined function.
   bytesToBase64: vi.fn((bytes: Uint8Array) => Buffer.from(bytes).toString("base64")),
@@ -166,8 +169,14 @@ beforeEach(() => {
   });
   vi.clearAllMocks();
   clipboardImageMock.hasClipboardImage.mockReset().mockReturnValue(false);
+  clipboardImageMock.hasClipboardDocument.mockReset().mockReturnValue(false);
   clipboardImageMock.readClipboardImages.mockReset();
+  clipboardImageMock.readClipboardDocuments.mockReset();
   clipboardImageMock.readImageFiles.mockReset().mockResolvedValue({ images: [], rejected: [] });
+  clipboardImageMock.readDocumentFiles.mockReset().mockResolvedValue({
+    documents: [],
+    rejected: [],
+  });
 });
 
 afterEach(() => {
@@ -183,7 +192,7 @@ describe("compact Composer", () => {
     const textarea = typeDraft("mobile sentinel");
     const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
     await act(async () => send.click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "mobile sentinel", "prompt", []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "mobile sentinel", "prompt", [], []);
     expect(textarea.value).toBe("");
     expect(document.activeElement).toBe(textarea);
   });
@@ -196,11 +205,11 @@ describe("compact Composer", () => {
     expect(byText("Abort")).toBeDefined();
     act(() => document.body.querySelector<HTMLButtonElement>('button[title="prompt options"]')!.click());
     await act(async () => byText("Queue").click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "running draft", "follow_up", []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "running draft", "follow_up", [], []);
 
     typeDraft("replace turn");
     await act(async () => byText("Interrupt-and-send").click());
-    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "replace turn", []);
+    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "replace turn", [], []);
   });
 
   it("marks the active effort and plan state in the options sheet", () => {
@@ -417,7 +426,7 @@ describe("Composer relaunch handoff", () => {
     const advisor = buttons.find((button) => button.title.startsWith("advisor off"))!;
     const build = modeSegment("build");
     const plan = modeSegment("plan");
-    const attach = document.body.querySelector<HTMLButtonElement>('button[title="attach images"]')!;
+    const attach = document.body.querySelector<HTMLButtonElement>('button[title="attach files"]')!;
     const send = buttons.find((button) => button.textContent?.trim() === "send")!;
     expect([textarea, model, thinking, advisor, build, plan, attach, send].every((el) => el.disabled)).toBe(true);
 
@@ -557,10 +566,10 @@ describe("Composer attachment picker", () => {
   it("exposes a compact, multi-image picker control with a 44px hit target", () => {
     seed("ready"); renderComposer();
     const input = imagePicker();
-    const button = document.body.querySelector<HTMLButtonElement>('button[title="attach images"]')!;
+    const button = document.body.querySelector<HTMLButtonElement>('button[title="attach files"]')!;
     const click = vi.spyOn(input, "click");
 
-    expect(input.accept).toBe("image/*");
+    expect(input.accept).toBe("image/*,application/pdf");
     expect(input.multiple).toBe(true);
     expect(input.classList.contains("sr-only")).toBe(true);
     expect(button.classList.contains("min-h-11")).toBe(true);
@@ -590,7 +599,7 @@ describe("Composer attachment picker", () => {
     });
 
     expect(clipboardImageMock.readImageFiles).toHaveBeenCalledWith([first, second]);
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compare these", "prompt", [IMAGE_ONE, IMAGE_TWO]);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compare these", "prompt", [IMAGE_ONE, IMAGE_TWO], []);
   });
 
   it("resets the input immediately so the same image can be selected again", async () => {
@@ -638,7 +647,7 @@ describe("Composer attachment picker", () => {
         .find((button) => button.textContent === "Send")!
         .click();
     });
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "continue without it", "prompt", []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "continue without it", "prompt", [], []);
   });
 
 });
@@ -1472,7 +1481,7 @@ describe("Composer shell dispatch (issue #678)", () => {
     press(textarea, "Enter");
     await act(async () => {});
     expect(runShellCommand).not.toHaveBeenCalled();
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "look at this !", "prompt", []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "look at this !", "prompt", [], []);
   });
 });
 
@@ -1846,7 +1855,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     await flush();
     expect(backendMock.convertToWorktree).toHaveBeenCalledTimes(1);
     expect(backendMock.convertToWorktree).toHaveBeenCalledWith(TAB, expect.stringMatching(/^p\/main\/[0-9a-f]{8}$/), "main", null);
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], []);
     // A successful conversion resets the selection; the chip reads the checkout's branch again.
     expect(chipTrigger().textContent).toContain("main");
     expect(chipTrigger().textContent).not.toContain("worktree");
@@ -2020,7 +2029,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     renderRpcTab();
     const box = typeDraft("hello");
     press(box, "Enter");
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 
@@ -2034,7 +2043,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     expect(answerFrames()).toHaveLength(0);
     typeDraft("abort this");
     act(() => box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true, bubbles: true, cancelable: true })));
-    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "abort this", []);
+    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "abort this", [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 
@@ -2056,7 +2065,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     renderRpcTab();
     const box = typeDraft("compact steer");
     press(box, "Enter");
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 });

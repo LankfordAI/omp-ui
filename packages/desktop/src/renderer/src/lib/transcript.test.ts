@@ -13,6 +13,7 @@ import {
   type RenderItem,
   type ToolItem,
 } from "./transcript";
+import { withDocumentContext } from "./document-context";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -174,6 +175,54 @@ describe("reduceEvent message lifecycle", () => {
       kind: "user",
       text: "Check @packages/desktop/src/renderer/src",
       fileMentions: ["packages/desktop/src/renderer/src"],
+    });
+  });
+
+  it("separates the attached-documents block from live user prose", () => {
+    const items = reduceEvent([], {
+      type: "message_start",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: withDocumentContext("summarize this", [
+              { name: "spec.pdf", path: "/tmp/omp-ui-attach/aaa.pdf" },
+            ]),
+          },
+        ],
+      },
+    });
+    expect(items[0]).toMatchObject({
+      kind: "user",
+      text: "summarize this",
+      documents: [{ name: "spec.pdf", path: "/tmp/omp-ui-attach/aaa.pdf" }],
+    });
+  });
+
+  it("parses both file blocks and documents from one steer message", () => {
+    // The wire order the steer path composes: prose, file block, doc block.
+    // The mention splitter anchors its close at end-of-text, so the doc
+    // block must not defeat it.
+    const items = reduceEvent([], {
+      type: "message_start",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: withDocumentContext(RESOLVED_DIRECTORY_TEXT, [
+              { name: "spec.pdf", path: "/tmp/omp-ui-attach/aaa.pdf" },
+            ]),
+          },
+        ],
+      },
+    });
+    expect(items[0]).toMatchObject({
+      kind: "user",
+      text: "Check @packages/desktop/src/renderer/src",
+      fileMentions: ["packages/desktop/src/renderer/src"],
+      documents: [{ name: "spec.pdf", path: "/tmp/omp-ui-attach/aaa.pdf" }],
     });
   });
 

@@ -18,6 +18,8 @@ export interface PromptEntry {
   /** Rendered-content mirror of UserItem fields, same derivation. */
   text: string;
   images: { data: string; mimeType: string }[];
+  /** Scratch-path Documents parsed out of the block; re-sent by path (ADR-0044). */
+  documents?: { name: string; path: string }[];
 }
 
 /**
@@ -87,6 +89,7 @@ export function visiblePromptEntries(
       entryId: id,
       text: content.text,
       images: content.images ?? [],
+      ...(content.documents?.length ? { documents: content.documents } : {}),
     });
   }
   return out;
@@ -139,6 +142,7 @@ export function entryUserPrompt(
       entryId,
       text: content.text,
       images: content.images ?? [],
+      ...(content.documents?.length ? { documents: content.documents } : {}),
     };
   }
   return null;

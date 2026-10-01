@@ -11,7 +11,7 @@ export const en = {
   "common.dialog.cancel": "Cancel",
   "common.overlay.close": "close dialog",
   "common.overlay.closeNamed": "close {label}",
-  "common.button.attachImages": "attach images",
+  "common.button.attachFiles": "attach files",
   "common.button.copy": "copy",
   "common.button.copied": "copied",
 
@@ -246,6 +246,8 @@ export const en = {
   "transcript.speaker.assistant": "assistant",
   "transcript.speaker.you": "you",
   "transcript.mentions.label": "resolved file mentions",
+  "transcript.document.label": "attached documents",
+  "transcript.document.alt": "{name} — read at {path}",
   "transcript.view.jumpToLatest": "jump to latest",
   "transcript.empty.title": "Nothing yet",
   "transcript.empty.hint": "Send a prompt to start the session.",
@@ -320,6 +322,9 @@ export const en = {
   "composer.attachment.remove": "remove attachment {n}",
   "composer.attachment.image": "image",
   "composer.attachment.images": "images",
+  "composer.attachment.document": "document",
+  "composer.attachment.documents": "documents",
+  "composer.attachment.documentRemove": "remove document {n}",
   "composer.vision.title": "the selected model accepts text only — omp will drop these",
   "composer.vision.noVision": "model has no vision",
   // Thinking-level capsule segment
@@ -1069,12 +1074,14 @@ export const en = {
   "update.omp.installFailed": "Install failed",
   "update.omp.dismissLabel": "dismiss omp {version} offer",
   // TerminalTab
-  "terminal.tab.attachImages": "attach images",
+  "terminal.tab.attachFiles": "attach files",
   "terminal.tab.exited": "agent exited",
   "terminal.tab.exitedCode": "(code {code})",
   "terminal.tab.resume": "resume session",
   "terminal.note.attached": "attached {n} image",
   "terminal.note.attachedPlural": "attached {n} images",
+  "terminal.note.attachedDocument": "attached {n} document",
+  "terminal.note.attachedDocuments": "attached {n} documents",
   "terminal.note.dismiss": "dismiss",
   // ConsoleToggle (Session HUD console button)
   "console.toggle.label": "toggle console (mod+j)",

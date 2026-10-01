@@ -4,8 +4,16 @@ import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
-import { hasClipboardImage, readClipboardImages, readImageFiles } from "../lib/clipboard-image";
-import type { ClipboardImages } from "../lib/clipboard-image";
+import {
+  hasClipboardDocument,
+  hasClipboardImage,
+  readClipboardDocuments,
+  readClipboardImages,
+  readDocumentFiles,
+  readImageFiles,
+  type ClipboardDocuments,
+  type ClipboardImages,
+} from "../lib/clipboard-image";
 import { useTheme } from "../lib/themes";
 import { useFontFamily } from "../lib/font-families";
 import {
@@ -51,7 +59,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   const t = useT();
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<(CreatedTerminal & { search: SearchAddon }) | null>(null);
-  const imagePickerRef = useRef<HTMLInputElement>(null);
+  const filePickerRef = useRef<HTMLInputElement>(null);
   const theme = useTheme();
   const font = useFontFamily();
   const exitCode = useStore((s) => s.exited[tabId]);
@@ -72,11 +80,12 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   // spawned anew at 80×24 and needs this tab's real size again.
   const redrawRevision = useStore((s) => s.ptyRedrawRevision[tabId] ?? 0);
   /**
-   * An image Attachment cannot ride the PTY as bytes, so main writes it to a scratch
-   * file and delivers the *path* as a bracketed paste — omp's TUI editor
-   * recognises an image path there and loads the file itself. Feedback is a
-   * transient note, because the terminal itself shows omp's `[Image #N]` marker
-   * a moment later and that is the real confirmation.
+   * An image or PDF Attachment cannot ride the PTY as bytes, so main writes it
+   * to a scratch file and delivers the *path* — as a bracketed paste for an
+   * image (omp's TUI editor recognises an image path there and loads the file
+   * itself) and as a plain paste carrying the read-tool path for a document
+   * (ADR-0044). Feedback is a transient note, because the terminal itself shows
+   * omp's `[Image #N]` marker a moment later and that is the real confirmation.
    */
   const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null);
 
@@ -88,11 +97,14 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
   const [resultCount, setResultCount] = useState(0);
   const copyMenu = useTerminalCopyMenu(termRef);
 
-  const deliverImages = useCallback(
-    async ({ images, rejected }: ClipboardImages) => {
-      const failures = [...rejected];
+  const deliverAttachments = useCallback(
+    async (
+      images: ClipboardImages,
+      documents: ClipboardDocuments,
+    ): Promise<void> => {
+      const failures = [...images.rejected, ...documents.rejected];
       let sent = 0;
-      for (const image of images) {
+      for (const image of images.images) {
         try {
           // Serially, one bracketed paste per image: omp refuses a payload
           // carrying two path anchors, so a batched paste attaches nothing.
@@ -102,34 +114,58 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
           failures.push(err instanceof Error ? err.message : String(err));
         }
       }
+      let sentDocs = 0;
+      for (const document of documents.documents) {
+        try {
+          // One paste per document too: omp's editor anchors a single path per
+          // paste, so a batched payload would attach nothing.
+          await backend.ptyPasteDocument(tabId, document);
+          sentDocs += 1;
+        } catch (err) {
+          failures.push(err instanceof Error ? err.message : String(err));
+        }
+      }
       if (failures.length > 0) {
         setNote({ text: failures.join("; "), bad: true });
-      } else if (sent > 0) {
-        setNote({
-          text: sent === 1 ? t("terminal.note.attached", { n: sent }) : t("terminal.note.attachedPlural", { n: sent }),
-          bad: false,
-        });
+      } else if (sent > 0 || sentDocs > 0) {
+        const parts: string[] = [];
+        if (sent > 0) {
+          parts.push(
+            sent === 1
+              ? t("terminal.note.attached", { n: sent })
+              : t("terminal.note.attachedPlural", { n: sent }),
+          );
+        }
+        if (sentDocs > 0) {
+          parts.push(
+            sentDocs === 1
+              ? t("terminal.note.attachedDocument", { n: sentDocs })
+              : t("terminal.note.attachedDocuments", { n: sentDocs }),
+          );
+        }
+        setNote({ text: parts.join(" \u00b7 "), bad: false });
       }
     },
-    [tabId],
+    [tabId, t],
   );
 
-  const pasteImages = useCallback(
-    async (data: DataTransfer | null) => deliverImages(await readClipboardImages(data)),
-    [deliverImages],
+  const pasteAttachments = useCallback(
+    async (data: DataTransfer | null) =>
+      deliverAttachments(await readClipboardImages(data), await readClipboardDocuments(data)),
+    [deliverAttachments],
   );
 
-  const pickImages = useCallback(
+  const pickFiles = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const input = event.currentTarget;
       const files = Array.from(input.files ?? []);
       // Clear before any file reads or transport so choosing the same file is
       // a new change even while a previous selection is still being delivered.
       input.value = "";
-      await deliverImages(await readImageFiles(files));
+      await deliverAttachments(await readImageFiles(files), await readDocumentFiles(files));
       termRef.current?.term.focus();
     },
-    [deliverImages],
+    [deliverAttachments],
   );
 
   // Auto-dismiss: this is a receipt, not an error to be acknowledged. A failure
@@ -169,21 +205,23 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     // Capture phase, on the host: xterm's hidden textarea would otherwise turn
     // an image paste into its *filename* as typed text. Text pastes are not
     // touched — xterm's own handling is what the user expects.
+    const hasAttachment = (d: DataTransfer | null) =>
+      hasClipboardImage(d) || hasClipboardDocument(d);
     const onPaste = (e: ClipboardEvent) => {
-      if (!hasClipboardImage(e.clipboardData)) return;
+      if (!hasAttachment(e.clipboardData)) return;
       e.preventDefault();
       e.stopPropagation();
-      void pasteImages(e.clipboardData);
+      void pasteAttachments(e.clipboardData);
     };
     // Dropping an image file is the same gesture by another route; without a
     // dragover preventDefault the browser navigates the window to the file.
     const onDragOver = (e: DragEvent) => {
-      if (hasClipboardImage(e.dataTransfer)) e.preventDefault();
+      if (hasAttachment(e.dataTransfer)) e.preventDefault();
     };
     const onDrop = (e: DragEvent) => {
-      if (!hasClipboardImage(e.dataTransfer)) return;
+      if (!hasAttachment(e.dataTransfer)) return;
       e.preventDefault();
-      void pasteImages(e.dataTransfer);
+      void pasteAttachments(e.dataTransfer);
     };
     host.addEventListener("paste", onPaste, true);
     host.addEventListener("dragover", onDragOver);
@@ -200,7 +238,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
       term.dispose();
       termRef.current = null;
     };
-  }, [tabId, pasteImages]);
+  }, [tabId, pasteAttachments]);
 
   // Re-theme and re-font a live terminal in place. Deliberately NOT a dep of
   // the mount effect: rebuilding the terminal would drop the scrollback and
@@ -316,7 +354,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
           variant="outline"
           tone="neutral"
           className="bg-surface/90 backdrop-glass max-[899px]:h-11 max-[899px]:px-3"
-          onClick={() => imagePickerRef.current?.click()}
+          onClick={() => filePickerRef.current?.click()}
         >
           <svg
             viewBox="0 0 16 16"
@@ -332,18 +370,18 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
               strokeLinejoin="round"
             />
           </svg>
-          {t("terminal.tab.attachImages")}
+          {t("terminal.tab.attachFiles")}
         </Button>
       </span>
       <input
-        ref={imagePickerRef}
+        ref={filePickerRef}
         type="file"
-        accept="image/*"
+        accept="image/*,application/pdf"
         multiple
         tabIndex={-1}
         aria-hidden
         className="sr-only"
-        onChange={pickImages}
+        onChange={pickFiles}
       />
       {note !== null && (
         <div
