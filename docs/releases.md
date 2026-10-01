@@ -4,7 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.18.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.18.2). Add one bullet per shipped change here before cutting the next tag; they become that release's Highlights verbatim.
+- Attach PDFs with the paperclip or by pasting them into a draft: they ride the prompt as Document Attachments, show back as chips in the transcript, and in a terminal tab arrive as a paste of the scratch path (#709).
+- The fast pill now appears on fast-capable OpenRouter model rows: OpenAI (`openai/…`) and Gemini (`google/gemini…`) slugs get the toggle, the two families omp's OpenRouter transport can carry a priority tier on (#710).
 
 ## Choose a download
 
