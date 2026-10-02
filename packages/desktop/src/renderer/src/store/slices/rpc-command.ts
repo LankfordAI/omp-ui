@@ -1,4 +1,4 @@
-import type { SessionCommand } from "@omp-ui/core/session-command";
+import { sessionCommandIsOffChain, type SessionCommand } from "@omp-ui/core/session-command";
 // RPC command domain (decomposed for #295): boot, command correlation and
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
@@ -389,11 +389,12 @@ export const rpcCommandMachinery = {
       const expire = (): void => {
         const entry = tabPending.get(id);
         if (!entry) return;
-        // A bash command is dispatched off the serial chain and emits no
-        // frames while it runs, so silence proves nothing: never fail it on
-        // the window (issue #678). Process death still settles it through
-        // abandon, and omp's own bash timeout bounds the child server-side.
-        if (entry.command === "bash") {
+        // An off-chain command (`bash`, `predict_word`) emits no frames while
+        // it runs, so silence proves nothing: never fail it on the window
+        // (issues #678, #715). Process death still settles it through
+        // abandon, and omp bounds both server-side (bash timeout; predict
+        // client 30 s request budgets).
+        if (sessionCommandIsOffChain(entry.command)) {
           entry.timer = window.setTimeout(expire, timeoutMs);
           return;
         }
@@ -512,8 +513,9 @@ export const rpcCommandMachinery = {
     tabPending!.delete(id);
     if (tabPending!.size === 0) pendingCommands.delete(tabId);
     // The chain is FIFO: this completion proves every earlier-started
-    // command completed. `bash` bypasses the chain, so it proves nothing (issue #302).
-    if (pending.command !== "bash") {
+    // command completed. An off-chain command bypasses the chain, so it
+    // proves nothing (issues #302, #715).
+    if (!sessionCommandIsOffChain(pending.command)) {
       const timedOutCommands = m
         .runtime(tabId)
         .timedOutCommands.filter((entry) => entry.startedAt >= pending.startedAt);

@@ -2614,3 +2614,123 @@ describe("shareSession (issue #679)", () => {
     expect(h.storageMap["omp-ui.sharePrivacySeen"]).toBeUndefined();
   });
 });
+
+describe("word prediction (issue #715)", () => {
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+  });
+
+  /** The predict_word frames the bus has sent so far. */
+  const predictFrames = (): Array<Record<string, unknown>> =>
+    h.sent.filter((s) => s.cmd.type === "predict_word").map((s) => s.cmd);
+
+  it("sends text and cursor, stays off busy, and resolves omp's suffix", async () => {
+    const promise = h.useStore.getState().predictWord(h.TAB, "the featu", 9);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "predict_word", text: "the featu", cursor: 9 });
+    expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(false);
+    h.respond(h.TAB, h.sent[0]!.cmd, { suffix: "res" });
+    await expect(promise).resolves.toBe("res");
+    expect(h.useStore.getState().rpc[h.TAB]!.busy).toBe(false);
+  });
+
+  it.each([null, ""])("resolves null when omp's suffix is %j", async (suffix) => {
+    const promise = h.useStore.getState().predictWord(h.TAB, "the featu", 9);
+    h.respond(h.TAB, h.sent[0]!.cmd, { suffix });
+    await expect(promise).resolves.toBeNull();
+  });
+
+  it("an old omp's unknown-command answer silences prediction until a new process boots", async () => {
+    // A dedicated tab id: rpcBooting short-circuits a second boot of one id.
+    const tab = `${h.TAB}-predict-reboot`;
+    h.backendState = h.stateWithRecord(null);
+    h.useStore.setState({ state: h.backendState, rpc: { [tab]: rpcTabState() } });
+
+    const first = h.useStore.getState().predictWord(tab, "the featu", 9);
+    h.respond(tab, h.sent[0]!.cmd, "Unknown command: predict_word", false);
+    await expect(first).resolves.toBeNull();
+    h.sent.length = 0;
+
+    await expect(h.useStore.getState().predictWord(tab, "the featu", 9)).resolves.toBeNull();
+    h.useStore.getState().sendWordPredictionFeedback(tab, {
+      text: "the featu",
+      cursor: 9,
+      suggestion: "res",
+      accepted: true,
+    });
+    expect(h.sent).toHaveLength(0);
+
+    // A replaced process announces itself with ready; boot it to completion.
+    h.useStore.getState().handleRpcFrame(tab, { type: "ready", maxFrameBytes: 1048576 });
+    for (let wave = 0; wave < 6; wave++) {
+      await h.flushMicrotasks();
+      for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    }
+    expect(h.useStore.getState().rpc[tab]!.status).toBe("ready");
+
+    const probe = h.useStore.getState().predictWord(tab, "the featu", 9);
+    expect(predictFrames()).toEqual([
+      expect.objectContaining({ type: "predict_word", text: "the featu", cursor: 9 }),
+    ]);
+    h.respond(tab, predictFrames()[0]!, { suffix: "res" });
+    await expect(probe).resolves.toBe("res");
+  });
+
+  it("any other failure backs off for 30 s without a transcript row or banner", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = h.useStore.getState().predictWord(h.TAB, "the featu", 9);
+      h.respond(h.TAB, h.sent[0]!.cmd, "predict daemon unavailable", false);
+      await expect(first).resolves.toBeNull();
+      h.sent.length = 0;
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      await expect(h.useStore.getState().predictWord(h.TAB, "the featu", 9)).resolves.toBeNull();
+      expect(h.sent).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(1);
+      const retry = h.useStore.getState().predictWord(h.TAB, "the featu", 9);
+      expect(predictFrames()).toHaveLength(1);
+      h.respond(h.TAB, predictFrames()[0]!, { suffix: "res" });
+      await expect(retry).resolves.toBe("res");
+
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.items).toHaveLength(0);
+      expect(tab.failure).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sendWordPredictionFeedback sends exactly the id-less feedback frame", () => {
+    h.useStore.getState().sendWordPredictionFeedback(h.TAB, {
+      text: "the featu",
+      cursor: 9,
+      suggestion: "res",
+      accepted: false,
+    });
+    expect(h.sent).toEqual([
+      {
+        tabId: h.TAB,
+        cmd: {
+          type: "predict_word_feedback",
+          text: "the featu",
+          cursor: 9,
+          suggestion: "res",
+          accepted: false,
+        },
+      },
+    ]);
+  });
+
+  it("sendWordPredictionFeedback sends nothing while the tab is starting", () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "starting" }) } });
+    h.useStore.getState().sendWordPredictionFeedback(h.TAB, {
+      text: "the featu",
+      cursor: 9,
+      suggestion: "res",
+      accepted: true,
+    });
+    expect(h.sent).toHaveLength(0);
+  });
+});

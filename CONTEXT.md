@@ -511,6 +511,13 @@ row that needs an argument completes the line, any other runs it. Escape
 dismisses the palette for that exact draft only.
 _Avoid_: autocomplete dropdown, command menu, suggestions
 
+**Ghost completion**:
+omp's word engine suggesting the rest of the prose word ending the native
+composer's draft, painted dim after the caret. Tab takes it with a provisional
+space, → without; typing past it is reported to omp as a rejection so the
+engine adapts. Native transcript only — terminal tabs show omp's own.
+_Avoid_: autocomplete, inline AI completion, suggestion chip
+
 **Plan format**:
 How the agent is asked to author a plan for review, set once in Settings →
 General and carried when Plan mode is selected: `html` (default) or `md`. Under
