@@ -122,10 +122,6 @@ export {
   writeSideQuestionsExtension,
 } from "./side-questions-extension";
 export {
-  subagentControlExtensionPath,
-  writeSubagentControlExtension,
-} from "./subagent-control-extension";
-export {
   autoresearchExtensionPath,
   writeAutoresearchExtension,
 } from "./autoresearch-extension";
@@ -148,7 +144,6 @@ export * from "./collab";
 export * from "./autoresearch";
 export * from "./session-tree";
 export * from "./side-questions";
-export * from "./subagent-control";
 export {
   ADVISOR_STATS_COMMAND,
   ADVISOR_STATS_KEY,

@@ -1,5 +1,11 @@
 export interface SessionCommandDescriptor {
   lateAck: boolean;
+  /**
+   * omp dispatches the command outside its serial chain (rpc-mode
+   * BACKGROUND_COMMANDS): silence while it runs proves nothing, and its
+   * completion proves nothing about commands sent before it.
+   */
+  offChain?: true;
 }
 
 /** One policy owner for every renderer-issued rpc session command. */
@@ -18,8 +24,10 @@ export const SESSION_COMMANDS = {
   set_model: { lateAck: true },
   cycle_model: { lateAck: true },
   get_available_models: { lateAck: true },
-  bash: { lateAck: true },
+  bash: { lateAck: true, offChain: true },
   abort_bash: { lateAck: false },
+  predict_word: { lateAck: true, offChain: true },
+  predict_word_feedback: { lateAck: false },
   get_state: { lateAck: false },
   get_messages: { lateAck: false },
   get_entries: { lateAck: false },
@@ -29,6 +37,8 @@ export const SESSION_COMMANDS = {
   get_subagents: { lateAck: false },
   get_subagent_messages: { lateAck: false },
   set_subagent_subscription: { lateAck: false },
+  cancel_subagent: { lateAck: true },
+  steer_subagent: { lateAck: true },
   set_thinking_level: { lateAck: false },
   set_steering_mode: { lateAck: false },
   set_follow_up_mode: { lateAck: false },
@@ -46,4 +56,11 @@ export type SessionCommand = { type: SessionCommandType } & Record<string, unkno
 
 export function sessionCommandHasLateAck(type: SessionCommandType): boolean {
   return SESSION_COMMANDS[type].lateAck;
+}
+
+export function sessionCommandIsOffChain(type: string): boolean {
+  return (
+    Object.hasOwn(SESSION_COMMANDS, type) &&
+    (SESSION_COMMANDS[type as SessionCommandType] as SessionCommandDescriptor).offChain === true
+  );
 }

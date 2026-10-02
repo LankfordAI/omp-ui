@@ -72,7 +72,8 @@ import {
 import { rpcCommandMachinery } from "./rpc-command";
 import { buildTitleTranscript } from "../../lib/session-transcript";
 import { findOwner, findRecord, sessionCwd } from "./view";
-import type { CompactionOutcome, UiStore } from "../types";
+import type { SessionCommand } from "@omp-ui/core/session-command";
+import type { CompactionOutcome, UiStore, WordPredictionFeedback } from "../types";
 
 export type SessionParamsSlice = Pick<
   UiStore,
@@ -113,6 +114,8 @@ export type SessionParamsSlice = Pick<
   | "runSlashCommand"
   | "runShellCommand"
   | "abortShellCommands"
+  | "predictWord"
+  | "sendWordPredictionFeedback"
   | "runGoalCommand"
   | "runVibeCommand"
   | "runHiddenCommand"
@@ -1276,6 +1279,56 @@ export function createSessionParamsSlice(
     await m.runCommand(tabId, { type: "abort_bash" }, { quiet: true });
   };
 
+  /** omp's predict client backs a failing daemon off for 30 s (predict/client.ts RETRY_AFTER_MS). */
+  const WORD_PREDICTION_RETRY_MS = 30_000;
+
+  const predictWord = async (
+    tabId: string,
+    text: string,
+    cursor: number,
+  ): Promise<string | null> => {
+    if (!m.acceptsCommands(tabId)) return null;
+    const runtime = m.runtime(tabId);
+    if (runtime.wordPredictionUnsupported === true) return null;
+    if (runtime.wordPredictionRetryAt !== undefined && Date.now() < runtime.wordPredictionRetryAt)
+      return null;
+    try {
+      // Quiet: a keystroke must never strobe `busy`, and the bus never
+      // expires an off-chain command (session-command.ts `offChain`).
+      const resp = await get().rpcCommand(
+        tabId,
+        { type: "predict_word", text, cursor },
+        { quiet: true },
+      );
+      const suffix = strField(respData(resp), "suffix");
+      return suffix === undefined || suffix === "" ? null : suffix;
+    } catch (err) {
+      // A replaced process abandons the wait; the next runtime probes afresh.
+      if (err instanceof RpcCommandAbandonedError) return null;
+      const message = err instanceof Error ? err.message : String(err);
+      m.patchRuntime(
+        tabId,
+        message.startsWith("Unknown command:")
+          ? { wordPredictionUnsupported: true }
+          : { wordPredictionRetryAt: Date.now() + WORD_PREDICTION_RETRY_MS },
+      );
+      return null;
+    }
+  };
+
+  const sendWordPredictionFeedback = (
+    tabId: string,
+    feedback: WordPredictionFeedback,
+  ): void => {
+    if (!m.acceptsCommands(tabId) || m.runtime(tabId).wordPredictionUnsupported === true) return;
+    // No id, so nothing awaits it: feedback rides omp's serial chain, and a
+    // tracked wait queued behind a long compact would expire on the strict
+    // budget and pollute the #302 attribution. omp's id-less response is
+    // dropped by frame-reduction's response branch.
+    const frame: SessionCommand = { type: "predict_word_feedback", ...feedback };
+    backend.rpcSend(tabId, frame);
+  };
+
   /**
    * One goal-family line, dispatched as a command rather than as prose (issue
    * #381). The row keeps the line the user typed; the wire carries the hidden
@@ -1614,6 +1667,8 @@ export function createSessionParamsSlice(
     runSlashCommand,
     runShellCommand,
     abortShellCommands,
+    predictWord,
+    sendWordPredictionFeedback,
     runGoalCommand,
     runVibeCommand,
     runHiddenCommand,

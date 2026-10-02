@@ -29,6 +29,7 @@ import { slashCompletion } from "../lib/slash-completion";
 import { findInstance, findOwner, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
+import { useWordGhost } from "../lib/use-word-ghost";
 import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
 import { ComposerActions } from "./ComposerActions";
@@ -214,6 +215,8 @@ export function Composer({
   const [mentionDismissedFor, setMentionDismissedFor] = useState<string | null>(null);
   /** Caret offset in the draft; tracked so the @-word under it can be found. */
   const [caret, setCaret] = useState(0);
+  /** Whether the selection is collapsed — ghost completion needs a bare caret (#715). */
+  const [collapsed, setCollapsed] = useState(true);
   /**
    * The session's working-tree file listing for the @ picker, fetched on each
    * afterwards so a picked mention paints resolved immediately.
@@ -296,6 +299,15 @@ export function Composer({
   const atQuery = isSlash ? null : detectAtQuery(text, caret);
   const mentionKey = atQuery === null ? null : `${atQuery.start}:${atQuery.query}`;
   const mentionOpen = !unavailable && mentionKey !== null && mentionKey !== mentionDismissedFor;
+  // omp's ghost-text word completion (issue #715): prose at the end of the
+  // draft only; the palettes own Tab while open, and a slash or "!" draft
+  // is never prose (wordGhostCandidate).
+  const wordGhost = useWordGhost({
+    tabId,
+    text,
+    caret,
+    active: focused && collapsed && !unavailable && !converting && !paletteOpen && !mentionOpen,
+  });
   /**
    * omp reports vision support as `model.input` containing "image". A model
    * without it would silently drop the blocks, so the affordance says so
@@ -724,10 +736,34 @@ export function Composer({
 
   const voice = useDictation(insertAtCaret);
   useDictationHotkey(tabId, voice);
+  /** Commits a draft the ghost produced; the DOM caret lags the state write by a commit. */
+  const applyGhostDraft = (next: { text: string; caret: number }): void => {
+    setText(next.text);
+    setCaret(next.caret);
+    recall.current = null;
+    requestAnimationFrame(() => box.current?.setSelectionRange(next.caret, next.caret));
+  };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // The palettes get first refusal on navigation keys while one is open.
     if (paletteOpen && palette.current?.handleKey(e) === true) return;
     if (mentionOpen && mentionPalette.current?.handleKey(e) === true) return;
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.nativeEvent.isComposing;
+    if (plain && e.key.length === 1) {
+      const absorbed = wordGhost.takeProvisionalKey(e.key);
+      if (absorbed !== null) {
+        e.preventDefault();
+        applyGhostDraft(absorbed);
+        return;
+      }
+    }
+    if (plain && !e.shiftKey && (e.key === "Tab" || e.key === "ArrowRight")) {
+      const accepted = wordGhost.accept(e.key === "Tab");
+      if (accepted !== null) {
+        e.preventDefault();
+        applyGhostDraft(accepted);
+        return;
+      }
+    }
 
     if (e.key === "Escape") {
       // While recording, Escape discards the take before it means anything
@@ -938,6 +974,14 @@ export function Composer({
                   {run.text}
                 </span>
               ))}
+              {/* omp's ghost completion (issue #715): painted only here, after
+                  the last glyph, so it can never re-wrap text the textarea
+                  also lays out. */}
+              {wordGhost.ghost !== null && (
+                <span data-word-ghost className="text-ink-faint">
+                  {wordGhost.ghost.suffix}
+                </span>
+              )}
               {/* pre-wrap swallows a trailing newline; the textarea keeps its
                   empty last line, so the mirror needs one too. */}
               {text.endsWith("\n") && "\u200b"}
@@ -954,11 +998,16 @@ export function Composer({
               // it aligned with the visible text.
               spellCheck
               onChange={(e) => {
+                wordGhost.noteEdit(e.target.value, e.target.selectionStart);
                 setText(e.target.value);
                 setCaret(e.target.selectionStart);
+                setCollapsed(e.target.selectionStart === e.target.selectionEnd);
                 recall.current = null;
               }}
-              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+              onSelect={(e) => {
+                setCaret(e.currentTarget.selectionStart);
+                setCollapsed(e.currentTarget.selectionStart === e.currentTarget.selectionEnd);
+              }}
               onKeyDown={onKeyDown}
               onPaste={(e) => void onPaste(e)}
               onFocus={() => setFocused(true)}

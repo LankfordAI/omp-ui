@@ -1,10 +1,9 @@
-import type { SessionCommand } from "@omp-ui/core/session-command";
+import { sessionCommandIsOffChain, type SessionCommand } from "@omp-ui/core/session-command";
 // RPC command domain (decomposed for #295): boot, command correlation and
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
 import type { GoalSnapshot } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
-import type { SubagentControlSnapshot } from "@omp-ui/core/subagent-control";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type {
   CapabilitySnapshot,
@@ -266,25 +265,6 @@ export function acceptVibeSnapshot(
 }
 
 /**
- * The one acceptance rule for a subagent-control snapshot (issue #684),
- * shared by the `setStatus` push path and any future summary hydration: a
- * same-process snapshot replaces only when its revision is strictly newer, a
- * new process always wins (a respawn's arm republishes cleanly), and results
- * are replaced wholesale — they are transient result chrome, not a record.
- */
-export function acceptSubagentControlSnapshot(
-  tabId: string,
-  snapshot: SubagentControlSnapshot,
-  get: GetState,
-  m: StoreMachinery,
-): boolean {
-  const retained = get().rpc[tabId]?.subagentControl ?? null;
-  if (!isNewerSnapshot(retained, snapshot)) return false;
-  m.patchRpc(tabId, { subagentControl: snapshot });
-  return true;
-}
-
-/**
  * The one acceptance rule for an autoresearch snapshot (ADR-0030), shared by
  * the `setStatus` push path and the boot-time summary hydration, with the
  * revision/processKey discipline of {@link acceptGoalSnapshot}. It has no
@@ -389,11 +369,12 @@ export const rpcCommandMachinery = {
       const expire = (): void => {
         const entry = tabPending.get(id);
         if (!entry) return;
-        // A bash command is dispatched off the serial chain and emits no
-        // frames while it runs, so silence proves nothing: never fail it on
-        // the window (issue #678). Process death still settles it through
-        // abandon, and omp's own bash timeout bounds the child server-side.
-        if (entry.command === "bash") {
+        // An off-chain command (`bash`, `predict_word`) emits no frames while
+        // it runs, so silence proves nothing: never fail it on the window
+        // (issues #678, #715). Process death still settles it through
+        // abandon, and omp bounds both server-side (bash timeout; predict
+        // client 30 s request budgets).
+        if (sessionCommandIsOffChain(entry.command)) {
           entry.timer = window.setTimeout(expire, timeoutMs);
           return;
         }
@@ -512,8 +493,9 @@ export const rpcCommandMachinery = {
     tabPending!.delete(id);
     if (tabPending!.size === 0) pendingCommands.delete(tabId);
     // The chain is FIFO: this completion proves every earlier-started
-    // command completed. `bash` bypasses the chain, so it proves nothing (issue #302).
-    if (pending.command !== "bash") {
+    // command completed. An off-chain command bypasses the chain, so it
+    // proves nothing (issues #302, #715).
+    if (!sessionCommandIsOffChain(pending.command)) {
       const timedOutCommands = m
         .runtime(tabId)
         .timedOutCommands.filter((entry) => entry.startedAt >= pending.startedAt);
@@ -598,8 +580,6 @@ export function disposeTabRuntime(
     vibe: null,
     // Likewise the side-question topics: the next process republishes its own.
     sideQuestions: null,
-    // Likewise the subagent control results: the next process's arm republishes.
-    subagentControl: null,
     subagentControlBusy: {},
     subagentControlError: null,
     autoresearch: null,
@@ -663,7 +643,6 @@ function freshRpcTabState(
     limits: null,
     capabilities: null,
     capabilitiesLoad: "idle",
-    subagentControl: null,
     subagentControlBusy: {},
     subagentControlError: null,
     advisorReply,

@@ -107,6 +107,14 @@ export interface TabRuntime {
    * generation must never settle this row.
    */
   vibeRequests: Map<string, string>;
+  /**
+   * This process answered `predict_word` with "Unknown command" — an omp
+   * before 18.4.9. Ghost completion stays off until the process is replaced
+   * (issue #715).
+   */
+  wordPredictionUnsupported?: boolean;
+  /** Epoch ms before which `predict_word` is not re-sent after a failure (#715). */
+  wordPredictionRetryAt?: number;
 }
 
 export interface StoreMachinery {
@@ -169,8 +177,9 @@ export const COMPACT_SETTLE_DEADLINE_MS = 15 * 60_000;
  * call (`compact`, `handoff`), a provider refresh (`set_model`, `cycle_model`,
  * `get_available_models`), a turn unwind (`abort`, `abort_and_prompt`), file or
  * network work (`export_html`, `login`), a UI round-trip (`new_session`,
- * `switch_session`, `branch`), or arbitrary shell (`bash`, which bypasses the
- * chain). For them, lateness is not failure (issue #335).
+ * `switch_session`, `branch`), a subagent turn unwind or message admission
+ * (`cancel_subagent`, `steer_subagent`), or arbitrary shell (`bash`, which
+ * bypasses the chain). For them, lateness is not failure (issue #335).
  */
 
 /** Mirrors omp's own skill-command match: start of message or after whitespace. */

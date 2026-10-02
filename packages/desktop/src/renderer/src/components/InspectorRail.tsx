@@ -167,8 +167,8 @@ function AgentsPane({ tabId }: { tabId: string }) {
   const openSubagent = useStore((s) => s.openSubagent);
   const closeSubagent = useStore((s) => s.closeSubagent);
   const refreshSubagents = useStore((s) => s.refreshSubagents);
-  // The last refusal (local, or omp's own sentence from the last settled
-  // result), shown under the roster until a later dispatch replaces it (#684).
+  // The last verb's failure (omp's own sentence, or the update hint), shown
+  // under the roster until a later dispatch replaces it (#684, #713).
   const notice = useSubagentControlNotice(tabId);
 
   // The roster is the live list UNION agents whose buffers outlived them:

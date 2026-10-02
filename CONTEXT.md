@@ -152,9 +152,9 @@ pane: the full transcript surface — tool cards, thinking, usage receipts —
 rendered read-only from that subagent's own event stream, backfilled from
 its transcript file (`get_subagent_messages`) so the whole run shows, not
 just what streamed since the click. A banner names the agent, its status,
-and its steer/kill controls — steer replaces its next instruction, kill
-aborts and tombstones it, a parked one revives
-([ADR-0040](docs/adr/0040-subagent-control-via-generated-bridge.md)) — but
+and its steer/kill controls — steer sends it a message as its user, kill
+aborts and tombstones it
+([ADR-0045](docs/adr/0045-subagent-control-via-native-rpc-verbs.md)) — but
 there is no composer: it is not a chat surface and its transcript cannot be
 appended to. It is a view
 onto the same live session, never a separate session or tab.
@@ -510,6 +510,13 @@ and Enter runs the line as written. Tab and Enter accept the selected row: a
 row that needs an argument completes the line, any other runs it. Escape
 dismisses the palette for that exact draft only.
 _Avoid_: autocomplete dropdown, command menu, suggestions
+
+**Ghost completion**:
+omp's word engine suggesting the rest of the prose word ending the native
+composer's draft, painted dim after the caret. Tab takes it with a provisional
+space, → without; typing past it is reported to omp as a rejection so the
+engine adapts. Native transcript only — terminal tabs show omp's own.
+_Avoid_: autocomplete, inline AI completion, suggestion chip
 
 **Plan format**:
 How the agent is asked to author a plan for review, set once in Settings →

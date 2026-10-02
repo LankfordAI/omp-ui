@@ -2,6 +2,11 @@
 
 Resolves issue #684. Verified against omp 18.4.2.
 
+_Superseded by [ADR-0045](0045-subagent-control-via-native-rpc-verbs.md):
+omp 18.4.9 added `steer_subagent` and `cancel_subagent`, the bridge is
+retired, and revive is gone — the rpc roster never reports `parked`. Kept for
+the record._
+
 ## Findings
 
 - omp's rpc surface reads the roster (`get_subagents`) but has no verb that

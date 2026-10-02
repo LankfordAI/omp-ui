@@ -1515,11 +1515,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.vibe.closeWorker": "워커 {worker} 닫기",
   "rail.agents.steer": "스티어",
   "rail.agents.kill": "강제 종료",
-  "rail.agents.revive": "재가동",
   "rail.agents.steerPlaceholder": "이 에이전트에게 방향 지시…",
   "rail.agents.steerSend": "전송",
-  "rail.agents.sendFailed": "하위 에이전트 브리지가 해당 요청을 받지 못했습니다",
-  "rail.agents.steerTooLong": "스티어 텍스트가 {limit}자를 초과합니다",
+  "rail.agents.needsNewerOmp": "이 omp에는 하위 에이전트 제어가 없습니다 — omp를 18.4.9 이상으로 업데이트하세요",
 
   "rail.stats.messages": "메시지",
   "rail.stats.user": "사용자",
