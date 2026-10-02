@@ -179,6 +179,14 @@ export interface BrowserPaneView {
  */
 export type CompactionOutcome = "acked" | "pending" | "failed";
 
+/** `predict_word_feedback` fields: the draft and caret at which `suggestion` was shown. */
+export interface WordPredictionFeedback {
+  text: string;
+  cursor: number;
+  suggestion: string;
+  accepted: boolean;
+}
+
 /** Per-tab rpc-ui state (the phase-2 doc's state machine, concretized). */
 export interface RpcTabState {
   status: "starting" | "ready" | "running" | "error";
@@ -1055,6 +1063,16 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   runShellCommand(tabId: string, command: string): Promise<void>;
   /** omp's abort_bash: cancels every bash running in the tab's process. */
   abortShellCommands(tabId: string): Promise<void>;
+  /**
+   * omp's ghost-text word completion for the draft (issue #715): the suffix
+   * for the prose word ending at `cursor`, or null. Never throws, never
+   * paints a failure; an omp without the command or a failing daemon
+   * answers null without re-sending (unsupported: until the process is
+   * replaced; failure: 30 s).
+   */
+  predictWord(tabId: string, text: string, cursor: number): Promise<string | null>;
+  /** Feeds omp's learner the fate of a shown ghost (issue #715). Fire-and-forget. */
+  sendWordPredictionFeedback(tabId: string, feedback: WordPredictionFeedback): void;
   /**
    * One `/goal` or `/guided-goal` line as a command against the session's own
    * goal bridge (issue #381). Never sends goal prose to the model: with no

@@ -5,6 +5,7 @@ import { generateTitleFromPrompt } from "../../lib/session-title";
 import { rpcTabState } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 import type { StoreMachinery, TabRuntime } from "./shared";
+import type { SessionCommand } from "@omp-ui/core/session-command";
 import type {
   CapabilitySection,
   CapabilitySnapshot,
@@ -809,45 +810,49 @@ describe("late-ack silence budget (issue #335)", () => {
   });
 });
 
-describe("bash timeout exemption (issue #678)", () => {
+describe("off-chain timeout exemption (issues #678, #715)", () => {
   beforeEach(() => {
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
   });
 
-  it("never fails a pending bash on silence, even while a strict command expires", async () => {
-    vi.useFakeTimers();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const bash = h.useStore
-        .getState()
-        .rpcCommand(h.TAB, { type: "bash", command: "sleep 45" }, { quiet: true });
-      let bashSettled = false;
-      void bash.then(
-        () => (bashSettled = true),
-        () => (bashSettled = true),
-      );
-      // The serial chain keeps its normal budget in the same tab.
-      const strict = h.useStore.getState().rpcCommand(h.TAB, { type: "get_state" });
-      const typed = expect(strict).rejects.toMatchObject({
-        name: "RpcCommandTimeoutError",
-        command: "get_state",
-      });
-      const bashCmd = h.sent.find((s) => s.cmd.type === "bash")!.cmd;
-      // A quiet tab: lastFrameAt stays stale, so the #335 re-arm would fail
-      // the bash at the 30 s mark without the exemption. Past 2× the window
-      // the bash is still pending while the strict command has expired.
-      await vi.advanceTimersByTimeAsync(61_000);
-      await typed;
-      expect(bashSettled).toBe(false);
-      expect(h.rpcCommandMachinery.snapshotPending(h.TAB).size).toBe(1);
+  it.each<{ cmd: SessionCommand; data: Record<string, unknown> }>([
+    { cmd: { type: "bash", command: "sleep 45" }, data: { exitCode: 0, output: "done\n" } },
+    { cmd: { type: "predict_word", text: "the featu", cursor: 9 }, data: { suffix: "res" } },
+  ])(
+    "never fails a pending $cmd.type on silence, even while a strict command expires",
+    async ({ cmd, data }) => {
+      vi.useFakeTimers();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const offChain = h.useStore.getState().rpcCommand(h.TAB, cmd, { quiet: true });
+        let offChainSettled = false;
+        void offChain.then(
+          () => (offChainSettled = true),
+          () => (offChainSettled = true),
+        );
+        // The serial chain keeps its normal budget in the same tab.
+        const strict = h.useStore.getState().rpcCommand(h.TAB, { type: "get_state" });
+        const typed = expect(strict).rejects.toMatchObject({
+          name: "RpcCommandTimeoutError",
+          command: "get_state",
+        });
+        const offChainCmd = h.sent.find((s) => s.cmd.type === cmd.type)!.cmd;
+        // A quiet tab: lastFrameAt stays stale, so the #335 re-arm would fail
+        // the command at the 30 s mark without the exemption. Past 2× the
+        // window it is still pending while the strict command has expired.
+        await vi.advanceTimersByTimeAsync(61_000);
+        await typed;
+        expect(offChainSettled).toBe(false);
+        expect(h.rpcCommandMachinery.snapshotPending(h.TAB).size).toBe(1);
 
-      h.respond(h.TAB, bashCmd, { exitCode: 0, output: "done\n" });
-      await expect(bash).resolves.toMatchObject({ type: "response" });
-    } finally {
-      warn.mockRestore();
-      vi.useRealTimers();
-    }
-  });
+        h.respond(h.TAB, offChainCmd, data);
+        await expect(offChain).resolves.toMatchObject({ type: "response", data });
+      } finally {
+        warn.mockRestore();
+        vi.useRealTimers();
+      }
+    },
+  );
 });
 
 describe("pending commands are abandoned when the process goes away (issue #338)", () => {
@@ -2043,5 +2048,36 @@ describe("late-response observation (issue #302, #625)", () => {
       h.rpcCommandMachinery.settle(h.TAB, "unknown", { success: true, frame: {} }, m),
     ).toBeNull();
     expect(m.runtime(h.TAB).timedOutCommands).toHaveLength(1);
+  });
+
+  it("never retires an earlier timed-out strict command on an off-chain completion", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    const timedOutCommands: TabRuntime["timedOutCommands"] = [
+      {
+        id: "late-3",
+        command: "get_state",
+        startedAt: Date.now() - 60_000,
+        timedOutAt: Date.now() - 30_000,
+      },
+    ];
+    const predict = h.useStore
+      .getState()
+      .rpcCommand(h.TAB, { type: "predict_word", text: "the featu", cursor: 9 }, { quiet: true });
+    const sent = h.sent.find((s) => s.cmd.type === "predict_word")!.cmd;
+    const m = stubMachinery({ timedOutCommands });
+    // omp answers predict_word outside the serial chain, so its completion
+    // says nothing about the get_state still holding the chain.
+    expect(
+      h.rpcCommandMachinery.settle(
+        h.TAB,
+        sent.id as string,
+        { success: true, frame: { type: "response", data: { suffix: "res" } } },
+        m,
+      ),
+    ).toBeNull();
+    await expect(predict).resolves.toMatchObject({ data: { suffix: "res" } });
+    expect(m.runtime(h.TAB).timedOutCommands).toEqual([
+      expect.objectContaining({ id: "late-3", command: "get_state" }),
+    ]);
   });
 });

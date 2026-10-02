@@ -107,6 +107,14 @@ export interface TabRuntime {
    * generation must never settle this row.
    */
   vibeRequests: Map<string, string>;
+  /**
+   * This process answered `predict_word` with "Unknown command" — an omp
+   * before 18.4.9. Ghost completion stays off until the process is replaced
+   * (issue #715).
+   */
+  wordPredictionUnsupported?: boolean;
+  /** Epoch ms before which `predict_word` is not re-sent after a failure (#715). */
+  wordPredictionRetryAt?: number;
 }
 
 export interface StoreMachinery {

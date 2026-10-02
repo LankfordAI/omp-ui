@@ -34,7 +34,7 @@ class ResizeObserverStub {
 (globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
 
 const backendMock = {
-  listProjectFiles: vi.fn(async () => ({ files: [], truncated: false })),
+  listProjectFiles: vi.fn(async (): Promise<{ files: string[]; truncated: boolean }> => ({ files: [], truncated: false })),
   resolveFileMentions: vi.fn(async () => ({ contextText: "", images: [] })),
   listBranches: vi.fn(async (): Promise<BranchList> => ({
     repoRoot: null,
@@ -75,6 +75,11 @@ const abortAndPrompt = vi.fn(async () => {});
 const abortAgent = vi.fn(async () => {});
 const runSlashCommand = vi.fn(async () => {});
 const setFastMode = vi.fn(async () => {});
+// Every composer test stays off the real bus; the ghost suite overrides these.
+const predictWord = vi.fn<(tabId: string, text: string, cursor: number) => Promise<string | null>>(
+  async () => null,
+);
+const sendWordPredictionFeedback = vi.fn();
 let root: Root | null = null;
 
 const state = backendState({
@@ -114,6 +119,7 @@ function seed(status: "starting" | "ready" | "running", dead = false): void {
       hasRenamed: true,
     }) },
     compactSurface: null, sendPrompt, abortAndPrompt, abortAgent, setFastMode,
+    predictWord, sendWordPredictionFeedback,
   });
 }
 
@@ -2067,5 +2073,183 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     press(box, "Enter");
     expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", [], []);
     expect(answerFrames()).toHaveLength(0);
+  });
+});
+
+describe("ghost completion (issue #715)", () => {
+  const DRAFT = "please implement the featu";
+  /** Pending predictWord answers, oldest first. */
+  let answers: Array<(suffix: string | null) => void>;
+  let predict: Mock<(tabId: string, text: string, cursor: number) => Promise<string | null>>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    seed("ready");
+    answers = [];
+    predict = vi.fn<(tabId: string, text: string, cursor: number) => Promise<string | null>>(
+      () => new Promise<string | null>((resolve) => answers.push(resolve)),
+    );
+    useStore.setState({ predictWord: predict });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function elapse(ms: number): void {
+    act(() => vi.advanceTimersByTime(ms));
+  }
+
+  /** Settles the oldest outstanding request and lets its promise chain land. */
+  async function answer(suffix: string | null): Promise<void> {
+    await act(async () => answers.shift()!(suffix));
+  }
+
+  function ghostText(): string | null {
+    return document.body.querySelector("[data-word-ghost]")?.textContent ?? null;
+  }
+
+  /** The draft typed, the debounce elapsed, and omp's "res" painted after it. */
+  async function showGhost(): Promise<HTMLTextAreaElement> {
+    renderComposer();
+    const box = typeDraft(DRAFT);
+    elapse(100);
+    await answer("res");
+    expect(ghostText()).toBe("res");
+    return box;
+  }
+
+  it("asks omp once the draft has idled 100 ms and paints its suffix", async () => {
+    renderComposer();
+    typeDraft(DRAFT);
+    elapse(99);
+    expect(predict).not.toHaveBeenCalled();
+    elapse(1);
+    expect(predict).toHaveBeenCalledTimes(1);
+    expect(predict).toHaveBeenCalledWith(TAB, DRAFT, 26);
+    expect(ghostText()).toBeNull();
+    await answer("res");
+    expect(ghostText()).toBe("res");
+  });
+
+  it("Tab takes the ghost with a provisional space and reports the accept", async () => {
+    const box = await showGhost();
+    const tab = press(box, "Tab");
+    expect(tab.defaultPrevented).toBe(true);
+    expect(box.value).toBe("please implement the features ");
+    expect(ghostText()).toBeNull();
+    expect(sendWordPredictionFeedback).toHaveBeenCalledTimes(1);
+    expect(sendWordPredictionFeedback).toHaveBeenCalledWith(TAB, {
+      text: DRAFT,
+      cursor: 26,
+      suggestion: "res",
+      accepted: true,
+    });
+  });
+
+  it("→ takes the ghost without a space", async () => {
+    const box = await showGhost();
+    const right = press(box, "ArrowRight");
+    expect(right.defaultPrevented).toBe(true);
+    expect(box.value).toBe("please implement the features");
+    expect(sendWordPredictionFeedback).toHaveBeenCalledWith(TAB, {
+      text: DRAFT,
+      cursor: 26,
+      suggestion: "res",
+      accepted: true,
+    });
+  });
+
+  it("closing punctuation after a Tab accept replaces the provisional space", async () => {
+    const box = await showGhost();
+    press(box, "Tab");
+    const dot = press(box, ".");
+    expect(dot.defaultPrevented).toBe(true);
+    expect(box.value).toBe("please implement the features.");
+  });
+
+  it("a typed space after a Tab accept is swallowed by the provisional one", async () => {
+    const box = await showGhost();
+    press(box, "Tab");
+    const space = press(box, " ");
+    expect(space.defaultPrevented).toBe(true);
+    expect(box.value).toBe("please implement the features ");
+  });
+
+  it("typing through the ghost projects the rest; diverging rejects it", async () => {
+    await showGhost();
+    typeDraft(`${DRAFT}r`);
+    // No timer advanced: the remainder shows at once, without a new answer.
+    expect(ghostText()).toBe("es");
+    expect(sendWordPredictionFeedback).not.toHaveBeenCalled();
+
+    typeDraft(`${DRAFT}rx`);
+    expect(ghostText()).toBeNull();
+    expect(sendWordPredictionFeedback).toHaveBeenCalledTimes(1);
+    // The rejection carries the ghost as it stood before the keystroke.
+    expect(sendWordPredictionFeedback).toHaveBeenCalledWith(TAB, {
+      text: `${DRAFT}r`,
+      cursor: 27,
+      suggestion: "es",
+      accepted: false,
+    });
+  });
+
+  it("drops an answer for a draft that changed while it was in flight", async () => {
+    renderComposer();
+    typeDraft(DRAFT);
+    elapse(100);
+    expect(predict).toHaveBeenCalledTimes(1);
+    typeDraft(`${DRAFT}r`);
+    await answer("res");
+    expect(ghostText()).toBeNull();
+  });
+
+  it("never asks about a slash draft", () => {
+    renderComposer();
+    typeDraft("/plan featu");
+    elapse(1000);
+    expect(predict).not.toHaveBeenCalled();
+  });
+
+  it("never asks about a shell draft", () => {
+    renderComposer();
+    typeDraft("!ls");
+    elapse(1000);
+    expect(predict).not.toHaveBeenCalled();
+  });
+
+  it("never asks while the caret sits before the end of the draft", () => {
+    renderComposer();
+    const box = typeDraft(DRAFT);
+    // React derives onSelect from document selectionchange on the focused box.
+    act(() => {
+      box.setSelectionRange(6, 6);
+      document.dispatchEvent(new Event("selectionchange"));
+    });
+    elapse(1000);
+    expect(predict).not.toHaveBeenCalled();
+  });
+
+  it("never asks while the @ palette is open, and Tab still picks its row", async () => {
+    backendMock.listProjectFiles.mockResolvedValueOnce({ files: ["src/feature.ts"], truncated: false });
+    renderComposer();
+    const box = typeDraft("see @featu");
+    // Let the listing land so the palette has a row to pick.
+    await act(async () => {});
+    elapse(1000);
+    expect(predict).not.toHaveBeenCalled();
+    const tab = press(box, "Tab");
+    expect(tab.defaultPrevented).toBe(true);
+    expect(box.value).toBe("see @src/feature.ts ");
+    expect(sendWordPredictionFeedback).not.toHaveBeenCalled();
+  });
+
+  it("never asks while the box is unfocused", () => {
+    renderComposer();
+    act(() => document.body.querySelector<HTMLTextAreaElement>("textarea")!.blur());
+    typeDraft(DRAFT);
+    elapse(1000);
+    expect(predict).not.toHaveBeenCalled();
   });
 });
