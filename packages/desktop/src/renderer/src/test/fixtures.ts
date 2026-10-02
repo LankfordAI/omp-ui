@@ -114,7 +114,6 @@ export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     goal: null,
     vibe: null,
     sideQuestions: null,
-    subagentControl: null,
     subagentControlBusy: {},
     subagentControlError: null,
     autoresearch: null,

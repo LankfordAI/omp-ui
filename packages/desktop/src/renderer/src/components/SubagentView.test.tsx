@@ -71,25 +71,24 @@ function renderView(agentKey = "agent-1"): void {
   act(() => root!.render(<SubagentView tabId={TAB} agentKey={agentKey} />));
 }
 
-/** The prompt frames sent so far, each answered so nothing dangles. */
-function sentPrompts(): string[] {
-  const frames: string[] = [];
-  for (const call of rpcSendMock.mock.calls) {
-    const frame = call[1] as { id: string; message?: string };
-    if (typeof frame.message === "string") {
-      frames.push(frame.message);
-      act(() => {
-        useStore.getState().handleRpcFrame(TAB, {
-          type: "response",
-          id: frame.id,
-          command: "prompt",
-          success: true,
-          data: {},
-        });
-      });
-    }
-  }
-  return frames;
+/** Every command sent so far, as the backend saw it. */
+function sentCommands(): Array<{ id: string; type: string; subagentId?: unknown }> {
+  return rpcSendMock.mock.calls.flatMap(([, frame]: unknown[]) =>
+    typeof frame === "object" &&
+    frame !== null &&
+    "id" in frame &&
+    typeof frame.id === "string" &&
+    "type" in frame &&
+    typeof frame.type === "string"
+      ? [{ id: frame.id, type: frame.type, subagentId: "subagentId" in frame ? frame.subagentId : undefined }]
+      : [],
+  );
+}
+
+function answer(frame: { id: string; type: string }, data: unknown): void {
+  act(() => {
+    useStore.getState().handleRpcFrame(TAB, { type: "response", id: frame.id, command: frame.type, success: true, data });
+  });
 }
 
 beforeEach(() => {
@@ -116,7 +115,6 @@ describe("SubagentView", () => {
     // A running agent is controllable (issue #684): steer + kill, no read-only.
     expect(document.body.querySelector('button[aria-label="steer"]')).not.toBeNull();
     expect(document.body.querySelector('button[aria-label="kill"]')).not.toBeNull();
-    expect(document.body.querySelector('button[aria-label="revive"]')).toBeNull();
     expect(text).not.toContain("read-only subagent view");
     // Full transcript surface: user prompt, assistant text, tool card with intent.
     expect(text).toContain("hello from worker");
@@ -126,22 +124,25 @@ describe("SubagentView", () => {
     expect(text).toContain("m1");
   });
 
-  it("a running agent's controls dispatch quiet bridge frames (issue #684)", async () => {
+  it("a running agent's kill dispatches cancel_subagent (issue #713)", async () => {
     seed();
     renderView();
     const kill = document.body.querySelector<HTMLButtonElement>('button[aria-label="kill"]')!;
     await act(async () => void kill.click());
-    const frames = sentPrompts();
-    expect(frames).toHaveLength(1);
-    expect(frames[0]).toContain('"agentId":"agent-1"');
-    expect(frames[0]).toContain('"action":"kill"');
+    const cancels = sentCommands().filter((f) => f.type === "cancel_subagent");
+    expect(cancels).toEqual([expect.objectContaining({ subagentId: "agent-1" })]);
+    answer(cancels[0]!, { cancelled: true });
+    await act(async () => {});
+    // The follow-up roster read, answered so nothing dangles.
+    for (const f of sentCommands().filter((c) => c.type === "get_subagents")) answer(f, { subagents: [] });
   });
 
-  it("a parked agent offers revive and kill (issue #684)", () => {
-    seed({ subagents: [{ id: "agent-1", name: "worker", status: "parked" }] });
+  it("a completed agent still on the roster offers no controls (issue #713)", () => {
+    seed({ subagents: [{ id: "agent-1", name: "worker", status: "completed" }] });
     renderView();
-    expect(document.body.querySelector('button[aria-label="revive"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("read-only subagent view");
     expect(document.body.querySelector('button[aria-label="steer"]')).toBeNull();
+    expect(document.body.querySelector('button[aria-label="kill"]')).toBeNull();
   });
 
   it("a settled agent keeps the read-only banner with no controls (issue #684)", () => {

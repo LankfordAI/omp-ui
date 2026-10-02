@@ -39,8 +39,7 @@
     "./update-types": "./src/update-types.ts",
     "./session-command": "./src/session-command.ts",
     "./session-tree": "./src/session-tree.ts",
-    "./side-questions": "./src/side-questions.ts",
-    "./subagent-control": "./src/subagent-control.ts"
+    "./side-questions": "./src/side-questions.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

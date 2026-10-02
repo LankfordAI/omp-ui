@@ -24,7 +24,7 @@ function runtime(queue: unknown[]): RpcTabState {
     extensionQueue: queue, busy: false, initialPrompt: null, autoTitleSent: null, hasRenamed: true,
     plan: null, planReview: null, planReadiness: null, experimentProposal: null, approvalPrompt: null,
     planHtml: null, planText: null, planDeferred: false, advisorStats: null, mcpStatus: null, advisorReply: true, capabilities: null, capabilitiesLoad: "idle", goal: null, vibe: null, sideQuestions: null, autoresearch: null, limits: null,
-    subagentControl: null, subagentControlBusy: {}, subagentControlError: null,
+    subagentControlBusy: {}, subagentControlError: null,
     browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null } };
 }
 

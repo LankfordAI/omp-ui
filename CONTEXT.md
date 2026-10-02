@@ -152,9 +152,9 @@ pane: the full transcript surface — tool cards, thinking, usage receipts —
 rendered read-only from that subagent's own event stream, backfilled from
 its transcript file (`get_subagent_messages`) so the whole run shows, not
 just what streamed since the click. A banner names the agent, its status,
-and its steer/kill controls — steer replaces its next instruction, kill
-aborts and tombstones it, a parked one revives
-([ADR-0040](docs/adr/0040-subagent-control-via-generated-bridge.md)) — but
+and its steer/kill controls — steer sends it a message as its user, kill
+aborts and tombstones it
+([ADR-0045](docs/adr/0045-subagent-control-via-native-rpc-verbs.md)) — but
 there is no composer: it is not a chat surface and its transcript cannot be
 appended to. It is a view
 onto the same live session, never a separate session or tab.

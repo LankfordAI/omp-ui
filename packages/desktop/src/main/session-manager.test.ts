@@ -440,7 +440,6 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
-      Core.subagentControlArmMessage(),
     ]);
   });
 
@@ -462,8 +461,7 @@ describe("MCP runtime status bridge", () => {
     const messages = armMessages(options?.initialCommands);
     // Off above, on here: the arm command is appended last only with the flag
     // set, and the bridge file rides into `extensions` with it.
-    // The subagent-control arm now rides after it (issue #684).
-    expect(messages?.at(-2)).toBe(Core.autoresearchArmMessage());
+    expect(messages?.at(-1)).toBe(Core.autoresearchArmMessage());
     expect(options?.extensions).toContainEqual(
       expect.stringMatching(/omp-ui-autoresearch\.ts$/),
     );
@@ -485,7 +483,6 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
-      Core.subagentControlArmMessage(),
     ]);
   });
 
@@ -517,7 +514,6 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
-      Core.subagentControlArmMessage(),
     ]);
     expect(RpcClientMock).toHaveBeenCalledTimes(1);
     expect(warning).toHaveBeenCalledWith(
@@ -613,7 +609,6 @@ describe("session capabilities bridge (issue #374)", () => {
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
-      Core.subagentControlArmMessage(),
     ]);
 
     // Bridged but silent so far: the viewer sees "starting", not an empty roster.
@@ -665,7 +660,6 @@ describe("session capabilities bridge (issue #374)", () => {
       Core.vibeArmMessage(),
       Core.planMessage(false, "html"),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
-      Core.subagentControlArmMessage(),
     ]);
     await expect(manager.getSessionCapabilities(TAB)).resolves.toEqual({
       status: "bridge-unavailable",

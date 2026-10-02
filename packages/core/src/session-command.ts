@@ -28,6 +28,8 @@ export const SESSION_COMMANDS = {
   get_subagents: { lateAck: false },
   get_subagent_messages: { lateAck: false },
   set_subagent_subscription: { lateAck: false },
+  cancel_subagent: { lateAck: true },
+  steer_subagent: { lateAck: true },
   set_thinking_level: { lateAck: false },
   set_steering_mode: { lateAck: false },
   set_follow_up_mode: { lateAck: false },
