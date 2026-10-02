@@ -169,8 +169,9 @@ export const COMPACT_SETTLE_DEADLINE_MS = 15 * 60_000;
  * call (`compact`, `handoff`), a provider refresh (`set_model`, `cycle_model`,
  * `get_available_models`), a turn unwind (`abort`, `abort_and_prompt`), file or
  * network work (`export_html`, `login`), a UI round-trip (`new_session`,
- * `switch_session`, `branch`), or arbitrary shell (`bash`, which bypasses the
- * chain). For them, lateness is not failure (issue #335).
+ * `switch_session`, `branch`), a subagent turn unwind or message admission
+ * (`cancel_subagent`, `steer_subagent`), or arbitrary shell (`bash`, which
+ * bypasses the chain). For them, lateness is not failure (issue #335).
  */
 
 /** Mirrors omp's own skill-command match: start of message or after whitespace. */

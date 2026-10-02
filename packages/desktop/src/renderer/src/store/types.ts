@@ -59,10 +59,6 @@ import type {
 import type { GoalSnapshot } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { BtwSnapshot } from "@omp-ui/core/side-questions";
-import type {
-  SubagentControlAction,
-  SubagentControlSnapshot,
-} from "@omp-ui/core/subagent-control";
 import type { RailTab } from "../lib/panel-layout";
 import type { AutoresearchSnapshot, ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { ApprovalPrompt } from "@omp-ui/core/approval";
@@ -93,6 +89,9 @@ export interface TabInfo {
   /** The joined remote instance that owns the session; null for a local one (issue #416). */
   instanceId: string | null;
 }
+
+/** A subagent verb the Agents pane dispatches (issues #684, #713). */
+export type SubagentControlAction = "steer" | "kill";
 
 /** Renderer-local presentation and recovery context for an RPC failure. */
 export interface RpcFailure {
@@ -281,15 +280,9 @@ export interface RpcTabState {
    * malformed publish leaves the last good snapshot standing.
    */
   sideQuestions: BtwSnapshot | null;
-  /**
-   * The session's subagent-control bridge snapshot (issue #684, ADR-0040).
-   * Transient result chrome only — the `get_subagents` roster stays the
-   * status truth; this carries settled verb outcomes correlated by requestId.
-   */
-  subagentControl: SubagentControlSnapshot | null;
   /** The verb in flight per agent id; the pane's disabled state reads this. */
   subagentControlBusy: Record<string, SubagentControlAction>;
-  /** A local refusal line (send failure, over-long steer); cleared by the next dispatch. */
+  /** The last verb's failure line — omp's own sentence, or the update hint; cleared by the next dispatch. */
   subagentControlError: string | null;
   /**
    * The session's autoresearch snapshot as the root bridge published it
@@ -1088,13 +1081,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   cancelSideQuestion(tabId: string): Promise<void>;
   /** Asks the bridge to re-read `btw-history/` and republish. */
   refreshSideQuestions(tabId: string): Promise<void>;
-  /**
-   * One subagent verb (issue #684, ADR-0040) as a hidden bridge frame: the
-   * answer is the bridge's published result, never a transcript row.
-   */
+  /** One subagent verb (issues #684, #713) on omp's native rpc command; the response settles it, never a transcript row. */
   steerSubagent(tabId: string, agentId: string, text: string): Promise<void>;
   killSubagent(tabId: string, agentId: string): Promise<void>;
-  reviveSubagent(tabId: string, agentId: string): Promise<void>;
   setTodos(tabId: string, phases: TodoPhase[]): Promise<void>;
   refreshState(tabId: string): Promise<void>;
   refreshStats(tabId: string): Promise<void>;

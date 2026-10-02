@@ -1,7 +1,7 @@
-// The subagent control strip (issue #684, ADR-0040): steer/kill/revive for
-// one roster row, shared by the Agents pane and the subagent view banner.
-// Every press dispatches a hidden bridge frame through the store slice; the
-// result — ok or omp's own refusal sentence — lands on the snapshot publish.
+// The subagent control strip (issues #684, #713, ADR-0045): steer/kill for one
+// roster row, shared by the Agents pane and the subagent view banner. Each
+// press dispatches omp's native verb through the store slice; a failure lands
+// as omp's own sentence.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../lib/i18n";
@@ -39,29 +39,13 @@ function IconKill() {
   );
 }
 
-function IconRevive() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
-      <path d="M5 3.5L11.5 8 5 12.5z" {...ICON_STROKE} />
-    </svg>
-  );
-}
-
 /**
- * The status half of the gating table (issue #684), mirroring what the bridge
- * accepts: live-ish statuses steer (mid-turn, or start its next turn) and
- * kill; parked revives (ensureLive) and kills (tombstoned release); every
- * other status — aborted, settled, released, unknown — offers nothing,
- * matching the bridge's refusals.
+ * True exactly where omp accepts steer_subagent/cancel_subagent: its
+ * resolveOwnedLiveSubagent takes roster status `running` or `pending` only.
+ * Everything else — completed, failed, aborted, settled — offers nothing.
  */
-export function subagentControlOffers(status: string): {
-  steer: boolean;
-  revive: boolean;
-  kill: boolean;
-} {
-  const live = status === "running" || status === "active" || status === "pending" || status === "queued";
-  const parked = status === "parked";
-  return { steer: live, revive: parked, kill: live || parked };
+export function subagentControllable(status: string): boolean {
+  return status === "running" || status === "pending";
 }
 
 export function SubagentControls({
@@ -85,7 +69,6 @@ export function SubagentControls({
   const busy = useStore((s) => s.rpc[tabId]?.subagentControlBusy[agentId] !== undefined);
   const steerSubagent = useStore((s) => s.steerSubagent);
   const killSubagent = useStore((s) => s.killSubagent);
-  const reviveSubagent = useStore((s) => s.reviveSubagent);
   const [steerOpen, setSteerOpen] = useState(false);
   const [text, setText] = useState("");
   const triggerRef = useRef<HTMLSpanElement>(null);
@@ -93,7 +76,7 @@ export function SubagentControls({
   const panelRef = useRef<HTMLDivElement>(null);
   const [geometry, setGeometry] = useState<PopoverGeometry | null>(null);
 
-  const verbs = subagentControlOffers(status);
+  const controllable = subagentControllable(status);
   const usable = accepts;
 
   useLayoutEffect(() => {
@@ -140,7 +123,7 @@ export function SubagentControls({
     },
   });
 
-  if (!verbs.steer && !verbs.revive && !verbs.kill) return null;
+  if (!controllable) return null;
 
   const sendSteer = (): void => {
     const trimmed = text.trim();
@@ -156,39 +139,25 @@ export function SubagentControls({
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
-      {verbs.steer && (
-        <span ref={triggerRef}>
-          <IconButton
-            label={t("rail.agents.steer")}
-            disabled={!usable || busy}
-            onClick={() => setSteerOpen((value) => !value)}
-            className="size-5"
-          >
-            <IconSteer />
-          </IconButton>
-        </span>
-      )}
-      {verbs.revive && (
+      <span ref={triggerRef}>
         <IconButton
-          label={t("rail.agents.revive")}
+          label={t("rail.agents.steer")}
           disabled={!usable || busy}
-          onClick={() => void reviveSubagent(tabId, agentId)}
+          onClick={() => setSteerOpen((value) => !value)}
           className="size-5"
         >
-          <IconRevive />
+          <IconSteer />
         </IconButton>
-      )}
-      {verbs.kill && (
-        <IconButton
-          label={t("rail.agents.kill")}
-          tone="rose"
-          disabled={!usable || busy}
-          onClick={() => void killSubagent(tabId, agentId)}
-          className="size-5"
-        >
-          <IconKill />
-        </IconButton>
-      )}
+      </span>
+      <IconButton
+        label={t("rail.agents.kill")}
+        tone="rose"
+        disabled={!usable || busy}
+        onClick={() => void killSubagent(tabId, agentId)}
+        className="size-5"
+      >
+        <IconKill />
+      </IconButton>
       {steerOpen &&
         createPortal(
           <div
@@ -234,18 +203,7 @@ export function SubagentControls({
   );
 }
 
-/**
- * The row-level refusal line: a local refusal (slice) wins over the bridge's
- * own last failed result; cleared by the next dispatch or publish.
- */
+/** The row-level failure line for the last verb; cleared by the next dispatch. */
 export function useSubagentControlNotice(tabId: string): string | null {
-  return useStore((s) => {
-    const tab = s.rpc[tabId];
-    if (tab === undefined) return null;
-    if (tab.subagentControlError !== null) return tab.subagentControlError;
-    const results = tab.subagentControl?.results;
-    if (results === undefined || results.length === 0) return null;
-    const last = results[results.length - 1];
-    return last !== undefined && !last.ok ? (last.error ?? null) : null;
-  });
+  return useStore((s) => s.rpc[tabId]?.subagentControlError ?? null);
 }

@@ -2,7 +2,7 @@ import { AGENT_TONE } from "../lib/agent-tone";
 import { useT } from "../lib/i18n";
 import type { RenderItem } from "../lib/transcript";
 import { useStore } from "../store";
-import { SubagentControls, subagentControlOffers, useSubagentControlNotice } from "./SubagentControls";
+import { SubagentControls, subagentControllable, useSubagentControlNotice } from "./SubagentControls";
 import { TranscriptView } from "./TranscriptView";
 import { Chip, Dot } from "./ui";
 
@@ -33,7 +33,7 @@ export function SubagentView({
   const name = live?.name ?? live?.agent ?? agentKey;
   const status = live?.status ?? "settled";
   const notice = useSubagentControlNotice(tabId);
-  const controllable = subagentControlOffers(status).kill;
+  const controllable = subagentControllable(status);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line-soft px-4 py-2">

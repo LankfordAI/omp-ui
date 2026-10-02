@@ -33,7 +33,6 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     limits: () => write("limits"),
     tree: () => write("tree"),
     sideQuestions: () => write("sideQuestions"),
-    subagentControl: () => write("subagentControl"),
   };
 }
 
@@ -56,7 +55,6 @@ describe("writeRpcExtensions", () => {
         "/limits.ts",
         "/tree.ts",
         "/sideQuestions.ts",
-        "/subagentControl.ts",
       ],
       loaded: {
         plan: false,
@@ -70,7 +68,6 @@ describe("writeRpcExtensions", () => {
         limits: true,
         tree: true,
         sideQuestions: true,
-        subagentControl: true,
       },
     });
     expect(warning).toHaveBeenCalledTimes(2);

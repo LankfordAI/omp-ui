@@ -130,7 +130,6 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     goal: null,
     vibe: null,
     sideQuestions: null,
-    subagentControl: null,
     subagentControlBusy: {},
     subagentControlError: null,
     autoresearch: null,
@@ -470,7 +469,7 @@ describe("desktop InspectorRail", () => {
     expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBe("agent-2");
   });
 
-  it("row controls kill without toggling the row's selection (issue #684)", () => {
+  it("row controls kill without toggling the row's selection (issues #684, #713)", () => {
     useStore.setState({
       rpc: {
         [TAB]: runtime({
@@ -486,18 +485,25 @@ describe("desktop InspectorRail", () => {
     // The strip sits inside the row; pressing it must not open the view.
     act(() => kill.click());
     expect(useStore.getState().rpc[TAB]!.selectedSubagent).toBeNull();
-    const frame = backendMock.rpcSend.mock.calls.find(
-      (call) => typeof (call[1] as { message?: unknown }).message === "string",
-    )![1] as { id: string; message: string };
-    expect(frame.message).toContain('"action":"kill"');
-    expect(frame.message).toContain('"agentId":"agent-1"');
+    const sentFrames: unknown[] = backendMock.rpcSend.mock.calls.map((call) => call[1]);
+    const frame = sentFrames.find(
+      (sent): sent is { id: string; subagentId: unknown } =>
+        typeof sent === "object" &&
+        sent !== null &&
+        "type" in sent &&
+        sent.type === "cancel_subagent" &&
+        "id" in sent &&
+        typeof sent.id === "string" &&
+        "subagentId" in sent,
+    )!;
+    expect(frame.subagentId).toBe("agent-1");
     act(() => {
       useStore.getState().handleRpcFrame(TAB, {
         type: "response",
         id: frame.id,
-        command: "prompt",
+        command: "cancel_subagent",
         success: true,
-        data: {},
+        data: { cancelled: true },
       });
     });
   });
