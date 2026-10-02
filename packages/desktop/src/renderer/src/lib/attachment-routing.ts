@@ -24,3 +24,13 @@ export function stripAttachmentRoutingContext(message: string, imageCount: numbe
   const suffix = `\n\n${context}`;
   return message.endsWith(suffix) ? message.slice(0, -suffix.length) : message;
 }
+
+/** Strips a proven terminal routing context whose image count is unknown. */
+export function stripTrailingAttachmentRoutingContext(message: string): string {
+  const at = message.lastIndexOf(ROUTING_PREFIX);
+  if (at === -1) return message;
+  // routingContext(n) lists exactly n `attachment://` handles and its fixed
+  // text has none, so the tail's handle count is the only candidate n.
+  const count = message.slice(at).split("attachment://").length - 1;
+  return stripAttachmentRoutingContext(message, count);
+}

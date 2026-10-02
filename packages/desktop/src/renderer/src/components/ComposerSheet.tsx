@@ -1,12 +1,13 @@
 import { modelSupportsFastMode, type PromptRoute } from "../lib/rpc-types";
 import { useT } from "../lib/i18n";
-import { queueChipView } from "../lib/queue-chip";
+import { queueChipCount, queueChipView } from "../lib/queue-chip";
 import { findOwner, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
 import { ComposerActions } from "./ComposerActions";
 import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
+import { QueuedMessageList } from "./QueuedMessageList";
 import { FastModeControl } from "./FastModeControl";
 import { Button, Chip, Label, Sheet } from "./ui";
 
@@ -39,7 +40,11 @@ export function ComposerSheet({
 }) {
   const t = useT();
   const status = useStore((s) => s.rpc[tabId]?.status);
-  const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
+  const queued = useStore((s) => {
+    const session = s.rpc[tabId]?.session;
+    return session ? queueChipCount(session) : 0;
+  });
+  const queueListed = useStore((s) => s.rpc[tabId]?.session.queuedMessages != null);
   const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
   const thinkingConfigured = useStore(
@@ -96,6 +101,11 @@ export function ComposerSheet({
               <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t("composer.sheet.branch")}</span>
               <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} instanceId={instanceId} />{queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>}</span>
             </div>
+            {queueChip && queueListed && (
+              <div className="rounded-lg border border-line bg-void/35 p-3">
+                <QueuedMessageList tabId={tabId} disabled={unavailable} />
+              </div>
+            )}
           </div>
         </section>
         <ComposerActions

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { downloadFileAtomically } from "./download";
 import { defaultFetch, type DownloadFetchLike, type FetchLike } from "./fetch";
 import { resolveOmpBinary } from "./paths";
+import { compareVersions, parseSemver } from "./semver";
 import type { OmpUpdateInfo } from "./types";
 
 // Pure, transport- and UI-agnostic omp install/update logic. The Electron main
@@ -12,32 +13,6 @@ export const OMP_NPM_LATEST_URL =
   "https://registry.npmjs.org/@oh-my-pi/pi-coding-agent/latest";
 export const OMP_GITHUB_REPO = "can1357/oh-my-pi";
 export const OMP_RELEASE_BASE = `https://github.com/${OMP_GITHUB_REPO}/releases/download`;
-
-export interface Semver {
-  major: number;
-  minor: number;
-  patch: number;
-}
-
-/** Parses an optional `v`-prefixed `X.Y.Z` (extra segments ignored). */
-export function parseSemver(value: string): Semver | null {
-  const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(value).trim());
-  if (!m) return null;
-  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]) };
-}
-
-/** -1 when a < b, 0 when equal, 1 when a > b. Unparseable sorts lowest. */
-export function compareVersions(a: string, b: string): number {
-  const A = parseSemver(a);
-  const B = parseSemver(b);
-  if (!A && !B) return 0;
-  if (!A) return -1;
-  if (!B) return 1;
-  for (const key of ["major", "minor", "patch"] as const) {
-    if (A[key] !== B[key]) return A[key] < B[key] ? -1 : 1;
-  }
-  return 0;
-}
 
 /** Extracts `omp/<X.Y.Z>` (the shape of `omp --version`) from output. */
 export function parseOmpVersion(output: string): string | null {

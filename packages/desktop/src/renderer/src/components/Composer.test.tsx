@@ -8,6 +8,8 @@ import { backendState, rpcTabState } from "../test/fixtures";
 import { emptySessionRuntime, type SlashCommandInfo } from "../lib/rpc-types";
 import { t } from "../lib/i18n";
 import { markerItem, noticeItem } from "../lib/transcript";
+import { withAttachmentRoutingContext } from "../lib/attachment-routing";
+import { withDocumentContext } from "../lib/document-context";
 
 const clipboardImageMock = vi.hoisted(() => ({
   hasClipboardImage: vi.fn(() => false),
@@ -75,6 +77,7 @@ const abortAndPrompt = vi.fn(async () => {});
 const abortAgent = vi.fn(async () => {});
 const runSlashCommand = vi.fn(async () => {});
 const setFastMode = vi.fn(async () => {});
+const promoteQueuedMessage = vi.fn(async () => {});
 let root: Root | null = null;
 
 const state = backendState({
@@ -113,7 +116,7 @@ function seed(status: "starting" | "ready" | "running", dead = false): void {
       session: { ...emptySessionRuntime(), thinkingLevel: "medium" },
       hasRenamed: true,
     }) },
-    compactSurface: null, sendPrompt, abortAndPrompt, abortAgent, setFastMode,
+    compactSurface: null, sendPrompt, abortAndPrompt, abortAgent, setFastMode, promoteQueuedMessage,
   });
 }
 
@@ -1692,6 +1695,80 @@ describe("desktop Composer running sweep", () => {
     const ring = card.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
     expect(ring).not.toBeNull();
     expect(ring.classList.contains("text-copper")).toBe(true);
+  });
+});
+
+describe("Composer queue chip list (issue #714)", () => {
+  /** omp's queue-chip text for a prompt with two images and one document. */
+  const WIRE = withAttachmentRoutingContext(
+    withDocumentContext("fix the parser", [{ name: "spec.pdf", path: "/p/spec.pdf" }]),
+    2,
+  );
+  function desktop(): void {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  }
+  function seedListed(ompVersion: string | null, listed = true): void {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: {
+        ...s.rpc,
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          capabilities: { ...gateSnapshot([]), ompVersion },
+          session: {
+            ...s.rpc[TAB]!.session,
+            queuedMessageCount: 2,
+            queuedMessages: listed ? { steering: ["s1"], followUp: [WIRE] } : null,
+          },
+        },
+      },
+    }));
+  }
+  const chipButton = (): HTMLButtonElement | null =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "parked: 2") ?? null;
+  const promoteButtons = (): HTMLButtonElement[] =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter((b) => b.textContent === "promote");
+
+  it("lists both queues with cleaned text and promotes the raw follow-up", async () => {
+    desktop();
+    seedListed("18.4.10");
+    renderComposer();
+    const chip = chipButton()!;
+    expect(chip).not.toBeNull();
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    act(() => chip.click());
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    const body = document.body.textContent!;
+    expect(body).toContain("steering");
+    expect(body).toContain("s1");
+    expect(body).toContain("fix the parser");
+    // The row reads like the transcript: omp-ui's wire context is hidden.
+    expect(body).not.toContain("attachment routing");
+    expect(body).not.toContain("<attached documents>");
+    // Only the follow-up row is promotable.
+    expect(promoteButtons()).toHaveLength(1);
+    await act(async () => promoteButtons()[0]!.click());
+    expect(promoteQueuedMessage).toHaveBeenCalledWith(TAB, WIRE);
+  });
+
+  it("offers no promote when the omp version is unknown", () => {
+    desktop();
+    seedListed(null);
+    renderComposer();
+    act(() => chipButton()!.click());
+    expect(document.body.textContent).toContain("fix the parser");
+    expect(promoteButtons()).toHaveLength(0);
+  });
+
+  it("keeps the plain chip when the runtime reports no queue text", () => {
+    desktop();
+    seedListed("18.4.10", false);
+    renderComposer();
+    expect(chipButton()).toBeNull();
+    expect(document.body.textContent).toContain("parked: 2");
   });
 });
 

@@ -23,7 +23,7 @@ import { firingKeywords } from "../lib/magic-keyword-gate";
 import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
 import { composerPaintRuns } from "../lib/composer-paint";
 import type { DocumentRef } from "../lib/document-context";
-import { queueChipView } from "../lib/queue-chip";
+import { queueChipCount, queueChipView } from "../lib/queue-chip";
 import { modelSupportsFastMode, type PromptRoute, type SlashCommandInfo } from "../lib/rpc-types";
 import { slashCompletion } from "../lib/slash-completion";
 import { findInstance, findOwner, sessionCwd, useStore } from "../store";
@@ -40,6 +40,7 @@ import { FastModeControl } from "./FastModeControl";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
+import { QueuedMessageList } from "./QueuedMessageList";
 import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, IconTune, Label, PerimeterGlow, PerimeterSweep } from "./ui";
 import { DictationControl, DictationStrip } from "./ComposerDictation";
 import { useDictation } from "../lib/use-dictation";
@@ -146,7 +147,12 @@ export function Composer({
       ),
     ];
   }, [commands, experimentsEnabled, localeId, t]);
-  const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
+  const queued = useStore((s) => {
+    const session = s.rpc[tabId]?.session;
+    return session ? queueChipCount(session) : 0;
+  });
+  // Only a runtime that reports omp's queue text gets a listable chip.
+  const queueListed = useStore((s) => s.rpc[tabId]?.session.queuedMessages != null);
   const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
   const thinkingConfigured = useStore(
     (s) => s.rpc[tabId]?.session.thinkingConfigured ?? null,
@@ -214,6 +220,7 @@ export function Composer({
    */
   const [files, setFiles] = useState<{ list: string[]; truncated: boolean } | null>(null);
   const [effortMenu, setEffortMenu] = useState(false);
+  const [queueMenu, setQueueMenu] = useState(false);
   const {
     images,
     documents,
@@ -258,6 +265,8 @@ export function Composer({
   const palette = useRef<SlashPaletteHandle | null>(null);
   const mentionPalette = useRef<MentionPaletteHandle | null>(null);
   const effortAnchor = useRef<HTMLSpanElement | null>(null);
+  const queueAnchor = useRef<HTMLSpanElement | null>(null);
+  const queueTrigger = useRef<HTMLButtonElement | null>(null);
   /** The highlight layer under the (transparent-text) textarea. */
   const mirror = useRef<HTMLDivElement | null>(null);
   /** Sent messages, newest last. */
@@ -269,6 +278,11 @@ export function Composer({
   const relaunching = status === "starting";
   const unavailable = dead || relaunching || instanceDown;
   const queueChip = queueChipView(running, queued);
+  // The popover closes with its chip; a later queue starts closed.
+  const queueVisible = queueChip !== null;
+  useEffect(() => {
+    if (!queueVisible) setQueueMenu(false);
+  }, [queueVisible]);
   const trimmed = text.trim();
   const isSlash = trimmed.startsWith("/");
   /** What the slash palette can offer for this draft; null mounts none (lib/slash-completion.ts). */
@@ -451,6 +465,13 @@ export function Composer({
     open: effortMenu,
     refs: effortAnchor,
     onClose: () => setEffortMenu(false),
+  });
+  useDismissal({
+    open: queueMenu,
+    refs: queueAnchor,
+    onClose: () => setQueueMenu(false),
+    onEscape: () => setQueueMenu(false),
+    restoreFocus: () => queueTrigger.current?.focus(),
   });
 
   useDismissal({
@@ -1057,7 +1078,7 @@ export function Composer({
             <DictationControl disabled={unavailable} voice={voice} />
 
 
-            {queueChip && (
+            {queueChip && !queueListed && (
               <Chip
                 mono
                 tone="copper"
@@ -1068,6 +1089,30 @@ export function Composer({
                   {running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}
                 </span>
               </Chip>
+            )}
+            {queueChip && queueListed && (
+              <span ref={queueAnchor} className="relative flex min-w-0 shrink">
+                <button
+                  ref={queueTrigger}
+                  type="button"
+                  aria-haspopup="true"
+                  aria-expanded={queueMenu}
+                  title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}
+                  onClick={() => setQueueMenu((open) => !open)}
+                  className="flex min-w-0 rounded"
+                >
+                  <Chip mono tone="copper" className="min-w-0 shrink">
+                    <span className="min-w-0 truncate">
+                      {running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}
+                    </span>
+                  </Chip>
+                </button>
+                {queueMenu && (
+                  <div className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 max-h-72 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-line-strong bg-overlay p-2">
+                    <QueuedMessageList tabId={tabId} disabled={unavailable} />
+                  </div>
+                )}
+              </span>
             )}
 
             <span className="flex-1" />

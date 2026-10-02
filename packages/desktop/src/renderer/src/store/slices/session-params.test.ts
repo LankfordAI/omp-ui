@@ -1126,6 +1126,45 @@ describe("prompting, slash commands, and session ops", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.failure).toBeUndefined();
   });
 
+  describe("promoteQueuedMessage (issue #714)", () => {
+    const wire = `look at this\n\n${ONE_IMAGE_CONTEXT}`;
+
+    it("sends exactly the raw queue-chip text and nothing else when promoted", async () => {
+      const promise = h.useStore.getState().promoteQueuedMessage(h.TAB, wire);
+      expect(h.sent).toHaveLength(1);
+      expect(h.sent[0]!.cmd).toEqual({
+        type: "promote_queued_message",
+        message: wire,
+        id: expect.anything(),
+      });
+      h.respond(h.TAB, h.sent.pop()!.cmd, { promoted: true });
+      await promise;
+      await h.flushMicrotasks();
+      expect(h.sent).toEqual([]);
+    });
+
+    it("re-reads state when the message was already delivered", async () => {
+      const promise = h.useStore.getState().promoteQueuedMessage(h.TAB, wire);
+      h.respond(h.TAB, h.sent.pop()!.cmd, { promoted: false });
+      await promise;
+      expect(h.sent.map((s) => s.cmd.type)).toEqual(["get_state"]);
+      expect(h.useStore.getState().rpc[h.TAB]!.failure).toBeUndefined();
+    });
+
+    it("a rejection records a nonfatal failure and never falls back to prompt/steer", async () => {
+      const promise = h.useStore.getState().promoteQueuedMessage(h.TAB, wire);
+      h.respond(h.TAB, h.sent.pop()!.cmd, "unknown command", false);
+      await promise;
+      await h.flushMicrotasks();
+      expect(h.useStore.getState().rpc[h.TAB]!.failure).toMatchObject({
+        kind: "command",
+        fatal: false,
+        command: "promote_queued_message",
+      });
+      expect(h.sent).toEqual([]);
+    });
+  });
+
   it("setModel sends provider + modelId, not the whole model object", async () => {
     const model = {
       id: "claude-opus-5",

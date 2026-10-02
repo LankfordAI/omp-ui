@@ -976,6 +976,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setThinkingLevel(tabId: string, level: string): Promise<void>;
   setSteeringMode(tabId: string, mode: string): Promise<void>;
   setFollowUpMode(tabId: string, mode: string): Promise<void>;
+  /**
+   * Moves the first queued user follow-up whose queue-chip text is `message`
+   * into omp's steering queue (issue #714). Never falls back to `steer`.
+   */
+  promoteQueuedMessage(tabId: string, message: string): Promise<void>;
   setInterruptMode(tabId: string, mode: string): Promise<void>;
   setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
   setFastMode(tabId: string, enabled: boolean): Promise<void>;

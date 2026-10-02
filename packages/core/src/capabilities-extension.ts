@@ -112,8 +112,6 @@ interface SessionLike {
   isStreaming?: unknown;
   isAborting?: unknown;
   queuedMessageCount?: unknown;
-  version?: unknown;
-  ompVersion?: unknown;
   settings?: unknown;
 }
 
@@ -192,8 +190,7 @@ interface DraftToolMutation {
 interface ExtensionApi {
   pi?: {
     AgentSession?: { prototype?: Record<string, unknown> };
-    version?: unknown;
-    ompVersion?: unknown;
+    VERSION?: unknown;
   };
   registerCommand: (
     name: string,
@@ -288,10 +285,8 @@ export default function (pi: ExtensionApi) {
 
   function probeVersion(): string | null {
     try {
-      const candidates = [pi.pi?.version, pi.pi?.ompVersion, rootSession?.version, rootSession?.ompVersion];
-      for (const candidate of candidates) {
-        if (typeof candidate === "string" && candidate.length > 0) return candidate;
-      }
+      const candidate = pi.pi?.VERSION;
+      if (typeof candidate === "string" && candidate.length > 0) return candidate;
     } catch {
       /* a hostile version getter still yields a valid snapshot */
     }

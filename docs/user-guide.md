@@ -89,6 +89,8 @@ When the agent is idle, `Enter` sends a new prompt. While it is running, `Enter`
 
 The queue count covers all displayable queued work, not only user follow-ups. It can include steers, advisor cards, custom entries, and deferred items. After a user interrupt, follow-ups do not drain automatically; they remain **parked** until you send an explicit new prompt. The composer and Session pane label an idle non-empty queue `parked: N`.
 
+On omp 18.4.6 or newer, clicking the queue chip lists the queued steering and follow-up messages. **Promote** moves a follow-up into steering: while the agent runs it is delivered at the next tool boundary, and while the agent is idle (including parked after an interrupt) it starts a turn right away. Advisor cards and deferred items are counted but not listed. In the compact shell the list sits in the prompt-options sheet.
+
 ### Rewinding and the session tree
 
 Hover a prompt in a live native transcript and two chips appear under it: **rewind here** and **edit and resend** ([#680](https://github.com/LankfordAI/omp-ui/issues/680)). Rewinding returns the session to that prompt — the later turns stop being the current branch but stay in the session file as another branch, so nothing is deleted. **Edit and resend** rewinds and then puts the original prompt, with its images, back into the composer for you to change and send. The transcript reloads on the new branch and the session title stays. A rewind needs a live, idle native session: while a turn is running the affordances are disabled, because rewinding also clears the prompt queue. The confirmation names how many later turns leave the current branch; cancelling it moves nothing.

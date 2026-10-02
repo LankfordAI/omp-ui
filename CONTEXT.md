@@ -576,7 +576,9 @@ steers, but also advisor cards, agent-authored custom entries, and deferred
 messages — and queued follow-ups only drain at a clean turn end: after a user
 interrupt they park until an explicit new prompt. The composer therefore labels
 the count `parked: N` whenever the agent is not running, since nothing drains
-while idle (issue #181).
+while idle (issue #181). A parked follow-up can be *promoted* from the queue
+chip, which moves it into steering and, since the session is idle, starts a
+turn (issue #714).
 _Avoid_: stuck queue, ghost message
 
 **Proposed plans pane**:

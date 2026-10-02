@@ -208,6 +208,24 @@ describe("handleRpcFrame routing", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
   });
 
+  it("queue_update lists omp's queue without touching get_state's count (issue #714)", () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          session: { ...emptySessionRuntime(), queuedMessageCount: 5 },
+        }),
+      },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "queue_update",
+      steering: ["s1"],
+      followUp: ["f1", "f2"],
+    });
+    const session = h.useStore.getState().rpc[h.TAB]!.session;
+    expect(session.queuedMessages).toEqual({ steering: ["s1"], followUp: ["f1", "f2"] });
+    expect(session.queuedMessageCount).toBe(5);
+  });
+
   it("refreshes get_state and get_session_stats live on message_end while the agent runs", () => {
     h.useStore.setState({
       rpc: { [`${h.TAB}-live`]: rpcTabState({ status: "running" }) },
