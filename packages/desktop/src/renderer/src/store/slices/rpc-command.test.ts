@@ -711,6 +711,7 @@ describe("late-ack command classification (issue #335)", () => {
       "set_thinking_level",
       "set_steering_mode",
       "set_fast_mode",
+      "goal",
     ]) {
       expect(h.isLateAckCommand({ type })).toBe(false);
     }

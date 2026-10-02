@@ -61,16 +61,17 @@ what the tests exercise.
 - **Forcing values through overlays (rejected).** Writing `magicKeywords.*`
   or `goal.*` into every spawn would make the read trivial — and would be a
   write into the user's configuration semantics, which ADR-0025 put out of
-  bounds for exactly this kind of convenience.
+  bounds for exactly this kind of convenience. Narrowed by ADR-0046 for
+  `goal.continuationModes`.
 
 ## Consequences
 
 - **The two module paths are omp-internal.** A rename breaks both reads at
   once, and it must fail loudly: `magic-keywords-live.test.ts` case 1
-  deep-compares the published table against the port's, the bridge-gate case
-  compares the settings rows, and `goal-bridge-live.test.ts` refuses to let
-  the goal snapshot stay unavailable. All three run under `npm run test:live`
-  against the installed binary.
+  deep-compares the published table against the port's, and the bridge-gate
+  case compares the settings rows. Both run under `npm run test:live` against
+  the installed binary. `goal-bridge-live.test.ts` no longer exists: goal mode
+  left the bridges (ADR-0046).
 - **"Cannot tell" is its own state.** An unavailable registry publishes
   `missing-api`/`read-failed`, never a roster of `enabled: false` rows; the
   composer then falls back to painting every keyword — the pre-gate

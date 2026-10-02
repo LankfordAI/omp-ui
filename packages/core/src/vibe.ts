@@ -1,6 +1,6 @@
 // The vibe-command wire contract. Pure — zero runtime imports — because the
 // renderer imports it directly via the @omp-ui/core/vibe subpath, exactly like
-// goal.ts and plan.ts. The generating half (which writes the extension file)
+// capabilities.ts and plan.ts. The generating half (which writes the extension file)
 // lives in vibe-extension.ts and consumes these same constants, so the two
 // sides of the channel can never drift.
 //
@@ -45,9 +45,9 @@ export const VIBE_LIFECYCLE_CUSTOM_TYPE = "vibe-session-lifecycle";
 export const VIBE_TOOL_NAMES = ["vibe_spawn", "vibe_send", "vibe_wait", "vibe_kill", "vibe_list"] as const;
 /**
  * Registry key holding the one root-local mode-transition chain shared by the
- * plan, goal, and vibe bridges, so two mode activations cannot both win.
+ * plan and vibe bridges, so two mode activations cannot both win.
  * `Symbol.for` makes it one chain per process across independently generated
- * extension modules; the value is goal.ts's key verbatim.
+ * extension modules.
  */
 export const VIBE_MODE_TRANSITION_KEY = "omp-ui:mode-transition";
 

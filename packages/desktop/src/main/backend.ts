@@ -1504,11 +1504,11 @@ export class MainBackend {
       }
     }
     const gate = this.sessions.planGate(record.tabId);
-    // Ephemeral like the plan gate: the bridge inside the live child owns goal
+    // Ephemeral like the plan gate: omp's runtime in the live child owns goal
     // state, so a session with no live process reports none instead of a
-    // remembered one (issue #381).
-    const goal = this.sessions.goalSnapshot(record.tabId);
-    // Ephemeral like the goal snapshot: the bridge inside the live child owns
+    // remembered one (issue #381, ADR-0046).
+    const goal = this.sessions.goalState(record.tabId);
+    // Ephemeral like the goal state: the bridge inside the live child owns
     // vibe state, so a session with no live process reports none (#683).
     const vibe = this.sessions.vibeSnapshot(record.tabId);
     const autoresearch = this.sessions.autoresearchSnapshot(record.tabId);

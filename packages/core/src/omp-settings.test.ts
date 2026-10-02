@@ -5,6 +5,7 @@ import {
   execOmpConfigRunner,
   parseEnumOptions,
   readOmpCompactionMethods,
+  readOmpGoalContinuationModes,
   readOmpSettings,
   readWebSearchProviders,
   writeOmpSetting,
@@ -105,6 +106,22 @@ describe("readOmpCompactionMethods", () => {
         fakeRunner({ global: {}, pristine: {} }, null),
       ),
     ).rejects.toThrow("compaction.methodOrder");
+  });
+});
+
+describe("readOmpGoalContinuationModes", () => {
+  it("reads the effective project value through and rejects a malformed one", async () => {
+    const read = (value: unknown) =>
+      readOmpGoalContinuationModes(
+        { ompPath: OMP, projectCwd: "/repo" },
+        fakeRunner(
+          { effective: { "goal.continuationModes": entry(value, "array") }, global: {}, pristine: {} },
+          "/repo",
+        ),
+      );
+    await expect(read(["interactive"])).resolves.toEqual(["interactive"]);
+    await expect(read([])).resolves.toEqual([]);
+    await expect(read("interactive")).rejects.toThrow("goal.continuationModes");
   });
 });
 

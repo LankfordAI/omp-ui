@@ -10,7 +10,7 @@ import { advisorStatsExtensionPath } from "./advisor-stats-extension";
 import { browserPaneExtensionPath } from "./browser-pane-extension";
 import { capabilitiesExtensionPath } from "./capabilities-extension";
 import { compactionMethodOverlayPath } from "./compaction-overlay";
-import { goalExtensionPath } from "./goal-extension";
+import { goalOverlayPath } from "./goal-overlay";
 import { limitsExtensionPath } from "./limits-extension";
 import { mcpStatusExtensionPath } from "./mcp-status-extension";
 import { modelOverlayPath } from "./model-overlay";
@@ -96,10 +96,9 @@ const LOG_FILES = [
   "breadcrumbs.log.old",
 ] as const;
 
-/** The 12 generated per-session files (9 extensions + 3 overlays). */
+/** The 12 generated per-session files (8 extensions + 4 overlays). */
 const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   planExtensionPath,
-  goalExtensionPath,
   capabilitiesExtensionPath,
   advisorStatsExtensionPath,
   mcpStatusExtensionPath,
@@ -110,6 +109,7 @@ const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   advisorOverlayPath,
   modelOverlayPath,
   compactionMethodOverlayPath,
+  goalOverlayPath,
 ];
 
 /** One planned file: either a source path to copy, or bytes built in memory. */

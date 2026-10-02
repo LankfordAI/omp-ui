@@ -1,10 +1,4 @@
-import {
-  GOAL_STATUS_KEY,
-  parseGoalSnapshot,
-  type GoalSnapshot,
-  type RpcFrame,
-} from "@omp-ui/core";
-import { BridgeSnapshotTracker } from "./bridge-snapshot-tracker";
+import { goalStateFromFrame, goalWorkLive, type GoalState, type RpcFrame } from "@omp-ui/core";
 import type { FrameObserver } from "./frame-observer";
 
 export interface GoalStatusTrackerDeps {
@@ -12,47 +6,38 @@ export interface GoalStatusTrackerDeps {
   broadcast: () => Promise<void>;
 }
 
-/** Read-only goal projection plus the conservative live-work hibernation veto. */
+/**
+ * Mirrors omp's goal state per live tab from goal responses, get_state and
+ * goal_updated (ADR-0046), plus the hibernation veto while omp would continue
+ * the goal. Absent = this tab's live process has reported nothing yet.
+ */
 export class GoalStatusTracker implements FrameObserver {
-  private readonly goalWorkLive = new Map<string, boolean>();
-  private readonly snapshots: BridgeSnapshotTracker<GoalSnapshot>;
+  private readonly states = new Map<string, GoalState | null>();
 
-  constructor(deps: GoalStatusTrackerDeps) {
-    this.snapshots = new BridgeSnapshotTracker({
-      statusKey: GOAL_STATUS_KEY,
-      parse: parseGoalSnapshot,
-      broadcast: deps.broadcast,
-      onAccept: (tabId, snapshot) => {
-        this.goalWorkLive.set(
-          tabId,
-          snapshot.available
-            ? snapshot.continuation === "scheduled" ||
-                snapshot.continuation === "running" ||
-                snapshot.goal?.status === "active"
-            : (this.goalWorkLive.get(tabId) ?? false),
-        );
-      },
-      onClear: (tabId) => this.goalWorkLive.delete(tabId),
-    });
-  }
+  constructor(private readonly deps: GoalStatusTrackerDeps) {}
 
-  snapshot(tabId: string): GoalSnapshot | undefined {
-    return this.snapshots.snapshot(tabId);
+  state(tabId: string): GoalState | null | undefined {
+    return this.states.get(tabId);
   }
 
   preventsHibernation(tabId: string): boolean {
-    return this.goalWorkLive.get(tabId) === true;
+    return goalWorkLive(this.states.get(tabId) ?? null);
   }
 
   onFrame(tabId: string, frame: RpcFrame): void {
-    this.snapshots.onFrame(tabId, frame);
+    const next = goalStateFromFrame(frame);
+    if (next === undefined) return;
+    const prev = this.states.get(tabId);
+    if (prev !== undefined && JSON.stringify(prev) === JSON.stringify(next)) return;
+    this.states.set(tabId, next);
+    void this.deps.broadcast();
   }
 
   onExit(tabId: string): void {
-    this.snapshots.onExit(tabId);
+    if (this.states.delete(tabId)) void this.deps.broadcast();
   }
 
   dispose(tabId: string): void {
-    this.snapshots.dispose(tabId);
+    this.onExit(tabId);
   }
 }

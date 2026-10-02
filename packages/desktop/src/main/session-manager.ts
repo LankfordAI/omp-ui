@@ -14,7 +14,6 @@ import {
   setHostToolsCommand,
   setHostUriSchemesCommand,
   autoresearchArmMessage,
-  goalArmMessage,
   vibeArmMessage,
   mintLineageDirName,
   settledWithin,
@@ -55,7 +54,7 @@ import {
   type OwnedSessionRecord,
   type RpcFrame,
   type ResumeSpawnRequest,
-  type GoalSnapshot,
+  type GoalState,
   type VibeSnapshot,
   type AutoresearchSnapshot,
   type CapabilityToolMutationRequest,
@@ -794,19 +793,9 @@ export class SessionManager {
         message: mcpRuntimeStatusMessage(),
       });
     }
-    // The goal bridge arms before the plan command: its restoration is what
-    // tells Plan entry whether an unfinished goal owns the mode slot, and a plan
-    // that started before it would read an unrestored session and enter anyway.
-    if (bridgeLoaded.goal) {
-      initialCommands.push({
-        type: "prompt",
-        id: `omp-ui-initial-goal-${randomUUID()}`,
-        message: goalArmMessage(),
-      });
-    }
-    // The vibe bridge arms after goal and before plan: its restore re-checks
-    // the goal bridge's restored state before re-arming a saved vibe mode, and
-    // a plan command must never run against an unrestored mode slot.
+    // The vibe bridge arms before the plan command: its restore reads omp's
+    // native goal state before re-arming a saved vibe mode, and a plan command
+    // must never run against an unrestored mode slot.
     if (bridgeLoaded.vibe) {
       initialCommands.push({
         type: "prompt",
@@ -1354,9 +1343,9 @@ export class SessionManager {
     }
   }
 
-  /** The live session's goal snapshot, as its own bridge published it (issue #381). */
-  goalSnapshot(tabId: string): GoalSnapshot | undefined {
-    return this.goals.snapshot(tabId);
+  /** The live session's goal state; omp's runtime in the live child owns it (ADR-0046). */
+  goalState(tabId: string): GoalState | null | undefined {
+    return this.goals.state(tabId);
   }
 
   /** The live session's vibe snapshot, as its own bridge published it (issue #683). */

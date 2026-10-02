@@ -1185,13 +1185,8 @@ describe("Composer BuildPlanControl", () => {
         [TAB]: {
           ...useStore.getState().rpc[TAB]!,
           goal: {
-            version: 1,
-            processKey: "proc",
-            sessionId: "s",
-            revision: 3,
-            available: true,
-            unavailable: null,
-            enabled: true,
+            enabled: false,
+            exiting: false,
             goal: {
               id: "g1",
               objective: "finish the migration",
@@ -1202,9 +1197,6 @@ describe("Composer BuildPlanControl", () => {
               createdAt: 1,
               updatedAt: 2,
             },
-            continuation: "idle",
-            pauseReason: "Paused by /goal pause.",
-            result: null,
           },
         },
       },
@@ -1224,13 +1216,8 @@ describe("Composer BuildPlanControl", () => {
         [TAB]: {
           ...useStore.getState().rpc[TAB]!,
           goal: {
-            version: 1,
-            processKey: "proc",
-            sessionId: "s",
-            revision: 4,
-            available: true,
-            unavailable: null,
             enabled: false,
+            exiting: true,
             goal: {
               id: "g1",
               objective: "finish the migration",
@@ -1241,9 +1228,6 @@ describe("Composer BuildPlanControl", () => {
               createdAt: 1,
               updatedAt: 2,
             },
-            continuation: "idle",
-            pauseReason: null,
-            result: null,
           },
         },
       },
@@ -1272,12 +1256,12 @@ describe("Composer BuildPlanControl", () => {
       .map((b) => b.textContent?.trim() ?? "")
       .filter((text) => text.startsWith("/goal"));
     // OMP's TUI-only builtin `goal` is filtered out of the roster, so the family
-    // appears exactly once, parent plus the bridge's six subcommands (#381).
+    // appears exactly once, parent plus its five subcommands (#381).
     expect(texts.filter((t) => /^\/goal(?:\[|$)/.test(t))).toHaveLength(1);
-    for (const verb of ["set", "show", "pause", "resume", "drop", "budget"]) {
+    for (const verb of ["set", "show", "pause", "resume", "drop"]) {
       expect(texts.filter((t) => t.startsWith(`/goal ${verb}`))).toHaveLength(1);
     }
-    expect(texts).toHaveLength(7);
+    expect(texts).toHaveLength(6);
     expect(document.body.textContent).toContain(
       "goal — one objective this session works toward on its own",
     );
@@ -1379,7 +1363,7 @@ describe("Composer slash completion (#382)", () => {
     const textarea = typeDraft("/goal");
     press(textarea, "Tab");
     expect(textarea.value).toBe("/goal ");
-    // The completion opens the second stage instead of dismissing: the six
+    // The completion opens the second stage instead of dismissing: the five
     // goal verbs in advertised order, no parent row, no guided-goal row.
     expect(slashRows()).toEqual([
       "/goal set",
@@ -1387,7 +1371,6 @@ describe("Composer slash completion (#382)", () => {
       "/goal pause",
       "/goal resume",
       "/goal drop",
-      "/goal budget",
     ]);
     typeDraft("/goal s");
     // Fuzzy names: set/show start with s, resume/pause merely contain it.
@@ -1437,7 +1420,7 @@ describe("Composer slash completion (#382)", () => {
     seed("ready");
     renderComposer();
     const textarea = typeDraft("/goal ");
-    expect(slashRows()).toHaveLength(6);
+    expect(slashRows()).toHaveLength(5);
     press(textarea, "Escape");
     expect(slashRows()).toEqual([]);
     expect(abortAgent).not.toHaveBeenCalled();

@@ -38,7 +38,7 @@ import {
  * 18.4.2 runtime, issue #683 Phase 0).
  *
  * Activation is admitted through one root-local mode-transition chain shared
- * with the plan and goal bridges under `Symbol.for("omp-ui:mode-transition")`;
+ * with the plan bridge under `Symbol.for("omp-ui:mode-transition")`;
  * the chain is never held across a worker tool call. Exit runs the per-worker
  * kill instead of omp's `killAll` (unreachable from the shim's module map):
  * explicit-kill tombstones instead of mode-exit ones — the accepted delta in

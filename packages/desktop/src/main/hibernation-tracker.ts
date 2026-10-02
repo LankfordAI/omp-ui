@@ -54,9 +54,9 @@ export interface HibernationTrackerDeps {
   awaitingHumanAnswer: (tabId: string) => boolean;
   isViewed: (tabId: string) => boolean;
   /**
-   * True while the session's own goal bridge reports an active goal or a
-   * scheduled/running continuation (issue #381). The loop runs in the child, so
-   * hibernating here would silently end autonomous work no renderer is watching.
+   * True while omp reports an enabled, active goal (issue #381, ADR-0046) or a
+   * live vibe worker. omp's continuation runs in the child, so hibernating here
+   * would silently end autonomous work no renderer is watching.
    */
   preventsHibernation: (tabId: string) => boolean;
   /** The manager's SIGTERM → grace → SIGKILL reap primitive. */

@@ -49,6 +49,7 @@ export const SESSION_COMMANDS = {
   abort_retry: { lateAck: false },
   set_session_name: { lateAck: false },
   set_todos: { lateAck: false },
+  goal: { lateAck: false },
 } as const satisfies Record<string, SessionCommandDescriptor>;
 
 export type SessionCommandType = keyof typeof SESSION_COMMANDS;

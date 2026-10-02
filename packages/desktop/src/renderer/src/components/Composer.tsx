@@ -9,7 +9,6 @@ import {
 } from "react";
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
-import { GOAL_COMMAND } from "@omp-ui/core/goal";
 import { BTW_COMMAND } from "@omp-ui/core/side-questions";
 import { AUTORESEARCH_COMMAND } from "@omp-ui/core/autoresearch";
 import { VIBE_COMMAND } from "@omp-ui/core/vibe";
@@ -87,10 +86,9 @@ export function Composer({
   // UI_PLAN_COMMAND is the palette's one canonical plan entry: omp's own
   // `plan` is TUI-only (ADR-0007) and the extension's `omp-ui-plan` is the
   // driver the intercept rewrites to, so both are filtered out.
-  // The goal family is UI-owned the same way (issue #381): it stays listed even
-  // when the bridge is unavailable — an undiscoverable command is the very
-  // failure this surface fixes — and a future omp that advertises `goal` itself
-  // can never produce a second row for the same action.
+  // The goal family is UI-owned the same way (issue #381, ADR-0046): the
+  // composer intercepts it and drives omp's native goal command, so omp's own
+  // advertised `goal` can never produce a second row for the same action.
   const paletteCommands = useMemo(() => {
     const uiEntries: SlashCommandInfo[] = [
       // omp-ui's own entries get their palette copy from the catalog (issue #363).
@@ -140,7 +138,6 @@ export function Composer({
           c.name !== "plan" &&
           c.name !== PLAN_COMMAND &&
           c.name !== CAPABILITIES_COMMAND &&
-          c.name !== GOAL_COMMAND &&
           c.name !== BTW_COMMAND &&
           c.name !== VIBE_COMMAND &&
           c.name !== AUTORESEARCH_COMMAND &&
@@ -1301,25 +1298,24 @@ const UI_PLAN_COMMAND: SlashCommandInfo = {
 /**
  * omp's goal family, offered as omp-ui's own rows (issue #381). `goal` and
  * `guided-goal` reach the model as literal prose over rpc unless the composer
- * intercepts them, and the hidden `omp-ui-goal` bridge command is the driver the
- * intercept dispatches — so neither may appear as a second row.
+ * intercepts them; the intercept drives omp's native goal command (ADR-0046),
+ * so omp's advertised `goal` never appears as a second row.
  */
 const UI_GOAL_COMMAND: SlashCommandInfo = {
   name: "goal",
   description: "goal — one objective this session works toward on its own",
   source: "omp-ui",
-  input: { hint: "[objective]" },
+  input: { hint: "[--budget N] [objective]" },
   subcommands: [],
 };
 
 /** Palette copy for each subcommand, resolved against the locale at build time. */
 const UI_GOAL_SUBCOMMANDS: { name: string; usage?: string; key: MessageKey }[] = [
-  { name: "set", usage: "<objective>", key: "composer.slash.goalSet" },
+  { name: "set", usage: "[--budget N] <objective>", key: "composer.slash.goalSet" },
   { name: "show", key: "composer.slash.goalShow" },
   { name: "pause", key: "composer.slash.goalPause" },
   { name: "resume", key: "composer.slash.goalResume" },
   { name: "drop", key: "composer.slash.goalDrop" },
-  { name: "budget", usage: "<N|off>", key: "composer.slash.goalBudget" },
 ];
 
 const UI_GUIDED_GOAL_COMMAND: SlashCommandInfo = {

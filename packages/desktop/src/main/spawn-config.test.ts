@@ -26,7 +26,6 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     advisorStats: () => write("advisorStats"),
     mcpStatus: () => write("mcpStatus"),
     capabilities: () => write("capabilities"),
-    goal: () => write("goal"),
     vibe: () => write("vibe"),
     browserPane: () => write("browserPane"),
     autoresearch: () => write("autoresearch"),
@@ -48,7 +47,6 @@ describe("writeRpcExtensions", () => {
       paths: [
         "/mcpStatus.ts",
         "/capabilities.ts",
-        "/goal.ts",
         "/vibe.ts",
         "/browserPane.ts",
         "/autoresearch.ts",
@@ -61,7 +59,6 @@ describe("writeRpcExtensions", () => {
         advisorStats: false,
         mcpStatus: true,
         capabilities: true,
-        goal: true,
         vibe: true,
         browserPane: true,
         autoresearch: true,

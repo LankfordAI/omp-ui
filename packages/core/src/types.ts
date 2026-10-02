@@ -2,7 +2,7 @@
 // the @omp-ui/core/types subpath.
 import type { BrowserPaneAgentState } from "./browser-pane";
 import type { RpcFrame } from "./rpc/codec";
-import type { GoalSnapshot } from "./goal";
+import type { GoalState } from "./goal";
 import type { VibeSnapshot } from "./vibe";
 import type { AutoresearchSnapshot } from "./autoresearch";
 import type { SubagentModelMap } from "./subagent-model";
@@ -486,12 +486,13 @@ export interface SessionSummary extends OwnedSessionRecord {
    */
   pendingDialogs?: RpcFrame[];
   /**
-   * The live session's goal snapshot as its own bridge published it (issue #381).
-   * Ephemeral runtime state like `pendingPlan`: never persisted, absent for a
-   * session with no live goal bridge, and never a second copy of goal state —
-   * omp's runtime inside the child stays the only owner.
+   * The live session's goal state as omp last reported it (ADR-0046). omp's
+   * runtime inside the child owns it; main mirrors the last value omp reported
+   * over goal responses, get_state, and goal_updated. Ephemeral runtime state
+   * like `pendingPlan`: never persisted. Absent means no live process has
+   * reported; null means a live process reports no goal.
    */
-  goal?: GoalSnapshot;
+  goal?: GoalState | null;
   /**
    * The live session's vibe snapshot as its own bridge published it (issue #683).
    * Ephemeral runtime state like `goal`: never persisted, absent for a session

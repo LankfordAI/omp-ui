@@ -1,50 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { GOAL_STATUS_KEY, type GoalSnapshot, type NativeGoal, type RpcFrame } from "@omp-ui/core";
+import type { GoalStatus, NativeGoal, RpcFrame } from "@omp-ui/core";
 import { GoalStatusTracker } from "./goal-status-tracker";
 
 const GOAL: NativeGoal = {
   id: "g1",
   objective: "finish the migration",
   status: "active",
-  tokenBudget: null,
-  tokensUsed: 0,
-  timeUsedSeconds: 0,
+  tokenBudget: 5000,
+  tokensUsed: 120,
+  timeUsedSeconds: 3,
   createdAt: 1,
   updatedAt: 1,
 };
 
-function snapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
+/** omp's GoalModeState wire shape for one goal status ("dropped" included). */
+function wireState(status: GoalStatus | "dropped", overrides: Partial<NativeGoal> = {}) {
   return {
-    version: 1,
-    processKey: "proc-a",
-    sessionId: "session-1",
-    revision: 1,
-    available: true,
-    unavailable: null,
-    enabled: true,
-    goal: { ...GOAL },
-    continuation: "idle",
-    pauseReason: null,
-    result: null,
-    ...overrides,
+    enabled: status === "active" || status === "budget-limited",
+    mode: "active",
+    goal: { ...GOAL, status, ...overrides },
   };
 }
 
-/** The goal every fixture shares, so a case can vary one field at a time. */
-function baseGoal(): NativeGoal {
-  const value = snapshot().goal;
-  if (value === null) throw new Error("fixture goal must exist");
-  return value;
+function goalUpdated(status: GoalStatus | "dropped", overrides: Partial<NativeGoal> = {}): RpcFrame {
+  const state = wireState(status, overrides);
+  return { type: "goal_updated", goal: state.goal, state } as RpcFrame;
 }
 
-function statusFrame(value: GoalSnapshot | string): RpcFrame {
-  return {
-    type: "extension_ui_request",
-    id: "frame-1",
-    method: "setStatus",
-    statusKey: GOAL_STATUS_KEY,
-    statusText: typeof value === "string" ? value : JSON.stringify(value),
-  } as RpcFrame;
+function response(command: string, success: boolean, data: unknown, error?: string): RpcFrame {
+  return { type: "response", id: "r1", command, success, data, ...(error ? { error } : {}) } as RpcFrame;
 }
 
 function tracker(): { goals: GoalStatusTracker; broadcasts: () => number } {
@@ -58,134 +42,97 @@ function tracker(): { goals: GoalStatusTracker; broadcasts: () => number } {
   return { goals, broadcasts: () => broadcasts };
 }
 
-/** Drains the tracker's fire-and-forget broadcasts. */
-async function drain(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
-
 describe("GoalStatusTracker", () => {
-  it("keeps the newest snapshot from one bridge and drops an older revision", async () => {
-    const { goals } = tracker();
-    goals.onFrame("tab", statusFrame(snapshot({ revision: 4 })));
-    expect(goals.snapshot("tab")?.revision).toBe(4);
-    goals.onFrame("tab", statusFrame(snapshot({ revision: 3 })));
-    expect(goals.snapshot("tab")?.revision).toBe(4);
-    goals.onFrame("tab", statusFrame(snapshot({ revision: 5, pauseReason: "later" })));
-    expect(goals.snapshot("tab")?.pauseReason).toBe("later");
-  });
-
-  it("accepts a replacement process and drops the retired generation's late frames", async () => {
-    const { goals } = tracker();
-    goals.onFrame("tab", statusFrame(snapshot({ processKey: "proc-a", revision: 9 })));
-    goals.onFrame("tab", statusFrame(snapshot({ processKey: "proc-b", revision: 1 })));
-    expect(goals.snapshot("tab")?.processKey).toBe("proc-b");
-    // A frame still in flight from the killed spawn cannot outvote the successor,
-    // no matter how high its own counter runs.
-    goals.onFrame("tab", statusFrame(snapshot({ processKey: "proc-a", revision: 99 })));
-    expect(goals.snapshot("tab")?.processKey).toBe("proc-b");
-  });
-
-  it("keeps the last good snapshot when a publish is malformed", async () => {
-    const { goals } = tracker();
-    goals.onFrame("tab", statusFrame(snapshot()));
-    goals.onFrame("tab", statusFrame("{not json"));
-    expect(goals.snapshot("tab")?.goal?.objective).toBe("finish the migration");
-    expect(goals.preventsHibernation("tab")).toBe(true);
-  });
-
-  it("vetoes hibernation for active goals and live continuations only", async () => {
-    const { goals } = tracker();
-    goals.onFrame("tab", statusFrame(snapshot({ revision: 1, goal: null, enabled: false })));
-    expect(goals.preventsHibernation("tab")).toBe(false);
-
-    goals.onFrame("tab", statusFrame(snapshot({ revision: 2, goal: null, enabled: false, continuation: "scheduled" })));
-    expect(goals.preventsHibernation("tab")).toBe(true);
-    goals.onFrame("tab", statusFrame(snapshot({ revision: 3, goal: null, enabled: false, continuation: "running" })));
-    expect(goals.preventsHibernation("tab")).toBe(true);
-
-    // A paused or budget-limited idle goal owns no loop: ordinary idle rules apply.
-    goals.onFrame(
-      "tab",
-      statusFrame(snapshot({ revision: 4, enabled: false, goal: { ...baseGoal(), status: "paused" }, continuation: "idle" })),
-    );
-    expect(goals.preventsHibernation("tab")).toBe(false);
-    goals.onFrame(
-      "tab",
-      statusFrame(
-        snapshot({ revision: 5, goal: { ...baseGoal(), status: "budget-limited" }, continuation: "idle" }),
-      ),
-    );
-    expect(goals.preventsHibernation("tab")).toBe(false);
-  });
-
-  it("treats lost status after a known active goal conservatively", async () => {
-    const { goals } = tracker();
-    goals.onFrame("tab", statusFrame(snapshot()));
-    expect(goals.preventsHibernation("tab")).toBe(true);
-    // The bridge broke: no loop is observable, but the goal is still unfinished,
-    // so nothing may be reaped until a valid state or the process says otherwise.
-    goals.onFrame(
-      "tab",
-      statusFrame(
-        snapshot({
-          available: false,
-          unavailable: "goalRuntime is missing: resumeGoal",
-          enabled: false,
-          goal: null,
-          continuation: "idle",
-          revision: 2,
-        }),
-      ),
-    );
-    expect(goals.snapshot("tab")?.available).toBe(false);
-    expect(goals.preventsHibernation("tab")).toBe(true);
-    goals.onFrame("tab", statusFrame(snapshot({ goal: null, enabled: false, revision: 3 })));
-    expect(goals.preventsHibernation("tab")).toBe(false);
-  });
-
-  it("stops vetoing the moment the process dies", async () => {
-    const { goals } = tracker();
-    goals.onFrame("tab", statusFrame(snapshot({ continuation: "running" })));
-    expect(goals.preventsHibernation("tab")).toBe(true);
-    goals.onExit("tab");
-    expect(goals.snapshot("tab")).toBeUndefined();
-    expect(goals.preventsHibernation("tab")).toBe(false);
-    // A successor starts clean: nothing from the dead generation survives.
-    goals.onFrame("tab", statusFrame(snapshot({ goal: null, enabled: false, processKey: "proc-b" })));
-    expect(goals.preventsHibernation("tab")).toBe(false);
-  });
-
-  it("broadcasts only when the accepted state actually changes", async () => {
+  it("stores an active goal from goal_updated and vetoes hibernation", () => {
     const { goals, broadcasts } = tracker();
-    goals.onFrame("tab", statusFrame(snapshot()));
-    await drain();
+    expect(goals.state("tab")).toBeUndefined();
+    goals.onFrame("tab", goalUpdated("active"));
+    expect(goals.state("tab")).toEqual({ enabled: true, exiting: false, goal: GOAL });
+    expect(goals.preventsHibernation("tab")).toBe(true);
     expect(broadcasts()).toBe(1);
-    goals.onFrame("tab", statusFrame(snapshot()));
-    await drain();
-    expect(broadcasts()).toBe(1);
-    goals.onFrame("tab", statusFrame(snapshot({ revision: 2, continuation: "scheduled" })));
-    await drain();
+  });
+
+  it("stores a paused goal without vetoing hibernation", () => {
+    const { goals } = tracker();
+    goals.onFrame("tab", goalUpdated("active"));
+    goals.onFrame("tab", response("goal", true, { goal: { ...GOAL, status: "paused" }, state: wireState("paused") }));
+    expect(goals.state("tab")?.goal.status).toBe("paused");
+    expect(goals.state("tab")?.enabled).toBe(false);
+    expect(goals.preventsHibernation("tab")).toBe(false);
+  });
+
+  it("does not veto hibernation for a budget-limited goal", () => {
+    const { goals } = tracker();
+    goals.onFrame("tab", goalUpdated("budget-limited"));
+    expect(goals.state("tab")?.goal.status).toBe("budget-limited");
+    expect(goals.preventsHibernation("tab")).toBe(false);
+  });
+
+  it("a dropped goal_updated becomes null and releases the veto", () => {
+    const { goals, broadcasts } = tracker();
+    goals.onFrame("tab", goalUpdated("active"));
+    goals.onFrame("tab", goalUpdated("dropped"));
+    expect(goals.state("tab")).toBeNull();
+    expect(goals.preventsHibernation("tab")).toBe(false);
     expect(broadcasts()).toBe(2);
   });
 
-  it("ignores another bridge's status channel entirely", () => {
-    const { goals } = tracker();
-    goals.onFrame("tab", {
-      type: "extension_ui_request",
-      id: "x",
-      method: "setStatus",
-      statusKey: "omp-ui:capabilities",
-      statusText: JSON.stringify(snapshot()),
-    } as RpcFrame);
-    expect(goals.snapshot("tab")).toBeUndefined();
+  it("reads get_state.goal, and a get_state without the key leaves state untouched", () => {
+    const { goals, broadcasts } = tracker();
+    goals.onFrame("tab", response("get_state", true, { goal: wireState("active") }));
+    expect(goals.state("tab")?.goal.id).toBe("g1");
+    goals.onFrame("tab", response("get_state", true, { thinkingLevel: "high" }));
+    expect(goals.state("tab")?.goal.id).toBe("g1");
+    expect(broadcasts()).toBe(1);
   });
 
-  it("clears on dispose so a deleted tab cannot keep a session awake", async () => {
-    const { goals } = tracker();
-    goals.onFrame("tab", statusFrame(snapshot()));
-    goals.dispose("tab");
-    await drain();
+  it("an old omp's get_state without the key reports nothing, keeping the tab absent", () => {
+    const { goals, broadcasts } = tracker();
+    goals.onFrame("tab", response("get_state", true, { thinkingLevel: "high" }));
+    expect(goals.state("tab")).toBeUndefined();
+    expect(broadcasts()).toBe(0);
+  });
+
+  it("a failed goal response is ignored", () => {
+    const { goals, broadcasts } = tracker();
+    goals.onFrame("tab", goalUpdated("active"));
+    goals.onFrame(
+      "tab",
+      response("goal", false, undefined, "A goal is already active. Drop it before creating another."),
+    );
+    expect(goals.state("tab")?.goal.status).toBe("active");
+    expect(broadcasts()).toBe(1);
+  });
+
+  it("a malformed state keeps the last good one", () => {
+    const { goals, broadcasts } = tracker();
+    goals.onFrame("tab", goalUpdated("active"));
+    goals.onFrame("tab", goalUpdated("active", { tokensUsed: -1 }));
+    goals.onFrame("tab", { type: "goal_updated", goal: null, state: "garbage" } as RpcFrame);
+    expect(goals.state("tab")).toEqual({ enabled: true, exiting: false, goal: GOAL });
+    expect(goals.preventsHibernation("tab")).toBe(true);
+    expect(broadcasts()).toBe(1);
+  });
+
+  it("an identical state does not broadcast again", () => {
+    const { goals, broadcasts } = tracker();
+    goals.onFrame("tab", goalUpdated("active"));
+    goals.onFrame("tab", response("get_state", true, { goal: wireState("active") }));
+    expect(broadcasts()).toBe(1);
+    goals.onFrame("tab", goalUpdated("active", { tokensUsed: 500 }));
+    expect(broadcasts()).toBe(2);
+  });
+
+  it("onExit clears the tab and broadcasts once", () => {
+    const { goals, broadcasts } = tracker();
+    goals.onFrame("tab", goalUpdated("active"));
+    goals.onFrame("other", goalUpdated("active"));
+    expect(broadcasts()).toBe(2);
+    goals.onExit("tab");
+    goals.onExit("tab");
+    expect(goals.state("tab")).toBeUndefined();
     expect(goals.preventsHibernation("tab")).toBe(false);
+    expect(goals.state("other")?.goal.id).toBe("g1");
+    expect(broadcasts()).toBe(3);
   });
 });

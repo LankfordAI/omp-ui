@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
-import type { NativeGoal } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import { vibeWorkLive } from "@omp-ui/core/vibe";
 import type { LimitsView } from "@omp-ui/core/limits";
@@ -26,6 +25,7 @@ import { BuildPlanControl } from "./BuildPlanControl";
 import { FastModeControl, fastModeState } from "./FastModeControl";
 import { AdvisorRosterView } from "./AdvisorRoster";
 import { ApprovalModeControl } from "./ApprovalModeControl";
+import { GoalChip } from "./GoalChip";
 import { WorktreeChip } from "./WorktreeChip";
 import { Button, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconRefresh, IconSessionTree, IconTune, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
@@ -215,66 +215,6 @@ function StreamStallChip({
         ? t("hud.stall.short", { duration: formatDuration(stallMs) })
         : t("hud.stall.long", { duration: formatDuration(stallMs) })}
     </Chip>
-  );
-}
-
-/**
- * One session's goal, as the child's own bridge reports it (issue #381). The
- * HUD's job is the glanceable half — is a goal running, is it waiting on me,
- * how much budget is left — and nothing else: the objective belongs in the
- * accessible name and in `/goal show` output, never wrapped in HUD chrome.
- * Clicking dispatches bare `/goal`, which answers with the menu the current
- * state warrants or opens the objective editor when there is no goal yet.
- */
-function GoalChip({
-  goal,
-  tabId,
-  className,
-}: {
-  goal: NativeGoal;
-  tabId: string;
-  className?: string;
-}) {
-  const t = useT();
-  const runSlashCommand = useStore((s) => s.runSlashCommand);
-  const tone: Tone = goal.status === "active" ? "signal" : "copper";
-  const label =
-    goal.status === "active"
-      ? t("hud.goal.active")
-      : goal.status === "paused"
-        ? t("hud.goal.paused")
-        : goal.status === "budget-limited"
-          ? t("hud.goal.limited")
-          : t("hud.goal.complete");
-  const title =
-    goal.status === "active"
-      ? t("hud.goal.objective", { objective: goal.objective })
-      : goal.status === "paused"
-        ? t("hud.goal.pausedObjective", { objective: goal.objective })
-        : goal.status === "budget-limited"
-          ? t("hud.goal.limitedObjective", { objective: goal.objective })
-          : t("hud.goal.completeObjective", { objective: goal.objective });
-  const usage =
-    goal.tokenBudget === null
-      ? t("hud.goal.unbounded", { used: exactNum(goal.tokensUsed) })
-      : t("hud.goal.usage", {
-          used: exactNum(goal.tokensUsed),
-          budget: exactNum(goal.tokenBudget),
-        });
-  return (
-    <button
-      type="button"
-      onClick={() => void runSlashCommand(tabId, "/goal")}
-      title={`${title} — ${usage}. ${t("hud.goal.openTitle")}`}
-      aria-label={title}
-      className={cn("shrink-0 rounded border border-transparent", className)}
-    >
-      <Chip tone={tone} mono>
-        {goal.status === "active" && <Dot tone="signal" />}
-        {label}
-        <span className="opacity-70">{usage}</span>
-      </Chip>
-    </button>
   );
 }
 
@@ -1148,9 +1088,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
   );
   // The goal chip renders in both faces beside the mode chip, inside a no-drag
   // box in the wide HUD like every other control in that row.
-  const goalChip = goal?.goal != null && (
+  const goalChip = goal != null && (
     <GoalChip
-      goal={goal.goal}
+      state={goal}
       tabId={tabId}
       className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
     />

@@ -1,3 +1,4 @@
+import { goalOwnsSession } from "@omp-ui/core/goal";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
@@ -25,11 +26,11 @@ export function BuildPlanControl({
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const planEnabled = plan?.enabled ?? false;
   const unavailable = plan?.unavailable;
-  // A goal the session still owns — paused or budget-limited included — reserves
-  // the continuation; only a complete one releases plan entry. UI half of a
-  // decision whose authority lives in the generated plan extension, so raw RPC
-  // and the race window stay refused (issue #381).
-  const goalBlocksPlan = goal?.goal != null && goal.goal.status !== "complete";
+  // A goal the session still owns — paused or budget-limited included — blocks
+  // plan entry; only a complete one releases it. UI half of a decision whose
+  // authority lives in omp (it refuses goal create/resume in plan mode) and in
+  // the plan bridge's native getGoalModeState read (ADR-0046).
+  const goalBlocksPlan = goalOwnsSession(goal ?? null);
   // Vibe mode owns the same single mode slot omp persists; entering Plan
   // while the director runs would overwrite it (issue #683). The generated
   // plan extension refuses the same race on the bridge side.

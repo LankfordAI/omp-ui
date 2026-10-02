@@ -369,6 +369,26 @@ export async function readOmpCompactionMethods(
   }
 }
 
+/** Effective `goal.continuationModes` for a project, as `omp config list --json` reports it. */
+export async function readOmpGoalContinuationModes(
+  { ompPath, projectCwd }: { ompPath: string | null; projectCwd: string | null },
+  run: OmpConfigRunner = execOmpConfigRunner(ompPath ?? ""),
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string[]> {
+  if (ompPath === null) throw new Error("omp binary not found");
+  let neutralCwd: string | null = null;
+  try {
+    if (projectCwd === null) neutralCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-goal-"));
+    const text = await run(["config", "list", "--json"], { cwd: projectCwd ?? neutralCwd!, env });
+    const map = parseListJson(text);
+    const modes = map === null ? null : uniqueStrings(rawSetting(map, "goal.continuationModes")?.value);
+    if (modes === null) throw new Error("omp did not publish a valid goal.continuationModes");
+    return modes;
+  } finally {
+    removeTempDirs(neutralCwd);
+  }
+}
+
 /**
  * The provider ids the installed omp accepts for the native web_search tool,
  * read from its model catalog: `omp models --kind search --json` rows shaped

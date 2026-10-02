@@ -8,10 +8,11 @@ import { planMessage } from "@omp-ui/core/plan";
 import { parseExperimentProposalTitle } from "@omp-ui/core/autoresearch";
 import { parseApprovalPrompt } from "@omp-ui/core/approval";
 import {
-  GOAL_OBJECTIVE_CHAR_LIMIT,
-  goalMessage,
-  type GoalCommandRequest,
+  goalOwnsSession as coreGoalOwnsSession,
+  guidedGoalPrompt,
+  parseGoalState,
 } from "@omp-ui/core/goal";
+import { goalDetails } from "../../lib/goal-format";
 import {
   VIBE_ARGS_BYTE_LIMIT,
   vibeMessage,
@@ -148,6 +149,58 @@ interface LocalCommand {
  *  settle only lands while its id is still the tab's newest (issue #433). */
 const retitleCounters = new Map<string, number>();
 
+/** omp's dispatch answer for a command its build does not know (rpc-mode.ts). */
+const UNKNOWN_COMMAND_PREFIX = "Unknown command:";
+
+/** What one `/goal` or `/guided-goal` line asks for, before anything is sent. */
+type GoalIntent =
+  | { kind: "show" }
+  | { kind: "pause" }
+  | { kind: "resume" }
+  | { kind: "drop" }
+  | { kind: "create"; objective: string; budget: number | undefined; replace: boolean }
+  | { kind: "guided"; rough: string }
+  | { kind: "invalid"; error: string };
+
+const GOAL_SUBCOMMANDS = ["set", "show", "pause", "resume", "drop"] as const;
+
+/**
+ * Parses one goal-family line (ADR-0046). The budget rides creation only —
+ * `[--budget N] <objective>` — because omp sets a goal's budget when it is
+ * created and has no op to change it afterwards.
+ */
+function parseGoalLine(name: string, args: string): GoalIntent {
+  const text = args.trim();
+  if (name === "guided-goal") return { kind: "guided", rough: text };
+  if (text === "") return { kind: "show" };
+  const spaceAt = text.search(/\s/);
+  const head = (spaceAt === -1 ? text : text.slice(0, spaceAt)).toLowerCase();
+  const rest = spaceAt === -1 ? "" : text.slice(spaceAt + 1).trim();
+  if (head === "budget") return { kind: "invalid", error: t("composer.goal.budgetAtCreate") };
+  const sub = GOAL_SUBCOMMANDS.find((candidate) => candidate === head);
+  if (sub === undefined) return parseGoalObjective(text, false);
+  if (sub === "set") {
+    if (rest === "") return { kind: "invalid", error: t("composer.goal.needsObjective") };
+    return parseGoalObjective(rest, true);
+  }
+  if (rest !== "") return { kind: "invalid", error: t("composer.goal.noArgs", { sub }) };
+  return { kind: sub };
+}
+
+function parseGoalObjective(text: string, replace: boolean): GoalIntent {
+  if (!/^--budget(?:\s|$)/.test(text)) {
+    return { kind: "create", objective: text, budget: undefined, replace };
+  }
+  const match = /^--budget\s+(\S+)\s+([\s\S]*\S[\s\S]*)$/.exec(text);
+  const raw = match?.[1];
+  const objective = match?.[2]?.trim();
+  const budget = raw !== undefined && /^[1-9][0-9]*$/.test(raw) ? Number(raw) : NaN;
+  if (objective === undefined || !Number.isSafeInteger(budget)) {
+    return { kind: "invalid", error: t("composer.goal.badBudget") };
+  }
+  return { kind: "create", objective, budget, replace };
+}
+
 /** Renderer-owned commands, in the order they take precedence over omp. */
 const localCommands: readonly LocalCommand[] = [
   {
@@ -185,9 +238,10 @@ const localCommands: readonly LocalCommand[] = [
     },
   },
   {
-    // omp's goal family is TUI-only: over rpc a `/goal` line would reach the
-    // model as literal prompt text (issue #381). A native tab drives the root
-    // goal bridge instead; a terminal tab's TUI keeps omp's own implementation.
+    // omp's goal family is TUI-only as slash text: over rpc a `/goal` line
+    // would reach the model as literal prompt text (issue #381). A native tab
+    // drives omp's native goal command instead (ADR-0046); a terminal tab's
+    // TUI keeps omp's own implementation.
     match: /^\/(?:goal|guided-goal)(?:\s[\s\S]*)?$/,
     run(tabId, get, line) {
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
@@ -1052,7 +1106,7 @@ export function createSessionParamsSlice(
   /**
    * The accepted tree-jump effect (issue #680, Phase 2): rides the generated
    * bridge, whose published snapshot field — not the prompt ack — settles
-   * completion (the `runGoalCommand` correlation discipline, simplified:
+   * completion (the `runVibeCommand` correlation discipline, simplified:
    * navigation results are per-process and monotonic in `revision`).
    */
   const performNavigate = async (
@@ -1330,12 +1384,11 @@ export function createSessionParamsSlice(
   };
 
   /**
-   * One goal-family line, dispatched as a command rather than as prose (issue
-   * #381). The row keeps the line the user typed; the wire carries the hidden
-   * bridge command with this client's requestId, and the bridge's published
-   * snapshot — not the prompt acknowledgement — supplies the outcome. An
-   * unavailable bridge is answered here with an actionable reason and sends
-   * nothing at all to the model.
+   * One goal-family line, dispatched as omp's native `goal` command (ADR-0046)
+   * rather than as prose. The row keeps the line the user typed; omp's
+   * response is the whole outcome — acceptance, or its own refusal sentence
+   * rendered verbatim. Goal state itself arrives through frame intake (the
+   * same response, get_state, goal_updated), never patched here.
    */
   const runGoalCommand = async (tabId: string, line: string): Promise<void> => {
     const message = line.startsWith("/") ? line : `/${line}`;
@@ -1352,47 +1405,124 @@ export function createSessionParamsSlice(
           : i,
       );
     };
-    const snapshot = get().rpc[tabId]?.goal ?? null;
-    if (snapshot === null) {
-      // An older live process cannot gain an extension by refreshing the
-      // composer, and nothing is respawned on the user's behalf.
-      settle({ status: "failed", error: t("composer.goal.needsRestart") });
+    const fail = (error: string): void => settle({ status: "failed", error });
+    const done = (output: string): void => settle({ status: "done", output });
+
+    const intent = parseGoalLine(name, args);
+    if (intent.kind === "invalid") {
+      fail(intent.error);
       return;
     }
-    if (!snapshot.available) {
-      settle({
-        status: "failed",
-        error: t("composer.goal.unavailable", {
-          reason: snapshot.unavailable ?? t("composer.goal.unavailableUnknown"),
-        }),
-      });
+    if (!m.acceptsCommands(tabId)) {
+      fail(t("composer.goal.notReady"));
       return;
     }
-    if (args.length > GOAL_OBJECTIVE_CHAR_LIMIT) {
-      settle({ status: "failed", error: t("composer.goal.tooLong") });
+    const startsWork =
+      intent.kind === "create" || intent.kind === "resume" || intent.kind === "guided";
+    if (startsWork && get().rpc[tabId]?.vibe?.enabled === true) {
+      fail(t("composer.goal.vibeBlocks"));
       return;
     }
-    const request: GoalCommandRequest = {
-      requestId: randomId(),
-      sessionId: snapshot.sessionId,
-      processKey: snapshot.processKey,
-      command: name === "guided-goal" ? "guided-goal" : "goal",
-      args,
+    const before = get().rpc[tabId]?.goal ?? null;
+
+    if (intent.kind === "guided") {
+      if (get().rpc[tabId]?.plan?.enabled === true) {
+        fail(t("composer.goal.planBlocks"));
+        return;
+      }
+      if (before !== null && coreGoalOwnsSession(before)) {
+        fail(t("composer.goal.guidedHasGoal", { status: before.goal.status }));
+        return;
+      }
+      const result = await get().setSessionToolEnabled(tabId, "goal", true);
+      if (result.status !== "applied") {
+        fail(
+          result.status === "busy"
+            ? t("composer.goal.busy")
+            : t("composer.goal.guidedToolFailed", { status: result.status }),
+        );
+        return;
+      }
+      const sent = await get().sendPrompt(tabId, guidedGoalPrompt(intent.rough), "prompt");
+      if (!sent) fail(t("composer.goal.notReady"));
+      else done(t("composer.goal.guidedStarted"));
+      return;
+    }
+
+    if (intent.kind === "show") {
+      const reply = await goalOp(tabId, { op: "get" });
+      if (!reply.ok) return fail(reply.error);
+      const state = parseGoalState(field(reply.data, "state"));
+      done(state ? goalDetails(state) : t("composer.goal.none"));
+      return;
+    }
+    if (intent.kind === "pause" || intent.kind === "resume" || intent.kind === "drop") {
+      const reply = await goalOp(tabId, { op: intent.kind });
+      if (!reply.ok) return fail(reply.error);
+      const nothing = before === null && field(reply.data, "goal") == null;
+      if (intent.kind === "pause")
+        done(t(nothing ? "composer.goal.nothingToPause" : "composer.goal.paused"));
+      else if (intent.kind === "drop")
+        done(t(nothing ? "composer.goal.nothingToDrop" : "composer.goal.dropped"));
+      else done(t("composer.goal.resumed"));
+      return;
+    }
+
+    // create, or set: replacing an enabled goal is drop then create, because
+    // omp refuses a second create while one is active.
+    const create = {
+      op: "create",
+      objective: intent.objective,
+      ...(intent.budget === undefined ? {} : { token_budget: intent.budget }),
     };
-    m.runtime(tabId).goalRequests.set(request.requestId, item.id);
-    const resp = await m.runCommand(tabId, {
-      type: "prompt",
-      message: goalMessage(request),
-    });
-    if (resp !== null) return;
-    // The prompt never reached the bridge: the snapshot can no longer answer
-    // for it, so the row settles failed and its correlation is dropped. A
-    // result that arrived first has already settled the row.
-    m.runtime(tabId).goalRequests.delete(request.requestId);
-    settle({
-      status: "failed",
-      error: get().rpc[tabId]?.failure?.message ?? "command failed",
-    });
+    const replacing = intent.replace && before?.enabled === true;
+    if (replacing) {
+      const dropped = await goalOp(tabId, { op: "drop" });
+      if (!dropped.ok) return fail(dropped.error);
+    }
+    const reply = await goalOp(tabId, create);
+    if (!reply.ok) {
+      fail(
+        replacing && !reply.abandoned
+          ? t("composer.goal.replaceFailed", { reason: reply.error })
+          : reply.error,
+      );
+      return;
+    }
+    done(
+      t(replacing ? "composer.goal.replaced" : "composer.goal.set", {
+        objective: intent.objective,
+      }),
+    );
+  };
+
+  /**
+   * One native goal op. Direct rpcCommand, never runCommand: a quiet
+   * runCommand swallows the failure text, and omp's sentence is the message
+   * the row must show. An omp without the command gets the update hint and no
+   * fallback path is ever tried.
+   */
+  const goalOp = async (
+    tabId: string,
+    args: Record<string, unknown>,
+  ): Promise<
+    { ok: true; data: unknown } | { ok: false; error: string; abandoned: boolean }
+  > => {
+    try {
+      const resp = await get().rpcCommand(tabId, { type: "goal", ...args }, { quiet: true });
+      return { ok: true, data: respData(resp) };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof RpcCommandAbandonedError)
+        return { ok: false, error: message, abandoned: true };
+      return {
+        ok: false,
+        error: message.startsWith(UNKNOWN_COMMAND_PREFIX)
+          ? t("composer.goal.needsNewerOmp")
+          : message,
+        abandoned: false,
+      };
+    }
   };
 
   /**

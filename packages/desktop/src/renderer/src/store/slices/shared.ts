@@ -93,18 +93,11 @@ export interface TabRuntime {
    */
   browserPaneEnsureGeneration?: number;
   /**
-   * Goal commands awaiting their correlated result: requestId → transcript
-   * command-row id (issue #381). The result arrives on a snapshot, not on the
-   * prompt's acknowledgement, and a snapshot answered by another client or an
+   * Vibe commands awaiting their correlated result: requestId → transcript
+   * command-row id (issue #683). The result rides a published snapshot, not
+   * the prompt's acknowledgement, and a snapshot from another client or an
    * older generation must never settle this row. Lives in the runtime so a
    * reboot or abandon drops it with everything else process-local.
-   */
-  goalRequests: Map<string, string>;
-  /**
-   * Vibe commands awaiting their correlated result: requestId → transcript
-   * command-row id (issue #683). Same discipline as `goalRequests`: the result
-   * rides a published snapshot, and a snapshot from another client or an older
-   * generation must never settle this row.
    */
   vibeRequests: Map<string, string>;
   /**
@@ -447,7 +440,6 @@ function freshTabRuntime(): TabRuntime {
     pendingNotices: [],
     slashCommandItems: new Map(),
     capabilitiesGeneration: 0,
-    goalRequests: new Map(),
     vibeRequests: new Map(),
   };
 }

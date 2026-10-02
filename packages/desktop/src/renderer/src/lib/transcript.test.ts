@@ -883,12 +883,12 @@ describe("reduceEvent markers, notice, irc, unknowns", () => {
     expect(items[2]).toMatchObject({ kind: "notice", level: undefined });
   });
 
-  it("renders thinking_level_changed and goal_updated as markers", () => {
+  it("renders thinking_level_changed as a marker and adds nothing for goal_updated", () => {
     let items: RenderItem[] = [];
     items = reduceEvent(items, { type: "thinking_level_changed", thinkingLevel: "high" });
     items = reduceEvent(items, { type: "goal_updated" });
+    expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ kind: "marker", label: "thinking level: high" });
-    expect(items[1]).toMatchObject({ kind: "marker", label: "goal updated" });
   });
 
   it("renders ttsr_triggered as a copper rule-interrupt marker", () => {
