@@ -1016,5 +1016,11 @@ describe("FinishWorktreeDialog", () => {
         checkoutOnReturn: null,
       });
     });
+
+    it("names the branch the session stays on when merging without returning (issue #723)", async () => {
+      await openDialog();
+      await clickInput(returnCheckbox());
+      expect(document.body.textContent).toContain("the session stays in its checkout on p/deadbeef");
+    });
   });
 });

@@ -164,7 +164,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
         ? c.checkoutTarget !== null
           ? t("finish.hint.mergeReturnSwitch", { branch, destination: targetName })
           : t("finish.hint.mergeReturn", { branch, destination: targetName })
-        : t("finish.hint.mergeStay");
+        : t("finish.hint.mergeStay", { branch });
     return c.returnSession
       ? t("finish.hint.keepReturn", { branch })
       : t("finish.hint.keepStay");
