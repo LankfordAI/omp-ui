@@ -37,6 +37,15 @@ async function seedOriginMain(dir: string): Promise<void> {
   await git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
 }
 
+/** Seeds origin/main + origin/HEAD and makes origin/main the upstream of local main. */
+async function trackOriginMain(dir: string): Promise<void> {
+  const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+  // A remote that is never contacted, so `branch -u` accepts origin/main.
+  await git(["remote", "add", "origin", "https://example.invalid/repo.git"]);
+  await seedOriginMain(dir);
+  await git(["branch", "-q", "-u", "origin/main", "main"]);
+}
+
 describe("readBranchDiff", () => {
   it("reads the branch, tracked changes vs HEAD, and untracked files", async () => {
     const dir = await tmpRepo();
@@ -232,6 +241,54 @@ describe("readBranchDiff", () => {
 
     const diff = await readBranchDiff(dir);
     expect(diff.branch).toBe("feature");
+    expect(diff.mergeBase).toBeNull();
+    expect(diff.baseRef).toBeNull();
+    expect(diff.diff).toContain("+changed");
+  });
+
+  it("keeps unpushed default-branch commits visible against the upstream", async () => {
+    // Issue #711: a commit on the default branch must not erase the work.
+    const dir = await tmpRepo();
+    const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+    await trackOriginMain(dir);
+    fs.writeFileSync(path.join(dir, "feature.ts"), "export const f = 1;\n");
+    await git(["add", "feature.ts"]);
+    await git(["commit", "-q", "-m", "feature"]);
+    fs.writeFileSync(path.join(dir, "feature.ts"), "export const f = 2;\n");
+
+    const diff = await readBranchDiff(dir);
+    expect(diff.branch).toBe("main");
+    expect(diff.baseRef).toBe("origin/main");
+    expect(diff.mergeBase).toBe((await git(["rev-parse", "origin/main"])).stdout.trim());
+    expect(diff.diff.match(/^diff --git a\/feature\.ts /gm)).toHaveLength(1);
+    expect(diff.diff).toContain("+export const f = 2;");
+  });
+
+  it("prefers the default branch over a feature branch's own upstream", async () => {
+    const dir = await tmpRepo();
+    const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+    await git(["remote", "add", "origin", "https://example.invalid/repo.git"]);
+    await git(["checkout", "-q", "-b", "feat/x"]);
+    fs.writeFileSync(path.join(dir, "feature.ts"), "export const f = 1;\n");
+    await git(["add", "feature.ts"]);
+    await git(["commit", "-q", "-m", "feature"]);
+    // Fully pushed: the upstream sits at HEAD.
+    await git(["update-ref", "refs/remotes/origin/feat/x", "HEAD"]);
+    await git(["branch", "-q", "-u", "origin/feat/x"]);
+
+    const diff = await readBranchDiff(dir);
+    expect(diff.baseRef).toBe("main");
+    expect(diff.diff).toContain("+export const f = 1;");
+  });
+
+  it("diffs vs HEAD on the default branch when its upstream is gone", async () => {
+    const dir = await tmpRepo();
+    const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+    await trackOriginMain(dir);
+    await git(["update-ref", "-d", "refs/remotes/origin/main"]);
+    fs.writeFileSync(path.join(dir, ".seed"), "changed\n");
+
+    const diff = await readBranchDiff(dir);
     expect(diff.mergeBase).toBeNull();
     expect(diff.baseRef).toBeNull();
     expect(diff.diff).toContain("+changed");

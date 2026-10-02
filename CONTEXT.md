@@ -616,9 +616,13 @@ produced them. For a worktree session the pane diffs the working tree against
 stays visible instead of vanishing at the first commit; a "since <base>" chip
 marks that reading. Sessions without a recorded base diff against the repo's
 default branch — again `merge-base(default, HEAD)`, the chip naming it — when
-the checkout sits on a different named branch, so committed branch work in a
-plain checkout stays visible too; the plain `git diff HEAD` reading remains
-for the default branch itself, a detached HEAD, and an unresolvable default.
+the checkout sits on a different named branch. On the default branch itself,
+or when no default resolves, the pane diffs against the branch's upstream
+(`merge-base(upstream, HEAD)`, the chip reading "since origin/main"), so
+unpushed commits stay visible. Committed work in a plain checkout therefore
+never vanishes at the first commit. The plain `git diff HEAD` reading remains
+for a detached HEAD and for a branch with neither a different default nor a
+resolvable upstream.
 _Avoid_: per-session diff log, file edit history
 
 **Worktree session**:

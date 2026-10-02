@@ -43,7 +43,7 @@ interface BranchDiffLoad {
   repoRoot?: string | null;
   files?: DiffFile[];
   mergeBase?: string | null;
-  /** The ref the loaded diff was scoped to (recorded base or auto-resolved default, #711). */
+  /** The ref the loaded diff was scoped to (recorded base, auto-resolved default, or upstream, #711). */
   baseRef?: string | null;
 }
 
@@ -736,9 +736,11 @@ function PlansPane({ tabId }: { tabId: string }) {
 }
 
 /**
- * All working-tree changes on this project's active git branch: tracked
- * `git diff HEAD` plus new untracked files, one DiffViewer per file. Loads on
- * pane mount and on demand; not a git repository renders an empty state.
+ * All working-tree changes on this project's active git branch: the tracked
+ * diff from the branch's resolved base (recorded worktree base, default
+ * branch, or upstream; else HEAD) plus new untracked files, one DiffViewer
+ * per file. Loads on pane mount and on demand; not a git repository renders
+ * an empty state.
  */
 function DiffsPane({ tabId }: { tabId: string }) {
   const t = useT();
@@ -754,7 +756,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
   const branchDiffRevision = useStore((s) => (key ? (s.branchDiffRevision[key] ?? 0) : 0));
   const [load, setLoad] = useState<BranchDiffLoad>({ status: "idle" });
   // The ref the loaded diff was scoped to: the recorded base, or the core's
-  // auto-resolved default branch (#711).
+  // auto-resolved default branch or upstream (#711).
   const diffBase = base ?? (load.baseRef ?? null);
   // Keyed by path so an open file stays open across a branchDiffRevision re-read.
   const [openPaths, setOpenPaths] = useState<ReadonlySet<string>>(new Set());

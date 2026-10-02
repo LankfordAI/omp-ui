@@ -6,6 +6,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 - Attach PDFs with the paperclip or by pasting them into a draft: they ride the prompt as Document Attachments, show back as chips in the transcript, and in a terminal tab arrive as a paste of the scratch path (#709).
 - The fast pill now appears on fast-capable OpenRouter model rows: OpenAI (`openai/…`) and Gemini (`google/gemini…`) slugs get the toggle, the two families omp's OpenRouter transport can carry a priority tier on (#710).
+- The Diffs pane keeps committed work visible in a plain checkout: a branch off the default branch shows its commits since the cut point, and work on the default branch shows its unpushed commits; the header chip names the base (#711).
 
 ## Choose a download
 

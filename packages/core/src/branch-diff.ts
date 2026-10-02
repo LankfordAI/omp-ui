@@ -27,16 +27,63 @@ function readWorkingFile(absPath: string, maxBytes = MAX_UNTRACKED_BYTES): Branc
   }
 }
 
+/** A tracked diff taken from a resolved merge-base, with the ref it came from. */
+interface BaseDiff {
+  mergeBase: string;
+  baseRef: string;
+  diff: string;
+}
+
+/**
+ * The first candidate whose merge-base with HEAD resolves, diffed from that
+ * merge-base in one pass (commits + staged + unstaged). Null when none
+ * resolves: a deleted ref or unrelated history.
+ */
+async function diffFromFirstBase(
+  root: string,
+  candidates: readonly string[],
+): Promise<BaseDiff | null> {
+  for (const candidate of candidates) {
+    try {
+      const mergeBase = (await git(root, ["merge-base", candidate, "HEAD"])).trim();
+      const diff = await git(root, ["diff", mergeBase, "--no-ext-diff"]);
+      return { mergeBase, baseRef: candidate, diff };
+    } catch {
+      // Next candidate; the caller falls back to `git diff HEAD`.
+    }
+  }
+  return null;
+}
+
+/**
+ * The current branch's configured upstream as a short ref (`origin/main`,
+ * or a local branch name for a `.` remote); null when none is configured
+ * or the configured ref no longer resolves.
+ */
+async function readUpstreamRef(root: string): Promise<string | null> {
+  try {
+    const ref = (
+      await git(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
+    ).trim();
+    return ref === "" ? null : ref;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Working-tree state of the project's git repo: the active branch name, the
- * tracked diff, and new untracked files read as creates. With a worktree
- * `base` the tracked diff is taken from `merge-base(base, HEAD)` in one pass
- * — commits + staged + unstaged since the branch was cut — falling back to
- * `git diff HEAD` (staged + unstaged) when base is null or unresolvable.
- * With no base at all, a named branch other than the repo's default branch
- * auto-bases on `merge-base(default, HEAD)` so committed branch work stays
- * visible in a plain checkout (issue #711). Projects outside any git repo
- * resolve to all-null fields — a no-repo state, not an error.
+ * tracked diff, and new untracked files read as creates. The tracked diff is
+ * taken in one pass (commits + staged + unstaged) from the first base on a
+ * four-rung ladder (issue #711): the recorded worktree `base`, as
+ * `merge-base(base, HEAD)`; else, on a named branch, the repo's default
+ * branch when this branch is not it, as `merge-base(default, HEAD)`; else
+ * the branch's configured upstream, as `merge-base(upstream, HEAD)`, so
+ * unpushed commits on the default branch stay visible; else plain
+ * `git diff HEAD` (staged + unstaged). An unresolvable rung falls to the
+ * next; a recorded base that fails goes straight to `git diff HEAD`.
+ * Projects outside any git repo resolve to all-null fields — a no-repo
+ * state, not an error.
  */
 export async function readBranchDiff(
   projectCwd: string,
@@ -65,36 +112,30 @@ export async function readBranchDiff(
     branch = null;
   }
 
-  // Diff base ladder (issue #711): the recorded worktree base, else the
-  // repo's default branch when this is a named branch other than that
-  // default, else plain `git diff HEAD`. Committed branch work stays
-  // visible in a plain checkout instead of vanishing at the first commit.
-  // A deleted base ref or unrelated history degrades silently to the HEAD
-  // diff.
-  let mergeBase: string | null = null;
-  let baseRef: string | null = null;
-  let diff = "";
-  const effectiveBase =
-    base ?? (branch !== null ? await readDefaultBranch(root) : null);
-  const autoBase =
-    base === null && effectiveBase !== null && effectiveBase !== branch;
-  if (effectiveBase !== null && (base !== null || autoBase)) {
-    // The origin/<name> retry covers the validated-symref case where the
-    // local default branch was deleted but the remote-tracking ref remains
-    // (readDefaultBranch strips the origin/ prefix).
-    for (const candidate of autoBase
-      ? [effectiveBase, `origin/${effectiveBase}`]
-      : [effectiveBase]) {
-      try {
-        mergeBase = (await git(root, ["merge-base", candidate, "HEAD"])).trim();
-        baseRef = candidate;
-        diff = await git(root, ["diff", mergeBase, "--no-ext-diff"]);
-        break;
-      } catch {
-        mergeBase = null; // next candidate, then the HEAD fallback below
-      }
+  // Diff base ladder (issue #711): the recorded worktree base; else, on a
+  // named branch, the repo's default branch when this branch is not it;
+  // else the branch's upstream, so unpushed commits on the default branch
+  // stay visible too; else plain `git diff HEAD`. Each rung that cannot
+  // resolve (deleted ref, unrelated history) falls to the next. A recorded
+  // base that fails goes straight to the HEAD diff, as before.
+  let resolved: BaseDiff | null = null;
+  if (base !== null) {
+    resolved = await diffFromFirstBase(root, [base]);
+  } else if (branch !== null) {
+    const defaultBranch = await readDefaultBranch(root);
+    if (defaultBranch !== null && defaultBranch !== branch) {
+      // The origin/<name> retry covers a deleted local default whose
+      // remote-tracking ref remains (readDefaultBranch strips origin/).
+      resolved = await diffFromFirstBase(root, [defaultBranch, `origin/${defaultBranch}`]);
+    }
+    if (resolved === null) {
+      const upstream = await readUpstreamRef(root);
+      if (upstream !== null) resolved = await diffFromFirstBase(root, [upstream]);
     }
   }
+  const mergeBase = resolved?.mergeBase ?? null;
+  const baseRef = resolved?.baseRef ?? null;
+  let diff = resolved?.diff ?? "";
   if (mergeBase === null) {
     // `diff HEAD` covers staged + unstaged; a repo with no commits yet
     // (unborn HEAD) rejects that, so fall back to the two halves.

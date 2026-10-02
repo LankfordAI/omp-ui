@@ -659,7 +659,11 @@ describe("push and publish (issue #414)", () => {
     const inFlight = h.deferred<PushResult>();
     h.mockBackend.pushBranch.mockReturnValueOnce(inFlight.promise);
     h.mockBackend.listBranches.mockResolvedValueOnce(pushedListing);
-    h.useStore.setState({ branches: { "/p": tracked }, branchActivity: {} });
+    h.useStore.setState({
+      branches: { "/p": tracked },
+      branchActivity: {},
+      branchDiffRevision: { "/p": 3, "/other": 9 },
+    });
 
     const push = h.useStore.getState().pushGitBranch("/p", HEAD);
     expect(h.mockBackend.pushBranch).toHaveBeenCalledWith("/p", HEAD);
@@ -679,6 +683,8 @@ describe("push and publish (issue #414)", () => {
       ["/p", { fetchUpstream: false }],
     ]);
     expect(h.useStore.getState().branches["/p"]).toEqual(pushedListing);
+    // The push moved the upstream the diff pane may be based on (#711).
+    expect(h.useStore.getState().branchDiffRevision).toEqual({ "/p": 4, "/other": 9 });
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
       fetching: false,
@@ -816,7 +822,11 @@ describe("push and publish (issue #414)", () => {
   it("pushGitBranch hands the caller a transport throw and clears pushing", async () => {
     const failure = new Error("ssh: connection reset by peer");
     h.mockBackend.pushBranch.mockRejectedValueOnce(failure);
-    h.useStore.setState({ branches: { "/p": tracked }, branchActivity: {} });
+    h.useStore.setState({
+      branches: { "/p": tracked },
+      branchActivity: {},
+      branchDiffRevision: { "/p": 3 },
+    });
 
     const push = h.useStore.getState().pushGitBranch("/p", HEAD);
     expect(h.useStore.getState().branchActivity["/p"]?.pushing).toBe(true);
@@ -826,6 +836,8 @@ describe("push and publish (issue #414)", () => {
     await expect(push).rejects.toBe(failure);
     expect(h.useStore.getState().branches["/p"]).toEqual(tracked);
     expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
+    // No moved ref, no diff re-read.
+    expect(h.useStore.getState().branchDiffRevision).toEqual({ "/p": 3 });
     expect(h.useStore.getState().branchActivity["/p"]).toEqual({
       refreshing: false,
       fetching: false,
