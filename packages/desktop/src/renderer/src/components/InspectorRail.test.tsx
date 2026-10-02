@@ -112,6 +112,7 @@ function diffResult(
   path: string,
   text: string,
   mergeBase: string | null = null,
+  baseRef: string | null = null,
 ): BranchDiff {
   return {
     branch,
@@ -119,6 +120,7 @@ function diffResult(
     diff: "",
     untracked: [{ path, text, binary: false }],
     mergeBase,
+    baseRef,
   };
 }
 
@@ -571,7 +573,7 @@ describe("desktop InspectorRail", () => {
   it("diffs a worktree session against its base and labels the range (issue #261)", async () => {
     const MERGE_BASE = "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0";
     backendMock.getBranchDiff.mockResolvedValueOnce(
-      diffResult("omp/feature", "change.txt", "worktree change", MERGE_BASE),
+      diffResult("omp/feature", "change.txt", "worktree change", MERGE_BASE, "main"),
     );
     useStore.setState({ state: worktreeState });
     renderRail();
@@ -587,6 +589,44 @@ describe("desktop InspectorRail", () => {
     );
     expect(chip).toBeDefined();
     expect(chip!.title).toBe(MERGE_BASE);
+  });
+
+  it("labels an auto-resolved default base in a plain checkout (issue #711)", async () => {
+    const MERGE_BASE = "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0";
+    backendMock.getBranchDiff.mockResolvedValueOnce(
+      diffResult("feat/x", "change.txt", "committed work", MERGE_BASE, "main"),
+    );
+    useStore.setState({ state });
+    renderRail();
+
+    act(() => railTab("diffs")!.click());
+    await act(async () => {});
+    // No recorded base: the core resolves the auto-base, so the call is plain.
+    expect(backendMock.getBranchDiff).toHaveBeenCalledWith(PROJECT, null);
+    const chip = [...document.body.querySelectorAll<HTMLElement>("span")].find(
+      (el) => el.textContent === "since main",
+    );
+    expect(chip).toBeDefined();
+    expect(chip!.title).toBe(MERGE_BASE);
+  });
+
+  it("names the auto-resolved base in the clean-state hint (issue #711)", async () => {
+    const MERGE_BASE = "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0";
+    backendMock.getBranchDiff.mockResolvedValueOnce({
+      branch: "feat/x",
+      repoRoot: PROJECT,
+      diff: "",
+      untracked: [],
+      mergeBase: MERGE_BASE,
+      baseRef: "main",
+    });
+    useStore.setState({ state });
+    renderRail();
+
+    act(() => railTab("diffs")!.click());
+    await act(async () => {});
+    expect(document.body.textContent).toContain("No changes on feat/x since main");
+    expect(document.body.textContent).not.toContain("since HEAD");
   });
 
   it("summarizes the branch diff pane and expands/collapses every file", async () => {

@@ -34,6 +34,11 @@ export interface BranchesSlice {
   ): Promise<string | null>;
   pullGitBranch(projectCwd: string, instanceId?: string | null): Promise<string | null>;
   /**
+   * Bumps the project's diff-pane revision so a mounted DiffsPane re-reads
+   * the repo — at native turn end (issue #711) as well as after a pull.
+   */
+  refreshBranchDiff(projectCwd: string, instanceId?: string | null): void;
+  /**
    * Pushes (or publishes, issue #414) one named branch — the finish dialog
    * pushes a branch its checkout may not hold. Resolves the structured
    * PushResult; only a transport failure throws.
@@ -179,6 +184,16 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     return null;
   };
 
+  const refreshBranchDiff = (projectCwd: string, instanceId: string | null = null): void => {
+    const key = projectKey(instanceId, projectCwd);
+    set((s) => ({
+      branchDiffRevision: {
+        ...s.branchDiffRevision,
+        [key]: (s.branchDiffRevision[key] ?? 0) + 1,
+      },
+    }));
+  };
+
   const pullGitBranch = async (
     projectCwd: string,
     instanceId: string | null = null,
@@ -198,14 +213,7 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     } catch (err) {
       return displayMessage(err);
     } finally {
-      if (pulled) {
-        set((s) => ({
-          branchDiffRevision: {
-            ...s.branchDiffRevision,
-            [key]: (s.branchDiffRevision[key] ?? 0) + 1,
-          },
-        }));
-      }
+      if (pulled) refreshBranchDiff(projectCwd, instanceId);
       patchBranchActivity(key, { pulling: false });
     }
   };
@@ -325,6 +333,7 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
     refreshBranches,
     checkoutGitBranch,
     pullGitBranch,
+    refreshBranchDiff,
     pushGitBranch,
     getPullRequestUrl,
     resolveMergeDestination,

@@ -1129,6 +1129,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     instanceId?: string | null,
   ): Promise<string | null>;
   pullGitBranch(projectCwd: string, instanceId?: string | null): Promise<string | null>;
+  /** Bumps the project's diff-pane revision so a mounted DiffsPane re-reads (issue #711). */
+  refreshBranchDiff(projectCwd: string, instanceId?: string | null): void;
   /**
    * Pushes or publishes one named branch (issue #414). Resolves the structured
    * PushResult — git state is an answer; only a transport failure throws.

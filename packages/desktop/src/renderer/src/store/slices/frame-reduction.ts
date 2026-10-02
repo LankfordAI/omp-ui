@@ -72,7 +72,7 @@ import {
   noteCapabilitiesSessionChange,
   rpcCommandMachinery,
 } from "./rpc-command";
-import { findRecord } from "./view";
+import { findOwner, findRecord, sessionCwd } from "./view";
 import type { UiStore } from "../types";
 
 export type FrameReductionSlice = Pick<
@@ -399,6 +399,15 @@ export function createFrameReductionSlice(
           void m.refreshUsage(tabId, () => scheduleQueueSettleRefresh(tabId));
         else void m.refreshUsage(tabId);
         return;
+      case "refresh-branch-diff": {
+        // Same project resolution the DiffsPane uses (issue #711): the
+        // session's checkout cwd under its owning instance's key.
+        const rec = findRecord(get().state, tabId);
+        const cwd = sessionCwd(rec);
+        if (cwd !== undefined)
+          get().refreshBranchDiff(cwd, findOwner(get().state, tabId)?.instanceId ?? null);
+        return;
+      }
       case "rename-session":
         get().renameSession(tabId);
         return;

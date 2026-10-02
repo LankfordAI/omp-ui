@@ -614,8 +614,11 @@ the current branch" is what the user reads regardless of which session
 produced them. For a worktree session the pane diffs the working tree against
 `merge-base(base, HEAD)` — the branch's cut point — so committed session work
 stays visible instead of vanishing at the first commit; a "since <base>" chip
-marks that reading. Sessions without a recorded base show the plain
-`git diff HEAD`.
+marks that reading. Sessions without a recorded base diff against the repo's
+default branch — again `merge-base(default, HEAD)`, the chip naming it — when
+the checkout sits on a different named branch, so committed branch work in a
+plain checkout stays visible too; the plain `git diff HEAD` reading remains
+for the default branch itself, a detached HEAD, and an unresolvable default.
 _Avoid_: per-session diff log, file edit history
 
 **Worktree session**:

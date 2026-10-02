@@ -178,6 +178,17 @@ describe("handleRpcFrame routing", () => {
     expect(h.sent.some((s) => s.cmd.type === "get_session_stats")).toBe(true);
   });
 
+  it("agent_end bumps the session project's diff revision (issue #711)", () => {
+    h.useStore.setState({
+      state: h.stateWithRecord("session-711"),
+      branchDiffRevision: {},
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    expect(h.useStore.getState().branchDiffRevision["/p"]).toBe(1);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    expect(h.useStore.getState().branchDiffRevision["/p"]).toBe(2);
+  });
+
   it("agent_start flips status to running; prompt_result back to ready", () => {
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
     expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("running");
