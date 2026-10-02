@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { downloadFileAtomically } from "./download";
 import { defaultFetch, type DownloadFetchLike, type FetchLike } from "./fetch";
-import { compareVersions, parseSemver } from "./omp-update";
+import { compareVersions, parseSemver } from "./semver";
 import type { AppPackageFormat, UpdateTrain } from "./types";
 
 // Pure, transport- and UI-agnostic omp-ui release update logic. The Electron

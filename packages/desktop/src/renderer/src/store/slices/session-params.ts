@@ -93,6 +93,7 @@ export type SessionParamsSlice = Pick<
   | "setThinkingLevel"
   | "setSteeringMode"
   | "setFollowUpMode"
+  | "promoteQueuedMessage"
   | "setInterruptMode"
   | "setAutoCompaction"
   | "setFastMode"
@@ -702,6 +703,17 @@ export function createSessionParamsSlice(
     });
     if (resp === null) return;
     m.patchSession(tabId, { followUpMode: mode });
+  };
+
+  const promoteQueuedMessage = async (tabId: string, message: string): Promise<void> => {
+    // Loud: a user action. A rejection (older runtime) surfaces as the
+    // command failure and nothing else is sent — a `steer` fallback would
+    // enqueue a duplicate (omp docs/rpc.md).
+    const resp = await m.runCommand(tabId, { type: "promote_queued_message", message });
+    if (resp === null) return;
+    // promoted:false means it was delivered first — not an error. Re-read
+    // state so the chip count and list settle without waiting for a turn end.
+    if (boolField(respData(resp), "promoted") === false) void get().refreshState(tabId);
   };
 
   const setInterruptMode = async (tabId: string, mode: string): Promise<void> => {
@@ -1634,6 +1646,7 @@ export function createSessionParamsSlice(
     setThinkingLevel,
     setSteeringMode,
     setFollowUpMode,
+    promoteQueuedMessage,
     setInterruptMode,
     setAutoCompaction,
     setFastMode,

@@ -94,6 +94,12 @@ export interface ContextUsage {
   percent: number;
 }
 
+/** omp's displayable queue-chip text (`queue_update` / get_state `queuedMessages`, omp ≥ 18.4.4). */
+export interface QueuedMessages {
+  steering: string[];
+  followUp: string[];
+}
+
 export interface SessionRuntime {
   thinkingLevel: string | null;
   /** omp's automatic-thinking selector, `"auto"` or null. The selector the
@@ -119,6 +125,8 @@ export interface SessionRuntime {
   sessionFile: string | null;
   messageCount: number;
   queuedMessageCount: number;
+  /** Queue-chip text per queue; null until a runtime has reported it (older omp never does). */
+  queuedMessages: QueuedMessages | null;
   contextUsage: ContextUsage | null;
 }
 
@@ -181,12 +189,21 @@ export function emptySessionRuntime(): SessionRuntime {
     sessionFile: null,
     messageCount: 0,
     queuedMessageCount: 0,
+    queuedMessages: null,
     contextUsage: null,
   };
 }
 
 function strList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
+/** Both the `queue_update` frame and get_state's `queuedMessages` share this shape; anything else is unknown. */
+export function parseQueuedMessages(value: unknown): QueuedMessages | null {
+  const steering = field(value, "steering");
+  const followUp = field(value, "followUp");
+  if (!Array.isArray(steering) || !Array.isArray(followUp)) return null;
+  return { steering: strList(steering), followUp: strList(followUp) };
 }
 
 export function parseContextUsage(value: unknown): ContextUsage | null {
@@ -315,6 +332,7 @@ export function parseSessionRuntime(value: unknown, previous: SessionRuntime): S
     sessionFile: strField(value, "sessionFile") ?? previous.sessionFile,
     messageCount: numField(value, "messageCount") ?? previous.messageCount,
     queuedMessageCount: numField(value, "queuedMessageCount") ?? previous.queuedMessageCount,
+    queuedMessages: parseQueuedMessages(field(value, "queuedMessages")) ?? previous.queuedMessages,
     contextUsage: parseContextUsage(field(value, "contextUsage")) ?? previous.contextUsage,
   };
 }

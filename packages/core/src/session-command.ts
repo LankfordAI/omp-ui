@@ -13,6 +13,7 @@ export const SESSION_COMMANDS = {
   prompt: { lateAck: false },
   abort: { lateAck: true },
   abort_and_prompt: { lateAck: true },
+  promote_queued_message: { lateAck: false },
   compact: { lateAck: true },
   handoff: { lateAck: true },
   export_html: { lateAck: true },

@@ -41,6 +41,7 @@ import { arrField, boolField, field, strField } from "../../lib/fields";
 import {
   parseCommandList,
   parseModelInfo,
+  parseQueuedMessages,
   parseSessionRuntime,
   parseSessionStats,
 } from "../../lib/rpc-types";
@@ -499,6 +500,14 @@ export function createFrameReductionSlice(
           return;
         case "rpc_chunk":
           return; // reassembled in main — never expected here
+        case "queue_update": {
+          // omp's own queue snapshot (issue #714): render the chip list from
+          // it, never from local bookkeeping. The count stays get_state's —
+          // it also covers advisor cards and deferred items this list omits.
+          const queued = parseQueuedMessages(frame);
+          if (queued !== null) m.patchSession(tabId, { queuedMessages: queued });
+          return;
+        }
         case "session_info_update": {
           const session = parseSessionRuntime(frame, tab.session);
           m.patchRpc(tabId, { session });

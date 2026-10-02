@@ -263,4 +263,22 @@ describe("ComposerSheet", () => {
     expect(switches).toHaveLength(1);
     expect(switches[0]!.closest("section")!.textContent).toContain("session");
   });
+
+  it("lists the queued follow-ups below the branch row when omp reports them", () => {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: {
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          session: { ...s.rpc[TAB]!.session, queuedMessages: { steering: [], followUp: ["first", "second"] } },
+        },
+      },
+    }));
+    render(true);
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("parked: 2");
+    expect(dialog.textContent).toContain("follow-up");
+    expect(dialog.textContent).toContain("first");
+    expect(dialog.textContent).toContain("second");
+  });
 });

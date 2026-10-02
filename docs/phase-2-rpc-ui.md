@@ -60,7 +60,7 @@ anything else; it is Phase 2's day-1 work.
 | Group | Commands |
 |---|---|
 | Protocol | `negotiate_protocol` |
-| Prompting | `prompt`, `steer`, `follow_up`, `abort`, `abort_and_prompt`, `new_session` |
+| Prompting | `prompt`, `steer`, `follow_up`, `promote_queued_message`, `abort`, `abort_and_prompt`, `new_session` |
 | State | `get_state`, `get_available_commands`, `set_todos`, `set_host_tools`, `set_host_uri_schemes`, `set_subagent_subscription`, `get_subagents`, `get_subagent_messages` |
 | Model | `set_model`, `cycle_model`, `get_available_models` |
 | Thinking | `set_thinking_level`, `cycle_thinking_level` |
@@ -254,6 +254,10 @@ the prose (and in two cases omp's own `.d.ts`) implies:
   user-typed messages, and queued follow-ups park after a user interrupt until
   an explicit new prompt. A nonzero count on an idle session is parked work,
   not a stuck refresh (issue #181).
+- `queue_update` / `get_state.queuedMessages` (omp ≥ 18.4.4) carry queue-chip
+  text, which is the wire message verbatim. The renderer lists from them and
+  promotes by exact text (`promote_queued_message`, omp ≥ 18.4.6), and a
+  rejected promote never falls back to `steer` (issue #714).
 - Slash commands run as `{ type: "prompt", message: "/stats" }`, reply
   `{ data: { agentInvoked: false } }`, and emit their output as separate
   `command_output` frames.

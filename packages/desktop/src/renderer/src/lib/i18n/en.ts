@@ -344,6 +344,12 @@ export const en = {
   "composer.queue.parked": "parked: {n}",
   "composer.queue.queuedTitle": "messages waiting for the current turn to finish",
   "composer.queue.parkedTitle": "queued items do not run while the agent is idle — sending a new prompt runs parked follow-ups",
+  "composer.queue.steering": "steering",
+  "composer.queue.followUp": "follow-up",
+  "composer.queue.promote": "promote",
+  "composer.queue.promoteTitleRunning": "move to steering — delivered at the next tool boundary",
+  "composer.queue.promoteTitleIdle": "move to steering and start a turn now",
+  "composer.queue.unlisted": "+{n} more queued (advisor cards, deferred items)",
   // Inline status/error strips
   "composer.error.dismissPaste": "dismiss paste warning",
   "composer.error.dismissWorktree": "dismiss worktree error",

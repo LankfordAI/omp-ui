@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { modelSupportsFastMode, type ModelInfo } from "./rpc-types";
+import {
+  emptySessionRuntime,
+  modelSupportsFastMode,
+  parseQueuedMessages,
+  parseSessionRuntime,
+  type ModelInfo,
+} from "./rpc-types";
 
 const model = (patch: Partial<ModelInfo>): ModelInfo => ({
   id: "m",
@@ -74,5 +80,40 @@ describe("modelSupportsFastMode", () => {
     expect(
       modelSupportsFastMode(model({ provider: "openrouter", id: "x-ai/grok-4:exacto" })),
     ).toBe(false);
+  });
+});
+
+describe("queued messages in session state", () => {
+  const previous = {
+    ...emptySessionRuntime(),
+    queuedMessages: { steering: ["old steer"], followUp: ["old follow-up"] },
+  };
+
+  it("takes queue-chip text from a get_state payload", () => {
+    const next = parseSessionRuntime(
+      { queuedMessages: { steering: ["s1"], followUp: ["f1", "f2"] } },
+      previous,
+    );
+    expect(next.queuedMessages).toEqual({ steering: ["s1"], followUp: ["f1", "f2"] });
+  });
+
+  it("keeps the previous list when the key is absent (older omp, partial frames)", () => {
+    expect(parseSessionRuntime({ messageCount: 3 }, previous).queuedMessages).toEqual(
+      previous.queuedMessages,
+    );
+  });
+
+  it("keeps the previous list when the payload is malformed", () => {
+    const next = parseSessionRuntime(
+      { queuedMessages: { steering: ["s1"], followUp: "f1" } },
+      previous,
+    );
+    expect(next.queuedMessages).toEqual(previous.queuedMessages);
+  });
+
+  it("drops non-string entries but keeps the rest", () => {
+    expect(
+      parseQueuedMessages({ steering: ["s1", 2, null], followUp: [{ text: "x" }, "f1"] }),
+    ).toEqual({ steering: ["s1"], followUp: ["f1"] });
   });
 });

@@ -33,7 +33,6 @@ function transpile(source: string, module: ts.ModuleKind): ts.TranspileOutput {
 /** The fake root's full surface: read probes plus the tool-control methods. */
 interface FakeSession {
   id: string;
-  version: string;
   promptCalls: number;
   promptValue: unknown;
   promptError: unknown;
@@ -124,7 +123,6 @@ function emptySeam(): CapabilitiesSeam {
 function executableExtension(seam: CapabilitiesSeam = fullSeam()): CapabilitiesHarness {
   class FakeAgentSession {
     id: string;
-    version = "18.1.10";
     promptCalls = 0;
     promptValue: unknown = undefined;
     promptError: unknown = null;
@@ -226,7 +224,7 @@ function executableExtension(seam: CapabilitiesSeam = fullSeam()): CapabilitiesH
     | undefined;
   const published: CapabilitySnapshot[] = [];
   factory({
-    pi: { AgentSession: FakeAgentSession },
+    pi: { AgentSession: FakeAgentSession, VERSION: "18.4.10" },
     registerCommand: (name: string, options: { handler: typeof handler }): void => {
       expect(name).toBe(CAPABILITIES_COMMAND);
       handler = options.handler;
@@ -408,7 +406,7 @@ describe("generated capabilities extension", () => {
       },
     ]);
     expect(snapshot.sessionId).toBe("root-a");
-    expect(snapshot.ompVersion).toBe("18.1.10");
+    expect(snapshot.ompVersion).toBe("18.4.10");
     expect(snapshot.skillCommandsEnabled).toBe(true);
     expect(snapshot.revision).toBe(1);
     expect(snapshot.processKey.length).toBeGreaterThan(0);
