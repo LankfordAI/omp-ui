@@ -11,7 +11,7 @@ import {
   MCP_RUNTIME_STATUS_KEY,
   parseMcpRuntimeStatus,
 } from "@omp-ui/core/mcp-status";
-import { GOAL_STATUS_KEY, parseGoalSnapshot } from "@omp-ui/core/goal";
+import { goalStateFromFrame } from "@omp-ui/core/goal";
 import { VIBE_STATUS_KEY, parseVibeSnapshot } from "@omp-ui/core/vibe";
 import { BTW_STATUS_KEY, parseBtwSnapshot } from "@omp-ui/core/side-questions";
 import {
@@ -62,7 +62,6 @@ import {
 import {
   acceptAutoresearchSnapshot,
   acceptCapabilitySnapshot,
-  acceptGoalSnapshot,
   acceptVibeSnapshot,
   disposeTabRuntime,
   noteCapabilitiesSessionChange,
@@ -194,10 +193,6 @@ export function createFrameReductionSlice(
     [AUTORESEARCH_STATUS_KEY]: (tabId, text) => {
       const snapshot = parseAutoresearchSnapshot(text);
       if (snapshot !== null) acceptAutoresearchSnapshot(tabId, snapshot, get, m);
-    },
-    [GOAL_STATUS_KEY]: (tabId, text) => {
-      const snapshot = parseGoalSnapshot(text);
-      if (snapshot !== null) acceptGoalSnapshot(tabId, snapshot, get, m);
     },
     [VIBE_STATUS_KEY]: (tabId, text) => {
       const snapshot = parseVibeSnapshot(text);
@@ -451,6 +446,15 @@ export function createFrameReductionSlice(
       // process is alive, even when the command chain is slow (issue #335).
       const observedAt = Date.now();
       m.patchRuntime(tabId, { lastFrameAt: observedAt });
+      // omp's goal truth rides three frames (ADR-0046): goal responses, get_state
+      // responses, and goal_updated events. One parser for all of them.
+      const goalState = goalStateFromFrame(frame);
+      if (
+        goalState !== undefined &&
+        JSON.stringify(goalState) !== JSON.stringify(get().rpc[tabId]?.goal ?? null)
+      ) {
+        m.patchRpc(tabId, { goal: goalState });
+      }
       if (control?.kind === "response") {
         if (typeof control.id === "string") {
           const late = rpcCommandMachinery.settle(
@@ -786,6 +790,9 @@ export function createFrameReductionSlice(
         case "host_uri_cancel":
           // omp stopped waiting for the request it cancelled; settle silently —
           // this frame type is host traffic, never an agent event.
+          return;
+        case "goal_updated":
+          // State intake ran above; the HUD chip is the surface, not a marker.
           return;
         default: {
           const reduction = reduceAgentEvent(

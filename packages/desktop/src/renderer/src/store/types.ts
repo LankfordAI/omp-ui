@@ -56,7 +56,7 @@ import type {
   CapabilitySnapshot,
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
-import type { GoalSnapshot } from "@omp-ui/core/goal";
+import type { GoalState } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { BtwSnapshot } from "@omp-ui/core/side-questions";
 import type { RailTab } from "../lib/panel-layout";
@@ -271,10 +271,11 @@ export interface RpcTabState {
   /** The root session's loaded skills/tool roster; null until first observed. */
   capabilities: CapabilitySnapshot | null;
   /**
-   * The session's goal snapshot as the root goal bridge published it (issue #381).
-   * Display state only: the child process owns the goal and its continuation.
+   * omp's goal state as its last goal response, get_state, or goal_updated
+   * reported it (ADR-0046); null = no goal or not yet known. Display state
+   * only: omp's runtime in the child owns the goal and its continuation.
    */
-  goal: GoalSnapshot | null;
+  goal: GoalState | null;
   /**
    * The session's vibe snapshot as the root vibe bridge published it (issue
    * #683): the director's mode flag and worker roster. Display state only —
@@ -1079,9 +1080,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** Feeds omp's learner the fate of a shown ghost (issue #715). Fire-and-forget. */
   sendWordPredictionFeedback(tabId: string, feedback: WordPredictionFeedback): void;
   /**
-   * One `/goal` or `/guided-goal` line as a command against the session's own
-   * goal bridge (issue #381). Never sends goal prose to the model: with no
-   * usable bridge it settles the row with the reason instead. */
+   * One `/goal` or `/guided-goal` line: dispatches omp's native goal command
+   * (ADR-0046). Never sends goal prose to the model; a refusal settles the
+   * row with omp's reason. */
   runGoalCommand(tabId: string, line: string): Promise<void>;
   /**
    * One `/vibe` line as a command against the session's own vibe bridge

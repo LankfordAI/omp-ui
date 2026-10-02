@@ -12,6 +12,7 @@ import {
   PLAN_REFINE,
   planReviewMessage,
 } from "@omp-ui/core/plan";
+import { goalOwnsSession as coreGoalOwnsSession } from "@omp-ui/core/goal";
 import { backend } from "../../backend";
 import { strField } from "../../lib/fields";
 import { AdvisorReplyWatcher } from "../../lib/advisor-reply";
@@ -353,18 +354,14 @@ export function createPlanExecutionSlice(
   };
 
   /**
-   * True while the session's own goal bridge owns autonomous work (issue #381):
-   * an active or paused goal, a budget-limited goal, or a continuation the child
-   * has scheduled or is running. ADR-0019's watchers are bounded auto-prompts; an
-   * unbounded goal loop must never be restarted, contradicted, or raced by one,
-   * which is exactly what a paused or budget-limited goal forbids.
+   * True while omp's goal owns autonomous work (ADR-0046): any goal omp reports
+   * that is not complete — active, paused, or budget-limited. ADR-0019's
+   * watchers are bounded auto-prompts; omp's unbounded goal loop must never be
+   * restarted, contradicted, or raced by one, which is exactly what a paused or
+   * budget-limited goal forbids.
    */
-  const goalOwnsSession = (tabId: string): boolean => {
-    const goal = get().rpc[tabId]?.goal ?? null;
-    if (goal === null) return false;
-    if (goal.continuation !== "idle") return true;
-    return goal.goal !== null && goal.goal.status !== "complete";
-  };
+  const goalOwnsSession = (tabId: string): boolean =>
+    coreGoalOwnsSession(get().rpc[tabId]?.goal ?? null);
 
   /**
    * Holds an approve verdict's dispatch for the drafting turn's advisor

@@ -1,6 +1,6 @@
 // The autoresearch wire contract. Pure — zero runtime imports — because the
 // renderer imports it directly via the @omp-ui/core/autoresearch subpath,
-// exactly like goal.ts. The generating half (which writes the bridge
+// exactly like vibe.ts. The generating half (which writes the bridge
 // extension) lives in autoresearch-extension.ts and consumes these same
 // constants, so the publishing side and the parser can never drift.
 //
@@ -111,7 +111,7 @@ export function autoresearchArmMessage(): string {
  * Parses the JSON published on {@link AUTORESEARCH_STATUS_KEY}, from either a
  * decoded object or the raw status text. Total: malformed or over-budget
  * input returns null — never "off" — so a bad publish leaves the last good
- * snapshot standing. Same discipline as parseGoalSnapshot.
+ * snapshot standing. Same discipline as parseVibeSnapshot.
  */
 export function parseAutoresearchSnapshot(value: unknown): AutoresearchSnapshot | null {
   const record = asRecord(typeof value === "string" ? safeParse(value) : value);

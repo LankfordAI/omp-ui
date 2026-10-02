@@ -113,7 +113,6 @@ export {
 export { limitsExtensionPath, writeLimitsExtension } from "./limits-extension";
 export { mcpStatusExtensionPath, writeMcpStatusExtension } from "./mcp-status-extension";
 export { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabilities-extension";
-export { goalExtensionPath, writeGoalExtension } from "./goal-extension";
 export { vibeExtensionPath, writeVibeExtension } from "./vibe-extension";
 export { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-pane-extension";
 export { treeExtensionPath, writeTreeExtension } from "./tree-extension";
@@ -139,6 +138,7 @@ export * from "./capabilities";
 export * from "./host-bridge";
 export * from "./browser-pane";
 export * from "./goal";
+export * from "./goal-overlay";
 export * from "./vibe";
 export * from "./collab";
 export * from "./autoresearch";
@@ -224,6 +224,7 @@ export {
   OMP_SETTING_KEYS,
   parseEnumOptions,
   readOmpCompactionMethods,
+  readOmpGoalContinuationModes,
   readOmpSettings,
   readWebSearchProviders,
   WEB_SEARCH_SETTING_GROUP,

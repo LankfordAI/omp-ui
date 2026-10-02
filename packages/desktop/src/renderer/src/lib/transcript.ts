@@ -832,7 +832,8 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         markerItem(`thinking level: ${str(event.thinkingLevel) ?? str(event.level) ?? "?"}`),
       ];
     case "goal_updated":
-      return [...items, markerItem("goal updated")];
+      // Goal state lives on the HUD chip; subagent replays pass through here too.
+      return items;
 
     case "notice": {
       const text = str(event.message) ?? str(event.text) ?? str(event.notice) ?? "";

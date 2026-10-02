@@ -2,7 +2,6 @@ import { sessionCommandIsOffChain, type SessionCommand } from "@omp-ui/core/sess
 // RPC command domain (decomposed for #295): boot, command correlation and
 // timeout, history backfill, and the two-phase auto titling.
 import type { BackendState } from "@omp-ui/core/types";
-import type { GoalSnapshot } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type {
@@ -184,53 +183,11 @@ export function acceptCapabilitySnapshot(
 }
 
 /**
- * The one acceptance rule for a goal snapshot, shared by the `setStatus` push
- * path and by the boot-time summary so a live frame and a hydrated record can
- * never disagree about which goal a tab shows: a same-process snapshot wins only
- * when its revision is strictly newer, and a snapshot from a different process —
- * a respawn, or a branch that minted its own bridge — always replaces what an
- * older generation left behind. Malformed data never reaches here; the parser
- * already refused it, so the tab keeps the last goal it truly saw.
- *
- * Settling the tab's pending goal command row is part of accepting its snapshot:
- * the result is carried on the snapshot, correlated by requestId, and a result
- * from another client or an older generation matches no entry in this tab's map.
- */
-export function acceptGoalSnapshot(
-  tabId: string,
-  snapshot: GoalSnapshot,
-  get: GetState,
-  m: StoreMachinery,
-): boolean {
-  const retained = get().rpc[tabId]?.goal ?? null;
-  if (!isNewerSnapshot(retained, snapshot)) return false;
-  m.patchRpc(tabId, { goal: snapshot });
-  const result = snapshot.result;
-  if (result === null) return true;
-  const requests = m.runtime(tabId).goalRequests;
-  const itemId = requests.get(result.requestId);
-  if (itemId === undefined) return true;
-  requests.delete(result.requestId);
-  m.patchItems(tabId, (item) =>
-    item.kind === "command" && item.id === itemId && item.status === "running"
-      ? {
-          ...item,
-          status: result.ok ? "done" : "failed",
-          output: result.text,
-          ...(result.ok ? {} : { error: result.text }),
-        }
-      : item,
-  );
-  return true;
-}
-
-/**
  * The one acceptance rule for a vibe snapshot (issue #683), shared by the
- * `setStatus` push path and by the boot-time summary, with
- * {@link acceptGoalSnapshot}'s discipline: same-process snapshots must carry
- * a strictly newer revision, a different processKey always replaces what an
- * older generation left behind, and a malformed publish never reaches here —
- * the parser refused it.
+ * `setStatus` push path and by the boot-time summary under `isNewerSnapshot`:
+ * same-process snapshots must carry a strictly newer revision, a different
+ * processKey always replaces what an older generation left behind, and a
+ * malformed publish never reaches here — the parser refused it.
  *
  * Accepting the snapshot settles this tab's pending vibe command row whose
  * requestId the result carries; a result addressed to another client or an
@@ -266,8 +223,8 @@ export function acceptVibeSnapshot(
 
 /**
  * The one acceptance rule for an autoresearch snapshot (ADR-0030), shared by
- * the `setStatus` push path and the boot-time summary hydration, with the
- * revision/processKey discipline of {@link acceptGoalSnapshot}. It has no
+ * the `setStatus` push path and the boot-time summary hydration, under the
+ * same `isNewerSnapshot` revision/processKey rule as vibe snapshots. It has no
  * command row to settle: `/autoresearch` is omp's own command and its row
  * settles through the ordinary prompt path.
  *
@@ -572,8 +529,8 @@ export function disposeTabRuntime(
     capabilitiesLoad: "idle",
     capabilitiesToolPending: null,
     capabilitiesToolFeedback: null,
-    // The goal belongs to the dying process too; a pending command row settles
-    // as failed by the abandoned rpc call it rode, never by optimism.
+    // The goal belongs to the dying process too; the successor's get_state
+    // reports its own.
     goal: null,
     // The vibe roster is the dying process's director state: omp's worker
     // scopes died with it, and the successor republishes its own (#683).
@@ -1151,25 +1108,22 @@ export function createRpcCommandSlice(
   };
 
   /**
-   * Hydrates the goal each tab's live process reports (issue #381). The snapshot
-   * rides the session summary, so a renderer that joins late — or a second
-   * remote client — shows the goal that already exists without ever re-reading
-   * the transcript. Through the same acceptance helper as a live frame, so the
-   * two paths cannot disagree, and a summary from an older generation can never
-   * overwrite state this tab already saw.
+   * Hydrates the goal each tab's live process reports (ADR-0046). Main mirrors
+   * omp's goal state onto the session summary, so a renderer that joins late —
+   * or a second remote client — shows the goal that already exists. A tab
+   * whose process died shows none.
    */
   const reconcileGoals = (state: BackendState): void => {
     for (const [tabId, tab] of Object.entries(get().rpc)) {
       const rec = findRecord(state, tabId);
-      const snapshot = rec?.goal;
-      if (snapshot === undefined) {
-        // No live process reports it: a tab that had a goal from a process that
-        // has since died must not keep showing one.
-        if (tab.goal !== null && findRecord(state, tabId)?.live !== "live")
-          m.patchRpc(tabId, { goal: null });
+      if (rec?.goal !== undefined) {
+        if (JSON.stringify(rec.goal) !== JSON.stringify(tab.goal))
+          m.patchRpc(tabId, { goal: rec.goal });
         continue;
       }
-      acceptGoalSnapshot(tabId, snapshot, get, m);
+      // No live process reports it: a tab that had a goal from a process that
+      // has since died must not keep showing one.
+      if (tab.goal !== null && rec?.live !== "live") m.patchRpc(tabId, { goal: null });
     }
   };
 

@@ -208,7 +208,7 @@ A native session's composer accepts the same slash commands as the terminal TUI.
 | `/new` | Opens a new tab session; the composer never dispatches it. |
 | `/plan`, `/no-plan` (bare) | Toggle plan mode through the generated extension described above. |
 | `/mcp`, `/mcp list` (bare) | Open the capabilities viewer's MCP tab for the session's own working tree. Every other `/mcp …` subcommand forwards normally — including `/mcp reload`, which the viewer's MCP footer sends. |
-| `/goal …`, `/guided-goal …` | Never forwarded as prose: OMP's `/goal` spec is TUI-only, so a forwarded line would reach the model as text and start a turn that talks about the goal instead of changing it. The composer dispatches a hidden command to the generated goal bridge instead, whose reply settles the command row ([ADR-0024](adr/0024-goal-mode-in-native-sessions.md)). Terminal tabs keep forwarding the line to OMP's own TUI. |
+| `/goal …`, `/guided-goal …` | Never forwarded as prose: OMP's `/goal` spec is TUI-only, so a forwarded line would reach the model as text and start a turn that talks about the goal instead of changing it. The composer intercepts the family and dispatches omp's native rpc `goal` command (`get`, `create`, `pause`, `resume`, `drop`); its response settles the command row ([ADR-0046](adr/0046-goal-mode-via-native-rpc-goal-command.md)). `/guided-goal` enables the `goal` tool and sends the guided-goal prompt. Terminal tabs keep forwarding the line to OMP's own TUI. |
 | `/vibe …` | Never forwarded as prose: OMP's `/vibe` spec is TUI-only, so a forwarded line would reach the model as text and start a turn that talks about workers instead of spawning them. The composer dispatches a hidden command to the generated vibe bridge instead, whose published result settles the command row ([ADR-0041](adr/0041-vibe-mode-in-native-sessions-drives-omp-worker-tools.md)). Verbs the native bridge does not carry (`scope`, `undo`, …) answer with that reason rather than falling through as prose. Terminal tabs keep forwarding the line to OMP's own TUI. |
 | `/btw <question>`, `/btw` | Never forwarded as prose: OMP's `/btw` is TUI-only (`handleTui`, no `handle`), so a forwarded line would become a normal model turn and pollute the transcript ([#682](https://github.com/LankfordAI/omp-ui/issues/682)). In a native tab the composer sends a hidden command to the generated side-questions bridge and opens the Side questions pane, adding no transcript row; bare `/btw` opens the pane. Terminal tabs keep forwarding the line to OMP's own TUI. |
 | `/autoresearch start` | Bare `start` opens the New experiment dialog for the session's project; `start <text>` starts the experiment interview in this session with the text as the rough description ([#567](https://github.com/LankfordAI/omp-ui/issues/567), [ADR-0032](adr/0032-experiments-configured-in-conversation.md)). `/autoresearch lab` opens the Lab, likewise never forwarded. Every other `/autoresearch…` form — bare, a goal, `off`, `clear` — forwards verbatim: it is OMP's own extension command, which dispatches over rpc-ui without a dialog ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)). |
@@ -240,42 +240,40 @@ Support is learned per process, on `TabRuntime`, from behaviour rather than vers
 ### Goal mode
 
 A native session can hold an OMP goal: an objective the runtime keeps working
-toward across turns, with token accounting and a budget of its own. The goal
+toward across turns, with token accounting and an optional budget. The goal
 belongs to OMP. omp-ui stores no goal of its own, meters no tokens, and asks no
-model to pretend; a fifth per-lineage generated extension drives
-`AgentSession.goalRuntime` and publishes what the runtime reports
-([ADR-0024](adr/0024-goal-mode-in-native-sessions.md)). Whether goals are
-switched on at all is read from `goal.enabled` through omp's own config
-registry — the same seam the capabilities bridge uses for the
-`magicKeywords.*` gate ([ADR-0036](adr/0036-generated-bridges-read-omp-settings-through-its-config-registry.md)).
+model to pretend; it drives omp's native rpc `goal` command (omp 18.4.11+)
+([ADR-0046](adr/0046-goal-mode-via-native-rpc-goal-command.md), superseding
+ADR-0024's generated bridge). An older omp answers `Unknown command: goal`, and
+the command row shows an update hint.
 
-The channel is an existing frame type claimed ahead of the generic extension
-status: `ui.setStatus("omp-ui:goal", <json>)` publishes a `GoalSnapshot` carrying
-the availability verdict and its reason, OMP's goal with its status and token
-accounting, the continuation state, the pause reason, and any correlated command
-result. Snapshots are monotonic per process (`revision`) and describe the payload
-they carry (a digest), so a stale or duplicate publish loses to what the client
-already holds and a malformed publish leaves the last good snapshot standing. Main
-keeps the newest snapshot per live session, keyed on the process that answered
-rather than the tab, adopts a new process key when a lineage's process is
-replaced, and retires frames from a superseded bridge; `SessionSummary.goal`
-carries it to late subscribers and rehydrating renderers, including remote ones.
+Goal state rides three frames: the `goal` command's response, `get_state.goal`,
+and `goal_updated` events (`{ goal, state }`). `goalStateFromFrame` in core
+parses all three; a frame that says nothing about goals leaves state alone, and
+a malformed one keeps the last good state. Main's `GoalStatusTracker` mirrors
+the latest `GoalState` per live tab and clears it on process exit;
+`SessionSummary.goal` carries it to late subscribers and rehydrating renderers,
+including remote ones (absent when no live process reported, `null` when the
+process reports no goal). The renderer patches the same frames into
+`RpcTabState.goal`.
 
-Because rpc-ui is not one of the modes OMP's interactive continuation loop serves,
-the bridge replicates that loop: after a clean `agent_end` it waits the TUI's
-800 ms settle window and starts the next turn through `promptCustomMessage`,
-which writes the same `goal-continuation` records and `mode` entries OMP's own TUI
-would. A turn that makes no tool progress trips OMP's no-progress guard and pauses
-with OMP's reason text.
+Continuation is omp's own loop. Each rpc-ui spawn reads the user's
+`goal.continuationModes` with `omp config list --json`; when it contains
+`"interactive"`, the spawn passes a `--config` overlay (`omp-ui-goal.yml`)
+that adds `"rpc"`, so omp continues the goal in rpc-ui as its TUI would. A user
+who removed `"interactive"`, or a failed read, gets no overlay and no automatic
+continuation. Terminal tabs get no overlay.
 
-Three UI surfaces read the snapshot: the composer's command family, a HUD chip
-showing status and token use whose click opens the command, and Plan mode's entry
-guard — an unfinished goal blocks entering Plan mode in the renderer *and* in the
-generated plan bridge, so neither the raw RPC path nor a race window slips past
-it. Automatic prompts (advisor reply, stall auto-continue) stand down while a goal
-owns the session, and an active goal vetoes session hibernation, since hibernating
-the process would kill the loop doing the work. A paused or budget-limited idle
-goal owns no loop and applies no veto.
+The composer's command family and a HUD chip read the state. The chip shows
+status and token use and opens a popover with the objective, usage, elapsed
+time, Pause or Resume, and a two-step Drop; each button dispatches the matching
+`/goal` line. An unfinished goal blocks entering Plan mode in the renderer and
+in the generated plan bridge, which reads omp's native `getGoalModeState`; omp
+itself refuses to create or resume a goal in plan mode. Automatic prompts
+(advisor reply, stall auto-continue) stand down while a goal owns the session.
+A goal omp reports as enabled and active vetoes session hibernation, since
+hibernating the process would kill omp's continuation in the child; a paused,
+budget-limited, or complete goal applies no veto.
 
 ### Vibe mode
 
@@ -287,7 +285,7 @@ extension activates the tools and drives their `execute` implementations, and
 publishes what the runtime reports
 ([ADR-0041](adr/0041-vibe-mode-in-native-sessions-drives-omp-worker-tools.md)).
 
-The channel follows the goal bridge: `ui.setStatus("omp-ui:vibe", <json>)`
+The channel follows the generated-bridge pattern: `ui.setStatus("omp-ui:vibe", <json>)`
 publishes a monotonic `VibeSnapshot` — availability, the mode flag, the worker
 roster (state, tier, turn count), and any correlated command result — keyed in
 main by the process that answered, carried to late subscribers on
@@ -299,16 +297,16 @@ survives a crashed process, workers whose transcripts survived but whose
 screens did not are reported `parked`, and an explicitly killed worker stays
 killed — omp-ui tombstones the kill rather than resurrecting the row.
 
-Three interlocks keep the single persisted mode slot honest: vibe entry refuses
-Plan mode and an unfinished goal; goal start refuses an active vibe mode; and
-plan entry refuses an active vibe mode — each refused in the renderer's toggle
-*and* in the generated bridges, so neither the raw RPC path nor a race window
-slips past. The bridges' entry and exit share one transition chain under
+Two bridge interlocks keep the single persisted mode slot honest: vibe entry
+refuses Plan mode and an unfinished goal, and plan entry refuses an active vibe
+mode — each refused in the renderer's toggle *and* in the generated bridges, so
+neither the raw RPC path nor a race window slips past. Goal start refuses an
+active vibe mode in the renderer only, since omp's rpc goal path ignores vibe
+mode. The bridges' entry and exit share one transition chain under
 `Symbol.for("omp-ui:mode-transition")`, and every rpc spawn arms them in the
-order mcp, goal, vibe, plan, so vibe's restore re-checks the goal bridge's
-restored state before re-arming a saved mode. A vibe mode with work in flight
-vetoes session hibernation beside the goal veto; an idle roster owns no loop and
-applies none.
+order mcp, vibe, plan; vibe's restore reads omp's native goal state before
+re-arming a saved mode. A vibe mode with work in flight vetoes session
+hibernation beside the goal veto; an idle roster owns no loop and applies none.
 
 ### Experiments (autoresearch)
 
@@ -397,9 +395,9 @@ Rewinding a native session to an earlier prompt rides OMP's existing `branch` RP
 
 omp-ui's transcript render items do not carry OMP entry ids, so a row-to-entry correlation is positional: the k-th visible user row maps to the k-th user-message entry on the leaf path (`lib/session-rewind.ts` walks `get_entries`' entries from `leafId` to the root, honoring a compaction's `firstKeptEntryId` truncation) and is verified by re-deriving the row's text from the entry through the same `userContentFromContent` used at ingest. A mismatch refuses the action rather than rewinding to the wrong entry. The accepted confirmation (`{kind: "rewind"}` on the one-pending-confirmation lifecycle) dispatches `branch` with the entry's id; a `cancelled: true` response (a hook veto) reloads nothing. Edit-and-resend captures the prompt into a per-tab snapshot map (cleared with the tab runtime in `disposeTabRuntime`) and, after the branch lands and history reloads, hands the text and images to the new branch's composer queue — never a silent replace-the-draft path. Because `branch` with the first user entry reparents to a brand-new session id in the same lineage directory, the file watcher adopts the new header id and the quiet `get_state` that follows merges identity belt-and-braces.
 
-Jumping to an arbitrary tree entry — an assistant turn, or a sibling branch left by an earlier rewind — needs `AgentSession.navigateTree(entryId, { summarize })`, which is in-process only: OMP's rpc surface reads the tree (`get_tree`) but has no dispatch case that jumps. Per ADR-0007/0024 that makes this one more per-lineage generated bridge, `tree-extension.ts`, beside the plan, advisor, capabilities, goal, and autoresearch bridges. Its pure wire contract is [`session-tree.ts`](../packages/core/src/session-tree.ts), which the renderer imports directly as a dependency-free subpath ([ADR-0002](adr/0002-transport-agnostic-core.md)) so publisher and parser cannot drift. The bridge reduces the session manager's tree to a `TreeSnapshot` — flattened nodes with a 160-character preview each, the leaf id, and the leaf-to-root `activePath` — and publishes it as JSON on the existing extension-status key `omp-ui:tree` with a monotonic `revision`, republishing on branch and turn-end events; a payload past 256 KiB publishes `available: false` with `payload-too-large` rather than a partial roster, and the parser rejects an over-budget publish outright so the last good snapshot stands. An API the runtime does not expose reads `missing-api`, never an empty tree. Navigation rides the hidden `/omp-ui-tree navigate <id> [summarize]` command; because the prompt acknowledgement proves only that the dispatch was accepted, completion settles from the snapshot's `navigation` field — same correlation discipline as the goal bridge — with the summarize path polled longer since it can run a model turn. The `SessionTreeViewer` modal (HUD `tree` control, command palette) renders the snapshot: prompt rows rewind through the entry id directly (`stageRewindEntry`), other rows stage a navigate confirmation naming the discarded-entry count, optionally asking the model to summarize the abandoned turns.
+Jumping to an arbitrary tree entry — an assistant turn, or a sibling branch left by an earlier rewind — needs `AgentSession.navigateTree(entryId, { summarize })`, which is in-process only: OMP's rpc surface reads the tree (`get_tree`) but has no dispatch case that jumps. Per ADR-0007 that makes this one more per-lineage generated bridge, `tree-extension.ts`, beside the plan, advisor, capabilities, and autoresearch bridges. Its pure wire contract is [`session-tree.ts`](../packages/core/src/session-tree.ts), which the renderer imports directly as a dependency-free subpath ([ADR-0002](adr/0002-transport-agnostic-core.md)) so publisher and parser cannot drift. The bridge reduces the session manager's tree to a `TreeSnapshot` — flattened nodes with a 160-character preview each, the leaf id, and the leaf-to-root `activePath` — and publishes it as JSON on the existing extension-status key `omp-ui:tree` with a monotonic `revision`, republishing on branch and turn-end events; a payload past 256 KiB publishes `available: false` with `payload-too-large` rather than a partial roster, and the parser rejects an over-budget publish outright so the last good snapshot stands. An API the runtime does not expose reads `missing-api`, never an empty tree. Navigation rides the hidden `/omp-ui-tree navigate <id> [summarize]` command; because the prompt acknowledgement proves only that the dispatch was accepted, completion settles from the snapshot's `navigation` field — the same snapshot-correlation discipline as the vibe bridge — with the summarize path polled longer since it can run a model turn. The `SessionTreeViewer` modal (HUD `tree` control, command palette) renders the snapshot: prompt rows rewind through the entry id directly (`stageRewindEntry`), other rows stage a navigate confirmation naming the discarded-entry count, optionally asking the model to summarize the abandoned turns.
 
-Side questions (`/btw`, [#682](https://github.com/LankfordAI/omp-ui/issues/682)) are one more per-lineage generated bridge, `side-questions-extension.ts`, beside the plan, goal, tree, and limits bridges. OMP's `/btw` is TUI-only and its `BtwController` never runs under rpc-ui, so the bridge drives `AgentSession.runEphemeralTurn` — the API that controller uses, which reuses the main context and appends nothing to the transcript — and keeps OMP's own `btw-history/entry-<id>.json` grammar (strict keys, revision-guarded atomic writes), so a topic started here is browsable in OMP's TUI overlay. The bridge is the single reader and writer of that directory for a native tab and publishes a `BtwSnapshot` (topics, running turn, one-shot busy refusal) over `ui.setStatus("omp-ui:btw", …)`; there is no main-process file channel, so remote instances need no extra IPC. Its pure wire contract and file grammar mirror live in [`side-questions.ts`](../packages/core/src/side-questions.ts). One question runs at a time; state is keyed on `(sessionId, artifactsDir)` and re-read on session switch, so hibernation, resume, and lineage switches show the right topics.
+Side questions (`/btw`, [#682](https://github.com/LankfordAI/omp-ui/issues/682)) are one more per-lineage generated bridge, `side-questions-extension.ts`, beside the plan, tree, and limits bridges. OMP's `/btw` is TUI-only and its `BtwController` never runs under rpc-ui, so the bridge drives `AgentSession.runEphemeralTurn` — the API that controller uses, which reuses the main context and appends nothing to the transcript — and keeps OMP's own `btw-history/entry-<id>.json` grammar (strict keys, revision-guarded atomic writes), so a topic started here is browsable in OMP's TUI overlay. The bridge is the single reader and writer of that directory for a native tab and publishes a `BtwSnapshot` (topics, running turn, one-shot busy refusal) over `ui.setStatus("omp-ui:btw", …)`; there is no main-process file channel, so remote instances need no extra IPC. Its pure wire contract and file grammar mirror live in [`side-questions.ts`](../packages/core/src/side-questions.ts). One question runs at a time; state is keyed on `(sessionId, artifactsDir)` and re-read on session switch, so hibernation, resume, and lineage switches show the right topics.
 
 Subagent control (steer/kill, [#684](https://github.com/LankfordAI/omp-ui/issues/684), [#713](https://github.com/LankfordAI/omp-ui/issues/713)) rides omp's native rpc verbs, `steer_subagent { subagentId, message }` and `cancel_subagent { subagentId }` (omp 18.4.9+, [ADR-0045](adr/0045-subagent-control-via-native-rpc-verbs.md), superseding ADR-0040's generated bridge). Both are late-ack `SESSION_COMMANDS`: a steer's response waits for the subagent to accept the message, and a cancel waits for its turn to unwind. The response is the whole result: success, `{ cancelled: false }` for an id omp no longer runs (idempotent, no notice), or omp's own failure sentence (`Subagent not running: <id>`, `Subagent refused the message: …`) shown verbatim under the roster. An `Unknown command:` answer from an older omp shows an update hint, and nothing is retried. `get_subagents` stays the status truth: a cancel's `aborted` `subagent_lifecycle` frame pulses the roster refresh, and a settled kill refreshes once more for a session whose subscription is off. The Agents pane and the SubagentView banner offer steer and kill exactly where omp accepts them — roster status `running` or `pending` — and nothing elsewhere; PTY tabs keep omp's TUI UX. Hibernation refuses to kill a tab whose `get_state` probe reports `hasPendingAsyncWork` — 18.4.2's `get_state` has no `subagentCount`, and a background child is an asyncJobManager job — with a strictly parsed probe where a missing field means "cannot verify" and the tracker rearms instead.
 
@@ -490,7 +488,7 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [Stall auto-continue after stalled turns](adr/0019-stall-auto-continue-after-stalled-turns.md) | When a turn dies to a stream stall, post the diagnostic at the turn-end and dispatch a bounded continue prompt into the same idle rpc-ui session. |
 | [Plan-handoff descendants are deleted with their source](adr/0021-cascade-delete-of-plan-handoff-descendants.md) | Deleting a session erases its complete plan-handoff descendant closure; a session without descendants is deleted alone. |
 | [Prepared plan documents are verified in the renderer before presentation](adr/0022-prepared-plan-verification-in-the-renderer.md) | Verify a prepared HTML plan structurally and with a script-less layout probe; amended (#312 follow-up): main owns the submission gate for every client ahead of review, and the renderer check stays as each surface's final local verification. |
-| [Goal mode, driven by the same generated-extension discipline](adr/0024-goal-mode-in-native-sessions.md) | Run the `/goal` family in native sessions against OMP's own goal runtime, published as a monotonic snapshot instead of forwarded prose. |
+| [Goal mode, driven by the same generated-extension discipline](adr/0024-goal-mode-in-native-sessions.md) | Run the `/goal` family in native sessions against OMP's own goal runtime, published as a monotonic snapshot instead of forwarded prose — superseded by [ADR-0046](adr/0046-goal-mode-via-native-rpc-goal-command.md): omp's native rpc `goal` command replaces the bridge. |
 | [Glass chrome via backdrop-filter](adr/0026-glass-chrome-via-backdrop-filter.md) | Make chrome planes translucent over an achromatic backdrop wash with backdrop-filter, keeping the reading plane and terminals opaque. |
 | [The web-search provider list is discovered from omp](adr/0027-web-search-provider-list-discovered-from-omp.md) | Probe the installed binary for its provider ids instead of transcribing a catalog, and degrade to configured ids only when discovery fails — superseded by [ADR-0035](adr/0035-web-search-provider-list-read-from-omp-model-catalog.md): the enumeration source is now the model catalog. |
 | [Remote instances are joined by the main process, not the renderer](adr/0028-remote-instances-joined-by-main-process-proxy.md) | Let desktop main dial each joined omp-ui app, hold its credential, merge its projects into backend state, and route tab-scoped traffic by tab id, so the renderer keeps one backend and every client sees the same joined instances. |
@@ -501,3 +499,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [Proposed plans outlive their process; the review gate does not](adr/0033-proposed-plans-outlive-their-process.md) | Persist each proposal and its verdict on the owned session record, derive an interrupted plan from a pending record with no live gate, and re-raise a real review through the plan extension's review verb — never a gate-less execute, never a re-propose turn. |
 | [The web-search provider list is read from omp's model catalog](adr/0035-web-search-provider-list-read-from-omp-model-catalog.md) | Enumerate web-search providers from `omp models --kind search --json` under a pristine environment — designed JSON, offline, credential-free — keeping ADR-0027's closed-list contract and synthetic-reason degradation. |
 | [Generated bridges read omp settings through its config registry](adr/0036-generated-bridges-read-omp-settings-through-its-config-registry.md) | Read the effective value with a literal dynamic import of omp's config registry and `lookup(id).get(session.settings)` — layered, live, read-only — because 18.3.2's `Settings` has no string-key `get` and every alternative either writes or guesses. |
+| [Goal mode via omp's native rpc goal command](adr/0046-goal-mode-via-native-rpc-goal-command.md) | Drive goals through omp's rpc `goal` command, `get_state.goal`, and `goal_updated` (omp 18.4.11+, no fallback); budgets at creation only; continuation is omp's own, armed by a per-spawn `goal.continuationModes` overlay that follows the user's `"interactive"` setting; the HUD chip opens pause/resume/drop controls. |

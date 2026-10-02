@@ -8,6 +8,8 @@ import {
   rebindSessionCwd,
   unarchiveSession,
   readOmpCompactionMethods,
+  readOmpGoalContinuationModes,
+  rpcGoalContinuationModes,
   type OwnedSessionRecord,
   writeApprovalOverlay,
   writeAdvisorOverlay,
@@ -16,9 +18,9 @@ import {
   writeAdvisorStatsExtension,
   writeCapabilitiesExtension,
   writeCompactionMethodOverlay,
+  writeGoalContinuationOverlay,
   writeDefaultModelOverlay,
   writeMcpStatusExtension,
-  writeGoalExtension,
   writeVibeExtension,
   writeLimitsExtension,
   writePlanExtension,
@@ -110,46 +112,69 @@ export async function writeRpcOverlays(
   subagents: SubagentSpawnConfig = { inheritByDefault: false, roster: [] },
 ): Promise<string[]> {
   const overlays = writeSessionOverlays(record, absLineageDir, gate, subagents);
-    const preferred = record.compactionMethod;
-    if (preferred === null) {
-      writeCompactionMethodOverlay(absLineageDir, null, []);
-      return overlays;
-    }
-    try {
-      const methods = await readOmpCompactionMethods({
-        ompPath,
-        projectCwd: record.worktree?.path ?? record.projectCwd,
-      });
-      if (!methods.supported.includes(preferred)) {
-        writeCompactionMethodOverlay(absLineageDir, null, []);
-        console.warn(
-          `[compaction] tab ${record.tabId} captured unavailable method ${preferred}; using omp configuration`,
-        );
-        return overlays;
-      }
-      const overlay = writeCompactionMethodOverlay(
-        absLineageDir,
-        preferred,
-        methods.configuredOrder,
-      );
-      if (overlay !== null) overlays.push(overlay);
-    } catch (err) {
-      writeCompactionMethodOverlay(absLineageDir, null, []);
+  const projectCwd = record.worktree?.path ?? record.projectCwd;
+  // Read concurrently with the compaction probe: omp continues goals only in the
+  // modes `goal.continuationModes` lists, and rpc-ui is mode "rpc" (ADR-0046).
+  const goalModes = readOmpGoalContinuationModes({ ompPath, projectCwd }).then(
+    (configured) => rpcGoalContinuationModes(configured),
+    (err: unknown) => {
       console.warn(
-        `[compaction] tab ${record.tabId} could not apply captured method ${preferred}; using omp configuration:`,
+        `[goal] tab ${record.tabId} could not read goal.continuationModes; goals will not auto-continue:`,
         err,
       );
-    }
-    return overlays;
+      return null;
+    },
+  );
+  await writeCompactionOverlay(record, absLineageDir, ompPath, projectCwd, overlays);
+  const modes = await goalModes;
+  try {
+    const overlay = writeGoalContinuationOverlay(absLineageDir, modes);
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[goal] could not write the continuation overlay:", err);
   }
+  return overlays;
+}
 
-  /** The generated `-e` bridges an rpc-ui spawn needs. */
+/** Pins the record's captured compaction method when the installed omp still supports it. */
+async function writeCompactionOverlay(
+  record: OwnedSessionRecord,
+  absLineageDir: string,
+  ompPath: string,
+  projectCwd: string | null,
+  overlays: string[],
+): Promise<void> {
+  const preferred = record.compactionMethod;
+  if (preferred === null) {
+    writeCompactionMethodOverlay(absLineageDir, null, []);
+    return;
+  }
+  try {
+    const methods = await readOmpCompactionMethods({ ompPath, projectCwd });
+    if (!methods.supported.includes(preferred)) {
+      writeCompactionMethodOverlay(absLineageDir, null, []);
+      console.warn(
+        `[compaction] tab ${record.tabId} captured unavailable method ${preferred}; using omp configuration`,
+      );
+      return;
+    }
+    const overlay = writeCompactionMethodOverlay(absLineageDir, preferred, methods.configuredOrder);
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    writeCompactionMethodOverlay(absLineageDir, null, []);
+    console.warn(
+      `[compaction] tab ${record.tabId} could not apply captured method ${preferred}; using omp configuration:`,
+      err,
+    );
+  }
+}
+
+/** The generated `-e` bridges an rpc-ui spawn needs. */
 export const RPC_BRIDGE_IDS = [
   "plan",
   "advisorStats",
   "mcpStatus",
   "capabilities",
-  "goal",
   "vibe",
   "browserPane",
   "autoresearch",
@@ -165,7 +190,6 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   advisorStats: writeAdvisorStatsExtension,
   mcpStatus: writeMcpStatusExtension,
   capabilities: writeCapabilitiesExtension,
-  goal: writeGoalExtension,
   vibe: writeVibeExtension,
   browserPane: writeBrowserPaneExtension,
   autoresearch: writeAutoresearchExtension,
@@ -184,7 +208,6 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "advisorStats", logId: "advisor", warning: "advisor-stats", enabled: () => true },
   { id: "mcpStatus", logId: "mcp", warning: "MCP-status", enabled: () => true },
   { id: "capabilities", logId: "capabilities", warning: "capabilities", enabled: () => true },
-  { id: "goal", logId: "goal", warning: "goal", enabled: () => true },
   { id: "vibe", logId: "vibe", warning: "vibe", enabled: () => true },
   { id: "browserPane", logId: "browser-pane", warning: "browser-pane", enabled: () => true },
   { id: "autoresearch", logId: "autoresearch", warning: "autoresearch", enabled: (enabled) => enabled },

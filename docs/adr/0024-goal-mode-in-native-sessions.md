@@ -1,5 +1,10 @@
 # Goal mode, driven by the same generated-extension discipline
 
+_Superseded by [ADR-0046](0046-goal-mode-via-native-rpc-goal-command.md):
+omp 18.4.11 added a native rpc `goal` command, `get_state.goal`, and
+`goal_updated` events; the generated goal bridge is retired and omp runs
+continuation itself. Kept for the record._
+
 The `/goal` family (`goal`, `guided-goal`, and the `set` / `show` / `pause` /
 `resume` / `drop` / `budget` subcommands) is offered in rpc-ui tabs as a composer
 command family, a HUD chip, and a hibernation veto. It is delivered by a

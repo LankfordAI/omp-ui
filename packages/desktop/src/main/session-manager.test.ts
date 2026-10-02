@@ -26,6 +26,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
     spawnShell: vi.fn(),
     watchLineageDir: vi.fn(),
     readOmpCompactionMethods: vi.fn(),
+    readOmpGoalContinuationModes: vi.fn(),
     writeMcpStatusExtension: vi.fn(core.writeMcpStatusExtension),
     writeCapabilitiesExtension: vi.fn(core.writeCapabilitiesExtension),
     RpcClient: vi.fn(),
@@ -40,6 +41,7 @@ const spawnOmpMock = vi.mocked(Core.spawnOmp);
 const spawnShellMock = vi.mocked(Core.spawnShell);
 const watchLineageDirMock = vi.mocked(Core.watchLineageDir);
 const readOmpCompactionMethodsMock = vi.mocked(Core.readOmpCompactionMethods);
+const readOmpGoalContinuationModesMock = vi.mocked(Core.readOmpGoalContinuationModes);
 const writeMcpStatusExtensionMock = vi.mocked(Core.writeMcpStatusExtension);
 const writeCapabilitiesExtensionMock = vi.mocked(Core.writeCapabilitiesExtension);
 const RpcClientMock = vi.mocked(Core.RpcClient);
@@ -373,6 +375,8 @@ beforeEach(() => {
     supported: ["remote", "soft", "shake"],
     configuredOrder: ["remote", "soft", "shake"],
   });
+  readOmpGoalContinuationModesMock.mockReset();
+  readOmpGoalContinuationModesMock.mockResolvedValue(["interactive"]);
   RpcClientMock.mockReset();
   RpcClientMock.mockImplementation(function (
     this: unknown,
@@ -426,16 +430,14 @@ describe("MCP runtime status bridge", () => {
     const options = RpcClientMock.mock.calls.at(-1)?.[0];
     expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-mcp-status\.ts$/));
     // The flush precedes the mode command; the mode command is published on
-    // every spawn, Build included (issue #142; regression #256). The goal arm
-    // rides before the mode command so goal restoration answers Plan entry's
-    // unfinished-goal check (issue #381); the vibe arm follows goal so its
-    // restore reads a settled goal state, then the capabilities arm follows,
+    // every spawn, Build included (issue #142; regression #256). The vibe arm
+    // rides before the mode command so its restore reads a settled mode slot,
+    // then the capabilities arm follows,
     // the browser-pane endpoint. The autoresearch arm (issue #559) follows the
     // pane endpoint only while experimentsEnabled is on (off by default).
     const messages = armMessages(options?.initialCommands);
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
-      Core.goalArmMessage(),
       Core.vibeArmMessage(),
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
@@ -478,7 +480,6 @@ describe("MCP runtime status bridge", () => {
 
     expect(armMessages(RpcClientMock.mock.calls.at(-1)?.[0].initialCommands)).toEqual([
       Core.mcpRuntimeStatusMessage(),
-      Core.goalArmMessage(),
       Core.vibeArmMessage(),
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
@@ -509,7 +510,6 @@ describe("MCP runtime status bridge", () => {
     );
     const messages = armMessages(options?.initialCommands);
     expect(messages).toEqual([
-      Core.goalArmMessage(),
       Core.vibeArmMessage(),
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
@@ -604,7 +604,6 @@ describe("session capabilities bridge (issue #374)", () => {
     // The arm command rides after the MCP flush and the mode command.
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
-      Core.goalArmMessage(),
       Core.vibeArmMessage(),
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
@@ -656,7 +655,6 @@ describe("session capabilities bridge (issue #374)", () => {
     const messages = armMessages(options?.initialCommands);
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
-      Core.goalArmMessage(),
       Core.vibeArmMessage(),
       Core.planMessage(false, "html"),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
@@ -1297,6 +1295,30 @@ describe("default compaction method (issue #268)", () => {
     expect(spawnCalls.at(-1)?.configOverlays).not.toContainEqual(
       expect.stringMatching(/omp-ui-compaction\.yml$/),
     );
+  });
+});
+
+describe("goal continuation overlay (ADR-0046)", () => {
+  const freshRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+
+  it("follows the user's interactive continuation into rpc", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    const { tabId } = await freshRpc(manager);
+    const record = registry.sessions.find((session) => session.tabId === tabId)!;
+    expect(readOmpGoalContinuationModesMock).toHaveBeenCalledWith({ ompPath: expect.any(String), projectCwd: "/proj" });
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as { configOverlays?: string[] } | undefined;
+    const overlay = options?.configOverlays?.find((file) => path.basename(file) === "omp-ui-goal.yml");
+    expect(overlay).toBe(Core.goalOverlayPath(path.join(sessionsRoot, record.lineageDir)));
+    expect(fs.readFileSync(overlay!, "utf8")).toBe('goal:\n  continuationModes:\n    - "interactive"\n    - "rpc"\n');
+  });
+
+  it("writes no overlay when the user removed interactive continuation", async () => {
+    readOmpGoalContinuationModesMock.mockResolvedValue([]);
+    const { manager } = setup({ mode: "rpc-ui" });
+    await freshRpc(manager);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as { configOverlays?: string[] } | undefined;
+    expect(options?.configOverlays).not.toContainEqual(expect.stringMatching(/omp-ui-goal\.yml$/));
   });
 });
 
@@ -5908,43 +5930,35 @@ describe("hibernation (issue #246)", () => {
     expect(rpc.kill).toHaveBeenCalledTimes(1);
   });
 
-  /** One goal snapshot as the session's own bridge publishes it (issue #381). */
-  let goalRevision = 0;
+  /** One goal_updated event as omp publishes it natively (issue #381, ADR-0046). */
   const goalFrame = (
     rpc: (typeof rpcInstances)[number],
     goal: { status: string } | null,
-    continuation: "idle" | "scheduled" | "running" = "idle",
   ): void => {
-    goalRevision += 1;
+    const nativeGoal =
+      goal === null
+        ? null
+        : {
+            id: "g1",
+            objective: "finish the migration",
+            status: goal.status,
+            tokensUsed: 10,
+            timeUsedSeconds: 5,
+            createdAt: 1,
+            updatedAt: 1,
+          };
     rpc.frame({
-      type: "extension_ui_request",
-      id: "goal-frame-" + goalRevision,
-      method: "setStatus",
-      statusKey: Core.GOAL_STATUS_KEY,
-      statusText: JSON.stringify({
-        version: 1,
-        processKey: "proc-goal",
-        sessionId: "session-1",
-        revision: goalRevision,
-        available: true,
-        unavailable: null,
-        enabled: goal?.status === "active" || goal?.status === "budget-limited",
-        goal: goal === null
-          ? null
-          : {
-              id: "g1",
-              objective: "finish the migration",
-              status: goal.status,
-              tokenBudget: null,
-              tokensUsed: 10,
-              timeUsedSeconds: 5,
-              createdAt: 1,
-              updatedAt: 1,
+      type: "goal_updated",
+      goal: nativeGoal,
+      ...(nativeGoal === null
+        ? {}
+        : {
+            state: {
+              enabled: goal?.status === "active" || goal?.status === "budget-limited",
+              mode: "active",
+              goal: nativeGoal,
             },
-        continuation,
-        pauseReason: null,
-        result: null,
-      }),
+          }),
     });
   };
   /** One vibe snapshot as the session's own bridge publishes it (issue #683). */
@@ -6045,7 +6059,7 @@ describe("hibernation (issue #246)", () => {
     }
   });
 
-  it("keeps a scheduled continuation alive in a hidden tab (issue #381)", async () => {
+  it("a dropped goal stops keeping a hidden tab alive (issue #381)", async () => {
     vi.useFakeTimers();
     try {
       const { manager, registry } = setup({ mode: "rpc-ui" });
@@ -6055,12 +6069,12 @@ describe("hibernation (issue #246)", () => {
       rpc.kill.mockImplementation(() => rpc.exit(0));
 
       rpc.frame({ type: "agent_end" });
-      goalFrame(rpc, { status: "active" }, "scheduled");
+      goalFrame(rpc, { status: "active" });
       await vi.advanceTimersByTimeAsync(WINDOW);
       await flush();
       expect(rpc.kill).not.toHaveBeenCalled();
 
-      // A goal that finished its work is no protection at all.
+      // A dropped goal is no protection at all.
       goalFrame(rpc, null);
       await vi.advanceTimersByTimeAsync(WINDOW);
       cleanProbe(rpc);

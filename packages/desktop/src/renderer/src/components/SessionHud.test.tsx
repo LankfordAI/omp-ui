@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { GoalSnapshot, NativeGoal } from "@omp-ui/core/goal";
+import type { GoalState, NativeGoal } from "@omp-ui/core/goal";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type { LimitsView } from "@omp-ui/core/limits";
 import type { BackendState, ExperimentRecord, OmpSettingsSnapshot, ProjectExperiments } from "@omp-ui/core/types";
@@ -792,10 +792,10 @@ describe("SessionHud compaction threshold notch (issue #249)", () => {
   });
 });
 
-describe("SessionHud goal chip (issue #381)", () => {
+describe("SessionHud goal chip (issue #381, ADR-0046)", () => {
   const runSlashCommand = vi.fn(async () => {});
 
-  const seedGoal = (goal: GoalSnapshot | null): void => {
+  const seedGoal = (goal: GoalState | null): void => {
     useStore.setState({
       runSlashCommand,
       rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, goal } },
@@ -814,6 +814,15 @@ describe("SessionHud goal chip (issue #381)", () => {
     ...patch,
   });
 
+  const goalState = (patch: Partial<NativeGoal> = {}): GoalState => {
+    const goal = nativeGoal(patch);
+    return {
+      enabled: goal.status === "active" || goal.status === "budget-limited",
+      exiting: goal.status === "complete",
+      goal,
+    };
+  };
+
   const render = (): HTMLElement => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -822,20 +831,14 @@ describe("SessionHud goal chip (issue #381)", () => {
     return host;
   };
 
+  /** Buttons in the portaled popover, by visible text. */
+  const popoverButton = (text: string): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === text,
+    );
+
   it("shows the goal's status and OMP's token accounting", () => {
-    seedGoal({
-      version: 1,
-      processKey: "proc",
-      sessionId: "s",
-      revision: 3,
-      available: true,
-      unavailable: null,
-      enabled: true,
-      goal: nativeGoal(),
-      continuation: "running",
-      pauseReason: null,
-      result: null,
-    });
+    seedGoal(goalState());
     const host = render();
     const chip = host.querySelector<HTMLButtonElement>('button[aria-label^="goal: finish the migration"]');
     expect(chip).not.toBeNull();
@@ -844,50 +847,64 @@ describe("SessionHud goal chip (issue #381)", () => {
     expect(chip?.textContent).toContain("12,345 / 40,000 tokens");
   });
 
-  it("opens the goal command when clicked", () => {
-    seedGoal({
-      version: 1,
-      processKey: "proc",
-      sessionId: "s",
-      revision: 3,
-      available: true,
-      unavailable: null,
-      enabled: true,
-      goal: nativeGoal({ status: "paused", tokenBudget: null }),
-      continuation: "idle",
-      pauseReason: "Paused by /goal pause.",
-      result: null,
-    });
+  it("opens goal controls instead of dispatching a command", () => {
+    seedGoal(goalState({ objective: "line one\nline two" }));
     const host = render();
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label^="goal paused"]')!.click());
-    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/goal");
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label^="goal: line one"]')!.click());
+    expect(runSlashCommand).not.toHaveBeenCalled();
+    // The objective renders whole, and the usage line comes from goalDetails.
+    expect(document.body.textContent).toContain("line one\nline two");
+    expect(document.body.textContent).toContain("12,345 of 40,000 used, 27,655 remaining");
+    // An active goal offers Pause, never Resume.
+    expect(popoverButton("Pause")).toBeDefined();
+    expect(popoverButton("Resume")).toBeUndefined();
   });
 
-  it("leaves no chip behind when the goal is gone or the bridge is unavailable", () => {
-    const gone: Array<GoalSnapshot | null> = [
-      null,
-      {
-        version: 1,
-        processKey: "proc",
-        sessionId: "s",
-        revision: 4,
-        available: false,
-        unavailable: "omp session does not expose the goal runtime",
-        enabled: false,
-        goal: null,
-        continuation: "idle",
-        pauseReason: null,
-        result: null,
-      },
-    ];
-    for (const goal of gone) {
-      seedGoal(goal);
-      const host = render();
-      expect(host.textContent).not.toContain("tokens");
-      if (root) act(() => root!.unmount());
-      root = null;
-      document.body.replaceChildren();
-    }
+  it("pauses the goal through the composer's goal command", () => {
+    seedGoal(goalState());
+    const host = render();
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label^="goal: finish"]')!.click());
+    act(() => popoverButton("Pause")!.click());
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/goal pause");
+    // The action closes the popover.
+    expect(popoverButton("Drop")).toBeUndefined();
+  });
+
+  it("resumes a paused goal", () => {
+    seedGoal(goalState({ status: "paused", tokenBudget: null }));
+    const host = render();
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label^="goal paused"]')!.click());
+    expect(popoverButton("Pause")).toBeUndefined();
+    act(() => popoverButton("Resume")!.click());
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/goal resume");
+  });
+
+  it("drops only on the second, confirming click", () => {
+    seedGoal(goalState());
+    const host = render();
+    const chip = host.querySelector<HTMLButtonElement>('button[aria-label^="goal: finish"]')!;
+    act(() => chip.click());
+    act(() => popoverButton("Drop")!.click());
+    expect(runSlashCommand).not.toHaveBeenCalled();
+    // Cancel backs out of the confirmation without dispatching.
+    act(() => popoverButton("Cancel")!.click());
+    expect(runSlashCommand).not.toHaveBeenCalled();
+    act(() => popoverButton("Drop")!.click());
+    // Closing the popover resets the armed confirmation.
+    act(() => chip.click());
+    act(() => chip.click());
+    expect(popoverButton("Confirm drop")).toBeUndefined();
+    act(() => popoverButton("Drop")!.click());
+    act(() => popoverButton("Confirm drop")!.click());
+    expect(runSlashCommand).toHaveBeenCalledTimes(1);
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/goal drop");
+  });
+
+  it("leaves no chip behind when there is no goal", () => {
+    seedGoal(null);
+    const host = render();
+    expect(host.textContent).not.toContain("tokens");
+    expect(host.querySelector('button[aria-label^="goal"]')).toBeNull();
   });
 });
 

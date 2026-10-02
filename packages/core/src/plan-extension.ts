@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { writeLineageArtifact } from "./lineage-artifact";
-import { GOAL_MODE_TRANSITION_KEY } from "./goal";
+import { VIBE_MODE_TRANSITION_KEY } from "./vibe";
 import {
   generatedModeTransitionSource,
   generatedRootBindingSource,
@@ -38,9 +38,10 @@ import {
  *
  * The wire constants live in ./plan, which the renderer imports directly.
  *
- * Plan entry also joins the mode-transition chain the goal bridge shares under
- * `Symbol.for("omp-ui:mode-transition")`, and refuses an unfinished goal before
- * it takes omp's single persisted mode slot (ADR-0007/0013 boundary).
+ * Plan entry also joins the mode-transition chain the vibe bridge shares under
+ * `Symbol.for("omp-ui:mode-transition")`, and refuses an unfinished goal (read
+ * from omp's native `getGoalModeState`) before it takes omp's single persisted
+ * mode slot (ADR-0007/0013 boundary).
  */
 
 /** The extension file lives beside the transcript so it dies with the lineage. */
@@ -84,7 +85,7 @@ const EXECUTE = ${JSON.stringify(PLAN_EXECUTE)};
 const REFINE = ${JSON.stringify(PLAN_REFINE)};
 const PREFLIGHT_RESULT_PREFIX = ${JSON.stringify(PLAN_PREFLIGHT_RESULT_PREFIX)};
 const PREFLIGHT_REPLY_VERSION = ${JSON.stringify(PLAN_PREFLIGHT_REPLY_VERSION)};
-const TRANSITION_KEY = ${JSON.stringify(GOAL_MODE_TRANSITION_KEY)};
+const TRANSITION_KEY = ${JSON.stringify(VIBE_MODE_TRANSITION_KEY)};
 
 /** The single tool name plan mode borrows so the plan file can be written. */
 const WRITE_TOOL = "write";
@@ -1227,8 +1228,8 @@ export default function (pi: PlanExtensionApi) {
 
   /**
    * Vibe mode owns the same single mode slot: an active director (workers or
-   * not, the flag alone) blocks Plan entry, mirroring the goal bridge's veto
-   * of vibe entry in the other direction.
+   * not, the flag alone) blocks Plan entry, mirroring the vibe bridge's
+   * refusal of vibe entry while Plan is on.
    */
   function vibeActive(active: PlanSession): boolean {
     const read = active.getVibeModeState;
