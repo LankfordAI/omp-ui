@@ -26,6 +26,16 @@ async function tmpRepo(): Promise<string> {
   await git(["commit", "-q", "-m", "init"]);
   return dir;
 }
+/**
+ * Points a remote-tracking ref at main's commit and aims the origin/HEAD
+ * symref at it, so `readDefaultBranch` resolves the default the way a
+ * cloned repo's would — no network remote needed.
+ */
+async function seedOriginMain(dir: string): Promise<void> {
+  const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+  await git(["update-ref", "refs/remotes/origin/main", "refs/heads/main"]);
+  await git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+}
 
 describe("readBranchDiff", () => {
   it("reads the branch, tracked changes vs HEAD, and untracked files", async () => {
@@ -45,6 +55,9 @@ describe("readBranchDiff", () => {
     expect(diff.diff).toContain("+export const a = 2;");
     expect(diff.untracked).toEqual([{ path: "notes.md", text: "# new\n", binary: false }]);
     expect(diff.mergeBase).toBeNull();
+    // On the default branch itself there is no branch-local work: the plain
+    // HEAD reading stands (issue #711).
+    expect(diff.baseRef).toBeNull();
   });
 
   it("reports non-repo projects as null fields, not an error", async () => {
@@ -56,6 +69,7 @@ describe("readBranchDiff", () => {
       diff: "",
       untracked: [],
       mergeBase: null,
+      baseRef: null,
     });
   });
 
@@ -100,6 +114,7 @@ describe("readBranchDiff", () => {
     const diff = await readBranchDiff(dir, "main");
     const expectedBase = (await git(["merge-base", "main", "HEAD"])).stdout.trim();
     expect(diff.mergeBase).toBe(expectedBase);
+    expect(diff.baseRef).toBe("main");
     expect(diff.diff).toContain("diff --git a/feature.ts b/feature.ts");
     expect(diff.diff).toContain("+export const f = 1;");
   });
@@ -121,6 +136,7 @@ describe("readBranchDiff", () => {
 
     const diff = await readBranchDiff(dir, "main");
     expect(diff.mergeBase).toBe((await git(["merge-base", "main", "HEAD"])).stdout.trim());
+    expect(diff.baseRef).toBe("main");
     expect(diff.diff).toContain("+export const f = 1;");
     expect(diff.diff).not.toContain("mainline.ts");
   });
@@ -137,6 +153,7 @@ describe("readBranchDiff", () => {
     const diff = await readBranchDiff(dir, "main");
     // One diff covers the commit plus the working-tree edit — a single
     // file entry, showing the working-tree content.
+    expect(diff.baseRef).toBe("main");
     expect(diff.diff.match(/^diff --git a\/feature\.ts b\/feature\.ts$/gm)).toHaveLength(1);
     expect(diff.diff).toContain("+export const f = 2;");
     expect(diff.diff).not.toContain("+export const f = 1;");
@@ -148,6 +165,75 @@ describe("readBranchDiff", () => {
 
     const diff = await readBranchDiff(dir, "no-such-ref");
     expect(diff.mergeBase).toBeNull();
+    expect(diff.baseRef).toBeNull();
+    expect(diff.diff).toContain("+changed");
+  });
+
+  it("auto-bases a plain-checkout branch on the default branch's merge-base", async () => {
+    // Issue #711: the first commit must not erase the session's work.
+    const dir = await tmpRepo();
+    const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+    await git(["checkout", "-q", "-b", "feat/x"]);
+    fs.writeFileSync(path.join(dir, "feature.ts"), "export const f = 1;\n");
+    await git(["add", "feature.ts"]);
+    await git(["commit", "-q", "-m", "feature"]);
+
+    // main advances after the cut — its commit is not this branch's work.
+    await git(["checkout", "-q", "main"]);
+    fs.writeFileSync(path.join(dir, "mainline.ts"), "export const m = 1;\n");
+    await git(["add", "mainline.ts"]);
+    await git(["commit", "-q", "-m", "mainline"]);
+    await git(["checkout", "-q", "feat/x"]);
+
+    fs.writeFileSync(path.join(dir, "feature.ts"), "export const f = 2;\n");
+
+    const diff = await readBranchDiff(dir);
+    expect(diff.mergeBase).toBe((await git(["merge-base", "main", "HEAD"])).stdout.trim());
+    expect(diff.baseRef).toBe("main");
+    expect(diff.diff).toContain("+export const f = 2;");
+    expect(diff.diff).not.toContain("mainline.ts");
+  });
+
+  it("retries the origin/<default> ref when the local default branch is gone", async () => {
+    const dir = await tmpRepo();
+    const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+    await seedOriginMain(dir);
+    await git(["checkout", "-q", "-b", "feat/x"]);
+    fs.writeFileSync(path.join(dir, "feature.ts"), "export const f = 1;\n");
+    await git(["add", "feature.ts"]);
+    await git(["commit", "-q", "-m", "feature"]);
+    await git(["branch", "-q", "-D", "main"]);
+
+    const diff = await readBranchDiff(dir);
+    expect(diff.mergeBase).toBe((await git(["merge-base", "origin/main", "HEAD"])).stdout.trim());
+    expect(diff.baseRef).toBe("origin/main");
+    expect(diff.diff).toContain("+export const f = 1;");
+  });
+
+  it("diffs vs HEAD on a detached HEAD with no recorded base", async () => {
+    const dir = await tmpRepo();
+    const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+    const sha = (await git(["rev-parse", "HEAD"])).stdout.trim();
+    await git(["checkout", "-q", "--detach", sha]);
+    fs.writeFileSync(path.join(dir, ".seed"), "detached\n");
+
+    const diff = await readBranchDiff(dir);
+    expect(diff.branch).toBeNull();
+    expect(diff.mergeBase).toBeNull();
+    expect(diff.baseRef).toBeNull();
+    expect(diff.diff).toContain("+detached");
+  });
+
+  it("diffs vs HEAD when no default branch resolves", async () => {
+    const dir = await tmpRepo();
+    const git = (args: string[]) => execFileP("git", args, { cwd: dir });
+    await git(["branch", "-m", "feature"]);
+    fs.writeFileSync(path.join(dir, ".seed"), "changed\n");
+
+    const diff = await readBranchDiff(dir);
+    expect(diff.branch).toBe("feature");
+    expect(diff.mergeBase).toBeNull();
+    expect(diff.baseRef).toBeNull();
     expect(diff.diff).toContain("+changed");
   });
 });

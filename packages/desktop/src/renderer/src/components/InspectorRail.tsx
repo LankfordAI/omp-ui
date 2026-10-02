@@ -43,6 +43,8 @@ interface BranchDiffLoad {
   repoRoot?: string | null;
   files?: DiffFile[];
   mergeBase?: string | null;
+  /** The ref the loaded diff was scoped to (recorded base or auto-resolved default, #711). */
+  baseRef?: string | null;
 }
 
 /**
@@ -751,6 +753,9 @@ function DiffsPane({ tabId }: { tabId: string }) {
   const currentBranch = useStore((s) => (key ? s.branches[key]?.current : undefined));
   const branchDiffRevision = useStore((s) => (key ? (s.branchDiffRevision[key] ?? 0) : 0));
   const [load, setLoad] = useState<BranchDiffLoad>({ status: "idle" });
+  // The ref the loaded diff was scoped to: the recorded base, or the core's
+  // auto-resolved default branch (#711).
+  const diffBase = base ?? (load.baseRef ?? null);
   // Keyed by path so an open file stays open across a branchDiffRevision re-read.
   const [openPaths, setOpenPaths] = useState<ReadonlySet<string>>(new Set());
   const requestIdRef = useRef(0);
@@ -770,6 +775,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
         branch: branch.branch,
         repoRoot: branch.repoRoot,
         mergeBase: branch.mergeBase,
+        baseRef: branch.baseRef,
         files: parseBranchDiff(branch.diff, branch.untracked),
       });
     } catch (err) {
@@ -812,8 +818,8 @@ function DiffsPane({ tabId }: { tabId: string }) {
       <Empty
         title={t("diff.rail.cleanTitle")}
         hint={
-          load.mergeBase != null && base !== null
-            ? t("diff.rail.noChangesBase", { branch: load.branch ?? t("diff.rail.thisBranch"), base: shortBase(base) })
+          load.mergeBase != null && diffBase !== null
+            ? t("diff.rail.noChangesBase", { branch: load.branch ?? t("diff.rail.thisBranch"), base: shortBase(diffBase) })
             : t("diff.rail.noChangesHead", { branch: load.branch ?? t("diff.rail.thisBranch") })
         }
       />
@@ -836,9 +842,9 @@ function DiffsPane({ tabId }: { tabId: string }) {
         <Chip mono title={load.repoRoot ?? undefined}>
           {load.branch ?? t("diff.rail.detached")}
         </Chip>
-        {load.mergeBase != null && base !== null && (
+        {load.mergeBase != null && diffBase !== null && (
           <Chip mono title={load.mergeBase}>
-            {t("diff.rail.since", { base: shortBase(base) })}
+            {t("diff.rail.since", { base: shortBase(diffBase) })}
           </Chip>
         )}
         <span

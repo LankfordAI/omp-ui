@@ -403,6 +403,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     refreshBranches: branchesSlice.refreshBranches,
     checkoutGitBranch: branchesSlice.checkoutGitBranch,
     pullGitBranch: branchesSlice.pullGitBranch,
+    refreshBranchDiff: branchesSlice.refreshBranchDiff,
     pushGitBranch: branchesSlice.pushGitBranch,
     getPullRequestUrl: branchesSlice.getPullRequestUrl,
     resolveMergeDestination: branchesSlice.resolveMergeDestination,

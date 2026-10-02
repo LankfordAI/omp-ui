@@ -571,10 +571,17 @@ export interface BranchDiff {
   /** New untracked files, read as creates. Oversized files are skipped. */
   untracked: Array<{ path: string; text: string; binary: boolean }>;
   /**
-   * Merge-base commit the diff is taken from when a worktree base was
-   * supplied and resolvable; null = ordinary diff vs HEAD.
+   * Merge-base commit the diff is taken from when a base (recorded or
+   * auto-resolved) was supplied and resolvable; null = ordinary diff vs HEAD.
    */
   mergeBase: string | null;
+  /**
+   * Ref the merge-base was resolved against — the recorded worktree base,
+   * or the auto-resolved default branch (issue #711); null when the diff
+   * is vs HEAD. The renderer uses it for the "since <base>" chip and the
+   * clean-state hint when no base was passed in.
+   */
+  baseRef: string | null;
 }
 
 /**

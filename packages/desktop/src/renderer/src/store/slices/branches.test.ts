@@ -357,6 +357,12 @@ describe("branch switching (issue #35)", () => {
       pushing: false,
     });
   });
+
+  it("refreshBranchDiff increments only its project's revision", () => {
+    h.useStore.setState({ branchDiffRevision: { "/p": 2, "/other": 7 } });
+    h.useStore.getState().refreshBranchDiff("/p");
+    expect(h.useStore.getState().branchDiffRevision).toEqual({ "/p": 3, "/other": 7 });
+  });
 });
 
 describe("merge-back (issue #272)", () => {

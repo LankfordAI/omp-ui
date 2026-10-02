@@ -53,6 +53,7 @@ type AfterCommitEffect =
       itemIds: ReadonlySet<string>;
     }
   | { phase: "after-commit"; type: "refresh-usage"; settleQueue: boolean }
+  | { phase: "after-commit"; type: "refresh-branch-diff" }
   | { phase: "after-commit"; type: "rename-session" }
   | {
       phase: "after-commit";
@@ -310,6 +311,9 @@ export function reduceAgentEvent(
       type: "refresh-usage",
       settleQueue: true,
     });
+    // A turn that committed mid-flight must not erase the pane's view of the
+    // session's work (issue #711): re-read the repo's diff at turn end.
+    effects.push({ phase: "after-commit", type: "refresh-branch-diff" });
 
     const providerStall =
       tab.lastTurn !== undefined && isStreamStallEnd(tab.lastTurn);

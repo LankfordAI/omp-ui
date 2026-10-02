@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { git } from "./git";
+import { readDefaultBranch } from "./branches";
 import type { BranchDiff } from "./types";
 
 // Git is a plain child_process here (core/git.ts) — this module is
@@ -32,8 +33,10 @@ function readWorkingFile(absPath: string, maxBytes = MAX_UNTRACKED_BYTES): Branc
  * `base` the tracked diff is taken from `merge-base(base, HEAD)` in one pass
  * — commits + staged + unstaged since the branch was cut — falling back to
  * `git diff HEAD` (staged + unstaged) when base is null or unresolvable.
- * Projects outside any git repo resolve to all-null fields — a no-repo
- * state, not an error.
+ * With no base at all, a named branch other than the repo's default branch
+ * auto-bases on `merge-base(default, HEAD)` so committed branch work stays
+ * visible in a plain checkout (issue #711). Projects outside any git repo
+ * resolve to all-null fields — a no-repo state, not an error.
  */
 export async function readBranchDiff(
   projectCwd: string,
@@ -45,6 +48,7 @@ export async function readBranchDiff(
     diff: "",
     untracked: [],
     mergeBase: null,
+    baseRef: null,
   };
   let root: string;
   try {
@@ -61,17 +65,34 @@ export async function readBranchDiff(
     branch = null;
   }
 
-  // With a resolvable worktree base, one diff from the merge-base covers
-  // commits + staged + unstaged with a single entry per file. A deleted base
-  // ref or unrelated history degrades silently to the plain HEAD diff.
+  // Diff base ladder (issue #711): the recorded worktree base, else the
+  // repo's default branch when this is a named branch other than that
+  // default, else plain `git diff HEAD`. Committed branch work stays
+  // visible in a plain checkout instead of vanishing at the first commit.
+  // A deleted base ref or unrelated history degrades silently to the HEAD
+  // diff.
   let mergeBase: string | null = null;
+  let baseRef: string | null = null;
   let diff = "";
-  if (base !== null) {
-    try {
-      mergeBase = (await git(root, ["merge-base", base, "HEAD"])).trim();
-      diff = await git(root, ["diff", mergeBase, "--no-ext-diff"]);
-    } catch {
-      mergeBase = null;
+  const effectiveBase =
+    base ?? (branch !== null ? await readDefaultBranch(root) : null);
+  const autoBase =
+    base === null && effectiveBase !== null && effectiveBase !== branch;
+  if (effectiveBase !== null && (base !== null || autoBase)) {
+    // The origin/<name> retry covers the validated-symref case where the
+    // local default branch was deleted but the remote-tracking ref remains
+    // (readDefaultBranch strips the origin/ prefix).
+    for (const candidate of autoBase
+      ? [effectiveBase, `origin/${effectiveBase}`]
+      : [effectiveBase]) {
+      try {
+        mergeBase = (await git(root, ["merge-base", candidate, "HEAD"])).trim();
+        baseRef = candidate;
+        diff = await git(root, ["diff", mergeBase, "--no-ext-diff"]);
+        break;
+      } catch {
+        mergeBase = null; // next candidate, then the HEAD fallback below
+      }
     }
   }
   if (mergeBase === null) {
@@ -105,5 +126,5 @@ export async function readBranchDiff(
     // No untracked listing — the tracked diff still stands.
   }
 
-  return { branch, repoRoot: root, diff, untracked, mergeBase };
+  return { branch, repoRoot: root, diff, untracked, mergeBase, baseRef };
 }
