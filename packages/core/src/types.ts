@@ -566,7 +566,7 @@ export interface BranchDiff {
   branch: string | null;
   /** Repo root the branch lives in — the diff is read relative to it. */
   repoRoot: string | null;
-  /** `git diff HEAD` for tracked files, verbatim unified diff. */
+  /** Tracked-file unified diff, verbatim: from `mergeBase` when one resolved, else `git diff HEAD`. */
   diff: string;
   /** New untracked files, read as creates. Oversized files are skipped. */
   untracked: Array<{ path: string; text: string; binary: boolean }>;
@@ -577,7 +577,8 @@ export interface BranchDiff {
   mergeBase: string | null;
   /**
    * Ref the merge-base was resolved against — the recorded worktree base,
-   * or the auto-resolved default branch (issue #711); null when the diff
+   * the auto-resolved default branch, or the current branch's upstream
+   * (issue #711); null when the diff
    * is vs HEAD. The renderer uses it for the "since <base>" chip and the
    * clean-state hint when no base was passed in.
    */

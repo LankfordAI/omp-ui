@@ -35,7 +35,8 @@ export interface BranchesSlice {
   pullGitBranch(projectCwd: string, instanceId?: string | null): Promise<string | null>;
   /**
    * Bumps the project's diff-pane revision so a mounted DiffsPane re-reads
-   * the repo — at native turn end (issue #711) as well as after a pull.
+   * the repo — at native turn end (issue #711) and after a pull or a push
+   * that moved a ref.
    */
   refreshBranchDiff(projectCwd: string, instanceId?: string | null): void;
   /**
@@ -243,6 +244,8 @@ export function createBranchesSlice(set: SetState, get: GetState): BranchesSlice
           // The push advanced the remote-tracking ref, so this refresh reads the
           // true zero-ahead state off local refs — no network, as after a pull.
           await get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
+          // The push moved the upstream the diff pane may be based on (#711).
+          refreshBranchDiff(projectCwd, instanceId);
         }
         return result;
       } finally {
