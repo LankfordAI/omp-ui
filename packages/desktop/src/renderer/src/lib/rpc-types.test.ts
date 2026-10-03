@@ -4,6 +4,7 @@ import {
   modelSupportsFastMode,
   parseQueuedMessages,
   parseSessionRuntime,
+  parseSubagents,
   type ModelInfo,
 } from "./rpc-types";
 
@@ -115,5 +116,60 @@ describe("queued messages in session state", () => {
     expect(
       parseQueuedMessages({ steering: ["s1", 2, null], followUp: [{ text: "x" }, "f1"] }),
     ).toEqual({ steering: ["s1"], followUp: ["f1"] });
+  });
+});
+
+describe("parseSubagents", () => {
+  it("reads status and completionPercent from the nested progress object", () => {
+    const [entry] = parseSubagents({
+      subagents: [{ id: "a1", progress: { status: "running", completionPercent: 42 } }],
+    });
+    expect(entry.status).toBe("running");
+    expect(entry.completionPercent).toBe(42);
+  });
+
+  it("reads completionPercent from the top level", () => {
+    const [entry] = parseSubagents({
+      subagents: [{ id: "a1", status: "running", completionPercent: 30 }],
+    });
+    expect(entry.completionPercent).toBe(30);
+  });
+
+  it("leaves completionPercent undefined when the field is absent", () => {
+    const [entry] = parseSubagents({ subagents: [{ id: "a1", status: "running" }] });
+    expect(entry.completionPercent).toBeUndefined();
+  });
+
+  it("drops malformed completionPercent values", () => {
+    const [quoted] = parseSubagents({
+      subagents: [{ id: "a1", progress: { status: "running", completionPercent: "70" } }],
+    });
+    const [nan] = parseSubagents({
+      subagents: [{ id: "a1", status: "running", completionPercent: NaN }],
+    });
+    const [nul] = parseSubagents({
+      subagents: [{ id: "a1", status: "running", completionPercent: null }],
+    });
+    expect(quoted.completionPercent).toBeUndefined();
+    expect(nan.completionPercent).toBeUndefined();
+    expect(nul.completionPercent).toBeUndefined();
+  });
+
+  it("clamps completionPercent to the 0-100 range", () => {
+    const [high] = parseSubagents({
+      subagents: [{ id: "a1", status: "running", completionPercent: 140 }],
+    });
+    const [low] = parseSubagents({
+      subagents: [{ id: "a1", progress: { status: "running", completionPercent: -5 } }],
+    });
+    expect(high.completionPercent).toBe(100);
+    expect(low.completionPercent).toBe(0);
+  });
+
+  it("takes status from nested progress when there is no top-level status", () => {
+    const [entry] = parseSubagents({
+      subagents: [{ id: "a1", progress: { status: "idle" } }],
+    });
+    expect(entry.status).toBe("idle");
   });
 });

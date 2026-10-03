@@ -507,6 +507,53 @@ describe("desktop InspectorRail", () => {
       });
     });
   });
+
+  it("shows a running agent's completion estimate in the row (issue #716)", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          subagents: [{ id: "agent-1", name: "worker", status: "running", completionPercent: 42 }],
+        }),
+      },
+    });
+    renderRail();
+    act(() => railTab("agents")!.click());
+    expect(document.body.textContent).toContain("42%");
+    expect(
+      document.body.querySelector(`[title="${t("rail.agents.estimateTitle")}"]`),
+    ).not.toBeNull();
+  });
+
+  it("omits the completion estimate once the agent is no longer running (issue #716)", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          subagents: [{ id: "agent-1", name: "worker", status: "completed", completionPercent: 67 }],
+        }),
+      },
+    });
+    renderRail();
+    act(() => railTab("agents")!.click());
+    expect(document.body.textContent).not.toContain("67%");
+  });
+
+  it("renders no estimate span for runtimes without completionPercent (issue #716)", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          subagents: [{ id: "agent-1", name: "worker", status: "running" }],
+        }),
+      },
+    });
+    renderRail();
+    act(() => railTab("agents")!.click());
+    expect(document.body.textContent).toContain("running");
+    expect(document.body.textContent).not.toContain("42%");
+    expect(document.body.textContent).not.toContain("0%");
+    expect(
+      document.body.querySelector(`[title="${t("rail.agents.estimateTitle")}"]`),
+    ).toBeNull();
+  });
   it("re-reads an open project diff only when that project's revision changes", async () => {
     const initial = deferred<BranchDiff>();
     const refreshed = deferred<BranchDiff>();

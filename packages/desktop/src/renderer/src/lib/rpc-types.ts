@@ -157,6 +157,8 @@ export interface SubagentInfo {
   agent?: string;
   status?: string;
   label?: string;
+  /** omp 18.4.11+: the agent's own completion estimate, 0–100, while running. */
+  completionPercent?: number;
 }
 
 /**
@@ -366,12 +368,18 @@ export function parseSubagents(value: unknown): SubagentInfo[] {
   for (const raw of arrField(value, "subagents")) {
     const id = strField(raw, "id");
     if (id === undefined) continue;
+    const progress = field(raw, "progress");
+    const percent = numField(raw, "completionPercent") ?? numField(progress, "completionPercent");
     subagents.push({
       id,
       name: strField(raw, "name"),
       agent: strField(raw, "agent"),
-      status: strField(raw, "status") ?? strField(field(raw, "progress"), "status"),
+      status: strField(raw, "status") ?? strField(progress, "status"),
       label: strField(raw, "description") ?? strField(raw, "task"),
+      completionPercent:
+        percent !== undefined && Number.isFinite(percent)
+          ? Math.min(100, Math.max(0, percent))
+          : undefined,
     });
   }
   return subagents;
