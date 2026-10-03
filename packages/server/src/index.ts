@@ -59,6 +59,7 @@ export interface RemoteServerHandle {
   readonly urls: string[];
   /** Token-bearing pairing URLs (fallback), always carrying the token. */
   readonly tokenUrls: string[];
+  /** Records entry-file absence at startup; later HTTP responses check availability per request. */
   readonly webBundleMissing: boolean;
   /** The bound port — meaningful when `port: 0` asked the OS to pick one. */
   readonly port: number;
@@ -189,7 +190,8 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   // The session credential is derived from the stored hash, never from the password: a logged-in
   // browser can present it indefinitely, and it rotates the moment the hash changes.
   const sessionCred = password ? passwordSessionCredential(password.hash) : null;
-  const indexFile = path.join(webRoot, "index.html");
+  const root = path.resolve(webRoot);
+  const indexFile = path.join(root, "index.html");
   const webBundleMissing = !fs.existsSync(indexFile);
 
   const send = (res: ServerResponse, code: number, body: string, type = "text/plain; charset=utf-8"): void => {
@@ -208,7 +210,8 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   const loginThrottle = new LoginThrottle();
 
   const serveStatic = async (res: ServerResponse, pathname: string): Promise<void> => {
-    if (webBundleMissing) {
+    const indexStat = await statOrNull(indexFile);
+    if (!indexStat?.isFile()) {
       send(res, 503, 'omp-ui web bundle not built — run "npm run build:web"');
       return;
     }
@@ -221,18 +224,17 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       return;
     }
     const rel = decoded.replace(/^\/+/, "");
-    const resolved = path.resolve(webRoot, rel);
-    const root = path.resolve(webRoot);
+    const resolved = path.resolve(root, rel);
     if (resolved !== root && !resolved.startsWith(root + path.sep)) {
       send(res, 403, "forbidden");
       return;
     }
     let file = resolved;
-    let stat = await statOrNull(file);
+    let stat = file === indexFile ? indexStat : await statOrNull(file);
     // SPA fallback: an extensionless unknown path is a client route, not a missing asset.
     if (stat?.isDirectory() || (stat === null && path.extname(file) === "")) {
       file = indexFile;
-      stat = await statOrNull(file);
+      stat = indexStat;
     }
     if (!stat?.isFile()) {
       send(res, 404, "not found");

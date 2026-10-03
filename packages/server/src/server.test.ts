@@ -1009,6 +1009,68 @@ describe("startRemoteServer static bundle", () => {
     return dir;
   }
 
+  it("serves a late first build on the original listener using the issued cookie", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-web-"));
+    roots.push(root);
+    const { base } = await serve({ webRoot: root });
+
+    const missing = await fetch(`${base}/?t=${TOKEN}`);
+    expect(missing.status).toBe(503);
+    expect(await missing.text()).toBe('omp-ui web bundle not built — run "npm run build:web"');
+    const cookie = missing.headers.get("set-cookie");
+    expect(cookie).toContain("omp_ui_token=");
+    const headers = { cookie: cookie!.split(";")[0] };
+
+    const html = "<!doctype html><div id=root>late first build</div>";
+    const asset = 'export const build = "late-first-build";\n';
+    fs.writeFileSync(path.join(root, "index.html"), html);
+    fs.mkdirSync(path.join(root, "assets"));
+    fs.writeFileSync(path.join(root, "assets", "app.js"), asset);
+
+    for (const route of ["/", "/some/spa/route", "/index.html"]) {
+      const index = await fetch(`${base}${route}`, { headers });
+      expect(index.status).toBe(200);
+      expect(await index.text()).toBe(html);
+    }
+    const js = await fetch(`${base}/assets/app.js`, { headers });
+    expect(js.status).toBe(200);
+    expect(js.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(Buffer.from(await js.arrayBuffer())).toEqual(Buffer.from(asset));
+  });
+
+  it("recovers from a missing entry during a rebuild on the original listener", async () => {
+    const root = webRoot();
+    const { base } = await serve({ webRoot: root });
+
+    const original = await fetch(`${base}/?t=${TOKEN}`);
+    expect(original.status).toBe(200);
+    expect(await original.text()).toBe("<!doctype html><div id=root></div>");
+
+    fs.rmSync(path.join(root, "index.html"));
+    const missing = await fetch(`${base}/?t=${TOKEN}`);
+    expect(missing.status).toBe(503);
+    expect(await missing.text()).toBe('omp-ui web bundle not built — run "npm run build:web"');
+
+    const html = "<!doctype html><div id=root>replacement build</div>";
+    fs.writeFileSync(path.join(root, "index.html"), html);
+    for (const route of ["/", "/some/spa/route"]) {
+      const replacement = await fetch(`${base}${route}?t=${TOKEN}`);
+      expect(replacement.status).toBe(200);
+      expect(await replacement.text()).toBe(html);
+    }
+  });
+
+  it("answers with the build hint when index.html is a directory", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-web-"));
+    roots.push(root);
+    fs.mkdirSync(path.join(root, "index.html"));
+    const { base } = await serve({ webRoot: root });
+
+    const res = await fetch(`${base}/?t=${TOKEN}`);
+    expect(res.status).toBe(503);
+    expect(await res.text()).toBe('omp-ui web bundle not built — run "npm run build:web"');
+  });
+
   it("serves index.html, hashed assets, and the icon with correct MIME", async () => {
     const { base, handle } = await serve({ webRoot: webRoot() });
     expect(handle.webBundleMissing).toBe(false);

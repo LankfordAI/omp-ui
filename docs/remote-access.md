@@ -71,7 +71,9 @@ Packaged desktop builds include the browser bundle. From the repository root, bu
 npm run build:web --workspace @omp-ui/desktop
 ```
 
-The embedded server can still start when `index.html` is absent. The password sign-in page remains available when password authentication is enabled, and authenticated WebSocket behavior remains available for diagnosis. Authenticated requests for the browser app return `503 Service Unavailable` with a missing-bundle build hint. Build the bundle, then restart remote access so the desktop process sees it.
+The embedded server can still start when `index.html` is absent or is not a file. The password sign-in page remains available when password authentication is enabled, and authenticated WebSocket behavior remains available for diagnosis. For every authenticated static request, the server asynchronously checks whether `index.html` is a file. When it is absent or not a file, requests for the browser app return `503 Service Unavailable` with a missing-bundle build hint. After the first build or a rebuild completes, reload the same URL to load the current bundle; the listener, credentials, and pairing URL stay unchanged.
+
+The missing-bundle notice in **Settings > Remote access** records availability only when the server starts. It is a historical startup diagnostic, not a live availability check, and may remain visible after the bundle has been built.
 
 ## Related guides
 

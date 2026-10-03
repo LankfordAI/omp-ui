@@ -1057,7 +1057,7 @@ export interface RemoteState {
   urls: string[];
   /** Token-bearing pairing URLs (fallback). Empty unless listening. */
   tokenUrls: string[];
-  /** True when out/web is absent, so the server answers 503 with a build hint. */
+  /** True if the entry file was absent when this server started; HTTP availability is checked per request. */
   webBundleMissing: boolean;
   error: string | null;
 }

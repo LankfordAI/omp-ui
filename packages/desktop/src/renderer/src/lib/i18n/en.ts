@@ -844,7 +844,8 @@ export const en = {
   "settings.remote.listening": "listening on {port}",
   "settings.remote.startFailed": "the server could not start",
   "settings.remote.stopped": "stopped",
-  "settings.remote.webBundleMissing": "the browser bundle is missing — run ",
+  "settings.remote.webBundleMissing":
+    "the browser bundle was missing at server startup — if it is still missing, run ",
   "settings.remote.password": "Password",
   "settings.remote.passwordHint":
     "Primary sign-in for remote devices. Stored as a salted hash — it cannot be revealed, only changed or cleared.",
