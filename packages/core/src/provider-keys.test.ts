@@ -1,7 +1,8 @@
-import * as fs from "node:fs";
+import nodeFs, * as fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   captureLoginShellKeys,
   credentialStoreUnavailableMessage,
@@ -38,6 +39,72 @@ function fakeCipher(overrides: Partial<KeyCipher> = {}): KeyCipher {
     },
     ...overrides,
   };
+}
+
+/** Writes the on-disk shape load() reads, so tests can seed entries directly. */
+function writeKeyFile(file: string, keys: Record<string, string>): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify({ schemaVersion: 1, keys }, null, 2)}\n`);
+}
+
+/** The `keys` map from disk, for asserting untouched blobs survive byte-for-byte. */
+function keyEntries(file: string): Record<string, string> {
+  const parsed: { keys: Record<string, string> } = JSON.parse(fs.readFileSync(file, "utf8"));
+  return parsed.keys;
+}
+
+/** Ciphertext fakeCipher refuses — the signature of a rotated or foreign keyring. */
+const FOREIGN = Buffer.from("foreign-keyring", "utf8").toString("base64");
+
+/** Well-formed ciphertext that decrypts to an empty value. */
+const EMPTY_CIPHER = Buffer.from("enc: \n\t", "utf8").toString("base64");
+
+/** Ciphertext the default fakeCipher round-trips back to `value`. */
+function readable(value: string): string {
+  return Buffer.from(`enc:${value}`, "utf8").toString("base64");
+}
+
+/** Fail one real filesystem step, then restore both default and ESM bindings. */
+function withSaveFailureOnce<T>(step: "write" | "rename", run: () => T): T {
+  const fail = (): never => {
+    throw new Error(`simulated ${step} failure`);
+  };
+  const spy = step === "write"
+    ? vi.spyOn(nodeFs, "writeFileSync").mockImplementationOnce(fail)
+    : vi.spyOn(nodeFs, "renameSync").mockImplementationOnce(fail);
+  syncBuiltinESMExports();
+  try {
+    return run();
+  } finally {
+    spy.mockRestore();
+    syncBuiltinESMExports();
+  }
+}
+
+/** A keyring that refuses fakeCipher's blobs and writes its own. */
+function rotatedCipher(): KeyCipher {
+  return {
+    available: true,
+    backend: "test-rotated",
+    encrypt: (plain) => Buffer.from(`rot:${plain}`, "utf8"),
+    decrypt: (blob) => {
+      const text = blob.toString("utf8");
+      if (!text.startsWith("rot:")) throw new Error("wrong keyring");
+      return text.slice(4);
+    },
+  };
+}
+
+/** Reads fakeCipher's ciphertext but writes different bytes, exposing re-encryption. */
+function rewritingCipher(): KeyCipher {
+  return fakeCipher({
+    encrypt: (plain) => Buffer.from(`ren:${plain}`, "utf8"),
+    decrypt: (blob) => {
+      const text = blob.toString("utf8");
+      if (text.startsWith("enc:") || text.startsWith("ren:")) return text.slice(4);
+      throw new Error("not our ciphertext");
+    },
+  });
 }
 
 const KEY = "OPENROUTER_API_KEY";
@@ -99,18 +166,6 @@ describe("ProviderKeys storage", () => {
     });
   });
 
-  it("drops an entry the cipher can no longer decrypt instead of failing to load", () => {
-    const file = path.join(tmpDir(), "provider-keys.json");
-    make({ file }).keys.setKey(KEY, LONG);
-    // A rotated keyring or a different machine: the blob is intact but foreign.
-    const hostile = fakeCipher({
-      decrypt: () => {
-        throw new Error("wrong keyring");
-      },
-    });
-    expect(row(new ProviderKeys(file, hostile, {}), "openrouter").source).toBe("none");
-  });
-
   it("ignores a corrupt key file rather than taking the app down", () => {
     const file = path.join(tmpDir(), "provider-keys.json");
     fs.writeFileSync(file, "{ not json");
@@ -154,6 +209,273 @@ describe("ProviderKeys storage", () => {
     );
     expect(credentialStoreUnavailableMessage("linux")).toContain("export the variable from your shell");
   });
+
+describe("ProviderKeys unreadable stored entries", () => {
+  it.each(["throws", "decrypts to blank"] as const)(
+    "when the cipher %s, warns about the entry instead of pretending it is gone",
+    (mode) => {
+      const file = path.join(tmpDir(), "provider-keys.json");
+      // A rotated keyring refuses the blob outright; a stale one yields nothing.
+      writeKeyFile(file, { [KEY]: mode === "throws" ? FOREIGN : EMPTY_CIPHER });
+      const before = fs.readFileSync(file, "utf8");
+      const env: NodeJS.ProcessEnv = {};
+      const keys = new ProviderKeys(file, fakeCipher(), env);
+      const entry = row(keys, "openrouter");
+      expect(entry).toMatchObject({ source: "none", masked: null, shadowsEnvironment: false });
+      expect(entry.unreadableStoredEnvs).toEqual([KEY]);
+      expect(keys.hasModelProvider(null)).toBe(false);
+      keys.applyToProcessEnv(env);
+      expect(env).toEqual({});
+      // Reporting never rewrites: a later restart with the right store still works.
+      expect(fs.readFileSync(file, "utf8")).toBe(before);
+    },
+  );
+
+  it("becomes readable again when a restart finds the original keyring", () => {
+    const file = path.join(tmpDir(), "provider-keys.json");
+    new ProviderKeys(file, rotatedCipher(), {}).setKey(KEY, LONG);
+    const stuck = new ProviderKeys(file, fakeCipher(), {});
+    expect(row(stuck, "openrouter")).toMatchObject({ source: "none", masked: null });
+    expect(row(stuck, "openrouter").unreadableStoredEnvs).toEqual([KEY]);
+    const env: NodeJS.ProcessEnv = {};
+    const restored = new ProviderKeys(file, rotatedCipher(), env);
+    expect(row(restored, "openrouter")).toMatchObject({ source: "stored", masked: "••••cdef" });
+    expect(row(restored, "openrouter").unreadableStoredEnvs).toEqual([]);
+    restored.applyToProcessEnv(env);
+    expect(env[KEY]).toBe(LONG);
+  });
+
+  it("preserves every untouched blob across unrelated edits and a compatible restart", () => {
+    const file = path.join(tmpDir(), "provider-keys.json");
+    const openai = "sk-openai-0123456789";
+    const xai = "synthetic-xai-original-1234";
+    const originalEntries = {
+      [KEY]: rotatedCipher().encrypt(LONG).toString("base64"),
+      XAI_API_KEY: rotatedCipher().encrypt(xai).toString("base64"),
+      OPENAI_API_KEY: readable(openai),
+    };
+    writeKeyFile(file, originalEntries);
+    // Re-encrypting the readable sibling would change its original bytes too.
+    const keys = new ProviderKeys(file, rewritingCipher(), {});
+    keys.setKey("GROQ_API_KEY", LONG);
+    const afterSet = keyEntries(file);
+    for (const [name, blob] of Object.entries(originalEntries)) {
+      expect(afterSet[name]).toBe(blob);
+    }
+    keys.clearKey("GROQ_API_KEY");
+    expect(keyEntries(file)).toEqual(originalEntries);
+    expect(row(keys, "openai")).toMatchObject({ source: "stored", masked: "••••6789" });
+    expect(row(keys, "openrouter").unreadableStoredEnvs).toEqual([KEY]);
+    const env: NodeJS.ProcessEnv = {};
+    const compatible = fakeCipher({
+      decrypt: (blob) => blob.toString().startsWith("rot:")
+        ? rotatedCipher().decrypt(blob)
+        : fakeCipher().decrypt(blob),
+    });
+    const restarted = new ProviderKeys(file, compatible, env);
+    restarted.applyToProcessEnv();
+    expect(env).toEqual({ [KEY]: LONG, XAI_API_KEY: xai, OPENAI_API_KEY: openai });
+    expect(row(restarted, "openrouter")).toMatchObject({
+      source: "stored", masked: "••••cdef", unreadableStoredEnvs: [],
+    });
+    expect(row(restarted, "xai")).toMatchObject({
+      source: "stored", masked: "••••1234", unreadableStoredEnvs: [],
+    });
+  });
+
+  it("replaces only the target's blob when overwriting an unreadable entry", () => {
+    const file = path.join(tmpDir(), "provider-keys.json");
+    writeKeyFile(file, { [KEY]: FOREIGN, OPENAI_API_KEY: FOREIGN, XAI_API_KEY: EMPTY_CIPHER });
+    const keys = new ProviderKeys(file, rewritingCipher(), {});
+    keys.setKey(KEY, LONG);
+    const entries = keyEntries(file);
+    expect(entries[KEY]).toBe(Buffer.from(`ren:${LONG}`, "utf8").toString("base64"));
+    expect(entries.OPENAI_API_KEY).toBe(FOREIGN);
+    expect(entries.XAI_API_KEY).toBe(EMPTY_CIPHER);
+    const entry = row(keys, "openrouter");
+    expect(entry).toMatchObject({ source: "stored", masked: "••••cdef" });
+    expect(entry.unreadableStoredEnvs).toEqual([]);
+    expect(row(keys, "openai").unreadableStoredEnvs).toEqual(["OPENAI_API_KEY"]);
+    if (process.platform !== "win32") expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it("clears an unreadable entry with no credential store, keeping the ambient value", () => {
+    const file = path.join(tmpDir(), "provider-keys.json");
+    writeKeyFile(file, { [KEY]: FOREIGN, OPENAI_API_KEY: FOREIGN });
+    const ambient = "sk-or-inherited-value";
+    const env: NodeJS.ProcessEnv = { [KEY]: ambient };
+    const keys = new ProviderKeys(file, fakeCipher({ available: false }), env);
+    expect(row(keys, "openrouter")).toMatchObject({ source: "environment", masked: "••••alue" });
+    expect(() => keys.setKey(KEY, LONG)).toThrow(/no OS credential store/);
+    keys.clearKey(KEY, env);
+    expect(env[KEY]).toBe(ambient);
+    expect(keyEntries(file)).toEqual({ OPENAI_API_KEY: FOREIGN });
+    expect(row(keys, "openrouter").unreadableStoredEnvs).toEqual([]);
+    expect(row(keys, "openai").unreadableStoredEnvs).toEqual(["OPENAI_API_KEY"]);
+    if (process.platform !== "win32") expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it("leaves the file byte-identical when clearing a name it never stored", () => {
+    const { keys, file } = make();
+    keys.setKey(KEY, LONG);
+    const before = fs.readFileSync(file, "utf8");
+    keys.clearKey("GROQ_API_KEY");
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    if (process.platform !== "win32") expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it("reports a usable alternate while warning that the saved primary is unreadable", () => {
+    const file = path.join(tmpDir(), "provider-keys.json");
+    writeKeyFile(file, {
+      ANTHROPIC_API_KEY: FOREIGN,
+      ANTHROPIC_OAUTH_TOKEN: readable("oauth-token-value-1234"),
+    });
+    const keys = new ProviderKeys(file, fakeCipher(), {});
+    const entry = row(keys, "anthropic");
+    expect(entry).toMatchObject({
+      env: "ANTHROPIC_API_KEY",
+      activeEnv: "ANTHROPIC_OAUTH_TOKEN",
+      source: "stored",
+      masked: "••••1234",
+    });
+    expect(entry.unreadableStoredEnvs).toEqual(["ANTHROPIC_API_KEY"]);
+    expect(keys.hasModelProvider(null)).toBe(true);
+  });
+
+  it("reports the readable primary and lists only the unreadable alternates", () => {
+    const file = path.join(tmpDir(), "provider-keys.json");
+    writeKeyFile(file, {
+      ANTHROPIC_API_KEY: readable("sk-ant-0123456789abcd"),
+      ANTHROPIC_OAUTH_TOKEN: FOREIGN,
+      ANTHROPIC_AUTH_TOKEN: EMPTY_CIPHER,
+    });
+    const keys = new ProviderKeys(file, fakeCipher(), {});
+    const entry = row(keys, "anthropic");
+    expect(entry).toMatchObject({
+      activeEnv: "ANTHROPIC_API_KEY",
+      source: "stored",
+      masked: "••••abcd",
+    });
+    expect(entry.unreadableStoredEnvs).toEqual(["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"]);
+  });
+
+  it("lists every unreadable variable in catalog order regardless of file order", () => {
+    const file = path.join(tmpDir(), "provider-keys.json");
+    writeKeyFile(file, {
+      ANTHROPIC_AUTH_TOKEN: FOREIGN,
+      ANTHROPIC_OAUTH_TOKEN: EMPTY_CIPHER,
+      ANTHROPIC_API_KEY: FOREIGN,
+    });
+    const keys = new ProviderKeys(file, fakeCipher(), {});
+    const entry = row(keys, "anthropic");
+    expect(entry).toMatchObject({ activeEnv: "ANTHROPIC_API_KEY", source: "none", masked: null });
+    expect(entry.unreadableStoredEnvs).toEqual([
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_OAUTH_TOKEN",
+      "ANTHROPIC_AUTH_TOKEN",
+    ]);
+  });
+});
+
+describe("ProviderKeys unreadable entries with a working fallback", () => {
+  it.each([
+    ["environment", "sk-or-inherited-value", true],
+    ["login-shell", "sk-shell-0123456789", true],
+    ["dotenv", "sk-dotenv-0123456789", false],
+  ] as const)(
+    "keeps the warning while reporting the %s value it actually injects",
+    async (kind, value, injected) => {
+      const file = path.join(tmpDir(), "provider-keys.json");
+      writeKeyFile(file, { [KEY]: FOREIGN });
+      const projectCwd = kind === "dotenv" ? tmpDir() : null;
+      if (projectCwd !== null) {
+        fs.writeFileSync(path.join(projectCwd, ".env"), `${KEY}=${value}\n`);
+      }
+      const env: NodeJS.ProcessEnv = kind === "environment" ? { [KEY]: value } : {};
+      const keys = new ProviderKeys(file, fakeCipher(), env, "linux");
+      if (kind === "login-shell") {
+        await keys.captureLoginShell({ capture: async () => `${KEY}=${value}\n` });
+      } else {
+        keys.applyToProcessEnv(env);
+      }
+      const entry = row(keys, "openrouter", projectCwd);
+      expect(entry).toMatchObject({ activeEnv: KEY, source: kind, masked: maskKey(value) });
+      expect(entry.unreadableStoredEnvs).toEqual([KEY]);
+      expect(keys.hasModelProvider(projectCwd)).toBe(true);
+      // dotenv stays report-only — omp loads the project file itself.
+      if (injected) expect(env[KEY]).toBe(value);
+      else expect(KEY in env).toBe(false);
+    },
+  );
+});
+
+describe("ProviderKeys failed mutations leave nothing behind", () => {
+  it("keeps everything as it was when encryption fails during a set", () => {
+    const file = path.join(tmpDir(), "provider-keys.json");
+    writeKeyFile(file, { [KEY]: FOREIGN, OPENAI_API_KEY: readable(LONG) });
+    const before = fs.readFileSync(file, "utf8");
+    const env: NodeJS.ProcessEnv = { [KEY]: "synthetic-ambient-1234" };
+    const keys = new ProviderKeys(
+      file,
+      fakeCipher({
+        encrypt: () => {
+          throw new Error("keyring locked");
+        },
+      }),
+      env,
+    );
+    keys.applyToProcessEnv();
+    const beforeStatus = keys.statuses(null);
+    const beforeEnv = { ...env };
+    expect(() => keys.setKey(KEY, LONG)).toThrow(/keyring locked/);
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    expect(fs.readdirSync(path.dirname(file))).toEqual(["provider-keys.json"]);
+    expect(keys.statuses(null)).toEqual(beforeStatus);
+    expect(env).toEqual(beforeEnv);
+  });
+
+  it.each([
+    ["saves", "write"],
+    ["commits", "rename"],
+  ] as const)("keeps the old file and state when a set %s fails", (label, step) => {
+    const file = path.join(tmpDir(), "provider-keys.json");
+    writeKeyFile(file, { [KEY]: FOREIGN, OPENAI_API_KEY: readable(LONG) });
+    const env: NodeJS.ProcessEnv = { [KEY]: "synthetic-ambient-1234" };
+    const before = fs.readFileSync(file, "utf8");
+    const keys = new ProviderKeys(file, fakeCipher(), env);
+    keys.applyToProcessEnv();
+    const beforeStatus = keys.statuses(null);
+    const beforeEnv = { ...env };
+    expect(() =>
+      withSaveFailureOnce(step, () => keys.setKey(KEY, "sk-or-v1-replacement-99")),
+    ).toThrow(new RegExp(`simulated ${step} failure`));
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    expect(fs.readdirSync(path.dirname(file))).toEqual(["provider-keys.json"]);
+    expect(keys.statuses(null)).toEqual(beforeStatus);
+    expect(env).toEqual(beforeEnv);
+  });
+
+  it.each([
+    ["saves", "write"],
+    ["commits", "rename"],
+  ] as const)("keeps the old file and the entry when a clear %s fails", (label, step) => {
+    const file = path.join(tmpDir(), "provider-keys.json");
+    writeKeyFile(file, { [KEY]: FOREIGN, OPENAI_API_KEY: readable("sk-openai-0123456789") });
+    const before = fs.readFileSync(file, "utf8");
+    const env: NodeJS.ProcessEnv = { [KEY]: "synthetic-ambient-1234" };
+    const keys = new ProviderKeys(file, fakeCipher(), env);
+    keys.applyToProcessEnv();
+    const beforeStatus = keys.statuses(null);
+    const beforeEnv = { ...env };
+    expect(() => withSaveFailureOnce(step, () => keys.clearKey(KEY, env))).toThrow(
+      new RegExp(`simulated ${step} failure`),
+    );
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    expect(fs.readdirSync(path.dirname(file))).toEqual(["provider-keys.json"]);
+    expect(keys.statuses(null)).toEqual(beforeStatus);
+    expect(env).toEqual(beforeEnv);
+  });
+});
 
   it("reconstructs and injects a stored Windows credential", () => {
     const file = path.join(tmpDir(), "provider-keys.json");

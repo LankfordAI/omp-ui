@@ -19,6 +19,7 @@ export function Button({
   selected,
   disabled,
   title,
+  "aria-label": ariaLabel,
   type = "button",
   className,
   initialFocus,
@@ -33,6 +34,7 @@ export function Button({
   selected?: boolean;
   disabled?: boolean;
   title?: string;
+  "aria-label"?: string;
   type?: "button" | "submit";
   className?: string;
   /** Claims the overlay's initial focus (ui/overlays.tsx data-modal-initial-focus). */
@@ -66,6 +68,7 @@ export function Button({
       title={title}
       disabled={disabled}
       aria-pressed={selected}
+      aria-label={ariaLabel}
       onClick={onClick}
       {...(initialFocus === true ? { "data-modal-initial-focus": "" } : {})}
       className={cn(

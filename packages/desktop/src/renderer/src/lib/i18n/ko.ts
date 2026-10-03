@@ -855,6 +855,12 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.providers.encryptedPrefix": "추가한 키는 OS credential store에서 암호화됩니다(",
   "settings.providers.encryptedSuffix": ").",
   "settings.providers.noCredentialStore": "사용 가능한 OS credential store가 없어 키를 안전하게 저장할 수 없으므로 추가가 거부됩니다. 대신 shell profile에서 변수를 export하세요.",
+  "settings.providers.savedUnreadable": "저장된 키를 읽을 수 없음",
+  "settings.providers.unreadableDetail":
+    "{env}: 저장된 키를 복호화할 수 없습니다. 암호화된 항목은 유지되며, 원래 OS 자격 증명 저장소를 사용해 앱을 다시 시작하면 읽을 수 있을 수도 있습니다. 이 항목을 제거하면 저장된 값이 영구적으로 삭제됩니다.",
+  "settings.providers.removeUnreadableAria": "읽을 수 없는 저장 항목 {env} 제거",
+  "settings.providers.noneUsable": "사용 가능한 프로바이더 자격 증명 없음 — 저장된 키를 읽을 수 없습니다",
+  "settings.providers.unreadableSummary": "저장된 키를 읽을 수 없는 프로바이더: {count}개. 암호화된 항목은 유지됩니다.",
   "settings.providers.footerIntro": "omp는 environment에서 credential을 읽으므로 omp-ui가 시작하는 모든 세션에 이를 제공합니다. 여기에 추가한 키는 다음 세션 spawn부터 적용됩니다.",
   "settings.providers.footerRestart": " 지금 적용하려면 MCP 패널에서 세션을 재시작하세요.",
   "settings.providers.footerEnvPrefix": " shell profile에서 이미 export한 키는 자동으로 인식되며 프로젝트의 ",
