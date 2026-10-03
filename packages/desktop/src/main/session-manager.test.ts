@@ -6279,6 +6279,71 @@ describe("browser pane lifecycle (#519, U1)", () => {
   });
 });
 
+describe("event filter negotiation (issue #718)", () => {
+  const spawnAndCommands = async (): Promise<{
+    rpc: (typeof rpcInstances)[number];
+    commands: Record<string, unknown>[];
+  }> => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await manager.spawn({
+      origin: "new",
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+    });
+    const commands = RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands as
+      | Record<string, unknown>[]
+      | undefined;
+    return { rpc: rpcInstances.at(-1)!, commands: commands ?? [] };
+  };
+
+  it("pushes the delta filter into initialCommands on every rpc-ui spawn", async () => {
+    const { commands } = await spawnAndCommands();
+    expect(commands).toContainEqual({
+      id: "omp-ui-event-filter-1",
+      type: "set_event_filter",
+      events: null,
+      messageUpdates: "delta",
+    });
+  });
+
+  it.each([
+    ["a rejection (older runtime)", { success: false, error: "unknown command" }],
+    ["a full-mode echo", { success: true, data: { events: null, messageUpdates: "full" } }],
+  ])("warns once per spawn when the runtime answers %s", async (_case, response) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { rpc } = await spawnAndCommands();
+      rpc.frame({ id: "omp-ui-event-filter-1", type: "response", ...response });
+      rpc.frame({ id: "omp-ui-event-filter-1", type: "response", ...response });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain("messageUpdates in full");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stays silent when the echo confirms delta mode", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { rpc } = await spawnAndCommands();
+      rpc.frame({
+        id: "omp-ui-event-filter-1",
+        type: "response",
+        success: true,
+        data: { events: null, messageUpdates: "delta" },
+      });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
 describe("host tools and host URIs (issue #688, ADR-0043)", () => {
   const reviewFrame = (planAbsPath: string): Record<string, unknown> => ({
     type: "extension_ui_request",

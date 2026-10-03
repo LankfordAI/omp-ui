@@ -135,6 +135,7 @@ export {
   type McpRuntimeStatus,
 } from "./mcp-status";
 export * from "./capabilities";
+export * from "./event-filter";
 export * from "./host-bridge";
 export * from "./browser-pane";
 export * from "./goal";
