@@ -19,6 +19,10 @@ export interface ModelInfo {
   maxTokens?: number;
   thinking?: { mode?: string; efforts?: string[] } | null;
   supportsComputerUse?: boolean;
+  /** Service tiers omp advertises for this row (e.g. `["priority"]`,
+   *  `["priority","ultrafast"]`). Catalog truth; absent on rows omp sends
+   *  no tiers for (issue #719). */
+  serviceTiers?: string[];
 }
 
 /** Providers whose models reach a priority-serving tier the session setting
@@ -67,6 +71,17 @@ export function modelSupportsFastMode(model: ModelInfo | null): boolean {
     FAST_MODE_FAMILY_PROVIDERS[model.provider] === true ||
     FAST_MODE_FAMILY_APIS[model.api ?? ""] === true
   );
+}
+/** The tier the fast control may offer for this row (issue #719):
+ *  "ultrafast" when the catalog row advertises the tier, else "priority"
+ *  wherever the existing binary gate says the family has a controllable
+ *  tier, else null (no control at all — today's hidden-pill case).
+ *  serviceTiers is catalog truth; modelSupportsFastMode stays the
+ *  family/wire arm for rows that carry no tiers. */
+export function modelFastTier(model: ModelInfo | null): "ultrafast" | "priority" | null {
+  if (model === null) return null;
+  if (model.serviceTiers?.includes("ultrafast") === true) return "ultrafast";
+  return modelSupportsFastMode(model) ? "priority" : null;
 }
 
 export interface SlashCommandInfo {
@@ -235,6 +250,7 @@ export function parseModelInfo(value: unknown): ModelInfo | null {
     thinkingRaw !== null && typeof thinkingRaw === "object"
       ? { mode: strField(thinkingRaw, "mode"), efforts: strList(field(thinkingRaw, "efforts")) }
       : null;
+  const serviceTiers = strList(field(value, "serviceTiers"));
   return {
     id,
     // omp always sends `name`, but a bare id beats rendering "undefined".
@@ -248,6 +264,9 @@ export function parseModelInfo(value: unknown): ModelInfo | null {
     maxTokens: numField(value, "maxTokens"),
     thinking,
     supportsComputerUse: boolField(value, "supportsComputerUse"),
+    // Mirror parseCommandList's empty-`aliases` omission: a row without
+    // tiers stays byte-identical to a pre-#719 parse.
+    serviceTiers: serviceTiers.length > 0 ? serviceTiers : undefined,
   };
 }
 

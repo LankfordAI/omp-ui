@@ -5,10 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GoalState, NativeGoal } from "@omp-ui/core/goal";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type { LimitsView } from "@omp-ui/core/limits";
-import type { BackendState, ExperimentRecord, OmpSettingsSnapshot, ProjectExperiments } from "@omp-ui/core/types";
+import type { BackendState, ExperimentRecord, OmpSettingsSnapshot, ProjectExperiments, ServiceTier } from "@omp-ui/core/types";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import { backendState, remoteInstance, rpcTabState, tabInfo } from "../test/fixtures";
 import type { ExperimentsCache, RpcTabState } from "../store/types";
+import { t } from "../lib/i18n";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 const readOmpSettings = vi.fn((): Promise<OmpSettingsSnapshot> =>
@@ -66,6 +67,7 @@ const state = backendState({
           agentMode: "build",
           compactionMethod: null,
           approvalMode: null,
+          serviceTier: null,
           model: null,
           thinkingLevel: null,
           advisor: false,
@@ -1248,12 +1250,32 @@ describe("SessionHud fast mode chip (issue #677)", () => {
     });
   };
 
-  const seedFast = (enabled: boolean, active: boolean): void => {
+  const seedFast = (enabled: boolean, active: boolean, tier?: {
+    serviceTiers: string[];
+    serviceTier: ServiceTier | null;
+  }): void => {
     useStore.setState((state) => ({
+      state: tier === undefined ? state.state : {
+        ...state.state!,
+        projects: state.state!.projects.map((group) => ({
+          ...group,
+          sessions: group.sessions.map((record) =>
+            record.tabId === TAB ? { ...record, serviceTier: tier.serviceTier } : record,
+          ),
+        })),
+      },
       rpc: {
         ...state.rpc,
         [TAB]: {
           ...state.rpc[TAB]!,
+          model: tier === undefined ? state.rpc[TAB]!.model : {
+            id: "model-x",
+            name: "Model X",
+            provider: "test",
+            input: ["text"],
+            contextWindow: 1000,
+            serviceTiers: tier.serviceTiers,
+          },
           session: {
             ...state.rpc[TAB]!.session!,
             fastModeEnabled: enabled,
@@ -1327,6 +1349,45 @@ describe("SessionHud fast mode chip (issue #677)", () => {
     act(() => sw.click());
     expect(setFastMode).toHaveBeenCalledWith(TAB, true);
   });
+
+  it("the modes popover offers the ultrafast capsule instead of a switch", async () => {
+    const setServiceTier = vi.fn(async () => {});
+    useStore.setState({ setServiceTier });
+    seedFast(false, false, { serviceTiers: ["priority", "ultrafast"], serviceTier: null });
+    const host = renderWide();
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
+    act(() => trigger.click());
+    const group = document.body.querySelector('[role="group"][aria-label="fast mode"]')!;
+    expect(group).not.toBeNull();
+    expect(document.body.querySelector('[role="switch"][aria-label="fast mode"]')).toBeNull();
+    const choices = [...group.querySelectorAll<HTMLButtonElement>("button")];
+    expect(choices.map((button) => button.textContent)).toEqual([
+      t("hud.fast.tierOff"),
+      t("hud.fast.tierPriority"),
+      t("hud.fast.tierUltrafast"),
+    ]);
+    expect(choices[0]!.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => choices[2]!.click());
+    expect(setServiceTier).toHaveBeenCalledWith(TAB, "ultrafast");
+  });
+
+  it("titles an active ultrafast chip with the ultrafast serving tooltip", () => {
+    seedFast(true, true, { serviceTiers: ["priority", "ultrafast"], serviceTier: "ultrafast" });
+    const host = renderWide();
+    const chip = [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === t("hud.fast.label"))!;
+    expect(chip).toBeDefined();
+    expect(chip.getAttribute("aria-label")).toBe(t("hud.fast.ultraTitle"));
+  });
+
+  it("titles a declined ultrafast chip with the declined tooltip", () => {
+    seedFast(true, false, { serviceTiers: ["priority", "ultrafast"], serviceTier: "ultrafast" });
+    const host = renderWide();
+    const chip = [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === t("hud.fast.label"))!;
+    expect(chip).toBeDefined();
+    expect(chip.getAttribute("aria-label")).toBe(t("hud.fast.declinedTitle"));
+  });
 });
 
 
@@ -1345,7 +1406,7 @@ describe("SessionHud approval mode control (issue #681)", () => {
         projects: s.state!.projects.map((group) => ({
           ...group,
           sessions: group.sessions.map((rec) =>
-            rec.tabId === TAB ? { ...rec, approvalMode: mode } : rec,
+            rec.tabId === TAB ? { ...rec, approvalMode: mode, serviceTier: null } : rec,
           ),
         })),
       },

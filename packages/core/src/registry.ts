@@ -14,6 +14,7 @@ import type {
   ProjectRecord,
   RemoteBind,
   SessionMode,
+  ServiceTier,
   UpdateTrain,
   TranscriptWidth,
 } from "./types";
@@ -333,6 +334,10 @@ function isApprovalMode(value: unknown): value is ApprovalMode {
   return value === "always-ask" || value === "write" || value === "yolo";
 }
 
+function isServiceTier(value: unknown): value is ServiceTier {
+  return value === "priority" || value === "ultrafast";
+}
+
 /**
  * Absent, or the present value passes `check`. For the rare field that
  * rejects null (agentMode) — everything else wants `optNullable`.
@@ -458,6 +463,9 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     optNullable(value, "compactionMethod", isStr) &&
     // approvalMode post-dates schema-1 records; absent loads as null (inherit).
     optNullable(value, "approvalMode", isApprovalMode) &&
+    // serviceTier post-dates schema-1 records like approvalMode; absent
+    // loads as null — no omp-ui-side selection (issue #719).
+    optNullable(value, "serviceTier", isServiceTier) &&
     optNullable(value, "model", isStr) &&
     optNullable(value, "thinkingLevel", isStr) &&
     // advisorModel post-dates the first schema-1 records: requiring it here
@@ -514,6 +522,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       advisorModel: s.advisorModel ?? null,
       compactionMethod: s.compactionMethod ?? null,
       approvalMode: s.approvalMode ?? null,
+      serviceTier: s.serviceTier ?? null,
       subagentModels: s.subagentModels ?? null,
       agentMode: s.agentMode ?? "build",
       worktree: s.worktree
@@ -783,6 +792,18 @@ export class Registry {
       if (!record) return false;
       if (record.approvalMode === mode) return false;
       record.approvalMode = mode;
+      return true;
+    });
+  }
+
+  /** Pins the tier this session's fast selection names (issue #719). Session
+   * scope only — no project last-used mirror, same as approvalMode. */
+  setSessionServiceTier(tabId: string, tier: ServiceTier | null): void {
+    this.#transaction((draft) => {
+      const record = draft.sessions.find((session) => session.tabId === tabId);
+      if (!record) return false;
+      if (record.serviceTier === tier) return false;
+      record.serviceTier = tier;
       return true;
     });
   }

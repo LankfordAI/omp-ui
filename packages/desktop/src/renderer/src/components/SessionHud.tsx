@@ -22,7 +22,7 @@ import { buildTitleTranscript } from "../lib/session-transcript";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
 import { BuildPlanControl } from "./BuildPlanControl";
-import { FastModeControl, fastModeState } from "./FastModeControl";
+import { FastModeControl } from "./FastModeControl";
 import { AdvisorRosterView } from "./AdvisorRoster";
 import { ApprovalModeControl } from "./ApprovalModeControl";
 import { GoalChip } from "./GoalChip";
@@ -792,14 +792,7 @@ function ModesPopover({
   const setFollowUpMode = useStore((s) => s.setFollowUpMode);
   const setInterruptMode = useStore((s) => s.setInterruptMode);
   const abortRetry = useStore((s) => s.abortRetry);
-  const setFastMode = useStore((s) => s.setFastMode);
   const [open, setOpen] = useState(false);
-  const fastState = fastModeState(
-    session?.fastModeEnabled ?? false,
-    session?.fastModeActive ?? false,
-  );
-  const fastValue = t(`hud.fast.${fastState}`);
-  const fastTitle = t(`hud.fast.${fastState}Title`);
   const anchor = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   // Portaled + fixed: the wide HUD root is overflow-hidden inside the h-9 title
@@ -864,18 +857,11 @@ function ModesPopover({
           />
           {/* Fast mode is always reachable here: the HUD chip hides on plain-off
               sessions, so this row is the desktop entry point (issue #677). The
-              switch carries the setting; the value text carries the truth. */}
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <Label>{t("hud.fast.labelLong")}</Label>
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="font-mono text-[10px] text-ink-faint">{fastValue}</span>
-              <Switch
-                on={session?.fastModeEnabled ?? false}
-                label={t("hud.fast.labelLong")}
-                title={fastTitle}
-                onChange={(next) => void setFastMode(tabId, next)}
-              />
-            </span>
+              row renders through FastModeControl's sheet layout (issue #719) —
+              the same component path the composer sheet rides, so the HUD can
+              never disagree with the composer about switch vs. tier capsule. */}
+          <div className="mt-2">
+            <FastModeControl tabId={tabId} layout="sheet" />
           </div>
           {/* Approval mode is always reachable here, like fast mode: the chip
               only marks a pinned session, so this row is the entry point for

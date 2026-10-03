@@ -239,6 +239,7 @@ const liveState = backendState({
           agentMode: "build",
           compactionMethod: null,
           approvalMode: null,
+          serviceTier: null,
           model: null,
           thinkingLevel: null,
           advisor: false,

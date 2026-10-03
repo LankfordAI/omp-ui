@@ -174,6 +174,7 @@ const session = (
   agentMode: "build" as const,
   compactionMethod: null,
   approvalMode: null,
+  serviceTier: null,
   model: null,
   thinkingLevel: null,
   advisor,

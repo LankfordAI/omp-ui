@@ -23,7 +23,7 @@ import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
 import { composerPaintRuns } from "../lib/composer-paint";
 import type { DocumentRef } from "../lib/document-context";
 import { queueChipCount, queueChipView } from "../lib/queue-chip";
-import { modelSupportsFastMode, type PromptRoute, type SlashCommandInfo } from "../lib/rpc-types";
+import { modelFastTier, type PromptRoute, type SlashCommandInfo } from "../lib/rpc-types";
 import { slashCompletion } from "../lib/slash-completion";
 import { findInstance, findOwner, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
@@ -1098,7 +1098,7 @@ export function Composer({
               </span>
             </Capsule>
 
-            {(modelSupportsFastMode(currentModel) || fastEnabled || fastActive) && (
+            {(modelFastTier(currentModel) !== null || fastEnabled || fastActive) && (
               <FastModeControl tabId={tabId} disabled={unavailable} />
             )}
 

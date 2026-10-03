@@ -50,6 +50,7 @@ function session(patch: Partial<SessionSummary> & Pick<SessionSummary, "tabId">)
     agentMode: "build",
     compactionMethod: null,
     approvalMode: null,
+    serviceTier: null,
     model: null,
     thinkingLevel: null,
     advisor: false,

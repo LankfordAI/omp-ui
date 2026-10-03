@@ -38,6 +38,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     agentMode: "build",
     compactionMethod: null,
     approvalMode: null,
+    serviceTier: null,
     advisor: false,
     advisorModel: null, subagentModels: null,
  proposedPlans: [],

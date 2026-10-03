@@ -1408,6 +1408,15 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.fast.offTitle": "빠른 모드 꺼짐 · 클릭하여 우선 처리 활성화",
   "hud.fast.on": "켜짐",
   "hud.fast.onTitle": "빠른 모드 활성 — 우선 처리 작동 중 · 클릭하여 끄기",
+  // 이슈 #719: 티어 캡슐 선택지. 티어는 omp-ui 소관이며, 켜짐/거부 진실은
+  // fastModeActive가 그대로 전담하므로 거부는 네 번째 선택지가 아닌
+  // 울트라패스트 선택지의 툴팁 수식이다.
+  "hud.fast.tierOff": "꺼짐",
+  "hud.fast.tierPriority": "우선",
+  "hud.fast.tierPriorityTitle": "우선 처리 · 클릭하여 이 티어 설정",
+  "hud.fast.tierUltrafast": "울트라패스트",
+  "hud.fast.tierUltrafastTitle": "울트라패스트 처리 · 클릭하여 이 티어 설정",
+  "hud.fast.ultraTitle": "빠른 모드 활성 — 울트라패스트 처리 작동 중 · 클릭하여 끄기",
   // Session HUD 승인 모드 (issue #681, ADR-0038): 칩은 고정(PIN)된 세션에만
   // 표시되며, 상속이 조용한 기본값이다.
   "hud.approval.labelLong": "승인 모드",

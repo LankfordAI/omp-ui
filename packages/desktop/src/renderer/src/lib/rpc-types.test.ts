@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   emptySessionRuntime,
+  modelFastTier,
   modelSupportsFastMode,
+  parseModelInfo,
   parseQueuedMessages,
   parseSessionRuntime,
   parseSubagents,
@@ -13,6 +15,74 @@ const model = (patch: Partial<ModelInfo>): ModelInfo => ({
   name: "M",
   provider: "test",
   ...patch,
+});
+
+describe("parseModelInfo service tiers", () => {
+  it("keeps a non-empty wire serviceTiers array", () => {
+    expect(
+      parseModelInfo({ id: "m", name: "M", provider: "openai", serviceTiers: ["priority", "ultrafast"] })
+        ?.serviceTiers,
+    ).toEqual(["priority", "ultrafast"]);
+  });
+
+  it("filters non-string serviceTiers entries", () => {
+    expect(
+      parseModelInfo({
+        id: "m",
+        serviceTiers: ["priority", 2, null, { name: "ultrafast" }, "ultrafast"],
+      })?.serviceTiers,
+    ).toEqual(["priority", "ultrafast"]);
+  });
+
+  it.each([
+    ["absent", {}],
+    ["empty", { serviceTiers: [] }],
+    ["filtered empty", { serviceTiers: [2, null, {}] }],
+  ])("leaves serviceTiers undefined when the wire array is %s", (_label, tiers) => {
+    const parsed = parseModelInfo({ id: "m", name: "M", provider: "openai", ...tiers });
+    expect(parsed).toEqual({
+      id: "m",
+      name: "M",
+      provider: "openai",
+      api: undefined,
+      reasoning: undefined,
+      input: [],
+      cost: undefined,
+      contextWindow: undefined,
+      maxTokens: undefined,
+      thinking: null,
+      supportsComputerUse: undefined,
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed!.serviceTiers).toBeUndefined();
+  });
+});
+
+describe("modelFastTier", () => {
+  it("returns null for a null model", () => {
+    expect(modelFastTier(null)).toBeNull();
+  });
+
+  it("lets an advertised ultrafast tier win over the fast-mode family gate", () => {
+    const unsupported = model({ provider: "anthropic", serviceTiers: ["priority", "ultrafast"] });
+    expect(modelSupportsFastMode(unsupported)).toBe(false);
+    expect(modelFastTier(unsupported)).toBe("ultrafast");
+    expect(modelFastTier(model({ provider: "openai", serviceTiers: ["ultrafast"] }))).toBe("ultrafast");
+  });
+
+  it.each([
+    ["openai", ["priority"], "priority"],
+    ["anthropic", ["priority"], null],
+    ["openai", undefined, "priority"],
+    ["anthropic", undefined, null],
+    ["openai", ["constructor"], "priority"],
+    ["anthropic", ["constructor"], null],
+  ])(
+    "uses the family gate for provider %s with serviceTiers %j",
+    (provider, serviceTiers, expected) => {
+      expect(modelFastTier(model({ provider, serviceTiers }))).toBe(expected);
+    },
+  );
 });
 
 describe("modelSupportsFastMode", () => {

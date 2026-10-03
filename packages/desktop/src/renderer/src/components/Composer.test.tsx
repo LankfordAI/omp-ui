@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { BranchList } from "@omp-ui/core/types";
+import type { BranchList, ServiceTier } from "@omp-ui/core/types";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { backendState, rpcTabState } from "../test/fixtures";
 import { emptySessionRuntime, type SlashCommandInfo } from "../lib/rpc-types";
@@ -88,7 +88,7 @@ let root: Root | null = null;
 const state = backendState({
   projects: [{ project: { path: "/p", name: "P", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false }, sessions: [{
     tabId: TAB, sessionId: "s", lineageDir: "lineage", projectCwd: "/p", launchedAt: "t", mode: "rpc-ui",
-    worktree: null, planImplementationSource: null, experiment: null, agentMode: "build", compactionMethod: null, approvalMode: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null, proposedPlans: [], cachedTitle: "Compose", cachedModified: "t", title: "Compose", status: "complete", live: "live", pendingPlan: null, planSettle: null, streamStalled: false,
+    worktree: null, planImplementationSource: null, experiment: null, agentMode: "build", compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null, proposedPlans: [], cachedTitle: "Compose", cachedModified: "t", title: "Compose", status: "complete", live: "live", pendingPlan: null, planSettle: null, streamStalled: false,
   }] }],
 });
 
@@ -362,15 +362,30 @@ describe("Composer fast mode pill (issue #689)", () => {
     provider?: string;
     fastModeEnabled?: boolean;
     fastModeActive?: boolean;
+    serviceTiers?: string[];
+    serviceTier?: ServiceTier | null;
   }): void => {
     asDesktop();
     seed("ready");
-    const { provider, ...session } = patch;
+    const { provider, serviceTiers, serviceTier, ...session } = patch;
     useStore.setState((s) => ({
+      state: serviceTier === undefined ? s.state : {
+        ...s.state!,
+        projects: s.state!.projects.map((group) => ({
+          ...group,
+          sessions: group.sessions.map((record) =>
+            record.tabId === TAB ? { ...record, serviceTier } : record,
+          ),
+        })),
+      },
       rpc: {
         [TAB]: {
           ...s.rpc[TAB]!,
-          model: provider ? { ...s.rpc[TAB]!.model!, provider } : s.rpc[TAB]!.model,
+          model: {
+            ...s.rpc[TAB]!.model!,
+            ...(provider ? { provider } : {}),
+            ...(serviceTiers ? { serviceTiers } : {}),
+          },
           session: { ...s.rpc[TAB]!.session, ...session },
         },
       },
@@ -407,6 +422,26 @@ describe("Composer fast mode pill (issue #689)", () => {
     expect(button!.getAttribute("aria-label")).toBe(t("hud.fast.declinedTitle"));
     await act(async () => button!.click());
     expect(setFastMode).toHaveBeenCalledWith(TAB, true);
+  });
+
+  it("titles an active ultrafast pill with the ultrafast serving tooltip", () => {
+    seedFast({
+      serviceTiers: ["priority", "ultrafast"],
+      serviceTier: "ultrafast",
+      fastModeEnabled: true,
+      fastModeActive: true,
+    });
+    expect(pill()!.getAttribute("aria-label")).toBe(t("hud.fast.ultraTitle"));
+  });
+
+  it("titles a declined ultrafast pill with the declined tooltip", () => {
+    seedFast({
+      serviceTiers: ["priority", "ultrafast"],
+      serviceTier: "ultrafast",
+      fastModeEnabled: true,
+      fastModeActive: false,
+    });
+    expect(pill()!.getAttribute("aria-label")).toBe(t("hud.fast.declinedTitle"));
   });
 });
 

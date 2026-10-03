@@ -55,6 +55,7 @@ function summary(patch: Partial<SessionSummary> = {}): SessionSummary {
     agentMode: "build",
     compactionMethod: null,
     approvalMode: null,
+    serviceTier: null,
     advisor: false,
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
