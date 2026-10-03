@@ -486,12 +486,15 @@ _Avoid_: permission mode, tool policy setting, auto-approve flag
 One of omp's four prose keywords — `ultrathink`, `orchestrate`, `workflowz`,
 `jevify` — which, submitted as standalone prose, make omp append a hidden
 system notice steering the turn (and, for `ultrathink` under auto-thinking,
-resolve the turn to the model's highest thinking level). The composer paints
-a keyword only when omp will actually attach its notice: the word survives
-omp's matcher, its `magicKeywords.*` setting is on, and the session has
-every tool it requires (`orchestrate`: `task`; `workflowz`: `task`+`eval`;
-`jevify`: `eval`) — stricter than omp's own editor, which checks only the
-master setting. The plan review stages the first three as switches that lead
+resolve the turn to the model's highest thinking level). Draft keyword paint
+previews omp's matcher, settings, and required tools (`orchestrate`: `task`;
+`workflowz`: `task`+`eval`; `jevify`: `eval`); unknown capabilities allow all
+keywords in that preview. The running composer's border instead reflects the
+keywords omp actually activated for the input it consumed, persisting through
+model and tool work until another input is consumed or execution ends. Inputs
+consumed together share their combined keyword gradient; ordinary input uses
+the copper indicator. Editing the next draft or accepting a queued input does
+not change the running border. The plan review stages the first three as switches that lead
 the implementation prompt in omp's notice order, and disables any the
 `magicKeywords.*` settings switch off. Prompts omp-ui builds for the user —
 plan seeds, advisor notes, branch names, file blocks, one-shots — never arm

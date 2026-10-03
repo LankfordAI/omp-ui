@@ -1,3 +1,4 @@
+import type { MagicKeyword } from "@omp-ui/core/magic-keywords";
 import type { SessionCommand } from "@omp-ui/core/session-command";
 import type { ProjectSettingsSectionId } from "../components/ProjectSettings";
 import type {
@@ -191,6 +192,8 @@ export interface WordPredictionFeedback {
 /** Per-tab rpc-ui state (the phase-2 doc's state machine, concretized). */
 export interface RpcTabState {
   status: "starting" | "ready" | "running" | "error";
+  /** Keywords OMP actually consumed in the current root input generation. */
+  activeTurnKeywords: readonly MagicKeyword[];
   /** Refuses user commands while a lifecycle mutation drains the old process. */
   commandAdmissionBlocked?: boolean;
   items: RenderItem[];

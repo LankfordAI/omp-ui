@@ -557,6 +557,7 @@ function freshRpcTabState(
 ): RpcTabState {
   return {
     status: "starting",
+    activeTurnKeywords: [],
     items: [],
     transcriptRevision: 0,
     todos: [],

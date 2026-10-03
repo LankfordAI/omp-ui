@@ -177,6 +177,8 @@ export function createLifecycleSlice(
       quietWedgeNotified: false,
       timedOutCommands: [],
       lastFrameAt: undefined,
+      pendingTurnKeywords: [],
+      keywordInputBatchStarted: false,
     });
     m.patchRpc(tabId, {
       status: "starting",
@@ -196,6 +198,7 @@ export function createLifecycleSlice(
       // "since turn started" (issue #228, #179).
       streamCheckpoint: undefined,
       streamStallMs: undefined,
+      activeTurnKeywords: [],
     });
   };
 
@@ -224,14 +227,16 @@ export function createLifecycleSlice(
       // The stall field must clear even when no tool cards were running
       // — a pure-text stall settles to `settled === before.items`.
       const clearStall = before?.streamStallMs !== undefined;
+      const clearKeywords = (before?.activeTurnKeywords.length ?? 0) > 0;
       const rpc =
         before &&
-        (clearStall || (settled !== undefined && settled !== before.items))
+        (clearStall || clearKeywords || (settled !== undefined && settled !== before.items))
           ? {
               ...s.rpc,
               [tabId]: {
-                ...before,
+                ...(s.rpc[tabId] ?? before),
                 ...(clearStall ? { streamStallMs: undefined } : {}),
+                ...(clearKeywords ? { activeTurnKeywords: [] } : {}),
                 ...(settled !== undefined && settled !== before.items
                   ? { items: settled }
                   : {}),

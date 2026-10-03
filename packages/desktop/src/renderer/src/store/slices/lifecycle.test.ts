@@ -16,6 +16,58 @@ import {
 } from "../../test/fixtures";
 
 import { h } from "../../test/store-harness";
+import type { LifecycleSlice } from "./lifecycle";
+import type { UiStore } from "../types";
+
+describe("running-input keyword process boundaries (issue #726)", () => {
+  const lifecycle = () => h.useStore.getState() as UiStore & LifecycleSlice;
+
+  beforeEach(() => {
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState({ status: "ready", subagentControlError: "old process error" }) },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "message_start",
+      message: { role: "custom", customType: "ultrathink-notice", display: false, content: "hidden" },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "message_start", message: { role: "user", content: "ordinary" },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "message_start",
+      message: { role: "custom", customType: "workflow-notice", display: false, content: "hidden" },
+    });
+    expect(h.useStore.getState().rpc[h.TAB]!.activeTurnKeywords).toEqual(["ultrathink"]);
+  });
+
+  it.each([false, true])("exit clears the effect without tool or stall changes (hibernated=%s)", (hibernated) => {
+    const items = h.useStore.getState().rpc[h.TAB]!.items;
+    expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
+    lifecycle().teardownProcess(h.TAB, 0, hibernated);
+    const state = h.useStore.getState();
+    expect(state.rpc[h.TAB]!.activeTurnKeywords).toEqual([]);
+    expect(state.rpc[h.TAB]!.items).toBe(items);
+    // Keyword-only cleanup must not resurrect fields disposeTabRuntime retired.
+    expect(state.rpc[h.TAB]!.subagentControlError).toBeNull();
+    expect(state.exited[h.TAB]).toBe(0);
+    expect(state.hibernated[h.TAB]).toBe(hibernated ? true : undefined);
+    state.handleRpcFrame(h.TAB, {
+      type: "message_start", message: { role: "user", content: "ordinary successor input" },
+    });
+    expect(h.useStore.getState().rpc[h.TAB]!.activeTurnKeywords).toEqual([]);
+  });
+
+  it("preparing a relaunch clears active and staged input immediately", () => {
+    lifecycle().prepareRpcRelaunch(h.TAB);
+    expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("starting");
+    expect(h.useStore.getState().rpc[h.TAB]!.activeTurnKeywords).toEqual([]);
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "message_start", message: { role: "user", content: "ordinary successor input" },
+    });
+    expect(h.useStore.getState().rpc[h.TAB]!.activeTurnKeywords).toEqual([]);
+  });
+});
 
 describe("console-drawer shell routing (issue #42)", () => {
   // init() latches a module-level `initialized` flag, so it can run exactly

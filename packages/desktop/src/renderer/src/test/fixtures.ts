@@ -70,6 +70,7 @@ export function remoteInstance(
 export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
   return {
     status: "ready",
+    activeTurnKeywords: [],
     items: [],
     transcriptRevision: 0,
     todos: [],

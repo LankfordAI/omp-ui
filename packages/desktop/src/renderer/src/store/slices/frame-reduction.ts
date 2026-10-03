@@ -496,6 +496,7 @@ export function createFrameReductionSlice(
           items: settledItems,
           // Process death is terminal for this run (issue #228).
           streamStallMs: undefined,
+          activeTurnKeywords: [],
         });
         return;
       }
@@ -515,6 +516,13 @@ export function createFrameReductionSlice(
         case "session_info_update": {
           const session = parseSessionRuntime(frame, tab.session);
           m.patchRpc(tabId, { session });
+          if (tab.session.sessionId !== null && tab.session.sessionId !== session.sessionId) {
+            m.patchRpc(tabId, { activeTurnKeywords: [] });
+            m.patchRuntime(tabId, {
+              pendingTurnKeywords: [],
+              keywordInputBatchStarted: false,
+            });
+          }
           // The live session changed identity in place (`/new`, `/switch`,
           // `/branch`): a roster sampled for the predecessor is someone
           // else's inventory now, so drop it and re-read (issue #374).
@@ -525,6 +533,13 @@ export function createFrameReductionSlice(
           const model = parseModelInfo(field(frame, "model")) ?? tab.model;
           const session = parseSessionRuntime(frame, tab.session);
           m.patchRpc(tabId, { model, session });
+          if (tab.session.sessionId !== null && tab.session.sessionId !== session.sessionId) {
+            m.patchRpc(tabId, { activeTurnKeywords: [] });
+            m.patchRuntime(tabId, {
+              pendingTurnKeywords: [],
+              keywordInputBatchStarted: false,
+            });
+          }
           noteCapabilitiesSessionChange(tabId, session.sessionId, get, m);
           if (model) {
             // Persist the SELECTOR: under auto the frame's thinkingLevel is a
@@ -746,7 +761,13 @@ export function createFrameReductionSlice(
           // arms) says nothing about a turn already in flight: stamping
           // "ready" here erased the running status of a tab that attached
           // mid-turn (#692).
-          if (invoked !== false) m.patchRpc(tabId, { status: "ready" });
+          if (invoked !== false) {
+            m.patchRpc(tabId, { status: "ready", activeTurnKeywords: [] });
+            m.patchRuntime(tabId, {
+              pendingTurnKeywords: [],
+              keywordInputBatchStarted: false,
+            });
+          }
           return;
         }
         case "omp_ui_notice": {

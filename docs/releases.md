@@ -16,6 +16,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Settings → Providers discovers sign-in rows from the installed omp, including Factory Droid, without a live session; legacy discovery fallback remains available, and the page explains which flows require omp's terminal UI (#721).
 - Settings → Providers reports unreadable saved keys separately from usable credentials and preserves their encrypted entries during unrelated edits; explicit replacement or removal changes only the targeted entry (#724).
 - Remote access recovers after the first browser-bundle build or a rebuild without restarting the remote server: reload the same URL after the build completes to load the current bundle (#725).
+- The native composer's border keeps the actual magic-keyword gradient throughout model and tool work, combines keywords consumed together, and switches only when another input is consumed or execution ends; next-draft edits and queued-send acknowledgments cannot replace it (#726).
 
 ## Choose a download
 
