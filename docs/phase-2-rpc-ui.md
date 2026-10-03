@@ -261,6 +261,17 @@ the prose (and in two cases omp's own `.d.ts`) implies:
 - Slash commands run as `{ type: "prompt", message: "/stats" }`, reply
   `{ data: { agentInvoked: false } }`, and emit their output as separate
   `command_output` frames.
+- `set_event_filter` (verified against the managed binary 18.4.12) takes
+  `events: null | string[]` — omitting `events` errors — and
+  `messageUpdates: "full" | "delta"`. The response echoes the active mode as
+  `{ events, messageUpdates }`. omp-ui sends `{ events: null,
+  messageUpdates: "delta" }` on every spawn (issue #718): in delta mode the
+  `message_update` frames drop `assistantMessageEvent.partial`, carrying only
+  the per-fragment `delta` (measured: median frame 10,197 B → 155 B).
+  `text_end`/`thinking_end`/`toolcall_end` still carry the complete block, so
+  the reducer folds fragments and reconciles on `message_end` without any
+  mode flag. Older runtimes answer `{success:false}` and keep shipping full
+  snapshots; the same reducer code handles both shapes frame by frame.
 - On boot omp sends `extension_ui_request` with `method: "setWidget"` /
   `"setStatus"`. They still require a reply — omp blocks — but their text is
   worth surfacing rather than discarding.

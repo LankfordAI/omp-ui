@@ -85,6 +85,11 @@ export interface ToolItem {
   argsStreaming?: boolean;
   /** assistantMessageEvent.contentIndex, correlating stream deltas within one message. */
   streamIndex?: number;
+  /** Accumulated raw args JSON while streaming in delta mode (issue #718);
+   *  `args` carries the best-effort parse of it. toolcall_end replaces both
+   *  with the authoritative toolCall, so this field never survives into a
+   *  settled card. */
+  argsText?: string;
   /** Epoch ms the card was created (live) or the carrying message was written (backfill); the catch-up digest windows off it (issue #273). */
   timestamp?: number;
 }
@@ -525,9 +530,44 @@ function appendAdvisory(items: RenderItem[], message: Record<string, unknown>): 
 /**
  * Folds toolcall_start/delta/end assistantMessageEvents into a running tool
  * card, so the transcript shows a write's content while the model generates
- * it (issue #97). omp partial-parses the accumulating args JSON server-side,
- * so `partial.content[contentIndex].arguments` grows delta by delta.
+ * it (issue #97). Two stream shapes arrive depending on the runtime's
+ * `messageUpdates` mode (issue #718): full frames carry a partial-parsed
+ * `partial` snapshot per delta; delta frames carry only `toolcall_start`,
+ * string fragments in `toolcall_delta.delta`, and the finished `toolCall` at
+ * `toolcall_end` — accumulated here into `argsText` and parsed best-effort.
+ * `toolcall_end` is authoritative in both modes.
  */
+function parsePartialArgs(raw: string): unknown {
+  if (raw.trim() === "") return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Fall through to a structural repair — this is display-only, so an
+    // unrepairable fragment is worth one retry, never a dropped draft.
+  }
+  const closers: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (const ch of raw) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") closers.push("}");
+    else if (ch === "[") closers.push("]");
+    else if (ch === "}" || ch === "]") closers.pop();
+  }
+  const repaired = `${raw.replace(/,\s*$/, "")}${inString ? '"' : ""}${closers.reverse().join("")}`;
+  try {
+    return JSON.parse(repaired);
+  } catch {
+    return undefined;
+  }
+}
+
 function reduceToolcallStream(
   items: RenderItem[],
   type: string,
@@ -539,8 +579,14 @@ function reduceToolcallStream(
   const content = Array.isArray(partial?.content) ? partial.content : [];
   const raw = type === "toolcall_end" && isObj(ame.toolCall) ? ame.toolCall : content[contentIndex];
   const block = isObj(raw) && raw.type === "toolCall" ? raw : null;
-  if (!block) return items;
-  const callId = str(block.id) ?? "";
+  // Delta-mode frames carry no snapshot block: the start opens the card,
+  // the deltas accumulate the args fragment.
+  const fragment =
+    block === null && (type === "toolcall_start" || str(ame.delta) !== null)
+      ? (str(ame.delta) ?? "")
+      : null;
+  if (block === null && fragment === null) return items;
+  const callId = str(block?.id) ?? "";
   // A settled or cancelled card never matches — contentIndex only correlates
   // within the currently streaming assistant message.
   const idx = items.findIndex(
@@ -557,8 +603,9 @@ function reduceToolcallStream(
         kind: "tool",
         id: callId || `tool-${++counter}`,
         toolCallId: callId,
-        name: str(block.name) ?? "tool",
-        args: block.arguments,
+        name: str(block?.name) ?? "tool",
+        args: fragment === null ? block?.arguments : parsePartialArgs(fragment),
+        argsText: fragment ?? undefined,
         status: "running",
         argsStreaming: type !== "toolcall_end",
         streamIndex: contentIndex,
@@ -568,12 +615,23 @@ function reduceToolcallStream(
   }
   const item = kindAt(items, idx, "tool");
   if (item === null) return items;
+  if (fragment !== null) {
+    const argsText = (item.argsText ?? "") + fragment;
+    const parsed = parsePartialArgs(argsText);
+    return replaceAt(items, idx, {
+      ...item,
+      argsText,
+      args: parsed === undefined ? item.args : parsed,
+    });
+  }
+  // The snapshot/authoritative path replaces any accumulated fragment text.
+  const { argsText: _argsText, ...settledItem } = item;
   return replaceAt(items, idx, {
-    ...item,
+    ...settledItem,
     // Some providers only deliver the real id/name in later frames.
     toolCallId: callId || item.toolCallId,
-    name: str(block.name) ?? item.name,
-    args: block.arguments,
+    name: str(block?.name) ?? item.name,
+    args: block?.arguments,
     argsStreaming: type !== "toolcall_end",
   });
 }
@@ -657,7 +715,36 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       if (idx !== -1) {
         const item = kindAt(items, idx, "assistant");
         if (item === null) return items;
-        return replaceAt(items, idx, { ...item, ...meta, streaming: false });
+        // The message's content is the authoritative rendering of the turn;
+        // in delta mode (issue #718) the item's text is our own accumulation
+        // of the deltas. Reconciling keeps the transcript right when a frame
+        // was dropped or the coalescer merged one; empty authoritative text
+        // (error- or interrupt-ended messages, tool-only turns) keeps what
+        // did stream. A content-free message_end carries nothing to reconcile.
+        let settled = item;
+        const content = message !== null && "content" in message ? message.content : undefined;
+        if (content !== undefined) {
+          const text = textFromContent(content);
+          const thinking = thinkingFromContent(content);
+          if (text !== "" && text !== item.text) settled = { ...settled, text };
+          if (thinking !== "" && thinking !== item.thinking) settled = { ...settled, thinking };
+          // One-off read: the node tsconfig (which type-checks this file via
+          // a live test) lacks vite/client's ImportMeta typing; the renderer
+          // build always defines it.
+          const devBuild = (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true;
+          if (
+            devBuild &&
+            ((text !== "" && text.replace(/\n/g, "") !== item.text.replace(/\n/g, "")) ||
+              (thinking !== "" &&
+                thinking.replace(/\n/g, "") !== item.thinking.replace(/\n/g, "")))
+          ) {
+            console.warn(
+              "[transcript] message_end content disagrees with the streamed deltas — " +
+                "a message_update frame was dropped or mis-merged",
+            );
+          }
+        }
+        return replaceAt(items, idx, { ...settled, ...meta, streaming: false });
       }
       // No streaming item (resumed mid-stream) — render the final message.
       if (message && str(message.role) === "assistant") {

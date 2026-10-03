@@ -11,6 +11,10 @@ import {
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
   deleteSessionFiles,
+  eventFilterEchoIsDelta,
+  EVENT_FILTER_COMMAND_ID,
+  isObject,
+  setEventFilterCommand,
   setHostToolsCommand,
   setHostUriSchemesCommand,
   autoresearchArmMessage,
@@ -831,11 +835,23 @@ export class SessionManager {
         message: autoresearchArmMessage(),
       });
     }
-    initialCommands.push(setHostUriSchemesCommand(), setHostToolsCommand());
+    // Delta negotiation (issue #718): the runtime strips the accumulated
+    // message snapshot from message_update frames when it honours this.
+    // Riding initialCommands puts it before the first turn on fresh spawn
+    // and hibernate-resume alike — the ADR-0043 registration guarantee.
+    initialCommands.push(
+      setEventFilterCommand(),
+      setHostUriSchemesCommand(),
+      setHostToolsCommand(),
+    );
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate, this.subagentSpawnConfig());
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
     }
+    // One-shot watcher (issue #718): when the runtime rejects the delta
+    // negotiation — or echoes full mode — the spawn streams full snapshots
+    // instead. Silent-by-design fallback, loud once for the logs.
+    let eventFilterWarned = false;
     const rpc = new RpcClient({
       cwd: record.worktree?.path ?? record.projectCwd,
       lineageDir: absLineageDir,
@@ -857,6 +873,20 @@ export class SessionManager {
       onFrame: (frame) => {
         if (this.live.get(record.tabId) === entry) this.hostBridge.noteFrame(record.tabId, frame);
         const control = normalizeControlFrame(frame);
+        if (
+          !eventFilterWarned &&
+          control?.kind === "response" &&
+          control.id === EVENT_FILTER_COMMAND_ID
+        ) {
+          eventFilterWarned = true;
+          const data = isObject(control.data) ? control.data : undefined;
+          if (control.success !== true || !eventFilterEchoIsDelta(data)) {
+            console.warn(
+              `[session-manager] ${record.tabId}: runtime kept messageUpdates in full ` +
+                `mode (message_update snapshots stay full-size) — delta unsupported`,
+            );
+          }
+        }
         if (
           control !== null &&
           control.kind === "ext_request" &&

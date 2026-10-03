@@ -1364,3 +1364,169 @@ describe("item timestamps (issue #273)", () => {
     expect(items.some((i) => i.kind === "marker")).toBe(false);
   });
 });
+
+describe("delta-mode streaming (issue #718)", () => {
+  const delta = (type: string, fields: Record<string, unknown> = {}) => ({
+    type: "message_update",
+    assistantMessageEvent: { type, contentIndex: 1, ...fields },
+  });
+
+  it("accumulates toolcall_delta fragments into a growing args draft", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(items, delta("toolcall_start"));
+    expect(items.filter((i) => i.kind === "tool")).toHaveLength(1);
+    expect(tool(items, "")).toMatchObject({ name: "tool", argsStreaming: true });
+
+    items = reduceEvent(items, delta("toolcall_delta", { delta: '{"path": "a.txt"' }));
+    expect(tool(items, "")?.args).toEqual({ path: "a.txt" });
+
+    items = reduceEvent(items, delta("toolcall_delta", { delta: ', "content": "hi' }));
+    expect(tool(items, "")?.args).toEqual({ path: "a.txt", content: "hi" });
+
+    items = reduceEvent(items, delta("toolcall_delta", { delta: '"}' }));
+    expect(tool(items, "")?.args).toEqual({ path: "a.txt", content: "hi" });
+  });
+
+  it("keeps one card across toolcall_start → delta fragments → end", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(items, delta("toolcall_start"));
+    items = reduceEvent(items, delta("toolcall_delta", { delta: '{"path": "haiku.txt"}' }));
+    items = reduceEvent(items, {
+      type: "message_update",
+      assistantMessageEvent: {
+        type: "toolcall_end",
+        contentIndex: 1,
+        toolCall: { type: "toolCall", id: "w1", name: "write", arguments: { path: "haiku.txt" } },
+      },
+    });
+    expect(items.filter((i) => i.kind === "tool")).toHaveLength(1);
+    expect(tool(items, "w1")).toMatchObject({
+      args: { path: "haiku.txt" },
+      argsStreaming: false,
+    });
+    expect(tool(items, "w1")).not.toHaveProperty("argsText");
+  });
+
+  it("drops an unrepairable args fragment without losing the card", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(items, delta("toolcall_start"));
+    items = reduceEvent(items, delta("toolcall_delta", { delta: "{not json" }));
+    expect(items.filter((i) => i.kind === "tool")).toHaveLength(1);
+    expect(tool(items, "")).toMatchObject({ argsStreaming: true });
+    expect(tool(items, "")?.argsText).toBe("{not json");
+    expect(tool(items, "")?.args).toBeUndefined();
+  });
+
+  it("adapts per frame when a stream mixes partial snapshots and deltas", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(items, {
+      type: "message_update",
+      assistantMessageEvent: {
+        type: "toolcall_delta",
+        contentIndex: 1,
+        partial: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "" },
+            { type: "toolCall", id: "w1", name: "write", arguments: { path: "a.txt" } },
+          ],
+        },
+      },
+    });
+    items = reduceEvent(items, {
+      type: "message_update",
+      assistantMessageEvent: { type: "toolcall_delta", contentIndex: 1, delta: ', "x": 1}' },
+    });
+    expect(items.filter((i) => i.kind === "tool")).toHaveLength(1);
+    expect(tool(items, "w1")?.argsStreaming).toBe(true);
+    // The snapshot path wins for correlation; the fragment path keeps the
+    // card alive without inventing a second one.
+    expect(tool(items, "w1")?.args).toBeDefined();
+  });
+
+  it("accumulates text and thinking from delta-only frames", () => {
+    let items = reduceEvent([], {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(items, delta("thinking_delta", { delta: "hm" }));
+    items = reduceEvent(items, delta("text_delta", { delta: "hel" }));
+    items = reduceEvent(items, delta("text_delta", { delta: "lo" }));
+    expect(assistant(items)).toMatchObject({ text: "hello", thinking: "hm", streaming: true });
+  });
+
+  it("reconciles the finished item with the authoritative message_end content", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(items, delta("text_delta", { delta: "half a sent" }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "half a sentence" }],
+      },
+    });
+    expect(assistant(items)).toMatchObject({ text: "half a sentence", streaming: false });
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("keeps streamed text when message_end carries empty content", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(items, delta("text_delta", { delta: "partial before the stall" }));
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "stream stalled",
+      },
+    });
+    expect(assistant(items)).toMatchObject({
+      text: "partial before the stall",
+      streaming: false,
+    });
+  });
+
+  it("stays silent when the accumulation already matches message_end", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(items, delta("text_delta", { delta: "exact" }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "exact" }] },
+    });
+    expect(assistant(items)).toMatchObject({ text: "exact", streaming: false });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
