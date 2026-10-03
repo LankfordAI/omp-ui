@@ -115,6 +115,8 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       "advisor.subagents",
       "advisor.syncBacklog",
       "advisor.immuneTurns",
+      "advisor.reviewInterval",
+      "advisor.maxNotesPerUpdate",
     ],
   },
   {
