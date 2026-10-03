@@ -1,5 +1,6 @@
 // Frame reduction slice tests (moved verbatim from store.test.ts for #295).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MAGIC_KEYWORDS } from "@omp-ui/core/magic-keywords";
 import type {
   AppUpdateState,
   BackendState,
@@ -35,6 +36,7 @@ import {
 } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 import { reduceAgentEvent } from "./reduce-agent-event";
+import type { ObservedTabRuntime } from "./reduce-agent-event";
 // The shared bridge mock predates the acknowledged plan-answer channel (issue
 // #312 follow-up): an HTML gate settles only through it, so install it here.
 // Markdown gates never reach it and keep their direct `rpcSend` semantics.
@@ -44,9 +46,11 @@ Object.assign(h.mockBackend, { answerPlanReview: answerPlanReviewMock });
 const SOURCE_HASH = "1f3c".repeat(16);
 
 describe("reduceAgentEvent", () => {
-  const runtime = (slashCommandItems = new Map<string, string>()) => ({
+  const runtime = (slashCommandItems = new Map<string, string>()): ObservedTabRuntime => ({
     quietWedgeNotified: false,
     timedOutCommands: [],
+    pendingTurnKeywords: [],
+    keywordInputBatchStarted: false,
     pendingNotices: [],
     slashCommandItems,
     lastFrameAt: 1_000,
@@ -58,9 +62,12 @@ describe("reduceAgentEvent", () => {
     const tab = rpcTabState({
       status: "ready",
       lastTurn: { stopReason: "error" },
+      activeTurnKeywords: ["ultrathink"],
     });
     const slashCommandItems = new Map([["request-1", "item-1"]]);
     const observedRuntime = runtime(slashCommandItems);
+    observedRuntime.pendingTurnKeywords = ["workflowz"];
+    observedRuntime.keywordInputBatchStarted = true;
 
     const reduced = reduceAgentEvent(tab, observedRuntime, {
       type: "agent_start",
@@ -68,14 +75,20 @@ describe("reduceAgentEvent", () => {
 
     expect(tab.status).toBe("ready");
     expect(tab.lastTurn).toEqual({ stopReason: "error" });
+    expect(tab.activeTurnKeywords).toEqual(["ultrathink"]);
+    expect(observedRuntime.pendingTurnKeywords).toEqual(["workflowz"]);
+    expect(observedRuntime.keywordInputBatchStarted).toBe(true);
     expect(slashCommandItems).toEqual(
       new Map([["request-1", "item-1"]]),
     );
     expect(reduced.patch.rpc).toMatchObject({
       status: "running",
       lastTurn: undefined,
+      activeTurnKeywords: [],
     });
     expect(reduced.patch.runtime.slashCommandItems).toEqual(new Map());
+    expect(reduced.patch.runtime.pendingTurnKeywords).toEqual([]);
+    expect(reduced.patch.runtime.keywordInputBatchStarted).toBe(false);
     expect(reduced.effects.map(({ phase, type }) => `${phase}:${type}`)).toEqual([
       "before-commit:feed-concern-watcher",
       "before-commit:feed-advisor-reply-watcher",
@@ -132,6 +145,275 @@ describe("reduceAgentEvent", () => {
     ).toBe(false);
   });
 
+});
+
+describe("authoritative running-input keywords (issue #726)", () => {
+  const frame = (event: object) => h.useStore.getState().handleRpcFrame(h.TAB, event);
+  const tab = () => h.useStore.getState().rpc[h.TAB]!;
+  const notice = (id: string, type = "message_start") => frame({
+    type,
+    message: { role: "custom", customType: `${id}-notice`, display: false, content: "hidden keyword instruction" },
+  });
+  const user = (text = "ordinary input") => frame({
+    type: "message_start",
+    message: { role: "user", content: [{ type: "text", text }] },
+  });
+  const activate = (id = "ultrathink") => {
+    frame({ type: "agent_start" });
+    frame({ type: "turn_start" });
+    notice(id);
+    user();
+  };
+
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "ready" }) } });
+  });
+
+  it.each(MAGIC_KEYWORDS)("stages $id-notice until user consumption and activates $word", ({ id, word }) => {
+    frame({ type: "agent_start" });
+    frame({ type: "turn_start" });
+    const empty = tab().activeTurnKeywords;
+    const items = tab().items;
+    notice(id);
+    notice(id, "message_end");
+    notice(id);
+    notice(id, "message_end");
+    expect(tab().activeTurnKeywords).toBe(empty);
+    expect(tab().items).toBe(items);
+    // No capability or prose inference: the authoritative notice is enough.
+    expect(tab().capabilities).toBeNull();
+    user("ordinary input without any magic word");
+    expect(tab().activeTurnKeywords).toEqual([word]);
+    notice("jevify", "message_end");
+    user();
+    expect(tab().activeTurnKeywords).toEqual([word]);
+  });
+
+  it.each([
+    { role: "custom", customType: "ultrathink-notice", display: true },
+    { role: "custom", customType: "ultrathink-notice" },
+    { role: "custom", customType: "ultrathink-notice", display: "false" },
+    { role: "assistant", customType: "ultrathink-notice", display: false },
+    { role: "custom", customType: "workflowz-notice", display: false },
+    { role: "custom", customType: "ULTRATHINK-notice", display: false },
+    { role: "custom", customType: "ultrathink-notice-extra", display: false },
+  ])("ignores non-authoritative notice payload %j", (message) => {
+    frame({ type: "agent_start" });
+    frame({ type: "message_start", message: { ...message, content: "ultrathink" } });
+    user("ultrathink orchestrate workflowz jevify");
+    expect(tab().activeTurnKeywords).toEqual([]);
+  });
+
+  it("deduplicates notice words and canonicalizes reverse-order input", () => {
+    frame({ type: "agent_start" });
+    for (const { id } of [...MAGIC_KEYWORDS].reverse()) {
+      notice(id);
+      notice(id);
+      notice(id, "message_end");
+    }
+    user();
+    expect(tab().activeTurnKeywords).toEqual(MAGIC_KEYWORDS.map(({ word }) => word));
+  });
+
+  it("unions later consumed users in one batch without clearing on message_end", () => {
+    activate("jevify");
+    notice("workflow");
+    notice("orchestrate");
+    notice("jevify");
+    user();
+    expect(tab().activeTurnKeywords).toEqual(["orchestrate", "workflowz", "jevify"]);
+    notice("ultrathink");
+    user();
+    expect(tab().activeTurnKeywords).toEqual(MAGIC_KEYWORDS.map(({ word }) => word));
+    const active = tab().activeTurnKeywords;
+    frame({ type: "message_end", message: { role: "user", content: "ordinary" } });
+    user();
+    expect(tab().activeTurnKeywords).toBe(active);
+  });
+
+  it("replaces the previous consumed input on an ordinary follow-up in the same run", () => {
+    activate();
+    frame({ type: "turn_start" });
+    expect(tab().activeTurnKeywords).toEqual(["ultrathink"]);
+    user("orchestrate appears in prose, but no notice was emitted");
+    expect(tab().status).toBe("running");
+    expect(tab().activeTurnKeywords).toEqual([]);
+    frame({ type: "turn_start" });
+    notice("workflow");
+    user();
+    expect(tab().activeTurnKeywords).toEqual(["workflowz"]);
+  });
+
+  it("preserves the active array through tool-only turns, streaming, retries and compaction", () => {
+    activate();
+    const active = tab().activeTurnKeywords;
+    const unrelated = [
+      { type: "message_start", message: { role: "assistant", content: [] } },
+      { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "x" } },
+      { type: "message_end", message: { role: "assistant", stopReason: "toolUse", content: [] } },
+      { type: "tool_execution_start", toolCallId: "t-726", toolName: "bash", args: {} },
+      { type: "tool_execution_end", toolCallId: "t-726", toolName: "bash", result: { content: [] }, isError: false },
+      { type: "turn_start" },
+      { type: "message_start", message: { role: "toolResult", content: [] } },
+      { type: "auto_retry_start", attempt: 1, maxAttempts: 2, delayMs: 1, errorMessage: "retry" },
+      { type: "auto_retry_end", success: true },
+      { type: "auto_compaction_start" },
+      { type: "auto_compaction_end", aborted: true },
+      { type: "future_event" },
+    ];
+    for (const event of unrelated) {
+      frame(event);
+      expect(tab().activeTurnKeywords).toBe(active);
+    }
+  });
+
+  it("turn_start drops unconsumed staging but preserves the current effect", () => {
+    activate();
+    notice("workflow");
+    const active = tab().activeTurnKeywords;
+    frame({ type: "turn_start" });
+    expect(tab().activeTurnKeywords).toBe(active);
+    user();
+    expect(tab().activeTurnKeywords).toEqual([]);
+  });
+
+  it("does not infer activation from queue snapshots or prompt acknowledgments", () => {
+    frame({ type: "agent_start" });
+    frame({ type: "queue_update", steering: ["ultrathink"], followUp: ["workflowz"] });
+    frame({ type: "response", id: "accept-726", command: "prompt", success: true, data: { agentInvoked: true } });
+    frame({ type: "session_info_update", queuedMessageCount: 2, isStreaming: true });
+    expect(tab().activeTurnKeywords).toEqual([]);
+    user("ultrathink workflowz");
+    expect(tab().activeTurnKeywords).toEqual([]);
+    notice("workflow");
+    user();
+    const active = tab().activeTurnKeywords;
+    frame({ type: "queue_update", steering: ["jevify"], followUp: ["orchestrate"] });
+    frame({ type: "response", id: "accept-again-726", command: "prompt", success: true });
+    expect(tab().activeTurnKeywords).toBe(active);
+  });
+
+  it("isolates subagent notices, users and terminal boundaries from root keywords", () => {
+    activate();
+    const active = tab().activeTurnKeywords;
+    // Roster throttles are process-scoped; this proof owns its own process key.
+    const isolatedTab = `${h.TAB}-keywords-726`;
+    h.useStore.setState((s) => ({ rpc: { ...s.rpc, [isolatedTab]: tab() } }));
+    for (const event of [
+      { type: "agent_start" },
+      { type: "turn_start" },
+      { type: "message_start", message: { role: "custom", customType: "jevify-notice", display: false, content: "hidden" } },
+      { type: "message_start", message: { role: "user", content: "jevify" } },
+      { type: "agent_end" },
+    ]) {
+      h.useStore.getState().handleRpcFrame(isolatedTab, {
+        type: "subagent_event", payload: { id: "child-726", agent: "child", event },
+      });
+      expect(h.useStore.getState().rpc[isolatedTab]!.activeTurnKeywords).toBe(active);
+    }
+    user();
+    expect(tab().activeTurnKeywords).toBe(active);
+  });
+
+  it.each(["stop", "error", "aborted"])("clears all keyword state at agent_end after %s", (stopReason) => {
+    activate();
+    frame({ type: "message_end", message: { role: "assistant", stopReason, content: [] } });
+    expect(tab().activeTurnKeywords).toEqual(["ultrathink"]);
+    notice("workflow");
+    frame({ type: "agent_end" });
+    expect(tab().activeTurnKeywords).toEqual([]);
+    user();
+    expect(tab().activeTurnKeywords).toEqual([]);
+  });
+
+  it("agent_end also clears keywords when status was already ready", () => {
+    activate();
+    notice("workflow");
+    h.useStore.setState({ rpc: { [h.TAB]: { ...tab(), status: "ready" } } });
+    frame({ type: "agent_end" });
+    expect(tab().activeTurnKeywords).toEqual([]);
+    user();
+    expect(tab().activeTurnKeywords).toEqual([]);
+  });
+
+  it("agent_start clears the previous active input and staged notice", () => {
+    activate();
+    notice("workflow");
+    frame({ type: "agent_start" });
+    expect(tab().activeTurnKeywords).toEqual([]);
+    user();
+    expect(tab().activeTurnKeywords).toEqual([]);
+  });
+
+  it("fatal process errors clear the active effect and discard staged notices", () => {
+    activate();
+    notice("workflow");
+    frame({ type: "omp_ui_error", message: "process stopped" });
+    expect(tab().activeTurnKeywords).toEqual([]);
+    expect(tab().status).toBe("error");
+    user();
+    expect(tab().activeTurnKeywords).toEqual([]);
+  });
+
+  it.each([
+    {},
+    { agentInvoked: true },
+    { data: { agentInvoked: true } },
+  ])("settling prompt_result %j clears all keyword state", (result) => {
+    activate();
+    notice("workflow");
+    frame({ type: "prompt_result", ...result });
+    expect(tab().status).toBe("ready");
+    expect(tab().activeTurnKeywords).toEqual([]);
+    user();
+    expect(tab().activeTurnKeywords).toEqual([]);
+  });
+
+  it.each([{ agentInvoked: false }, { data: { agentInvoked: false } }])("non-agent prompt_result %j preserves active and pending input", (result) => {
+    activate();
+    const active = tab().activeTurnKeywords;
+    notice("workflow");
+    frame({ type: "prompt_result", ...result });
+    expect(tab().status).toBe("running");
+    expect(tab().activeTurnKeywords).toBe(active);
+    user();
+    expect(tab().activeTurnKeywords).toEqual(["ultrathink", "workflowz"]);
+  });
+
+  it.each(["session_info_update", "config_update"])("%s preserves null-to-id materialization and clears actual replacement", (type) => {
+    activate();
+    notice("workflow");
+    const active = tab().activeTurnKeywords;
+    frame({ type, sessionId: "session-726-first" });
+    expect(tab().activeTurnKeywords).toBe(active);
+    user();
+    expect(tab().activeTurnKeywords).toEqual(["ultrathink", "workflowz"]);
+    notice("jevify");
+    frame({ type, sessionId: "session-726-first" });
+    expect(tab().activeTurnKeywords).toEqual(["ultrathink", "workflowz"]);
+    frame({ type, sessionId: "session-726-replacement" });
+    expect(tab().activeTurnKeywords).toEqual([]);
+    user();
+    expect(tab().activeTurnKeywords).toEqual([]);
+  });
+
+  it("failed RPC commands and abort acknowledgment preserve active and staged input", async () => {
+    activate();
+    notice("workflow");
+    const active = tab().activeTurnKeywords;
+    const failed = h.useStore.getState().rpcCommand(h.TAB, { type: "get_state" }, { quiet: true });
+    const rejection = expect(failed).rejects.toThrow("RPC failed");
+    h.respond(h.TAB, h.sent.at(-1)!.cmd, "RPC failed", false);
+    await rejection;
+    expect(tab().activeTurnKeywords).toBe(active);
+    const abort = h.useStore.getState().abortAgent(h.TAB);
+    expect(tab().activeTurnKeywords).toBe(active);
+    h.respond(h.TAB, h.sent.at(-1)!.cmd, {});
+    await abort;
+    expect(tab().activeTurnKeywords).toBe(active);
+    user();
+    expect(tab().activeTurnKeywords).toEqual(["ultrathink", "workflowz"]);
+  });
 });
 
 describe("handleRpcFrame routing", () => {

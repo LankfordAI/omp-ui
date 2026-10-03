@@ -17,7 +17,7 @@ import { cn } from "../lib/cn";
 import { currentLocaleId, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import { keywordPalette, SHIMMER_PERIOD_MS } from "../lib/keyword-colors";
-import { magicKeywordSegments } from "@omp-ui/core/magic-keywords";
+import { MAGIC_KEYWORDS, magicKeywordSegments, type MagicKeyword } from "@omp-ui/core/magic-keywords";
 import { firingKeywords } from "../lib/magic-keyword-gate";
 import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
 import { composerPaintRuns } from "../lib/composer-paint";
@@ -81,6 +81,7 @@ export function Composer({
   const composerQueue = useStore((s) => s.rpc[tabId]?.composerQueue);
   const drainComposerQueue = useStore((s) => s.drainComposerQueue);
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
+  const activeTurnKeywords = useStore((s) => s.rpc[tabId]?.activeTurnKeywords ?? NO_KEYWORDS);
   const commands = useStore((s) => s.rpc[tabId]?.commands ?? NO_COMMANDS);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
   // UI_PLAN_COMMAND is the palette's one canonical plan entry: omp's own
@@ -235,7 +236,7 @@ export function Composer({
     setPasteError,
     dismissError,
   } = useImageDraft();
-  /** Whether the box has focus — omp shimmers a keyword only while it does. */
+  /** Draft characters shimmer only while the box has focus. */
   const [focused, setFocused] = useState(false);
   /**
    * Where this session's first prompt will run (issues #225, #227), chosen
@@ -277,6 +278,12 @@ export function Composer({
   const running = status === "running";
   const relaunching = status === "starting";
   const unavailable = dead || relaunching || instanceDown;
+  const activeKeywordEffect = running && !unavailable && activeTurnKeywords.length > 0;
+  const activeKeywordPalette = useMemo(() => {
+    const keywords = MAGIC_KEYWORDS.filter((keyword) => activeTurnKeywords.includes(keyword.word));
+    if (keywords.length === 1) return keywordPalette(keywords[0]!.word);
+    return keywords.flatMap((keyword) => keywordPalette(keyword.word));
+  }, [activeTurnKeywords]);
   const queueChip = queueChipView(running, queued);
   // The popover closes with its chip; a later queue starts closed.
   const queueVisible = queueChip !== null;
@@ -324,12 +331,19 @@ export function Composer({
   const capabilities = useStore((s) => s.rpc[tabId]?.capabilities ?? null);
   const firing = useMemo(() => firingKeywords(capabilities), [capabilities]);
   const segments = useMemo(() => magicKeywordSegments(text, firing), [text, firing]);
-  /** First armed keyword in the draft; its palette runs the border ring. */
+  /** First armed keyword in the draft; its palette runs the idle border ring. */
   const glowKeyword = useMemo(
     () => segments.find((s) => s.keyword !== null)?.keyword ?? null,
     [segments],
   );
   const glowing = glowKeyword !== null;
+  const draftPhase = focused ? phase : 0;
+  const animateKeywords = activeKeywordEffect || (focused && glowing);
+  const borderPalette = activeKeywordEffect
+    ? activeKeywordPalette
+    : !running && glowKeyword !== null
+      ? keywordPalette(glowKeyword)
+      : null;
   /** Resolved-as-of-now paths: the file listing plus every ancestor dir. */
   const known = useMemo(() => {
     const list = files?.list ?? [];
@@ -342,8 +356,8 @@ export function Composer({
    * ordinary prose, which is exactly what omp will do with it.
    */
   const runs = useMemo(
-    () => composerPaintRuns(text, known, phase, firing),
-    [text, known, phase, firing],
+    () => composerPaintRuns(text, known, draftPhase, firing),
+    [text, known, draftPhase, firing],
   );
 
   // The listing is refetched on every open so files created mid-session
@@ -426,29 +440,35 @@ export function Composer({
     }
   }, [unavailable]);
 
-  // The shimmer runs only while focused with a keyword on screen, matching omp's
-  // editor; everything else shows the static phase-0 palette.
+  // One clock drives the focused draft and the authoritative active-turn ring.
+  // Active work keeps moving without focus; draft paint stays at phase 0 then.
   useEffect(() => {
-    if (!focused || !glowing) {
+    if (!animateKeywords) {
       setPhase(0);
       return;
     }
-    // A continuous colour cycle is exactly what reduced-motion asks us not to run.
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setPhase(0);
-      return;
-    }
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     // rAF, not setInterval: the sweep advances a uniform delta per displayed
     // frame (the 70 ms interval stepped visibly — issue #204), and pauses for
     // free while the window is hidden.
-    let raf = 0;
+    let raf: number | undefined;
     const tick = () => {
       setPhase((Date.now() % SHIMMER_PERIOD_MS) / SHIMMER_PERIOD_MS);
       raf = requestAnimationFrame(tick);
     };
-    tick();
-    return () => cancelAnimationFrame(raf);
-  }, [focused, glowing]);
+    const updateMotion = () => {
+      if (raf !== undefined) cancelAnimationFrame(raf);
+      raf = undefined;
+      if (motion.matches) setPhase(0);
+      else tick();
+    };
+    motion.addEventListener("change", updateMotion);
+    updateMotion();
+    return () => {
+      motion.removeEventListener("change", updateMotion);
+      if (raf !== undefined) cancelAnimationFrame(raf);
+    };
+  }, [animateKeywords]);
 
   // A dead or relaunching tab has no stable agent to configure.
   useEffect(() => {
@@ -885,16 +905,16 @@ export function Composer({
             unavailable && "opacity-50",
           )}
         >
-          {/* The border-level echo of the keyword shimmer: the armed keyword's own
-              14-stop gradient circling the box, phase-locked to the character paint.
-              Static (phase 0) while unfocused or under reduced motion — the shimmer
-              clock already enforces both. */}
-          {glowKeyword !== null && (
-            <PerimeterGlow colors={keywordPalette(glowKeyword)} phase={phase} />
-          )}
-          {(compact ? busy : busy || running) && (
+          {/* Exactly one border effect: active keyword, ordinary running sweep,
+              idle draft keyword, then the non-running busy signal. */}
+          {borderPalette !== null ? (
+            <PerimeterGlow
+              colors={borderPalette}
+              phase={activeKeywordEffect ? phase : draftPhase}
+            />
+          ) : (compact ? busy : busy || running) ? (
             <PerimeterSweep tone={running ? "copper" : "signal"} />
-          )}
+          ) : null}
           {images.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-2 pt-2 pb-1.5">
               {images.map((image, i) => (
@@ -1386,3 +1406,4 @@ const UI_AUTORESEARCH_SUBCOMMANDS: { name: string; key: MessageKey }[] = [
 const NO_COMMANDS: never[] = [];
 const NO_EFFORTS: never[] = [];
 const NO_FILES: never[] = [];
+const NO_KEYWORDS: readonly MagicKeyword[] = [];

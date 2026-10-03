@@ -1,3 +1,4 @@
+import { MAGIC_KEYWORDS } from "@omp-ui/core/magic-keywords";
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
 import { formatDuration } from "../../lib/duration";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
@@ -259,6 +260,9 @@ export function reduceAgentEvent(
     rpc.status = "running";
     rpc.lastTurn = undefined;
     rpc.quotaEvent = undefined;
+    rpc.activeTurnKeywords = [];
+    runtimePatch.pendingTurnKeywords = [];
+    runtimePatch.keywordInputBatchStarted = false;
     hasRpcPatch = true;
     effects.push(
       { phase: "after-commit", type: "restart-stream-stall-timer" },
@@ -272,6 +276,36 @@ export function reduceAgentEvent(
         type: "settle-slash-command-items",
         itemIds,
       });
+    }
+  }
+
+  if (type === "turn_start") {
+    runtimePatch.pendingTurnKeywords = [];
+    runtimePatch.keywordInputBatchStarted = false;
+  }
+
+  if (type === "message_start") {
+    const message = field(frame, "message");
+    const role = strField(message, "role");
+    if (role === "custom" && boolField(message, "display") === false) {
+      const customType = strField(message, "customType");
+      const keyword = MAGIC_KEYWORDS.find(({ id }) => customType === `${id}-notice`);
+      if (keyword !== undefined && !runtime.pendingTurnKeywords.includes(keyword.word))
+        runtimePatch.pendingTurnKeywords = [...runtime.pendingTurnKeywords, keyword.word];
+    } else if (role === "user") {
+      // Notices precede consumed inputs, not queue acceptance. Only the first
+      // user in a turn's input batch replaces the previous input's effect.
+      if (!runtime.keywordInputBatchStarted || runtime.pendingTurnKeywords.length > 0) {
+        rpc.activeTurnKeywords = MAGIC_KEYWORDS
+          .filter(({ word }) =>
+            runtime.pendingTurnKeywords.includes(word) ||
+            (runtime.keywordInputBatchStarted && tab.activeTurnKeywords.includes(word)),
+          )
+          .map(({ word }) => word);
+        hasRpcPatch = true;
+      }
+      runtimePatch.pendingTurnKeywords = [];
+      runtimePatch.keywordInputBatchStarted = true;
     }
   }
 
@@ -299,6 +333,10 @@ export function reduceAgentEvent(
   }
 
   if (type === "agent_end") {
+    rpc.activeTurnKeywords = [];
+    runtimePatch.pendingTurnKeywords = [];
+    runtimePatch.keywordInputBatchStarted = false;
+    hasRpcPatch = true;
     if (tab.status === "running") {
       rpc.status = "ready";
       rpc.streamStallMs = undefined;

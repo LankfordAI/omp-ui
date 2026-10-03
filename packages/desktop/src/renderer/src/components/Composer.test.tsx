@@ -4,9 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { BranchList, ServiceTier } from "@omp-ui/core/types";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
+import { MAGIC_KEYWORDS, type MagicKeyword } from "@omp-ui/core/magic-keywords";
 import { backendState, rpcTabState } from "../test/fixtures";
+import type { RpcTabState } from "../store";
 import { emptySessionRuntime, type SlashCommandInfo } from "../lib/rpc-types";
 import { t } from "../lib/i18n";
+import { keywordPalette, SHIMMER_PERIOD_MS } from "../lib/keyword-colors";
 import { markerItem, noticeItem } from "../lib/transcript";
 import { withAttachmentRoutingContext } from "../lib/attachment-routing";
 import { withDocumentContext } from "../lib/document-context";
@@ -1903,6 +1906,260 @@ describe("Composer keyword glow", () => {
     expect(document.body.querySelector("[data-perimeter-glow]")).toBeNull();
     typeDraft("please ultrathink this");
     expect(document.body.querySelector("[data-perimeter-glow]")).not.toBeNull();
+  });
+});
+
+describe("Composer active-turn keyword glow (issue #726)", () => {
+  let now: number;
+  let nextFrame: number;
+  let frames: Map<number, FrameRequestCallback>;
+
+  beforeEach(() => {
+    now = 0;
+    nextFrame = 0;
+    frames = new Map();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn((id: number) => frames.delete(id)));
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function media(compact: boolean, reducedMotion = true): void {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: query === "(prefers-reduced-motion: reduce)" ? reducedMotion : compact,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+  }
+
+  function patchRpc(patch: Partial<RpcTabState>): void {
+    act(() => useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, ...patch } },
+    })));
+  }
+
+  function ringStyle(): string | null {
+    return document.body.querySelector<HTMLElement>("[data-perimeter-glow]")
+      ?.style.getPropertyValue("--perimeter-glow") ?? null;
+  }
+
+  function gradient(keywords: readonly MagicKeyword[], angle = 0): string {
+    const colors = keywords.flatMap((keyword) => keywordPalette(keyword));
+    return `conic-gradient(from ${angle}deg, ${colors.join(", ")}, ${colors[0]})`;
+  }
+
+  function tick(phase: number): void {
+    now = SHIMMER_PERIOD_MS * phase;
+    const callbacks = [...frames.values()];
+    frames.clear();
+    act(() => callbacks.forEach((callback) => callback(now)));
+  }
+
+  it.each([
+    { compact: false, busy: false },
+    { compact: false, busy: true },
+    { compact: true, busy: false },
+    { compact: true, busy: true },
+  ])("keeps the consumed keyword after submission and ignores the next draft ($compact, $busy)", ({ compact, busy }) => {
+    media(compact);
+    seed("ready");
+    renderComposer();
+    const textarea = typeDraft("please orchestrate this");
+    press(textarea, "Enter");
+    expect(textarea.value).toBe("");
+    expect(ringStyle()).toBeNull();
+    patchRpc({ status: "running", busy, activeTurnKeywords: ["orchestrate"] });
+    expect(ringStyle()).toBe(gradient(["orchestrate"]));
+    expect(document.body.querySelectorAll("[data-perimeter-glow]")).toHaveLength(1);
+    expect(document.body.querySelector("[data-perimeter-sweep]")).toBeNull();
+    expect(document.body.querySelector(".shadow-float") !== null).toBe(!compact);
+
+    typeDraft("please jevify the next task");
+    expect(ringStyle()).toBe(gradient(["orchestrate"]));
+    expect(document.body.querySelector("[data-perimeter-sweep]")).toBeNull();
+
+    patchRpc({ status: "ready", busy: false, activeTurnKeywords: [] });
+    expect(ringStyle()).toBe(gradient(["jevify"]));
+    typeDraft("");
+    expect(ringStyle()).toBeNull();
+    expect(document.body.querySelector("[data-perimeter-sweep]")).toBeNull();
+  });
+
+  it.each(MAGIC_KEYWORDS.map((keyword) => keyword.word))("uses %s's unchanged palette without consulting draft capabilities", (word) => {
+    seed("running");
+    patchRpc({ activeTurnKeywords: [word], capabilities: gateSnapshot([]) });
+    renderComposer();
+    typeDraft(word);
+    expect(ringStyle()).toBe(gradient([word]));
+    expect(document.body.querySelector("[data-perimeter-sweep]")).toBeNull();
+  });
+
+  it("combines distinct palettes once in canonical order rather than notice arrival order", () => {
+    seed("running");
+    patchRpc({ activeTurnKeywords: ["jevify", "workflowz", "orchestrate", "ultrathink", "jevify"] });
+    renderComposer();
+    expect(ringStyle()).toBe(gradient(["ultrathink", "orchestrate", "workflowz", "jevify"]));
+    expect(document.body.querySelectorAll("[data-perimeter-glow]")).toHaveLength(1);
+    expect(document.body.querySelector("[data-perimeter-sweep]")).toBeNull();
+  });
+
+  it.each([
+    { compact: false, busy: false },
+    { compact: false, busy: true },
+    { compact: true, busy: false },
+    { compact: true, busy: true },
+  ])("suppresses the next draft ring during ordinary work while preserving sweep visibility ($compact, $busy)", ({ compact, busy }) => {
+    media(compact);
+    seed("running");
+    patchRpc({ busy });
+    renderComposer();
+    typeDraft("please jevify this later");
+    expect(ringStyle()).toBeNull();
+    const sweep = document.body.querySelector("[data-perimeter-sweep]");
+    expect(sweep !== null).toBe(!compact || busy);
+    if (sweep !== null) expect(sweep.classList.contains("text-copper")).toBe(true);
+  });
+
+  it.each([false, true])("prefers the idle first keyword to the non-running signal sweep (compact=%s)", (compact) => {
+    media(compact);
+    seed("ready");
+    patchRpc({ busy: true });
+    renderComposer();
+    expect(document.body.querySelector("[data-perimeter-sweep]")?.classList.contains("text-signal")).toBe(true);
+    typeDraft("jevify then orchestrate");
+    expect(ringStyle()).toBe(gradient(["jevify"]));
+    expect(document.body.querySelector("[data-perimeter-sweep]")).toBeNull();
+  });
+
+  it.each(["ready", "starting"] as const)("does not show an active-turn ring while %s", (status) => {
+    seed(status);
+    patchRpc({ activeTurnKeywords: ["orchestrate"] });
+    renderComposer();
+    expect(ringStyle()).toBeNull();
+  });
+
+  it("does not show an active-turn ring when its session is unavailable", () => {
+    seed("running");
+    patchRpc({ activeTurnKeywords: ["orchestrate"] });
+    useStore.setState({ state: backendState({ projects: [] }) });
+    renderComposer();
+    expect(ringStyle()).toBeNull();
+  });
+
+  it("shares one clock with the focused draft but keeps only the active ring moving after blur", () => {
+    media(false, false);
+    seed("running");
+    patchRpc({ activeTurnKeywords: ["orchestrate"] });
+    renderComposer();
+    const textarea = typeDraft("jevify");
+    const mirror = textarea.parentElement!.querySelector<HTMLElement>("[aria-hidden]")!;
+    const colors = () => [...mirror.querySelectorAll<HTMLSpanElement>("span")].map((span) => span.style.color);
+    const staticColors = colors();
+    expect(frames.size).toBe(1);
+    tick(0.25);
+    expect(ringStyle()).toBe(gradient(["orchestrate"], 90));
+    expect(colors()).not.toEqual(staticColors);
+
+    act(() => textarea.blur());
+    expect(colors()).toEqual(staticColors);
+    expect(frames.size).toBe(1);
+    tick(0.5);
+    expect(ringStyle()).toBe(gradient(["orchestrate"], 180));
+    expect(colors()).toEqual(staticColors);
+    expect(frames.size).toBe(1);
+  });
+
+  it("pins the idle draft ring and characters to phase zero after blur", () => {
+    media(true, false);
+    seed("ready");
+    renderComposer();
+    const textarea = typeDraft("orchestrate");
+    const mirror = textarea.parentElement!.querySelector<HTMLElement>("[aria-hidden]")!;
+    const colors = () => [...mirror.querySelectorAll<HTMLSpanElement>("span")].map((span) => span.style.color);
+    const staticColors = colors();
+    tick(0.25);
+    expect(ringStyle()).toBe(gradient(["orchestrate"], 90));
+    expect(colors()).not.toEqual(staticColors);
+    act(() => textarea.blur());
+    expect(ringStyle()).toBe(gradient(["orchestrate"]));
+    expect(colors()).toEqual(staticColors);
+    expect(frames.size).toBe(0);
+  });
+
+  it.each([false, true])("keeps a visible static active gradient under reduced motion (compact=%s)", (compact) => {
+    media(compact, true);
+    seed("running");
+    patchRpc({ activeTurnKeywords: ["orchestrate", "jevify"] });
+    renderComposer();
+    const textarea = typeDraft("workflowz");
+    expect(ringStyle()).toBe(gradient(["orchestrate", "jevify"]));
+    expect(frames.size).toBe(0);
+    act(() => textarea.blur());
+    tick(0.5);
+    expect(ringStyle()).toBe(gradient(["orchestrate", "jevify"]));
+    expect(document.body.querySelector("[data-perimeter-sweep]")).toBeNull();
+    expect(frames.size).toBe(0);
+  });
+
+  it("pins and resumes the active ring when reduced motion changes during a turn", () => {
+    let reduced = false;
+    const motion = new EventTarget();
+    Object.defineProperty(motion, "matches", { get: () => reduced });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => query === "(prefers-reduced-motion: reduce)"
+        ? motion
+        : { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
+    });
+    seed("running");
+    patchRpc({ activeTurnKeywords: ["workflowz"] });
+    renderComposer();
+    tick(0.25);
+    expect(ringStyle()).toBe(gradient(["workflowz"], 90));
+    act(() => {
+      reduced = true;
+      motion.dispatchEvent(new Event("change"));
+    });
+    expect(ringStyle()).toBe(gradient(["workflowz"]));
+    expect(frames.size).toBe(0);
+    act(() => {
+      reduced = false;
+      motion.dispatchEvent(new Event("change"));
+    });
+    tick(0.5);
+    expect(ringStyle()).toBe(gradient(["workflowz"], 180));
+    expect(frames.size).toBe(1);
+  });
+
+  it("cancels the clock with no consumers and on unmount", () => {
+    media(false, false);
+    seed("running");
+    patchRpc({ activeTurnKeywords: ["orchestrate"] });
+    renderComposer();
+    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    act(() => textarea.blur());
+    expect(frames.size).toBe(1);
+    patchRpc({ status: "ready", activeTurnKeywords: [] });
+    expect(frames.size).toBe(0);
+    typeDraft("jevify");
+    expect(frames.size).toBe(0);
+    expect(ringStyle()).toBe(gradient(["jevify"]));
+    act(() => textarea.focus());
+    expect(frames.size).toBe(1);
+    typeDraft("plain prose");
+    expect(frames.size).toBe(0);
+    typeDraft("jevify");
+    expect(frames.size).toBe(1);
+    act(() => root!.unmount());
+    root = null;
+    expect(frames.size).toBe(0);
   });
 });
 

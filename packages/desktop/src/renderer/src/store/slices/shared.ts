@@ -5,6 +5,7 @@
 // construction.
 import type { StoreApi } from "zustand";
 import type { BackendState, SessionSummary } from "@omp-ui/core/types";
+import type { MagicKeyword } from "@omp-ui/core/magic-keywords";
 import {
   SESSION_COMMANDS,
   sessionCommandHasLateAck,
@@ -72,6 +73,9 @@ export interface TimedOutCommand {
 export interface TabRuntime {
   quietWedgeNotified: boolean;
   timedOutCommands: TimedOutCommand[];
+  /** Hidden keyword notices staged before the next consumed user input. */
+  pendingTurnKeywords: readonly MagicKeyword[];
+  keywordInputBatchStarted: boolean;
   lastFrameAt?: number;
   pendingNotices: PendingNotice[];
   transcriptBatch?: TranscriptBatch;
@@ -437,6 +441,8 @@ function freshTabRuntime(): TabRuntime {
   return {
     quietWedgeNotified: false,
     timedOutCommands: [],
+    pendingTurnKeywords: [],
+    keywordInputBatchStarted: false,
     pendingNotices: [],
     slashCommandItems: new Map(),
     capabilitiesGeneration: 0,

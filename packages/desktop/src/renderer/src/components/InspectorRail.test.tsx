@@ -128,6 +128,7 @@ function diffResult(
 function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
   return {
     status: "ready",
+    activeTurnKeywords: [],
     goal: null,
     vibe: null,
     sideQuestions: null,
