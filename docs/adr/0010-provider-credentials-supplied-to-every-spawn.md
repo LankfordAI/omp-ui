@@ -71,9 +71,20 @@ inherited), **login-shell** (captured), **dotenv** (report-only).
   opaque token, so a value containing whitespace is a mis-paste — a whole
   `export NAME=…` line, a PEM — and is rejected instead of being stored as a
   credential that could never work. Surrounding whitespace is trimmed.
-- **An undecryptable entry is dropped, not fatal.** After a keyring change the
-  blob is intact but foreign, and indistinguishable from corruption. The row
-  reports as unset so the user can retype it.
+- **Unreadable saved entries are retained, not usable.** Accepted ciphertext
+  stays byte-for-byte intact through unrelated edits, whether decryption fails
+  or yields an empty value. Status reports unreadable variable names separately
+  from the effective source and masked tail; an environment, login-shell, or
+  project-dotenv fallback can still work. Unreadable-only model keys do not
+  satisfy the provider gate. Only explicit replacement or removal changes the
+  targeted encrypted entry, and mutations publish maps and environment only
+  after an atomic file replacement succeeds.
+- **Retention is not recovery.** Restarting with a compatible original OS
+  credential store may make the saved value readable again. This cannot
+  reconstruct a lost OS encryption key or repair corrupted ciphertext; removing
+  an entry permanently discards it. The initiating credential-store mismatch
+  reported in #724 remains unestablished, not attributed to an update or fixed
+  by this change.
 - **Keys bind at process start.** A key added now applies to the next session
   spawn; live sessions need the existing restart. Same constraint as ADR-0005.
 - **AWS/Vertex credentials are deliberately absent** from the catalog:

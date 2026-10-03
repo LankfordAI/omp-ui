@@ -1328,6 +1328,7 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     masked: null,
     hint: null,
     shadowsEnvironment: false,
+    unreadableStoredEnvs: [],
   };
 
   const seedProviders = (
@@ -1435,6 +1436,7 @@ describe("Settings Providers page web-search order (issue #394)", () => {
     masked: null,
     hint: null,
     shadowsEnvironment: false,
+    unreadableStoredEnvs: [],
   };
 
   const entryFor = (

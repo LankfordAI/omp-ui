@@ -1139,6 +1139,11 @@ export interface ProviderKeyStatus {
   hint: string | null;
   /** True when a stored value is overriding an inherited one for the same variable. */
   shadowsEnvironment: boolean;
+  /** Saved entries that exist but supply no usable decrypted value.
+   * Primary variable first, followed by catalogued alternates.
+   * Contains names only: no ciphertext, plaintext, or raw cipher error.
+   */
+  unreadableStoredEnvs: string[];
 }
 
 /** The providers page's whole payload: rows plus how securely they can be stored. */

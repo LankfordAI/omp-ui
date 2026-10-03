@@ -941,6 +941,16 @@ export const en = {
   "settings.providers.encryptedSuffix": ").",
   "settings.providers.noCredentialStore":
     "No OS credential store is available here, so keys cannot be saved securely and adding one is refused. Export the variable from your shell profile instead.",
+  // Unreadable saved entries (issue #724): the ciphertext survives, the
+  // plaintext does not — the copy never calls the key lost or gone.
+  "settings.providers.savedUnreadable": "saved key unreadable",
+  "settings.providers.unreadableDetail":
+    "{env}: the saved key could not be decrypted. The encrypted entry is retained; restarting with the original OS credential store may make it readable again. Removing this entry permanently discards that saved value.",
+  "settings.providers.removeUnreadableAria": "Remove unreadable saved {env}",
+  "settings.providers.noneUsable":
+    "No usable provider credentials — saved keys could not be read",
+  "settings.providers.unreadableSummary":
+    "Providers with unreadable saved keys: {count}. Encrypted entries are retained.",
   "settings.providers.footerIntro":
     "omp reads credentials from the environment, so omp-ui supplies these to every session it launches — a key added here takes effect on the next session spawn.",
   "settings.providers.footerRestart":

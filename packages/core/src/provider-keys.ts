@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { withoutAppImageRuntime } from "./appimage-env";
+import { writeTextAtomic } from "./atomic-write";
 import { PROVIDER_ENV_NAMES, PROVIDER_KEY_SPECS } from "./provider-catalog";
 import type { ProviderKeyStatus, ProviderKeySource } from "./types";
 
@@ -217,6 +218,8 @@ export function credentialStoreUnavailableMessage(
 export class ProviderKeys {
   /** Plaintext keys, keyed by env name. Never leaves the main process. */
   private stored = new Map<string, string>();
+  /** Original accepted ciphertext, including entries that cannot currently be read. */
+  private encrypted = new Map<string, string>();
   private shellKeys: Record<string, string> = {};
   private shellCaptured = false;
   /** The environment as inherited, captured before any value is installed. */
@@ -250,12 +253,7 @@ export class ProviderKeys {
     return this.cipher.available;
   }
 
-  /**
-   * A key file written by a working keyring cannot be decrypted after the
-   * keyring changes, and an undecryptable entry is indistinguishable from a
-   * corrupt one — both are dropped rather than taking the app down, and the
-   * page simply reports the key as unset so the user can retype it.
-   */
+  /** Retain saved entries independently of whether the current cipher can read them. */
   private load(): void {
     let parsed: unknown;
     try {
@@ -268,24 +266,20 @@ export class ProviderKeys {
     if (keys === null || typeof keys !== "object") return;
     for (const [name, blob] of Object.entries(keys)) {
       if (!knownEnvName(name) || typeof blob !== "string") continue;
+      this.encrypted.set(name, blob);
       try {
         const value = this.cipher.decrypt(Buffer.from(blob, "base64")).trim();
         if (value !== "") this.stored.set(name, value);
       } catch {
-        // Wrong keyring, rotated master key, or a truncated file.
+        // Retained for a later restart with a compatible credential store.
       }
     }
   }
 
-  /** 0600 — the file holds credentials even when the cipher is only obfuscation. */
-  private save(): void {
-    const keys: Record<string, string> = {};
-    for (const [name, value] of this.stored) {
-      keys[name] = this.cipher.encrypt(value).toString("base64");
-    }
-    const data: KeyFile = { schemaVersion: 1, keys };
-    fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    fs.writeFileSync(this.file, `${JSON.stringify(data, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  /** Persist a candidate without re-encrypting untouched entries. */
+  private save(keys: ReadonlyMap<string, string>): void {
+    const data: KeyFile = { schemaVersion: 1, keys: Object.fromEntries(keys) };
+    writeTextAtomic(this.file, `${JSON.stringify(data, null, 2)}\n`, 0o600);
   }
 
   /**
@@ -319,8 +313,13 @@ export class ProviderKeys {
     if (!this.cipher.available) {
       throw new Error(credentialStoreUnavailableMessage(this.platform));
     }
-    this.stored.set(envName, validateKey(value));
-    this.save();
+    const plain = validateKey(value);
+    const blob = this.cipher.encrypt(plain).toString("base64");
+    const candidate = new Map(this.encrypted);
+    candidate.set(envName, blob);
+    this.save(candidate);
+    this.encrypted = candidate;
+    this.stored.set(envName, plain);
     this.applyToProcessEnv();
   }
 
@@ -331,8 +330,12 @@ export class ProviderKeys {
    */
   clearKey(envName: string, env: NodeJS.ProcessEnv = this.env): void {
     if (!knownEnvName(envName)) throw new Error(`unknown provider variable: ${envName}`);
-    if (!this.stored.delete(envName)) return;
-    this.save();
+    if (!this.encrypted.has(envName)) return;
+    const candidate = new Map(this.encrypted);
+    candidate.delete(envName);
+    this.save(candidate);
+    this.encrypted = candidate;
+    this.stored.delete(envName);
     const fallback = this.baseEnv[envName] ?? this.shellKeys[envName];
     if (fallback === undefined) delete env[envName];
     else env[envName] = fallback;
@@ -387,6 +390,9 @@ export class ProviderKeys {
         activeEnv: active,
         source: this.sourceOf(active, dotenv),
         masked: value === undefined ? null : maskKey(value),
+        unreadableStoredEnvs: names.filter(
+          (name) => this.encrypted.has(name) && !this.stored.has(name),
+        ),
         hint: spec.hint ?? null,
         /**
          * A stored value shadows the ambient one; the page says so rather than

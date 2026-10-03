@@ -121,7 +121,21 @@ The registry's `localeId` is broadcast in `BackendState`, and each renderer appl
 
 ### Provider credentials
 
-[`ProviderKeys`](../packages/core/src/provider-keys.ts) resolves catalogued environment variables from stored values, the inherited environment, and a captured login shell. Project `.env` files are report-only because OMP loads them itself. Desktop main supplies the OS `safeStorage` cipher, refuses storage when it cannot encrypt securely, installs resolved values into its own `process.env` before any spawn, and returns only source labels and masked tails to renderers. Key material never crosses IPC or WebSocket. See [ADR-0010](adr/0010-provider-credentials-supplied-to-every-spawn.md).
+[`ProviderKeys`](../packages/core/src/provider-keys.ts) resolves catalogued environment variables from stored values, the inherited environment, and a captured login shell. Project `.env` files are report-only because OMP loads them itself. Desktop main supplies the OS `safeStorage` cipher, refuses storage when it cannot encrypt securely, installs resolved values into its own `process.env` before any spawn, and returns source labels, masked tails, and unreadable saved-variable names to renderers. Key material never crosses IPC or WebSocket. See [ADR-0010](adr/0010-provider-credentials-supplied-to-every-spawn.md).
+
+Persistence and resolution are separate: `ProviderKeys` retains the original
+accepted schema-version-1 base64 strings in an encrypted map and holds only
+usable decrypted values in its plaintext map. Status includes
+`unreadableStoredEnvs` in primary/alternate catalog order, containing names only;
+the effective source, active variable, mask, and model-provider gate remain
+usable-value contracts. Unrelated edits preserve every untouched blob, including
+readable entries. Explicit replacement encrypts only its target; removal also
+works without an available encryption backend. Both persist a candidate through
+`writeTextAtomic` before publishing map or environment changes, so a rejected
+mutation leaves the prior complete file and resolved environment intact.
+Restarting reattempts decryption; recovery requires a compatible original OS
+credential store, not a reconstructed OS key or repaired ciphertext. The
+initiating mismatch in #724 remains unknown.
 
 Subscription sign-in is a separate seam over the same boundary. A `ProviderOAuth` controller in core drives a bare, session-less rpc child (no tools, extensions, LSP, skills, or rules) that runs one provider's login flow; desktop main answers the child's `open_url` request through the safe-external-link policy and publishes the flow's phase, prompt, and terminal state to the renderer. The credential is written by omp itself into its auth broker — shared with terminal omp — so no token crosses IPC, and the renderer receives only the phase, the provider's identity strings, and errors. `omp token --list` is the account source (a non-zero exit means no accounts); sign-out runs `omp auth-broker logout` through the same controller (issue #368).
 

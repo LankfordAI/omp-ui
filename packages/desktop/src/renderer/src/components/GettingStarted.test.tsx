@@ -95,6 +95,7 @@ function keyRow(patch: Partial<ProviderKeyStatus>): ProviderKeyStatus {
     masked: null,
     hint: null,
     shadowsEnvironment: false,
+    unreadableStoredEnvs: [],
     ...patch,
   };
 }

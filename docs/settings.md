@@ -111,7 +111,25 @@ The page groups model-provider and web-search credentials and shows the environm
 
 The first available source wins. Within the project source, `.env.local` overrides `.env`. A stored key therefore overrides an inherited or shell value. Removing it reveals the next available source. omp loads a project's dotenv files itself, so omp-ui reports that source but does not inject it.
 
-Keys saved in omp-ui are encrypted through the operating system credential store. Stored plaintext is never returned to the renderer. Provider-status reads contain only a fixed mask and the last four characters, and the edit field is never prefilled. omp-ui supplies the resolved credential to the omp processes it launches. If the operating system has no secure credential store, omp-ui refuses to save a key rather than write it insecurely. Export the environment variable from your shell profile instead.
+Keys saved in omp-ui are encrypted through the operating system credential store. Stored plaintext is never returned to the renderer. Usable credentials are shown only as a fixed mask and the last four characters, and the edit field is never prefilled. omp-ui supplies the resolved credential to the omp processes it launches. If the operating system has no secure credential store, omp-ui refuses to save a key rather than write it insecurely. Export the environment variable from your shell profile instead.
+
+If a saved key cannot be decrypted, its row shows **saved key unreadable** and
+names each unreadable saved variable. The effective-source badge and mask still
+describe only a usable value: an environment, shell, or project-dotenv fallback
+can appear beside the warning. Unreadable saved keys do not count as configured
+credentials or satisfy the model-provider gate. The summary reports providers
+with unreadable saved keys even when another credential or subscription works.
+
+Encrypted entries are retained unchanged through unrelated key edits. **Replace**
+writes the row's primary variable, including when that primary is unreadable;
+an unreadable alternate has its own **remove** action targeting that exact
+variable. Replacing or removing one entry leaves its siblings intact. Removal is
+immediate and permanently discards that saved value.
+
+Restarting with the original compatible OS credential store may make a retained
+entry readable again. Retention does not reconstruct a lost OS encryption key or
+repair corrupted ciphertext, and this change does not recover the affected
+installation's values or establish what made them unreadable (#724).
 
 omp reads provider credentials when its process starts. A saved or removed key affects the next session spawn, not an already running process; to apply it to an existing session, stop its agent from the Session HUD or sidebar and open the session again.
 

@@ -72,7 +72,9 @@ function ProviderRow({
   row: ProviderKeyStatus;
   busy: boolean;
   onSave: (value: string) => void;
-  onClear: () => void;
+  /** The env name to clear: the effective one for a readable remove, the
+   *  exact unreadable entry's own name for an unreadable remove. */
+  onClear: (envName: string) => void;
 }) {
   const t = useT();
   const [editing, setEditing] = useState(false);
@@ -98,13 +100,18 @@ function ProviderRow({
 
   return (
     <div className="py-2.5">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-ink">{row.label}</span>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="min-w-0 break-words text-xs font-medium text-ink">
+              {row.label}
+            </span>
             {sourceChip(row)}
+            {row.unreadableStoredEnvs.length > 0 && (
+              <Chip tone="copper">{t("settings.providers.savedUnreadable")}</Chip>
+            )}
           </div>
-          <p className="mt-0.5 font-mono text-[10px] text-ink-faint">
+          <p className="mt-0.5 break-words font-mono text-[10px] text-ink-faint">
             {row.activeEnv}
             {row.masked !== null && (
               <span className="ml-2 text-ink-dim">{row.masked}</span>
@@ -114,11 +121,18 @@ function ProviderRow({
         <div className="flex shrink-0 items-center gap-1.5">
           {!editing && (
             <Button size="xs" disabled={busy} onClick={() => setEditing(true)}>
-              {row.source === "stored" ? t("settings.providers.replace") : t("settings.providers.addKey")}
+              {row.source === "stored" || row.unreadableStoredEnvs.includes(row.env)
+                ? t("settings.providers.replace")
+                : t("settings.providers.addKey")}
             </Button>
           )}
           {!editing && row.source === "stored" && (
-            <Button size="xs" variant="ghost" disabled={busy} onClick={onClear}>
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => onClear(row.activeEnv)}
+            >
               {t("settings.providers.remove")}
             </Button>
           )}
@@ -164,6 +178,26 @@ function ProviderRow({
           </Button>
         </div>
       )}
+
+      {/* Unreadable alternates remain visible while editing the primary key. */}
+      {row.unreadableStoredEnvs.map((envName) => (
+        <div key={envName} className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="min-w-0 flex-1 break-words text-[11px] leading-relaxed text-copper">
+            {t("settings.providers.unreadableDetail", { env: envName })}
+          </p>
+          <Button
+            size="xs"
+            variant="ghost"
+            tone="copper"
+            disabled={busy}
+            aria-label={t("settings.providers.removeUnreadableAria", { env: envName })}
+            onClick={() => onClear(envName)}
+            className="shrink-0"
+          >
+            {t("settings.providers.remove")}
+          </Button>
+        </div>
+      ))}
 
       {row.shadowsEnvironment && !editing && (
         <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
@@ -834,6 +868,10 @@ export function ProvidersPage({
   const configuredCount =
     configured.length + oauthRows.filter((r) => r.accounts.length > 0).length;
   const totalCount = providers.length + oauthRows.length;
+  // Unreadable saved entries never count as usable credentials.
+  const unreadableCount = providers.filter(
+    (p) => p.unreadableStoredEnvs.length > 0,
+  ).length;
   const groups: ReadonlyArray<{
     id: ProviderKeyStatus["group"];
     label: string;
@@ -853,9 +891,11 @@ export function ProvidersPage({
       <Panel className="px-4 py-3">
         <div className="flex items-center gap-2">
           <Dot tone={configuredCount > 0 ? "signal" : "copper"} />
-          <p className="text-xs font-medium text-ink">
+          <p className="min-w-0 break-words text-xs font-medium text-ink">
             {configuredCount === 0
-              ? t("settings.providers.noneConfigured")
+              ? unreadableCount > 0
+                ? t("settings.providers.noneUsable")
+                : t("settings.providers.noneConfigured")
               : t("settings.providers.someConfigured", {
                   configured: configuredCount,
                   total: totalCount,
@@ -871,6 +911,11 @@ export function ProvidersPage({
         ) : (
           <p className="mt-1.5 text-[11px] leading-relaxed text-copper">
             {t("settings.providers.noCredentialStore")}
+          </p>
+        )}
+        {unreadableCount > 0 && (
+          <p className="mt-1.5 break-words text-[11px] leading-relaxed text-copper">
+            {t("settings.providers.unreadableSummary", { count: unreadableCount })}
           </p>
         )}
       </Panel>
@@ -896,8 +941,8 @@ export function ProvidersPage({
                   onSave={(value) =>
                     run(row.env, setProviderKey(projectCwd, row.env, value))
                   }
-                  onClear={() =>
-                    run(row.env, clearProviderKey(projectCwd, row.activeEnv))
+                  onClear={(envName) =>
+                    run(envName, clearProviderKey(projectCwd, envName))
                   }
                 />
               ))}
@@ -930,7 +975,7 @@ export function ProvidersPage({
                 key={row.id}
                 row={row}
                 flow={providerOAuth}
-                flowBusy={flowActive(providerOAuth)}
+                flowBusy={flowActive(providerOAuth) || pendingEnv !== null}
                 onSignIn={() => signIn(row.id)}
                 onSignOut={() => signOut(row.id)}
                 onSubmit={submit}
