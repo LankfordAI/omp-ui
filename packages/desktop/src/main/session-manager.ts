@@ -67,6 +67,7 @@ import {
   type SessionMode,
   type SubagentModelMap,
   type ApprovalMode,
+  type ServiceTier,
   type SessionWorktree,
   type SpawnRequest,
   type WorktreeReleaseOptions,
@@ -552,6 +553,7 @@ export class SessionManager {
           compactionMethod:
             req.mode === "rpc-ui" ? this.deps.registry.getSetting("defaultCompactionMethod") : null,
           approvalMode: null,
+          serviceTier: null,
           model: project?.defaultModel ?? project?.lastModel ?? null,
           thinkingLevel: project?.lastThinkingLevel ?? null,
           advisor: req.advisor,
@@ -835,6 +837,18 @@ export class SessionManager {
         message: autoresearchArmMessage(),
       });
     }
+    // The session's fast-mode tier (issue #719): a fresh spawn replays
+    // `priority` through the set_fast_mode object-command and an ultrafast
+    // selection through the `/fast ultra` slash prompt — the same
+    // initialCommands rail the plan-mode and browser-pane arms ride. A
+    // same-value re-set against a resume-restored entry is idempotent.
+    if (record.serviceTier !== null) {
+      initialCommands.push(
+        record.serviceTier === "ultrafast"
+          ? { type: "prompt", id: `omp-ui-initial-tier-${randomUUID()}`, message: "/fast ultra" }
+          : { type: "set_fast_mode", id: `omp-ui-initial-tier-${randomUUID()}`, enabled: true },
+      );
+    }
     // Delta negotiation (issue #718): the runtime strips the accumulated
     // message snapshot from message_update frames when it honours this.
     // Riding initialCommands puts it before the first turn on fresh spawn
@@ -996,6 +1010,19 @@ export class SessionManager {
         rows: 24,
       });
     });
+  }
+
+  /**
+   * Pins the tier this session's fast selection names (issue #719). No
+   * relaunch either way: an off→tier selection replays through the next
+   * spawn's initialCommands; tier→off disables live through set_fast_mode
+   * in the renderer; a same-spawn tier→tier change rides the next replay.
+   */
+  async setSessionServiceTier(tabId: string, tier: ServiceTier | null): Promise<void> {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) return;
+    this.deps.registry.setSessionServiceTier(tabId, tier);
+    await this.deps.broadcast();
   }
 
   /**
@@ -1762,6 +1789,7 @@ export class SessionManager {
       agentMode: source.agentMode,
       compactionMethod: source.compactionMethod,
       approvalMode: source.approvalMode,
+      serviceTier: source.serviceTier,
       model: source.model,
       thinkingLevel: source.thinkingLevel,
       advisor: source.advisor,

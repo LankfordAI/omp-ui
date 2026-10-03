@@ -2367,6 +2367,94 @@ describe("reconcilePendingDialogs (issue #555)", () => {
   });
 });
 
+describe("service tier selection (issue #719)", () => {
+  const seedTier = (
+    tier: "priority" | "ultrafast" | null,
+    enabled: boolean,
+    active: boolean,
+  ): void => {
+    const state = h.stateWithRecord("sess-1");
+    state.projects[0]!.sessions[0]!.serviceTier = tier;
+    h.useStore.setState({
+      state,
+      rpc: {
+        [h.TAB]: rpcTabState({
+          session: { ...emptySessionRuntime(), fastModeEnabled: enabled, fastModeActive: active },
+        }),
+      },
+    });
+  };
+
+  it("setFastMode off clears the persisted tier and still sends and patches the disable", async () => {
+    seedTier("ultrafast", true, true);
+    const promise = h.useStore.getState().setFastMode(h.TAB, false);
+    expect(h.mockBackend.setSessionServiceTier).toHaveBeenCalledWith(h.TAB, null);
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "set_fast_mode", enabled: false });
+    h.respond(h.TAB, h.sent[0]!.cmd, { enabled: false, active: false });
+    await promise;
+    expect(h.useStore.getState().rpc[h.TAB]!.session).toMatchObject({
+      fastModeEnabled: false,
+      fastModeActive: false,
+    });
+  });
+
+  it.each([
+    { name: "from off", tier: null, enabled: false, active: false },
+    { name: "when switching from active priority", tier: "priority", enabled: true, active: true },
+    { name: "when retrying declined ultrafast", tier: "ultrafast", enabled: true, active: false },
+  ] as const)("setServiceTier ultrafast $name writes the record, prompts directly, and quietly refreshes", async ({ tier, enabled, active }) => {
+    seedTier(tier, enabled, active);
+    const rpcCommand = vi.spyOn(h.useStore.getState(), "rpcCommand");
+    try {
+      const promise = h.useStore.getState().setServiceTier(h.TAB, "ultrafast");
+      expect(h.mockBackend.setSessionServiceTier).toHaveBeenCalledWith(h.TAB, "ultrafast");
+      // The record write must settle before the live tier command is sent.
+      expect(h.sent).toHaveLength(0);
+      await h.flushMicrotasks();
+      expect(h.sent).toHaveLength(1);
+      expect(h.sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/fast ultra" });
+      h.respond(h.TAB, h.sent[0]!.cmd, { agentInvoked: false });
+      await h.flushMicrotasks();
+      expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["prompt", "get_state"]);
+      expect(rpcCommand).toHaveBeenCalledWith(h.TAB, { type: "get_state" }, { quiet: true });
+      h.respond(h.TAB, h.sent[1]!.cmd, { fastModeEnabled: true, fastModeActive: true });
+      await promise;
+      expect(h.useStore.getState().rpc[h.TAB]!.session).toMatchObject({
+        fastModeEnabled: true,
+        fastModeActive: true,
+      });
+    } finally {
+      rpcCommand.mockRestore();
+    }
+  });
+
+  it.each([
+    { name: "from off", tier: null, enabled: false },
+    { name: "when recovering from declined ultrafast", tier: "ultrafast", enabled: true },
+  ] as const)("setServiceTier priority $name writes the record and enables and patches fast mode", async ({ tier, enabled }) => {
+    seedTier(tier, enabled, false);
+    const promise = h.useStore.getState().setServiceTier(h.TAB, "priority");
+    expect(h.mockBackend.setSessionServiceTier).toHaveBeenCalledWith(h.TAB, "priority");
+    expect(h.sent).toHaveLength(0);
+    await h.flushMicrotasks();
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "set_fast_mode", enabled: true });
+    h.respond(h.TAB, h.sent[0]!.cmd, { enabled: true, active: true });
+    await promise;
+    expect(h.useStore.getState().rpc[h.TAB]!.session).toMatchObject({
+      fastModeEnabled: true,
+      fastModeActive: true,
+    });
+  });
+
+  it("setServiceTier priority while already active writes only the record", async () => {
+    seedTier("priority", true, true);
+    await h.useStore.getState().setServiceTier(h.TAB, "priority");
+    expect(h.mockBackend.setSessionServiceTier).toHaveBeenCalledWith(h.TAB, "priority");
+    expect(h.sent).toEqual([]);
+  });
+});
+
 describe("fast mode (issue #677)", () => {
   beforeEach(() => {
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });

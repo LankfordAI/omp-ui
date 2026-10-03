@@ -2,6 +2,7 @@ import type {
   AdvisorDefaults,
   AgentMode,
   ApprovalMode,
+  ServiceTier,
   AppUpdateRestartResult,
   AppUpdateState,
   BackendState,
@@ -81,6 +82,7 @@ import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdic
 import {
   agentModeCodec,
   approvalModeCodec,
+  serviceTierCodec,
   any,
   browserPaneInputCodec,
   browserPaneNavigateCodec,
@@ -608,6 +610,16 @@ export const BACKEND_CHANNELS = {
   setSessionApprovalMode: {
     channel: "session:setApprovalMode",
     ...request<[tabId: string, mode: ApprovalMode | null], void>([str(), nullable(approvalModeCodec)]),
+  },
+  /**
+   * Pins the tier this session's fast selection names (issue #719). No
+   * respawn: an off→tier selection rides the next spawn's initialCommands
+   * replay; tier→off disables live through set_fast_mode in the renderer.
+   * null = no omp-ui-side selection (omp's config / CLI /fast decides).
+   */
+  setSessionServiceTier: {
+    channel: "session:setServiceTier",
+    ...request<[tabId: string, tier: ServiceTier | null], void>([str(), nullable(serviceTierCodec)]),
   },
   /** omp's advisor defaults for a project (global config plus project overlay). */
   getAdvisorDefaults: {

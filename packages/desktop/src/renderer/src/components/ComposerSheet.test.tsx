@@ -2,9 +2,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BranchList } from "@omp-ui/core/types";
+import type { BranchList, ServiceTier } from "@omp-ui/core/types";
 import { backendState, rpcTabState } from "../test/fixtures";
 import { emptySessionRuntime } from "../lib/rpc-types";
+import { t } from "../lib/i18n";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -37,12 +38,13 @@ const TAB = "tab-sheet";
 const state = backendState({
   projects: [{ project: { path: "/p", name: "P", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false }, sessions: [{
     tabId: TAB, sessionId: "s", lineageDir: "lineage", projectCwd: "/p", launchedAt: "t", mode: "rpc-ui",
-    worktree: null, planImplementationSource: null, experiment: null, agentMode: "build", compactionMethod: null, approvalMode: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null, proposedPlans: [], cachedTitle: "Sheet", cachedModified: "t", title: "Sheet", status: "complete", live: "live", pendingPlan: null, planSettle: null, streamStalled: false,
+    worktree: null, planImplementationSource: null, experiment: null, agentMode: "build", compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null, proposedPlans: [], cachedTitle: "Sheet", cachedModified: "t", title: "Sheet", status: "complete", live: "live", pendingPlan: null, planSettle: null, streamStalled: false,
   }] }],
 });
 
 const setThinkingLevel = vi.fn(async () => {});
 const setFastMode = vi.fn(async () => {});
+const setServiceTier = vi.fn(async () => {});
 const sendPrompt = vi.fn(async () => true);
 const abortAgent = vi.fn(async () => {});
 let onSubmitRoute: (route: string) => void;
@@ -70,9 +72,36 @@ function seed(status: "ready" | "running"): void {
     compactSurface: "composer-options",
     sendPrompt,
     setFastMode,
+    setServiceTier,
     abortAgent,
     setThinkingLevel,
   });
+}
+
+function seedTier(
+  serviceTier: ServiceTier | null,
+  enabled = true,
+  active = true,
+): void {
+  seed("ready");
+  useStore.setState((s) => ({
+    state: {
+      ...s.state!,
+      projects: s.state!.projects.map((group) => ({
+        ...group,
+        sessions: group.sessions.map((record) =>
+          record.tabId === TAB ? { ...record, serviceTier } : record,
+        ),
+      })),
+    },
+    rpc: {
+      [TAB]: {
+        ...s.rpc[TAB]!,
+        model: { ...s.rpc[TAB]!.model!, serviceTiers: ["priority", "ultrafast"] },
+        session: { ...s.rpc[TAB]!.session, fastModeEnabled: enabled, fastModeActive: active },
+      },
+    },
+  }));
 }
 
 function render(open = true): void {
@@ -262,6 +291,83 @@ describe("ComposerSheet", () => {
     const switches = fastSwitches();
     expect(switches).toHaveLength(1);
     expect(switches[0]!.closest("section")!.textContent).toContain("session");
+  });
+
+  it("keeps the fast mode switch for an OpenAI model without service tiers", () => {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: { [TAB]: { ...s.rpc[TAB]!, model: { ...s.rpc[TAB]!.model!, provider: "openai" } } },
+    }));
+    render(true);
+    expect(fastSwitches()).toHaveLength(1);
+    expect(fastSwitches()[0]!.getAttribute("aria-checked")).toBe("false");
+    expect(document.body.querySelector('[role="group"][aria-label="fast mode"]')).toBeNull();
+  });
+
+  it("keeps the fast mode switch for an OpenAI model advertising only priority", () => {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: {
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          model: { ...s.rpc[TAB]!.model!, provider: "openai", serviceTiers: ["priority"] },
+        },
+      },
+    }));
+    render(true);
+    expect(fastSwitches()).toHaveLength(1);
+    expect(fastSwitches()[0]!.getAttribute("aria-checked")).toBe("false");
+    expect(document.body.querySelector('[role="group"][aria-label="fast mode"]')).toBeNull();
+  });
+
+  it("offers off, priority and ultrafast and dispatches tier selection and off", async () => {
+    seedTier(null, false, false);
+    render(true);
+    const group = document.body.querySelector('[role="group"][aria-label="fast mode"]')!;
+    expect(group).not.toBeNull();
+    expect(fastSwitches()).toHaveLength(0);
+    const choices = [...group.querySelectorAll<HTMLButtonElement>("button")];
+    expect(choices.map((button) => button.textContent)).toEqual([
+      t("hud.fast.tierOff"),
+      t("hud.fast.tierPriority"),
+      t("hud.fast.tierUltrafast"),
+    ]);
+    await act(async () => choices[2]!.click());
+    expect(setServiceTier).toHaveBeenCalledWith(TAB, "ultrafast");
+    await act(async () => choices[1]!.click());
+    expect(setServiceTier).toHaveBeenCalledWith(TAB, "priority");
+    expect(setFastMode).not.toHaveBeenCalled();
+    await act(async () => choices[0]!.click());
+    expect(setFastMode).toHaveBeenCalledWith(TAB, false);
+  });
+
+  it.each([
+    { serviceTier: null, enabled: true, selected: "priority" },
+    { serviceTier: "priority" as const, enabled: true, selected: "priority" },
+    { serviceTier: "ultrafast" as const, enabled: true, selected: "ultrafast" },
+    { serviceTier: "ultrafast" as const, enabled: false, selected: "off" },
+  ])("selects $selected for record tier $serviceTier with enabled=$enabled", ({ serviceTier, enabled, selected }) => {
+    seedTier(serviceTier, enabled, enabled);
+    render(true);
+    const group = document.body.querySelector('[role="group"][aria-label="fast mode"]')!;
+    const choices = [...group.querySelectorAll<HTMLButtonElement>("button")];
+    expect(choices.filter((button) => button.getAttribute("aria-pressed") === "true")
+      .map((button) => button.textContent)).toEqual([selected]);
+    expect(choices.filter((button) => button.getAttribute("aria-pressed") === "false")).toHaveLength(2);
+  });
+
+  it("keeps declined ultrafast selected with the declined tooltip and allows retry", async () => {
+    seedTier("ultrafast", true, false);
+    render(true);
+    const group = document.body.querySelector('[role="group"][aria-label="fast mode"]')!;
+    const choices = [...group.querySelectorAll<HTMLButtonElement>("button")];
+    const ultrafast = choices.find((button) => button.textContent === t("hud.fast.tierUltrafast"))!;
+    expect(ultrafast.getAttribute("aria-pressed")).toBe("true");
+    expect(ultrafast.title).toBe(t("hud.fast.declinedTitle"));
+    expect(choices.find((button) => button.textContent === t("hud.fast.tierPriority"))!.title)
+      .toBe(t("hud.fast.tierPriorityTitle"));
+    await act(async () => ultrafast.click());
+    expect(setServiceTier).toHaveBeenCalledWith(TAB, "ultrafast");
   });
 
   it("lists the queued follow-ups below the branch row when omp reports them", () => {

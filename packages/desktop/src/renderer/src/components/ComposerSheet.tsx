@@ -1,4 +1,4 @@
-import { modelSupportsFastMode, type PromptRoute } from "../lib/rpc-types";
+import { modelFastTier, type PromptRoute } from "../lib/rpc-types";
 import { useT } from "../lib/i18n";
 import { queueChipCount, queueChipView } from "../lib/queue-chip";
 import { findOwner, useStore } from "../store";
@@ -57,7 +57,7 @@ export function ComposerSheet({
   // section beside the pills it belongs to (issue #689); its no keeps #677's
   // always-available row in the session section, so the affordance is never
   // hidden — and the sheet never carries two switches with one label.
-  const fastVisible = modelSupportsFastMode(model) || fastEnabled || fastActive;
+  const fastVisible = modelFastTier(model) !== null || fastEnabled || fastActive;
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const abortAgent = useStore((s) => s.abortAgent);
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);

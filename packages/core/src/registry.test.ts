@@ -29,6 +29,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     mode: "pty",
     compactionMethod: null,
     approvalMode: null,
+    serviceTier: null,
     model: null,
     thinkingLevel: null,
     advisor: false,
@@ -874,6 +875,18 @@ describe("Registry mutations", () => {
     expect(Registry.load(file).sessions[0]).toMatchObject({ approvalMode: null });
   });
 
+  it("setSessionServiceTier records and persists the tier across reload and clears it", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord());
+    reg.setSessionServiceTier("tab-1", "ultrafast");
+    expect(reg.sessions[0]).toMatchObject({ serviceTier: "ultrafast" });
+    expect(Registry.load(file).sessions[0]).toMatchObject({ serviceTier: "ultrafast" });
+    reg.setSessionServiceTier("tab-1", null);
+    expect(reg.sessions[0]).toMatchObject({ serviceTier: null });
+    expect(Registry.load(file).sessions[0]).toMatchObject({ serviceTier: null });
+  });
+
   it("remembers the complete model and advisor tuples per project", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
@@ -1052,6 +1065,20 @@ describe("Registry mutations", () => {
     const reg = Registry.load(file);
     expect(reg.sessions.map((s) => s.tabId)).toEqual(["legacy"]);
     expect(reg.sessions[0]!.approvalMode).toBeNull();
+  });
+
+  it("loads a legacy record without serviceTier as null and drops a bad tier", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord({ tabId: "legacy" }) };
+    delete legacy.serviceTier;
+    const bad: Record<string, unknown> = {
+      ...sessionRecord({ tabId: "bad" }),
+      serviceTier: "turbo",
+    };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy, bad] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["legacy"]);
+    expect(reg.sessions[0]).toMatchObject({ serviceTier: null });
   });
 
   it("normalizes proposed plans on load without ever dropping the session", () => {

@@ -1552,6 +1552,15 @@ export const en = {
   "hud.fast.offTitle": "fast mode off · click to enable priority serving",
   "hud.fast.on": "on",
   "hud.fast.onTitle": "fast mode active — priority serving live · click to turn off",
+  // Issue #719: the tier capsule's choices. The tier is omp-ui-owned; the
+  // on/declined truth keeps riding fastModeActive, so declined stays a
+  // tooltip modifier on the ultrafast choice, not a fourth choice.
+  "hud.fast.tierOff": "off",
+  "hud.fast.tierPriority": "priority",
+  "hud.fast.tierPriorityTitle": "priority serving · click to set this tier",
+  "hud.fast.tierUltrafast": "ultrafast",
+  "hud.fast.tierUltrafastTitle": "ultrafast serving · click to set this tier",
+  "hud.fast.ultraTitle": "fast mode active — ultrafast serving live · click to turn off",
   // Session HUD approval mode (issue #681, ADR-0038): the chip only ever
   // marks a PINNED session; inherit is the quiet default.
   "hud.approval.labelLong": "approval mode",

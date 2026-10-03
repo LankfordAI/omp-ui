@@ -1,7 +1,7 @@
 // Session parameter domain (decomposed for #295): prompting, slash commands,
 // and every per-session parameter command — model, advisor, modes, retry,
 // compaction, plan, todos, refreshes, subagent drill-down.
-import type { ApprovalMode, BackendState, ImageAttachment } from "@omp-ui/core/types";
+import type { ApprovalMode, BackendState, ImageAttachment, ServiceTier } from "@omp-ui/core/types";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { LIMITS_COMMAND } from "@omp-ui/core/limits";
 import { planMessage } from "@omp-ui/core/plan";
@@ -98,6 +98,8 @@ export type SessionParamsSlice = Pick<
   | "setInterruptMode"
   | "setAutoCompaction"
   | "setFastMode"
+  | "setSessionServiceTier"
+  | "setServiceTier"
   | "setAutoRetry"
   | "abortRetry"
   | "compactSession"
@@ -793,14 +795,9 @@ export function createSessionParamsSlice(
     m.patchSession(tabId, { autoCompactionEnabled: enabled });
   };
 
-  /**
-   * omp's fast mode: `enabled` is the session setting, `active` the computed
-   * truth. The response always reports both as computed values, so there is
-   * no optimistic patch. A same-value enable is NOT skipped: after a direct
-   * Anthropic rejection the setting is already true while `active` is false,
-   * and only an explicit enable clears that sticky fallback (rpc.md).
-   */
-  const setFastMode = async (tabId: string, enabled: boolean): Promise<void> => {
+  /** The existing RPC+patch body, unchanged: every pre-#719 setFastMode
+   *  test rides this path untouched. */
+  const setFastModeRpc = async (tabId: string, enabled: boolean): Promise<void> => {
     const resp = await m.runCommand(tabId, { type: "set_fast_mode", enabled });
     if (resp === null) return; // failure already recorded; state untouched
     const data = respData(resp);
@@ -810,6 +807,68 @@ export function createSessionParamsSlice(
         ? { fastModeActive: boolField(data, "active") === true }
         : {}),
     });
+  };
+
+  /**
+   * omp's fast mode: `enabled` is the session setting, `active` the computed
+   * truth. The response always reports both as computed values, so there is
+   * no optimistic patch. A same-value enable is NOT skipped: after a direct
+   * Anthropic rejection the setting is already true while `active` is false,
+   * and only an explicit enable clears that sticky fallback (rpc.md).
+   * Disable doubles as the single off-rail from either tier (issue #719):
+   * one set_fast_mode(false) clears the whole family tier entry — priority
+   * or ultrafast, the Fireworks provider tier included — and the record's
+   * tier selection clears with it.
+   */
+  const setFastMode = async (tabId: string, enabled: boolean): Promise<void> => {
+    if (enabled) return void (await setFastModeRpc(tabId, true));
+    const clear = get().setSessionServiceTier(tabId, null);
+    await setFastModeRpc(tabId, false);
+    await clear;
+  };
+
+  const setSessionServiceTier = async (
+    tabId: string,
+    tier: ServiceTier | null,
+  ): Promise<void> => {
+    await backend.setSessionServiceTier(tabId, tier);
+  };
+
+  /** The control's tier picks (issue #719). The record write is the
+   *  authority — a process that accepts no commands (hibernated, starting)
+   *  keeps the record-only contract, its next spawn replaying the tier
+   *  through initialCommands. */
+  const setServiceTier = async (tabId: string, tier: ServiceTier): Promise<void> => {
+    const session = get().rpc[tabId]?.session;
+    const wasEnabled = session?.fastModeEnabled ?? false;
+    const wasActive = session?.fastModeActive ?? false;
+    if (!wasEnabled) {
+      // Enabling straight onto the chosen tier: no intermediate priority
+      // set through which an ultrafast selection could be declined.
+      await get().setSessionServiceTier(tabId, tier);
+      if (tier === "priority") return void (await setFastModeRpc(tabId, true));
+      if (!m.acceptsCommands(tabId)) return;
+      await m.runCommand(tabId, { type: "prompt", message: "/fast ultra" });
+      await refreshState(tabId); // get_state re-read: the declined truth converges
+      return;
+    }
+    const recordTier = findRecord(get().state, tabId)?.serviceTier ?? null;
+    await get().setSessionServiceTier(tabId, tier);
+    if (tier === "ultrafast" && (recordTier !== "ultrafast" || !wasActive)) {
+      // Switching to ultrafast while on, or the declined ultrafast retry:
+      // the record already says ultrafast, yet the same-value pick sends.
+      if (!m.acceptsCommands(tabId)) return;
+      await m.runCommand(tabId, { type: "prompt", message: "/fast ultra" });
+      await refreshState(tabId);
+      return;
+    }
+    if (tier === "priority" && !wasActive) {
+      // The declined retry on the priority rail; from a declined ultrafast
+      // record, set_fast_mode(true) names the family's default tier again.
+      await setFastModeRpc(tabId, true);
+    }
+    // tier→priority while active: priority IS what set_fast_mode(true)
+    // set, which is already live — a record-only change, replay applies.
   };
 
   const setAutoRetry = async (tabId: string, enabled: boolean): Promise<void> => {
@@ -1823,6 +1882,8 @@ export function createSessionParamsSlice(
     setInterruptMode,
     setAutoCompaction,
     setFastMode,
+    setSessionServiceTier,
+    setServiceTier,
     setAutoRetry,
     abortRetry,
     compactSession,

@@ -400,6 +400,64 @@ beforeEach(() => {
   } as unknown as typeof Core.RpcClient);
 });
 
+describe("service tier replay (issue #719)", () => {
+  it("replays the ultrafast tier as an initial /fast ultra prompt", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSessionServiceTier(TAB, "ultrafast");
+
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+
+    const commands = RpcClientMock.mock.calls.at(-1)?.[0].initialCommands;
+    expect(commands).toContainEqual({
+      type: "prompt",
+      id: expect.stringMatching(/^omp-ui-initial-tier/),
+      message: "/fast ultra",
+    });
+    expect(commands).not.toContainEqual(expect.objectContaining({ type: "set_fast_mode" }));
+  });
+
+  it("replays the priority tier by enabling fast mode", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSessionServiceTier(TAB, "priority");
+
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+
+    const commands = RpcClientMock.mock.calls.at(-1)?.[0].initialCommands;
+    expect(commands).toContainEqual(expect.objectContaining({
+      type: "set_fast_mode",
+      enabled: true,
+    }));
+    expect(commands).not.toContainEqual(expect.objectContaining({ message: "/fast ultra" }));
+  });
+
+  it("does not replay either fast command when the service tier is null", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    expect(registry.sessions.find((record) => record.tabId === TAB)?.serviceTier).toBeNull();
+
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+
+    const commands = RpcClientMock.mock.calls.at(-1)?.[0].initialCommands;
+    expect(commands).toEqual(expect.any(Array));
+    expect(commands).not.toContainEqual(expect.objectContaining({ message: "/fast ultra" }));
+    expect(commands).not.toContainEqual(expect.objectContaining({ type: "set_fast_mode" }));
+  });
+
+  it("updates a live tab's service tier without relaunching its RPC client", async () => {
+    const { manager, registry, broadcast } = setup({ mode: "rpc-ui" });
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+    expect(RpcClientMock).toHaveBeenCalledTimes(1);
+    const client = rpcInstances[0]!;
+    broadcast.mockClear();
+
+    await manager.setSessionServiceTier(TAB, "ultrafast");
+
+    expect(registry.sessions.find((record) => record.tabId === TAB)?.serviceTier).toBe("ultrafast");
+    expect(RpcClientMock).toHaveBeenCalledTimes(1);
+    expect(client.kill).not.toHaveBeenCalled();
+    expect(broadcast).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("MCP runtime status bridge", () => {
   it.each([
     ["ordinary", false],

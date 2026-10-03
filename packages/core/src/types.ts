@@ -46,6 +46,11 @@ export type AgentMode = "plan" | "build";
 /** omp's `tools.approvalMode` tiers (issue #681, ADR-0038): `always-ask`
  *  gates every tool, `write` gates mutating tools, `yolo` gates nothing. */
 export type ApprovalMode = "always-ask" | "write" | "yolo";
+/** omp's controllable serving tiers (issue #719): `priority` is what
+ *  `set_fast_mode(true)` / `/fast on` names, `ultrafast` is the `/fast
+ *  ultra` rail. Deliberately excludes Fireworks' provider-scoped tier —
+ *  omp-ui never names that one. */
+export type ServiceTier = "priority" | "ultrafast";
 export type LiveState = "live" | "dormant" | "archived" | "missing";
 
 /**
@@ -360,6 +365,12 @@ export interface OwnedSessionRecord {
    *  pattern); changing it relaunches. Post-dates schema-1: absent normalizes
    *  to null at parse time. */
   approvalMode: ApprovalMode | null;
+  /** The tier this session's fast-mode selection names (issue #719);
+   *  null = no omp-ui-side selection (omp's config / CLI `/fast` decides).
+   *  Session scope like approvalMode; replayed through the next spawn's
+   *  initialCommands. Post-dates schema-1: absent normalizes to null at
+   *  parse time. */
+  serviceTier: ServiceTier | null;
   /** Main model selected for this session, as omp's `provider/id` selector.
    *  Normalized to null at parse time when absent. */
   model: string | null;

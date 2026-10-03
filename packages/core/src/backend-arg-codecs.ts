@@ -5,6 +5,7 @@ import type { BrowserPaneInputEvent, BrowserPaneNavigate } from "./browser-pane"
 import type {
   AgentMode,
   ApprovalMode,
+  ServiceTier,
   BranchListOptions,
   ConsoleProgram,
   DiagnosticsExportRequest,
@@ -180,6 +181,7 @@ export const sessionModeCodec: ArgCodec<SessionMode> = oneOf("pty", "rpc-ui");
 export const agentModeCodec: ArgCodec<AgentMode> = oneOf("plan", "build");
 export const planFormatCodec: ArgCodec<PlanFormat> = oneOf("html", "md");
 export const approvalModeCodec: ArgCodec<ApprovalMode> = oneOf("always-ask", "write", "yolo");
+export const serviceTierCodec: ArgCodec<ServiceTier> = oneOf("priority", "ultrafast");
 export const transcriptWidthCodec: ArgCodec<TranscriptWidth> = oneOf("comfortable", "wide", "full");
 export const glassChromeCodec: ArgCodec<GlassChrome> = oneOf("off", "subtle", "frosted");
 export const projectOpenTargetCodec: ArgCodec<ProjectOpenTarget> = oneOf(

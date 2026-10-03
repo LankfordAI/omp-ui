@@ -3,6 +3,7 @@ import type { ProjectSettingsSectionId } from "../components/ProjectSettings";
 import type {
   AgentMode,
   ApprovalMode,
+  ServiceTier,
   AdvisorDefaults,
   AppUpdateRestartResult,
   AppUpdateState,
@@ -998,6 +999,13 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setInterruptMode(tabId: string, mode: string): Promise<void>;
   setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
   setFastMode(tabId: string, enabled: boolean): Promise<void>;
+  /** Writes the tier this session's fast selection names (issue #719);
+   *  applied by the next spawn's replay — never a respawn. null clears. */
+  setSessionServiceTier(tabId: string, tier: ServiceTier | null): Promise<void>;
+  /** Picks the fast-mode tier from the control (off rides setFastMode).
+   *  Enabling on a tier goes straight to it — no intermediate priority
+   *  set; a declined ultrafast pick re-sends `/fast ultra` (issue #719). */
+  setServiceTier(tabId: string, tier: ServiceTier): Promise<void>;
   setAutoRetry(tabId: string, enabled: boolean): Promise<void>;
   abortRetry(tabId: string): Promise<void>;
   /** Holds an approval frame on its tab, split out of the generic queue (issue #681). */

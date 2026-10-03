@@ -93,6 +93,7 @@ import {
   type RemoteInstancePatch,
   type RpcFrame,
   type ApprovalMode,
+  type ServiceTier,
   type SessionMode,
   type SpawnGateState,
   type SpawnRequest,
@@ -724,6 +725,8 @@ export class MainBackend {
         ) => this.sessions.setSessionAdvisor(tabId, advisor, advisorModel),
         [CH.setSessionApprovalMode]: (tabId: string, mode: ApprovalMode | null) =>
           this.sessions.setSessionApprovalMode(tabId, mode),
+        [CH.setSessionServiceTier]: (tabId: string, tier: ServiceTier | null) =>
+          this.sessions.setSessionServiceTier(tabId, tier),
         [CH.getAdvisorDefaults]: (projectCwd: string): AdvisorDefaults =>
           this.advisorDefaults(projectCwd),
         [CH.generateTitle]: (projectCwd: string, prompt: string, titleHint?: string | null) =>
