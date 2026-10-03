@@ -145,6 +145,25 @@ describe("SubagentView", () => {
     expect(document.body.querySelector('button[aria-label="kill"]')).toBeNull();
   });
 
+  it("a running agent's banner shows its own completion estimate (issue #716)", () => {
+    seed({
+      subagents: [
+        { id: "agent-1", name: "worker", agent: "task", status: "running", label: "map the store", completionPercent: 42 },
+      ],
+    });
+    renderView();
+    expect(document.body.textContent).toContain("42%");
+    expect(
+      document.body.querySelector('span[title="agent\'s own completion estimate"]'),
+    ).not.toBeNull();
+  });
+
+  it("a completed agent's banner shows no completion estimate (issue #716)", () => {
+    seed({ subagents: [{ id: "agent-1", name: "worker", status: "completed", completionPercent: 67 }] });
+    renderView();
+    expect(document.body.textContent).not.toContain("67%");
+  });
+
   it("a settled agent keeps the read-only banner with no controls (issue #684)", () => {
     seed({ subagents: [] });
     renderView();

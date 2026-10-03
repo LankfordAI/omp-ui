@@ -247,6 +247,14 @@ function AgentsPane({ tabId }: { tabId: string }) {
                   </div>
                   <div className="mt-0.5 flex items-baseline gap-1.5 pl-3">
                     <span className="shrink-0 font-mono text-[10px] text-ink-faint">{status}</span>
+                    {agent.completionPercent !== undefined && status === "running" && (
+                      <span
+                        className="shrink-0 font-mono text-[10px] text-ink-faint"
+                        title={t("rail.agents.estimateTitle")}
+                      >
+                        {agent.completionPercent}%
+                      </span>
+                    )}
                     {agent.label && (
                       <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim" title={agent.label}>
                         {agent.label}

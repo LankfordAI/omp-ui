@@ -64,6 +64,14 @@ export function SubagentView({
         <span className="shrink-0 font-mono text-[10px] text-ink-faint">
           {status}
         </span>
+        {live?.completionPercent !== undefined && status === "running" && (
+          <span
+            className="shrink-0 font-mono text-[10px] text-ink-faint"
+            title={t("transcript.subagent.estimateTitle")}
+          >
+            {live.completionPercent}%
+          </span>
+        )}
         {live?.label && (
           <span
             className="min-w-0 flex-1 truncate text-[11px] text-ink-faint"

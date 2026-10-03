@@ -281,6 +281,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.subagent.agentType": "에이전트 유형: {type}",
   "transcript.subagent.readOnly": "읽기 전용 서브에이전트 보기",
   "transcript.subagent.empty": "아직 기록된 활동이 없습니다. 에이전트가 작업하면 대화록이 채워집니다.",
+  "transcript.subagent.estimateTitle": "에이전트 자체 완료 추정치",
 
   "composer.placeholder.exited": "에이전트 종료됨 — 계속하려면 재개",
   "composer.placeholder.restarting": "어드바이저 재시작 중…",
@@ -1526,6 +1527,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.agents.refresh": "새로고침",
   "rail.agents.closeAgent": "에이전트 {agent} 닫기",
   "rail.agents.openAgent": "에이전트 {agent} 열기",
+  "rail.agents.estimateTitle": "에이전트 자체 완료 추정치",
   "rail.agents.typeTitle": "에이전트 유형: {type}",
   "rail.vibe.title": "바이브 워커 ({count})",
   "rail.vibe.list": "목록",

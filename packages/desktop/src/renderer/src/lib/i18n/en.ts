@@ -308,6 +308,7 @@ export const en = {
   "transcript.subagent.agentType": "agent type: {type}",
   "transcript.subagent.readOnly": "read-only subagent view",
   "transcript.subagent.empty": "No activity captured yet — the transcript fills in as the agent works.",
+  "transcript.subagent.estimateTitle": "agent's own completion estimate",
   // Composer textarea placeholders
   "rpc.hero.project": "What's next in {project}?",
   "rpc.hero.default": "What's next?",
@@ -1672,6 +1673,7 @@ export const en = {
   "rail.agents.refresh": "refresh",
   "rail.agents.closeAgent": "close agent {agent}",
   "rail.agents.openAgent": "open agent {agent}",
+  "rail.agents.estimateTitle": "agent's own completion estimate",
   "rail.agents.typeTitle": "agent type: {type}",
   // Inspector rail: the vibe director's worker roster (issue #683)
   "rail.vibe.title": "vibe workers ({count})",
