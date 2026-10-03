@@ -79,6 +79,15 @@ function lifecycleCopy(
         action: t("dialog.lifecycle.rewindAction"),
         target: null,
       };
+    case "fork":
+      // The tab is the subject, like rewind (issue #717): no target line.
+      return {
+        tone: "copper",
+        title: t("dialog.lifecycle.forkTitle"),
+        body: t("dialog.lifecycle.forkBody", { count: confirmation.laterTurns }),
+        action: t("dialog.lifecycle.forkAction"),
+        target: null,
+      };
     case "navigate":
       return {
         tone: "copper",

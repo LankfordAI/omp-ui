@@ -946,6 +946,14 @@ export function createLifecycleSlice(
       );
       return;
     }
+    if (confirmation.kind === "fork") {
+      // Same durable-entry rule as rewind (issue #680): entries are never
+      // deleted, so only liveness is re-checked (issue #717).
+      const rec = findRecord(get().state, confirmation.tabId);
+      if (!rec || rec.live !== "live" || rec.mode !== "rpc-ui") return;
+      await get().performFork(confirmation.tabId, confirmation.entryId);
+      return;
+    }
     if (confirmation.kind === "navigate") {
       const rec = findRecord(get().state, confirmation.tabId);
       if (!rec || rec.live !== "live" || rec.mode !== "rpc-ui") return;

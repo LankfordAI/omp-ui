@@ -10,6 +10,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Steer and kill in the Agents pane now use omp's own subagent commands (omp 18.4.9+) instead of a generated bridge; an older omp shows an update hint. The revive button is gone: omp's roster never lists a parked agent, so it could not appear (#713).
 - Goal mode now runs on omp's native goal commands (omp 18.4.11+): continuation is omp's own, budgets are set with `/goal --budget N <objective>`, and the goal chip opens pause/resume/drop controls (#712).
 - Running subagents carry omp's own completion estimate (omp 18.4.11+) beside their status in the Agents pane and the subagent view banner; older omp runtimes show status alone (#716).
+- Fork from here on a session-tree prompt row cuts the transcript at that prompt into a new session file the tab continues in (omp 18.4.11+); the original stays on disk unchanged (#717).
 
 ## Choose a download
 

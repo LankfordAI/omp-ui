@@ -21,6 +21,7 @@ export const SESSION_COMMANDS = {
   new_session: { lateAck: true },
   switch_session: { lateAck: true },
   branch: { lateAck: true },
+  fork: { lateAck: true },
   set_model: { lateAck: true },
   cycle_model: { lateAck: true },
   get_available_models: { lateAck: true },

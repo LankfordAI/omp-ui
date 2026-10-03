@@ -166,6 +166,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "세션의 리프를 이 항목으로 옮길까요? 이후 {count}개 턴은 현재 브랜치에서 제외되지만, 세션 파일에는 다른 브랜치로 그대로 남습니다.",
   "dialog.lifecycle.navigateSummarize": "버려진 턴을 요약하도록 모델에게 요청",
   "dialog.lifecycle.navigateAction": "이동",
+  "dialog.lifecycle.forkTitle": "이 프롬프트에서 포크할까요?",
+  "dialog.lifecycle.forkBody":
+    "이 프롬프트에서 잘라낸 새 세션으로 이 탭을 계속할까요? 새 파일에는 해당 프롬프트까지의 내용이 모두 담기며, 이후 {count}개 턴은 이 세션의 브랜치에서 제외되지만 원본 파일에는 그대로 남습니다.",
+  "dialog.lifecycle.forkAction": "포크",
   "dialog.lifecycle.working": "처리 중…",
 
   // AppFeedback.tsx — 백엔드 오류 확인 다이얼로그 (이슈 #373)
@@ -186,6 +190,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "되돌리기는 실행 중이고 대기 상태인 네이티브 세션에서만 사용할 수 있습니다. 턴이 끝날 때까지 기다리거나 중지한 뒤 다시 시도하세요.",
   "session.error.rewindCorrelation":
     "이 프롬프트를 세션 항목과 일치시킬 수 없어 되돌리지 않았습니다. 세션을 새로 고친 뒤 다시 시도하세요.",
+  "session.error.forkBusy":
+    "포크는 실행 중이고 대기 상태인 네이티브 세션에서만 사용할 수 있습니다. 턴이 끝날 때까지 기다리거나 중지한 뒤 다시 시도하세요.",
+  "session.error.forkEntry":
+    "이 항목은 세션 파일의 메시지 항목이 아니라 포크할 수 없습니다. 세션을 새로 고친 뒤 다시 시도하세요.",
   "session.error.navigateUnconfirmed":
     "트리 브리지가 이 이동의 결과를 보고하지 않았습니다. 세션을 새로 고친 뒤 다시 이동하세요.",
   "session.error.navigateFailed": "세션을 해당 항목으로 이동하지 못했습니다.",
@@ -196,6 +204,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.rewind.done": "되돌렸습니다 — 이후 턴은 세션 파일에 다른 브랜치로 남아 있습니다",
   "transcript.rewind.navigated": "이동했습니다 — 트랜스크립트가 이동한 브랜치를 표시합니다",
   "transcript.rewind.busy": "되돌리기는 세션이 대기 중일 때 사용할 수 있습니다.",
+  "transcript.fork.done":
+    "포크했습니다 — 이 탭은 해당 프롬프트까지 담긴 새 세션 파일에서 계속되며, 원본 파일은 디스크에 변경 없이 남아 있습니다",
+  "transcript.fork.cancelled": "세션 훅이 포크를 취소했습니다 — 아무것도 이동하지 않았습니다",
 
   // SessionTreeViewer.tsx — 세션 트리 내비게이터 (이슈 #680)
   "session.tree.title": "세션 트리",
@@ -205,6 +216,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "session.tree.active": "현재 브랜치",
   "session.tree.current": "리프",
   "session.tree.navigate": "여기로 이동",
+  "session.tree.fork": "여기서 포크",
   "session.tree.summarize": "버려진 턴 요약",
   "session.tree.busy": "이동은 세션이 대기 중일 때 사용할 수 있습니다.",
   "session.tree.reasonMissingApi": "이 omp 빌드는 트리 API를 제공하지 않습니다",

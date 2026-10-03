@@ -403,6 +403,18 @@ export type LifecycleConfirmationChoice =
       entryId: string;
       summarize: boolean;
       laterTurns: number;
+    }
+  | {
+      /** Fork the live tab at one entry via omp's native `fork` RPC
+       *  (issue #717): the tab moves to a new session file holding the
+       *  path through `entryId` (inclusive); the source file is untouched.
+       *  `laterTurns` = entries leaving the current branch, counted the
+       *  rewind way — on-path rows count the tail, off-path rows the
+       *  divergent current branch. */
+      kind: "fork";
+      tabId: string;
+      entryId: string;
+      laterTurns: number;
     };
 
 export type LifecycleConfirmation = {
@@ -1035,6 +1047,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** The navigator's rewind: the entry id comes from the tree, so no
    *  positional correlation runs (issue #680). */
   stageRewindEntry(tabId: string, entryId: string, editResend: boolean): Promise<void>;
+  /** Stages the native-`fork` confirmation (issue #717) for a tree row whose
+   *  entry id is already known; validates the entry is a message and counts
+   *  the turns the current branch gives up. */
+  stageForkEntry(tabId: string, entryId: string): Promise<void>;
+  /** The accepted fork effect: send `fork`, then reload + re-merge identity. */
+  performFork(tabId: string, entryId: string): Promise<void>;
   /** Stages a tree jump for a non-prompt entry (issue #680, Phase 2). */
   stageNavigate(tabId: string, entryId: string, summarize: boolean): Promise<void>;
   /** Re-title a live session from its transcript digest (issue #433). A user action, never automatic. */
