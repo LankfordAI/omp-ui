@@ -5,6 +5,7 @@ import {
 } from "@omp-ui/core/session-tree";
 import { useMemo, useState, type JSX } from "react";
 import { useT, type MessageKey } from "../lib/i18n";
+import { supportsNativeFork } from "../lib/session-fork";
 import { useStore } from "../store";
 import { Chip, ICON_STROKE, IconSessionTree, Label, Modal } from "./ui";
 import { IconPencil, IconRewind } from "./ui";
@@ -13,7 +14,9 @@ import { IconPencil, IconRewind } from "./ui";
  * The session tree navigator (issue #680, Phase 2): every entry the lineage
  * file holds, indented by parent, with the current branch marked and the
  * leaf badged. User-prompt rows carry the transcript's own rewind
- * affordances — a jump between branches at a prompt is omp's `branch` RPC;
+ * affordances — rewind, edit-and-resend, and (omp 18.4.11+) fork from here,
+ * omp's native `fork` RPC that moves the tab to a new file cut at the entry
+ * (issue #717); a jump between branches at a prompt is omp's `branch` RPC;
  * any other row gets "navigate here", staged through the navigate
  * lifecycle confirmation and executed by the generated tree bridge. The
  * bridge's published snapshot (`extensionStatus[TREE_STATUS_KEY]`) is the
@@ -99,6 +102,12 @@ export function SessionTreeViewer(): JSX.Element | null {
       (s.rpc[viewer.tabId]?.status === "running" || s.rpc[viewer.tabId]?.busy === true),
   );
   const stageRewindEntry = useStore((s) => s.stageRewindEntry);
+  const canFork = useStore(
+    (s) =>
+      s.sessionTreeView !== null &&
+      supportsNativeFork(s.rpc[s.sessionTreeView.tabId]?.capabilities?.ompVersion ?? null),
+  );
+  const stageForkEntry = useStore((s) => s.stageForkEntry);
   const stageNavigate = useStore((s) => s.stageNavigate);
   const [summarize, setSummarize] = useState(false);
 
@@ -198,6 +207,18 @@ export function SessionTreeViewer(): JSX.Element | null {
                         >
                           <IconPencil />
                         </button>
+                        {canFork && (
+                          <button
+                            type="button"
+                            className="grid size-6 place-items-center rounded-md text-ink-dim transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:text-ink-faint"
+                            aria-label={t("session.tree.fork")}
+                            title={busyTitle}
+                            disabled={disabled}
+                            onClick={() => void stageForkEntry(tabId, row.id)}
+                          >
+                            <IconTreeBranch />
+                          </button>
+                        )}
                       </>
                     ) : (
                       <button

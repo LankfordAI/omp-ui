@@ -98,6 +98,8 @@ Hover a prompt in a live native transcript and two chips appear under it: **rewi
 
 The **session tree** shows the whole shape of the lineage — every branch, including the ones earlier rewinds abandoned. Open it from the HUD's **tree** control or **Session tree** in the command palette. The current branch is marked, the live leaf is badged, and each row offers its jump: prompt rows rewind or edit-and-resend; any other row (an assistant turn, or an entry on an abandoned branch) moves the session's leaf there. Jumping to a non-prompt entry can optionally ask the model to summarize the turns you leave behind instead of just abandoning them — that option runs a model turn and takes longer. These surfaces are for native sessions; a terminal tab is omp's own TUI and omp-ui does not parse its screen.
 
+A prompt row also offers **fork from here** on omp 18.4.11+ ([#717](https://github.com/LankfordAI/omp-ui/issues/717)): the tab moves to a new session file holding the transcript through that prompt (tool results included), the original file stays on disk unchanged, and the tab's sidebar row stays put. The button is hidden on older omp.
+
 ### Use the console
 
 `Mod+J` opens a full-width login shell below the native composer and puts the cursor in it, so you can type right away; `Mod+J` closes it again even while the shell has focus. It runs in the session's effective working tree, including a worktree checkout. The shell starts from the environment omp-ui was launched with, without the AppImage's own variables, so commands behave as they do in a native terminal. Closing the console hides it without discarding its terminal instance. Terminal tabs do not have this separate console because the tab itself is already a terminal.

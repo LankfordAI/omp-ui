@@ -365,4 +365,98 @@ describe("rewind to a prompt (issue #680)", () => {
       "assistant",
     ]);
   });
+
+  describe("fork from a tree row (issue #717)", () => {
+    it("stageForkEntry validates the entry and stages the fork confirmation", async () => {
+      const staging = h.useStore.getState().stageForkEntry(h.TAB, "e1");
+      expect(h.sent[0]!.cmd).toMatchObject({ type: "get_entries" });
+      await drive({ get_entries: { data: ENTRIES } });
+      await staging;
+      expect(h.useStore.getState().lifecycleConfirmation).toMatchObject({
+        kind: "fork",
+        tabId: h.TAB,
+        entryId: "e1",
+        laterTurns: 3,
+      });
+    });
+
+    it("a non-message entry reports the fork-entry error and stages nothing", async () => {
+      const staging = h.useStore.getState().stageForkEntry(h.TAB, "e2");
+      await drive({ get_entries: { data: ENTRIES } });
+      await staging;
+      expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+      expect(h.errorMessages()[0]).toContain("not a message entry");
+    });
+
+    it("a busy tab reports the fork-busy error and sends nothing", async () => {
+      h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "running" }) } });
+      await h.useStore.getState().stageForkEntry(h.TAB, "e1");
+      expect(h.sent).toHaveLength(0);
+      expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+      expect(h.errorMessages()).toEqual([
+        "Fork needs a live, idle native session. Wait for the turn to finish (or stop it), then try again.",
+      ]);
+    });
+
+    it("confirm dispatches fork and reloads with the done notice", async () => {
+      const staging = h.useStore.getState().stageForkEntry(h.TAB, "e1");
+      await drive({ get_entries: { data: ENTRIES } });
+      await staging;
+      const confirmation = h.useStore.getState().lifecycleConfirmation!;
+      const confirmed = h.useStore.getState().confirmLifecycleAction(confirmation.id);
+      await drive({
+        fork: { data: { cancelled: false } },
+        get_messages: {
+          data: {
+            messages: [
+              { role: "user", content: [{ type: "text", text: "first prompt" }] },
+            ],
+          },
+        },
+        get_state: { data: {} },
+      });
+      await confirmed;
+      expect(answered.find((cmd) => cmd.type === "fork")).toMatchObject({
+        type: "fork",
+        entryId: "e1",
+      });
+      const items = h.useStore.getState().rpc[h.TAB]!.items;
+      expect(items.map((i) => i.kind)).toEqual(["user", "notice"]);
+      expect(items.at(-1)).toMatchObject({
+        kind: "notice",
+        level: "info",
+        text:
+          "forked — this tab continues in a new session file up to that prompt; the original stays on disk unchanged",
+      });
+    });
+
+    it("a cancelled fork reloads nothing and appends the cancelled notice", async () => {
+      const staging = h.useStore.getState().stageForkEntry(h.TAB, "e1");
+      await drive({ get_entries: { data: ENTRIES } });
+      await staging;
+      const confirmation = h.useStore.getState().lifecycleConfirmation!;
+      const confirmed = h.useStore.getState().confirmLifecycleAction(confirmation.id);
+      await h.flushMicrotasks();
+      const fork = h.sent.splice(0).find((s) => s.cmd.type === "fork")!;
+      h.respond(h.TAB, fork.cmd, { cancelled: true });
+      await drive({});
+      await confirmed;
+      expect(h.sent.find((s) => s.cmd.type === "get_messages")).toBeUndefined();
+      expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+        kind: "notice",
+        text: "the fork was cancelled by a session hook — nothing moved",
+      });
+    });
+
+    it("a fork confirmation on a tab whose process died dispatches nothing", async () => {
+      const staging = h.useStore.getState().stageForkEntry(h.TAB, "e1");
+      await drive({ get_entries: { data: ENTRIES } });
+      await staging;
+      const confirmation = h.useStore.getState().lifecycleConfirmation!;
+      h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
+      await h.useStore.getState().confirmLifecycleAction(confirmation.id);
+      expect(h.sent.find((s) => s.cmd.type === "fork")).toBeUndefined();
+      expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+    });
+  });
 });

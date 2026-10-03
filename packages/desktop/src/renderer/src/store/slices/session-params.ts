@@ -23,7 +23,7 @@ import { backend, backendFor } from "../../backend";
 import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
 import { withDocumentContext, type DocumentRef } from "../../lib/document-context";
 import { DOCUMENT_MIME } from "../../lib/clipboard-image";
-import { t } from "../../lib/i18n";
+import { t, type MessageKey } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { hasSeenSharePrivacy } from "../../lib/share-privacy";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
@@ -108,6 +108,8 @@ export type SessionParamsSlice = Pick<
   | "performRewind"
   | "performNavigate"
   | "stageRewindEntry"
+  | "stageForkEntry"
+  | "performFork"
   | "stageNavigate"
   | "renameSessionTo"
   | "regenerateSessionTitle"
@@ -921,6 +923,7 @@ export function createSessionParamsSlice(
    */
   const readEntriesForRewind = async (
     tabId: string,
+    busyKey: MessageKey = "session.error.rewindBusy",
   ): Promise<Record<string, unknown> | null> => {
     const rec = findRecord(get().state, tabId);
     const tab = get().rpc[tabId];
@@ -936,7 +939,7 @@ export function createSessionParamsSlice(
       tab.status === "running" ||
       tab.busy
     ) {
-      get().reportError(t("session.error.rewindBusy"));
+      get().reportError(t(busyKey));
       return null;
     }
     // Direct rpcCommand, never runCommand: an older omp without
@@ -1037,6 +1040,46 @@ export function createSessionParamsSlice(
       laterTurns,
       editResend,
     });
+  };
+
+  /** The tree row's "fork from here" (issue #717): the entry id rides straight
+   *  to omp's `fork`, so — like stageRewindEntry — no positional correlation
+   *  runs; the entry must exist and be a message (`fork` throws otherwise),
+   *  and the dialog counts the turns the current branch gives up. */
+  const stageForkEntry = async (tabId: string, entryId: string): Promise<void> => {
+    const data = await readEntriesForRewind(tabId, "session.error.forkBusy");
+    if (data === null) return;
+    if (entryUserPrompt(arrField(data, "entries"), entryId) === null) {
+      get().reportError(t("session.error.forkEntry"));
+      return;
+    }
+    const laterTurns =
+      discardedEntryCount(
+        arrField(data, "entries"),
+        field(data, "leafId"),
+        entryId,
+      ) ?? 0;
+    get().stageLifecycleConfirmation({ kind: "fork", tabId, entryId, laterTurns });
+  };
+
+  /** The accepted fork effect (issue #717): same shape as performRewind minus
+   *  the prefill — the fork keeps the clicked prompt, so nothing re-fills the
+   *  composer. Identity lands via the watcher (same-dir adoption) plus the
+   *  quiet get_state merge. */
+  const performFork = async (tabId: string, entryId: string): Promise<void> => {
+    const resp = await m.runCommand(tabId, { type: "fork", entryId });
+    if (resp === null) return; // failure already reported by runCommand
+    if (boolField(respData(resp), "cancelled")) {
+      // A session_before_branch hook cancelled the fork; nothing moved.
+      m.appendItem(tabId, noticeItem(t("transcript.fork.cancelled"), "info"));
+      return;
+    }
+    await get().reloadHistory(tabId);
+    // Identity belt-and-braces (same as performRewind): the watcher adopts
+    // the new same-dir file, and applyRpcState merges sessionId/sessionFile
+    // from this get_state even if the runtime omits session_info_update.
+    void m.runCommand(tabId, { type: "get_state" }, { quiet: true });
+    m.appendItem(tabId, noticeItem(t("transcript.fork.done"), "info"));
   };
 
   /** Stages a tree jump for an entry that is not a user prompt (issue #680). */
@@ -1790,6 +1833,8 @@ export function createSessionParamsSlice(
     performRewind,
     performNavigate,
     stageRewindEntry,
+    stageForkEntry,
+    performFork,
     stageNavigate,
     renameSessionTo,
     regenerateSessionTitle,

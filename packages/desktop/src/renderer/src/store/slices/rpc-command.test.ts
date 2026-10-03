@@ -691,6 +691,7 @@ describe("late-ack command classification (issue #335)", () => {
       "new_session",
       "switch_session",
       "branch",
+      "fork",
       "set_model",
       "cycle_model",
       "get_available_models",

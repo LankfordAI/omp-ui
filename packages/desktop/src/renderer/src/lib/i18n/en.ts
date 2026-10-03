@@ -178,6 +178,10 @@ export const en = {
     "Move the session's leaf to this entry? {count} later turns stop being the current branch — they stay in the session file as another branch.",
   "dialog.lifecycle.navigateSummarize": "Ask the model to summarize the abandoned turns",
   "dialog.lifecycle.navigateAction": "Navigate",
+  "dialog.lifecycle.forkTitle": "Fork from this prompt?",
+  "dialog.lifecycle.forkBody":
+    "Continue this tab in a new session cut at this prompt? The new file holds everything up to and including it — {count} later turns stop being this session's branch and stay in the original file, which remains on disk.",
+  "dialog.lifecycle.forkAction": "Fork",
   "dialog.lifecycle.working": "Working…",
 
   // AppFeedback.tsx — backend-failure acknowledgment dialog (issue #373)
@@ -206,6 +210,10 @@ export const en = {
     "Rewind needs a live, idle native session. Wait for the turn to finish (or stop it), then try again.",
   "session.error.rewindCorrelation":
     "Could not match this prompt to a session entry, so nothing was rewound. Refresh the session and try again.",
+  "session.error.forkBusy":
+    "Fork needs a live, idle native session. Wait for the turn to finish (or stop it), then try again.",
+  "session.error.forkEntry":
+    "This entry is not a message entry in the session file, so it cannot be forked from. Refresh the session and try again.",
   "session.error.navigateUnconfirmed":
     "The tree bridge did not report a result for this jump. Refresh the session before navigating again.",
   "session.error.navigateFailed": "The session could not navigate to that entry.",
@@ -217,6 +225,10 @@ export const en = {
     "rewound — later turns stay in the session file as another branch",
   "transcript.rewind.navigated": "navigated — the transcript shows the branch you jumped to",
   "transcript.rewind.busy": "Rewind is available when the session is idle.",
+  "transcript.fork.done":
+    "forked — this tab continues in a new session file up to that prompt; the original stays on disk unchanged",
+  "transcript.fork.cancelled":
+    "the fork was cancelled by a session hook — nothing moved",
 
   // SessionTreeViewer.tsx — the session tree navigator (issue #680)
   "session.tree.title": "Session tree",
@@ -226,6 +238,7 @@ export const en = {
   "session.tree.active": "current branch",
   "session.tree.current": "leaf",
   "session.tree.navigate": "navigate here",
+  "session.tree.fork": "fork from here",
   "session.tree.summarize": "summarize abandoned turns",
   "session.tree.busy": "Navigation is available when the session is idle.",
   "session.tree.reasonMissingApi": "this omp build exposes no tree API",

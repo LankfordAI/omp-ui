@@ -125,6 +125,19 @@ function buttonIn(row: HTMLElement, label: string): HTMLButtonElement {
   return button as HTMLButtonElement;
 }
 
+/** The fork button rides the capabilities ompVersion gate (issue #717). */
+function withOmpVersion(ompVersion: string | null): void {
+  useStore.setState((s) => ({
+    rpc: {
+      ...s.rpc,
+      [TAB]: {
+        ...s.rpc[TAB]!,
+        capabilities: { ...s.rpc[TAB]!.capabilities!, ompVersion },
+      },
+    },
+  }));
+}
+
 afterEach(() => {
   act(() => root?.unmount());
   root = null;
@@ -185,6 +198,33 @@ describe("SessionTreeViewer (issue #680)", () => {
     act(() => buttonIn(rowOf(el, "answer"), "navigate here").click());
     expect(checkbox.checked).toBe(true);
     expect(stageNavigate).toHaveBeenCalledWith(TAB, "e2", true);
+  });
+
+  it("a prompt row forks when omp reports the native fork verb", () => {
+    liveState();
+    withOmpVersion("18.4.11");
+    const stageForkEntry = vi.fn(async () => {});
+    useStore.setState({ stageForkEntry });
+    const el = render();
+    act(() => buttonIn(rowOf(el, "first prompt"), "fork from here").click());
+    expect(stageForkEntry).toHaveBeenCalledWith(TAB, "e1");
+  });
+
+  it("the fork button is absent on older or unknown omp while rewind and navigate stay", () => {
+    for (const ompVersion of ["18.4.10", null]) {
+      liveState();
+      withOmpVersion(ompVersion);
+      const el = render();
+      const labels = [...el.querySelectorAll("button")].map((b) =>
+        b.getAttribute("aria-label"),
+      );
+      expect(labels).not.toContain("fork from here");
+      expect(labels).toContain("rewind here");
+      expect(labels).toContain("navigate here");
+      act(() => root!.unmount());
+      root = null;
+      document.body.innerHTML = "";
+    }
   });
 
   it("disables every jump while the tab is running", () => {
