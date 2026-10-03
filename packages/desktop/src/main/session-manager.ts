@@ -125,7 +125,7 @@ export interface SessionManagerDependencies {
   registry: Registry;
   providerKeys: ProviderKeys;
   /**
-   * A catalogued subscription sign-in with at least one account counts as a
+   * A catalogued provider sign-in with at least one account counts as a
    * model provider for the fresh-spawn gate (issue #368); the desktop backend
    * wires it to ProviderOAuth.hasModelAccount.
    */
@@ -506,7 +506,7 @@ export class SessionManager {
       !(this.deps.hasOAuthProvider?.() ?? false)
     ) {
       throw new Error(
-        "No model provider is configured. Add an API key or sign in to a subscription under Settings → Providers before starting a session.",
+        "No model provider is configured. Add an API key or sign in to a provider under Settings → Providers before starting a session.",
       );
     }
 

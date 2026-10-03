@@ -12,6 +12,7 @@ import {
   parseOAuthAccountList,
 } from "./provider-oauth";
 import type { ProviderOAuthState } from "./types";
+import type { LoginProvider } from "./provider-catalog";
 
 interface FakeProc {
   proc: RpcChildProcess;
@@ -57,6 +58,12 @@ const READY = {
   maxFrameBytes: 1_048_576,
 };
 
+// ES2022's library lacks Promise.withResolvers; match the existing test convention.
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => { resolve = settle; });
+  return { promise, resolve };
+}
 const nextTick = (): Promise<void> => tick();
 
 interface Harness {
@@ -73,18 +80,32 @@ interface Harness {
   raw: (line: string) => void;
   exit: (code: number) => void;
   scratchDir: string;
-  /** Set to make the next start() throw at spawn; later spawns succeed (one fake process is shared). */
+  /** Make the next start() throw at spawn; later spawns succeed. */
   failNextSpawn: boolean;
   /** Swap the one-shot `omp token --list` runner for a deferred/rejecting one. */
-  setListRun: (fn: () => Promise<string | null>) => void;
+  setListRun: (fn: (opts: { argv: string[] }) => Promise<string | null>) => void;
+  setProviders: (providers: LoginProvider[] | null) => void;
+  setOmpPath: (ompPath: string | null) => void;
+  discoveryCount: () => number;
+  discoveryKilled: () => boolean;
+  deferDiscovery: () => (providers: LoginProvider[] | null) => void;
 }
 
+const harnesses: Harness[] = [];
 function harness(opts: {
   ompPath?: string | null;
   listOutput?: string | null;
   logoutOutput?: string | null;
+  providers?: LoginProvider[] | null;
 } = {}): Harness {
-  const fake = fakeProc();
+  let fake = fakeProc();
+  let loginFake: FakeProc | null = null;
+  let discoveryFake: FakeProc | null = null;
+  let providers = opts.providers ?? null;
+  let ompPath = opts.ompPath === undefined ? "/opt/omp" : opts.ompPath;
+  let discoveryCount = 0;
+  let holdDiscovery = false;
+  let pendingDiscovery: ((rows: LoginProvider[] | null) => void) | null = null;
   const states: ProviderOAuthState[] = [];
   const events: string[] = [];
   const runCalls: Array<{ argv: string[] }> = [];
@@ -93,11 +114,33 @@ function harness(opts: {
   let spawnArgs: string[] = [];
   let failNext = false;
   const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "oauth-login-"));
-  fake.stdin.on("data", (chunk: Buffer) => {
-    for (const line of chunk.toString("utf8").split("\n")) {
-      if (line.trim() !== "") stdinLines.push(JSON.parse(line) as object);
-    }
-  });
+  const attach = (child: FakeProc): void => {
+    child.stdin.on("data", (chunk: Buffer) => {
+      for (const line of chunk.toString("utf8").split("\n")) {
+        if (line.trim() === "") continue;
+        const command = JSON.parse(line) as { type: string; id?: string };
+        if (command.type === "get_login_providers") {
+          discoveryFake = child;
+          discoveryCount++;
+          const answer = (rows: LoginProvider[] | null): void => {
+            queueMicrotask(() => child.stdout.write(`${JSON.stringify({
+              id: command.id, type: "response", command: "get_login_providers",
+              success: rows !== null,
+              ...(rows === null ? { error: "unknown command" } : { data: { providers: rows } }),
+            })}\n`));
+          };
+          if (holdDiscovery) {
+            holdDiscovery = false;
+            pendingDiscovery = answer;
+          } else answer(providers);
+        } else {
+          if (command.type === "login") loginFake = child;
+          // Discovery negotiation is not part of the human sign-in stream.
+          if (command.type !== "negotiate_protocol" || child === fake) stdinLines.push(command);
+        }
+      }
+    });
+  };
   let oauthRun: (o: { argv: string[] }) => Promise<string | null> = async (o) => {
     runCalls.push({ argv: o.argv });
     events.push(`run:${o.argv[0]}`);
@@ -106,7 +149,7 @@ function harness(opts: {
       : (opts.listOutput ?? null);
   };
   const oauth = new ProviderOAuth({
-    getOmpPath: () => (opts.ompPath === undefined ? "/opt/omp" : opts.ompPath),
+    getOmpPath: () => ompPath,
     scratchDir,
     send: (state) => {
       states.push(state);
@@ -120,10 +163,14 @@ function harness(opts: {
         failNext = false;
         throw new Error("ENOENT: no such file or directory");
       }
-      return fake.proc;
+      fake = fakeProc();
+      const child = fake;
+      attach(child);
+      queueMicrotask(() => child.stdout.write(`${JSON.stringify(READY)}\n`));
+      return child.proc;
     },
   });
-  return {
+  const result: Harness = {
     oauth,
     states,
     events,
@@ -133,9 +180,12 @@ function harness(opts: {
     },
     stdinLines,
     openedUrls,
-    frame: (f) => fake.stdout.write(`${JSON.stringify(f)}\n`),
-    raw: (line) => fake.stdout.write(`${line}\n`),
-    exit: (code) => fake.exit(code),
+    frame: (f) => {
+      const ready = f !== null && typeof f === "object" && "type" in f && f.type === "ready";
+      (ready ? fake : loginFake ?? fake).stdout.write(`${JSON.stringify(f)}\n`);
+    },
+    raw: (line) => (loginFake ?? fake).stdout.write(`${line}\n`),
+    exit: (code) => (loginFake ?? fake).exit(code),
     scratchDir,
     get failNextSpawn() {
       return failNext;
@@ -144,12 +194,27 @@ function harness(opts: {
       failNext = v;
     },
     setListRun(fn) {
-      oauthRun = async () => {
-        events.push("run:token");
-        return fn();
+      oauthRun = async (o) => {
+        runCalls.push({ argv: o.argv });
+        events.push(`run:${o.argv[0]}`);
+        return fn(o);
+      };
+    },
+    setProviders(rows) { providers = rows; },
+    setOmpPath(value) { ompPath = value; },
+    discoveryCount: () => discoveryCount,
+    discoveryKilled: () => discoveryFake?.killed() ?? false,
+    deferDiscovery() {
+      holdDiscovery = true;
+      return (rows) => {
+        if (pendingDiscovery === null) throw new Error("discovery has not started");
+        pendingDiscovery(rows);
+        pendingDiscovery = null;
       };
     },
   };
+  harnesses.push(result);
+  return result;
 }
 
 /** ready + sign-in URL, so the flow sits in the browser phase. */
@@ -168,6 +233,10 @@ async function startAtBrowser(h: Harness, url = "https://chatgpt.com/auth") {
 }
 
 afterEach(() => {
+  for (const h of harnesses.splice(0)) {
+    h.oauth.dispose();
+    fs.rmSync(h.scratchDir, { recursive: true, force: true });
+  }
   vi.useRealTimers();
 });
 
@@ -182,20 +251,12 @@ describe("parseOAuthAccountList", () => {
 });
 
 describe("refresh", () => {
-  it("runs `omp token <id> --list` per catalogued provider", async () => {
+  it("compatibility fallback retains account identities and the spawn gate", async () => {
     const h = harness({ listOutput: "1. me@example.com\n" });
     const rows = await h.oauth.refresh();
-    expect(h.runCalls).toEqual([{ argv: ["token", "openai-codex", "--list"] }]);
-    expect(rows).toEqual([
-      {
-        id: "openai-codex",
-        providerId: "openai-codex",
-        label: "ChatGPT Plus/Pro",
-        hint: expect.any(String),
-        accounts: ["me@example.com"],
-      },
-    ]);
+    expect(rows.find((row) => row.providerId === "openai-codex")?.accounts).toEqual(["me@example.com"]);
     expect(h.oauth.hasModelAccount()).toBe(true);
+    expect(h.discoveryKilled()).toBe(true);
   });
 
   it("a missing list reads as no accounts", async () => {
@@ -238,7 +299,7 @@ describe("start", () => {
 
   it("rejects an unknown provider before spawning and a second flow while one runs", () => {
     const h = harness();
-    expect(() => h.oauth.start("nope")).toThrow("unknown subscription provider: nope");
+    expect(() => h.oauth.start("nope")).toThrow();
     expect(h.spawnArgs).toEqual([]);
     h.oauth.start("openai-codex");
     expect(() => h.oauth.start("openai-codex")).toThrow("already in progress");
@@ -509,10 +570,188 @@ describe("signOut", () => {
     const h = harness({ logoutOutput: null });
     await expect(h.oauth.signOut("openai-codex")).rejects.toThrow("omp could not sign out of ChatGPT Plus/Pro");
     const h2 = harness();
-    await expect(h2.oauth.signOut("nope")).rejects.toThrow("unknown subscription provider: nope");
+    await expect(h2.oauth.signOut("nope")).rejects.toThrow();
     const h3 = harness();
     h3.oauth.start("openai-codex");
     await expect(h3.oauth.signOut("openai-codex")).rejects.toThrow("finish or cancel the sign-in first");
     h3.oauth.dispose();
+  });
+});
+
+const factory: LoginProvider = { id: "factory-droid", name: "Factory Droid", available: true, authenticated: true };
+const future: LoginProvider = { id: "future-provider", name: "Future Provider", available: true, authenticated: false };
+
+describe("discovered sign-ins", () => {
+  it("uses OAuth identities, not credential availability, for signed-in state and the spawn gate", async () => {
+    const h = harness({ providers: [factory, future], listOutput: null });
+    const rows = await h.oauth.refresh();
+    expect(rows.map((row) => [row.providerId, row.accounts])).toEqual([
+      ["factory-droid", []], ["future-provider", []],
+    ]);
+    expect(h.runCalls.map((call) => call.argv[1])).toEqual(["factory-droid"]);
+    expect(h.oauth.hasModelAccount()).toBe(false);
+    h.setListRun(async () => "1. factory@example.com\n");
+    await h.oauth.refresh();
+    expect(h.oauth.statuses()[0].accounts).toEqual(["factory@example.com"]);
+    expect(h.oauth.hasModelAccount()).toBe(true);
+  });
+
+  it("an unknown-to-omp-ui provider completes a browser/input flow before publishing its identity", async () => {
+    const h = harness({ providers: [future], listOutput: "1. future@example.com\n" });
+    await h.oauth.refresh();
+    h.oauth.start(future.id);
+    await nextTick();
+    h.frame({ type: "extension_ui_request", id: "url", method: "open_url", url: "https://example.com/device", instructions: "Enter code" });
+    h.frame({ type: "extension_ui_request", id: "input", method: "input", title: "Paste code" });
+    expect(h.oauth.state).toMatchObject({ providerId: future.id, phase: "input", instructions: "Enter code" });
+    h.oauth.submitInput("response");
+    expect(h.oauth.state.phase).toBe("browser");
+    h.frame({ type: "response", command: "login", success: true });
+    await nextTick();
+    await nextTick();
+    expect(h.oauth.state.phase).toBe("done");
+    expect(h.oauth.statuses()[0].accounts).toEqual(["future@example.com"]);
+    expect(h.events.indexOf("run:token")).toBeLessThan(h.events.indexOf("state:done"));
+    expect(h.runCalls.some((call) => call.argv[1] === future.id)).toBe(true);
+    expect(() => h.oauth.start("unlisted")).toThrow();
+  });
+
+  it("signs Factory out through the discovered lookup and replaces its account snapshot", async () => {
+    const h = harness({ providers: [factory], listOutput: "1. factory@example.com\n" });
+    await h.oauth.refresh();
+    h.setListRun(async ({ argv }) => {
+      if (argv[0] === "auth-broker") {
+        h.setProviders([{ ...factory, authenticated: false }]);
+        return "Logged out";
+      }
+      return null;
+    });
+    const rows = await h.oauth.signOut(factory.id);
+    expect(rows[0].accounts).toEqual([]);
+    expect(h.oauth.hasModelAccount()).toBe(false);
+    expect(h.runCalls.some((call) => call.argv[0] === "auth-broker" && call.argv[2] === factory.id)).toBe(true);
+  });
+
+  it("retains same-binary discovery on failure but removes disappeared rows on a valid roster", async () => {
+    const h = harness({ providers: [factory], listOutput: "1. factory@example.com\n" });
+    await h.oauth.refresh();
+    h.setProviders(null);
+    expect((await h.oauth.refresh())[0].providerId).toBe(factory.id);
+    h.oauth.start(factory.id);
+    h.oauth.cancel();
+    h.setProviders([]);
+    expect(await h.oauth.refresh()).toEqual([]);
+    expect(h.oauth.hasModelAccount()).toBe(false);
+    expect(() => h.oauth.start(factory.id)).toThrow();
+  });
+
+  it("never inherits another binary's discovered catalog", async () => {
+    const h = harness({ providers: [factory] });
+    await h.oauth.refresh();
+    h.setOmpPath("/other/omp");
+    h.setProviders(null);
+    const rows = await h.oauth.refresh();
+    expect(rows.map((row) => row.providerId)).toEqual(["openai-codex"]);
+    expect(() => h.oauth.start(factory.id)).toThrow();
+  });
+
+  it("shares concurrent reads while preserving atomic account publication", async () => {
+    const h = harness({ providers: [factory] });
+    const pending = deferred<string | null>();
+    h.setListRun(() => pending.promise);
+    const first = h.oauth.refresh();
+    const second = h.oauth.refresh();
+    await nextTick();
+    expect(h.discoveryCount()).toBe(1);
+    expect(h.oauth.statuses().some((row) => row.providerId === factory.id)).toBe(false);
+    pending.resolve("1. factory@example.com\n");
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toEqual(b);
+    expect(a[0].accounts).toEqual(["factory@example.com"]);
+  });
+
+  it("a newer binary read wins over an old delayed account read", async () => {
+    const h = harness({ providers: [factory] });
+    const pending = deferred<string | null>();
+    h.setListRun(() => pending.promise);
+    const older = h.oauth.refresh();
+    await nextTick();
+    h.setOmpPath("/new/omp");
+    h.setProviders([future]);
+    await h.oauth.refresh();
+    pending.resolve("1. stale@example.com\n");
+    await older;
+    expect(h.oauth.statuses().map((row) => row.providerId)).toEqual([future.id]);
+    expect(h.oauth.hasModelAccount()).toBe(false);
+  });
+
+  it("login completion drains the pre-login read then samples fresh accounts", async () => {
+    const h = harness({ providers: [{ ...factory, authenticated: false }] });
+    await h.oauth.refresh();
+    const finishOld = h.deferDiscovery();
+    const older = h.oauth.refresh();
+    await nextTick();
+    h.oauth.start(factory.id);
+    await nextTick();
+    h.frame({ type: "response", command: "login", success: true });
+    await nextTick();
+    expect(h.oauth.state.phase).toBe("starting");
+    h.setListRun(async () => "1. fresh@example.com\n");
+    finishOld([{ ...factory, authenticated: false }]);
+    await older;
+    await nextTick();
+    expect(h.oauth.state.phase).toBe("done");
+    expect(h.oauth.statuses()[0].accounts).toEqual(["fresh@example.com"]);
+    expect(h.discoveryCount()).toBe(3);
+  });
+
+  it("a superseded mutation refresh cannot publish done before a forced identity snapshot", async () => {
+    const h = harness({ providers: [{ ...factory, authenticated: false }], listOutput: "1. fresh@example.com\n" });
+    await h.oauth.refresh();
+    h.oauth.start(factory.id);
+    await nextTick();
+    h.deferDiscovery();
+    h.frame({ type: "response", command: "login", success: true });
+    await nextTick();
+    h.setOmpPath("/new/omp");
+    const finishReplacement = h.deferDiscovery();
+    const replacement = h.oauth.refresh();
+    await nextTick();
+    expect(h.oauth.state.phase).not.toBe("done");
+    expect(h.oauth.statuses()[0].accounts).toEqual([]);
+    finishReplacement([{ ...factory, authenticated: false }]);
+    await replacement;
+    await nextTick();
+    expect(h.oauth.state.phase).toBe("done");
+    expect(h.oauth.statuses()[0].accounts).toEqual(["fresh@example.com"]);
+  });
+
+  it("logout does not reuse an older account read", async () => {
+    const h = harness({ providers: [factory], listOutput: "1. before@example.com\n" });
+    await h.oauth.refresh();
+    const finishOld = h.deferDiscovery();
+    const older = h.oauth.refresh();
+    await nextTick();
+    const logout = h.oauth.signOut(factory.id);
+    await nextTick();
+    h.setProviders([{ ...factory, authenticated: false }]);
+    finishOld([factory]);
+    await older;
+    expect((await logout)[0].accounts).toEqual([]);
+    expect(h.oauth.hasModelAccount()).toBe(false);
+  });
+
+  it("teardown aborts discovery and prevents later publication or new flows", async () => {
+    const h = harness({ providers: [factory] });
+    const finish = h.deferDiscovery();
+    const pending = h.oauth.refresh();
+    await nextTick();
+    h.oauth.dispose();
+    expect(h.discoveryKilled()).toBe(true);
+    finish([factory]);
+    await pending;
+    expect(h.oauth.statuses().map((row) => row.providerId)).toEqual(["openai-codex"]);
+    await expect(h.oauth.refresh()).rejects.toThrow();
+    expect(() => h.oauth.start(factory.id)).toThrow();
   });
 });

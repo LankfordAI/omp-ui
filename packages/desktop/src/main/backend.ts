@@ -891,8 +891,8 @@ export class MainBackend {
           this.providerKeys.clearKey(envName);
           return this.providerSnapshot(projectCwd);
         },
-        // Subscription (OAuth) sign-ins (issue #368): the flow state is pushed to
-        // every renderer via onProviderOAuthState; the page reads the rows itself.
+        // Provider sign-ins (issues #368, #721): the flow state is pushed to
+        // every renderer; the page reads the dynamically resolved rows itself.
         [CH.readProviderOAuth]: () => this.providerOAuth.refresh(),
         [CH.getProviderOAuthState]: () => this.providerOAuth.state,
         [CH.startProviderOAuth]: (id: string) => {

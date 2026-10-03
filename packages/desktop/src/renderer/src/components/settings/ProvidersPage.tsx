@@ -216,12 +216,12 @@ function flowActive(flow: ProviderOAuthState): boolean {
 }
 
 /**
- * One subscription row plus, under it while its flow is live, the sign-in
+ * One provider sign-in row plus, under it while its flow is live, the sign-in
  * panel: the browser phase (link omp opened) and, only if omp asks, the
  * pasted-redirect-URL input. The renderer never sees a token — the row shows
  * omp's own identity strings and the flow state is main's.
  */
-function SubscriptionRow({
+function ProviderSignInRow({
   row,
   flow,
   flowBusy,
@@ -262,21 +262,23 @@ function SubscriptionRow({
 
   return (
     <div className="py-2.5">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-ink">{row.label}</span>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="min-w-0 break-words text-xs font-medium text-ink">
+              {row.label}
+            </span>
             {signedIn ? (
               <Chip tone="signal">{t("settings.providers.oauthSignedIn")}</Chip>
             ) : (
               <Chip>{t("settings.providers.oauthNotSignedIn")}</Chip>
             )}
           </div>
-          <p className="mt-0.5 font-mono text-[10px] text-ink-faint">
+          <p className="mt-0.5 break-words font-mono text-[10px] text-ink-faint">
             {signedIn ? row.accounts.join(", ") : row.hint}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <Button size="xs" disabled={flowBusy} onClick={onSignIn}>
             {t("settings.providers.oauthSignIn")}
           </Button>
@@ -289,9 +291,11 @@ function SubscriptionRow({
       </div>
 
       {mine && flow.phase === "starting" && (
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <Dot tone="signal" pulse />
-          <span className="text-[11px] text-ink-dim">{t("settings.providers.oauthStarting")}</span>
+          <span className="min-w-0 break-words text-[11px] text-ink-dim">
+            {t("settings.providers.oauthStarting")}
+          </span>
           <Button size="xs" variant="ghost" onClick={onCancel}>
             {t("settings.providers.oauthCancel")}
           </Button>
@@ -300,15 +304,15 @@ function SubscriptionRow({
 
       {mine && (flow.phase === "browser" || flow.phase === "input") && (
         <div className="mt-2 space-y-1.5">
-          <p className="text-[11px] leading-relaxed text-ink-dim">
+          <p className="break-words text-[11px] leading-relaxed text-ink-dim">
             {t("settings.providers.oauthBrowser")}
           </p>
           {flow.instructions !== null && (
-            <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-ink-faint">
+            <p className="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-ink-faint">
               {flow.instructions}
             </p>
           )}
-          <div className="flex items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <Button size="xs" onClick={openLink}>
               {t("settings.providers.oauthOpenLink")}
             </Button>
@@ -317,7 +321,7 @@ function SubscriptionRow({
             </Button>
           </div>
           {flow.phase === "input" && flow.prompt !== null && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <input
                 ref={input}
                 type="text"
@@ -340,7 +344,7 @@ function SubscriptionRow({
                     setDraft("");
                   }
                 }}
-                className={cn(FIELD, "flex-1")}
+                className={cn(FIELD, "min-w-0 flex-1")}
               />
               <Button size="xs" disabled={draft.trim() === ""} onClick={submit}>
                 {t("settings.providers.oauthSubmit")}
@@ -351,9 +355,9 @@ function SubscriptionRow({
       )}
 
       {mine && flow.phase === "done" && (
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <Chip tone="signal">{t("settings.providers.oauthSignedIn")}</Chip>
-          <span className="text-[11px] text-ink-dim">
+          <span className="min-w-0 flex-1 break-words text-[11px] text-ink-dim">
             {t("settings.providers.oauthDone", { label: row.label })}
           </span>
           <Button size="xs" variant="ghost" onClick={onCancel}>
@@ -363,8 +367,8 @@ function SubscriptionRow({
       )}
 
       {mine && flow.phase === "error" && (
-        <div className="mt-2 flex items-center gap-2">
-          <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-rose">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <p className="min-w-0 flex-1 break-words text-[11px] leading-relaxed text-rose">
             {t("settings.providers.oauthFailed", {
               error: flow.error ?? "",
             })}
@@ -761,7 +765,7 @@ export function ProvidersPage({
     );
   }, [readProviderKeys, projectCwd]);
 
-  // A second, independent read: the subscription group must render (or show
+  // A second, independent read: the provider sign-in group must render (or show
   // its own error) without hiding the API-key groups behind a failure.
   useEffect(() => {
     const g = ++oauthGen.current;
@@ -963,6 +967,9 @@ export function ProvidersPage({
 
       <div className="space-y-0.5">
         <Label>{t("settings.providers.oauthGroup")}</Label>
+        <p className="text-[11px] leading-relaxed text-ink-faint">
+          {t("settings.providers.oauthLimit")}
+        </p>
         {oauth.status === "error" ? (
           <p className="py-2.5 text-[11px] leading-relaxed text-rose">
             {t("settings.providers.oauthReadFailed")}
@@ -971,7 +978,7 @@ export function ProvidersPage({
         ) : oauth.status === "loaded" ? (
           <div className="divide-y divide-line-soft">
             {oauthRows.map((row) => (
-              <SubscriptionRow
+              <ProviderSignInRow
                 key={row.id}
                 row={row}
                 flow={providerOAuth}

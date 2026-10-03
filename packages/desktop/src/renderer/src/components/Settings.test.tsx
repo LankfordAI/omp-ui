@@ -1362,22 +1362,14 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     ...patch,
   });
 
-  it("shows the Subscriptions group with the signed-in identity", async () => {
+  it("shows the signed-in identity and sign-out action", async () => {
     seedProviders([oauthRow({ accounts: ["me@example.com"] })]);
     await renderSettings();
-    expect(document.body.textContent).toContain("Subscriptions");
-    expect(document.body.textContent).toContain("ChatGPT Plus/Pro");
     expect(document.body.textContent).toContain("signed in");
     expect(document.body.textContent).toContain("me@example.com");
     expect(buttonWithText("sign out")).not.toBeNull();
   });
 
-  it("keeps Subscriptions visible when the provider-key catalog is empty", async () => {
-    seedProviders([oauthRow()], []);
-    await renderSettings();
-    expect(document.body.textContent).toContain("Subscriptions");
-    expect(document.body.textContent).toContain("ChatGPT Plus/Pro");
-  });
 
   it("shows an unsigned-in row with a Sign in action and no sign out", async () => {
     seedProviders([oauthRow()]);

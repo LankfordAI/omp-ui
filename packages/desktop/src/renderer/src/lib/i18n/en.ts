@@ -959,7 +959,9 @@ export const en = {
     " Keys already exported by your shell profile are picked up automatically, and a project's ",
   "settings.providers.footerEnvSuffix":
     " is loaded by omp itself, so both are shown here but neither needs re-entering.",
-  "settings.providers.oauthGroup": "Subscriptions",
+  "settings.providers.oauthGroup": "Provider sign-ins",
+  "settings.providers.oauthLimit":
+    "Providers that require a secret or setup prompts before opening a browser must be signed in through omp's terminal UI.",
   "settings.providers.oauthSignedIn": "signed in",
   "settings.providers.oauthNotSignedIn": "not signed in",
   "settings.providers.oauthSignIn": "Sign in",
@@ -973,11 +975,11 @@ export const en = {
   "settings.providers.oauthSubmit": "Submit",
   "settings.providers.oauthInputAria": "{name} sign-in response",
   "settings.providers.oauthDone":
-    "Signed in. New sessions can pick {label} models; a session that is already running needs a restart to see them.",
+    "Signed in to {label}. New sessions use the updated credentials; restart a running session to apply them.",
   "settings.providers.oauthFailed": "Sign-in failed: {error}",
-  "settings.providers.oauthReadFailed": "Could not read subscription sign-ins",
+  "settings.providers.oauthReadFailed": "Could not read provider sign-ins",
   "settings.providers.oauthFooter":
-    " Subscription sign-ins are kept by omp itself, shared with terminal omp, and are never stored by omp-ui.",
+    " Provider sign-ins are kept by omp itself, shared with terminal omp, and are never stored by omp-ui.",
 
   // MemoryPage
   "settings.memory.exists": "exists",

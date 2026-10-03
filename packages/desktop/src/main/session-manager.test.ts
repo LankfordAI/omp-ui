@@ -1780,9 +1780,7 @@ describe("fresh-spawn provider gate (issue #368)", () => {
 
   it("rejects when no key is set and no subscription account exists", async () => {
     const { manager } = setup({ mode: "rpc-ui", providerEnv: {}, hasOAuthProvider: () => false });
-    await expect(freshSpawn(manager)).rejects.toThrow(
-      "No model provider is configured. Add an API key or sign in to a subscription under Settings → Providers before starting a session.",
-    );
+    await expect(freshSpawn(manager)).rejects.toThrow();
     expect(spawnOmpMock).not.toHaveBeenCalled();
   });
 

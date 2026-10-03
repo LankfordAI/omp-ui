@@ -79,9 +79,9 @@ export function providerSpecById(id: string): ProviderKeySpec | undefined {
   return PROVIDER_KEY_SPECS.find((spec) => spec.id === id);
 }
 
-/** A provider omp authenticates by OAuth login, not by an environment variable. */
+/** Presentation metadata for an omp provider sign-in row. */
 export interface OAuthProviderSpec {
-  /** Row key on the providers page; distinct from any PROVIDER_KEY_SPECS id. */
+  /** Row key within the provider sign-in group. */
   id: string;
   /** omp's provider id — the argument to `login`, `omp token`, `omp auth-broker logout`. */
   providerId: string;
@@ -90,10 +90,9 @@ export interface OAuthProviderSpec {
 }
 
 /**
- * Transcribed from `omp auth-broker list` (v18.1.0). Only subscriptions that
- * bill separately from an API-key row belong here; `id` and `providerId` are
- * both kept so a future row whose omp id collides with an API-key row (e.g.
- * anthropic) can still have a unique page key.
+ * Curated presentation metadata and discovery-failure compatibility catalog,
+ * not the complete login roster. Supported sign-ins come from the installed
+ * omp binary; these rows retain their familiar labels when discovered.
  */
 export const OAUTH_PROVIDER_SPECS: readonly OAuthProviderSpec[] = [
   {
@@ -104,6 +103,37 @@ export const OAUTH_PROVIDER_SPECS: readonly OAuthProviderSpec[] = [
   },
 ];
 
-export function oauthSpecById(id: string): OAuthProviderSpec | undefined {
-  return OAUTH_PROVIDER_SPECS.find((spec) => spec.id === id);
+/** Provider sign-in metadata returned by omp's `get_login_providers` command. */
+export interface LoginProvider {
+  id: string;
+  name: string;
+  available: boolean;
+  authenticated: boolean;
+}
+
+/** Resolve a successful, authoritative roster without introducing fallback rows. */
+export function resolveOAuthProviderSpecs(
+  providers: readonly LoginProvider[],
+): OAuthProviderSpec[] {
+  const firstById = new Map<string, LoginProvider>();
+  for (const provider of providers) {
+    if (!firstById.has(provider.id)) firstById.set(provider.id, provider);
+  }
+
+  const specs: OAuthProviderSpec[] = [];
+  for (const spec of OAUTH_PROVIDER_SPECS) {
+    const provider = firstById.get(spec.providerId);
+    if (provider?.available === true) specs.push(spec);
+    firstById.delete(spec.providerId);
+  }
+  for (const provider of firstById.values()) {
+    if (!provider.available) continue;
+    specs.push({
+      id: provider.id,
+      providerId: provider.id,
+      label: provider.name,
+      hint: provider.id,
+    });
+  }
+  return specs;
 }

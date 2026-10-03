@@ -287,12 +287,14 @@ export {
   PROVIDER_ENV_NAMES,
   PROVIDER_KEY_SPECS,
   OAUTH_PROVIDER_SPECS,
-  oauthSpecById,
+  resolveOAuthProviderSpecs,
   providerSpecById,
+  type LoginProvider,
   type OAuthProviderSpec,
   type ProviderKeyGroup,
   type ProviderKeySpec,
 } from "./provider-catalog";
+export { readLoginProviders, type ReadLoginProvidersOptions } from "./provider-login";
 export {
   IDLE_PROVIDER_OAUTH_STATE,
   OAUTH_FLOW_TIMEOUT_MS,
