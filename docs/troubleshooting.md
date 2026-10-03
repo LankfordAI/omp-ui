@@ -55,7 +55,7 @@ Remote access works only while the desktop app is running. The default `localhos
 
 Open Settings → Remote access. Confirm that remote access is enabled and the status says **listening on** the expected port. Copy the displayed **Connection URL** rather than reconstructing it. For another device, confirm that **Bind address** is **local network**. If the status is an error, use the message shown there; `port … is already in use` identifies a port conflict.
 
-A packaged release includes the browser bundle. A `503` response that says the bundle is missing applies to a development build.
+A packaged release includes the browser bundle. A `503` response that says the bundle is missing applies to a development build. The missing-bundle notice in Settings describes availability when the server started, not its current availability.
 
 ### Fix
 
@@ -67,7 +67,7 @@ For a development checkout with a missing bundle, run this exact command from th
 npm run build:web --workspace @omp-ui/desktop
 ```
 
-Turn remote access off and on after the build so the server checks the bundle again. Remote access uses plain HTTP; read the exposure and sign-in guidance before enabling a LAN bind in [Remote access](remote-access.md).
+After the build completes, reload the same connection URL. The server checks bundle availability on each authenticated static request, so no remote-access restart is needed. Remote access uses plain HTTP; read the exposure and sign-in guidance before enabling a LAN bind in [Remote access](remote-access.md).
 
 ## A dismissed update card does not return
 

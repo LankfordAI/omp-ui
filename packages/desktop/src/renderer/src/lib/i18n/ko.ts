@@ -772,7 +772,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.remote.listening": "{port}에서 수신 중",
   "settings.remote.startFailed": "서버를 시작할 수 없음",
   "settings.remote.stopped": "중지됨",
-  "settings.remote.webBundleMissing": "browser bundle이 없습니다. 다음을 실행하세요: ",
+  "settings.remote.webBundleMissing": "서버 시작 시 browser bundle이 없었습니다. 아직 없다면 다음을 실행하세요: ",
   "settings.remote.password": "비밀번호",
   "settings.remote.passwordHint": "원격 기기의 기본 로그인 수단입니다. salted hash로 저장되므로 표시할 수 없으며 변경하거나 지울 수만 있습니다.",
   "settings.remote.setPassword": "비밀번호 설정",
