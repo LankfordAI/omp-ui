@@ -67,6 +67,7 @@ import type {
   WorktreeSyncResult,
 } from "./types";
 import type { SubagentModelMap } from "./subagent-model";
+import type { ReviewRosterView, ReviewWriteRequest } from "./review-config";
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
 import type { CollabAccess, CollabTabSnapshot, CollabTabState } from "./collab";
 import type {
@@ -108,6 +109,7 @@ import {
   remoteInstancePatchCodec,
   rpcFrameCodec,
   scopedCapabilityMutationCodec,
+  reviewWriteCodec,
   watchdogWriteCodec,
   sessionModeCodec,
   spawnRequestCodec,
@@ -989,6 +991,24 @@ export const BACKEND_CHANNELS = {
   setWatchdogRoster: {
     channel: "watchdog:roster:set",
     ...request<[req: WatchdogWriteRequest], WatchdogRosterResult>([watchdogWriteCodec]),
+  },
+  /**
+   * The reviewer roster files (ADR-0047): REVIEW.yml discovered and merged
+   * for `scopeCwd` (null = user file only), plus both editable file views.
+   * Reads only; a filesystem failure rejects.
+   */
+  getReviewRoster: {
+    channel: "review:roster",
+    ...request<[scopeCwd: string | null], ReviewRosterView>([nullable(str())]),
+  },
+  /**
+   * Replaces one REVIEW.yml with the serialized document. Rejects a stale
+   * `baseHash`, an unparseable/lossy on-disk file, and duplicate names.
+   * Answers with the refreshed roster; running sessions apply it on relaunch.
+   */
+  setReviewRoster: {
+    channel: "review:roster:set",
+    ...request<[req: ReviewWriteRequest], ReviewRosterView>([reviewWriteCodec]),
   },
   /**
    * Session-local enable/disable of one registered tool in a pinned live

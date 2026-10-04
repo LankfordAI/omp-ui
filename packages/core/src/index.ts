@@ -263,6 +263,22 @@ export {
 export { getScopedCapabilities, setScopedCapability } from "./capability-catalog";
 export { getWatchdogRoster, setWatchdogRoster } from "./watchdog-config";
 export {
+  parseReviewDocument,
+  readReviewRoster,
+  serializeReviewDocument,
+  setReviewRoster,
+  type EffectiveReviewer,
+  type ReviewDocument,
+  type ReviewFileView,
+  type ReviewReviewer,
+  type ReviewRosterView,
+  type ReviewTargetKind,
+  type ReviewWriteRequest,
+} from "./review-config";
+export { CODE_REVIEW_COMMAND, CODE_REVIEW_TOOL } from "./review";
+export { reviewExtensionPath, writeReviewExtension } from "./review-extension";
+export { reviewOverlayPath, writeReviewOverlay } from "./review-overlay";
+export {
   captureLoginShellKeys,
   maskKey,
   ProviderKeys,

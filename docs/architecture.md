@@ -415,6 +415,26 @@ Advisor enablement and model selection are session state. Core writes a per-line
 
 A dev/test spawn gate ([#371](https://github.com/LankfordAI/omp-ui/issues/371), [#372](https://github.com/LankfordAI/omp-ui/issues/372)) puts the gate on the same contracts: the gate's model and advisor selectors go into the same `--model` argument and `omp-ui-advisor.yml`/`omp-ui-model.yml` overlays, and the renderer displays them as read-only `DEV/TEST` choices in the composer chips and PlanReview's implementation setup whenever `spawnGate` is present in app state. The gate is display-only downstream of spawn resolution: the on/off switch and model pickers keep editing the registry record, which the gate never rewrites — so an ungated relaunch and a running gated instance disagree only in the overlay, which is exactly the point of the seam.
 
+### Code review
+
+`/code-review` and the model-callable `omp-ui_code_review` tool ride a
+per-lineage generated extension passed with `-e`, plus a small always-written
+`--config` overlay restating `async.enabled`/`task.batch` so a global opt-out
+cannot disable review under rpc-ui ([#728](https://github.com/LankfordAI/omp-ui/issues/728),
+[ADR-0047](adr/0047-code-review-roster-via-background-subagents.md)). The
+bridge reads the reviewer roster from `REVIEW.yml` (user + project scope,
+WATCHDOG discovery shape; the extension carries its own restricted YAML-subset
+parser because js-yaml is not available to generated sources), gathers the git
+target with `pi.exec`, and never spawns anything itself: no extension ctx in
+omp exposes `callTool`. It composes one `task` batch invocation and hands it
+to the session model through `pi.sendMessage` with `deliverAs: "nextTurn",
+triggerTurn: true`, inert-fenced. The model makes the batch call; reviewers
+run as background subagents (their steering, cancellation, and the
+hibernation veto are plain subagent behavior, ADR-0045) and results arrive as
+`async-result` wake turns. Rpc-only: PTY tabs neither load the bridge nor
+take the overlay. Reviewers never edit files or post to GitHub; the playbook
+in every `tasks[].task` says so, and findings follow one grammar line.
+
 ### Rewind and the session tree
 
 Rewinding a native session to an earlier prompt rides OMP's existing `branch` RPC: the renderer never rewrites the session file, and the abandoned turns stay in it as another branch. A hover chip on each user row (`packages/desktop/src/renderer/src/components/TranscriptView.tsx`) stages the action; the click is refused while the tab is streaming, because `branch` clears OMP's own prompt queue and a refused click is honest while a queued one is not ([#680](https://github.com/LankfordAI/omp-ui/issues/680)).
@@ -526,3 +546,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [The web-search provider list is read from omp's model catalog](adr/0035-web-search-provider-list-read-from-omp-model-catalog.md) | Enumerate web-search providers from `omp models --kind search --json` under a pristine environment — designed JSON, offline, credential-free — keeping ADR-0027's closed-list contract and synthetic-reason degradation. |
 | [Generated bridges read omp settings through its config registry](adr/0036-generated-bridges-read-omp-settings-through-its-config-registry.md) | Read the effective value with a literal dynamic import of omp's config registry and `lookup(id).get(session.settings)` — layered, live, read-only — because 18.3.2's `Settings` has no string-key `get` and every alternative either writes or guesses. |
 | [Goal mode via omp's native rpc goal command](adr/0046-goal-mode-via-native-rpc-goal-command.md) | Drive goals through omp's rpc `goal` command, `get_state.goal`, and `goal_updated` (omp 18.4.11+, no fallback); budgets at creation only; continuation is omp's own, armed by a per-spawn `goal.continuationModes` overlay that follows the user's `"interactive"` setting; the HUD chip opens pause/resume/drop controls. |
+| [Code review as a batch of background subagents](adr/0047-code-review-roster-via-background-subagents.md) | `/code-review` composes one `task` batch from the `REVIEW.yml` roster and hands it to the model via `pi.sendMessage` (`triggerTurn`) — no extension can spawn; reviewers are `task` items with per-item model pins, results return as `async-result` wakes; rpc-only, guarded by an idempotent `async`/`task.batch` overlay. |

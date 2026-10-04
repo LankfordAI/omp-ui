@@ -184,6 +184,18 @@ const VALID_ARGS = {
   setRemotePort: [8080],
   setScopedCapability: [{ scopeCwd: null, kind: "tool", tool: "bash", enabled: true }],
   getWatchdogRoster: [null],
+  getReviewRoster: [null],
+  setReviewRoster: [
+    {
+      scopeCwd: null,
+      scope: "user",
+      baseHash: null,
+      document: {
+        instructions: null,
+        reviewers: [{ name: "code-reviewer", model: null, instructions: null, targets: null, enabled: true }],
+      },
+    },
+  ],
   setWatchdogRoster: [
     {
       scopeCwd: null,

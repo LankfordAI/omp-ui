@@ -24,8 +24,10 @@ import {
   writeVibeExtension,
   writeLimitsExtension,
   writePlanExtension,
-  writeTreeExtension,
+  writeReviewExtension,
+  writeReviewOverlay,
   writeSideQuestionsExtension,
+  writeTreeExtension,
   writeSubagentModelOverlay,
 } from "@omp-ui/core";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
@@ -112,6 +114,11 @@ export async function writeRpcOverlays(
   subagents: SubagentSpawnConfig = { inheritByDefault: false, roster: [] },
 ): Promise<string[]> {
   const overlays = writeSessionOverlays(record, absLineageDir, gate, subagents);
+  // The reviewer roster needs the batch task tool and async job delivery even
+  // when the user's global config turned either off (ADR-0047). Rpc-only: PTY
+  // tabs do not run the review bridge, and restating omp's own rpc defaults
+  // (both true under protocolDefault ["rpc"]) is idempotent.
+  overlays.push(writeReviewOverlay(absLineageDir));
   const projectCwd = record.worktree?.path ?? record.projectCwd;
   // Read concurrently with the compaction probe: omp continues goals only in the
   // modes `goal.continuationModes` lists, and rpc-ui is mode "rpc" (ADR-0046).
@@ -181,6 +188,7 @@ export const RPC_BRIDGE_IDS = [
   "limits",
   "tree",
   "sideQuestions",
+  "review",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
 export type RpcBridgeWriters = Record<RpcBridgeId, (lineageDir: string) => string>;
@@ -196,6 +204,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   limits: writeLimitsExtension,
   tree: writeTreeExtension,
   sideQuestions: writeSideQuestionsExtension,
+  review: writeReviewExtension,
 };
 
 const RPC_BRIDGES: ReadonlyArray<{
@@ -214,6 +223,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "limits", logId: "limits", warning: "limits", enabled: () => true },
   { id: "tree", logId: "tree", warning: "tree", enabled: () => true },
   { id: "sideQuestions", logId: "btw", warning: "btw", enabled: () => true },
+  { id: "review", logId: "review", warning: "code-review", enabled: () => true },
 ];
 export interface RpcExtensionWriteResult {
   paths: string[];

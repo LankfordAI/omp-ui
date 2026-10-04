@@ -1398,3 +1398,15 @@ export interface DiagnosticsExportResult {
 
 
 export type { OmpBackend } from "./backend-channels";
+
+// The REVIEW.yml roster shapes (issue #728, ADR-0047), re-exported for the
+// renderer's type-only import (ADR-0002); erased at compile time.
+export type {
+  EffectiveReviewer,
+  ReviewDocument,
+  ReviewFileView,
+  ReviewReviewer,
+  ReviewRosterView,
+  ReviewTargetKind,
+  ReviewWriteRequest,
+} from "./review-config";
