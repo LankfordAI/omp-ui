@@ -665,9 +665,15 @@ commits' subjects and the issues they close, or the branch kept, optionally
 renamed; and whether the session returns to the project checkout or stays
 in its worktree. It previews the merge with `git merge-tree`, runs merges
 into a destination checked out nowhere in a scratch worktree under the
-worktrees root, and on a conflict offers to sync the destination into the
-worktree, so the owning session resolves it in the checkout that holds the
-change rather than in the project checkout. A checkout with uncommitted
+worktrees root, and offers to sync predicted conflicts into the worktree
+for its owning session to resolve. Scratch conflicts are aborted. A stopped
+merge in the project checkout instead offers **Resolve with agent**, including
+when Finish is reopened: the original live native session receives the task
+in Build mode, explicitly targeting the project checkout rather than its
+worktree. Terminal, dormant, or exited sessions explicitly offer a fresh
+native resolution session there (issue #727). Resolution verifies and completes
+only that existing merge; it never publishes, returns, or removes the worktree.
+A checkout with uncommitted
 changes cannot be returned — main enforces it, and the delete dialog is the
 one surface that offers the loss explicitly. Returning **releases the
 worktree**: the record, its transcript, its tab and its lineage survive back
@@ -697,6 +703,11 @@ and session — where the work goes, whether it lands as a merge commit or a
 kept branch, and whether the session returns to the project checkout or
 stays in its worktree. Finish settles local state only — publishing or pushing
 the destination is a separate explicit step.
+An existing project-checkout merge remains actionable regardless of the chosen
+future destination or outcome. Agent resolution preserves the original native
+context when usable, discloses the fresh fallback otherwise, and leaves Finish
+and worktree return as later user decisions; busy sessions and pending human
+answers block the handoff rather than silently replacing its context (#727).
 _Avoid_: closing the worktree, merge & close
 
 **Publish**:

@@ -1245,7 +1245,7 @@ describe("BranchChip resolve row (issue #675)", () => {
   /** The spawn action the row dispatches through, stubbed at the store. */
   let spawnResolve: Mock;
   beforeEach(() => {
-    spawnResolve = vi.fn(async () => {});
+    spawnResolve = vi.fn(async () => true);
     useStore.setState({ spawnGitResolution: spawnResolve });
   });
 

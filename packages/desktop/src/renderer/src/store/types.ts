@@ -916,15 +916,21 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * when main rejected — already reported to the error notices.
    */
   syncWorktreeSession(tabId: string, source: string): Promise<WorktreeSyncResult | null>;
-  /** Issue #675: spawn a session in the given checkout seeded with a git
-   * resolution playbook (divergence integration or a stopped merge). Routes
-   * through the checkout's owner instance; reuses the worktree when the path
-   * is one, so the session lands in the checkout the branch chip shows. */
+  /** Spawns a native resolution session in the explicitly addressed instance's
+   * checkout, reusing its registered worktree when applicable. True only once
+   * that session acknowledges the resolution prompt. */
   spawnGitResolution(
     projectCwd: string,
     trigger: GitResolutionTrigger,
     instanceId?: string | null,
-  ): Promise<void>;
+  ): Promise<boolean>;
+  /** Resolves the owning project's stopped merge without returning the worktree.
+   * A stale route or unsafe source/target refuses dispatch; success is an ack. */
+  resolveWorktreeMerge(
+    tabId: string,
+    trigger: Extract<GitResolutionTrigger, { kind: "merge" }>,
+    route: "current" | "fresh",
+  ): Promise<boolean>;
   /**
    * Renames a worktree session's branch in the checkout and on its record
    * (issues #386, #389); false when main rejected — already reported.

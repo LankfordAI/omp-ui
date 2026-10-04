@@ -8,6 +8,8 @@ import type {
 import { releaseNoticeLevel, releaseNoticeText } from "../lib/format";
 import { t } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
+import type { GitResolutionTrigger } from "../lib/git-resolution-prompt";
+import { worktreeMergeResolutionState } from "../lib/worktree-merge-resolution";
 import {
   findOwner,
   findRecord,
@@ -37,7 +39,7 @@ export type FinishPhase =
   /** The initial destination resolution / status read is in flight. */
   | { s: "loading" }
   | { s: "working"; step: FinishStep }
-  | { s: "conflict"; files: string[]; leftIn: "project" | null }
+  | { s: "conflict"; files: string[]; leftIn: "project" | null; destination: string }
   | { s: "error"; message: string }
   /**
    * The run landed the work locally (issue #414): the merge merged, the
@@ -68,6 +70,12 @@ export type FinishPushState =
   /** The request itself failed (transport); git state never lands here. */
   | { s: "failed"; message: string };
 
+type FinishResolution = {
+  trigger: Extract<GitResolutionTrigger, { kind: "merge" }>;
+  route: "current" | "fresh";
+  blockedReason: string | null;
+};
+
 export interface FinishController {
   /** The worktree session; undefined once the record vanished — the dialog closes itself then. */
   record: SessionSummary | undefined;
@@ -86,6 +94,12 @@ export interface FinishController {
   /** Status for the effective destination (newBranch.from while newBranch is set). */
   status: MergeBackStatus | null;
   phase: FinishPhase;
+  resolution: FinishResolution | null;
+  resolutionBusy: boolean;
+  resolutionError: string | null;
+  resolveWithAgent(): Promise<void>;
+  /** Guards every dismissal path while a resolution request is pending. */
+  close(): void;
   /** The done row's push affordance (issue #414); idle outside the done phase. */
   pushState: FinishPushState;
   /** The repo's push remote from the branch listing; null disables publishing. */
@@ -167,6 +181,12 @@ export function useFinishWorktree(tabId: string): FinishController {
   const closeFinishWorktree = useStore((s) => s.closeFinishWorktree);
   const pushGitBranch = useStore((s) => s.pushGitBranch);
   const getPullRequestUrl = useStore((s) => s.getPullRequestUrl);
+  const resolveWorktreeMerge = useStore((s) => s.resolveWorktreeMerge);
+  // Primitive selectors keep the shared helper's fresh objects out of Zustand's snapshot.
+  const resolutionRoute = useStore((s) => worktreeMergeResolutionState(s, tabId)?.route ?? null);
+  const resolutionBlockedReason = useStore(
+    (s) => worktreeMergeResolutionState(s, tabId)?.blockedReason ?? null,
+  );
 
   const [suggestedDestination, setSuggestedDestination] = useState<string | null>(null);
   const [destination, setDestinationState] = useState<string | null>(null);
@@ -180,9 +200,15 @@ export function useFinishWorktree(tabId: string): FinishController {
   const [nameSuggestion, setNameSuggestion] = useState<string | null>(null);
   const [returnSession, setReturnSession] = useState(true);
   const [status, setStatus] = useState<MergeBackStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
   const [phase, setPhase] = useState<FinishPhase>({ s: "loading" });
   const [pushState, setPushState] = useState<FinishPushState>({ s: "idle" });
   const [prUnavailable, setPrUnavailable] = useState(false);
+  const [resolutionBusy, setResolutionBusy] = useState(false);
+  const [resolutionError, setResolutionError] = useState<string | null>(null);
+  const [resolutionAttempt, setResolutionAttempt] = useState<FinishResolution | null>(null);
+  // React state cannot exclude two clicks in one event turn; this latch can.
+  const resolutionPending = useRef(false);
 
   // Stale-reply guards: one counter for the destination resolution chain,
   // one for the status reads, so a slow reply can never overwrite a newer one.
@@ -209,7 +235,7 @@ export function useFinishWorktree(tabId: string): FinishController {
         useStore.getState().branches[projectKey(instanceId, projectCwd)]?.defaultBranch ??
         names.find((name) => name !== worktreeBranch) ??
         null;
-      setDestinationState((prev) => prev ?? fallback);
+      if (!resolutionPending.current) setDestinationState((prev) => prev ?? fallback);
     })();
     // `record` is read through its scalar projections on purpose: re-running
     // on object identity would re-resolve on every broadcast.
@@ -238,6 +264,7 @@ export function useFinishWorktree(tabId: string): FinishController {
   // than an early return in the async call (issue #389's dialog half).
   useEffect(() => {
     if (nameSuggestion === null || renameTyped) return;
+    if (resolutionPending.current) return;
     if (worktreeBranch === null || projectCwd === undefined) return;
     if (!isMintedWorktreeBranch(worktreeBranch, worktreeBranchPrefix(projectCwd))) return;
     setRename(nameSuggestion);
@@ -247,6 +274,7 @@ export function useFinishWorktree(tabId: string): FinishController {
   // destination name field while it is still untouched (issue #428).
   useEffect(() => {
     if (newBranch === null || newBranchNameTyped || newBranch.name !== "") return;
+    if (resolutionPending.current) return;
     if (nameSuggestion === null) return;
     setNewBranch((prev) => (prev === null ? prev : { ...prev, name: nameSuggestion }));
   }, [newBranch, newBranchNameTyped, nameSuggestion]);
@@ -286,6 +314,7 @@ export function useFinishWorktree(tabId: string): FinishController {
     if (projectCwd === undefined || worktreeBranch === null || effectiveDestination === null)
       return;
     const seq = ++statusSeq.current;
+    setStatusLoading(true);
     readMergeBackStatus(
       projectCwd,
       worktreeBranch,
@@ -295,16 +324,18 @@ export function useFinishWorktree(tabId: string): FinishController {
     )
       .then((next) => {
         if (seq !== statusSeq.current) return;
+        setStatusLoading(false);
         setStatus(next);
         setPhase((prev) => (prev.s === "loading" ? { s: "idle" } : prev));
         // A dirty checkout cannot be returned (issue #388): both UI and main
         // refuse, so the checkbox follows the status, not the other way round.
-        if (next.worktreeDirty === true) setReturnSession(false);
+        if (next.worktreeDirty === true && !resolutionPending.current) setReturnSession(false);
       })
       .catch((error: unknown) => {
         if (seq !== statusSeq.current) return;
+        setStatusLoading(false);
         setStatus(null);
-        setPhase({ s: "error", message: errorMessage(error) });
+        setPhase((prev) => prev.s === "conflict" ? prev : { s: "error", message: errorMessage(error) });
       });
   };
 
@@ -314,23 +345,87 @@ export function useFinishWorktree(tabId: string): FinishController {
     // anything it reads changes (mode flips included).
   }, [projectCwd, worktreeBranch, statusKey]);
 
+  const projectConflict = phase.s === "conflict" && phase.leftIn === "project" ? phase : null;
+  const resolution: FinishResolution | null = resolutionBusy
+    ? resolutionAttempt
+    : resolutionRoute !== null && projectCwd !== undefined && worktreeBranch !== null &&
+        phase.s !== "working" && phase.s !== "done" &&
+        (projectConflict !== null || status?.mergeInProgress === true || branchInfo?.mergeInProgress === true)
+      ? {
+          route: resolutionRoute,
+          blockedReason: resolutionBlockedReason,
+          trigger: {
+            kind: "merge",
+            cwd: projectCwd,
+            // A reopened dialog knows only the project checkout's current branch,
+            // not which source actually started its existing merge.
+            branch: projectConflict?.destination ?? branchInfo?.current ?? null,
+            finish: {
+              sourceBranch: worktreeBranch,
+              destinationBranch: projectConflict?.destination ?? branchInfo?.current ?? null,
+              files: projectConflict?.files ?? [],
+            },
+          },
+        }
+      : null;
+
+  const close = (): void => {
+    if (!resolutionPending.current) closeFinishWorktree();
+  };
+
+  const resolveWithAgent = async (): Promise<void> => {
+    if (resolutionPending.current || resolution === null || resolution.blockedReason !== null) return;
+    // Freeze both the route and advisory facts for this attempt; later selections
+    // and broadcasts must never retarget an already admitted request.
+    const attempt = {
+      ...resolution,
+      trigger: {
+        ...resolution.trigger,
+        finish: resolution.trigger.finish === undefined ? undefined : {
+          ...resolution.trigger.finish,
+          files: [...resolution.trigger.finish.files],
+        },
+      },
+    };
+    resolutionPending.current = true;
+    setResolutionAttempt(attempt);
+    setResolutionBusy(true);
+    setResolutionError(null);
+    try {
+      const accepted = await resolveWorktreeMerge(tabId, attempt.trigger, attempt.route);
+      if (accepted) closeFinishWorktree();
+      else setResolutionError(t("finish.resolution.failed"));
+    } catch (error) {
+      setResolutionError(`${t("finish.resolution.failed")} ${errorMessage(error)}`);
+    } finally {
+      resolutionPending.current = false;
+      setResolutionBusy(false);
+      setResolutionAttempt(null);
+    }
+  };
+
   const setDestination = (name: string): void => {
+    if (resolutionPending.current) return;
+    setStatusLoading(true);
     setNewBranch(null);
     setDestinationState(name);
-    setPhase({ s: "loading" });
+    setPhase((prev) => prev.s === "conflict" ? prev : { s: "loading" });
   };
 
   const chooseNewBranch = (): void => {
+    if (resolutionPending.current) return;
+    setStatusLoading(true);
     setNewBranch({
       name: nameSuggestion ?? "",
       from: suggestedDestination ?? branchNames?.find((name) => name !== worktreeBranch) ?? "",
     });
-    setPhase({ s: "loading" });
+    setPhase((prev) => prev.s === "conflict" ? prev : { s: "loading" });
   };
 
   const run = async (): Promise<void> => {
+    if (resolutionPending.current) return;
     if (record === undefined || record.worktree === null || status === null) return;
-    if (phase.s === "working" || phase.s === "loading") return;
+    if (phase.s === "working" || phase.s === "loading" || statusLoading) return;
     const cwd = record.projectCwd;
     let branch = record.worktree.branch;
     let target = effectiveDestination;
@@ -379,18 +474,18 @@ export function useFinishWorktree(tabId: string): FinishController {
         return;
       }
       if (result.kind === "conflicts") {
-        setPhase({ s: "conflict", files: result.files, leftIn: result.conflictsLeftIn });
+        setPhase({ s: "conflict", files: result.files, leftIn: result.conflictsLeftIn, destination: result.destination });
         appendNotice(
           tabId,
           result.conflictsLeftIn === "project"
             ? t("notice.merge.conflictProject", {
                 count: result.files.length,
-                destination: target,
+                destination: result.destination,
                 cwd,
               })
             : t("notice.merge.conflictAborted", {
                 count: result.files.length,
-                destination: target,
+                destination: result.destination,
               }),
           "warn",
         );
@@ -477,6 +572,7 @@ export function useFinishWorktree(tabId: string): FinishController {
   };
 
   const sync = async (): Promise<void> => {
+    if (resolutionPending.current) return;
     if (record === undefined || record.worktree == null || effectiveDestination === null) return;
     setPhase({ s: "working", step: "syncing" });
     const result = await syncWorktreeSession(tabId, effectiveDestination);
@@ -510,6 +606,7 @@ export function useFinishWorktree(tabId: string): FinishController {
   // refuses while a pull runs on the same repo, and the slice refreshes the
   // listing after a push that moved a ref.
   const pushDone = async (): Promise<void> => {
+    if (resolutionPending.current) return;
     if (phase.s !== "done" || projectCwd === undefined) return;
     if (pushState.s === "busy") return;
     if (pushState.s !== "confirm" && (busyTitle !== null || ownRunning)) {
@@ -527,11 +624,13 @@ export function useFinishWorktree(tabId: string): FinishController {
   };
 
   const askPushConfirm = (): void => {
+    if (resolutionPending.current) return;
     if (phase.s !== "done" || pushState.s === "busy") return;
     setPushState({ s: "confirm" });
   };
 
   const dismissPushConfirm = (): void => {
+    if (resolutionPending.current) return;
     if (pushState.s !== "confirm") return;
     setPushState({ s: "idle" });
   };
@@ -541,6 +640,7 @@ export function useFinishWorktree(tabId: string): FinishController {
   // way this fails outright — a transport error — reads the same, because the
   // user's next move is identical either way.
   const openPullRequest = async (): Promise<void> => {
+    if (resolutionPending.current) return;
     if (phase.s !== "done" || projectCwd === undefined) return;
     // A detached HEAD has no default branch to compare against; that is the
     // same dead end as a remote with no web face, and it says so the same way.
@@ -577,7 +677,7 @@ export function useFinishWorktree(tabId: string): FinishController {
   const renaming = rename.trim() !== "" && rename.trim() !== (worktreeBranch ?? "");
 
   let primaryLabel: string | null;
-  if (destination === null || status === null || !status.branchExists) primaryLabel = null;
+  if (statusLoading || destination === null || status === null || !status.branchExists) primaryLabel = null;
   else if (outcome === "merge") {
     if (mergeBlocked) primaryLabel = null;
     else if (newBranch !== null && newBranch.name.trim() === "") primaryLabel = null;
@@ -603,6 +703,11 @@ export function useFinishWorktree(tabId: string): FinishController {
     returnSession,
     status,
     phase,
+    resolution,
+    resolutionBusy,
+    resolutionError,
+    resolveWithAgent,
+    close,
     pushState,
     defaultRemote,
     defaultBranch,
@@ -615,17 +720,25 @@ export function useFinishWorktree(tabId: string): FinishController {
     setDestination,
     chooseNewBranch,
     setNewBranch: (patch) => {
+      if (resolutionPending.current) return;
+      if (newBranch !== null && patch.from !== undefined && patch.from !== newBranch.from)
+        setStatusLoading(true);
       // A patch carrying `name` is the input typing (the `from` select writes
       // no name key); latch so no prefill ever displaces it (issue #428).
       if (patch.name !== undefined) setNewBranchNameTyped(true);
       setNewBranch((prev) => (prev === null ? prev : { ...prev, ...patch }));
     },
-    setOutcome,
+    setOutcome: (value) => {
+      if (!resolutionPending.current) setOutcome(value);
+    },
     setRename: (name) => {
+      if (resolutionPending.current) return;
       setRenameTyped(true);
       setRename(name);
     },
-    setReturnSession,
+    setReturnSession: (value) => {
+      if (!resolutionPending.current) setReturnSession(value);
+    },
     sync,
     run,
     pushDone,

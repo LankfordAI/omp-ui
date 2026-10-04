@@ -104,6 +104,8 @@ Object.assign(window, { ompBackend: backendMock });
 // at module load, so the mock above must land first.
 const { useStore } = await import("../store");
 const { FinishWorktreeDialog } = await import("./FinishWorktreeDialog");
+const originalResolution = useStore.getState().resolveWorktreeMerge;
+const resolutionMock = vi.fn<typeof originalResolution>();
 
 let root: Root | null = null;
 
@@ -180,6 +182,7 @@ function seed(branch: string = BRANCH): void {
     activeTabId: null,
     focusedTabByProject: {},
     rpc: {},
+    exited: {},
     consoleOpen: {},
     finishWorktreeTab: TAB,
   });
@@ -266,6 +269,8 @@ async function clickInput(input: HTMLInputElement): Promise<void> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resolutionMock.mockReset().mockResolvedValue(true);
+  useStore.setState({ resolveWorktreeMerge: resolutionMock });
   backendMock.listBranches.mockResolvedValue(listing);
   backendMock.resolveMergeDestination.mockResolvedValue({ destination: "main", reason: null });
   backendMock.getMergeBackStatus.mockResolvedValue(statusFixture());
@@ -291,6 +296,7 @@ afterEach(() => {
     root = null;
   }
   document.body.replaceChildren();
+  useStore.setState({ resolveWorktreeMerge: originalResolution });
 });
 
 describe("FinishWorktreeDialog", () => {
@@ -533,6 +539,239 @@ describe("FinishWorktreeDialog", () => {
     expect(document.body.textContent).toContain(
       "the merge stopped on 1 file(s) in the project checkout — nothing was returned",
     );
+  });
+
+  describe("agent resolution of the existing project merge (issue #727)", () => {
+    const resolutionButton = (): HTMLButtonElement | undefined => buttonByText("Resolve with agent");
+    const conflictResult = (destination = "main"): MergeBackResult => ({
+      kind: "conflicts", destination, commits: 0,
+      files: ["src/a.ts"], conflictsLeftIn: "project",
+    });
+    const makeNative = (): void => {
+      act(() => useStore.setState({
+        state: stateWith({ ...summary, mode: "rpc-ui" }),
+        tabs: [tabInfo({ tabId: TAB, projectCwd: "/p" })],
+        rpc: { [TAB]: rpcTabState() },
+      }));
+    };
+    const stopMerge = async (destination = "main"): Promise<void> => {
+      backendMock.mergeWorktreeBranch.mockResolvedValue(conflictResult(destination));
+      act(() => primaryButton().click());
+      await act(async () => { await flushMicrotasks(); });
+    };
+    const expectNoFinishEffects = (): void => {
+      expect(backendMock.releaseWorktree).not.toHaveBeenCalled();
+      expect(backendMock.syncWorktree).not.toHaveBeenCalled();
+      expect(backendMock.renameWorktreeBranch).not.toHaveBeenCalled();
+      expect(backendMock.pushBranch).not.toHaveBeenCalled();
+      expect(backendMock.pullRequestUrl).not.toHaveBeenCalled();
+    };
+
+    it.each(["current", "fresh"] as const)("offers the %s route beside the conflict and closes only on acknowledgement", async (route) => {
+      let acknowledge!: (accepted: boolean) => void;
+      resolutionMock.mockReturnValue(new Promise<boolean>((resolve) => { acknowledge = resolve; }));
+      await openDialog();
+      if (route === "current") makeNative();
+      await stopMerge();
+
+      const action = resolutionButton()!;
+      expect(action).toBeDefined();
+      expect(action.closest("label")).toBeNull();
+      expect(document.body.textContent).toContain(route === "current"
+        ? "Send this task to this session. It will resolve the merge in /p, not its worktree."
+        : "Start a new native resolution session in /p. Your original session and worktree stay unchanged.");
+      expect(document.body.textContent).toContain("Nothing will be pushed or returned.");
+      act(() => action.click());
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(resolutionMock).toHaveBeenCalledWith(TAB, {
+        kind: "merge", cwd: "/p", branch: "main",
+        finish: { sourceBranch: BRANCH, destinationBranch: "main", files: ["src/a.ts"] },
+      }, route);
+      await act(async () => { acknowledge(true); await flushMicrotasks(); });
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+      expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledTimes(1);
+      expectNoFinishEffects();
+    });
+
+    it("does not retarget captured conflict facts when the selected or new destination changes", async () => {
+      await openDialog();
+      await stopMerge("captured/destination");
+      await selectInto(destinationSelect(), "feature/x");
+      await selectInto(destinationSelect(), "__new__");
+      await typeInto(newBranchNameInput(), "release/later");
+      act(() => resolutionButton()!.click());
+      await act(async () => { await flushMicrotasks(); });
+      expect(resolutionMock).toHaveBeenCalledWith(TAB, {
+        kind: "merge", cwd: "/p", branch: "captured/destination",
+        finish: { sourceBranch: BRANCH, destinationBranch: "captured/destination", files: ["src/a.ts"] },
+      }, "fresh");
+      expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledTimes(1);
+      expect(backendMock.createBranch).not.toHaveBeenCalled();
+      expectNoFinishEffects();
+    });
+
+    it("captures the result destination even when Finish created a new branch", async () => {
+      await openDialog();
+      await selectInto(destinationSelect(), "__new__");
+      await typeInto(newBranchNameInput(), "release/next");
+      await stopMerge("release/actual");
+      await typeInto(newBranchNameInput(), "release/later");
+      act(() => resolutionButton()!.click());
+      await act(async () => { await flushMicrotasks(); });
+      expect(resolutionMock.mock.calls[0]![1]).toMatchObject({
+        cwd: "/p", branch: "release/actual",
+        finish: { destinationBranch: "release/actual", sourceBranch: BRANCH, files: ["src/a.ts"] },
+      });
+      expect(backendMock.createBranch).toHaveBeenCalledTimes(1);
+      expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledTimes(1);
+      expectNoFinishEffects();
+    });
+
+    it.each(["keep", "other", "new"] as const)("finds a reopened project merge independently of the %s selection", async (selection) => {
+      backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({ mergeInProgress: true }));
+      await openDialog();
+      expect(outcomeRadios()[0]!.closest("label")!.className).toContain("pointer-events-none");
+      if (selection === "keep") await clickInput(outcomeRadios()[1]!);
+      else {
+        backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({
+          destination: "feature/x", destinationCheckout: "other", mergeInProgress: true,
+        }));
+        await selectInto(destinationSelect(), selection === "new" ? "__new__" : "feature/x");
+      }
+      const action = resolutionButton()!;
+      expect(action.disabled).toBe(false);
+      expect(action.closest("label")).toBeNull();
+      expect(document.body.textContent).toContain("git merge --continue");
+      act(() => action.click());
+      await act(async () => { await flushMicrotasks(); });
+      expect(resolutionMock).toHaveBeenCalledWith(TAB, {
+        kind: "merge", cwd: "/p", branch: "main",
+        finish: { sourceBranch: BRANCH, destinationBranch: "main", files: [] },
+      }, "fresh");
+      expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
+      expect(backendMock.createBranch).not.toHaveBeenCalled();
+      expectNoFinishEffects();
+    });
+
+    it("offers no resolution for preview-only or scratch-aborted conflicts", async () => {
+      backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({
+        destinationCheckout: "none", preview: { kind: "conflicts", files: ["src/a.ts"] },
+      }));
+      await openDialog();
+      expect(resolutionButton()).toBeUndefined();
+      backendMock.mergeWorktreeBranch.mockResolvedValue({ ...conflictResult(), conflictsLeftIn: null });
+      act(() => primaryButton().click());
+      await act(async () => { await flushMicrotasks(); });
+      expect(document.body.textContent).toContain("nothing was changed");
+      expect(resolutionButton()).toBeUndefined();
+      expect(resolutionMock).not.toHaveBeenCalled();
+      expectNoFinishEffects();
+    });
+
+    it("still offers independent project resolution after a scratch abort", async () => {
+      backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({
+        destinationCheckout: "none", mergeInProgress: true,
+      }));
+      await openDialog();
+      backendMock.mergeWorktreeBranch.mockResolvedValue({ ...conflictResult(), conflictsLeftIn: null });
+      act(() => primaryButton().click());
+      await act(async () => { await flushMicrotasks(); });
+      expect(resolutionButton()?.disabled).toBe(false);
+      act(() => resolutionButton()!.click());
+      await act(async () => { await flushMicrotasks(); });
+      expect(resolutionMock.mock.calls[0]![1].finish?.files).toEqual([]);
+      expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledTimes(1);
+      expectNoFinishEffects();
+    });
+
+    it("latches double-clicks, freezes all Finish controls and dismissal, and keeps failure retryable", async () => {
+      let acknowledge!: (accepted: boolean) => void;
+      resolutionMock.mockReturnValueOnce(new Promise<boolean>((resolve) => { acknowledge = resolve; }));
+      await openDialog();
+      await stopMerge();
+      const action = resolutionButton()!;
+      act(() => {
+        action.click();
+        action.click();
+        primaryButton().click();
+        buttonByText("Cancel")!.click();
+        const select = destinationSelect();
+        select.value = "feature/x";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      expect(resolutionMock).toHaveBeenCalledTimes(1);
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(buttonByText("Sending resolution task…")!.disabled).toBe(true);
+      expect(destinationSelect().value).toBe("main");
+      expect([...document.body.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select")]
+        .every((control) => control.disabled)).toBe(true);
+      expect(primaryButton().disabled).toBe(true);
+      expect(buttonByText("Cancel")!.disabled).toBe(true);
+      act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      act(() => document.querySelector("[data-overlay-root]")!.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      await act(async () => { acknowledge(false); await flushMicrotasks(); });
+      expect(document.body.textContent).toContain("the merge stopped on 1 file(s)");
+      expect(document.querySelector('[role="alert"]')!.textContent).toContain("The agent did not accept");
+      expect(resolutionButton()!.disabled).toBe(false);
+      expect(destinationSelect().disabled).toBe(false);
+      expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledTimes(1);
+      expectNoFinishEffects();
+      act(() => resolutionButton()!.click());
+      await act(async () => { await flushMicrotasks(); });
+      expect(resolutionMock).toHaveBeenCalledTimes(2);
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+      expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledTimes(1);
+      expectNoFinishEffects();
+    });
+
+    it("retains the conflict and action when dispatch throws", async () => {
+      resolutionMock.mockRejectedValueOnce(new Error("connection lost"));
+      await openDialog();
+      await stopMerge();
+      act(() => resolutionButton()!.click());
+      await act(async () => { await flushMicrotasks(); });
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(document.body.textContent).toContain("the merge stopped on 1 file(s)");
+      expect(document.querySelector('[role="alert"]')!.textContent).toContain("connection lost");
+      expect(resolutionButton()!.disabled).toBe(false);
+      expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledTimes(1);
+      expectNoFinishEffects();
+    });
+
+    it.each(["busy", "answer"] as const)("shows the %s source blocker without dropping resolution guidance", async (blocker) => {
+      backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({ mergeInProgress: true }));
+      await openDialog();
+      makeNative();
+      act(() => useStore.setState({ rpc: { [TAB]: rpcTabState(blocker === "busy"
+        ? { status: "running" }
+        : { extensionQueue: [{ id: "answer", method: "confirm", title: "Continue?" }] }) } }));
+      expect(resolutionButton()!.disabled).toBe(true);
+      expect(document.body.textContent).toContain(blocker === "busy"
+        ? "This session is busy or not ready"
+        : "This session is waiting for a human answer");
+      expect(document.body.textContent).toContain("git merge --continue");
+      act(() => resolutionButton()!.click());
+      expect(resolutionMock).not.toHaveBeenCalled();
+      expectNoFinishEffects();
+    });
+
+    it("shows a busy project-checkout blocker outside the disabled merge row", async () => {
+      backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({ mergeInProgress: true }));
+      await openDialog();
+      const state = stateWith(summary);
+      state.projects[0]!.sessions.push({ ...summary, tabId: "busy", title: "Busy target", mode: "rpc-ui", worktree: null });
+      act(() => useStore.setState({
+        state, tabs: [tabInfo({ tabId: "busy", projectCwd: "/p" })],
+        rpc: { busy: rpcTabState({ status: "running" }) },
+      }));
+      expect(resolutionButton()!.closest("label")).toBeNull();
+      expect(resolutionButton()!.disabled).toBe(true);
+      expect(document.body.textContent).toContain("Session “Busy target” is mid-turn in the project checkout");
+      expect(document.body.textContent).toContain("git merge --continue");
+      expect(resolutionMock).not.toHaveBeenCalled();
+      expectNoFinishEffects();
+    });
   });
 
   describe("primary label matrix", () => {
