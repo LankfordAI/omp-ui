@@ -434,7 +434,9 @@ run as background subagents (their steering, cancellation, and the
 hibernation veto are plain subagent behavior, ADR-0045) and results arrive as
 `async-result` wake turns. Rpc-only: PTY tabs neither load the bridge nor
 take the overlay. Reviewers never edit files or post to GitHub; the playbook
-in every `tasks[].task` says so, and findings follow one grammar line.
+in every `tasks[].task` owns the output contract: one findings format, the
+`no findings.` terminator, and a `review incomplete:` notice for a blocked review
+or drifted PR head.
 
 ### Rewind and the session tree
 
