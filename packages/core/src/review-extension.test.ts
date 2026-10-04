@@ -6,7 +6,9 @@ import * as path from "node:path";
 import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 import { CODE_REVIEW_COMMAND, CODE_REVIEW_TOOL } from "./review";
+import { parseReviewDocument, serializeReviewDocument } from "./review-config";
 import { reviewExtensionPath, writeReviewExtension } from "./review-extension";
+import { writeReviewRosterSnapshot } from "./review-roster-snapshot";
 import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const nodeRequire = module.createRequire(import.meta.url);
@@ -15,6 +17,14 @@ const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
+
+function tempDir(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  dirs.push(dir);
+  return dir;
+}
+
+type TextResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 
 interface ToolDefinition {
   name: string;
@@ -25,18 +35,18 @@ interface ToolDefinition {
     signal: AbortSignal | undefined,
     onUpdate: unknown,
     ctx: Record<string, unknown> | undefined,
-  ) => Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }>;
+  ) => Promise<TextResult>;
 }
 
 interface Harness {
+  dir: string;
   commands: Map<string, (args: string, ctx: Record<string, unknown>) => Promise<void>>;
-  tool: ToolDefinition | null;
+  tool: ToolDefinition;
   sends: Array<{ message: Record<string, unknown>; options: Record<string, unknown> }>;
 }
 
 function harness(options: { sendThrows?: boolean; withoutSend?: boolean } = {}): Harness {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-review-ext-"));
-  dirs.push(dir);
+  const dir = tempDir("omp-ui-review-ext-");
   const file = writeReviewExtension(dir);
   expect(file).toBe(reviewExtensionPath(dir));
   typecheckGeneratedExtension(file);
@@ -70,178 +80,371 @@ function harness(options: { sendThrows?: boolean; withoutSend?: boolean } = {}):
           sends.push({ message, options: opts });
         },
   });
-  return {
-    commands,
-    get tool() {
-      return tool;
-    },
-    sends,
-  };
+  if (tool === null) throw new Error("generated code-review extension registered no tool");
+  return { dir, commands, tool, sends };
 }
 
-/** A git checkout whose user-scoped agent dir carries a two-entry roster. */
-function makeRepo(roster?: string): { repo: string; envRestore: () => void } {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-review-repo-"));
-  dirs.push(base);
-  const repo = path.join(base, "repo");
-  fs.mkdirSync(repo, { recursive: true });
-  childProcess.execFileSync("git", ["init", "-q", repo]);
-  fs.writeFileSync(path.join(repo, "f.txt"), "hello\n");
-  childProcess.execFileSync("git", ["-C", repo, "add", "f.txt"]);
-  childProcess.execFileSync("git", [
-    "-c",
-    "user.email=t@t",
-    "-c",
-    "user.name=t",
-    "-C",
-    repo,
-    "commit",
-    "-q",
-    "-m",
-    "add f",
-  ]);
+const DEFAULT_ROSTER =
+  "instructions: find bugs\nreviewers:\n  - name: sec\n    model: vllm/gemma-4-31b-it\n  - name: nit\n    enabled: false\n";
+
+/** Writes REVIEW.yml into a private agent dir and snapshots it the way main does at spawn. */
+async function loadRoster(h: Harness, scopeCwd: string, roster: string = DEFAULT_ROSTER): Promise<void> {
+  const base = tempDir("omp-ui-review-agent-");
   const agentDir = path.join(base, "agent");
+  const home = path.join(base, "home");
   fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(agentDir, "REVIEW.yml"),
-    roster ??
-      "instructions: find bugs\nreviewers:\n  - name: sec\n    model: vllm/gemma-4-31b-it\n  - name: nit\n    enabled: false\n",
-  );
-  const previous = process.env.PI_CODING_AGENT_DIR;
-  process.env.PI_CODING_AGENT_DIR = agentDir;
-  return {
-    repo,
-    envRestore: () => {
-      if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = previous;
-    },
-  };
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "REVIEW.yml"), roster);
+  await writeReviewRosterSnapshot(h.dir, scopeCwd, { PI_CODING_AGENT_DIR: agentDir }, home);
+}
+
+const GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false"];
+
+function git(repo: string, ...args: string[]): string {
+  return childProcess.execFileSync("git", [...GIT_ID, "-C", repo, ...args], { encoding: "utf8" }).trim();
+}
+
+function commitFile(repo: string, name: string, content: string): string {
+  fs.writeFileSync(path.join(repo, name), content);
+  git(repo, "add", name);
+  git(repo, "commit", "-q", "-m", `add ${name}`);
+  return git(repo, "rev-parse", "HEAD");
+}
+
+/** A repo on branch `work` (not a base candidate) with one root commit. */
+function makeRepo(): string {
+  const repo = path.join(tempDir("omp-ui-review-repo-"), "repo");
+  fs.mkdirSync(repo, { recursive: true });
+  childProcess.execFileSync("git", ["init", "-q", "-b", "work", repo]);
+  commitFile(repo, "f.txt", "hello\n");
+  return repo;
+}
+
+/** Adds a bare `origin`, pushes `work`, and tracks origin/work from `work`. */
+function addOrigin(repo: string): void {
+  const origin = path.join(path.dirname(repo), "origin.git");
+  childProcess.execFileSync("git", ["init", "-q", "--bare", origin]);
+  git(repo, "remote", "add", "origin", origin);
+  git(repo, "push", "-q", "-u", "origin", "work");
+}
+
+async function runCommand(h: Harness, args: string, cwd: string): Promise<{ text: string; level: string }> {
+  const notes: Array<{ text: string; level: string }> = [];
+  await h.commands.get(CODE_REVIEW_COMMAND)!(args, {
+    cwd,
+    ui: { notify: (text: string, level: string) => notes.push({ text, level }) },
+  });
+  expect(notes).toHaveLength(1);
+  return notes[0]!;
+}
+
+function runTool(h: Harness, target: unknown, cwd: string, signal?: AbortSignal): Promise<TextResult> {
+  return h.tool.execute("id", target === undefined ? {} : { target }, signal, undefined, { cwd });
 }
 
 /** The fenced batch JSON the launch prompt carries, backreference-matched. */
-function batchJson(content: string): { context: string; tasks: Array<Record<string, unknown>> } {
+function batchJson(h: Harness): { context: string; tasks: Array<Record<string, unknown>> } {
+  expect(h.sends).toHaveLength(1);
+  const content = String(h.sends[0]!.message.content);
   const match = /(`{3,})json\n([\s\S]*?)\n\1/.exec(content);
   if (match === null) throw new Error("no fenced batch JSON in:\n" + content);
   return JSON.parse(match[2]!) as { context: string; tasks: Array<Record<string, unknown>> };
 }
 
+function brief(h: Harness): string {
+  return String(batchJson(h).tasks[0]!.task);
+}
+
+const emptyTree = (repo: string): string =>
+  childProcess.execFileSync("git", ["-C", repo, "hash-object", "-t", "tree", "--stdin"], { input: "", encoding: "utf8" }).trim();
+
 describe("generated code-review extension", () => {
   it("registers the command and the namespaced tool", () => {
     const h = harness();
     expect(h.commands.has(CODE_REVIEW_COMMAND)).toBe(true);
-    expect(h.tool?.name).toBe(CODE_REVIEW_TOOL);
+    expect(h.tool.name).toBe(CODE_REVIEW_TOOL);
   });
 
-  it("the command launches a batch through pi.sendMessage", async () => {
+  it("launches one batch through pi.sendMessage with the snapshot roster", async () => {
     const h = harness();
     const repo = makeRepo();
-    try {
-      await h.commands.get(CODE_REVIEW_COMMAND)?.("", { cwd: repo.repo, ui: { notify: () => {} } });
-      expect(h.sends).toHaveLength(1);
-      const send = h.sends[0]!;
-      expect(send.options.deliverAs).toBe("nextTurn");
-      expect(send.options.triggerTurn).toBe(true);
-      expect(send.message.customType).toBe("omp-ui-code-review-launch");
-      expect(send.message.display).toBe(false);
-      const json = batchJson(String(send.message.content));
-      expect(json.context).toContain("find bugs");
-      expect(json.tasks).toHaveLength(1); // nit is disabled
-      expect(json.tasks[0]!.name).toBe("review-sec");
-      expect(json.tasks[0]!.model).toBe("vllm/gemma-4-31b-it");
-      expect(String(json.tasks[0]!.task)).toContain("independent code reviewers");
-      expect(String(json.tasks[0]!.task)).toContain("## Diff target");
-    } finally {
-      repo.envRestore();
-    }
+    await loadRoster(h, repo);
+    const result = await runTool(h, { kind: "commit", value: "HEAD" }, repo);
+    expect(result.isError).toBeUndefined();
+    const send = h.sends[0]!;
+    expect(send.options).toEqual({ deliverAs: "nextTurn", triggerTurn: true });
+    expect(send.message.customType).toBe("omp-ui-code-review-launch");
+    expect(send.message.display).toBe(false);
+    const json = batchJson(h);
+    expect(json.context).toContain("find bugs");
+    expect(json.tasks.map((t) => t.name)).toEqual(["review-sec"]); // nit is disabled
+    expect(json.tasks[0]!.model).toBe("vllm/gemma-4-31b-it");
+    expect(brief(h)).toContain(`Review commit ${git(repo, "rev-parse", "HEAD")} (\`HEAD\`)`);
   });
 
-  it("the tool runs the same path and validates the target", async () => {
+  it("launches exactly what a Settings-written roster holds", async () => {
     const h = harness();
     const repo = makeRepo();
-    try {
-      const tool = h.tool;
-      if (!tool) throw new Error("no tool");
-      const bad = await tool.execute("id1", { target: { kind: "nope" } }, undefined, undefined, { cwd: repo.repo });
-      expect(bad.isError).toBe(true);
-      const noValue = await tool.execute("id2", { target: { kind: "pr" } }, undefined, undefined, { cwd: repo.repo });
-      expect(noValue.isError).toBe(true);
-      const ok = await tool.execute(
-        "id3",
-        { target: { kind: "commit", value: "HEAD" } },
-        undefined,
-        undefined,
-        { cwd: repo.repo },
-      );
-      expect(ok.isError).toBeUndefined();
-      expect(h.sends).toHaveLength(1);
-      expect(String(h.sends[0]!.message.content)).toContain("Review commit HEAD");
-    } finally {
-      repo.envRestore();
-    }
+    await loadRoster(
+      h,
+      repo,
+      serializeReviewDocument({
+        instructions: "Top line\nsecond",
+        reviewers: [{ name: "sec", model: "a/b:high", instructions: "Line one\nLine two", targets: null, enabled: true }],
+      }),
+    );
+    await runTool(h, undefined, repo);
+    const json = batchJson(h);
+    expect(json.tasks.map((t) => t.name)).toEqual(["review-sec"]);
+    expect(json.tasks[0]!.model).toBe("a/b:high");
+    expect(String(json.tasks[0]!.task)).toContain("Line one\nLine two");
+    expect(json.context).toContain("Top line\nsecond");
   });
 
-  it("refuses outside a git checkout, with a usage line, and with an empty roster", async () => {
+  it("rows Settings rejects never launch, and their warnings ride the status", async () => {
     const h = harness();
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-review-nogit-"));
-    dirs.push(dir);
-    const tool = h.tool;
-    if (!tool) throw new Error("no tool");
-    const outside = await tool.execute("id", undefined, undefined, undefined, { cwd: dir });
-    expect(outside.isError).toBe(true);
-    expect(outside.content[0]!.text).toMatch(/git checkout/);
-    const repo = makeRepo("reviewers:\n  - name: only\n    enabled: false\n");
-    try {
-      const empty = await tool.execute("id", undefined, undefined, undefined, { cwd: repo.repo });
+    const repo = makeRepo();
+    const roster =
+      "reviewers:\n" +
+      '  - name: ok\n    model: "x/y:high"   # pinned\n' +
+      "  - name: off\n    enabled: no\n" +
+      "  - name: typo\n    modle: a/b\n" +
+      "  - name: c\n" +
+      "  - name: C\n";
+    await loadRoster(h, repo, roster);
+    const result = await runTool(h, undefined, repo);
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]!.text).toMatch(/Config warnings/);
+    const accepted = parseReviewDocument(roster, "REVIEW.yml").document.reviewers.filter((r) => r.enabled);
+    const json = batchJson(h);
+    expect(json.tasks.map((t) => t.name)).toEqual(accepted.map((r) => `review-${r.name}`));
+    expect(json.tasks.map((t) => t.name)).not.toContain("review-off");
+    expect(json.tasks.filter((t) => t.name === "review-c")).toHaveLength(1);
+    expect(json.tasks.find((t) => t.name === "review-ok")!.model).toBe("x/y:high");
+  });
+
+  describe("targets", () => {
+    it("a pr-only reviewer sits out a local review", async () => {
+      const h = harness();
+      const repo = makeRepo();
+      await loadRoster(h, repo, "reviewers:\n  - name: gh-only\n    targets: [pr]\n  - name: all\n");
+      await runTool(h, undefined, repo);
+      expect(batchJson(h).tasks.map((t) => t.name)).toEqual(["review-all"]);
+    });
+
+    it("refuses when no reviewer covers the kind, or none is enabled", async () => {
+      const h = harness();
+      const repo = makeRepo();
+      await loadRoster(h, repo, "reviewers:\n  - name: gh-only\n    targets: [pr]\n  - name: none\n    targets: []\n");
+      const uncovered = await runTool(h, undefined, repo);
+      expect(uncovered.isError).toBe(true);
+      expect(uncovered.content[0]!.text).toMatch(/covers local/);
+      await loadRoster(h, repo, "reviewers:\n  - name: only\n    enabled: false\n");
+      const empty = await runTool(h, undefined, repo);
       expect(empty.isError).toBe(true);
       expect(empty.content[0]!.text).toMatch(/roster is empty/);
-    } finally {
-      repo.envRestore();
+      expect(h.sends).toHaveLength(0);
+    });
+  });
+
+  describe("range", () => {
+    function featureRepo(): { repo: string; work: string; feature: string } {
+      const repo = makeRepo();
+      const work = git(repo, "rev-parse", "HEAD");
+      git(repo, "checkout", "-q", "-b", "feature");
+      commitFile(repo, "g1.txt", "one\n");
+      const feature = commitFile(repo, "g2.txt", "two\n");
+      git(repo, "checkout", "-q", "work");
+      return { repo, work, feature };
     }
+
+    it("hands reviewers a three-dot diff that git runs", async () => {
+      const h = harness();
+      const { repo, work, feature } = featureRepo();
+      await loadRoster(h, repo);
+      const result = await runTool(h, { kind: "commit", value: "work..feature" }, repo);
+      expect(result.isError).toBeUndefined();
+      const text = brief(h);
+      expect(text).toContain(`git diff ${work}...${feature}`);
+      const range = /`git diff ([0-9a-f]+\.\.\.[0-9a-f]+)`/.exec(text)![1]!;
+      const names = childProcess.execFileSync("git", ["-C", repo, "diff", "--name-only", range], { encoding: "utf8" });
+      expect(names.split("\n")).toEqual(expect.arrayContaining(["g1.txt", "g2.txt"]));
+    });
+
+    it("refuses empty, unknown, and three-dot ranges", async () => {
+      const h = harness();
+      const { repo } = featureRepo();
+      await loadRoster(h, repo);
+      const backwards = await runTool(h, { kind: "commit", value: "feature..work" }, repo);
+      expect(backwards.content[0]!.text).toMatch(/carries no commits/);
+      const unknown = await runTool(h, { kind: "commit", value: "work..nope" }, repo);
+      expect(unknown.content[0]!.text).toMatch(/Not a commit in this repository: nope/);
+      const threeDot = await runCommand(h, "work...feature", repo);
+      expect(threeDot.text).toMatch(/^usage:/);
+      expect(threeDot.level).toBe("error");
+      expect(h.sends).toHaveLength(0);
+    });
+  });
+
+  describe("local base", () => {
+    it("diffs the upstream merge-base against the working tree", async () => {
+      const h = harness();
+      const repo = makeRepo();
+      addOrigin(repo);
+      const base = git(repo, "rev-parse", "HEAD");
+      git(repo, "checkout", "-q", "-b", "topic");
+      git(repo, "branch", "-q", "--set-upstream-to=origin/work", "topic");
+      commitFile(repo, "h.txt", "new\n");
+      fs.writeFileSync(path.join(repo, "f.txt"), "edited\n");
+      await loadRoster(h, repo);
+      const result = await runTool(h, undefined, repo);
+      expect(result.content[0]!.text).toContain(`against the merge-base with origin/work (${base.slice(0, 8)})`);
+      const text = brief(h);
+      expect(/The base is commit ([0-9a-f]+)/.exec(text)![1]).toBe(base);
+      expect(git(repo, "diff", "--name-only", base).split("\n")).toEqual(expect.arrayContaining(["f.txt", "h.txt"]));
+    });
+
+    it("an upstream with no shared history falls back to HEAD's parent", async () => {
+      const h = harness();
+      const repo = makeRepo();
+      const unrelated = git(repo, "rev-parse", "HEAD");
+      git(repo, "checkout", "-q", "--orphan", "lone");
+      git(repo, "rm", "-rqf", ".");
+      const parent = commitFile(repo, "o1.txt", "one\n");
+      commitFile(repo, "o2.txt", "two\n");
+      git(repo, "branch", "-q", "--set-upstream-to=work", "lone");
+      await loadRoster(h, repo);
+      await runTool(h, undefined, repo);
+      const text = brief(h);
+      expect(text).toContain(`the base is HEAD's parent ${parent}`);
+      expect(text).not.toContain(unrelated);
+    });
+
+    it("a root commit diffs against the empty tree, staged work included", async () => {
+      const h = harness();
+      const repo = makeRepo();
+      fs.writeFileSync(path.join(repo, "s.txt"), "staged\n");
+      git(repo, "add", "s.txt");
+      await loadRoster(h, repo);
+      await runTool(h, undefined, repo);
+      expect(brief(h)).toContain(`the base is the empty tree ${emptyTree(repo)}`);
+    });
+
+    it("a clean tree at the upstream tip has nothing to review; an untracked file does", async () => {
+      const h = harness();
+      const repo = makeRepo();
+      addOrigin(repo);
+      await loadRoster(h, repo);
+      const clean = await runTool(h, undefined, repo);
+      expect(clean.isError).toBe(true);
+      expect(clean.content[0]!.text).toMatch(/^Nothing to review: no changes against the merge-base with origin\/work/);
+      expect(h.sends).toHaveLength(0);
+      fs.writeFileSync(path.join(repo, "u.txt"), "untracked\n");
+      const untracked = await runTool(h, undefined, repo);
+      expect(untracked.isError).toBeUndefined();
+      expect(h.sends).toHaveLength(1);
+    });
+  });
+
+  it.skipIf(process.platform === "win32")("pr asks gh once, read-only, and refuses on a gh failure", async () => {
+    const h = harness();
+    const repo = makeRepo();
+    await loadRoster(h, repo);
+    const bin = tempDir("omp-ui-review-gh-");
+    const gh = path.join(bin, "gh");
+    const head = "a".repeat(40);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ""}`;
+    try {
+      fs.writeFileSync(gh, `#!/bin/sh\necho '{"headRefOid":"${head}","baseRefName":"main"}'\n`, { mode: 0o755 });
+      const ok = await runTool(h, { kind: "pr", value: "5" }, repo);
+      expect(ok.isError).toBeUndefined();
+      expect(ok.content[0]!.text).toContain("pull request #5 (head aaaaaaaa into main)");
+      const text = brief(h);
+      expect(text).toContain(`pull request #5 (head ${head} into main)`);
+      expect(text).not.toContain("git fetch");
+      fs.writeFileSync(gh, "#!/bin/sh\necho 'not logged in' >&2\nexit 1\n", { mode: 0o755 });
+      const refused = await runTool(h, { kind: "pr", value: "5" }, repo);
+      expect(refused.isError).toBe(true);
+      expect(refused.content[0]!.text).toMatch(/not logged in/);
+      expect(h.sends).toHaveLength(1);
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
+  it("a cancelled tool call launches nothing", async () => {
+    const h = harness();
+    const repo = makeRepo();
+    await loadRoster(h, repo);
+    const controller = new AbortController();
+    controller.abort();
+    const result = await runTool(h, undefined, repo, controller.signal);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toMatch(/cancelled/);
+    expect(h.sends).toHaveLength(0);
+  });
+
+  it("the command reports a queued launch at info, warnings at warning, and usage at error", async () => {
+    const h = harness();
+    const repo = makeRepo();
+    await loadRoster(h, repo);
+    const queued = await runCommand(h, "HEAD", repo);
+    expect(queued.text).toMatch(/^Queued 1 reviewer\(s\) on HEAD /);
+    expect(queued.level).toBe("info");
+    await loadRoster(h, repo, 'reviewers:\n  - name: ok\n  - name: "!!"\n');
+    const warned = await runCommand(h, "HEAD", repo);
+    expect(warned.text).toMatch(/Config warnings/);
+    expect(warned.level).toBe("warning");
+    const usage = await runCommand(h, "pr 0", repo);
+    expect(usage).toEqual({ text: "usage: /code-review pr <number>", level: "error" });
+  });
+
+  it("without a roster snapshot refuses with a restart hint", async () => {
+    const h = harness();
+    const repo = makeRepo();
+    const result = await runTool(h, undefined, repo);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toMatch(/restart the session/);
+    expect(h.sends).toHaveLength(0);
+  });
+
+  it("refuses outside a git checkout", async () => {
+    const h = harness();
+    const dir = tempDir("omp-ui-review-nogit-");
+    await loadRoster(h, dir);
+    const result = await runTool(h, undefined, dir);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toMatch(/git checkout/);
   });
 
   it("a failed send surfaces as an error, never a fake launch", async () => {
     const h = harness({ sendThrows: true });
     const repo = makeRepo();
-    try {
-      const tool = h.tool;
-      if (!tool) throw new Error("no tool");
-      const result = await tool.execute("id", undefined, undefined, undefined, { cwd: repo.repo });
-      expect(result.isError).toBe(true);
-      expect(result.content[0]!.text).toMatch(/send failed/);
-    } finally {
-      repo.envRestore();
-    }
+    await loadRoster(h, repo);
+    const result = await runTool(h, undefined, repo);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toMatch(/send failed/);
   });
 
   it("without pi.sendMessage the launch reports the incapability, never a fake launch", async () => {
     const h = harness({ withoutSend: true });
     const repo = makeRepo();
-    try {
-      const tool = h.tool;
-      if (!tool) throw new Error("no tool");
-      const result = await tool.execute("id", undefined, undefined, undefined, { cwd: repo.repo });
-      expect(result.isError).toBe(true);
-      expect(result.content[0]!.text).toMatch(/cannot start/);
-    } finally {
-      repo.envRestore();
-    }
+    await loadRoster(h, repo);
+    const result = await runTool(h, undefined, repo);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toMatch(/cannot start/);
   });
 
-  it("unparseable roster rows warn but never block the launch", async () => {
+  it("shell-shaped args never reach git", async () => {
     const h = harness();
-    const repo = makeRepo(
-      'instructions: "look at security"\nreviewers:\n  - name: ok\n  - name: "!!"\n    model: x\n',
-    );
-    try {
-      const tool = h.tool;
-      if (!tool) throw new Error("no tool");
-      const result = await tool.execute("id", undefined, undefined, undefined, { cwd: repo.repo });
-      expect(result.isError).toBeUndefined();
-      expect(result.content[0]!.text).toMatch(/Config warnings/);
-      const json = batchJson(String(h.sends[0]!.message.content));
-      expect(json.tasks.map((t) => t.name)).toEqual(["review-ok"]);
-    } finally {
-      repo.envRestore();
+    const repo = makeRepo();
+    await loadRoster(h, repo);
+    for (const bad of ["`x`", "a|b", "a&&b", "-x", "a b", "a\nb", "..", "a..b..c"]) {
+      const note = await runCommand(h, bad, repo);
+      expect(note.text).toMatch(/^usage:/);
+      expect(note.level).toBe("error");
     }
+    expect(h.sends).toHaveLength(0);
   });
 });

@@ -277,6 +277,12 @@ export {
 } from "./review-config";
 export { CODE_REVIEW_COMMAND, CODE_REVIEW_TOOL } from "./review";
 export { reviewExtensionPath, writeReviewExtension } from "./review-extension";
+export {
+  REVIEW_ROSTER_SNAPSHOT_VERSION,
+  reviewRosterSnapshotPath,
+  writeReviewRosterSnapshot,
+  type ReviewRosterSnapshot,
+} from "./review-roster-snapshot";
 export { reviewOverlayPath, writeReviewOverlay } from "./review-overlay";
 export {
   captureLoginShellKeys,
