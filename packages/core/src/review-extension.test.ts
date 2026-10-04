@@ -6,7 +6,7 @@ import * as path from "node:path";
 import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 import { CODE_REVIEW_COMMAND, CODE_REVIEW_TOOL } from "./review";
-import { parseReviewDocument, serializeReviewDocument } from "./review-config";
+import type { ReviewDocument } from "./review-config";
 import { reviewExtensionPath, writeReviewExtension } from "./review-extension";
 import { writeReviewRosterSnapshot } from "./review-roster-snapshot";
 import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
@@ -84,18 +84,17 @@ function harness(options: { sendThrows?: boolean; withoutSend?: boolean } = {}):
   return { dir, commands, tool, sends };
 }
 
-const DEFAULT_ROSTER =
-  "instructions: find bugs\nreviewers:\n  - name: sec\n    model: vllm/gemma-4-31b-it\n  - name: nit\n    enabled: false\n";
+const DEFAULT_ROSTER: ReviewDocument = {
+  instructions: "find bugs",
+  reviewers: [
+    { name: "sec", model: "vllm/gemma-4-31b-it", instructions: null, targets: null, enabled: true },
+    { name: "nit", model: null, instructions: null, targets: null, enabled: false },
+  ],
+};
 
-/** Writes REVIEW.yml into a private agent dir and snapshots it the way main does at spawn. */
-async function loadRoster(h: Harness, scopeCwd: string, roster: string = DEFAULT_ROSTER): Promise<void> {
-  const base = tempDir("omp-ui-review-agent-");
-  const agentDir = path.join(base, "agent");
-  const home = path.join(base, "home");
-  fs.mkdirSync(agentDir, { recursive: true });
-  fs.mkdirSync(home, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, "REVIEW.yml"), roster);
-  await writeReviewRosterSnapshot(h.dir, scopeCwd, { PI_CODING_AGENT_DIR: agentDir }, home);
+/** Snapshots the document the way main does at spawn: project scope, no global. */
+async function loadRoster(h: Harness, roster: ReviewDocument = DEFAULT_ROSTER): Promise<void> {
+  await writeReviewRosterSnapshot(h.dir, null, roster);
 }
 
 const GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false"];
@@ -168,7 +167,7 @@ describe("generated code-review extension", () => {
   it("launches one batch through pi.sendMessage with the snapshot roster", async () => {
     const h = harness();
     const repo = makeRepo();
-    await loadRoster(h, repo);
+    await loadRoster(h);
     const result = await runTool(h, { kind: "commit", value: "HEAD" }, repo);
     expect(result.isError).toBeUndefined();
     const send = h.sends[0]!;
@@ -185,14 +184,10 @@ describe("generated code-review extension", () => {
   it("launches exactly what a Settings-written roster holds", async () => {
     const h = harness();
     const repo = makeRepo();
-    await loadRoster(
-      h,
-      repo,
-      serializeReviewDocument({
-        instructions: "Top line\nsecond",
-        reviewers: [{ name: "sec", model: "a/b:high", instructions: "Line one\nLine two", targets: null, enabled: true }],
-      }),
-    );
+    await loadRoster(h, {
+      instructions: "Top line\nsecond",
+      reviewers: [{ name: "sec", model: "a/b:high", instructions: "Line one\nLine two", targets: null, enabled: true }],
+    });
     await runTool(h, undefined, repo);
     const json = batchJson(h);
     expect(json.tasks.map((t) => t.name)).toEqual(["review-sec"]);
@@ -201,25 +196,25 @@ describe("generated code-review extension", () => {
     expect(json.context).toContain("Top line\nsecond");
   });
 
-  it("rows Settings rejects never launch, and their warnings ride the status", async () => {
+  it("drops entries app state cannot hold cleanly, and their warnings ride the status", async () => {
     const h = harness();
     const repo = makeRepo();
-    const roster =
-      "reviewers:\n" +
-      '  - name: ok\n    model: "x/y:high"   # pinned\n' +
-      "  - name: off\n    enabled: no\n" +
-      "  - name: typo\n    modle: a/b\n" +
-      "  - name: c\n" +
-      "  - name: C\n";
-    await loadRoster(h, repo, roster);
+    const roster: ReviewDocument = {
+      instructions: null,
+      reviewers: [
+        { name: "ok", model: "x/y:high", instructions: null, targets: null, enabled: true },
+        { name: "off", model: null, instructions: null, targets: null, enabled: false },
+        { name: "c", model: null, instructions: null, targets: null, enabled: true },
+        { name: "C", model: null, instructions: null, targets: null, enabled: true },
+        { name: "!!", model: null, instructions: null, targets: null, enabled: true },
+      ],
+    };
+    await loadRoster(h, roster);
     const result = await runTool(h, undefined, repo);
     expect(result.isError).toBeUndefined();
     expect(result.content[0]!.text).toMatch(/Config warnings/);
-    const accepted = parseReviewDocument(roster, "REVIEW.yml").document.reviewers.filter((r) => r.enabled);
     const json = batchJson(h);
-    expect(json.tasks.map((t) => t.name)).toEqual(accepted.map((r) => `review-${r.name}`));
-    expect(json.tasks.map((t) => t.name)).not.toContain("review-off");
-    expect(json.tasks.filter((t) => t.name === "review-c")).toHaveLength(1);
+    expect(json.tasks.map((t) => t.name)).toEqual(["review-ok", "review-c"]);
     expect(json.tasks.find((t) => t.name === "review-ok")!.model).toBe("x/y:high");
   });
 
@@ -227,7 +222,13 @@ describe("generated code-review extension", () => {
     it("a pr-only reviewer sits out a local review", async () => {
       const h = harness();
       const repo = makeRepo();
-      await loadRoster(h, repo, "reviewers:\n  - name: gh-only\n    targets: [pr]\n  - name: all\n");
+      await loadRoster(h, {
+        instructions: null,
+        reviewers: [
+          { name: "gh-only", model: null, instructions: null, targets: ["pr"], enabled: true },
+          { name: "all", model: null, instructions: null, targets: null, enabled: true },
+        ],
+      });
       await runTool(h, undefined, repo);
       expect(batchJson(h).tasks.map((t) => t.name)).toEqual(["review-all"]);
     });
@@ -235,11 +236,20 @@ describe("generated code-review extension", () => {
     it("refuses when no reviewer covers the kind, or none is enabled", async () => {
       const h = harness();
       const repo = makeRepo();
-      await loadRoster(h, repo, "reviewers:\n  - name: gh-only\n    targets: [pr]\n  - name: none\n    targets: []\n");
+      await loadRoster(h, {
+        instructions: null,
+        reviewers: [
+          { name: "gh-only", model: null, instructions: null, targets: ["pr"], enabled: true },
+          { name: "none", model: null, instructions: null, targets: [], enabled: true },
+        ],
+      });
       const uncovered = await runTool(h, undefined, repo);
       expect(uncovered.isError).toBe(true);
       expect(uncovered.content[0]!.text).toMatch(/covers local/);
-      await loadRoster(h, repo, "reviewers:\n  - name: only\n    enabled: false\n");
+      await loadRoster(h, {
+        instructions: null,
+        reviewers: [{ name: "only", model: null, instructions: null, targets: null, enabled: false }],
+      });
       const empty = await runTool(h, undefined, repo);
       expect(empty.isError).toBe(true);
       expect(empty.content[0]!.text).toMatch(/roster is empty/);
@@ -261,7 +271,7 @@ describe("generated code-review extension", () => {
     it("hands reviewers a three-dot diff that git runs", async () => {
       const h = harness();
       const { repo, work, feature } = featureRepo();
-      await loadRoster(h, repo);
+      await loadRoster(h);
       const result = await runTool(h, { kind: "commit", value: "work..feature" }, repo);
       expect(result.isError).toBeUndefined();
       const text = brief(h);
@@ -274,7 +284,7 @@ describe("generated code-review extension", () => {
     it("refuses empty, unknown, and three-dot ranges", async () => {
       const h = harness();
       const { repo } = featureRepo();
-      await loadRoster(h, repo);
+      await loadRoster(h);
       const backwards = await runTool(h, { kind: "commit", value: "feature..work" }, repo);
       expect(backwards.content[0]!.text).toMatch(/carries no commits/);
       const unknown = await runTool(h, { kind: "commit", value: "work..nope" }, repo);
@@ -296,7 +306,7 @@ describe("generated code-review extension", () => {
       git(repo, "branch", "-q", "--set-upstream-to=origin/work", "topic");
       commitFile(repo, "h.txt", "new\n");
       fs.writeFileSync(path.join(repo, "f.txt"), "edited\n");
-      await loadRoster(h, repo);
+      await loadRoster(h);
       const result = await runTool(h, undefined, repo);
       expect(result.content[0]!.text).toContain(`against the merge-base with origin/work (${base.slice(0, 8)})`);
       const text = brief(h);
@@ -313,7 +323,7 @@ describe("generated code-review extension", () => {
       const parent = commitFile(repo, "o1.txt", "one\n");
       commitFile(repo, "o2.txt", "two\n");
       git(repo, "branch", "-q", "--set-upstream-to=work", "lone");
-      await loadRoster(h, repo);
+      await loadRoster(h);
       await runTool(h, undefined, repo);
       const text = brief(h);
       expect(text).toContain(`the base is HEAD's parent ${parent}`);
@@ -325,7 +335,7 @@ describe("generated code-review extension", () => {
       const repo = makeRepo();
       fs.writeFileSync(path.join(repo, "s.txt"), "staged\n");
       git(repo, "add", "s.txt");
-      await loadRoster(h, repo);
+      await loadRoster(h);
       await runTool(h, undefined, repo);
       expect(brief(h)).toContain(`the base is the empty tree ${emptyTree(repo)}`);
     });
@@ -334,7 +344,7 @@ describe("generated code-review extension", () => {
       const h = harness();
       const repo = makeRepo();
       addOrigin(repo);
-      await loadRoster(h, repo);
+      await loadRoster(h);
       const clean = await runTool(h, undefined, repo);
       expect(clean.isError).toBe(true);
       expect(clean.content[0]!.text).toMatch(/^Nothing to review: no changes against the merge-base with origin\/work/);
@@ -349,7 +359,7 @@ describe("generated code-review extension", () => {
   it.skipIf(process.platform === "win32")("pr asks gh once, read-only, and refuses on a gh failure", async () => {
     const h = harness();
     const repo = makeRepo();
-    await loadRoster(h, repo);
+    await loadRoster(h);
     const bin = tempDir("omp-ui-review-gh-");
     const gh = path.join(bin, "gh");
     const head = "a".repeat(40);
@@ -376,7 +386,7 @@ describe("generated code-review extension", () => {
   it("a cancelled tool call launches nothing", async () => {
     const h = harness();
     const repo = makeRepo();
-    await loadRoster(h, repo);
+    await loadRoster(h);
     const controller = new AbortController();
     controller.abort();
     const result = await runTool(h, undefined, repo, controller.signal);
@@ -388,11 +398,17 @@ describe("generated code-review extension", () => {
   it("the command reports a queued launch at info, warnings at warning, and usage at error", async () => {
     const h = harness();
     const repo = makeRepo();
-    await loadRoster(h, repo);
+    await loadRoster(h);
     const queued = await runCommand(h, "HEAD", repo);
     expect(queued.text).toMatch(/^Queued 1 reviewer\(s\) on HEAD /);
     expect(queued.level).toBe("info");
-    await loadRoster(h, repo, 'reviewers:\n  - name: ok\n  - name: "!!"\n');
+    await loadRoster(h, {
+      instructions: null,
+      reviewers: [
+        { name: "ok", model: null, instructions: null, targets: null, enabled: true },
+        { name: "!!", model: null, instructions: null, targets: null, enabled: true },
+      ],
+    });
     const warned = await runCommand(h, "HEAD", repo);
     expect(warned.text).toMatch(/Config warnings/);
     expect(warned.level).toBe("warning");
@@ -412,7 +428,7 @@ describe("generated code-review extension", () => {
   it("refuses outside a git checkout", async () => {
     const h = harness();
     const dir = tempDir("omp-ui-review-nogit-");
-    await loadRoster(h, dir);
+    await loadRoster(h);
     const result = await runTool(h, undefined, dir);
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/git checkout/);
@@ -421,7 +437,7 @@ describe("generated code-review extension", () => {
   it("a failed send surfaces as an error, never a fake launch", async () => {
     const h = harness({ sendThrows: true });
     const repo = makeRepo();
-    await loadRoster(h, repo);
+    await loadRoster(h);
     const result = await runTool(h, undefined, repo);
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/send failed/);
@@ -430,7 +446,7 @@ describe("generated code-review extension", () => {
   it("without pi.sendMessage the launch reports the incapability, never a fake launch", async () => {
     const h = harness({ withoutSend: true });
     const repo = makeRepo();
-    await loadRoster(h, repo);
+    await loadRoster(h);
     const result = await runTool(h, undefined, repo);
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/cannot start/);
@@ -439,7 +455,7 @@ describe("generated code-review extension", () => {
   it("shell-shaped args never reach git", async () => {
     const h = harness();
     const repo = makeRepo();
-    await loadRoster(h, repo);
+    await loadRoster(h);
     for (const bad of ["`x`", "a|b", "a&&b", "-x", "a b", "a\nb", "..", "a..b..c"]) {
       const note = await runCommand(h, bad, repo);
       expect(note.text).toMatch(/^usage:/);

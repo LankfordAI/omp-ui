@@ -224,12 +224,13 @@ every entry, and the advisor model pin is the fallback for entries with no
 _Avoid_: advisor list, watchdog, advisor team, multi-advisor mode
 
 **Reviewer roster**:
-The set of reviewers omp-ui resolved from `REVIEW.yml` for `/code-review`
-(user and project files, merged by name; with no file anywhere, one default
-entry on the session model). Each entry may pin a `model` selector and narrow
-the target kinds it reviews. `/code-review` launches the enabled entries as
-one batch of background subagents; results return as async-result wake turns.
-Edits apply when the session relaunches.
+The set of reviewers omp-ui resolved from its own app state for `/code-review`
+(a per-project document, else a global one, imported once from the legacy
+`REVIEW.yml` files; with nothing set anywhere, one default entry on the session
+model). Each entry may pin a `model` selector and narrow the target kinds it
+reviews. `/code-review` launches the enabled entries as one batch of background
+subagents; results return as async-result wake turns. Edits apply when the
+session relaunches.
 _Avoid_: review team, critic list, code-review agent
 
 **Session parameter memory**:

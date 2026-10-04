@@ -18,8 +18,8 @@ import {
   getArchiveRoot,
   getScopedCapabilities,
   getWatchdogRoster,
-  readReviewRoster,
-  setReviewRoster,
+  importReviewRosters,
+  resolveReviewRoster,
   setWatchdogRoster,
   getOmpAgentDir,
   getSessionsRoot,
@@ -926,8 +926,21 @@ export class MainBackend {
           setScopedCapability(req, this.ompPath),
         [CH.getWatchdogRoster]: (scopeCwd: string | null) => getWatchdogRoster(scopeCwd),
         [CH.setWatchdogRoster]: (req: WatchdogWriteRequest) => setWatchdogRoster(req),
-        [CH.getReviewRoster]: (scopeCwd: string | null) => readReviewRoster(scopeCwd),
-        [CH.setReviewRoster]: (req: ReviewWriteRequest) => setReviewRoster(req),
+        [CH.getReviewRoster]: (scopeCwd: string | null) => this.reviewRosterView(scopeCwd),
+        [CH.setReviewRoster]: async (req: ReviewWriteRequest) => {
+          if (req.scope === "user") this.registry.setSetting("reviewRoster", req.document);
+          else {
+            if (req.scopeCwd === null) throw new Error("project scope needs a project directory");
+            // The mutator's false covers "unchanged" too, so the unknown-project
+            // refusal is checked against the registry here.
+            if (!this.registry.projects.some((project) => project.path === req.scopeCwd)) {
+              throw new Error(`unknown project: ${req.scopeCwd}`);
+            }
+            this.registry.setProjectReviewRoster(req.scopeCwd, req.document);
+          }
+          await this.broadcast();
+          return this.reviewRosterView(req.scopeCwd);
+        },
         [CH.restartSession]: (tabId: string) => this.sessions.restart(tabId),
         [CH.getSessionCapabilities]: (tabId: string) =>
           this.sessions.getSessionCapabilities(tabId),
@@ -1263,6 +1276,38 @@ export class MainBackend {
       },
       () => {},
     );
+  }
+
+  /**
+   * The app-state roster view for one scope (issue #738): the pure resolver
+   * over the two documents the registry holds — no files are read.
+   */
+  private reviewRosterView(scopeCwd: string | null) {
+    const project =
+      scopeCwd === null ? null : this.registry.projects.find((p) => p.path === scopeCwd) ?? null;
+    return resolveReviewRoster(project === null ? null : project.path, {
+      global: this.registry.getSetting("reviewRoster"),
+      project: project === null ? null : project.reviewRoster,
+    });
+  }
+
+  /**
+   * One-time REVIEW.yml import (issue #738): copies the rosters the old
+   * launch-time file merge read into registry state, filling only slots that
+   * are still unset. Files on disk are never modified or deleted.
+   * Fire-and-forget like the memory seed: a failed pass leaves the marker
+   * unset and retries next boot.
+   */
+  importReviewRostersOnce(): Promise<void> {
+    if (this.registry.getSetting("reviewRosterImported")) return Promise.resolve();
+    return Promise.resolve()
+      .then(() => importReviewRosters(this.registry))
+      .then(
+        (outcome) => {
+          if (outcome.done) this.registry.setSetting("reviewRosterImported", true);
+        },
+        () => {},
+      );
   }
 
   /** Brings the embedded remote server in line with persisted settings. Called once at launch. */

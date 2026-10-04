@@ -104,6 +104,7 @@ function setup(): {
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
+        reviewRoster: null,
       },
     ],
     sessions: [
@@ -376,6 +377,7 @@ function setupCascade(): {
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
+        reviewRoster: null,
       },
     ],
     sessions: [

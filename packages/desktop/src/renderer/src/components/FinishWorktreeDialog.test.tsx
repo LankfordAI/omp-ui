@@ -157,6 +157,7 @@ const stateWith = (session: SessionSummary): BackendState =>
           defaultModel: null,
           defaultAdvisorModel: null,
           browserClock: false,
+          reviewRoster: null,
         },
         sessions: [session],
       },

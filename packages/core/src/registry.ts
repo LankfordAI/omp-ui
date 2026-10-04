@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeTextAtomic } from "./atomic-write";
+import { isReviewDocument, type ReviewDocument } from "./review-config";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseProposedPlans } from "./plan";
 import type {
@@ -56,6 +57,14 @@ export interface RegistrySettings {
   sessionOrderFrozen: boolean;
   /** One-time seed marker (issue #570): memory defaults were applied to omp's global layer once. */
   memoryDefaultsSeeded: boolean;
+  /**
+   * App-wide reviewer roster for /code-review (issue #738): null = unset, so
+   * projects fall through to the default reviewer. Replaces the user-scope
+   * REVIEW.yml; the one-time import fills it from that file when first set.
+   */
+  reviewRoster: ReviewDocument | null;
+  /** One-time import marker (issue #738): REVIEW.yml rosters were copied into app state once. */
+  reviewRosterImported: boolean;
   /** First-run checklist dismissed; fresh installs open it once on the desktop shell. */
   gettingStartedSeen: boolean;
   /** Release version whose update card the user dismissed ("Later"). */
@@ -216,6 +225,14 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   memoryDefaultsSeeded: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  reviewRoster: validatedSetting<ReviewDocument | null>(
+    () => null,
+    (value): value is ReviewDocument | null => value === null || isReviewDocument(value),
+  ),
+  reviewRosterImported: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -511,6 +528,9 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       defaultModel: p.defaultModel ?? null,
       defaultAdvisorModel: p.defaultAdvisorModel ?? null,
       browserClock: p.browserClock === true,
+      // Never a validity gate (the proposedPlans rule): a malformed roster
+      // normalizes to null here so the record always survives.
+      reviewRoster: isReviewDocument(p.reviewRoster) ? p.reviewRoster : null,
     }));
   const sessions = sessionsValue
     .filter(isOwnedSessionRecord)
@@ -726,6 +746,7 @@ export class Registry {
       defaultModel: null,
       defaultAdvisorModel: null,
       browserClock: false,
+      reviewRoster: null,
     };
     this.#transaction((draft) => {
       draft.projects.push(record);
@@ -871,6 +892,21 @@ export class Registry {
       const project = draft.projects.find((candidate) => candidate.path === projectPath);
       if (!project || project.browserClock === on) return false;
       project.browserClock = on;
+      return true;
+    });
+  }
+
+  /**
+   * Replaces (or clears, with null) one project's reviewer roster (issue #738).
+   * Unknown project or a deep-equal value: no save — the document is an
+   * object, so an Object.is seam would always look "changed".
+   */
+  setProjectReviewRoster(projectPath: string, document: ReviewDocument | null): boolean {
+    return this.#transaction((draft) => {
+      const project = draft.projects.find((candidate) => candidate.path === projectPath);
+      if (!project) return false;
+      if (JSON.stringify(project.reviewRoster ?? null) === JSON.stringify(document ?? null)) return false;
+      project.reviewRoster = document;
       return true;
     });
   }

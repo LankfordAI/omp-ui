@@ -7,6 +7,7 @@ import {
   resolveSubagentOverlayEntries,
   rebindSessionCwd,
   unarchiveSession,
+  type ReviewDocument,
   readOmpCompactionMethods,
   readOmpGoalContinuationModes,
   rpcGoalContinuationModes,
@@ -253,13 +254,17 @@ export function writeRpcExtensions(
 }
 
 /**
- * Snapshots the merged REVIEW.yml roster for the code-review bridge (ADR-0047
- * as amended). Never fatal: without a snapshot the bridge refuses with a
- * restart hint instead of launching a guessed roster.
+ * Snapshots the resolved app-state roster for the code-review bridge
+ * (ADR-0047 as amended by issue #738). Never fatal: without a snapshot the
+ * bridge refuses with a restart hint instead of launching a guessed roster.
  */
-export async function writeReviewRosterForSpawn(absLineageDir: string, scopeCwd: string): Promise<void> {
+export async function writeReviewRosterForSpawn(
+  absLineageDir: string,
+  global: ReviewDocument | null,
+  project: ReviewDocument | null,
+): Promise<void> {
   try {
-    await writeReviewRosterSnapshot(absLineageDir, scopeCwd);
+    await writeReviewRosterSnapshot(absLineageDir, global, project);
   } catch (err) {
     console.warn("[review] could not snapshot the reviewer roster:", err);
   }

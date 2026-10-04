@@ -263,18 +263,27 @@ export {
 export { getScopedCapabilities, setScopedCapability } from "./capability-catalog";
 export { getWatchdogRoster, setWatchdogRoster } from "./watchdog-config";
 export {
+  isReviewDocument,
   parseReviewDocument,
-  readReviewRoster,
-  serializeReviewDocument,
-  setReviewRoster,
+  resolveReviewRoster,
+  validateReviewDocument,
+  DEFAULT_REVIEWER,
   type EffectiveReviewer,
   type ReviewDocument,
-  type ReviewFileView,
-  type ReviewReviewer,
+  type ReviewRosterResult,
+  type ReviewRosterSources,
   type ReviewRosterView,
+  type ReviewReviewer,
   type ReviewTargetKind,
   type ReviewWriteRequest,
 } from "./review-config";
+export {
+  REVIEW_FILE_NAMES,
+  importReviewRosters,
+  type ReviewImportOutcome,
+  type ReviewImportProject,
+  type ReviewImportRegistry,
+} from "./review-config-import";
 export { CODE_REVIEW_COMMAND, CODE_REVIEW_TOOL } from "./review";
 export { reviewExtensionPath, writeReviewExtension } from "./review-extension";
 export {

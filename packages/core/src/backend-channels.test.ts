@@ -189,7 +189,6 @@ const VALID_ARGS = {
     {
       scopeCwd: null,
       scope: "user",
-      baseHash: null,
       document: {
         instructions: null,
         reviewers: [{ name: "code-reviewer", model: null, instructions: null, targets: null, enabled: true }],

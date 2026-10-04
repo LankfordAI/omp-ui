@@ -98,6 +98,7 @@ function mount(voiceInputEnabled: boolean, ownerId: string | null = null): void 
       defaultModel: null,
       defaultAdvisorModel: null,
       browserClock: false,
+      reviewRoster: null,
     },
     sessions: [
       {

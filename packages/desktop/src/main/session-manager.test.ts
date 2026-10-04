@@ -247,6 +247,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
+        reviewRoster: null,
       },
     ],
     sessions: [
@@ -1377,6 +1378,47 @@ describe("goal continuation overlay (ADR-0046)", () => {
     await freshRpc(manager);
     const options = RpcClientMock.mock.calls.at(-1)?.[0] as { configOverlays?: string[] } | undefined;
     expect(options?.configOverlays).not.toContainEqual(expect.stringMatching(/omp-ui-goal\.yml$/));
+  });
+});
+
+describe("reviewer roster snapshot (issue #738)", () => {
+  it("snapshots the project document resolved over the global one at spawn", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSetting("reviewRoster", {
+      instructions: "shared",
+      reviewers: [{ name: "global-one", model: null, instructions: null, targets: null, enabled: true }],
+    });
+    registry.setProjectReviewRoster("/proj", {
+      instructions: null,
+      reviewers: [
+        { name: "proj-one", model: "a/b", instructions: null, targets: null, enabled: true },
+        { name: "sleeper", model: null, instructions: null, targets: null, enabled: false },
+      ],
+    });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+    const record = registry.sessions.find((session) => session.tabId === tabId)!;
+    const snapshot = JSON.parse(
+      fs.readFileSync(Core.reviewRosterSnapshotPath(path.join(sessionsRoot, record.lineageDir)), "utf8"),
+    );
+    expect(snapshot.version).toBe(1);
+    // The project document wins; only enabled entries ride the launch set.
+    expect(snapshot.instructions).toBeNull();
+    expect(snapshot.reviewers.map((r: { name: string; model: string | null }) => [r.name, r.model])).toEqual([
+      ["proj-one", "a/b"],
+    ]);
+  });
+
+  it("snapshots the default roster when no scope names one", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+    const record = registry.sessions.find((session) => session.tabId === tabId)!;
+    const snapshot = JSON.parse(
+      fs.readFileSync(Core.reviewRosterSnapshotPath(path.join(sessionsRoot, record.lineageDir)), "utf8"),
+    );
+    expect(snapshot.reviewers).toEqual([
+      { name: "code-reviewer", model: null, instructions: null, targets: null },
+    ]);
+    expect(snapshot.instructions).toBeNull();
   });
 });
 

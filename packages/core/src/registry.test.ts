@@ -83,6 +83,8 @@ describe("SETTINGS", () => {
       "sttModel",
       "sessionOrderFrozen",
       "memoryDefaultsSeeded",
+      "reviewRoster",
+      "reviewRosterImported",
       "gettingStartedSeen",
       "dismissedAppUpdateVersion",
       "dismissedOmpUpdateVersion",
@@ -930,6 +932,7 @@ describe("Registry mutations", () => {
       defaultModel: null,
       defaultAdvisorModel: null,
       browserClock: false,
+      reviewRoster: null,
     });
   });
 

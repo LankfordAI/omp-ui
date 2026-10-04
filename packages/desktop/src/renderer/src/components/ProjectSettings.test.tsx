@@ -95,6 +95,7 @@ const liveSessionState = backendState({
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
+        reviewRoster: null,
       },
       sessions: [liveSession("tab-1")],
     },
@@ -112,6 +113,7 @@ const project: ProjectRecord = {
   defaultModel: "pin/main",
   defaultAdvisorModel: "pin/advisor:high",
   browserClock: false,
+  reviewRoster: null,
 };
 
 /** The joined instance owning the remote project in the routing test below. */
@@ -479,7 +481,7 @@ describe("ProjectSettings", () => {
     useStore.setState({
       state: backendState({
         defaultAdvisor: false,
-        projects: [{ project: { ...project, defaultAdvisorModel: null, browserClock: false }, sessions: [] }],
+        projects: [{ project: { ...project, defaultAdvisorModel: null, browserClock: false, reviewRoster: null }, sessions: [] }],
       }),
     });
     await renderDialog();

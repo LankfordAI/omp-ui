@@ -27,6 +27,8 @@ interface RegistrySettings {
   sttModel: string | null;
   sessionOrderFrozen: boolean;
   memoryDefaultsSeeded: boolean;
+  reviewRoster: unknown;
+  reviewRosterImported: boolean;
   gettingStartedSeen: boolean;
   dismissedAppUpdateVersion: string | null;
   dismissedOmpUpdateVersion: string | null;
@@ -107,6 +109,8 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     // recency freeze exactly like pre-#274 registries do.
     sessionOrderFrozen: false,
     memoryDefaultsSeeded: false,
+    reviewRoster: null,
+    reviewRosterImported: true,
     // Default false: the boot seed (issue #623) flips it for registries that
     // already carry projects or sessions, exactly like an upgrade does.
     gettingStartedSeen: false,

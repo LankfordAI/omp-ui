@@ -354,7 +354,7 @@ const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
  * The per-project settings dialog (issues #281, #383, #564): one modal holding
  * a project's standing configuration — MCP servers, the skills and tools
  * catalogs at project scope, the default-model pins, the advisor roster (WATCHDOG.yml), the
- * reviewer roster (REVIEW.yml), and the browser clock — behind a seven-tab strip,
+ * reviewer roster (app state, issue #738), and the browser clock — behind a seven-tab strip,
  * opened from the desktop project header and the
  * compact actions sheet. Session-scoped behavior (rosters, session-local
  * switches, restart, TUI reauth handoff) stays in CapabilitiesViewer; this
