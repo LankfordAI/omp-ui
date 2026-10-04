@@ -9,6 +9,7 @@ import {
   resolveOmpBinary,
   writeReviewExtension,
   writeReviewOverlay,
+  writeReviewRosterSnapshot,
 } from "@omp-ui/core";
 
 /**
@@ -82,12 +83,12 @@ async function waitFor<T>(probe: () => T | undefined, timeoutMs: number, what: s
   }
 }
 
-function spawnScope(): {
+async function spawnScope(): Promise<{
   base: string;
   frames: Frame[];
   client: RpcClient;
   exited: Promise<void>;
-} {
+}> {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-review-live-"));
   dirs.push(base);
   const home = path.join(base, "home");
@@ -107,6 +108,10 @@ function spawnScope(): {
   git(["init", "-q"]);
   git(["add", "a.txt"]);
   git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "seed"]);
+  // An untracked file so the local target is non-empty; a clean tree answers "Nothing to review".
+  fs.writeFileSync(path.join(project, "b.txt"), "world\n");
+  // Main writes this roster snapshot on every rpc spawn; the bridge reads only it.
+  await writeReviewRosterSnapshot(lineage, project, { PI_CODING_AGENT_DIR: agent }, home);
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -146,7 +151,7 @@ describe.skipIf(!ompPath)("code-review extension (real omp)", () => {
     "loads the bridge and /code-review sends the batch launch into the session",
     { timeout: 180_000 },
     async () => {
-      const { frames, client, exited } = spawnScope();
+      const { frames, client, exited } = await spawnScope();
       try {
         client.send({ type: "get_state", id: "ready-probe" });
         const loaded = await waitFor(

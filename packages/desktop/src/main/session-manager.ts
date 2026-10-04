@@ -100,7 +100,14 @@ import { readConfinedPlanFile } from "./plan-file";
 import { GoalStatusTracker } from "./goal-status-tracker";
 import { VibeStatusTracker } from "./vibe-status-tracker";
 import { AutoresearchStatusTracker } from "./autoresearch-status-tracker";
-import { prepareResumeRecord, writeRpcExtensions, writeRpcOverlays, writeSessionOverlays, type SubagentSpawnConfig } from "./spawn-config";
+import {
+  prepareResumeRecord,
+  writeReviewRosterForSpawn,
+  writeRpcExtensions,
+  writeRpcOverlays,
+  writeSessionOverlays,
+  type SubagentSpawnConfig,
+} from "./spawn-config";
 import { StallWatchdog } from "./stall-watchdog";
 import { TurnTracker } from "./turns";
 import { ViewTracker } from "./view-tracker";
@@ -861,6 +868,11 @@ export class SessionManager {
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate, this.subagentSpawnConfig());
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
+    }
+    // After the worktree link: a worktree's project `.omp/REVIEW.yml` is only
+    // reachable through it. Every rpc launch (fresh, resume, restart) refreshes it.
+    if (bridgeLoaded.review) {
+      await writeReviewRosterForSpawn(absLineageDir, record.worktree?.path ?? record.projectCwd);
     }
     // One-shot watcher (issue #718): when the runtime rejects the delta
     // negotiation — or echoes full mode — the spawn streams full snapshots

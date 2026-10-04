@@ -53,3 +53,14 @@ beyond `omp-ui_code_review`.
 - **PTY support.** The launch primitive and batch/async defaults are rpc
   behavior; a terminal tab already gives the user the same model-facing path
   without the bridge.
+- **Parsing REVIEW.yml in the bridge with `Bun.YAML.parse`.** Keeps
+  validation in two places and needs a Bun stand-in under the Node test
+  harness.
+
+**Amended 2026-10-04 (#729, #732, #733):** the roster is a spawn-time
+snapshot written by main (`omp-ui-review-roster.json` in the lineage dir,
+validated by the same `readReviewRoster` Settings uses), not parsed by the
+bridge — the bridge's own YAML subset was a second dialect that diverged from
+Settings. Roster edits therefore apply on the next session relaunch. The
+bridge resolves the target once and passes the concrete commit ids to every
+reviewer. PR review requires `gh`; there is no git-fetch fallback.

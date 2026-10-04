@@ -26,6 +26,7 @@ import {
   writePlanExtension,
   writeReviewExtension,
   writeReviewOverlay,
+  writeReviewRosterSnapshot,
   writeSideQuestionsExtension,
   writeTreeExtension,
   writeSubagentModelOverlay,
@@ -249,6 +250,19 @@ export function writeRpcExtensions(
     }
   }
   return { paths, loaded };
+}
+
+/**
+ * Snapshots the merged REVIEW.yml roster for the code-review bridge (ADR-0047
+ * as amended). Never fatal: without a snapshot the bridge refuses with a
+ * restart hint instead of launching a guessed roster.
+ */
+export async function writeReviewRosterForSpawn(absLineageDir: string, scopeCwd: string): Promise<void> {
+  try {
+    await writeReviewRosterSnapshot(absLineageDir, scopeCwd);
+  } catch (err) {
+    console.warn("[review] could not snapshot the reviewer roster:", err);
+  }
 }
 
 /** Manager-provided paths and registry mutation for prepareResumeRecord. */

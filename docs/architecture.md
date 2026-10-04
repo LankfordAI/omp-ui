@@ -421,12 +421,13 @@ A dev/test spawn gate ([#371](https://github.com/LankfordAI/omp-ui/issues/371), 
 per-lineage generated extension passed with `-e`, plus a small always-written
 `--config` overlay restating `async.enabled`/`task.batch` so a global opt-out
 cannot disable review under rpc-ui ([#728](https://github.com/LankfordAI/omp-ui/issues/728),
-[ADR-0047](adr/0047-code-review-roster-via-background-subagents.md)). The
-bridge reads the reviewer roster from `REVIEW.yml` (user + project scope,
-WATCHDOG discovery shape; the extension carries its own restricted YAML-subset
-parser because js-yaml is not available to generated sources), gathers the git
-target with `pi.exec`, and never spawns anything itself: no extension ctx in
-omp exposes `callTool`. It composes one `task` batch invocation and hands it
+[ADR-0047](adr/0047-code-review-roster-via-background-subagents.md)). Main
+snapshots the merged roster (`readReviewRoster`, the same validation Settings
+uses) into `omp-ui-review-roster.json` in the lineage dir on every rpc spawn;
+the bridge reads only that snapshot, filters reviewers by `targets`, resolves
+the target once with async, cancellable `git`/`gh` probes to concrete commit
+ids (refusing empty targets), and never spawns anything itself: no extension
+ctx in omp exposes `callTool`. It composes one `task` batch invocation and hands it
 to the session model through `pi.sendMessage` with `deliverAs: "nextTurn",
 triggerTurn: true`, inert-fenced. The model makes the batch call; reviewers
 run as background subagents (their steering, cancellation, and the
