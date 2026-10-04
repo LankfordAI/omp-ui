@@ -17,6 +17,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Settings → Providers reports unreadable saved keys separately from usable credentials and preserves their encrypted entries during unrelated edits; explicit replacement or removal changes only the targeted entry (#724).
 - Remote access recovers after the first browser-bundle build or a rebuild without restarting the remote server: reload the same URL after the build completes to load the current bundle (#725).
 - The native composer's border keeps the actual magic-keyword gradient throughout model and tool work, combines keywords consumed together, and switches only when another input is consumed or execution ends; next-draft edits and queued-send acknowledgments cannot replace it (#726).
+- Finish worktree offers **Resolve with agent** for stopped project-checkout merges, including after reopening: it preserves an available native session's context or explicitly starts a fresh native resolution session, with exact checkout targeting, verification, and no automatic push or worktree return (#727).
 
 ## Choose a download
 

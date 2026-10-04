@@ -19,6 +19,7 @@ import {
   type PlanExecutionOptions,
 } from "../../lib/plan-concerns";
 import { gitResolutionPrompt, type GitResolutionTrigger } from "../../lib/git-resolution-prompt";
+import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolution";
 import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
@@ -76,6 +77,7 @@ export type LifecycleSlice = Pick<
   | "releaseWorktreeSession"
   | "syncWorktreeSession"
   | "renameWorktreeSessionBranch"
+  | "resolveWorktreeMerge"
   | "cancelDeleteSession"
   | "clearShellExited"
   | "toggleConsole"
@@ -120,7 +122,7 @@ export type LifecycleSlice = Pick<
     projectCwd: string,
     trigger: GitResolutionTrigger,
     instanceId?: string | null,
-  ): Promise<void>;
+  ): Promise<boolean>;
 };
 
 export type LifecycleDeps = Watchers;
@@ -481,18 +483,26 @@ export function createLifecycleSlice(
     projectCwd: string,
     trigger: GitResolutionTrigger,
     instanceId?: string | null,
-  ): Promise<void> => {
-    const owner = findWorktreeAt(get().state, trigger.cwd);
+    finishGuard?: { check: () => boolean },
+  ): Promise<boolean> => {
+    const spawnInstanceId = instanceId ?? null;
+    const state = get().state;
+    // A path is meaningful only on its explicitly addressed host. Scope the
+    // lookup before searching, since identical checkout paths are common.
+    const scoped = state === null ? null : spawnInstanceId === null
+      ? { ...state, remoteInstances: [] }
+      : { ...state, projects: [], remoteInstances: state.remoteInstances.filter((instance) => instance.id === spawnInstanceId) };
+    const owner = finishGuard === undefined ? findWorktreeAt(scoped, trigger.cwd) : null;
     const spawnProjectCwd = owner?.projectCwd ?? projectCwd;
-    const spawnInstanceId = owner?.instanceId ?? instanceId ?? null;
     const worktree: SpawnWorktree = owner !== null ? { reuse: owner.worktree } : null;
-    const { advisor, advisorModel } = await resolveSpawnParams(
-      spawnProjectCwd,
-      { mode: "rpc-ui" },
-      spawnInstanceId,
-    );
     let freshId: string;
     try {
+      const { advisor, advisorModel } = await resolveSpawnParams(
+        spawnProjectCwd,
+        { mode: "rpc-ui" },
+        spawnInstanceId,
+      );
+      if (finishGuard && !finishGuard.check()) return false;
       ({ tabId: freshId } = await backendFor(spawnInstanceId).spawnSession({
         origin: "new",
         projectCwd: spawnProjectCwd,
@@ -506,7 +516,7 @@ export function createLifecycleSlice(
       }));
     } catch (err) {
       get().reportError(err); // the branch chip has no dialog to render it inline
-      return;
+      return false;
     }
     set((s) => ({
       tabs: [
@@ -517,23 +527,115 @@ export function createLifecycleSlice(
       exited: dropExited(s.exited, freshId),
     }));
     await m.pollUntilSettled(freshId);
-    if (get().rpc[freshId]?.status !== "ready") {
+    // The ready frame can precede the renderer's boot commands. Do not mistake
+    // that transient command activity for a rejected resolution seed.
+    if (get().rpc[freshId]?.status === "ready" && get().rpc[freshId]?.busy) {
+      await m.pollUntil(freshId, (rpc) =>
+        get().exited[freshId] !== undefined || rpc?.status === "error" ||
+        (rpc?.status === "ready" && !rpc.busy));
+    }
+    const fresh = get().rpc[freshId];
+    if (fresh?.status !== "ready" || get().exited[freshId] !== undefined) {
       // An errored boot owns a failure banner and an exited one owns an
       // exit notice; a boot that simply never reported is the silence #622
       // hides behind — say so rather than prompt into the void.
-      if (
-        get().rpc[freshId]?.status !== "error" &&
-        get().exited[freshId] === undefined
-      ) {
+      if (fresh?.status !== "error" && get().exited[freshId] === undefined) {
         get().reportError(
           new Error(
             "the resolution session never finished starting — open a session in the checkout and resolve manually",
           ),
         );
       }
-      return;
+      return false;
     }
-    await get().sendPrompt(freshId, gitResolutionPrompt(trigger), "prompt");
+    const freshOwner = findOwner(get().state, freshId);
+    if (
+      (finishGuard && !finishGuard.check()) || !m.acceptsCommands(freshId) ||
+      fresh.busy || fresh.compacting !== undefined || fresh.session.isStreaming ||
+      fresh.session.isCompacting || fresh.session.queuedMessageCount > 0 ||
+      fresh.plan?.enabled === true || fresh.planReview !== null ||
+      fresh.approvalPrompt !== null || fresh.experimentProposal !== null ||
+      fresh.extensionQueue.length > 0 || freshOwner?.record.pendingPlan != null ||
+      freshOwner?.record.awaitingHumanAnswer === true ||
+      (freshOwner !== undefined && (freshOwner.instanceId !== spawnInstanceId ||
+        freshOwner.record.projectCwd !== spawnProjectCwd ||
+        (finishGuard !== undefined && freshOwner.record.worktree !== null)))
+    ) {
+      m.appendItem(freshId, noticeItem(t("finish.resolution.failed"), "warn"));
+      return false;
+    }
+    let accepted = false;
+    try {
+      accepted = await get().sendPrompt(freshId, gitResolutionPrompt(trigger), "prompt");
+    } catch (err) {
+      get().reportError(err);
+    }
+    if (!accepted) m.appendItem(freshId, noticeItem(t("finish.resolution.failed"), "warn"));
+    return accepted;
+  };
+
+  const resolveWorktreeMerge = async (
+    tabId: string,
+    trigger: Extract<GitResolutionTrigger, { kind: "merge" }>,
+    route: "current" | "fresh",
+  ): Promise<boolean> => {
+    const original = findOwner(get().state, tabId);
+    if (!original?.record.worktree || trigger.cwd !== original.record.projectCwd) {
+      get().reportError(t("finish.resolution.stale"));
+      return false;
+    }
+    const { record, instanceId } = original;
+    const worktree = original.record.worktree;
+    const unchanged = (): boolean => {
+      const owner = findOwner(get().state, tabId);
+      return owner !== undefined && owner.instanceId === instanceId &&
+        owner.record.sessionId === record.sessionId && owner.record.lineageDir === record.lineageDir &&
+        owner.record.launchedAt === record.launchedAt && owner.record.projectCwd === record.projectCwd &&
+        owner.record.mode === record.mode && owner.record.worktree != null &&
+        owner.record.worktree.path === worktree.path && owner.record.worktree.branch === worktree.branch &&
+        owner.record.worktree.base === worktree.base;
+    };
+    const safe = (): boolean => {
+      const resolution = worktreeMergeResolutionState(get(), tabId);
+      if (!unchanged() || resolution?.route !== route) {
+        get().reportError(t("finish.resolution.stale"));
+        return false;
+      }
+      if (resolution.blockedReason !== null) {
+        get().reportError(resolution.blockedReason);
+        return false;
+      }
+      return true;
+    };
+    if (!safe()) return false;
+    if (route === "fresh") {
+      return spawnGitResolution(record.projectCwd, trigger, instanceId, { check: safe });
+    }
+    const priorPlan = get().rpc[tabId]?.plan;
+    const requiredBuildAck = priorPlan?.enabled === true || record.agentMode === "plan";
+    if (requiredBuildAck) {
+      // A replayed Build snapshot can disagree with the owning record. Require
+      // a fresh publication after exit; never settle or defer a review gate.
+      void get().setPlanMode(tabId, false).catch((err: unknown) => get().reportError(err));
+      await m.pollUntil(tabId, (rpc) =>
+        get().exited[tabId] !== undefined || !unchanged() ||
+        findOwner(get().state, tabId)?.record.live !== "live" ||
+        (rpc?.plan?.enabled === false && rpc.plan !== priorPlan && !rpc.busy), 5_000);
+    }
+    if (!safe()) return false;
+    if (!m.acceptsCommands(tabId) || get().rpc[tabId]?.plan?.enabled === true ||
+      (requiredBuildAck && (get().rpc[tabId]?.plan?.enabled !== false || get().rpc[tabId]?.plan === priorPlan))) {
+      get().reportError(t("finish.resolution.failed"));
+      return false;
+    }
+    try {
+      const accepted = await get().sendPrompt(tabId, gitResolutionPrompt(trigger), "prompt");
+      if (accepted) get().focusTab(tabId);
+      return accepted;
+    } catch (err) {
+      get().reportError(err);
+      return false;
+    }
   };
 
   /**
@@ -1281,6 +1383,7 @@ export function createLifecycleSlice(
     eraseSession,
     spawnFreshImplementation,
     spawnGitResolution,
+    resolveWorktreeMerge,
     restartSession,
     addProject,
     removeProject,

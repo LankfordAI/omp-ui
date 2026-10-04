@@ -289,6 +289,22 @@ the user made (superseded by the finish dialog addendum).
   are left in the project checkout for the user" (merge-back addendum) as
   the default story; it stays true exactly when the project checkout holds
   the destination.
+- **A stopped project merge offers an agent handoff** (issue #727), including
+  when Finish is reopened or a different future destination/outcome is selected.
+  The target is the project checkout that holds `MERGE_HEAD`, not the session's
+  worktree or the currently selected Finish destination. The original live
+  native session keeps its process, lineage, transcript, and worktree; Plan
+  exits only after a fresh published Build acknowledgment. Terminal, dormant,
+  or exited originals explicitly offer a fresh Build-mode native session in
+  the owning instance's project checkout, without minting a worktree or a plan
+  handoff. Busy originals, pending answers, and another native turn in that
+  same instance/checkout block dispatch. The shared playbook treats branch/file
+  hints as advisory, preserves both sides and unrelated work, verifies before
+  continuing the existing merge noninteractively, and stops if it was already
+  resolved or aborted. Acknowledged dispatch closes only the dialog; it never
+  runs Finish again, syncs, switches checkouts, publishes, returns/releases or
+  removes the worktree, or deletes its branch. The user reopens Finish afterward.
+  Preview/sync behavior and aborted scratch conflicts above remain unchanged.
 - **A dirty checkout cannot be returned.** `releaseWorktree` refuses while
   the checkout has uncommitted or untracked changes — main reads
   `git status --porcelain` (issue #388). The dialog's return checkbox

@@ -38,7 +38,6 @@ const radioRowClass =
 export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
   const t = useT();
   const c = useFinishWorktree(tabId);
-  const closeFinishWorktree = useStore((s) => s.closeFinishWorktree);
   const toggleConsole = useStore((s) => s.toggleConsole);
   const consoleIsOpen = useStore((s) => s.consoleOpen[tabId] === true);
   const ids = useId();
@@ -51,11 +50,11 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
   // landed (issue #414). Anywhere else, a worktree-less record means the
   // session left the worktree behind someone else's hand.
   const done = c.phase.s === "done";
-  const holdsTheFinish = c.phase.s === "working" || done;
+  const holdsTheFinish = c.phase.s === "working" || done || c.resolutionBusy;
   useEffect(() => {
-    if (c.record === undefined) closeFinishWorktree();
-    else if (c.record.worktree === null && !holdsTheFinish) closeFinishWorktree();
-  }, [c.record, holdsTheFinish, closeFinishWorktree]);
+    if (c.record === undefined) c.close();
+    else if (c.record.worktree === null && !holdsTheFinish) c.close();
+  }, [c.record, holdsTheFinish, c.close]);
 
   const record = c.record;
   const worktree = record?.worktree ?? null;
@@ -121,7 +120,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               size="xs"
               variant="ghost"
               className="mt-1"
-              disabled={working || done || c.ownRunning || dirty}
+              disabled={working || done || c.resolutionBusy || c.ownRunning || dirty}
               title={
                 c.ownRunning
                   ? t("finish.dialog.syncBlockedRunning")
@@ -212,25 +211,25 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
       kicker={t("finish.dialog.kicker")}
       title={t("finish.dialog.title", { branch })}
       tone="neutral"
-      onClose={closeFinishWorktree}
+      onClose={c.close}
       width="w-[30rem]"
       actions={
         done ? (
           // The finish already happened; the only thing left to decide is
           // whether the landed branch goes to the remote, and that row is in
           // the body, not the footer (issue #414).
-          <Button variant="solid" onClick={closeFinishWorktree}>
+          <Button variant="solid" disabled={c.resolutionBusy} onClick={c.close}>
             {t("finish.primary.done")}
           </Button>
         ) : (
           <>
-            <Button variant="ghost" onClick={closeFinishWorktree}>
+            <Button variant="ghost" disabled={c.resolutionBusy} onClick={c.close}>
               {t("common.dialog.cancel")}
             </Button>
             <Button
               variant="solid"
               tone={c.returnSession ? "rose" : "neutral"}
-              disabled={c.primaryLabel === null || working || c.phase.s === "loading"}
+              disabled={c.primaryLabel === null || working || c.resolutionBusy || c.phase.s === "loading"}
               onClick={() => void c.run()}
             >
               {label}
@@ -260,6 +259,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               <Button
                 size="xs"
                 variant="ghost"
+                disabled={c.resolutionBusy}
                 onClick={() => {
                   if (!consoleIsOpen) toggleConsole(tabId);
                 }}
@@ -287,7 +287,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             // Inert once the run finished (issue #414): picking another
             // destination would re-key the status read and discard the done
             // phase — the session that owed it has already been returned.
-            disabled={done}
+            disabled={done || c.resolutionBusy}
             value={c.newBranch !== null ? NEW_BRANCH_SENTINEL : (c.destination ?? "")}
             onChange={(event) => {
               if (event.target.value === NEW_BRANCH_SENTINEL) c.chooseNewBranch();
@@ -318,6 +318,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                   value={c.newBranch.name}
                   placeholder="release/next"
                   spellCheck={false}
+                  disabled={c.resolutionBusy}
                   onChange={(event) => c.setNewBranch({ name: event.target.value })}
                 />
               </div>
@@ -329,6 +330,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                   id={`${ids}-nb-from`}
                   className={fieldClass}
                   value={c.newBranch.from}
+                  disabled={c.resolutionBusy}
                   onChange={(event) => c.setNewBranch({ from: event.target.value })}
                 >
                   {c.newBranch.from === "" && <option value="" disabled />}
@@ -362,7 +364,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               name={`${ids}-outcome`}
               className="mt-0.5 size-3.5 accent-current"
               checked={c.outcome === "merge"}
-              disabled={mergeBlocked}
+              disabled={mergeBlocked || c.resolutionBusy}
               onChange={() => c.setOutcome("merge")}
             />
             <span className="min-w-0 space-y-1">
@@ -378,6 +380,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               name={`${ids}-outcome`}
               className="mt-0.5 size-3.5 accent-current"
               checked={c.outcome === "keep"}
+              disabled={c.resolutionBusy}
               onChange={() => c.setOutcome("keep")}
             />
             <span className="min-w-0 space-y-1">
@@ -393,6 +396,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                     className={fieldClass}
                     value={c.rename}
                     spellCheck={false}
+                    disabled={c.resolutionBusy}
                     onChange={(event) => c.setRename(event.target.value)}
                   />
                 </span>
@@ -411,7 +415,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               type="checkbox"
               className="size-3.5 accent-current"
               checked={c.returnSession && !dirty}
-              disabled={dirty}
+              disabled={dirty || c.resolutionBusy}
               onChange={(event) => c.setReturnSession(event.target.checked)}
             />
             <span className="min-w-0 space-y-1">
@@ -425,26 +429,51 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
 
         {/* 5. The phase surface: where a stopped merge left the trees, or the
             failure that stopped the run. */}
-        {c.phase.s === "conflict" && (
-          <div className="space-y-1 rounded-md border border-line bg-raised px-3 py-2.5">
-            {c.phase.leftIn === "project" ? (
-              <>
-                <p className="text-xs leading-relaxed text-copper">
-                  {t("finish.dialog.conflictProject", {
-                    count: c.phase.files.length,
-                    cwd: record.projectCwd,
-                  })}
-                </p>
-                <p className={quietClass}>
-                  {t("branch.merge.resolveHint", { cwd: record.projectCwd })}
-                </p>
-              </>
-            ) : (
+        {(c.phase.s === "conflict" || c.resolution !== null) && (
+          <section className="space-y-2 rounded-md border border-line bg-raised px-3 py-2.5">
+            {c.phase.s === "conflict" && (
               <p className="text-xs leading-relaxed text-copper">
-                {t("finish.dialog.conflictAborted", { count: c.phase.files.length })}
+                {c.phase.leftIn === "project"
+                  ? t("finish.dialog.conflictProject", { count: c.phase.files.length })
+                  : t("finish.dialog.conflictAborted", { count: c.phase.files.length })}
               </p>
             )}
-          </div>
+            {c.resolution !== null && (
+              <>
+                {!(c.phase.s === "conflict" && c.phase.leftIn === "project") && (
+                  <p className={copperClass}>{t("branch.merge.inProgress")}</p>
+                )}
+                <p className={`${quietClass} [overflow-wrap:anywhere]`}>
+                  {t(
+                    c.resolution.route === "current"
+                      ? "finish.resolution.currentHint"
+                      : "finish.resolution.freshHint",
+                    { cwd: c.resolution.trigger.cwd },
+                  )}
+                </p>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  tone="copper"
+                  disabled={c.resolutionBusy || working || c.resolution.blockedReason !== null}
+                  onClick={() => void c.resolveWithAgent()}
+                >
+                  {t(c.resolutionBusy ? "finish.resolution.sending" : "finish.resolution.action")}
+                </Button>
+                {c.resolution.blockedReason !== null && (
+                  <p className={copperClass}>{c.resolution.blockedReason}</p>
+                )}
+                {c.resolutionError !== null && (
+                  <p role="alert" className="text-xs leading-relaxed text-rose">
+                    {c.resolutionError}
+                  </p>
+                )}
+                <p className={`${quietClass} [overflow-wrap:anywhere]`}>
+                  {t("branch.merge.resolveHint", { cwd: c.resolution.trigger.cwd })}
+                </p>
+              </>
+            )}
+          </section>
         )}
         {c.phase.s === "error" && (
           <p role="alert" className="text-xs leading-relaxed text-rose">

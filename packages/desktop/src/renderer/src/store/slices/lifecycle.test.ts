@@ -1,5 +1,6 @@
 // Lifecycle slice tests (moved verbatim from store.test.ts for #295).
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
 import type {
   BackendState,
   LiveState,
@@ -7,6 +8,7 @@ import type {
   RemoteState,
   WorktreeReleaseResult,
   WorktreeSyncResult,
+  SessionSummary,
 } from "@omp-ui/core/types";
 import {
   backendState as makeBackendState,
@@ -17,7 +19,8 @@ import {
 
 import { h } from "../../test/store-harness";
 import type { LifecycleSlice } from "./lifecycle";
-import type { UiStore } from "../types";
+import type { RpcTabState, UiStore } from "../types";
+import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolution";
 
 describe("running-input keyword process boundaries (issue #726)", () => {
   const lifecycle = () => h.useStore.getState() as UiStore & LifecycleSlice;
@@ -1601,9 +1604,7 @@ describe("spawnGitResolution (issue #675)", () => {
     await h.flushMicrotasks();
     const seeded = answerSent();
     expect(seeded).toHaveLength(1);
-    expect(seeded[0]).toContain("Integrate the diverged branch in this checkout: /p");
-    expect(seeded[0]).toContain("origin/main");
-    await launch;
+    expect(await launch).toBe(true);
     expect(h.sent).toEqual([]);
   });
 
@@ -1630,10 +1631,7 @@ describe("spawnGitResolution (issue #675)", () => {
     await h.flushMicrotasks();
     const seeded = answerSent();
     expect(seeded).toHaveLength(1);
-    expect(seeded[0]).toContain(
-      "A merge is in progress in this checkout: /p/.omp-ui/wt/abc",
-    );
-    await launch;
+    expect(await launch).toBe(true);
   });
 
   it("reports a rejected spawn and mounts no tab", async () => {
@@ -1641,7 +1639,7 @@ describe("spawnGitResolution (issue #675)", () => {
     h.mockBackend.spawnSession.mockRejectedValueOnce(
       new Error("no model provider configured"),
     );
-    await h.useStore.getState().spawnGitResolution("/p", diverged);
+    expect(await h.useStore.getState().spawnGitResolution("/p", diverged)).toBe(false);
     expect(h.useStore.getState().tabs).toEqual([]);
     expect(h.errorMessages()).toEqual([
       expect.stringContaining("no model provider configured"),
@@ -1654,7 +1652,7 @@ describe("spawnGitResolution (issue #675)", () => {
     const launch = h.useStore.getState().spawnGitResolution("/p", diverged);
     await h.flushMicrotasks();
     h.useStore.setState({ exited: { [FRESH]: 1 } });
-    await launch;
+    expect(await launch).toBe(false);
     expect(h.sent).toEqual([]);
     expect(h.errorMessages()).toEqual([]);
   });
@@ -1665,11 +1663,512 @@ describe("spawnGitResolution (issue #675)", () => {
       seedSpawn();
       const launch = h.useStore.getState().spawnGitResolution("/p", diverged);
       await vi.advanceTimersByTimeAsync(15_000);
-      await launch;
+      expect(await launch).toBe(false);
       expect(h.sent).toEqual([]);
       expect(h.errorMessages().join("\n")).toContain("never finished starting");
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it.each([null, "same-path-host"])("reuses only the explicitly addressed instance's identical worktree path (%s)", async (instanceId) => {
+    const path = "/shared/worktree";
+    const localTree = { path, branch: "wt/local", base: "main" };
+    const remoteTree = { path, branch: "wt/remote", base: "main" };
+    const local = h.stateWithRecord("local", "dormant", localTree).projects[0]!;
+    const remote = h.stateWithRecord("remote", "dormant", remoteTree).projects[0]!;
+    local.project = { ...local.project, path: "/local" };
+    local.sessions = [{ ...local.sessions[0]!, projectCwd: "/local" }];
+    remote.project = { ...remote.project, path: "/remote" };
+    remote.sessions = [{ ...remote.sessions[0]!, tabId: "remote-source", projectCwd: "/remote" }];
+    h.useStore.setState({ state: makeBackendState({ projects: [local], remoteInstances: [remoteInstance({ id: "same-path-host", projects: [remote] })] }), advisorDefaults: {} });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: FRESH });
+    h.mockBackend.remoteInstanceRequest.mockImplementation(async (_id, channel) =>
+      channel === "session:spawn" ? { tabId: FRESH } : { enabled: false, model: null },
+    );
+    const launch = h.useStore.getState().spawnGitResolution("/requested", { kind: "merge", branch: null, cwd: path }, instanceId);
+    await h.flushMicrotasks();
+    const spawn = expect.objectContaining({ projectCwd: instanceId === null ? "/local" : "/remote", worktree: { reuse: instanceId === null ? localTree : remoteTree } });
+    if (instanceId === null) {
+      expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(spawn);
+      expect(h.mockBackend.remoteInstanceRequest).not.toHaveBeenCalled();
+    } else {
+      expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+      expect(h.mockBackend.remoteInstanceRequest).toHaveBeenCalledWith(instanceId, "session:spawn", [spawn]);
+    }
+    expect(h.useStore.getState().tabs[0]!.instanceId).toBe(instanceId);
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState() } });
+    await h.flushMicrotasks();
+    answerSent();
+    expect(await launch).toBe(true);
+  });
+
+  it("an omitted instance stays local even when only a remote worktree owns the matching path", async () => {
+    const remote = h.stateWithRecord("remote", "dormant", { path: "/p", branch: "wt/remote", base: "main" }).projects[0]!;
+    h.useStore.setState({ state: makeBackendState({ remoteInstances: [remoteInstance({ projects: [remote] })] }), advisorDefaults: {} });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: FRESH });
+    const launch = h.useStore.getState().spawnGitResolution("/p", diverged);
+    await h.flushMicrotasks();
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ projectCwd: "/p", worktree: null }));
+    expect(h.mockBackend.remoteInstanceRequest).not.toHaveBeenCalled();
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState() } });
+    await h.flushMicrotasks();
+    answerSent();
+    expect(await launch).toBe(true);
+  });
+
+  it("waits for fresh boot commands to settle before sending the resolution seed", async () => {
+    seedSpawn();
+    const launch = h.useStore.getState().spawnGitResolution("/p", diverged);
+    await h.flushMicrotasks();
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState({ busy: true }) } });
+    await h.flushMicrotasks();
+    expect(h.sent).toEqual([]);
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState({ busy: false }) } });
+    await h.flushMicrotasks();
+    answerSent();
+    expect(await launch).toBe(true);
+  });
+
+  it("returns false on a rejected ready seed and retains the visible native tab failure", async () => {
+    seedSpawn();
+    const launch = h.useStore.getState().spawnGitResolution("/p", diverged);
+    await h.flushMicrotasks();
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState() } });
+    await h.flushMicrotasks();
+    for (const entry of h.sent.splice(0)) {
+      h.respond(entry.tabId, entry.cmd, entry.cmd.type === "prompt" ? "seed rejected" : {}, entry.cmd.type !== "prompt");
+    }
+    expect(await launch).toBe(false);
+    expect(h.useStore.getState().activeTabId).toBe(FRESH);
+    expect(h.useStore.getState().rpc[FRESH]!.failure!.message).toContain("seed rejected");
+  });
+
+  it("returns false for a boot failure without hiding its failure banner", async () => {
+    seedSpawn();
+    const launch = h.useStore.getState().spawnGitResolution("/p", diverged);
+    await h.flushMicrotasks();
+    const failure: RpcTabState["failure"] = { kind: "boot", fatal: true, message: "boot failed", recovery: "retry" };
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState({ status: "error", failure }) } });
+    expect(await launch).toBe(false);
+    expect(h.sent).toEqual([]);
+    expect(h.useStore.getState().rpc[FRESH]!.failure).toBe(failure);
+  });
+});
+
+describe("Finish worktree agent resolution (issue #727)", () => {
+  const FRESH = "finish-resolve";
+  const INSTANCE = "resolution-host";
+  const worktree = { path: "/p/.omp-ui/wt/original", branch: "wt/original", base: "main" };
+  const trigger = {
+    kind: "merge" as const,
+    branch: "main",
+    cwd: "/p",
+    finish: { sourceBranch: worktree.branch, destinationBranch: "main", files: ["src/conflict.ts"] },
+  };
+
+  function seedSource(
+    patch: Partial<SessionSummary> = {},
+    instanceId: string | null = null,
+    mounted = true,
+    rpc: Partial<RpcTabState> = {},
+  ): SessionSummary {
+    const state = h.stateWithRecord("original-session", "live", worktree);
+    const project = state.projects[0]!;
+    const record = { ...project.sessions[0]!, ...patch };
+    project.sessions = [record];
+    h.backendState = instanceId === null ? state : {
+      ...state,
+      projects: [],
+      remoteInstances: [remoteInstance({ id: instanceId, projects: [project] })],
+    };
+    h.useStore.setState({
+      state: h.backendState,
+      tabs: mounted ? [tabInfo({ tabId: h.TAB, projectCwd: "/p", mode: record.mode, instanceId, hidden: true })] : [],
+      rpc: record.mode === "rpc-ui" ? { [h.TAB]: rpcTabState({ initialPrompt: "Original worktree task", ...rpc }) } : {},
+      activeTabId: null,
+      handedOffFor: {},
+      observedPlanHandoffs: {},
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: FRESH });
+    h.mockBackend.remoteInstanceRequest.mockImplementation(async (_id, channel) =>
+      channel === "session:spawn" ? { tabId: FRESH } : { enabled: false, model: null },
+    );
+    return record;
+  }
+
+  function changeRecord(patch: Partial<SessionSummary>): void {
+    const state = h.useStore.getState().state!;
+    const update = (project: BackendState["projects"][number]) => ({
+      ...project,
+      sessions: project.sessions.map((record) => record.tabId === h.TAB ? { ...record, ...patch } : record),
+    });
+    h.useStore.setState({ state: {
+      ...state,
+      projects: state.projects.map(update),
+      remoteInstances: state.remoteInstances.map((instance) => ({ ...instance, projects: instance.projects.map(update) })),
+    } });
+  }
+
+  function changeRpc(patch: Partial<RpcTabState>): void {
+    h.useStore.setState((state) => ({ rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, ...patch } } }));
+  }
+
+  function publishPlan(enabled: boolean): void {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request", id: `plan-${enabled}`, method: "setStatus",
+      statusKey: PLAN_STATUS_KEY,
+      statusText: JSON.stringify({ enabled, planFilePath: null, planAbsPath: null, approved: false }),
+    });
+  }
+
+  function acknowledgePrompt(success = true): string {
+    let entry = h.sent.shift()!;
+    while (entry.cmd.type !== "prompt") {
+      h.respond(entry.tabId, entry.cmd, {});
+      entry = h.sent.shift()!;
+    }
+    h.respond(entry.tabId, entry.cmd, success ? {} : "prompt refused", success);
+    return String(entry.cmd.message);
+  }
+
+  function addTarget(instanceId: string | null, running = true, inWorktree = false, native = true): void {
+    const state = h.useStore.getState().state!;
+    const project = h.stateWithRecord("target-session").projects[0]!;
+    project.sessions = [{ ...project.sessions[0]!, tabId: "target", title: "Target worker", mode: native ? "rpc-ui" : "pty", worktree: inWorktree ? { path: "/other-checkout", branch: "wt/other", base: "main" } : null }];
+    h.useStore.setState((s) => ({
+      state: {
+        ...state,
+        projects: instanceId === null ? [...state.projects, project] : state.projects,
+        remoteInstances: instanceId === null ? state.remoteInstances :
+          state.remoteInstances.some((instance) => instance.id === instanceId)
+            ? state.remoteInstances.map((instance) => instance.id === instanceId
+              ? { ...instance, projects: [...instance.projects, project] } : instance)
+            : [...state.remoteInstances, remoteInstance({ id: instanceId, projects: [project] })],
+      },
+      tabs: [...s.tabs, tabInfo({ tabId: "target", projectCwd: "/p", instanceId, mode: native ? "rpc-ui" : "pty" })],
+      rpc: { ...s.rpc, target: rpcTabState({ status: running ? "running" : "ready" }) },
+    }));
+  }
+
+  it("prompts and focuses the original native session despite its different effective cwd, without spawning or handing off", async () => {
+    const record = seedSource();
+    const items = h.useStore.getState().rpc[h.TAB]!.items;
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]!.tabId).toBe(h.TAB);
+    expect(h.useStore.getState().activeTabId).toBeNull();
+    const prompt = acknowledgePrompt();
+    expect(prompt).toContain("/p");
+    expect(prompt).toContain("wt/original");
+    expect(await pending).toBe(true);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+    const state = h.useStore.getState();
+    expect(state.activeTabId).toBe(h.TAB);
+    expect(state.tabs[0]!.hidden).toBe(false);
+    expect(state.state!.projects[0]!.sessions[0]).toBe(record);
+    expect(state.rpc[h.TAB]!.items).toBe(items);
+    expect(state.handedOffFor).toEqual({});
+    expect(state.observedPlanHandoffs).toEqual({});
+  });
+
+  it("waits for the published Build acknowledgment and command completion before prompting", async () => {
+    seedSource();
+    publishPlan(true);
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+    expect(acknowledgePrompt()).toBe("/omp-ui-plan off");
+    await h.flushMicrotasks();
+    expect(h.sent).toEqual([]);
+    expect(h.useStore.getState().rpc[h.TAB]!.plan!.enabled).toBe(true);
+    publishPlan(false);
+    await h.flushMicrotasks();
+    expect(h.sent).toHaveLength(1);
+    acknowledgePrompt();
+    expect(await pending).toBe(true);
+  });
+
+  it("requires a new Build publication when the owning record is Plan but the renderer has a stale Build snapshot", async () => {
+    seedSource({ agentMode: "plan" });
+    publishPlan(false);
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+    expect(acknowledgePrompt()).toBe("/omp-ui-plan off");
+    await h.flushMicrotasks();
+    expect(h.sent).toEqual([]);
+    publishPlan(false);
+    await h.flushMicrotasks();
+    acknowledgePrompt();
+    expect(await pending).toBe(true);
+  });
+
+  it("sends no resolution when a stale Build snapshot never receives a fresh acknowledgment", async () => {
+    vi.useFakeTimers();
+    try {
+      seedSource({ agentMode: "plan" });
+      publishPlan(false);
+      const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+      acknowledgePrompt();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await pending).toBe(false);
+      expect(h.sent).toEqual([]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("does not prompt when Build is published while the mode command is still in flight", async () => {
+    seedSource();
+    publishPlan(true);
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+    const mode = h.sent.shift()!;
+    publishPlan(false);
+    await h.flushMicrotasks();
+    expect(h.sent).toEqual([]);
+    h.respond(mode.tabId, mode.cmd, {});
+    await h.flushMicrotasks();
+    acknowledgePrompt();
+    expect(await pending).toBe(true);
+  });
+
+  it("times out after five seconds without a Build publication and sends no resolution", async () => {
+    vi.useFakeTimers();
+    try {
+      seedSource();
+      publishPlan(true);
+      const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+      acknowledgePrompt();
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(h.sent).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await pending).toBe(false);
+      expect(h.sent).toEqual([]);
+      expect(h.useStore.getState().rpc[h.TAB]!.plan!.enabled).toBe(true);
+      expect(h.errorMessages()).not.toEqual([]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(["exit", "dormant", "record", "worktree", "owner"])("rejects a changed original during the Build wait (%s)", async (change) => {
+    seedSource();
+    publishPlan(true);
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+    acknowledgePrompt();
+    if (change === "exit") h.useStore.setState({ exited: { [h.TAB]: 0 } });
+    if (change === "dormant") changeRecord({ live: "dormant" });
+    if (change === "record") changeRecord({ sessionId: "successor-session" });
+    if (change === "worktree") changeRecord({ worktree: null });
+    if (change === "owner") {
+      const state = h.useStore.getState().state!;
+      h.useStore.setState({ state: { ...state, projects: [], remoteInstances: [remoteInstance({ id: INSTANCE, projects: state.projects })] } });
+    }
+    expect(await pending).toBe(false);
+    expect(h.sent).toEqual([]);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+  });
+
+  const blockers: Array<[string, Partial<SessionSummary>, Partial<RpcTabState>]> = [
+    ["main pending plan", { pendingPlan: { title: "Pending plan", planFilePath: "local://plan.md", planAbsPath: null, frameId: "pending", proposedAt: "t" } }, {}],
+    ["main human answer", { awaitingHumanAnswer: true }, {}],
+    ["plan review", {}, { planReview: { request: { title: "review", planFilePath: "local://plan.md", planAbsPath: null }, frame: { id: "review" } } }],
+    ["tool approval", {}, { approvalPrompt: { frame: { id: "approval" } } as RpcTabState["approvalPrompt"] }],
+    ["experiment proposal", {}, { experimentProposal: { frame: { id: "proposal" } } as RpcTabState["experimentProposal"] }],
+    ["extension dialog", {}, { extensionQueue: [{ id: "dialog", method: "select" }] }],
+    ["running", {}, { status: "running" }],
+    ["starting", {}, { status: "starting" }],
+    ["failed process", {}, { status: "error" }],
+    ["in-flight command", {}, { busy: true }],
+    ["admission blocked", {}, { commandAdmissionBlocked: true }],
+    ["compaction", {}, { compacting: { startedAt: 1 } }],
+    ["streaming", {}, { session: { ...rpcTabState().session, isStreaming: true } }],
+    ["automatic compaction", {}, { session: { ...rpcTabState().session, isCompacting: true } }],
+    ["queued turn", {}, { session: { ...rpcTabState().session, queuedMessageCount: 1 } }],
+  ];
+
+  it.each(blockers)("refuses %s without answering or dispatching", async (_name, recordPatch, rpcPatch) => {
+    seedSource(recordPatch, null, true, rpcPatch);
+    expect(worktreeMergeResolutionState(h.useStore.getState(), h.TAB)!.blockedReason).not.toBeNull();
+    expect(await h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current")).toBe(false);
+    expect(h.sent).toEqual([]);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+  });
+
+  it.each(blockers)("rechecks %s immediately after Build acknowledgment", async (_name, recordPatch, rpcPatch) => {
+    seedSource();
+    publishPlan(true);
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+    acknowledgePrompt();
+    changeRecord(recordPatch);
+    changeRpc(rpcPatch);
+    publishPlan(false);
+    // A busy command cannot settle the mode subscription: stop the wait by
+    // changing the record, and still assert that no prompt was sent.
+    if (rpcPatch.busy) changeRecord({ sessionId: "changed-while-busy" });
+    expect(await pending).toBe(false);
+    expect(h.sent).toEqual([]);
+  });
+
+  it.each([
+    [null, "terminal"], [null, "dormant"], [null, "exited"],
+    [INSTANCE, "terminal"], [INSTANCE, "dormant"], [INSTANCE, "exited"],
+  ] as const)("launches a native Build project resolution for %s / %s, without worktree or handoff", async (instanceId, source) => {
+    seedSource({ mode: source === "terminal" ? "pty" : "rpc-ui", live: source === "dormant" ? "dormant" : "live" }, instanceId, source !== "dormant");
+    if (source === "exited") h.useStore.setState({ exited: { [h.TAB]: 0 } });
+    expect(worktreeMergeResolutionState(h.useStore.getState(), h.TAB)).toEqual({ route: "fresh", blockedReason: null });
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "fresh");
+    await h.flushMicrotasks();
+    const spawn = expect.objectContaining({ origin: "new", projectCwd: "/p", mode: "rpc-ui", planMode: false, worktree: null });
+    if (instanceId === null) expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(spawn);
+    else {
+      expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+      expect(h.mockBackend.remoteInstanceRequest).toHaveBeenCalledWith(instanceId, "session:spawn", [spawn]);
+    }
+    const mounted = h.useStore.getState().tabs.find((tab) => tab.tabId === FRESH)!;
+    expect(mounted).toEqual(expect.objectContaining({ mode: "rpc-ui", projectCwd: "/p", instanceId }));
+    h.useStore.setState((state) => ({ rpc: { ...state.rpc, [FRESH]: rpcTabState() } }));
+    await h.flushMicrotasks();
+    expect(h.sent[0]!.tabId).toBe(FRESH);
+    acknowledgePrompt();
+    expect(await pending).toBe(true);
+    expect(h.useStore.getState().handedOffFor).toEqual({});
+    expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+    expect(h.mockBackend.switchMode).not.toHaveBeenCalled();
+  });
+
+  it.each([["current", null], ["fresh", null], ["current", INSTANCE], ["fresh", INSTANCE]] as const)("blocks a same-owner project-checkout worker on the %s route / %s instance", async (route, instanceId) => {
+    seedSource({ live: route === "fresh" ? "dormant" : "live" }, instanceId);
+    addTarget(instanceId);
+    expect(worktreeMergeResolutionState(h.useStore.getState(), h.TAB)!.blockedReason).toContain("Target worker");
+    expect(await h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, route)).toBe(false);
+    expect(h.sent).toEqual([]);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.mockBackend.remoteInstanceRequest).not.toHaveBeenCalled();
+  });
+
+  it.each(["remote", "local", "worktree", "idle", "terminal"])("does not block an unrelated target (%s)", async (target) => {
+    seedSource({}, target === "local" ? INSTANCE : null);
+    addTarget(target === "remote" ? INSTANCE : null, target !== "idle", target === "worktree", target !== "terminal");
+    expect(worktreeMergeResolutionState(h.useStore.getState(), h.TAB)!.blockedReason).toBeNull();
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+    expect(h.sent[0]!.tabId).toBe(h.TAB);
+    acknowledgePrompt();
+    expect(await pending).toBe(true);
+  });
+
+  it("rechecks a newly running target after Build acknowledgment", async () => {
+    seedSource();
+    publishPlan(true);
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+    acknowledgePrompt();
+    addTarget(null);
+    publishPlan(false);
+    expect(await pending).toBe(false);
+    expect(h.sent).toEqual([]);
+  });
+
+  it.each(["current-to-fresh", "fresh-to-current", "wrong-cwd", "missing-worktree", "missing-record", "wrong-instance"])("rejects stale Finish dispatch (%s)", async (stale) => {
+    seedSource({ live: stale === "fresh-to-current" ? "dormant" : "live" });
+    const route = stale === "fresh-to-current" ? "current" : stale === "current-to-fresh" ? "fresh" : "current";
+    if (stale === "missing-worktree") changeRecord({ worktree: null });
+    if (stale === "missing-record") h.useStore.setState({ state: makeBackendState() });
+    if (stale === "wrong-instance") h.useStore.setState({ tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p", instanceId: INSTANCE })] });
+    expect(await h.useStore.getState().resolveWorktreeMerge(h.TAB, stale === "wrong-cwd" ? { ...trigger, cwd: worktree.path } : trigger, route)).toBe(false);
+    expect(h.sent).toEqual([]);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+  });
+
+  it.each(["record", "route", "target"])("keeps the fresh tab visible but sends no seed when the source becomes unsafe (%s)", async (change) => {
+    seedSource({ live: "dormant" });
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "fresh");
+    await h.flushMicrotasks();
+    if (change === "record") changeRecord({ sessionId: "different-session" });
+    if (change === "route") changeRecord({ live: "live" });
+    if (change === "target") addTarget(null);
+    h.useStore.setState((state) => ({ rpc: { ...state.rpc, [FRESH]: rpcTabState() } }));
+    expect(await pending).toBe(false);
+    expect(h.sent).toEqual([]);
+    expect(h.useStore.getState().activeTabId).toBe(FRESH);
+    expect(h.useStore.getState().rpc[FRESH]!.items).not.toEqual([]);
+  });
+
+  it("rechecks the fresh route after asynchronous spawn parameters before creating a process", async () => {
+    seedSource({ live: "dormant" });
+    const defaults = h.deferred<{ enabled: boolean; model: null }>();
+    h.mockBackend.getAdvisorDefaults.mockReturnValueOnce(defaults.promise);
+    h.useStore.setState({ advisorDefaults: {} });
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "fresh");
+    changeRecord({ worktree: null });
+    defaults.resolve({ enabled: false, model: null });
+    expect(await pending).toBe(false);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.sent).toEqual([]);
+  });
+
+  it.each(["current", "fresh"] as const)("returns false when the %s prompt is refused and leaves a retryable failure", async (route) => {
+    seedSource({ live: route === "fresh" ? "dormant" : "live" });
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, route);
+    if (route === "fresh") {
+      await h.flushMicrotasks();
+      h.useStore.setState((state) => ({ rpc: { ...state.rpc, [FRESH]: rpcTabState() } }));
+      await h.flushMicrotasks();
+    }
+    acknowledgePrompt(false);
+    expect(await pending).toBe(false);
+    const state = h.useStore.getState();
+    expect(state.rpc[route === "current" ? h.TAB : FRESH]!.failure!.message).toContain("prompt refused");
+    expect(state.activeTabId).toBe(route === "current" ? null : FRESH);
+    expect(state.handedOffFor).toEqual({});
+  });
+
+  it.each(["admission", "answer", "plan", "streaming", "compaction", "exit"])("does not seed a fresh resolution process that becomes unsafe (%s)", async (blocker) => {
+    seedSource({ live: "dormant" });
+    const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "fresh");
+    await h.flushMicrotasks();
+    const fresh = rpcTabState();
+    if (blocker === "admission") fresh.commandAdmissionBlocked = true;
+    if (blocker === "answer") fresh.extensionQueue = [{ id: "pending-answer" }];
+    if (blocker === "plan") fresh.plan = { enabled: true, planFilePath: null, planAbsPath: null, approved: false };
+    if (blocker === "streaming") fresh.session.isStreaming = true;
+    if (blocker === "compaction") fresh.compacting = { startedAt: 1 };
+    h.useStore.setState((state) => ({ rpc: { ...state.rpc, [FRESH]: fresh }, exited: blocker === "exit" ? { [FRESH]: 0 } : state.exited }));
+    expect(await pending).toBe(false);
+    expect(h.sent).toEqual([]);
+    expect(h.useStore.getState().activeTabId).toBe(FRESH);
+  });
+
+  it.each(["starting", "error"] as const)("never replaces the mounted native original when its %s process precedes the live summary", async (status) => {
+    seedSource({ live: "dormant" }, null, true, { status });
+    expect(worktreeMergeResolutionState(h.useStore.getState(), h.TAB)).toEqual({ route: "current", blockedReason: expect.any(String) });
+    expect(await h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current")).toBe(false);
+    expect(await h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "fresh")).toBe(false);
+    expect(h.sent).toEqual([]);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+  });
+
+  it("bounds the Build wait even when the plan-mode command never acknowledges", async () => {
+    vi.useFakeTimers();
+    try {
+      seedSource();
+      publishPlan(true);
+      const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+      const mode = h.sent.shift()!;
+      expect(mode.cmd.message).toBe("/omp-ui-plan off");
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await pending).toBe(false);
+      expect(h.sent).toEqual([]);
+      h.respond(mode.tabId, mode.cmd, {});
+      await h.flushMicrotasks();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("never treats a missing plan snapshot as acknowledgment after explicitly exiting Plan", async () => {
+    vi.useFakeTimers();
+    try {
+      seedSource();
+      publishPlan(true);
+      const pending = h.useStore.getState().resolveWorktreeMerge(h.TAB, trigger, "current");
+      acknowledgePrompt();
+      changeRpc({ plan: null });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await pending).toBe(false);
+      expect(h.sent).toEqual([]);
+    } finally { vi.useRealTimers(); }
   });
 });
