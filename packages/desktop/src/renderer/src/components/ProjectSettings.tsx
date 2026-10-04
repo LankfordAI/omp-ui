@@ -9,6 +9,7 @@ import { findInstance, useStore } from "../store";
 import { McpServersPanel, SkillsScopePanel, ToolsScopePanel } from "./CapabilitiesViewer";
 import { AdvisorRosterEditor } from "./AdvisorRoster";
 import { ModelPalette } from "./ModelSelector";
+import { ReviewRosterEditor } from "./ReviewRoster";
 import { Button, Label, Modal, Switch } from "./ui";
 
 /**
@@ -337,7 +338,7 @@ export function ProjectModelPins({
   );
 }
 
-export type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models" | "advisors" | "browser";
+export type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models" | "advisors" | "reviewers" | "browser";
 
 const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
   { id: "mcp", labelKey: "project.settings.mcpServers" },
@@ -345,14 +346,16 @@ const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
   { id: "tools", labelKey: "project.settings.tools" },
   { id: "models", labelKey: "project.settings.defaultModels" },
   { id: "advisors", labelKey: "project.settings.advisors" },
+  { id: "reviewers", labelKey: "project.settings.reviewers" },
   { id: "browser", labelKey: "project.settings.browser" },
 ];
 
 /**
  * The per-project settings dialog (issues #281, #383, #564): one modal holding
  * a project's standing configuration — MCP servers, the skills and tools
- * catalogs at project scope, the default-model pins, the advisor roster (WATCHDOG.yml), and the browser clock —
- * behind a six-tab strip, opened from the desktop project header and the
+ * catalogs at project scope, the default-model pins, the advisor roster (WATCHDOG.yml), the
+ * reviewer roster (REVIEW.yml), and the browser clock — behind a seven-tab strip,
+ * opened from the desktop project header and the
  * compact actions sheet. Session-scoped behavior (rosters, session-local
  * switches, restart, TUI reauth handoff) stays in CapabilitiesViewer; this
  * dialog pins no session tab, so every panel gets only the project scope —
@@ -509,6 +512,16 @@ export function ProjectSettings({
               </h3>
               <AdvisorRosterEditor scopeCwd={project.path} instanceId={instanceId} />
               <p className="px-4 pt-2 text-[11px] text-ink-faint">{t("project.settings.advisorsHint")}</p>
+            </section>
+          )}
+
+          {active === "reviewers" && (
+            <section aria-labelledby="project-settings-reviewers" className="pb-3">
+              <h3 id="project-settings-reviewers" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+                {t("project.settings.reviewers")}
+              </h3>
+              <ReviewRosterEditor scopeCwd={project.path} instanceId={instanceId} />
+              <p className="px-4 pt-2 text-[11px] text-ink-faint">{t("project.settings.reviewersHint")}</p>
             </section>
           )}
 

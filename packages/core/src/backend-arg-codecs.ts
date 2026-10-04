@@ -30,6 +30,7 @@ import type {
   WatchdogDocument,
   WatchdogWriteRequest,
 } from "./types";
+import type { ReviewDocument, ReviewReviewer, ReviewTargetKind, ReviewWriteRequest } from "./review-config";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 
 export interface ArgCodec<T> {
@@ -378,6 +379,50 @@ export const watchdogWriteCodec: ArgCodec<WatchdogWriteRequest> = {
       scope: oneOf("user", "project").decode(f["scope"], `${path}.scope`),
       baseHash: nullable(str()).decode(f["baseHash"], `${path}.baseHash`),
       document: watchdogDocumentCodec.decode(f["document"], `${path}.document`),
+    };
+  },
+};
+
+const reviewText: ArgCodec<string> = codec("a string of at most 64 KiB", (v) => typeof v === "string" && v.length <= 65_536);
+const reviewTargetKindCodec: ArgCodec<ReviewTargetKind> = oneOf("local", "commit", "pr");
+const reviewEntryCodec: ArgCodec<ReviewReviewer> = {
+  expected: "a REVIEW roster entry",
+  decode(value, path) {
+    const f = record().decode(value, path);
+    exactKeys(f, ["name", "model", "instructions", "targets", "enabled"], path);
+    return {
+      name: reviewText.decode(f["name"], `${path}.name`),
+      model: nullable(reviewText).decode(f["model"], `${path}.model`),
+      instructions: nullable(reviewText).decode(f["instructions"], `${path}.instructions`),
+      targets: nullable(arrayOf(reviewTargetKindCodec)).decode(f["targets"], `${path}.targets`),
+      enabled: bool().decode(f["enabled"], `${path}.enabled`),
+    };
+  },
+};
+const reviewDocumentCodec: ArgCodec<ReviewDocument> = {
+  expected: "a REVIEW document",
+  decode(value, path) {
+    const f = record().decode(value, path);
+    exactKeys(f, ["instructions", "reviewers"], path);
+    const reviewers = arrayOf(reviewEntryCodec).decode(f["reviewers"], `${path}.reviewers`);
+    if (reviewers.length > 64) fail(`${path}.reviewers`, "at most 64 entries");
+    return {
+      instructions: nullable(reviewText).decode(f["instructions"], `${path}.instructions`),
+      reviewers,
+    };
+  },
+};
+/** The REVIEW.yml full-document write (ADR-0047), strict like the watchdog one. */
+export const reviewWriteCodec: ArgCodec<ReviewWriteRequest> = {
+  expected: "a REVIEW write request",
+  decode(value, path) {
+    const f = record().decode(value, path);
+    exactKeys(f, ["scopeCwd", "scope", "baseHash", "document"], path);
+    return {
+      scopeCwd: nullable(str()).decode(f["scopeCwd"], `${path}.scopeCwd`),
+      scope: oneOf("user", "project").decode(f["scope"], `${path}.scope`),
+      baseHash: nullable(str()).decode(f["baseHash"], `${path}.baseHash`),
+      document: reviewDocumentCodec.decode(f["document"], `${path}.document`),
     };
   },
 };
