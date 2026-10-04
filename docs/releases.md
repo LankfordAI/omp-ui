@@ -4,23 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- The Diffs pane keeps committed work visible in a plain checkout: a branch off the default branch shows its commits since the cut point, and work on the default branch shows its unpushed commits; the header chip names the base (#711).
-- Steer and kill in the Agents pane now use omp's own subagent commands (omp 18.4.9+) instead of a generated bridge; an older omp shows an update hint. The revive button is gone: omp's roster never lists a parked agent, so it could not appear (#713).
-- The native composer's queue chip lists pending prompts and lets a queued follow-up move into steering without retyping or duplicating it (omp 18.4.6+) (#714).
-- The native composer offers ghost-text word completion from omp's own engine: Tab accepts with a space and Right Arrow accepts without one; slash commands and shell drafts keep their existing behavior (#715).
-- Goal mode now runs on omp's native goal commands (omp 18.4.11+): continuation is omp's own, budgets are set with `/goal --budget N <objective>`, and the goal chip opens pause/resume/drop controls (#712).
-- Running subagents carry omp's own completion estimate (omp 18.4.11+) beside their status in the Agents pane and the subagent view banner; older omp runtimes show status alone (#716).
-- Fork from here on a session-tree prompt row cuts the transcript at that prompt into a new session file the tab continues in (omp 18.4.11+); the original stays on disk unchanged (#717).
-- Native sessions negotiate delta-only streaming updates with omp, reducing repeated transcript snapshots across live tabs; older runtimes retain full-snapshot streaming (#718).
-- A model row that advertises the ultrafast service tier gets a three-way fast-mode choice — off / priority / ultrafast — in the modes popover and the composer sheet; the selection persists per session and replays on the next spawn. Rows without the tier keep today's switch (#719).
-- Settings → omp exposes advisor review cadence and the non-blocker note cap when the installed omp publishes those keys (#720).
-- Settings → Providers discovers sign-in rows from the installed omp, including Factory Droid, without a live session; legacy discovery fallback remains available, and the page explains which flows require omp's terminal UI (#721).
-- Capability snapshots report the installed omp's published version again, restoring version-gated native controls on omp 18.4.x (#722).
-- Finish worktree's merge-and-stay hint names the session branch instead of showing a raw `{branch}` placeholder (#723).
-- Settings → Providers reports unreadable saved keys separately from usable credentials and preserves their encrypted entries during unrelated edits; explicit replacement or removal changes only the targeted entry (#724).
-- Remote access recovers after the first browser-bundle build or a rebuild without restarting the remote server: reload the same URL after the build completes to load the current bundle (#725).
-- The native composer's border keeps the actual magic-keyword gradient throughout model and tool work, combines keywords consumed together, and switches only when another input is consumed or execution ends; next-draft edits and queued-send acknowledgments cannot replace it (#726).
-- Finish worktree offers **Resolve with agent** for stopped project-checkout merges, including after reopening: it preserves an available native session's context or explicitly starts a fresh native resolution session, with exact checkout targeting, verification, and no automatic push or worktree return (#727).
+Nothing since [v0.19.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.19.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
