@@ -30,7 +30,7 @@ export type ChoiceValue<K extends ChoiceKey> = (typeof CHOICES)[K][number];
 
 /** Starting defaults are the plan's recommendations; each answer re-marks its line. */
 const DEFAULTS: { [K in ChoiceKey]: ChoiceValue<K> } = {
-  p753_reg: "page",
+  p753_reg: "page", // Q1 answered (a): own Settings page "Knowledge vault" after Memory.
   p753_chip: "tab",
   p753_card: "full",
   p753_mark: "border",
