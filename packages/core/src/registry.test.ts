@@ -84,6 +84,7 @@ describe("SETTINGS", () => {
       "sttModel",
       "sessionOrderFrozen",
       "memoryDefaultsSeeded",
+      "autoThinkingDefaultSeeded",
       "reviewRoster",
       "reviewRosterImported",
       "gettingStartedSeen",
@@ -597,7 +598,7 @@ describe("Registry persistence", () => {
     expect(Registry.load(absent).getSetting("defaultAdvisor")).toBe(false);
   });
 
-  it("round-trips default auto thinking and falls back to off for anything unknown", () => {
+  it("round-trips default auto thinking and falls back to on for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
     reg.setSetting("defaultAutoThinking", true);
@@ -610,10 +611,27 @@ describe("Registry persistence", () => {
       junk,
       JSON.stringify({ schemaVersion: 1, settings: { defaultAutoThinking: "no" } }),
     );
-    expect(Registry.load(junk).getSetting("defaultAutoThinking")).toBe(false);
+    expect(Registry.load(junk).getSetting("defaultAutoThinking")).toBe(true);
     const absent = tmpFile();
     fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
-    expect(Registry.load(absent).getSetting("defaultAutoThinking")).toBe(false);
+    expect(Registry.load(absent).getSetting("defaultAutoThinking")).toBe(true);
+  });
+
+  it("flips a legacy persisted off default to on once", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, settings: { defaultAutoThinking: false } }),
+    );
+    expect(Registry.load(file).getSetting("defaultAutoThinking")).toBe(true);
+    // The marker persisted: an explicit off chosen afterwards survives reload.
+    const reg = Registry.load(file);
+    reg.setSetting("defaultAutoThinking", false);
+    expect(Registry.load(file).getSetting("defaultAutoThinking")).toBe(false);
+  });
+
+  it("defaults a fresh registry to auto thinking on", () => {
+    expect(Registry.load(tmpFile()).getSetting("defaultAutoThinking")).toBe(true);
   });
 
   it("defaults theme and launch update checks when the settings fields are absent", () => {

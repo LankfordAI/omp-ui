@@ -257,7 +257,7 @@ preference, **Default advisor** (Settings → General, off by default), decides
 whether a new session with no per-project memory starts with the advisor on;
 it supersedes omp's own config for that one decision, while the advisor model
 still falls back to omp config. The thinking analogue is a separate app
-preference, **Auto thinking** default (Settings → General, off by default):
+preference, **Auto thinking** default (Settings → General, on by default):
 it decides whether a new session with no per-project thinking memory starts on
 the auto selector (see **Auto thinking**), sitting below last-used memory and
 above omp config.

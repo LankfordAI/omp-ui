@@ -28,6 +28,7 @@ interface RegistrySettings {
   sttModel: string | null;
   sessionOrderFrozen: boolean;
   memoryDefaultsSeeded: boolean;
+  autoThinkingDefaultSeeded: boolean;
   reviewRoster: unknown;
   reviewRosterImported: boolean;
   gettingStartedSeen: boolean;
@@ -102,6 +103,9 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     stallAutoContinue: true,
     defaultAdvisor: false,
     defaultAutoThinking: false,
+    // Default true so seeds exercise post-migration registries; tests
+    // wanting the legacy shape set it false via the patch.
+    autoThinkingDefaultSeeded: true,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     experimentsEnabled: false,

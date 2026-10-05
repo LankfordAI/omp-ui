@@ -44,7 +44,7 @@ export interface RegistrySettings {
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
   defaultAdvisor: boolean;
   /** Seeds omp's auto thinking selector for new sessions with no
-   *  per-project thinking memory; default off. */
+   *  per-project thinking memory; default on. */
   defaultAutoThinking: boolean;
   modelFavorites: string[];
   /** Session-scope umbrella: subagents with no explicit choice run on the
@@ -63,6 +63,9 @@ export interface RegistrySettings {
   sessionOrderFrozen: boolean;
   /** One-time seed marker (issue #570): memory defaults were applied to omp's global layer once. */
   memoryDefaultsSeeded: boolean;
+  /** One-time migration marker: legacy registries persisted the old off
+   *  default; the first load on a new build flips it to on once. */
+  autoThinkingDefaultSeeded: boolean;
   /**
    * App-wide reviewer roster for /code-review (issue #738): null = unset, so
    * projects fall through to the default reviewer. Replaces the user-scope
@@ -187,11 +190,12 @@ export const SETTINGS: SettingDescriptors = {
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
-  // App default off: omp config may say on, but a booted app's preference
-  // wins for new sessions with no per-project thinking memory (issue #743),
-  // mirroring defaultAdvisor.
+  // App default on (issue follow-up to #743): a fresh session with no
+  // per-project thinking memory starts on omp's automatic selector.
+  // Registries that persisted the old off default are flipped once at
+  // load — see seedAutoThinkingDefault.
   defaultAutoThinking: validatedSetting(
-    () => false,
+    () => true,
     (value): value is boolean => typeof value === "boolean",
   ),
   modelFavorites: (() => {
@@ -240,6 +244,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   memoryDefaultsSeeded: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  autoThinkingDefaultSeeded: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -350,9 +358,14 @@ function parseSettings(raw: object | undefined): RegistrySettings {
 }
 
 function emptyRegistry(): RegistryData {
+  // A fresh registry is born seeded: the on fallback already applies, and
+  // persisting the marker keeps a later explicit off from being re-flipped.
   return {
     schemaVersion: 1,
-    settings: buildSettings((key) => SETTINGS[key].fallback()),
+    settings: {
+      ...buildSettings((key) => SETTINGS[key].fallback()),
+      autoThinkingDefaultSeeded: true,
+    },
     projects: [],
     sessions: [],
     sidebarGroups: [],
@@ -722,6 +735,20 @@ function seedSessionOrder(file: string, data: RegistryData): void {
 }
 
 /**
+ * One-time default flip: legacy registries persisted the old off default for
+ * `defaultAutoThinking` (the settings object is always written in full), so a
+ * bare `false` cannot be told apart from the old default. Flip it to on once
+ * and mark the registry seeded; later explicit off values persist the marker
+ * and are never revisited.
+ */
+function seedAutoThinkingDefault(file: string, data: RegistryData): void {
+  if (data.settings.autoThinkingDefaultSeeded) return;
+  data.settings.autoThinkingDefaultSeeded = true;
+  data.settings.defaultAutoThinking = true;
+  writeRegistry(file, data);
+}
+
+/**
  * omp-ui's own state (projects + owned sessions), persisted as JSON.
  * Records are per lineage (one per spawned process); `sessionId: null` is
  * valid at every layer — a session can live minutes or forever without a file.
@@ -751,6 +778,7 @@ export class Registry {
     const data = parseRegistryData(parsed);
     if (data) {
       seedSessionOrder(file, data);
+      seedAutoThinkingDefault(file, data);
       return new Registry(file, data);
     }
     // Corrupt (or unknown schemaVersion): quarantine and start empty.

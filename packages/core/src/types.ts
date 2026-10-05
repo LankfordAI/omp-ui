@@ -562,6 +562,7 @@ type BackendBroadcastSettings = Omit<
   RegistrySettings,
   | "sessionOrderFrozen"
   | "memoryDefaultsSeeded"
+  | "autoThinkingDefaultSeeded"
   | "remoteEnabled"
   | "remoteBind"
   | "remotePort"
