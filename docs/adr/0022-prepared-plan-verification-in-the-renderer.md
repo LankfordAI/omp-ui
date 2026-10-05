@@ -82,3 +82,11 @@ body margin, so every plan document laid out 16px wider than the viewport
 `LAYOUT_OVERFLOW` under an honest probe. Auto width contains the margin
 by definition, the canvas paint rides on `:root`, and an authored body
 margin stays authored layout rather than generated overflow.
+
+**Amended 2026-10-04 (#741):** transcript message text that is a whole HTML
+plan document — the full message text, or an `html` fence whose body is the
+whole document — is a further display surface. It runs the same
+renderer-local preparation and verification described here, keeps
+`sandbox=""`, carries no source identity, and never submits or answers
+anything. Its fallback shows the diagnostics and escaped source but omits the
+reviewed-artifact footer, since no artifact on disk backs it.

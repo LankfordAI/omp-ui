@@ -3,7 +3,7 @@ import { useT } from "../lib/i18n";
 import { usePreparedPlanDocument } from "../lib/use-prepared-plan-document";
 import type { PlanItem } from "../lib/transcript";
 import { Markdown } from "./Markdown";
-import { PlanDiagnostics, PlanFallback, PlanPreparing } from "./PlanFallback";
+import { PreparedPlanView } from "./PlanDocumentView";
 import { Chip, Disclosure, Label, Panel } from "./ui";
 
 /**
@@ -40,36 +40,12 @@ export function PlanCard({ item }: { item: PlanItem }) {
           <Disclosure summary={<Label>{t("plan.card.show")}</Label>}>
             <div className="mt-1">
               {html ? (
-                prepared.status === "pending" ? (
-                  <PlanPreparing className="h-[28rem]" />
-                ) : prepared.doc === null || prepared.status === "failed" ? (
-                  <PlanFallback
-                    diagnostics={prepared.diagnostics}
-                    source={item.text}
-                    className="h-[28rem]"
-                  />
-                ) : (
-                  <div className="flex h-[28rem] min-h-0 flex-col gap-1.5">
-                    {prepared.status === "unavailable" && (
-                      // Same truthful summary as the review dock: the document
-                      // below is real; only the layout check did not finish
-                      // (issue #415).
-                      <PlanDiagnostics
-                        diagnostics={prepared.diagnostics}
-                        mode="verification-incomplete"
-                        className="shrink-0 rounded-md border border-line bg-sunken px-3 py-2 text-xs"
-                      />
-                    )}
-                    {/* Same empty sandbox as the review modal: no scripts, no
-                        same-origin access, no navigation (ADR-0007). */}
-                    <iframe
-                      title={t("plan.card.proposedPlan")}
-                      sandbox=""
-                      srcDoc={prepared.doc}
-                      className="min-h-0 w-full flex-1 rounded-md border border-line bg-surface"
-                    />
-                  </div>
-                )
+                <PreparedPlanView
+                  prepared={prepared}
+                  source={item.text}
+                  title={t("plan.card.proposedPlan")}
+                  className="h-[28rem]"
+                />
               ) : (
                 <Markdown text={item.text} />
               )}

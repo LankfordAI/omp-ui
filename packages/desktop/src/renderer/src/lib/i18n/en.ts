@@ -1445,6 +1445,8 @@ export const en = {
   "markdown.codeblock.source": "source",
   "markdown.codeblock.diagram": "diagram",
   "markdown.diagram.aria": "mermaid diagram",
+  "markdown.codeblock.document": "document",
+  "markdown.plan.frameTitle": "html plan",
   "markdown.inf.tip": "Model-flagged inference: not verified against sources",
   // Last-resort app crash surface
   "app.crash.title": "omp-ui hit a render error",
