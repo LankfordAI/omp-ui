@@ -291,7 +291,7 @@ async function resolveTarget(target: Target, cwd: string, signal: AbortSignal | 
 
 // --- the roster: main's spawn-time snapshot, never YAML here.
 const SNAPSHOT_MISSING =
-  "The reviewer roster was not loaded for this session; restart the session to load REVIEW.yml.";
+  "The reviewer roster was not loaded for this session; restart the session to load the roster.";
 
 function readSnapshot(): Snapshot | null {
   let raw: unknown;
@@ -334,13 +334,13 @@ async function runReview(target: Target, cwd: string, signal: AbortSignal | unde
   if (roster === null) return fail(SNAPSHOT_MISSING);
   const warnings = roster.configWarnings.length === 0 ? "" : " Config warnings: " + roster.configWarnings.join("; ");
   if (roster.reviewers.length === 0) {
-    return fail("The reviewer roster is empty: REVIEW.yml enables no valid reviewer." + warnings);
+    return fail("The reviewer roster is empty: the roster enables no valid reviewer." + warnings);
   }
-  // A range answers to REVIEW.yml's \`commit\` targets kind.
+  // A range answers to the \`commit\` targets kind.
   const kind = target.kind === "range" ? "commit" : target.kind;
   const selected = roster.reviewers.filter((r) => r.targets === null || r.targets.includes(kind));
   if (selected.length === 0) {
-    return fail("No enabled reviewer covers " + kind + " targets; widen a reviewer's targets in REVIEW.yml.");
+    return fail("No enabled reviewer covers " + kind + " targets; widen a reviewer's targets in Settings > Reviewers.");
   }
   try {
     const inside = await git(cwd, ["rev-parse", "--is-inside-work-tree"], signal);
@@ -391,7 +391,7 @@ async function runReview(target: Target, cwd: string, signal: AbortSignal | unde
 }
 
 pi.registerCommand(COMMAND, {
-  description: "Review code with the REVIEW.yml roster as background agents",
+  description: "Review code with the omp-ui reviewer roster as background agents",
   handler: async (args: string, ctx: Record<string, unknown>) => {
     const cwd = typeof ctx.cwd === "string" ? ctx.cwd : pi.cwd ?? process.cwd();
     const parsed = parseArgs(args);
@@ -410,7 +410,7 @@ if (typeof pi.registerTool === "function" && typeof zod?.object === "function") 
     name: TOOL,
     label: "code review",
     description:
-      "Launch the project's code-review roster (REVIEW.yml) as background reviewer agents. " +
+      "Launch the project's code-review roster (omp-ui Settings > Reviewers) as background reviewer agents. " +
       "target: omit for local changes against the upstream or default branch; " +
       "{kind:'commit',value:'<ref>' or '<from>..<to>'} for a commit or range; " +
       "{kind:'pr',value:'<number>'} for a GitHub pull request. Reviewers never edit files or post anywhere. " +

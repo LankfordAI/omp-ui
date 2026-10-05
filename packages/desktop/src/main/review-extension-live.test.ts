@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   CODE_REVIEW_COMMAND,
   RpcClient,
+  parseReviewDocument,
   resolveOmpBinary,
   writeReviewExtension,
   writeReviewOverlay,
@@ -42,13 +43,18 @@ retry:
   enabled: false
 `;
 
-const ROSTER_YML = `instructions: "review thoroughly"
+// The roster app state would hold; main snapshots it at spawn the way
+// spawn-config does, and the bridge reads only the snapshot.
+const ROSTER_DOC = parseReviewDocument(
+  `instructions: "review thoroughly"
 reviewers:
   - name: style-critic
   - name: security-hawk
     model: "kwprobe/inert"
     targets: [local, commit]
-`;
+`,
+  "REVIEW.yml",
+).document;
 
 interface Frame {
   type: string;
@@ -96,7 +102,6 @@ async function spawnScope(): Promise<{
   fs.mkdirSync(agent, { recursive: true });
   fs.writeFileSync(path.join(agent, "models.yml"), MODELS_YML);
   fs.writeFileSync(path.join(agent, "config.yml"), CONFIG_YML);
-  fs.writeFileSync(path.join(agent, "REVIEW.yml"), ROSTER_YML);
   const project = path.join(base, "proj");
   const lineage = path.join(base, "lin");
   fs.mkdirSync(lineage, { recursive: true });
@@ -111,7 +116,7 @@ async function spawnScope(): Promise<{
   // An untracked file so the local target is non-empty; a clean tree answers "Nothing to review".
   fs.writeFileSync(path.join(project, "b.txt"), "world\n");
   // Main writes this roster snapshot on every rpc spawn; the bridge reads only it.
-  await writeReviewRosterSnapshot(lineage, project, { PI_CODING_AGENT_DIR: agent }, home);
+  await writeReviewRosterSnapshot(lineage, ROSTER_DOC, null);
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,

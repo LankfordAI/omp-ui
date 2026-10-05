@@ -111,6 +111,7 @@ const group: ProjectGroup = {
     defaultModel: null,
     defaultAdvisorModel: null,
     browserClock: false,
+    reviewRoster: null,
   },
   sessions: [session],
 };

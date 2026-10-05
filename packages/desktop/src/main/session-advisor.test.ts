@@ -93,6 +93,7 @@ function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
+        reviewRoster: null,
       },
     ],
     sessions: [

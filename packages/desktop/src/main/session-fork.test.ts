@@ -87,6 +87,7 @@ function setup(file: "active" | "archived" | "missing" = "active"): { sessionsRo
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
+        reviewRoster: null,
       },
     ],
     sessions: [

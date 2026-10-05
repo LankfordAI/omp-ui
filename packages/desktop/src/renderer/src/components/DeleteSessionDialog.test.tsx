@@ -131,6 +131,7 @@ const stateWith = (
           defaultModel: null,
           defaultAdvisorModel: null,
           browserClock: false,
+          reviewRoster: null,
         },
         sessions: [session],
       },

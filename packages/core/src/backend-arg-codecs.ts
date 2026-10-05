@@ -412,17 +412,16 @@ const reviewDocumentCodec: ArgCodec<ReviewDocument> = {
     };
   },
 };
-/** The REVIEW.yml full-document write (ADR-0047), strict like the watchdog one. */
+/** One app-state roster save (ADR-0047 as amended by #738): null document clears the scope. */
 export const reviewWriteCodec: ArgCodec<ReviewWriteRequest> = {
-  expected: "a REVIEW write request",
+  expected: "a review roster write request",
   decode(value, path) {
     const f = record().decode(value, path);
-    exactKeys(f, ["scopeCwd", "scope", "baseHash", "document"], path);
+    exactKeys(f, ["scopeCwd", "scope", "document"], path);
     return {
       scopeCwd: nullable(str()).decode(f["scopeCwd"], `${path}.scopeCwd`),
       scope: oneOf("user", "project").decode(f["scope"], `${path}.scope`),
-      baseHash: nullable(str()).decode(f["baseHash"], `${path}.baseHash`),
-      document: reviewDocumentCodec.decode(f["document"], `${path}.document`),
+      document: nullable(reviewDocumentCodec).decode(f["document"], `${path}.document`),
     };
   },
 };

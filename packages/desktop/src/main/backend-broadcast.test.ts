@@ -122,6 +122,7 @@ beforeEach(() => {
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
+        reviewRoster: null,
       },
       {
         path: "/p/b",
@@ -134,6 +135,7 @@ beforeEach(() => {
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
+        reviewRoster: null,
       },
     ],
     sessions: [ownedSessionRecord({ projectCwd: "/p/a" })],
@@ -351,8 +353,8 @@ describe("plan-review gate on the wire (issue #215)", () => {
     const registryFile = path.join(base, "registry.json");
     seedRegistry(registryFile, {
       projects: [
-        { path: "/p/a", name: "A", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false },
-        { path: "/p/b", name: "B", addedAt: "2026-08-02T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false },
+        { path: "/p/a", name: "A", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, reviewRoster: null },
+        { path: "/p/b", name: "B", addedAt: "2026-08-02T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, reviewRoster: null },
       ],
       sessions: [
         ownedSessionRecord({ tabId: TAB_A, lineageDir: LINEAGE_A, projectCwd: "/p/a", mode: "rpc-ui" }),
@@ -535,6 +537,7 @@ describe("dispatch and state builds (issue #301)", () => {
           defaultModel: null,
           defaultAdvisorModel: null,
           browserClock: false,
+          reviewRoster: null,
         },
       ],
       sessions: [

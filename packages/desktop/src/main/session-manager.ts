@@ -869,10 +869,19 @@ export class SessionManager {
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
     }
-    // After the worktree link: a worktree's project `.omp/REVIEW.yml` is only
-    // reachable through it. Every rpc launch (fresh, resume, restart) refreshes it.
+    // The roster is app state now (issue #738): the project record's document
+    // (null = global/default), resolved at snapshot time. Worktrees no longer
+    // matter — there is no project file to reach through the link. Every rpc
+    // launch (fresh, resume, restart) refreshes it.
     if (bridgeLoaded.review) {
-      await writeReviewRosterForSpawn(absLineageDir, record.worktree?.path ?? record.projectCwd);
+      const projectRecord = this.deps.registry.projects.find(
+        (project) => project.path === record.projectCwd,
+      );
+      await writeReviewRosterForSpawn(
+        absLineageDir,
+        this.deps.registry.getSetting("reviewRoster"),
+        projectRecord?.reviewRoster ?? null,
+      );
     }
     // One-shot watcher (issue #718): when the runtime rejects the delta
     // negotiation — or echoes full mode — the spawn streams full snapshots

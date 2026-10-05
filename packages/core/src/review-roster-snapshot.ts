@@ -1,14 +1,13 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { writeLineageArtifact } from "./lineage-artifact";
-import { readReviewRoster, type ReviewTargetKind } from "./review-config";
+import { resolveReviewRoster, type ReviewDocument, type ReviewTargetKind } from "./review-config";
 
 /**
- * The merged REVIEW.yml roster the code-review bridge launches (ADR-0047 as
- * amended): main parses with the same js-yaml validation Settings uses and
- * writes the enabled entries here on every rpc spawn, so the bridge never
- * parses YAML and launches exactly what Settings shows.
+ * The resolved roster the code-review bridge launches (ADR-0047 as amended by
+ * issue #738): main resolves app-state documents with the same validator
+ * Settings uses and writes the enabled entries here on every rpc spawn, so
+ * the bridge never touches state and launches exactly what Settings shows.
  */
 const SNAPSHOT_NAME = "omp-ui-review-roster.json";
 export const REVIEW_ROSTER_SNAPSHOT_VERSION = 1;
@@ -33,17 +32,19 @@ export function reviewRosterSnapshotPath(lineageDir: string): string {
 
 const textOrNull = (v: string | null): string | null => (v !== null && v.trim() !== "" ? v : null);
 
-/** Rewrites the snapshot; on a read failure removes any stale copy, then rethrows. */
+/** Rewrites the snapshot; on a resolution failure removes any stale copy, then rethrows. */
 export async function writeReviewRosterSnapshot(
   lineageDir: string,
-  scopeCwd: string,
-  env: NodeJS.ProcessEnv = process.env,
-  home: string = os.homedir(),
+  global: ReviewDocument | null,
+  project: ReviewDocument | null,
 ): Promise<string> {
   const file = reviewRosterSnapshotPath(lineageDir);
   let roster;
   try {
-    roster = await readReviewRoster(scopeCwd, env, home);
+    roster = resolveReviewRoster(project === null ? null : "project", {
+      global,
+      project,
+    });
   } catch (err) {
     fs.rmSync(file, { force: true });
     throw err;

@@ -422,9 +422,10 @@ per-lineage generated extension passed with `-e`, plus a small always-written
 `--config` overlay restating `async.enabled`/`task.batch` so a global opt-out
 cannot disable review under rpc-ui ([#728](https://github.com/LankfordAI/omp-ui/issues/728),
 [ADR-0047](adr/0047-code-review-roster-via-background-subagents.md)). Main
-snapshots the merged roster (`readReviewRoster`, the same validation Settings
-uses) into `omp-ui-review-roster.json` in the lineage dir on every rpc spawn;
-the bridge reads only that snapshot, filters reviewers by `targets`, resolves
+snapshots the resolved roster (project → global → default, `resolveReviewRoster`,
+the same resolution Settings shows) into `omp-ui-review-roster.json` in the
+lineage dir on every rpc spawn; the bridge reads only that snapshot, filters
+reviewers by `targets`, resolves
 the target once with async, cancellable `git`/`gh` probes to concrete commit
 ids (refusing empty targets), and never spawns anything itself: no extension
 ctx in omp exposes `callTool`. It composes one `task` batch invocation and hands it
@@ -549,4 +550,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [The web-search provider list is read from omp's model catalog](adr/0035-web-search-provider-list-read-from-omp-model-catalog.md) | Enumerate web-search providers from `omp models --kind search --json` under a pristine environment — designed JSON, offline, credential-free — keeping ADR-0027's closed-list contract and synthetic-reason degradation. |
 | [Generated bridges read omp settings through its config registry](adr/0036-generated-bridges-read-omp-settings-through-its-config-registry.md) | Read the effective value with a literal dynamic import of omp's config registry and `lookup(id).get(session.settings)` — layered, live, read-only — because 18.3.2's `Settings` has no string-key `get` and every alternative either writes or guesses. |
 | [Goal mode via omp's native rpc goal command](adr/0046-goal-mode-via-native-rpc-goal-command.md) | Drive goals through omp's rpc `goal` command, `get_state.goal`, and `goal_updated` (omp 18.4.11+, no fallback); budgets at creation only; continuation is omp's own, armed by a per-spawn `goal.continuationModes` overlay that follows the user's `"interactive"` setting; the HUD chip opens pause/resume/drop controls. |
-| [Code review as a batch of background subagents](adr/0047-code-review-roster-via-background-subagents.md) | `/code-review` composes one `task` batch from the `REVIEW.yml` roster and hands it to the model via `pi.sendMessage` (`triggerTurn`) — no extension can spawn; reviewers are `task` items with per-item model pins, results return as `async-result` wakes; rpc-only, guarded by an idempotent `async`/`task.batch` overlay. |
+| [Code review as a batch of background subagents](adr/0047-code-review-roster-via-background-subagents.md) | `/code-review` composes one `task` batch from the app-state reviewer roster (issue #738 amended storage: per-project/global registry documents, one-time `REVIEW.yml` import) and hands it to the model via `pi.sendMessage` (`triggerTurn`) — no extension can spawn; reviewers are `task` items with per-item model pins, results return as `async-result` wakes; rpc-only, guarded by an idempotent `async`/`task.batch` overlay. |

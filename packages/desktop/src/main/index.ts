@@ -355,6 +355,11 @@ if (!app.requestSingleInstanceLock()) {
     // the pair above: the writes finish long before the user registers a
     // project and opens the first tab, and a failed pass retries next boot.
     void be.seedMemoryDefaultsOnce();
+    // Roster truth moved from REVIEW.yml to app state (issue #738): import
+    // the files once into the registry. Void-fired like the seed above; the
+    // pass is synchronous work in one microtask, so it finishes well before
+    // the first spawn could snapshot a roster.
+    void be.importReviewRostersOnce();
 
     win.on("close", (e) => {
       // updateQuitAuthorized: the close was issued by native quitAndInstall,

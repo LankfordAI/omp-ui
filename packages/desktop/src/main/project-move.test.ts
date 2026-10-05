@@ -63,6 +63,7 @@ function setup(): { registryFile: string } {
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
+        reviewRoster: null,
       },
       {
         path: "/p/b",
@@ -75,6 +76,7 @@ function setup(): { registryFile: string } {
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
+        reviewRoster: null,
       },
       {
         path: "/p/c",
@@ -87,6 +89,7 @@ function setup(): { registryFile: string } {
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
+        reviewRoster: null,
       },
     ],
   });

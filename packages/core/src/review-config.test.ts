@@ -1,25 +1,13 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   DEFAULT_REVIEWER,
+  isReviewDocument,
   parseReviewDocument,
-  readReviewRoster,
-  serializeReviewDocument,
-  setReviewRoster,
+  resolveReviewRoster,
+  validateReviewDocument,
   type ReviewDocument,
 } from "./review-config";
 
-let root: string;
-let env: NodeJS.ProcessEnv;
-let home: string;
-let agentDir: string;
-
-const write = (file: string, text: string): void => {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, text);
-};
 const doc = (over: Partial<ReviewDocument> = {}): ReviewDocument => ({
   instructions: null,
   reviewers: [],
@@ -34,177 +22,137 @@ const entry = (name: string, over = {}) => ({
   ...over,
 });
 
-beforeEach(() => {
-  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rv-")));
-  home = path.join(root, "home");
-  agentDir = path.join(home, ".omp", "agent");
-  fs.mkdirSync(agentDir, { recursive: true });
-  env = { ...process.env, PI_CODING_AGENT_DIR: agentDir };
-});
-afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
-
-describe("discovery and precedence", () => {
-  it("project overrides a same-named user entry wholesale; cwd beats ancestor", async () => {
-    const repo = path.join(root, "repo");
-    const sub = path.join(repo, "pkg");
-    write(path.join(repo, ".git", "HEAD"), "");
-    write(path.join(agentDir, "REVIEW.yml"), "reviewers:\n  - name: a\n    model: u/m\n  - name: b\n    model: u/b\n");
-    write(path.join(repo, "REVIEW.yml"), "reviewers:\n  - name: a\n    model: anc/m\n  - name: c\n");
-    write(path.join(sub, "REVIEW.yml"), "reviewers:\n  - name: c\n    model: cwd/c\n");
-    const r = await readReviewRoster(sub, env, home);
-    const by = Object.fromEntries(r.effective.map((e) => [e.name, e]));
-    expect(r.effective.map((e) => e.name)).toEqual(["a", "b", "c"]);
-    expect(by.a!.model).toBe("anc/m"); // whole-entry replace, no field merge
-    expect(by.a!.sourceScope).toBe("project");
-    expect(by.b!.model).toBe("u/b");
-    expect(by.b!.sourceScope).toBe("user");
-    expect(by.c!.model).toBe("cwd/c");
-  });
-
-  it("stops at a .git file", async () => {
-    const repo = path.join(root, "wt");
-    write(path.join(repo, ".git"), "gitdir: /elsewhere");
-    write(path.join(root, "REVIEW.yml"), "reviewers:\n  - name: outside\n");
-    write(path.join(repo, "REVIEW.yml"), "reviewers:\n  - name: inside\n");
-    const r = await readReviewRoster(repo, env, home);
-    expect(r.effective.map((e) => e.name)).toEqual(["inside"]);
-  });
-
-  it("the default roster answers when no file exists anywhere", async () => {
-    const r = await readReviewRoster(path.join(root, "bare"), env, home);
-    expect(r.effective).toHaveLength(1);
-    expect(r.effective[0]!.name).toBe(DEFAULT_REVIEWER.name);
-    expect(r.effective[0]!.model).toBeNull();
-    expect(r.configWarnings).toEqual([]);
-  });
-
-  it("targets filtering keeps disabled entries visible but unlaunched", async () => {
-    write(
-      path.join(agentDir, "REVIEW.yml"),
-      "reviewers:\n  - name: on-entry\n  - name: off-entry\n    enabled: false\n  - name: pr-only\n    targets: [pr]\n",
+describe("parseReviewDocument", () => {
+  it("reads a well-formed body", () => {
+    const r = parseReviewDocument(
+      `
+instructions: be harsh
+reviewers:
+  - name: Security
+    model: litellm/Model-X:high
+    targets: [pr]
+  - name: style-critic
+    enabled: false
+`,
+      "REVIEW.yml",
     );
-    const r = await readReviewRoster(null, env, home);
-    expect(r.effective.map((e) => e.name)).toEqual(["on-entry", "off-entry", "pr-only"]);
-    expect(r.reviewers.map((e) => e.name)).toEqual(["on-entry", "pr-only"]);
-    expect(r.effective[2]!.targets).toEqual(["pr"]);
+    expect(r.blocking).toEqual([]);
+    expect(r.document.instructions).toBe("be harsh");
+    expect(r.document.reviewers).toEqual([
+      { name: "security", model: "litellm/Model-X:high", instructions: null, targets: ["pr"], enabled: true },
+      { name: "style-critic", model: null, instructions: null, targets: null, enabled: false },
+    ]);
   });
-
-  it("a parse error is a warning, not a broken roster", async () => {
-    write(path.join(agentDir, "REVIEW.yml"), "reviewers:\n  - name: good\n");
-    const repo = path.join(root, "repo");
-    write(path.join(repo, ".git", "HEAD"), "");
-    write(path.join(repo, "REVIEW.yml"), "mystery: 1\n");
-    const r = await readReviewRoster(repo, env, home);
-    expect(r.effective.map((e) => e.name)).toEqual(["good"]);
-    expect(r.configWarnings.join(" ")).toMatch(/unknown key "mystery"/);
-  });
-
-  it("later instructions win", async () => {
-    const repo = path.join(root, "repo");
-    write(path.join(repo, ".git", "HEAD"), "");
-    write(path.join(agentDir, "REVIEW.yml"), "instructions: user\nreviewers: []\n");
-    write(path.join(repo, "REVIEW.yml"), "instructions: project\n");
-    const r = await readReviewRoster(repo, env, home);
-    expect(r.instructions).toBe("project");
-  });
-});
-
-describe("serialize / parse", () => {
-  it("golden output", () => {
-    const text = serializeReviewDocument(
-      doc({
-        instructions: "be thorough",
-        reviewers: [
-          entry("security", { model: "anthropic/claude-opus:high", targets: ["local", "pr"] }),
-          entry("nitpicker", { enabled: false }),
-          entry("silent"),
-        ],
-      }),
-    );
-    expect(text).toBe(
-      'instructions: "be thorough"\n' +
-        "reviewers:\n" +
-        "  - name: security\n" +
-        '    model: "anthropic/claude-opus:high"\n' +
-        "    targets:\n" +
-        "      - local\n" +
-        "      - pr\n" +
-        "  - name: nitpicker\n" +
-        "    enabled: false\n" +
-        "  - name: silent\n",
-    );
-  });
-
-  it("round-trips", () => {
-    const original = doc({
-      instructions: "multi\nline\nguidance\n",
-      reviewers: [entry("a", { instructions: "look at tests", model: "vllm/x:low" })],
+  it("refuses non-mapping tops and syntax errors", () => {
+    expect(parseReviewDocument("- a\n- b", "F").blocking[0]).toContain("not a mapping");
+    expect(parseReviewDocument("instructions: [", "F").blocking[0]).toContain("YAML syntax error");
+    expect(parseReviewDocument("# nothing", "F")).toEqual({
+      document: { instructions: null, reviewers: [] },
+      blocking: [],
     });
-    const text = serializeReviewDocument(original);
-    const { document, blocking } = parseReviewDocument(text, "REVIEW.yml");
-    expect(blocking).toEqual([]);
-    expect(document).toEqual(original);
   });
-
-  it("blocks on syntax errors, non-mapping roots, unknown keys, bad entries and duplicate slugs", () => {
-    expect(parseReviewDocument("\t bad: [", "f").blocking.join()).toMatch(/YAML syntax error/);
-    expect(parseReviewDocument("- 1\n", "f").blocking.join()).toMatch(/not a mapping/);
-    expect(parseReviewDocument("nope: 1\n", "f").blocking.join()).toMatch(/unknown key "nope"/);
-    expect(parseReviewDocument("reviewers:\n  - model: x\n", "f").blocking.join()).toMatch(/needs a name/);
-    expect(parseReviewDocument("reviewers:\n  - name: a\n    model: [1]\n", "f").blocking.join()).toMatch(/model must be/);
-    expect(parseReviewDocument("reviewers:\n  - name: a\n    targets: [bogus]\n", "f").blocking.join()).toMatch(/targets must name/);
-    expect(parseReviewDocument("reviewers:\n  - name: a\n  - name: A\n", "f").blocking.join()).toMatch(/duplicates/);
-    expect(parseReviewDocument("reviewers:\n  - name: 9bad\n", "f").blocking.join()).toMatch(/\[a-z\]/);
+  it("flags unknown keys at both levels", () => {
+    const r = parseReviewDocument("instructions: x\nmodel: y\nreviewers:\n  - name: a\n    agent: b\n", "F");
+    expect(r.blocking.some((w) => w.includes('unknown key "model"'))).toBe(true);
+    expect(r.blocking.some((w) => w.includes('unknown key "agent"'))).toBe(true);
   });
-
-  it("accepts nulls and boolean enabled", () => {
-    const { document, blocking } = parseReviewDocument(
-      "reviewers:\n  - name: a\n    model: null\n    targets: null\n    enabled: true\n",
-      "f",
+  it("drops entries with a bad or duplicate slug, keeping the rest", () => {
+    const r = parseReviewDocument(
+      "reviewers:\n  - name: good\n  - name: ' '\n  - name: Good\n",
+      "F",
     );
-    expect(blocking).toEqual([]);
-    expect(document.reviewers[0]).toEqual({ name: "a", model: null, instructions: null, targets: null, enabled: true });
+    expect(r.document.reviewers.map((e) => e.name)).toEqual(["good"]);
+    expect(r.blocking.some((w) => w.includes("duplicates another entry"))).toBe(true);
   });
 });
 
-describe("setReviewRoster", () => {
-  it("writes, rejects stale hash, and deletes on empty", async () => {
-    const repo = path.join(root, "repo");
-    write(path.join(repo, ".git", "HEAD"), "");
-    const first = await setReviewRoster(
-      { scopeCwd: repo, scope: "project", baseHash: null, document: doc({ reviewers: [entry("a", { model: "m/x" })] }) },
-      env,
-      home,
+describe("validateReviewDocument", () => {
+  it("normalizes blank text to null and reports no warnings", () => {
+    const r = validateReviewDocument(
+      doc({ instructions: "  ", reviewers: [entry("a", { model: " ", instructions: "" })] }),
+      "the global roster",
     );
-    const target = path.join(repo, "REVIEW.yml");
-    expect(fs.existsSync(target)).toBe(true);
-    expect(first.effective[0]!.model).toBe("m/x");
-    await expect(
-      setReviewRoster({ scopeCwd: repo, scope: "project", baseHash: null, document: doc() }, env, home),
-    ).rejects.toThrow(/changed on disk/);
-    const reread = await readReviewRoster(repo, env, home);
-    await setReviewRoster({ scopeCwd: repo, scope: "project", baseHash: reread.project!.hash, document: doc() }, env, home);
-    expect(fs.existsSync(target)).toBe(false);
+    expect(r.configWarnings).toEqual([]);
+    expect(r.reviewers).toEqual([entry("a")]);
+    expect(r.instructions).toBe(null);
   });
-
-  it("refuses bad requests and lossy files", async () => {
-    const repo = path.join(root, "repo");
-    write(path.join(repo, ".git", "HEAD"), "");
-    await expect(setReviewRoster({ scopeCwd: null, scope: "project", baseHash: null, document: doc() }, env, home)).rejects.toThrow(
-      /project directory/,
+  it("drops an entry whose name slugs to nothing or repeats a slug", () => {
+    const r = validateReviewDocument(doc({ reviewers: [entry("---"), entry("x"), entry("X")] }), "the global roster");
+    expect(r.reviewers.map((e) => e.name)).toEqual(["x"]);
+    expect(r.configWarnings).toHaveLength(2);
+    expect(r.configWarnings[0]).toContain("the global roster");
+  });
+  it("drops over-length text and excess entries with warnings", () => {
+    const big = "x".repeat(64 * 1024 + 1);
+    const many = Array.from({ length: 65 }, (_, i) => entry(`r${i}`));
+    const r = validateReviewDocument(
+      doc({ instructions: big, reviewers: [...many, entry("big", { instructions: big })] }),
+      "this project's roster",
     );
-    await expect(
-      setReviewRoster(
-        { scopeCwd: repo, scope: "project", baseHash: null, document: doc({ reviewers: [entry("a"), entry("A")] }) },
-        env,
-        home,
-      ),
-    ).rejects.toThrow(/duplicate/);
-    write(path.join(repo, "REVIEW.yml"), "mystery: 1\n");
-    const stale = await readReviewRoster(repo, env, home);
-    await expect(
-      setReviewRoster({ scopeCwd: repo, scope: "project", baseHash: stale.project!.hash, document: doc() }, env, home),
-    ).rejects.toThrow(/refusing/);
-    expect(fs.readFileSync(path.join(repo, "REVIEW.yml"), "utf8")).toBe("mystery: 1\n");
+    expect(r.instructions).toBe(null);
+    expect(r.reviewers).toHaveLength(64);
+    expect(r.configWarnings.some((w) => w.includes("shared instructions over"))).toBe(true);
+    expect(r.configWarnings.some((w) => w.includes("more than 64"))).toBe(true);
+  });
+  it("filters target kinds to the known set", () => {
+    const r = validateReviewDocument(doc({ reviewers: [entry("a", { targets: ["pr", "moon"] as never[] })] }), "g");
+    expect(r.reviewers[0]!.targets).toEqual(["pr"]);
+  });
+});
+
+describe("isReviewDocument", () => {
+  it("accepts documents and rejects anything else", () => {
+    expect(isReviewDocument(doc({ reviewers: [entry("a")] }))).toBe(true);
+    expect(isReviewDocument(null)).toBe(false);
+    expect(isReviewDocument([])).toBe(false);
+    expect(isReviewDocument(doc({ instructions: 3 } as never))).toBe(false);
+    expect(isReviewDocument(doc({ reviewers: [{ name: "a" } as never] }))).toBe(false);
+    expect(isReviewDocument(doc({ reviewers: [entry("a", { enabled: "yes" })] } as never))).toBe(false);
+  });
+});
+
+describe("resolveReviewRoster", () => {
+  const projectDoc = doc({ reviewers: [entry("p")] });
+  const globalDoc = doc({ instructions: "shared", reviewers: [entry("g")] });
+
+  it("the project document wins when a project exists", () => {
+    const v = resolveReviewRoster("/p", { global: globalDoc, project: projectDoc });
+    expect(v.reviewers.map((e) => e.name)).toEqual(["p"]);
+    expect(v.instructions).toBe(null);
+    expect(v.effective[0]!.sourceScope).toBe("project");
+    expect(v.global).toBe(globalDoc);
+    expect(v.project).toBe(projectDoc);
+  });
+  it("a project-less context ignores the project document", () => {
+    const v = resolveReviewRoster(null, { global: globalDoc, project: projectDoc });
+    expect(v.reviewers.map((e) => e.name)).toEqual(["g"]);
+    expect(v.effective[0]!.sourceScope).toBe("user");
+  });
+  it("global fills when the project document is unset", () => {
+    const v = resolveReviewRoster("/p", { global: globalDoc, project: null });
+    expect(v.reviewers.map((e) => e.name)).toEqual(["g"]);
+    expect(v.instructions).toBe("shared");
+  });
+  it("nothing set anywhere yields the default reviewer", () => {
+    const v = resolveReviewRoster("/p", { global: null, project: null });
+    expect(v.reviewers).toEqual([{ ...DEFAULT_REVIEWER }]);
+    expect(v.effective).toEqual([{ ...DEFAULT_REVIEWER, sourceScope: "user" }]);
+    expect(v.configWarnings).toEqual([]);
+  });
+  it("disabled entries stay out of the launch set but in the view", () => {
+    const v = resolveReviewRoster(null, {
+      global: doc({ reviewers: [entry("on"), entry("off", { enabled: false })] }),
+      project: null,
+    });
+    expect(v.reviewers.map((e) => e.name)).toEqual(["on"]);
+    expect(v.effective.map((e) => e.name)).toEqual(["on", "off"]);
+  });
+  it("validation warnings surface from the winning document", () => {
+    const v = resolveReviewRoster("/p", {
+      global: null,
+      project: doc({ reviewers: [entry("---"), entry("ok")] }),
+    });
+    expect(v.reviewers.map((e) => e.name)).toEqual(["ok"]);
+    expect(v.configWarnings).toHaveLength(1);
   });
 });

@@ -9,6 +9,7 @@ import type { SubagentModelMap } from "./subagent-model";
 import type { ProjectConfigMapRead, ProjectConfigRead, ProjectConfigValue } from "./project-config-writer";
 import type { SkillOrigin } from "./omp-capability-keys";
 import type { RegistrySettings } from "./registry";
+import type { ReviewDocument } from "./review-config";
 import type { SessionExperiment } from "./experiment-types";
 export type {
   CheckoutExperiments,
@@ -143,6 +144,14 @@ export interface ProjectRecord {
    * Legacy registries without the field are normalized to false at parse time.
    */
   browserClock: boolean;
+  /**
+   * This project's reviewer roster for /code-review (issue #738, ADR-0047 as
+   * amended): null = unset, so the global roster (then the default reviewer)
+   * applies. Legacy registries without the field are normalized to null at
+   * parse time; a present value must pass the structural guard or loads as
+   * null — the record always survives.
+   */
+  reviewRoster: ReviewDocument | null;
 }
 
 /**
@@ -547,6 +556,8 @@ type BackendBroadcastSettings = Omit<
   | "remotePasswordHash"
   | "remotePasswordSalt"
   | "instanceId"
+  | "reviewRoster"
+  | "reviewRosterImported"
 >;
 
 export interface BackendState extends BackendBroadcastSettings {
@@ -1399,12 +1410,12 @@ export interface DiagnosticsExportResult {
 
 export type { OmpBackend } from "./backend-channels";
 
-// The REVIEW.yml roster shapes (issue #728, ADR-0047), re-exported for the
-// renderer's type-only import (ADR-0002); erased at compile time.
+// The reviewer roster shapes (issue #728, ADR-0047 as amended by #738),
+// re-exported for the renderer's type-only import (ADR-0002); erased at
+// compile time.
 export type {
   EffectiveReviewer,
   ReviewDocument,
-  ReviewFileView,
   ReviewReviewer,
   ReviewRosterView,
   ReviewTargetKind,

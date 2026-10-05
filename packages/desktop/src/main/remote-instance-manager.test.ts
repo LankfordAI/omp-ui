@@ -50,6 +50,7 @@ function projectGroups(paths: string[]): ProjectGroup[] {
       defaultModel: null,
       defaultAdvisorModel: null,
       browserClock: false,
+      reviewRoster: null,
     },
     sessions: [
       {

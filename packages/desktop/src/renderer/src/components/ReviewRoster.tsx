@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ReviewDocument,
-  ReviewFileView,
   ReviewReviewer,
   ReviewRosterView,
   ReviewTargetKind,
@@ -17,10 +16,11 @@ import { ModelPalette } from "./ModelSelector";
 import { Button, Label, Panel, Switch } from "./ui";
 
 /**
- * The reviewer roster (issue #728, ADR-0047). `ReviewRosterEditor` edits file
- * truth — REVIEW.yml at the user or project scope — and applies on session
- * relaunch: `/code-review` launches the enabled entries as background review
- * agents, so running sessions keep the roster they were launched with.
+ * The reviewer roster (issue #728, ADR-0047 as amended by issue #738).
+ * `ReviewRosterEditor` edits app state — this project's `reviewRoster`, or the
+ * global one — and applies on session relaunch: `/code-review` launches the
+ * enabled entries as background review agents, so running sessions keep the
+ * roster they were launched with.
  */
 
 type Load = { status: "loading" } | { status: "loaded"; result: ReviewRosterView } | { status: "error"; message: string };
@@ -33,16 +33,18 @@ function useRosterLoad(scopeCwd: string | null, instanceId: string | null): [Loa
   const [retry, setRetry] = useState(0);
   const gen = useRef(0);
   useEffect(() => {
-    const g = ++gen.current;
+    const mine = ++gen.current;
     setLoad({ status: "loading" });
-    backendFor(instanceId).getReviewRoster(scopeCwd).then(
-      (result) => {
-        if (g === gen.current) setLoad({ status: "loaded", result });
-      },
-      (err: unknown) => {
-        if (g === gen.current) setLoad({ status: "error", message: displayMessage(err) });
-      },
-    );
+    backendFor(instanceId)
+      .getReviewRoster(scopeCwd)
+      .then(
+        (result) => {
+          if (gen.current === mine) setLoad({ status: "loaded", result });
+        },
+        (err: unknown) => {
+          if (gen.current === mine) setLoad({ status: "error", message: displayMessage(err) });
+        },
+      );
   }, [scopeCwd, instanceId, retry]);
   return [load, (result) => setLoad({ status: "loaded", result }), () => setRetry((n) => n + 1)];
 }
@@ -54,9 +56,12 @@ function blankEntry(): ReviewReviewer {
 }
 
 function modelShapeOk(value: string): boolean {
-  const role = parseModelRole(value);
-  return role !== null && role.model.includes("/");
+  const parsed = parseModelRole(value);
+  return parsed !== null && parsed.model !== "";
 }
+
+const documentsEqual = (a: ReviewDocument, b: ReviewDocument): boolean =>
+  JSON.stringify(a) === JSON.stringify(b);
 
 const inputClass =
   "w-full rounded border border-line bg-void px-2 py-1 font-mono text-[11px] text-ink outline-none focus:border-line-strong disabled:opacity-60";
@@ -75,16 +80,33 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
   const rpc = useStore((s) => s.rpc);
   const restartSession = useStore((s) => s.restartSession);
 
-  const view: ReviewFileView | null =
-    load.status === "loaded" ? (scope === "project" ? load.result.project : load.result.user) : null;
+  // The document the edited scope holds in app state; null = unset.
+  const stored = useMemo(
+    () => (load.status === "loaded" ? (scope === "project" ? load.result.project : load.result.global) : null),
+    [load, scope],
+  );
 
-  // Seed the draft from the loaded file whenever the view (not the draft) changes.
+  // What the editor seeds from: the scope's own document, else what the
+  // resolution chain currently shows (global or default) — editing it creates
+  // the override. Memoized on the load: a fresh object per render would
+  // re-seed the draft under the user's keystrokes.
+  const seed = useMemo(() => {
+    if (load.status !== "loaded") return null;
+    const own = scope === "project" ? load.result.project : load.result.global;
+    if (own !== null) return structuredClone(own);
+    return {
+      instructions: load.result.instructions,
+      reviewers: load.result.effective.map(({ sourceScope: _unused, ...r }) => r),
+    };
+  }, [load, scope]);
+
+  // Seed the draft from the loaded state whenever the view (not the draft) changes.
   useEffect(() => {
-    if (view) {
-      setDraft(structuredClone(view.document));
+    if (seed) {
+      setDraft(structuredClone(seed));
       setDirty(false);
     } else setDraft(null);
-  }, [view]);
+  }, [seed]);
 
   const models = useMemo(() => {
     if (scopeCwd === null) return EMPTY_MODELS;
@@ -117,9 +139,8 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
     );
   }
   const result = load.result;
-  if (view === null || draft === null) return null;
+  if (seed === null || draft === null) return null;
 
-  const blocked = view.blocking.length > 0;
   const update = (patch: Partial<ReviewDocument>): void => {
     setDraft({ ...draft, ...patch });
     setDirty(true);
@@ -132,20 +153,41 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
   const invalid =
     draft.reviewers.some((r, i) => r.name.trim() === "" || slugs.indexOf(slugs[i]!) !== i || (r.model !== null && r.model !== "" && !modelShapeOk(r.model)));
 
+  // The whole document (or null to clear the scope); a project draft identical
+  // to the global document is a clear — the same roster either way, and the
+  // chain stays readable.
   const save = async (): Promise<void> => {
     setSaving(true);
     setError(null);
     try {
       const doc: ReviewDocument = {
-        ...draft,
+        instructions: draft.instructions?.trim() ? draft.instructions : null,
         reviewers: draft.reviewers.map((r) => ({ ...r, model: r.model?.trim() ? r.model.trim() : null })),
       };
+      const clear =
+        scope === "project" &&
+        result.global !== null &&
+        documentsEqual(doc, result.global);
       const next = await backendFor(instanceId).setReviewRoster({
         scopeCwd: scope === "project" ? scopeCwd : null,
         scope,
-        baseHash: view.hash,
-        document: doc,
+        document: clear ? null : doc,
       });
+      setLoad(next);
+      setSaved(true);
+    } catch (err) {
+      setError(displayMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Drops the project override so the global roster (or default) applies again. */
+  const clearOverride = async (): Promise<void> => {
+    setSaving(true);
+    setError(null);
+    try {
+      const next = await backendFor(instanceId).setReviewRoster({ scopeCwd, scope: "project", document: null });
       setLoad(next);
       setSaved(true);
     } catch (err) {
@@ -165,22 +207,9 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
         <Button size="xs" selected={scope === "user"} onClick={() => setScope("user")}>
           {t("review.roster.scopeUser")}
         </Button>
-        <span className="min-w-0 truncate font-mono text-[10px] text-ink-dim" title={view.path}>
-          {view.path}
-        </span>
       </div>
-      {!view.exists && <p className="text-ink-faint">{t("review.roster.noFile")}</p>}
-      {view.blocking.length > 0 && (
-        <Panel tone="rose" className="p-2">
-          <p className="mb-1 font-medium">{t("review.roster.blocking")}</p>
-          <ul className="list-disc pl-4">
-            {view.blocking.map((b, i) => (
-              <li key={i} className="break-words">
-                {b}
-              </li>
-            ))}
-          </ul>
-        </Panel>
+      {scope === "project" && stored === null && (
+        <p className="text-ink-faint">{t("review.roster.inheritGlobal")}</p>
       )}
 
       <div>
@@ -188,7 +217,6 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
         <textarea
           className={cn(inputClass, "mt-1 h-16")}
           aria-label={t("review.roster.sharedInstructions")}
-          disabled={blocked}
           value={draft.instructions ?? ""}
           onChange={(e) => update({ instructions: e.target.value === "" ? null : e.target.value })}
         />
@@ -201,17 +229,15 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
               className={inputClass}
               placeholder={t("review.roster.namePlaceholder")}
               aria-label={t("review.roster.colName")}
-              disabled={blocked}
               value={r.name}
               onChange={(e) => updateEntry(i, { name: e.target.value })}
             />
             <Switch
               on={r.enabled}
               label={t("review.roster.enabled")}
-              disabled={blocked}
               onChange={(next) => updateEntry(i, { enabled: next })}
             />
-            <Button size="xs" variant="ghost" tone="rose" disabled={blocked} onClick={() => update({ reviewers: draft.reviewers.filter((_, j) => j !== i) })}>
+            <Button size="xs" variant="ghost" tone="rose" onClick={() => update({ reviewers: draft.reviewers.filter((_, j) => j !== i) })}>
               {t("review.roster.remove")}
             </Button>
           </div>
@@ -220,12 +246,11 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
               className={inputClass}
               placeholder={t("review.roster.modelPlaceholder")}
               aria-label={t("review.roster.colModel")}
-              disabled={blocked}
               value={r.model ?? ""}
               onChange={(e) => updateEntry(i, { model: e.target.value === "" ? null : e.target.value })}
             />
             {models.length > 0 && (
-              <Button size="xs" disabled={blocked} onClick={() => setPickIndex(i)}>
+              <Button size="xs" onClick={() => setPickIndex(i)}>
                 {t("review.roster.pick")}
               </Button>
             )}
@@ -237,7 +262,6 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
             <Button
               size="xs"
               selected={r.targets === null}
-              disabled={blocked}
               onClick={() => updateEntry(i, { targets: r.targets === null ? [...TARGET_KINDS] : null })}
             >
               {t("review.roster.targetsAll")}
@@ -248,7 +272,6 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
                   key={kind}
                   size="xs"
                   selected={r.targets!.includes(kind)}
-                  disabled={blocked}
                   onClick={() =>
                     updateEntry(i, { targets: r.targets!.includes(kind) ? r.targets!.filter((x) => x !== kind) : [...r.targets!, kind] })
                   }
@@ -261,7 +284,6 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
             className={cn(inputClass, "h-14")}
             aria-label={t("review.roster.instructions")}
             placeholder={t("review.roster.instructions")}
-            disabled={blocked}
             value={r.instructions ?? ""}
             onChange={(e) => updateEntry(i, { instructions: e.target.value === "" ? null : e.target.value })}
           />
@@ -269,22 +291,33 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
       ))}
 
       <div className="flex items-center gap-2">
-        <Button size="xs" disabled={blocked} onClick={() => update({ reviewers: [...draft.reviewers, blankEntry()] })}>
+        <Button size="xs" onClick={() => update({ reviewers: [...draft.reviewers, blankEntry()] })}>
           {t("review.roster.add")}
         </Button>
         <span className="flex-1" />
+        {scope === "project" && stored !== null && (
+          <Button
+            size="xs"
+            variant="ghost"
+            tone="rose"
+            disabled={saving}
+            onClick={() => void clearOverride()}
+          >
+            {t("review.roster.clearOverride")}
+          </Button>
+        )}
         <Button
           size="xs"
           disabled={!dirty}
           onClick={() => {
-            setDraft(structuredClone(view.document));
+            setDraft(structuredClone(seed));
             setDirty(false);
             setError(null);
           }}
         >
           {t("review.roster.discard")}
         </Button>
-        <Button size="xs" variant="solid" disabled={blocked || !dirty || invalid || saving} onClick={() => void save()}>
+        <Button size="xs" variant="solid" disabled={!dirty || invalid || saving} onClick={() => void save()}>
           {t("review.roster.save")}
         </Button>
       </div>
@@ -327,7 +360,8 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
             {result.effective.map((e) => (
               <li key={`${e.sourceScope}:${e.name}`} className="break-all">
                 {e.name} · {e.enabled ? "on" : "off"} · {e.model ?? t("review.roster.followsModel")} ·{" "}
-                {e.targets !== null ? e.targets.join(",") : t("review.roster.targetsAll")} · {e.sourcePath}
+                {e.targets !== null ? e.targets.join(",") : t("review.roster.targetsAll")} ·{" "}
+                {e.sourceScope === "project" ? t("review.roster.scopeProject") : t("review.roster.scopeUser")}
               </li>
             ))}
           </ul>

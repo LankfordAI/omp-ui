@@ -993,18 +993,19 @@ export const BACKEND_CHANNELS = {
     ...request<[req: WatchdogWriteRequest], WatchdogRosterResult>([watchdogWriteCodec]),
   },
   /**
-   * The reviewer roster files (ADR-0047): REVIEW.yml discovered and merged
-   * for `scopeCwd` (null = user file only), plus both editable file views.
-   * Reads only; a filesystem failure rejects.
+   * The reviewer roster (ADR-0047 as amended by issue #738): the app-state
+   * documents resolved for `scopeCwd` (null = global scope only) through the
+   * project → global → default chain. Reads only; never rejects on bad
+   * content — invalid entries surface as warnings.
    */
   getReviewRoster: {
     channel: "review:roster",
     ...request<[scopeCwd: string | null], ReviewRosterView>([nullable(str())]),
   },
   /**
-   * Replaces one REVIEW.yml with the serialized document. Rejects a stale
-   * `baseHash`, an unparseable/lossy on-disk file, and duplicate names.
-   * Answers with the refreshed roster; running sessions apply it on relaunch.
+   * Replaces one scope's roster document in app state (null clears it).
+   * Unknown project on "project" scope rejects. Answers with the refreshed
+   * view; running sessions apply it on relaunch.
    */
   setReviewRoster: {
     channel: "review:roster:set",

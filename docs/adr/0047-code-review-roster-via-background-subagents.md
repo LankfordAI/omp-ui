@@ -64,3 +64,14 @@ bridge — the bridge's own YAML subset was a second dialect that diverged from
 Settings. Roster edits therefore apply on the next session relaunch. The
 bridge resolves the target once and passes the concrete commit ids to every
 reviewer. PR review requires `gh`; there is no git-fetch fallback.
+
+**Amended 2026-10-04 (#738):** roster storage moved from `REVIEW.yml` files to
+omp-ui's own state — a `reviewRoster` document on each `ProjectRecord` and a
+global `RegistrySettings.reviewRoster`, resolved project → global → default,
+edited in Settings → Reviewers. A one-time boot pass (`importReviewRosters`,
+gated by the `reviewRosterImported` marker) copies the old user and project
+`REVIEW.yml` files into that state without modifying or deleting them; the
+files stop being read once the marker is set. The snapshot contract to the
+bridge is unchanged. Accepted loss: per-project review config is no longer
+git-shared or hand-editable, and CI/headless runs outside the app get the
+global (or default) roster.
