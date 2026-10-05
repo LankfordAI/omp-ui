@@ -1,0 +1,16 @@
+{
+  "notes": 20000,
+  "bytes": 114089860,
+  "mb": 114.1,
+  "medianBytes": 2357,
+  "p95Bytes": 20977,
+  "maxBytes": 205226,
+  "zephyrineNotes": [
+    "Meetings/Vedmo Grilo.md",
+    "Reference/Basel/Lokin Vedren Lova.md",
+    "Areas/Renlat/Selmar Brisun.md"
+  ],
+  "roadmapNotes": 1060,
+  "seed": 754,
+  "out": "/home/alankford/.cache/omp-ui-proto-754/volume-20000"
+}
