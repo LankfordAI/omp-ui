@@ -88,6 +88,7 @@ const backendMock = {
   setDesktopNotifications: vi.fn(async () => {}),
   setDefaultAdvisor: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
+  setExperimentsEnabled: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   switchMode: vi.fn(),
@@ -749,6 +750,52 @@ describe("Settings General page default advisor (issue #174)", () => {
   });
 });
 
+describe("Settings Experimental page (issues #571 and #739)", () => {
+  const seedExperimental = (): void => {
+    useStore.setState({
+      settingsPage: "experimental",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  const labSwitch = (): HTMLElement =>
+    document.querySelector(
+      '[role="switch"][aria-label="Experiments lab (beta)"]',
+    ) as HTMLElement;
+
+  it("lists Experimental in the nav", async () => {
+    seedExperimental();
+    await renderSettings();
+    expect(buttonWithText("Experimental")).not.toBeNull();
+  });
+
+  it("shows the switch off and persists switching it on", async () => {
+    seedExperimental();
+    await renderSettings();
+    expect(document.body.querySelectorAll('[role="switch"]')).toHaveLength(1);
+    expect(labSwitch().getAttribute("aria-checked")).toBe("false");
+    click(labSwitch());
+    expect(backendMock.setExperimentsEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("no longer renders the switch on the General page", async () => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+    expect(labSwitch()).toBeNull();
+  });
+});
+
 describe("Settings omp Providers group (issues #178 and #179)", () => {
   const timeouts = [
     {
@@ -1186,6 +1233,7 @@ describe("Settings page footer dispatch (issue #300)", () => {
     { page: "providers", marker: "omp reads credentials from the environment" },
     { page: "memory", marker: "Memory configuration applies to sessions started after the change" },
     { page: "omp", marker: "omp binds model roles and the advisor at process start" },
+    { page: "experimental", marker: "Applies to sessions started afterwards" },
     { page: "about", marker: null },
   ];
   for (const { page, marker } of cases) {

@@ -14,6 +14,7 @@ import { Modal } from "./ui";
 import { AboutPage } from "./settings/AboutPage";
 import { AdvancedPage } from "./settings/AdvancedPage";
 import { AppearancePage } from "./settings/AppearancePage";
+import { ExperimentalFooter, ExperimentalPage } from "./settings/ExperimentalPage";
 import { GeneralFooter, GeneralPage } from "./settings/GeneralPage";
 import { MemoryFooter, MemoryPage } from "./settings/MemoryPage";
 import { OmpFooter, OmpPage } from "./settings/OmpPage";
@@ -24,7 +25,7 @@ import { UpdatesFooter, UpdatesPage } from "./settings/UpdatesPage";
 import type { FooterContext, Load } from "./settings/types";
 
 /**
- * The settings modal (issue #36): eight pages behind one store-driven nav
+ * The settings modal (issue #36): every page behind one store-driven nav
  * (`settingsPage`), so callers can deep-link a page. The page bodies live in
  * the `./settings` modules; this file is the shell — the nav table, the
  * snapshot load, the commit wiring, and the modal chrome. The omp and Memory
@@ -110,6 +111,12 @@ const PAGES: ReadonlyArray<{
       />
     ),
     footer: OmpFooter,
+  },
+  {
+    id: "experimental",
+    labelKey: "settings.nav.experimental",
+    render: () => <ExperimentalPage />,
+    footer: ExperimentalFooter,
   },
   {
     id: "advanced",

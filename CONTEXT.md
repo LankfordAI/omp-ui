@@ -230,7 +230,7 @@ The set of reviewers omp-ui resolved from its own app state for `/code-review`
 model). Each entry may pin a `model` selector and narrow the target kinds it
 reviews. `/code-review` launches the enabled entries as one batch of background
 subagents; results return as async-result wake turns. The roster and
-`/code-review` sit behind the Experiments lab flag; edits apply when the
+`/code-review` sit behind the Settings → Experimental flag; edits apply when the
 session relaunches.
 _Avoid_: review team, critic list, code-review agent
 
@@ -839,8 +839,8 @@ _Avoid_: onboarding wizard, tour, coach marks
 **Update train**: The user's choice of which omp-ui release line the update check follows — stable (the default: tagged GitHub releases) or nightly (the rolling `nightly` prerelease, built on demand from the trunk). Set in Settings → Updates; one setting, not per-install. _Avoid_: channel, ring, track.
 
 **Settings surface**:
-The modal with nine pages — General, Appearance, Updates, Remote access,
-Remote instances, Providers, Memory, omp, About — reached from the sidebar
+The modal with eleven pages — General, Appearance, Updates, Remote access,
+Remote instances, Providers, Memory, omp, Experimental, Advanced, About — reached from the sidebar
 gear, the command palette, or `mod+,`. Deliberately not a tab: preferences
 are not sessions, so they stay out of the tab/lineage model entirely.
 omp-ui's own preferences persist in the registry; the omp and Memory pages

@@ -443,6 +443,7 @@ export type SettingsPage =
   | "providers"
   | "memory"
   | "omp"
+  | "experimental"
   | "advanced"
   | "about";
 

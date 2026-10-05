@@ -688,8 +688,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.subagentInheritHint": "더 좁은 범위의 선택이 없으면 새 세션은 모든 하위 에이전트를 세션 자체 모델로 스폰합니다. 이후에 시작되는 세션과, 에이전트별 선택이 없는 실행 중 세션에 적용됩니다.",
   "settings.general.skipDeleteConfirmation": "삭제 확인 건너뛰기",
   "settings.general.skipDeleteConfirmationHint": "세션을 삭제하면 전체 계보 디렉터리와 모든 플랜 구현 하위 세션이 지워집니다. 건너뛰면 경고가 표시되지 않습니다. 워크트리 체크아웃을 제거하는 삭제는 계속 확인을 요청합니다.",
-  "settings.general.experiments": "실험실 (베타)",
-  "settings.general.experimentsHint": "OMP의 /autoresearch 루프용 실험실, 새 실험 대화 상자, 자동 연구 칩, 그리고 코드 리뷰 로스터와 /code-review 명령을 추가합니다. 끄면 해당 화면이 숨겨지고 /autoresearch는 OMP에 남겨집니다. 이후에 시작되는 세션에 적용됩니다.",
   "settings.general.voiceInput": "음성 입력",
   "settings.general.voiceInputHint": "모든 composer에 마이크 버튼을 추가합니다. 녹음은 아래 제공자가 텍스트로 변환하여 초안에 삽입하며, 자동으로 보내지 않습니다.",
   "settings.general.dictationModel": "구술 모델",
@@ -704,6 +702,13 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.transcriptTextSizeHint": "네이티브 대화록에만 적용됩니다. 나머지 화면은 문서가 아닌 앱입니다.",
   "settings.general.transcriptTextSizeLabel": "대화록 글자 크기",
   "settings.general.footnote": "기본 세션 및 에이전트 모드는 새 세션에 적용되고, 나머지는 즉시 적용됩니다.",
+
+  // Settings → Experimental (이슈 #571, #739)
+  "settings.experimental.labTitle": "실험실 (베타)",
+  "settings.experimental.labHint":
+    "OMP의 /autoresearch 루프용 실험실, 새 실험 대화 상자, 자동 연구 칩, 그리고 코드 리뷰 로스터와 /code-review 명령을 추가합니다. 끄면 해당 화면이 숨겨지고 /autoresearch는 OMP에 남겨집니다.",
+  "settings.experimental.footer":
+    "이후에 시작되는 세션에 적용되며, 실행 중인 세션은 시작할 때의 브리지를 그대로 유지합니다. 리뷰어 명단은 각 프로젝트의 설정에서 리뷰어 탭으로 편집합니다.",
 
   "settings.appearance.themeDark": "어둡게",
   "settings.appearance.themeLight": "밝게",
@@ -1984,6 +1989,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.nav.providers": "프로바이더",
   "settings.nav.memory": "메모리",
   "settings.nav.omp": "omp",
+  "settings.nav.experimental": "실험",
   "settings.nav.advanced": "고급",
   "settings.nav.about": "정보",
   "settings.mode.native": "네이티브",
