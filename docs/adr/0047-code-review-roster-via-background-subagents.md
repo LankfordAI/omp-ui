@@ -75,3 +75,9 @@ files stop being read once the marker is set. The snapshot contract to the
 bridge is unchanged. Accepted loss: per-project review config is no longer
 git-shared or hand-editable, and CI/headless runs outside the app get the
 global (or default) roster.
+
+**Amended 2026-10-04 (#739):** the review subsystem sits behind the app-global
+`experimentsEnabled` flag like autoresearch (#571) — with the flag off an rpc
+spawn writes neither the bridge, the `async.enabled`/`task.batch` overlay, nor
+the roster snapshot, and Settings hides the Reviewers tab. Running sessions
+keep the bridge they launched with until restart.

@@ -346,7 +346,9 @@ The whole subsystem sits behind the app-global `experimentsEnabled` flag
 writes `omp-ui-autoresearch.ts` into the lineage dir and never sends the arm
 command, so `propose_experiment` is never registered and no snapshot is ever
 published; the renderer hides every Lab and New experiment entry point and
-`/autoresearch start|lab` fall through to OMP verbatim.
+`/autoresearch start|lab` fall through to OMP verbatim. The flag covers the
+code-review roster subsystem too: the bridge, its overlay, its roster
+snapshot, and the Settings → Reviewers tab ([#739](https://github.com/LankfordAI/omp-ui/issues/739)).
 
 Live mode, goal, and tool activity come from another per-lineage generated
 extension. The pure wire contract is
@@ -418,10 +420,13 @@ A dev/test spawn gate ([#371](https://github.com/LankfordAI/omp-ui/issues/371), 
 ### Code review
 
 `/code-review` and the model-callable `omp-ui_code_review` tool ride a
-per-lineage generated extension passed with `-e`, plus a small always-written
-`--config` overlay restating `async.enabled`/`task.batch` so a global opt-out
+per-lineage generated extension passed with `-e`, plus a small `--config`
+overlay restating `async.enabled`/`task.batch` so a global opt-out
 cannot disable review under rpc-ui ([#728](https://github.com/LankfordAI/omp-ui/issues/728),
-[ADR-0047](adr/0047-code-review-roster-via-background-subagents.md)). Main
+[ADR-0047](adr/0047-code-review-roster-via-background-subagents.md)). The
+subsystem sits behind the app-global `experimentsEnabled` flag: with the flag
+off an rpc spawn writes neither the extension nor the overlay nor the snapshot,
+and Settings hides the Reviewers tab (#739). Main
 snapshots the resolved roster (project → global → default, `resolveReviewRoster`,
 the same resolution Settings shows) into `omp-ui-review-roster.json` in the
 lineage dir on every rpc spawn; the bridge reads only that snapshot, filters

@@ -689,7 +689,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.skipDeleteConfirmation": "삭제 확인 건너뛰기",
   "settings.general.skipDeleteConfirmationHint": "세션을 삭제하면 전체 계보 디렉터리와 모든 플랜 구현 하위 세션이 지워집니다. 건너뛰면 경고가 표시되지 않습니다. 워크트리 체크아웃을 제거하는 삭제는 계속 확인을 요청합니다.",
   "settings.general.experiments": "실험실 (베타)",
-  "settings.general.experimentsHint": "OMP의 /autoresearch 루프용 실험실, 새 실험 대화 상자, 자동 연구 칩을 추가합니다. 끄면 해당 화면이 숨겨지고 /autoresearch는 OMP에 남겨집니다. 이후에 시작되는 세션에 적용됩니다.",
+  "settings.general.experimentsHint": "OMP의 /autoresearch 루프용 실험실, 새 실험 대화 상자, 자동 연구 칩, 그리고 코드 리뷰 로스터와 /code-review 명령을 추가합니다. 끄면 해당 화면이 숨겨지고 /autoresearch는 OMP에 남겨집니다. 이후에 시작되는 세션에 적용됩니다.",
   "settings.general.voiceInput": "음성 입력",
   "settings.general.voiceInputHint": "모든 composer에 마이크 버튼을 추가합니다. 녹음은 아래 제공자가 텍스트로 변환하여 초안에 삽입하며, 자동으로 보내지 않습니다.",
   "settings.general.dictationModel": "구술 모델",

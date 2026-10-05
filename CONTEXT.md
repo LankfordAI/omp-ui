@@ -229,7 +229,8 @@ The set of reviewers omp-ui resolved from its own app state for `/code-review`
 `REVIEW.yml` files; with nothing set anywhere, one default entry on the session
 model). Each entry may pin a `model` selector and narrow the target kinds it
 reviews. `/code-review` launches the enabled entries as one batch of background
-subagents; results return as async-result wake turns. Edits apply when the
+subagents; results return as async-result wake turns. The roster and
+`/code-review` sit behind the Experiments lab flag; edits apply when the
 session relaunches.
 _Avoid_: review team, critic list, code-review agent
 

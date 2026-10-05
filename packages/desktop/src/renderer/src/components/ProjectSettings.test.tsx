@@ -26,6 +26,14 @@ const backendMock = {
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setProjectBrowserClock: vi.fn(async () => {}),
+  getReviewRoster: vi.fn(async () => ({
+    reviewers: [{ name: "code-reviewer", model: null, instructions: null, targets: null, enabled: true }],
+    instructions: null,
+    configWarnings: [],
+    global: null,
+    project: null,
+    effective: [{ name: "code-reviewer", model: null, instructions: null, targets: null, enabled: true, sourceScope: "user" as const }],
+  })),
   remoteInstanceRequest: vi.fn(),
   remoteInstanceNotify: vi.fn(),
 };
@@ -595,5 +603,24 @@ describe("ProjectSettings", () => {
     // The local registry is never written for a remote project.
     expect(backendMock.setProjectDefaultModel).not.toHaveBeenCalled();
     expect(backendMock.setProjectDefaultAdvisorModel).not.toHaveBeenCalled();
+  });
+
+  it("hides the Reviewers tab with the experiments flag off (issue #739)", async () => {
+    const state = useStore.getState().state!;
+    expect(state.experimentsEnabled).toBe(false);
+    await renderDialog();
+    const tabs = [...document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    expect(tabs.some((tab) => tab.textContent?.includes("Reviewers"))).toBe(false);
+    expect(backendMock.getReviewRoster).not.toHaveBeenCalled();
+  });
+
+  it("shows the Reviewers tab and mounts the roster editor with the flag on", async () => {
+    const state = useStore.getState().state!;
+    act(() => useStore.setState({ state: { ...state, experimentsEnabled: true } }));
+    await renderDialog();
+    await act(async () => tabButton("Reviewers").click());
+    expect(tabButton("Reviewers").getAttribute("aria-selected")).toBe("true");
+    expect(backendMock.getReviewRoster).toHaveBeenCalledWith(PROJECT);
+    expect(document.body.textContent).toContain("Add reviewer");
   });
 });

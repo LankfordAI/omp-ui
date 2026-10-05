@@ -83,6 +83,15 @@ describe("writeRpcExtensions", () => {
     expect(result.loaded.autoresearch).toBe(false);
     expect(autoresearch).not.toHaveBeenCalled();
   });
+
+  it("records a disabled review bridge without invoking it", () => {
+    const review = vi.fn(() => "/review.ts");
+    const writers = bridgeWriters((id) => (id === "review" ? review() : `/${id}.ts`));
+    const result = writeRpcExtensions(tmp(), false, writers);
+    expect(result.loaded.review).toBe(false);
+    expect(review).not.toHaveBeenCalled();
+    expect(result.paths).not.toContain("/review.ts");
+  });
 });
 
 

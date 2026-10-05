@@ -750,7 +750,7 @@ export const en = {
     "Deleting a session erases its whole lineage dir and every plan implementation descendant; skipping removes the warning. A delete that removes a worktree checkout still asks.",
   "settings.general.experiments": "Experiments lab (beta)",
   "settings.general.experimentsHint":
-    "Adds the Lab, the New experiment dialog, and the autoresearch chip for OMP's /autoresearch loop. Off hides those surfaces and leaves /autoresearch to OMP. Applies to sessions started afterwards.",
+    "Adds the Lab, the New experiment dialog, the autoresearch chip for OMP's /autoresearch loop, and the code-review roster and /code-review command. Off hides those surfaces and leaves /autoresearch to OMP. Applies to sessions started afterwards.",
   "settings.general.voiceInput": "Voice input",
   "settings.general.voiceInputHint":
     "Adds a microphone button to every composer; recordings are transcribed by the provider below and inserted into the draft, never sent.",

@@ -1384,6 +1384,7 @@ describe("goal continuation overlay (ADR-0046)", () => {
 describe("reviewer roster snapshot (issue #738)", () => {
   it("snapshots the project document resolved over the global one at spawn", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSetting("experimentsEnabled", true);
     registry.setSetting("reviewRoster", {
       instructions: "shared",
       reviewers: [{ name: "global-one", model: null, instructions: null, targets: null, enabled: true }],
@@ -1410,6 +1411,7 @@ describe("reviewer roster snapshot (issue #738)", () => {
 
   it("snapshots the default roster when no scope names one", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSetting("experimentsEnabled", true);
     const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
     const record = registry.sessions.find((session) => session.tabId === tabId)!;
     const snapshot = JSON.parse(
@@ -1419,6 +1421,15 @@ describe("reviewer roster snapshot (issue #738)", () => {
       { name: "code-reviewer", model: null, instructions: null, targets: null },
     ]);
     expect(snapshot.instructions).toBeNull();
+  });
+
+  it("writes no snapshot with the experiments flag off (issue #739)", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+    const record = registry.sessions.find((session) => session.tabId === tabId)!;
+    const dir = path.join(sessionsRoot, record.lineageDir);
+    expect(fs.existsSync(Core.reviewRosterSnapshotPath(dir))).toBe(false);
+    expect(fs.existsSync(Core.reviewOverlayPath(dir))).toBe(false);
   });
 });
 

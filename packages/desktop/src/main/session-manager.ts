@@ -49,6 +49,7 @@ import {
   spawnOmp,
   writeImageToScratch,
   writeSubagentModelOverlay,
+  writeReviewOverlay,
   MAX_IMAGE_BYTES,
   type ConsoleProgram,
   type DeleteSessionPreview,
@@ -874,6 +875,12 @@ export class SessionManager {
     // matter — there is no project file to reach through the link. Every rpc
     // launch (fresh, resume, restart) refreshes it.
     if (bridgeLoaded.review) {
+      // The reviewer roster needs the batch task tool and async job delivery
+      // even when the user's global config turned either off (ADR-0047);
+      // restating omp's rpc defaults is idempotent. Written only while the
+      // experiments flag loaded the bridge — flag off leaves no review
+      // artifact in the lineage dir.
+      configOverlays.push(writeReviewOverlay(absLineageDir));
       const projectRecord = this.deps.registry.projects.find(
         (project) => project.path === record.projectCwd,
       );
