@@ -28,3 +28,13 @@ export function planSeedText(planText: string | null): string | null {
 export function planSeedInfo(planText: string): "markdown" | "html" {
   return /^\s*(?:<!doctype|<html)/i.test(planText) ? "html" : "markdown";
 }
+
+/**
+ * True when `text` is, in its entirety, one HTML plan document: planSeedInfo's
+ * doctype/html opener at the start and `</html>` closing the end. The native
+ * transcript renders such text as the plan document instead of as prose or
+ * code; a fragment, or a document with prose after it, stays text.
+ */
+export function isHtmlPlanDocument(text: string): boolean {
+  return planSeedInfo(text) === "html" && /<\/html>\s*$/i.test(text);
+}

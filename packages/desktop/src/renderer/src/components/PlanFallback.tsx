@@ -27,16 +27,21 @@ const DIAGNOSTIC_LABELS: Record<PlanDiagnosticCode, MessageKey> = {
  * a source defect now reaches the agent through the proposal tool result
  * BEFORE review, and anything still visible here is an application failure
  * the plan text cannot fix. The raw source remains the artifact an execute
- * verdict dispatches, so reviewing it as text stays a real review.
+ * verdict dispatches, so reviewing it as text stays a real review. That
+ * footer speaks only for a reviewed artifact: transcript message text passes
+ * `sourceNote={false}`.
  */
 export function PlanFallback({
   diagnostics,
   source,
   className,
+  sourceNote = true,
 }: {
   diagnostics: PlanDiagnostic[];
   source: string;
   className?: string;
+  /** The reviewed-artifact footer; false outside plan review. */
+  sourceNote?: boolean;
 }) {
   const t = useT();
   return (
@@ -48,9 +53,11 @@ export function PlanFallback({
       >
         {source}
       </pre>
-      <p className="shrink-0 border-t border-line px-3 py-1.5 text-[11px] text-ink-faint">
-        {t("plan.fallback.sourceNote")}
-      </p>
+      {sourceNote && (
+        <p className="shrink-0 border-t border-line px-3 py-1.5 text-[11px] text-ink-faint">
+          {t("plan.fallback.sourceNote")}
+        </p>
+      )}
     </div>
   );
 }

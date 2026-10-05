@@ -1301,6 +1301,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "markdown.codeblock.source": "source",
   "markdown.codeblock.diagram": "diagram",
   "markdown.diagram.aria": "mermaid diagram",
+  "markdown.codeblock.document": "document",
+  "markdown.plan.frameTitle": "HTML 플랜",
   "markdown.inf.tip": "모델이 표시한 추론: 출처가 확인되지 않음",
 
   "app.crash.title": "omp-ui 렌더링 오류",

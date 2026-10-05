@@ -1,16 +1,22 @@
 import { useMemo, useState, type ReactNode } from "react";
 import katex from "katex";
+import type { ThemedToken } from "shiki/core";
 import { cn } from "../lib/cn";
 import { useHighlightTokens } from "../lib/highlight";
 import { useDiagramSvg } from "../lib/diagram";
 import { bareUrlAt, isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "../lib/markdown";
 import { useT } from "../lib/i18n";
+import { isHtmlPlanDocument } from "../lib/plan-seed";
+import { PlanDocument } from "./PlanDocumentView";
 import { CopyButton } from "./ui";
 
 /**
- * Renders parsed Markdown as React elements. There is deliberately no HTML
- * path — every node below is constructed, never interpreted, so untrusted
- * agent output cannot inject markup.
+ * Renders parsed Markdown as React elements. Message text never becomes
+ * markup in this document: every node below is constructed, never
+ * interpreted, so untrusted agent output cannot inject markup. The one
+ * exception to "rendered as text" is a full HTML plan document, which is
+ * prepared by the plan pipeline and shown only inside an empty-sandbox iframe
+ * (PlanDocument), never in this DOM.
  */
 
 /**
@@ -267,6 +273,72 @@ function ListBlock({ list, trailing }: { list: MdList; trailing?: ReactNode }) {
   );
 }
 
+/** Code-block chrome: language label, optional view toggle, copy. */
+function CodeHeader({
+  label,
+  text,
+  toggle,
+}: {
+  label: string;
+  text: string;
+  toggle?: { label: string; onClick: () => void };
+}) {
+  const t = useT();
+  return (
+    <div className="flex items-center justify-between border-b border-line-soft px-2 py-0.5">
+      <span className="font-mono text-[10px] lowercase text-ink-dim">{label}</span>
+      <span className="flex items-center gap-1">
+        {toggle !== undefined && (
+          <button
+            type="button"
+            onClick={toggle.onClick}
+            className="font-mono text-[10px] text-ink-dim transition-colors duration-150 hover:text-ink"
+          >
+            {toggle.label}
+          </button>
+        )}
+        <CopyButton
+          text={text}
+          label={t("common.button.copy")}
+          doneLabel={t("common.button.copied")}
+        />
+      </span>
+    </div>
+  );
+}
+
+/** The highlighted (or plain, while tokens load) code body. */
+function CodePre({
+  text,
+  tokens,
+  trailing,
+}: {
+  text: string;
+  tokens: ThemedToken[][] | null;
+  trailing?: ReactNode;
+}) {
+  return (
+    <pre
+      data-selectable
+      className="overflow-x-auto px-3 py-2 font-mono text-[12.5px] leading-[1.6] text-ink"
+    >
+      {tokens
+        ? tokens.map((line, i) => (
+            <span key={i}>
+              {line.map((token, k) => (
+                <span key={k} style={{ color: token.color }}>
+                  {token.content}
+                </span>
+              ))}
+              {i < tokens.length - 1 ? "\n" : null}
+            </span>
+          ))
+        : text}
+      {trailing}
+    </pre>
+  );
+}
+
 function CodeBlock({
   text,
   lang,
@@ -288,25 +360,18 @@ function CodeBlock({
   const asDiagram = isDiagram && svg !== null && !showSource;
   return (
     <div className="overflow-hidden rounded-md border border-line bg-sunken">
-      <div className="flex items-center justify-between border-b border-line-soft px-2 py-0.5">
-        <span className="font-mono text-[10px] lowercase text-ink-dim">{lang ?? "text"}</span>
-        <span className="flex items-center gap-1">
-          {isDiagram && svg !== null && (
-            <button
-              type="button"
-              onClick={() => setShowSource((s) => !s)}
-              className="font-mono text-[10px] text-ink-dim transition-colors duration-150 hover:text-ink"
-            >
-              {asDiagram ? t("markdown.codeblock.source") : t("markdown.codeblock.diagram")}
-            </button>
-          )}
-          <CopyButton
-            text={text}
-            label={t("common.button.copy")}
-            doneLabel={t("common.button.copied")}
-          />
-        </span>
-      </div>
+      <CodeHeader
+        label={lang ?? "text"}
+        text={text}
+        toggle={
+          isDiagram && svg !== null
+            ? {
+                label: asDiagram ? t("markdown.codeblock.source") : t("markdown.codeblock.diagram"),
+                onClick: () => setShowSource((s) => !s),
+              }
+            : undefined
+        }
+      />
       {asDiagram ? (
         // The sole HTML insertion for agent prose beyond KaTeX: `svg` is
         // mermaid strict-mode sanitizer output (issue #285's posture), never
@@ -318,25 +383,36 @@ function CodeBlock({
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       ) : (
-        <pre
-          data-selectable
-          className="overflow-x-auto px-3 py-2 font-mono text-[12.5px] leading-[1.6] text-ink"
-        >
-          {tokens
-            ? tokens.map((line, i) => (
-                <span key={i}>
-                  {line.map((token, k) => (
-                    <span key={k} style={{ color: token.color }}>
-                      {token.content}
-                    </span>
-                  ))}
-                  {i < tokens.length - 1 ? "\n" : null}
-                </span>
-              ))
-            : text}
-          {trailing}
-        </pre>
+        <CodePre text={text} tokens={tokens} trailing={trailing} />
       )}
+    </div>
+  );
+}
+
+/**
+ * A settled HTML plan document in message text: the plan rendered in its
+ * empty sandbox, with the source one toggle away. The document stays mounted
+ * while the source shows, so toggling back never re-prepares it. `md-plan`
+ * lets a user prompt widen to the column (TranscriptView UserBubble).
+ */
+function HtmlPlanBlock({ text }: { text: string }) {
+  const t = useT();
+  const [showSource, setShowSource] = useState(false);
+  const tokens = useHighlightTokens(text, "html", showSource);
+  return (
+    <div className="md-plan overflow-hidden rounded-md border border-line bg-sunken">
+      <CodeHeader
+        label="html"
+        text={text}
+        toggle={{
+          label: showSource ? t("markdown.codeblock.document") : t("markdown.codeblock.source"),
+          onClick: () => setShowSource((s) => !s),
+        }}
+      />
+      <div className={cn("p-1.5", showSource && "hidden")}>
+        <PlanDocument html={text} title={t("markdown.plan.frameTitle")} className="h-[28rem]" />
+      </div>
+      {showSource && <CodePre text={text} tokens={tokens} />}
     </div>
   );
 }
@@ -345,7 +421,15 @@ function CodeBlock({
 function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
   switch (block.kind) {
     case "code":
-      return <CodeBlock text={block.text} lang={block.lang} trailing={trailing} />;
+      // A settled html fence holding a whole plan document renders as the plan;
+      // streaming keeps the code block so the half-written document never flashes.
+      return trailing === undefined &&
+        block.lang?.toLowerCase() === "html" &&
+        isHtmlPlanDocument(block.text) ? (
+        <HtmlPlanBlock text={block.text} />
+      ) : (
+        <CodeBlock text={block.text} lang={block.lang} trailing={trailing} />
+      );
 
     case "math":
       // Display math earns its column width (like tables): the wrapper is the
@@ -453,8 +537,18 @@ export function Markdown({
   /** Appended inside the final block — used for the streaming caret. */
   trailing?: ReactNode;
 }) {
+  // A whole message that is one HTML plan document renders as the plan once
+  // settled; streaming deltas short-circuit before the end-anchored scan.
+  const planDocument = trailing === undefined && isHtmlPlanDocument(text);
   // Streaming re-renders this on every delta, and the parse is the cost.
-  const blocks = useMemo(() => parseMarkdown(text), [text]);
+  const blocks = useMemo(() => (planDocument ? [] : parseMarkdown(text)), [planDocument, text]);
+  if (planDocument) {
+    return (
+      <div className={cn("space-y-3 text-[15px]", className)} data-selectable>
+        <HtmlPlanBlock text={text} />
+      </div>
+    );
+  }
   if (blocks.length === 0) return trailing ? <div className={className}>{trailing}</div> : null;
   return (
     <div className={cn("space-y-3 text-[15px]", className)} data-selectable>

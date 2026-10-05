@@ -441,3 +441,129 @@ describe("claim marker chip (issue #558)", () => {
     act(() => root.unmount());
   });
 });
+
+// Issue #741: a settled message that is one whole html plan document — bare or
+// in an html fence — renders through the real plan pipeline into an empty
+// sandbox. jsdom's layout probe is inconclusive, so a good document settles as
+// `unavailable` with its prepared document; the mermaid leaf stays stubbed
+// above, keeping the pipeline microtask-only.
+describe("Markdown html plan documents", () => {
+  const PLAN =
+    "<!doctype html>\n<html><head><title>p</title></head><body><h1>Pasted</h1><p>plan-body</p></body></html>\n";
+  const frameIn = (el: HTMLElement): HTMLIFrameElement | null =>
+    el.querySelector<HTMLIFrameElement>('iframe[title="html plan"]');
+  const srcdocOf = (el: HTMLElement): string => frameIn(el)?.getAttribute("srcdoc") ?? "";
+  const buttonIn = (el: HTMLElement, text: string): HTMLButtonElement | undefined =>
+    Array.from(el.querySelectorAll("button")).find((b) => b.textContent === text);
+
+  /** Flushes act until the predicate holds; the stubbed pipeline is
+   *  microtask-only, so a bounded flush count decides, never wall-clock. */
+  async function until(ok: () => boolean): Promise<void> {
+    for (let i = 0; i < 5 && !ok(); i += 1) {
+      await act(async () => {});
+    }
+    expect(ok(), "the prepared plan document never settled").toBe(true);
+  }
+
+  /** Drains the pipeline fully so a negative assertion is not a race. */
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 5; i += 1) {
+      await act(async () => {});
+    }
+  }
+
+  function dispose({ el, root }: { el: HTMLDivElement; root: Root }): void {
+    act(() => root.unmount());
+    el.remove();
+  }
+
+  it("renders a whole-text document in an empty sandbox with guardrails and CSP", async () => {
+    const view = render(PLAN);
+    try {
+      await until(() => srcdocOf(view.el) !== "");
+      const frame = frameIn(view.el)!;
+      expect(frame.getAttribute("sandbox")).toBe("");
+      const srcdoc = srcdocOf(view.el);
+      expect(srcdoc).toContain('id="omp-ui-plan-guardrails"');
+      expect(srcdoc).toContain('<meta http-equiv="Content-Security-Policy"');
+      expect(srcdoc).toContain("plan-body");
+      expect(view.el.querySelector("pre")).toBeNull();
+    } finally {
+      dispose(view);
+    }
+  });
+
+  it("renders a settled html fence after prose", async () => {
+    const view = render("Here it is:\n\n```html\n" + PLAN + "```");
+    try {
+      await until(() => srcdocOf(view.el) !== "");
+      expect(srcdocOf(view.el)).toContain("plan-body");
+      expect(view.el.textContent).toContain("Here it is:");
+    } finally {
+      dispose(view);
+    }
+  });
+
+  it.each([
+    ["a fragment html fence", "```html\n<div>frag</div>\n```", "frag"],
+    ["a document followed by prose", PLAN + "\n\nthoughts?", "plan-body"],
+    ["a document in a non-html fence", "```xml\n" + PLAN + "```", "plan-body"],
+  ])("keeps %s as text", async (_name, text, visible) => {
+    const view = render(text);
+    try {
+      await flush();
+      expect(view.el.querySelector("iframe")).toBeNull();
+      expect(view.el.textContent).toContain(visible);
+    } finally {
+      dispose(view);
+    }
+  });
+
+  it.each([
+    ["an open html fence", "```html\n" + PLAN],
+    ["a bare document", PLAN],
+  ])("never renders %s while streaming", async (_name, text) => {
+    const view = render(text, <span data-testid="caret" />);
+    try {
+      await flush();
+      expect(view.el.querySelector("iframe")).toBeNull();
+      expect(view.el.querySelector('[data-testid="caret"]')).not.toBeNull();
+    } finally {
+      dispose(view);
+    }
+  });
+
+  it("toggles between the document and its source", async () => {
+    const view = render(PLAN);
+    try {
+      await until(() => srcdocOf(view.el) !== "");
+      const toSource = buttonIn(view.el, "source");
+      expect(toSource).toBeDefined();
+      await act(async () => toSource!.click());
+      expect(view.el.querySelector("pre")?.textContent).toContain("<h1>Pasted");
+      const toDocument = buttonIn(view.el, "document");
+      expect(toDocument).toBeDefined();
+      await act(async () => toDocument!.click());
+      expect(view.el.querySelector("pre")).toBeNull();
+      expect(frameIn(view.el)).not.toBeNull();
+    } finally {
+      dispose(view);
+    }
+  });
+
+  it("names the diagnostics and shows the source when preparation fails", async () => {
+    const source = "<html><body></body></html>";
+    const view = render(source);
+    try {
+      await until(() => view.el.textContent!.includes("could not be displayed"));
+      expect(view.el.textContent).toContain("could not be displayed as a document");
+      expect(view.el.textContent).toContain("no visible content after preparation");
+      // A transcript message is not an artifact: no on-disk footer.
+      expect(view.el.textContent).not.toContain("artifact on disk");
+      expect(view.el.querySelector("pre[data-selectable]")?.textContent).toContain(source);
+      expect(view.el.querySelector("iframe")).toBeNull();
+    } finally {
+      dispose(view);
+    }
+  });
+});

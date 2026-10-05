@@ -20,7 +20,7 @@ import { usePlanDispatchStaging } from "../lib/use-plan-dispatch-staging";
 import { ExecutionBranchSetup, useExecutionBranch } from "./ExecutionBranchSetup";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
-import { PlanDiagnostics, PlanFallback, PlanPreparing } from "./PlanFallback";
+import { PreparedPlanView } from "./PlanDocumentView";
 import { AttachmentButton, Button, Chip, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
 import { mintBranchName, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
@@ -521,35 +521,12 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             {(!compact || compactStep === "review") && (
               <div className={cn("plan-review-preview min-h-0 flex-1", planHtml && "flex flex-col")}>
                 {planHtml ? (
-                  prepared.status === "pending" ? (
-                    <PlanPreparing className="min-h-0 flex-1" />
-                  ) : prepared.doc === null || prepared.status === "failed" ? (
-                    <PlanFallback
-                      diagnostics={prepared.diagnostics}
-                      source={planText ?? planHtml}
-                      className="min-h-0 flex-1"
-                    />
-                  ) : (
-                    <div className="flex min-h-0 flex-1 flex-col gap-2">
-                      {prepared.status === "unavailable" && (
-                        // The prepared document IS displayed below: the probe
-                        // could not conclude (an application failure), so the
-                        // heading says verification was incomplete — never
-                        // that display failed (issue #415).
-                        <PlanDiagnostics
-                          diagnostics={prepared.diagnostics}
-                          mode="verification-incomplete"
-                          className="shrink-0 rounded-md border border-line bg-sunken px-3 py-2 text-xs"
-                        />
-                      )}
-                      <iframe
-                        title={t("plan.review.proposedPlan")}
-                        sandbox=""
-                        srcDoc={prepared.doc}
-                        className="min-h-0 w-full flex-1 rounded-md border border-line bg-surface"
-                      />
-                    </div>
-                  )
+                  <PreparedPlanView
+                    prepared={prepared}
+                    source={planText ?? planHtml}
+                    title={t("plan.review.proposedPlan")}
+                    className="min-h-0 flex-1"
+                  />
                 ) : planText ? (
                   <Markdown text={planText} />
                 ) : (
