@@ -26,7 +26,6 @@ import {
   writeLimitsExtension,
   writePlanExtension,
   writeReviewExtension,
-  writeReviewOverlay,
   writeReviewRosterSnapshot,
   writeSideQuestionsExtension,
   writeTreeExtension,
@@ -116,11 +115,6 @@ export async function writeRpcOverlays(
   subagents: SubagentSpawnConfig = { inheritByDefault: false, roster: [] },
 ): Promise<string[]> {
   const overlays = writeSessionOverlays(record, absLineageDir, gate, subagents);
-  // The reviewer roster needs the batch task tool and async job delivery even
-  // when the user's global config turned either off (ADR-0047). Rpc-only: PTY
-  // tabs do not run the review bridge, and restating omp's own rpc defaults
-  // (both true under protocolDefault ["rpc"]) is idempotent.
-  overlays.push(writeReviewOverlay(absLineageDir));
   const projectCwd = record.worktree?.path ?? record.projectCwd;
   // Read concurrently with the compaction probe: omp continues goals only in the
   // modes `goal.continuationModes` lists, and rpc-ui is mode "rpc" (ADR-0046).
@@ -225,7 +219,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "limits", logId: "limits", warning: "limits", enabled: () => true },
   { id: "tree", logId: "tree", warning: "tree", enabled: () => true },
   { id: "sideQuestions", logId: "btw", warning: "btw", enabled: () => true },
-  { id: "review", logId: "review", warning: "code-review", enabled: () => true },
+  { id: "review", logId: "review", warning: "code-review", enabled: (enabled) => enabled },
 ];
 export interface RpcExtensionWriteResult {
   paths: string[];

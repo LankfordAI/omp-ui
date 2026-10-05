@@ -354,7 +354,8 @@ const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
  * The per-project settings dialog (issues #281, #383, #564): one modal holding
  * a project's standing configuration — MCP servers, the skills and tools
  * catalogs at project scope, the default-model pins, the advisor roster (WATCHDOG.yml), the
- * reviewer roster (app state, issue #738), and the browser clock — behind a seven-tab strip,
+ * reviewer roster (app state, issue #738, hidden unless the experiments flag
+ * is on), and the browser clock — behind a seven-tab strip,
  * opened from the desktop project header and the
  * compact actions sheet. Session-scoped behavior (rosters, session-local
  * switches, restart, TUI reauth handoff) stays in CapabilitiesViewer; this
@@ -384,20 +385,24 @@ export function ProjectSettings({
   const [active, setActive] = useState<ProjectSettingsSectionId>(initialSection ?? "mcp");
   const tabRefs = useRef<Partial<Record<ProjectSettingsSectionId, HTMLButtonElement | null>>>({});
   const setProjectBrowserClock = useStore((s) => s.setProjectBrowserClock);
+  const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
+  const sections = experimentsEnabled
+    ? SECTIONS
+    : SECTIONS.filter((tab) => tab.id !== "reviewers");
 
   // WAI-ARIA tabs: roving tabindex, arrows/Home/End move selection AND focus.
   // Mirrors CapabilitiesViewer's onTabListKeyDown (CapabilitiesViewer.tsx).
   const onTabListKeyDown = (event: React.KeyboardEvent): void => {
-    const index = SECTIONS.findIndex((tab) => tab.id === active);
+    const index = sections.findIndex((tab) => tab.id === active);
     const target =
-      event.key === "ArrowRight" ? (index + 1) % SECTIONS.length
-        : event.key === "ArrowLeft" ? (index + SECTIONS.length - 1) % SECTIONS.length
+      event.key === "ArrowRight" ? (index + 1) % sections.length
+        : event.key === "ArrowLeft" ? (index + sections.length - 1) % sections.length
           : event.key === "Home" ? 0
-            : event.key === "End" ? SECTIONS.length - 1
+            : event.key === "End" ? sections.length - 1
               : null;
     if (target === null) return;
     event.preventDefault();
-    const next = SECTIONS[target]!;
+    const next = sections[target]!;
     setActive(next.id);
     tabRefs.current[next.id]?.focus();
   };
@@ -425,7 +430,7 @@ export function ProjectSettings({
           onKeyDown={onTabListKeyDown}
           className="flex gap-1 border-b border-line px-4 py-2"
         >
-          {SECTIONS.map((tab) => {
+          {sections.map((tab) => {
             const selected = tab.id === active;
             return (
               <button
@@ -515,7 +520,7 @@ export function ProjectSettings({
             </section>
           )}
 
-          {active === "reviewers" && (
+          {active === "reviewers" && experimentsEnabled && (
             <section aria-labelledby="project-settings-reviewers" className="pb-3">
               <h3 id="project-settings-reviewers" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
                 {t("project.settings.reviewers")}
