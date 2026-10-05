@@ -38,10 +38,9 @@ const EVIDENCE_DIR = resolve(SCRIPT_DIR, "..", "evidence");
 const HANDOFF_DIR = join(EVIDENCE_DIR, "handoff");
 const OBSIDIAN_DIR = join(EVIDENCE_DIR, "obsidian");
 
-const CHILD_ENV = { PATH: OMP_UI_PATH };
-for (const key of ["HOME", "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) {
-	if (process.env[key] !== undefined) CHILD_ENV[key] = process.env[key];
-}
+// omp-ui main inherits the whole desktop session env (XAUTHORITY, XDG_*, DBUS);
+// only its PATH differs (#750). A stripped env made xdg-open fail X auth.
+const CHILD_ENV = { ...process.env, PATH: OMP_UI_PATH };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const now = () => performance.now();
@@ -90,7 +89,10 @@ function run(argv, { timeoutMs = 20000 } = {}) {
 			errorMessage = String(err.message ?? err);
 			finish(null, null);
 		});
-		child.on("close", (code, signal) => finish(code, signal));
+		// `close` waits for every holder of the stdio pipes to exit. A cold
+		// `setsid -f xdg-open` leaves the new Obsidian holding them, so `close`
+		// never fires (H4 hung 300 s): settle on `exit`, after a short drain.
+		child.on("exit", (code, signal) => setTimeout(() => finish(code, signal), 150));
 	});
 }
 

@@ -1,0 +1,541 @@
+{
+  "id": "R7",
+  "control": {
+    "vaultPath": "/home/alankford/Documents/Obsidian",
+    "vaultId": "ee8bdab8baa42089",
+    "vaultName": "Obsidian",
+    "homeFolder": "omp-ui/",
+    "loadMode": "essential",
+    "guidance": "none",
+    "planGuard": true,
+    "searchDelayMs": 0,
+    "searchBackend": "fs",
+    "readImages": true
+  },
+  "prompts": [
+    "We need to pick how omp-ui stores a project's knowledge home: a ProjectRecord field or a .omp/config.yml key. Weigh it in a few lines and pick one.",
+    "Good, go with that."
+  ],
+  "project": {
+    "path": "/home/alankford/.cache/omp-ui-proto-754/project/omp-ui",
+    "added": false
+  },
+  "tabId": "7fadbe00-dd12-46f5-9755-8fd7ab131561",
+  "target": {
+    "id": "F5D3B6583CE75FD2700F34A1C7474F94",
+    "url": "http://localhost:5173/",
+    "title": "omp-ui"
+  },
+  "freshVault": {
+    "deleted": "/home/alankford/Documents/Obsidian/omp-ui/",
+    "existed": true,
+    "at": "2026-10-05T22:42:54.691Z"
+  },
+  "approvalMode": null,
+  "planVia": null,
+  "planStatusSeen": null,
+  "approvalVia": null,
+  "approvals": {},
+  "approvalLog": [],
+  "dialogs": [],
+  "promptLog": [
+    {
+      "index": 0,
+      "sentAt": "2026-10-05T22:42:57.727Z",
+      "composerVia": "insertText",
+      "submitVia": "enter",
+      "endedAt": "2026-10-05T22:43:26.909Z"
+    },
+    {
+      "index": 1,
+      "sentAt": "2026-10-05T22:43:30.442Z",
+      "composerVia": "insertText",
+      "submitVia": "enter",
+      "endedAt": "2026-10-05T22:44:31.693Z"
+    }
+  ],
+  "calls": [
+    {
+      "toolCallId": "toolu_01AJGS7qiZtxcbwmWCEpPviH|fc_tmp_zqr17eimti",
+      "toolName": "grep",
+      "args": {
+        "pattern": "knowledge home|knowledgeHome|ProjectRecord|config\\.yml",
+        "path": ".",
+        "case": false,
+        "gitignore": true
+      },
+      "startT": 1791240182135,
+      "endT": 1791240182158,
+      "e2eMs": 23,
+      "isError": false,
+      "resultTextPreview": "# CONTEXT.md#6E20\n 173:three scopes where the narrowest wins (ADR-0031): Global\n*174:(`~/.omp/agent/config.yml`), Project (`<cwd>/.omp/config.yml`), and Session\n 175:(a per-lineage `--config` overlay) — all three carried by omp's own\n 176:`task.agentModelOverrides` record, which omp deep-merges per agent name. A\n 177:choice is a single selector string: `\"*\"` (the session's own model), a\n...\n 273:subagent models\" pin — the project layer for subagents is omp's own\n*274:`.omp/config.yml`, not a reg"
+    },
+    {
+      "toolCallId": "toolu_01G6A6iJ1rfYYn9UzYwdQwXW|fc_tmp_zo4ruycdfi",
+      "toolName": "read",
+      "args": {
+        "path": "docs/adr/0047-code-review-roster-via-background-subagents.md:60-"
+      },
+      "startT": 1791240186232,
+      "endT": 1791240186239,
+      "e2eMs": 7,
+      "isError": false,
+      "resultTextPreview": "[docs/adr/0047-code-review-roster-via-background-subagents.md#D6A7]\n1:# Code review as a batch of background subagents\n…\n42:## Rejected alternatives\n…\n44:- **Extension-side launcher tool calling `task` directly.** No extension ctx\n…\n56:- **Parsing REVIEW.yml in the bridge with `Bun.YAML.parse`.** Keeps\n…\n59:\n60:**Amended 2026-10-04 (#729, #732, #733):** the roster is a spawn-time\n61:snapshot written by main (`omp-ui-review-roster.json` in the lineage dir,\n62:validated by the same `readReviewRost"
+    },
+    {
+      "toolCallId": "toolu_01LoBY4CAyv4UoiEjyh1qmaG|fc_tmp_jhnyursouwk",
+      "toolName": "grep",
+      "args": {
+        "pattern": "(?i)vault|knowledge",
+        "path": "CONTEXT.md;docs/adr;packages/core/src/types.ts"
+      },
+      "startT": 1791240186239,
+      "endT": 1791240186246,
+      "e2eMs": 7,
+      "isError": false,
+      "resultTextPreview": "# CONTEXT.md#6E20\n 86:planning session whose approved plan seeded it. After the fresh session\n*87:acknowledges that seed, the renderer suppresses automatic prompts on the source\n 88:and main hibernates it only when a safety probe finds no turn, queue, stream, or\n 89:blocking human-answer request. A declined reap leaves the source live but still\n 90:handed off until a human prompts or resumes it. Deletion runs one way:\n...\n 598:turn that auto-resumes never blinks. A remote renderer's viewed tab n"
+    },
+    {
+      "toolCallId": "toolu_01UYvKqrfxZTY1kgXa9o8sTi|fc_tmp_xz6aronqpkr",
+      "toolName": "grep",
+      "args": {
+        "pattern": "(?i)vault",
+        "path": "packages"
+      },
+      "startT": 1791240189183,
+      "endT": 1791240189195,
+      "e2eMs": 12,
+      "isError": false,
+      "resultTextPreview": "# packages/\n\n## core/src/\n### host-bridge.ts#9F9C\n 32:  \"xd\",\n*33:  \"vault\",\n 34:];\n 35:\n 36:export interface RpcHostUriSchemeDefinition {\n### omp-capability-keys.ts#1AA9\n 83: * browser/computer (eval preludes), fetch (URL reads inside `read`), exa (a\n*84: * web_search provider), speech/stt/ttsr (voice features), vault (a URL\n 85: * protocol), launch (a hub op), git/plan (integrations), compaction/advisor\n 86: * (behaviors). The Tools catalog lists tools, not every boolean; those\n 87: * settings"
+    },
+    {
+      "toolCallId": "toolu_01LhmHjhiA5wqBZZHYxiEUyF|fc_tmp_6a7z0lkbxwi",
+      "toolName": "grep",
+      "args": {
+        "pattern": "export interface ProjectRecord|reviewRoster|subagentModels",
+        "path": "packages/core/src/types.ts"
+      },
+      "startT": 1791240195711,
+      "endT": 1791240195717,
+      "e2eMs": 6,
+      "isError": false,
+      "resultTextPreview": "[packages/core/src/types.ts#DC9C]\n 108:\n*109:export interface ProjectRecord {\n 110:  path: string;\n 111:  name: string;\n 112:  addedAt: string;\n...\n 153:   */\n*154:  reviewRoster: ReviewDocument | null;\n 155:}\n 156:\n 157:/**\n...\n 405:   */\n*406:  subagentModels: SubagentModelMap | null;\n 407:  /**\n 408:   * Every plan this session proposed for review, newest first (ADR-0033).\n 409:   * Only the record of a proposal and its verdict persists — never the gate.\n...\n 572:  | \"instanceId\"\n*573:  | \"re"
+    },
+    {
+      "toolCallId": "toolu_01TedwbihnZ3RfgjwpT3yPkN|fc_tmp_qvxkir19et",
+      "toolName": "bash",
+      "args": {
+        "command": "gh issue list --repo LankfordAI/omp-ui --search \"vault OR knowledge home\" --state all --limit 20",
+        "timeout": 60
+      },
+      "startT": 1791240216632,
+      "endT": 1791240216665,
+      "e2eMs": 33,
+      "isError": true,
+      "resultTextPreview": "gh: To use GitHub CLI in automation, set the GH_TOKEN environment variable.\n\n\nWall time: 0.07 seconds\n\nCommand exited with code 4"
+    },
+    {
+      "toolCallId": "toolu_01LYrJk9mdfYVJ7a2tiq22KL|fc_tmp_jds2zgfg0cq",
+      "toolName": "glob",
+      "args": {
+        "path": "docs/**/*",
+        "limit": 200
+      },
+      "startT": 1791240216639,
+      "endT": 1791240216640,
+      "e2eMs": 1,
+      "isError": false,
+      "resultTextPreview": "# docs/\nremote-instances.md\nsession-encoding.md\nsettings.md\ntroubleshooting.md\nuser-guide.md\narchitecture.md\ncollab-sharing.md\ndevelopment.md\ngetting-started.md\nphase-1-pty-embed.md\nphase-2-rpc-ui.md\nphase-3-acp.md\nreleases.md\nremote-access.md\nREADME.md\n## research/\nappimage-only-linux-distribution.md\n## adr/\n0036-preferred-web-search-provider-binds-to-the-web-model-role.md\n0037-stats-view-reads-omp-stats-db-read-only.md\n0038-session-scoped-approval-mode-via-config-overlay.md\n0039-advisor-roster"
+    },
+    {
+      "toolCallId": "toolu_01UxGSjuPmqoZbdd5BUjjkHJ|fc_tmp_j0vemt9jpv",
+      "toolName": "read",
+      "args": {
+        "path": "skill://domain-modeling"
+      },
+      "startT": 1791240223846,
+      "endT": 1791240223858,
+      "e2eMs": 12,
+      "isError": false,
+      "resultTextPreview": "[Skill file: /home/alankford/.agents/skills/domain-modeling/SKILL.md]\n---\nname: domain-modeling\ndescription: Build and sharpen a project's domain model. Use when the user wants to pin down domain terminology or a ubiquitous language, record an architectural decision, or when another skill needs to maintain the domain model.\n---\n\n# Domain Modeling\n\nActively build and sharpen the project's domain model as you design. This is the *active* discipline — challenging terms, inventing edge-case scenario"
+    },
+    {
+      "toolCallId": "toolu_01P5sZqtXWayWKSGEG4U2kyh|fc_tmp_4pgzrmm4u7q",
+      "toolName": "read",
+      "args": {
+        "path": "docs/adr/0047-code-review-roster-via-background-subagents.md:1-58"
+      },
+      "startT": 1791240223852,
+      "endT": 1791240223864,
+      "e2eMs": 12,
+      "isError": false,
+      "resultTextPreview": "[docs/adr/0047-code-review-roster-via-background-subagents.md#D6A7]\n1:# Code review as a batch of background subagents\n2:\n3:Resolves issue #728. Verified against omp 18.6.0.\n4:\n5:## Decision\n6:\n7:`/code-review` and the model-callable `omp-ui_code_review` tool are an rpc-ui\n8:extension bridge (`omp-ui-code-review.ts`, generated into the lineage dir and\n9:passed with `-e` like every other bridge). The bridge never launches agents\n10:itself: it reads the reviewer roster (`REVIEW.yml`, user + projec"
+    },
+    {
+      "toolCallId": "toolu_01CGwY9sqdxHdCXNbY4fMWcY|fc_tmp_nqt1748bswl",
+      "toolName": "read",
+      "args": {
+        "path": "packages/core/src/types.ts:100-156"
+      },
+      "startT": 1791240223852,
+      "endT": 1791240223869,
+      "e2eMs": 17,
+      "isError": false,
+      "resultTextPreview": "[packages/core/src/types.ts#DC9C]\n91:export interface DocumentAttachment {\n…\n99:  path?: string;\n100:}\n101:\n102:export type ProjectOpenTarget = \"vscode\" | \"files\" | \"terminal\";\n103:\n104:export interface ProjectOpenAvailability {\n105:  vsCode: boolean;\n106:  terminal: boolean;\n107:}\n108:\n109:export interface ProjectRecord {\n110:  path: string;\n111:  name: string;\n112:  addedAt: string;\n113:  /** Main model most recently used in this project. */\n114:  lastModel: string | null;\n115:  /** Main-model"
+    },
+    {
+      "toolCallId": "toolu_01GdAyj5aZnTJjPARKNb15PF|fc_tmp_rqahreb3puk",
+      "toolName": "grep",
+      "args": {
+        "pattern": "#75[0-9]|knowledge home",
+        "path": "docs;CONTEXT.md;packages/desktop/src/renderer/src/components/prototype-vault-753",
+        "case": false,
+        "gitignore": false
+      },
+      "startT": 1791240230024,
+      "endT": 1791240230059,
+      "e2eMs": 35,
+      "isError": false,
+      "resultTextPreview": "# packages/desktop/src/renderer/src/components/prototype-vault-753/\n## ImportVaultsDialog.tsx#8328\n*1:// PROTOTYPE (#753): throwaway.\n*2:// Import from Obsidian's vault list (obsidian.json, #751). Rows already in the\n 3:// registry stay checked, disabled, and tagged \"added\".\n 4:import { useState } from \"react\";\n 5:import { Button, Chip, Empty, Modal } from \"../ui\";\n## KnowledgeHomeChip.tsx#F7EE\n*1:// PROTOTYPE (#753): throwaway.\n*2:// Per-project knowledge home: repo docs, a vault, or both. Two "
+    },
+    {
+      "toolCallId": "toolu_01KXQa1kYrkEXXrvWkg8LAi5|fc_tmp_rvnqkua7eom",
+      "toolName": "bash",
+      "args": {
+        "command": "git status --short && git log --oneline -5 && ls ~/.agents/skills/domain-modeling/",
+        "timeout": 30
+      },
+      "startT": 1791240230032,
+      "endT": 1791240230078,
+      "e2eMs": 46,
+      "isError": false,
+      "resultTextPreview": "a059857 Merge work into main (6 commits)\n2b9eaa2 PROTOTYPE (#753): Q5 settled, notes touched live in the rail Session pane\n5085c53 PROTOTYPE (#753): Q4 settled, copper border and chip for foreign-note edits\n7140bc5 PROTOTYPE (#753): Q3 settled, full vault write card\n4ab8ba8 PROTOTYPE (#753): Q2 settled, knowledge home is a Project settings tab\nADR-FORMAT.md\nCONTEXT-FORMAT.md\nSKILL.md\nagents\n\n\nWall time: 0.05 seconds"
+    },
+    {
+      "toolCallId": "toolu_01DkMcFTAAqMswsVtDS8cuoe|fc_tmp_jezbyaffcq",
+      "toolName": "read",
+      "args": {
+        "path": "packages/desktop/src/renderer/src/components/prototype-vault-753/state.ts:1-60"
+      },
+      "startT": 1791240235879,
+      "endT": 1791240235887,
+      "e2eMs": 8,
+      "isError": false,
+      "resultTextPreview": "[packages/desktop/src/renderer/src/components/prototype-vault-753/state.ts#2721]\n1:// PROTOTYPE (#753): throwaway.\n2:// Activation gate, URL-backed variant choices, and the prototype data store\n3:// (vault registry, knowledge homes, extra writes) in localStorage. Module-level\n4:// external stores read via useSyncExternalStore, following\n5:// prototype-browser-pane/state.ts at ba9e17c.\n6:import { useSyncExternalStore } from \"react\";\n7:import type { ToolItem } from \"../../lib/transcript\";\n8:\n9:/**"
+    },
+    {
+      "toolCallId": "toolu_01HBguxPFtQTecCi6Fa5mGc8|fc_tmp_x2aq3ye1ujb",
+      "toolName": "bash",
+      "args": {
+        "command": "git show --stat 2b9eaa2 && git show 2b9eaa2 -- '*state.ts'",
+        "timeout": 30
+      },
+      "startT": 1791240235886,
+      "endT": 1791240235922,
+      "e2eMs": 36,
+      "isError": false,
+      "resultTextPreview": "commit 2b9eaa24d2f0182dd5985a746f5956d778df187b\nAuthor: Austin Lankford <austin@austinlankford.com>\nDate:   Mon Oct 5 15:42:59 2026 -0400\n\n    PROTOTYPE (#753): Q5 settled, notes touched live in the rail Session pane\n\n .../desktop/src/renderer/src/components/prototype-vault-753/state.ts    | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)\ncommit 2b9eaa2\nPROTOTYPE (#753): Q5 settled, notes touched live in the rail Session pane\n\npackages/desktop/src/renderer/src/components/prototype-vault-753/"
+    },
+    {
+      "toolCallId": "toolu_01SEf2ScBjEQiLTdN2XgoFJq|fc_tmp_11d9fma582q",
+      "toolName": "read",
+      "args": {
+        "path": "/home/alankford/.agents/skills/domain-modeling/ADR-FORMAT.md"
+      },
+      "startT": 1791240244218,
+      "endT": 1791240244224,
+      "e2eMs": 6,
+      "isError": false,
+      "resultTextPreview": "[~/.agents/skills/domain-modeling/ADR-FORMAT.md#1B55]\n1:# ADR Format\n2:\n3:ADRs live in `docs/adr/` and use sequential numbering: `0001-slug.md`, `0002-slug.md`, etc.\n4:\n5:Create the `docs/adr/` directory lazily — only when the first ADR is needed.\n6:\n7:## Template\n8:\n9:```md\n10:# {Short title of the decision}\n11:\n12:{1-3 sentences: what's the context, what did we decide, and why.}\n13:```\n14:\n15:That's it. An ADR can be a single paragraph. The value is in recording *that* a decision was made and "
+    },
+    {
+      "toolCallId": "toolu_012VQRQ8exVZiSDQsuox4MSA|fc_tmp_zifwv44pwk",
+      "toolName": "read",
+      "args": {
+        "path": "packages/desktop/src/renderer/src/components/prototype-vault-753/state.ts:110-140"
+      },
+      "startT": 1791240244224,
+      "endT": 1791240244234,
+      "e2eMs": 10,
+      "isError": false,
+      "resultTextPreview": "[packages/desktop/src/renderer/src/components/prototype-vault-753/state.ts#2721]\n109:\n110:/* ---------------------------------------------------------------- data */\n111:\n112:export interface ProtoVault {\n113:  /** Local registry id (not Obsidian's). */\n114:  id: string;\n115:  /** Absolute folder path. The display name is its basename, never stored. */\n116:  path: string;\n117:  /** Vault-relative, normalized with one trailing slash. */\n118:  homeFolder: string;\n119:  /** 16-hex id from Obsidian'"
+    },
+    {
+      "toolCallId": "toolu_01Va85wvZdUE8DdPeZRT6fCe|fc_tmp_j5v6qncjrt",
+      "toolName": "write",
+      "args": {
+        "path": "docs/adr/0048-knowledge-home-on-the-project-record.md",
+        "content": "# Knowledge home lives on the project record\n\nPart of issue #753.\n\n## Decision\n\nA project's knowledge home — repo docs, a vault, or both, plus which\nregistered vault — is a `knowledgeHome` field on `ProjectRecord`, beside\n`reviewRoster`. It is not a key in the project's `.omp/config.yml`.\n\nThe value names omp-ui's own state: the vault is a reference into omp-ui's\nmachine-local vault registry, and the only reader is omp-ui's main process\n(the host tool that writes notes). omp never consumes it, so it has no\nbusiness in a file omp loads, and a git-shared copy would point at a registry\nid the next machine does not have.\n\n## Rejected alternatives\n\n- **An omp-ui key in `.omp/config.yml`.** `.omp/config.yml` is where omp-ui\n  edits settings omp itself reads (ADR-0025, ADR-0031); an omp-ui-only key\n  there breaks that rule for nothing. The one thing the file would buy, a\n  git-shared, hand-editable value, does not survive a machine-local vault\n  reference, and `.omp/` is gitignored in most repos anyway (ADR-0018).\n\n## Consequences\n\n- The knowledge home is not git-shared or hand-editable, the same loss\n  ADR-0047 accepted when the review roster moved onto `ProjectRecord` (#738).\n- If sharing the repo-docs half with a team ever matters, it gets its own\n  repo-relative path setting; the vault reference stays machine-local\n  regardless.\n"
+      },
+      "startT": 1791240255001,
+      "endT": 1791240255012,
+      "e2eMs": 11,
+      "isError": false,
+      "resultTextPreview": "[docs/adr/0048-knowledge-home-on-the-project-record.md#AF14]\nSuccessfully wrote 1352 bytes to docs/adr/0048-knowledge-home-on-the-project-record.md"
+    },
+    {
+      "toolCallId": "toolu_011wRbssKoG7Bn8Uvv6QAzeX|fc_tmp_fobcw2spbvt",
+      "toolName": "grep",
+      "args": {
+        "pattern": "0047-code-review",
+        "path": "docs;README.md;CONTEXT.md"
+      },
+      "startT": 1791240258288,
+      "endT": 1791240258289,
+      "e2eMs": 1,
+      "isError": false,
+      "resultTextPreview": "# docs/\n## architecture.md#8D5F\n 425:cannot disable review under rpc-ui ([#728](https://github.com/LankfordAI/omp-ui/issues/728),\n*426:[ADR-0047](adr/0047-code-review-roster-via-background-subagents.md)). The\n 427:subsystem sits behind the app-global `experimentsEnabled` flag: with the flag\n 428:off an rpc spawn writes neither the extension nor the overlay nor the snapshot,\n 429:and Settings hides the Reviewers tab (#739). Main\n...\n 557:| [Goal mode via omp's native rpc goal command](adr/0046-go"
+    },
+    {
+      "toolCallId": "toolu_01DCzqRx3itHRZSH69UNVCtT|fc_tmp_ni718pgji5q",
+      "toolName": "read",
+      "args": {
+        "path": "docs/architecture.md:556-562"
+      },
+      "startT": 1791240259192,
+      "endT": 1791240259199,
+      "e2eMs": 7,
+      "isError": false,
+      "resultTextPreview": "[docs/architecture.md#8D5F]\n1:# Architecture\n…\n519:## Architecture decision records\n…\n523:| Record | Decision |\n…\n555:| [The web-search provider list is read from omp's model catalog](adr/0035-web-search-provider-list-read-from-omp-model-catalog.md) | Enumerate web-search providers from `omp models --kind search --json` under a pristine environment — designed JSON, offline, credential-free — keeping ADR-0027's closed-list contract and synthetic-reason degradation. |\n556:| [Generated bridges read"
+    },
+    {
+      "toolCallId": "toolu_01WoSwbtc4mmsFEFgaHWaMug|fc_tmp_3smnavou3fw",
+      "toolName": "edit",
+      "args": {
+        "input": "[docs/architecture.md#8D5F]\nPUT >558:\n+| [Knowledge home lives on the project record](adr/0048-knowledge-home-on-the-project-record.md) | A project's knowledge home (repo docs, a vault, or both, plus the registered vault) is a `ProjectRecord.knowledgeHome` field, not an `.omp/config.yml` key: it references omp-ui's machine-local vault registry and only omp-ui reads it; accepted loss, as with ADR-0047's roster, is no git-shared or hand-edited value. |\n"
+      },
+      "startT": 1791240261844,
+      "endT": 1791240261884,
+      "e2eMs": 40,
+      "isError": false,
+      "resultTextPreview": "[docs/architecture.md#5494]\n1:# Architecture\n\n519:## Architecture decision records\n\n523:| Record | Decision |\n\n557:| [Goal mode via omp's native rpc goal command](adr/0046-goal-mode-via-native-rpc-goal-command.md) | Drive goals through omp's rpc `goal` command, `get_state.goal`, and `goal_updated` (omp 18.4.11+, no fallback); budgets at creation only; continuation is omp's own, armed by a per-spawn `goal.continuationModes` overlay that follows the user's `\"interactive\"` setting; the HUD chip ope"
+    }
+  ],
+  "cards": [
+    {
+      "n": 1,
+      "toolCallId": "toolu_01AJGS7qiZtxcbwmWCEpPviH|fc_tmp_zqr17eimti",
+      "toolName": "grep",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-1-grep-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-1-grep-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 2,
+      "toolCallId": "toolu_01G6A6iJ1rfYYn9UzYwdQwXW|fc_tmp_zo4ruycdfi",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-2-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-2-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 3,
+      "toolCallId": "toolu_01LoBY4CAyv4UoiEjyh1qmaG|fc_tmp_jhnyursouwk",
+      "toolName": "grep",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-3-grep-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-3-grep-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 4,
+      "toolCallId": "toolu_01UYvKqrfxZTY1kgXa9o8sTi|fc_tmp_xz6aronqpkr",
+      "toolName": "grep",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-4-grep-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-4-grep-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 5,
+      "toolCallId": "toolu_01LhmHjhiA5wqBZZHYxiEUyF|fc_tmp_6a7z0lkbxwi",
+      "toolName": "grep",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-5-grep-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-5-grep-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 6,
+      "toolCallId": "toolu_01TedwbihnZ3RfgjwpT3yPkN|fc_tmp_qvxkir19et",
+      "toolName": "bash",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-6-bash-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-6-bash-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 7,
+      "toolCallId": "toolu_01LYrJk9mdfYVJ7a2tiq22KL|fc_tmp_jds2zgfg0cq",
+      "toolName": "glob",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-7-glob-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-7-glob-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 8,
+      "toolCallId": "toolu_01UxGSjuPmqoZbdd5BUjjkHJ|fc_tmp_j0vemt9jpv",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-8-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-8-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 9,
+      "toolCallId": "toolu_01P5sZqtXWayWKSGEG4U2kyh|fc_tmp_4pgzrmm4u7q",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-9-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-9-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 10,
+      "toolCallId": "toolu_01CGwY9sqdxHdCXNbY4fMWcY|fc_tmp_nqt1748bswl",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-10-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-10-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 11,
+      "toolCallId": "toolu_01GdAyj5aZnTJjPARKNb15PF|fc_tmp_rqahreb3puk",
+      "toolName": "grep",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-11-grep-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-11-grep-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 12,
+      "toolCallId": "toolu_01KXQa1kYrkEXXrvWkg8LAi5|fc_tmp_rvnqkua7eom",
+      "toolName": "bash",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-12-bash-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-12-bash-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 13,
+      "toolCallId": "toolu_01DkMcFTAAqMswsVtDS8cuoe|fc_tmp_jezbyaffcq",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-13-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-13-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 14,
+      "toolCallId": "toolu_01HBguxPFtQTecCi6Fa5mGc8|fc_tmp_x2aq3ye1ujb",
+      "toolName": "bash",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-14-bash-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-14-bash-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 15,
+      "toolCallId": "toolu_01SEf2ScBjEQiLTdN2XgoFJq|fc_tmp_11d9fma582q",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-15-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-15-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 16,
+      "toolCallId": "toolu_012VQRQ8exVZiSDQsuox4MSA|fc_tmp_zifwv44pwk",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-16-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-16-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 17,
+      "toolCallId": "toolu_01Va85wvZdUE8DdPeZRT6fCe|fc_tmp_j5v6qncjrt",
+      "toolName": "write",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-17-write-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-17-write-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 18,
+      "toolCallId": "toolu_011wRbssKoG7Bn8Uvv6QAzeX|fc_tmp_fobcw2spbvt",
+      "toolName": "grep",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-18-grep-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-18-grep-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 19,
+      "toolCallId": "toolu_01DCzqRx3itHRZSH69UNVCtT|fc_tmp_ni718pgji5q",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-19-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-19-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 20,
+      "toolCallId": "toolu_01WoSwbtc4mmsFEFgaHWaMug|fc_tmp_3smnavou3fw",
+      "toolName": "edit",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-20-edit-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R7/card-20-edit-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    }
+  ],
+  "stills": [],
+  "obsidianProbes": [],
+  "finalAssistantText": "I recorded the decision as **ADR-0048**: the knowledge home will be a `knowledgeHome` field on `ProjectRecord`, not a key in `.omp/config.yml`. This was a docs-only change; no code was touched.\n\n- **`docs/adr/0048-knowledge-home-on-the-project-record.md`** covers:\n  - **Decision:** the field sits next to `reviewRoster`. It holds the kind (repo docs, a vault, or both) and which registered vault.\n  - **Why:** it points into omp-ui's own vault registry, which exists only on this machine, and only omp-ui's main process reads it.\n  - **Rejected option:** a key in `.omp/config.yml`. That file is reserved for settings omp itself reads (ADR-0025, ADR-0031), and `.omp/` is usually gitignored (ADR-0018).\n  - **Accepted cost:** the value isn't shared through git or editable by hand, the same trade ADR-0047 made in #738. If the team ever needs to share the repo-docs part, it becomes its own repo-relative path setting.\n- **`docs/architecture.md`** now lists ADR-0048 in the decision-record table, after ADR-0047.\n\nNot done:\n- **The field itself.** The #753 prototype still keeps knowledge homes in localStorage (`prototype-vault-753/state.ts`). When the real feature is built, `knowledgeHome: … | null` goes on `ProjectRecord` in `packages/core/src/types.ts`. Older saved projects that lack it should load as `null`, the way `reviewRoster` does.\n- **A note on #753.** `gh` isn't authenticated here (`GH_TOKEN` is unset), so I couldn't post the decision to the issue.\n- **`CONTEXT.md`.** \"Knowledge home\" isn't defined there yet. I left that for when the feature's vocabulary is settled.",
+  "timeouts": [],
+  "errors": [],
+  "startedAt": "2026-10-05T22:42:54.689Z",
+  "endedAt": "2026-10-05T22:45:00.421Z",
+  "mainLogWindow": {
+    "from": "2026-10-05T22:42:54.689Z",
+    "to": "2026-10-05T22:45:00.421Z"
+  },
+  "rubric": null,
+  "hook": {
+    "unsubscribe": false
+  },
+  "tabInState": true,
+  "readiness": [
+    {
+      "phase": "spawn",
+      "composerReady": true,
+      "getStateAt": "2026-10-05T22:42:55.642Z",
+      "settledAt": "2026-10-05T22:42:56.065Z"
+    }
+  ],
+  "projectReset": "2026-10-05T22:45:00.434Z"
+}

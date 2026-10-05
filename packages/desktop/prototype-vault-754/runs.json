@@ -1,23 +1,41 @@
 [
   {
     "id": "R1",
-    "control": { "loadMode": "discoverable", "guidance": "none" },
+    "control": {
+      "loadMode": "discoverable",
+      "guidance": "none"
+    },
     "freshVault": true,
-    "prompts": ["What did we decide in last week's omp-ui planning meeting about the session HUD? Check my notes."]
+    "prompts": [
+      "What did we decide in last week's omp-ui planning meeting about the session HUD? Check my notes."
+    ]
   },
   {
     "id": "R2",
-    "control": { "loadMode": "essential", "guidance": "none" },
-    "prompts": ["What did we decide in last week's omp-ui planning meeting about the session HUD? Check my notes."]
+    "control": {
+      "loadMode": "essential",
+      "guidance": "none"
+    },
+    "prompts": [
+      "What did we decide in last week's omp-ui planning meeting about the session HUD? Check my notes."
+    ]
   },
   {
     "id": "R3",
-    "control": { "loadMode": "essential", "guidance": "message" },
-    "prompts": ["What did we decide in last week's omp-ui planning meeting about the session HUD? Check my notes."]
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message"
+    },
+    "prompts": [
+      "What did we decide in last week's omp-ui planning meeting about the session HUD? Check my notes."
+    ]
   },
   {
     "id": "R4",
-    "control": { "loadMode": "essential", "guidance": "message" },
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message"
+    },
     "freshVault": true,
     "prompts": [
       "We need to pick how omp-ui stores a project's knowledge home: a ProjectRecord field or a .omp/config.yml key. Weigh it in a few lines and pick one.",
@@ -26,14 +44,20 @@
   },
   {
     "id": "R5",
-    "control": { "loadMode": "essential", "guidance": "message" },
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message"
+    },
     "prompts": [
       "ADR-0043 says omp has a 120 s host-tool timeout. Check whether the managed omp at ~/.local/share/omp-ui/bin/omp really has one, and tell me what you find."
     ]
   },
   {
     "id": "R6",
-    "control": { "loadMode": "essential", "guidance": "message" },
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message"
+    },
     "prompts": [
       "Read my note Desk Setup and describe the picture.",
       "Write a vault note about whether vault writes should be allowed in Plan mode, and link the meeting note where we discussed it."
@@ -41,7 +65,10 @@
   },
   {
     "id": "R7",
-    "control": { "loadMode": "essential", "guidance": "none" },
+    "control": {
+      "loadMode": "essential",
+      "guidance": "none"
+    },
     "freshVault": true,
     "prompts": [
       "We need to pick how omp-ui stores a project's knowledge home: a ProjectRecord field or a .omp/config.yml key. Weigh it in a few lines and pick one.",
@@ -50,7 +77,10 @@
   },
   {
     "id": "R8a",
-    "control": { "loadMode": "essential", "guidance": "message" },
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message"
+    },
     "approvalMode": "write",
     "prompts": [
       "Search my vault for notes about the session HUD, then add one line to the omp-ui decision note saying the HUD question is settled."
@@ -58,7 +88,10 @@
   },
   {
     "id": "R8b",
-    "control": { "loadMode": "discoverable", "guidance": "message" },
+    "control": {
+      "loadMode": "discoverable",
+      "guidance": "message"
+    },
     "approvalMode": "write",
     "prompts": [
       "Search my vault for notes about the session HUD, then add one line to the omp-ui decision note saying the HUD question is settled."
@@ -66,7 +99,11 @@
   },
   {
     "id": "R9a",
-    "control": { "loadMode": "essential", "guidance": "message", "planGuard": false },
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message",
+      "planGuard": false
+    },
     "plan": true,
     "prompts": [
       "Record in my vault a decision note that the knowledge home is a ProjectRecord field, and also create docs/knowledge-home.md with the same text."
@@ -74,7 +111,11 @@
   },
   {
     "id": "R9b",
-    "control": { "loadMode": "essential", "guidance": "message", "planGuard": true },
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message",
+      "planGuard": true
+    },
     "plan": true,
     "prompts": [
       "Record in my vault a decision note that the knowledge home is a ProjectRecord field, and also create docs/knowledge-home.md with the same text."
@@ -82,20 +123,35 @@
   },
   {
     "id": "R10",
-    "control": { "loadMode": "essential", "guidance": "message", "searchDelayMs": 75000 },
-    "stillsAt": [30000, 65000],
-    "prompts": ["Search my vault for zephyrine."]
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message",
+      "searchDelayMs": 75000
+    },
+    "stillsAt": [
+      30000,
+      65000
+    ],
+    "prompts": [
+      "Search my vault for zephyrine."
+    ]
   },
   {
     "id": "R11",
-    "control": { "loadMode": "essential", "guidance": "message" },
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message"
+    },
     "prompts": [
       "Diagnostics only, change nothing. 1) With the bash tool run: cat omp-ui://plan. 2) Use the read tool on omp-ui://plan. 3) Use grep for the word vault in omp-ui://plan. 4) Use the read tool on omp-ui://vault/. Report each tool's exact output."
     ]
   },
   {
     "id": "R12",
-    "control": { "loadMode": "essential", "guidance": "message" },
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message"
+    },
     "prompts": [
       "Use a subagent (the task tool) to find my meeting notes that mention omp-ui and write a one-paragraph summary note into my vault."
     ]
@@ -115,10 +171,37 @@
   },
   {
     "id": "R14a",
-    "control": { "loadMode": "essential", "guidance": "message" },
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message"
+    },
     "obsidianProbe": true,
     "prompts": [
       "Append one line to the omp-ui decision note you wrote about the knowledge home: 'Confirmed on 2026-10-05.'"
+    ]
+  },
+  {
+    "id": "R9c",
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message",
+      "planGuard": true
+    },
+    "plan": true,
+    "prompts": [
+      "Record in my vault a decision note that the knowledge home is a ProjectRecord field, and also create docs/knowledge-home.md with the same text.",
+      "Write the vault note now; the docs file can wait."
+    ]
+  },
+  {
+    "id": "R14b",
+    "control": {
+      "loadMode": "essential",
+      "guidance": "message"
+    },
+    "obsidianProbe": true,
+    "prompts": [
+      "Append one more line to that same omp-ui knowledge home decision note: 'Reading view check on 2026-10-05.'"
     ]
   }
 ]

@@ -764,7 +764,9 @@ function runProbe(dir, label, summary) {
 async function captureCard(cdp, dir, tabId, start, n) {
 	const id = start.toolCallId;
 	const name = String(start.toolName ?? "tool").replace(/[^\w.-]/g, "_");
-	const wrap = `${tabSel(tabId)}?.querySelector('[data-item-id="' + CSS.escape(${js(id)}) + '"]')`;
+	// Rows are keyed `tool-<seq>` (renderer sequence), not toolCallId: take the
+	// n-th top-level tool row of the tab, which follows tool_execution_start order.
+	const wrap = `[...(${tabSel(tabId)}?.querySelectorAll('[data-item-id^="tool-"]') ?? [])][${n - 1}]`;
 	const entry = { n, toolCallId: id, toolName: start.toolName, collapsed: null, expanded: null, note: null };
 	const scrolled = await cdp.ev(`(() => {
 		const el = ${wrap};
@@ -894,6 +896,33 @@ async function main() {
 			} finally {
 				cdp.close();
 			}
+			break;
+		}
+		case "cards": {
+			// Recapture tool-card stills for a finished run whose tab is still the visible one.
+			if (!positional[0]) throw new Error("usage: drive.mjs cards <id> [--port 9754]");
+			const dir = join(PROTO_DIR, "evidence/runs", positional[0]);
+			const summary = JSON.parse(readFileSync(join(dir, "summary.json"), "utf8"));
+			const seen = new Set();
+			const starts = [];
+			for (const line of readFileSync(join(dir, "frames.jsonl"), "utf8").split("\n")) {
+				if (line === "") continue;
+				const { tabId, f } = JSON.parse(line);
+				if (tabId !== summary.tabId || f.type !== "tool_execution_start" || seen.has(f.toolCallId)) continue;
+				seen.add(f.toolCallId);
+				starts.push(f);
+			}
+			const { cdp } = await connect(port);
+			try {
+				summary.cards = [];
+				for (let n = 0; n < starts.length; n++) {
+					summary.cards.push(await captureCard(cdp, dir, summary.tabId, starts[n], n + 1));
+				}
+			} finally {
+				cdp.close();
+			}
+			writeFileSync(join(dir, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`);
+			process.stdout.write(`${JSON.stringify(summary.cards.map((c) => [c.n, c.toolName, c.note, !!c.collapsed]))}\n`);
 			break;
 		}
 		default:

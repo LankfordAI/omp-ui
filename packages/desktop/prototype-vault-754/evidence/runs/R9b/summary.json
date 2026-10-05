@@ -1,0 +1,187 @@
+{
+  "id": "R9b",
+  "control": {
+    "vaultPath": "/home/alankford/Documents/Obsidian",
+    "vaultId": "ee8bdab8baa42089",
+    "vaultName": "Obsidian",
+    "homeFolder": "omp-ui/",
+    "loadMode": "essential",
+    "guidance": "message",
+    "planGuard": true,
+    "searchDelayMs": 0,
+    "searchBackend": "fs",
+    "readImages": true
+  },
+  "prompts": [
+    "Record in my vault a decision note that the knowledge home is a ProjectRecord field, and also create docs/knowledge-home.md with the same text."
+  ],
+  "project": {
+    "path": "/home/alankford/.cache/omp-ui-proto-754/project/omp-ui",
+    "added": false
+  },
+  "tabId": "c4fcbf7f-6b87-46a8-82b5-8f515e8ee542",
+  "target": {
+    "id": "F5D3B6583CE75FD2700F34A1C7474F94",
+    "url": "http://localhost:5173/",
+    "title": "omp-ui"
+  },
+  "freshVault": null,
+  "approvalMode": null,
+  "planVia": "click",
+  "planStatusSeen": "2026-10-05T22:55:55.079Z",
+  "approvalVia": null,
+  "approvals": {},
+  "approvalLog": [],
+  "dialogs": [],
+  "promptLog": [
+    {
+      "index": 0,
+      "sentAt": "2026-10-05T22:55:55.725Z",
+      "composerVia": "insertText",
+      "submitVia": "enter",
+      "endedAt": "2026-10-05T22:56:32.810Z"
+    }
+  ],
+  "calls": [
+    {
+      "toolCallId": "toolu_01PgSFWRUxj92qwqjhjpJFS6|fc_tmp_q2cn8xoo82n",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "knowledge home",
+        "limit": 10
+      },
+      "startT": 1791240965328,
+      "endT": 1791240965345,
+      "e2eMs": 17,
+      "isError": false,
+      "resultTextPreview": "No notes in vault Obsidian match \"knowledge home\"."
+    },
+    {
+      "toolCallId": "toolu_018gH1teQgwWihEZQgTXWNkv|fc_tmp_dh2rr2mjmxd",
+      "toolName": "grep",
+      "args": {
+        "pattern": "ProjectRecord\\b",
+        "path": "packages"
+      },
+      "startT": 1791240965328,
+      "endT": 1791240965362,
+      "e2eMs": 34,
+      "isError": false,
+      "resultTextPreview": "# packages/\n\n## core/src/\n### backend-channels.ts#8207\n 36:  PlanFormat,\n*37:  ProjectRecord,\n 38:  ProjectOpenAvailability,\n 39:  ProjectOpenTarget,\n 40:  ProjectScalarResult,\n...\n 189:   */\n*190:  addProject: { channel: \"project:add\", ...request<[path: string], ProjectRecord>([str()]) },\n 191:  /**\n 192:   * Reports which external project-open targets are available. The host\n 193:   * resolves this once and caches the result for the application lifetime.\n### diagnostics.test.ts#643E\n 20:  Owne"
+    },
+    {
+      "toolCallId": "toolu_01H948DeNeVNaUpGsgMzuzar|fc_tmp_zcivng6ifrg",
+      "toolName": "glob",
+      "args": {
+        "path": "docs/knowledge-home*"
+      },
+      "startT": 1791240965344,
+      "endT": 1791240965361,
+      "e2eMs": 17,
+      "isError": false,
+      "resultTextPreview": "No files found matching pattern"
+    },
+    {
+      "toolCallId": "toolu_01YPXL4wJy2NQAABR78r1Wtm|fc_tmp_ufi7ddxoc4g",
+      "toolName": "read",
+      "args": {
+        "path": "packages/core/src/types.ts:109-160"
+      },
+      "startT": 1791240971815,
+      "endT": 1791240971831,
+      "e2eMs": 16,
+      "isError": false,
+      "resultTextPreview": "[packages/core/src/types.ts#DC9C]\n108:\n109:export interface ProjectRecord {\n110:  path: string;\n111:  name: string;\n112:  addedAt: string;\n113:  /** Main model most recently used in this project. */\n114:  lastModel: string | null;\n115:  /** Main-model thinking level most recently used in this project — a\n116:   *  concrete level word or omp's `auto` selector; legacy registries without\n117:   *  the field are normalized to null at parse time. */\n118:  lastThinkingLevel: string | null;\n119:  /** A"
+    },
+    {
+      "toolCallId": "toolu_01BMeqQGCYAe4SqA7xFiF5xR|fc_tmp_wtbkecdij8c",
+      "toolName": "write",
+      "args": {
+        "path": "local://knowledge-home-decision.md",
+        "content": "# Knowledge Home Is a ProjectRecord Field\n\n**Decision:** omp-ui stores a project's knowledge home (the vault it writes notes into) as a field on `ProjectRecord` in omp-ui's registry, not as a key in the project's `.omp/config.yml`.\n\n**Why:**\n\n- `ProjectRecord` already holds per-project state that omp-ui owns, such as `browserClock` and `reviewRoster`. The review roster moved out of a repo file (REVIEW.yml) and into app state (issue #738, ADR-0047 as amended), so this follows the same rule.\n- `.omp/config.yml` belongs to omp. omp-ui writes it only for omp's own settings, such as MCP servers. A knowledge home is an omp-ui setting, so it goes where the browser clock already lives.\n- A vault is local to one machine. A key in a committed config file would leak one user's vault choice to every clone.\n\n**Consequences:**\n\n- Add a nullable field to `ProjectRecord` (`packages/core/src/types.ts`). Null means unset, so the default vault applies. Legacy registries load the missing field as null at parse time, like the other optional fields.\n- Project settings read and write it through the registry, the same path `browserClock` uses.\n- The setting doesn't travel with the repo. Each machine picks its own knowledge home.\n"
+      },
+      "startT": 1791240982444,
+      "endT": 1791240982445,
+      "e2eMs": 1,
+      "isError": false,
+      "resultTextPreview": "[local://knowledge-home-decision.md#7E8A]\nSuccessfully wrote 1225 bytes to local://knowledge-home-decision.md"
+    }
+  ],
+  "cards": [
+    {
+      "n": 1,
+      "toolCallId": "toolu_01PgSFWRUxj92qwqjhjpJFS6|fc_tmp_q2cn8xoo82n",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9b/card-1-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9b/card-1-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 2,
+      "toolCallId": "toolu_018gH1teQgwWihEZQgTXWNkv|fc_tmp_dh2rr2mjmxd",
+      "toolName": "grep",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9b/card-2-grep-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9b/card-2-grep-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 3,
+      "toolCallId": "toolu_01H948DeNeVNaUpGsgMzuzar|fc_tmp_zcivng6ifrg",
+      "toolName": "glob",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9b/card-3-glob-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9b/card-3-glob-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 4,
+      "toolCallId": "toolu_01YPXL4wJy2NQAABR78r1Wtm|fc_tmp_ufi7ddxoc4g",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9b/card-4-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9b/card-4-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 5,
+      "toolCallId": "toolu_01BMeqQGCYAe4SqA7xFiF5xR|fc_tmp_wtbkecdij8c",
+      "toolName": "write",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9b/card-5-write-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9b/card-5-write-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    }
+  ],
+  "stills": [],
+  "obsidianProbes": [],
+  "finalAssistantText": "I haven't written either file yet. Plan mode is on, and it allows writes only to session scratch files (`local://`). The repo doc is a working-tree write, which plan mode blocks. The vault note isn't in the repo, but it's still a write, so I held it too rather than save one file without the other.\n\nThe text is ready at `local://knowledge-home-decision.md`. It's grounded in the code: `ProjectRecord` in `packages/core/src/types.ts` already holds per-project settings that belong to omp-ui, such as `browserClock` and `reviewRoster`.\n\n> **Knowledge Home Is a ProjectRecord Field**\n>\n> **Decision:** omp-ui stores a project's knowledge home (the vault it writes notes into) as a field on `ProjectRecord` in omp-ui's registry, not as a key in the project's `.omp/config.yml`.\n>\n> **Why:**\n> - `ProjectRecord` already holds per-project state that omp-ui owns, such as `browserClock` and `reviewRoster`. The review roster moved out of a repo file (REVIEW.yml) and into app state (issue #738, ADR-0047 as amended), so this follows the same rule.\n> - `.omp/config.yml` belongs to omp. omp-ui writes it only for omp's own settings, such as MCP servers. A knowledge home is an omp-ui setting, so it goes where the browser clock already lives.\n> - A vault is local to one machine. A key in a committed config file would leak one user's vault choice to every clone.\n>\n> **Consequences:**\n> - Add a nullable field to `ProjectRecord` (`packages/core/src/types.ts`). Null means unset, so the default vault applies. Legacy registries load the missing field as null at parse time, like the other optional fields.\n> - Project settings read and write it through the registry, the same path `browserClock` uses.\n> - The setting doesn't travel with the repo. Each machine picks its own knowledge home.\n\nNo vault notes mention \"knowledge home\" yet, so I found nothing to link and there's no duplicate. `docs/knowledge-home.md` doesn't exist either.\n\nTurn plan mode off and I'll write the vault note as \"Knowledge Home Is a ProjectRecord Field\" in `omp-ui/` and create `docs/knowledge-home.md` with the same text.",
+  "timeouts": [],
+  "errors": [],
+  "startedAt": "2026-10-05T22:55:51.763Z",
+  "endedAt": "2026-10-05T22:56:42.186Z",
+  "mainLogWindow": {
+    "from": "2026-10-05T22:55:51.763Z",
+    "to": "2026-10-05T22:56:42.186Z"
+  },
+  "rubric": null,
+  "hook": {
+    "unsubscribe": false
+  },
+  "tabInState": true,
+  "readiness": [
+    {
+      "phase": "spawn",
+      "composerReady": true,
+      "getStateAt": "2026-10-05T22:55:52.784Z",
+      "settledAt": "2026-10-05T22:55:53.532Z"
+    }
+  ],
+  "projectReset": "2026-10-05T22:56:42.198Z"
+}

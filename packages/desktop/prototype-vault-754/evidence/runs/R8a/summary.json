@@ -1,0 +1,460 @@
+{
+  "id": "R8a",
+  "control": {
+    "vaultPath": "/home/alankford/Documents/Obsidian",
+    "vaultId": "ee8bdab8baa42089",
+    "vaultName": "Obsidian",
+    "homeFolder": "omp-ui/",
+    "loadMode": "essential",
+    "guidance": "message",
+    "planGuard": true,
+    "searchDelayMs": 0,
+    "searchBackend": "fs",
+    "readImages": true
+  },
+  "prompts": [
+    "Search my vault for notes about the session HUD, then add one line to the omp-ui decision note saying the HUD question is settled."
+  ],
+  "project": {
+    "path": "/home/alankford/.cache/omp-ui-proto-754/project/omp-ui",
+    "added": false
+  },
+  "tabId": "d580f481-efc6-45e0-be6c-12e350bcaf4c",
+  "target": {
+    "id": "F5D3B6583CE75FD2700F34A1C7474F94",
+    "url": "http://localhost:5173/",
+    "title": "omp-ui"
+  },
+  "freshVault": null,
+  "approvalMode": "write",
+  "planVia": null,
+  "planStatusSeen": null,
+  "approvalVia": "click",
+  "approvals": {
+    "omp-ui_vault_search": 6,
+    "omp-ui_vault_read": 3
+  },
+  "approvalLog": [
+    {
+      "n": 1,
+      "tool": "omp-ui_vault_search",
+      "requestId": "159adcd92148857a",
+      "at": "2026-10-05T22:45:12.142Z",
+      "via": "click",
+      "screenshot": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/approval-1.png",
+      "clicked": {
+        "label": "Allow",
+        "cardTool": "omp-ui_vault_search"
+      }
+    },
+    {
+      "n": 2,
+      "tool": "omp-ui_vault_search",
+      "requestId": "159adcd92148857b",
+      "at": "2026-10-05T22:45:12.976Z",
+      "via": "click",
+      "screenshot": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/approval-2.png",
+      "clicked": {
+        "label": "Allow",
+        "cardTool": "omp-ui_vault_search"
+      }
+    },
+    {
+      "n": 3,
+      "tool": "omp-ui_vault_search",
+      "requestId": "159adce084c8857e",
+      "at": "2026-10-05T22:45:19.647Z",
+      "via": "click",
+      "screenshot": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/approval-3.png",
+      "clicked": {
+        "label": "Allow",
+        "cardTool": "omp-ui_vault_search"
+      }
+    },
+    {
+      "n": 4,
+      "tool": "omp-ui_vault_read",
+      "requestId": "159adce084c8857f",
+      "at": "2026-10-05T22:45:20.725Z",
+      "via": "click",
+      "screenshot": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/approval-4.png",
+      "clicked": {
+        "label": "Allow",
+        "cardTool": "omp-ui_vault_read"
+      }
+    },
+    {
+      "n": 5,
+      "tool": "omp-ui_vault_read",
+      "requestId": "159adce084c88580",
+      "at": "2026-10-05T22:45:21.067Z",
+      "via": "click",
+      "screenshot": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/approval-5.png",
+      "clicked": {
+        "label": "Allow",
+        "cardTool": "omp-ui_vault_read"
+      }
+    },
+    {
+      "n": 6,
+      "tool": "omp-ui_vault_search",
+      "requestId": "159adce83bc88584",
+      "at": "2026-10-05T22:45:27.878Z",
+      "via": "click",
+      "screenshot": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/approval-6.png",
+      "clicked": {
+        "label": "Allow",
+        "cardTool": "omp-ui_vault_search"
+      }
+    },
+    {
+      "n": 7,
+      "tool": "omp-ui_vault_read",
+      "requestId": "159adce83bc88585",
+      "at": "2026-10-05T22:45:28.457Z",
+      "via": "click",
+      "screenshot": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/approval-7.png",
+      "clicked": {
+        "label": "Allow",
+        "cardTool": "omp-ui_vault_read"
+      }
+    },
+    {
+      "n": 8,
+      "tool": "omp-ui_vault_search",
+      "requestId": "159adceda2888588",
+      "at": "2026-10-05T22:45:33.182Z",
+      "via": "click",
+      "screenshot": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/approval-8.png",
+      "clicked": {
+        "label": "Allow",
+        "cardTool": "omp-ui_vault_search"
+      }
+    },
+    {
+      "n": 9,
+      "tool": "omp-ui_vault_search",
+      "requestId": "159adceda2888589",
+      "at": "2026-10-05T22:45:34.008Z",
+      "via": "click",
+      "screenshot": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/approval-9.png",
+      "clicked": {
+        "label": "Allow",
+        "cardTool": "omp-ui_vault_search"
+      }
+    }
+  ],
+  "dialogs": [
+    {
+      "n": 1,
+      "kind": "select",
+      "requestId": "159adcf94c48858c",
+      "title": "Your vault has no omp-ui decision note: the omp-ui/ folder is empty, `omp-ui/Decisions` doesn't exist, and searches for \"decision\", \"decided\", and \"settled\" return nothing. The only HUD decision on record is in [[2026-09-29 omp-ui Planning Meeting]]: \"Session HUD stays one line on desktop; overflow goes to the inspector rail.\" Where should the line go?",
+      "promptIndex": 0,
+      "at": "2026-10-05T22:45:45.177Z",
+      "screenshot": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/dialog-1.png",
+      "action": {
+        "cancelledAfterMs": 60000,
+        "at": "2026-10-05T22:46:46.327Z"
+      }
+    }
+  ],
+  "promptLog": [
+    {
+      "index": 0,
+      "sentAt": "2026-10-05T22:45:06.667Z",
+      "composerVia": "insertText",
+      "submitVia": "enter",
+      "endedAt": "2026-10-05T22:46:46.433Z"
+    }
+  ],
+  "calls": [
+    {
+      "toolCallId": "toolu_01JFQjP535PTpS9aKWtHimeu|fc_tmp_jwew1q6a88",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "session HUD",
+        "limit": 20
+      },
+      "startT": 1791240311966,
+      "endT": 1791240312213,
+      "e2eMs": 247,
+      "isError": false,
+      "resultTextPreview": "- [[Session HUD]] `Session HUD.md`\n  L6: # Session HUD\n  L8: Idea: show cost per turn in the HUD. Maybe a mini context bar next to it.\n- [[2026-09-29 omp-ui Planning Meeting]] `2026-09-29 omp-ui Planning Meeting.md`\n  L10: - Session HUD stays one line on desktop; overflow goes to the inspector rail."
+    },
+    {
+      "toolCallId": "toolu_012czFGnMd8TBTPrMPYocbdf|fc_tmp_lcfg85fqrhs",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "decision",
+        "limit": 20
+      },
+      "startT": 1791240311983,
+      "endT": 1791240313052,
+      "e2eMs": 1069,
+      "isError": false,
+      "resultTextPreview": "No notes in vault Obsidian match \"decision\"."
+    },
+    {
+      "toolCallId": "toolu_01HUaXBe6QPQSPrF5zZYUVeu|fc_tmp_js58aghlyko",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "omp-ui",
+        "limit": 30
+      },
+      "startT": 1791240319538,
+      "endT": 1791240319712,
+      "e2eMs": 174,
+      "isError": false,
+      "resultTextPreview": "- [[2026-09-29 omp-ui Planning Meeting]] `2026-09-29 omp-ui Planning Meeting.md`\n  L5: tags: [meeting, omp-ui]\n  L8: # omp-ui planning meeting\n- [[Desk Setup]] `Desk Setup.md`\n  L8: Standing desk, one 32 inch monitor, the split keyboard. The omp-ui icon is the wallpaper this week:\n  L10: ![[omp-ui icon.png]]\n- [[2026-10-02 Standup]] `2026-10-02 Standup.md`\n  L9: - omp-ui: vault prototype next, measure search on a big vault."
+    },
+    {
+      "toolCallId": "toolu_01Jce2Xq7A4a1jdhn2vedLEr|fc_tmp_wetzo2qijn8",
+      "toolName": "omp-ui_vault_read",
+      "args": {
+        "path": "2026-09-29 omp-ui Planning Meeting.md"
+      },
+      "startT": 1791240319553,
+      "endT": 1791240320799,
+      "e2eMs": 1246,
+      "isError": false,
+      "resultTextPreview": "---\nprototype-754-seed: true\ndate: 2026-09-29\nattendees: [Priya, Sam, Lee]\ntags: [meeting, omp-ui]\n---\n\n# omp-ui planning meeting\n\n- Session HUD stays one line on desktop; overflow goes to the inspector rail.\n- Open question: should vault writes be allowed while Plan mode is on? Priya: no, Plan means read-only.\n- Sam to check how long a vault search may take before the agent gives up.\n- Next: try the Obsidian hand-off on Linux.\n"
+    },
+    {
+      "toolCallId": "toolu_01EP7b3FMf54VHys5GKaVZcF|fc_tmp_0s0hetqdhc3",
+      "toolName": "omp-ui_vault_read",
+      "args": {
+        "path": "Session HUD.md"
+      },
+      "startT": 1791240319553,
+      "endT": 1791240321126,
+      "e2eMs": 1573,
+      "isError": false,
+      "resultTextPreview": "---\nprototype-754-seed: true\ntags: [idea]\n---\n\n# Session HUD\n\nIdea: show cost per turn in the HUD. Maybe a mini context bar next to it.\nKeep it glanceable; nothing that needs a click.\n"
+    },
+    {
+      "toolCallId": "toolu_01T9nLW1EtH7PP7p3ATmuNxg|fc_tmp_9emk5n4jtyg",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "decided",
+        "limit": 20
+      },
+      "startT": 1791240327820,
+      "endT": 1791240327946,
+      "e2eMs": 126,
+      "isError": false,
+      "resultTextPreview": "No notes in vault Obsidian match \"decided\"."
+    },
+    {
+      "toolCallId": "toolu_01NiqCjfuTqAu3G93QuUaYAb|fc_tmp_fgsmsx5se48",
+      "toolName": "omp-ui_vault_read",
+      "args": {
+        "path": "omp-ui/Decisions"
+      },
+      "startT": 1791240327835,
+      "endT": 1791240328533,
+      "e2eMs": 698,
+      "isError": true,
+      "resultTextPreview": "no note at omp-ui/Decisions.md in vault Obsidian"
+    },
+    {
+      "toolCallId": "toolu_014tpTdkVFjQsCYvuam9i4vf|fc_tmp_gr3u5riwm87",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "HUD",
+        "limit": 30
+      },
+      "startT": 1791240333124,
+      "endT": 1791240333245,
+      "e2eMs": 121,
+      "isError": false,
+      "resultTextPreview": "- [[Session HUD]] `Session HUD.md`\n  L6: # Session HUD\n  L8: Idea: show cost per turn in the HUD. Maybe a mini context bar next to it.\n- [[2026-09-29 omp-ui Planning Meeting]] `2026-09-29 omp-ui Planning Meeting.md`\n  L10: - Session HUD stays one line on desktop; overflow goes to the inspector rail."
+    },
+    {
+      "toolCallId": "toolu_01JFd8QawAc4jrwZQ5rXdJbM|fc_tmp_gs1kkdqg3po",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "settled",
+        "limit": 20
+      },
+      "startT": 1791240333133,
+      "endT": 1791240334084,
+      "e2eMs": 951,
+      "isError": false,
+      "resultTextPreview": "No notes in vault Obsidian match \"settled\"."
+    },
+    {
+      "toolCallId": "toolu_01YQHx3CdprDrEr7TEc1Lnxh|fc_tmp_d1ltbvj9co",
+      "toolName": "ask",
+      "args": {
+        "questions": [
+          {
+            "id": "target",
+            "header": "No decision note",
+            "question": "Your vault has no omp-ui decision note: the omp-ui/ folder is empty, `omp-ui/Decisions` doesn't exist, and searches for \"decision\", \"decided\", and \"settled\" return nothing. The only HUD decision on record is in [[2026-09-29 omp-ui Planning Meeting]]: \"Session HUD stays one line on desktop; overflow goes to the inspector rail.\" Where should the line go?",
+            "options": [
+              {
+                "label": "Create omp-ui/Decisions",
+                "description": "New note holding just this one line, linked to the planning meeting note. Later decisions can be appended to it.",
+                "preview": "- Session HUD question settled: one line on desktop, overflow goes to the inspector rail ([[2026-09-29 omp-ui Planning Meeting]])."
+              },
+              {
+                "label": "Create omp-ui/Session HUD Decision",
+                "description": "A separate note for this one topic, following the one-note-per-topic convention."
+              },
+              {
+                "label": "Don't write anything",
+                "description": "The note you meant is somewhere else, or it has a different name. Tell me its title."
+              }
+            ],
+            "multi": false,
+            "recommended": 0
+          }
+        ]
+      },
+      "startT": 1791240344932,
+      "endT": 1791240406328,
+      "e2eMs": 61396,
+      "isError": true,
+      "resultTextPreview": "Ask tool was cancelled by the user"
+    }
+  ],
+  "cards": [
+    {
+      "n": 1,
+      "toolCallId": "toolu_01JFQjP535PTpS9aKWtHimeu|fc_tmp_jwew1q6a88",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-1-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-1-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 2,
+      "toolCallId": "toolu_012czFGnMd8TBTPrMPYocbdf|fc_tmp_lcfg85fqrhs",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-2-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-2-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 3,
+      "toolCallId": "toolu_01HUaXBe6QPQSPrF5zZYUVeu|fc_tmp_js58aghlyko",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-3-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-3-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 4,
+      "toolCallId": "toolu_01Jce2Xq7A4a1jdhn2vedLEr|fc_tmp_wetzo2qijn8",
+      "toolName": "omp-ui_vault_read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-4-omp-ui_vault_read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-4-omp-ui_vault_read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 5,
+      "toolCallId": "toolu_01EP7b3FMf54VHys5GKaVZcF|fc_tmp_0s0hetqdhc3",
+      "toolName": "omp-ui_vault_read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-5-omp-ui_vault_read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-5-omp-ui_vault_read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 6,
+      "toolCallId": "toolu_01T9nLW1EtH7PP7p3ATmuNxg|fc_tmp_9emk5n4jtyg",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-6-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-6-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 7,
+      "toolCallId": "toolu_01NiqCjfuTqAu3G93QuUaYAb|fc_tmp_fgsmsx5se48",
+      "toolName": "omp-ui_vault_read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-7-omp-ui_vault_read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-7-omp-ui_vault_read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 8,
+      "toolCallId": "toolu_014tpTdkVFjQsCYvuam9i4vf|fc_tmp_gr3u5riwm87",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-8-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-8-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 9,
+      "toolCallId": "toolu_01JFd8QawAc4jrwZQ5rXdJbM|fc_tmp_gs1kkdqg3po",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-9-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-9-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 10,
+      "toolCallId": "toolu_01YQHx3CdprDrEr7TEc1Lnxh|fc_tmp_d1ltbvj9co",
+      "toolName": "ask",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-10-ask-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R8a/card-10-ask-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    }
+  ],
+  "stills": [],
+  "obsidianProbes": [],
+  "finalAssistantText": null,
+  "timeouts": [],
+  "errors": [],
+  "startedAt": "2026-10-05T22:45:00.579Z",
+  "endedAt": "2026-10-05T22:47:02.442Z",
+  "mainLogWindow": {
+    "from": "2026-10-05T22:45:00.579Z",
+    "to": "2026-10-05T22:47:02.442Z"
+  },
+  "rubric": null,
+  "hook": {
+    "unsubscribe": false
+  },
+  "tabInState": true,
+  "readiness": [
+    {
+      "phase": "spawn",
+      "composerReady": true,
+      "getStateAt": "2026-10-05T22:45:01.547Z",
+      "settledAt": "2026-10-05T22:45:01.952Z"
+    },
+    {
+      "phase": "relaunch",
+      "composerReady": true,
+      "getStateAt": "2026-10-05T22:45:04.517Z",
+      "settledAt": "2026-10-05T22:45:05.006Z"
+    }
+  ],
+  "approvalModeSet": {
+    "requestedAt": "2026-10-05T22:45:03.452Z",
+    "resolvedAt": "2026-10-05T22:45:03.715Z",
+    "tabIdStable": true
+  },
+  "projectReset": "2026-10-05T22:47:02.454Z"
+}
