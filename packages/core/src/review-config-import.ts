@@ -20,14 +20,6 @@ export const REVIEW_FILE_NAMES = ["REVIEW.yml", "REVIEW.yaml"] as const;
 
 const MAX_WALK = 64;
 
-function isFile(p: string): boolean {
-  try {
-    return fs.statSync(p).isFile();
-  } catch {
-    return false;
-  }
-}
-
 function vcsRootOf(cwd: string): string | null {
   let dir = path.resolve(cwd);
   for (let i = 0; i < MAX_WALK; i++) {

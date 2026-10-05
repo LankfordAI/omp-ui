@@ -53,6 +53,16 @@ The root scripts delegate to the npm workspaces where appropriate.
 
 `npm run dev` hot reloads the desktop renderer. Restart it when a main-process, preload, native-module, or startup environment change cannot be picked up by the running process.
 
+CI runs lint before typecheck, tests, build, and the browser-pane smoke. Unused
+declarations are lint errors: remove obsolete helpers and fixtures rather than
+disabling the rule (issue #742). When lint stops the job, the later smoke-summary
+upload can also report no files because the smoke never ran; diagnose the first
+failed check before treating that upload error as a browser-pane failure.
+
+The subagent-model live proof inherits the local omp parent model. That model
+must be served by its configured provider; a provider rejection prevents the
+first task spawn regardless of the subagent pin (issue #744).
+
 ## Workspace commands
 
 Use npm's workspace flag for a focused task. These commands match the scripts in `packages/desktop/package.json`:

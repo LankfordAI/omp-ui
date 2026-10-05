@@ -2,13 +2,12 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ReviewDocument, ReviewRosterView, ReviewWriteRequest } from "@omp-ui/core/types";
+import type { ReviewRosterView, ReviewWriteRequest } from "@omp-ui/core/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
 
 const hawk = { name: "hawk", model: null, instructions: null, targets: null, enabled: true };
-const empty = (): ReviewDocument => ({ instructions: null, reviewers: [] });
 const roster = (over: Partial<ReviewRosterView> = {}): ReviewRosterView => ({
   reviewers: [hawk],
   instructions: null,
