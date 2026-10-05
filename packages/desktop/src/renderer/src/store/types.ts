@@ -445,7 +445,9 @@ export type SettingsPage =
   | "omp"
   | "experimental"
   | "advanced"
-  | "about";
+  | "about"
+  // PROTOTYPE (#753): vault registry page; only listed while the prototype gate is on.
+  | "vaults";
 
 export type CompactSurface =
   "sessions" | "inspector" | "session-actions" | "composer-options" | "browser-pane";

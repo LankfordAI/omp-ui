@@ -40,6 +40,13 @@ import {
   Label,
   type Tone,
 } from "./ui";
+// PROTOTYPE (#753): vault write card and notes-touched notice; inert when the gate is off.
+import {
+  NotesTouchedNotice,
+  PROTOTYPE_753,
+  TOUCHED_NOTICE_ID,
+  VaultToolCard,
+} from "./prototype-vault-753";
 
 /** Re-entry threshold: this close to the tail still counts as following. */
 const AT_BOTTOM_SLACK = 64;
@@ -746,6 +753,8 @@ const TranscriptRow = memo(function TranscriptRow({
     case "assistant":
       return <AssistantBlock item={item} />;
     case "tool":
+      // PROTOTYPE (#753): fixture vault-write cards; never matches with the gate off.
+      if (PROTOTYPE_753 && item.id.startsWith("proto753-")) return <VaultToolCard item={item} tabId={tabId} />;
       return <ToolCard item={item} tabId={tabId} />;
     case "advisory":
       return (
@@ -754,6 +763,8 @@ const TranscriptRow = memo(function TranscriptRow({
         </div>
       );
     case "notice":
+      // PROTOTYPE (#753): the notes-touched transcript notice; never matches with the gate off.
+      if (PROTOTYPE_753 && item.id === TOUCHED_NOTICE_ID) return <NotesTouchedNotice tabId={tabId} />;
       return <NoticeLine item={item} tabId={tabId} />;
     case "irc":
       return <IrcLine item={item} />;
