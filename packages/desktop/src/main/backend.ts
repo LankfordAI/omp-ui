@@ -282,6 +282,7 @@ export class MainBackend {
         attention: this.notifier,
         breadcrumb: this.breadcrumbs,
         spawnGate: this.spawnGate,
+        appVersion: this.appVersion, // PROTOTYPE (#754)
         planVerify: (html, themeId, signal) => this.planVerifier.verify(html, themeId, signal),
         // The host notify tool posts through the same notifier, bypassing the
         // attention pipeline's delay and suppression (#688).

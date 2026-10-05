@@ -18,6 +18,8 @@ import {
   type RpcFrame,
 } from "@omp-ui/core";
 import type { ConfinedPlanRead } from "./plan-file";
+// PROTOTYPE (#754): vault host tools answerer.
+import type { Proto754Answerer } from "./prototype-vault-754/tools";
 
 /**
  * How long one host request may stay unanswered before the bridge answers a
@@ -44,6 +46,8 @@ export interface HostBridgeDeps {
   /** The tab's last capability-roster session id; null while no roster was published. */
   capabilitySessionId: (tabId: string) => string | null;
   log: (message: string) => void;
+  /** PROTOTYPE (#754): env-gated vault host tools; absent in every product path. */
+  prototype754?: Proto754Answerer;
 }
 
 interface PendingHostAnswer {
@@ -68,6 +72,8 @@ export class HostBridge {
   private readonly answeredOrder = new Map<string, string[]>();
   /** The plan path the tab last proposed, captured from its frames; absent until one does. */
   private readonly planPaths = new Map<string, string>();
+  /** PROTOTYPE (#754): the tab's last observed omp-ui Plan enabled flag. */
+  private readonly planEnabled = new Map<string, boolean>();
 
   constructor(private readonly deps: HostBridgeDeps) {}
 
@@ -109,6 +115,8 @@ export class HostBridge {
       const status = parsePlanStatus(
         typeof control.frame.statusText === "string" ? control.frame.statusText : undefined,
       );
+      // PROTOTYPE (#754): remember Plan on/off for the vault write guard.
+      if (status !== null) this.planEnabled.set(tabId, status.enabled);
       if (status !== null && status.planAbsPath !== null) this.planPaths.set(tabId, status.planAbsPath);
       return;
     }
@@ -130,6 +138,7 @@ export class HostBridge {
     this.answered.delete(tabId);
     this.answeredOrder.delete(tabId);
     this.planPaths.delete(tabId);
+    this.planEnabled.delete(tabId); // PROTOTYPE (#754)
   }
 
   /** The ids already answered on this tab — the renderer fence's source. */
@@ -234,6 +243,22 @@ export class HostBridge {
     call: { id: string; toolName: string; args: unknown },
     send: (frame: RpcFrame) => void,
   ): Promise<void> {
+    // PROTOTYPE (#754): vault host tools answered before the notify branch.
+    if (this.deps.prototype754?.handles(call.toolName) === true) {
+      const started = Date.now();
+      const result = await this.deps.prototype754.answer(
+        tabId,
+        call.toolName,
+        call.args,
+        this.planEnabled.get(tabId) === true,
+      );
+      if (!this.pending.has(call.id)) {
+        this.deps.log(`proto754 late answer dropped id=${call.id} ms=${Date.now() - started}`);
+        return;
+      }
+      this.answer(call.id, { type: "host_tool_result", id: call.id, ...result }, send);
+      return;
+    }
     if (call.toolName !== HOST_NOTIFY_TOOL_NAME) {
       this.answer(call.id, hostToolErrorResult(call.id, `unknown host tool "${call.toolName}"`), send);
       return;
