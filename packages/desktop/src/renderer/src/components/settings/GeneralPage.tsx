@@ -303,6 +303,7 @@ export function GeneralPage() {
   const setStallAutoContinue = useStore((s) => s.setStallAutoContinue);
   const setDesktopNotifications = useStore((s) => s.setDesktopNotifications);
   const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
+  const setDefaultAutoThinking = useStore((s) => s.setDefaultAutoThinking);
   const setSubagentModelInheritByDefault = useStore((s) => s.setSubagentModelInheritByDefault);
   const setVoiceInputEnabled = useStore((s) => s.setVoiceInputEnabled);
   const setSttModel = useStore((s) => s.setSttModel);
@@ -452,6 +453,16 @@ export function GeneralPage() {
           on={state?.defaultAdvisor === true}
           onChange={(next) => void setDefaultAdvisor(next)}
           label={t("settings.general.defaultAdvisor")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.autoThinking")}
+        hint={t("settings.general.autoThinkingHint")}
+      >
+        <Switch
+          on={state?.defaultAutoThinking === true}
+          onChange={(next) => void setDefaultAutoThinking(next)}
+          label={t("settings.general.autoThinking")}
         />
       </Row>
       <Row

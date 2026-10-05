@@ -350,6 +350,11 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setDefaultAdvisor",
     ...request<[on: boolean], void>([bool()]),
   },
+  /** Seeds omp's auto thinking selector for new sessions with no project memory (issue #743). */
+  setDefaultAutoThinking: {
+    channel: "settings:setDefaultAutoThinking",
+    ...request<[on: boolean], void>([bool()]),
+  },
   /** The app-level umbrella: subagents with no explicit choice run on the session's model (ADR-0031). */
   setSubagentModelInheritByDefault: {
     channel: "settings:setSubagentModelInheritByDefault",

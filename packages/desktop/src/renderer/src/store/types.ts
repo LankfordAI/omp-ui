@@ -480,6 +480,7 @@ export interface SettingsSlice {
   setStallAutoContinue(on: boolean): Promise<void>;
   setDesktopNotifications(on: boolean): Promise<void>;
   setDefaultAdvisor(on: boolean): Promise<void>;
+  setDefaultAutoThinking(on: boolean): Promise<void>;
   setSubagentModelInheritByDefault(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
   setExperimentsEnabled(on: boolean): Promise<void>;

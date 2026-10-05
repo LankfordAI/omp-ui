@@ -248,7 +248,11 @@ project fields are only last-used defaults for a new session. A separate app
 preference, **Default advisor** (Settings → General, off by default), decides
 whether a new session with no per-project memory starts with the advisor on;
 it supersedes omp's own config for that one decision, while the advisor model
-still falls back to omp config.
+still falls back to omp config. The thinking analogue is a separate app
+preference, **Auto thinking** default (Settings → General, off by default):
+it decides whether a new session with no per-project thinking memory starts on
+the auto selector (see **Auto thinking**), sitting below last-used memory and
+above omp config.
 A project may also pin a **Default model** and **Default advisor model** for
 fresh sessions. A pin is a standing choice, not last-used memory: composer
 changes continue to update the `last*` fields without moving either pin.

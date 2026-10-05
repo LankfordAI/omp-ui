@@ -23,6 +23,7 @@ type SettingsHandlerChannels =
   | typeof CH.setStallAutoContinue
   | typeof CH.setDesktopNotifications
   | typeof CH.setDefaultAdvisor
+  | typeof CH.setDefaultAutoThinking
   | typeof CH.setSubagentModelInheritByDefault
   | typeof CH.setSkipDeleteConfirmation
   | typeof CH.setGettingStartedSeen
@@ -74,6 +75,7 @@ export function registerSettingsHandlers(
     [CH.setStallAutoContinue]: (value: boolean) => commit("stallAutoContinue", value),
     [CH.setDesktopNotifications]: (value: boolean) => commit("desktopNotifications", value),
     [CH.setDefaultAdvisor]: (value: boolean) => commit("defaultAdvisor", value),
+    [CH.setDefaultAutoThinking]: (value: boolean) => commit("defaultAutoThinking", value),
     [CH.setSubagentModelInheritByDefault]: (value: boolean) =>
       commit("subagentModelInheritByDefault", value),
     [CH.setSkipDeleteConfirmation]: (value: boolean) => commit("skipDeleteConfirmation", value),
