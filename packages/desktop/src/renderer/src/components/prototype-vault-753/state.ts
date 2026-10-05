@@ -32,7 +32,7 @@ export type ChoiceValue<K extends ChoiceKey> = (typeof CHOICES)[K][number];
 const DEFAULTS: { [K in ChoiceKey]: ChoiceValue<K> } = {
   p753_reg: "page", // Q1 answered (a): own Settings page "Knowledge vault" after Memory.
   p753_chip: "tab", // Q2 answered (a): last Project settings tab "Knowledge".
-  p753_card: "full",
+  p753_card: "full", // Q3 answered (a): full card, ToolCard geometry, preview open.
   p753_mark: "border",
   p753_touched: "rail",
   p753_det: "machine",
