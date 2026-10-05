@@ -1675,3 +1675,199 @@ describe("planHandoffDescendants (issue #309)", () => {
     expect(planHandoffDescendants(sessions, "root")).toEqual(["child"]);
   });
 });
+
+describe("sidebar groups", () => {
+  /** A registry holding /abs/a, /abs/b, /abs/c in that order. */
+  function threeProjects(): { file: string; reg: Registry } {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    for (const p of ["/abs/a", "/abs/b", "/abs/c"]) reg.addProject(p);
+    return { file, reg };
+  }
+
+  const paths = (reg: Registry): string[] => reg.projects.map((p) => p.path);
+
+  it("loads a legacy registry without sidebarGroups as no groups, and its first write keeps projects", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [{ path: "/abs/a", name: "a", addedAt: "t" }],
+        sessions: [],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sidebarGroups).toEqual([]);
+    reg.addProject("/abs/b");
+    const reloaded = Registry.load(file);
+    expect(paths(reloaded)).toEqual(["/abs/a", "/abs/b"]);
+    expect(reloaded.sidebarGroups).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).sidebarGroups).toEqual([]);
+  });
+
+  it("parses leniently: malformed groups drop, first claim wins, unregistered paths prune", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [
+          { path: "/abs/a", name: "a", addedAt: "t" },
+          { path: "/abs/b", name: "b", addedAt: "t" },
+        ],
+        sessions: [],
+        sidebarGroups: [
+          { name: "No id", collapsed: false, projectPaths: [] },
+          { id: "g1", name: "  First  ", collapsed: true, projectPaths: ["/abs/a", "/abs/gone"] },
+          { id: "g1", name: "Duplicate id", collapsed: false, projectPaths: ["/abs/b"] },
+          { id: "g2", name: "   ", collapsed: false, projectPaths: ["/abs/b"] },
+          { id: "g3", name: "Second", collapsed: false, projectPaths: ["/abs/a", "/abs/b"] },
+        ],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sidebarGroups).toEqual([
+      { id: "g1", name: "First", collapsed: true, projectPaths: ["/abs/a"] },
+      { id: "g3", name: "Second", collapsed: false, projectPaths: ["/abs/b"] },
+    ]);
+    expect(fs.existsSync(file)).toBe(true);
+  });
+
+  it("treats a non-array sidebarGroups as no groups without quarantining", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [{ path: "/abs/a", name: "a", addedAt: "t" }],
+        sessions: [],
+        sidebarGroups: { id: "g1", name: "Team" },
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sidebarGroups).toEqual([]);
+    expect(paths(reg)).toEqual(["/abs/a"]);
+    expect(fs.existsSync(file)).toBe(true);
+  });
+
+  it("createSidebarGroup normalizes the name, moves the project in and last, and persists", () => {
+    const { file, reg } = threeProjects();
+    const group = reg.createSidebarGroup("  Team   A ", "/abs/b");
+    expect(group).toMatchObject({ name: "Team A", collapsed: false, projectPaths: ["/abs/b"] });
+    expect(paths(reg)).toEqual(["/abs/a", "/abs/c", "/abs/b"]);
+    const reloaded = Registry.load(file);
+    expect(reloaded.sidebarGroups).toEqual([group]);
+    expect(paths(reloaded)).toEqual(["/abs/a", "/abs/c", "/abs/b"]);
+  });
+
+  it("createSidebarGroup rejects blank, overlong, and case-insensitive duplicate names without writing", () => {
+    const { file, reg } = threeProjects();
+    reg.createSidebarGroup("Team A", null);
+    const before = fs.readFileSync(file, "utf8");
+    expect(() => reg.createSidebarGroup("   ", null)).toThrow("Group names must be 1–64 characters.");
+    expect(() => reg.createSidebarGroup("x".repeat(65), "/abs/a")).toThrow(
+      "Group names must be 1–64 characters.",
+    );
+    expect(() => reg.createSidebarGroup("team a", "/abs/a")).toThrow(
+      "A group named “team a” already exists.",
+    );
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    expect(reg.sidebarGroups.map((g) => g.name)).toEqual(["Team A"]);
+    expect(paths(reg)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
+  });
+
+  it("setProjectSidebarGroup moves a project exclusively between groups", () => {
+    const { file, reg } = threeProjects();
+    const a = reg.createSidebarGroup("A", "/abs/a");
+    const b = reg.createSidebarGroup("B", null);
+    reg.setProjectSidebarGroup("/abs/a", b.id);
+    expect(reg.sidebarGroups.map((g) => [g.id, g.projectPaths])).toEqual([
+      [a.id, []],
+      [b.id, ["/abs/a"]],
+    ]);
+    expect(Registry.load(file).sidebarGroups.find((g) => g.id === b.id)?.projectPaths).toEqual([
+      "/abs/a",
+    ]);
+  });
+
+  it("setProjectSidebarGroup writes nothing for the current segment or an unknown project", () => {
+    const { file, reg } = threeProjects();
+    const team = reg.createSidebarGroup("Team", "/abs/a");
+    const restore = rejectAtomicReplaces(file);
+    expect(() => reg.setProjectSidebarGroup("/abs/a", team.id)).not.toThrow();
+    expect(() => reg.setProjectSidebarGroup("/abs/b", null)).not.toThrow();
+    expect(() => reg.setProjectSidebarGroup("/abs/gone", team.id)).not.toThrow();
+    restore();
+    expect(paths(reg)).toEqual(["/abs/b", "/abs/c", "/abs/a"]);
+    expect(reg.sidebarGroups[0]?.projectPaths).toEqual(["/abs/a"]);
+  });
+
+  it("setProjectSidebarGroup throws for an unknown group", () => {
+    const { reg } = threeProjects();
+    expect(() => reg.setProjectSidebarGroup("/abs/a", "missing")).toThrow(
+      "That group no longer exists.",
+    );
+  });
+
+  it("removeSidebarGroup leaves its projects registered and ungrouped", () => {
+    const { file, reg } = threeProjects();
+    const team = reg.createSidebarGroup("Team", "/abs/a");
+    reg.removeSidebarGroup(team.id);
+    expect(reg.sidebarGroups).toEqual([]);
+    expect(paths(reg)).toEqual(["/abs/b", "/abs/c", "/abs/a"]);
+    const reloaded = Registry.load(file);
+    expect(reloaded.sidebarGroups).toEqual([]);
+    expect(paths(reloaded)).toEqual(["/abs/b", "/abs/c", "/abs/a"]);
+  });
+
+  it("removeProject prunes the path from its group", () => {
+    const { file, reg } = threeProjects();
+    reg.createSidebarGroup("Team", "/abs/a");
+    reg.setProjectSidebarGroup("/abs/b", reg.sidebarGroups[0]!.id);
+    reg.removeProject("/abs/a");
+    expect(reg.sidebarGroups[0]?.projectPaths).toEqual(["/abs/b"]);
+    expect(Registry.load(file).sidebarGroups[0]?.projectPaths).toEqual(["/abs/b"]);
+  });
+
+  it("moveSidebarGroup inserts before a sibling, appends on null, and ignores an unknown id", () => {
+    const { file, reg } = threeProjects();
+    const x = reg.createSidebarGroup("X", null);
+    const y = reg.createSidebarGroup("Y", null);
+    const z = reg.createSidebarGroup("Z", null);
+    const ids = (): string[] => reg.sidebarGroups.map((g) => g.id);
+    reg.moveSidebarGroup(z.id, x.id);
+    expect(ids()).toEqual([z.id, x.id, y.id]);
+    reg.moveSidebarGroup(z.id, null);
+    expect(ids()).toEqual([x.id, y.id, z.id]);
+    const restore = rejectAtomicReplaces(file);
+    expect(() => reg.moveSidebarGroup("missing", x.id)).not.toThrow();
+    restore();
+    expect(ids()).toEqual([x.id, y.id, z.id]);
+    expect(Registry.load(file).sidebarGroups.map((g) => g.id)).toEqual([x.id, y.id, z.id]);
+  });
+
+  it("setSidebarGroupCollapsed persists across reload and skips writing the current value", () => {
+    const { file, reg } = threeProjects();
+    const team = reg.createSidebarGroup("Team", null);
+    reg.setSidebarGroupCollapsed(team.id, true);
+    expect(Registry.load(file).sidebarGroups[0]?.collapsed).toBe(true);
+    const restore = rejectAtomicReplaces(file);
+    expect(() => reg.setSidebarGroupCollapsed(team.id, true)).not.toThrow();
+    restore();
+    expect(reg.sidebarGroups[0]?.collapsed).toBe(true);
+  });
+
+  it("renameSidebarGroup allows a case change of its own name but rejects another group's name", () => {
+    const { file, reg } = threeProjects();
+    const team = reg.createSidebarGroup("Team", null);
+    reg.createSidebarGroup("Other", null);
+    reg.renameSidebarGroup(team.id, "TEAM");
+    expect(reg.sidebarGroups[0]?.name).toBe("TEAM");
+    expect(Registry.load(file).sidebarGroups[0]?.name).toBe("TEAM");
+    expect(() => reg.renameSidebarGroup(team.id, "other")).toThrow(
+      "A group named “other” already exists.",
+    );
+    expect(reg.sidebarGroups.map((g) => g.name)).toEqual(["TEAM", "Other"]);
+  });
+});

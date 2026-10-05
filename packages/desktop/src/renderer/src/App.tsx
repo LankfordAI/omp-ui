@@ -25,6 +25,7 @@ import { RpcTab } from "./components/RpcTab";
 import { SessionHud } from "./components/SessionHud";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
+import { SidebarGroupDialog } from "./components/SidebarGroupDialog";
 import { TerminalTab } from "./components/TerminalTab";
 import { Button, Chevron, IconButton, IconPlus } from "./components/ui";
 import { cn } from "./lib/cn";
@@ -274,6 +275,7 @@ export default function App() {
   const activeTabId = useStore((s) => s.activeTabId);
   const deleteConfirmation = useStore((s) => s.deleteConfirmation);
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
+  const sidebarGroupDialog = useStore((s) => s.sidebarGroupDialog);
   const diagnosticsDialogOpen = useStore((s) => s.diagnosticsDialogOpen);
   const gettingStartedOpen = useStore((s) => s.gettingStartedOpen);
   const browserPaneClearDialogOpen = useStore((s) => s.browserPaneClearDialogOpen);
@@ -531,6 +533,7 @@ export default function App() {
         <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />
       )}
       {projectPickerOpen && <ProjectPicker />}
+      {sidebarGroupDialog !== null && <SidebarGroupDialog />}
       {diagnosticsDialogOpen && <DiagnosticsExportDialog />}
       {browserPaneClearDialogOpen && <BrowserPaneClearDialog />}
       {shareConfirmTab !== null && <ShareSessionDialog tabId={shareConfirmTab} />}

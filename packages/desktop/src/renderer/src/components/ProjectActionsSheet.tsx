@@ -7,8 +7,9 @@ import { Sheet } from "./ui";
 /**
  * The compact project header's `⋯` bottom sheet (issue #205): the project's
  * name and full path, then New session, New terminal session, New worktree
- * session, Experiments, New experiment (issue #559), Project settings, and
- * Remove project. The desktop header's open targets (VS Code / file manager)
+ * session, Experiments, New experiment (issue #559), Project settings, Move to
+ * group (this app's own projects only, issue #745), and Remove project. The
+ * desktop header's open targets (VS Code / file manager)
  * are deliberately absent — a compact shell
  * is usually a phone talking to a remote omp-ui, where "open on the host"
  * answers a question nobody asked.
@@ -44,6 +45,7 @@ export function ProjectActionsSheet({
   const openLab = useStore((st) => st.openLab);
   const openExperimentDialog = useStore((st) => st.openExperimentDialog);
   const experimentsEnabled = useStore((st) => st.state?.experimentsEnabled === true);
+  const openSidebarGroupDialog = useStore((st) => st.openSidebarGroupDialog);
 
   return (
     <Sheet open={project !== null} placement="bottom" label={project?.name ?? ""} onClose={onClose}>
@@ -119,6 +121,18 @@ export function ProjectActionsSheet({
             >
               {t("project.actions.settings")}
             </button>
+            {instanceId === null && (
+              <button
+                type="button"
+                className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
+                onClick={() => {
+                  openSidebarGroupDialog({ kind: "move", projectPath: project.path });
+                  onClose();
+                }}
+              >
+                {t("project.actions.moveToGroup")}
+              </button>
+            )}
             <button
               type="button"
               className={cn(ACTION_ROW_CLASS, "text-rose hover:text-rose focus-visible:text-rose")}

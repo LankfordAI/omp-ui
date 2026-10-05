@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeTextAtomic } from "./atomic-write";
 import { isReviewDocument, type ReviewDocument } from "./review-config";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseProposedPlans } from "./plan";
+import { normalizeSidebarGroupName, SIDEBAR_GROUP_NAME_MAX_LENGTH } from "./sidebar-groups";
 import type {
   AgentMode,
   ApprovalMode,
@@ -15,6 +17,7 @@ import type {
   ProjectRecord,
   RemoteBind,
   SessionMode,
+  SidebarGroup,
   ServiceTier,
   UpdateTrain,
   TranscriptWidth,
@@ -110,6 +113,8 @@ interface RegistryData {
   settings: RegistrySettings;
   projects: ProjectRecord[];
   sessions: OwnedSessionRecord[];
+  /** Sidebar groups in display order (CONTEXT.md "Sidebar group"); absent on legacy files. */
+  sidebarGroups: SidebarGroup[];
 }
 
 interface SettingDescriptor<T> {
@@ -350,6 +355,7 @@ function emptyRegistry(): RegistryData {
     settings: buildSettings((key) => SETTINGS[key].fallback()),
     projects: [],
     sessions: [],
+    sidebarGroups: [],
   };
 }
 
@@ -569,7 +575,83 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       ? raw.settings
       : undefined;
   const settings = parseSettings(settingsValue);
-  return { schemaVersion: 1, settings, projects, sessions };
+  const sidebarGroups = parseSidebarGroups(
+    "sidebarGroups" in raw ? raw.sidebarGroups : undefined,
+    projects,
+  );
+  return { schemaVersion: 1, settings, projects, sessions, sidebarGroups };
+}
+
+/**
+ * Lenient sidebar-group parse: never a quarantine trigger. Malformed groups
+ * (no id, duplicate id, unusable name) drop; paths keep only registered
+ * projects not claimed by an earlier group (first group wins). Same-named
+ * groups both survive — only create/rename enforce uniqueness.
+ */
+function parseSidebarGroups(raw: unknown, projects: readonly ProjectRecord[]): SidebarGroup[] {
+  if (!Array.isArray(raw)) return [];
+  const registered = new Set(projects.map((p) => p.path));
+  const claimed = new Set<string>();
+  const seenIds = new Set<string>();
+  const groups: SidebarGroup[] = [];
+  for (const value of raw) {
+    if (value === null || typeof value !== "object") continue;
+    const entry = value as Record<string, unknown>;
+    const { id } = entry;
+    if (typeof id !== "string" || id.length === 0 || seenIds.has(id)) continue;
+    const name = typeof entry.name === "string" ? normalizeSidebarGroupName(entry.name) : null;
+    if (name === null) continue;
+    seenIds.add(id);
+    const projectPaths: string[] = [];
+    if (Array.isArray(entry.projectPaths)) {
+      for (const p of entry.projectPaths) {
+        if (typeof p !== "string" || !registered.has(p) || claimed.has(p)) continue;
+        claimed.add(p);
+        projectPaths.push(p);
+      }
+    }
+    groups.push({ id, name, collapsed: entry.collapsed === true, projectPaths });
+  }
+  return groups;
+}
+
+/**
+ * Normalized group name for create/rename, or a user-facing throw: bad length,
+ * or a case-insensitive duplicate of any group other than `exceptId`.
+ */
+function assertGroupName(draft: RegistryData, raw: string, exceptId: string | null): string {
+  const name = normalizeSidebarGroupName(raw);
+  if (name === null) {
+    throw new Error(`Group names must be 1–${SIDEBAR_GROUP_NAME_MAX_LENGTH} characters.`);
+  }
+  const lower = name.toLocaleLowerCase();
+  const clash = draft.sidebarGroups.some(
+    (group) => group.id !== exceptId && group.name.toLocaleLowerCase() === lower,
+  );
+  if (clash) throw new Error(`A group named “${name}” already exists.`);
+  return name;
+}
+
+const GROUP_GONE = "That group no longer exists.";
+
+/**
+ * Exclusive membership change: `projectPath` leaves every group, joins
+ * `groupId` (null = ungrouped), and moves to the end of `projects` so it sits
+ * last in its new segment. false (no mutation) when the project is
+ * unregistered or already in that segment. The caller checks `groupId` exists.
+ */
+function placeProject(draft: RegistryData, projectPath: string, groupId: string | null): boolean {
+  if (!draft.projects.some((p) => p.path === projectPath)) return false;
+  const current = draft.sidebarGroups.find((g) => g.projectPaths.includes(projectPath))?.id ?? null;
+  if (current === groupId) return false;
+  for (const group of draft.sidebarGroups) {
+    group.projectPaths = group.projectPaths.filter((p) => p !== projectPath);
+  }
+  if (groupId !== null) {
+    draft.sidebarGroups.find((g) => g.id === groupId)?.projectPaths.push(projectPath);
+  }
+  moveBefore(draft.projects, (p) => p.path, projectPath, null);
+  return true;
 }
 
 function deepFreeze<T>(value: T): T {
@@ -737,6 +819,10 @@ export class Registry {
     return deepFreeze(structuredClone(this.#data.projects));
   }
 
+  get sidebarGroups(): readonly SidebarGroup[] {
+    return deepFreeze(structuredClone(this.#data.sidebarGroups));
+  }
+
   get sessions(): readonly OwnedSessionRecord[] {
     return deepFreeze(structuredClone(this.#data.sessions));
   }
@@ -765,14 +851,27 @@ export class Registry {
     return structuredClone(record);
   }
 
-  /** Cascades to the project's session records; files on disk are never touched. */
+  /**
+   * Cascades to the project's session records and prunes it from its sidebar
+   * group; files on disk are never touched.
+   */
   removeProject(projectPath: string): void {
     this.#transaction((draft) => {
       const projectCount = draft.projects.length;
       const sessionCount = draft.sessions.length;
       draft.projects = draft.projects.filter((project) => project.path !== projectPath);
       draft.sessions = draft.sessions.filter((session) => session.projectCwd !== projectPath);
-      return draft.projects.length !== projectCount || draft.sessions.length !== sessionCount;
+      let grouped = false;
+      for (const group of draft.sidebarGroups) {
+        const before = group.projectPaths.length;
+        group.projectPaths = group.projectPaths.filter((p) => p !== projectPath);
+        grouped ||= group.projectPaths.length !== before;
+      }
+      return (
+        grouped ||
+        draft.projects.length !== projectCount ||
+        draft.sessions.length !== sessionCount
+      );
     });
   }
 
@@ -787,6 +886,77 @@ export class Registry {
     this.#transaction((draft) =>
       moveBefore(draft.projects, (project) => project.path, projectPath, beforePath),
     );
+  }
+
+  /**
+   * Appends a new sidebar group; a registered `projectPath` moves into it
+   * (last). An unregistered path still creates the group, empty. Throws a
+   * user-facing message for a bad or duplicate name (nothing written).
+   */
+  createSidebarGroup(name: string, projectPath: string | null): SidebarGroup {
+    let created!: SidebarGroup;
+    this.#transaction((draft) => {
+      created = {
+        id: randomUUID(),
+        name: assertGroupName(draft, name, null),
+        collapsed: false,
+        projectPaths: [],
+      };
+      draft.sidebarGroups.push(created);
+      if (projectPath !== null) placeProject(draft, projectPath, created.id);
+      return true;
+    });
+    return structuredClone(created);
+  }
+
+  /** Unknown id throws "That group no longer exists."; the same normalized name writes nothing. */
+  renameSidebarGroup(groupId: string, name: string): void {
+    this.#transaction((draft) => {
+      const group = draft.sidebarGroups.find((g) => g.id === groupId);
+      if (!group) throw new Error(GROUP_GONE);
+      const next = assertGroupName(draft, name, groupId);
+      if (next === group.name) return false;
+      group.name = next;
+      return true;
+    });
+  }
+
+  /** Members become ungrouped and keep their order. Unknown id: no-op. */
+  removeSidebarGroup(groupId: string): void {
+    this.#transaction((draft) => {
+      const count = draft.sidebarGroups.length;
+      draft.sidebarGroups = draft.sidebarGroups.filter((g) => g.id !== groupId);
+      return draft.sidebarGroups.length !== count;
+    });
+  }
+
+  /** `moveBefore` over the group order: null (or unknown) `beforeGroupId` appends; unknown `groupId` no-op. */
+  moveSidebarGroup(groupId: string, beforeGroupId: string | null): void {
+    this.#transaction((draft) => moveBefore(draft.sidebarGroups, (g) => g.id, groupId, beforeGroupId));
+  }
+
+  /** Unknown id or the current value: no write. */
+  setSidebarGroupCollapsed(groupId: string, collapsed: boolean): void {
+    this.#transaction((draft) => {
+      const group = draft.sidebarGroups.find((g) => g.id === groupId);
+      if (!group || group.collapsed === collapsed) return false;
+      group.collapsed = collapsed;
+      return true;
+    });
+  }
+
+  /**
+   * Exclusive membership change; the project then sits last in its new
+   * segment. Unknown project: no-op. Unknown non-null group throws "That
+   * group no longer exists." Already in the target segment: no write.
+   */
+  setProjectSidebarGroup(projectPath: string, groupId: string | null): void {
+    this.#transaction((draft) => {
+      if (groupId !== null && !draft.sidebarGroups.some((g) => g.id === groupId)) {
+        throw new Error(GROUP_GONE);
+      }
+      return placeProject(draft, projectPath, groupId);
+    });
   }
 
   /** Records an advisor choice for this session and the next one in its project. */

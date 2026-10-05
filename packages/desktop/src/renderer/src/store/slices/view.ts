@@ -27,7 +27,7 @@ import {
 import { randomId } from "../../lib/random-id";
 import { projectKey } from "../../lib/project-key";
 import { markSharePrivacySeen } from "../../lib/share-privacy";
-import type { CompactSurface, ErrorNotice, UiStore } from "../types";
+import type { CompactSurface, ErrorNotice, SidebarGroupDialogRequest, UiStore } from "../types";
 import { TREE_COMMAND } from "@omp-ui/core/session-tree";
 
 export type { CompactSurface } from "../types";
@@ -40,6 +40,8 @@ export interface ViewSlice {
   restoringTabs: boolean;
   projectPickerOpen: boolean;
   projectPickerInstanceId: string | null;
+  /** The open sidebar group dialog (issue #745); in-memory, not in DesktopViewStateV1. */
+  sidebarGroupDialog: SidebarGroupDialogRequest | null;
   /** True while the first-run Getting started checklist overlay is open (issue #623). */
   gettingStartedOpen: boolean;
   /** The diagnostic-bundle export dialog (issue #413). */
@@ -82,6 +84,8 @@ export interface ViewSlice {
   hostScope: string;
   openProjectPicker(instanceId?: string | null): void;
   closeProjectPicker(): void;
+  openSidebarGroupDialog(request: SidebarGroupDialogRequest): void;
+  closeSidebarGroupDialog(): void;
   openDiagnosticsDialog(): void;
   closeDiagnosticsDialog(): void;
   openGettingStarted(): void;
@@ -357,6 +361,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   restoringTabs: false,
   projectPickerOpen: false,
   projectPickerInstanceId: null,
+  sidebarGroupDialog: null,
   gettingStartedOpen: false,
   diagnosticsDialogOpen: false,
   browserPaneClearDialogOpen: false,
@@ -403,6 +408,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   closeProjectPicker() {
     set({ projectPickerOpen: false, projectPickerInstanceId: null });
+  },
+  openSidebarGroupDialog(request) {
+    set({ sidebarGroupDialog: request });
+  },
+  closeSidebarGroupDialog() {
+    set({ sidebarGroupDialog: null });
   },
   openGettingStarted() {
     set({ gettingStartedOpen: true });

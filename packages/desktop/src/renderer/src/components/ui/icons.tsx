@@ -168,3 +168,14 @@ export function IconSessionTree({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/** Three stacked bars — sidebar groups: create, and move a project into one (issue #745). */
+export function IconGroup({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <rect x="2.5" y="2.5" width="11" height="3" rx="1" />
+      <rect x="2.5" y="6.5" width="11" height="3" rx="1" />
+      <rect x="2.5" y="10.5" width="11" height="3" rx="1" />
+    </svg>
+  );
+}

@@ -34,6 +34,12 @@ const backendMock = {
   removeProject: vi.fn(),
   moveProject: vi.fn(async () => {}),
   moveSession: vi.fn(async () => {}),
+  createSidebarGroup: vi.fn(async () => {}),
+  renameSidebarGroup: vi.fn(async () => {}),
+  removeSidebarGroup: vi.fn(async () => {}),
+  moveSidebarGroup: vi.fn(async () => {}),
+  setSidebarGroupCollapsed: vi.fn(async () => {}),
+  setProjectSidebarGroup: vi.fn(async () => {}),
   setDefaultMode: vi.fn(),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
@@ -714,6 +720,7 @@ describe("Sidebar project open control (issue #169)", () => {
       "Experiments",
       "New experiment…",
       "Project settings…",
+      "Move to group…",
       "Remove project…",
     ]);
     const sessionsSheet = document.body.querySelector<HTMLElement>(
@@ -757,6 +764,7 @@ describe("Sidebar project open control (issue #169)", () => {
       "New terminal session",
       "New worktree session…",
       "Project settings…",
+      "Move to group…",
       "Remove project…",
     ]);
   });
@@ -1106,6 +1114,22 @@ describe("project name display", () => {
     expect(hidden[0]!.textContent! + hidden[1]!.textContent!).toBe(name);
     expect(hidden[0]!.textContent).toBe("proj");
     expect(hidden[1]!.textContent).toBe("-🚀-x");
+  });
+
+  it("keeps a space at the split seam rendered (issue #747)", () => {
+    const name = "Team Atlas";
+    useStore.setState({ state: nameState("/projects/team-atlas", name, ["live"]) });
+    renderSidebar();
+
+    const section = projectSection(name);
+    const srOnly = [...section.querySelectorAll<HTMLElement>(".sr-only")].find(
+      (span) => span.textContent === name,
+    );
+    if (srOnly === undefined) throw new Error("sr-only name copy not found");
+    const hidden = srOnly.parentElement!.querySelectorAll<HTMLElement>('[aria-hidden="true"]');
+    expect(hidden[0]!.textContent).toBe("Team ");
+    // Collapsible whitespace would drop the trailing space at the flex item's edge.
+    for (const half of hidden) expect(half.classList.contains("whitespace-pre")).toBe(true);
   });
 
   it("renders the count and live chips on the path row, not the name row", () => {
@@ -2269,5 +2293,153 @@ describe("Sidebar host scope filter (issue #507)", () => {
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(hostTrigger());
     expect(useStore.getState().hostScope).toBe("all");
+  });
+});
+
+describe("Sidebar groups (issue #745)", () => {
+  const dragDelta = "/projects/delta";
+  const fourProjects = [
+    ...threeProjectState.projects,
+    {
+      ...threeProjectState.projects[0]!,
+      project: { ...threeProjectState.projects[0]!.project, path: dragDelta, name: "Delta" },
+      sessions: threeProjectState.projects[0]!.sessions.map((s) => ({ ...s, projectCwd: dragDelta })),
+    },
+  ];
+  /** Alpha ungrouped; Beta + Gamma in Team A; Delta in Team B. */
+  const groupedState = (teamBCollapsed = false) =>
+    backendState({
+      projects: fourProjects,
+      sidebarGroups: [
+        { id: "g1", name: "Team A", collapsed: false, projectPaths: [dragBeta, dragGamma] },
+        { id: "g2", name: "Team B", collapsed: teamBCollapsed, projectPaths: [dragDelta] },
+      ],
+    });
+
+  const groupSection = (id: string): HTMLElement | null =>
+    document.body.querySelector<HTMLElement>(`[data-sidebar-group="${id}"]`);
+  const groupHeader = (id: string): HTMLElement =>
+    groupSection(id)!.querySelector<HTMLElement>("[data-sidebar-group-header]")!;
+  /** Project paths of the ProjectSections nested in `container`, in order. */
+  const memberPaths = (container: HTMLElement): string[] =>
+    [...container.querySelectorAll<HTMLElement>("section")].map(
+      (section) => section.querySelector<HTMLButtonElement>("button[aria-expanded]")!.title,
+    );
+  const note = (): string => document.body.querySelector('[role="status"]')!.textContent ?? "";
+  const pressAlt = async (el: HTMLElement, key: string): Promise<void> => {
+    await act(async () => {
+      el.dispatchEvent(new KeyboardEvent("keydown", { key, altKey: true, bubbles: true }));
+    });
+  };
+  const dragEvent = (type: string, dataTransfer: object): MouseEvent => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY: 40 });
+    Object.defineProperty(event, "dataTransfer", { value: dataTransfer, configurable: true });
+    return event;
+  };
+  const setFilter = async (value: string): Promise<void> => {
+    const filter = document.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]')!;
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setValue.call(filter, value);
+      filter.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+
+  beforeEach(() => {
+    backendMock.moveProject.mockClear();
+    backendMock.moveSidebarGroup.mockClear();
+    backendMock.setSidebarGroupCollapsed.mockClear();
+    backendMock.setProjectSidebarGroup.mockClear();
+  });
+
+  it("renders no group chrome while no group exists", () => {
+    useStore.setState({ state: threeProjectState });
+    renderSidebar();
+    expect(document.body.querySelector("[data-sidebar-group]")).toBeNull();
+    expect(document.body.querySelector("[data-sidebar-ungrouped]")).toBeNull();
+  });
+
+  it("renders Ungrouped first, then each group in order with exactly its members", () => {
+    useStore.setState({ state: groupedState() });
+    renderSidebar();
+    const order = [
+      ...document.body.querySelectorAll<HTMLElement>("[data-sidebar-ungrouped], [data-sidebar-group]"),
+    ].map((el) => el.getAttribute("data-sidebar-group") ?? "ungrouped");
+    expect(order).toEqual(["ungrouped", "g1", "g2"]);
+    expect(memberPaths(groupSection("g1")!)).toEqual([dragBeta, dragGamma]);
+    expect(memberPaths(groupSection("g2")!)).toEqual([dragDelta]);
+    // Alpha renders between the Ungrouped header and the first group.
+    const alphaToggle = document.body.querySelector<HTMLElement>(`button[title="${dragAlpha}"]`)!;
+    expect(alphaToggle.closest("[data-sidebar-group]")).toBeNull();
+  });
+
+  it("hides a collapsed group's members and expands it through the store", async () => {
+    useStore.setState({ state: groupedState(true) });
+    renderSidebar();
+    expect(groupSection("g2")).not.toBeNull();
+    expect(memberPaths(groupSection("g2")!)).toEqual([]);
+    const toggle = button("Collapse or expand Team B");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => toggle.click());
+    expect(backendMock.setSidebarGroupCollapsed).toHaveBeenCalledWith("g2", false);
+  });
+
+  it("shows a filter match inside a collapsed group and drops groups without one", async () => {
+    useStore.setState({ state: groupedState(true) });
+    renderSidebar();
+    await setFilter("Delta");
+    expect(groupSection("g1")).toBeNull();
+    expect(memberPaths(groupSection("g2")!)).toEqual([dragDelta]);
+    // The persisted collapsed value is never written by the filter.
+    expect(backendMock.setSidebarGroupCollapsed).not.toHaveBeenCalled();
+  });
+
+  it("files a project dropped on another group's header and ignores non-project drags", async () => {
+    useStore.setState({ state: groupedState() });
+    renderSidebar();
+    const dt = {
+      setData: vi.fn(),
+      effectAllowed: "",
+      types: ["text/plain", "application/x-omp-ui-project"],
+      getData: vi.fn((type: string) => (type === "application/x-omp-ui-project" ? dragAlpha : "")),
+    };
+    const alphaHeader = document.body
+      .querySelector<HTMLElement>(`button[title="${dragAlpha}"]`)!
+      .closest<HTMLElement>("[draggable]")!;
+    await act(async () => {
+      alphaHeader.dispatchEvent(dragEvent("dragstart", dt));
+    });
+    const over = dragEvent("dragover", dt);
+    await act(async () => {
+      groupHeader("g1").dispatchEvent(over);
+    });
+    expect(over.defaultPrevented).toBe(true);
+    expect(groupHeader("g1").getAttribute("data-project-drop")).toBe("true");
+    await act(async () => {
+      groupHeader("g1").dispatchEvent(dragEvent("drop", dt));
+    });
+    expect(backendMock.setProjectSidebarGroup).toHaveBeenCalledWith(dragAlpha, "g1");
+    expect(backendMock.moveProject).not.toHaveBeenCalled();
+
+    const plain = dragEvent("dragover", { types: ["text/plain"], getData: () => dragAlpha });
+    await act(async () => {
+      groupHeader("g2").dispatchEvent(plain);
+    });
+    expect(plain.defaultPrevented).toBe(false);
+  });
+
+  it("keeps keyboard project moves inside the group", async () => {
+    useStore.setState({ state: groupedState() });
+    renderSidebar();
+    await pressAlt(button("reorder Gamma"), "ArrowDown");
+    expect(backendMock.moveProject).not.toHaveBeenCalled();
+    expect(note()).toBe("Gamma is already last");
+  });
+
+  it("moves a group with Alt+Arrow on its grip", async () => {
+    useStore.setState({ state: groupedState() });
+    renderSidebar();
+    await pressAlt(button("reorder group Team A"), "ArrowDown");
+    expect(backendMock.moveSidebarGroup).toHaveBeenCalledWith("g1", null);
   });
 });
