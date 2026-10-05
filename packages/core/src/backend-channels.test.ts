@@ -160,6 +160,7 @@ const VALID_ARGS = {
   setAppUpdateInstallOnQuit: [false],
   setDefaultAdvisor: [true],
   setDefaultAgentMode: ["build"],
+  setDefaultAutoThinking: [true],
   setDefaultCompactionMethod: [null],
   setDefaultMode: ["rpc-ui"],
   setDesktopNotifications: [true],

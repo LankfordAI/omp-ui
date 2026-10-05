@@ -87,6 +87,7 @@ const backendMock = {
   setStallAutoContinue: vi.fn(async () => {}),
   setDesktopNotifications: vi.fn(async () => {}),
   setDefaultAdvisor: vi.fn(async () => {}),
+  setDefaultAutoThinking: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
   setExperimentsEnabled: vi.fn(async () => {}),
   spawnSession: vi.fn(),
@@ -750,6 +751,39 @@ describe("Settings General page default advisor (issue #174)", () => {
   });
 });
 
+describe("Settings General page default auto thinking (issue #743)", () => {
+  const seedAutoThinking = (defaultAutoThinking: boolean): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ defaultAutoThinking }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  const autoThinkingSwitch = (): HTMLElement =>
+    document.querySelector(
+      '[role="switch"][aria-label="Default auto thinking"]',
+    ) as HTMLElement;
+
+  it("shows the setting off and persists switching it on", async () => {
+    seedAutoThinking(false);
+    await renderSettings();
+    expect(autoThinkingSwitch().getAttribute("aria-checked")).toBe("false");
+    click(autoThinkingSwitch());
+    expect(backendMock.setDefaultAutoThinking).toHaveBeenCalledWith(true);
+  });
+
+  it("reflects a persisted on setting and persists switching it off", async () => {
+    seedAutoThinking(true);
+    await renderSettings();
+    expect(autoThinkingSwitch().getAttribute("aria-checked")).toBe("true");
+    click(autoThinkingSwitch());
+    expect(backendMock.setDefaultAutoThinking).toHaveBeenCalledWith(false);
+  });
+});
 describe("Settings Experimental page (issues #571 and #739)", () => {
   const seedExperimental = (): void => {
     useStore.setState({

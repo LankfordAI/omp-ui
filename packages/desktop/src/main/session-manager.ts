@@ -563,7 +563,9 @@ export class SessionManager {
           approvalMode: null,
           serviceTier: null,
           model: project?.defaultModel ?? project?.lastModel ?? null,
-          thinkingLevel: project?.lastThinkingLevel ?? null,
+          thinkingLevel:
+            project?.lastThinkingLevel ??
+            (this.deps.registry.getSetting("defaultAutoThinking") ? "auto" : null),
           advisor: req.advisor,
           advisorModel: req.advisorModel ?? null,
           subagentModels: null,

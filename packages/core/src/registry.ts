@@ -40,6 +40,9 @@ export interface RegistrySettings {
   desktopNotifications: boolean;
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
   defaultAdvisor: boolean;
+  /** Seeds omp's auto thinking selector for new sessions with no
+   *  per-project thinking memory; default off. */
+  defaultAutoThinking: boolean;
   modelFavorites: string[];
   /** Session-scope umbrella: subagents with no explicit choice run on the
    *  session's own model (ADR-0031); default on. */
@@ -176,6 +179,13 @@ export const SETTINGS: SettingDescriptors = {
   // The app default is off (issue #174): omp config may say on, but a booted
   // app's preference wins for new sessions with no per-project memory.
   defaultAdvisor: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  // App default off: omp config may say on, but a booted app's preference
+  // wins for new sessions with no per-project thinking memory (issue #743),
+  // mirroring defaultAdvisor.
+  defaultAutoThinking: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),

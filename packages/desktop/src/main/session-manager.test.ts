@@ -1503,6 +1503,54 @@ describe("project default model pins (issue #257)", () => {
   });
 });
 
+describe("default auto thinking (issue #743)", () => {
+  const freshSpawn = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({
+      origin: "new",
+      worktree: null,
+      projectCwd: "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+
+  it("seeds a fresh session with no thinking memory on auto when the setting is on", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSetting("defaultAutoThinking", true);
+
+    const { tabId } = await freshSpawn(manager);
+    const record = registry.sessions.find((s) => s.tabId === tabId);
+    expect(record).toMatchObject({ thinkingLevel: "auto" });
+
+    // No model is pinned, so the overlay carries the settings key alone —
+    // never a `:auto` suffix (the composition itself is pinned in
+    // spawn-config.test.ts).
+    const overlay = Core.modelOverlayPath(path.join(sessionsRoot, record!.lineageDir));
+    expect(fs.readFileSync(overlay, "utf8")).toBe('defaultThinkingLevel: "auto"\n');
+  });
+
+  it("keeps the remembered thinking level ahead of the toggle", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("defaultAutoThinking", true);
+    registry.setSessionModel(TAB, null, "high");
+
+    const { tabId } = await freshSpawn(manager);
+    expect(registry.sessions.find((s) => s.tabId === tabId)).toMatchObject({
+      thinkingLevel: "high",
+    });
+  });
+
+  it("leaves the level null with the setting off and no memory", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+
+    const { tabId } = await freshSpawn(manager);
+    expect(registry.sessions.find((s) => s.tabId === tabId)).toMatchObject({
+      thinkingLevel: null,
+    });
+  });
+});
+
 describe("test-run spawn gate (issue #371)", () => {
   const gated = (model: string | null, advisorModel: string | null = null): SpawnGate =>
     parseSpawnGate({

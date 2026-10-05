@@ -187,6 +187,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setDefaultAutoThinking(on) {
+      try {
+        await backend.setDefaultAutoThinking(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setSubagentModelInheritByDefault(on) {
       try {
         await backend.setSubagentModelInheritByDefault(on);

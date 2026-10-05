@@ -1494,6 +1494,7 @@ export class MainBackend {
       stallAutoContinue: this.registry.getSetting("stallAutoContinue"),
       desktopNotifications: this.registry.getSetting("desktopNotifications"),
       defaultAdvisor: this.registry.getSetting("defaultAdvisor"),
+      defaultAutoThinking: this.registry.getSetting("defaultAutoThinking"),
       subagentModelInheritByDefault: this.registry.getSetting("subagentModelInheritByDefault"),
       agentRoster: this.registry.getSetting("agentRoster"),
       modelFavorites: this.registry.getFavorites(),

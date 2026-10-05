@@ -74,6 +74,7 @@ describe("SETTINGS", () => {
       "stallAutoContinue",
       "desktopNotifications",
       "defaultAdvisor",
+      "defaultAutoThinking",
       "modelFavorites",
       "subagentModelInheritByDefault",
       "agentRoster",
@@ -594,6 +595,25 @@ describe("Registry persistence", () => {
     const absent = tmpFile();
     fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
     expect(Registry.load(absent).getSetting("defaultAdvisor")).toBe(false);
+  });
+
+  it("round-trips default auto thinking and falls back to off for anything unknown", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setSetting("defaultAutoThinking", true);
+    expect(Registry.load(file).getSetting("defaultAutoThinking")).toBe(true);
+    reg.setSetting("defaultAutoThinking", false);
+    expect(Registry.load(file).getSetting("defaultAutoThinking")).toBe(false);
+
+    const junk = tmpFile();
+    fs.writeFileSync(
+      junk,
+      JSON.stringify({ schemaVersion: 1, settings: { defaultAutoThinking: "no" } }),
+    );
+    expect(Registry.load(junk).getSetting("defaultAutoThinking")).toBe(false);
+    const absent = tmpFile();
+    fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
+    expect(Registry.load(absent).getSetting("defaultAutoThinking")).toBe(false);
   });
 
   it("defaults theme and launch update checks when the settings fields are absent", () => {

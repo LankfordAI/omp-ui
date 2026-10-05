@@ -17,6 +17,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     subagentModelInheritByDefault: true,
   agentRoster: [],
   defaultAdvisor: false,
+    defaultAutoThinking: false,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     experimentsEnabled: false,

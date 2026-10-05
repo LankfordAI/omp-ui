@@ -20,6 +20,7 @@ interface RegistrySettings {
   advisorAutoReply: boolean;
   stallAutoContinue: boolean;
   defaultAdvisor: boolean;
+  defaultAutoThinking: boolean;
   modelFavorites: string[];
   skipDeleteConfirmation: boolean;
   experimentsEnabled: boolean;
@@ -100,6 +101,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     advisorAutoReply: true,
     stallAutoContinue: true,
     defaultAdvisor: false,
+    defaultAutoThinking: false,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     experimentsEnabled: false,
