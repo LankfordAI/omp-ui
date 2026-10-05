@@ -1,0 +1,154 @@
+{
+  "id": "R10",
+  "control": {
+    "vaultPath": "/home/alankford/Documents/Obsidian",
+    "vaultId": "ee8bdab8baa42089",
+    "vaultName": "Obsidian",
+    "homeFolder": "omp-ui/",
+    "loadMode": "essential",
+    "guidance": "message",
+    "planGuard": true,
+    "searchDelayMs": 75000,
+    "searchBackend": "fs",
+    "readImages": true
+  },
+  "prompts": [
+    "Search my vault for zephyrine."
+  ],
+  "project": {
+    "path": "/home/alankford/.cache/omp-ui-proto-754/project/omp-ui",
+    "added": false
+  },
+  "tabId": "1d8137dd-2f72-45b8-91e4-995846b3228d",
+  "target": {
+    "id": "F5D3B6583CE75FD2700F34A1C7474F94",
+    "url": "http://localhost:5173/",
+    "title": "omp-ui"
+  },
+  "freshVault": null,
+  "approvalMode": null,
+  "planVia": null,
+  "planStatusSeen": null,
+  "approvalVia": null,
+  "approvals": {},
+  "approvalLog": [],
+  "dialogs": [],
+  "promptLog": [
+    {
+      "index": 0,
+      "sentAt": "2026-10-05T22:50:22.556Z",
+      "composerVia": "insertText",
+      "submitVia": "enter",
+      "endedAt": "2026-10-05T22:52:37.157Z"
+    }
+  ],
+  "calls": [
+    {
+      "toolCallId": "toolu_01LkSnmyarhSHmChERGMQ8Ax|fc_tmp_gffnsm9ezme",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "zephyrine"
+      },
+      "startT": 1791240626400,
+      "endT": 1791240686313,
+      "e2eMs": 59913,
+      "isError": true,
+      "resultTextPreview": "omp-ui could not answer this request in time"
+    },
+    {
+      "toolCallId": "toolu_01X9Jub5DdLpEzWJepLPPUpx|fc_tmp_keafdzgcuj",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "zephyrine",
+        "limit": 10
+      },
+      "startT": 1791240689023,
+      "endT": 1791240748746,
+      "e2eMs": 59723,
+      "isError": true,
+      "resultTextPreview": "omp-ui could not answer this request in time"
+    },
+    {
+      "toolCallId": "toolu_019qd3FRZtDQv5M8HsuQxeWX|fc_tmp_4vkfftvabw8",
+      "toolName": "omp-ui_vault_read",
+      "args": {
+        "path": "Zephyrine"
+      },
+      "startT": 1791240753231,
+      "endT": 1791240753231,
+      "e2eMs": 0,
+      "isError": true,
+      "resultTextPreview": "no note titled \"Zephyrine\" in vault Obsidian"
+    }
+  ],
+  "cards": [
+    {
+      "n": 1,
+      "toolCallId": "toolu_01LkSnmyarhSHmChERGMQ8Ax|fc_tmp_gffnsm9ezme",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R10/card-1-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R10/card-1-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 2,
+      "toolCallId": "toolu_01X9Jub5DdLpEzWJepLPPUpx|fc_tmp_keafdzgcuj",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R10/card-2-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R10/card-2-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 3,
+      "toolCallId": "toolu_019qd3FRZtDQv5M8HsuQxeWX|fc_tmp_4vkfftvabw8",
+      "toolName": "omp-ui_vault_read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R10/card-3-omp-ui_vault_read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R10/card-3-omp-ui_vault_read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    }
+  ],
+  "stills": [
+    {
+      "promptIndex": 0,
+      "ms": 30000,
+      "file": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R10/still-30000.png",
+      "at": "2026-10-05T22:50:52.668Z"
+    },
+    {
+      "promptIndex": 0,
+      "ms": 65000,
+      "file": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R10/still-65000.png",
+      "at": "2026-10-05T22:51:27.680Z"
+    }
+  ],
+  "obsidianProbes": [],
+  "finalAssistantText": "I couldn't search the vault for \"zephyrine\": both search attempts ended with \"omp-ui could not answer this request in time\", so I have no search results.\n\nI also tried opening a note titled \"Zephyrine\" directly, and the vault has no note with that title. The word could still appear in other notes or titles, but I can't check that until search responds.\n\nIf you want, I can retry the search, or look in the vault folder on disk if you tell me where it is.",
+  "timeouts": [],
+  "errors": [],
+  "startedAt": "2026-10-05T22:50:19.355Z",
+  "endedAt": "2026-10-05T22:52:44.029Z",
+  "mainLogWindow": {
+    "from": "2026-10-05T22:50:19.355Z",
+    "to": "2026-10-05T22:52:44.029Z"
+  },
+  "rubric": null,
+  "hook": {
+    "unsubscribe": false
+  },
+  "tabInState": true,
+  "readiness": [
+    {
+      "phase": "spawn",
+      "composerReady": true,
+      "getStateAt": "2026-10-05T22:50:20.324Z",
+      "settledAt": "2026-10-05T22:50:20.896Z"
+    }
+  ],
+  "projectReset": "2026-10-05T22:52:44.040Z"
+}

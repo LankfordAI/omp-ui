@@ -1,0 +1,214 @@
+{
+  "id": "R9a",
+  "control": {
+    "vaultPath": "/home/alankford/Documents/Obsidian",
+    "vaultId": "ee8bdab8baa42089",
+    "vaultName": "Obsidian",
+    "homeFolder": "omp-ui/",
+    "loadMode": "essential",
+    "guidance": "message",
+    "planGuard": false,
+    "searchDelayMs": 0,
+    "searchBackend": "fs",
+    "readImages": true
+  },
+  "prompts": [
+    "Record in my vault a decision note that the knowledge home is a ProjectRecord field, and also create docs/knowledge-home.md with the same text."
+  ],
+  "project": {
+    "path": "/home/alankford/.cache/omp-ui-proto-754/project/omp-ui",
+    "added": false
+  },
+  "tabId": "f33592df-94d3-44d4-aa46-c60a74eef7a5",
+  "target": {
+    "id": "F5D3B6583CE75FD2700F34A1C7474F94",
+    "url": "http://localhost:5173/",
+    "title": "omp-ui"
+  },
+  "freshVault": null,
+  "approvalMode": null,
+  "planVia": "click",
+  "planStatusSeen": "2026-10-05T22:48:39.591Z",
+  "approvalVia": null,
+  "approvals": {},
+  "approvalLog": [],
+  "dialogs": [],
+  "promptLog": [
+    {
+      "index": 0,
+      "sentAt": "2026-10-05T22:48:40.234Z",
+      "composerVia": "insertText",
+      "submitVia": "enter",
+      "endedAt": "2026-10-05T22:49:17.475Z"
+    }
+  ],
+  "calls": [
+    {
+      "toolCallId": "toolu_01BqrdQEqAy2N4j4rrnXQ61Z|fc_tmp_60w3kntg2sk",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "knowledge home",
+        "limit": 10
+      },
+      "startT": 1791240529816,
+      "endT": 1791240529828,
+      "e2eMs": 12,
+      "isError": false,
+      "resultTextPreview": "No notes in vault Obsidian match \"knowledge home\"."
+    },
+    {
+      "toolCallId": "toolu_0154UF6UkZbr9fh3gNNaWfkh|fc_tmp_k1p995j1y6g",
+      "toolName": "grep",
+      "args": {
+        "pattern": "interface ProjectRecord|type ProjectRecord",
+        "path": "packages"
+      },
+      "startT": 1791240529817,
+      "endT": 1791240529840,
+      "e2eMs": 23,
+      "isError": false,
+      "resultTextPreview": "# packages/core/src/\n## types.ts#DC9C\n 108:\n*109:export interface ProjectRecord {\n 110:  path: string;\n 111:  name: string;\n 112:  addedAt: string;"
+    },
+    {
+      "toolCallId": "toolu_017PZNjR9XafDYnjnNC5mFfV|fc_tmp_qlwdmrkk1k",
+      "toolName": "read",
+      "args": {
+        "path": "packages/core/src/types.ts:100-130"
+      },
+      "startT": 1791240536323,
+      "endT": 1791240536346,
+      "e2eMs": 23,
+      "isError": false,
+      "resultTextPreview": "[packages/core/src/types.ts#DC9C]\n91:export interface DocumentAttachment {\n…\n99:  path?: string;\n100:}\n101:\n102:export type ProjectOpenTarget = \"vscode\" | \"files\" | \"terminal\";\n103:\n104:export interface ProjectOpenAvailability {\n105:  vsCode: boolean;\n106:  terminal: boolean;\n107:}\n108:\n109:export interface ProjectRecord {\n110:  path: string;\n111:  name: string;\n112:  addedAt: string;\n113:  /** Main model most recently used in this project. */\n114:  lastModel: string | null;\n115:  /** Main-model"
+    },
+    {
+      "toolCallId": "toolu_017Bv8UZGUvZVxjwiyfuDnSy|fc_tmp_6s5662n5gfn",
+      "toolName": "glob",
+      "args": {
+        "path": "docs/knowledge-home.md"
+      },
+      "startT": 1791240536335,
+      "endT": 1791240536335,
+      "e2eMs": 0,
+      "isError": true,
+      "resultTextPreview": "Path not found: docs/knowledge-home.md"
+    },
+    {
+      "toolCallId": "toolu_01DjfwggyWhZCpFEN1r52hvA|fc_tmp_0w5it53wlzm",
+      "toolName": "omp-ui_vault_write",
+      "args": {
+        "mode": "create",
+        "title": "Knowledge Home Is A ProjectRecord Field",
+        "content": "# Knowledge Home Is A ProjectRecord Field\n\n**Decision:** omp-ui stores a project's knowledge home as a field on `ProjectRecord` (`packages/core/src/types.ts`), not as a key in the project's `.omp/config.yml`.\n\n**Why:**\n\n- A knowledge home points into one user's vault on one machine. `ProjectRecord` lives in omp-ui's own per-machine project registry, which is where that kind of value belongs. `.omp/config.yml` sits in the repository and can be committed and shared.\n- `.omp/config.yml` is omp's config file. An omp-ui-only key there extends a schema omp-ui does not own.\n- `ProjectRecord` already holds per-project UI state (`lastModel`, `defaultModel`, `lastAdvisor`, ...). The new field follows the same pattern: nullable, with legacy registries that lack it normalized to `null` at parse time.\n\n**Rejected:** a `.omp/config.yml` key, because it would tie a machine-local path to a shared, omp-owned file.\n",
+        "tags": [
+          "decision"
+        ]
+      },
+      "startT": 1791240545527,
+      "endT": 1791240545537,
+      "e2eMs": 10,
+      "isError": false,
+      "resultTextPreview": "Created omp-ui/Knowledge Home Is A ProjectRecord Field.md in vault Obsidian; linked from [[omp-ui/omp-ui Index]]. Link to it as [[omp-ui/Knowledge Home Is A ProjectRecord Field|Knowledge Home Is A ProjectRecord Field]]."
+    },
+    {
+      "toolCallId": "toolu_013WXd29fQrq5h4FxxadKpmW|fc_tmp_77cmgi51ub7",
+      "toolName": "write",
+      "args": {
+        "path": "local://knowledge-home.md",
+        "content": "# Knowledge Home Is A ProjectRecord Field\n\n**Decision:** omp-ui stores a project's knowledge home as a field on `ProjectRecord` (`packages/core/src/types.ts`), not as a key in the project's `.omp/config.yml`.\n\n**Why:**\n\n- A knowledge home points into one user's vault on one machine. `ProjectRecord` lives in omp-ui's own per-machine project registry, which is where that kind of value belongs. `.omp/config.yml` sits in the repository and can be committed and shared.\n- `.omp/config.yml` is omp's config file. An omp-ui-only key there extends a schema omp-ui does not own.\n- `ProjectRecord` already holds per-project UI state (`lastModel`, `defaultModel`, `lastAdvisor`, ...). The new field follows the same pattern: nullable, with legacy registries that lack it normalized to `null` at parse time.\n\n**Rejected:** a `.omp/config.yml` key, because it would tie a machine-local path to a shared, omp-owned file.\n"
+      },
+      "startT": 1791240550982,
+      "endT": 1791240550993,
+      "e2eMs": 11,
+      "isError": false,
+      "resultTextPreview": "[local://knowledge-home.md#7217]\nSuccessfully wrote 911 bytes to local://knowledge-home.md"
+    }
+  ],
+  "cards": [
+    {
+      "n": 1,
+      "toolCallId": "toolu_01BqrdQEqAy2N4j4rrnXQ61Z|fc_tmp_60w3kntg2sk",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-1-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-1-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 2,
+      "toolCallId": "toolu_0154UF6UkZbr9fh3gNNaWfkh|fc_tmp_k1p995j1y6g",
+      "toolName": "grep",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-2-grep-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-2-grep-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 3,
+      "toolCallId": "toolu_017PZNjR9XafDYnjnNC5mFfV|fc_tmp_qlwdmrkk1k",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-3-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-3-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 4,
+      "toolCallId": "toolu_017Bv8UZGUvZVxjwiyfuDnSy|fc_tmp_6s5662n5gfn",
+      "toolName": "glob",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-4-glob-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-4-glob-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 5,
+      "toolCallId": "toolu_01DjfwggyWhZCpFEN1r52hvA|fc_tmp_0w5it53wlzm",
+      "toolName": "omp-ui_vault_write",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-5-omp-ui_vault_write-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-5-omp-ui_vault_write-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 6,
+      "toolCallId": "toolu_013WXd29fQrq5h4FxxadKpmW|fc_tmp_77cmgi51ub7",
+      "toolName": "write",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-6-write-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R9a/card-6-write-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    }
+  ],
+  "stills": [],
+  "obsidianProbes": [],
+  "finalAssistantText": "I wrote the vault note, but I couldn't create `docs/knowledge-home.md`. Plan mode is on, and it blocks writes to the working tree.\n\n- **Vault:** I created `omp-ui/Knowledge Home Is A ProjectRecord Field.md`, tagged `decision` and linked from `[[omp-ui/omp-ui Index]]`. Before writing it I searched the vault for \"knowledge home\" and found no existing notes. The note records the decision (a field on `ProjectRecord` in `packages/core/src/types.ts`, not a `.omp/config.yml` key) and three reasons:\n  - A knowledge home is a path on one machine, so it belongs in omp-ui's own per-machine project registry. `.omp/config.yml` is in the repo and can be committed and shared.\n  - `.omp/config.yml` is omp's file, so a key only omp-ui uses would extend a schema omp-ui doesn't own.\n  - `ProjectRecord` already holds per-project settings like `lastModel` and `defaultModel`. The new field would follow their pattern: it can be `null`, and older registry files without it are read as `null`.\n- **`docs/knowledge-home.md`:** I saved the same text to `local://knowledge-home.md` instead. Once you turn plan mode off, I can copy it into `docs/` as is.",
+  "timeouts": [],
+  "errors": [],
+  "startedAt": "2026-10-05T22:48:36.520Z",
+  "endedAt": "2026-10-05T22:49:28.455Z",
+  "mainLogWindow": {
+    "from": "2026-10-05T22:48:36.520Z",
+    "to": "2026-10-05T22:49:28.455Z"
+  },
+  "rubric": null,
+  "hook": {
+    "unsubscribe": false
+  },
+  "tabInState": true,
+  "readiness": [
+    {
+      "phase": "spawn",
+      "composerReady": true,
+      "getStateAt": "2026-10-05T22:48:37.556Z",
+      "settledAt": "2026-10-05T22:48:38.049Z"
+    }
+  ],
+  "projectReset": "2026-10-05T22:49:28.466Z"
+}

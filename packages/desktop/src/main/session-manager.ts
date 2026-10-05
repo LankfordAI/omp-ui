@@ -95,6 +95,10 @@ import { DialogGateTracker } from "./dialog-gate-tracker";
 import { HibernationTracker } from "./hibernation-tracker";
 import { CapabilityControlTracker } from "./capability-control-tracker";
 import { HostBridge } from "./host-bridge";
+// PROTOTYPE (#754): env-gated vault host tools.
+import { readProto754Control } from "./prototype-vault-754/control";
+import { proto754ArmMessage, writeProto754GuidanceExtension } from "./prototype-vault-754/guidance-extension";
+import { createProto754Answerer, proto754HostToolsCommand } from "./prototype-vault-754/tools";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { PlanPreflightController } from "./plan-preflight";
 import { readConfinedPlanFile } from "./plan-file";
@@ -168,6 +172,8 @@ export interface SessionManagerDependencies {
   hostNotify?: (tabId: string, title: string | null, message: string) => string;
   /** Registry probe seams for the collab watcher (#686); tests fake them. */
   collabCli?: CollabCliDeps;
+  /** PROTOTYPE (#754): the app version stamped into vault notes; backend passes app.getVersion(). */
+  appVersion?: string;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -294,6 +300,18 @@ export class SessionManager {
         return entry?.kind === "rpc-ui" ? entry.capabilities?.sessionId ?? null : null;
       },
       log: (message) => console.warn(`[host-bridge] ${message}`),
+      // PROTOTYPE (#754): inert unless OMP_UI_PROTOTYPE_754_CONTROL names a readable control file.
+      prototype754: createProto754Answerer({
+        context: (tabId) => {
+          const record = deps.registry.sessions.find((session) => session.tabId === tabId);
+          if (record === undefined) return null;
+          const entry = this.live.get(tabId);
+          const sessionId = entry?.kind === "rpc-ui" ? entry.capabilities?.sessionId ?? null : null;
+          return { project: path.basename(record.projectCwd), session: sessionId ?? `tab-${tabId}` };
+        },
+        appVersion: deps.appVersion ?? "unknown",
+        log: (line) => console.warn(`[host-bridge] ${line}`),
+      }),
     });
     this.stallWatchdog = new StallWatchdog({
       registry: deps.registry,
@@ -847,6 +865,16 @@ export class SessionManager {
         message: autoresearchArmMessage(),
       });
     }
+    // PROTOTYPE (#754): hidden vault guidance, only when the control file asks for it.
+    const proto754 = readProto754Control();
+    if (proto754 !== null && proto754.guidance === "message") {
+      extensions.push(writeProto754GuidanceExtension(absLineageDir));
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-vault754-${randomUUID()}`,
+        message: proto754ArmMessage(proto754.vaultName, proto754.loadMode === "discoverable"),
+      });
+    }
     // The session's fast-mode tier (issue #719): a fresh spawn replays
     // `priority` through the set_fast_mode object-command and an ultrafast
     // selection through the `/fast ultra` slash prompt — the same
@@ -866,7 +894,7 @@ export class SessionManager {
     initialCommands.push(
       setEventFilterCommand(),
       setHostUriSchemesCommand(),
-      setHostToolsCommand(),
+      proto754HostToolsCommand() ?? setHostToolsCommand(), // PROTOTYPE (#754)
     );
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate, this.subagentSpawnConfig());
     if (record.worktree !== null) {

@@ -1,0 +1,79 @@
+{
+  "case": "H2",
+  "startedAt": "2026-10-05T22:59:51.708Z",
+  "probePid": 1717588,
+  "target": "omp-ui/Knowledge Home Is A ProjectRecord Field.md",
+  "other": null,
+  "spec": {
+    "needs": "quit",
+    "via": "cli"
+  },
+  "childEnvPath": "/home/alankford/.local/share/omp-ui/bin:/home/alankford/.cargo/bin:/usr/local/bin:/usr/bin",
+  "socketPath": "/run/user/1000/.obsidian-cli.sock",
+  "ensureQuit": {
+    "mainPid": 1111361,
+    "appImageRuntimePids": [
+      1111366
+    ],
+    "socketBefore": true,
+    "sigterm": "sent",
+    "pidGoneMs": 186,
+    "socketGoneMs": 186,
+    "quitComplete": true,
+    "appImageRuntimeAliveAfter": [],
+    "ms": 187
+  },
+  "activeFileBefore": null,
+  "mainBefore": {
+    "pattern": "\\.mount_[^/ ]*/obsidian( |$)",
+    "candidates": [],
+    "mainPid": null
+  },
+  "parentageBefore": null,
+  "handoff": {
+    "argv": [
+      "/home/alankford/.local/bin/obsidian",
+      "vault=Obsidian",
+      "open",
+      "path=omp-ui/Knowledge Home Is A ProjectRecord Field.md"
+    ],
+    "exitCode": 1,
+    "signal": null,
+    "stdout": "",
+    "stderr": "The CLI is unable to find Obsidian. Please make sure Obsidian is running and try again.\n",
+    "errorCode": null,
+    "errorMessage": null,
+    "commandReturnMs": 3
+  },
+  "activeFileMs": null,
+  "activeFilePoll": {
+    "matched": false,
+    "ms": null,
+    "lastRaw": "The CLI is unable to find Obsidian. Please make sure Obsidian is running and try again.\n",
+    "polls": 147,
+    "capMs": 15000
+  },
+  "focus": {
+    "documentHasFocus": {
+      "error": "The CLI is unable to find Obsidian. Please make sure Obsidian is running and try again.\n"
+    },
+    "windowIsFocused": {
+      "error": "The CLI is unable to find Obsidian. Please make sure Obsidian is running and try again.\n"
+    }
+  },
+  "mainAfter": {
+    "pattern": "\\.mount_[^/ ]*/obsidian( |$)",
+    "candidates": [],
+    "mainPid": null
+  },
+  "mainPidChanged": false,
+  "parentageAfter": null,
+  "screenshot": {
+    "path": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/obsidian/H2.png",
+    "exists": false,
+    "stdout": "",
+    "exitCode": 1,
+    "ms": 2
+  },
+  "finishedAt": "2026-10-05T23:00:07.003Z"
+}

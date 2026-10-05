@@ -1,0 +1,156 @@
+{
+  "id": "R14b",
+  "control": {
+    "vaultPath": "/home/alankford/Documents/Obsidian",
+    "vaultId": "ee8bdab8baa42089",
+    "vaultName": "Obsidian",
+    "homeFolder": "omp-ui/",
+    "loadMode": "essential",
+    "guidance": "message",
+    "planGuard": true,
+    "searchDelayMs": 0,
+    "searchBackend": "fs",
+    "readImages": true
+  },
+  "prompts": [
+    "Append one more line to that same omp-ui knowledge home decision note: 'Reading view check on 2026-10-05.'"
+  ],
+  "project": {
+    "path": "/home/alankford/.cache/omp-ui-proto-754/project/omp-ui",
+    "added": false
+  },
+  "tabId": "92c31c85-bf03-4c69-ba64-2a9f7ce38c14",
+  "target": {
+    "id": "F5D3B6583CE75FD2700F34A1C7474F94",
+    "url": "http://localhost:5173/",
+    "title": "omp-ui"
+  },
+  "freshVault": null,
+  "approvalMode": null,
+  "planVia": null,
+  "planStatusSeen": null,
+  "approvalVia": null,
+  "approvals": {},
+  "approvalLog": [],
+  "dialogs": [],
+  "promptLog": [
+    {
+      "index": 0,
+      "sentAt": "2026-10-05T23:08:56.363Z",
+      "composerVia": "insertText",
+      "submitVia": "enter",
+      "endedAt": "2026-10-05T23:09:11.072Z"
+    }
+  ],
+  "calls": [
+    {
+      "toolCallId": "toolu_01NxQ8gBTC4Qz31b6fqMXFgB|fc_tmp_ihkupnstg3",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "knowledge home",
+        "limit": 10
+      },
+      "startT": 1791241742403,
+      "endT": 1791241742425,
+      "e2eMs": 22,
+      "isError": false,
+      "resultTextPreview": "- [[Knowledge Home Is A ProjectRecord Field]] `omp-ui/Knowledge Home Is A ProjectRecord Field.md`\n  L10: # Knowledge Home Is A ProjectRecord Field\n  L12: **Decision:** omp-ui stores a project's knowledge home as a field on `ProjectRecord` (`packages/core/src/types.ts`), not as a key in the project's `.omp/config.yml`.\n  L16: - A knowledge home points into one user's vault on one machine. `ProjectRecord` lives in omp-ui's own per-machine project registry, which is where that kind of value belongs"
+    },
+    {
+      "toolCallId": "toolu_01CnSL6KiofPHhePjxdfHYX1|fc_tmp_fdqbftx1ln",
+      "toolName": "omp-ui_vault_read",
+      "args": {
+        "path": "omp-ui/Knowledge Home Is A ProjectRecord Field.md"
+      },
+      "startT": 1791241744405,
+      "endT": 1791241744424,
+      "e2eMs": 19,
+      "isError": false,
+      "resultTextPreview": "---\nomp-ui: true\nproject: \"omp-ui\"\nsession: \"01a10e41-35a8-74f1-b49f-3f91a845a4b4\"\ndate: 2026-10-05\nomp-ui-version: \"0.19.0\"\ntags:\n  - \"decision\"\n---\n# Knowledge Home Is A ProjectRecord Field\n\n**Decision:** omp-ui stores a project's knowledge home as a field on `ProjectRecord` (`packages/core/src/types.ts`), not as a key in the project's `.omp/config.yml`.\n\n**Why:**\n\n- A knowledge home points into one user's vault on one machine. `ProjectRecord` lives in omp-ui's own per-machine project registry"
+    },
+    {
+      "toolCallId": "toolu_01X6rGDfsarVMAs4dkkWWLKA|fc_tmp_z5djps8rln9",
+      "toolName": "omp-ui_vault_write",
+      "args": {
+        "mode": "append",
+        "title": "Knowledge Home Is A ProjectRecord Field",
+        "content": "Reading view check on 2026-10-05."
+      },
+      "startT": 1791241747863,
+      "endT": 1791241747882,
+      "e2eMs": 19,
+      "isError": false,
+      "resultTextPreview": "Appended 33 characters to omp-ui/Knowledge Home Is A ProjectRecord Field.md in vault Obsidian. Link to it as [[omp-ui/Knowledge Home Is A ProjectRecord Field|Knowledge Home Is A ProjectRecord Field]]."
+    }
+  ],
+  "cards": [
+    {
+      "n": 1,
+      "toolCallId": "toolu_01NxQ8gBTC4Qz31b6fqMXFgB|fc_tmp_ihkupnstg3",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R14b/card-1-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R14b/card-1-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 2,
+      "toolCallId": "toolu_01CnSL6KiofPHhePjxdfHYX1|fc_tmp_fdqbftx1ln",
+      "toolName": "omp-ui_vault_read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R14b/card-2-omp-ui_vault_read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R14b/card-2-omp-ui_vault_read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 3,
+      "toolCallId": "toolu_01X6rGDfsarVMAs4dkkWWLKA|fc_tmp_z5djps8rln9",
+      "toolName": "omp-ui_vault_write",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R14b/card-3-omp-ui_vault_write-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R14b/card-3-omp-ui_vault_write-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    }
+  ],
+  "stills": [],
+  "obsidianProbes": [
+    {
+      "label": "after-edit-0-1s",
+      "startedAt": "2026-10-05T23:09:09.000Z",
+      "endedAt": "2026-10-05T23:09:09.610Z",
+      "code": 0
+    },
+    {
+      "label": "after-edit-0-5s",
+      "startedAt": "2026-10-05T23:09:12.999Z",
+      "endedAt": "2026-10-05T23:09:13.583Z",
+      "code": 0
+    }
+  ],
+  "finalAssistantText": "I added `Reading view check on 2026-10-05.` to the end of [[omp-ui/Knowledge Home Is A ProjectRecord Field|Knowledge Home Is A ProjectRecord Field]]. It comes after the earlier `Confirmed on 2026-10-05.` line. The vault tool reported the append as successful; I didn't re-open the note afterwards to check it.",
+  "timeouts": [],
+  "errors": [],
+  "startedAt": "2026-10-05T23:08:52.809Z",
+  "endedAt": "2026-10-05T23:09:18.275Z",
+  "mainLogWindow": {
+    "from": "2026-10-05T23:08:52.809Z",
+    "to": "2026-10-05T23:09:18.275Z"
+  },
+  "rubric": null,
+  "hook": {
+    "unsubscribe": false
+  },
+  "tabInState": true,
+  "readiness": [
+    {
+      "phase": "spawn",
+      "composerReady": true,
+      "getStateAt": "2026-10-05T23:08:53.867Z",
+      "settledAt": "2026-10-05T23:08:54.701Z"
+    }
+  ],
+  "projectReset": "2026-10-05T23:09:18.286Z"
+}

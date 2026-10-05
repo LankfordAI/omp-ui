@@ -1,0 +1,458 @@
+{
+  "id": "R4",
+  "control": {
+    "vaultPath": "/home/alankford/Documents/Obsidian",
+    "vaultId": "ee8bdab8baa42089",
+    "vaultName": "Obsidian",
+    "homeFolder": "omp-ui/",
+    "loadMode": "essential",
+    "guidance": "message",
+    "planGuard": true,
+    "searchDelayMs": 0,
+    "searchBackend": "fs",
+    "readImages": true
+  },
+  "prompts": [
+    "We need to pick how omp-ui stores a project's knowledge home: a ProjectRecord field or a .omp/config.yml key. Weigh it in a few lines and pick one.",
+    "Good, go with that."
+  ],
+  "project": {
+    "path": "/home/alankford/.cache/omp-ui-proto-754/project/omp-ui",
+    "added": false
+  },
+  "tabId": "f4f7cad9-4210-4d8b-81bf-c4c15e615743",
+  "target": {
+    "id": "7C00E3DBC25C7512C8316A4A8072E4A9",
+    "url": "http://localhost:5173/",
+    "title": "omp-ui"
+  },
+  "freshVault": {
+    "deleted": "/home/alankford/Documents/Obsidian/omp-ui/",
+    "existed": false,
+    "at": "2026-10-05T22:34:28.620Z"
+  },
+  "approvalMode": null,
+  "planVia": null,
+  "planStatusSeen": null,
+  "approvalVia": null,
+  "approvals": {},
+  "approvalLog": [],
+  "dialogs": [],
+  "promptLog": [
+    {
+      "index": 0,
+      "sentAt": "2026-10-05T22:34:31.887Z",
+      "composerVia": "insertText",
+      "submitVia": "enter",
+      "endedAt": "2026-10-05T22:35:06.419Z"
+    },
+    {
+      "index": 1,
+      "sentAt": "2026-10-05T22:35:09.617Z",
+      "composerVia": "insertText",
+      "submitVia": "enter",
+      "endedAt": "2026-10-05T22:36:25.360Z"
+    }
+  ],
+  "calls": [
+    {
+      "toolCallId": "toolu_019WxgmvRaWgKRikcafa1ZcF|fc_tmp_tq8md8hga8",
+      "toolName": "grep",
+      "args": {
+        "pattern": "ProjectRecord|config\\.yml|knowledge home|knowledgeHome",
+        "path": ".",
+        "case": false,
+        "gitignore": true
+      },
+      "startT": 1791239677783,
+      "endT": 1791239677819,
+      "e2eMs": 36,
+      "isError": false,
+      "resultTextPreview": "# CONTEXT.md#6E20\n 173:three scopes where the narrowest wins (ADR-0031): Global\n*174:(`~/.omp/agent/config.yml`), Project (`<cwd>/.omp/config.yml`), and Session\n 175:(a per-lineage `--config` overlay) — all three carried by omp's own\n 176:`task.agentModelOverrides` record, which omp deep-merges per agent name. A\n 177:choice is a single selector string: `\"*\"` (the session's own model), a\n...\n 273:subagent models\" pin — the project layer for subagents is omp's own\n*274:`.omp/config.yml`, not a reg"
+    },
+    {
+      "toolCallId": "toolu_01RgEZhiCZwq1Ggfaec3No5m|fc_tmp_rw6sa2npot",
+      "toolName": "omp-ui_vault_search",
+      "args": {
+        "query": "knowledge home",
+        "limit": 10
+      },
+      "startT": 1791239677797,
+      "endT": 1791239677799,
+      "e2eMs": 2,
+      "isError": false,
+      "resultTextPreview": "No notes in vault Obsidian match \"knowledge home\"."
+    },
+    {
+      "toolCallId": "toolu_012kgMDbgqne6RBx2WUrmze7|fc_tmp_w1wt5re1x7",
+      "toolName": "read",
+      "args": {
+        "path": "CONTEXT.md:265-275"
+      },
+      "startT": 1791239688192,
+      "endT": 1791239688210,
+      "e2eMs": 18,
+      "isError": false,
+      "resultTextPreview": "[CONTEXT.md#6E20]\n245:**Session parameter memory**:\n…\n264:A project may also pin a **Default model** and **Default advisor model** for\n265:fresh sessions. A pin is a standing choice, not last-used memory: composer\n266:changes continue to update the `last*` fields without moving either pin.\n267:Clearing a pin restores the last-used chain. The advisor pin is model-only;\n268:advisor on/off keeps its existing last-used → app default → omp config chain,\n269:so the pinned advisor model is dormant whil"
+    },
+    {
+      "toolCallId": "toolu_01XixJtMYZxbGMMHFMqa1mw4|fc_tmp_jsa38idkye",
+      "toolName": "read",
+      "args": {
+        "path": "docs/adr/0047-code-review-roster-via-background-subagents.md:66-90"
+      },
+      "startT": 1791239688192,
+      "endT": 1791239688202,
+      "e2eMs": 10,
+      "isError": false,
+      "resultTextPreview": "[docs/adr/0047-code-review-roster-via-background-subagents.md#D6A7]\n1:# Code review as a batch of background subagents\n…\n42:## Rejected alternatives\n…\n60:**Amended 2026-10-04 (#729, #732, #733):** the roster is a spawn-time\n…\n65:bridge resolves the target once and passes the concrete commit ids to every\n66:reviewer. PR review requires `gh`; there is no git-fetch fallback.\n67:\n68:**Amended 2026-10-04 (#738):** roster storage moved from `REVIEW.yml` files to\n69:omp-ui's own state — a `reviewRoster"
+    },
+    {
+      "toolCallId": "toolu_017GVGXX3oKaJxac9ox3pPa7|fc_tmp_49ydc2c96gi",
+      "toolName": "omp-ui_vault_write",
+      "args": {
+        "mode": "create",
+        "title": "Knowledge Home Storage",
+        "content": "Decision (2026-10-05): a project's knowledge home is stored as a field on omp-ui's `ProjectRecord`, not as a key in `<project>/.omp/config.yml`.\n\nWhy:\n- omp-ui is the only reader. omp never consumes the key, and the repo's rule is that `.omp/config.yml` holds settings omp loads (ADR-0031, ADR-0025). Settings only omp-ui reads live in the registry.\n- The value is a machine-local vault path. A project file that may be committed or synced is the wrong place for it.\n- Precedent: ADR-0047 (#738) moved the review roster from `REVIEW.yml` files into `ProjectRecord.reviewRoster`.\n- No YAML parsing or line-scoped writer edge cases, and no chance of colliding with omp's config schema.\n\nAccepted loss: the setting is not shared through git, and runs outside the app cannot see it.\n",
+        "tags": [
+          "decision"
+        ]
+      },
+      "startT": 1791239698158,
+      "endT": 1791239698176,
+      "e2eMs": 18,
+      "isError": false,
+      "resultTextPreview": "Created omp-ui/Knowledge Home Storage.md in vault Obsidian; linked from [[omp-ui/omp-ui Index]]. Link to it as [[omp-ui/Knowledge Home Storage|Knowledge Home Storage]]."
+    },
+    {
+      "toolCallId": "toolu_014WFFP1xZsL57JLA4WB942e|fc_tmp_1ojw5uyf4b5",
+      "toolName": "grep",
+      "args": {
+        "pattern": "(?i)obsidian|vault|knowledge",
+        "path": "packages",
+        "gitignore": true
+      },
+      "startT": 1791239715116,
+      "endT": 1791239715150,
+      "e2eMs": 34,
+      "isError": false,
+      "resultTextPreview": "# packages/\n\n## core/src/\n### backend-channels.ts#8207\n 735:  /**\n*736:   * The acknowledged answer for a plan-review gate (issue #312 follow-up).\n 737:   * Only this request may settle a tracked HTML gate: main verifies the live\n 738:   * session, the gate identity, and — for `execute` — that the artifact still\n 739:   * hashes to the preflight `sourceHash` before answering the agent's blocked\n### host-bridge.ts#9F9C\n 32:  \"xd\",\n*33:  \"vault\",\n 34:];\n 35:\n 36:export interface RpcHostUriSchemeDe"
+    },
+    {
+      "toolCallId": "toolu_01QQjKkRQNb4tib4Qd4gQux5|fc_tmp_a45w0qn07z9",
+      "toolName": "bash",
+      "args": {
+        "command": "gh issue list --repo LankfordAI/omp-ui --state all --search \"knowledge home\" --limit 20",
+        "timeout": 60
+      },
+      "startT": 1791239715125,
+      "endT": 1791239715994,
+      "e2eMs": 869,
+      "isError": false,
+      "resultTextPreview": "756\tOPEN\tDecide the routing rule and the per-project knowledge home\twayfinder:grilling\t2026-10-05T19:51:04Z\n755\tOPEN\tDefine the knowledge vault's vocabulary\twayfinder:grilling\t2026-10-05T19:51:03Z\n748\tOPEN\t[Feature]: Obsidian-backed knowledge vault for notes, decisions, and lessons learned\tenhancement\t2026-10-05T15:46:57Z\n762\tOPEN\tAssemble the knowledge vault execution specification and ADR-0048\twayfinder:task\t2026-10-05T19:51:09Z\n749\tOPEN\tWayfinder: Obsidian knowledge vault design specification"
+    },
+    {
+      "toolCallId": "toolu_018K3ftUEhRyM9hBYFyLKyYw|fc_tmp_m7cee5c3ko",
+      "toolName": "bash",
+      "args": {
+        "command": "gh issue view 756 --repo LankfordAI/omp-ui --comments && echo ======== && gh issue view 749 --repo LankfordAI/omp-ui",
+        "timeout": 60
+      },
+      "startT": 1791239720400,
+      "endT": 1791239721735,
+      "e2eMs": 1335,
+      "isError": false,
+      "resultTextPreview": "author:\tAustinM731\nassociation:\tmember\nedited:\tfalse\nstatus:\tnone\n--\nConstraint from [Prototype the vault registry and hand-off surface](https://github.com/LankfordAI/omp-ui/issues/753#issuecomment-6001837518):\n\n- The knowledge home lives in its own Project settings tab, \"Knowledge\", last after Browser. Choices read \"Repo docs\", \"Vault\", \"Both\".\n- \"Not set\" is a real third state, separate from every choice: no choice selected, hint \"Not set. The routing default applies.\", and a \"Clear\" link on a"
+    },
+    {
+      "toolCallId": "toolu_01JjuHYk51FZpF5RnQqKmmJE|fc_tmp_7fwpkloerar",
+      "toolName": "bash",
+      "args": {
+        "command": "gh issue view 756 --repo LankfordAI/omp-ui --json body,comments --jq '.body, \"----\", (.comments|length)'",
+        "timeout": 60
+      },
+      "startT": 1791239727725,
+      "endT": 1791239728560,
+      "e2eMs": 835,
+      "isError": false,
+      "resultTextPreview": "## Question\n\nHow does a project get its knowledge home, and how does the agent learn it? Decide:\n\n- The default rule when the user has not chosen: candidates are \"the project is a git repo whose `origin` the user can push to → `repo docs`, else `vault`\" (what signals push access without a network call: GitHub owner match via `gh`, remote URL owner equals the registry's known logins, or a cached `gh repo view --json viewerPermission`), \"always ask on first session\", or \"always `vault` until set\"."
+    },
+    {
+      "toolCallId": "toolu_01Ru6i59CuNhdWCwa8rXPYNm|fc_tmp_vha78oe28kd",
+      "toolName": "grep",
+      "args": {
+        "pattern": "export interface ProjectRecord|browserClock|reviewRoster\\??:",
+        "path": "packages/core/src/types.ts"
+      },
+      "startT": 1791239735625,
+      "endT": 1791239735636,
+      "e2eMs": 11,
+      "isError": false,
+      "resultTextPreview": "[packages/core/src/types.ts#DC9C]\n 108:\n*109:export interface ProjectRecord {\n 110:  path: string;\n 111:  name: string;\n 112:  addedAt: string;\n...\n 145:   */\n*146:  browserClock: boolean;\n 147:  /**\n 148:   * This project's reviewer roster for /code-review (issue #738, ADR-0047 as\n 149:   * amended): null = unset, so the global roster (then the default reviewer)\n...\n 153:   */\n*154:  reviewRoster: ReviewDocument | null;\n 155:}\n 156:\n 157:/**"
+    },
+    {
+      "toolCallId": "toolu_01CKCZuLe8ytqrQiVUUchcDu|fc_tmp_68t3ik315dw",
+      "toolName": "read",
+      "args": {
+        "path": "skill://unslop"
+      },
+      "startT": 1791239744484,
+      "endT": 1791239744494,
+      "e2eMs": 10,
+      "isError": false,
+      "resultTextPreview": "[Skill file: /home/alankford/.omp/agent/managed-skills/unslop/SKILL.md]\n---\nname: unslop\ndescription: Cut AI tells from any writing. Must always apply.\n---\n\n# Unslop\n\nEdit text to remove AI patterns and add human voice.\n\n## Process\n\n1. Scan for the patterns below.\n2. Rewrite. Preserve meaning, match intended tone.\n3. Add soul (see next section).\n4. Self-audit: \"What makes this obviously AI generated?\" Fix remaining tells.\n\n## Adding soul\n\nRemoving patterns is half the job. Sterile, voiceless wri"
+    },
+    {
+      "toolCallId": "toolu_01D1eAmHQuu9FUvcPzzB2tZT|fc_tmp_av9n1hz79fp",
+      "toolName": "write",
+      "args": {
+        "path": "/tmp/756-storage.md",
+        "content": "## Partial resolution: where the knowledge home is stored\n\nDecided 2026-10-05. The project's knowledge home is a `ProjectRecord` field in omp-ui's registry. It is not a `.omp/config.yml` key.\n\nWhy:\n\n- omp-ui is the only reader. omp never loads this value, and in this repo `.omp/config.yml` holds settings omp itself consumes (ADR-0025, ADR-0031; `CONTEXT.md` says the project layer for subagent models is omp's config file \"not a registry field\" for exactly that reason). The reverse holds here.\n- The value names a vault on this machine. `.omp/` can be committed or synced, and a vault choice from my machine means nothing in someone else's checkout. That is worst for repos the user does not own, which is the case the default rule is meant to serve.\n- ADR-0047 as amended by #738 already made this move: the review roster left `REVIEW.yml` for `ProjectRecord.reviewRoster`. `browserClock` is the other precedent. The issue body notes that `ProjectRecord` fields already reach remote instances, which #759 needs.\n- No trip through `project-config-writer.ts`, so no refusals on hand-written YAML and no key that could collide with a future omp setting.\n\nAccepted loss: the choice is not shared through git, and sessions started outside the app do not see it. #738 accepted the same trade.\n\nConstraints the field has to carry, from #753:\n\n- Unset is a value distinct from all three choices, so the field is nullable (null = \"Not set. The routing default applies.\", same convention as `reviewRoster: ReviewDocument | null`).\n- The `vault` and `both` choices need room for a vault reference, and that reference also needs a \"follow the default write vault\" state if pin-versus-follow goes that way.\n\nStill open on this ticket: the default rule, pin versus follow, what `both` writes, whether a Session-scope override exists, how the agent learns the rule, and the write guidance. Leaving the ticket open.\n"
+      },
+      "startT": 1791239759192,
+      "endT": 1791239759220,
+      "e2eMs": 28,
+      "isError": false,
+      "resultTextPreview": "[/tmp/756-storage.md#8B1D]\nSuccessfully wrote 1904 bytes to /tmp/756-storage.md"
+    },
+    {
+      "toolCallId": "toolu_01QGNdM2bijjsHf96b2jvQBL|fc_tmp_sob9qym89ul",
+      "toolName": "edit",
+      "args": {
+        "input": "[/tmp/756-storage.md#8B1D]\nPUT 8.=8:\n+- The value names a vault on one machine. `.omp/` can be committed or synced, and a vault chosen on one machine means nothing in another checkout. That is worst for repos the user does not own, which is the case the default rule is meant to serve.\n"
+      },
+      "startT": 1791239764366,
+      "endT": 1791239764376,
+      "e2eMs": 10,
+      "isError": false,
+      "resultTextPreview": "[/tmp/756-storage.md#8920]\n6:\n7:- omp-ui is the only reader. omp never loads this value, and in this repo `.omp/config.yml` holds settings omp itself consumes (ADR-0025, ADR-0031; `CONTEXT.md` says the project layer for subagent models is omp's config file \"not a registry field\" for exactly that reason). The reverse holds here.\n8:- The value names a vault on one machine. `.omp/` can be committed or synced, and a vault chosen on one machine means nothing in another checkout. That is worst for rep"
+    },
+    {
+      "toolCallId": "toolu_013zbNJxhbC2riFU7jkGvfvi|fc_tmp_vjbwbpj5gi",
+      "toolName": "bash",
+      "args": {
+        "command": "gh issue comment 756 --repo LankfordAI/omp-ui --body-file /tmp/756-storage.md",
+        "timeout": 60
+      },
+      "startT": 1791239767374,
+      "endT": 1791239768681,
+      "e2eMs": 1307,
+      "isError": false,
+      "resultTextPreview": "https://github.com/LankfordAI/omp-ui/issues/756#issuecomment-6004578052\n\n\nWall time: 1.31 seconds"
+    },
+    {
+      "toolCallId": "toolu_01GNbMx3KTJrK7muGpZfh3ca|fc_tmp_i44jw6xfe5",
+      "toolName": "omp-ui_vault_write",
+      "args": {
+        "mode": "append",
+        "title": "Knowledge Home Storage",
+        "content": "\nConfirmed by the user on 2026-10-05 and recorded as a partial resolution on LankfordAI/omp-ui#756: https://github.com/LankfordAI/omp-ui/issues/756#issuecomment-6004578052. The field is nullable (null = not set, so the routing default applies) and needs room for a vault reference. Still open on #756: the default rule, whether a project's vault is pinned or follows the default write vault, what `both` writes, and how the agent learns the rule.\n"
+      },
+      "startT": 1791239774391,
+      "endT": 1791239774403,
+      "e2eMs": 12,
+      "isError": false,
+      "resultTextPreview": "Appended 447 characters to omp-ui/Knowledge Home Storage.md in vault Obsidian. Link to it as [[omp-ui/Knowledge Home Storage|Knowledge Home Storage]]."
+    },
+    {
+      "toolCallId": "toolu_011GW9GYK4EcNUGLMntH3oUa|fc_tmp_j23xfeo0mge",
+      "toolName": "bash",
+      "args": {
+        "command": "rm /tmp/756-storage.md",
+        "timeout": 10
+      },
+      "startT": 1791239774401,
+      "endT": 1791239774412,
+      "e2eMs": 11,
+      "isError": false,
+      "resultTextPreview": "(no output)\n\nWall time: 0.00 seconds"
+    }
+  ],
+  "cards": [
+    {
+      "n": 1,
+      "toolCallId": "toolu_019WxgmvRaWgKRikcafa1ZcF|fc_tmp_tq8md8hga8",
+      "toolName": "grep",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-1-grep-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-1-grep-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 2,
+      "toolCallId": "toolu_01RgEZhiCZwq1Ggfaec3No5m|fc_tmp_rw6sa2npot",
+      "toolName": "omp-ui_vault_search",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-2-omp-ui_vault_search-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-2-omp-ui_vault_search-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 3,
+      "toolCallId": "toolu_012kgMDbgqne6RBx2WUrmze7|fc_tmp_w1wt5re1x7",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-3-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-3-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 4,
+      "toolCallId": "toolu_01XixJtMYZxbGMMHFMqa1mw4|fc_tmp_jsa38idkye",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-4-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-4-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 5,
+      "toolCallId": "toolu_017GVGXX3oKaJxac9ox3pPa7|fc_tmp_49ydc2c96gi",
+      "toolName": "omp-ui_vault_write",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-5-omp-ui_vault_write-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-5-omp-ui_vault_write-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 6,
+      "toolCallId": "toolu_014WFFP1xZsL57JLA4WB942e|fc_tmp_1ojw5uyf4b5",
+      "toolName": "grep",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-6-grep-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-6-grep-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 7,
+      "toolCallId": "toolu_01QQjKkRQNb4tib4Qd4gQux5|fc_tmp_a45w0qn07z9",
+      "toolName": "bash",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-7-bash-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-7-bash-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 8,
+      "toolCallId": "toolu_018K3ftUEhRyM9hBYFyLKyYw|fc_tmp_m7cee5c3ko",
+      "toolName": "bash",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-8-bash-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-8-bash-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 9,
+      "toolCallId": "toolu_01JjuHYk51FZpF5RnQqKmmJE|fc_tmp_7fwpkloerar",
+      "toolName": "bash",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-9-bash-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-9-bash-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 10,
+      "toolCallId": "toolu_01Ru6i59CuNhdWCwa8rXPYNm|fc_tmp_vha78oe28kd",
+      "toolName": "grep",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-10-grep-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-10-grep-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 11,
+      "toolCallId": "toolu_01CKCZuLe8ytqrQiVUUchcDu|fc_tmp_68t3ik315dw",
+      "toolName": "read",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-11-read-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-11-read-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 12,
+      "toolCallId": "toolu_01D1eAmHQuu9FUvcPzzB2tZT|fc_tmp_av9n1hz79fp",
+      "toolName": "write",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-12-write-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-12-write-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 13,
+      "toolCallId": "toolu_01QGNdM2bijjsHf96b2jvQBL|fc_tmp_sob9qym89ul",
+      "toolName": "edit",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-13-edit-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-13-edit-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 14,
+      "toolCallId": "toolu_013zbNJxhbC2riFU7jkGvfvi|fc_tmp_vjbwbpj5gi",
+      "toolName": "bash",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-14-bash-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-14-bash-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 15,
+      "toolCallId": "toolu_01GNbMx3KTJrK7muGpZfh3ca|fc_tmp_i44jw6xfe5",
+      "toolName": "omp-ui_vault_write",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-15-omp-ui_vault_write-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-15-omp-ui_vault_write-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    },
+    {
+      "n": 16,
+      "toolCallId": "toolu_011GW9GYK4EcNUGLMntH3oUa|fc_tmp_j23xfeo0mge",
+      "toolName": "bash",
+      "collapsed": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-16-bash-collapsed.png",
+      "expanded": "/home/alankford/.config/@omp-ui/desktop/worktrees/omp-ui--884e5253/omp-ui-main-a58ff0e2/packages/desktop/prototype-vault-754/evidence/runs/R4/card-16-bash-expanded.png",
+      "note": null,
+      "initiallyOpen": true,
+      "expandedOpen": true
+    }
+  ],
+  "stills": [],
+  "obsidianProbes": [],
+  "finalAssistantText": "The `ProjectRecord` choice is now on the record. There's no code to write yet: the design plan (#749) is planning-only, and implementation starts only after its final spec ticket, #762, closes.\n\n**Where I recorded it:**\n- **Issue [#756](https://github.com/LankfordAI/omp-ui/issues/756#issuecomment-6004578052)** is the open ticket that asks this storage question, so I posted the decision there as a partial resolution. The comment covers why we chose the field and what we give up.\n- **Vault note** [[omp-ui/Knowledge Home Storage|Knowledge Home Storage]] now has a confirmation line that links to that comment.\n\n**What the field needs to hold**, based on the #753 prototype:\n- An empty value for \"not set\". That's a real fourth state alongside Repo docs, Vault and Both, and it means the routing default applies. `reviewRoster: ReviewDocument | null` already works this way.\n- A slot that says which vault the Vault and Both choices mean. It may also need a \"follow the default write vault\" setting, depending on how one of the open questions below is decided.\n\n**I left #756 open.** These parts of it are still undecided:\n- the default rule when the user hasn't chosen\n- whether a project's vault stays fixed or follows the default write vault\n- what Both actually writes\n- whether a session can override the project's choice\n- how the agent learns the rule\n- what the agent is told to write\n\nThe design plan says to close a ticket only once it's fully answered, and to add its one-line summary to the plan at that point. So I haven't added anything to #749.",
+  "timeouts": [],
+  "errors": [],
+  "startedAt": "2026-10-05T22:34:28.619Z",
+  "endedAt": "2026-10-05T22:36:49.068Z",
+  "mainLogWindow": {
+    "from": "2026-10-05T22:34:28.619Z",
+    "to": "2026-10-05T22:36:49.068Z"
+  },
+  "rubric": null,
+  "hook": {
+    "unsubscribe": false
+  },
+  "tabInState": true,
+  "readiness": [
+    {
+      "phase": "spawn",
+      "composerReady": true,
+      "getStateAt": "2026-10-05T22:34:29.607Z",
+      "settledAt": "2026-10-05T22:34:30.227Z"
+    }
+  ],
+  "projectReset": "2026-10-05T22:36:49.079Z"
+}

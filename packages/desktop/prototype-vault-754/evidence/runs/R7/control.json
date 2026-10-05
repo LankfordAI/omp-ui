@@ -1,0 +1,12 @@
+{
+  "vaultPath": "/home/alankford/Documents/Obsidian",
+  "vaultId": "ee8bdab8baa42089",
+  "vaultName": "Obsidian",
+  "homeFolder": "omp-ui/",
+  "loadMode": "essential",
+  "guidance": "none",
+  "planGuard": true,
+  "searchDelayMs": 0,
+  "searchBackend": "fs",
+  "readImages": true
+}

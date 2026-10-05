@@ -1,0 +1,16 @@
+{
+  "notes": 1000,
+  "bytes": 6251072,
+  "mb": 6.3,
+  "medianBytes": 2324,
+  "p95Bytes": 24579,
+  "maxBytes": 205320,
+  "zephyrineNotes": [
+    "Dolat Grido Loori.md",
+    "Meetings/Astved/Tido Kinest.md",
+    "Momar Latsel Selti.md"
+  ],
+  "roadmapNotes": 51,
+  "seed": 754,
+  "out": "/home/alankford/.cache/omp-ui-proto-754/volume-1000"
+}
