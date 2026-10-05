@@ -34,7 +34,7 @@ const DEFAULTS: { [K in ChoiceKey]: ChoiceValue<K> } = {
   p753_chip: "tab", // Q2 answered (a): last Project settings tab "Knowledge".
   p753_card: "full", // Q3 answered (a): full card, ToolCard geometry, preview open.
   p753_mark: "border", // Q4 answered (a): copper border plus "Not created by omp-ui" chip.
-  p753_touched: "rail",
+  p753_touched: "rail", // Q5 answered (b): "Vault notes" section atop the rail's Session pane.
   p753_det: "machine",
 };
 
