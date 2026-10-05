@@ -342,7 +342,7 @@ OMP owns ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)
 issue #559); it reads from two sources, because no single seam carries the state.
 
 The whole subsystem sits behind the app-global `experimentsEnabled` flag
-(Settings → General, default off). With the flag off the spawn path never
+(Settings → Experimental, default off). With the flag off the spawn path never
 writes `omp-ui-autoresearch.ts` into the lineage dir and never sends the arm
 command, so `propose_experiment` is never registered and no snapshot is ever
 published; the renderer hides every Lab and New experiment entry point and

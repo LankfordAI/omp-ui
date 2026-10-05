@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.19.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.19.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Moved the Experiments lab (beta) switch out of Settings → General into a new Settings → Experimental page, the home of the app-global flag behind the Lab, the New experiment dialog, the autoresearch bridge, and the code-review roster ([#740](https://github.com/LankfordAI/omp-ui/issues/740)).
 
 ## Choose a download
 
