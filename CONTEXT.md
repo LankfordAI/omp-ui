@@ -56,6 +56,14 @@ launched in. A project with zero sessions is valid (fresh repo, nothing run
 yet).
 _Avoid_: repo, folder, workspace
 
+**Sidebar group**:
+A user-named, collapsible sidebar section holding zero or more of this app's
+own projects. Each project sits in at most one group; membership, group order,
+and collapsed state are stored in the registry. Joined remote instances'
+projects are never grouped, and removing a group never removes its projects.
+_Avoid_: folder, workspace, team, project group (collides with the
+`ProjectGroup` project-plus-sessions type)
+
 **Owned session**:
 A session whose file lives in an omp-ui lineage dir (ADR-0003) — launched by
 omp-ui or produced in-process by such a session (`/new`, `/branch`). The only
@@ -139,8 +147,8 @@ _Avoid_: side chat, tangent, btw thread
 **Project actions sheet**:
 The bottom sheet a compact-shell project header's ⋯ button opens: the
 project's name and full path, then New session, New terminal session,
-*New worktree session, Experiments, New experiment, Project settings, and
-Remove project. It
+*New worktree session, Experiments, New experiment, Project settings, Move to
+group (local projects only), and Remove project. It
 replaces the cluster below 900px. The desktop open targets (VS Code, Files, Terminal) are
 deliberately absent: a compact shell is usually a phone talking to a
 remote omp-ui, where opening on the host answers a question nobody asked.

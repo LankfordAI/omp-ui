@@ -1,6 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { createPortal } from "react-dom";
-import type { ProjectGroup, ProjectOpenAvailability, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
+import type { ProjectGroup, ProjectOpenAvailability, RemoteInstanceSummary, SessionSummary, SidebarGroup } from "@omp-ui/core/types";
 import { defaultNickname } from "@omp-ui/core/remote-instances";
 import { backend } from "../backend";
 import { projectKey } from "../lib/project-key";
@@ -22,7 +31,7 @@ import { SessionRow } from "./SessionRow";
 import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconGrip, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
+import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconGrip, IconGroup, IconPencil, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -151,6 +160,69 @@ function applyFilter(groups: ProjectGroup[], query: string): FilteredGroup[] {
   return out;
 }
 
+/**
+ * The dataTransfer type a local project drag carries besides text/plain, so a
+ * group header can tell a project drag from text or a remote project's drag
+ * (issue #745).
+ */
+const PROJECT_DRAG_TYPE = "application/x-omp-ui-project";
+
+/** Stable stand-in while the state has not arrived, so memos keep identity. */
+const EMPTY_GROUPS: readonly SidebarGroup[] = Object.freeze([]);
+
+interface Segments<T> {
+  ungrouped: T[];
+  grouped: Array<{ group: SidebarGroup; rows: T[] }>;
+}
+
+/** Partitions rows (already in registry order) by group membership; group order = sidebarGroups order. */
+function segmentByGroup<T>(
+  rows: readonly T[],
+  pathOf: (row: T) => string,
+  groups: readonly SidebarGroup[],
+): Segments<T> {
+  const grouped = groups.map((group) => ({ group, rows: [] as T[] }));
+  const slotByPath = new Map<string, T[]>();
+  for (const segment of grouped) {
+    for (const path of segment.group.projectPaths) slotByPath.set(path, segment.rows);
+  }
+  const ungrouped: T[] = [];
+  for (const row of rows) (slotByPath.get(pathOf(row)) ?? ungrouped).push(row);
+  return { ungrouped, grouped };
+}
+
+/**
+ * A group header (or the Ungrouped header) as a drop target for a local
+ * project drag (issue #745): dropping files the project into `groupId`
+ * (null = ungrouped), landing last. Only drags carrying PROJECT_DRAG_TYPE are
+ * accepted; a drop of the segment's own member is a no-op. `onDrop` returns
+ * false when the drag is not a project so the caller can hand the event to the
+ * group reorder.
+ */
+function useProjectDropTarget(groupId: string | null, memberPaths: readonly string[], enabled: boolean) {
+  const setProjectSidebarGroup = useStore((st) => st.setProjectSidebarGroup);
+  const [hover, setHover] = useState(false);
+  const carriesProject = (e: ReactDragEvent<HTMLElement>): boolean =>
+    enabled && e.dataTransfer?.types?.includes(PROJECT_DRAG_TYPE) === true;
+  return {
+    hover,
+    onDragOver: (e: ReactDragEvent<HTMLElement>): void => {
+      if (!carriesProject(e)) return;
+      e.preventDefault(); // allow the drop
+      setHover(true);
+    },
+    onDragLeave: (): void => setHover(false),
+    onDrop: (e: ReactDragEvent<HTMLElement>): boolean => {
+      if (!carriesProject(e)) return false;
+      const path = e.dataTransfer.getData(PROJECT_DRAG_TYPE);
+      if (path !== "" && !memberPaths.includes(path)) void setProjectSidebarGroup(path, groupId);
+      setHover(false);
+      e.preventDefault();
+      return true;
+    },
+  };
+}
+
 interface ProjectSectionProps {
   group: ProjectGroup;
   /** The joined remote instance this project lives on; null for this app's own registry (issue #416). */
@@ -199,6 +271,7 @@ function ProjectSection({
   const focusedTabId = useStore((st) => st.focusedTabByProject[projectKey(instanceId, group.project.path)]);
   const openProjectSettings = useStore((st) => st.openProjectSettings);
   const openLab = useStore((st) => st.openLab);
+  const openSidebarGroupDialog = useStore((st) => st.openSidebarGroupDialog);
   const experimentsEnabled = useStore((st) => st.state?.experimentsEnabled === true);
   const [open, setOpen] = useState(true);
   const [visible, setVisible] = useState(PAGE);
@@ -383,6 +456,14 @@ function ProjectSection({
               {experimentsEnabled && (
                 <IconButton label={t("sidebar.project.lab", { name: project.name })} disabled={disabled} onClick={() => openLab(project.path, instanceId)}>
                   <IconFlask />
+                </IconButton>
+              )}
+              {instanceId === null && (
+                <IconButton
+                  label={t("sidebar.project.moveToGroup", { name: project.name })}
+                  onClick={() => openSidebarGroupDialog({ kind: "move", projectPath: project.path })}
+                >
+                  <IconGroup />
                 </IconButton>
               )}
               <IconButton label={t("sidebar.project.settings", { name: project.name })} disabled={disabled} onClick={() => openProjectSettings(project.path, instanceId)}>
@@ -664,6 +745,198 @@ function RemoteInstanceSection({
   );
 }
 
+/* ------------------------------------------------------------ sidebar group */
+
+/**
+ * One user-named sidebar group of this app's own projects (issue #745): a
+ * header carrying the group's name, counts, collapse toggle, and its
+ * rename/remove actions, then its member projects as ordinary ProjectSections.
+ * The header is a drop target for project drags from other segments and the
+ * drag source for reordering groups; members reorder among themselves only.
+ * A non-empty filter expands every group with a match (without writing the
+ * persisted `collapsed`) and hides groups without one.
+ */
+function SidebarGroupSection({
+  group,
+  rows,
+  members,
+  query,
+  compact,
+  openTerminalMenu,
+  openAvailability,
+  refreshAvailability,
+  onActivate,
+  onOpenActions,
+  onAnnounce,
+  groupReorder,
+}: {
+  group: SidebarGroup;
+  /** Member projects surviving the filter, in registry order. */
+  rows: FilteredGroup[];
+  /** Every member project, unfiltered — the header chips describe the group itself. */
+  members: ProjectGroup[];
+  query: string;
+  compact: boolean;
+  openTerminalMenu: OpenTerminalMenu;
+  openAvailability: ProjectOpenAvailability | null;
+  refreshAvailability: () => Promise<void>;
+  onActivate: () => void;
+  onOpenActions: (path: string) => void;
+  onAnnounce: (text: string) => void;
+  /** The header's drag/keyboard wiring for reordering groups. */
+  groupReorder: ListReorderRow;
+}) {
+  const t = useT();
+  const moveProject = useStore((st) => st.moveProject);
+  const setSidebarGroupCollapsed = useStore((st) => st.setSidebarGroupCollapsed);
+  const removeSidebarGroup = useStore((st) => st.removeSidebarGroup);
+  const openSidebarGroupDialog = useStore((st) => st.openSidebarGroupDialog);
+  const filtering = query.trim() !== "";
+  const open = filtering || !group.collapsed;
+
+  const rowPaths = useMemo(() => rows.map((f) => f.group.project.path), [rows]);
+  const reorder = useListReorder({
+    rows,
+    rootOf: (f) => f.group.project.path,
+    keys: rowPaths,
+    nameOf: (path) => rows.find((f) => f.group.project.path === path)?.group.project.name,
+    move: moveProject,
+    // A lone member stays draggable: other groups' headers (and Ungrouped)
+    // are drop targets even when there is nothing to reorder within.
+    enabled: !compact && !filtering,
+    announce: onAnnounce,
+    dragType: PROJECT_DRAG_TYPE,
+  });
+  const drop = useProjectDropTarget(group.id, group.projectPaths, !compact && !filtering);
+
+  if (filtering && rows.length === 0) return null;
+
+  const live = members.reduce((n, g) => n + liveCount(g.sessions), 0);
+
+  return (
+    <section
+      data-sidebar-group={group.id}
+      className={cn(
+        "border-t border-line pb-1",
+        groupReorder.dragging && "opacity-60",
+        groupReorder.dropIndicator === "before" && "border-t-2 border-line-strong",
+        groupReorder.dropIndicator === "after" && "border-b-2 border-line-strong",
+      )}
+      data-drop-indicator={groupReorder.dropIndicator ?? undefined}
+    >
+      <div
+        data-sidebar-group-header
+        data-project-drop={drop.hover ? "true" : undefined}
+        className={cn(
+          "sticky top-0 z-10 bg-sunken/95 px-2 pt-2 pb-1 backdrop-glass",
+          drop.hover && "bg-hover",
+        )}
+        draggable={groupReorder.draggable}
+        onDragStart={groupReorder.onDragStart}
+        onDragEnd={groupReorder.onDragEnd}
+        onDragOver={(e) => {
+          groupReorder.onDragOver(e);
+          drop.onDragOver(e);
+        }}
+        onDragLeave={drop.onDragLeave}
+        onDrop={(e) => {
+          if (!drop.onDrop(e)) groupReorder.onDrop(e);
+        }}
+      >
+        {/* No gap: like the project header, the reveals bring their own margin
+            so the name owns the full row width at rest. */}
+        <div className={cn("group/grp flex items-start", groupReorder.draggable && "cursor-grab active:cursor-grabbing")}>
+          {groupReorder.draggable && (
+            <span className="proj-reveal proj-reveal-r mt-px shrink-0 self-center overflow-hidden max-w-0 transition-all duration-200 group-hover/grp:mr-1.5 group-hover/grp:max-w-11 focus-within:mr-1.5 focus-within:max-w-11">
+              <button
+                type="button"
+                ref={groupReorder.registerGrip}
+                aria-label={t("sidebar.group.reorder", { name: group.name })}
+                aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                title={t("sidebar.group.reorderTitle", { name: group.name })}
+                onKeyDown={(e) => {
+                  if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+                  // Same reasoning as the project grip: no scroll, no menu bar.
+                  e.preventDefault();
+                  groupReorder.onReorder(e.key === "ArrowUp" ? -1 : 1);
+                }}
+                className="shrink-0 rounded text-ink-faint opacity-0 transition-opacity duration-200 group-hover/grp:opacity-100 focus-visible:opacity-100 focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
+              >
+                <IconGrip />
+              </button>
+            </span>
+          )}
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-label={t("sidebar.group.toggle", { name: group.name })}
+            disabled={filtering}
+            onClick={() => void setSidebarGroupCollapsed(group.id, !group.collapsed)}
+            className="mt-px flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          >
+            <span className="shrink-0">
+              <Chevron open={open} className="text-ink-dim" />
+            </span>
+            <MiddleTruncate
+              text={group.name}
+              className="min-w-0 flex-1 font-display text-xs font-semibold text-ink"
+            />
+            <Chip mono title={t("sidebar.group.projects", { n: members.length })}>
+              {members.length}
+            </Chip>
+            {live > 0 && (
+              <Chip mono tone="signal" title={t("sidebar.project.live", { n: live })}>
+                <Dot tone="signal" />
+                {live}
+              </Chip>
+            )}
+          </button>
+          <div className="proj-reveal proj-reveal-l flex shrink-0 items-center gap-1 overflow-hidden opacity-0 max-w-0 transition-all duration-200 group-hover/grp:ml-1.5 group-hover/grp:max-w-full group-hover/grp:opacity-100 focus-within:ml-1.5 focus-within:max-w-full focus-within:opacity-100">
+            <IconButton
+              label={t("sidebar.group.rename", { name: group.name })}
+              onClick={() => openSidebarGroupDialog({ kind: "rename", groupId: group.id })}
+            >
+              <IconPencil />
+            </IconButton>
+            <IconButton
+              label={t("sidebar.group.remove", { name: group.name })}
+              tone="rose"
+              onClick={() => void removeSidebarGroup(group.id)}
+            >
+              <IconClose className="size-3.5" />
+            </IconButton>
+          </div>
+        </div>
+      </div>
+      {open && rows.length === 0 && (
+        <p className="px-4 py-2 text-[11px] text-ink-faint">{t("sidebar.group.empty")}</p>
+      )}
+      {open &&
+        rows.map((f, index) => {
+          const path = f.group.project.path;
+          return (
+            <ProjectSection
+              key={path}
+              group={f.group}
+              instanceId={null}
+              hostLocalActions
+              projectHit={f.projectHit}
+              query={query}
+              openTerminalMenu={openTerminalMenu}
+              compact={compact}
+              openAvailability={openAvailability}
+              refreshAvailability={refreshAvailability}
+              onActivate={onActivate}
+              onOpenActions={() => onOpenActions(path)}
+              reorder={reorder.bindRow(path, index)}
+              onAnnounce={onAnnounce}
+            />
+          );
+        })}
+    </section>
+  );
+}
+
 /* -------------------------------------------------------------- rail (thin) */
 
 interface RailEntry {
@@ -671,6 +944,10 @@ interface RailEntry {
   instanceId: string | null;
   /** The owning instance's nickname; null for this app's own projects. */
   nickname: string | null;
+  /** The sidebar group holding this local project (issue #745); null when ungrouped or remote. */
+  groupName: string | null;
+  /** First entry of its group: the rail draws a divider above it. */
+  groupStart: boolean;
   disabled: boolean;
 }
 
@@ -685,31 +962,33 @@ function CollapsedRail({
   const newSession = useStore((st) => st.newSession);
   return (
     <div className="flex flex-col items-center gap-2 py-3">
-      {entries.map(({ group: g, instanceId, nickname, disabled }) => {
+      {entries.map(({ group: g, instanceId, nickname, groupName, groupStart, disabled }) => {
         const live = liveCount(g.sessions);
-        const name = nickname === null ? g.project.name : `${nickname} · ${g.project.name}`;
+        const name = [nickname, groupName, g.project.name].filter((part) => part !== null).join(" · ");
         return (
-          <button
-            key={projectKey(instanceId, g.project.path)}
-            type="button"
-            disabled={disabled}
-            title={t("sidebar.project.railSummary", { name, sessions: g.sessions.length, live })}
-            onClick={() => void newSession(g.project.path, undefined, instanceId)}
-            onContextMenu={(event) => { if (!disabled) openTerminalMenu(g.project.path, event, instanceId); }}
-            className={cn(
-              "animate-slide-in relative grid size-9 place-items-center rounded-md border",
-              "border-line bg-raised font-display text-[11px] font-semibold text-ink-mid",
-              "transition-colors duration-150 hover:border-line-strong hover:text-ink",
-              disabled && "opacity-60",
-            )}
-          >
-            {initials(g.project.name)}
-            {live > 0 && (
-              <span className="absolute -top-1 -right-1 grid size-4 place-items-center rounded-full border border-signal-dim bg-signal-wash font-mono text-[9px] text-signal tabular-nums">
-                {live}
-              </span>
-            )}
-          </button>
+          <Fragment key={projectKey(instanceId, g.project.path)}>
+            {groupStart && <div aria-hidden className="h-px w-6 bg-line" />}
+            <button
+              type="button"
+              disabled={disabled}
+              title={t("sidebar.project.railSummary", { name, sessions: g.sessions.length, live })}
+              onClick={() => void newSession(g.project.path, undefined, instanceId)}
+              onContextMenu={(event) => { if (!disabled) openTerminalMenu(g.project.path, event, instanceId); }}
+              className={cn(
+                "animate-slide-in relative grid size-9 place-items-center rounded-md border",
+                "border-line bg-raised font-display text-[11px] font-semibold text-ink-mid",
+                "transition-colors duration-150 hover:border-line-strong hover:text-ink",
+                disabled && "opacity-60",
+              )}
+            >
+              {initials(g.project.name)}
+              {live > 0 && (
+                <span className="absolute -top-1 -right-1 grid size-4 place-items-center rounded-full border border-signal-dim bg-signal-wash font-mono text-[9px] text-signal tabular-nums">
+                  {live}
+                </span>
+              )}
+            </button>
+          </Fragment>
         );
       })}
     </div>
@@ -923,6 +1202,8 @@ export function Sidebar() {
   const newSession = useStore((st) => st.newSession);
   const openWorktreeDialog = useStore((st) => st.openWorktreeDialog);
   const moveProject = useStore((st) => st.moveProject);
+  const moveSidebarGroup = useStore((st) => st.moveSidebarGroup);
+  const openSidebarGroupDialog = useStore((st) => st.openSidebarGroupDialog);
   const compact = useCompactShell();
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
@@ -1013,27 +1294,62 @@ export function Sidebar() {
 
   const groups = state?.projects ?? null;
   const remoteInstances = state?.remoteInstances ?? null;
+  const sidebarGroups = state?.sidebarGroups ?? EMPTY_GROUPS;
+  const filtering = query.trim().length > 0;
   const filtered = useMemo(() => applyFilter(groups ?? [], query), [groups, query]);
+  // Sidebar groups (issue #745) partition this app's own projects: the
+  // filtered segments render, the unfiltered ones feed the header chips, the
+  // drop targets' membership checks, and the rail.
+  const segments = useMemo(
+    () => segmentByGroup(filtered, (f) => f.group.project.path, sidebarGroups),
+    [filtered, sidebarGroups],
+  );
+  const allSegments = useMemo(
+    () => segmentByGroup(groups ?? [], (g) => g.project.path, sidebarGroups),
+    [groups, sidebarGroups],
+  );
   // Paths in render order, used to resolve where a drop lands. Everything
   // recomputes from the live list, so a stale pointer resolves against the
   // current rows even when the filter changed mid-drag.
-  const filteredPaths = useMemo(() => filtered.map((f) => f.group.project.path), [filtered]);
+  const ungroupedPaths = useMemo(
+    () => segments.ungrouped.map((f) => f.group.project.path),
+    [segments],
+  );
 
   // A lone project can't be reordered; the compact sheet's touch surface gets
   // no drag affordances (issue #115 scoping). Filtering also disables the
   // reorder: positions resolve against the *visible* rows, so with neighbours
   // hidden the insertion line — or an Alt+Arrow step — would promise a place
   // the reorder cannot honour. One gate covers both input paths: the pointer
-  // drag (issue #115) and the keyboard move (issue #120).
-  const canReorder = !compact && query.trim() === "" && (groups?.length ?? 0) > 1;
+  // drag (issue #115) and the keyboard move (issue #120). Each segment —
+  // Ungrouped here, every group in its SidebarGroupSection — reorders on its
+  // own (issue #745); group headers are the only cross-segment targets, so
+  // once groups exist even a lone ungrouped project stays draggable.
+  const canReorder = !compact && !filtering && (segments.ungrouped.length > 1 || sidebarGroups.length > 0);
+  const dropEnabled = !compact && !filtering;
 
   const reorder = useListReorder({
-    rows: filtered,
+    rows: segments.ungrouped,
     rootOf: (f) => f.group.project.path,
-    keys: filteredPaths,
-    nameOf: (path) => filtered.find((f) => f.group.project.path === path)?.group.project.name,
+    keys: ungroupedPaths,
+    nameOf: (path) => segments.ungrouped.find((f) => f.group.project.path === path)?.group.project.name,
     move: moveProject,
     enabled: canReorder,
+    announce: setReorderNote,
+    dragType: PROJECT_DRAG_TYPE,
+  });
+  // The header only accepts drops while unfiltered, so the visible ungrouped
+  // rows are every ungrouped project.
+  const ungroupedDrop = useProjectDropTarget(null, ungroupedPaths, dropEnabled);
+
+  const groupIds = useMemo(() => segments.grouped.map((s) => s.group.id), [segments]);
+  const groupReorder = useListReorder({
+    rows: segments.grouped,
+    rootOf: (s) => s.group.id,
+    keys: groupIds,
+    nameOf: (id) => sidebarGroups.find((g) => g.id === id)?.name,
+    move: moveSidebarGroup,
+    enabled: !compact && !filtering && sidebarGroups.length > 1,
     announce: setReorderNote,
   });
 
@@ -1052,19 +1368,45 @@ export function Sidebar() {
   }, [compact, actionsFor, groups, remoteInstances]);
 
   // Counts and the rail cover every project this app can see, local or joined.
+  // Local entries follow segment order: Ungrouped, then each group.
   const railEntries = useMemo<RailEntry[]>(() => {
-    const out: RailEntry[] = (groups ?? []).map((group) => ({ group, instanceId: null, nickname: null, disabled: false }));
+    const out: RailEntry[] = allSegments.ungrouped.map((group) => ({
+      group,
+      instanceId: null,
+      nickname: null,
+      groupName: null,
+      groupStart: false,
+      disabled: false,
+    }));
+    for (const segment of allSegments.grouped) {
+      segment.rows.forEach((group, index) => {
+        out.push({
+          group,
+          instanceId: null,
+          nickname: null,
+          groupName: segment.group.name,
+          groupStart: index === 0,
+          disabled: false,
+        });
+      });
+    }
     for (const instance of remoteInstances ?? []) {
       for (const group of instance.projects) {
-        out.push({ group, instanceId: instance.id, nickname: instance.nickname, disabled: instance.status !== "joined" });
+        out.push({
+          group,
+          instanceId: instance.id,
+          nickname: instance.nickname,
+          groupName: null,
+          groupStart: false,
+          disabled: instance.status !== "joined",
+        });
       }
     }
     return out;
-  }, [groups, remoteInstances]);
+  }, [allSegments, remoteInstances]);
   const matchCount = filtered.reduce((n, f) => n + f.sessions.length, 0);
   const totalSessions = railEntries.reduce((n, e) => n + e.group.sessions.length, 0);
   const totalLive = railEntries.reduce((n, e) => n + liveCount(e.group.sessions), 0);
-  const filtering = query.trim().length > 0;
 
   const hostScope = useStore((st) => st.hostScope);
   const setHostScope = useStore((st) => st.setHostScope);
@@ -1141,6 +1483,13 @@ export function Sidebar() {
                   </>
                 )}
               </div>
+              <IconButton
+                label={t("sidebar.group.create")}
+                onClick={() => openSidebarGroupDialog({ kind: "create" })}
+                className={compact ? "size-9 rounded-md border border-line" : undefined}
+              >
+                <IconGroup />
+              </IconButton>
               {compact && (
                 <IconButton label={t("sidebar.project.add")} onClick={() => { openProjectPicker(); closeCompactSurface(); }} className="size-9 rounded-md border border-line">
                   <IconPlus />
@@ -1185,7 +1534,22 @@ export function Sidebar() {
                     }
                   />
                 )}
-                {filtered.map((f, index) => {
+                {sidebarGroups.length > 0 && segments.ungrouped.length > 0 && (
+                  <div
+                    data-sidebar-ungrouped
+                    data-project-drop={ungroupedDrop.hover ? "true" : undefined}
+                    className={cn(
+                      "px-3 pt-2 pb-1 font-mono text-[10px] uppercase text-ink-faint",
+                      ungroupedDrop.hover && "bg-hover",
+                    )}
+                    onDragOver={ungroupedDrop.onDragOver}
+                    onDragLeave={ungroupedDrop.onDragLeave}
+                    onDrop={ungroupedDrop.onDrop}
+                  >
+                    {t("sidebar.group.ungrouped")}
+                  </div>
+                )}
+                {segments.ungrouped.map((f, index) => {
                   const path = f.group.project.path;
                   return (
                     <ProjectSection
@@ -1206,6 +1570,24 @@ export function Sidebar() {
                     />
                   );
                 })}
+                {segments.grouped.map((segment, index) => (
+                  <SidebarGroupSection
+                    key={segment.group.id}
+                    group={segment.group}
+                    rows={segment.rows}
+                    // Both partitions walk sidebarGroups in order, so indices align.
+                    members={allSegments.grouped[index]?.rows ?? []}
+                    query={query}
+                    compact={compact}
+                    openTerminalMenu={openTerminalMenu}
+                    openAvailability={openAvailability}
+                    refreshAvailability={refreshAvailability}
+                    onActivate={closeCompactSurface}
+                    onOpenActions={(path) => setActionsFor(projectKey(null, path))}
+                    onAnnounce={setReorderNote}
+                    groupReorder={groupReorder.bindRow(segment.group.id, index)}
+                  />
+                ))}
               </>
             )}
             {/* Joined remote instances (issue #416), after this app's own

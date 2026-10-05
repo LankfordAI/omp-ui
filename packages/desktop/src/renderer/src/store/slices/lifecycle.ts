@@ -58,6 +58,12 @@ export type LifecycleSlice = Pick<
   | "removeProject"
   | "confirmRemoveRemoteInstance"
   | "moveProject"
+  | "createSidebarGroup"
+  | "renameSidebarGroup"
+  | "removeSidebarGroup"
+  | "moveSidebarGroup"
+  | "setSidebarGroupCollapsed"
+  | "setProjectSidebarGroup"
   | "moveSession"
   | "setProjectDefaultModel"
   | "setProjectDefaultAdvisorModel"
@@ -767,6 +773,46 @@ export function createLifecycleSlice(
     }
   };
 
+  // Sidebar groups (issue #745) live on this computer's registry only, so
+  // these always use the local `backend`, never `backendFor`. No optimistic
+  // update: the `stateChanged` broadcast replaces `state` authoritatively,
+  // exactly like moveProject. Create/rename reject so the dialog can show
+  // the backend's message inline.
+  const createSidebarGroup = async (name: string, projectPath: string | null): Promise<void> => {
+    await backend.createSidebarGroup(name, projectPath);
+  };
+  const renameSidebarGroup = async (groupId: string, name: string): Promise<void> => {
+    await backend.renameSidebarGroup(groupId, name);
+  };
+  const removeSidebarGroup = async (groupId: string): Promise<void> => {
+    try {
+      await backend.removeSidebarGroup(groupId);
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+  const moveSidebarGroup = async (groupId: string, beforeGroupId: string | null): Promise<void> => {
+    try {
+      await backend.moveSidebarGroup(groupId, beforeGroupId);
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+  const setSidebarGroupCollapsed = async (groupId: string, collapsed: boolean): Promise<void> => {
+    try {
+      await backend.setSidebarGroupCollapsed(groupId, collapsed);
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+  const setProjectSidebarGroup = async (projectPath: string, groupId: string | null): Promise<void> => {
+    try {
+      await backend.setProjectSidebarGroup(projectPath, groupId);
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+
   // No optimistic update: the `stateChanged` broadcast replaces `state`
   // authoritatively, exactly like moveProject.
   const moveSession = async (
@@ -1389,6 +1435,12 @@ export function createLifecycleSlice(
     removeProject,
     confirmRemoveRemoteInstance,
     moveProject,
+    createSidebarGroup,
+    renameSidebarGroup,
+    removeSidebarGroup,
+    moveSidebarGroup,
+    setSidebarGroupCollapsed,
+    setProjectSidebarGroup,
     moveSession,
     setProjectDefaultModel,
     setProjectDefaultAdvisorModel,

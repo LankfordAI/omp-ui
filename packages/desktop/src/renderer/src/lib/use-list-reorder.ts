@@ -30,6 +30,8 @@ export interface ListReorderOptions<TRow, TKey extends string> {
   enabled: boolean;
   /** Live-region sink. */
   announce: (text: string) => void;
+  /** Extra dataTransfer type carrying the unit key, so non-row targets (group headers) can recognise this list's drags. */
+  dragType?: string;
 }
 
 /** Per-row wiring bundle; close over a row's unit key with {@link ListReorder.bindRow}. */
@@ -130,6 +132,8 @@ export function useListReorder<TRow, TKey extends string>(
     onDragStart: (e: ReactDragEvent<HTMLElement>) => {
       if (!latest.current.enabled) return;
       e.dataTransfer?.setData("text/plain", key); // required for Firefox
+      const { dragType } = latest.current;
+      if (dragType !== undefined) e.dataTransfer?.setData(dragType, key);
       if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
       setDragKey(key);
     },

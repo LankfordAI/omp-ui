@@ -1993,6 +1993,7 @@ export const en = {
   "project.actions.remove": "Remove project…",
   "project.actions.lab": "Experiments",
   "project.actions.newExperiment": "New experiment…",
+  "project.actions.moveToGroup": "Move to group…",
 
   "project.picker.pathLabel": "project directory path",
   "project.picker.typePath": "Type a path",
@@ -2101,6 +2102,7 @@ export const en = {
   "sidebar.project.live": "{n} live",
   "sidebar.project.actions": "actions for {name}",
   "sidebar.project.settings": "project settings for {name}",
+  "sidebar.project.moveToGroup": "move {name} to a group",
   "sidebar.project.lab": "experiments in {name}",
   "sidebar.project.newExperiment": "new experiment in {name}",
   "sidebar.project.newSession": "new session",
@@ -2116,6 +2118,17 @@ export const en = {
     "{name} — {sessions} sessions, {live} live",
   "sidebar.project.add": "add project",
   "sidebar.project.addButton": "Add project",
+
+  // Sidebar groups (issue #745)
+  "sidebar.group.ungrouped": "Ungrouped",
+  "sidebar.group.toggle": "Collapse or expand {name}",
+  "sidebar.group.reorder": "reorder group {name}",
+  "sidebar.group.reorderTitle": "reorder group {name} — drag, or Alt+↑ / Alt+↓",
+  "sidebar.group.rename": "rename group {name}",
+  "sidebar.group.remove": "remove group {name} (its projects stay)",
+  "sidebar.group.projects": "{n} projects",
+  "sidebar.group.empty": "Drag projects here",
+  "sidebar.group.create": "new group",
 
   "sidebar.filter.placeholder": "filter sessions…",
   "sidebar.filter.label": "filter sessions",
@@ -2239,6 +2252,15 @@ export const en = {
   "dialog.diagnostics.done": "Bundle written",
   "dialog.diagnostics.retry": "Retry",
   "dialog.diagnostics.cancel": "Cancel",
+  // SidebarGroupDialog.tsx (issue #745)
+  "dialog.group.createTitle": "New group",
+  "dialog.group.renameTitle": "Rename group",
+  "dialog.group.moveTitle": "Move {name} to a group",
+  "dialog.group.name": "Group name",
+  "dialog.group.none": "No group",
+  "dialog.group.newOption": "New group…",
+  "dialog.group.cancel": "Cancel",
+  "dialog.group.save": "Save",
   "app.crash.diagnostics":
     "If this keeps happening, export a diagnostic bundle from Settings → Advanced or the command palette.",
   // Remote instances (issue #416)

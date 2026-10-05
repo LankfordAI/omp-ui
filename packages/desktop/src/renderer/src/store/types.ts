@@ -450,6 +450,12 @@ export type SettingsPage =
 export type CompactSurface =
   "sessions" | "inspector" | "session-actions" | "composer-options" | "browser-pane";
 
+/** What the sidebar group dialog edits (issue #745); in-memory, never persisted. */
+export type SidebarGroupDialogRequest =
+  | { kind: "create" }
+  | { kind: "rename"; groupId: string }
+  | { kind: "move"; projectPath: string };
+
 export type CompactionMethodsLoad =
   | { status: "unloaded" }
   | { status: "loading" }
@@ -752,6 +758,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   projectPickerOpen: boolean;
   /** The instance a picked directory registers on; null = local (issue #416). */
   projectPickerInstanceId: string | null;
+  /** The open sidebar group dialog (issue #745); null = closed. */
+  sidebarGroupDialog: SidebarGroupDialogRequest | null;
   /** True while the first-run Getting started checklist overlay is open (issue #623). */
   gettingStartedOpen: boolean;
   /** True while the diagnostic-bundle export dialog is open (issue #413). */
@@ -793,6 +801,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   init(): Promise<void>;
   openProjectPicker(instanceId?: string | null): void;
   closeProjectPicker(): void;
+  openSidebarGroupDialog(request: SidebarGroupDialogRequest): void;
+  closeSidebarGroupDialog(): void;
   openGettingStarted(): void;
   dismissGettingStarted(): void;
   openDiagnosticsDialog(): void;
@@ -857,6 +867,15 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     beforePath: string | null,
     instanceId?: string | null,
   ): Promise<void>;
+  /** Sidebar groups (issue #745) — always this computer's registry. Rejects with the backend's message so the dialog can show it inline. */
+  createSidebarGroup(name: string, projectPath: string | null): Promise<void>;
+  /** Rejects with the backend's message so the dialog can show it inline. */
+  renameSidebarGroup(groupId: string, name: string): Promise<void>;
+  /** This and the next three report failures through reportError and never reject. */
+  removeSidebarGroup(groupId: string): Promise<void>;
+  moveSidebarGroup(groupId: string, beforeGroupId: string | null): Promise<void>;
+  setSidebarGroupCollapsed(groupId: string, collapsed: boolean): Promise<void>;
+  setProjectSidebarGroup(projectPath: string, groupId: string | null): Promise<void>;
   moveSession(tabId: string, beforeTabId: string | null): Promise<void>;
   setProjectDefaultModel(
     projectPath: string,

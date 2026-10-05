@@ -41,7 +41,8 @@
     "./semver": "./src/semver.ts",
     "./session-command": "./src/session-command.ts",
     "./session-tree": "./src/session-tree.ts",
-    "./side-questions": "./src/side-questions.ts"
+    "./side-questions": "./src/side-questions.ts",
+    "./sidebar-groups": "./src/sidebar-groups.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

@@ -5,6 +5,7 @@ import type { RpcTabState, TabInfo } from "../store";
 export function backendState(patch: Partial<BackendState> = {}): BackendState {
   return {
     projects: [],
+    sidebarGroups: [],
     defaultMode: "rpc-ui",
     defaultAgentMode: "plan",
     defaultCompactionMethod: null,

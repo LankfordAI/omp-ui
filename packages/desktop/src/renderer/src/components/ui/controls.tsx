@@ -383,8 +383,10 @@ export function MiddleTruncate({ text, className }: { text: string; className?: 
   return (
     <span className={cn("flex overflow-hidden", className)}>
       <span className="sr-only">{text}</span>
-      <span aria-hidden className="truncate">{chars.slice(0, split).join("")}</span>
-      <span aria-hidden className="shrink-0">{chars.slice(split).join("")}</span>
+      {/* whitespace-pre: a space at the seam ("Team Atlas" → "Team " +
+          "Atlas") would otherwise collapse at the flex item's edge. */}
+      <span aria-hidden className="truncate whitespace-pre">{chars.slice(0, split).join("")}</span>
+      <span aria-hidden className="shrink-0 whitespace-pre">{chars.slice(split).join("")}</span>
     </span>
   );
 }

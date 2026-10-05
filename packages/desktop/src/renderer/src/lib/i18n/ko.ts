@@ -1839,6 +1839,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "project.actions.remove": "프로젝트 제거…",
   "project.actions.lab": "실험",
   "project.actions.newExperiment": "새 실험…",
+  "project.actions.moveToGroup": "그룹으로 이동…",
 
   "project.picker.pathLabel": "프로젝트 디렉터리 경로",
   "project.picker.typePath": "경로를 입력하세요",
@@ -1946,6 +1947,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.project.live": "실행 중 {n}개",
   "sidebar.project.actions": "{name} 작업",
   "sidebar.project.settings": "{name} 프로젝트 설정",
+  "sidebar.project.moveToGroup": "{name} 그룹 이동",
   "sidebar.project.lab": "{name}의 실험",
   "sidebar.project.newExperiment": "{name}에서 새 실험",
   "sidebar.project.newSession": "새 세션",
@@ -1961,6 +1963,17 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "{name} — 세션 {sessions}개, 실행 중 {live}개",
   "sidebar.project.add": "프로젝트 추가",
   "sidebar.project.addButton": "프로젝트 추가",
+
+  // 사이드바 그룹 (issue #745)
+  "sidebar.group.ungrouped": "그룹 없음",
+  "sidebar.group.toggle": "{name} 접기 또는 펼치기",
+  "sidebar.group.reorder": "{name} 그룹 순서 변경",
+  "sidebar.group.reorderTitle": "{name} 그룹 순서 변경 — 드래그하거나 Alt+↑ / Alt+↓",
+  "sidebar.group.rename": "{name} 그룹 이름 변경",
+  "sidebar.group.remove": "{name} 그룹 제거 (프로젝트는 유지됨)",
+  "sidebar.group.projects": "프로젝트 {n}개",
+  "sidebar.group.empty": "프로젝트를 여기로 드래그하세요",
+  "sidebar.group.create": "새 그룹",
 
   "sidebar.filter.placeholder": "세션 필터링…",
   "sidebar.filter.label": "세션 필터링",
@@ -2080,6 +2093,15 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.diagnostics.done": "번들 작성 완료",
   "dialog.diagnostics.retry": "재시도",
   "dialog.diagnostics.cancel": "취소",
+  // SidebarGroupDialog.tsx (issue #745)
+  "dialog.group.createTitle": "새 그룹",
+  "dialog.group.renameTitle": "그룹 이름 변경",
+  "dialog.group.moveTitle": "{name} 그룹 이동",
+  "dialog.group.name": "그룹 이름",
+  "dialog.group.none": "그룹 없음",
+  "dialog.group.newOption": "새 그룹…",
+  "dialog.group.cancel": "취소",
+  "dialog.group.save": "저장",
   "remoteinstances.page.title": "원격 인스턴스",
   "remoteinstances.page.intro":
     "원격 접속이 켜진 다른 omp-ui 앱에 참여합니다. 해당 앱의 프로젝트와 세션이 선택한 별명 아래 사이드바에 표시됩니다.",
