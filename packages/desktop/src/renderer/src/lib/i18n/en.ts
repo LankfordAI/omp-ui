@@ -373,7 +373,6 @@ export const en = {
   "composer.dictation.requesting": "opening the microphone…",
   "composer.dictation.recording": "recording — {seconds}s, release R or click to stop",
   "composer.dictation.transcribing": "transcribing…",
-  "composer.dictation.capped": "recording capped at 60 s — everything up to the cap was transcribed",
   "composer.dictation.errorBlocked":
     "microphone access was blocked — check your OS privacy settings",
   "composer.dictation.errorBusy": "the microphone is busy or missing",
@@ -753,7 +752,7 @@ export const en = {
     "Deleting a session erases its whole lineage dir and every plan implementation descendant; skipping removes the warning. A delete that removes a worktree checkout still asks.",
   "settings.general.voiceInput": "Voice input",
   "settings.general.voiceInputHint":
-    "Adds a microphone button to every composer; recordings are transcribed by the provider below and inserted into the draft, never sent.",
+    "Adds a microphone button to every composer; each phrase is transcribed by the provider below when you pause and inserted into the draft, never sent.",
   "settings.general.dictationModel": "Dictation model",
   "settings.general.dictationModelHint":
     "Discovered from the installed OMP's speech-to-text catalog. Auto uses the first model a stored provider key makes callable.",

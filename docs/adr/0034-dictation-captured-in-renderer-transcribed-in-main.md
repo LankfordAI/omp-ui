@@ -65,3 +65,17 @@ transcriber. Each had a tempting wrong answer this ADR records against.
 - Two global settings (`voiceInputEnabled`, `sttModel`) ride the normal
   registry broadcast; the picker probes once per Settings-General mount like
   the web-search list, never cached.
+
+**Amended 2026-10-05 (#746):** dictation inserts live, phrase by phrase.
+`lib/stt-segmenter.ts` gates each ScriptProcessor chunk on RMS (≥ 0.01) and
+closes a phrase at a 600 ms pause, at 25 s of unbroken audio, or at the stop;
+only 300 ms of pre-roll survives ahead of speech, so silence is never posted,
+and a phrase with under 250 ms of speech is dropped. Each phrase rides the
+unchanged `stt:transcribe` channel the moment it closes; requests overlap,
+insertion is serialized in spoken order, and the first failed phrase ends the
+take — later replies are dropped rather than spliced across a gap. The
+per-take 60 s cap is gone: the providers' 60 s limit is per request and a
+phrase is at most 25 s, which also bounds each base64 payload to ~1.1 MB.
+Escape stops capture and drops replies still in flight; phrases already
+inserted stay as draft text. A live insert never focuses the draft (a held R
+would auto-repeat into it); the drained take focuses it once.

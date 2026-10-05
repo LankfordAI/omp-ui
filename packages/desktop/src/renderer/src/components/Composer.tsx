@@ -7,6 +7,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
 import { BTW_COMMAND } from "@omp-ui/core/side-questions";
@@ -730,28 +731,32 @@ export function Composer({
     [text, caret, atQuery],
   );
 
-  /** Splices a dictation transcript at the caret like pickMention does —
-   *  joined against non-space neighbours, never submitted (issue #647). A
-   *  transcript landing while a slash palette is open just edits the draft. */
+  /** Splices one dictated phrase at the caret like pickMention does — joined
+   *  against non-space neighbours, never submitted, never focusing (issue
+   *  #647, #746). A transcript landing while a slash palette is open just
+   *  edits the draft. */
   const insertAtCaret = useCallback((spoken: string) => {
-    const at = box.current?.selectionStart ?? caret;
-    const before = text.slice(0, at);
-    const after = text.slice(at);
+    const el = box.current;
+    const draft = el?.value ?? text;
+    const at = el?.selectionStart ?? caret;
+    const before = draft.slice(0, at);
+    const after = draft.slice(at);
     const lead = before !== "" && !/\s$/.test(before) ? " " : "";
     const trail = after !== "" && !/^\s/.test(after) ? " " : "";
-    const next = before + lead + spoken + trail + after;
-    setText(next);
     const caretNext = at + lead.length + spoken.length;
-    setCaret(caretNext);
-    // The DOM caret lags the state write by a commit; restore it explicitly.
-    requestAnimationFrame(() => {
-      if (box.current === null) return;
-      box.current.setSelectionRange(caretNext, caretNext);
-      box.current.focus({ preventScroll: true });
+    // Phrases can land back to back with no render between; a synchronous
+    // commit makes the next insert read this one's draft and caret.
+    flushSync(() => {
+      setText(before + lead + spoken + trail + after);
+      setCaret(caretNext);
     });
+    el?.setSelectionRange(caretNext, caretNext);
   }, [text, caret]);
 
-  const voice = useDictation(insertAtCaret);
+  /** A drained take hands the caret back to the draft. */
+  const focusDraft = useCallback(() => box.current?.focus({ preventScroll: true }), []);
+
+  const voice = useDictation({ insert: insertAtCaret, focus: focusDraft });
   useDictationHotkey(tabId, voice);
   /** Commits a draft the ghost produced; the DOM caret lags the state write by a commit. */
   const applyGhostDraft = (next: { text: string; caret: number }): void => {

@@ -916,6 +916,33 @@ describe("Composer dictation (issue #647)", () => {
     expect(micButton()?.classList.contains("text-rose")).toBe(false);
   });
 
+  it("live phrases land at the caret while R is held, focus stays off the draft until release (#746)", async () => {
+    seed("ready");
+    enableVoice();
+    renderComposer();
+    const textarea = typeDraft("hello  world");
+    act(() => textarea.setSelectionRange(6, 6));
+    unfocus();
+    pushKey(document.body, "keydown");
+    await settle();
+    backendMock.transcribeAudio
+      .mockResolvedValueOnce({ text: "first" })
+      .mockResolvedValueOnce({ text: "second" });
+    pull.fire(new Float32Array(48_000).fill(0.2));
+    pull.fire(new Float32Array(33_600));
+    pull.fire(new Float32Array(48_000).fill(0.2));
+    pull.fire(new Float32Array(33_600));
+    for (let i = 0; i < 5; i += 1) await settle();
+    // Both replies settle back to back: the second must read the first's draft.
+    expect(textarea.value).toBe("hello first second world");
+    expect(stopButton()?.getAttribute("aria-pressed")).toBe("true");
+    expect(document.activeElement).not.toBe(textarea);
+    pushKey(document.body, "keyup");
+    for (let i = 0; i < 5; i += 1) await settle();
+    expect(document.activeElement).toBe(textarea);
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
   it("R while the composer textarea is focused stays typing, never records (#707)", async () => {
     seed("ready");
     enableVoice();

@@ -79,9 +79,15 @@ let getUserMedia: ReturnType<typeof vi.fn>;
 let root: Root | null = null;
 let latest: Dictation;
 const inserted: string[] = [];
+let focusCalls = 0;
 
 function Probe(): null {
-  latest = useDictation((text) => inserted.push(text));
+  latest = useDictation({
+    insert: (text) => inserted.push(text),
+    focus: () => {
+      focusCalls += 1;
+    },
+  });
   return null;
 }
 
@@ -152,6 +158,8 @@ function mount(voiceInputEnabled: boolean, ownerId: string | null = null): void 
 /** 1 s of fake signal at 48 kHz: downsamples past the ½ s provider guard. */
 const VOICE = new Float32Array(48_000).fill(0.2);
 const SILENCE = new Float32Array(48_000).fill(0);
+/** 0.7 s of quiet at 48 kHz: past the 600 ms pause that closes a phrase. */
+const PAUSE = new Float32Array(33_600);
 
 async function settle(): Promise<void> {
   await act(async () => {
@@ -160,10 +168,16 @@ async function settle(): Promise<void> {
   });
 }
 
+/** Enough turns for a phrase reply to travel the insertion chain. */
+async function drain(): Promise<void> {
+  for (let i = 0; i < 5; i += 1) await settle();
+}
+
 beforeEach(() => {
   closeCalls = 0;
   stopTrack = vi.fn();
   inserted.length = 0;
+  focusCalls = 0;
   fireOnConnect = null;
   transcribeAudio.mockReset();
   remoteInstanceRequest.mockClear();
@@ -174,7 +188,7 @@ beforeEach(() => {
     value: { getUserMedia },
     configurable: true,
   });
-  // rAF drives the 60 s cap tick; tests never let it run.
+  // rAF drives the elapsed-seconds tick; tests never let it run.
   vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
 });
@@ -371,5 +385,89 @@ describe("useDictation", () => {
     expect(latest.phase).toBe("error");
     expect(latest.error).toBe("no credential for openai — add it in Settings → Providers");
     expect(inserted).toEqual([]);
+  });
+
+  it("inserts each phrase while still recording and focuses once after the drain", async () => {
+    mount(true);
+    transcribeAudio
+      .mockResolvedValueOnce({ text: "first phrase" })
+      .mockResolvedValueOnce({ text: "second phrase" });
+    act(() => latest.toggle());
+    await settle();
+    processor.fire(VOICE);
+    processor.fire(PAUSE);
+    await drain();
+    expect(transcribeAudio).toHaveBeenCalledTimes(1);
+    expect(inserted).toEqual(["first phrase"]);
+    expect(latest.phase).toBe("recording");
+    expect(stopTrack).not.toHaveBeenCalled();
+    expect(focusCalls).toBe(0);
+    processor.fire(VOICE);
+    act(() => latest.toggle());
+    await drain();
+    expect(transcribeAudio).toHaveBeenCalledTimes(2);
+    expect(inserted).toEqual(["first phrase", "second phrase"]);
+    expect(latest.phase).toBe("off");
+    expect(focusCalls).toBe(1);
+  });
+
+  it("lands phrases in spoken order when replies arrive out of order", async () => {
+    const one = Promise.withResolvers<{ text: string }>();
+    const two = Promise.withResolvers<{ text: string }>();
+    transcribeAudio.mockImplementationOnce(() => one.promise).mockImplementationOnce(() => two.promise);
+    mount(true);
+    act(() => latest.toggle());
+    await settle();
+    processor.fire(VOICE);
+    processor.fire(PAUSE);
+    processor.fire(VOICE);
+    processor.fire(PAUSE);
+    two.resolve({ text: "two" });
+    await drain();
+    expect(inserted).toEqual([]);
+    one.resolve({ text: "one" });
+    await drain();
+    expect(inserted).toEqual(["one", "two"]);
+  });
+
+  it("cancel keeps inserted phrases and drops replies in flight", async () => {
+    const gate = Promise.withResolvers<{ text: string }>();
+    transcribeAudio
+      .mockResolvedValueOnce({ text: "kept" })
+      .mockImplementationOnce(() => gate.promise);
+    mount(true);
+    act(() => latest.toggle());
+    await settle();
+    processor.fire(VOICE);
+    processor.fire(PAUSE);
+    await drain();
+    processor.fire(VOICE);
+    processor.fire(PAUSE);
+    act(() => latest.cancel());
+    gate.resolve({ text: "dropped" });
+    await drain();
+    expect(inserted).toEqual(["kept"]);
+    expect(latest.phase).toBe("off");
+    expect(focusCalls).toBe(0);
+  });
+
+  it("a failed phrase ends the take and drops later replies", async () => {
+    const gate = Promise.withResolvers<{ text: string }>();
+    transcribeAudio
+      .mockImplementationOnce(() => gate.promise)
+      .mockResolvedValueOnce({ text: "late" });
+    mount(true);
+    act(() => latest.toggle());
+    await settle();
+    processor.fire(VOICE);
+    processor.fire(PAUSE);
+    processor.fire(VOICE);
+    processor.fire(PAUSE);
+    gate.reject(new Error("Error invoking remote method 'stt:transcribe': Error: rate limited"));
+    await drain();
+    expect(latest.phase).toBe("error");
+    expect(latest.error).toBe("rate limited");
+    expect(inserted).toEqual([]);
+    expect(stopTrack).toHaveBeenCalledTimes(1);
   });
 });

@@ -355,10 +355,11 @@ _Avoid_: upload, media, doc
 
 **Dictation**:
 The composer's speech-to-text path (issue #647, ADR-0034): capture runs in
-the renderer's memory (no MediaRecorder/Blob), transcription runs in the main
-process against the model discovered from omp's STT catalog, and the result is
-inserted at the caret of the draft — never submitted. Gated app-wide by the
-Voice input setting.
+the renderer's memory (no MediaRecorder/Blob); each phrase closes at a pause and
+is transcribed in the main process against the model discovered from omp's STT
+catalog while capture continues, and each transcript is inserted at the caret
+of the draft in spoken order — never submitted. Gated app-wide by the Voice
+input setting.
 _Avoid_: voice typing, speech recognition, push-to-talk
 
 **Auto-title**:
