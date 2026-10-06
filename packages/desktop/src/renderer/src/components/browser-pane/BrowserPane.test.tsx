@@ -132,6 +132,7 @@ function seed(instanceStatus: "joined" | "unreachable" | null, clock = false): v
         browserPane: {
           open: true,
           fullscreen: false,
+          agentOpened: false,
           ensure: "available",
           unavailableReason: null,
           state: {

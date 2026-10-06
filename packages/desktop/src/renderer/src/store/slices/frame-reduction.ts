@@ -394,6 +394,18 @@ export function createFrameReductionSlice(
           get().refreshBranchDiff(cwd, findOwner(get().state, tabId)?.instanceId ?? null);
         return;
       }
+      case "settle-browser-pane-close": {
+        // A deferred #530 symmetric close: the agent detached mid-turn and the
+        // turn has now ended; if it never re-attached, release the pane.
+        const paneView = get().rpc[tabId]?.browserPane;
+        if (
+          paneView?.open === true &&
+          paneView.agentOpened &&
+          (paneView.state?.agent ?? "detached") === "detached"
+        )
+          get().closeBrowserPane(tabId);
+        return;
+      }
       case "rename-session":
         get().renameSession(tabId);
         return;

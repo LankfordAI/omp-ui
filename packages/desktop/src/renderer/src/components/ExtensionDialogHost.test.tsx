@@ -26,7 +26,7 @@ function runtime(queue: unknown[]): RpcTabState {
     plan: null, planReview: null, planReadiness: null, experimentProposal: null, approvalPrompt: null,
     planHtml: null, planText: null, planDeferred: false, advisorStats: null, mcpStatus: null, advisorReply: true, capabilities: null, capabilitiesLoad: "idle", goal: null, vibe: null, sideQuestions: null, autoresearch: null, limits: null,
     subagentControlBusy: {}, subagentControlError: null,
-    browserPane: { open: false, fullscreen: false, ensure: "idle", unavailableReason: null, state: null, frame: null } };
+    browserPane: { open: false, fullscreen: false, agentOpened: false, ensure: "idle", unavailableReason: null, state: null, frame: null } };
 }
 
 function renderRequest(...queue: unknown[]): void {
