@@ -88,6 +88,7 @@ function setup(file: "active" | "archived" | "missing" = "active"): { sessionsRo
         defaultAdvisorModel: null,
         browserClock: false,
         reviewRoster: null,
+        knowledgeHome: null,
       },
     ],
     sessions: [

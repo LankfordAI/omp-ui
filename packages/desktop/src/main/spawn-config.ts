@@ -30,6 +30,7 @@ import {
   writeSideQuestionsExtension,
   writeTreeExtension,
   writeSubagentModelOverlay,
+  writeVaultOverlay,
 } from "@omp-ui/core";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
 
@@ -103,6 +104,11 @@ export function writeSessionOverlays(
     if (overlay !== null) overlays.push(overlay);
   } catch (err) {
     console.warn("[approval] could not write the overlay:", err);
+  }
+  try {
+    overlays.push(writeVaultOverlay(absLineageDir));
+  } catch (err) {
+    console.warn("[vault] could not write the overlay:", err);
   }
   return overlays;
 }

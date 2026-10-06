@@ -51,7 +51,9 @@ export {
   worktreeBranchPrefix,
 } from "./worktree-branch";
 export * from "./vault-shared";
-export { resolveVaultPath, validateVaultRoot, type RootGuard, type VaultRootCheck } from "./knowledge-vault";
+export * from "./knowledge-vault";
+export * from "./line-diff";
+export * from "./vault-overlay";
 export * from "./vault-registry";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";

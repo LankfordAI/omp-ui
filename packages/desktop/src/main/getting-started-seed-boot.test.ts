@@ -50,6 +50,7 @@ const PROJECT: ProjectRecord = {
   defaultAdvisorModel: null,
   browserClock: false,
   reviewRoster: null,
+  knowledgeHome: null,
 };
 
 let base: string;

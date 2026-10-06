@@ -59,6 +59,7 @@ function project(override: Partial<ProjectRecord> & { path: string }): ProjectRe
     defaultAdvisorModel: null,
     browserClock: false,
     reviewRoster: null,
+    knowledgeHome: null,
     ...override,
   };
 }

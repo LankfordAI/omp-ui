@@ -51,6 +51,7 @@ function projectGroups(paths: string[]): ProjectGroup[] {
       defaultAdvisorModel: null,
       browserClock: false,
       reviewRoster: null,
+      knowledgeHome: null,
     },
     sessions: [
       {

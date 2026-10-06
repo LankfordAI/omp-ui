@@ -10,9 +10,8 @@
 /** The one scheme omp-ui registers. Not in omp's reserved built-in set. */
 export const HOST_URI_SCHEME = "omp-ui";
 
-/** The one tool name on the wire — namespaced so a collision (which rejects
-    the WHOLE `set_host_tools` command) can never fire against a built-in or
-    extension tool. */
+/** Namespaced so a collision (which rejects the WHOLE `set_host_tools`
+    command) can never fire against a built-in or extension tool. */
 export const HOST_NOTIFY_TOOL_NAME = "omp-ui_notify";
 
 /** omp's reserved built-in internal-URL schemes; never register one of these. */
@@ -46,6 +45,7 @@ export interface RpcHostToolDefinition {
   description: string;
   parameters: Record<string, unknown>;
   hidden?: boolean;
+  loadMode?: "essential" | "discoverable";
 }
 
 /**
@@ -62,9 +62,9 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
   };
 }
 
-/** The host-tool set registered on every spawn: the single `notify` tool. */
-export function hostToolsDefinition(): RpcHostToolDefinition[] {
-  return [
+/** Notify is always present; registered vaults enable the seven vault tools. */
+export function hostToolsDefinition(opts: { vault: boolean } = { vault: false }): RpcHostToolDefinition[] {
+  const tools: RpcHostToolDefinition[] = [
     {
       name: HOST_NOTIFY_TOOL_NAME,
       description:
@@ -82,6 +82,128 @@ export function hostToolsDefinition(): RpcHostToolDefinition[] {
       },
     },
   ];
+  if (!opts.vault) return tools;
+
+  const vault = {
+    type: "string",
+    description: "Registry name of the vault. Omit to use this project's vault.",
+  };
+  tools.push(
+    {
+      name: "omp-ui_vault_search",
+      loadMode: "essential",
+      description:
+        "Search the user's Obsidian vault by note title, body text, tags and frontmatter values. Every word must match, case-insensitive. Folder paths are not searched; use omp-ui_vault_list for those. Returns the true match count. Search before you create a note.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          query: { type: "string" },
+          vault,
+          limit: { type: "integer", minimum: 1, maximum: 50, default: 10 },
+        },
+        required: ["query"],
+      },
+    },
+    {
+      name: "omp-ui_vault_read",
+      loadMode: "essential",
+      description:
+        "Read one note from the user's Obsidian vault, verbatim with its frontmatter. Returns a baseHash that omp-ui_vault_edit and omp-ui_vault_link require. A bare title resolves like an Obsidian wikilink.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: { type: "string", description: 'vault-relative, ".md" optional, or a bare title' },
+          vault,
+        },
+        required: ["path"],
+      },
+    },
+    {
+      name: "omp-ui_vault_list",
+      loadMode: "essential",
+      description:
+        "List the notes in a vault folder and its subfolders. Defaults to the omp-ui home folder.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          folder: { type: "string", description: "vault-relative" },
+          vault,
+        },
+        required: [],
+      },
+    },
+    {
+      name: "omp-ui_vault_create",
+      loadMode: "essential",
+      description:
+        "Create a note in the omp-ui home folder. omp-ui files it under this project's folder, writes the provenance frontmatter, and links it from the project's index note. Give a Title Case title with no folders and a markdown body with no frontmatter and no repeated title heading. Returns the link to use for this note.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          title: { type: "string" },
+          body: { type: "string" },
+          tags: { type: "array", items: { type: "string" } },
+          project: {
+            type: "boolean",
+            default: true,
+            description: "false files the note at the home-folder root with no project, as for a Day write-up",
+          },
+          vault,
+        },
+        required: ["title", "body"],
+      },
+    },
+    {
+      name: "omp-ui_vault_append",
+      loadMode: "essential",
+      description: "Append markdown to the end of an existing note. Frontmatter is never touched.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: { path: { type: "string" }, text: { type: "string" }, vault },
+        required: ["path", "text"],
+      },
+    },
+    {
+      name: "omp-ui_vault_edit",
+      loadMode: "essential",
+      description:
+        "Replace the body of a note you read this session. Frontmatter is kept byte for byte. Requires the baseHash from your latest omp-ui_vault_read of that path.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: { type: "string" },
+          baseHash: { type: "string" },
+          content: { type: "string" },
+          vault,
+        },
+        required: ["path", "baseHash", "content"],
+      },
+    },
+    {
+      name: "omp-ui_vault_link",
+      loadMode: "essential",
+      description:
+        "Append one wikilink line to a note, typically this project's index note, pointing at another note in the same vault. The target must exist. Requires the baseHash from your latest read of the note being edited.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: { type: "string" },
+          to: { type: "string", description: "vault-relative path or bare title" },
+          baseHash: { type: "string" },
+          vault,
+        },
+        required: ["path", "to", "baseHash"],
+      },
+    },
+  );
+  return tools;
 }
 
 /**
@@ -104,8 +226,11 @@ export function setHostUriSchemesCommand(id = "omp-ui-host-uri-1"): object {
   return { id, type: "set_host_uri_schemes", schemes: [hostUriSchemeDefinition()] };
 }
 
-export function setHostToolsCommand(id = "omp-ui-host-tools-1"): object {
-  return { id, type: "set_host_tools", tools: hostToolsDefinition() };
+export function setHostToolsCommand(
+  opts: { vault: boolean } = { vault: false },
+  id = "omp-ui-host-tools-1",
+): object {
+  return { id, type: "set_host_tools", tools: hostToolsDefinition(opts) };
 }
 
 // Inbound frame parsers. Tolerant like every other frame parser here: only
@@ -177,6 +302,24 @@ export type HostResultFrame = {
   type: "host_tool_result" | "host_uri_result";
   id: string;
 };
+
+export type HostToolContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
+export function hostToolResult(
+  id: string,
+  content: HostToolContent[],
+  details: Record<string, unknown>,
+  isError = false,
+): HostResultFrame {
+  return {
+    type: "host_tool_result",
+    id,
+    ...(isError ? { isError: true } : {}),
+    result: { content, details },
+  };
+}
 
 export function hostToolTextResult(id: string, text: string): HostResultFrame {
   return {

@@ -32,6 +32,7 @@ const projectGroup = (path: string, name: string): ProjectGroup => ({
     defaultAdvisorModel: null,
     browserClock: false,
     reviewRoster: null,
+    knowledgeHome: null,
   },
   sessions: [],
 });

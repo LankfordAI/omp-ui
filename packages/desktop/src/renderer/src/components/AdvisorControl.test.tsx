@@ -36,6 +36,7 @@ const PROJECT = {
   defaultAdvisorModel: null,
   browserClock: false,
   reviewRoster: null,
+  knowledgeHome: null,
 };
 
 const advisorA: ModelInfo = { id: "advisor-a", name: "Advisor A", provider: "p" };

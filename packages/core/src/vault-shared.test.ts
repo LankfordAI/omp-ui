@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { normalizeHomeFolder, obsidianOpenUri, parseVaultDetails, vaultNameFromPath } from "./vault-shared";
+import { isKnowledgeHome, normalizeHomeFolder, obsidianOpenUri, parseVaultDetails, vaultNameFromPath } from "./vault-shared";
+
+describe("isKnowledgeHome", () => {
+  it("accepts each home with an absent or nonempty vault pin", () => {
+    for (const home of ["docs", "vault", "both"]) {
+      expect(isKnowledgeHome({ home })).toBe(true);
+      expect(isKnowledgeHome({ home, vault: "My Vault" })).toBe(true);
+    }
+  });
+
+  it("rejects malformed homes, unknown keys, and present invalid vault pins", () => {
+    for (const value of [
+      null, undefined, false, "vault", [], ["vault"], {},
+      { home: "other" }, { home: 1 }, { home: null },
+      { home: "vault", folder: "notes" },
+      { home: "vault", vault: undefined }, { home: "vault", vault: null },
+      { home: "vault", vault: "" }, { home: "vault", vault: 1 },
+    ]) {
+      expect(isKnowledgeHome(value), JSON.stringify(value)).toBe(false);
+    }
+  });
+});
 
 describe("obsidianOpenUri", () => {
   it("matches the spec examples byte for byte", () => {

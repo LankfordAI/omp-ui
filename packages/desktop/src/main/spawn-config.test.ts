@@ -94,6 +94,36 @@ describe("writeRpcExtensions", () => {
   });
 });
 
+describe("writeSessionOverlays vault pin", () => {
+  it("appends one vault-disabled pin after the approval overlay on every rewrite", () => {
+    const dir = tmp();
+    const file = path.join(dir, "omp-ui-vault.yml");
+    fs.writeFileSync(file, "vault:\n  enabled: true\n");
+    const record = ownedSessionRecord({ approvalMode: "always-ask" });
+    for (let launch = 0; launch < 2; launch += 1) {
+      const overlays = writeSessionOverlays(record, dir);
+      expect(overlays.filter((overlay) => overlay === file)).toEqual([file]);
+      expect(overlays.at(-2)).toBe(path.join(dir, "omp-ui-approval.yml"));
+      expect(overlays.at(-1)).toBe(file);
+      expect(fs.readFileSync(file, "utf8")).toBe("vault:\n  enabled: false\n");
+    }
+  });
+
+  it("warns and preserves the other overlays if the vault pin cannot be written", () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, "omp-ui-vault.yml"));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const overlays = writeSessionOverlays(ownedSessionRecord({ approvalMode: "write" }), dir);
+      expect(overlays).toContain(path.join(dir, "omp-ui-approval.yml"));
+      expect(overlays).not.toContain(path.join(dir, "omp-ui-vault.yml"));
+      expect(warning).toHaveBeenCalledExactlyOnceWith("[vault] could not write the overlay:", expect.any(Error));
+    } finally {
+      warning.mockRestore();
+    }
+  });
+});
+
 
 describe("writeSessionOverlays — subagent overlay (ADR-0031)", () => {
   it("umbrella on + no session choice: every roster name inherits the session model", () => {

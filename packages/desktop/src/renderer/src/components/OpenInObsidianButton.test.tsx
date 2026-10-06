@@ -51,6 +51,7 @@ function remoteOwnedState(): BackendState {
               defaultAdvisorModel: null,
               browserClock: false,
               reviewRoster: null,
+              knowledgeHome: null,
             },
             sessions: [
               {
