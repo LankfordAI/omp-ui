@@ -46,18 +46,20 @@ The root scripts delegate to the npm workspaces where appropriate.
 | Package the default target | `npm run package` | Runs the Linux packaging script. |
 | Preview release notes | `npm run notes` | Runs `scripts/release-notes.mjs` to render a release's notes body locally from git history and the GitHub API, for example `npm run notes -- --tag v0.9.12 --stdout`. Read-only; writes nothing to GitHub. |
 | Test all workspaces | `npm test` | Runs each workspace's `test` script. The desktop test script checks generated themes before Vitest. |
-| Test process-backed live proofs | `npm run test:live` | Runs the desktop `src/main/**/*-live.test.ts` integration proofs serially against the real omp binary. Skips cleanly when no omp binary is installed. CI runs this after `npm test`. |
+| Test process-backed live proofs | `npm run test:live` | Runs the desktop `src/main/**/*-live.test.ts` integration proofs serially against the real omp binary. Skips cleanly when no omp binary is installed. CI runs this after `npm test`. Includes the Knowledge vault live test (`knowledge-vault-live.test.ts`): registration of the seven `omp-ui_vault_*` tools always; a real search call and an `omp-ui://sessions` read when an API key is set. |
 | Type-check all workspaces | `npm run typecheck` | Runs each workspace's `typecheck` script. |
 | Lint the repository | `npm run lint` | Runs ESLint from the root. |
 | Audit visible strings | `python3 scripts/scan-visible-strings.py` | Heuristic list of renderer chrome literals that may still need an i18n `t()` key (issue #363). Read-only; triage hits by hand — brand names, hotkeys, paths, commands, and data labels are intentionally outside localization. |
 
 `npm run dev` hot reloads the desktop renderer. Restart it when a main-process, preload, native-module, or startup environment change cannot be picked up by the running process.
 
-CI runs lint before typecheck, tests, build, and the browser-pane smoke. Unused
-declarations are lint errors: remove obsolete helpers and fixtures rather than
-disabling the rule (issue #742). When lint stops the job, the later smoke-summary
-upload can also report no files because the smoke never ran; diagnose the first
-failed check before treating that upload error as a browser-pane failure.
+CI runs the knowledge-vault smoke right after the node-pty smoke, then lint
+before typecheck, tests, build, and the browser-pane smoke. Unused declarations
+are lint errors: remove obsolete helpers and fixtures rather than disabling the
+rule (issue #742). When lint
+stops the job, the later smoke-summary upload can also report no files because
+the smoke never ran; diagnose the first failed check before treating that
+upload error as a browser-pane failure.
 
 The subagent-model live proof inherits the local omp parent model. That model
 must be served by its configured provider; a provider rejection prevents the
@@ -79,6 +81,12 @@ npm run smoke:pty --workspace @omp-ui/desktop
 # runner for same-repo events, a hosted runner (headless Ozone, Xvfb fallback)
 # for fork pull requests.
 npm run smoke:browser-pane --workspace @omp-ui/desktop
+
+# Node-posture smoke of the Knowledge vault host tools against a generated
+# fixture vault (S1-S8); writes out/knowledge-vault-smoke/summary.json. No
+# display, no Obsidian. --volume=1000,5000 sets the search sizes (20000 is
+# opt-in, recorded, not gating); --slow adds the 60 s watchdog row (S9).
+npm run smoke:knowledge-vault --workspace @omp-ui/desktop
 
 # Regenerate committed theme CSS from theme-sources.json.
 npm run themes:generate --workspace @omp-ui/desktop
@@ -275,6 +283,7 @@ The main CI job uses Node 22 and runs these commands in order:
 ```bash
 npm ci
 npm run smoke:pty --workspace @omp-ui/desktop
+npm run smoke:knowledge-vault --workspace @omp-ui/desktop
 npm run lint
 npm install --package-lock-only
 git diff --exit-code package-lock.json

@@ -38,6 +38,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run smoke:pty --workspace @omp-ui/desktop
+      - run: npm run smoke:knowledge-vault --workspace @omp-ui/desktop
       - run: npm run lint
         # npm ci validates the dependency tree but not workspace metadata —
         # a version stamped without regenerating the lock (issue #90) passes
@@ -75,5 +76,13 @@ jobs:
         with:
           name: browser-pane-smoke-summary
           path: packages/desktop/out/browser-pane-smoke/**/summary.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish the knowledge vault smoke summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-vault-smoke-summary
+          path: packages/desktop/out/knowledge-vault-smoke/summary.json
           if-no-files-found: error
           retention-days: 14
