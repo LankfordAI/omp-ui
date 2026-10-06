@@ -3,14 +3,17 @@ productName: omp-ui
 executableName: omp-ui
 directories:
   output: dist
+# A platform block's `files` REPLACES this list (electron-builder 26; issue
+# #771), so every platform block repeats it in full. Keep the four in sync.
 files:
   - out/**
   - package.json
   # Developer smoke entries (npm run smoke:browser-pane, smoke:knowledge-vault)
-  # and the knowledge-vault smoke's summary folder; never shipped.
+  # and their summary folders; never shipped.
   - "!out/main/browser-pane-smoke.js"
   - "!out/main/knowledge-vault-smoke.js"
   - "!out/knowledge-vault-smoke{,/**/*}"
+  - "!out/browser-pane-smoke{,/**/*}"
   # node-pty ships every platform's prebuilt addon plus MSVC debug symbols; the
   # platform blocks below keep only what that platform's runtime can load.
   - "!**/node_modules/node-pty/prebuilds/**/*.pdb"
@@ -30,6 +33,12 @@ linux:
   synopsis: Desktop GUI for the omp coding agent
   maintainer: Austin Lankford <austin@austinlankford.com>
   files:
+    - out/**
+    - package.json
+    - "!out/main/browser-pane-smoke.js"
+    - "!out/main/knowledge-vault-smoke.js"
+    - "!out/knowledge-vault-smoke{,/**/*}"
+    - "!out/browser-pane-smoke{,/**/*}"
     # No Linux prebuild exists; npm ci compiles build/Release/pty.node.
     - "!**/node_modules/node-pty/prebuilds{,/**/*}"
 mac:
@@ -44,6 +53,13 @@ mac:
     - dmg
     - zip
   files:
+    - out/**
+    - package.json
+    - "!out/main/browser-pane-smoke.js"
+    - "!out/main/knowledge-vault-smoke.js"
+    - "!out/knowledge-vault-smoke{,/**/*}"
+    - "!out/browser-pane-smoke{,/**/*}"
+    - "!**/node_modules/node-pty/prebuilds/**/*.pdb"
     - "!**/node_modules/node-pty/prebuilds/win32-*{,/**/*}"
 dmg:
   # The release uploads the DMG, ZIP, and checksums; latest-mac.yml never names
@@ -55,6 +71,13 @@ win:
   icon: build/icon.ico
   artifactName: ${productName}-${version}-windows-preview-${arch}-setup.${ext}
   files:
+    - out/**
+    - package.json
+    - "!out/main/browser-pane-smoke.js"
+    - "!out/main/knowledge-vault-smoke.js"
+    - "!out/knowledge-vault-smoke{,/**/*}"
+    - "!out/browser-pane-smoke{,/**/*}"
+    - "!**/node_modules/node-pty/prebuilds/**/*.pdb"
     - "!**/node_modules/node-pty/prebuilds/darwin-*{,/**/*}"
     # package:win builds x64 only.
     - "!**/node_modules/node-pty/prebuilds/win32-arm64{,/**/*}"
