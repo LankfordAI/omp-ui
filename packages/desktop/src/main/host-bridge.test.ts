@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type ObsidianListEntry, type RpcFrame, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
+import { PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
 import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type HostBridgeDeps, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
 import type { ConfinedPlanRead } from "./plan-file";
 
@@ -206,7 +206,7 @@ describe("HostBridge omp-ui://plan", () => {
     f.bridge.route("t1", uriRequestFrame("u3", "omp-ui://plan", "write"), f.send);
     await settled();
     expect(f.sent[0]).toMatchObject({ isError: true, error: 'omp-ui registers no scheme "local://"' });
-    expect(f.sent[1]).toMatchObject({ isError: true, error: 'unknown omp-ui resource "settings"; available: plan' });
+    expect(f.sent[1]).toMatchObject({ isError: true, error: 'unknown omp-ui resource "settings"; available: plan, sessions' });
     expect(f.sent[2]).toMatchObject({ isError: true, error: "the omp-ui:// scheme is read-only" });
   });
 
@@ -220,6 +220,116 @@ describe("HostBridge omp-ui://plan", () => {
     // A different id: the plan belonged to the predecessor.
     f.bridge.noteFrame("t1", { type: "session_info_update", sessionId: "session-b" });
     expect(f.bridge.planPath("t1")).toBeNull();
+  });
+});
+
+describe("HostBridge omp-ui://sessions", () => {
+  const DAY_REFUSAL = "day must be a calendar date in YYYY-MM-DD form, for example 2026-10-06";
+
+  function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRecord {
+    return {
+      tabId: "tab-1",
+      sessionId: "sess-1",
+      lineageDir: "omp-ui--proj--11111111-2222-3333-4444-555555555555",
+      projectCwd: "/abs/proj",
+      worktree: null,
+      planImplementationSource: null, experiment: null,
+      launchedAt: new Date(2026, 9, 6, 9).toISOString(),
+      mode: "rpc-ui",
+      compactionMethod: null,
+      approvalMode: null,
+      serviceTier: null,
+      model: null,
+      thinkingLevel: null,
+      advisor: false,
+      advisorModel: null,
+      subagentModels: null,
+      proposedPlans: [],
+      cachedTitle: "Ship the day index",
+      cachedModified: new Date(2026, 9, 6, 10, 30).toISOString(),
+      agentMode: "build",
+      ...patch,
+    };
+  }
+
+  function sessionsFixture(records: OwnedSessionRecord[] = [sessionRecord()]): {
+    bridge: HostBridge;
+    sent: RpcFrame[];
+    send: (frame: RpcFrame) => void;
+  } {
+    const sessions: SessionsResourceDeps = {
+      records: () => records,
+      projects: () => [],
+      locate: async () => ({ where: "missing" }),
+      now: () => new Date(2026, 9, 6, 12),
+    };
+    const sent: RpcFrame[] = [];
+    return { bridge: new HostBridge({ ...fixtureDeps(), sessions }), sent, send: (frame) => sent.push(frame) };
+  }
+
+  async function read(f: { bridge: HostBridge; sent: RpcFrame[]; send: (frame: RpcFrame) => void }, url: string): Promise<RpcFrame> {
+    const id = `u${f.sent.length + 1}`;
+    f.bridge.route("t1", uriRequestFrame(id, url), f.send);
+    await vi.waitFor(() => expect(f.sent.find((frame) => frame.id === id)).toBeDefined());
+    return f.sent.find((frame) => frame.id === id) as RpcFrame;
+  }
+
+  it("answers that the index is off when no sessions deps are wired", async () => {
+    const f = fixture();
+    f.bridge.route("t1", uriRequestFrame("u1", "omp-ui://sessions"), f.send);
+    f.bridge.route("t1", uriRequestFrame("u2", "omp-ui://sessions/x/summary"), f.send);
+    await settled();
+    for (const id of ["u1", "u2"]) {
+      expect(f.sent.find((frame) => frame.id === id)).toMatchObject({
+        type: "host_uri_result",
+        isError: true,
+        error: "the session index is not available in this session",
+      });
+    }
+  });
+
+  it("refuses an impossible day as an error result", async () => {
+    const f = sessionsFixture();
+    expect(await read(f, "omp-ui://sessions?day=2026-02-30")).toMatchObject({
+      type: "host_uri_result",
+      isError: true,
+      error: DAY_REFUSAL,
+    });
+  });
+
+  it("serves the requested day's index as markdown, ignoring other query keys", async () => {
+    const f = sessionsFixture();
+    const frame = await read(f, "omp-ui://sessions?day=2026-10-06&x=1");
+    expect(frame).toMatchObject({ type: "host_uri_result", contentType: "text/markdown" });
+    expect(frame.isError).toBeUndefined();
+    const content = frame.content as string;
+    expect(content.startsWith("# Sessions on 2026-10-06")).toBe(true);
+    expect(content).toContain("Ship the day index");
+  });
+
+  it("defaults to now()'s local day without a query", async () => {
+    const f = sessionsFixture();
+    const frame = await read(f, "omp-ui://sessions");
+    const content = frame.content as string;
+    expect(content.startsWith("# Sessions on 2026-10-06")).toBe(true);
+    expect(content).toContain("omp-ui://sessions/sess-1/summary");
+  });
+
+  it("refuses an unknown session id", async () => {
+    const f = sessionsFixture();
+    expect(await read(f, "omp-ui://sessions/nope/summary")).toMatchObject({
+      isError: true,
+      error: 'no omp-ui session has id "nope"',
+    });
+  });
+
+  it("serves a known session's summary, with the unavailable line when the transcript is missing", async () => {
+    const f = sessionsFixture();
+    const frame = await read(f, "omp-ui://sessions/sess-1/summary");
+    expect(frame).toMatchObject({ type: "host_uri_result", contentType: "text/markdown" });
+    const content = frame.content as string;
+    expect(content).toContain("## Where it landed");
+    expect(content).toContain("Summary unavailable: the transcript could not be read.");
   });
 });
 

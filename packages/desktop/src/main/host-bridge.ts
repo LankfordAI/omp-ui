@@ -13,9 +13,12 @@ import {
   parseHostUriCancel,
   parseHostUriRequest,
   parseHostUrl,
+  parseDayParam,
   parsePlanReviewTitle,
   parsePlanStatus,
   PLAN_STATUS_KEY,
+  renderDayIndex,
+  renderSessionSummary,
   obsidianIdFor,
   scanSecrets,
   validateVaultRoot,
@@ -35,6 +38,7 @@ import {
   type VaultRegistry,
   type VaultRegistryEntry,
   type VaultToolDetails,
+  type SessionsResourceDeps,
   type HostUriContentType,
   type RpcFrame,
 } from "@omp-ui/core";
@@ -80,6 +84,8 @@ export interface HostBridgeDeps {
   capabilitySessionId: (tabId: string) => string | null;
   log: (message: string) => void;
   vault?: VaultBridgeDeps;
+  /** Owned-session records behind omp-ui://sessions; absent means the index is off. */
+  sessions?: SessionsResourceDeps;
 }
 
 interface PendingHostAnswer {
@@ -96,7 +102,8 @@ interface PendingHostAnswer {
  * must answer each request exactly once. The bridge keeps the per-tab
  * answer bookkeeping: the pending map with its watchdog, the answered-id
  * set that fences the renderer's fallback stub, and the last observed plan
- * path `omp-ui://plan` resolves against.
+ * path `omp-ui://plan` resolves against; `omp-ui://sessions` reads the
+ * owned-session records through `deps.sessions`.
  */
 export class HostBridge {
   private readonly pending = new Map<string, PendingHostAnswer>();
@@ -481,12 +488,19 @@ export class HostBridge {
       );
       return;
     }
-    if (parsed.resource !== "plan") {
+    const queryAt = parsed.resource.indexOf("?");
+    const resourcePath = queryAt === -1 ? parsed.resource : parsed.resource.slice(0, queryAt);
+    const query = queryAt === -1 ? "" : parsed.resource.slice(queryAt + 1);
+    if (resourcePath === "sessions" || SESSION_SUMMARY_RESOURCE.test(resourcePath)) {
+      await this.answerSessions(request.id, resourcePath, query, send);
+      return;
+    }
+    if (resourcePath !== "plan") {
       this.answer(
         request.id,
         hostUriErrorResult(
           request.id,
-          `unknown ${HOST_URI_SCHEME} resource "${parsed.resource}"; available: plan`,
+          `unknown ${HOST_URI_SCHEME} resource "${parsed.resource}"; available: plan, sessions`,
         ),
         send,
       );
@@ -528,7 +542,45 @@ export class HostBridge {
     }
     this.answer(request.id, hostUriReadResult(request.id, read.text, planContentType(absPath)), send);
   }
+
+  private async answerSessions(
+    id: string,
+    resourcePath: string,
+    query: string,
+    send: (frame: RpcFrame) => void,
+  ): Promise<void> {
+    const sessions = this.deps.sessions;
+    if (sessions === undefined) {
+      this.answer(id, hostUriErrorResult(id, "the session index is not available in this session"), send);
+      return;
+    }
+    const summary = SESSION_SUMMARY_RESOURCE.exec(resourcePath);
+    if (summary === null) {
+      const day = parseDayParam(new URLSearchParams(query).get("day"), sessions.now());
+      if (!day.ok) {
+        this.answer(id, hostUriErrorResult(id, day.error), send);
+        return;
+      }
+      this.answer(
+        id,
+        hostUriReadResult(id, renderDayIndex(sessions.records(), sessions.projects(), day.day), "text/markdown"),
+        send,
+      );
+      return;
+    }
+    const sessionId = summary[1] as string;
+    const record = sessions.records().find((candidate) => candidate.sessionId === sessionId);
+    if (record === undefined) {
+      this.answer(id, hostUriErrorResult(id, `no omp-ui session has id "${sessionId}"`), send);
+      return;
+    }
+    const text = await renderSessionSummary(record, sessions.projects(), (dir, sid) => sessions.locate(dir, sid));
+    this.answer(id, hostUriReadResult(id, text, "text/markdown"), send);
+  }
 }
+
+/** `omp-ui://sessions/<id>/summary`: one owned session's summary (#768). */
+const SESSION_SUMMARY_RESOURCE = /^sessions\/([^/?#]+)\/summary$/;
 
 /** The plan's content type follows its file extension. HTML plans serve as markdown here: omp's InternalResource contentType has no html member (verified against omp 18.4.3), and the document's own markup rides through as text. */
 function planContentType(absPath: string): HostUriContentType {
