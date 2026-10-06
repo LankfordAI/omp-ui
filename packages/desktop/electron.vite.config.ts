@@ -10,10 +10,13 @@ export default defineConfig({
       // ws require()s these optional native accelerators inside try/catch and falls back to JS.
       rollupOptions: {
         // browser-pane-smoke is the Electron-runtime smoke of the pane host
-        // (spec 5.7); electron-builder.yml excludes it from the package.
+        // (spec 5.7); knowledge-vault-smoke is the Node-posture smoke of the
+        // Knowledge vault host tools (#769). electron-builder.yml excludes
+        // both from the package.
         input: {
           index: resolve("src/main/index.ts"),
           "browser-pane-smoke": resolve("src/main/browser-pane-smoke.ts"),
+          "knowledge-vault-smoke": resolve("src/main/knowledge-vault-smoke.ts"),
         },
         external: ["bufferutil", "utf-8-validate"],
         // Shared chunks sit beside index.js, not in chunks/: modules resolving

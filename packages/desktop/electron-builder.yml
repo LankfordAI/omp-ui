@@ -6,8 +6,11 @@ directories:
 files:
   - out/**
   - package.json
-  # Developer smoke entry (npm run smoke:browser-pane); never shipped.
+  # Developer smoke entries (npm run smoke:browser-pane, smoke:knowledge-vault)
+  # and the knowledge-vault smoke's summary folder; never shipped.
   - "!out/main/browser-pane-smoke.js"
+  - "!out/main/knowledge-vault-smoke.js"
+  - "!out/knowledge-vault-smoke{,/**/*}"
   # node-pty ships every platform's prebuilt addon plus MSVC debug symbols; the
   # platform blocks below keep only what that platform's runtime can load.
   - "!**/node_modules/node-pty/prebuilds/**/*.pdb"
