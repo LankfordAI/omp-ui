@@ -13,6 +13,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Added Knowledge vault write cards and the "Vault notes" rail section: each vault create, append, edit, or link renders as its own card with Open in Obsidian, a write into a note omp-ui did not create carries a copper "Not created by omp-ui" marker, and the inspector rail's Session pane lists the Vault notes touched this session ([#767](https://github.com/LankfordAI/omp-ui/issues/767)).
 - Added the Day write-up: with a Knowledge vault registered, a native session can read the day's omp-ui session index and per-session summaries (omp-ui://sessions) and, when asked, write one cross-project Day write-up into the vault ([#768](https://github.com/LankfordAI/omp-ui/issues/768)).
 - Added the Knowledge vault smoke (`npm run smoke:knowledge-vault`) and live test, and CI now runs the smoke and publishes its summary ([#769](https://github.com/LankfordAI/omp-ui/issues/769)).
+- Fixed `npm run smoke:knowledge-vault` on Windows: it no longer needs a POSIX shell, and its fixture vault links outside itself through a junction there, so it runs without symlink privileges ([#772](https://github.com/LankfordAI/omp-ui/issues/772)).
 
 ## Choose a download
 

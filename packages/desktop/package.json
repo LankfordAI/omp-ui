@@ -25,7 +25,7 @@
     "package:win": "npm run build && electron-builder --win --x64",
     "smoke:pty": "node scripts/smoke-node-pty.cjs",
     "smoke:browser-pane": "electron-vite build && electron out/main/browser-pane-smoke.js",
-    "smoke:knowledge-vault": "electron-vite build && ELECTRON_RUN_AS_NODE=1 electron out/main/knowledge-vault-smoke.js",
+    "smoke:knowledge-vault": "electron-vite build && node scripts/electron-node.cjs out/main/knowledge-vault-smoke.js",
     "icon": "node scripts/render-icon.mjs",
     "themes:generate": "node scripts/generate-theme-css.mjs",
     "themes:check": "node scripts/generate-theme-css.mjs --check",

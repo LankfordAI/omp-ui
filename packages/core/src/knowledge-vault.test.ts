@@ -141,6 +141,12 @@ describe("resolveVaultPath", () => {
     expect(await resolveVaultPath(vault, "/abs")).toEqual({ ok: false, reason: "absolute paths are refused: /abs" });
     expect(await resolveVaultPath(vault, "C:\\x")).toEqual({ ok: false, reason: "absolute paths are refused: C:\\x" });
     expect(await resolveVaultPath(vault, "../x")).toEqual({ ok: false, reason: '".." segments are refused: ../x' });
+    expect(await resolveVaultPath(vault, "..\\x")).toEqual({ ok: false, reason: '".." segments are refused: ..\\x' });
+    expect(await resolveVaultPath(vault, "omp-ui\\..\\..\\x")).toEqual({
+      ok: false,
+      reason: '".." segments are refused: omp-ui\\..\\..\\x',
+    });
+    expect(await resolveVaultPath(vault, "\\abs")).toEqual({ ok: false, reason: "absolute paths are refused: \\abs" });
     expect(await resolveVaultPath(vault, ".obsidian/x.md")).toEqual({
       ok: false,
       reason: 'hidden segments (starting with ".") are refused: .obsidian/x.md',

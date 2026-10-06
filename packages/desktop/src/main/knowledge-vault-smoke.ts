@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as zlib from "node:zlib";
 import { spawnSync } from "node:child_process";
 import {
+  Registry,
   parseVaultDetails,
   resolveSessionLocation,
   type ObsidianListEntry,
@@ -78,7 +79,7 @@ const summary = {
   indexLinesAdded: null as number | null,
   collision: { created: false, resultNamesCollision: false, noSuffix: false },
   volume: [] as VolumeRow[],
-  day: { rowCount: null as number | null, collapsed: false, gzTailFound: false, activeRootClean: false, userTextFound: null as boolean | null },
+  day: { registryLoaded: false, rowCount: null as number | null, collapsed: false, gzTailFound: false, activeRootClean: false, userTextFound: null as boolean | null },
   dayRerun: { created: false, dupRefused: false, editRan: false, dupFiles: null as number | null },
   secrets: { refused: false, prosePassed: false },
   escape: { refused: [] as boolean[], unreachableIsError: false, answersAfter: false },
@@ -234,9 +235,14 @@ async function run(base: string): Promise<void> {
   const now = new Date();
   const today = localDay(now);
   const records = sessionRecords(now);
+  // The shipped SessionManager answers from a Registry loaded off disk (index.ts reads
+  // OMP_UI_REGISTRY_PATH or userData/registry.json); S4 loads its fixture the same way.
+  const registryFile = path.join(base, "registry.json");
+  fs.writeFileSync(registryFile, `${JSON.stringify({ schemaVersion: 1, projects: [], sessions: records }, null, 2)}\n`);
+  const fixtureRegistry = Registry.load(registryFile);
   const sessions: SessionsResourceDeps = {
-    records: () => records,
-    projects: () => [],
+    records: () => fixtureRegistry.sessions,
+    projects: () => fixtureRegistry.projects,
     locate: (dir, sid) => resolveSessionLocation(sessionsRoot, archiveRoot, dir, sid),
     now: () => new Date(),
   };
@@ -312,7 +318,7 @@ async function run(base: string): Promise<void> {
   });
 
   await step("S4", async () => {
-    fs.writeFileSync(path.join(base, "registry.json"), `${JSON.stringify({ schemaVersion: 1, projects: [], sessions: records }, null, 2)}\n`);
+    summary.day.registryLoaded = fixtureRegistry.sessions.length === records.length;
     writeArchivedTranscript(archiveRoot);
     const before = listing(sessionsRoot);
     const index = await read(`omp-ui://sessions?day=${today}`);
@@ -325,6 +331,7 @@ async function run(base: string): Promise<void> {
     summary.day.gzTailFound = gzText.includes("GZ-TAIL-769");
     summary.day.activeRootClean = JSON.stringify(listing(sessionsRoot)) === JSON.stringify(before);
     summary.day.userTextFound = texts.some((text) => text.includes("USER-MARKER-769"));
+    gate("S4.registryLoaded", summary.day.registryLoaded);
     gate("S4.rowCount", summary.day.rowCount === 2);
     gate("S4.collapsed", summary.day.collapsed);
     gate("S4.gzTailFound", summary.day.gzTailFound);
