@@ -29,6 +29,8 @@ import { Markdown, linkify, OpenExternalLink } from "./Markdown";
 import { openImageViewer } from "./ImageViewer";
 import { PlanCard } from "./PlanCard";
 import { AdvisoryNotes, ToolCard } from "./ToolCard";
+import { VaultToolCard } from "./VaultToolCard";
+import { VAULT_WRITE_TOOLS } from "@omp-ui/core/vault-shared";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import {
   Chip,
@@ -746,7 +748,12 @@ const TranscriptRow = memo(function TranscriptRow({
     case "assistant":
       return <AssistantBlock item={item} />;
     case "tool":
-      return <ToolCard item={item} tabId={tabId} />;
+      // The four vault write tools get their own card (issue #767); reads, search and list stay generic.
+      return VAULT_WRITE_TOOLS.some((name) => name === item.name) ? (
+        <VaultToolCard item={item} tabId={tabId} />
+      ) : (
+        <ToolCard item={item} tabId={tabId} />
+      );
     case "advisory":
       return (
         <div className="animate-rise">

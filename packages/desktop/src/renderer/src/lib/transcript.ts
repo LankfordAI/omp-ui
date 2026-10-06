@@ -4,6 +4,7 @@ import { boolField, field, isObj, numField, str, strField } from "./fields";
 import { splitResolvedMentionContext } from "./mentions";
 import { splitDocumentContext, type DocumentRef } from "./document-context";
 import { parseOmpDiff, type DiffRow } from "./omp-diff";
+import { parseVaultDetails, type VaultToolDetails } from "@omp-ui/core/vault-shared";
 
 export interface AdvisorNote {
   note: string;
@@ -81,6 +82,8 @@ export interface ToolItem {
   /** bash details.wallTimeMs. */
   wallTimeMs?: number;
   notes?: AdvisorNote[];
+  /** omp-ui vault host tool result details (issue #767): the card and the rail's Vault notes read it. */
+  vault?: VaultToolDetails;
   /** Model is still generating this call's args — no tool_execution_start yet (issue #97). */
   argsStreaming?: boolean;
   /** assistantMessageEvent.contentIndex, correlating stream deltas within one message. */
@@ -821,6 +824,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         resultText: result ? textFromContent(result.content) : undefined,
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
+        vault: parseVaultDetails(details) ?? undefined,
         ...detailFacts(details),
         ...imagesField(result ? result.content : undefined, details),
       };
@@ -1035,6 +1039,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         resultText: textFromContent(raw.content),
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
+        vault: parseVaultDetails(details) ?? undefined,
         ...detailFacts(details),
         ...imagesField(raw.content, details),
       };

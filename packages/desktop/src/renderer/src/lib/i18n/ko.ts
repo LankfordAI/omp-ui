@@ -297,6 +297,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.vault.openInObsidian": "Obsidian에서 열기",
   "transcript.vault.copyTitle": "obsidian:// 링크를 복사합니다. 이 볼트가 있는 컴퓨터에 붙여 넣으세요.",
   "transcript.vault.linkCopied": "링크 복사됨",
+  "transcript.vault.created": "생성됨",
+  "transcript.vault.appended": "덧붙임",
+  "transcript.vault.edited": "편집됨",
+  "transcript.vault.notCreated": "omp-ui가 만들지 않음",
 
   "composer.placeholder.exited": "에이전트 종료됨 — 계속하려면 재개",
   "composer.placeholder.restarting": "어드바이저 재시작 중…",
@@ -1679,6 +1683,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.stats.emptyTitle": "아직 통계 없음",
   "rail.stats.emptyHint": "세션의 토큰 및 비용 내역을 가져오려면 새로고침하세요.",
   "rail.stats.refresh": "통계 새로고침",
+
+  "rail.vault.title": "볼트 노트",
+  "rail.vault.empty": "아직 볼트 노트가 없습니다",
 
   "rail.session.title": "세션",
   "rail.session.path": "경로",

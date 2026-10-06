@@ -332,6 +332,34 @@ describe("reduceEvent tool executions", () => {
     expect(t?.notes).toEqual([{ note: "careful", severity: "concern", advisor: "sec" }]);
   });
 
+  it("carries parsed vault details onto omp-ui vault tool cards only", () => {
+    const details = {
+      vaultName: "Notes",
+      vaultId: null,
+      path: "omp-ui/Plain.md",
+      action: "append",
+      createdByOmpUi: false,
+      title: "Plain",
+      preview: "tail",
+    };
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "tool_execution_start", toolCallId: "v1", toolName: "omp-ui_vault_append" });
+    items = reduceEvent(items, {
+      type: "tool_execution_end",
+      toolCallId: "v1",
+      result: { content: [{ type: "text", text: "appended" }], details },
+    });
+    items = reduceEvent(items, { type: "tool_execution_start", toolCallId: "b1", toolName: "bash" });
+    items = reduceEvent(items, {
+      type: "tool_execution_end",
+      toolCallId: "b1",
+      result: { content: [{ type: "text", text: "ok" }], details: { wallTimeMs: 5 } },
+    });
+
+    expect(tool(items, "v1")?.vault).toEqual(details);
+    expect(tool(items, "b1")?.vault).toBeUndefined();
+  });
+
   it("marks isError results as error", () => {
     let items: RenderItem[] = [];
     items = reduceEvent(items, { type: "tool_execution_start", toolCallId: "t2", toolName: "bash" });
@@ -955,6 +983,35 @@ describe("historyToItems", () => {
       kind: "advisory",
       notes: [{ note: "nitpick", severity: "nit", advisor: "style" }],
     });
+  });
+
+  it("restores vault details and the edit diff on a backfilled vault tool result", () => {
+    const items = historyToItems([
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "ve1", name: "omp-ui_vault_edit", arguments: { path: "omp-ui/Plan.md" } }],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "ve1",
+        content: [{ type: "text", text: "edited" }],
+        details: {
+          vaultName: "Notes",
+          vaultId: null,
+          path: "omp-ui/Plan.md",
+          action: "edit",
+          createdByOmpUi: true,
+          diff: " 1|a\n-2|old\n+2|new",
+        },
+      },
+    ]);
+    const t = tool(items, "ve1");
+    expect(t?.vault).toMatchObject({ action: "edit", path: "omp-ui/Plan.md", createdByOmpUi: true });
+    expect(t?.diff).toEqual([
+      { kind: "ctx", lineNum: 1, text: "a" },
+      { kind: "del", lineNum: 2, text: "old" },
+      { kind: "add", lineNum: 2, text: "new" },
+    ]);
   });
 
   it("restores images on a resumed session's user messages", () => {

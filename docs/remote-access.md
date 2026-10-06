@@ -23,6 +23,8 @@ The desktop app owns the only live `MainBackend`, session registry, and running 
 
 The browser pane is hosted the same way. A browser connected to this app sees the pane live and can click, type, and navigate in it. Only desktop renderers size the page; browser clients scale its frames to fit their own. Images use a separate authenticated frame connection, with one image awaiting acknowledgment and only the newest pending image per subscribed tab. The acknowledgment follows paint or an intentional drop. A slow image connection does not put images ahead of terminal output or control replies on the reliable connection. Frame-only reconnect resumes images without restarting that reliable connection. Hosts, joined instances, and browser bundles must all support this paired transport; reverse proxies must forward WebSocket upgrades for both `/ws` and `/ws/frames`.
 
+The knowledge vault is hosted the same way. Vault notes live on the desktop host, and the agent's vault tools read and write them there while a browser client is connected; the browser's Knowledge vault settings page shows that host's registry, and "Open in Obsidian" on a vault card copies the note's obsidian:// link rather than opening Obsidian on the browser's own machine. Paste it on a machine with the same vault to open the note there.
+
 The HTTP and WebSocket server is embedded in the Electron main process. It starts at desktop launch when remote access was left enabled and stops when the desktop app quits. Closing a browser only removes that view. When the server is running, changing the bind address, port, password, or token restarts it without stopping live sessions. Disabling remote access stops the server, and enabling it starts the server.
 
 ## Authentication

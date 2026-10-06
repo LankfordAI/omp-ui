@@ -2,9 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BackendState } from "@omp-ui/core/types";
 import { t } from "../lib/i18n";
-import { backendState, remoteInstance } from "../test/fixtures";
+import { backendState, remoteOwnedState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -30,70 +29,9 @@ const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
 const TAB = "vault-remote-tab";
 const INSTANCE = "inst-remote";
 
-/** BackendState where TAB's session is owned by a joined remote instance (issue #416). */
-function remoteOwnedState(): BackendState {
-  return backendState({
-    remoteInstances: [
-      remoteInstance({
-        id: INSTANCE,
-        status: "joined",
-        projects: [
-          {
-            project: {
-              path: "/remote/p",
-              name: "P",
-              addedAt: "t",
-              lastModel: null,
-              lastThinkingLevel: null,
-              lastAdvisor: null,
-              lastAdvisorModel: null,
-              defaultModel: null,
-              defaultAdvisorModel: null,
-              browserClock: false,
-              reviewRoster: null,
-              knowledgeHome: null,
-            },
-            sessions: [
-              {
-                tabId: TAB,
-                sessionId: "s",
-                lineageDir: "lineage",
-                projectCwd: "/remote/p",
-                launchedAt: "t",
-                mode: "rpc-ui",
-                worktree: null,
-                planImplementationSource: null,
-                experiment: null,
-                agentMode: "build",
-                compactionMethod: null,
-                approvalMode: null,
-                serviceTier: null,
-                model: null,
-                thinkingLevel: null,
-                advisor: false,
-                advisorModel: null,
-                subagentModels: null,
-                proposedPlans: [],
-                cachedTitle: "Remote session",
-                cachedModified: "t",
-                title: "Remote session",
-                status: "complete",
-                live: "live",
-                pendingPlan: null,
-                planSettle: null,
-                streamStalled: false,
-              },
-            ],
-          },
-        ],
-      }),
-    ],
-  });
-}
-
 let root: Root | null = null;
 
-function render(props: { tabId?: string; uriHandler?: boolean } = {}): HTMLButtonElement {
+function render(props: { tabId?: string; uriHandler?: boolean; iconOnly?: boolean } = {}): HTMLButtonElement {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -162,12 +100,21 @@ describe("OpenInObsidianButton", () => {
 
   it("copies for a tab owned by a joined remote instance", async () => {
     mocks.electron = true;
-    useStore.setState({ state: remoteOwnedState() });
+    useStore.setState({ state: remoteOwnedState(TAB, INSTANCE) });
     const button = render({ tabId: TAB });
 
     await click(button);
 
     expect(openVault).not.toHaveBeenCalled();
     expect(writeText).toHaveBeenCalledWith("obsidian://open?vault=Notes&file=omp-ui%2FFoo");
+  });
+
+  it("the icon-only face copies and relabels to Link copied", async () => {
+    const button = render({ iconOnly: true });
+
+    await click(button);
+
+    expect(writeText).toHaveBeenCalledWith("obsidian://open?vault=Notes&file=omp-ui%2FFoo");
+    expect(button.getAttribute("aria-label")).toBe(t("transcript.vault.linkCopied"));
   });
 });

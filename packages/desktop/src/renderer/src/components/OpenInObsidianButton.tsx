@@ -4,7 +4,7 @@ import { copyFallback } from "../lib/clipboard";
 import { useT } from "../lib/i18n";
 import { IS_ELECTRON } from "../lib/platform";
 import { findOwner, useStore } from "../store";
-import { Button, ICON_STROKE } from "./ui";
+import { Button, ICON_STROKE, IconButton } from "./ui";
 
 function ExternalGlyph() {
   return (
@@ -20,13 +20,15 @@ function ExternalGlyph() {
  * vault-relative note to main, which resolves both and builds the URI. Anything
  * else is copy mode: a basename-keyed obsidian:// link goes to the clipboard
  * for a machine that has this vault (#759), never opened here. When the
- * clipboard refuses, the link shows inline in a selectable mono line instead.
+ * clipboard refuses, the link shows inline in a selectable mono line instead;
+ * the icon-only face puts it in the button's label.
  */
 export function OpenInObsidianButton({
   vaultName,
   file,
   tabId,
   uriHandler,
+  iconOnly = false,
 }: {
   vaultName: string;
   file: string | null;
@@ -34,6 +36,10 @@ export function OpenInObsidianButton({
   tabId?: string;
   /** Whether an obsidian:// handler is registered; false falls back to copy. */
   uriHandler?: boolean;
+  /** Icon-only face for dense rows (the rail's Vault notes). A refused clipboard
+   *  puts the link in the button's label instead of an inline line, so the row
+   *  never grows a second line. */
+  iconOnly?: boolean;
 }) {
   const t = useT();
   const openVault = useStore((s) => s.openVault);
@@ -67,6 +73,20 @@ export function OpenInObsidianButton({
   };
 
   const copied = mode === "copy" && copy.state === "copied";
+  if (iconOnly) {
+    const label = copied
+      ? t("transcript.vault.linkCopied")
+      : mode === "copy" && copy.state === "failed"
+        ? copy.uri
+        : t("transcript.vault.openInObsidian");
+    return (
+      <span className="inline-flex shrink-0" onClick={(e) => e.stopPropagation()}>
+        <IconButton label={label} onClick={onClick} className={copied ? "text-signal" : undefined}>
+          <ExternalGlyph />
+        </IconButton>
+      </span>
+    );
+  }
   return (
     <span className="inline-flex min-w-0 shrink-0 flex-col items-end gap-1">
       {/* Button's onClick carries no event; the wrapper keeps the click out of an enclosing clickable row. */}
