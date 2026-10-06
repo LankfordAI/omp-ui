@@ -70,6 +70,67 @@ export function remoteInstance(
   };
 }
 
+/** BackendState where `tabId`'s session is owned by the joined remote instance `instanceId` (issue #416). */
+export function remoteOwnedState(tabId: string, instanceId: string): BackendState {
+  return backendState({
+    remoteInstances: [
+      remoteInstance({
+        id: instanceId,
+        status: "joined",
+        projects: [
+          {
+            project: {
+              path: "/remote/p",
+              name: "P",
+              addedAt: "t",
+              lastModel: null,
+              lastThinkingLevel: null,
+              lastAdvisor: null,
+              lastAdvisorModel: null,
+              defaultModel: null,
+              defaultAdvisorModel: null,
+              browserClock: false,
+              reviewRoster: null,
+              knowledgeHome: null,
+            },
+            sessions: [
+              {
+                tabId,
+                sessionId: "s",
+                lineageDir: "lineage",
+                projectCwd: "/remote/p",
+                launchedAt: "t",
+                mode: "rpc-ui",
+                worktree: null,
+                planImplementationSource: null,
+                experiment: null,
+                agentMode: "build",
+                compactionMethod: null,
+                approvalMode: null,
+                serviceTier: null,
+                model: null,
+                thinkingLevel: null,
+                advisor: false,
+                advisorModel: null,
+                subagentModels: null,
+                proposedPlans: [],
+                cachedTitle: "Remote session",
+                cachedModified: "t",
+                title: "Remote session",
+                status: "complete",
+                live: "live",
+                pendingPlan: null,
+                planSettle: null,
+                streamStalled: false,
+              },
+            ],
+          },
+        ],
+      }),
+    ],
+  });
+}
+
 export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
   return {
     status: "ready",

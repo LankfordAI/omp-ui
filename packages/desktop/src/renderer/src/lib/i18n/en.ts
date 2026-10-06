@@ -326,6 +326,10 @@ export const en = {
   "transcript.vault.copyTitle":
     "Copies the obsidian:// link. Paste it on a machine that has this vault.",
   "transcript.vault.linkCopied": "Link copied",
+  "transcript.vault.created": "Created",
+  "transcript.vault.appended": "Appended",
+  "transcript.vault.edited": "Edited",
+  "transcript.vault.notCreated": "Not created by omp-ui",
   // Composer textarea placeholders
   "rpc.hero.project": "What's next in {project}?",
   "rpc.hero.default": "What's next?",
@@ -1841,6 +1845,9 @@ export const en = {
   "rail.stats.emptyTitle": "No stats yet",
   "rail.stats.emptyHint": "Refresh to pull the session's token and cost breakdown.",
   "rail.stats.refresh": "refresh stats",
+
+  "rail.vault.title": "Vault notes",
+  "rail.vault.empty": "No vault notes yet",
 
   "rail.session.title": "session",
   "rail.session.path": "path",

@@ -74,7 +74,7 @@ function ToolGlyph({ kind }: { kind: GlyphKind }) {
   );
 }
 
-function CheckGlyph() {
+export function CheckGlyph() {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -212,7 +212,7 @@ function ReadResultSlab({
 }
 
 /** The mono slab used for commands, paths, partial output and results. */
-function Slab({
+export function Slab({
   children,
   className,
   tone = "neutral",

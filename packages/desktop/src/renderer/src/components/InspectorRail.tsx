@@ -25,6 +25,8 @@ import { TodoPanel } from "./TodoPanel";
 import { SideQuestionsPane } from "./SideQuestionsPane";
 import { SubagentModelsControl } from "./SubagentModelsControl";
 import { SubagentControls, useSubagentControlNotice } from "./SubagentControls";
+import { Section } from "./RailSection";
+import { VaultNotesSection } from "./VaultNotesSection";
 import { Button, Chip, CopyButton, Dot, Empty, ICON_STROKE, IconRefresh, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
 
 /** Vibe worker state → tone, matching the roster's copper-pulse convention. */
@@ -142,18 +144,6 @@ function Mono({ children, title }: { children: ReactNode; title?: string }) {
     <span title={title} className="block truncate font-mono text-[11px] tabular-nums text-ink-mid">
       {children}
     </span>
-  );
-}
-
-function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="border-b border-line-soft px-3 py-2.5 last:border-b-0">
-      <div className="mb-1.5 flex items-center gap-2">
-        <Label className="min-w-0 flex-1 truncate">{title}</Label>
-        {action}
-      </div>
-      {children}
-    </section>
   );
 }
 
@@ -468,7 +458,7 @@ function StatsTable({ stats }: { stats: SessionStats }) {
   );
 }
 
-function SessionPane({ tabId }: { tabId: string }) {
+function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) {
   const t = useT();
   const session = useStore((s) => s.rpc[tabId]?.session);
   const stats = useStore((s) => s.rpc[tabId]?.stats);
@@ -480,6 +470,7 @@ function SessionPane({ tabId }: { tabId: string }) {
 
   return (
     <>
+      <VaultNotesSection tabId={tabId} onJump={onJump} />
       <Section
         title={t("rail.session.title")}
         action={
@@ -1018,7 +1009,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
           <VibeRoster tabId={tabId} />
         </>
       )}
-      {tab === "session" && <SessionPane tabId={tabId} />}
+      {tab === "session" && <SessionPane tabId={tabId} onJump={compact ? closeCompactSurface : undefined} />}
       {tab === "plans" && <PlansPane tabId={tabId} />}
       {tab === "diffs" && <DiffsPane tabId={tabId} />}
       {tab === "btw" && <SideQuestionsPane tabId={tabId} />}
