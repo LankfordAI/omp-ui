@@ -7,7 +7,7 @@ import { isWithin } from "./worktree";
 import { writeTextAtomic } from "./atomic-write";
 import { lineDiff } from "./line-diff";
 import type { VaultRegistryEntry } from "./types";
-import type { VaultAction, VaultToolDetails } from "./vault-shared";
+import { obsidianReplyLink, type VaultAction, type VaultToolDetails } from "./vault-shared";
 import { scanSecrets } from "./vault-secret-shapes";
 export { scanSecrets } from "./vault-secret-shapes";
 
@@ -324,7 +324,7 @@ export async function vaultSearch(ctx: VaultCallContext, query: string, limit: n
     }));
     hits.sort((a, b) => b.score - a.score || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
     const shownQuery = query.length > SEARCH_TEXT_CAP - 500 ? `${query.slice(0, SEARCH_TEXT_CAP - 501)}…` : query;
-    const rows = hits.slice(0, limit ?? 10).map((hit) => `- [[${hit.rel.replace(/\.md$/i, "")}|${hit.title}]] · \`${hit.rel}\`${hit.snippets.length ? `\n${hit.snippets.join("\n")}` : ""}`);
+    const rows = hits.slice(0, limit ?? 10).map((hit) => `- ${obsidianReplyLink(ctx.entry.name, hit.rel, hit.title)} · \`${hit.rel}\`${hit.snippets.length ? `\n${hit.snippets.join("\n")}` : ""}`);
     const rendered = boundedRows((count) => `Vault ${ctx.entry.name}: ${hits.length} notes match "${shownQuery}" (showing ${count}).`, rows, hits.length);
     return { ok: true, text: rendered.text, details: { ...details(ctx, "search", null), matchedFiles: hits.length, returnedFiles: rendered.count, truncated: rendered.count < hits.length } };
   });
@@ -351,7 +351,7 @@ export async function vaultRead(ctx: VaultCallContext, rawPath: string): Promise
       return { ok: true, text: header, details: common, image: { data: bytes.toString("base64"), mimeType: IMAGE_MIME[ext]! } };
     }
     const text = bytes.toString("utf8");
-    return { ok: true, text: `${header}\n\n${text}`, details: { ...common, createdByOmpUi: ownership(text) } };
+    return { ok: true, text: `${header}\nReply link: ${obsidianReplyLink(ctx.entry.name, checked.rel, titleOf(checked.rel))}\n\n${text}`, details: { ...common, createdByOmpUi: ownership(text) } };
   });
 }
 
@@ -362,7 +362,8 @@ export async function vaultList(ctx: VaultCallContext, folder: string | undefine
     if (!checked.ok) return fail(ctx, "list", null, checked.reason);
     if (statOrMissing(checked.abs)?.isDirectory() !== true) return fail(ctx, "list", checked.rel, `folder not found: ${checked.rel}`);
     const files = walkNotes(root, checked.rel);
-    const rendered = boundedRows(() => `Vault ${ctx.entry.name} · ${checked.rel}: ${files.length} notes`, files.map((file) => `- ${file.rel}`), files.length);
+    const rows = files.map((file) => `- ${obsidianReplyLink(ctx.entry.name, file.rel, titleOf(file.rel))} · \`${file.rel}\``);
+    const rendered = boundedRows(() => `Vault ${ctx.entry.name} · ${checked.rel}: ${files.length} notes`, rows, files.length);
     return { ok: true, text: rendered.text, details: { ...details(ctx, "list", checked.rel), matchedFiles: files.length, returnedFiles: rendered.count, truncated: rendered.count < files.length } };
   });
 }
@@ -470,11 +471,12 @@ export async function vaultCreate(ctx: VaultCallContext, args: { title: string; 
       if (errorCode(error) === "EEXIST") return fail(ctx, "create", rel, existingRefusal(rel));
       return fail(ctx, "create", rel, `could not write ${rel}: ${errorCode(error)}`);
     }
-    const link = `[[${rel.replace(/\.md$/i, "")}|${title}]]`;
-    const collisionText = collisions.map((other) => `A note named ${title} also exists at ${other}; link this one as ${link}.`).join("\n");
+    const replyLink = obsidianReplyLink(ctx.entry.name, rel, title);
+    const wikilink = `[[${rel.replace(/\.md$/i, "")}|${title}]]`;
+    const collisionText = collisions.map((other) => `A note named ${title} also exists at ${other}. Use the full path for this note to avoid basename ambiguity.\nReply link: ${obsidianReplyLink(ctx.entry.name, other, titleOf(other))}\nWikilink for vault notes: [[${other.replace(/\.md$/i, "")}|${titleOf(other)}]]`).join("\n");
     return {
       ok: true,
-      text: `Created ${rel} in vault ${ctx.entry.name}${indexRel === null ? "." : `; linked from [[${indexRel.replace(/\.md$/i, "")}]].`}\nLink to it as ${link}.${collisionText ? `\n${collisionText}` : ""}`,
+      text: `Created ${rel} in vault ${ctx.entry.name}${indexRel === null ? "." : `; linked from ${obsidianReplyLink(ctx.entry.name, indexRel, titleOf(indexRel))}.`}\nReply link: ${replyLink}\nWikilink for vault notes: ${wikilink}${collisionText ? `\n${collisionText}` : ""}`,
       details: { ...details(ctx, "create", rel), createdByOmpUi: true, title, stamp: noteStamp.split("\n").slice(1, -2), preview: `${body}\n`, collisions, baseHash: hash(text), ...(indexRel === null ? {} : { indexNotePath: indexRel }) },
     };
   });
@@ -522,7 +524,7 @@ function mutateExisting(ctx: VaultCallContext, root: string, action: "append" | 
   } catch (error) { return fail(ctx, action, note.rel, `could not write ${note.rel}: ${errorCode(error)}`); }
   return {
     ok: true,
-    text: `Vault ${ctx.entry.name} · ${note.rel}\n\n${action === "edit" ? "Edited" : action === "link" ? "Linked from" : "Appended to"} ${note.rel}.`,
+    text: `Vault ${ctx.entry.name} · ${note.rel}\n\n${action === "edit" ? "Edited" : action === "link" ? "Linked from" : "Appended to"} ${note.rel}.\nReply link: ${obsidianReplyLink(ctx.entry.name, note.rel, titleOf(note.rel))}`,
     details: { ...details(ctx, action, note.rel), title: titleOf(note.rel), createdByOmpUi: ownership(before), baseHash: action === "edit" ? hash(after) : createHash("sha256").update(beforeBytes).update(addition!, "utf8").digest("hex"), ...(action === "append" ? { preview: supplied.trimEnd() } : { diff: lineDiff(before, after) }) },
   };
 }

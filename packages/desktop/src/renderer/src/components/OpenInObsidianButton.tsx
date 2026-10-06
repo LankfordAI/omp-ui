@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { obsidianOpenUri } from "@omp-ui/core/vault-shared";
+import { desktopPaneMedia } from "../backend";
 import { copyFallback } from "../lib/clipboard";
 import { useT } from "../lib/i18n";
 import { IS_ELECTRON } from "../lib/platform";
@@ -12,6 +13,57 @@ function ExternalGlyph() {
       <path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" />
     </svg>
   );
+}
+
+function useObsidianAction(vaultName: string, file: string | null, mode: "open" | "copy") {
+  const openVault = useStore((s) => s.openVault);
+  const [copy, setCopy] = useState<{ state: "idle" | "copied" | "failed"; uri: string }>({ state: "idle", uri: "" });
+  const timer = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      window.clearTimeout(timer.current);
+    };
+  }, []);
+
+  const settle = (copied: boolean, uri: string): void => {
+    if (!mounted.current) return;
+    window.clearTimeout(timer.current);
+    setCopy({ state: copied ? "copied" : "failed", uri });
+    if (copied) timer.current = window.setTimeout(() => setCopy({ state: "idle", uri: "" }), 2000);
+  };
+
+  const fallback = (uri: string): void => {
+    if (!mounted.current) return;
+    const focused = document.activeElement;
+    const copied = copyFallback(uri);
+    if (focused instanceof HTMLElement) focused.focus({ preventScroll: true });
+    settle(copied, uri);
+  };
+
+  const activate = (): void => {
+    if (mode === "open") {
+      void openVault(vaultName, file);
+      return;
+    }
+    const uri = obsidianOpenUri({ vault: vaultName }, file);
+    if (typeof navigator.clipboard?.writeText !== "function") {
+      fallback(uri);
+      return;
+    }
+    void navigator.clipboard.writeText(uri).then(
+      () => settle(true, uri),
+      () => fallback(uri),
+    );
+  };
+
+  return {
+    activate,
+    copied: mode === "copy" && copy.state === "copied",
+    failedUri: mode === "copy" && copy.state === "failed" ? copy.uri : null,
+  };
 }
 
 /**
@@ -42,46 +94,19 @@ export function OpenInObsidianButton({
   iconOnly?: boolean;
 }) {
   const t = useT();
-  const openVault = useStore((s) => s.openVault);
   const local = useStore((s) => tabId === undefined || findOwner(s.state, tabId)?.instanceId == null);
   const mode = IS_ELECTRON && local && uriHandler !== false ? "open" : "copy";
+  const { activate, copied, failedUri } = useObsidianAction(vaultName, file, mode);
 
-  const [copy, setCopy] = useState<{ state: "idle" | "copied" | "failed"; uri: string }>({ state: "idle", uri: "" });
-  const timer = useRef(0);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-
-  const settle = (copied: boolean, uri: string): void => {
-    window.clearTimeout(timer.current);
-    setCopy({ state: copied ? "copied" : "failed", uri });
-    if (copied) timer.current = window.setTimeout(() => setCopy({ state: "idle", uri: "" }), 2000);
-  };
-
-  const onClick = (): void => {
-    if (mode === "open") {
-      void openVault(vaultName, file);
-      return;
-    }
-    const uri = obsidianOpenUri({ vault: vaultName }, file);
-    if (typeof navigator.clipboard?.writeText !== "function") {
-      settle(copyFallback(uri), uri);
-      return;
-    }
-    void navigator.clipboard.writeText(uri).then(
-      () => settle(true, uri),
-      () => settle(copyFallback(uri), uri),
-    );
-  };
-
-  const copied = mode === "copy" && copy.state === "copied";
   if (iconOnly) {
     const label = copied
       ? t("transcript.vault.linkCopied")
-      : mode === "copy" && copy.state === "failed"
-        ? copy.uri
+      : failedUri !== null
+        ? failedUri
         : t("transcript.vault.openInObsidian");
     return (
       <span className="inline-flex shrink-0" onClick={(e) => e.stopPropagation()}>
-        <IconButton label={label} onClick={onClick} className={copied ? "text-signal" : undefined}>
+        <IconButton label={label} onClick={activate} className={copied ? "text-signal" : undefined}>
           <ExternalGlyph />
         </IconButton>
       </span>
@@ -95,15 +120,72 @@ export function OpenInObsidianButton({
           size="xs"
           tone={copied ? "signal" : "neutral"}
           title={mode === "copy" ? t("transcript.vault.copyTitle") : undefined}
-          onClick={onClick}
+          onClick={activate}
         >
           <ExternalGlyph />
           {copied ? t("transcript.vault.linkCopied") : t("transcript.vault.openInObsidian")}
         </Button>
       </span>
-      {mode === "copy" && copy.state === "failed" && (
+      {failedUri !== null && (
         <span data-selectable className="max-w-full select-all break-all font-mono text-[10px] text-ink-mid">
-          {copy.uri}
+          {failedUri}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Transcript links use their owning tab, never the currently selected tab. */
+export function OpenInObsidianLink({
+  vaultName,
+  file,
+  tabId,
+  uriHandler,
+  children,
+}: {
+  vaultName: string;
+  file: string;
+  tabId?: string;
+  uriHandler?: boolean;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const local = useStore((s) => tabId !== undefined && findOwner(s.state, tabId)?.instanceId === null);
+  // An Electron-hosted browser viewer still has an Electron UA, but no preload transport (#782).
+  const mode = IS_ELECTRON && desktopPaneMedia !== null && local && uriHandler !== false ? "open" : "copy";
+  const { activate, copied, failedUri } = useObsidianAction(vaultName, file, mode);
+
+  return (
+    <span onClick={(e) => e.stopPropagation()}>
+      <a
+        role="link"
+        tabIndex={0}
+        title={t(mode === "open" ? "transcript.vault.openInObsidian" : "transcript.vault.copyTitle")}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.button === 0) activate();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+            activate();
+          }
+        }}
+        onAuxClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        className="cursor-pointer text-iris underline decoration-iris-dim underline-offset-2 hover:decoration-iris"
+      >
+        {children}
+      </a>
+      <span role="status" aria-live="polite" className="ml-1 text-[0.85em] text-ink-mid">
+        {copied ? t("transcript.vault.linkCopied") : null}
+      </span>
+      {failedUri !== null && (
+        <span data-selectable className="ml-1 max-w-full select-all break-all font-mono text-[0.85em] text-ink-mid">
+          {failedUri}
         </span>
       )}
     </span>

@@ -15,6 +15,7 @@ import { RemoteInstanceBanner } from "./RemoteInstanceBanner";
 import { SessionHud } from "./SessionHud";
 import { SubagentView } from "./SubagentView";
 import { linkify } from "./Markdown";
+import { MarkdownVaultProvider } from "./MarkdownVaultProvider";
 import { TranscriptView, ShareLinkRow, TuiHandoffButton } from "./TranscriptView";
 import { Button, Chip, CopyButton, Panel, ProgressSweep, Sheet } from "./ui";
 import { BrowserPane } from "./browser-pane/BrowserPane";
@@ -316,7 +317,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
     setNonce((n) => n + 1);
   }
 
-  return (
+  const content = (
     <div className="ambient relative flex h-full flex-col bg-surface">
       {compact && <SessionHud tabId={tabId} />}
 
@@ -537,4 +538,5 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
       )}
     </div>
   );
+  return <MarkdownVaultProvider tabId={tabId}>{content}</MarkdownVaultProvider>;
 }

@@ -1,6 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { createContext, Fragment, useContext, useMemo, useState, type ReactNode } from "react";
 import katex from "katex";
 import type { ThemedToken } from "shiki/core";
+import { parseObsidianNoteUri, type ObsidianNoteTarget } from "@omp-ui/core/vault-shared";
 import { cn } from "../lib/cn";
 import { useHighlightTokens } from "../lib/highlight";
 import { useDiagramSvg } from "../lib/diagram";
@@ -9,6 +10,10 @@ import { useT } from "../lib/i18n";
 import { isHtmlPlanDocument } from "../lib/plan-seed";
 import { PlanDocument } from "./PlanDocumentView";
 import { CopyButton } from "./ui";
+
+export const ObsidianNoteLinkContext = createContext<
+  ((target: ObsidianNoteTarget, label: ReactNode) => ReactNode) | null
+>(null);
 
 /**
  * Renders parsed Markdown as React elements. Message text never becomes
@@ -121,6 +126,7 @@ export function OpenExternalLink({ href, children }: { href: string; children: R
 
 function Spans({ spans }: { spans: MdSpan[] }) {
   const t = useT();
+  const renderObsidianLink = useContext(ObsidianNoteLinkContext);
   return (
     <>
       {spans.map((span, i) => {
@@ -160,19 +166,21 @@ function Spans({ spans }: { spans: MdSpan[] }) {
                 <Spans spans={span.spans} />
               </em>
             );
-          case "link":
-            return isSafeHref(span.href) ? (
-              <OpenExternalLink key={i} href={span.href}>
-                <Spans spans={span.spans} />
-              </OpenExternalLink>
-            ) : (
-              // A rejected scheme becomes plain text with no tooltip: echoing
-              // the target back would still put `javascript:…` on screen as if
-              // it were a real destination.
-              <span key={i}>
-                <Spans spans={span.spans} />
-              </span>
-            );
+          case "link": {
+            if (isSafeHref(span.href)) {
+              return (
+                <OpenExternalLink key={i} href={span.href}>
+                  <Spans spans={span.spans} />
+                </OpenExternalLink>
+              );
+            }
+            const target = parseObsidianNoteUri(span.href);
+            if (target !== null && renderObsidianLink !== null) {
+              return <Fragment key={i}>{renderObsidianLink(target, <Spans spans={span.spans} />)}</Fragment>;
+            }
+            // Rejected and unscoped destinations stay plain, without a tooltip.
+            return <span key={i}><Spans spans={span.spans} /></span>;
+          }
           default:
             return <span key={i}>{span.text}</span>;
         }

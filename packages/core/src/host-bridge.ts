@@ -93,7 +93,7 @@ export function hostToolsDefinition(opts: { vault: boolean } = { vault: false })
       name: "omp-ui_vault_search",
       loadMode: "essential",
       description:
-        "Search the user's Obsidian vault by note title, body text, tags and frontmatter values. Every word must match, case-insensitive. Folder paths are not searched; use omp-ui_vault_list for those. Returns the true match count. Search before you create a note.",
+        "Search the user's Obsidian vault by note title, body text, tags and frontmatter values. Every word must match, case-insensitive. Folder paths are not searched; use omp-ui_vault_list for those. Returns the true match count and ready-to-use Markdown Reply links that open the exact notes in Obsidian. Search before you create a note.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -109,7 +109,7 @@ export function hostToolsDefinition(opts: { vault: boolean } = { vault: false })
       name: "omp-ui_vault_read",
       loadMode: "essential",
       description:
-        "Read one note from the user's Obsidian vault, verbatim with its frontmatter. Returns a baseHash that omp-ui_vault_edit and omp-ui_vault_link require. A bare title resolves like an Obsidian wikilink.",
+        "Read one note from the user's Obsidian vault, verbatim with its frontmatter. Returns a ready-to-use Markdown Reply link for the exact note and a baseHash that omp-ui_vault_edit and omp-ui_vault_link require. A bare title resolves like an Obsidian wikilink.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -124,7 +124,7 @@ export function hostToolsDefinition(opts: { vault: boolean } = { vault: false })
       name: "omp-ui_vault_list",
       loadMode: "essential",
       description:
-        "List the notes in a vault folder and its subfolders. Defaults to the omp-ui home folder.",
+        "List the notes in a vault folder and its subfolders, with ready-to-use Markdown Reply links for the exact notes. Defaults to the omp-ui home folder.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -139,7 +139,7 @@ export function hostToolsDefinition(opts: { vault: boolean } = { vault: false })
       name: "omp-ui_vault_create",
       loadMode: "essential",
       description:
-        "Create a note in the omp-ui home folder. omp-ui files it under this project's folder, writes the provenance frontmatter, and links it from the project's index note. Give a Title Case title with no folders and a markdown body with no frontmatter and no repeated title heading. Returns the link to use for this note.",
+        "Create a note in the omp-ui home folder. omp-ui files it under this project's folder, writes the provenance frontmatter, and links it from the project's index note. Give a Title Case title with no folders and a markdown body with no frontmatter and no repeated title heading. Returns a ready-to-use Markdown Reply link for the exact note and a Wikilink to use inside vault notes.",
       parameters: {
         type: "object",
         additionalProperties: false,

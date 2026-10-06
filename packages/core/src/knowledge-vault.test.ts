@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import * as yaml from "js-yaml";
 import { NOTE_BYTE_CAP, SEARCH_TEXT_CAP, normalizeTitle, resolveVaultPath, scanSecrets, validateVaultRoot, vaultAppend, vaultCreate, vaultEdit, vaultLink, vaultList, vaultRead, vaultSearch, type RootGuard, type VaultCallContext } from "./knowledge-vault";
+import { parseObsidianNoteUri, type ObsidianNoteTarget } from "./vault-shared";
 
 // Keep real I/O while allowing deterministic filesystem failures and races.
 vi.mock("node:fs", async (importOriginal) => ({ ...(await importOriginal<typeof fs>()) }));
@@ -197,6 +198,18 @@ describe("production vault tools", () => {
   function disk(rel: string): string { return fs.readFileSync(path.join(root, rel), "utf8"); }
   function diskHash(rel: string): string { return createHash("sha256").update(fs.readFileSync(path.join(root, rel))).digest("hex"); }
 
+  function replyTargets(text: string): ObsidianNoteTarget[] {
+    return [...text.matchAll(/\]\((obsidian:\/\/open\?[^)\s]*)\)/g)].map((match) => {
+      const target = parseObsidianNoteUri(match[1]!);
+      expect(target).not.toBeNull();
+      return target!;
+    });
+  }
+
+  function wikilinkTargets(text: string): Array<{ path: string; label: string }> {
+    return [...text.matchAll(/\[\[([^|\]]+)\|([^\]]+)\]\]/g)].map((match) => ({ path: match[1]!, label: match[2]! }));
+  }
+
   beforeEach(() => {
     root = mkdir("vaults", "Notes");
     ctx = {
@@ -209,6 +222,38 @@ describe("production vault tools", () => {
       now: () => new Date(2026, 0, 2, 23, 59),
       guard,
     };
+  });
+
+  it("uses the registry name and exact resolved Markdown path in every note reply", async () => {
+    ctx.entry.name = "Notes & Design (2026)";
+    const title = "Topic [draft] _one_ $two$";
+    const rel = `omp-ui/nested (plans)/${title}.MD`;
+    const original = `${prefix}needle\r\n\r\nliteral [[link]] and [body](https://example.com)\r\n`;
+    put(rel, original);
+    put(`other/${title}.md`, "needle\n");
+    put("Target.md", "target");
+    const requested = rel.replaceAll("/", "\\");
+    const read = await vaultRead(ctx, requested);
+    expect(read.ok).toBe(true);
+    const boundary = read.text.indexOf("\n\n");
+    expect(replyTargets(read.text.slice(0, boundary))).toEqual([{ vaultName: ctx.entry.name, file: rel }]);
+    expect(Buffer.from(read.text.slice(boundary + 2))).toEqual(fs.readFileSync(path.join(root, rel)));
+    const search = await vaultSearch(ctx, "needle", undefined);
+    expect(replyTargets(search.text)).toEqual([
+      { vaultName: ctx.entry.name, file: rel },
+      { vaultName: ctx.entry.name, file: `other/${title}.md` },
+    ]);
+    const list = await vaultList(ctx, undefined);
+    expect(replyTargets(list.text)).toEqual([{ vaultName: ctx.entry.name, file: rel }]);
+    for (const result of [
+      await vaultAppend(ctx, requested, "tail"),
+      await vaultEdit(ctx, requested, "replacement\r\n", diskHash(rel)),
+      await vaultLink(ctx, requested, "Target", diskHash(rel)),
+    ]) {
+      expect(result.ok).toBe(true);
+      expect(replyTargets(result.text)).toEqual([{ vaultName: ctx.entry.name, file: rel }]);
+    }
+    expect(disk(rel)).toBe(`${prefix}replacement\r\n\n- [[Target]]\n`);
   });
 
   it("creates independently parsed stamps and an ordered, append-only Index", async () => {
@@ -230,8 +275,11 @@ describe("production vault tools", () => {
     expect(second.ok).toBe(true);
     expect(disk(indexRel)).toBe(`${indexBefore}- [[omp-ui/my-project/Second|Second]]\n`);
     expect(disk(indexRel).match(/^- \[\[/gm)).toHaveLength(2);
-    expect(first.text).toContain("linked from [[omp-ui/my-project/my-project Index]].");
-    expect(first.text).toContain("Link to it as [[omp-ui/my-project/A Guide to API v2 omp-ui|A Guide to API v2 omp-ui]].");
+    expect(replyTargets(first.text)).toEqual([
+      { vaultName: ctx.entry.name, file: indexRel },
+      { vaultName: ctx.entry.name, file: rel },
+    ]);
+    expect(wikilinkTargets(first.text)).toEqual([{ path: rel.replace(/\.md$/i, ""), label: first.details.title }]);
   });
 
   it("project:false omits project and Index while reporting basename collisions", async () => {
@@ -244,8 +292,16 @@ describe("production vault tools", () => {
     expect(result.details.collisions).toEqual(["another/topic.MD", "elsewhere/Topic.md"]);
     expect(yaml.load(disk("omp-ui/Topic.md").split("---\n")[1]!)).not.toHaveProperty("project");
     expect(fs.readdirSync(path.join(root, "omp-ui"))).toEqual(["Topic.md"]);
-    expect(result.text).not.toContain("linked from");
-    expect(result.text).toContain("another/topic.MD");
+    expect(replyTargets(result.text)).toEqual([
+      { vaultName: ctx.entry.name, file: "omp-ui/Topic.md" },
+      { vaultName: ctx.entry.name, file: "another/topic.MD" },
+      { vaultName: ctx.entry.name, file: "elsewhere/Topic.md" },
+    ]);
+    expect(wikilinkTargets(result.text)).toEqual([
+      { path: "omp-ui/Topic", label: "Topic" },
+      { path: "another/topic", label: "topic" },
+      { path: "elsewhere/Topic", label: "Topic" },
+    ]);
   });
 
   it("refuses leading frontmatter even after blanks and refuses the Index destination without writes", async () => {
@@ -262,6 +318,7 @@ describe("production vault tools", () => {
     const result = await vaultCreate(ctx, { title: "topic", body: "replace" });
     expect(result.ok).toBe(false);
     expect(result.text).toContain("note exists: omp-ui/my-project/Topic.md; use omp-ui_vault_append or omp-ui_vault_edit, or pick another title");
+    expect(replyTargets(result.text)).toEqual([]);
     expect(disk("omp-ui/my-project/Topic.md")).toBe("original");
     expect(disk("omp-ui/my-project/my-project Index.md")).toBe("foreign Index\r\n");
     expect(fs.readdirSync(path.join(root, "omp-ui/my-project")).sort()).toEqual(["Topic.md", "my-project Index.md"]);
@@ -278,7 +335,11 @@ describe("production vault tools", () => {
     const text = prefix + "body".repeat(20_000);
     put("omp-ui/Large.md", text);
     const result = await vaultRead(ctx, "omp-ui\\Large");
-    expect(result.text).toBe(`Vault Notes · omp-ui/Large.md · baseHash ${diskHash("omp-ui/Large.md")}\n\n${text}`);
+    const boundary = result.text.indexOf("\n\n");
+    const header = result.text.slice(0, boundary);
+    expect(header).toContain(`baseHash ${diskHash("omp-ui/Large.md")}`);
+    expect(replyTargets(header)).toEqual([{ vaultName: ctx.entry.name, file: "omp-ui/Large.md" }]);
+    expect(Buffer.from(result.text.slice(boundary + 2), "utf8")).toEqual(fs.readFileSync(path.join(root, "omp-ui/Large.md")));
     expect(result.details).toMatchObject({ path: "omp-ui/Large.md", title: "Large", createdByOmpUi: true, baseHash: diskHash("omp-ui/Large.md") });
     for (const [name, text] of [["Elsewhere", "body\n---\nomp-ui: true\n---\n"], ["Quoted", '---\nomp-ui: "true"\n---\n'], ["Indented", "---\n omp-ui: true\n---\n"]]) {
       put(`${name}.md`, text!);
@@ -290,8 +351,11 @@ describe("production vault tools", () => {
     put("b/Topic.md", "b");
     put("a/Topic.md", "a");
     put("a/deeper/Topic.md", "deep");
-    expect((await vaultRead(ctx, "tOpIc")).details.path).toBe("a/Topic.md");
-    expect((await vaultRead(ctx, "a\\Topic")).details.path).toBe("a/Topic.md");
+    for (const requested of ["tOpIc", "a\\Topic"]) {
+      const read = await vaultRead(ctx, requested);
+      expect(read.details.path).toBe("a/Topic.md");
+      expect(replyTargets(read.text)).toEqual([{ vaultName: ctx.entry.name, file: "a/Topic.md" }]);
+    }
     expect((await vaultRead(ctx, "missing/Topic")).ok).toBe(false);
     expect((await vaultRead(ctx, "missing\\Topic")).ok).toBe(false);
     put("Topic.md", "root");
@@ -312,6 +376,7 @@ describe("production vault tools", () => {
     expect(result.image).toEqual({ data: bytes.toString("base64"), mimeType: mime });
     expect(result.details).toMatchObject({ path: `images/Picture.${ext}`, createdByOmpUi: null, baseHash: diskHash(`images/Picture.${ext}`) });
     expect(result.text).toBe(`Vault Notes · images/Picture.${ext} · baseHash ${diskHash(`images/Picture.${ext}`)}`);
+    expect(replyTargets(result.text)).toEqual([]);
   });
 
   it("refuses unsupported files and oversized images but accepts the exact image cap", async () => {
@@ -405,6 +470,7 @@ describe("production vault tools", () => {
     vi.spyOn(fs, "appendFileSync").mockImplementation(() => { throw Object.assign(new Error("private path /do/not/leak"), { code: "EACCES" }); });
     const result = await vaultCreate(ctx, { title: "topic", body: "body" });
     expect(result.ok).toBe(false);
+    expect(replyTargets(result.text)).toEqual([]);
     expect(result.text).toContain("note created: omp-ui/my-project/Topic.md; Index update failed: omp-ui/my-project/my-project Index.md (EACCES)");
     expect(result.text).not.toContain("/do/not/leak");
     expect(result.details).toMatchObject({ path: "omp-ui/my-project/Topic.md", baseHash: diskHash("omp-ui/my-project/Topic.md"), createdByOmpUi: true });
@@ -416,6 +482,7 @@ describe("production vault tools", () => {
     put("omp-ui/Note.md", before);
     const result = await vaultAppend(ctx, "omp-ui/Note", "addition  \n\n");
     expect(result.ok).toBe(true);
+    expect(replyTargets(result.text)).toEqual([{ vaultName: ctx.entry.name, file: "omp-ui/Note.md" }]);
     expect(disk("omp-ui/Note.md")).toBe(`${before}\naddition\n`);
     expect(result.details).toMatchObject({ preview: "addition", title: "Note", createdByOmpUi: true, baseHash: diskHash("omp-ui/Note.md") });
     put("omp-ui/Plain.md", "plain");
@@ -428,6 +495,7 @@ describe("production vault tools", () => {
     fs.chmodSync(abs, 0o640);
     const result = await vaultEdit(ctx, "omp-ui/Note", "after\n", diskHash("omp-ui/Note.md"));
     expect(result.ok).toBe(true);
+    expect(replyTargets(result.text)).toEqual([{ vaultName: ctx.entry.name, file: "omp-ui/Note.md" }]);
     expect(disk("omp-ui/Note.md")).toBe(`${prefix}after\n`);
     // Windows has no POSIX permission bits to preserve.
     if (process.platform !== "win32") expect(fs.statSync(abs).mode & 0o777).toBe(0o640);
@@ -474,6 +542,7 @@ describe("production vault tools", () => {
     put("z/Duplicate.md", "foreign");
     const first = await vaultLink(ctx, "omp-ui/Source", "stamped", diskHash("omp-ui/Source.md"));
     expect(first.ok).toBe(true);
+    expect(replyTargets(first.text)).toEqual([{ vaultName: ctx.entry.name, file: "omp-ui/Source.md" }]);
     expect(disk("omp-ui/Source.md")).toBe(`${prefix}source\r\n\n- [[z/Stamped|Stamped]]\n`);
     expect(first.details.diff).toContain("+7|- [[z/Stamped|Stamped]]");
     expect((await vaultLink(ctx, "omp-ui/Source", "Unique", diskHash("omp-ui/Source.md"))).ok).toBe(true);
@@ -482,6 +551,7 @@ describe("production vault tools", () => {
     expect(last.ok).toBe(true);
     expect(disk("omp-ui/Source.md")).toContain("\n- [[a/Duplicate|Duplicate]]\n");
     expect(last.details).toMatchObject({ title: "Source", createdByOmpUi: true, baseHash: diskHash("omp-ui/Source.md") });
+    expect(replyTargets(last.text)).toEqual([{ vaultName: ctx.entry.name, file: "omp-ui/Source.md" }]);
     const before = disk("omp-ui/Source.md");
     expect((await vaultLink(ctx, "omp-ui/Source", "absent", diskHash("omp-ui/Source.md"))).text).toContain("link target not found: absent");
     expect(disk("omp-ui/Source.md")).toBe(before);
@@ -513,6 +583,11 @@ describe("production vault tools", () => {
     fs.symlinkSync(path.join(root, "Body.md"), path.join(root, "Alias.md"));
     const result = await vaultSearch(ctx, "needle", 50);
     expect(result.details).toMatchObject({ matchedFiles: 57, returnedFiles: 50, truncated: true, path: null, createdByOmpUi: null });
+    expect(replyTargets(result.text)).toEqual([
+      { vaultName: ctx.entry.name, file: "Needle.md" },
+      { vaultName: ctx.entry.name, file: "Body.md" },
+      ...Array.from({ length: 48 }, (_, i) => ({ vaultName: ctx.entry.name, file: `many/N${String(i).padStart(2, "0")}.md` })),
+    ]);
     expect(result.text).toContain('Vault Notes: 57 notes match "needle" (showing 50).');
     expect(result.text.indexOf("`Needle.md`")).toBeLessThan(result.text.indexOf("`Body.md`"));
     expect(result.text.indexOf("`Body.md`")).toBeLessThan(result.text.indexOf("`many/N00.md`"));
@@ -531,8 +606,15 @@ describe("production vault tools", () => {
     for (let i = 0; i < 90; i++) put(`${folder}/${String(i).padStart(2, "0")}${long}.md`, `needle ${"x".repeat(220)}\nneedle ${"y".repeat(220)}\nneedle ${"z".repeat(220)}\n`);
     const search = await vaultSearch(ctx, "needle", 50);
     expect(search.text.length).toBeLessThanOrEqual(SEARCH_TEXT_CAP);
-    const searchRows = search.text.split("\n").filter((line) => line.startsWith("- [["));
+    const searchRows = search.text.split("\n").filter((line) => line.startsWith("- "));
     expect(searchRows.length).toBe(search.details.returnedFiles);
+    const searchTargets = replyTargets(search.text);
+    expect(searchTargets).toHaveLength(search.details.returnedFiles!);
+    for (const [i, target] of searchTargets.entries()) {
+      expect(target).toEqual({ vaultName: ctx.entry.name, file: `${folder}/${String(i).padStart(2, "0")}${long}.md` });
+      expect(searchRows[i]?.endsWith(`\`${target.file}\``)).toBe(true);
+    }
+    expect(search.text.match(/^ {2}L[123]: /gm)).toHaveLength(searchRows.length * 3);
     expect(search.details.returnedFiles).toBeLessThan(50);
     expect(search.text).toContain(`(showing ${searchRows.length}).`);
     expect(search.text).toContain(`showing ${searchRows.length} of 90 notes.`);
@@ -542,7 +624,12 @@ describe("production vault tools", () => {
     expect(list.text.length).toBeLessThanOrEqual(SEARCH_TEXT_CAP);
     expect(list.details).toMatchObject({ path: "omp-ui", action: "list", createdByOmpUi: null, matchedFiles: 90, returnedFiles: listRows.length, truncated: true });
     expect(list.text).toContain(`showing ${listRows.length} of 90 notes.`);
-    expect(listRows.every((row) => row.endsWith(".md"))).toBe(true);
+    const listTargets = replyTargets(list.text);
+    expect(listTargets).toHaveLength(list.details.returnedFiles!);
+    for (const [i, target] of listTargets.entries()) {
+      expect(target).toEqual({ vaultName: ctx.entry.name, file: `${folder}/${String(i).padStart(2, "0")}${long}.md` });
+      expect(listRows[i]?.endsWith(`\`${target.file}\``)).toBe(true);
+    }
   });
 
   it("lists existing directories recursively in lexical order without hidden files or symlinks", async () => {
@@ -552,7 +639,14 @@ describe("production vault tools", () => {
     put("omp-ui/.trash/Hidden.md", "hidden");
     put("omp-ui/Image.png", "image");
     fs.symlinkSync(path.join(root, "omp-ui/a"), path.join(root, "omp-ui/alias"));
-    expect((await vaultList(ctx, undefined)).text).toBe("Vault Notes · omp-ui: 3 notes\n- omp-ui/Middle.md\n- omp-ui/a/First.md\n- omp-ui/z/Last.md");
+    const list = await vaultList(ctx, undefined);
+    expect(list.details).toMatchObject({ matchedFiles: 3, returnedFiles: 3, truncated: false });
+    expect(replyTargets(list.text)).toEqual([
+      { vaultName: ctx.entry.name, file: "omp-ui/Middle.md" },
+      { vaultName: ctx.entry.name, file: "omp-ui/a/First.md" },
+      { vaultName: ctx.entry.name, file: "omp-ui/z/Last.md" },
+    ]);
+    for (const file of ["omp-ui/Middle.md", "omp-ui/a/First.md", "omp-ui/z/Last.md"]) expect(list.text).toContain(`\`${file}\``);
     expect((await vaultList(ctx, "omp-ui\\a")).details.path).toBe("omp-ui/a");
     expect((await vaultList(ctx, "missing")).ok).toBe(false);
     expect((await vaultList(ctx, "omp-ui/Middle.md")).ok).toBe(false);
@@ -563,6 +657,7 @@ describe("production vault tools", () => {
     const results = await Promise.all([vaultSearch(ctx, "query", undefined), vaultRead(ctx, "Note"), vaultList(ctx, undefined), vaultCreate(ctx, { title: "Note", body: "body" }), vaultAppend(ctx, "Note", "body"), vaultEdit(ctx, "Note", "body", "hash"), vaultLink(ctx, "Note", "Target", "hash")]);
     for (const result of results) {
       expect(result.ok).toBe(false);
+      expect(replyTargets(result.text)).toEqual([]);
       expect(result.text).toContain("vault Notes is unreachable");
       expect(result.text).not.toContain(root);
     }

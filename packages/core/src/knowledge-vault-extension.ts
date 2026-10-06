@@ -41,6 +41,9 @@ const BOTH_SUFFIX =
 const DAY_WRITE_UP =
   'If the user asks for a note of everything worked on today, read omp-ui://sessions, then omp-ui://sessions/<id>/summary for each session it lists, then write one Day write-up yourself in this session with omp-ui_vault_create, project false, titled "<date> Day Write-up" with the date from the index heading. Subagents can read those resources but cannot call the vault tools. If the note already exists, read it and replace its body with omp-ui_vault_edit.';
 
+const REPLY_LINKS =
+  "In replies, link vault documents with the tool's Reply link Markdown, so the title is clickable and opens the exact note in Obsidian. If you do not have that link, search or read the note to obtain it. Do not substitute a plain path or wikilink. Inside vault notes, keep using Obsidian wikilinks.";
+
 /** Null when there is nothing to say: no vault-touching home and no day part. No sentence names plan mode (#757). */
 export function knowledgeVaultGuidance(input: {
   write: { vault: string; both: boolean } | null;
@@ -48,11 +51,13 @@ export function knowledgeVaultGuidance(input: {
 }): string | null {
   const parts: string[] = [];
   if (input.write !== null) {
-    const write = `omp-ui connected this session to the user's Obsidian vault "${input.write.vault}". The omp-ui_vault_* tools read the whole vault and write only inside its omp-ui home folder. Search before you write, to skip duplicates and to find the user's own notes worth linking. Write a vault note when a decision settles, at that moment, not at the end of the session. Also write one whenever you learn a lesson worth keeping: a wrong assumption, a trap, a fix that took several tries. Write-ups, and anything the user asks you to record, belong there too. One note per topic: a Title Case title and a plain markdown body; omp-ui adds the frontmatter and the index link. Link the user's notes as [[Title]] and omp-ui notes with the link the tool returns. Summarize and link the user's own notes; quote them only when the user asks, and only into vault notes. Never write secrets, tokens, or raw transcripts.`;
+    const write = `omp-ui connected this session to the user's Obsidian vault "${input.write.vault}". The omp-ui_vault_* tools read the whole vault and write only inside its omp-ui home folder. Search before you write, to skip duplicates and to find the user's own notes worth linking. Write a vault note when a decision settles, at that moment, not at the end of the session. Also write one whenever you learn a lesson worth keeping: a wrong assumption, a trap, a fix that took several tries. Write-ups, and anything the user asks you to record, belong there too. One note per topic: a Title Case title and a plain markdown body; omp-ui adds the frontmatter and the index link. Within vault note bodies, link the user's notes as [[Title]] and omp-ui notes with the Wikilink the tool returns. Summarize and link the user's own notes; quote them only when the user asks, and only into vault notes. Never write secrets, tokens, or raw transcripts.`;
     parts.push(input.write.both ? `${write} ${BOTH_SUFFIX}` : write);
   }
   if (input.dayWriteUp) parts.push(DAY_WRITE_UP);
-  return parts.length === 0 ? null : parts.join("\n\n");
+  if (parts.length === 0) return null;
+  parts.push(REPLY_LINKS);
+  return parts.join("\n\n");
 }
 
 /**

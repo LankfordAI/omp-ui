@@ -30,6 +30,8 @@ describe("openExternalSafe", () => {
       "javascript:alert(1)",
       "file:///etc/passwd",
       "data:text/html,<script>x</script>",
+      "obsidian://open?vault=Notes&file=Note.md",
+      "obsidian://create?vault=Notes&name=Note",
       "https://a.dev\u0000evil",
       "",
     ]) {

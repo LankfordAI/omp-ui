@@ -25,6 +25,8 @@ The browser pane is hosted the same way. A browser connected to this app sees th
 
 The knowledge vault is hosted the same way. Vault notes live on the desktop host, and the agent's vault tools read and write them there while a browser client is connected; the browser's Knowledge vault settings page shows that host's registry, and "Open in Obsidian" on a vault card copies the note's `obsidian://` link rather than opening Obsidian on the browser's own machine. Paste it on a machine with the same vault to open the note there.
 
+Inline Markdown note titles in native replies also copy a portable link in a browser client, including one hosted in an Electron browser pane, or in a tab owned by a joined instance. The title stays readable, with two-second "Link copied" feedback beside it. A refused clipboard exposes the selectable URI. These inline actions never route an open request to the unattended owner; unresolved ownership copies too.
+
 The HTTP and WebSocket server is embedded in the Electron main process. It starts at desktop launch when remote access was left enabled and stops when the desktop app quits. Closing a browser only removes that view. When the server is running, changing the bind address, port, password, or token restarts it without stopping live sessions. Disabling remote access stops the server, and enabling it starts the server.
 
 ## Authentication
