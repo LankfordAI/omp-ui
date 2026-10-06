@@ -469,6 +469,47 @@ describe("handleRpcFrame routing", () => {
     expect(h.useStore.getState().branchDiffRevision["/p"]).toBe(2);
   });
 
+  it("agent_end settles a deferred browser-pane close only under agent custody (#786)", () => {
+    const seedPane = (agent: "detached" | "attached", agentOpened: boolean): void => {
+      h.useStore.setState({
+        rpc: {
+          [h.TAB]: rpcTabState({
+            status: "running",
+            browserPane: {
+              ...rpcTabState().browserPane,
+              open: true,
+              agentOpened,
+              state: {
+                url: "https://example.test/",
+                title: "Example",
+                loading: false,
+                canGoBack: false,
+                canGoForward: false,
+                alive: true,
+                agent,
+              },
+            },
+          }),
+        },
+      });
+    };
+    // Detached at turn end with custody: the deferred close lands.
+    seedPane("detached", true);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    expect(h.useStore.getState().rpc[h.TAB]!.browserPane.open).toBe(false);
+    expect(h.mockBackend.browserPaneSetOpen).toHaveBeenLastCalledWith(h.TAB, false);
+
+    // The agent re-attached before the turn ended: the pane stays.
+    seedPane("attached", true);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    expect(h.useStore.getState().rpc[h.TAB]!.browserPane.open).toBe(true);
+
+    // A pane the user opened is never collapsed by the settle.
+    seedPane("detached", false);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    expect(h.useStore.getState().rpc[h.TAB]!.browserPane.open).toBe(true);
+  });
+
   it("agent_start flips status to running; prompt_result back to ready", () => {
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
     expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("running");

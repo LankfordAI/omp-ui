@@ -55,6 +55,7 @@ type AfterCommitEffect =
     }
   | { phase: "after-commit"; type: "refresh-usage"; settleQueue: boolean }
   | { phase: "after-commit"; type: "refresh-branch-diff" }
+  | { phase: "after-commit"; type: "settle-browser-pane-close" }
   | { phase: "after-commit"; type: "rename-session" }
   | {
       phase: "after-commit";
@@ -352,6 +353,10 @@ export function reduceAgentEvent(
     // A turn that committed mid-flight must not erase the pane's view of the
     // session's work (issue #711): re-read the repo's diff at turn end.
     effects.push({ phase: "after-commit", type: "refresh-branch-diff" });
+    // A symmetric close deferred by a mid-turn detach settles here: the case
+    // re-checks open + agent custody + detached, so this push is a no-op for
+    // every tab whose agent never held the pane.
+    effects.push({ phase: "after-commit", type: "settle-browser-pane-close" });
 
     const providerStall =
       tab.lastTurn !== undefined && isStreamStallEnd(tab.lastTurn);

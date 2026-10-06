@@ -167,6 +167,9 @@ export interface CapabilitiesToolFeedback {
 export interface BrowserPaneView {
   open: boolean;
   fullscreen: boolean;
+  /** True when the #530 auto-open opened this pane and no user action has
+   * touched it since; only such a pane auto-closes when the agent detaches. */
+  agentOpened: boolean;
   ensure: "idle" | "pending" | "available" | "unavailable" | "not-live";
   unavailableReason: BrowserPaneUnavailableReason | null;
   state: BrowserPaneState | null;

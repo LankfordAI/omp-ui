@@ -85,6 +85,74 @@ describe("handleBrowserPaneState (#530 auto-open)", () => {
   });
 });
 
+describe("symmetric auto-close on agent detach", () => {
+  /** An auto-open on a closed pane, leaving the view under agent custody. */
+  const autoOpen = (): void => {
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("attached"));
+    expect(pane().open).toBe(true);
+    expect(pane().agentOpened).toBe(true);
+    h.mockBackend.browserPaneSetOpen.mockClear();
+  };
+
+  it("closes an auto-opened pane on the detach edge and publishes the close", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    autoOpen();
+
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("detached"));
+    expect(pane().open).toBe(false);
+    expect(pane().agentOpened).toBe(false);
+    expect(h.mockBackend.browserPaneSetOpen).toHaveBeenLastCalledWith(h.TAB, false);
+    await h.flushMicrotasks();
+  });
+
+  it("leaves a user-opened pane open across the same detach edge", () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().openBrowserPane(h.TAB);
+    // The agent attaches to a pane the user opened: not an auto-open edge.
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("attached"));
+    expect(pane().agentOpened).toBe(false);
+
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("detached"));
+    expect(pane().open).toBe(true);
+  });
+
+  it("defers the close while the turn is still running", () => {
+    // The bridge count can dip between the agent's tool calls; closing here
+    // would flap the split mid-turn (the agent_end settle is the close).
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "running" }) } });
+    autoOpen();
+
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("detached"));
+    expect(pane().open).toBe(true);
+    expect(h.mockBackend.browserPaneSetOpen).not.toHaveBeenCalled();
+  });
+
+  it("hands custody to the user when a close is followed by an open", () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    autoOpen();
+    h.useStore.getState().closeBrowserPane(h.TAB);
+    h.useStore.getState().openBrowserPane(h.TAB);
+
+    // A later detach leaves the pane the user reopened deliberately.
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("attached"));
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("detached"));
+    expect(pane().open).toBe(true);
+  });
+
+  it("a re-attach after a user close re-arms custody", () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    autoOpen();
+    h.useStore.getState().closeBrowserPane(h.TAB);
+    // Detach + reattach: the auto-open fires again and the pane is the
+    // agent's once more.
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("detached"));
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("attached"));
+    expect(pane().agentOpened).toBe(true);
+    h.useStore.getState().handleBrowserPaneState(h.TAB, paneState("detached"));
+    expect(pane().open).toBe(false);
+  });
+});
+
 describe("session-scoped pane visibility (#556)", () => {
   /** Drives isCompactShell(): the stub window has no matchMedia otherwise. */
   const withCompactShell = (compact: boolean): void => {
@@ -200,6 +268,7 @@ describe("bootRpcTab carry-over (#528)", () => {
           browserPane: {
             open: true,
             fullscreen: true,
+            agentOpened: true,
             ensure: "available",
             unavailableReason: null,
             state: paneState("attached"),
@@ -214,11 +283,16 @@ describe("bootRpcTab carry-over (#528)", () => {
     expect(pane()).toEqual({
       open: true,
       fullscreen: true,
+      agentOpened: true,
       ensure: "idle",
       unavailableReason: null,
       state: null,
       frame: { width: 1280, height: 800, dsf: 1 },
     });
+    // The reboot left no observed agent, so the first turn end releases the
+    // pane the auto-open still held (#786).
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    expect(pane().open).toBe(false);
   });
 });
 

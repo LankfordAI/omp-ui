@@ -149,6 +149,7 @@ export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     browserPane: {
       open: false,
       fullscreen: false,
+      agentOpened: false,
       ensure: "idle",
       unavailableReason: null,
       state: null,

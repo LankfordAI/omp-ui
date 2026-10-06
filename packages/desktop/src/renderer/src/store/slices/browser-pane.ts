@@ -28,6 +28,7 @@ export function freshBrowserPaneView(): BrowserPaneView {
   return {
     open: false,
     fullscreen: false,
+    agentOpened: false,
     ensure: "idle",
     unavailableReason: null,
     state: null,
@@ -102,20 +103,33 @@ export function createBrowserPaneSlice(
     }
   };
 
-  const openBrowserPane = (tabId: string): void => {
+  const openPane = (tabId: string, agentOpened: boolean): void => {
     if (get().rpc[tabId] === undefined) return;
     // Optimistic local patch (zero latency for the actor) plus the
     // session-level publish: every other viewer adopts it from main's next
     // state push (#556). A notify — a down instance fails silently and the
     // local patch simply stands until rejoin.
-    patchPane(tabId, { open: true });
+    patchPane(tabId, { open: true, agentOpened });
     if (isCompactShell()) get().showCompactSurface("browser-pane");
     backend.browserPaneSetOpen(tabId, true);
     void ensureBrowserPane(tabId);
   };
 
+  const openBrowserPane = (tabId: string): void => {
+    // Every call that reaches here is a user action (palette, HUD globe,
+    // toggle), so the pane leaves agent custody — a later detach must not
+    // auto-close what the user opened deliberately.
+    openPane(tabId, false);
+  };
+
+  /** The #530 auto-open: same posture publish, but the pane is under agent
+   * custody and closes again on the detach edge. */
+  const openBrowserPaneByAgent = (tabId: string): void => {
+    openPane(tabId, true);
+  };
+
   const closeBrowserPane = (tabId: string): void => {
-    patchPane(tabId, { open: false, fullscreen: false });
+    patchPane(tabId, { open: false, fullscreen: false, agentOpened: false });
     if (isCompactShell()) get().closeCompactSurface();
     backend.browserPaneSetOpen(tabId, false);
   };
@@ -149,7 +163,22 @@ export function createBrowserPaneSlice(
       // `open`, so this path still runs openBrowserPane, which publishes it.
       const wasDetached = (previous.state?.agent ?? "detached") === "detached";
       if (wasDetached && state.agent !== "detached" && !previous.open) {
-        openBrowserPane(tabId);
+        openBrowserPaneByAgent(tabId);
+        return;
+      }
+      // The symmetric close: the agent's last CDP client left. A pane the
+      // auto-open opened collapses with the agent's custody — mid-turn the
+      // bridge count can dip between the agent's tool calls, so the close
+      // defers to the turn's agent_end instead of flapping the split.
+      const wasAttached = (previous.state?.agent ?? "detached") !== "detached";
+      if (
+        wasAttached &&
+        state.agent === "detached" &&
+        previous.open &&
+        previous.agentOpened &&
+        get().rpc[tabId]?.status !== "running"
+      ) {
+        closeBrowserPane(tabId);
         return;
       }
       // Surfaced by another view's open. `compactSurface` is app-global, not
