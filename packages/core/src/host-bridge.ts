@@ -56,7 +56,7 @@ export interface RpcHostToolDefinition {
 export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
   return {
     scheme: HOST_URI_SCHEME,
-    description: "omp-ui app-owned virtual files (the session's current plan)",
+    description: "omp-ui app-owned virtual files: the session's current plan (omp-ui://plan) and the day's session index (omp-ui://sessions)",
     writable: false,
     immutable: true,
   };

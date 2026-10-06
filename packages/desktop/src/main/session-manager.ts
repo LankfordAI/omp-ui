@@ -337,6 +337,13 @@ export class SessionManager {
         now: () => new Date(),
         mainLog: (line) => deps.mainLog?.(line),
       },
+      sessions: {
+        records: () => deps.registry.sessions,
+        projects: () => deps.registry.projects,
+        locate: (lineageDir, sessionId) =>
+          resolveSessionLocation(deps.getSessionsRoot(), deps.getArchiveRoot(), lineageDir, sessionId),
+        now: () => new Date(),
+      },
     });
     this.stallWatchdog = new StallWatchdog({
       registry: deps.registry,
@@ -908,9 +915,9 @@ export class SessionManager {
         message: browserPaneSetMessage(cdpUrl),
       });
     }
-    // The Knowledge home's hidden guidance (#766, ADR-0048): once per spawn, so a
-    // change reaches the next spawn. A vault-less registry resolves nothing — every
-    // outcome would be docs or none, which carry no message — so no git runs.
+    // The Knowledge home's hidden guidance (#766, #768, ADR-0048), sent once per
+    // spawn, so a change reaches the next spawn. With no vault registered the
+    // message has nothing to say: there is no write part and no day part, so no git runs.
     if (bridgeLoaded.knowledgeVault && vaults.vaults.length > 0) {
       const homeProject = this.deps.registry.projects.find((project) => project.path === record.projectCwd);
       const resolved = await resolveKnowledgeHome(homeProject?.knowledgeHome ?? null, record.projectCwd, vaults);
@@ -919,6 +926,8 @@ export class SessionManager {
           resolved.kind === "vault" || resolved.kind === "both"
             ? { vault: resolved.vault, both: resolved.kind === "both" }
             : null,
+        // The enclosing guard is "a vault is registered" (#760): every native session gets the day part.
+        dayWriteUp: true,
       });
       if (guidance !== null) {
         initialCommands.push({

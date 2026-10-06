@@ -6657,7 +6657,9 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
       expect(arms[0]).toMatchObject({
         type: "prompt",
         id: expect.stringMatching(/^omp-ui-initial-knowledge-vault-/),
-        message: Core.knowledgeVaultArmMessage(Core.knowledgeVaultGuidance({ write: { vault: "Notes", both } })!),
+        message: Core.knowledgeVaultArmMessage(
+          Core.knowledgeVaultGuidance({ write: { vault: "Notes", both }, dayWriteUp: true })!,
+        ),
       });
       const armAt = commands!.indexOf(arms[0]!);
       const paneAt = commands!.findIndex(
@@ -6670,15 +6672,25 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
     });
 
     it.each([
-      ["a pin to an unregistered vault", { home: "vault", vault: "Gone" }, [NOTES]],
-      ["the docs home", { home: "docs" }, [NOTES]],
-      ["an empty vault registry", { home: "vault" }, []],
-    ] as const)("sends no guidance for %s", async (_case, knowledgeHome, vaults) => {
+      ["a pin to an unregistered vault", { home: "vault", vault: "Gone" }],
+      ["the docs home", { home: "docs" }],
+    ] as const)("sends the day part alone for %s", async (_case, knowledgeHome) => {
       const { manager, registry } = setup({ mode: "rpc-ui", knowledgeHome });
-      registry.setSetting("vaultRegistry", {
-        vaults: [...vaults],
-        defaultWriteVault: vaults.length > 0 ? "Notes" : null,
+      registry.setSetting("vaultRegistry", { vaults: [NOTES], defaultWriteVault: "Notes" });
+      await resume(manager);
+      const options = RpcClientMock.mock.calls.at(-1)?.[0];
+      expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-knowledge-vault\.ts$/));
+      const arms = knowledgeArms(options?.initialCommands as Array<Record<string, unknown>> | undefined);
+      expect(arms).toHaveLength(1);
+      expect(arms[0]).toMatchObject({
+        type: "prompt",
+        message: Core.knowledgeVaultArmMessage(Core.knowledgeVaultGuidance({ write: null, dayWriteUp: true })!),
       });
+    });
+
+    it("sends no guidance for an empty vault registry", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui", knowledgeHome: { home: "vault" } });
+      registry.setSetting("vaultRegistry", { vaults: [], defaultWriteVault: null });
       await resume(manager);
       const options = RpcClientMock.mock.calls.at(-1)?.[0];
       expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-knowledge-vault\.ts$/));

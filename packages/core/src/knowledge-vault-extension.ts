@@ -5,7 +5,9 @@ import { generatedRootBindingSource } from "./generated-extension-source";
 /**
  * The agent learns where to file decisions and lessons (#766, ADR-0048) from
  * this generated extension: the spawner resolves the project's Knowledge home
- * and, when it touches a vault, arms the extension with
+ * and arms the extension whenever a vault is registered: the write part when
+ * the home touches a vault, and the Day write-up part (#768) for every native
+ * session, with
  * `/omp-ui-knowledge-vault set <json>` in `initialCommands`. The extension
  * delivers ONE hidden custom message (`display: false`) carrying that guidance
  * to the root session, re-queued after a compaction, branch, or session switch
@@ -36,11 +38,21 @@ export function knowledgeVaultArmMessage(text: string): string {
 const BOTH_SUFFIX =
   "This project also keeps decisions in its repo docs/: write the full note there with your file tools, then create a short vault note with the title, a one-line gist, and the repo path.";
 
-/** Null when nothing touches a vault: docs, broken, none. No sentence names plan mode (#757). */
-export function knowledgeVaultGuidance(input: { write: { vault: string; both: boolean } | null }): string | null {
-  if (input.write === null) return null;
-  const write = `omp-ui connected this session to the user's Obsidian vault "${input.write.vault}". The omp-ui_vault_* tools read the whole vault and write only inside its omp-ui home folder. Search before you write, to skip duplicates and to find the user's own notes worth linking. Write a vault note when a decision settles, at that moment, not at the end of the session. Also write one whenever you learn a lesson worth keeping: a wrong assumption, a trap, a fix that took several tries. Write-ups, and anything the user asks you to record, belong there too. One note per topic: a Title Case title and a plain markdown body; omp-ui adds the frontmatter and the index link. Link the user's notes as [[Title]] and omp-ui notes with the link the tool returns. Summarize and link the user's own notes; quote them only when the user asks, and only into vault notes. Never write secrets, tokens, or raw transcripts.`;
-  return input.write.both ? `${write} ${BOTH_SUFFIX}` : write;
+const DAY_WRITE_UP =
+  'If the user asks for a note of everything worked on today, read omp-ui://sessions, then omp-ui://sessions/<id>/summary for each session it lists, then write one Day write-up yourself in this session with omp-ui_vault_create, project false, titled "<date> Day Write-up" with the date from the index heading. Subagents can read those resources but cannot call the vault tools. If the note already exists, read it and replace its body with omp-ui_vault_edit.';
+
+/** Null when there is nothing to say: no vault-touching home and no day part. No sentence names plan mode (#757). */
+export function knowledgeVaultGuidance(input: {
+  write: { vault: string; both: boolean } | null;
+  dayWriteUp: boolean;
+}): string | null {
+  const parts: string[] = [];
+  if (input.write !== null) {
+    const write = `omp-ui connected this session to the user's Obsidian vault "${input.write.vault}". The omp-ui_vault_* tools read the whole vault and write only inside its omp-ui home folder. Search before you write, to skip duplicates and to find the user's own notes worth linking. Write a vault note when a decision settles, at that moment, not at the end of the session. Also write one whenever you learn a lesson worth keeping: a wrong assumption, a trap, a fix that took several tries. Write-ups, and anything the user asks you to record, belong there too. One note per topic: a Title Case title and a plain markdown body; omp-ui adds the frontmatter and the index link. Link the user's notes as [[Title]] and omp-ui notes with the link the tool returns. Summarize and link the user's own notes; quote them only when the user asks, and only into vault notes. Never write secrets, tokens, or raw transcripts.`;
+    parts.push(input.write.both ? `${write} ${BOTH_SUFFIX}` : write);
+  }
+  if (input.dayWriteUp) parts.push(DAY_WRITE_UP);
+  return parts.length === 0 ? null : parts.join("\n\n");
 }
 
 /**

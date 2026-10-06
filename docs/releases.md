@@ -11,6 +11,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Added seven Knowledge vault host tools: native sessions can search and read registered Obsidian vaults and create stamped, indexed Vault notes inside their Home folders, with read-before-edit checks and secret refusal. omp's own vault:// protocol stays off in omp-ui sessions ([#765](https://github.com/LankfordAI/omp-ui/issues/765)).
 - Added the Knowledge home: Project settings → Knowledge chooses whether a project's decisions and lessons go to repo docs, a vault, or both. Unset projects route by repository ownership, and native sessions whose home includes a vault are told so when they start ([#766](https://github.com/LankfordAI/omp-ui/issues/766)).
 - Added Knowledge vault write cards and the "Vault notes" rail section: each vault create, append, edit, or link renders as its own card with Open in Obsidian, a write into a note omp-ui did not create carries a copper "Not created by omp-ui" marker, and the inspector rail's Session pane lists the Vault notes touched this session ([#767](https://github.com/LankfordAI/omp-ui/issues/767)).
+- Added the Day write-up: with a Knowledge vault registered, a native session can read the day's omp-ui session index and per-session summaries (omp-ui://sessions) and, when asked, write one cross-project Day write-up into the vault ([#768](https://github.com/LankfordAI/omp-ui/issues/768)).
 
 ## Choose a download
 
