@@ -65,6 +65,24 @@ describe("DiffViewer", () => {
     expect(document.body.textContent).not.toContain("one");
   });
 
+  it("starts open with defaultOpen and still toggles closed", () => {
+    render(
+      [
+        { kind: "add", lineNum: 1, text: "one" },
+        { kind: "del", lineNum: 2, text: "old" },
+      ],
+      "a.ts",
+      { defaultOpen: true },
+    );
+
+    expect(headerButton().getAttribute("aria-expanded")).toBe("true");
+    expect(renderedRows().length).toBe(2);
+
+    act(() => headerButton().click());
+    expect(headerButton().getAttribute("aria-expanded")).toBe("false");
+    expect(renderedRows().length).toBe(0);
+  });
+
   it("expands on header click and collapses again", () => {
     render([
       { kind: "add", lineNum: 1, text: "one" },
