@@ -10,6 +10,7 @@ Resolves issue #748 through map #749 (#750-#762). Verified against omp 18.6.1. C
 - omp's reserved `vault://` protocol, when a user enables it, reads and writes anywhere under a vault root through the Obsidian CLI (#752).
 - An Obsidian vault is any folder; `obsidian.json` registers it, external renames never rewrite links, and `[[Foo]]` resolves by filename vault-wide (#751, #750).
 - With a hidden spawn message Opus 5.5 wrote vault decision notes unprompted; with tool descriptions alone it wrote a repo ADR instead. A 20,000-note filesystem search takes about 0.8 s (#754).
+- Platform verification (T1 gists: [linux-x64](https://gist.github.com/AustinM731/fab188a4995179deadf54f97df07e342), [windows-x64](https://gist.github.com/AustinM731/0771d9de3685d58f3d4045ed979e736b)): Linux x64 ran the unit contracts, the smoke, M22 and M24, with M18 and M19 closed in #754. Windows x64 ran the core and desktop unit suites on windows-latest (Nightly run 37521599512), after #773 found that Windows 8.3 short names split the native and JS realpath families; the confinement code now resolves with the native one. No fallback fired. Not run, by explicit user decision at close: the smoke on macOS and Windows, the vault unit tests on macOS, the macOS and Windows M rows (M1-M17), Linux M23, and M20 (Flatpak) and M21 (Snap) (#748).
 
 ## Decision
 
