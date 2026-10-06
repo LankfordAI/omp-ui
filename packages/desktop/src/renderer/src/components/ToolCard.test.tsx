@@ -196,6 +196,29 @@ describe("ToolCard read-result slab", () => {
   });
 });
 
+describe("ToolCard diff", () => {
+  it("shows an edit diff open without any header click (issue #785)", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "Edit",
+        path: "src/app.ts",
+        op: "update",
+        diff: [
+          { kind: "ctx", lineNum: 1, text: "keep" },
+          { kind: "del", lineNum: 2, text: "old" },
+          { kind: "add", lineNum: 2, text: "new" },
+        ],
+      }),
+    );
+
+    const rows = [...el.querySelectorAll(".border-l-2")];
+    expect(rows).toHaveLength(3);
+    expect(el.textContent).toContain("old");
+    expect(el.textContent).toContain("new");
+    act(() => root.unmount());
+  });
+});
+
 describe("ToolCard arguments dump", () => {
   it("tokenizes as json only once the disclosure opens", () => {
     const args = { config: { retries: 2 }, url: "https://example.com" };

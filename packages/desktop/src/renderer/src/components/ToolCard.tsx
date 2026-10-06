@@ -707,7 +707,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
             </div>
           )}
 
-          {hasDiff && item.diff && <DiffViewer rows={item.diff} path={item.path} op={item.op} />}
+          {hasDiff && item.diff && <DiffViewer rows={item.diff} path={item.path} op={item.op} defaultOpen />}
 
           {item.resultText !== undefined &&
             item.resultText !== "" &&

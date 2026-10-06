@@ -74,6 +74,9 @@ export interface DiffViewerProps {
   /** Controlled open state (branch diff pane expand/collapse all). Uncontrolled when undefined. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Initial state for the uncontrolled path; the closed default stays for
+   *  callers without one (branch diff pane's multi-file scroll wall, #34). */
+  defaultOpen?: boolean;
 }
 
 export function DiffViewer(props: DiffViewerProps) {
@@ -86,9 +89,9 @@ export function DiffViewer(props: DiffViewerProps) {
   );
   const patch = props.patch ?? rebuilt;
 
-  // Collapsed by default (issue #34): a multi-file branch is a scroll wall, so
-  // every diff starts as its header card and expands on header click.
-  const [ownOpen, setOwnOpen] = useState(false);
+  // Collapsed unless the caller opts into defaultOpen (issue #34): the branch
+  // diff pane's multi-file scroll wall keeps the closed start.
+  const [ownOpen, setOwnOpen] = useState(props.defaultOpen ?? false);
   const open = props.open ?? ownOpen;
   const setOpen = (v: boolean) => {
     if (props.open === undefined) setOwnOpen(v);
