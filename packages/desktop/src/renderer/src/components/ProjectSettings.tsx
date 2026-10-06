@@ -11,8 +11,6 @@ import { AdvisorRosterEditor } from "./AdvisorRoster";
 import { ModelPalette } from "./ModelSelector";
 import { ReviewRosterEditor } from "./ReviewRoster";
 import { Button, Label, Modal, Switch } from "./ui";
-// PROTOTYPE (#753): knowledge home tab and header chip; inert unless the gate is on.
-import { KnowledgeHomeChip, KnowledgeHomeSection, usePrototype753 } from "./prototype-vault-753";
 
 /**
  * The project's standing model pins (issue #257): the default main model and
@@ -340,11 +338,9 @@ export function ProjectModelPins({
   );
 }
 
-// PROTOTYPE (#753): "knowledge" is reachable only while the prototype is on.
-export type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models" | "advisors" | "reviewers" | "browser" | "knowledge";
+export type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models" | "advisors" | "reviewers" | "browser";
 
-// PROTOTYPE (#753): optional hard-coded `label` for the prototype tab.
-const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey; label?: string }[] = [
+const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
   { id: "mcp", labelKey: "project.settings.mcpServers" },
   { id: "skills", labelKey: "project.settings.skills" },
   { id: "tools", labelKey: "project.settings.tools" },
@@ -390,18 +386,7 @@ export function ProjectSettings({
   const tabRefs = useRef<Partial<Record<ProjectSettingsSectionId, HTMLButtonElement | null>>>({});
   const setProjectBrowserClock = useStore((s) => s.setProjectBrowserClock);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
-  const baseSections = experimentsEnabled
-    ? SECTIONS
-    : SECTIONS.filter((tab) => tab.id !== "reviewers");
-  // PROTOTYPE (#753): the "Knowledge" tab joins only under the tab chip variant.
-  const proto = usePrototype753();
-  const knowledgeTab = proto.active && proto.chip === "tab";
-  const sections = knowledgeTab
-    ? [...baseSections, { id: "knowledge" as const, labelKey: "project.settings.browser" as const, label: "Knowledge" }]
-    : baseSections;
-  useEffect(() => {
-    if (!knowledgeTab && active === "knowledge") setActive("mcp");
-  }, [knowledgeTab, active]);
+  const sections = experimentsEnabled ? SECTIONS : SECTIONS.filter((tab) => tab.id !== "reviewers");
 
   // WAI-ARIA tabs: roving tabindex, arrows/Home/End move selection AND focus.
   // Mirrors CapabilitiesViewer's onTabListKeyDown (CapabilitiesViewer.tsx).
@@ -435,8 +420,6 @@ export function ProjectSettings({
           <p title={project.path} className="mt-1 truncate font-mono text-[11px] text-ink-dim">
             {project.path}
           </p>
-          {/* PROTOTYPE (#753): null unless the prototype runs the header chip variant. */}
-          <KnowledgeHomeChip project={project} placement="header" />
         </header>
 
         <div
@@ -465,8 +448,7 @@ export function ProjectSettings({
                   selected ? "bg-hover text-ink" : "text-ink-mid hover:text-ink",
                 )}
               >
-                {/* PROTOTYPE (#753): `label` is set only on the prototype tab. */}
-                {tab.label ?? t(tab.labelKey)}
+                {t(tab.labelKey)}
               </button>
             );
           })}
@@ -566,9 +548,6 @@ export function ProjectSettings({
               </div>
             </section>
           )}
-
-          {/* PROTOTYPE (#753): reachable only while the prototype tab exists. */}
-          {active === "knowledge" && knowledgeTab && <KnowledgeHomeSection project={project} />}
         </div>
       </section>
     </Modal>

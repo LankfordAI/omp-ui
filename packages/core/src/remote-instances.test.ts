@@ -53,3 +53,24 @@ describe("autoresearch proxy channels (issue #559)", () => {
     }
   });
 });
+
+describe("knowledge vault channels (issue #764)", () => {
+  // The registry and Obsidian's vault list are host-local: no vault:* channel
+  // is proxied to a joined instance.
+  it("never proxies a vault channel to a joined instance", () => {
+    expect(REMOTE_PROXY_CHANNELS.has("vault:open")).toBe(false);
+    expect(REMOTE_PROXY_CHANNELS.has("vault:add")).toBe(false);
+    for (const channel of [
+      "vault:detect",
+      "vault:add",
+      "vault:import",
+      "vault:remove",
+      "vault:setDefault",
+      "vault:setHomeFolder",
+      "vault:setWritesOutsideHome",
+      "vault:open",
+    ]) {
+      expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(false);
+    }
+  });
+});

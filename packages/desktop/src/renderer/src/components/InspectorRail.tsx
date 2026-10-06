@@ -26,9 +26,6 @@ import { SideQuestionsPane } from "./SideQuestionsPane";
 import { SubagentModelsControl } from "./SubagentModelsControl";
 import { SubagentControls, useSubagentControlNotice } from "./SubagentControls";
 import { Button, Chip, CopyButton, Dot, Empty, ICON_STROKE, IconRefresh, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
-// PROTOTYPE (#753): the rail variant of "notes touched this session".
-import { usePrototype753 } from "./prototype-vault-753";
-import { NotesTouchedList, useNotesTouchedCount } from "./prototype-vault-753/NotesTouched";
 
 /** Vibe worker state → tone, matching the roster's copper-pulse convention. */
 const VIBE_TONE: Record<VibeWorkerState, Tone> = {
@@ -480,18 +477,9 @@ function SessionPane({ tabId }: { tabId: string }) {
   const queueChip = queueChipView(status === "running", session?.queuedMessageCount ?? 0);
   const refreshState = useStore((s) => s.refreshState);
   const refreshStats = useStore((s) => s.refreshStats);
-  // PROTOTYPE (#753): inert when the prototype is off (no section renders).
-  const proto = usePrototype753();
-  const touchedCount = useNotesTouchedCount(tabId);
 
   return (
     <>
-      {/* PROTOTYPE (#753): vault notes touched, rail variant only. */}
-      {proto.active && proto.touched === "rail" && (
-        <Section title="Vault notes" action={<Chip mono>{touchedCount}</Chip>}>
-          <NotesTouchedList tabId={tabId} />
-        </Section>
-      )}
       <Section
         title={t("rail.session.title")}
         action={

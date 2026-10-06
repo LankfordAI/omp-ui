@@ -97,6 +97,7 @@ describe("SETTINGS", () => {
       "localeId",
       "appUpdateCheckOnLaunch",
       "appUpdateTrain",
+      "vaultRegistry",
       "ompUpdateCheckOnLaunch",
       "remoteEnabled",
       "remoteBind",
@@ -279,6 +280,7 @@ describe("Registry.load", () => {
           themeId: "",
           appUpdateCheckOnLaunch: "yes",
           appUpdateTrain: "canary",
+          vaultRegistry: "nope",
           ompUpdateCheckOnLaunch: 0,
           remoteEnabled: "no",
           remoteBind: "public",
@@ -309,6 +311,7 @@ describe("Registry.load", () => {
     expect(reg.getSetting("themeId")).toBe("graphite");
     expect(reg.getSetting("appUpdateCheckOnLaunch")).toBe(true);
     expect(reg.getSetting("appUpdateTrain")).toBe("stable");
+    expect(reg.getSetting("vaultRegistry")).toEqual({ vaults: [], defaultWriteVault: null });
     expect(reg.getSetting("ompUpdateCheckOnLaunch")).toBe(true);
     expect(reg.getSetting("remoteEnabled")).toBe(false);
     expect(reg.getSetting("remoteBind")).toBe("localhost");
@@ -666,6 +669,19 @@ describe("Registry persistence", () => {
     expect(reloaded.getSetting("appUpdateTrain")).toBe("nightly");
     expect(reloaded.getSetting("ompUpdateCheckOnLaunch")).toBe(false);
     expect(reloaded.getSetting("gettingStartedSeen")).toBe(true);
+  });
+
+  it("round-trips the vault registry across a reload", () => {
+    const file = tmpFile();
+    const vaultRegistry = {
+      vaults: [
+        { name: "Vault", path: "/abs/Vault", homeFolder: "omp-ui/", allowWritesOutsideHome: false },
+        { name: "Notes", path: "/abs/Notes", homeFolder: "agents/notes/", allowWritesOutsideHome: true },
+      ],
+      defaultWriteVault: "Notes",
+    };
+    Registry.load(file).setSetting("vaultRegistry", vaultRegistry);
+    expect(Registry.load(file).getSetting("vaultRegistry")).toEqual(vaultRegistry);
   });
 
   it("does not write when a public setting setter receives the current value", () => {

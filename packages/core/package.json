@@ -42,7 +42,8 @@
     "./session-command": "./src/session-command.ts",
     "./session-tree": "./src/session-tree.ts",
     "./side-questions": "./src/side-questions.ts",
-    "./sidebar-groups": "./src/sidebar-groups.ts"
+    "./sidebar-groups": "./src/sidebar-groups.ts",
+    "./vault-shared": "./src/vault-shared.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

@@ -11,6 +11,7 @@ import type { SkillOrigin } from "./omp-capability-keys";
 import type { RegistrySettings } from "./registry";
 import type { ReviewDocument } from "./review-config";
 import type { SessionExperiment } from "./experiment-types";
+import type { VaultAction } from "./vault-shared";
 export type {
   CheckoutExperiments,
   ExperimentDetail,
@@ -1060,6 +1061,38 @@ export interface DirBrowseResult {
   error: "invalid" | "missing" | "denied" | null;
 }
 
+/** One Vault registry row (CONTEXT.md "Vault registry"). `name` is the folder basename and the row's key. */
+export interface VaultRegistryEntry {
+  name: string;
+  /** Absolute folder path exactly as resolved at add time. */
+  path: string;
+  /** Vault-relative, normalized by normalizeHomeFolder: "omp-ui/" form, one trailing slash. */
+  homeFolder: string;
+  /** #758 toggle: explicit-path tools (_append, _edit, _link) may write anywhere in the vault. */
+  allowWritesOutsideHome: boolean;
+}
+
+export interface VaultRegistry {
+  vaults: VaultRegistryEntry[];
+  /** Name of the Default write vault; null only when `vaults` is empty. */
+  defaultWriteVault: string | null;
+}
+
+export type VaultRowStatus = "ok" | "no-obsidian-dir" | "missing" | "refused-root";
+export interface ObsidianListEntry { id: string; path: string; open: boolean }
+export interface VaultDetection {
+  /** obsidian.json that answered, or null when none of the per-OS candidates exists. */
+  obsidianListFile: string | null;
+  /** registeredAs: the registry name whose realpath equals this entry's, else null (drives the import dialog's "added" chip). */
+  obsidianList: Array<ObsidianListEntry & { registeredAs: string | null }>;
+  /** obsidian.json `"cli": true`. Never probed by running the binary (#761 M3). */
+  cliRegistered: boolean;
+  /** Electron app.getApplicationNameForProtocol("obsidian://") !== "". */
+  uriHandler: boolean;
+  /** Keyed by registry name. */
+  rows: Record<string, { status: VaultRowStatus; inObsidianList: boolean; obsidianId: string | null }>;
+}
+
 /** Which interface the embedded remote server binds to. */
 export type RemoteBind = "localhost" | "lan";
 
@@ -1377,6 +1410,7 @@ export interface DiagnosticsSection {
     | "breadcrumbs"
     | "window-state"
     | "browser-pane"
+    | "knowledge-vault"
     | "transcripts";
   /** Stable zip prefix this section writes under, e.g. "logs/". */
   prefix: string;
@@ -1401,6 +1435,17 @@ export interface BrowserPaneDiagnostics {
   bridgePort: number | null;
   partition: "persist:browser-pane";
   lastError: string | null;
+}
+
+/** Knowledge vault registry and detection for the diagnostics bundle; folder paths never included (#758). */
+export interface KnowledgeVaultDiagnostics {
+  vaults: Array<{ name: string; homeFolder: string; allowWritesOutsideHome: boolean; isDefault: boolean;
+                  status: VaultRowStatus; inObsidianList: boolean }>;
+  obsidianListFound: boolean;
+  cliRegistered: boolean;
+  uriHandler: boolean;
+  /** Per live tab, per vault action, calls answered since spawn. F1 always sends {}; F2 fills it. */
+  calls: Record<string, Partial<Record<VaultAction, number>>>;
 }
 
 /** What an export would contain, computed without reading file bodies. */

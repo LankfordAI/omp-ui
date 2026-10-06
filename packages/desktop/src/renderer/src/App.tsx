@@ -27,8 +27,6 @@ import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
 import { SidebarGroupDialog } from "./components/SidebarGroupDialog";
 import { TerminalTab } from "./components/TerminalTab";
-// PROTOTYPE (#753): floating variant switcher; renders null unless the gate is on.
-import { Prototype753Switcher } from "./components/prototype-vault-753";
 import { Button, Chevron, IconButton, IconPlus } from "./components/ui";
 import { cn } from "./lib/cn";
 import { formatHotkey, useHotkeys } from "./lib/hotkeys";
@@ -576,8 +574,6 @@ export default function App() {
           in useOverlay's stack (issue #623). */}
       {gettingStartedOpen && <GettingStarted />}
       {settingsPage && <Settings />}
-      {/* PROTOTYPE (#753): null unless VITE_OMP_UI_PROTOTYPE_753=1. */}
-      <Prototype753Switcher />
       {/* Feedback last of the root surfaces: its dialogs must outrank every
           other overlay in the stack (issue #373). */}
       <AppFeedback />

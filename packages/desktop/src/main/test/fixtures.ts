@@ -41,6 +41,10 @@ interface RegistrySettings {
   localeId: string;
   appUpdateCheckOnLaunch: boolean;
   appUpdateTrain: "stable" | "nightly";
+  vaultRegistry: {
+    vaults: Array<{ name: string; path: string; homeFolder: string; allowWritesOutsideHome: boolean }>;
+    defaultWriteVault: string | null;
+  };
   ompUpdateCheckOnLaunch: boolean;
   remoteEnabled: boolean;
   remoteBind: RemoteBind;
@@ -129,6 +133,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     localeId: "en",
     appUpdateCheckOnLaunch: true,
     appUpdateTrain: "stable",
+    vaultRegistry: { vaults: [], defaultWriteVault: null },
     ompUpdateCheckOnLaunch: true,
     remoteEnabled: false,
     remoteBind: "localhost",

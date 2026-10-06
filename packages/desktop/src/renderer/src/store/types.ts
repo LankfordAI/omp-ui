@@ -442,12 +442,11 @@ export type SettingsPage =
   | "remote-instances"
   | "providers"
   | "memory"
+  | "knowledge-vault"
   | "omp"
   | "experimental"
   | "advanced"
-  | "about"
-  // PROTOTYPE (#753): vault registry page; only listed while the prototype gate is on.
-  | "vaults";
+  | "about";
 
 export type CompactSurface =
   "sessions" | "inspector" | "session-actions" | "composer-options" | "browser-pane";
@@ -503,6 +502,16 @@ export interface SettingsSlice {
   setLocaleId(id: string): Promise<void>;
   setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;
   setAppUpdateTrain(train: UpdateTrain): Promise<void>;
+  /** Knowledge vault registry (issue #764); always the local backend, which on a web client is the host's (#759). Rejects so the picker shows the refusal inline. */
+  addVault(path: string): Promise<void>;
+  /** Null after a reported failure. */
+  importVaults(ids: string[]): Promise<{ added: string[]; skipped: string[] } | null>;
+  removeVault(name: string): Promise<void>;
+  setDefaultWriteVault(name: string): Promise<void>;
+  /** Rejects so the home-folder field shows the refusal inline. */
+  setVaultHomeFolder(name: string, homeFolder: string): Promise<void>;
+  setVaultWritesOutsideHome(name: string, on: boolean): Promise<void>;
+  openVault(name: string, file: string | null): Promise<void>;
   setOmpUpdateCheckOnLaunch(on: boolean): Promise<void>;
   clearDismissedAppUpdate(): Promise<void>;
   clearDismissedOmpUpdate(): Promise<void>;
