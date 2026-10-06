@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { DiagramRenderer } from "../lib/plan-diagrams";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { linkify, Markdown } from "./Markdown";
+import { linkify, Markdown, ObsidianNoteLinkContext } from "./Markdown";
+import { obsidianReplyLink, type ObsidianNoteTarget } from "@omp-ui/core/vault-shared";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -565,5 +566,119 @@ describe("Markdown html plan documents", () => {
     } finally {
       dispose(view);
     }
+  });
+});
+
+describe("Markdown Obsidian links", () => {
+  function scoped(text: string) {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    const renderLink = vi.fn((target: ObsidianNoteTarget, label: ReactNode) => (
+      <a role="link" data-vault={target.vaultName} data-file={target.file}>{label}</a>
+    ));
+    act(() => root.render(
+      <ObsidianNoteLinkContext.Provider value={renderLink}>
+        <Markdown text={text} />
+      </ObsidianNoteLinkContext.Provider>,
+    ));
+    return { el, root, renderLink };
+  }
+
+  it("leaves a valid link plain without a scoped renderer", () => {
+    const { el, root } = render(obsidianReplyLink("Notes", "nested/Foo.md", "Foo"));
+    expect(el.textContent).toBe("Foo");
+    expect(el.querySelector("a")).toBeNull();
+    expect(el.querySelector("[title]")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("passes the exact target and recursively rendered label to the scoped renderer", () => {
+    const { el, root, renderLink } = scoped(
+      "[**Exact** *note* `code`](obsidian://open?file=nested%2FFoo.md&vault=Notes)",
+    );
+    expect(renderLink).toHaveBeenCalledOnce();
+    expect(renderLink.mock.calls[0]![0]).toEqual({ vaultName: "Notes", file: "nested/Foo.md" });
+    const link = el.querySelector('a[role="link"]')!;
+    expect(link.querySelector("strong")?.textContent).toBe("Exact");
+    expect(link.querySelector("em")?.textContent).toBe("note");
+    expect(link.querySelector("code")?.textContent).toBe("code");
+    expect(link.hasAttribute("href")).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("renders the canonical escaped title literally with a parentheses path", () => {
+    const title = "[Exact] *note* `code` $cost | slash\\ and (draft)";
+    const { el, root, renderLink } = scoped(obsidianReplyLink("Notes", "nested/Foo (draft).md", title));
+    expect(el.querySelector("a")?.textContent).toBe(title);
+    expect(el.querySelector("strong, em, code, .katex")).toBeNull();
+    expect(renderLink.mock.calls[0]![0]).toEqual({ vaultName: "Notes", file: "nested/Foo (draft).md" });
+    act(() => root.unmount());
+  });
+
+  it.each([
+    "obsidian://open?vault=Notes&file=../Foo.md",
+    "obsidian://open?vault=Notes&file=.hidden%2FFoo.md",
+    "obsidian://open?vault=Notes&file=%2Ftmp%2FFoo.md",
+    "obsidian://open?vault=Notes&file=C%3A%2FFoo.md",
+    "obsidian://open?vault=Notes&file=Foo%23heading.md",
+    "obsidian://open?vault=Notes&file=Foo%5Eblock.md",
+    "obsidian://open?vault=Notes&file=Foo.md&file=Other.md",
+    "obsidian://open?vault=Notes&file=Foo.md&extra=1",
+    "obsidian://open?vault=Notes&file=%FF.md",
+    "obsidian://open?vault=Notes&file=Foo%00.md",
+    "obsidian://open?vault=Notes&file=Foo.md#heading",
+    "obsidian://open/path?vault=Notes&file=Foo.md",
+    "obsidian://user@open?vault=Notes&file=Foo.md",
+    "obsidian://open:80?vault=Notes&file=Foo.md",
+    "obsidian://open?path=%2Ftmp%2FFoo.md",
+    "javascript:alert%281%29",
+    "file:///tmp/Foo.md",
+  ])("leaves refused target %s plain without a tooltip", (href) => {
+    const { el, root, renderLink } = scoped(`[Note](${href})`);
+    expect(el.textContent).toBe("Note");
+    expect(el.querySelector("a, [title]")).toBeNull();
+    expect(renderLink).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it("keeps web and email links on the existing external-link branch", () => {
+    const { el, root, renderLink } = scoped(
+      "[Web](https://example.com/note) [Mail](mailto:notes@example.com)",
+    );
+    expect(renderLink).not.toHaveBeenCalled();
+    expect(Array.from(el.querySelectorAll("a")).map((a) => a.title)).toEqual([
+      "https://example.com/note", "mailto:notes@example.com",
+    ]);
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    act(() => el.querySelector("a")!.click());
+    expect(open).toHaveBeenCalledWith("https://example.com/note", "_blank", "noopener,noreferrer");
+    open.mockRestore();
+    act(() => root.unmount());
+  });
+
+  it("does not activate links in code or incomplete streaming Markdown", () => {
+    const link = obsidianReplyLink("Notes", "nested/Foo.md", "Foo");
+    for (const text of [`\`${link}\``, `\`\`\`\n${link}\n\`\`\``, "[Foo](obsidian://open?vault=Notes&file=nested%2FFoo.md"]) {
+      const { el, root, renderLink } = scoped(text);
+      expect(el.querySelector("a")).toBeNull();
+      expect(renderLink).not.toHaveBeenCalled();
+      expect(el.textContent).toContain("obsidian://open?");
+      act(() => root.unmount());
+    }
+  });
+
+  it("keeps plain-text linkify HTTP-only even when scoped", () => {
+    const href = "obsidian://open?vault=Notes&file=nested%2FFoo.md";
+    const el = document.createElement("div");
+    const root = createRoot(el);
+    const renderLink = vi.fn(() => <a role="link" />);
+    act(() => root.render(
+      <ObsidianNoteLinkContext.Provider value={renderLink}>{linkify(href)}</ObsidianNoteLinkContext.Provider>,
+    ));
+    expect(el.textContent).toBe(href);
+    expect(el.querySelector("a")).toBeNull();
+    expect(renderLink).not.toHaveBeenCalled();
+    act(() => root.unmount());
   });
 });

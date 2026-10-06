@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { obsidianReplyLink, parseObsidianNoteUri } from "@omp-ui/core/vault-shared";
 import { isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "./markdown";
 
 /** Text of one span, recursing into nested spans (issue #40 nests emphasis;
@@ -339,6 +340,22 @@ describe("parseMarkdown blocks", () => {
 });
 
 describe("parseMarkdown inline", () => {
+  it("consumes backslash escapes for every ASCII punctuation character", () => {
+    const punctuation = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+    for (const ch of punctuation) {
+      expect(parseMarkdown(`\\${ch}`)).toEqual([
+        { kind: "p", spans: [{ kind: "text", text: ch }] },
+      ]);
+    }
+  });
+
+  it("keeps backslashes before nonpunctuation and at the streaming tail", () => {
+    const src = "before \\word \\7 \\é \\ \\";
+    expect(parseMarkdown(src)).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: src }] },
+    ]);
+  });
+
   it("parses inline code and strips one padding space per side", () => {
     expect(parseMarkdown("run `npm test` now")[0]).toEqual({
       kind: "p",
@@ -428,6 +445,36 @@ describe("parseMarkdown inline", () => {
     });
   });
 
+  it("skips escaped closing brackets in a link label", () => {
+    expect(parseMarkdown("[label\\](ignored) end](https://a.dev)")).toEqual([
+      {
+        kind: "p",
+        spans: [
+          {
+            kind: "link",
+            spans: [{ kind: "text", text: "label](ignored) end" }],
+            href: "https://a.dev",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("allows a closing bracket after an escaped backslash", () => {
+    expect(parseMarkdown("[label\\\\](https://a.dev)")).toEqual([
+      {
+        kind: "p",
+        spans: [
+          {
+            kind: "link",
+            spans: [{ kind: "text", text: "label\\" }],
+            href: "https://a.dev",
+          },
+        ],
+      },
+    ]);
+  });
+
   it("parses links inside headings and list items", () => {
     expect(parseMarkdown("# [t](https://a.dev)")[0]).toMatchObject({
       kind: "heading",
@@ -439,6 +486,60 @@ describe("parseMarkdown inline", () => {
         { blocks: [{ kind: "p", spans: [{ kind: "link", href: "https://a.dev" }] }] },
       ],
     });
+  });
+});
+
+describe("canonical Obsidian reply links", () => {
+  const vaultName = "Team & personal notes";
+  const file = "Projects/duplicate (draft)/Roadmap (v2).MD";
+
+  it.each([
+    "Roadmap [draft] **bold** _under_ `code` $cost$ | A/B \\ C (v2)",
+    "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
+    "[INFERENCE]",
+    "Trailing backslash\\",
+    "日本語 café 📝",
+  ])("round-trips the literal title %j and exact target", (title) => {
+    const blocks = parseMarkdown(obsidianReplyLink(vaultName, file, title));
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "p") throw new Error("expected a paragraph");
+    expect(block.spans).toHaveLength(1);
+    const link = block.spans[0];
+    if (link?.kind !== "link") throw new Error("expected a reply link");
+    expect(link.spans).toEqual([{ kind: "text", text: title }]);
+    expect(link.href).toContain("%28");
+    expect(link.href).toContain("%29");
+    expect(parseObsidianNoteUri(link.href)).toEqual({ vaultName, file });
+  });
+
+  it("keeps canonical links and their escapes literal inside code", () => {
+    const reply = obsidianReplyLink(vaultName, file, "[draft] *bold* `code` $cost$ | \\");
+    expect(parseMarkdown(`see \`\`${reply}\`\` now`)).toEqual([
+      {
+        kind: "p",
+        spans: [
+          { kind: "text", text: "see " },
+          { kind: "code", text: reply },
+          { kind: "text", text: " now" },
+        ],
+      },
+    ]);
+    expect(parseMarkdown(`~~~md\n${reply}\n~~~`)).toEqual([
+      { kind: "code", lang: "md", text: reply },
+    ]);
+    expect(parseMarkdown(`~~~md\n${reply}`)).toEqual([
+      { kind: "code", lang: "md", text: reply },
+    ]);
+  });
+
+  it("keeps an incomplete reply link as literal text while streaming", () => {
+    const title = "[draft] *bold* `code` $cost$ | \\";
+    const reply = obsidianReplyLink(vaultName, file, title);
+    const href = reply.slice(reply.lastIndexOf("](") + 2, -1);
+    expect(parseMarkdown(reply.slice(0, -1))).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: `[${title}](${href}` }] },
+    ]);
   });
 });
 

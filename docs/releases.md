@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.20.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.20.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Explicit Obsidian Markdown links in native replies now show clickable note titles that open the exact file on the owning desktop. Browser and joined-instance viewers copy portable links instead; plain paths, wikilinks, and sandboxed HTML plans are unchanged. #781
 
 ## Choose a download
 

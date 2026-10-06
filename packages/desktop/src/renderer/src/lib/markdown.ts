@@ -48,6 +48,7 @@ export type MdSpan =
 const NOT_SPACE = /[^ \t\n]/;
 const SPACE = /[ \t\n]/;
 const WORD_CHAR = /[\p{L}\p{N}_]/u;
+const ASCII_PUNCTUATION = /^[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]$/;
 
 function runLength(src: string, i: number, ch: string): number {
   let n = 0;
@@ -126,7 +127,10 @@ function readMathInline(src: string, i: number): { span: MdSpan; next: number } 
 }
 
 function readLink(src: string, i: number): { span: MdSpan; next: number } | null {
-  const close = indexOnLine(src, "]", i + 1);
+  let close = indexOnLine(src, "]", i + 1);
+  while (close !== -1 && isEscaped(src, close)) {
+    close = indexOnLine(src, "]", close + 1);
+  }
   if (close === -1 || src[close + 1] !== "(") return null;
   const paren = indexOnLine(src, ")", close + 2);
   if (paren === -1) return null;
@@ -196,6 +200,12 @@ function parseInline(src: string, links = true): MdSpan[] {
   while (i < src.length) {
     const c = src[i] ?? "";
 
+    if (c === "\\" && ASCII_PUNCTUATION.test(src[i + 1] ?? "")) {
+      buf += src[i + 1];
+      i += 2;
+      continue;
+    }
+
     if (c === "`") {
       const n = runLength(src, i, "`");
       const start = i + n;
@@ -215,16 +225,9 @@ function parseInline(src: string, links = true): MdSpan[] {
       continue;
     }
 
-    // Inline math (issue #191): code spans were consumed above, so `$…$` in
-    // backticks never reaches this branch. An escaped `\$` is a literal
-    // dollar — the escape backslash is shed rather than exposed.
+    // Inline math (issue #191): code spans and punctuation escapes were
+    // consumed above, so neither code nor escaped dollars reach this branch.
     if (c === "$") {
-      if (isEscaped(src, i)) {
-        if (buf.endsWith("\\")) buf = buf.slice(0, -1);
-        buf += "$";
-        i++;
-        continue;
-      }
       const math = readMathInline(src, i);
       if (math) {
         flush();

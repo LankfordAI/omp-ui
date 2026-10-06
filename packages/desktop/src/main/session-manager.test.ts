@@ -6642,10 +6642,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
         (command) => typeof command.id === "string" && command.id.startsWith("omp-ui-initial-knowledge-vault-"),
       );
 
-    it.each([
-      ["vault", false],
-      ["both", true],
-    ] as const)("arms the %s home's guidance after the browser-pane arm and before set_event_filter", async (home, both) => {
+    it.each(["vault", "both"] as const)("arms the %s home's guidance after the browser-pane arm and before set_event_filter", async (home) => {
       const { manager, registry } = setup({ mode: "rpc-ui", knowledgeHome: { home } });
       registry.setSetting("vaultRegistry", { vaults: [NOTES], defaultWriteVault: "Notes" });
       await resume(manager);
@@ -6657,9 +6654,6 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
       expect(arms[0]).toMatchObject({
         type: "prompt",
         id: expect.stringMatching(/^omp-ui-initial-knowledge-vault-/),
-        message: Core.knowledgeVaultArmMessage(
-          Core.knowledgeVaultGuidance({ write: { vault: "Notes", both }, dayWriteUp: true })!,
-        ),
       });
       const armAt = commands!.indexOf(arms[0]!);
       const paneAt = commands!.findIndex(
@@ -6674,7 +6668,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
     it.each([
       ["a pin to an unregistered vault", { home: "vault", vault: "Gone" }],
       ["the docs home", { home: "docs" }],
-    ] as const)("sends the day part alone for %s", async (_case, knowledgeHome) => {
+    ] as const)("sends day and reply-link guidance for %s", async (_case, knowledgeHome) => {
       const { manager, registry } = setup({ mode: "rpc-ui", knowledgeHome });
       registry.setSetting("vaultRegistry", { vaults: [NOTES], defaultWriteVault: "Notes" });
       await resume(manager);
@@ -6684,7 +6678,6 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
       expect(arms).toHaveLength(1);
       expect(arms[0]).toMatchObject({
         type: "prompt",
-        message: Core.knowledgeVaultArmMessage(Core.knowledgeVaultGuidance({ write: null, dayWriteUp: true })!),
       });
     });
 
