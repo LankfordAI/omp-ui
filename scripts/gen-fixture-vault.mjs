@@ -125,7 +125,8 @@ const bigSize = fs.statSync(path.join(out, "Big.md")).size;
 if (bigSize !== BIG_BYTES) throw new Error(`Big.md is ${bigSize} bytes, expected ${BIG_BYTES}`);
 
 fs.writeFileSync(path.join(outside, "secret.md"), "# Secret\n\nThis note lives outside the vault.\n");
-fs.symlinkSync(outside, path.join(out, "linked-out"), "dir");
+// A junction needs no symlink privilege on Windows (worktree.ts precedent); `outside` is absolute.
+fs.symlinkSync(outside, path.join(out, "linked-out"), process.platform === "win32" ? "junction" : "dir");
 
 // ---------------------------------------------------------------- volume filler
 

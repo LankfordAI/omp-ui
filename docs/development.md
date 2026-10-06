@@ -84,8 +84,10 @@ npm run smoke:browser-pane --workspace @omp-ui/desktop
 
 # Node-posture smoke of the Knowledge vault host tools against a generated
 # fixture vault (S1-S8); writes out/knowledge-vault-smoke/summary.json. No
-# display, no Obsidian. --volume=1000,5000 sets the search sizes (20000 is
-# opt-in, recorded, not gating); --slow adds the 60 s watchdog row (S9).
+# display, no Obsidian; scripts/electron-node.cjs relaunches the built entry
+# under Electron's Node runtime, so it runs the same on Linux, macOS, and
+# Windows. --volume=1000,5000 sets the search sizes (20000 is opt-in,
+# recorded, not gating); --slow adds the 60 s watchdog row (S9).
 npm run smoke:knowledge-vault --workspace @omp-ui/desktop
 
 # Regenerate committed theme CSS from theme-sources.json.
