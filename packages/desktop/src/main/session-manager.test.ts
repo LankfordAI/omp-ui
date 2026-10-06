@@ -6719,7 +6719,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
       readNote("read-2");
       await vi.waitFor(() => expect(findObsidianListMock).toHaveBeenCalledTimes(1));
       expect(findObsidianListMock).toHaveBeenCalledWith(process.env, process.platform, os.homedir());
-      firstLookup.resolve({ file: "/obsidian.json", vaults: [{ id: "listed", path: fs.realpathSync(root), open: false }], cli: false });
+      firstLookup.resolve({ file: "/obsidian.json", vaults: [{ id: "listed", path: fs.realpathSync.native(root), open: false }], cli: false });
       for (const id of ["read-1", "read-2"]) {
         await waitSent(rpc, id);
         expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({

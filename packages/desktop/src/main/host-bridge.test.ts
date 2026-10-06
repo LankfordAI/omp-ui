@@ -467,7 +467,7 @@ function vaultFixture(overrides: Partial<VaultBridgeDeps> = {}) {
     context: () => context,
     registry: () => registry,
     guard: () => ({ home: path.join(root, "home"), userData: path.join(root, "data"), agentDir: path.join(root, "agent"), sessionsRoot: path.join(root, "sessions"), archiveRoot: path.join(root, "archive") }),
-    obsidianList: async () => [{ id: "0123456789abcdef", path: fs.realpathSync(vaultRoot), open: true }],
+    obsidianList: async () => [{ id: "0123456789abcdef", path: fs.realpathSync.native(vaultRoot), open: true }],
     appVersion: "test-765",
     now: () => new Date(2026, 9, 6, 12),
     mainLog: (line) => logs.push(line),

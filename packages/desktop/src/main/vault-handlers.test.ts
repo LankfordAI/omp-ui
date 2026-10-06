@@ -91,7 +91,7 @@ describe("vault handlers", () => {
   it("addVault refuses the guard's home without writing or broadcasting", async () => {
     const before = onDisk();
     await expect(handlers()[CH.addVault](guard.home)).rejects.toThrow(
-      `omp-ui cannot use ${fs.realpathSync(guard.home)} as a vault: it is your home directory`,
+      `omp-ui cannot use ${fs.realpathSync.native(guard.home)} as a vault: it is your home directory`,
     );
     expect(onDisk()).toBe(before);
     expect(registry.getSetting("vaultRegistry").vaults).toEqual([]);
@@ -120,9 +120,9 @@ describe("vault handlers", () => {
       file: path.join(guardBase, "obsidian.json"),
       cli: false,
       vaults: [
-        { id: "a1", path: fs.realpathSync(path.join(vaultsBase, "A")), open: false },
-        { id: "home1", path: fs.realpathSync(guard.home), open: false },
-        { id: "dup1", path: fs.realpathSync(path.join(vaultsBase, "other", "A")), open: false },
+        { id: "a1", path: fs.realpathSync.native(path.join(vaultsBase, "A")), open: false },
+        { id: "home1", path: fs.realpathSync.native(guard.home), open: false },
+        { id: "dup1", path: fs.realpathSync.native(path.join(vaultsBase, "other", "A")), open: false },
       ],
     };
     await expect(handlers()[CH.importVaults](["a1", "unknown1", "home1", "dup1"])).resolves.toEqual({
@@ -139,7 +139,7 @@ describe("vault handlers", () => {
     obsidianList = {
       file: path.join(guardBase, "obsidian.json"),
       cli: false,
-      vaults: [{ id: "home1", path: fs.realpathSync(guard.home), open: false }],
+      vaults: [{ id: "home1", path: fs.realpathSync.native(guard.home), open: false }],
     };
     const before = onDisk();
     await expect(handlers()[CH.importVaults](["unknown1", "home1"])).resolves.toEqual({
@@ -187,7 +187,7 @@ describe("vault handlers", () => {
     obsidianList = {
       file: path.join(guardBase, "obsidian.json"),
       cli: false,
-      vaults: [{ id: "a1", path: fs.realpathSync(path.join(vaultsBase, "A")), open: false }],
+      vaults: [{ id: "a1", path: fs.realpathSync.native(path.join(vaultsBase, "A")), open: false }],
     };
     await h[CH.openVault]("A", null);
     expect(opened).toEqual(["obsidian://open?vault=a1"]);

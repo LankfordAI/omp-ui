@@ -226,7 +226,7 @@ async function run(base: string): Promise<void> {
   const [home, userData, agentDir, sessionsRoot, archiveRoot] = guardDirs as [string, string, string, string, string];
   const guard: RootGuard = { home, userData, agentDir, sessionsRoot, archiveRoot };
   generate(vault, 0);
-  const vaultReal = fs.realpathSync(vault);
+  const vaultReal = fs.realpathSync.native(vault);
   const fixtureList: ObsidianListEntry[] = [{ id: OBSIDIAN_ID, path: vaultReal, open: true }];
   const registry: VaultRegistry = {
     vaults: [{ name: VAULT_NAME, path: vault, homeFolder: "omp-ui/", allowWritesOutsideHome: false }],

@@ -43,7 +43,7 @@ function frozen(reg: VaultRegistry): VaultRegistry {
 }
 
 beforeEach(() => {
-  base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-vault-reg-")));
+  base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-vault-reg-")));
 });
 
 afterEach(() => {
@@ -144,7 +144,8 @@ describe("readObsidianList", () => {
 describe("findObsidianList", () => {
   it("uses the Flatpak file when XDG_CONFIG_HOME is absent and ~/.config has none", async () => {
     const home = mkdir("home");
-    const flatpak = path.join(home, ".var", "app", "md.obsidian.Obsidian", "config", "obsidian", "obsidian.json");
+    // The linux candidates are built with path.posix on every host.
+    const flatpak = path.posix.join(home, ".var", "app", "md.obsidian.Obsidian", "config", "obsidian", "obsidian.json");
     writeJson(flatpak, { vaults: {}, cli: true });
     expect(await findObsidianList({}, "linux", home)).toEqual({ file: flatpak, vaults: [], cli: true });
   });
@@ -152,8 +153,8 @@ describe("findObsidianList", () => {
   it("the first readable candidate wins", async () => {
     const home = mkdir("home");
     const xdg = mkdir("xdg");
-    const first = path.join(xdg, "obsidian", "obsidian.json");
-    const flatpak = path.join(home, ".var", "app", "md.obsidian.Obsidian", "config", "obsidian", "obsidian.json");
+    const first = path.posix.join(xdg, "obsidian", "obsidian.json");
+    const flatpak = path.posix.join(home, ".var", "app", "md.obsidian.Obsidian", "config", "obsidian", "obsidian.json");
     writeJson(first, { vaults: {} });
     writeJson(flatpak, { vaults: {}, cli: true });
     expect(await findObsidianList({ XDG_CONFIG_HOME: xdg }, "linux", home)).toEqual({ file: first, vaults: [], cli: false });

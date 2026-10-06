@@ -62,9 +62,14 @@ function lexicalPath(rel: string): { ok: true; segments: string[]; rel: string }
   return { ok: true, segments, rel: segments.join("/") };
 }
 
-/** Nearest existing ancestor plus its unresolved suffix, not just the ancestor. */
+/**
+ * Nearest existing ancestor plus its unresolved suffix, not just the ancestor.
+ * Every realpath here is the native one, as fs.promises.realpath is: the JS
+ * realpathSync keeps Windows 8.3 short names (RUNNER~1), so a long root would
+ * never contain a short candidate (#773).
+ */
 function prospectiveReal(abs: string): string {
-  try { return syncFs.realpathSync(abs); }
+  try { return syncFs.realpathSync.native(abs); }
   catch (error) {
     if (errorCode(error) !== "ENOENT") throw error;
     // A dangling symlink is not a missing destination that we may create.
@@ -72,14 +77,18 @@ function prospectiveReal(abs: string): string {
     catch (leafError) { if (errorCode(leafError) !== "ENOENT") throw leafError; }
     const parent = path.dirname(abs);
     if (parent === abs) throw error;
-    return path.join(prospectiveReal(parent), path.basename(abs));
+    const parentReal = prospectiveReal(parent);
+    // Windows reports a path through a file as ENOENT, not ENOTDIR; a file is never a missing ancestor.
+    const parentStat = syncFs.statSync(parentReal, { throwIfNoEntry: false });
+    if (parentStat !== undefined && !parentStat.isDirectory()) throw Object.assign(new Error("not a directory"), { code: "ENOTDIR" });
+    return path.join(parentReal, path.basename(abs));
   }
 }
 function resolveSync(rootReal: string, rel: string): Resolved {
   const lexical = lexicalPath(rel);
   if (!lexical.ok) return lexical;
   let root: string;
-  try { root = syncFs.realpathSync(rootReal); }
+  try { root = syncFs.realpathSync.native(rootReal); }
   catch { return { ok: false, reason: "vault folder is unreachable" }; }
   try {
     // Check every alias prefix, so an intermediate hidden real target cannot
@@ -500,7 +509,7 @@ function mutateExisting(ctx: VaultCallContext, root: string, action: "append" | 
     // Atomic replacement follows a permitted alias to its real target instead
     // of replacing the alias itself; append always appends only the new bytes.
     if (action === "edit") {
-      const real = syncFs.realpathSync(finalNote.abs);
+      const real = syncFs.realpathSync.native(finalNote.abs);
       const temporary = `${real}.tmp-${process.pid}`;
       const tempRel = path.relative(root, temporary).split(path.sep).join("/");
       const tempPath = writePath(ctx, root, tempRel, false);

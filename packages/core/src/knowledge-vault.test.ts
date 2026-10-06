@@ -21,8 +21,9 @@ function mkdir(...segments: string[]): string {
 }
 
 beforeEach(() => {
-  // realpath so macOS's /var -> /private/var link never skews expectations.
-  base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-kv-")));
+  // Native realpath, as the product uses: it resolves macOS's /var -> /private/var
+  // link and expands Windows 8.3 short names (RUNNER~1) the JS realpathSync keeps.
+  base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-kv-")));
   guard = {
     home: mkdir("home"),
     userData: mkdir("user-data"),
@@ -263,7 +264,7 @@ describe("production vault tools", () => {
     expect(result.text).toContain("note exists: omp-ui/my-project/Topic.md; use omp-ui_vault_append or omp-ui_vault_edit, or pick another title");
     expect(disk("omp-ui/my-project/Topic.md")).toBe("original");
     expect(disk("omp-ui/my-project/my-project Index.md")).toBe("foreign Index\r\n");
-    expect(fs.readdirSync(path.join(root, "omp-ui/my-project"))).toEqual(["Topic.md", "my-project Index.md"]);
+    expect(fs.readdirSync(path.join(root, "omp-ui/my-project")).sort()).toEqual(["Topic.md", "my-project Index.md"]);
   });
 
   it("preserves a foreign CRLF Index byte-for-byte before appending its link", async () => {
@@ -341,8 +342,8 @@ describe("production vault tools", () => {
   it("does not treat ENOTDIR or permission errors as a missing ancestor", async () => {
     put("leaf.md", "not a folder");
     expect((await resolveVaultPath(root, "leaf.md/child/Note.md"))).toMatchObject({ ok: false });
-    const original = fs.realpathSync;
-    vi.spyOn(fs, "realpathSync").mockImplementation((...args: Parameters<typeof fs.realpathSync>) => {
+    const original = fs.realpathSync.native;
+    vi.spyOn(fs.realpathSync, "native").mockImplementation((...args: Parameters<typeof fs.realpathSync.native>) => {
       if (String(args[0]).endsWith("denied")) throw Object.assign(new Error("not for output"), { code: "EACCES" });
       return original(...args);
     });
@@ -428,7 +429,8 @@ describe("production vault tools", () => {
     const result = await vaultEdit(ctx, "omp-ui/Note", "after\n", diskHash("omp-ui/Note.md"));
     expect(result.ok).toBe(true);
     expect(disk("omp-ui/Note.md")).toBe(`${prefix}after\n`);
-    expect(fs.statSync(abs).mode & 0o777).toBe(0o640);
+    // Windows has no POSIX permission bits to preserve.
+    if (process.platform !== "win32") expect(fs.statSync(abs).mode & 0o777).toBe(0o640);
     expect(result.details.diff).toContain("-5|before");
     expect(result.details.diff).toContain("+5|after");
     expect(result.details).toMatchObject({ createdByOmpUi: true, baseHash: diskHash("omp-ui/Note.md") });

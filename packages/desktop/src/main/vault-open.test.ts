@@ -29,7 +29,7 @@ beforeEach(() => {
   fs.writeFileSync(path.join(vault, "omp-ui", "Foo.md"), "# Foo\n");
   fs.writeFileSync(path.join(vault, ".obsidian", "a.md"), "hidden\n");
   fs.writeFileSync(path.join(vault, "note.txt"), "plain\n");
-  vaultReal = fs.realpathSync(vault);
+  vaultReal = fs.realpathSync.native(vault);
   opened = [];
 });
 
@@ -69,7 +69,7 @@ describe("openVaultTarget", () => {
     fs.rmSync(swapped, { recursive: true });
     fs.symlinkSync(guard.home, swapped, "dir");
     await expect(openVaultTarget(reg, "Swapped", null, deps())).rejects.toThrow(
-      `omp-ui cannot use ${fs.realpathSync(guard.home)} as a vault: it is your home directory`,
+      `omp-ui cannot use ${fs.realpathSync.native(guard.home)} as a vault: it is your home directory`,
     );
     expect(opened).toEqual([]);
   });

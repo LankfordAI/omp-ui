@@ -14,6 +14,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Added the Day write-up: with a Knowledge vault registered, a native session can read the day's omp-ui session index and per-session summaries (omp-ui://sessions) and, when asked, write one cross-project Day write-up into the vault ([#768](https://github.com/LankfordAI/omp-ui/issues/768)).
 - Added the Knowledge vault smoke (`npm run smoke:knowledge-vault`) and live test, and CI now runs the smoke and publishes its summary ([#769](https://github.com/LankfordAI/omp-ui/issues/769)).
 - Fixed `npm run smoke:knowledge-vault` on Windows: it no longer needs a POSIX shell, and its fixture vault links outside itself through a junction there, so it runs without symlink privileges ([#772](https://github.com/LankfordAI/omp-ui/issues/772)).
+- Fixed Knowledge vault tools on Windows refusing notes reached through a symlink, or a vault whose path uses a short 8.3 folder name, as "path leaves the vault"; a path that runs through a file is now refused instead of resolving ([#773](https://github.com/LankfordAI/omp-ui/issues/773)).
 
 ## Choose a download
 
