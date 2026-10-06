@@ -234,7 +234,7 @@ describe("detectVaults", () => {
       { id: "cccc", path: gone, open: false, registeredAs: "Gone" },
       { id: "dddd", path: ok, open: false, registeredAs: "Ok" },
     ]);
-    expect(d.obsidianListFile).toBe(path.join(home, ".config", "obsidian", "obsidian.json"));
+    expect(d.obsidianListFile).toBe(path.posix.join(home, ".config", "obsidian", "obsidian.json"));
     expect(d.cliRegistered).toBe(true);
     expect(d.uriHandler).toBe(true);
   });
