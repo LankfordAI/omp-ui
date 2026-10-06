@@ -6,6 +6,7 @@ import { isReviewDocument, type ReviewDocument } from "./review-config";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseProposedPlans } from "./plan";
 import { normalizeSidebarGroupName, SIDEBAR_GROUP_NAME_MAX_LENGTH } from "./sidebar-groups";
+import { parseVaultRegistry } from "./vault-registry";
 import type {
   AgentMode,
   ApprovalMode,
@@ -21,6 +22,7 @@ import type {
   ServiceTier,
   UpdateTrain,
   TranscriptWidth,
+  VaultRegistry,
 } from "./types";
 
 export interface RegistrySettings {
@@ -94,6 +96,8 @@ export interface RegistrySettings {
   appUpdateCheckOnLaunch: boolean;
   /** Release train for omp-ui's own update check (issue #493); default stable. */
   appUpdateTrain: UpdateTrain;
+  /** Knowledge vault registry (CONTEXT.md "Vault registry", #764). */
+  vaultRegistry: VaultRegistry;
   /** Check for a newer omp binary at launch. */
   ompUpdateCheckOnLaunch: boolean;
   /** Embedded remote-access server: off by default (issue #37). */
@@ -305,6 +309,7 @@ export const SETTINGS: SettingDescriptors = {
     () => "stable",
     (value): value is UpdateTrain => value === "nightly",
   ),
+  vaultRegistry: { fallback: () => ({ vaults: [], defaultWriteVault: null }), parse: parseVaultRegistry },
   ompUpdateCheckOnLaunch: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",
@@ -799,12 +804,12 @@ export class Registry {
   }
 
   /**
-   * Reads a persisted preference. `modelFavorites` is the only reference-typed
-   * setting, and this hands out the live internal array — favorites access
-   * must go through `getFavorites()`/`toggleFavorite()`. Cloning every read
-   * was rejected: hot paths (the hibernate timer arms read
-   * `hibernateIdleMinutes` per event) would allocate for nothing, and every
-   * other setting is a primitive.
+   * Reads a persisted preference. `modelFavorites`, `reviewRoster` and
+   * `vaultRegistry` are reference-typed; callers replace, never mutate. This
+   * hands out the live internal value — favorites access must go through
+   * `getFavorites()`/`toggleFavorite()`. Cloning every read was rejected: hot
+   * paths (the hibernate timer arms read `hibernateIdleMinutes` per event)
+   * would allocate for nothing.
    */
   getSetting<K extends SettingKey>(key: K): RegistrySettings[K] {
     return this.#data.settings[key];

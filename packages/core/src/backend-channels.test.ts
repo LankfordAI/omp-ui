@@ -250,6 +250,14 @@ const VALID_ARGS = {
   updateRemoteInstance: ["inst-1", { nickname: "box" }],
   writeOmpSetting: ["theme", { custom: true }],
   checkPython: [],
+  detectVaults: [],
+  addVault: ["/vault"],
+  importVaults: [["d54189eae5e5b8ef"]],
+  removeVault: ["Vault"],
+  setDefaultWriteVault: ["Vault"],
+  setVaultHomeFolder: ["Vault", "omp-ui/"],
+  setVaultWritesOutsideHome: ["Vault", true],
+  openVault: ["Vault", null],
 } satisfies { [Method in InboundMethod]: MethodArgs<Method> };
 
 function recordingTransport() {
@@ -390,6 +398,9 @@ describe("transport dispatch", () => {
       "argument 0",
     ],
     [CH.setSessionSubagentModels, ["tab-1", { scout: "bad selector" }], "argument 1"],
+    [CH.openVault, ["Vault", 7], "argument 1"],
+    [CH.setVaultWritesOutsideHome, ["Vault", "yes"], "argument 1"],
+    [CH.importVaults, ["id"], "argument 0"],
   ] as const)("rejects malformed request arguments before the handler", async (channel, args, path) => {
     const { table, calls } = recordingTable();
     await expect(dispatchRequest(table, channel, [...args])).rejects.toThrow(path);

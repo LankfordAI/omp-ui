@@ -70,6 +70,9 @@ import {
   writeOmpSetting,
   collectDiagnosticsBundle,
   previewDiagnosticsBundle,
+  detectVaults,
+  findObsidianList,
+  knowledgeVaultDiagnostics,
   type BrowserPaneInputEvent,
   type BrowserPaneNavigate,
   TITLE_MODEL_ROLES,
@@ -108,6 +111,8 @@ import {
   type ProjectScalarResult,
   type ProjectSubagentModelsResult,
   type SubagentModelMap,
+  type RootGuard,
+  type VaultDetection,
 } from "@omp-ui/core";
 import { mintRemoteToken } from "@omp-ui/server";
 import { HeadWatcherHub } from "./git-head-watchers";
@@ -124,7 +129,7 @@ import { DesktopNotifier } from "./desktop-notifier";
 import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
 import { openExternalSafe } from "./open-external";
-import { openPath } from "./system-open";
+import { openExternal, openPath } from "./system-open";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
 import { windowStatePath } from "./window-state";
 import { NO_BREADCRUMBS, type BreadcrumbSink } from "./breadcrumbs";
@@ -132,6 +137,7 @@ import { readExperimentDetail, readProjectExperiments, readRunLog } from "./expe
 import { registerSettingsHandlers } from "./settings-handlers";
 import { registerSttHandlers } from "./stt-handlers";
 import { registerRemoteHandlers } from "./remote-handlers";
+import { registerVaultHandlers } from "./vault-handlers";
 import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
 import { createDesktopPaneStream } from "./browser-pane-desktop-stream";
 
@@ -468,6 +474,36 @@ export class MainBackend {
     return getArchiveRoot(this.sessionsRoot);
   }
 
+  /** The roots a vault may never be or sit inside (#758); userData is the registry's folder, as in SessionManager's guard. */
+  private vaultRootGuard(): RootGuard {
+    return {
+      home: os.homedir(),
+      userData: path.dirname(this.registryFile),
+      agentDir: getOmpAgentDir(),
+      sessionsRoot: this.sessionsRoot,
+      archiveRoot: this.archiveRoot,
+    };
+  }
+
+  /** Whether the OS has an obsidian:// handler; false when Electron cannot say. */
+  private obsidianUriHandler(): boolean {
+    try {
+      return app.getApplicationNameForProtocol("obsidian://") !== "";
+    } catch {
+      return false;
+    }
+  }
+
+  private detectVaults(): Promise<VaultDetection> {
+    return detectVaults(this.registry.getSetting("vaultRegistry"), {
+      env: process.env,
+      platform: process.platform,
+      home: os.homedir(),
+      guard: this.vaultRootGuard(),
+      uriHandler: this.obsidianUriHandler(),
+    });
+  }
+
   private readonly sinks = new Set<(channel: string, args: unknown[]) => void>();
 
   /** Registers an extra event mirror (the remote server). Returns its unsubscribe. */
@@ -530,6 +566,11 @@ export class MainBackend {
       liveTabIds: sessions.filter((s) => this.sessions.isLive(s.tabId)).map((s) => s.tabId),
       breadcrumbs: this.breadcrumbs.entries(),
       browserPanes: this.sessions.browserPaneDiagnostics(),
+      knowledgeVault: knowledgeVaultDiagnostics(
+        this.registry.getSetting("vaultRegistry"),
+        await this.detectVaults(),
+        {},
+      ),
       facts: {
         appVersion: app.getVersion(),
         ompVersion: this.ompPath ? await readInstalledOmpVersion(this.ompPath) : null,
@@ -701,6 +742,15 @@ export class MainBackend {
             (await readOmpCompactionMethods({ ompPath: this.ompPath, projectCwd: null }))
               .supported,
           onAppUpdateTrainChanged: () => this.appUpdater.onTrainChanged(),
+        }),
+        ...registerVaultHandlers({
+          registry: this.registry,
+          broadcast: () => this.broadcast(),
+          guard: () => this.vaultRootGuard(),
+          detect: () => this.detectVaults(),
+          obsidianList: () => findObsidianList(process.env, process.platform, os.homedir()),
+          // system-open's openExternal: detached xdg-open with stdio ignored on Linux (#750), shell.openExternal elsewhere.
+          open: (uri) => openExternal(uri),
         }),
         ...registerSttHandlers({
           registry: this.registry,
@@ -1539,6 +1589,7 @@ export class MainBackend {
       localeId: this.registry.getSetting("localeId"),
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),
       appUpdateTrain: this.registry.getSetting("appUpdateTrain"),
+      vaultRegistry: this.registry.getSetting("vaultRegistry"),
       ompUpdateCheckOnLaunch: this.registry.getSetting("ompUpdateCheckOnLaunch"),
       dismissedAppUpdateVersion: this.registry.getSetting("dismissedAppUpdateVersion"),
       dismissedOmpUpdateVersion: this.registry.getSetting("dismissedOmpUpdateVersion"),

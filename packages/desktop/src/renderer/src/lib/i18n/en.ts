@@ -322,6 +322,10 @@ export const en = {
   "transcript.subagent.readOnly": "read-only subagent view",
   "transcript.subagent.empty": "No activity captured yet — the transcript fills in as the agent works.",
   "transcript.subagent.estimateTitle": "agent's own completion estimate",
+  "transcript.vault.openInObsidian": "Open in Obsidian",
+  "transcript.vault.copyTitle":
+    "Copies the obsidian:// link. Paste it on a machine that has this vault.",
+  "transcript.vault.linkCopied": "Link copied",
   // Composer textarea placeholders
   "rpc.hero.project": "What's next in {project}?",
   "rpc.hero.default": "What's next?",
@@ -1012,6 +1016,60 @@ export const en = {
   "settings.memory.footerCanWin": " can win and is shown as ",
   "settings.memory.footerEnd":
     ". Memory configuration applies to sessions started after the change.",
+
+  // KnowledgeVaultPage
+  "settings.vault.title": "Knowledge vault",
+  "settings.vault.hint":
+    "Obsidian vaults omp-ui may read. The agent writes only inside each vault's home folder.",
+  "settings.vault.detected": "Detected on this machine",
+  "settings.vault.obsidianApp": "Obsidian app",
+  "settings.vault.vaultList": "Vault list",
+  "settings.vault.commandLine": "Command line",
+  "settings.vault.uriLinks": "obsidian:// links",
+  "settings.vault.found": "found",
+  "settings.vault.notFound": "not found",
+  "settings.vault.listRead": "read",
+  "settings.vault.listNone": "none",
+  "settings.vault.cliRegistered": "registered",
+  "settings.vault.cliNotRegistered": "not registered",
+  "settings.vault.uriHandled": "handled",
+  "settings.vault.uriNoHandler": "no handler",
+  "settings.vault.cliHint": "Optional. omp-ui works without it.",
+  "settings.vault.cliEnableHint":
+    "Turn on Settings, General, Command line interface in Obsidian.",
+  "settings.vault.protocolPinned":
+    "omp's own vault:// protocol stays off in omp-ui sessions, so every vault write goes through the home folder boundary.",
+  "settings.vault.empty": "No vault yet",
+  "settings.vault.addVault": "Add vault…",
+  "settings.vault.import": "Import from Obsidian…",
+  "settings.vault.importDisabled":
+    "Obsidian's vault list was not found on this machine.",
+  "settings.vault.defaultWrite": "Default write vault",
+  "settings.vault.homeFolder": "Home folder",
+  "settings.vault.writesOutside": "Allow writes outside the home folder",
+  "settings.vault.writesOutsideHint":
+    "The agent may append to and edit notes anywhere in this vault. New notes still go in the home folder.",
+  "settings.vault.obsidianFound": ".obsidian/ found",
+  "settings.vault.noObsidianDir": "no .obsidian/",
+  "settings.vault.noObsidianHint":
+    "Open this folder in Obsidian once to make it a vault.",
+  "settings.vault.folderMissing": "folder missing",
+  "settings.vault.refusedRoot": "folder not allowed",
+  "settings.vault.refusedRootHint":
+    "omp-ui never uses your home folder, the filesystem root, or an omp or omp-ui data folder as a vault.",
+  "settings.vault.inList": "in Obsidian's list",
+  "settings.vault.notInList": "not in Obsidian's list",
+  "settings.vault.remove": "Remove",
+  "settings.vault.pickerWillAdd": "Will add:",
+  "settings.vault.pickerPath": "vault folder path",
+  "settings.vault.notVaultYet": "not a vault yet",
+  "settings.vault.pickerAdd": "Add vault",
+  "settings.vault.importTitle": "Import from Obsidian",
+  "settings.vault.importHint": "Vaults from Obsidian's vault list.",
+  "settings.vault.added": "added",
+  "settings.vault.open": "open",
+  "settings.vault.importConfirm": "Import",
+  "settings.vault.importCancel": "Cancel",
 
   // OmpPage
   "settings.omp.reading": "Reading omp configuration…",
@@ -2159,6 +2217,7 @@ export const en = {
   "settings.nav.remoteInstances": "Remote instances",
   "settings.nav.providers": "Providers",
   "settings.nav.memory": "Memory",
+  "settings.nav.knowledgeVault": "Knowledge vault",
   "settings.nav.omp": "omp",
   "settings.nav.experimental": "Experimental",
   "settings.nav.advanced": "Advanced",

@@ -23,8 +23,7 @@ import { RemoteFooter, RemotePage } from "./settings/RemotePage";
 import { RemoteInstancesFooter, RemoteInstancesPage } from "./settings/RemoteInstancesPage";
 import { UpdatesFooter, UpdatesPage } from "./settings/UpdatesPage";
 import type { FooterContext, Load } from "./settings/types";
-// PROTOTYPE (#753): vault registry page and Memory section.
-import { usePrototype753, VaultRegistryMemorySection, VaultRegistryPage } from "./prototype-vault-753";
+import { KnowledgeVaultPage } from "./settings/KnowledgeVaultPage";
 
 /**
  * The settings modal (issue #36): every page behind one store-driven nav
@@ -55,8 +54,6 @@ interface PageContext {
 const PAGES: ReadonlyArray<{
   id: SettingsPage;
   labelKey: MessageKey;
-  /** PROTOTYPE (#753): hard-coded nav label for the prototype page. */
-  label?: string;
   render: (ctx: PageContext) => ReactNode;
   footer?: ComponentType<FooterContext>;
 }> = [
@@ -89,22 +86,19 @@ const PAGES: ReadonlyArray<{
     id: "memory",
     labelKey: "settings.nav.memory",
     render: (ctx) => (
-      <>
-        <MemoryPage
-          load={ctx.load}
-          projectCwd={ctx.projectCwd}
-          pendingKey={ctx.pendingKey}
-          writeError={ctx.writeError}
-          commit={ctx.commit}
-          retry={ctx.retry}
-          overviewRevision={ctx.revision}
-        />
-        {/* PROTOTYPE (#753): renders null unless the gate is on with reg=memory. */}
-        <VaultRegistryMemorySection />
-      </>
+      <MemoryPage
+        load={ctx.load}
+        projectCwd={ctx.projectCwd}
+        pendingKey={ctx.pendingKey}
+        writeError={ctx.writeError}
+        commit={ctx.commit}
+        retry={ctx.retry}
+        overviewRevision={ctx.revision}
+      />
     ),
     footer: MemoryFooter,
   },
+  { id: "knowledge-vault", labelKey: "settings.nav.knowledgeVault", render: () => <KnowledgeVaultPage /> },
   {
     id: "omp",
     labelKey: "settings.nav.omp",
@@ -149,20 +143,6 @@ export function Settings() {
         g.sessions.some((x) => x.live === "live"),
       ) ?? false,
   );
-  // PROTOTYPE (#753): splice the vault page in after Memory when reg=page.
-  const proto = usePrototype753();
-  const pages =
-    proto.active && proto.reg === "page"
-      ? PAGES.flatMap<(typeof PAGES)[number]>((p) =>
-          p.id === "memory"
-            ? [p, { id: "vaults", labelKey: "settings.nav.memory", label: "Knowledge vault", render: () => <VaultRegistryPage /> }]
-            : [p],
-        )
-      : PAGES;
-  const hasPage = pages.some((p) => p.id === page);
-  useEffect(() => {
-    if (page === "vaults" && !hasPage) openSettings("memory");
-  }, [page, hasPage, openSettings]);
 
   const projectCwd =
     tabs.find((t) => t.tabId === activeTabId)?.projectCwd ?? null;
@@ -205,7 +185,7 @@ export function Settings() {
 
   const agentDir = load.status === "loaded" ? load.snapshot.agentDir : null;
 
-  const active = pages.find((p) => p.id === page);
+  const active = PAGES.find((p) => p.id === page);
   const Footer = active?.footer;
   const ctx: PageContext = {
     load,
@@ -234,7 +214,7 @@ export function Settings() {
 
         <div className="settings-layout flex">
           <nav className="settings-nav w-40 shrink-0 space-y-px border-r border-line p-1.5">
-            {pages.map((p) => (
+            {PAGES.map((p) => (
               <button
                 key={p.id}
                 type="button"
@@ -246,7 +226,7 @@ export function Settings() {
                   page === p.id ? "bg-hover text-ink" : "text-ink-mid",
                 )}
               >
-                {p.label ?? t(p.labelKey)}
+                {t(p.labelKey)}
               </button>
             ))}
           </nav>

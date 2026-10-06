@@ -306,6 +306,56 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    // The caller renders the refusal inline (addProject's posture), so no reportError here.
+    async addVault(path) {
+      await backend.addVault(path);
+    },
+
+    async importVaults(ids) {
+      try {
+        return await backend.importVaults(ids);
+      } catch (err) {
+        get().reportError(err);
+        return null;
+      }
+    },
+
+    async removeVault(name) {
+      try {
+        await backend.removeVault(name);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
+    async setDefaultWriteVault(name) {
+      try {
+        await backend.setDefaultWriteVault(name);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
+    async setVaultHomeFolder(name, homeFolder) {
+      await backend.setVaultHomeFolder(name, homeFolder);
+    },
+
+    async setVaultWritesOutsideHome(name, on) {
+      try {
+        await backend.setVaultWritesOutsideHome(name, on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
+    async openVault(name, file) {
+      try {
+        await backend.openVault(name, file);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setOmpUpdateCheckOnLaunch(on) {
       try {
         await backend.setOmpUpdateCheckOnLaunch(on);

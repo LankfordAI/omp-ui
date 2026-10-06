@@ -1,6 +1,6 @@
 # Settings
 
-Use Settings to change omp-ui preferences, update behavior, remote access, remote instances, provider credentials, and the configuration that omp reads. Open it from the sidebar gear, the command palette, or `mod+,`.
+Use Settings to change omp-ui preferences, update behavior, remote access, remote instances, provider credentials, the Obsidian vaults the agent may use, and the configuration that omp reads. Open it from the sidebar gear, the command palette, or `mod+,`.
 
 The pages below follow the order in the app. Pay attention to the timing notes. Some controls update the current app immediately, while session defaults wait for a new session or the next omp process spawn.
 
@@ -155,6 +155,18 @@ On its first run the app writes `memory.backend: mnemopi`, `mnemopi.scoping: per
 
 Memory configuration applies to sessions started after the change. Existing omp processes keep the configuration they started with.
 
+## Knowledge vault
+
+The Knowledge vault page is the Vault registry: the Obsidian vaults omp-ui may use. One vault is the normal case; more are allowed. The agent may read a whole vault, but omp-ui writes only inside each vault's Home folder (default `omp-ui/`), so your own notes are never edited.
+
+**Detected on this machine** reports what omp-ui found without running Obsidian: whether Obsidian's vault list (`obsidian.json`) exists, whether its command line is registered (read from that file; omp-ui works without it), and whether the system has a handler for `obsidian://` links. The page also states that omp's own `vault://` protocol stays off in omp-ui sessions, so every vault write goes through the Home folder boundary.
+
+**Add vault…** opens a folder picker. Any folder works; a folder without `.obsidian/` is marked "not a vault yet" and can be opened in Obsidian later. **Import from Obsidian…** lists the vaults in Obsidian's own vault list and is disabled when that list is not found. omp-ui refuses your home folder, the filesystem root, and omp's and omp-ui's data folders as vaults, and checks the folder again every time it is used. A vault's name is its folder name, so two folders with the same name cannot both be registered. A row whose folder has disappeared shows "folder missing" until you remove it.
+
+Exactly one vault is the **Default write vault**: the one a project writes to unless its Knowledge home names another. The first vault you add becomes the default; removing the default moves it to the next vault. Each vault's **Home folder** is a folder inside the vault. **Allow writes outside the home folder** lets the agent append to and edit notes anywhere in that vault; new notes still go in the Home folder. **Open in Obsidian** hands the vault to Obsidian; where this app cannot open it (a browser client, or no `obsidian://` handler), the button copies the vault's `obsidian://` link instead.
+
+Changes apply to sessions started afterwards. A browser client of this app sees and edits this machine's registry; a joined remote instance cannot reach it.
+
 ## omp
 
 This page is a schema-driven view over omp-ui's curated allowlist of omp configuration keys. The installed omp version supplies each reported key's description, value type, enum choices, validation, value, and effective layer. If that version does not report an allowlisted key, omp-ui omits it. The page groups the available controls under model roles (the chat roles plus the judge role), advisor, context, providers, and display.
@@ -183,9 +195,9 @@ The flag gates the bridges at spawn: it applies to sessions started afterwards, 
 
 ## Advanced
 
-The Advanced page holds the **Diagnostic bundle** export: one zip with the main-process logs, the lifecycle breadcrumb trail (launch, window, session spawn/resume/exit/terminate/hibernate/mode, update transitions, remote enable/token-regenerate, renderer and child-process deaths, main-process exceptions and rejections), versions (omp-ui, omp, Electron/Node/Chrome, package format), platform facts, the registry plus per-working-tree `git status --porcelain` output, session-lineage listings, the generated per-session extension files of live sessions, window geometry, and a manifest describing all of it and its warnings.
+The Advanced page holds the **Diagnostic bundle** export: one zip with the main-process logs, the lifecycle breadcrumb trail (launch, window, session spawn/resume/exit/terminate/hibernate/mode, update transitions, remote enable/token-regenerate, renderer and child-process deaths, main-process exceptions and rejections), versions (omp-ui, omp, Electron/Node/Chrome, package format), platform facts, the registry plus per-working-tree `git status --porcelain` output, session-lineage listings, the generated per-session extension files of live sessions, the knowledge-vault section (registry names, home folders, detection results), window geometry, and a manifest describing all of it and its warnings.
 
-Redaction is fixed, not configurable: provider keys are never read, the remote token and password hash/salt become `hasRemoteToken`/`hasRemotePassword` booleans, the OAuth login scratch directory is never walked, and plan bodies and project file contents stay out. Transcript JSONL is excluded by default — the dialog's **Include transcripts** checkbox is an explicit, warned opt-in, capped at 64 MiB per bundle. Absolute paths, project paths, session titles, and git status filenames are included by design; the manifest inside the zip records exactly which sections exist.
+Redaction is fixed, not configurable: provider keys are never read, the remote token and password hash/salt become `hasRemoteToken`/`hasRemotePassword` booleans, the OAuth login scratch directory is never walked, and plan bodies and project file contents stay out; vault paths are reduced to folder basenames and vault note bodies are never read. Transcript JSONL is excluded by default — the dialog's **Include transcripts** checkbox is an explicit, warned opt-in, capped at 64 MiB per bundle. Absolute paths, project paths, session titles, and git status filenames are included by design; the manifest inside the zip records exactly which sections exist.
 
 The export is also reachable from the command palette ("Export diagnostic bundle…"). On a remote (browser) client the same action writes the bundle into a `diagnostics/` directory beside the registry on the machine omp-ui runs on; the native save dialog appears only in the desktop app.
 

@@ -17,6 +17,7 @@ import {
 import type { RegistrySettings } from "./registry";
 import type {
   DiagnosticsPreview,
+  KnowledgeVaultDiagnostics,
   OwnedSessionRecord,
   ProjectRecord,
 } from "./types";
@@ -41,6 +42,7 @@ function settingsWith(secrets: Partial<RegistrySettings>): RegistrySettings {
     remotePasswordHash: "",
     remotePasswordSalt: "",
     themeId: "dark",
+    vaultRegistry: { vaults: [], defaultWriteVault: null },
     ...secrets,
   } as unknown as RegistrySettings;
 }
@@ -121,6 +123,7 @@ function options(override: Partial<DiagnosticsOptions> = {}): DiagnosticsOptions
     sessions: [],
     liveTabIds: [],
     browserPanes: [],
+    knowledgeVault: null,
     includeTranscripts: false,
     destinationPath: path.join(tmpRoot, "bundle.zip"),
     gitRunner: async () => "",
@@ -357,6 +360,63 @@ describe("collectDiagnosticsBundle", () => {
 
     const empty = await previewDiagnosticsBundle(options());
     expect(empty.sections.find((s) => s.id === "browser-pane")?.included).toBe(false);
+  });
+
+  it("writes knowledge-vault/knowledge-vault.json and keeps vault paths out of settings.json", async () => {
+    const vaultPath = path.join(tmpRoot, "secret-vault-location", "Vault");
+    const knowledgeVault: KnowledgeVaultDiagnostics = {
+      vaults: [
+        {
+          name: "Vault",
+          homeFolder: "omp-ui/",
+          allowWritesOutsideHome: false,
+          isDefault: true,
+          status: "ok",
+          inObsidianList: true,
+        },
+      ],
+      obsidianListFound: true,
+      cliRegistered: false,
+      uriHandler: true,
+      calls: {},
+    };
+    const result = await collectDiagnosticsBundle(
+      options({
+        knowledgeVault,
+        settings: settingsWith({
+          vaultRegistry: {
+            vaults: [
+              { name: "Vault", path: vaultPath, homeFolder: "omp-ui/", allowWritesOutsideHome: false },
+            ],
+            defaultWriteVault: "Vault",
+          },
+        }),
+      }),
+    );
+    const entries = await readZip(result.path);
+    expect(jsonOf(entries.get("knowledge-vault/knowledge-vault.json"))).toEqual(knowledgeVault);
+    const manifest = jsonOf(entries.get("manifest.json")) as Record<string, unknown>;
+    expect(manifest.redaction).toContain(
+      "vault paths reduced to folder basename; vault note bodies are never read",
+    );
+    const settingsText = textOf(entries.get("settings.json")!);
+    expect(settingsText).not.toContain(vaultPath);
+    const settings = JSON.parse(settingsText) as {
+      vaultRegistry: { vaults: Record<string, unknown>[]; defaultWriteVault: string | null };
+    };
+    expect(Object.keys(settings.vaultRegistry.vaults[0]!).sort()).toEqual([
+      "allowWritesOutsideHome",
+      "homeFolder",
+      "name",
+    ]);
+    expect(settings.vaultRegistry.defaultWriteVault).toBe("Vault");
+
+    const absent = await previewDiagnosticsBundle(options());
+    expect(absent.sections.find((s) => s.id === "knowledge-vault")?.included).toBe(false);
+    const empty = await previewDiagnosticsBundle(
+      options({ knowledgeVault: { ...knowledgeVault, vaults: [] } }),
+    );
+    expect(empty.sections.find((s) => s.id === "knowledge-vault")?.included).toBe(false);
   });
 
   it("excludes transcripts by default and caps them with a warning when opted in", async () => {

@@ -62,6 +62,7 @@ import type {
   SttTranscribeResult,
   TranscriptWidth,
   UpdateTrain,
+  VaultDetection,
   WebSearchProviderSnapshot,
   WorktreeReleaseOptions,
   WorktreeReleaseResult,
@@ -444,6 +445,42 @@ export const BACKEND_CHANNELS = {
   clearDismissedOmpUpdate: {
     channel: "settings:clearDismissedOmpUpdate",
     ...request<[], void>([]),
+  },
+  /** Knowledge vault page: Obsidian's vault list, CLI flag, URI handler, and per-row status (#764). */
+  detectVaults: {
+    channel: "vault:detect",
+    ...request<[], VaultDetection>([]),
+  },
+  /** Validates the root (U1) and appends a registry row keyed by the folder basename. */
+  addVault: {
+    channel: "vault:add",
+    ...request<[absPath: string], void>([str()]),
+  },
+  /** Adds rows from Obsidian's own vault list, read fresh; unknown, refused, unreachable and duplicate ids are skipped. */
+  importVaults: {
+    channel: "vault:import",
+    ...request<[obsidianIds: string[]], { added: string[]; skipped: string[] }>([arrayOf(str())]),
+  },
+  removeVault: {
+    channel: "vault:remove",
+    ...request<[name: string], void>([str()]),
+  },
+  setDefaultWriteVault: {
+    channel: "vault:setDefault",
+    ...request<[name: string], void>([str()]),
+  },
+  setVaultHomeFolder: {
+    channel: "vault:setHomeFolder",
+    ...request<[name: string, homeFolder: string], void>([str(), str()]),
+  },
+  setVaultWritesOutsideHome: {
+    channel: "vault:setWritesOutsideHome",
+    ...request<[name: string, on: boolean], void>([str(), bool()]),
+  },
+  /** Main builds the obsidian:// URI from the registry row; nothing in the URI comes from the caller but the name and a vault-relative path. */
+  openVault: {
+    channel: "vault:open",
+    ...request<[name: string, file: string | null], void>([str(), nullable(str())]),
   },
   /** Repaints the native title-bar overlay to match the active theme. */
   setWindowChrome: {

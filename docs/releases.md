@@ -7,6 +7,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Moved the Experiments lab (beta) switch out of Settings → General into a new Settings → Experimental page, the home of the app-global flag behind the Lab, the New experiment dialog, the autoresearch bridge, and the code-review roster ([#740](https://github.com/LankfordAI/omp-ui/issues/740)).
 - Added sidebar groups: name a group per team, drag projects onto its header or use Move to group…, and collapse, rename, reorder, or remove groups; this computer's projects only ([#745](https://github.com/LankfordAI/omp-ui/issues/745)).
 - Fixed sidebar names losing a space where the middle-ellipsis split falls on it, so "Team Atlas" no longer renders as "TeamAtlas" ([#747](https://github.com/LankfordAI/omp-ui/issues/747)).
+- Added the Knowledge vault Settings page: register Obsidian vaults, pick the Default write vault and each vault's Home folder, and open a vault in Obsidian ([#764](https://github.com/LankfordAI/omp-ui/issues/764)).
 
 ## Choose a download
 

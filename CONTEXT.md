@@ -825,6 +825,62 @@ bank view nor parses the full system prompt. The browse and edit channels were
 removed in #330, leaving `memory:overview` as the sole memory channel.
 _Avoid_: memory manager, knowledge base, memory browser tab
 
+**Knowledge vault**:
+The curated, human-readable store of decisions, lessons, and write-ups that
+outlive a **Session**: one or more registered Obsidian vaults that the agent
+reads whole and writes only inside each vault's **Home folder**, through
+omp-ui host tools. omp-ui's surface is thin: binding, cards, hand-off.
+Obsidian is the reader.
+_Avoid_: knowledge base, notes vault, brain
+
+**Vault registry**:
+The global list of the Obsidian vaults omp-ui may use; one vault is the
+normal case. Each entry names a folder, carries a **Home folder**, and exactly
+one entry carries the **Default write vault** marker. It lives on its own
+Settings page, labelled "Knowledge vault", right after Memory.
+_Avoid_: vault list, vault manager
+
+**Home folder**:
+The folder inside a vault (default `omp-ui/`) where every omp-ui write lands.
+The whole vault is readable; the home folder is the write boundary, so the
+user's own notes are never edited.
+_Avoid_: vault root, write folder
+
+**Default write vault**:
+The one registry entry a project writes to when its **Knowledge home** names
+no vault.
+_Avoid_: primary vault, active vault
+
+**Knowledge home**:
+A **Project**'s standing choice of where the agent files its notes: repo
+`docs/`, a named vault, `both`, or not set, which applies the routing default.
+It is the last tab of **Project settings**, labelled "Knowledge".
+_Avoid_: knowledge routing, docs home, vault target
+
+**Vault note**:
+A markdown note inside a registered vault, whichever hand wrote it. One the
+agent wrote carries a **Provenance stamp**; an edit of a note it did not
+create is marked as such. The inspector rail's Session pane lists the Vault
+notes touched this session under "Vault notes".
+_Avoid_: page, doc, entry
+
+**Provenance stamp**:
+The frontmatter block omp-ui writes into every note the agent creates,
+recording omp-ui, the project, the session, and the date. It is what lets a
+card and the rail tell an omp-ui note from the user's.
+_Avoid_: metadata, signature
+
+**Index note**:
+The one note per project that links the project's omp-ui notes and wikilinks
+the relevant notes the user wrote; the project's entry point into the vault.
+_Avoid_: hub note, table of contents
+
+**Day write-up**:
+A cross-project note of everything worked on that day, written by the agent
+from omp-ui's session records. Not an Obsidian daily note; the user's own
+`YYYY-MM-DD` notes stay untouched.
+_Avoid_: daily note, journal, log
+
 **Update card**:
 The small non-modal card in the lower-right corner announcing an available
 update. There are two: the omp-ui release card (AppImage, NSIS, and macOS
@@ -852,10 +908,11 @@ _Avoid_: onboarding wizard, tour, coach marks
 **Update train**: The user's choice of which omp-ui release line the update check follows — stable (the default: tagged GitHub releases) or nightly (the rolling `nightly` prerelease, built on demand from the trunk). Set in Settings → Updates; one setting, not per-install. _Avoid_: channel, ring, track.
 
 **Settings surface**:
-The modal with eleven pages — General, Appearance, Updates, Remote access,
-Remote instances, Providers, Memory, omp, Experimental, Advanced, About — reached from the sidebar
-gear, the command palette, or `mod+,`. Deliberately not a tab: preferences
-are not sessions, so they stay out of the tab/lineage model entirely.
+The modal with twelve pages — General, Appearance, Updates, Remote access,
+Remote instances, Providers, Memory, Knowledge vault, omp, Experimental,
+Advanced, About — reached from the sidebar gear, the command palette, or
+`mod+,`. Deliberately not a tab: preferences are not sessions, so they stay
+out of the tab/lineage model entirely.
 omp-ui's own preferences persist in the registry; the omp and Memory pages
 are views onto omp's own config, written through `omp config set` to the
 global layer only, with each value's layer shown. Memory configures omp's

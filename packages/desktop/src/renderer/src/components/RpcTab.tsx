@@ -19,8 +19,6 @@ import { TranscriptView, ShareLinkRow, TuiHandoffButton } from "./TranscriptView
 import { Button, Chip, CopyButton, Panel, ProgressSweep, Sheet } from "./ui";
 import { BrowserPane } from "./browser-pane/BrowserPane";
 import { BrowserPaneSplit, useDesktopPanelWidths } from "./browser-pane/BrowserPaneSplit";
-// PROTOTYPE (#753): appends the vault fixture transcript; returns the input unchanged when off.
-import { useVaultFixtureItems } from "./prototype-vault-753";
 
 const NO_ITEMS: never[] = [];
 
@@ -161,8 +159,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   // deferred` -> null), so every path that closes the dock — defer, answer,
   // refine-submitted, gate clear — restores the transcript for free.
   const planReviewOpen = rpc?.planReview != null && rpc.planDeferred !== true;
-  // PROTOTYPE (#753): top-level items only; subagent buffers never get fixtures.
-  const items = useVaultFixtureItems(rpc?.items ?? NO_ITEMS);
+  const items = rpc?.items ?? NO_ITEMS;
   const viewingSubagent = rpc?.selectedSubagent ?? null;
   // The browser pane (issue #519) sits beside the transcript as a split; when
   // fullscreen — or when the width budget cannot seat the split at its

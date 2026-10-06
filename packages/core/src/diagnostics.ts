@@ -24,6 +24,7 @@ import type {
   DiagnosticsExportResult,
   DiagnosticsPreview,
   DiagnosticsSection,
+  KnowledgeVaultDiagnostics,
   OwnedSessionRecord,
   ProjectRecord,
 } from "./types";
@@ -76,6 +77,8 @@ export interface DiagnosticsOptions {
   breadcrumbs?: readonly DiagnosticsBreadcrumbEntry[];
   /** Live browser pane hosts, one row per tab with a page or bridge listener (#519). */
   browserPanes: readonly BrowserPaneDiagnostics[];
+  /** Vault registry and detection (#764); null omits the section. */
+  knowledgeVault: KnowledgeVaultDiagnostics | null;
   gitRunner?: GitRunner;
   transcriptCapBytes?: number;
   /** Stamp + dos-timestamped zip entries. */
@@ -171,6 +174,14 @@ export function scrubSettings(settings: RegistrySettings): Record<string, unknow
   void remotePasswordSalt;
   return {
     ...rest,
+    vaultRegistry: {
+      vaults: settings.vaultRegistry.vaults.map(({ name, homeFolder, allowWritesOutsideHome }) => ({
+        name,
+        homeFolder,
+        allowWritesOutsideHome,
+      })),
+      defaultWriteVault: settings.vaultRegistry.defaultWriteVault,
+    },
     hasRemoteToken: typeof settings.remoteToken === "string" && settings.remoteToken !== "",
     hasRemotePassword:
       typeof settings.remotePasswordHash === "string" && settings.remotePasswordHash !== "",
@@ -417,6 +428,12 @@ async function buildSections(
     included: o.browserPanes.length > 0,
     files: o.browserPanes.map((p) => bytesFile(`${p.tabId}.json`, p)),
   });
+  sections.push({
+    id: "knowledge-vault",
+    prefix: "knowledge-vault/",
+    included: o.knowledgeVault !== null && o.knowledgeVault.vaults.length > 0,
+    files: o.knowledgeVault === null ? [] : [bytesFile("knowledge-vault.json", o.knowledgeVault)],
+  });
 
   const transcriptFiles: PlannedFile[] = [];
   if (o.includeTranscripts) {
@@ -489,6 +506,7 @@ function manifestBytes(
       "<userData>/oauth-login/ is never walked",
       "plan bodies, transcripts (unless opted in), and project file contents are excluded",
       "browser pane URLs reduced to origin; bridge tokens never read",
+      "vault paths reduced to folder basename; vault note bodies are never read",
     ],
     warnings,
   });

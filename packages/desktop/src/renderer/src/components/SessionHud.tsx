@@ -21,8 +21,6 @@ import { useDismissal } from "../lib/use-dismissal";
 import { buildTitleTranscript } from "../lib/session-transcript";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
-// PROTOTYPE (#753): notes-touched HUD button and sheet section; render null unless the prototype is on.
-import { NotesTouchedHudButton, NotesTouchedSheetSection } from "./prototype-vault-753";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { FastModeControl } from "./FastModeControl";
 import { AdvisorRosterView } from "./AdvisorRoster";
@@ -1162,8 +1160,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <Sheet open={surface === "session-actions"} placement="bottom" label={t("hud.actions.sessionActions")} onClose={closeCompactSurface}>
           <div className="space-y-4 p-4">
             <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
-            {/* PROTOTYPE (#753): null unless the notes-touched variant is "hud". */}
-            <NotesTouchedSheetSection tabId={tabId} />
             {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || limitsCluster) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
                 {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
@@ -1308,8 +1304,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <span className="mx-0.5 h-4 w-px bg-line-soft" />
         <ConsoleToggle tabId={tabId} />
         <BrowserPaneToggle tabId={tabId} />
-        {/* PROTOTYPE (#753): null unless the notes-touched variant is "hud". */}
-        <NotesTouchedHudButton tabId={tabId} />
         <IconButton label={t("hud.actions.exportTitle")} onClick={() => void exportHtml(tabId)}>
           <IconExport />
         </IconButton>
