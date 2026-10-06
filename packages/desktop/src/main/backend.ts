@@ -84,6 +84,7 @@ import {
   type ConsoleProgram,
   type DocumentAttachment,
   type ImageAttachment,
+  type KnowledgeHome,
   type McpSetEnabledRequest,
   type ScopedCapabilityMutation,
   type ReviewWriteRequest,
@@ -698,6 +699,9 @@ export class MainBackend {
         [CH.setProjectBrowserClock]: async (projectPath: string, on: boolean) => {
           this.registry.setProjectBrowserClock(projectPath, on);
           await this.broadcast();
+        },
+        [CH.setProjectKnowledgeHome]: async (projectPath: string, home: KnowledgeHome | null) => {
+          if (this.registry.setProjectKnowledgeHome(projectPath, home)) await this.broadcast();
         },
         [CH.getProjectSubagentModels]: (projectCwd: string): ProjectSubagentModelsResult => {
           const layer = readProjectConfigMap(projectCwd, ["task", "agentModelOverrides"]);

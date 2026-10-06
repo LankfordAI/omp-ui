@@ -12,6 +12,7 @@ import type {
   DocumentAttachment,
   GlassChrome,
   ImageAttachment,
+  KnowledgeHome,
   McpSetEnabledRequest,
   OmpSettingValue,
   PlanFormat,
@@ -423,6 +424,20 @@ export const reviewWriteCodec: ArgCodec<ReviewWriteRequest> = {
       scope: oneOf("user", "project").decode(f["scope"], `${path}.scope`),
       document: nullable(reviewDocumentCodec).decode(f["document"], `${path}.document`),
     };
+  },
+};
+
+/** One project's Knowledge home (issue #766); an absent vault follows the Default write vault. */
+export const knowledgeHomeCodec: ArgCodec<KnowledgeHome> = {
+  expected: "a knowledge home",
+  decode(value, path) {
+    const f = record().decode(value, path);
+    exactKeys(f, ["home", "vault"], path);
+    const home = oneOf("docs", "vault", "both").decode(f["home"], `${path}.home`);
+    const vault = optional(str()).decode(f["vault"], `${path}.vault`);
+    if (vault === "") fail(`${path}.vault`, "a non-empty string");
+    // No undefined-valued key: isKnowledgeHome rejects { vault: undefined }.
+    return vault === undefined ? { home } : { home, vault };
   },
 };
 

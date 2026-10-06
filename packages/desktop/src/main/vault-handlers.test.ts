@@ -192,4 +192,12 @@ describe("vault handlers", () => {
     await h[CH.openVault]("A", null);
     expect(opened).toEqual(["obsidian://open?vault=a1"]);
   });
+
+  it("vaultNames answers registry names in registry order", async () => {
+    const h = handlers();
+    await expect(h[CH.vaultNames]()).resolves.toEqual([]);
+    await h[CH.addVault](path.join(vaultsBase, "other"));
+    await h[CH.addVault](path.join(vaultsBase, "A"));
+    await expect(h[CH.vaultNames]()).resolves.toEqual(["other", "A"]);
+  });
 });

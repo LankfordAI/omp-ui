@@ -6635,6 +6635,57 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
     }
   });
 
+  describe("knowledge vault guidance arm (issue #766)", () => {
+    const NOTES = { name: "Notes", path: "/notes", homeFolder: "omp-ui/", allowWritesOutsideHome: false };
+    const knowledgeArms = (commands: Array<Record<string, unknown>> | undefined): Array<Record<string, unknown>> =>
+      (commands ?? []).filter(
+        (command) => typeof command.id === "string" && command.id.startsWith("omp-ui-initial-knowledge-vault-"),
+      );
+
+    it.each([
+      ["vault", false],
+      ["both", true],
+    ] as const)("arms the %s home's guidance after the browser-pane arm and before set_event_filter", async (home, both) => {
+      const { manager, registry } = setup({ mode: "rpc-ui", knowledgeHome: { home } });
+      registry.setSetting("vaultRegistry", { vaults: [NOTES], defaultWriteVault: "Notes" });
+      await resume(manager);
+      const options = RpcClientMock.mock.calls.at(-1)?.[0];
+      expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-knowledge-vault\.ts$/));
+      const commands = options?.initialCommands as Array<Record<string, unknown>> | undefined;
+      const arms = knowledgeArms(commands);
+      expect(arms).toHaveLength(1);
+      expect(arms[0]).toMatchObject({
+        type: "prompt",
+        id: expect.stringMatching(/^omp-ui-initial-knowledge-vault-/),
+        message: Core.knowledgeVaultArmMessage(Core.knowledgeVaultGuidance({ write: { vault: "Notes", both } })!),
+      });
+      const armAt = commands!.indexOf(arms[0]!);
+      const paneAt = commands!.findIndex(
+        (command) => typeof command.id === "string" && command.id.startsWith("omp-ui-initial-browser-pane-"),
+      );
+      const filterAt = commands!.findIndex((command) => command.type === "set_event_filter");
+      expect(paneAt).toBeGreaterThanOrEqual(0);
+      expect(armAt).toBe(paneAt + 1);
+      expect(filterAt).toBeGreaterThan(armAt);
+    });
+
+    it.each([
+      ["a pin to an unregistered vault", { home: "vault", vault: "Gone" }, [NOTES]],
+      ["the docs home", { home: "docs" }, [NOTES]],
+      ["an empty vault registry", { home: "vault" }, []],
+    ] as const)("sends no guidance for %s", async (_case, knowledgeHome, vaults) => {
+      const { manager, registry } = setup({ mode: "rpc-ui", knowledgeHome });
+      registry.setSetting("vaultRegistry", {
+        vaults: [...vaults],
+        defaultWriteVault: vaults.length > 0 ? "Notes" : null,
+      });
+      await resume(manager);
+      const options = RpcClientMock.mock.calls.at(-1)?.[0];
+      expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-knowledge-vault\.ts$/));
+      expect(knowledgeArms(options?.initialCommands as Array<Record<string, unknown>> | undefined)).toEqual([]);
+    });
+  });
+
   it("coalesces Obsidian lookups and expires completed results five seconds from lookup start", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-manager-vault-"));
     const clock = vi.spyOn(Date, "now").mockReturnValue(1_000);

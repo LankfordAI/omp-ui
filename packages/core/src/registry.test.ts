@@ -1151,6 +1151,56 @@ describe("Registry mutations", () => {
     expect(Registry.load(file).projects[0]!.browserClock).toBe(false);
   });
 
+  it("setProjectKnowledgeHome sets a home, survives a reload, and returns true", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    expect(reg.setProjectKnowledgeHome("/abs/proj", { home: "vault", vault: "Notes" })).toBe(true);
+    expect(reg.projects[0]!.knowledgeHome).toEqual({ home: "vault", vault: "Notes" });
+    expect(Registry.load(file).projects[0]!.knowledgeHome).toEqual({ home: "vault", vault: "Notes" });
+    expect(reg.setProjectKnowledgeHome("/abs/proj", { home: "both" })).toBe(true);
+    const stored = Registry.load(file).projects[0]!.knowledgeHome;
+    expect(stored).toEqual({ home: "both" });
+    expect(Object.keys(stored!)).toEqual(["home"]);
+  });
+
+  it("setProjectKnowledgeHome returns false and leaves the file untouched for an equal value, even in another key order on disk", () => {
+    const file = tmpFile();
+    fs.writeFileSync(file, JSON.stringify({
+      schemaVersion: 1,
+      projects: [{ path: "/proj", name: "proj", addedAt: "t", knowledgeHome: { vault: "Notes", home: "vault" } }],
+      sessions: [],
+    }));
+    const reg = Registry.load(file);
+    const before = fs.readFileSync(file, "utf8");
+    expect(reg.setProjectKnowledgeHome("/proj", { home: "vault", vault: "Notes" })).toBe(false);
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    expect(reg.setProjectKnowledgeHome("/proj", { home: "docs" })).toBe(true);
+    const docs = fs.readFileSync(file, "utf8");
+    expect(reg.setProjectKnowledgeHome("/proj", { home: "docs" })).toBe(false);
+    expect(fs.readFileSync(file, "utf8")).toBe(docs);
+  });
+
+  it("setProjectKnowledgeHome returns false for an unknown project without a save", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    const before = fs.readFileSync(file, "utf8");
+    expect(reg.setProjectKnowledgeHome("/abs/zzz", { home: "docs" })).toBe(false);
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+  });
+
+  it("setProjectKnowledgeHome clears the home with null", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.setProjectKnowledgeHome("/abs/proj", { home: "docs" });
+    expect(reg.setProjectKnowledgeHome("/abs/proj", null)).toBe(true);
+    expect(reg.projects[0]!.knowledgeHome).toBeNull();
+    expect(Registry.load(file).projects[0]!.knowledgeHome).toBeNull();
+    expect(reg.setProjectKnowledgeHome("/abs/proj", null)).toBe(false);
+  });
+
   it("drops a project record whose browserClock is not a boolean", () => {
     const file = tmpFile();
     fs.writeFileSync(

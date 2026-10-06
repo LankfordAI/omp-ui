@@ -1950,6 +1950,20 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "project.settings.browserClock": "시계",
   "project.settings.browserClockHint":
     "이 프로젝트의 브라우저 창 위에 날짜와 시간을 표시하고, 카메라 버튼·요소 선택·에이전트가 찍은 스크린샷 등 모든 브라우저 스크린샷에 새겨 넣습니다.",
+  "project.settings.knowledge": "지식",
+  "project.settings.knowledgeHome": "지식 저장 위치",
+  "project.settings.knowledgeHint": "에이전트가 이 프로젝트의 결정과 교훈을 기록하는 곳입니다.",
+  "project.settings.knowledgeDocs": "저장소 docs",
+  "project.settings.knowledgeVault": "볼트",
+  "project.settings.knowledgeVaultNamed": "볼트: {name}",
+  "project.settings.knowledgeBoth": "둘 다",
+  "project.settings.knowledgeNotSet": "설정 안 됨. 기본 라우팅 규칙을 따릅니다.",
+  "project.settings.knowledgeClear": "지우기",
+  "project.settings.knowledgeFollowDefault": "기본 쓰기 볼트 따르기",
+  "project.settings.knowledgeNeedsVault": "먼저 설정에서 볼트를 추가하세요",
+  "project.settings.knowledgeOpenSettings": "설정 열기",
+  "project.settings.knowledgeBroken":
+    "볼트 {name}이(가) 더 이상 등록되어 있지 않습니다. 다른 볼트를 고르세요. 그때까지 에이전트는 볼트에 아무것도 쓰지 않습니다.",
 
   "sidebar.status.workingLabel": "작업 중",
   "sidebar.status.workingTitle": "에이전트가 작업 중입니다",

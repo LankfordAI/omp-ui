@@ -191,6 +191,10 @@ The **browser pane** is a live web page inside a native tab that you and the age
 
 The agent doesn't reach for the pane first for everything: it prefers configured CLIs and APIs for structured service work and reserves the pane for rendered interaction, browser state, browser-only authentication, and pages you explicitly ask it to look at — no permission prompt appears either way, and you can always ask it to open a page.
 
+## Knowledge vault
+
+Each project has a **Knowledge home**: where the agent files the decisions, lessons, and write-ups it keeps for that project. Set it in **Project settings → Knowledge**. **Repo docs** keeps them in the repository's `docs/`. **Vault** writes Vault notes to a registered Obsidian vault. **Both** writes the full note in `docs/` plus a short vault note with its title, a one-line gist, and the repo path. With two or more vaults registered, pick a vault for the project or follow the Default write vault. **Clear** returns the project to the routing default. Routing then chooses repo docs when the folder is not a git repository, has no remote, or its remote's owner is an account the GitHub CLI is signed into on this computer, which is read offline from `hosts.yml`. Otherwise it chooses the Default write vault. Vault and Both need a registered vault (**Settings → Knowledge vault**). If the project's vault is removed, the tab says so, and the agent writes no vault notes until you pick another. When the home includes a vault, a native session is told so when it starts. Changes apply to sessions started afterwards.
+
 ## Share a terminal session live
 
 **Share live** hands one running **terminal session** to teammates as a live **Collab room** ([#686](https://github.com/LankfordAI/omp-ui/issues/686)): they watch the session as it runs from a link and, with a control link, steer it — prompt, interrupt, and answer its approvals. OMP hosts the room through its `/collab` command; omp-ui opens it, shows the links and the guest count, and retires them when the room ends. It is terminal-tab only: native sessions do not expose the command, and the dialog says so.

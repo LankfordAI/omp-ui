@@ -21,6 +21,7 @@ import {
   writeCompactionMethodOverlay,
   writeGoalContinuationOverlay,
   writeDefaultModelOverlay,
+  writeKnowledgeVaultExtension,
   writeMcpStatusExtension,
   writeVibeExtension,
   writeLimitsExtension,
@@ -191,6 +192,7 @@ export const RPC_BRIDGE_IDS = [
   "tree",
   "sideQuestions",
   "review",
+  "knowledgeVault",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
 export type RpcBridgeWriters = Record<RpcBridgeId, (lineageDir: string) => string>;
@@ -207,6 +209,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   tree: writeTreeExtension,
   sideQuestions: writeSideQuestionsExtension,
   review: writeReviewExtension,
+  knowledgeVault: writeKnowledgeVaultExtension,
 };
 
 const RPC_BRIDGES: ReadonlyArray<{
@@ -226,6 +229,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "tree", logId: "tree", warning: "tree", enabled: () => true },
   { id: "sideQuestions", logId: "btw", warning: "btw", enabled: () => true },
   { id: "review", logId: "review", warning: "code-review", enabled: (enabled) => enabled },
+  { id: "knowledgeVault", logId: "vault", warning: "knowledge-vault", enabled: () => true },
 ];
 export interface RpcExtensionWriteResult {
   paths: string[];

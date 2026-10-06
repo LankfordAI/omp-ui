@@ -9,6 +9,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Fixed sidebar names losing a space where the middle-ellipsis split falls on it, so "Team Atlas" no longer renders as "TeamAtlas" ([#747](https://github.com/LankfordAI/omp-ui/issues/747)).
 - Added the Knowledge vault Settings page: register Obsidian vaults, pick the Default write vault and each vault's Home folder, and open a vault in Obsidian ([#764](https://github.com/LankfordAI/omp-ui/issues/764)).
 - Added seven Knowledge vault host tools: native sessions can search and read registered Obsidian vaults and create stamped, indexed Vault notes inside their Home folders, with read-before-edit checks and secret refusal. omp's own vault:// protocol stays off in omp-ui sessions ([#765](https://github.com/LankfordAI/omp-ui/issues/765)).
+- Added the Knowledge home: Project settings → Knowledge chooses whether a project's decisions and lessons go to repo docs, a vault, or both. Unset projects route by repository ownership, and native sessions whose home includes a vault are told so when they start ([#766](https://github.com/LankfordAI/omp-ui/issues/766)).
 
 ## Choose a download
 

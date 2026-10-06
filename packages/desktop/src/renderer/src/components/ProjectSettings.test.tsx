@@ -26,6 +26,8 @@ const backendMock = {
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setProjectBrowserClock: vi.fn(async () => {}),
+  setProjectKnowledgeHome: vi.fn<(projectPath: string, home: ProjectRecord["knowledgeHome"]) => Promise<void>>(async () => {}),
+  vaultNames: vi.fn(async () => [] as string[]),
   getReviewRoster: vi.fn(async () => ({
     reviewers: [{ name: "code-reviewer", model: null, instructions: null, targets: null, enabled: true }],
     instructions: null,
@@ -244,6 +246,39 @@ async function type(input: HTMLInputElement, value: string): Promise<void> {
   });
 }
 
+/** This host's state with the given vault names and the project's Knowledge home. */
+function withKnowledge(names: string[], knowledgeHome: ProjectRecord["knowledgeHome"]): void {
+  useStore.setState({
+    state: backendState({
+      defaultAdvisor: false,
+      projects: [{ project: { ...project, knowledgeHome }, sessions: [] }],
+      vaultRegistry: {
+        vaults: names.map((name) => ({ name, path: `/vaults/${name}`, homeFolder: "omp-ui/", allowWritesOutsideHome: false })),
+        defaultWriteVault: names[0] ?? null,
+      },
+    }),
+  });
+}
+
+function radio(label: string): HTMLButtonElement {
+  const found = [...document.body.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+    (candidate) => candidate.textContent?.trim() === label,
+  );
+  if (found === undefined) throw new Error(`radio not found: ${label}`);
+  return found;
+}
+
+function knowledgeSelect(): HTMLSelectElement | null {
+  return document.body.querySelector<HTMLSelectElement>('select[aria-label="Knowledge home"]');
+}
+
+async function choose(select: HTMLSelectElement, value: string): Promise<void> {
+  await act(async () => {
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   backendMock.getMcpServers.mockResolvedValue({ servers: [], errors: [] });
@@ -257,7 +292,9 @@ beforeEach(() => {
         ? { servers: [], errors: [] }
         : channel === "capabilities:scoped"
           ? emptyCatalog()
-          : {},
+          : channel === "vault:names"
+            ? ["Remote"]
+            : {},
   );
   useStore.setState({
     capabilitiesViewer: null,
@@ -350,12 +387,119 @@ describe("ProjectSettings", () => {
     expect(document.activeElement).toBe(tabButton("Skills"));
 
     await keydown(tabButton("Skills"), "End");
-    expect(tabButton("Browser").getAttribute("aria-selected")).toBe("true");
-    expect(document.activeElement).toBe(tabButton("Browser"));
+    expect(tabButton("Knowledge").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tabButton("Knowledge"));
 
-    await keydown(tabButton("Browser"), "Home");
+    await keydown(tabButton("Knowledge"), "Home");
     expect(tabButton("MCP servers").getAttribute("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(tabButton("MCP servers"));
+  });
+
+  it("shows an unset Knowledge home with no chip checked and no Clear", async () => {
+    withKnowledge(["Notes"], null);
+    await renderDialog();
+    await act(async () => tabButton("Knowledge").click());
+    expect(document.body.querySelector('[role="radio"][aria-checked="true"]')).toBeNull();
+    expect(document.body.textContent).toContain("Not set. The routing default applies.");
+    expect(buttons("Clear")).toHaveLength(0);
+  });
+
+  it("names the sole vault on its chip and stores the kind without a vault key", async () => {
+    withKnowledge(["Notes"], null);
+    await renderDialog();
+    await act(async () => tabButton("Knowledge").click());
+    await act(async () => radio("Vault: Notes").click());
+    expect(backendMock.setProjectKnowledgeHome).toHaveBeenCalledWith(PROJECT, { home: "vault" });
+    expect(Object.keys(backendMock.setProjectKnowledgeHome.mock.calls[0]![1]!)).toEqual(["home"]);
+    // One vault: no select to pick between.
+    expect(knowledgeSelect()).toBeNull();
+  });
+
+  it("keeps the vault pin when switching kind", async () => {
+    withKnowledge(["A", "B"], { home: "both", vault: "B" });
+    await renderDialog();
+    await act(async () => tabButton("Knowledge").click());
+    expect(radio("Both").getAttribute("aria-checked")).toBe("true");
+    await act(async () => radio("Repo docs").click());
+    expect(backendMock.setProjectKnowledgeHome).toHaveBeenCalledWith(PROJECT, { home: "docs", vault: "B" });
+  });
+
+  it("pins a vault from the select and follows the default with no vault key", async () => {
+    withKnowledge(["A", "B"], { home: "vault" });
+    await renderDialog();
+    await act(async () => tabButton("Knowledge").click());
+    const select = knowledgeSelect()!;
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe("");
+    await choose(select, "B");
+    expect(backendMock.setProjectKnowledgeHome).toHaveBeenLastCalledWith(PROJECT, { home: "vault", vault: "B" });
+
+    withKnowledge(["A", "B"], { home: "vault", vault: "B" });
+    await choose(knowledgeSelect()!, "");
+    const last = backendMock.setProjectKnowledgeHome.mock.calls.at(-1)!;
+    expect(last).toEqual([PROJECT, { home: "vault" }]);
+    expect(Object.keys(last[1]!)).toEqual(["home"]);
+  });
+
+  it("disables the vault select while the Knowledge home is unset", async () => {
+    withKnowledge(["A", "B"], null);
+    await renderDialog();
+    await act(async () => tabButton("Knowledge").click());
+    expect(knowledgeSelect()!.disabled).toBe(true);
+  });
+
+  it("clears the Knowledge home", async () => {
+    withKnowledge(["Notes"], { home: "vault" });
+    await renderDialog();
+    await act(async () => tabButton("Knowledge").click());
+    await act(async () => button("Clear").click());
+    expect(backendMock.setProjectKnowledgeHome).toHaveBeenCalledWith(PROJECT, null);
+  });
+
+  it("flags a pin naming an unregistered vault and offers the select", async () => {
+    withKnowledge(["Notes"], { home: "vault", vault: "Gone" });
+    await renderDialog();
+    await act(async () => tabButton("Knowledge").click());
+    expect(document.body.textContent).toContain(
+      "Vault Gone is no longer registered. Pick another vault; until then the agent writes nothing to a vault.",
+    );
+    const select = knowledgeSelect()!;
+    expect(select.value).toBe("Gone");
+    expect([...select.options].map((option) => option.value)).toEqual(["Gone", "", "Notes"]);
+  });
+
+  it("disables Vault and Both without a registered vault and links to Settings", async () => {
+    withKnowledge([], null);
+    await renderDialog();
+    await act(async () => tabButton("Knowledge").click());
+    for (const label of ["Vault", "Both"]) {
+      expect(radio(label).disabled).toBe(true);
+      expect(radio(label).title).toBe("Add a vault in Settings first");
+    }
+    expect(radio("Repo docs").disabled).toBe(false);
+    await act(async () => button("Open Settings").click());
+    expect(useStore.getState().settingsPage).toBe("knowledge-vault");
+  });
+
+  it("routes a joined project's Knowledge home through its instance", async () => {
+    useStore.setState({
+      projectSettings: { projectCwd: PROJECT, instanceId: INSTANCE },
+      state: backendState({
+        remoteInstances: [remoteInstance({ projects: [{ project, sessions: [] }] })],
+      }),
+    });
+    await renderDialog();
+    await act(async () => tabButton("Knowledge").click());
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(INSTANCE, "vault:names", []);
+    await act(async () => radio("Vault: Remote").click());
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+      INSTANCE,
+      "project:setKnowledgeHome",
+      [PROJECT, { home: "vault" }],
+    );
+    expect(backendMock.setProjectKnowledgeHome).not.toHaveBeenCalled();
+    expect(backendMock.vaultNames).not.toHaveBeenCalled();
+    expect(buttons("Open Settings")).toHaveLength(0);
   });
 
   it("routes catalog toggles to the project scope, never across it", async () => {

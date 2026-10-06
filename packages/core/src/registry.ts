@@ -12,6 +12,7 @@ import type {
   AgentMode,
   ApprovalMode,
   GlassChrome,
+  KnowledgeHome,
   OwnedSessionRecord,
   PlanFormat,
   PlanImplementationSource,
@@ -1124,6 +1125,26 @@ export class Registry {
       if (!project) return false;
       if (JSON.stringify(project.reviewRoster ?? null) === JSON.stringify(document ?? null)) return false;
       project.reviewRoster = document;
+      return true;
+    });
+  }
+
+  /**
+   * Replaces (or clears, with null) one project's Knowledge home (issue #766).
+   * Unknown project or an equal value: no save. Compared on normalized copies so
+   * a key-order difference from disk is not a change.
+   */
+  setProjectKnowledgeHome(projectPath: string, home: KnowledgeHome | null): boolean {
+    const next: KnowledgeHome | null =
+      home === null ? null : home.vault === undefined ? { home: home.home } : { home: home.home, vault: home.vault };
+    return this.#transaction((draft) => {
+      const project = draft.projects.find((candidate) => candidate.path === projectPath);
+      if (!project) return false;
+      const prev = project.knowledgeHome;
+      const prevNorm =
+        prev === null ? null : prev.vault === undefined ? { home: prev.home } : { home: prev.home, vault: prev.vault };
+      if (JSON.stringify(prevNorm) === JSON.stringify(next)) return false;
+      project.knowledgeHome = next;
       return true;
     });
   }

@@ -9,6 +9,7 @@ import { findInstance, useStore } from "../store";
 import { McpServersPanel, SkillsScopePanel, ToolsScopePanel } from "./CapabilitiesViewer";
 import { AdvisorRosterEditor } from "./AdvisorRoster";
 import { ModelPalette } from "./ModelSelector";
+import { KnowledgeHomeSection } from "./KnowledgeHomeSection";
 import { ReviewRosterEditor } from "./ReviewRoster";
 import { Button, Label, Modal, Switch } from "./ui";
 
@@ -338,7 +339,7 @@ export function ProjectModelPins({
   );
 }
 
-export type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models" | "advisors" | "reviewers" | "browser";
+export type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models" | "advisors" | "reviewers" | "browser" | "knowledge";
 
 const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
   { id: "mcp", labelKey: "project.settings.mcpServers" },
@@ -348,6 +349,7 @@ const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
   { id: "advisors", labelKey: "project.settings.advisors" },
   { id: "reviewers", labelKey: "project.settings.reviewers" },
   { id: "browser", labelKey: "project.settings.browser" },
+  { id: "knowledge", labelKey: "project.settings.knowledge" },
 ];
 
 /**
@@ -355,7 +357,9 @@ const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
  * a project's standing configuration — MCP servers, the skills and tools
  * catalogs at project scope, the default-model pins, the advisor roster (WATCHDOG.yml), the
  * reviewer roster (app state, issue #738, hidden unless the experiments flag
- * is on), and the browser clock — behind a seven-tab strip,
+ * is on), the browser clock, and the Knowledge home
+ * (`ProjectRecord.knowledgeHome`, stored in omp-ui's registry) — behind an
+ * eight-tab strip,
  * opened from the desktop project header and the
  * compact actions sheet. Session-scoped behavior (rosters, session-local
  * switches, restart, TUI reauth handoff) stays in CapabilitiesViewer; this
@@ -426,7 +430,7 @@ export function ProjectSettings({
           role="tablist"
           aria-label={t("project.settings.title")}
           onKeyDown={onTabListKeyDown}
-          className="flex gap-1 border-b border-line px-4 py-2"
+          className="flex flex-wrap gap-1 border-b border-line px-4 py-2"
         >
           {sections.map((tab) => {
             const selected = tab.id === active;
@@ -548,6 +552,8 @@ export function ProjectSettings({
               </div>
             </section>
           )}
+
+          {active === "knowledge" && <KnowledgeHomeSection project={project} instanceId={instanceId} />}
         </div>
       </section>
     </Modal>

@@ -797,7 +797,7 @@ _Avoid_: capabilities panel, plugin manager, tool browser
 **Project settings**:
 The modal the project header's settings button (desktop cluster) and the
 compact sheet's "Project settings…" row open: one dialog for the project with
-four sections behind a tab strip — one visible at a time, the active tab
+eight sections behind a tab strip — one visible at a time, the active tab
 dialog-local and resetting to MCP servers on each open (issue #564) — the
 project's MCP servers (the same resolved list,
 per-server toggles, per-source provenance, and per-file errors the MCP manager
@@ -805,7 +805,7 @@ renders, project-scoped with no pinned tab), the project's **capability
 catalogs** for Skills and Tools (issue #383: the same panels the global viewer
 uses, scoped to this project, their switches writing `.omp/config.yml` in
 place), and the project's default-model pins (main-model and advisor-model
-with their pickers and Clear actions).
+with their pickers and Clear actions), and the project's **Knowledge home**.
 Toggles write through core's mcp-config and capability modules; pins through
 setProjectDefaultModel / setProjectDefaultAdvisorModel; all take effect on
 the next session spawn. Session-scoped control keeps the capabilities
