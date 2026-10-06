@@ -14,7 +14,7 @@ Resolves issue #688. Verified against omp 18.4.3.
 - omp's guard `isRpcHostToolResult` accepts a success result only when it
   carries `result.content` as an array; the previous renderer stub's
   `{id, error}` shape was silently dropped, hanging the agent's tool call
-  until omp's own timeout. A scheme name must match `^[a-z][a-z0-9+.-]*$` and
+  until abort or stdin EOF. A scheme name must match `^[a-z][a-z0-9+.-]*$` and
   must not collide with a reserved built-in (`omp agent artifact memory local
   skill rule mcp issue pr history ssh xd vault`); a tool-name collision
   rejects the WHOLE `set_host_tools` command, which is why the one tool is
@@ -49,8 +49,7 @@ Resolves issue #688. Verified against omp 18.4.3.
    owner, one pending map, and one watchdog per process.
 3. **One result, exactly, by construction.** Taking a request marks its id
    answered synchronously (renderer fence), arms a 60 s watchdog answering a
-   generic error (half omp's own 120 s tool timeout — the never-hang
-   guarantee), and moves the id out of the pending map the instant any
+   generic error (omp arms no host-tool timer of its own, so this watchdog is the never-hang guarantee; see ADR-0048), and moves the id out of the pending map the instant any
    answerer takes it — real answer, cancel, or watchdog are mutually
    exclusive. Cancels are never answered: omp already stopped waiting, and
    omp drops a result for an abandoned id anyway. A killed spawn is fenced by

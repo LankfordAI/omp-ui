@@ -49,6 +49,7 @@ function remoteProjectGroup(): ProjectGroup {
       defaultAdvisorModel: null,
       browserClock: false,
       reviewRoster: null,
+      knowledgeHome: null,
     },
     sessions: [
       {

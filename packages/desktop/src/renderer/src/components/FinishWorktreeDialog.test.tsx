@@ -158,6 +158,7 @@ const stateWith = (session: SessionSummary): BackendState =>
           defaultAdvisorModel: null,
           browserClock: false,
           reviewRoster: null,
+          knowledgeHome: null,
         },
         sessions: [session],
       },

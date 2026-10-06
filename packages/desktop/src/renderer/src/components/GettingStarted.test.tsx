@@ -157,6 +157,7 @@ function stateWithSessions(sessions: "none" | "one"): BackendState {
       defaultAdvisorModel: null,
       browserClock: false,
       reviewRoster: null,
+      knowledgeHome: null,
     },
     sessions: sessions === "one" ? [sessionSummary()] : [],
   };

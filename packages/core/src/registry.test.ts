@@ -987,7 +987,84 @@ describe("Registry mutations", () => {
       defaultAdvisorModel: null,
       browserClock: false,
       reviewRoster: null,
+      knowledgeHome: null,
     });
+  });
+
+  it("initializes knowledgeHome to null on addProject and keeps it across reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    expect(reg.addProject("/abs/proj").knowledgeHome).toBeNull();
+    expect(Registry.load(file).projects[0]!.knowledgeHome).toBeNull();
+  });
+
+  it("keeps valid knowledge homes and vault pins across save and reload", () => {
+    const file = tmpFile();
+    const homes = [
+      { home: "docs" }, { home: "docs", vault: "Notes" },
+      { home: "vault" }, { home: "vault", vault: "Notes" },
+      { home: "both" }, { home: "both", vault: "Notes" },
+    ];
+    fs.writeFileSync(file, JSON.stringify({
+      schemaVersion: 1,
+      projects: homes.map((knowledgeHome, i) => ({ path: `/proj-${i}`, name: `proj-${i}`, addedAt: "t", knowledgeHome })),
+      sessions: [],
+    }));
+    const reg = Registry.load(file);
+    expect(reg.projects.map((project) => project.knowledgeHome)).toEqual(homes);
+    reg.setSetting("themeId", "knowledge-home-round-trip");
+    expect(Registry.load(file).projects.map((project) => project.knowledgeHome)).toEqual(homes);
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).schemaVersion).toBe(1);
+  });
+
+  it("normalizes malformed knowledge homes without dropping their projects", () => {
+    const file = tmpFile();
+    const malformed = [
+      null, false, "vault", [], {}, { home: "unknown" },
+      { home: "vault", extra: true }, { home: "vault", vault: null },
+      { home: "vault", vault: "" }, { home: "vault", vault: 42 },
+    ];
+    fs.writeFileSync(file, JSON.stringify({
+      schemaVersion: 1,
+      projects: malformed.map((knowledgeHome, i) => ({ path: `/proj-${i}`, name: `proj-${i}`, addedAt: "t", knowledgeHome })),
+      sessions: [],
+    }));
+    const reg = Registry.load(file);
+    expect(reg.projects).toHaveLength(10);
+    expect(reg.projects.every((project) => project.knowledgeHome === null)).toBe(true);
+    expect(fs.existsSync(file)).toBe(true);
+    reg.setSetting("themeId", "normalized-knowledge-homes");
+    const reloaded = Registry.load(file);
+    expect(reloaded.projects).toHaveLength(10);
+    expect(reloaded.projects.every((project) => project.knowledgeHome === null)).toBe(true);
+  });
+
+  it("retains a project's vault pin when that vault is removed from the registry", () => {
+    const file = tmpFile();
+    fs.writeFileSync(file, JSON.stringify({
+      schemaVersion: 1,
+      projects: [{ path: "/proj", name: "proj", addedAt: "t", knowledgeHome: { home: "vault", vault: "Notes" } }],
+      sessions: [],
+      settings: {
+        vaultRegistry: {
+          vaults: [
+            { name: "Notes", path: "/abs/Notes", homeFolder: "omp-ui/", allowWritesOutsideHome: false },
+            { name: "Other", path: "/abs/Other", homeFolder: "omp-ui/", allowWritesOutsideHome: false },
+          ],
+          defaultWriteVault: "Notes",
+        },
+      },
+    }));
+    const reg = Registry.load(file);
+    reg.setSetting("vaultRegistry", {
+      vaults: [{ name: "Other", path: "/abs/Other", homeFolder: "omp-ui/", allowWritesOutsideHome: false }],
+      defaultWriteVault: "Other",
+    });
+    const reloaded = Registry.load(file);
+    expect(reloaded.projects[0]!.knowledgeHome).toEqual({ home: "vault", vault: "Notes" });
+    expect(reloaded.getSetting("vaultRegistry").defaultWriteVault).toBe("Other");
+    reloaded.setSetting("vaultRegistry", { vaults: [], defaultWriteVault: null });
+    expect(Registry.load(file).projects[0]!.knowledgeHome).toEqual({ home: "vault", vault: "Notes" });
   });
 
   it("initializes both model pins to null on addProject", () => {
@@ -1611,6 +1688,7 @@ describe("legacy registries with absent optional fields (issue #294)", () => {
       lastAdvisorModel: null,
       defaultModel: null,
       defaultAdvisorModel: null,
+      knowledgeHome: null,
     });
     expect(reg.sessions).toHaveLength(1);
     expect(reg.sessions[0]).toMatchObject({

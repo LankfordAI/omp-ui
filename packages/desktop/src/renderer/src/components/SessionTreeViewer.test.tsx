@@ -53,6 +53,7 @@ function liveState(): void {
             defaultAdvisorModel: null,
             browserClock: false,
             reviewRoster: null,
+            knowledgeHome: null,
           },
           sessions: [
             {

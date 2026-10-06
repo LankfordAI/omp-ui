@@ -27,6 +27,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
     watchLineageDir: vi.fn(),
     readOmpCompactionMethods: vi.fn(),
     readOmpGoalContinuationModes: vi.fn(),
+    findObsidianList: vi.fn(),
     writeMcpStatusExtension: vi.fn(core.writeMcpStatusExtension),
     writeCapabilitiesExtension: vi.fn(core.writeCapabilitiesExtension),
     RpcClient: vi.fn(),
@@ -42,6 +43,7 @@ const spawnShellMock = vi.mocked(Core.spawnShell);
 const watchLineageDirMock = vi.mocked(Core.watchLineageDir);
 const readOmpCompactionMethodsMock = vi.mocked(Core.readOmpCompactionMethods);
 const readOmpGoalContinuationModesMock = vi.mocked(Core.readOmpGoalContinuationModes);
+const findObsidianListMock = vi.mocked(Core.findObsidianList);
 const writeMcpStatusExtensionMock = vi.mocked(Core.writeMcpStatusExtension);
 const writeCapabilitiesExtensionMock = vi.mocked(Core.writeCapabilitiesExtension);
 const RpcClientMock = vi.mocked(Core.RpcClient);
@@ -219,7 +221,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -238,7 +240,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
     projects: [
       {
         path: opts.project ?? "/proj",
-        name: "proj",
+        name: opts.projectName ?? "proj",
         addedAt: "2026-07-29T00:00:00.000Z",
         lastModel: null,
         lastThinkingLevel: null,
@@ -248,6 +250,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
         defaultAdvisorModel: null,
         browserClock: false,
         reviewRoster: null,
+        knowledgeHome: opts.knowledgeHome ?? null,
       },
     ],
     sessions: [
@@ -278,6 +281,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
   const crumbs: BreadcrumbEntry[] = [];
   const deps: SessionManagerDependencies = {
     registry,
+    registryFile,
     providerKeys,
     hasOAuthProvider: opts.hasOAuthProvider,
     getOmpPath: () => "/test/omp",
@@ -296,6 +300,8 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; attention?: At
       entries: () => crumbs.slice(),
     },
     hostNotify: opts.hostNotify,
+    appVersion: opts.appVersion,
+    mainLog: opts.mainLog,
     browserPane: {
       createPane: async () => {
         const pane = fakePaneContents();
@@ -378,6 +384,8 @@ beforeEach(() => {
   });
   readOmpGoalContinuationModesMock.mockReset();
   readOmpGoalContinuationModesMock.mockResolvedValue(["interactive"]);
+  findObsidianListMock.mockReset();
+  findObsidianListMock.mockResolvedValue(null);
   RpcClientMock.mockReset();
   RpcClientMock.mockImplementation(function (
     this: unknown,
@@ -6520,27 +6528,204 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
   const waitSent = (rpc: (typeof rpcInstances)[number], id: string): Promise<void> =>
     vi.waitFor(() => expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({ id })));
 
-  it("registers the scheme and the tool on every rpc-ui spawn", async () => {
-    const { manager } = setup({ mode: "rpc-ui" });
-    await manager.spawn({
-      origin: "new",
-      projectCwd: "/proj",
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: null,
-      planMode: false,
+  it.each([
+    ["new", false],
+    ["new", true],
+    ["resume", false],
+    ["resume", true],
+  ] as const)("registers the scheme and registry-selected tools on %s with vaults=%s", async (origin, hasVaults) => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("vaultRegistry", {
+      vaults: hasVaults ? [{ name: "Notes", path: "/notes", homeFolder: "omp-ui/", allowWritesOutsideHome: false }] : [],
+      defaultWriteVault: hasVaults ? "Notes" : null,
     });
+    await manager.spawn(origin === "resume"
+      ? { origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 }
+      : { origin: "new", projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24, worktree: null, planMode: false });
     const commands = RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands as
       | Array<Record<string, unknown>>
       | undefined;
     expect(commands).toContainEqual(
       expect.objectContaining({ type: "set_host_uri_schemes", id: "omp-ui-host-uri-1" }),
     );
-    expect(commands).toContainEqual(
-      expect.objectContaining({ type: "set_host_tools", id: "omp-ui-host-tools-1" }),
-    );
+    const registration = commands?.at(-1);
+    expect(registration).toMatchObject({ type: "set_host_tools", id: "omp-ui-host-tools-1" });
+    expect(commands?.filter((command) => command.type === "set_host_tools")).toHaveLength(1);
+    const tools = Array.isArray(registration?.tools) ? registration.tools : [];
+    expect(tools.map((tool) => Core.isObject(tool) ? tool.name : null)).toEqual(hasVaults ? [
+      "omp-ui_notify",
+      "omp-ui_vault_search",
+      "omp-ui_vault_read",
+      "omp-ui_vault_list",
+      "omp-ui_vault_create",
+      "omp-ui_vault_append",
+      "omp-ui_vault_edit",
+      "omp-ui_vault_link",
+    ] : ["omp-ui_notify"]);
+    if (hasVaults) {
+      for (const tool of tools.slice(1)) {
+        expect(tool).toMatchObject({ loadMode: "essential" });
+        expect(tool).not.toMatchObject({ hidden: true });
+      }
+    }
+  });
+
+  it.each(["pty", "rpc-ui"] as const)("pins the built-in vault off on fresh and resumed %s spawns", async (mode) => {
+    const { manager } = setup({ mode });
+    await manager.spawn({ origin: "new", projectCwd: "/proj", mode, advisor: false, cols: 80, rows: 24, worktree: null });
+    await resume(manager);
+    const captures = mode === "rpc-ui" ? RpcClientMock.mock.calls.map(([options]) => options) : spawnCalls;
+    expect(captures).toHaveLength(2);
+    for (const options of captures) {
+      const overlays = Array.isArray(options.configOverlays) ? options.configOverlays : [];
+      const vaultPins = overlays.filter((file) => typeof file === "string" && path.basename(file) === "omp-ui-vault.yml");
+      expect(vaultPins).toHaveLength(1);
+      expect(fs.readFileSync(vaultPins[0]!, "utf8")).toBe("vault:\n  enabled: false\n");
+      if (mode === "pty") expect(options).not.toHaveProperty("initialCommands");
+    }
+    if (mode === "pty") expect(RpcClientMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the project's pin, name and lineage rather than its worktree for vault writes", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-manager-vault-"));
+    const logs: string[] = [];
+    try {
+      fs.mkdirSync(path.join(root, "default"));
+      fs.mkdirSync(path.join(root, "pinned"));
+      const { manager, registry } = setup({
+        mode: "rpc-ui",
+        projectName: "Named Project!",
+        knowledgeHome: { home: "docs", vault: "Pinned" },
+        appVersion: "1.2.3",
+        mainLog: (line) => logs.push(line),
+      });
+      registry.setSetting("vaultRegistry", {
+        vaults: [
+          { name: "Default", path: path.join(root, "default"), homeFolder: "omp-ui/", allowWritesOutsideHome: false },
+          { name: "Pinned", path: path.join(root, "pinned"), homeFolder: "omp-ui/", allowWritesOutsideHome: false },
+        ],
+        defaultWriteVault: "Default",
+      });
+      await resume(manager);
+      registry.updateSession(TAB, { worktree: { path: "/elsewhere/worktree", branch: "work", base: "main" } });
+      const rpc = rpcInstances[0]!;
+      rpc.inputFrame({
+        type: "host_tool_call", id: "vault-create", toolCallId: "tc-create", toolName: "omp-ui_vault_create",
+        arguments: { title: "wiring note", body: "A private body that must not reach the log." },
+      });
+      await waitSent(rpc, "vault-create");
+      expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({
+        id: "vault-create",
+        result: expect.objectContaining({ details: expect.objectContaining({ vaultName: "Pinned", path: "omp-ui/named-project/Wiring Note.md" }) }),
+      }));
+      const note = fs.readFileSync(path.join(root, "pinned", "omp-ui", "named-project", "Wiring Note.md"), "utf8");
+      expect(note).toContain('project: "Named Project!"\n');
+      expect(note).toContain('lineage: "11111111-2222-3333-4444-555555555555"\n');
+      expect(note).toContain('tool: "omp-ui 1.2.3"\n');
+      expect(fs.existsSync(path.join(root, "default", "omp-ui"))).toBe(false);
+      expect(logs).toEqual(["[vault] Pinned create omp-ui/named-project/Wiring Note.md"]);
+      expect(manager.vaultCallCounts()).toEqual({ [TAB]: { create: 1 } });
+      const detached = manager.vaultCallCounts();
+      detached[TAB]!.create = 99;
+      expect(manager.vaultCallCounts()).toEqual({ [TAB]: { create: 1 } });
+      rpc.exit(0);
+      expect(manager.vaultCallCounts()).toEqual({});
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("coalesces Obsidian lookups and expires completed results five seconds from lookup start", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-manager-vault-"));
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      fs.writeFileSync(path.join(root, "Note.md"), "A note.");
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      registry.setSetting("vaultRegistry", {
+        vaults: [{ name: "Notes", path: root, homeFolder: "omp-ui/", allowWritesOutsideHome: false }],
+        defaultWriteVault: "Notes",
+      });
+      await resume(manager);
+      const rpc = rpcInstances[0]!;
+      const firstLookup = Promise.withResolvers<Core.ObsidianList | null>();
+      findObsidianListMock.mockReturnValueOnce(firstLookup.promise);
+      const readNote = (id: string): void => rpc.inputFrame({
+        type: "host_tool_call", id, toolCallId: `tc-${id}`, toolName: "omp-ui_vault_read", arguments: { path: "Note.md" },
+      });
+      readNote("read-1");
+      readNote("read-2");
+      await vi.waitFor(() => expect(findObsidianListMock).toHaveBeenCalledTimes(1));
+      expect(findObsidianListMock).toHaveBeenCalledWith(process.env, process.platform, os.homedir());
+      firstLookup.resolve({ file: "/obsidian.json", vaults: [{ id: "listed", path: fs.realpathSync(root), open: false }], cli: false });
+      for (const id of ["read-1", "read-2"]) {
+        await waitSent(rpc, id);
+        expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({
+          id, result: expect.objectContaining({ details: expect.objectContaining({ vaultId: "listed", path: "Note.md" }) }),
+        }));
+      }
+      expect(findObsidianListMock).toHaveBeenCalledTimes(1);
+      const slowLookup = Promise.withResolvers<Core.ObsidianList | null>();
+      findObsidianListMock.mockReturnValueOnce(slowLookup.promise);
+      clock.mockReturnValue(7_000);
+      readNote("read-3");
+      await vi.waitFor(() => expect(findObsidianListMock).toHaveBeenCalledTimes(2));
+      clock.mockReturnValue(13_000);
+      slowLookup.resolve(null);
+      await waitSent(rpc, "read-3");
+      readNote("read-4");
+      await waitSent(rpc, "read-4");
+      expect(findObsidianListMock).toHaveBeenCalledTimes(3);
+      expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({
+        id: "read-4", result: expect.objectContaining({ details: expect.objectContaining({ vaultId: null, path: "Note.md" }) }),
+      }));
+      clock.mockReturnValue(17_999);
+      readNote("read-5");
+      await waitSent(rpc, "read-5");
+      expect(findObsidianListMock).toHaveBeenCalledTimes(3);
+      clock.mockReturnValue(18_000);
+      readNote("read-6");
+      await waitSent(rpc, "read-6");
+      expect(findObsidianListMock).toHaveBeenCalledTimes(4);
+      expect(manager.vaultCallCounts()).toEqual({ [TAB]: { read: 6 } });
+      rpc.exit(0);
+    } finally {
+      clock.mockRestore();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("propagates a failed Obsidian lookup and clears it so the next call can succeed", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-manager-vault-"));
+    try {
+      fs.writeFileSync(path.join(root, "Note.md"), "A note.");
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      registry.setSetting("vaultRegistry", {
+        vaults: [{ name: "Notes", path: root, homeFolder: "omp-ui/", allowWritesOutsideHome: false }],
+        defaultWriteVault: "Notes",
+      });
+      await resume(manager);
+      const rpc = rpcInstances[0]!;
+      findObsidianListMock.mockRejectedValueOnce(new Error("lookup unavailable"));
+      rpc.inputFrame({
+        type: "host_tool_call", id: "failed-read", toolCallId: "tc-failed", toolName: "omp-ui_vault_read", arguments: { path: "Note.md" },
+      });
+      await waitSent(rpc, "failed-read");
+      expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({
+        id: "failed-read", isError: true,
+      }));
+      rpc.inputFrame({
+        type: "host_tool_call", id: "recovered-read", toolCallId: "tc-recovered", toolName: "omp-ui_vault_read", arguments: { path: "Note.md" },
+      });
+      await waitSent(rpc, "recovered-read");
+      expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({
+        id: "recovered-read", result: expect.objectContaining({ details: expect.objectContaining({ path: "Note.md" }) }),
+      }));
+      expect(rpc.send.mock.calls.find(([frame]) => frame.id === "recovered-read")?.[0]).not.toHaveProperty("isError", true);
+      expect(findObsidianListMock).toHaveBeenCalledTimes(2);
+      rpc.exit(0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("answers a host tool call on the owning spawn's pipe", async () => {

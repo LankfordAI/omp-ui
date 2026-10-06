@@ -101,6 +101,7 @@ function setup(): { backend: InstanceType<typeof MainBackend> } {
         defaultAdvisorModel: null,
         browserClock: false,
         reviewRoster: null,
+        knowledgeHome: null,
       },
     ],
     sessions: [

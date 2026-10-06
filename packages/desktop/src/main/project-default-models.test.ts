@@ -62,6 +62,7 @@ function setup(): { registryFile: string } {
         defaultAdvisorModel: null,
         browserClock: false,
         reviewRoster: null,
+        knowledgeHome: null,
       },
     ],
   });

@@ -126,6 +126,7 @@ import { PlanVerifier } from "./plan-verifier";
 import { ClockStamper } from "./clock-stamper";
 import { readConfinedPlanFile } from "./plan-file";
 import { DesktopNotifier } from "./desktop-notifier";
+import { appendMainLog } from "./main-log";
 import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
 import { openExternalSafe } from "./open-external";
@@ -277,6 +278,7 @@ export class MainBackend {
       opts.sessions ??
       new SessionManager({
         registry: this.registry,
+        registryFile,
         providerKeys: this.providerKeys,
         hasOAuthProvider: () => this.providerOAuth.hasModelAccount(),
         getOmpPath: () => this.ompPath,
@@ -288,7 +290,8 @@ export class MainBackend {
         attention: this.notifier,
         breadcrumb: this.breadcrumbs,
         spawnGate: this.spawnGate,
-        appVersion: this.appVersion, // PROTOTYPE (#754)
+        appVersion: this.appVersion,
+        mainLog: (line) => appendMainLog(this.logDir, "main.log", line),
         planVerify: (html, themeId, signal) => this.planVerifier.verify(html, themeId, signal),
         // The host notify tool posts through the same notifier, bypassing the
         // attention pipeline's delay and suppression (#688).
@@ -569,7 +572,7 @@ export class MainBackend {
       knowledgeVault: knowledgeVaultDiagnostics(
         this.registry.getSetting("vaultRegistry"),
         await this.detectVaults(),
-        {},
+        this.sessions.vaultCallCounts(),
       ),
       facts: {
         appVersion: app.getVersion(),

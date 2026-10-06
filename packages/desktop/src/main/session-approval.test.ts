@@ -77,6 +77,7 @@ function setup(): { sessionsRoot: string } {
         defaultAdvisorModel: null,
         browserClock: false,
         reviewRoster: null,
+        knowledgeHome: null,
       },
     ],
     sessions: [

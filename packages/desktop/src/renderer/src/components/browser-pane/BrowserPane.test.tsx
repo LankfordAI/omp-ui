@@ -112,6 +112,7 @@ const group: ProjectGroup = {
     defaultAdvisorModel: null,
     browserClock: false,
     reviewRoster: null,
+    knowledgeHome: null,
   },
   sessions: [session],
 };

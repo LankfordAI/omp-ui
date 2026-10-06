@@ -39,6 +39,7 @@ const PROJECT = {
   defaultAdvisorModel: null,
   browserClock: false,
   reviewRoster: null,
+  knowledgeHome: null,
 };
 
 function record(patch: Partial<SessionSummary> = {}): SessionSummary {

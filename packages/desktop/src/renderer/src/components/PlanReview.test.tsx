@@ -209,6 +209,7 @@ function stateWithSessions(
           defaultAdvisorModel: null,
           browserClock: false,
           reviewRoster: null,
+          knowledgeHome: null,
         },
         sessions: Object.entries(titles).map(([tabId, title]) => ({
           ...sessionRecord(tabId, title),

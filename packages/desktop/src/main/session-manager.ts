@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   CH,
@@ -22,6 +23,8 @@ import {
   mintLineageDirName,
   settledWithin,
   forkSessionFile,
+  findObsidianList,
+  getOmpAgentDir,
   linkProjectOmpDir,
   isHtmlPlanPath,
   isWithin,
@@ -32,6 +35,8 @@ import {
   parseCapabilitySnapshot,
   planMessage,
   planHandoffDescendants,
+  projectSlug,
+  slugifyProjectName,
   type BrowserPaneClearDataResult,
   type BrowserPaneDiagnostics,
   type BrowserPaneEnsureResult,
@@ -57,6 +62,7 @@ import {
   type ImageAttachment,
   type DocumentAttachment,
   type OwnedSessionRecord,
+  type ObsidianListEntry,
   type RpcFrame,
   type ResumeSpawnRequest,
   type GoalState,
@@ -77,6 +83,7 @@ import {
   type CollabCliDeps,
   type CollabTabSnapshot,
   type WorktreeSyncResult,
+  type VaultAction,
 } from "@omp-ui/core";
 import { CollabTracker } from "./collab-tracker";
 import type { Attention } from "./desktop-notifier";
@@ -95,10 +102,6 @@ import { DialogGateTracker } from "./dialog-gate-tracker";
 import { HibernationTracker } from "./hibernation-tracker";
 import { CapabilityControlTracker } from "./capability-control-tracker";
 import { HostBridge } from "./host-bridge";
-// PROTOTYPE (#754): env-gated vault host tools.
-import { readProto754Control } from "./prototype-vault-754/control";
-import { proto754ArmMessage, writeProto754GuidanceExtension } from "./prototype-vault-754/guidance-extension";
-import { createProto754Answerer, proto754HostToolsCommand } from "./prototype-vault-754/tools";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { PlanPreflightController } from "./plan-preflight";
 import { readConfinedPlanFile } from "./plan-file";
@@ -135,6 +138,7 @@ function unreachableLiveEntry(entry: never): never {
 
 export interface SessionManagerDependencies {
   registry: Registry;
+  registryFile: string;
   providerKeys: ProviderKeys;
   /**
    * A catalogued provider sign-in with at least one account counts as a
@@ -172,8 +176,10 @@ export interface SessionManagerDependencies {
   hostNotify?: (tabId: string, title: string | null, message: string) => string;
   /** Registry probe seams for the collab watcher (#686); tests fake them. */
   collabCli?: CollabCliDeps;
-  /** PROTOTYPE (#754): the app version stamped into vault notes; backend passes app.getVersion(). */
+  /** The app version stamped into vault notes; backend passes app.getVersion(). */
   appVersion?: string;
+  /** Writes vault diagnostics to the main-process log. Tests may omit the sink. */
+  mainLog?: (line: string) => void;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -212,6 +218,9 @@ export class SessionManager {
   /** The omp collab local-registry watcher for terminal tabs (issue #686). */
   private readonly collab: CollabTracker;
   private readonly gate: SpawnGate;
+  private obsidianListPending: Promise<ObsidianListEntry[]> | null = null;
+  private obsidianListCached: ObsidianListEntry[] | null = null;
+  private obsidianListExpiresAt = 0;
 
   constructor(private readonly deps: SessionManagerDependencies) {
     this.gate = deps.spawnGate ?? NO_GATE;
@@ -300,18 +309,31 @@ export class SessionManager {
         return entry?.kind === "rpc-ui" ? entry.capabilities?.sessionId ?? null : null;
       },
       log: (message) => console.warn(`[host-bridge] ${message}`),
-      // PROTOTYPE (#754): inert unless OMP_UI_PROTOTYPE_754_CONTROL names a readable control file.
-      prototype754: createProto754Answerer({
+      vault: {
         context: (tabId) => {
           const record = deps.registry.sessions.find((session) => session.tabId === tabId);
           if (record === undefined) return null;
-          const entry = this.live.get(tabId);
-          const sessionId = entry?.kind === "rpc-ui" ? entry.capabilities?.sessionId ?? null : null;
-          return { project: path.basename(record.projectCwd), session: sessionId ?? `tab-${tabId}` };
+          const project = deps.registry.projects.find((candidate) => candidate.path === record.projectCwd);
+          return {
+            projectName: project?.name ?? null,
+            projectFolder: project === undefined ? projectSlug(record.projectCwd) : slugifyProjectName(project.name),
+            pinnedVault: project?.knowledgeHome?.vault ?? null,
+            lineage: record.lineageDir.slice(-36),
+          };
         },
+        registry: () => deps.registry.getSetting("vaultRegistry"),
+        guard: () => ({
+          home: os.homedir(),
+          userData: path.dirname(deps.registryFile),
+          agentDir: getOmpAgentDir(),
+          sessionsRoot: deps.getSessionsRoot(),
+          archiveRoot: deps.getArchiveRoot(),
+        }),
+        obsidianList: () => this.obsidianList(),
         appVersion: deps.appVersion ?? "unknown",
-        log: (line) => console.warn(`[host-bridge] ${line}`),
-      }),
+        now: () => new Date(),
+        mainLog: (line) => deps.mainLog?.(line),
+      },
     });
     this.stallWatchdog = new StallWatchdog({
       registry: deps.registry,
@@ -350,6 +372,30 @@ export class SessionManager {
       send: deps.send,
       cli: deps.collabCli,
     });
+  }
+
+  private obsidianList(): Promise<ObsidianListEntry[]> {
+    if (this.obsidianListPending !== null) return this.obsidianListPending;
+    const now = Date.now();
+    if (this.obsidianListCached !== null && now < this.obsidianListExpiresAt) {
+      return Promise.resolve(this.obsidianListCached);
+    }
+    this.obsidianListExpiresAt = now + 5_000;
+    this.obsidianListCached = null;
+    this.obsidianListPending = findObsidianList(process.env, process.platform, os.homedir()).then(
+      (found) => {
+        this.obsidianListCached = found?.vaults ?? [];
+        this.obsidianListPending = null;
+        return this.obsidianListCached;
+      },
+      (err: unknown) => {
+        this.obsidianListCached = null;
+        this.obsidianListPending = null;
+        this.obsidianListExpiresAt = 0;
+        throw err;
+      },
+    );
+    return this.obsidianListPending;
   }
 
   /** The browser clock follows the tab's project (see CONTEXT.md "Browser clock"). */
@@ -820,6 +866,7 @@ export class SessionManager {
     // they land before the first turn either way, but the host tool/scheme
     // registration must never precede a bridge arm that could turn first.
     const initialCommands: object[] = [];
+    const vaults = this.deps.registry.getSetting("vaultRegistry");
     if (bridgeLoaded.mcpStatus) {
       initialCommands.push({
         type: "prompt",
@@ -865,16 +912,6 @@ export class SessionManager {
         message: autoresearchArmMessage(),
       });
     }
-    // PROTOTYPE (#754): hidden vault guidance, only when the control file asks for it.
-    const proto754 = readProto754Control();
-    if (proto754 !== null && proto754.guidance === "message") {
-      extensions.push(writeProto754GuidanceExtension(absLineageDir));
-      initialCommands.push({
-        type: "prompt",
-        id: `omp-ui-initial-vault754-${randomUUID()}`,
-        message: proto754ArmMessage(proto754.vaultName, proto754.loadMode === "discoverable"),
-      });
-    }
     // The session's fast-mode tier (issue #719): a fresh spawn replays
     // `priority` through the set_fast_mode object-command and an ultrafast
     // selection through the `/fast ultra` slash prompt — the same
@@ -894,7 +931,7 @@ export class SessionManager {
     initialCommands.push(
       setEventFilterCommand(),
       setHostUriSchemesCommand(),
-      proto754HostToolsCommand() ?? setHostToolsCommand(), // PROTOTYPE (#754)
+      setHostToolsCommand({ vault: vaults.vaults.length > 0 }),
     );
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate, this.subagentSpawnConfig());
     if (record.worktree !== null) {
@@ -1420,6 +1457,9 @@ export class SessionManager {
   }
   browserPaneDiagnostics(): BrowserPaneDiagnostics[] {
     return this.browserPanes.diagnostics();
+  }
+  vaultCallCounts(): Record<string, Partial<Record<VaultAction, number>>> {
+    return this.hostBridge.vaultCallCounts();
   }
   async browserPaneClearData(force: boolean): Promise<BrowserPaneClearDataResult> {
     const openPages = this.browserPanes.livePageCount();

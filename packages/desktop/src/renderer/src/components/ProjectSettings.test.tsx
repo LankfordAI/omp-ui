@@ -104,6 +104,7 @@ const liveSessionState = backendState({
         defaultAdvisorModel: null,
         browserClock: false,
         reviewRoster: null,
+        knowledgeHome: null,
       },
       sessions: [liveSession("tab-1")],
     },
@@ -122,6 +123,7 @@ const project: ProjectRecord = {
   defaultAdvisorModel: "pin/advisor:high",
   browserClock: false,
   reviewRoster: null,
+  knowledgeHome: null,
 };
 
 /** The joined instance owning the remote project in the routing test below. */

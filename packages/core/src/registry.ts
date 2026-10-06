@@ -7,6 +7,7 @@ import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseProposedPlans } from "./plan";
 import { normalizeSidebarGroupName, SIDEBAR_GROUP_NAME_MAX_LENGTH } from "./sidebar-groups";
 import { parseVaultRegistry } from "./vault-registry";
+import { isKnowledgeHome } from "./vault-shared";
 import type {
   AgentMode,
   ApprovalMode,
@@ -565,6 +566,8 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       // Never a validity gate (the proposedPlans rule): a malformed roster
       // normalizes to null here so the record always survives.
       reviewRoster: isReviewDocument(p.reviewRoster) ? p.reviewRoster : null,
+      // Like reviewRoster, malformed preferences do not invalidate the project.
+      knowledgeHome: isKnowledgeHome(p.knowledgeHome) ? p.knowledgeHome : null,
     }));
   const sessions = sessionsValue
     .filter(isOwnedSessionRecord)
@@ -876,6 +879,7 @@ export class Registry {
       defaultAdvisorModel: null,
       browserClock: false,
       reviewRoster: null,
+      knowledgeHome: null,
     };
     this.#transaction((draft) => {
       draft.projects.push(record);

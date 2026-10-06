@@ -107,6 +107,13 @@ export interface ProjectOpenAvailability {
   terminal: boolean;
 }
 
+export type KnowledgeHomeKind = "docs" | "vault" | "both";
+
+export interface KnowledgeHome {
+  home: KnowledgeHomeKind;
+  vault?: string;
+}
+
 export interface ProjectRecord {
   path: string;
   name: string;
@@ -153,6 +160,8 @@ export interface ProjectRecord {
    * null — the record always survives.
    */
   reviewRoster: ReviewDocument | null;
+  /** Machine-local knowledge preference; absent or malformed legacy values load as null. */
+  knowledgeHome: KnowledgeHome | null;
 }
 
 /**

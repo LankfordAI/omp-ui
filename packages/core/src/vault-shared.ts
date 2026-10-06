@@ -1,14 +1,24 @@
 // Knowledge vault rules shared by main and the renderer (issue #764). Pure —
-// zero imports — because the renderer imports it directly via the
+// zero runtime imports — because the renderer imports it directly via the
 // @omp-ui/core/vault-shared subpath, exactly like worktree-branch.ts.
 // The node half (the Vault registry transforms, obsidian.json detection, the
 // root guard) lives in vault-registry.ts and knowledge-vault.ts and consumes
 // these same rules, so the home-folder and URI shapes can never drift.
+import type { KnowledgeHome } from "./types";
 
 export const DEFAULT_HOME_FOLDER = "omp-ui/";
 export const VAULT_WRITE_TOOLS = ["omp-ui_vault_create", "omp-ui_vault_append", "omp-ui_vault_edit", "omp-ui_vault_link"] as const;
 export type VaultAction = "search" | "read" | "list" | "create" | "append" | "edit" | "link";
 const VAULT_ACTIONS: readonly string[] = ["search", "read", "list", "create", "append", "edit", "link"];
+
+/** A persisted preference, not a registry membership check: removed vault pins stay intact. */
+export function isKnowledgeHome(value: unknown): value is KnowledgeHome {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const home = value as Record<string, unknown>;
+  if (Object.keys(home).some((key) => key !== "home" && key !== "vault")) return false;
+  if (home.home !== "docs" && home.home !== "vault" && home.home !== "both") return false;
+  return !("vault" in home) || (typeof home.vault === "string" && home.vault.length > 0);
+}
 
 /** Trim, drop a leading "./", split on / and \, refuse empty/absolute/drive/".."/dot segments; join with "/" plus one trailing "/". */
 export function normalizeHomeFolder(input: string): string | null {
