@@ -55,6 +55,8 @@ export * from "./knowledge-vault";
 export * from "./line-diff";
 export * from "./vault-overlay";
 export * from "./vault-registry";
+export * from "./knowledge-home";
+export * from "./knowledge-vault-extension";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";
 export * from "./fetch";

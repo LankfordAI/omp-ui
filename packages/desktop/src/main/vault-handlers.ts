@@ -25,7 +25,8 @@ type VaultHandlerChannels =
   | typeof CH.setDefaultWriteVault
   | typeof CH.setVaultHomeFolder
   | typeof CH.setVaultWritesOutsideHome
-  | typeof CH.openVault;
+  | typeof CH.openVault
+  | typeof CH.vaultNames;
 
 interface VaultHandlerDependencies {
   registry: Registry;
@@ -98,5 +99,6 @@ export function registerVaultHandlers(
         obsidianList: async () => (await deps.obsidianList())?.vaults ?? [],
         open: deps.open,
       }),
+    [CH.vaultNames]: async () => current().vaults.map((row) => row.name),
   };
 }

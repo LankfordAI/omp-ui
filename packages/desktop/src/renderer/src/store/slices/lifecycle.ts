@@ -4,6 +4,7 @@
 import type {
   DeleteSessionPreview,
   DeleteSessionResult,
+  KnowledgeHome,
   PlanImplementationSource,
   SessionMode,
   SessionWorktree,
@@ -68,6 +69,8 @@ export type LifecycleSlice = Pick<
   | "setProjectDefaultModel"
   | "setProjectDefaultAdvisorModel"
   | "setProjectBrowserClock"
+  | "setProjectKnowledgeHome"
+  | "vaultNames"
   | "toggleFavorite"
   | "newSession"
   | "newWorktreeSession"
@@ -739,6 +742,17 @@ export function createLifecycleSlice(
   ): Promise<void> => {
     await backendFor(instanceId).setProjectBrowserClock(projectPath, on);
   };
+
+  const setProjectKnowledgeHome = async (
+    projectPath: string,
+    home: KnowledgeHome | null,
+    instanceId: string | null = null,
+  ): Promise<void> => {
+    await backendFor(instanceId).setProjectKnowledgeHome(projectPath, home);
+  };
+
+  const vaultNames = (instanceId: string | null = null): Promise<string[]> =>
+    backendFor(instanceId).vaultNames();
 
   const removeProject = async (
     path: string,
@@ -1445,6 +1459,8 @@ export function createLifecycleSlice(
     setProjectDefaultModel,
     setProjectDefaultAdvisorModel,
     setProjectBrowserClock,
+    setProjectKnowledgeHome,
+    vaultNames,
     toggleFavorite,
     newSession,
     newWorktreeSession,

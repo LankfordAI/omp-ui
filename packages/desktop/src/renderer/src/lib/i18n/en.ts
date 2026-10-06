@@ -2113,6 +2113,20 @@ export const en = {
   "project.settings.browserClock": "Clock",
   "project.settings.browserClockHint":
     "Shows the date and time above this project's browser pane and stamps it onto every browser screenshot — the camera button, element picks, and screenshots the agent takes.",
+  "project.settings.knowledge": "Knowledge",
+  "project.settings.knowledgeHome": "Knowledge home",
+  "project.settings.knowledgeHint": "Where the agent files decisions and lessons for this project.",
+  "project.settings.knowledgeDocs": "Repo docs",
+  "project.settings.knowledgeVault": "Vault",
+  "project.settings.knowledgeVaultNamed": "Vault: {name}",
+  "project.settings.knowledgeBoth": "Both",
+  "project.settings.knowledgeNotSet": "Not set. The routing default applies.",
+  "project.settings.knowledgeClear": "Clear",
+  "project.settings.knowledgeFollowDefault": "Follow the default write vault",
+  "project.settings.knowledgeNeedsVault": "Add a vault in Settings first",
+  "project.settings.knowledgeOpenSettings": "Open Settings",
+  "project.settings.knowledgeBroken":
+    "Vault {name} is no longer registered. Pick another vault; until then the agent writes nothing to a vault.",
 
   "sidebar.status.workingLabel": "working",
   "sidebar.status.workingTitle": "Agent is working",

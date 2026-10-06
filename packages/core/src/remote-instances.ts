@@ -139,6 +139,7 @@ const PROJECT_PROXY_CHANNELS: readonly string[] = [
   "project:setDefaultModel",
   "project:setDefaultAdvisorModel",
   "project:setBrowserClock",
+  "project:setKnowledgeHome",
   "project:getSubagentModels",
   "project:setSubagentModel",
   "dir:browse",
@@ -187,6 +188,8 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   // a remote palette toggles the remote's own favorites, never host state.
   // Instance-scoped rather than project-scoped, so it rides here directly.
   "favorites:toggle",
+  // The Knowledge tab of a joined project lists that host's vault names (#759); names only, no path, and no other vault:* channel crosses.
+  "vault:names",
   // Cross-session stats follow the owning instance (#668): the stats DB is
   // that host's own ~/.omp/stats.db, read by that instance's core.
   "stats:overview",

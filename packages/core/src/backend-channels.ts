@@ -21,6 +21,7 @@ import type {
   ImageAttachment,
   McpServersResult,
   InstanceIdentity,
+  KnowledgeHome,
   JudgeModelSnapshot,
   McpSetEnabledRequest,
   MemoryOverview,
@@ -99,6 +100,7 @@ import {
   consoleProgramCodec,
   glassChromeCodec,
   imageAttachmentCodec,
+  knowledgeHomeCodec,
   mcpSetEnabledRequestCodec,
   nullable,
   num,
@@ -271,6 +273,11 @@ export const BACKEND_CHANNELS = {
   setProjectBrowserClock: {
     channel: "project:setBrowserClock",
     ...request<[projectPath: string, on: boolean], void>([str(), bool()]),
+  },
+  /** Sets or clears the project's Knowledge home (CONTEXT.md "Knowledge home"); applies to the next spawn. */
+  setProjectKnowledgeHome: {
+    channel: "project:setKnowledgeHome",
+    ...request<[projectPath: string, home: KnowledgeHome | null], void>([str(), nullable(knowledgeHomeCodec)]),
   },
   /**
    * The project layer's `task.agentModelOverrides` (ADR-0031): the map plus
@@ -481,6 +488,11 @@ export const BACKEND_CHANNELS = {
   openVault: {
     channel: "vault:open",
     ...request<[name: string, file: string | null], void>([str(), nullable(str())]),
+  },
+  /** Registry names only, in registry order: the Knowledge tab's list for a joined instance (#759). */
+  vaultNames: {
+    channel: "vault:names",
+    ...request<[], string[]>([]),
   },
   /** Repaints the native title-bar overlay to match the active theme. */
   setWindowChrome: {

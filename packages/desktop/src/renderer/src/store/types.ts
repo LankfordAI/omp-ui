@@ -17,6 +17,7 @@ import type {
   BranchListOptions,
   ImageAttachment,
   JudgeModelSnapshot,
+  KnowledgeHome,
   LiveState,
   MergeBackResult,
   MergeBackStatus,
@@ -899,6 +900,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     instanceId?: string | null,
   ): Promise<void>;
   setProjectBrowserClock(projectPath: string, on: boolean, instanceId?: string | null): Promise<void>;
+  setProjectKnowledgeHome(projectPath: string, home: KnowledgeHome | null, instanceId?: string | null): Promise<void>;
+  /** Registry names of the owning instance's vaults (issue #766): this host's, or a joined instance's. */
+  vaultNames(instanceId?: string | null): Promise<string[]>;
   toggleFavorite(key: string, instanceId?: string | null): Promise<void>;
   newSession(
     projectCwd: string,

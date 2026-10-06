@@ -179,6 +179,7 @@ const VALID_ARGS = {
   setOmpUpdateCheckOnLaunch: [true],
   setPlanFormat: ["html"],
   setProjectBrowserClock: ["/project", true],
+  setProjectKnowledgeHome: ["/project", { home: "vault", vault: "Vault" }],
   setProjectDefaultAdvisorModel: ["/project", null],
   setProjectDefaultModel: ["/project", null],
   getProjectSubagentModels: ["/project"],
@@ -258,6 +259,7 @@ const VALID_ARGS = {
   setVaultHomeFolder: ["Vault", "omp-ui/"],
   setVaultWritesOutsideHome: ["Vault", true],
   openVault: ["Vault", null],
+  vaultNames: [],
 } satisfies { [Method in InboundMethod]: MethodArgs<Method> };
 
 function recordingTransport() {
@@ -401,6 +403,9 @@ describe("transport dispatch", () => {
     [CH.openVault, ["Vault", 7], "argument 1"],
     [CH.setVaultWritesOutsideHome, ["Vault", "yes"], "argument 1"],
     [CH.importVaults, ["id"], "argument 0"],
+    [CH.setProjectKnowledgeHome, ["/project", { home: "docs", vault: "" }], "argument 1.vault"],
+    [CH.setProjectKnowledgeHome, ["/project", { home: "repo" }], "argument 1.home"],
+    [CH.setProjectKnowledgeHome, ["/project", { home: "docs", extra: 1 }], "argument 1.extra"],
   ] as const)("rejects malformed request arguments before the handler", async (channel, args, path) => {
     const { table, calls } = recordingTable();
     await expect(dispatchRequest(table, channel, [...args])).rejects.toThrow(path);

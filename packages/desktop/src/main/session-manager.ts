@@ -28,9 +28,12 @@ import {
   linkProjectOmpDir,
   isHtmlPlanPath,
   isWithin,
+  knowledgeVaultArmMessage,
+  knowledgeVaultGuidance,
   mcpRuntimeStatusMessage,
   MAX_DOCUMENT_BATCH_BYTES,
   resolveDocument,
+  resolveKnowledgeHome,
   normalizeControlFrame,
   parseCapabilitySnapshot,
   planMessage,
@@ -904,6 +907,26 @@ export class SessionManager {
         id: `omp-ui-initial-browser-pane-${randomUUID()}`,
         message: browserPaneSetMessage(cdpUrl),
       });
+    }
+    // The Knowledge home's hidden guidance (#766, ADR-0048): once per spawn, so a
+    // change reaches the next spawn. A vault-less registry resolves nothing — every
+    // outcome would be docs or none, which carry no message — so no git runs.
+    if (bridgeLoaded.knowledgeVault && vaults.vaults.length > 0) {
+      const homeProject = this.deps.registry.projects.find((project) => project.path === record.projectCwd);
+      const resolved = await resolveKnowledgeHome(homeProject?.knowledgeHome ?? null, record.projectCwd, vaults);
+      const guidance = knowledgeVaultGuidance({
+        write:
+          resolved.kind === "vault" || resolved.kind === "both"
+            ? { vault: resolved.vault, both: resolved.kind === "both" }
+            : null,
+      });
+      if (guidance !== null) {
+        initialCommands.push({
+          type: "prompt",
+          id: `omp-ui-initial-knowledge-vault-${randomUUID()}`,
+          message: knowledgeVaultArmMessage(guidance),
+        });
+      }
     }
     if (bridgeLoaded.autoresearch) {
       initialCommands.push({

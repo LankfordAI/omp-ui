@@ -138,6 +138,13 @@ function fakeHost(
         requests.push({ ch: CH.spawnSession, args: [req] });
         return { tabId: "t-remote" };
       },
+      [CH.setProjectKnowledgeHome]: (projectPath: string, home: unknown) => {
+        requests.push({ ch: CH.setProjectKnowledgeHome, args: [projectPath, home] });
+      },
+      [CH.vaultNames]: () => {
+        requests.push({ ch: CH.vaultNames, args: [] });
+        return ["Remote"];
+      },
     },
     notify: {
       [CH.tabViewed]: (clientId: string, tabId: string | null) => record(CH.tabViewed, [clientId, tabId]),
@@ -668,6 +675,28 @@ describe("remote model favorites", () => {
 
     await expect(h.manager.request(instance.id, CH.setThemeId, ["nord"])).rejects.toThrow(
       `channel ${CH.setThemeId} is not proxied`,
+    );
+  });
+});
+
+describe("knowledge home proxy (issue #766)", () => {
+  it("forwards project:setKnowledgeHome and vault:names to the owning instance and still refuses vault:open", async () => {
+    const host = fakeHost();
+    const server = await serve(host);
+    const h = harness();
+    const instance = await join(h, server.port);
+
+    await h.manager.request(instance.id, CH.setProjectKnowledgeHome, ["/remote/a", { home: "vault" }]);
+    await expect(h.manager.request(instance.id, CH.vaultNames, [])).resolves.toEqual(["Remote"]);
+    expect(
+      host.requests.filter((r) => r.ch === CH.setProjectKnowledgeHome || r.ch === CH.vaultNames),
+    ).toEqual([
+      { ch: CH.setProjectKnowledgeHome, args: ["/remote/a", { home: "vault" }] },
+      { ch: CH.vaultNames, args: [] },
+    ]);
+
+    await expect(h.manager.request(instance.id, CH.openVault, ["Remote", null])).rejects.toThrow(
+      "channel vault:open is not proxied",
     );
   });
 });
