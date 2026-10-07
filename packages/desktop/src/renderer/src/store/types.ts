@@ -63,6 +63,7 @@ import type {
 import type { GoalState } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { BtwSnapshot } from "@omp-ui/core/side-questions";
+import type { LiveSnapshot } from "@omp-ui/core/live-voice";
 import type { RailTab } from "../lib/panel-layout";
 import type { AutoresearchSnapshot, ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { ApprovalPrompt } from "@omp-ui/core/approval";
@@ -289,6 +290,12 @@ export interface RpcTabState {
    * malformed publish leaves the last good snapshot standing.
    */
   sideQuestions: BtwSnapshot | null;
+  /**
+   * Live voice (issue #778) as omp's `live_*` frames reported it. Display
+   * state only: the child process owns the realtime session, and the frames
+   * replace by (role, turn) — snapshot semantics, never transcript rows.
+   */
+  live: LiveSnapshot | null;
   /** The verb in flight per agent id; the pane's disabled state reads this. */
   subagentControlBusy: Record<string, SubagentControlAction>;
   /** The last verb's failure line — omp's own sentence, or the update hint; cleared by the next dispatch. */
@@ -1051,6 +1058,16 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** Toggles omp's slow mode (issue #777); the response's `enabled` is the
    *  computed truth, followed by a get_state re-read for the stage chip. */
   setSlowMode(tabId: string, enabled: boolean): Promise<void>;
+  /** Starts omp's live voice session (issue #778); truth arrives as the
+   *  `live_*` frames, the ack only settles start/stop/mute dispatch. */
+  startLiveVoice(tabId: string): Promise<void>;
+  /** Stops omp's live voice session (issue #778); `live_end` is the truth. */
+  stopLiveVoice(tabId: string): Promise<void>;
+  /** Toggles the live session's mute (issue #778); `live_phase` "muted"
+   *  reports omp's truth, so no local toggle state is kept. */
+  setLiveMuted(tabId: string, muted: boolean): Promise<void>;
+  /** Drops the live error strip; keeps a running session's snapshot. */
+  clearLiveError(tabId: string): void;
   /** Writes the tier this session's fast selection names (issue #719);
    *  applied by the next spawn's replay — never a respawn. null clears. */
   setSessionServiceTier(tabId: string, tier: ServiceTier | null): Promise<void>;

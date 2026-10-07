@@ -10,6 +10,8 @@ import { BuildPlanControl } from "./BuildPlanControl";
 import { QueuedMessageList } from "./QueuedMessageList";
 import { FastModeControl } from "./FastModeControl";
 import { SlowModeControl } from "./SlowModeControl";
+import { LiveVoiceControl } from "./LiveVoiceControl";
+import { supportsNativeLive } from "../lib/live-voice";
 import { Button, Chip, Label, Sheet } from "./ui";
 
 /** Stable empty so the per-field selector doesn't fire on every store tick. */
@@ -58,6 +60,10 @@ export function ComposerSheet({
   // control is meaningless without a supporting model, so unlike fast there
   // is no second-section fallback row.
   const slowSupported = useStore((s) => s.rpc[tabId]?.session.slowModeSupported === true);
+  // Live voice gates on the omp version, like the inline rows (issue #778).
+  const liveSupported = useStore(
+    (s) => supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
+  );
   // One fast control per sheet: the gate's yes puts it in the model/effort
   // section beside the pills it belongs to (issue #689); its no keeps #677's
   // always-available row in the session section, so the affordance is never
@@ -94,6 +100,11 @@ export function ComposerSheet({
           {slowSupported && (
             <div className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
               <SlowModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
+            </div>
+          )}
+          {liveSupported && (
+            <div className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
+              <LiveVoiceControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
             </div>
           )}
         </section>

@@ -75,6 +75,13 @@ import {
 import { rpcCommandMachinery } from "./rpc-command";
 import { findOwner, findRecord, sessionCwd } from "./view";
 import type { SessionCommand } from "@omp-ui/core/session-command";
+import {
+  applyLiveEnd,
+  applyLivePhase,
+  emptyLiveSnapshot,
+  type LiveSnapshot,
+} from "@omp-ui/core/live-voice";
+import { supportsNativeLive } from "../../lib/live-voice";
 import type { CompactionOutcome, UiStore, WordPredictionFeedback } from "../types";
 
 export type SessionParamsSlice = Pick<
@@ -101,6 +108,10 @@ export type SessionParamsSlice = Pick<
   | "setAutoCompaction"
   | "setFastMode"
   | "setSlowMode"
+  | "startLiveVoice"
+  | "stopLiveVoice"
+  | "setLiveMuted"
+  | "clearLiveError"
   | "setSessionServiceTier"
   | "setServiceTier"
   | "setAutoRetry"
@@ -917,6 +928,82 @@ export function createSessionParamsSlice(
       slowModeEnabled: boolField(respData(resp), "enabled") ?? enabled,
     });
     await refreshState(tabId);
+  };
+
+  /**
+   * omp's live voice (issue #778). omp runs the realtime session and records
+   * audio itself; these verbs only dispatch — the truth arrives as the
+   * `live_*` frames frame-reduction applies, and each one carries the
+   * `supportsNativeLive` gate so an older omp can never dispatch (the
+   * side-questions.ts rule: gate both rendering AND dispatch).
+   */
+  const livePatch = (tabId: string, next: LiveSnapshot): void => {
+    m.patchRpc(tabId, { live: next });
+  };
+
+  const startLiveVoice = async (tabId: string): Promise<void> => {
+    if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) return;
+    const current = get().rpc[tabId]?.live;
+    // omp rejects a second live session ("A live session is already
+    // active"); the action refuses before the command is sent.
+    if (current !== null && current !== undefined && !current.ended) return;
+    const resp = await m.runCommand(
+      tabId,
+      { type: "live_start" },
+      { quiet: true },
+    );
+    if (resp === null) {
+      // Quiet dispatch records no session failure; the strip is the surface.
+      livePatch(tabId, {
+        ...emptyLiveSnapshot(),
+        error: t("composer.live.sendFailed"),
+      });
+      return;
+    }
+    // Optimistic fresh snapshot; the first live_phase frame repaints it. A
+    // phase "connecting" that follows any stale end clears `ended` (the
+    // applier's new-session rule).
+    livePatch(tabId, applyLivePhase(emptyLiveSnapshot(), "connecting"));
+  };
+
+  const stopLiveVoice = async (tabId: string): Promise<void> => {
+    if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) return;
+    const current = get().rpc[tabId]?.live;
+    if (current === null || current === undefined || current.ended) return;
+    const resp = await m.runCommand(tabId, { type: "live_stop" }, { quiet: true });
+    if (resp === null) {
+      livePatch(tabId, { ...current, error: t("composer.live.sendFailed") });
+      return;
+    }
+    // live_end is the truth; this only marks ended so the control returns to
+    // idle without a visible flash of a still-running session.
+    livePatch(tabId, applyLiveEnd(current, null));
+  };
+
+  const setLiveMuted = async (tabId: string, muted: boolean): Promise<void> => {
+    if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) return;
+    const resp = await m.runCommand(
+      tabId,
+      { type: "live_mute", muted },
+      { quiet: true },
+    );
+    if (resp === null) {
+      const current = get().rpc[tabId]?.live;
+      if (current !== undefined && current !== null)
+        livePatch(tabId, { ...current, error: t("composer.live.sendFailed") });
+    }
+    // No local toggle state: `live_phase` "muted" is omp's truth.
+  };
+
+  const clearLiveError = (tabId: string): void => {
+    const current = get().rpc[tabId]?.live;
+    if (current === null || current === undefined) return;
+    if (current.ended) {
+      // A dead session leaves nothing worth rendering.
+      m.patchRpc(tabId, { live: null });
+      return;
+    }
+    livePatch(tabId, { ...current, error: null });
   };
 
   const setSessionServiceTier = async (
@@ -1951,6 +2038,10 @@ export function createSessionParamsSlice(
     setAutoCompaction,
     setFastMode,
     setSlowMode,
+    startLiveVoice,
+    stopLiveVoice,
+    setLiveMuted,
+    clearLiveError,
     setSessionServiceTier,
     setServiceTier,
     setAutoRetry,

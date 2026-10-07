@@ -3114,3 +3114,147 @@ describe("word prediction (issue #715)", () => {
     expect(h.sent).toHaveLength(0);
   });
 });
+
+describe("live voice actions (issue #778)", () => {
+  beforeEach(() => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: rpcTabState() } });
+    h.sent.length = 0;
+  });
+
+  /** The capabilities snapshot seed the version gate reads. */
+  const withVersion = (ompVersion: string | null): void => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          capabilities: { ompVersion } as unknown as CapabilitySnapshot,
+        }),
+      },
+    });
+  };
+
+  const settle = async (): Promise<void> => {
+    for (let wave = 0; wave < 3; wave++) {
+      await h.flushMicrotasks();
+      for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    }
+    await h.flushMicrotasks();
+  };
+
+  const live = () => h.useStore.getState().rpc[h.TAB]?.live ?? null;
+
+  it("start sends live_start and patches a connecting snapshot", async () => {
+    withVersion("18.7.0");
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "live_start" });
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await starting;
+    expect(live()).toMatchObject({ phase: "connecting", ended: false, error: null });
+  });
+
+  it("start no-ops when a live session is running", async () => {
+    withVersion("18.7.0");
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
+          live: { phase: "listening", levels: null, turns: [], ended: false, error: null },
+        }),
+      },
+    });
+    await h.useStore.getState().startLiveVoice(h.TAB);
+    expect(h.sent).toEqual([]);
+  });
+
+  it("start below the version floor sends nothing", async () => {
+    withVersion("18.5.0");
+    await h.useStore.getState().startLiveVoice(h.TAB);
+    expect(h.sent).toEqual([]);
+    expect(live()).toBeNull();
+  });
+
+  it("a failed quiet start lands the error strip text", async () => {
+    withVersion("18.7.0");
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    h.respond(h.TAB, h.sent[0]!.cmd, "no audio input device", false);
+    await starting;
+    expect(live()).toMatchObject({ error: "the live voice command could not be sent" });
+  });
+
+  it("stop sends live_stop and marks the snapshot ended", async () => {
+    withVersion("18.7.0");
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
+          live: { phase: "listening", levels: null, turns: [], ended: false, error: null },
+        }),
+      },
+    });
+    const stopping = h.useStore.getState().stopLiveVoice(h.TAB);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "live_stop" });
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await stopping;
+    expect(live()).toMatchObject({ phase: "listening", ended: true });
+  });
+
+  it("stop no-ops on an idle or already-ended session", async () => {
+    withVersion("18.7.0");
+    await h.useStore.getState().stopLiveVoice(h.TAB);
+    expect(h.sent).toEqual([]);
+  });
+
+  it("mute sends live_mute with the boolean", async () => {
+    withVersion("18.7.0");
+    const muting = h.useStore.getState().setLiveMuted(h.TAB, true);
+    await h.flushMicrotasks();
+    // Capture before settle: it splices the harness's sent log.
+    const muteFrame = h.sent.find((s) => s.cmd.type === "live_mute");
+    await settle();
+    await muting;
+    expect(muteFrame?.cmd).toMatchObject({ type: "live_mute", muted: true });
+  });
+
+  it("clearLiveError keeps a running session but clears a dead one", async () => {
+    withVersion("18.7.0");
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
+          live: { phase: "working", levels: null, turns: [], ended: false, error: "no audio device" },
+        }),
+      },
+    });
+    h.useStore.getState().clearLiveError(h.TAB);
+    expect(live()).toMatchObject({ phase: "working", error: null });
+
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
+          live: { phase: "error", levels: null, turns: [], ended: true, error: "stream dropped" },
+        }),
+      },
+    });
+    h.useStore.getState().clearLiveError(h.TAB);
+    expect(live()).toBeNull();
+  });
+
+  it("start after a live_end sends again (omp owns the session truth)", async () => {
+    withVersion("18.7.0");
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
+          live: { phase: "listening", levels: null, turns: [], ended: true, error: null },
+        }),
+      },
+    });
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await starting;
+    expect(live()).toMatchObject({ phase: "connecting", ended: false });
+  });
+});
