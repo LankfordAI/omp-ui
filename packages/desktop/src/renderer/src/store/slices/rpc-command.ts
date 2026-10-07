@@ -606,6 +606,18 @@ function freshRpcTabState(
 /** A new rpc process emits exactly one ready frame — that's the boot signal. */
 const rpcBooting = new Set<string>();
 
+/** The failure surface's model-recovery marker (issue #774): an
+ *  `omp_ui_error` frame may stamp it on the tab's failure while a boot
+ *  command is in flight, and the boot's own failure patch must not drop it —
+ *  without the marker the model picker never appears. */
+function carriedFailedModel(
+  state: UiStore,
+  tabId: string,
+): { failedModel?: string } {
+  const failed = state.rpc[tabId]?.failure?.failedModel;
+  return failed === undefined ? {} : { failedModel: failed };
+}
+
 export function createRpcCommandSlice(
   set: SetState,
   get: GetState,
@@ -775,6 +787,10 @@ export function createRpcCommandSlice(
               : {}),
             sessionStatus: "error",
             ...(rec?.live !== undefined ? { liveState: rec.live } : {}),
+            // A model-restore death stamps its marker via the omp_ui_error
+            // frame, which dropped this boot command — the marker must
+            // survive the rephrasing or the picker never appears (issue #774).
+            ...carriedFailedModel(get(), tabId),
             recovery: "Retry boot to reconnect to the live session.",
           },
         });
@@ -813,6 +829,7 @@ export function createRpcCommandSlice(
             : {}),
           sessionStatus: "error",
           ...(liveState !== undefined ? { liveState } : {}),
+          ...carriedFailedModel(get(), tabId),
           recovery: "Retry boot to reconnect to the live session.",
         },
       });

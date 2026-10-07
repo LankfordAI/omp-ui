@@ -40,6 +40,16 @@ function optionalNullableString(value: ObjectValue, key: string): string | null 
   return field;
 }
 
+/** A non-empty string when present; names an optional string field (issue #774's model). */
+function optionalNonEmptyString(value: ObjectValue, key: string): string | undefined {
+  if (!hasOwn(value, key)) return undefined;
+  const field = value[key];
+  if (typeof field !== "string" || field === "") {
+    throw new Error(`spawn request.${key} must be a non-empty string`);
+  }
+  return field;
+}
+
 function requiredBoolean(value: ObjectValue, key: string): boolean {
   const field = value[key];
   if (typeof field !== "boolean") throw new Error(`spawn request.${key} must be a boolean`);
@@ -173,6 +183,7 @@ const RESUME_KEYS = [
   "mode",
   "advisor",
   "advisorModel",
+  "model",
   "planMode",
 ] as const;
 
@@ -198,6 +209,7 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
     }
     const advisor = optionalBoolean(value, "advisor");
     const advisorModel = optionalNullableString(value, "advisorModel");
+    const model = optionalNonEmptyString(value, "model");
     const common = {
       origin: "resume" as const,
       resumeTabId: requiredString(value, "resumeTabId"),
@@ -205,6 +217,7 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
       rows,
       ...(advisor === undefined ? {} : { advisor }),
       ...(advisorModel === undefined ? {} : { advisorModel }),
+      ...(model === undefined ? {} : { model }),
     };
     if (mode === "pty") return { ...common, mode };
     return {

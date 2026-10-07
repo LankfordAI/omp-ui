@@ -41,6 +41,17 @@ describe("normalizeControlFrame", () => {
     });
   });
 
+  it("lifts a usable failedModel and drops a malformed one (issue #774)", () => {
+    expect(
+      normalizeControlFrame({ type: "omp_ui_error", message: "died", failedModel: "p/m" }),
+    ).toMatchObject({ kind: "omp_ui_error", message: "died", failedModel: "p/m" });
+    for (const failedModel of ["", 42, null, undefined]) {
+      const frame = normalizeControlFrame({ type: "omp_ui_error", message: "died", failedModel });
+      expect(frame).toMatchObject({ kind: "omp_ui_error" });
+      expect(frame).not.toHaveProperty("failedModel");
+    }
+  });
+
   it("discriminates the host frames (issue #688)", () => {
     const toolCall = { type: "host_tool_call", id: "h1", toolCallId: "c1", toolName: "omp-ui_notify", arguments: {} };
     expect(normalizeControlFrame(toolCall)).toEqual({ kind: "host_tool_call", id: "h1", frame: toolCall });

@@ -250,6 +250,7 @@ export {
 } from "./python-check";
 export * from "./stt";
 export * from "./judge-models";
+export * from "./model-catalog";
 export {
   MEMORY_DEFAULT_SEED,
   seedMemoryDefaults,

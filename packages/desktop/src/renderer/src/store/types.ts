@@ -106,6 +106,10 @@ export interface RpcFailure {
   sessionStatus?: RpcTabState["status"];
   liveState?: LiveState;
   recovery: string;
+  /** Issue #774: the model omp could not restore, when the death was a
+   *  resume that found its saved model gone. Drives the model picker on the
+   *  failure surface; absent on every other failure. */
+  failedModel?: string;
 }
 
 
@@ -931,6 +935,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   terminate(tabId: string): Promise<void>;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;
   resumeDead(tabId: string): Promise<void>;
+  /** Relaunch a dead tab forcing `model` (issue #774's recovery resume). */
+  resumeWithModel(tabId: string, model: string): Promise<void>;
   deleteSession(tabId: string): Promise<void>;
   confirmDeleteSession(skipFuture: boolean): Promise<void>;
   releaseWorktreeSession(

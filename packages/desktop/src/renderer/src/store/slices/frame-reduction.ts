@@ -502,6 +502,7 @@ export function createFrameReductionSlice(
             fatal: true,
             sessionStatus: "error",
             ...(liveState !== undefined ? { liveState } : {}),
+            ...(control.failedModel !== undefined ? { failedModel: control.failedModel } : {}),
             recovery:
               "The live session process stopped. Resume the session to continue.",
           },
