@@ -5,6 +5,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { linkify, Markdown, ObsidianNoteLinkContext } from "./Markdown";
 import { obsidianReplyLink, type ObsidianNoteTarget } from "@omp-ui/core/vault-shared";
+import { DEFAULT_THEME_ID, resolveTheme } from "../lib/themes";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -198,6 +199,100 @@ describe("Markdown mermaid blocks (issue #361)", () => {
     await act(async () => {});
     expect(el.querySelector(".md-diagram")).toBeNull();
     expect(el.querySelector("pre")?.textContent).toContain("const x = 1");
+    act(() => root.unmount());
+  });
+});
+
+// Issue #780: settled `svg` fences render as img data URIs — image mode is
+// the sanitizer, so the branch is pure DOMParser/XMLSerializer work with no
+// engine to stub; jsdom implements both.
+describe("Markdown svg blocks (issue #780)", () => {
+  it("renders a settled svg fence as an image, never markup", () => {
+    const { el, root } = render(
+      '```svg\n<svg viewBox="0 0 10 10"><rect fill="none"/></svg>\n```',
+    );
+    const imgs = el.querySelectorAll("img");
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]!.getAttribute("src")?.startsWith("data:image/svg+xml;charset=utf-8,")).toBe(
+      true,
+    );
+    // The claim itself: agent SVG text never becomes markup in this DOM.
+    expect(el.querySelector("svg")).toBeNull();
+    expect(el.querySelector("pre")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("rewrites currentColor to the active theme ink", () => {
+    const { el, root } = render(
+      '```svg\n<svg viewBox="0 0 10 10"><style>.a { fill: CurrentColor }</style>' +
+        '<rect fill="currentColor" class="a"/></svg>\n```',
+    );
+    const img = el.querySelector("img");
+    expect(img).not.toBeNull();
+    const ink = resolveTheme(DEFAULT_THEME_ID).tokens["--color-ink"];
+    const source = decodeURIComponent(img!.getAttribute("src")!.split(",")[1]!);
+    expect(source).toContain(ink);
+    expect(/currentcolor/i.test(source)).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("streams as a code block with no img and no toggle", () => {
+    const { el, root } = render(
+      '```svg\n<svg viewBox="0 0 10 10"><rect fill="none"/></svg>',
+      <span data-testid="caret" />,
+    );
+    expect(el.querySelector("img")).toBeNull();
+    expect(el.querySelector("pre")?.textContent).toContain("rect");
+    expect(el.querySelector('[data-testid="caret"]')).not.toBeNull();
+    const buttons = Array.from(el.querySelectorAll("button"));
+    expect(buttons.some((b) => b.textContent === "source" || b.textContent === "image")).toBe(
+      false,
+    );
+    act(() => root.unmount());
+  });
+
+  it("malformed svg falls back to code with no toggle", () => {
+    const { el, root } = render("```svg\n<svg><rect></svg>\n```");
+    expect(el.querySelector("img")).toBeNull();
+    expect(el.querySelector("pre")?.textContent).toContain("rect");
+    const buttons = Array.from(el.querySelectorAll("button"));
+    expect(buttons.some((b) => b.textContent === "source" || b.textContent === "image")).toBe(
+      false,
+    );
+    expect(buttons.length).toBeGreaterThan(0);
+    act(() => root.unmount());
+  });
+
+  it("non-svg root falls back to code with no toggle", () => {
+    const { el, root } = render("```svg\nnot markup at all\n```");
+    expect(el.querySelector("img")).toBeNull();
+    expect(el.querySelector("pre")?.textContent).toContain("not markup at all");
+    const buttons = Array.from(el.querySelectorAll("button"));
+    expect(buttons.some((b) => b.textContent === "source" || b.textContent === "image")).toBe(
+      false,
+    );
+    act(() => root.unmount());
+  });
+
+  it("toggles between image and source", () => {
+    const { el, root } = render(
+      '```svg\n<svg viewBox="0 0 10 10"><rect fill="none"/></svg>\n```',
+    );
+    const toSource = Array.from(el.querySelectorAll("button")).find(
+      (b) => b.textContent === "source",
+    );
+    expect(toSource).toBeDefined();
+    act(() => {
+      toSource!.click();
+    });
+    expect(el.querySelector("img")).toBeNull();
+    expect(el.querySelector("pre")?.textContent).toContain("rect");
+    const back = Array.from(el.querySelectorAll("button")).find((b) => b.textContent === "image");
+    expect(back).toBeDefined();
+    act(() => {
+      back!.click();
+    });
+    expect(el.querySelector("img")).not.toBeNull();
     act(() => root.unmount());
   });
 });

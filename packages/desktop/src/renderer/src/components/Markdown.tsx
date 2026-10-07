@@ -5,6 +5,8 @@ import { parseObsidianNoteUri, type ObsidianNoteTarget } from "@omp-ui/core/vaul
 import { cn } from "../lib/cn";
 import { useHighlightTokens } from "../lib/highlight";
 import { useDiagramSvg } from "../lib/diagram";
+import { svgImageSrc } from "../lib/svg-block";
+import { useTheme } from "../lib/themes";
 import { bareUrlAt, isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "../lib/markdown";
 import { useT } from "../lib/i18n";
 import { isHtmlPlanDocument } from "../lib/plan-seed";
@@ -356,15 +358,33 @@ function CodeBlock({
   lang: string | null;
   trailing?: ReactNode;
 }) {
-  const isDiagram = lang?.toLowerCase() === "mermaid";
+  const lower = lang?.toLowerCase();
+  const isDiagram = lower === "mermaid";
+  const isSvg = lower === "svg";
   const settled = trailing === undefined;
+  const t = useT();
+  // Declared ahead of the token hook: the svg gate below reads it.
+  const [showSource, setShowSource] = useState(false);
+  const theme = useTheme();
+  // Issue #780: the svg fence renders as an img data URI (image mode is the
+  // sanitizer), recomputed only when the source or the theme ink changes.
+  const imgSrc = useMemo(
+    () => (isSvg && settled ? svgImageSrc(text, theme.tokens["--color-ink"]) : null),
+    [isSvg, settled, text, theme],
+  );
   // The diagram hook is called unconditionally (hook rules); `enabled` gates
   // the work, exactly like the `enabled` flag on useHighlightTokens. mermaid
   // has no shiki grammar, so pass no language and the pre stays plain.
   const svg = useDiagramSvg(text, isDiagram && settled);
-  const tokens = useHighlightTokens(text, isDiagram ? undefined : (lang ?? undefined), settled);
-  const t = useT();
-  const [showSource, setShowSource] = useState(false);
+  // shiki has no svg grammar; the xml grammar tokenizes SVG markup. While the
+  // image shows, tokenizing is waste — same idea as HtmlPlanBlock's gate, plus
+  // the fallback code block (imgSrc null) still has to pay for its tokens.
+  const tokens = useHighlightTokens(
+    text,
+    isDiagram ? undefined : isSvg ? "xml" : (lang ?? undefined),
+    isSvg ? settled && (showSource || imgSrc === null) : settled,
+  );
+  const asImage = isSvg && imgSrc !== null && !showSource;
   const asDiagram = isDiagram && svg !== null && !showSource;
   return (
     <div className="overflow-hidden rounded-md border border-line bg-sunken">
@@ -372,15 +392,28 @@ function CodeBlock({
         label={lang ?? "text"}
         text={text}
         toggle={
-          isDiagram && svg !== null
+          (isDiagram && svg !== null) || (isSvg && imgSrc !== null)
             ? {
-                label: asDiagram ? t("markdown.codeblock.source") : t("markdown.codeblock.diagram"),
+                label: asDiagram || asImage
+                  ? t("markdown.codeblock.source")
+                  : isSvg
+                    ? t("markdown.codeblock.image")
+                    : t("markdown.codeblock.diagram"),
                 onClick: () => setShowSource((s) => !s),
               }
             : undefined
         }
       />
-      {asDiagram ? (
+      {asImage ? (
+        // Issue #780: agent SVG text never becomes markup — it is an `img`
+        // src, and Chromium's secure-static image mode strips the threat
+        // class (no script, no fetch, no handler), so #285's posture holds.
+        // `draggable={false}` keeps a diagram from being dragged into a
+        // data-URI navigation (#101's intent). Centers/scrolls per .md-svg.
+        <div className="md-svg">
+          <img src={imgSrc} alt={t("markdown.svg.aria")} draggable={false} />
+        </div>
+      ) : asDiagram ? (
         // The sole HTML insertion for agent prose beyond KaTeX: `svg` is
         // mermaid strict-mode sanitizer output (issue #285's posture), never
         // source text. Scrolls/centers per .md-diagram in style.css.

@@ -1508,6 +1508,8 @@ export const en = {
   "markdown.codeblock.diagram": "diagram",
   "markdown.diagram.aria": "mermaid diagram",
   "markdown.codeblock.document": "document",
+  "markdown.codeblock.image": "image",
+  "markdown.svg.aria": "SVG image",
   "markdown.plan.frameTitle": "html plan",
   "markdown.inf.tip": "Model-flagged inference: not verified against sources",
   // Last-resort app crash surface

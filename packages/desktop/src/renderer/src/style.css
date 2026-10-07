@@ -72,6 +72,24 @@
   display: block;
 }
 
+/* Agent svg fences (issue #780): the img keeps its intrinsic size, caps at
+   the column, centers; oversized charts scroll inside the block, exactly
+   like .md-diagram. An svg with no width/height and no viewBox gets the
+   300x150 replaced-element default — acceptable, the agent guidance emits
+   both attributes. */
+.md-svg {
+  display: flex;
+  justify-content: center;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 0.5rem 0.25rem;
+}
+.md-svg img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
 /* Find wash (issue #270): quiet copper on matched rows, a stronger ring on the
    active match. The wrapper div carries the classes; rows inside keep their
    own surfaces. */
