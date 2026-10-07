@@ -164,8 +164,6 @@ const mockBackend = {
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
-  generateTitle: vi.fn(async (): Promise<string | null> => null),
-  retitleSession: vi.fn(async (): Promise<string | null> => null),
   // Branch naming shares titling's cold-spawn stance: no name unless a case
   // arms one, exactly as a session without a configured provider answers.
   suggestBranchName: vi.fn(async (): Promise<string | null> => null),

@@ -185,7 +185,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "session.error.approvalBusy": "진행 중인 명령이 완료되지 않아 새 승인 모드로 세션을 다시 시작하지 못했습니다. 세션은 계속 실행 중입니다.",
   "session.error.approval": "승인 모드를 변경하지 못했습니다: {reason}\n\n에이전트가 중지되었습니다. 계속하려면 세션을 다시 시작하세요.",
   "session.error.retitleNotLive": "이 세션은 실행 중이 아니라 제목을 다시 생성할 수 없습니다. 세션을 먼저 다시 시작한 뒤 제목을 다시 생성하세요.",
-  "session.error.retitleNoTranscript": "이 세션에는 제목을 다시 생성할 대화가 아직 없습니다. 프롬프트를 보내고 어시스턴트가 답한 뒤 다시 시도하세요.",
   "session.error.rewindBusy":
     "되돌리기는 실행 중이고 대기 상태인 네이티브 세션에서만 사용할 수 있습니다. 턴이 끝날 때까지 기다리거나 중지한 뒤 다시 시도하세요.",
   "session.error.rewindCorrelation":

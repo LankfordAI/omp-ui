@@ -371,27 +371,28 @@ input setting.
 _Avoid_: voice typing, speech recognition, push-to-talk
 
 **Auto-title**:
-The name a new session gets from its first substantive prompt, in two phases.
-Phase one, at prompt time: a mechanically derived title from the prompt is
-pushed immediately with `set_session_name`, so the session is named before any
-model round trip. For a session seeded from an approved plan, the plan titles
-it — both the derived name and the model's payload come from the record's
-`planTitle`, never from the seed text that carried the plan. Phase two, in the
-background: omp-ui asks omp's own small model — a stateless `omp -p` run on the
-`tiny`/`commit`/`smol` role its config binds, over a bounded payload, since
-the one-shot rides a single OS argument — and, when it answers with a
-different title, upgrades the name with a second `set_session_name`; a
-user-sourced rename overwrites a user title (only omp's own "auto" titling is
-latched out once a "user" one exists), which is what makes the upgrade
-possible. A greeting is not substantive: titling defers rather than latch.
-When the model declines or is unreachable, the derived name simply stands.
-_Avoid_: session name generation, summary, label
+The name a new session gets from omp's own renamer, dispatched over the
+prompt channel: at the first untitled `agent_end`, omp-ui sends the bare
+`/rename`, and omp's in-process generator digests the conversation, walks the
+`tiny`/`commit`/`smol` role chain, and names the session itself (issue #788).
+omp-ui keeps only the gates: a session whose record already carries a title is
+latched out at prompt time — a `set_session_name` write is user-sourced, and
+omp refuses every later "auto" title once a "user" one exists — and a greeting
+defers rather than latching the one shot. For a session seeded from an
+approved plan, the plan titles it from the record's `planTitle`, never the
+seed text that carried the plan. One shot per session: a declined or failed
+generation leaves the row prompt-titled until a manual path names it. The
+title reaches the UI through the watcher, like every other engine-side
+session-file change; the engine's settlement notice is the visible signal.
+_Avoid_: session name generation, summary, label, two-phase titling
 
 **Re-titling**:
-A user-requested second look at a session's title, from a digest of its
-transcript plus the title on the row. It replaces Auto-title's answer, never
-the user's own rename; it needs a live session, and a declined answer leaves
-the row untouched.
+A user-requested second look at a session's title: the HUD's retitle button or
+the palette's **Regenerate session title** runs the bare `/rename` through the
+normal command row, so the command row plus its settlement notice are the
+feedback. It replaces Auto-title's answer, never the user's own rename; it
+needs a live session — a dead process cannot title itself, and omp-ui does not
+write session files.
 _Avoid_: thread renaming, title regeneration, re-summary
 
 **Build mode**:

@@ -1103,29 +1103,16 @@ describe("retitle affordance (issue #433)", () => {
     expect(button.className).toContain("opacity-0");
     expect(button.className).toContain("focus-visible:opacity-100");
     expect(button.title).toContain("regenerate the title");
-    expect(button.disabled).toBe(false);
     act(() => button.click());
     expect(regenerateSessionTitle).toHaveBeenCalledWith(TAB);
   });
 
-  it("is disabled while a re-titling is in flight", () => {
-    seedExchange();
-    useStore.setState({
-      rpc: {
-        ...useStore.getState().rpc,
-        [TAB]: {
-          ...useStore.getState().rpc[TAB],
-          titleRegeneration: { requestId: 1, previousTitle: "Mobile session" },
-        },
-      },
-    });
+  it("stays enabled with no local gate (issue #788)", () => {
+    // The engine digests the session itself and answers its own decline,
+    // so the row no longer gates on a local transcript digest or a local
+    // in-flight flag — omp's command row is the feedback.
     const host = renderWide();
-    expect(host.querySelector<HTMLButtonElement>('button[aria-label="retitle"]')!.disabled).toBe(true);
-  });
-
-  it("is disabled while the transcript has no exchange to read", () => {
-    const host = renderWide();
-    expect(host.querySelector<HTMLButtonElement>('button[aria-label="retitle"]')!.disabled).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="retitle"]')!.disabled).toBe(false);
   });
 });
 

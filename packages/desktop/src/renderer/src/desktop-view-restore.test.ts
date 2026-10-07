@@ -74,8 +74,6 @@ const mockBackend = {
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
-  generateTitle: vi.fn(async (): Promise<string | null> => null),
-  retitleSession: vi.fn(async (): Promise<string | null> => null),
   readPlanFile: vi.fn(async (): Promise<string | null> => "# Plan\n\nstep one\n"),
   listBranches: vi.fn(),
   checkoutBranch: vi.fn(),
