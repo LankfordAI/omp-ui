@@ -44,6 +44,14 @@ import type {
   UiStore,
 } from "../types";
 
+/**
+ * `ipcRenderer.invoke` never times out on its own, so a main-process spawn
+ * that stalls would leave every new-session entry point silently pending
+ * forever (issue #789). The renderer bounds the wait; a spawn that settles
+ * after the notice still lands its tab exactly once.
+ */
+const SPAWN_SETTLE_MS = 30_000;
+
 export type LifecycleSlice = Pick<
   UiStore,
   | "shellExited"
@@ -865,30 +873,10 @@ export function createLifecycleSlice(
       { mode: modeOverride },
       instanceId,
     );
-    try {
-      const request: SpawnRequest =
-        mode === "pty"
-          ? {
-              origin: "new",
-              projectCwd,
-              mode: "pty",
-              advisor,
-              advisorModel,
-              cols: 80,
-              rows: 24,
-              worktree: null,
-            }
-          : {
-              origin: "new",
-              projectCwd,
-              mode: "rpc-ui",
-              advisor,
-              advisorModel,
-              cols: 80,
-              rows: 24,
-              worktree: null,
-            };
-      const { tabId } = await backendFor(instanceId).spawnSession(request);
+    let landed = false;
+    const landTab = ({ tabId }: { tabId: string }) => {
+      if (landed) return;
+      landed = true;
       set((s) => ({
         tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false, instanceId }],
         ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
@@ -898,8 +886,47 @@ export function createLifecycleSlice(
       // (issue #708): fire the upstream read the chip's badge needs, without
       // awaiting it — a slow fetch must never delay the tab landing.
       void get().refreshBranches(projectCwd, { fetchUpstream: true }, instanceId);
+    };
+    const request: SpawnRequest =
+      mode === "pty"
+        ? {
+            origin: "new",
+            projectCwd,
+            mode: "pty",
+            advisor,
+            advisorModel,
+            cols: 80,
+            rows: 24,
+            worktree: null,
+          }
+        : {
+            origin: "new",
+            projectCwd,
+            mode: "rpc-ui",
+            advisor,
+            advisorModel,
+            cols: 80,
+            rows: 24,
+            worktree: null,
+          };
+    const pending = backendFor(instanceId).spawnSession(request);
+    // Late landing: after the timeout notice below has fired, a spawn that
+    // eventually completes still mounts its tab — exactly once, through the
+    // shared `landed` flag; a late rejection is swallowed because the
+    // timeout notice already reported the stall.
+    pending.then(landTab, () => {});
+    try {
+      await Promise.race([
+        pending.then(landTab),
+        new Promise<never>((_, reject) =>
+          window.setTimeout(
+            () => reject(new Error(t("session.error.spawnTimedOut"))),
+            SPAWN_SETTLE_MS,
+          ),
+        ),
+      ]);
     } catch (err) {
-      get().reportError(err);
+      if (!landed) get().reportError(err);
     }
   };
 

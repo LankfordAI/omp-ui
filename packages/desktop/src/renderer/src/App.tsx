@@ -290,6 +290,7 @@ export default function App() {
   const worktreeDialogProject = useStore((s) => s.worktreeDialogProject);
   const worktreeDialogInstanceId = useStore((s) => s.worktreeDialogInstanceId);
   const newSession = useStore((s) => s.newSession);
+  const reportError = useStore((s) => s.reportError);
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
   const lab = useStore((s) => s.lab);
   const stats = useStore((s) => s.stats);
@@ -347,13 +348,14 @@ export default function App() {
 
   // The keyboard twin of the composer's /new: a new live session in the current
   // tab's project. No current project (nothing focused yet, or every tab hidden)
-  // means nowhere to spawn — the key deliberately does nothing rather than
-  // choose a project implicitly.
+  // means nowhere to spawn — the key says so instead of choosing a project
+  // implicitly (issue #789): a silent no-op reads as a broken key.
   useHotkeys({
     "mod+shift+n": (e) => {
       e.preventDefault();
       const tab = tabs.find((t) => t.tabId === activeTabId);
       if (tab !== undefined) void newSession(tab.projectCwd, undefined, tab.instanceId);
+      else reportError(t("app.spawn.noCurrentSession"));
     },
     // The keyboard twin of the composer's Build / Plan selector: the same
     // in-process switch (ADR-0007), never a respawn. rpc-ui tabs only — a pty tab's TUI

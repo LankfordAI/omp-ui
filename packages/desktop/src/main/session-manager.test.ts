@@ -5875,7 +5875,11 @@ describe("hibernation (issue #246)", () => {
     const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
     cleanProbe(rpc);
     await expect(result).resolves.toBe(true);
-    expect(crumbs.map((entry) => entry.kind)).toEqual(["session-resume", "session-hibernate"]);
+    expect(crumbs.map((entry) => entry.kind)).toEqual([
+      "spawn-attempt",
+      "session-resume",
+      "session-hibernate",
+    ]);
   });
 
   it("hibernation destroys the browser pane page and listener but keeps the last URL for the resume (#519)", async () => {
@@ -6387,7 +6391,13 @@ describe("session lifecycle breadcrumbs (issue #413)", () => {
     const { manager, crumbs } = setup();
     await resume(manager);
     expect(crumbs).toEqual([
-      { at: new Date(0).toISOString(), seq: 1, kind: "session-resume", tabId: TAB, mode: "pty" },
+      {
+        at: new Date(0).toISOString(),
+        seq: 1,
+        kind: "spawn-attempt",
+        detail: `origin=resume mode=unset tab=${TAB}`,
+      },
+      { at: new Date(0).toISOString(), seq: 2, kind: "session-resume", tabId: TAB, mode: "pty" },
     ]);
   });
 
@@ -6402,7 +6412,28 @@ describe("session lifecycle breadcrumbs (issue #413)", () => {
       cols: 80,
       rows: 24,
     });
-    expect(kinds(crumbs)).toEqual(["session-spawn"]);
+    expect(kinds(crumbs)).toEqual(["spawn-attempt", "session-spawn"]);
+  });
+
+  it("records the attempt even when validateSpawnSemantics rejects (issue #789)", async () => {
+    const { manager, crumbs } = setup();
+    await expect(
+      manager.spawn({
+        origin: "new",
+        worktree: null,
+        projectCwd: "/proj",
+        mode: "rpc-ui",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        planImplementationSource: {
+          sourceTabId: "missing-source",
+          planTitle: "Ship the handoff",
+          planFilePath: "local://plans/ship-the-handoff.md",
+        },
+      }),
+    ).rejects.toThrow("unknown plan source tab missing-source");
+    expect(kinds(crumbs)).toEqual(["spawn-attempt"]);
   });
 
   it("terminate records the kill and the child's exit code", async () => {
@@ -6412,7 +6443,12 @@ describe("session lifecycle breadcrumbs (issue #413)", () => {
     // The fake pty dies on the default kill signal, which handleExit sees
     // synchronously inside terminate(); no flush needed.
     manager.terminate(TAB);
-    expect(kinds(crumbs)).toEqual(["session-resume", "session-terminate", "session-exit"]);
+    expect(kinds(crumbs)).toEqual([
+      "spawn-attempt",
+      "session-resume",
+      "session-terminate",
+      "session-exit",
+    ]);
   });
 
   it("delete suppresses the exit row but not the resume row", async () => {
@@ -6420,7 +6456,7 @@ describe("session lifecycle breadcrumbs (issue #413)", () => {
     const { manager, crumbs } = setup();
     await resume(manager);
     await manager.deleteSession(TAB, false);
-    expect(kinds(crumbs)).toEqual(["session-resume"]);
+    expect(kinds(crumbs)).toEqual(["spawn-attempt", "session-resume"]);
   });
 
   it("a dormant mode switch records the target mode; a no-op records nothing", async () => {

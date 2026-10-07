@@ -18,6 +18,7 @@ import {
 } from "../../test/fixtures";
 
 import { h } from "../../test/store-harness";
+import { en } from "../../lib/i18n/en";
 import type { LifecycleSlice } from "./lifecycle";
 import type { RpcTabState, UiStore } from "../types";
 import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolution";
@@ -1217,6 +1218,75 @@ describe("newSession fetches the project's upstream listing (issue #708)", () =>
     expect(st.tabs.map((t) => t.tabId)).toEqual(["fresh"]);
     expect(st.activeTabId).toBe("fresh");
     expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", { fetchUpstream: true });
+  });
+});
+
+describe("newSession bounds a stalled spawn and lands late tabs once (issue #789)", () => {
+  /** A registered project with a preseeded advisor default (no config read).
+   *  The path differs from the #708 block's: that block leaves a never-settling
+   *  branch listing in flight, so its per-path refresh runtime never leaves the
+   *  map and its listBranches default outlives vi.clearAllMocks — a fresh path
+   *  and a fresh mock keep this block order-independent. */
+  const seed = (): void => {
+    h.mockBackend.listBranches.mockReset();
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/stall": { enabled: false, model: null } },
+    });
+  };
+
+  it("reports a spawn that never settles within 30 s", async () => {
+    vi.useFakeTimers();
+    try {
+      seed();
+      h.mockBackend.spawnSession.mockReturnValue(new Promise(() => {}));
+      const landing = h.useStore.getState().newSession("/stall");
+      await vi.advanceTimersByTimeAsync(30_000);
+      await landing;
+      expect(h.errorMessages()).toEqual([en["session.error.spawnTimedOut"]]);
+      expect(h.useStore.getState().tabs).toEqual([]);
+      expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lands a tab that settles after the timeout exactly once", async () => {
+    vi.useFakeTimers();
+    try {
+      seed();
+      const settle = h.deferred<{ tabId: string }>();
+      h.mockBackend.spawnSession.mockReturnValue(settle.promise);
+      const landing = h.useStore.getState().newSession("/stall");
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(h.errorMessages()).toEqual([en["session.error.spawnTimedOut"]]);
+      settle.resolve({ tabId: "fresh" });
+      await landing;
+      await h.flushMicrotasks();
+      const st = h.useStore.getState();
+      expect(st.tabs.map((tab) => tab.tabId)).toEqual(["fresh"]);
+      expect(st.activeTabId).toBe("fresh");
+      expect(h.mockBackend.listBranches).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lands the happy path once and never reports", async () => {
+    vi.useFakeTimers();
+    try {
+      seed();
+      h.mockBackend.spawnSession.mockResolvedValue({ tabId: "fresh" });
+      await h.useStore.getState().newSession("/stall");
+      await vi.advanceTimersByTimeAsync(60_000);
+      const st = h.useStore.getState();
+      expect(st.tabs.map((tab) => tab.tabId)).toEqual(["fresh"]);
+      expect(h.errorMessages()).toEqual([]);
+      expect(h.mockBackend.listBranches).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
