@@ -34,6 +34,7 @@ import {
   MAX_DOCUMENT_BATCH_BYTES,
   resolveDocument,
   resolveKnowledgeHome,
+  resolveVaultProjectFolder,
   normalizeControlFrame,
   parseCapabilitySnapshot,
   planMessage,
@@ -183,6 +184,8 @@ export interface SessionManagerDependencies {
   appVersion?: string;
   /** Writes vault diagnostics to the main-process log. Tests may omit the sink. */
   mainLog?: (line: string) => void;
+  /** Vault project folder resolver (#787); tests fake the remote lookup. Default: core resolveVaultProjectFolder. */
+  vaultFolder?: (displayName: string, projectCwd: string) => Promise<string>;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -205,6 +208,8 @@ export class SessionManager {
   private readonly viewTracker: ViewTracker;
   private readonly planGates: PlanGateTracker;
   private readonly planPreflight: PlanPreflightController;
+  /** Resolved vault project folders (#787) keyed by project cwd; recomputed on every rpc launch, bounded by the registry's project list. */
+  private readonly vaultFolders = new Map<string, string>();
   /** The main-process answerer for host tool/URI frames (issue #688, ADR-0043). */
   private readonly hostBridge: HostBridge;
   /** One in-flight execute re-check per tab (§6: atomic settle reservation). */
@@ -319,7 +324,9 @@ export class SessionManager {
           const project = deps.registry.projects.find((candidate) => candidate.path === record.projectCwd);
           return {
             projectName: project?.name ?? null,
-            projectFolder: project === undefined ? projectSlug(record.projectCwd) : slugifyProjectName(project.name),
+            projectFolder:
+              this.vaultFolders.get(record.projectCwd) ??
+              (project === undefined ? projectSlug(record.projectCwd) : slugifyProjectName(project.name)),
             pinnedVault: project?.knowledgeHome?.vault ?? null,
             lineage: record.lineageDir.slice(-36),
           };
@@ -914,6 +921,24 @@ export class SessionManager {
         id: `omp-ui-initial-browser-pane-${randomUUID()}`,
         message: browserPaneSetMessage(cdpUrl),
       });
+    }
+    // The vault project folder (#787): resolved once per rpc launch beside the
+    // Knowledge-home resolve — every launch (fresh, resume, relaunch) re-enters
+    // here, so a changed remote takes effect on the next launch. Independent of
+    // bridgeLoaded.knowledgeVault: the vault tools register on registry
+    // non-emptiness alone, so a docs-home project can still be handed them.
+    if (vaults.vaults.length > 0) {
+      const folderProject = this.deps.registry.projects.find(
+        (project) => project.path === record.projectCwd,
+      );
+      const resolveFolder = this.deps.vaultFolder ?? resolveVaultProjectFolder;
+      this.vaultFolders.set(
+        record.projectCwd,
+        await resolveFolder(
+          folderProject?.name ?? path.basename(record.projectCwd),
+          record.projectCwd,
+        ),
+      );
     }
     // The Knowledge home's hidden guidance (#766, #768, ADR-0048), sent once per
     // spawn, so a change reaches the next spawn. With no vault registered the

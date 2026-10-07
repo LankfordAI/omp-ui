@@ -221,7 +221,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultFolder?: (displayName: string, projectCwd: string) => Promise<string> } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -302,6 +302,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     hostNotify: opts.hostNotify,
     appVersion: opts.appVersion,
     mainLog: opts.mainLog,
+    vaultFolder: opts.vaultFolder,
     browserPane: {
       createPane: async () => {
         const pane = fakePaneContents();
@@ -6689,6 +6690,39 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
       expect(options?.extensions).toContainEqual(expect.stringMatching(/omp-ui-knowledge-vault\.ts$/));
       expect(knowledgeArms(options?.initialCommands as Array<Record<string, unknown>> | undefined)).toEqual([]);
     });
+  });
+
+  it("writes vault notes into the remote-suffixed project folder (#787)", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-manager-vault-"));
+    try {
+      const { manager, registry } = setup({
+        mode: "rpc-ui",
+        projectName: "Ansible",
+        vaultFolder: async () => "ansible-austinm731",
+      });
+      registry.setSetting("vaultRegistry", {
+        vaults: [{ name: "Notes", path: root, homeFolder: "omp-ui/", allowWritesOutsideHome: false }],
+        defaultWriteVault: "Notes",
+      });
+      await resume(manager);
+      const rpc = rpcInstances[0]!;
+      rpc.inputFrame({
+        type: "host_tool_call", id: "suffixed-create", toolCallId: "tc-suffixed", toolName: "omp-ui_vault_create",
+        arguments: { title: "collided name", body: "Filed under the suffixed folder." },
+      });
+      await waitSent(rpc, "suffixed-create");
+      expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({
+        id: "suffixed-create",
+        result: expect.objectContaining({ details: expect.objectContaining({ path: "omp-ui/ansible-austinm731/Collided Name.md" }) }),
+      }));
+      expect(fs.existsSync(path.join(root, "omp-ui", "ansible-austinm731", "Collided Name.md"))).toBe(true);
+      const index = fs.readFileSync(path.join(root, "omp-ui", "ansible-austinm731", "ansible-austinm731 Index.md"), "utf8");
+      expect(index).toContain("[[omp-ui/ansible-austinm731/Collided Name|Collided Name]]");
+      expect(fs.existsSync(path.join(root, "omp-ui", "ansible"))).toBe(false);
+      rpc.exit(0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("coalesces Obsidian lookups and expires completed results five seconds from lookup start", async () => {

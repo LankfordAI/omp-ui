@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GitRunner } from "./branches";
 import type { GitOptions } from "./git";
-import { ghConfigDir, ghLogins, resolveKnowledgeHome } from "./knowledge-home";
+import { ghConfigDir, ghLogins, resolveKnowledgeHome, resolveVaultProjectFolder, VAULT_FOLDER_MAX, vaultProjectFolder } from "./knowledge-home";
 import type { KnowledgeHome, VaultRegistry } from "./types";
 
 const tmpDirs: string[] = [];
@@ -217,5 +217,72 @@ describe("resolveKnowledgeHome routing default", () => {
 
   it("routes to docs with the real git runner in a fresh non-repo dir", async () => {
     await expect(resolveKnowledgeHome(null, tmpDir(), NOTES, { env: { GH_CONFIG_DIR: ghDir() } })).resolves.toEqual(DOCS);
+  });
+});
+
+describe("vaultProjectFolder", () => {
+  const cases: Array<[string, string, string | null, string]> = [
+    ["a name and an owner", "Ansible", "AustinM731", "ansible-austinm731"],
+    ["no owner", "Ansible", null, "ansible"],
+    ["an owner that slugs empty", "ansible", "???", "ansible"],
+    ["an owner that slugs equal to the name", "ansible", "ansible", "ansible-ansible"],
+    ["punctuation in the owner", "app", "Acme Corp!", "app-acme-corp"],
+  ];
+
+  it.each(cases)("%s", (_label, name, owner, expected) => {
+    expect(vaultProjectFolder(name, owner)).toBe(expected);
+  });
+
+  it("caps the whole name at VAULT_FOLDER_MAX with no trailing dash", () => {
+    const folder = vaultProjectFolder("a".repeat(40), "b".repeat(40));
+    expect(folder).toHaveLength(VAULT_FOLDER_MAX);
+    expect(folder).not.toMatch(/-$/);
+    expect(folder.startsWith("a".repeat(32))).toBe(true);
+  });
+});
+
+describe("resolveVaultProjectFolder", () => {
+  async function resolve(git: FakeGit, name = "Ansible"): Promise<string> {
+    return resolveVaultProjectFolder(name, "/repo", { runGit: git.runGit });
+  }
+
+  it("suffixes an scp-style origin", async () => {
+    await expect(resolve(repoGit({ origin: "git@bitbucket.org:InsideRealEstate/Ansible.git\n" }))).resolves.toBe(
+      "ansible-insiderealestate",
+    );
+  });
+
+  it("suffixes an ssh:// origin", async () => {
+    await expect(resolve(repoGit({ origin: "ssh://git@github.com/AustinM731/ansible.git\n" }))).resolves.toBe(
+      "ansible-austinm731",
+    );
+  });
+
+  it("suffixes a sole non-origin remote", async () => {
+    await expect(resolve(repoGit({ upstream: "https://github.com/SomeOwner/repo.git\n" }))).resolves.toBe(
+      "ansible-someowner",
+    );
+  });
+
+  it("falls back to the plain slug for two remotes without origin", async () => {
+    const git = repoGit({ upstream: "git@github.com:A/a.git\n", fork: "git@github.com:B/b.git\n" });
+    await expect(resolve(git)).resolves.toBe("ansible");
+  });
+
+  it("falls back to the plain slug for a local-path remote", async () => {
+    await expect(resolve(repoGit({ origin: "/srv/git/ansible.git\n" }))).resolves.toBe("ansible");
+  });
+
+  it("falls back to the plain slug when get-url throws", async () => {
+    await expect(resolve(repoGit({ origin: new Error("boom") }))).resolves.toBe("ansible");
+  });
+
+  it("falls back to the plain slug outside a git repo", async () => {
+    const git = fakeGit({ "rev-parse --show-toplevel": new Error("not a git repository") });
+    await expect(resolve(git)).resolves.toBe("ansible");
+  });
+
+  it("never rejects with the real git runner in a fresh non-repo dir", async () => {
+    await expect(resolveVaultProjectFolder("Ansible", tmpDir())).resolves.toBe("ansible");
   });
 });
