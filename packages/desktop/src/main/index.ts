@@ -15,6 +15,7 @@ import { installApplicationMenu } from "./application-menu";
 import { startFdWatchdog } from "./fd-watchdog";
 import { appendMainLog } from "./main-log";
 import { createBreadcrumbRing } from "./breadcrumbs";
+import { pickDevCdpPort, readPortSnapshot, writeDevCdpPortFile } from "./dev-cdp-port";
 import { gateSelector, parseSpawnGate } from "./spawn-gate";
 import { shouldReloadRenderer, type ProcessDeath } from "./renderer-recovery";
 
@@ -42,8 +43,26 @@ app.setPath("userData", join(app.getPath("appData"), userDataName));
 app.setAboutPanelOptions({ applicationName: "omp-ui" });
 
 // Dev/test seam: opt-in CDP endpoint for programmatic renderer inspection.
-if (process.env.OMP_UI_CDP_PORT) {
-  app.commandLine.appendSwitch("remote-debugging-port", process.env.OMP_UI_CDP_PORT);
+// electron-vite restarts the app on a main rebuild by SIGTERM + immediate respawn;
+// the old process's CDP connections leave the fixed port in TIME-WAIT for up to
+// 60 s, so Chromium's bind() fails and the restarted app is uninspectable (#783).
+// Unpackaged Linux runs therefore resolve the port against /proc/net/tcp{,6} and
+// fall back to the next free one, recording the live port in userData so an
+// observer reconnects after a restart. Must stay before app ready: the switch is
+// read once by Chromium at startup.
+const cdpPortEnv = process.env.OMP_UI_CDP_PORT;
+if (cdpPortEnv) {
+  const preferred = Number(cdpPortEnv);
+  const canFallback = Number.isInteger(preferred) && !app.isPackaged;
+  const port = canFallback ? pickDevCdpPort(preferred, readPortSnapshot()) : null;
+  if (port !== null && port !== preferred) {
+    console.warn(`omp-ui: CDP port ${preferred} is unavailable; using ${port}`);
+  }
+  app.commandLine.appendSwitch(
+    "remote-debugging-port",
+    port !== null ? String(port) : cdpPortEnv,
+  );
+  if (port !== null) writeDevCdpPortFile(port, app.getPath("userData"));
 }
 
 // Single-instance is mandatory: the no-double-resume rule can't see across
@@ -121,7 +140,17 @@ if (!app.requestSingleInstanceLock()) {
    * never show. Returns true when the quit may proceed.
    */
   const confirmQuitIfLive = (): boolean => {
-    if (forceQuit || updateQuitAuthorized || !backend || backend.sessions.liveCount === 0)
+    // A headless verification run has no human to answer the live-session quit
+    // dialog; a blocked quit stalls electron-vite's SIGTERM + immediate respawn
+    // and holds the CDP port into the new process (#783). Stand the guard down;
+    // before-quit still reaps the sessions via backend.killAll().
+    if (
+      forceQuit ||
+      updateQuitAuthorized ||
+      process.env.OMP_UI_HEADLESS === "1" ||
+      !backend ||
+      backend.sessions.liveCount === 0
+    )
       return true;
     void confirmLiveQuit().then((ok) => {
       if (ok) app.quit();
