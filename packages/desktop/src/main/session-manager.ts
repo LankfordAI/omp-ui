@@ -34,13 +34,13 @@ import {
   MAX_DOCUMENT_BATCH_BYTES,
   resolveDocument,
   resolveKnowledgeHome,
-  resolveVaultProjectFolder,
+  resolveVaultProject,
+  plainVaultProject,
+  type VaultProjectIdentity,
   normalizeControlFrame,
   parseCapabilitySnapshot,
   planMessage,
   planHandoffDescendants,
-  projectSlug,
-  slugifyProjectName,
   type BrowserPaneClearDataResult,
   type BrowserPaneDiagnostics,
   type BrowserPaneEnsureResult,
@@ -189,8 +189,8 @@ export interface SessionManagerDependencies {
   appVersion?: string;
   /** Writes vault diagnostics to the main-process log. Tests may omit the sink. */
   mainLog?: (line: string) => void;
-  /** Vault project folder resolver (#787); tests fake the remote lookup. Default: core resolveVaultProjectFolder. */
-  vaultFolder?: (displayName: string, projectCwd: string) => Promise<string>;
+  /** Vault project identity resolver (#787, #794); tests fake the remote lookup. Default: core resolveVaultProject. */
+  vaultProject?: (displayName: string, projectCwd: string) => Promise<VaultProjectIdentity>;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -213,8 +213,8 @@ export class SessionManager {
   private readonly viewTracker: ViewTracker;
   private readonly planGates: PlanGateTracker;
   private readonly planPreflight: PlanPreflightController;
-  /** Resolved vault project folders (#787) keyed by project cwd; recomputed on every rpc launch, bounded by the registry's project list. */
-  private readonly vaultFolders = new Map<string, string>();
+  /** Resolved vault project identities (#787, #794) keyed by project cwd; recomputed on every rpc launch, bounded by the registry's project list. */
+  private readonly vaultProjects = new Map<string, VaultProjectIdentity>();
   /** The main-process answerer for host tool/URI frames (issue #688, ADR-0043). */
   private readonly hostBridge: HostBridge;
   /** One in-flight execute re-check per tab (§6: atomic settle reservation). */
@@ -329,9 +329,9 @@ export class SessionManager {
           const project = deps.registry.projects.find((candidate) => candidate.path === record.projectCwd);
           return {
             projectName: project?.name ?? null,
-            projectFolder:
-              this.vaultFolders.get(record.projectCwd) ??
-              (project === undefined ? projectSlug(record.projectCwd) : slugifyProjectName(project.name)),
+            project:
+              this.vaultProjects.get(record.projectCwd) ??
+              plainVaultProject(project?.name ?? path.basename(record.projectCwd)),
             pinnedVault: project?.knowledgeHome?.vault ?? null,
             lineage: record.lineageDir.slice(-36),
           };
@@ -943,19 +943,20 @@ export class SessionManager {
         message: browserPaneSetMessage(cdpUrl),
       });
     }
-    // The vault project folder (#787): resolved once per rpc launch beside the
-    // Knowledge-home resolve — every launch (fresh, resume, relaunch) re-enters
-    // here, so a changed remote takes effect on the next launch. Independent of
-    // bridgeLoaded.knowledgeVault: the vault tools register on registry
-    // non-emptiness alone, so a docs-home project can still be handed them.
+    // The vault project identity (#787, #794): resolved once per rpc launch
+    // beside the Knowledge-home resolve — every launch (fresh, resume,
+    // relaunch) re-enters here, so a changed remote takes effect on the next
+    // launch. Independent of bridgeLoaded.knowledgeVault: the vault tools
+    // register on registry non-emptiness alone, so a docs-home project can
+    // still be handed them.
     if (vaults.vaults.length > 0) {
       const folderProject = this.deps.registry.projects.find(
         (project) => project.path === record.projectCwd,
       );
-      const resolveFolder = this.deps.vaultFolder ?? resolveVaultProjectFolder;
-      this.vaultFolders.set(
+      const resolveProject = this.deps.vaultProject ?? resolveVaultProject;
+      this.vaultProjects.set(
         record.projectCwd,
-        await resolveFolder(
+        await resolveProject(
           folderProject?.name ?? path.basename(record.projectCwd),
           record.projectCwd,
         ),

@@ -120,11 +120,12 @@ export interface VaultToolDetails {
   baseHash?: string;               // read and every write: sha256 hex of the file after the call
   indexNotePath?: string;          // create inside a project folder
   collisions?: string[];           // create: other vault paths with the same basename
+  adopted?: string[];              // create: vault paths of omp-ui notes moved in from legacy project folders
   matchedFiles?: number; returnedFiles?: number; truncated?: boolean;  // search, list
 }
 
 const STRING_FIELDS = ["title", "preview", "diff", "baseHash", "indexNotePath"] as const;
-const STRING_ARRAY_FIELDS = ["stamp", "collisions"] as const;
+const STRING_ARRAY_FIELDS = ["stamp", "collisions", "adopted"] as const;
 const NUMBER_FIELDS = ["matchedFiles", "returnedFiles"] as const;
 
 /** Structural guard; null unless vaultName is a string and action is a VaultAction. Copies only known, correctly typed keys. */

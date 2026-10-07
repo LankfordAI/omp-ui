@@ -112,7 +112,7 @@ function spawnScope(): Scope {
   const vaultDeps: VaultBridgeDeps = {
     context: () => ({
       projectName: "Live",
-      projectFolder: "Live",
+      project: { key: null, folder: "Live", indexTitle: "Live Index", legacy: null },
       pinnedVault: null,
       lineage: "019a38bf-bbaa-7111-8123-123456789abc",
     }),

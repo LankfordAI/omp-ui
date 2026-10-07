@@ -4,8 +4,8 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GitRunner } from "./branches";
 import type { GitOptions } from "./git";
-import { ghConfigDir, ghLogins, resolveKnowledgeHome, resolveVaultProjectFolder, VAULT_FOLDER_MAX, vaultProjectFolder } from "./knowledge-home";
-import type { KnowledgeHome, VaultRegistry } from "./types";
+import { ghConfigDir, ghLogins, resolveKnowledgeHome, resolveVaultProject, VAULT_FOLDER_MAX, vaultFolderSegment, vaultProjectIdentity } from "./knowledge-home";
+import type { KnowledgeHome, VaultProjectIdentity, VaultRegistry } from "./types";
 
 const tmpDirs: string[] = [];
 function tmpDir(): string {
@@ -220,69 +220,133 @@ describe("resolveKnowledgeHome routing default", () => {
   });
 });
 
-describe("vaultProjectFolder", () => {
-  const cases: Array<[string, string, string | null, string]> = [
-    ["a name and an owner", "Ansible", "AustinM731", "ansible-austinm731"],
-    ["no owner", "Ansible", null, "ansible"],
-    ["an owner that slugs empty", "ansible", "???", "ansible"],
-    ["an owner that slugs equal to the name", "ansible", "ansible", "ansible-ansible"],
-    ["punctuation in the owner", "app", "Acme Corp!", "app-acme-corp"],
-  ];
-
-  it.each(cases)("%s", (_label, name, owner, expected) => {
-    expect(vaultProjectFolder(name, owner)).toBe(expected);
+describe("vaultProjectIdentity", () => {
+  it("nests Owner/Repo in original case, keyed by the lowercased path", () => {
+    expect(vaultProjectIdentity("omp-ui", ["LankfordAI", "omp-ui"])).toEqual({
+      key: "lankfordai/omp-ui",
+      folder: "LankfordAI/omp-ui",
+      indexTitle: "omp-ui Index",
+      legacy: { suffixed: "omp-ui-lankfordai", plain: "omp-ui" },
+    });
   });
 
-  it("caps the whole name at VAULT_FOLDER_MAX with no trailing dash", () => {
-    const folder = vaultProjectFolder("a".repeat(40), "b".repeat(40));
-    expect(folder).toHaveLength(VAULT_FOLDER_MAX);
-    expect(folder).not.toMatch(/-$/);
-    expect(folder.startsWith("a".repeat(32))).toBe(true);
+  it("computes the same folder for a clone in a differently named directory", () => {
+    expect(vaultProjectIdentity("omp-ui-2", ["LankfordAI", "omp-ui"])).toEqual({
+      key: "lankfordai/omp-ui",
+      folder: "LankfordAI/omp-ui",
+      indexTitle: "omp-ui Index",
+      legacy: { suffixed: "omp-ui-2-lankfordai", plain: "omp-ui-2" },
+    });
+  });
+
+  it("nests every GitLab subgroup segment", () => {
+    const identity = vaultProjectIdentity("repo", ["grp", "sub", "repo"]);
+    expect(identity.key).toBe("grp/sub/repo");
+    expect(identity.folder).toBe("grp/sub/repo");
+    expect(identity.indexTitle).toBe("repo Index");
+  });
+
+  it("is plain for an owner-only path", () => {
+    expect(vaultProjectIdentity("Ansible", ["owner"])).toEqual({
+      key: null,
+      folder: "ansible",
+      indexTitle: "ansible Index",
+      legacy: null,
+    });
+  });
+
+  it("is plain with no segments", () => {
+    expect(vaultProjectIdentity("Ansible", null)).toEqual({
+      key: null,
+      folder: "ansible",
+      indexTitle: "ansible Index",
+      legacy: null,
+    });
+  });
+
+  it("blanks the plain legacy name when it is the owner folder itself", () => {
+    expect(vaultProjectIdentity("Acme", ["Acme", "tools"]).legacy?.plain).toBe("");
   });
 });
 
-describe("resolveVaultProjectFolder", () => {
-  async function resolve(git: FakeGit, name = "Ansible"): Promise<string> {
-    return resolveVaultProjectFolder(name, "/repo", { runGit: git.runGit });
+describe("vaultFolderSegment", () => {
+  const cases: Array<[string, string, string | null]> = [
+    ["a leading dot", ".hidden", "hidden"],
+    ["an illegal character", "a:b", "a-b"],
+    ["a reserved Windows name", "CON", "CON-"],
+    ["only dots", "...", null],
+  ];
+
+  it.each(cases)("%s", (_label, raw, expected) => {
+    expect(vaultFolderSegment(raw)).toBe(expected);
+  });
+
+  it("caps a segment at VAULT_FOLDER_MAX", () => {
+    expect(vaultFolderSegment("a".repeat(70))).toBe("a".repeat(VAULT_FOLDER_MAX));
+    expect(VAULT_FOLDER_MAX).toBe(64);
+  });
+});
+
+describe("resolveVaultProject", () => {
+  const PLAIN: VaultProjectIdentity = { key: null, folder: "ansible", indexTitle: "ansible Index", legacy: null };
+
+  async function resolve(git: FakeGit, name = "Ansible"): Promise<VaultProjectIdentity> {
+    return resolveVaultProject(name, "/repo", { runGit: git.runGit });
   }
 
-  it("suffixes an scp-style origin", async () => {
-    await expect(resolve(repoGit({ origin: "git@bitbucket.org:InsideRealEstate/Ansible.git\n" }))).resolves.toBe(
-      "ansible-insiderealestate",
-    );
+  it("nests an scp-style origin", async () => {
+    await expect(resolve(repoGit({ origin: "git@bitbucket.org:InsideRealEstate/Ansible.git\n" }))).resolves.toEqual({
+      key: "insiderealestate/ansible",
+      folder: "InsideRealEstate/Ansible",
+      indexTitle: "Ansible Index",
+      legacy: { suffixed: "ansible-insiderealestate", plain: "ansible" },
+    });
   });
 
-  it("suffixes an ssh:// origin", async () => {
-    await expect(resolve(repoGit({ origin: "ssh://git@github.com/AustinM731/ansible.git\n" }))).resolves.toBe(
-      "ansible-austinm731",
-    );
+  it("nests an ssh:// origin", async () => {
+    await expect(resolve(repoGit({ origin: "ssh://git@github.com/AustinM731/ansible.git\n" }))).resolves.toEqual({
+      key: "austinm731/ansible",
+      folder: "AustinM731/ansible",
+      indexTitle: "ansible Index",
+      legacy: { suffixed: "ansible-austinm731", plain: "ansible" },
+    });
   });
 
-  it("suffixes a sole non-origin remote", async () => {
-    await expect(resolve(repoGit({ upstream: "https://github.com/SomeOwner/repo.git\n" }))).resolves.toBe(
-      "ansible-someowner",
-    );
+  it("nests a sole non-origin remote", async () => {
+    await expect(resolve(repoGit({ upstream: "https://github.com/SomeOwner/repo.git\n" }))).resolves.toEqual({
+      key: "someowner/repo",
+      folder: "SomeOwner/repo",
+      indexTitle: "repo Index",
+      legacy: { suffixed: "ansible-someowner", plain: "ansible" },
+    });
   });
 
-  it("falls back to the plain slug for two remotes without origin", async () => {
+  it("decodes percent-encoded path segments", async () => {
+    const identity = await resolve(repoGit({ origin: "https://github.com/Acme/My%20Repo.git\n" }));
+    expect(identity.folder).toBe("Acme/My Repo");
+    expect(identity.key).toBe("acme/my repo");
+    expect(identity.indexTitle).toBe("My Repo Index");
+  });
+
+  it("is plain for two remotes without origin", async () => {
     const git = repoGit({ upstream: "git@github.com:A/a.git\n", fork: "git@github.com:B/b.git\n" });
-    await expect(resolve(git)).resolves.toBe("ansible");
+    await expect(resolve(git)).resolves.toEqual(PLAIN);
   });
 
-  it("falls back to the plain slug for a local-path remote", async () => {
-    await expect(resolve(repoGit({ origin: "/srv/git/ansible.git\n" }))).resolves.toBe("ansible");
+  it("is plain for a local-path remote", async () => {
+    await expect(resolve(repoGit({ origin: "/srv/git/ansible.git\n" }))).resolves.toEqual(PLAIN);
   });
 
-  it("falls back to the plain slug when get-url throws", async () => {
-    await expect(resolve(repoGit({ origin: new Error("boom") }))).resolves.toBe("ansible");
+  it("is plain when get-url throws", async () => {
+    await expect(resolve(repoGit({ origin: new Error("boom") }))).resolves.toEqual(PLAIN);
   });
 
-  it("falls back to the plain slug outside a git repo", async () => {
+  it("is plain outside a git repo", async () => {
     const git = fakeGit({ "rev-parse --show-toplevel": new Error("not a git repository") });
-    await expect(resolve(git)).resolves.toBe("ansible");
+    await expect(resolve(git)).resolves.toEqual(PLAIN);
   });
 
   it("never rejects with the real git runner in a fresh non-repo dir", async () => {
-    await expect(resolveVaultProjectFolder("Ansible", tmpDir())).resolves.toBe("ansible");
+    await expect(resolveVaultProject("Ansible", tmpDir())).resolves.toEqual(PLAIN);
   });
 });

@@ -1086,6 +1086,21 @@ export interface VaultRegistryEntry {
   allowWritesOutsideHome: boolean;
 }
 
+/**
+ * Where a project's Vault notes live (#787 follow-up, #794). key is the
+ * lowercased remote web path ("lankfordai/omp-ui"), recorded in the Index note
+ * as `project-key`; null without a web remote. folder is vault-relative below
+ * the Home folder, no leading or trailing slash. legacy names the
+ * single-segment folders older omp-ui versions wrote this project into; null
+ * when key is null. An empty `plain` means "no plain sweep".
+ */
+export interface VaultProjectIdentity {
+  key: string | null;
+  folder: string;
+  indexTitle: string;
+  legacy: { suffixed: string | null; plain: string } | null;
+}
+
 export interface VaultRegistry {
   vaults: VaultRegistryEntry[];
   /** Name of the Default write vault; null only when `vaults` is empty. */

@@ -36,6 +36,7 @@ import {
   type VaultCallContext,
   type VaultOutcome,
   type VaultRegistry,
+  type VaultProjectIdentity,
   type VaultRegistryEntry,
   type VaultToolDetails,
   type SessionsResourceDeps,
@@ -56,7 +57,7 @@ const ANSWERED_ID_CAP = 512;
 
 export interface VaultTabContext {
   projectName: string | null;
-  projectFolder: string;
+  project: VaultProjectIdentity;
   pinnedVault: string | null;
   lineage: string;
 }
@@ -438,7 +439,7 @@ export class HostBridge {
       obsidianId = obsidianIdFor(root.real, list);
       const withoutProject = args.action === "create" && args.project === false;
       const ctx: VaultCallContext = {
-        entry, obsidianId, projectFolder: withoutProject ? null : tabContext.projectFolder,
+        entry, obsidianId, project: withoutProject ? null : tabContext.project,
         projectName: withoutProject ? null : tabContext.projectName, lineage: tabContext.lineage,
         appVersion: deps.appVersion, now: () => deps.now(), guard,
       };
@@ -454,6 +455,10 @@ export class HostBridge {
         deps.mainLog(vaultLog(entry.name, action, outcome.ok
           ? outcome.details.path ?? "(unknown path)"
           : `refused: ${vaultRefusalReason(outcome.text)}`));
+        const adopted = outcome.details.adopted;
+        if (adopted !== undefined && adopted.length > 0) {
+          deps.mainLog(vaultLog(entry.name, action, `adopted ${adopted.length} notes into ${path.posix.dirname(adopted[0]!)}`));
+        }
       }
       const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
         { type: "text", text: outcome.text },

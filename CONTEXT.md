@@ -876,7 +876,14 @@ _Avoid_: metadata, signature
 **Index note**:
 The one note per project that links the project's omp-ui notes and wikilinks
 the relevant notes the user wrote; the project's entry point into the vault.
+It carries the **Project key**.
 _Avoid_: hub note, table of contents
+
+**Project key**:
+The lowercased owner/repo path of a project's git remote, recorded in its
+Index note's Provenance stamp; how omp-ui finds the project's vault folder on
+any machine.
+_Avoid_: project id, repo id
 
 **Day write-up**:
 A cross-project note of everything worked on that day, written by the agent

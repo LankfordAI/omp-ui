@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import * as yaml from "js-yaml";
 import { NOTE_BYTE_CAP, SEARCH_TEXT_CAP, normalizeTitle, resolveVaultPath, scanSecrets, validateVaultRoot, vaultAppend, vaultCreate, vaultEdit, vaultLink, vaultList, vaultRead, vaultSearch, type RootGuard, type VaultCallContext } from "./knowledge-vault";
 import { parseObsidianNoteUri, type ObsidianNoteTarget } from "./vault-shared";
+import type { VaultProjectIdentity } from "./types";
 
 // Keep real I/O while allowing deterministic filesystem failures and races.
 vi.mock("node:fs", async (importOriginal) => ({ ...(await importOriginal<typeof fs>()) }));
@@ -215,7 +216,7 @@ describe("production vault tools", () => {
     ctx = {
       entry: { name: "Notes", path: root, homeFolder: "omp-ui/", allowWritesOutsideHome: false },
       obsidianId: "0123456789abcdef",
-      projectFolder: "my-project",
+      project: { key: null, folder: "my-project", indexTitle: "my-project Index", legacy: null },
       projectName: 'My "Project"',
       lineage: "older/prefix/12345678-1234-5678-9012-123456789012",
       appVersion: "18.6.1",
@@ -285,7 +286,7 @@ describe("production vault tools", () => {
   it("project:false omits project and Index while reporting basename collisions", async () => {
     put("elsewhere/Topic.md", "old");
     put("another/topic.MD", "old");
-    const result = await vaultCreate({ ...ctx, projectFolder: null, projectName: null }, { title: "topic", body: "new" });
+    const result = await vaultCreate({ ...ctx, project: null, projectName: null }, { title: "topic", body: "new" });
     expect(result.ok).toBe(true);
     expect(result.details.path).toBe("omp-ui/Topic.md");
     expect(result.details.indexNotePath).toBeUndefined();
@@ -709,7 +710,7 @@ describe("production vault tools", () => {
   });
 
   it("accepts exactly 2 MiB of stamped UTF-8 and refuses the next byte, including multibyte bodies", async () => {
-    const noProject = { ...ctx, projectFolder: null, projectName: null };
+    const noProject = { ...ctx, project: null, projectName: null };
     const seed = await vaultCreate(noProject, { title: "Seed", body: "" });
     expect(seed.ok).toBe(true);
     const overhead = Buffer.byteLength(disk("omp-ui/Seed.md"));
@@ -746,7 +747,7 @@ describe("production vault tools", () => {
     const descriptor = Object.getOwnPropertyDescriptor(process, "platform")!;
     try {
       Object.defineProperty(process, "platform", { value: "win32" });
-      const noProject = { ...ctx, projectFolder: null, projectName: null };
+      const noProject = { ...ctx, project: null, projectName: null };
       const fixed = root.length + "/omp-ui/".length + ".md".length;
       const segments = ["s".repeat(80), "t".repeat(80)];
       const longHome = `${segments.join("/")}/`;
@@ -759,7 +760,7 @@ describe("production vault tools", () => {
       expect(over.text).toContain("the note path would be longer than Windows allows (260 characters)");
       expect(fs.existsSync(path.join(root, longHome, `${atLimit}x.md`))).toBe(false);
       const projectFolder = "p".repeat(Math.ceil((260 - fixed) / 2));
-      const indexCtx = { ...ctx, projectFolder };
+      const indexCtx = { ...ctx, project: { key: null, folder: projectFolder, indexTitle: `${projectFolder} Index`, legacy: null } };
       const indexResult = await vaultCreate(indexCtx, { title: "A", body: "body" });
       expect(indexResult.text).toContain("the note path would be longer than Windows allows (260 characters)");
       expect(fs.existsSync(path.join(root, "omp-ui", projectFolder))).toBe(false);
@@ -877,6 +878,153 @@ describe("production vault tools", () => {
     expect(link.ok).toBe(false);
     expect(edit.text).toContain("changed since you read it; read it again before editing");
     expect(disk("omp-ui/Note.md")).toBe(`${prefix}external change\r\n`);
+  });
+
+  describe("project identity and adoption", () => {
+    const identity: VaultProjectIdentity = { key: "acme/app", folder: "Acme/app", indexTitle: "app Index", legacy: { suffixed: "app-acme", plain: "app" } };
+    const destIndex = "omp-ui/Acme/app/app Index.md";
+    let keyed: VaultCallContext;
+
+    beforeEach(() => {
+      keyed = { ...ctx, project: identity };
+    });
+
+    function stamped(body: string): string { return `---\nomp-ui: true\n---\n${body}\n`; }
+    function indexNote(title: string, links: string[], key: string | null = null): string {
+      return `---\nomp-ui: true\n${key === null ? "" : `project-key: "${key}"\n`}tags:\n  - "index"\n---\n# ${title}\n${links.map((line) => `${line}\n`).join("")}`;
+    }
+    function linkLines(rel: string): string[] { return disk(rel).match(/^- \[\[.*$/gm) ?? []; }
+    function seedLegacy(): void {
+      put("omp-ui/app-acme/A.md", stamped("a"));
+      put("omp-ui/app/B.md", stamped("b"));
+      put("omp-ui/app/C.md", "c by hand\n");
+      put("omp-ui/app-acme/app-acme Index.md", indexNote("app-acme Index", ["- [[omp-ui/app-acme/A|A]]"]));
+      put("omp-ui/app/app Index.md", indexNote("app Index", ["- [[omp-ui/app/B|B]]", "- [[omp-ui/app/C|C]]"]));
+      put("omp-ui/Notes.md", "see [[omp-ui/app/B|B]]\n");
+    }
+
+    it("adopts both legacy folders on first claim, merging Indexes and rewriting path links", async () => {
+      seedLegacy();
+      const result = await vaultCreate(keyed, { title: "New", body: "body" });
+      expect(result.ok).toBe(true);
+      expect(result.details.path).toBe("omp-ui/Acme/app/New.md");
+      expect(fs.readdirSync(path.join(root, "omp-ui/Acme/app")).sort()).toEqual(["A.md", "B.md", "New.md", "app Index.md"]);
+      expect(disk("omp-ui/Acme/app/A.md")).toBe(stamped("a"));
+      expect(yaml.load(disk(destIndex).split("---\n")[1]!)).toMatchObject({ "omp-ui": true, "project-key": "acme/app", tags: ["index"] });
+      expect(linkLines(destIndex)).toEqual(["- [[omp-ui/Acme/app/A|A]]", "- [[omp-ui/Acme/app/B|B]]", "- [[omp-ui/Acme/app/New|New]]"]);
+      expect(fs.existsSync(path.join(root, "omp-ui/app-acme"))).toBe(false);
+      expect(fs.readdirSync(path.join(root, "omp-ui/app")).sort()).toEqual(["C.md", "app Index.md"]);
+      expect(disk("omp-ui/app/C.md")).toBe("c by hand\n");
+      expect(linkLines("omp-ui/app/app Index.md")).toEqual(["- [[omp-ui/app/C|C]]"]);
+      expect(disk("omp-ui/Notes.md")).toBe("see [[omp-ui/Acme/app/B|B]]\n");
+      expect(result.details.adopted).toEqual(["omp-ui/Acme/app/A.md", "omp-ui/Acme/app/B.md"]);
+      expect(result.text).toContain("\nAdopted 2 omp-ui notes into omp-ui/Acme/app from omp-ui/app-acme, omp-ui/app.");
+      expect(result.text).toContain("\nLeft in place: omp-ui/app/C.md (not created by omp-ui)");
+    });
+
+    it("creates in the folder whose stamped Index carries the key and leaves the plain legacy folder", async () => {
+      put("omp-ui/Work/app/app Index.md", indexNote("app Index", [], "acme/app"));
+      put("omp-ui/app/B.md", stamped("b"));
+      const result = await vaultCreate(keyed, { title: "New", body: "body" });
+      expect(result.ok).toBe(true);
+      expect(result.details.path).toBe("omp-ui/Work/app/New.md");
+      expect(result.details.indexNotePath).toBe("omp-ui/Work/app/app Index.md");
+      expect(linkLines("omp-ui/Work/app/app Index.md")).toEqual(["- [[omp-ui/Work/app/New|New]]"]);
+      expect(disk("omp-ui/app/B.md")).toBe(stamped("b"));
+      expect(fs.existsSync(path.join(root, "omp-ui/Acme"))).toBe(false);
+      expect(result.details.adopted).toBeUndefined();
+      expect(result.text).not.toContain("Adopted");
+    });
+
+    it("converges remote casing changes on the folder already claimed by the key", async () => {
+      expect((await vaultCreate(keyed, { title: "New", body: "body" })).ok).toBe(true);
+      const recased = { ...ctx, project: { ...identity, folder: "acme/APP" } };
+      const second = await vaultCreate(recased, { title: "Second", body: "body" });
+      expect(second.ok).toBe(true);
+      expect(second.details.path).toBe("omp-ui/Acme/app/Second.md");
+      expect(fs.readdirSync(path.join(root, "omp-ui"))).toEqual(["Acme"]);
+      expect(linkLines(destIndex)).toEqual(["- [[omp-ui/Acme/app/New|New]]", "- [[omp-ui/Acme/app/Second|Second]]"]);
+    });
+
+    it("leaves a legacy note in place when the destination already has that name", async () => {
+      put("omp-ui/Acme/app/A.md", stamped("current"));
+      put("omp-ui/app-acme/A.md", stamped("legacy"));
+      const result = await vaultCreate(keyed, { title: "New", body: "body" });
+      expect(result.ok).toBe(true);
+      expect(disk("omp-ui/Acme/app/A.md")).toBe(stamped("current"));
+      expect(disk("omp-ui/app-acme/A.md")).toBe(stamped("legacy"));
+      expect(result.text).toContain("\nLeft in place: omp-ui/app-acme/A.md (a note with that name already exists at omp-ui/Acme/app/A.md)");
+      expect(result.details.adopted).toBeUndefined();
+    });
+
+    it("keeps a note linked by path from outside Home unless writes outside Home are allowed", async () => {
+      put("omp-ui/app/B.md", stamped("b"));
+      put("Projects/X.md", "see [[omp-ui/app/B]]\n");
+      const blocked = await vaultCreate(keyed, { title: "New", body: "body" });
+      expect(blocked.ok).toBe(true);
+      expect(blocked.text).toContain("\nLeft in place: omp-ui/app/B.md (linked by path from Projects/X.md, outside the Home folder)");
+      expect(disk("omp-ui/app/B.md")).toBe(stamped("b"));
+      expect(disk("Projects/X.md")).toBe("see [[omp-ui/app/B]]\n");
+      // The plain folder is adopted on first claim only; start from an unclaimed vault again.
+      fs.rmSync(path.join(root, "omp-ui/Acme"), { recursive: true });
+      const open = { ...keyed, entry: { ...ctx.entry, allowWritesOutsideHome: true } };
+      const allowed = await vaultCreate(open, { title: "New", body: "body" });
+      expect(allowed.ok).toBe(true);
+      expect(allowed.details.adopted).toEqual(["omp-ui/Acme/app/B.md"]);
+      expect(disk("omp-ui/Acme/app/B.md")).toBe(stamped("b"));
+      expect(fs.existsSync(path.join(root, "omp-ui/app"))).toBe(false);
+      expect(disk("Projects/X.md")).toBe("see [[omp-ui/Acme/app/B]]\n");
+    });
+
+    it("moves nothing when the create itself is refused", async () => {
+      seedLegacy();
+      const result = await vaultCreate(keyed, { title: "New", body: "---\nkey: value\n---\nbody" });
+      expect(result.ok).toBe(false);
+      expect(result.text).toContain("omp-ui writes the frontmatter; send the body only");
+      expect(result.details.adopted).toBeUndefined();
+      expect(disk("omp-ui/app-acme/A.md")).toBe(stamped("a"));
+      expect(disk("omp-ui/app/B.md")).toBe(stamped("b"));
+      expect(disk("omp-ui/Notes.md")).toBe("see [[omp-ui/app/B|B]]\n");
+      expect(fs.existsSync(path.join(root, "omp-ui/Acme"))).toBe(false);
+    });
+
+    it("adopts once: a second create reports no adoption and keeps one project key", async () => {
+      seedLegacy();
+      expect((await vaultCreate(keyed, { title: "New", body: "body" })).details.adopted).toHaveLength(2);
+      const second = await vaultCreate(keyed, { title: "Second", body: "body" });
+      expect(second.ok).toBe(true);
+      expect(second.text).not.toContain("Adopted");
+      expect(second.details.adopted).toBeUndefined();
+      expect(disk(destIndex).match(/^project-key:/gm)).toHaveLength(1);
+      expect(disk("omp-ui/app/C.md")).toBe("c by hand\n");
+    });
+
+    it("refuses when the computed Index belongs to another project key", async () => {
+      const foreign = indexNote("app Index", [], "other/app");
+      put(destIndex, foreign);
+      put("omp-ui/app-acme/A.md", stamped("a"));
+      const result = await vaultCreate(keyed, { title: "New", body: "body" });
+      expect(result.ok).toBe(false);
+      expect(result.text).toContain("omp-ui/Acme/app/app Index.md belongs to project other/app; rename or move that folder in Obsidian");
+      expect(disk(destIndex)).toBe(foreign);
+      expect(disk("omp-ui/app-acme/A.md")).toBe(stamped("a"));
+      expect(fs.existsSync(path.join(root, "omp-ui/Acme/app/New.md"))).toBe(false);
+    });
+
+    it("never sweeps the destination owner folder or descends into legacy subfolders", async () => {
+      const owner = { ...ctx, project: { ...identity, legacy: { suffixed: "app-acme", plain: "acme" } } };
+      put("omp-ui/Acme/Y.md", stamped("y"));
+      put("omp-ui/Acme/other/Z.md", stamped("z"));
+      put("omp-ui/app-acme/A.md", stamped("a"));
+      put("omp-ui/app-acme/sub/S.md", stamped("s"));
+      const result = await vaultCreate(owner, { title: "New", body: "body" });
+      expect(result.ok).toBe(true);
+      expect(result.details.adopted).toEqual(["omp-ui/Acme/app/A.md"]);
+      expect(disk("omp-ui/Acme/Y.md")).toBe(stamped("y"));
+      expect(disk("omp-ui/Acme/other/Z.md")).toBe(stamped("z"));
+      expect(disk("omp-ui/app-acme/sub/S.md")).toBe(stamped("s"));
+      expect(fs.readdirSync(path.join(root, "omp-ui/Acme/app")).sort()).toEqual(["A.md", "New.md", "app Index.md"]);
+    });
   });
 });
 

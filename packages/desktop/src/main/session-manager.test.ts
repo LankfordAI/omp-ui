@@ -222,7 +222,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultFolder?: (displayName: string, projectCwd: string) => Promise<string> } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity> } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -303,7 +303,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     hostNotify: opts.hostNotify,
     appVersion: opts.appVersion,
     mainLog: opts.mainLog,
-    vaultFolder: opts.vaultFolder,
+    vaultProject: opts.vaultProject,
     browserPane: {
       createPane: async () => {
         const pane = fakePaneContents();
@@ -6861,13 +6861,18 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
     });
   });
 
-  it("writes vault notes into the remote-suffixed project folder (#787)", async () => {
+  it("writes vault notes into the remote owner/repo project folder (#794)", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-manager-vault-"));
     try {
       const { manager, registry } = setup({
         mode: "rpc-ui",
         projectName: "Ansible",
-        vaultFolder: async () => "ansible-austinm731",
+        vaultProject: async () => ({
+          key: "austinm731/ansible",
+          folder: "AustinM731/ansible",
+          indexTitle: "ansible Index",
+          legacy: { suffixed: "ansible-austinm731", plain: "ansible" },
+        }),
       });
       registry.setSetting("vaultRegistry", {
         vaults: [{ name: "Notes", path: root, homeFolder: "omp-ui/", allowWritesOutsideHome: false }],
@@ -6876,17 +6881,19 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
       await resume(manager);
       const rpc = rpcInstances[0]!;
       rpc.inputFrame({
-        type: "host_tool_call", id: "suffixed-create", toolCallId: "tc-suffixed", toolName: "omp-ui_vault_create",
-        arguments: { title: "collided name", body: "Filed under the suffixed folder." },
+        type: "host_tool_call", id: "keyed-create", toolCallId: "tc-keyed", toolName: "omp-ui_vault_create",
+        arguments: { title: "collided name", body: "Filed under the owner/repo folder." },
       });
-      await waitSent(rpc, "suffixed-create");
+      await waitSent(rpc, "keyed-create");
       expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({
-        id: "suffixed-create",
-        result: expect.objectContaining({ details: expect.objectContaining({ path: "omp-ui/ansible-austinm731/Collided Name.md" }) }),
+        id: "keyed-create",
+        result: expect.objectContaining({ details: expect.objectContaining({ path: "omp-ui/AustinM731/ansible/Collided Name.md" }) }),
       }));
-      expect(fs.existsSync(path.join(root, "omp-ui", "ansible-austinm731", "Collided Name.md"))).toBe(true);
-      const index = fs.readFileSync(path.join(root, "omp-ui", "ansible-austinm731", "ansible-austinm731 Index.md"), "utf8");
-      expect(index).toContain("[[omp-ui/ansible-austinm731/Collided Name|Collided Name]]");
+      expect(fs.existsSync(path.join(root, "omp-ui", "AustinM731", "ansible", "Collided Name.md"))).toBe(true);
+      const index = fs.readFileSync(path.join(root, "omp-ui", "AustinM731", "ansible", "ansible Index.md"), "utf8");
+      expect(index).toContain('project-key: "austinm731/ansible"');
+      expect(index).toContain("[[omp-ui/AustinM731/ansible/Collided Name|Collided Name]]");
+      expect(fs.existsSync(path.join(root, "omp-ui", "ansible-austinm731"))).toBe(false);
       expect(fs.existsSync(path.join(root, "omp-ui", "ansible"))).toBe(false);
       rpc.exit(0);
     } finally {
