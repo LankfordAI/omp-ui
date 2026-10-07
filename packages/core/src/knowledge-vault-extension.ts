@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { writeLineageArtifact } from "./lineage-artifact";
 import { generatedRootBindingSource } from "./generated-extension-source";
+import type { VaultNoteVoice } from "./types";
 
 /**
  * The agent learns where to file decisions and lessons (#766, ADR-0048) from
@@ -38,6 +39,10 @@ export function knowledgeVaultArmMessage(text: string): string {
 const BOTH_SUFFIX =
   "This project also keeps decisions in its repo docs/: write the full note there with your file tools, then create a short vault note with the title, a one-line gist, and the repo path.";
 
+const VOICE_USER =
+  "Write every vault note in the user's own voice: first person, as if the user is speaking or writing on their own behalf (\"I decided…\", \"I hit a trap where…\"). Never write \"the agent did X\" and never describe the user in the third person.";
+const VOICE_ASSISTANT =
+  "Write every vault note in your own voice as the user's assistant: describe the work, decisions, and lessons from your point of view.";
 const DAY_WRITE_UP =
   'If the user asks for a note of everything worked on today, read omp-ui://sessions, then omp-ui://sessions/<id>/summary for each session it lists, then write one Day write-up yourself in this session with omp-ui_vault_create, project false, titled "<date> Day Write-up" with the date from the index heading. Subagents can read those resources but cannot call the vault tools. If the note already exists, read it and replace its body with omp-ui_vault_edit.';
 
@@ -48,6 +53,8 @@ const REPLY_LINKS =
 export function knowledgeVaultGuidance(input: {
   write: { vault: string; both: boolean } | null;
   dayWriteUp: boolean;
+  /** Whose voice note bodies take (#793). */
+  voice: VaultNoteVoice;
 }): string | null {
   const parts: string[] = [];
   if (input.write !== null) {
@@ -56,6 +63,7 @@ export function knowledgeVaultGuidance(input: {
   }
   if (input.dayWriteUp) parts.push(DAY_WRITE_UP);
   if (parts.length === 0) return null;
+  parts.push(input.voice === "user" ? VOICE_USER : VOICE_ASSISTANT);
   parts.push(REPLY_LINKS);
   return parts.join("\n\n");
 }

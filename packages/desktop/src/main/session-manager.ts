@@ -974,6 +974,7 @@ export class SessionManager {
             : null,
         // The enclosing guard is "a vault is registered" (#760): every native session gets the day part.
         dayWriteUp: true,
+        voice: this.deps.registry.getSetting("vaultNoteVoice"),
       });
       if (guidance !== null) {
         initialCommands.push({

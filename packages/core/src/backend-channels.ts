@@ -66,6 +66,7 @@ import type {
   TranscriptWidth,
   UpdateTrain,
   VaultDetection,
+  VaultNoteVoice,
   WebSearchProviderSnapshot,
   WorktreeReleaseOptions,
   WorktreeReleaseResult,
@@ -124,6 +125,7 @@ import {
   trailingOptional,
   transcriptWidthCodec,
   updateTrainCodec,
+  vaultNoteVoiceCodec,
   worktreeReleaseOptionsCodec,
   type ArgCodec,
   type ArgCodecs,
@@ -444,6 +446,11 @@ export const BACKEND_CHANNELS = {
   setOmpUpdateCheckOnLaunch: {
     channel: "settings:setOmpUpdateCheckOnLaunch",
     ...request<[on: boolean], void>([bool()]),
+  },
+  /** Whose voice vault note bodies take (#793); default "user". */
+  setVaultNoteVoice: {
+    channel: "settings:setVaultNoteVoice",
+    ...request<[voice: VaultNoteVoice], void>([vaultNoteVoiceCodec]),
   },
   /** Clears the remembered omp-ui update dismissal so the offer can return. */
   clearDismissedAppUpdate: {

@@ -9,6 +9,7 @@ import {
   type SessionMode,
   type TranscriptWidth,
   type UpdateTrain,
+  type VaultNoteVoice,
 } from "@omp-ui/core";
 
 type SettingsHandlerChannels =
@@ -37,7 +38,8 @@ type SettingsHandlerChannels =
   | typeof CH.setLocaleId
   | typeof CH.setAppUpdateCheckOnLaunch
   | typeof CH.setAppUpdateTrain
-  | typeof CH.setOmpUpdateCheckOnLaunch;
+  | typeof CH.setOmpUpdateCheckOnLaunch
+  | typeof CH.setVaultNoteVoice;
 
 interface SettingsHandlerDependencies {
   registry: Registry;
@@ -95,5 +97,6 @@ export function registerSettingsHandlers(
       await deps.broadcast();
     },
     [CH.setOmpUpdateCheckOnLaunch]: (value: boolean) => commit("ompUpdateCheckOnLaunch", value),
+    [CH.setVaultNoteVoice]: (value: VaultNoteVoice) => commit("vaultNoteVoice", value),
   };
 }

@@ -7,8 +7,8 @@ import { useLoad, type Load } from "../../lib/load";
 import { useStore } from "../../store";
 import { DirectoryPicker } from "../DirectoryPicker";
 import { OpenInObsidianButton } from "../OpenInObsidianButton";
-import { Button, Chip, Empty, Label, Panel, Switch, type Tone } from "../ui";
-import { CommitField } from "./rows";
+import { Button, Chip, ChoiceCapsule, Empty, Label, Panel, Switch, type Tone } from "../ui";
+import { CommitField, Row } from "./rows";
 import { VaultImportDialog } from "./VaultImportDialog";
 
 /**
@@ -24,6 +24,8 @@ const EMPTY_REGISTRY: VaultRegistry = { vaults: [], defaultWriteVault: null };
 export function KnowledgeVaultPage() {
   const t = useT();
   const registry = useStore((s) => s.state?.vaultRegistry) ?? EMPTY_REGISTRY;
+  const voice = useStore((s) => s.state?.vaultNoteVoice) ?? "user";
+  const setVaultNoteVoice = useStore((s) => s.setVaultNoteVoice);
   const addVault = useStore((s) => s.addVault);
   const [dialog, setDialog] = useState<"picker" | "import" | null>(null);
   // Keyed on the registry's content, not its identity: every BackendState
@@ -83,6 +85,18 @@ export function KnowledgeVaultPage() {
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-2">{actions}</div>
+          <Row title={t("settings.vault.noteVoice")} hint={t("settings.vault.noteVoiceHint")}>
+            <ChoiceCapsule
+              label={t("settings.vault.noteVoice")}
+              value={voice}
+              options={[
+                { value: "user", label: t("settings.vault.noteVoiceUser") },
+                { value: "assistant", label: t("settings.vault.noteVoiceAssistant") },
+              ]}
+              onChange={(v) => void setVaultNoteVoice(v)}
+              optionClassName="px-2 text-[11px]"
+            />
+          </Row>
         </>
       )}
 

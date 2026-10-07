@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import type { BackendState, DirBrowseResult, VaultDetection, VaultRegistry } from "@omp-ui/core/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DirBrowseResult, VaultDetection, VaultRegistry } from "@omp-ui/core/types";
 import { backendState } from "../../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -34,6 +34,7 @@ const backendMock = {
   })),
   removeVault: vi.fn(async () => {}),
   setDefaultWriteVault: vi.fn(async () => {}),
+  setVaultNoteVoice: vi.fn<(voice: string) => Promise<void>>(async () => {}),
   setVaultHomeFolder: vi.fn<(name: string, homeFolder: string) => Promise<void>>(async () => {}),
   setVaultWritesOutsideHome: vi.fn(async () => {}),
   openVault: vi.fn(async () => {}),
@@ -62,9 +63,8 @@ function detection(patch: Partial<VaultDetection> = {}): VaultDetection {
 }
 
 let root: Root | null = null;
-
-async function render(registry: VaultRegistry): Promise<void> {
-  useStore.setState({ state: backendState({ vaultRegistry: registry }) });
+async function render(registry: VaultRegistry, patch: Partial<BackendState> = {}): Promise<void> {
+  useStore.setState({ state: backendState({ vaultRegistry: registry, ...patch }) });
   const host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -124,6 +124,8 @@ describe("KnowledgeVaultPage (issue #764)", () => {
     expect(importButton.title).toBe("Obsidian's vault list was not found on this machine.");
     expect(text()).toContain("not found");
     expect(text()).toContain("none");
+    // Note voice only does something once a vault exists, so the empty state hides it.
+    expect(text()).not.toContain("Note voice");
   });
 
   it("renders a registered vault with its detection rows and the pin line", async () => {
@@ -149,6 +151,21 @@ describe("KnowledgeVaultPage (issue #764)", () => {
     expect(text()).toContain("handled");
     expect(text()).toContain("omp's own vault:// protocol stays off in omp-ui sessions");
     expect(button("Import from Obsidian…").disabled).toBe(false);
+  });
+
+  it("reflects the note-voice setting and writes the other value on click", async () => {
+    await render(ONE_VAULT);
+    expect(button("On my behalf").getAttribute("aria-pressed")).toBe("true");
+    expect(button("As the assistant").getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => button("As the assistant").click());
+    expect(backendMock.setVaultNoteVoice).toHaveBeenCalledWith("assistant");
+  });
+
+  it("shows the assistant capsule pressed when the setting is assistant", async () => {
+    await render(ONE_VAULT, { vaultNoteVoice: "assistant" });
+    expect(button("As the assistant").getAttribute("aria-pressed")).toBe("true");
+    expect(button("On my behalf").getAttribute("aria-pressed")).toBe("false");
   });
 
   it("chips a row whose folder vanished as folder missing", async () => {

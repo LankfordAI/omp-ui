@@ -283,6 +283,7 @@ const mockBackend = {
   setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
   setAppUpdateTrain: vi.fn(async () => {}),
   setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
+  setVaultNoteVoice: vi.fn(async () => {}),
   clearDismissedAppUpdate: vi.fn(async () => {}),
   clearDismissedOmpUpdate: vi.fn(async () => {}),
   setWindowChrome: vi.fn(async () => {}),

@@ -165,6 +165,8 @@ The Knowledge vault page is the Vault registry: the Obsidian vaults omp-ui may u
 
 Exactly one vault is the **Default write vault**: the one a project writes to unless its Knowledge home names another. The first vault you add becomes the default; removing the default moves it to the next vault. Each vault's **Home folder** is a folder inside the vault. **Allow writes outside the home folder** lets the agent append to and edit notes anywhere in that vault; new notes still go in the Home folder. **Open in Obsidian** hands the vault to Obsidian; where this app cannot open it (a browser client, or no `obsidian://` handler), the button copies the vault's `obsidian://` link instead.
 
+**Note voice** chooses whose voice vault note bodies take: **On my behalf** (default; the agent writes first-person as if you were writing the note yourself) or **As the assistant** (the agent describes the work from its own point of view). Applies to sessions started afterwards; a running session keeps the voice it was armed with.
+
 Changes apply to sessions started afterwards. A browser client of this app sees and edits this machine's registry; a joined remote instance cannot reach it.
 
 ## omp

@@ -306,6 +306,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setVaultNoteVoice(voice) {
+      try {
+        await backend.setVaultNoteVoice(voice);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     // The caller renders the refusal inline (addProject's posture), so no reportError here.
     async addVault(path) {
       await backend.addVault(path);

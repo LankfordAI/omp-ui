@@ -1105,6 +1105,11 @@ export const en = {
   "settings.vault.open": "open",
   "settings.vault.importConfirm": "Import",
   "settings.vault.importCancel": "Cancel",
+  "settings.vault.noteVoice": "Note voice",
+  "settings.vault.noteVoiceUser": "On my behalf",
+  "settings.vault.noteVoiceAssistant": "As the assistant",
+  "settings.vault.noteVoiceHint":
+    "Whose voice the agent uses when it writes vault note bodies. Applies to sessions started afterwards.",
 
   // OmpPage
   "settings.omp.reading": "Reading omp configuration…",
