@@ -1436,7 +1436,8 @@ export function createSessionParamsSlice(
     const resp = await m.runCommand(tabId, { type: "set_session_name", name });
     if (resp === null) return;
     // A user-chosen name is final — the auto-titler must not overwrite it.
-    m.patchRpc(tabId, { hasRenamed: true, initialPrompt: null });
+    // Clearing the attempt retires any in-flight retry budget (issue #791).
+    m.patchRpc(tabId, { hasRenamed: true, initialPrompt: null, titleAttempt: null });
   };
 
   const regenerateSessionTitle = async (tabId: string): Promise<void> => {

@@ -154,7 +154,7 @@ The Providers page's **Preferred provider** select writes omp's `providers.webSe
 
 ### Managed OMP binary
 
-Core owns binary discovery, version comparison, release asset selection, temporary-executable validation, and atomic replacement. Resolution prefers an explicit `OMP_UI_OMP_PATH`, then omp-ui's private managed copy, then `PATH` and known user install locations. Desktop main owns the visible update state and refreshes the resolved path after an install. Session and branch-name processes both use that resolved binary. The renderer never downloads or launches omp itself. Session titling needs no omp-ui process at all: it rides the rpc prompt channel as omp's own `/rename`.
+Core owns binary discovery, version comparison, release asset selection, temporary-executable validation, and atomic replacement. Resolution prefers an explicit `OMP_UI_OMP_PATH`, then omp-ui's private managed copy, then `PATH` and known user install locations. Desktop main owns the visible update state and refreshes the resolved path after an install. Session and branch-name processes both use that resolved binary. The renderer never downloads or launches omp itself. Session titling needs no omp-ui process at all: it rides the rpc prompt channel as omp's own `/rename`. A declined generation (omp's generator declines per-model, e.g. an HTTP 400 on the title request) retries at later turn ends — 3 attempts with a 15 s floor, judged against the record's title — and a persistent decline leaves the session untitled with omp's own decline notice per attempt (issue #791).
 
 ### Plan mode and plan review
 

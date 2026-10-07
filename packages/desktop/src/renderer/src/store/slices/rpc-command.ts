@@ -1,8 +1,8 @@
 import { sessionCommandIsOffChain, type SessionCommand } from "@omp-ui/core/session-command";
 // RPC command domain (decomposed for #295): boot, command correlation and
-// timeout, history backfill, and the auto-titling latch that delegates to
-// omp's own `/rename`.
-import type { BackendState } from "@omp-ui/core/types";
+// timeout, history backfill, and the auto-titling dispatch that delegates to
+// omp's own `/rename` with a bounded retry (issue #791).
+import type { BackendState, SessionSummary } from "@omp-ui/core/types";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type {
@@ -583,6 +583,7 @@ function freshRpcTabState(
     failure: undefined,
     initialPrompt: null,
     hasRenamed: false,
+    titleAttempt: null,
     plan: null,
     planReview: null,
     planText: null,
@@ -621,6 +622,12 @@ function carriedFailedModel(
   const failed = state.rpc[tabId]?.failure?.failedModel;
   return failed === undefined ? {} : { failedModel: failed };
 }
+
+/** Auto-title retries per renderer lifetime of the tab (issue #791). */
+const MAX_RENAME_ATTEMPTS = 3;
+/** A second dispatch waits for a later turn end while a generation may still
+ *  be in flight; a turn end inside this floor leaves the attempt parked. */
+const RENAME_RETRY_FLOOR_MS = 15_000;
 
 export function createRpcCommandSlice(
   set: SetState,
@@ -872,20 +879,18 @@ export function createRpcCommandSlice(
     m.patchRpc(tabId, { initialPrompt: prompt });
   };
 
-  const renameSession = (tabId: string): void => {
-    const tab = get().rpc[tabId];
-    if (!tab || !tab.initialPrompt || tab.hasRenamed) return;
-    // Latch before anything is sent so a second agent_end can't double-fire.
-    // One shot per session: omp's generator retries across its model
-    // candidates internally, and a declined generation leaves the session
-    // titled by the next manual path — matching omp's own `/rename`
-    // semantics (issue #788).
-    m.patchRpc(tabId, { hasRenamed: true, initialPrompt: null });
+  // A decline happens per-model (issue #791): the generator can 400 on one
+  // provider and parse nothing on another, so the dispatch outcome is judged
+  // at later turn ends against the title ground truth — the record's title,
+  // hydrated through the watcher — never against engine output strings. A
+  // titled record clears the attempt; an untitled one re-dispatches after
+  // the floor until MAX_RENAME_ATTEMPTS, then stops, with omp's per-attempt
+  // decline notice in the transcript as the visible surface.
+  const dispatchTitle = (tabId: string, record: SessionSummary | undefined): void => {
     // A plan-seeded implementation session's title comes from the plan,
     // which the record already names (the sidebar's Implements note reads
     // the same field); a model digest would only paraphrase the seed.
-    const planTitle =
-      findRecord(get().state, tabId)?.planImplementationSource?.planTitle?.trim() || null;
+    const planTitle = record?.planImplementationSource?.planTitle?.trim() || null;
     if (planTitle !== null) {
       void get()
         .rpcCommand(tabId, { type: "set_session_name", name: planTitle }, { quiet: true })
@@ -905,6 +910,40 @@ export function createRpcCommandSlice(
       .catch((err: unknown) => {
         console.warn("[session-rename] /rename dispatch failed:", err);
       });
+  };
+
+  const renameSession = (tabId: string): void => {
+    const tab = get().rpc[tabId];
+    if (!tab) return;
+    const record = findRecord(get().state, tabId);
+    const titled = !isUntitled(record?.title);
+
+    // First shot: the armed first prompt's turn just ended.
+    if (tab.initialPrompt && !tab.hasRenamed) {
+      m.patchRpc(tabId, {
+        hasRenamed: true,
+        initialPrompt: null,
+        titleAttempt: titled ? null : { at: Date.now(), n: 1 },
+      });
+      if (!titled) dispatchTitle(tabId, record);
+      return;
+    }
+
+    // Bounded retry: later turn ends only — no timers, no background model
+    // spend on a session that went dormant.
+    const attempt = tab.titleAttempt;
+    if (attempt === null) return;
+    if (titled) {
+      m.patchRpc(tabId, { titleAttempt: null });
+      return;
+    }
+    if (attempt.n >= MAX_RENAME_ATTEMPTS) {
+      m.patchRpc(tabId, { titleAttempt: null });
+      return;
+    }
+    if (Date.now() - attempt.at < RENAME_RETRY_FLOOR_MS) return;
+    m.patchRpc(tabId, { titleAttempt: { at: Date.now(), n: attempt.n + 1 } });
+    dispatchTitle(tabId, record);
   };
 
   const refreshAvailableModels = (tabId: string): Promise<void> =>

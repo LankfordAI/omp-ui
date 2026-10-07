@@ -39,7 +39,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     session: emptySessionRuntime(), stats: null, subagents: [], subagentItems: {}, selectedSubagent: null,
     subagentMarkers: new Map(), stallCount: 0, extensionStatus: {},
     extensionQueue: [], busy: false, initialPrompt: null,
-    hasRenamed: true, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false,
+    hasRenamed: true, titleAttempt: null, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false,
     planReadiness: null, experimentProposal: null, approvalPrompt: null,
     advisorStats: null, mcpStatus: null, advisorReply: true,
     capabilities: null, capabilitiesLoad: "idle", goal: null, vibe: null, sideQuestions: null, live: null, autoresearch: null, limits: null,

@@ -1024,7 +1024,7 @@ describe("auto-titling dispatch (issue #788)", () => {
     expect(h.sent).toHaveLength(0);
   });
 
-  it("sends the bare /rename once at the first agent_end, then never again", async () => {
+  it("dispatches at the first agent_end, then retries at later turn ends past the floor", async () => {
     h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
@@ -1034,12 +1034,87 @@ describe("auto-titling dispatch (issue #788)", () => {
     expect(rename).toBeTruthy();
     expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
     expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 1 });
     for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
 
-    // The latch is one shot per session; omp's generator retries internally.
+    // The record is still untitled and the first generation may be in flight:
+    // the immediate second turn end leaves the attempt parked.
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
     expect(renames()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt!.n).toBe(1);
+
+    // A declined generation stays untitled; past the floor the next turn end
+    // re-dispatches (attempt 2 of 3, issue #791).
+    h.useStore.setState({
+      rpc: {
+        ...h.useStore.getState().rpc,
+        [h.TAB]: {
+          ...h.useStore.getState().rpc[h.TAB]!,
+          titleAttempt: { at: Date.now() - 20_000, n: 1 },
+        },
+      },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(
+      h.sent.find((s) => s.cmd.type === "prompt" && s.cmd.message === "/rename"),
+    ).toBeTruthy();
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 2 });
+  });
+
+  it("stops after attempt 3 and clears the attempt", async () => {
+    h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    h.useStore.setState({
+      rpc: {
+        ...h.useStore.getState().rpc,
+        [h.TAB]: {
+          ...h.useStore.getState().rpc[h.TAB]!,
+          titleAttempt: { at: Date.now() - 20_000, n: 3 },
+        },
+      },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
+  });
+
+  it("clears the attempt once the record's title lands", async () => {
+    h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).not.toBeNull();
+
+    // The watcher hydrated a title (auto or via the manual retitle): the next
+    // turn end clears the attempt, whichever path produced the name.
+    const titled = structuredClone(h.backendState);
+    titled.projects[0]!.sessions[0]!.title = "Auth module refactor";
+    h.backendState = titled;
+    h.useStore.setState({ state: titled });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
+  });
+
+  it("latches without dispatching when the record is already titled at the armed turn end", async () => {
+    h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
+    // A manual rename or a prior generation lands between arm and turn end:
+    // dispatching would spend a model call on a name omp then refuses.
+    const titled = structuredClone(h.backendState);
+    titled.projects[0]!.sessions[0]!.title = "Named mid-flight";
+    h.backendState = titled;
+    h.useStore.setState({ state: titled });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
   });
 
   it("defers on a greeting, then titles from the next real prompt", async () => {
@@ -1113,6 +1188,9 @@ describe("auto-titling dispatch (issue #788)", () => {
     for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
     await manual;
 
+    // The user's name is final: renameSessionTo cleared initialPrompt and
+    // latched hasRenamed, and it retired any auto-title retry budget.
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
     // The user's name is final: renameSessionTo cleared initialPrompt and
@@ -1144,6 +1222,48 @@ describe("auto-titling dispatch (issue #788)", () => {
     ).toBeUndefined();
   });
 
+  it("retries a failed plan-title send at a later turn end", async () => {
+    // The plan-title branch records its attempt like any other: a rejected
+    // `set_session_name` must not strand the session untitled.
+    const seeded = structuredClone(h.stateWithRecord("sess-1"));
+    seeded.projects[0]!.sessions[0]!.planImplementationSource = {
+      sourceTabId: "plan-tab",
+      planTitle: "Ship dark mode",
+      planFilePath: "local://plan.html",
+    };
+    h.backendState = seeded;
+    h.useStore.setState({ state: seeded });
+    h.useStore
+      .getState()
+      .setInitialPrompt(h.TAB, "ultrathink. A plan was approved. Implement it now.");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    const send = h.sent.find((s) => s.cmd.type === "set_session_name");
+    expect(send).toBeTruthy();
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 1 });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.respond(h.TAB, send!.cmd, "gone", false);
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 1 });
+    warn.mockRestore();
+
+    // Past the floor the next turn end re-sends the plan title.
+    h.useStore.setState({
+      rpc: {
+        ...h.useStore.getState().rpc,
+        [h.TAB]: {
+          ...h.useStore.getState().rpc[h.TAB]!,
+          titleAttempt: { at: Date.now() - 20_000, n: 1 },
+        },
+      },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(h.sent.find((s) => s.cmd.type === "set_session_name")!.cmd).toMatchObject({
+      name: "Ship dark mode",
+    });
+  });
+
   it("settles without a latch release when the dispatch fails", async () => {
     h.useStore.getState().setInitialPrompt(h.TAB, "Add a new API endpoint");
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
@@ -1152,9 +1272,11 @@ describe("auto-titling dispatch (issue #788)", () => {
     for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, "gone", false);
     await h.flushMicrotasks();
 
-    // One shot: a failed dispatch leaves the latch set — the manual paths
-    // title the session, matching omp's own /rename semantics.
+    // A failed send parks the attempt (n 1): the floor keeps the immediate
+    // second turn end from double-dispatching; a floor-elapsed turn end
+    // re-dispatches (covered by the plan-title retry test, issue #791).
     expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 1 });
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
     expect(renames()).toHaveLength(0);
