@@ -982,7 +982,15 @@ export function createMachinery(
     const payload = respData(resp);
     if (!tab || payload === null || typeof payload !== "object") return;
     const model = parseModelInfo(field(payload, "model")) ?? tab.model;
-    const session = parseSessionRuntime(payload, tab.session);
+    // get_state is a full snapshot: an absent `usageLimit` means the account
+    // left both stages, so the merged keep-previous value must be cleared —
+    // unlike the partial frames (session_info_update, config_update) that
+    // parseSessionRuntime also serves, where key absence carries no meaning.
+    const parsed = parseSessionRuntime(payload, tab.session);
+    const session =
+      // `in` alone: a present key — even one valued undefined — counts as
+      // reported, and parseSessionRuntime already fell back to previous.
+      "usageLimit" in payload ? parsed : { ...parsed, usageLimit: null };
     patchRpc(tabId, {
       todos:
         "todoPhases" in payload

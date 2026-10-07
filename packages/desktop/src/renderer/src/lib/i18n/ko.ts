@@ -1523,6 +1523,25 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.fast.tierUltrafast": "울트라패스트",
   "hud.fast.tierUltrafastTitle": "울트라패스트 처리 · 클릭하여 이 티어 설정",
   "hud.fast.ultraTitle": "빠른 모드 활성 — 울트라패스트 처리 작동 중 · 클릭하여 끄기",
+  // Session HUD 슬로우 모드 (issue #777, omp ≥ 18.6.3): /slow의 우선순위
+  // 낮춤 처리. 전역 쌍은 세션 간에 공유되는 영구 설정을 이름으로 밝힌다 —
+  // 원격 변경은 이벤트를 보내지 않으므로 값이 지연될 수 있음을 툴팁이 알린다.
+  "hud.slow.label": "느림",
+  "hud.slow.labelLong": "느린 모드",
+  "hud.slow.off": "꺼짐",
+  "hud.slow.offGlobalTitle": "느린 모드 꺼짐 — 영구 전역 설정 · 클릭하여 활성화(모든 세션에 적용)",
+  "hud.slow.offTitle": "느린 모드 꺼짐 · 클릭하여 우선순위 낮춤 처리 활성화",
+  "hud.slow.on": "켜짐",
+  "hud.slow.onGlobalTitle": "느린 모드 활성 — 세션 간 공유되는 영구 전역 설정 · 클릭하여 끄기",
+  "hud.slow.onTitle": "느린 모드 활성 — 우선순위 낮춤 처리 중 · 클릭하여 끄기",
+  // get_state usageLimit 계정 단계 (issue #777): 다음 전체 get_state가 필드
+  // 부재를 보고할 때까지 유지되며, 턴 범위 쿼터 칩(#673)과 다르다.
+  "hud.usage.allowanceLeft": "{percent}% 한도 남아 있음",
+  "hud.usage.extraUsage": " · 초기화 후 추가 사용 가능",
+  "hud.usage.lowPriority": "저우선순위",
+  "hud.usage.resetsIn": " · {duration} 후 초기화",
+  "hud.usage.stageTitle": "{stage} · 초기화 {time}",
+  "hud.usage.wrapUp": "정리 단계",
   // Session HUD 승인 모드 (issue #681, ADR-0038): 칩은 고정(PIN)된 세션에만
   // 표시되며, 상속이 조용한 기본값이다.
   "hud.approval.labelLong": "승인 모드",

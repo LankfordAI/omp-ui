@@ -8,9 +8,12 @@ import {
 } from "./generated-extension-source";
 
 /**
- * omp's rpc surface has no quota state (issue #673): `get_state` reports no
- * limits field, no rpc command returns rate windows, and no outbound frame
- * carries them. The public method on the live `AgentSession` does —
+ * omp's rpc surface has no rate-window state (issue #673): no rpc command
+ * returns rate windows and no outbound frame carries them — what
+ * `get_state.usageLimit` (omp ≥ 18.6.3) reports since issue #777 is the
+ * account STAGE, not windows, and the HUD renders it separately from session
+ * state, so this bridge and that chip are complementary, not redundant. The
+ * public method on the live `AgentSession` does —
  * `fetchUsageReports()` is what `/usage` and the TUI status line use. This
  * generated extension patches `AgentSession.prototype.prompt`, binds the
  * first prompt as the root session, and publishes the root provider's rate

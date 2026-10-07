@@ -14,7 +14,7 @@ import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
 import { projectKey } from "../lib/project-key";
-import type { ContextUsage } from "../lib/rpc-types";
+import type { ContextUsage, UsageLimit } from "../lib/rpc-types";
 import { findInstance, findOwner, findRecord, sessionCwd, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
 import { useDismissal } from "../lib/use-dismissal";
@@ -22,6 +22,7 @@ import { ConsoleToggle } from "./ConsoleDrawer";
 import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { FastModeControl } from "./FastModeControl";
+import { SlowModeControl } from "./SlowModeControl";
 import { AdvisorRosterView } from "./AdvisorRoster";
 import { ApprovalModeControl } from "./ApprovalModeControl";
 import { GoalChip } from "./GoalChip";
@@ -609,6 +610,43 @@ function QuotaChip({
 }
 
 /**
+ * The account-stage chip (issue #777): omp's provider-neutral usageLimit from
+ * get_state — the wrap-up allowance or the low-priority lane, with the LOCAL
+ * reset clock. Durable until the next full get_state reports the field absent
+ * (applyRpcState clears it), unlike the turn-scoped QuotaChip (#673). The
+ * countdown re-renders on the same 30 s cadence LimitsCluster rides, armed
+ * only while a future reset is visible.
+ */
+function UsageLimitChip({ usage, className }: { usage: UsageLimit; className?: string }) {
+  const t = useT();
+  const [, setTick] = useState(0);
+  const now = Date.now();
+  const resetMs = usage.resetsAtSec === null ? null : usage.resetsAtSec * 1000;
+  const hasFutureReset = resetMs !== null && resetMs > now;
+  useEffect(() => {
+    if (!hasFutureReset) return;
+    const timer = window.setInterval(() => setTick((n) => n + 1), LIMITS_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [hasFutureReset]);
+  const stage = t(usage.stage === "wrap_up" ? "hud.usage.wrapUp" : "hud.usage.lowPriority");
+  const title = [
+    resetMs === null
+      ? stage
+      : t("hud.usage.stageTitle", { stage, time: new Date(resetMs).toLocaleString(localeTag()) }) +
+        (usage.stage === "wrap_up" && usage.extraUsage ? t("hud.usage.extraUsage") : ""),
+    ...(usage.allowanceLeftPercent !== null
+      ? [t("hud.usage.allowanceLeft", { percent: usage.allowanceLeftPercent })]
+      : []),
+  ].join("\n");
+  return (
+    <Chip tone="copper" className={className} title={title}>
+      {stage}
+      {hasFutureReset ? t("hud.usage.resetsIn", { duration: formatDuration(resetMs! - now) }) : ""}
+    </Chip>
+  );
+}
+
+/**
  * The second context/cost readout, for the advisor. Quiet and neutral (never
  * the signal accent — this is chrome, not liveness): an `adv` tag, a compact
  * context meter, the fill percent, and cost. Hidden until the extension has
@@ -853,6 +891,14 @@ function ModesPopover({
           <div className="mt-2">
             <FastModeControl tabId={tabId} layout="sheet" />
           </div>
+          {/* Slow mode (issue #777): the same always-reachable entry-point
+              rule as the fast row, gated on the runtime's support field so an
+              older omp or an unsupported model never shows a dead toggle. */}
+          {session?.slowModeSupported === true && (
+            <div className="mt-2">
+              <SlowModeControl tabId={tabId} layout="sheet" />
+            </div>
+          )}
           {/* Approval mode is always reachable here, like fast mode: the chip
               only marks a pinned session, so this row is the entry point for
               inherit and for un-pinning (issue #681). */}
@@ -1100,6 +1146,24 @@ export function SessionHud({ tabId }: { tabId: string }) {
         className={compact ? "shrink-0" : "shrink-0 [app-region:no-drag]"}
       />
     );
+  // Slow mode (issue #777): quiet when off, mirroring the fastChip gating —
+  // the modes popover and the session-actions sheet carry the always-reachable
+  // toggle, gated on slowModeSupported.
+  const slowChip = session?.slowModeEnabled === true && (
+    <SlowModeControl
+      tabId={tabId}
+      disabled={status === "starting"}
+      className={compact ? "shrink-0" : "shrink-0 [app-region:no-drag]"}
+    />
+  );
+  // Durable until the next full get_state reports usageLimit absent; the chip
+  // is null outside both account stages (issue #777).
+  const usageLimitChip = session?.usageLimit != null && (
+    <UsageLimitChip
+      usage={session.usageLimit}
+      className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
+    />
+  );
   // Which host this session lives on (issue #416): quiet mono chip, the URL in
   // the tooltip. Local sessions carry no chip — most sessions are local, and a
   // "this app" chip on every one would say nothing.
@@ -1137,6 +1201,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {vibeChip}
           {autoresearchChip}
           {fastChip}
+          {slowChip}
           {approvalChip}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
@@ -1150,12 +1215,13 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <Sheet open={surface === "session-actions"} placement="bottom" label={t("hud.actions.sessionActions")} onClose={closeCompactSurface}>
           <div className="space-y-4 p-4">
             <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
-            {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || limitsCluster) && (
+            {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || usageLimitChip || limitsCluster) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
                 {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.context")}</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
                 {stats && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{t("hud.stats.compact", { cost: formatCost(stats.cost), tokens: compactNum(stats.tokens.total), premium: stats.premiumRequests })}</span></div>}
                 {quotaEvent != null && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{quotaChip}</div>}
+                {usageLimitChip && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{usageLimitChip}</div>}
                 {limitsCluster && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{limitsCluster}</div>}
                 {showAdvisor && (advisorStats.advisors.length > 0 || advisorStats.configWarnings.length > 0) && <AdvisorRosterView tabId={tabId} instanceId={instanceId} cwd={cwd} onEdit={projectCwd ? () => openProjectSettingsForRoster(projectCwd, instanceId, "advisors") : undefined} />}
                 {showAdvisor && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.advisorTotal")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={t("hud.advisor.totalUsage", { tokens: exactNum(advisorStats.totalTokens), cost: formatCost(advisorStats.cost) })}>{t("hud.advisor.compactTotal", { tokens: compactNum(advisorStats.totalTokens), spend: advisorStats.subscription && advisorStats.cost === 0 ? t("hud.advisor.subscriptionShort") : formatCost(advisorStats.cost) })}</span></div>}
@@ -1181,6 +1247,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
               <div className="mt-2 rounded-md border border-line px-3">
                 <FastModeControl tabId={tabId} layout="sheet" />
               </div>
+              {session?.slowModeSupported === true && (
+                <div className="mt-2 rounded-md border border-line px-3">
+                  <SlowModeControl tabId={tabId} layout="sheet" />
+                </div>
+              )}
             </div>
           </div>
           <CompactModes tabId={tabId} autoRetry={autoRetry} onAutoRetry={updateAutoRetry} />
@@ -1211,6 +1282,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {vibeChip}
       {autoresearchChip}
       {fastChip}
+      {slowChip}
       {approvalChip}
       {/* Remote sessions retain the informational and finish-capable chip;
           only host-local open rows are suppressed (issue #435). */}
@@ -1229,9 +1301,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
       <span className="min-w-0 flex-1" />
       {/* Quota signals (issue #673): the transient rotation/wait chip and the
           durable rate-window cluster, each gated on its own state so either
-          can be absent without dropping the other. Both sit in no-drag boxes
-          like every other control in this row. */}
+          can be absent without dropping the other. The account-stage chip
+          (issue #777) reads session state, not the bridge, and sits between
+          them. All sit in no-drag boxes like every other control in this row. */}
       {quotaChip}
+      {usageLimitChip}
       {limitsCluster}
 
       {/* Main usage and main spend read as one group (issue #107). The wrapper keeps
