@@ -15,6 +15,7 @@ import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
 import { projectKey } from "../lib/project-key";
 import type { ContextUsage } from "../lib/rpc-types";
+import type { UsageLimit } from "../lib/rpc-types";
 import { findInstance, findOwner, findRecord, sessionCwd, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
 import { useDismissal } from "../lib/use-dismissal";
@@ -22,6 +23,8 @@ import { ConsoleToggle } from "./ConsoleDrawer";
 import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { FastModeControl } from "./FastModeControl";
+import { SlowModeControl } from "./SlowModeControl";
+import { showsSlowMode } from "../lib/slow-mode";
 import { AdvisorRosterView } from "./AdvisorRoster";
 import { ApprovalModeControl } from "./ApprovalModeControl";
 import { GoalChip } from "./GoalChip";
@@ -213,6 +216,50 @@ function StreamStallChip({
       {short
         ? t("hud.stall.short", { duration: formatDuration(stallMs) })
         : t("hud.stall.long", { duration: formatDuration(stallMs) })}
+    </Chip>
+  );
+}
+
+/**
+ * The usage-limit stage chip (issue #777): omp reports the stage only on
+ * get_state — no event — so the chip rides the store's parsed usageLimit.
+ * Rose for wrap-up (the short allowance past the limit), copper for the
+ * slow-lane low-priority stage. The reset reads as the local absolute
+ * time; the rate-window cluster's tick cadence keeps a future reset
+ * visibly live, and the tooltip carries the per-stage detail.
+ */
+function UsageLimitChip({ limit, className }: { limit: UsageLimit; className?: string }) {
+  const t = useT();
+  const [, setTick] = useState(0);
+  const now = Date.now();
+  const future = limit.resetsAtMs !== null && limit.resetsAtMs > now;
+  useEffect(() => {
+    if (!future) return;
+    const timer = window.setInterval(() => setTick((n) => n + 1), LIMITS_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [future]);
+  const at =
+    limit.resetsAtMs === null ? null : new Date(limit.resetsAtMs).toLocaleString(localeTag());
+  const details = [
+    limit.allowanceLeftPercent !== undefined
+      ? t("hud.limits.allowance", { percent: limit.allowanceLeftPercent })
+      : null,
+    limit.extraUsage !== undefined
+      ? t(limit.extraUsage ? "hud.limits.extraUsageOn" : "hud.limits.extraUsageOff")
+      : null,
+    at !== null ? t("hud.limits.resetAt", { at }) : null,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+  return (
+    <Chip
+      mono
+      tone={limit.stage === "wrap_up" ? "rose" : "copper"}
+      title={details}
+      className={cn("shrink-0", className)}
+    >
+      {t(limit.stage === "wrap_up" ? "hud.limits.wrapUp" : "hud.limits.lowPriority")}
+      {at !== null && <span> · {t("hud.limits.resetAt", { at })}</span>}
     </Chip>
   );
 }
@@ -853,6 +900,10 @@ function ModesPopover({
           <div className="mt-2">
             <FastModeControl tabId={tabId} layout="sheet" />
           </div>
+          {/* Slow mode, same reachability contract as fast mode (issue #777):
+              the capsule hides on plain-off sessions, so this row is the
+              desktop entry point; the component owns its own gate. */}
+          <SlowModeControl tabId={tabId} layout="sheet" className="mt-2" />
           {/* Approval mode is always reachable here, like fast mode: the chip
               only marks a pinned session, so this row is the entry point for
               inherit and for un-pinning (issue #681). */}
@@ -970,6 +1021,13 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const autoresearch = useStore((s) => s.rpc[tabId]?.autoresearch);
   const limits = useStore((s) => s.rpc[tabId]?.limits);
   const quotaEvent = useStore((s) => s.rpc[tabId]?.quotaEvent);
+  const usageLimit = useStore((s) => s.rpc[tabId]?.session.usageLimit ?? null);
+  const slowVisible = useStore((s) =>
+    showsSlowMode(
+      s.rpc[tabId]?.capabilities?.ompVersion ?? null,
+      s.rpc[tabId]?.session.slowModeSupported === true,
+    ),
+  );
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId))) ?? null;
@@ -1006,6 +1064,12 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const quotaChip = quotaEvent != null && (
     <QuotaChip
       event={quotaEvent}
+      className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
+    />
+  );
+  const usageLimitChip = usageLimit !== null && (
+    <UsageLimitChip
+      limit={usageLimit}
       className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
     />
   );
@@ -1100,6 +1164,15 @@ export function SessionHud({ tabId }: { tabId: string }) {
         className={compact ? "shrink-0" : "shrink-0 [app-region:no-drag]"}
       />
     );
+  // Slow mode mirrors the fast chip (issue #777): quiet on plain-off
+  // sessions; the sheet rows carry the always-available toggle.
+  const slowChip = session?.slowModeEnabled === true && (
+    <SlowModeControl
+      tabId={tabId}
+      disabled={status === "starting"}
+      className={compact ? "shrink-0" : "shrink-0 [app-region:no-drag]"}
+    />
+  );
   // Which host this session lives on (issue #416): quiet mono chip, the URL in
   // the tooltip. Local sessions carry no chip — most sessions are local, and a
   // "this app" chip on every one would say nothing.
@@ -1137,6 +1210,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {vibeChip}
           {autoresearchChip}
           {fastChip}
+          {slowChip}
           {approvalChip}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
@@ -1157,6 +1231,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 {stats && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{t("hud.stats.compact", { cost: formatCost(stats.cost), tokens: compactNum(stats.tokens.total), premium: stats.premiumRequests })}</span></div>}
                 {quotaEvent != null && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{quotaChip}</div>}
                 {limitsCluster && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{limitsCluster}</div>}
+                {usageLimitChip && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{usageLimitChip}</div>}
                 {showAdvisor && (advisorStats.advisors.length > 0 || advisorStats.configWarnings.length > 0) && <AdvisorRosterView tabId={tabId} instanceId={instanceId} cwd={cwd} onEdit={projectCwd ? () => openProjectSettingsForRoster(projectCwd, instanceId, "advisors") : undefined} />}
                 {showAdvisor && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.advisorTotal")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={t("hud.advisor.totalUsage", { tokens: exactNum(advisorStats.totalTokens), cost: formatCost(advisorStats.cost) })}>{t("hud.advisor.compactTotal", { tokens: compactNum(advisorStats.totalTokens), spend: advisorStats.subscription && advisorStats.cost === 0 ? t("hud.advisor.subscriptionShort") : formatCost(advisorStats.cost) })}</span></div>}
                 {notices.length > 0 && <div className="flex flex-wrap gap-1.5">{notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}</div>}
@@ -1181,6 +1256,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
               <div className="mt-2 rounded-md border border-line px-3">
                 <FastModeControl tabId={tabId} layout="sheet" />
               </div>
+              {slowVisible && (
+                <div className="mt-2 rounded-md border border-line px-3">
+                  <SlowModeControl tabId={tabId} layout="sheet" disabled={status === "starting"} />
+                </div>
+              )}
             </div>
           </div>
           <CompactModes tabId={tabId} autoRetry={autoRetry} onAutoRetry={updateAutoRetry} />
@@ -1211,6 +1291,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {vibeChip}
       {autoresearchChip}
       {fastChip}
+      {slowChip}
       {approvalChip}
       {/* Remote sessions retain the informational and finish-capable chip;
           only host-local open rows are suppressed (issue #435). */}
@@ -1233,6 +1314,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           like every other control in this row. */}
       {quotaChip}
       {limitsCluster}
+      {usageLimitChip}
 
       {/* Main usage and main spend read as one group (issue #107). The wrapper keeps
           `usage` and `stats` independent conditionals: either can be null without

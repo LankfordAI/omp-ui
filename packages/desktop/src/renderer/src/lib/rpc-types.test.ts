@@ -6,6 +6,7 @@ import {
   parseModelInfo,
   parseQueuedMessages,
   parseSessionRuntime,
+  parseUsageLimit,
   parseSubagents,
   type ModelInfo,
 } from "./rpc-types";
@@ -241,5 +242,74 @@ describe("parseSubagents", () => {
       subagents: [{ id: "a1", progress: { status: "idle" } }],
     });
     expect(entry.status).toBe("idle");
+  });
+});
+
+describe("slow mode and usage limit in session state (issue #777)", () => {
+  const previous = {
+    ...emptySessionRuntime(),
+    slowModeSupported: true,
+    slowModeEnabled: true,
+    slowModeScope: "global" as const,
+    usageLimit: {
+      stage: "low_priority" as const,
+      resetsAtMs: 1_760_000_000_000,
+      allowanceLeftPercent: 12,
+    },
+  };
+
+  it("takes all four fields from a full get_state payload", () => {
+    const next = parseSessionRuntime(
+      {
+        slowModeSupported: true,
+        slowModeEnabled: true,
+        slowModeScope: "session",
+        usageLimit: { stage: "wrap_up", extraUsage: true },
+      },
+      emptySessionRuntime(),
+    );
+    expect(next.slowModeSupported).toBe(true);
+    expect(next.slowModeEnabled).toBe(true);
+    expect(next.slowModeScope).toBe("session");
+    expect(next.usageLimit).toEqual({ stage: "wrap_up", resetsAtMs: null, extraUsage: true });
+  });
+
+  it("keeps the previous values when the keys are absent (partial frames)", () => {
+    const next = parseSessionRuntime({ messageCount: 3 }, previous);
+    expect(next.slowModeSupported).toBe(true);
+    expect(next.slowModeEnabled).toBe(true);
+    expect(next.slowModeScope).toBe("global");
+    expect(next.usageLimit).toEqual(previous.usageLimit);
+  });
+
+  it("clears on an explicit usageLimit null and keeps on a key-free frame", () => {
+    expect(parseSessionRuntime({ usageLimit: null }, previous).usageLimit).toBeNull();
+    expect(parseSessionRuntime({ isStreaming: false }, previous).usageLimit).toEqual(
+      previous.usageLimit,
+    );
+  });
+
+  it("keeps the scope on a value outside the two literals", () => {
+    expect(parseSessionRuntime({ slowModeScope: "world" }, previous).slowModeScope).toBe("global");
+  });
+
+  it("converts resetsAtSec to resetsAtMs and clamps the allowance", () => {
+    expect(parseUsageLimit({ stage: "low_priority", resetsAtSec: 1_760_000_000 })).toEqual({
+      stage: "low_priority",
+      resetsAtMs: 1_760_000_000_000,
+    });
+    expect(
+      parseUsageLimit({ stage: "low_priority", allowanceLeftPercent: 140 })?.allowanceLeftPercent,
+    ).toBe(100);
+    expect(
+      parseUsageLimit({ stage: "low_priority", allowanceLeftPercent: -3 })?.allowanceLeftPercent,
+    ).toBe(0);
+    expect(parseUsageLimit({ stage: "low_priority", resetsAtSec: "later" })?.resetsAtMs).toBeNull();
+  });
+
+  it("reads any other stage as no stage", () => {
+    expect(parseUsageLimit({ stage: "suspended" })).toBeNull();
+    expect(parseUsageLimit({ resetsAtSec: 1 })).toBeNull();
+    expect(parseUsageLimit(null)).toBeNull();
   });
 });

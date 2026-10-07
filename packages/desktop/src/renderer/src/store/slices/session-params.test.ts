@@ -2656,6 +2656,101 @@ describe("fast mode (issue #677)", () => {
   });
 });
 
+describe("slow mode (issue #777)", () => {
+  /** A capabilities snapshot whose only relevant field is the version. */
+  const gate = (ompVersion: string | null): CapabilitySnapshot => ({
+    version: 1 as const,
+    processKey: "p",
+    sessionId: null,
+    revision: 1,
+    updatedAt: 0,
+    ompVersion,
+    skillCommandsEnabled: null,
+    skills: { status: "unavailable", reason: "missing-api" },
+    tools: { status: "unavailable", reason: "missing-api" },
+    magicKeywords: { status: "available", items: [] },
+    toolControl: "unsupported",
+    toolMutation: null,
+  });
+
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+  });
+
+  it("setSlowMode sends the verb, patches the computed answer, and quietly re-reads state", async () => {
+    const promise = h.useStore.getState().setSlowMode(h.TAB, true);
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "set_slow_mode", enabled: true });
+    h.respond(h.TAB, h.sent[0]!.cmd, { enabled: true });
+    await h.flushMicrotasks();
+    expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["set_slow_mode", "get_state"]);
+    h.respond(h.TAB, h.sent[1]!.cmd, {
+      slowModeSupported: true,
+      slowModeEnabled: true,
+      slowModeScope: "global",
+    });
+    await promise;
+    expect(h.useStore.getState().rpc[h.TAB]!.session).toMatchObject({
+      slowModeSupported: true,
+      slowModeEnabled: true,
+      slowModeScope: "global",
+    });
+  });
+
+  it("patches the response's computed truth, not the requested value", async () => {
+    // omp answers whether slow mode is NOW on; a refusal of the toggle is
+    // still a successful command, and the store must follow the answer.
+    const promise = h.useStore.getState().setSlowMode(h.TAB, true);
+    h.respond(h.TAB, h.sent[0]!.cmd, { enabled: false });
+    await h.flushMicrotasks();
+    h.respond(h.TAB, h.sent[1]!.cmd, {});
+    await promise;
+    expect(h.useStore.getState().rpc[h.TAB]!.session.slowModeEnabled).toBe(false);
+  });
+
+  it("a failed command records the failure and never re-reads", async () => {
+    const promise = h.useStore.getState().setSlowMode(h.TAB, true);
+    h.respond(h.TAB, h.sent[0]!.cmd, "Slow mode is unavailable for the current model.", false);
+    await promise;
+    expect(h.useStore.getState().rpc[h.TAB]!.failure).toMatchObject({
+      command: "set_slow_mode",
+      fatal: false,
+    });
+    expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["set_slow_mode"]);
+    expect(h.useStore.getState().rpc[h.TAB]!.session.slowModeEnabled).toBe(false);
+  });
+
+  it("setModel re-reads state on a capable runtime so the slow truth follows the model", async () => {
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState({ capabilities: gate("18.7.0") }) },
+    });
+    const model = { id: "claude-opus-5", name: "Opus 5", provider: "anthropic" };
+    const promise = h.useStore.getState().setModel(h.TAB, model);
+    await h.flushMicrotasks();
+    h.respond(h.TAB, h.sent[0]!.cmd, model);
+    await h.flushMicrotasks();
+    expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["set_model", "get_state"]);
+    h.respond(h.TAB, h.sent[1]!.cmd, {
+      slowModeSupported: true,
+      slowModeEnabled: true,
+      slowModeScope: "session",
+    });
+    await promise;
+    expect(h.useStore.getState().rpc[h.TAB]!.session.slowModeEnabled).toBe(true);
+  });
+
+  it("setModel sends no re-read below 18.6.3", async () => {
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState({ capabilities: gate("18.4.11") }) },
+    });
+    const model = { id: "claude-opus-5", name: "Opus 5", provider: "anthropic" };
+    const promise = h.useStore.getState().setModel(h.TAB, model);
+    await h.flushMicrotasks();
+    h.respond(h.TAB, h.sent[0]!.cmd, model);
+    await promise;
+    expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["set_model"]);
+  });
+});
+
 describe("runShellCommand (issue #678)", () => {
   beforeEach(() => {
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });

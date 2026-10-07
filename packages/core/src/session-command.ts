@@ -49,6 +49,7 @@ export const SESSION_COMMANDS = {
   set_auto_compaction: { lateAck: false },
   set_auto_retry: { lateAck: false },
   set_fast_mode: { lateAck: false },
+  set_slow_mode: { lateAck: false },
   abort_retry: { lateAck: false },
   set_session_name: { lateAck: false },
   set_todos: { lateAck: false },

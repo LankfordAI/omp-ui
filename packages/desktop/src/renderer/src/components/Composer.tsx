@@ -37,6 +37,7 @@ import { answerPendingQuestion, freeTextTarget } from "./ExtensionDialogHost";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { FastModeControl } from "./FastModeControl";
+import { SlowModeControl } from "./SlowModeControl";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
@@ -1124,6 +1125,10 @@ export function Composer({
             {(modelFastTier(currentModel) !== null || fastEnabled || fastActive) && (
               <FastModeControl tabId={tabId} disabled={unavailable} />
             )}
+
+            {/* Slow mode (issue #777): self-gated like the fast pill above —
+                a runtime without slow mode renders nothing here. */}
+            <SlowModeControl tabId={tabId} disabled={unavailable} />
 
             <AdvisorControl tabId={tabId} disabled={unavailable} />
 

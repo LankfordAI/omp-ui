@@ -27,6 +27,7 @@ import { t, type MessageKey } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { hasSeenSharePrivacy } from "../../lib/share-privacy";
 import { supportsRestoreQueue } from "../../lib/queue-chip";
+import { supportsSlowMode } from "../../lib/slow-mode";
 import { parseRestoreResult, projectImages, splitQueuedWireText } from "../../lib/queue-restore";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
 import {
@@ -100,6 +101,7 @@ export type SessionParamsSlice = Pick<
   | "setInterruptMode"
   | "setAutoCompaction"
   | "setFastMode"
+  | "setSlowMode"
   | "setSessionServiceTier"
   | "setServiceTier"
   | "setAutoRetry"
@@ -749,6 +751,10 @@ export function createSessionParamsSlice(
         `${selected.provider}/${selected.id}`,
         thinkingLevel,
       );
+      // omp emits no model-change event (issue #777): slow-mode support and
+      // the usage-limit stage follow the new model only through a quiet re-read.
+      if (supportsSlowMode(get().rpc[tabId]?.capabilities?.ompVersion ?? null))
+        await refreshState(tabId);
     })();
     await trackSessionParameterAction(tabId, action);
   };
@@ -892,6 +898,22 @@ export function createSessionParamsSlice(
     const clear = get().setSessionServiceTier(tabId, null);
     await setFastModeRpc(tabId, false);
     await clear;
+  };
+
+  /**
+   * omp's slow mode (issue #777): the command answers whether slow mode is
+   * NOW on — the computed truth, not the request — so there is no optimistic
+   * patch, the same contract as setFastModeRpc. A successful write is followed
+   * by a quiet get_state: omp emits no slow-mode event, and that read is what
+   * settles `slowModeScope` and the usage-limit stage beside the toggle.
+   */
+  const setSlowMode = async (tabId: string, enabled: boolean): Promise<void> => {
+    const resp = await m.runCommand(tabId, { type: "set_slow_mode", enabled });
+    if (resp === null) return; // failure already recorded; state untouched
+    m.patchSession(tabId, {
+      slowModeEnabled: boolField(respData(resp), "enabled") ?? enabled,
+    });
+    await refreshState(tabId); // get_state re-read: scope and stage converge
   };
 
   const setSessionServiceTier = async (
@@ -1920,6 +1942,7 @@ export function createSessionParamsSlice(
     setInterruptMode,
     setAutoCompaction,
     setFastMode,
+    setSlowMode,
     setSessionServiceTier,
     setServiceTier,
     setAutoRetry,

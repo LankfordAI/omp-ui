@@ -115,6 +115,20 @@ export interface QueuedMessages {
   followUp: string[];
 }
 
+/** omp 18.6.3+ (upstream #14153) usage-limit stages: the account is past its
+ *  usage limit and serving is degraded until the window resets. */
+export type UsageLimitStage = "low_priority" | "wrap_up";
+
+export interface UsageLimit {
+  stage: UsageLimitStage;
+  /** Epoch ms of the window reset; null when omp reports no reset time. */
+  resetsAtMs: number | null;
+  /** low_priority only: remaining allowance, clamped 0–100. */
+  allowanceLeftPercent?: number;
+  /** wrap_up only: whether extra usage is enabled on the account. */
+  extraUsage?: boolean;
+}
+
 export interface SessionRuntime {
   thinkingLevel: string | null;
   /** omp's automatic-thinking selector, `"auto"` or null. The selector the
@@ -136,6 +150,21 @@ export interface SessionRuntime {
   *  leave it true while fastModeEnabled is false. Never derive one from the
   *  other; display reads this, the switch reads the setting. */
   fastModeActive: boolean;
+  /** omp 18.6.3+ (upstream #14153): whether `/slow` applies to the active
+   *  model. Non-optional on any capable runtime; older omp never emits the
+   *  key, so the emptyRuntime default of false is also the pre-gate truth. */
+  slowModeSupported: boolean;
+  /** Whether `/slow` is on for the active model; always false when
+   *  unsupported. get_state-owned — omp emits no slow-mode event. */
+  slowModeEnabled: boolean;
+  /** Where a true `slowModeEnabled` lives: `global` is omp's persisted
+   *  config (providers.anthropic.slowMode) shared by every session,
+   *  `session` is this session's flex tier. Null on unsupported runtimes. */
+  slowModeScope: "session" | "global" | null;
+  /** The account is past its usage limit; null outside a stage. Absent from
+   *  a FULL state report once the stage clears — applyRpcState reads that
+   *  absence as clear; partial frames keep the previous value. */
+  usageLimit: UsageLimit | null;
   sessionId: string | null;
   sessionFile: string | null;
   messageCount: number;
@@ -202,6 +231,10 @@ export function emptySessionRuntime(): SessionRuntime {
     autoCompactionEnabled: false,
     fastModeEnabled: false,
     fastModeActive: false,
+    slowModeSupported: false,
+    slowModeEnabled: false,
+    slowModeScope: null,
+    usageLimit: null,
     sessionId: null,
     sessionFile: null,
     messageCount: 0,
@@ -229,6 +262,26 @@ export function parseContextUsage(value: unknown): ContextUsage | null {
     tokens: numField(value, "tokens") ?? 0,
     contextWindow: numField(value, "contextWindow") ?? 0,
     percent: numField(value, "percent") ?? 0,
+  };
+}
+
+/** get_state's `usageLimit`: anything without an exact stage word is no stage.
+ *  `resetsAtSec` (epoch seconds) becomes `resetsAtMs` here so the HUD's
+ *  reset-time formatting keeps one home (`toLocaleString(localeTag())`). */
+export function parseUsageLimit(value: unknown): UsageLimit | null {
+  if (value === null || typeof value !== "object") return null;
+  const stage = strField(value, "stage");
+  if (stage !== "low_priority" && stage !== "wrap_up") return null;
+  const resetsAtSec = numField(value, "resetsAtSec");
+  const percent = numField(value, "allowanceLeftPercent");
+  const extraUsage = boolField(value, "extraUsage");
+  return {
+    stage,
+    resetsAtMs: resetsAtSec !== undefined && Number.isFinite(resetsAtSec) ? resetsAtSec * 1000 : null,
+    ...(percent !== undefined && Number.isFinite(percent)
+      ? { allowanceLeftPercent: Math.min(100, Math.max(0, percent)) }
+      : {}),
+    ...(extraUsage !== undefined ? { extraUsage } : {}),
   };
 }
 
@@ -330,6 +383,13 @@ export function parseTodoPhases(value: unknown): TodoPhase[] {
   }));
 }
 
+/** `slowModeScope` carries exactly one of the two literals on a capable runtime;
+ * anything else (older omp, a lying frame) keeps the previous value. */
+function slowModeScopeField(value: unknown): "session" | "global" | undefined {
+  const scope = strField(value, "slowModeScope");
+  return scope === "session" || scope === "global" ? scope : undefined;
+}
+
 /** `get_state.data` → the subset the UI renders; `systemPrompt`/`dumpTools` are dropped. */
 export function parseSessionRuntime(value: unknown, previous: SessionRuntime): SessionRuntime {
   if (value === null || typeof value !== "object") return previous;
@@ -349,6 +409,14 @@ export function parseSessionRuntime(value: unknown, previous: SessionRuntime): S
       boolField(value, "autoCompactionEnabled") ?? previous.autoCompactionEnabled,
     fastModeEnabled: boolField(value, "fastModeEnabled") ?? previous.fastModeEnabled,
     fastModeActive: boolField(value, "fastModeActive") ?? previous.fastModeActive,
+    slowModeSupported: boolField(value, "slowModeSupported") ?? previous.slowModeSupported,
+    slowModeEnabled: boolField(value, "slowModeEnabled") ?? previous.slowModeEnabled,
+    slowModeScope: slowModeScopeField(value) ?? previous.slowModeScope,
+    // Presence of the key matters: an explicit `usageLimit: null` clears the
+    // stage, while a partial frame that omits the key keeps it.
+    usageLimit: Object.hasOwn(value, "usageLimit")
+      ? parseUsageLimit(field(value, "usageLimit"))
+      : previous.usageLimit,
     sessionId: strField(value, "sessionId") ?? previous.sessionId,
     sessionFile: strField(value, "sessionFile") ?? previous.sessionFile,
     messageCount: numField(value, "messageCount") ?? previous.messageCount,

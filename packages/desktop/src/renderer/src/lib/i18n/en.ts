@@ -1682,6 +1682,19 @@ export const en = {
   "hud.fast.tierUltrafast": "ultrafast",
   "hud.fast.tierUltrafastTitle": "ultrafast serving · click to set this tier",
   "hud.fast.ultraTitle": "fast mode active — ultrafast serving live · click to turn off",
+  // Session HUD slow mode (issue #777, omp ≥ 18.6.3 / upstream #14153):
+  // one setting, no sub-tiers; the scope clause names where the write lands
+  // — on Anthropic the switch flips omp's persisted global setting.
+  "hud.slow.label": "slow",
+  "hud.slow.labelLong": "slow mode",
+  "hud.slow.off": "off",
+  "hud.slow.offTitle": "slow mode off · click to enable flex-tier serving",
+  "hud.slow.on": "on",
+  "hud.slow.onTitle": "slow mode active — flex-tier serving · click to turn off",
+  "hud.slow.scopeGlobalTitle": "persisted global setting (providers.anthropic.slowMode)",
+  "hud.slow.scopeSessionTitle": "this session's flex tier",
+  "hud.slow.stageGlobal": "global",
+  "hud.slow.stageSession": "session",
   // Session HUD approval mode (issue #681, ADR-0038): the chip only ever
   // marks a PINNED session; inherit is the quiet default.
   "hud.approval.labelLong": "approval mode",
@@ -1751,6 +1764,14 @@ export const en = {
   "hud.limits.chipWait": "rate limit — waiting{delay}",
   "hud.limits.chipDelay": " for {duration}",
   "hud.limits.chipRotation": "credential switched",
+  // The usage-limit stage chip (issue #777): the account is past its usage
+  // limit; `{at}` is the local absolute reset time.
+  "hud.limits.wrapUp": "wrap-up",
+  "hud.limits.lowPriority": "low-priority",
+  "hud.limits.resetAt": "resets {at}",
+  "hud.limits.allowance": "{percent}% of the allowance left",
+  "hud.limits.extraUsageOn": "extra usage enabled",
+  "hud.limits.extraUsageOff": "no extra usage",
   "hud.mode.sessionMode": "session mode",
   "hud.modes.allAtOnceHint": "process all queued messages at once",
   "hud.modes.controlLabel": "queue modes and retry",

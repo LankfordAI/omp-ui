@@ -1523,6 +1523,19 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.fast.tierUltrafast": "울트라패스트",
   "hud.fast.tierUltrafastTitle": "울트라패스트 처리 · 클릭하여 이 티어 설정",
   "hud.fast.ultraTitle": "빠른 모드 활성 — 울트라패스트 처리 작동 중 · 클릭하여 끄기",
+  // Session HUD 느린 모드 (issue #777, omp ≥ 18.6.3 / 업스트림 #14153):
+  // 설정은 하나, 하위 티어 없음. 쓰기가 반영되는 위치를 범위 문구가
+  // 명시한다 — Anthropic에서는 스위치가 omp의 영구 전역 설정을 바꾼다.
+  "hud.slow.label": "느림",
+  "hud.slow.labelLong": "느린 모드",
+  "hud.slow.off": "꺼짐",
+  "hud.slow.offTitle": "느린 모드 꺼짐 · 클릭하여 유연 티어 처리 활성화",
+  "hud.slow.on": "켜짐",
+  "hud.slow.onTitle": "느린 모드 활성 — 유연 티어 처리 중 · 클릭하여 끄기",
+  "hud.slow.scopeGlobalTitle": "영구 전역 설정(providers.anthropic.slowMode)",
+  "hud.slow.scopeSessionTitle": "이 세션의 유연 티어",
+  "hud.slow.stageGlobal": "전역",
+  "hud.slow.stageSession": "세션",
   // Session HUD 승인 모드 (issue #681, ADR-0038): 칩은 고정(PIN)된 세션에만
   // 표시되며, 상속이 조용한 기본값이다.
   "hud.approval.labelLong": "승인 모드",
@@ -1589,6 +1602,14 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.limits.chipWait": "rate limit — 대기 중{delay}",
   "hud.limits.chipDelay": " {duration}간",
   "hud.limits.chipRotation": "credential 전환됨",
+  // 사용 한도 단계 칩 (issue #777): 계정이 사용 한도를 초과했다.
+  // {at}은 지역 절대 재설정 시각이다.
+  "hud.limits.wrapUp": "정리 중",
+  "hud.limits.lowPriority": "저우선 처리",
+  "hud.limits.resetAt": "{at}에 재설정",
+  "hud.limits.allowance": "한도 {percent}% 남아",
+  "hud.limits.extraUsageOn": "추가 사용 활성화됨",
+  "hud.limits.extraUsageOff": "추가 사용 없음",
   "hud.mode.sessionMode": "세션 모드",
   "hud.modes.allAtOnceHint": "대기 중인 모든 메시지를 한 번에 처리",
   "hud.modes.controlLabel": "대기열 모드 및 재시도",
