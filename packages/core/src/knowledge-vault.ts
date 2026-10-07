@@ -6,7 +6,7 @@ import * as yaml from "js-yaml";
 import { isWithin } from "./worktree";
 import { writeTextAtomic } from "./atomic-write";
 import { lineDiff } from "./line-diff";
-import type { VaultRegistryEntry } from "./types";
+import type { VaultProjectIdentity, VaultRegistryEntry } from "./types";
 import { obsidianReplyLink, type VaultAction, type VaultToolDetails } from "./vault-shared";
 import { scanSecrets } from "./vault-secret-shapes";
 export { scanSecrets } from "./vault-secret-shapes";
@@ -112,7 +112,7 @@ export async function resolveVaultPath(rootReal: string, rel: string): Promise<R
 export interface VaultCallContext {
   entry: VaultRegistryEntry;
   obsidianId: string | null;
-  projectFolder: string | null;
+  project: VaultProjectIdentity | null;
   projectName: string | null;
   lineage: string;
   appVersion: string;
@@ -367,10 +367,11 @@ export async function vaultList(ctx: VaultCallContext, folder: string | undefine
     return { ok: true, text: rendered.text, details: { ...details(ctx, "list", checked.rel), matchedFiles: files.length, returnedFiles: rendered.count, truncated: rendered.count < files.length } };
   });
 }
-function stamp(ctx: VaultCallContext, tags: string[], now: Date): string {
+function stamp(ctx: VaultCallContext, tags: string[], now: Date, projectKey: string | null = null): string {
   const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const lines = ["---", "omp-ui: true"];
-  if (ctx.projectFolder !== null && ctx.projectName !== null) lines.push(`project: ${JSON.stringify(ctx.projectName)}`);
+  if (ctx.project !== null && ctx.projectName !== null) lines.push(`project: ${JSON.stringify(ctx.projectName)}`);
+  if (projectKey !== null) lines.push(`project-key: ${JSON.stringify(projectKey)}`);
   lines.push(`lineage: ${JSON.stringify(ctx.lineage.slice(-36))}`, `date: ${date}`, `tool: ${JSON.stringify(`omp-ui ${ctx.appVersion}`)}`);
   const nonempty = tags.filter((tag) => tag.trim() !== "");
   if (nonempty.length > 0) lines.push("tags:", ...nonempty.map((tag) => `  - ${JSON.stringify(tag)}`));
@@ -390,17 +391,214 @@ function windowsPathRefusal(abs: string, rel: string): string | null {
 }
 function existingRefusal(rel: string): string { return `note exists: ${rel}; use omp-ui_vault_append or omp-ui_vault_edit, or pick another title`; }
 
+/** A project Index's `project-key`, lowercased; null unless omp-ui stamped it and the key is a string. */
+function projectIndexKey(text: string): string | null {
+  if (!ownership(text)) return null;
+  try {
+    const value: unknown = yaml.load(splitFrontmatter(text).yaml, { schema: yaml.FAILSAFE_SCHEMA });
+    if (value === null || typeof value !== "object" || !("project-key" in value)) return null;
+    const key = value["project-key"];
+    return typeof key === "string" && key !== "" ? key.toLowerCase() : null;
+  } catch { return null; }
+}
+/** A wikilink to `fromNoExt` by full vault path, with or without ".md", up to its alias, heading, block, or close. */
+function pathLinkPattern(fromNoExt: string): RegExp {
+  return new RegExp(`\\[\\[${fromNoExt.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\.md)?(?=[|#^\\]])`, "gi");
+}
+function readNoteText(root: string, rel: string): string | null {
+  const checked = resolveSync(root, rel);
+  if (!checked.ok) return null;
+  const stat = statOrMissing(checked.abs);
+  if (stat === null || !stat.isFile() || stat.size > NOTE_BYTE_CAP) return null;
+  return syncFs.readFileSync(checked.abs, "utf8");
+}
+
+interface ProjectDestination {
+  folderRel: string;          // e.g. "omp-ui/LankfordAI/omp-ui"
+  indexRel: string;           // e.g. "omp-ui/LankfordAI/omp-ui/omp-ui Index.md"
+  keyed: boolean;             // an Index carrying project.key already existed
+  ownerFolders: Set<string>;  // lowercased first segment below Home of every keyed Index
+}
+/**
+ * Where a project's notes go (#794), read-only: the folder of the omp-ui Index
+ * carrying the project's key anywhere under Home, else the computed folder.
+ * No key: the computed plain folder with no scan, as before.
+ */
+function projectDestination(ctx: VaultCallContext, root: string, project: VaultProjectIdentity): ProjectDestination | { refused: string } {
+  const home = ctx.entry.homeFolder.replace(/\/$/, "");
+  const computed = `${home}/${project.folder}`;
+  const computedIndex = `${computed}/${project.indexTitle}.md`;
+  const ownerFolders = new Set<string>();
+  if (project.key === null) return { folderRel: computed, indexRel: computedIndex, keyed: false, ownerFolders };
+  const homeResolved = resolveSync(root, home);
+  if (homeResolved.ok && statOrMissing(homeResolved.abs)?.isDirectory() === true) {
+    const candidates: string[] = [];
+    for (const file of walkNotes(root, home)) {
+      if (!/ Index\.md$/i.test(file.rel)) continue;
+      const key = projectIndexKey(readNoteText(root, file.rel) ?? "");
+      if (key === null) continue;
+      const below = file.rel.slice(home.length + 1).split("/");
+      if (below.length >= 2) ownerFolders.add(below[0]!.toLowerCase());
+      if (key === project.key) candidates.push(file.rel);
+    }
+    candidates.sort((a, b) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0));
+    const found = candidates[0];
+    if (found !== undefined) return { folderRel: path.posix.dirname(found), indexRel: found, keyed: true, ownerFolders };
+  }
+  const otherKey = projectIndexKey(readNoteText(root, computedIndex) ?? "");
+  if (otherKey !== null && otherKey !== project.key) {
+    return { refused: `${computedIndex} belongs to project ${otherKey}; rename or move that folder in Obsidian` };
+  }
+  return { folderRel: computed, indexRel: computedIndex, keyed: false, ownerFolders };
+}
+
+interface AdoptionReport { adopted: string[]; sources: string[]; left: Array<{ rel: string; reason: string }> }
+/**
+ * Move omp-ui-stamped notes out of the folders older omp-ui versions wrote
+ * this project into (#794): the #787 owner-suffixed folder always, the plain
+ * slug folder on first claim only. Rewrites full-path wikilinks, merges the
+ * legacy Index's link lines, removes emptied folders, and records the
+ * project key on the destination Index. Synchronous by design: no await may
+ * separate it from vaultCreate's preflight and write.
+ */
+function adoptLegacyFolders(ctx: VaultCallContext, root: string, project: VaultProjectIdentity, dest: ProjectDestination, noteRel: string): AdoptionReport {
+  const report: AdoptionReport = { adopted: [], sources: [], left: [] };
+  const home = ctx.entry.homeFolder.replace(/\/$/, "");
+  const destOwner = dest.folderRel.slice(home.length + 1).split("/")[0]!.toLowerCase();
+  const names = [project.legacy?.suffixed ?? null, dest.keyed ? null : (project.legacy?.plain ?? null)];
+  const sources: Array<{ name: string; rel: string; abs: string }> = [];
+  for (const name of names) {
+    if (name === null || name === "" || dest.ownerFolders.has(name.toLowerCase()) || name.toLowerCase() === destOwner) continue;
+    const rel = `${home}/${name}`;
+    const checked = resolveSync(root, rel);
+    if (!checked.ok || syncFs.lstatSync(checked.abs, { throwIfNoEntry: false })?.isDirectory() !== true) continue;
+    if (sources.some((s) => s.rel.toLowerCase() === rel.toLowerCase())) continue;
+    sources.push({ name, rel, abs: checked.abs });
+  }
+  const moves: Array<{ source: string; from: string; to: string }> = [];
+  // The note this create writes is reserved like a planned move, so a same-named legacy note stays put.
+  const planned = new Set<string>([dest.indexRel.toLowerCase(), noteRel.toLowerCase()]);
+  let outsideTexts: Array<{ rel: string; text: string }> | null = null;
+  for (const source of sources) {
+    const legacyIndex = `${source.name} Index.md`.toLowerCase();
+    const entries = syncFs.readdirSync(source.abs, { withFileTypes: true })
+      .filter((entry) => !entry.name.startsWith(".") && !entry.isSymbolicLink() && entry.isFile() && /\.md$/i.test(entry.name) && entry.name.toLowerCase() !== legacyIndex)
+      .map((entry) => entry.name).sort();
+    for (const name of entries) {
+      const from = `${source.rel}/${name}`;
+      const to = `${dest.folderRel}/${name}`;
+      const leave = (reason: string): void => { report.left.push({ rel: from, reason }); };
+      if (!ownership(readNoteText(root, from) ?? "")) { leave("not created by omp-ui"); continue; }
+      const target = resolveSync(root, to);
+      if (!target.ok) { leave(target.reason); continue; }
+      if (statOrMissing(target.abs) !== null || planned.has(to.toLowerCase())) { leave(`a note with that name already exists at ${to}`); continue; }
+      const winReason = windowsPathRefusal(target.abs, to);
+      if (winReason !== null) { leave(winReason); continue; }
+      if (!ctx.entry.allowWritesOutsideHome) {
+        outsideTexts ??= walkNotes(root).filter((file) => !file.rel.startsWith(`${home}/`))
+          .flatMap((file) => { const text = readNoteText(root, file.rel); return text === null ? [] : [{ rel: file.rel, text }]; });
+        const pattern = pathLinkPattern(from.replace(/\.md$/i, ""));
+        const linker = outsideTexts.find((note) => { pattern.lastIndex = 0; return pattern.test(note.text); });
+        if (linker !== undefined) { leave(`linked by path from ${linker.rel}, outside the Home folder`); continue; }
+      }
+      planned.add(to.toLowerCase());
+      moves.push({ source: source.rel, from, to });
+    }
+  }
+
+  // Rewrite full-path links before any rename; a failed rename leaves an
+  // unresolved link in Obsidian, and the next create retries the move.
+  if (moves.length > 0) {
+    const patterns = moves.map((move) => ({ pattern: pathLinkPattern(move.from.replace(/\.md$/i, "")), to: `[[${move.to.replace(/\.md$/i, "")}` }));
+    for (const file of walkNotes(root, ctx.entry.allowWritesOutsideHome ? "" : home)) {
+      const before = readNoteText(root, file.rel);
+      if (before === null) continue;
+      const after = patterns.reduce((text, { pattern, to }) => text.replace(pattern, to), before);
+      if (after === before) continue;
+      const writable = writePath(ctx, root, file.rel, false);
+      if (writable.ok) writeTextAtomic(syncFs.realpathSync.native(writable.abs), after);
+    }
+  }
+  let madeDir = false;
+  for (const move of moves) {
+    const from = writePath(ctx, root, move.from, true);
+    const to = writePath(ctx, root, move.to, true);
+    if (!from.ok) { report.left.push({ rel: move.from, reason: from.reason }); continue; }
+    if (!to.ok) { report.left.push({ rel: move.from, reason: to.reason }); continue; }
+    try {
+      if (!madeDir) { syncFs.mkdirSync(path.dirname(to.abs), { recursive: true }); madeDir = true; }
+      // renameSync replaces an existing file on POSIX; never clobber.
+      if (statOrMissing(to.abs) !== null) { report.left.push({ rel: move.from, reason: `a note with that name already exists at ${move.to}` }); continue; }
+      syncFs.renameSync(from.abs, to.abs);
+      report.adopted.push(move.to);
+      if (!report.sources.includes(move.source)) report.sources.push(move.source);
+    } catch (error) { report.left.push({ rel: move.from, reason: `move failed (${errorCode(error)})` }); }
+  }
+
+  for (const source of sources) {
+    const legacyRel = `${source.rel}/${source.name} Index.md`;
+    const legacyText = readNoteText(root, legacyRel);
+    const legacyPath = writePath(ctx, root, legacyRel, true);
+    if (legacyText !== null && ownership(legacyText) && legacyPath.ok) {
+      const split = splitFrontmatter(legacyText);
+      const lines = split.body.split("\n");
+      const inside = `${source.rel}/`.toLowerCase();
+      const migrated = lines.filter((line) => /^- \[\[[^\]]+\]\]\s*$/.test(line) && !line.slice(4).toLowerCase().startsWith(inside));
+      let merged = migrated.length === 0;
+      const destPath = writePath(ctx, root, dest.indexRel, true);
+      if (!merged && destPath.ok) {
+        if (statOrMissing(destPath.abs) === null) {
+          syncFs.mkdirSync(path.dirname(destPath.abs), { recursive: true });
+          writeExclusive(destPath.abs, `${stamp(ctx, ["index"], ctx.now(), project.key)}# ${titleOf(dest.indexRel)}\n`);
+        }
+        const current = readNoteText(root, dest.indexRel);
+        if (current !== null) {
+          const present = new Set(current.split("\n").map((line) => line.trimEnd()));
+          const fresh: string[] = [];
+          for (const line of migrated.map((l) => l.trimEnd())) {
+            if (present.has(line)) continue;
+            present.add(line);
+            fresh.push(line);
+          }
+          if (fresh.length > 0) syncFs.appendFileSync(destPath.abs, `${current.endsWith("\n") ? "" : "\n"}${fresh.join("\n")}\n`, "utf8");
+          merged = true;
+        }
+      }
+      if (merged) {
+        const kept = lines.filter((line) => !migrated.includes(line));
+        const heading = `# ${source.name} Index`.toLowerCase();
+        if (kept.every((line) => line.trim() === "" || line.trim().toLowerCase() === heading)) syncFs.unlinkSync(legacyPath.abs);
+        else if (migrated.length > 0) writeTextAtomic(syncFs.realpathSync.native(legacyPath.abs), split.prefix + kept.join("\n"));
+      }
+    }
+    try { if (syncFs.readdirSync(source.abs).length === 0) syncFs.rmdirSync(source.abs); }
+    catch (error) { if (errorCode(error) !== "ENOENT") throw error; }
+  }
+
+  // The claim: record the key so the next create finds this folder by lookup.
+  const destIndex = readNoteText(root, dest.indexRel);
+  const destPath = writePath(ctx, root, dest.indexRel, true);
+  if (project.key !== null && destIndex !== null && destPath.ok && ownership(destIndex) && projectIndexKey(destIndex) === null) {
+    const split = splitFrontmatter(destIndex);
+    const prefix = split.prefix.replace(/^(omp-ui: true)(\r?)$/m, `$1$2\nproject-key: ${JSON.stringify(project.key)}$2`);
+    writeTextAtomic(syncFs.realpathSync.native(destPath.abs), prefix + split.body);
+  }
+  return report;
+}
+
 export async function vaultCreate(ctx: VaultCallContext, args: { title: string; body: string; tags?: string[] }): Promise<VaultOutcome> {
   return operation(ctx, "create", (root) => {
     if (typeof args.title !== "string" || typeof args.body !== "string" || (args.tags !== undefined && (!Array.isArray(args.tags) || !args.tags.every((tag) => typeof tag === "string")))) return fail(ctx, "create", null, "create requires title and body strings and optional string tags");
     const normalized = normalizeTitle(args.title);
     if (!normalized.ok) return fail(ctx, "create", null, normalized.reason);
     const title = normalized.title;
-    const folder = `${ctx.entry.homeFolder}${ctx.projectFolder === null ? "" : `${ctx.projectFolder}/`}`;
+    const dest = ctx.project === null ? null : projectDestination(ctx, root, ctx.project);
+    if (dest !== null && "refused" in dest) return fail(ctx, "create", null, dest.refused);
+    const folder = dest === null ? ctx.entry.homeFolder : `${dest.folderRel}/`;
     const rel = `${folder}${title}.md`;
     const note = writePath(ctx, root, rel, true);
     if (!note.ok) return fail(ctx, "create", rel, note.reason);
-    const indexRel = ctx.projectFolder === null ? null : `${folder}${ctx.projectFolder} Index.md`;
+    const indexRel = dest === null ? null : dest.indexRel;
     const index = indexRel === null ? null : writePath(ctx, root, indexRel, true);
     if (index !== null && !index.ok) return fail(ctx, "create", rel, index.reason);
     if (indexRel !== null && rel.toLowerCase() === indexRel.toLowerCase()) return fail(ctx, "create", rel, "the note destination is the project's Index note; pick another title");
@@ -408,6 +606,17 @@ export async function vaultCreate(ctx: VaultCallContext, args: { title: string; 
     if (winReason !== null) return fail(ctx, "create", rel, winReason);
     if (hasFrontmatter(args.body)) return fail(ctx, "create", rel, FRONTMATTER_REFUSAL);
     if (statOrMissing(note.abs) !== null) return fail(ctx, "create", rel, existingRefusal(rel));
+    const adoption = ctx.project === null || dest === null ? null : adoptLegacyFolders(ctx, root, ctx.project, dest, rel);
+    const adoptedDetails = adoption !== null && adoption.adopted.length > 0 ? { adopted: adoption.adopted } : {};
+    const adoptionText = adoption === null ? "" : [
+      ...(adoption.adopted.length > 0 ? [`Adopted ${adoption.adopted.length} omp-ui notes into ${dest!.folderRel} from ${adoption.sources.join(", ")}.`] : []),
+      ...adoption.left.map((left) => `Left in place: ${left.rel} (${left.reason})`),
+    ].map((line) => `\n${line}`).join("");
+    // Failures after adoption still report the moves, so the main log records them.
+    const failCreate = (reason: string): VaultOutcome => {
+      const out = fail(ctx, "create", rel, reason);
+      return { ...out, text: out.text + adoptionText, details: { ...out.details, ...adoptedDetails } };
+    };
     const createdAt = ctx.now();
     const noteStamp = stamp(ctx, args.tags ?? [], createdAt);
     const body = stripTitleHeading(args.body, title).trimEnd();
@@ -420,64 +629,65 @@ export async function vaultCreate(ctx: VaultCallContext, args: { title: string; 
     let indexBytes: number | null = null;
     if (index !== null && index.ok) {
       const stat = statOrMissing(index.abs);
-      if (stat !== null && !stat.isFile()) return fail(ctx, "create", rel, `existing markdown note required: ${index.rel}`);
+      if (stat !== null && !stat.isFile()) return failCreate(`existing markdown note required: ${index.rel}`);
       indexBefore = stat === null ? null : syncFs.readFileSync(index.abs);
       indexBeforeHash = indexBefore === null ? null : hash(indexBefore);
-      const prefix = indexBefore?.toString("utf8") ?? `${stamp(ctx, ["index"], createdAt)}# ${ctx.projectFolder} Index\n`;
+      const prefix = indexBefore?.toString("utf8") ?? `${stamp(ctx, ["index"], createdAt, ctx.project!.key)}# ${titleOf(indexRel!)}\n`;
       indexAddition = `${prefix.endsWith("\n") ? "" : "\n"}${linkLine}`;
       indexText = prefix + indexAddition;
       indexBytes = (indexBefore?.length ?? Buffer.byteLength(prefix, "utf8")) + Buffer.byteLength(indexAddition, "utf8");
     }
     const secret = contentRefusal(text) ?? (indexText === null ? null : contentRefusal(indexText));
-    if (secret !== null) return fail(ctx, "create", rel, secret);
+    if (secret !== null) return failCreate(secret);
     const size = sizeRefusal(text) ?? (indexBytes === null ? null : sizeRefusal(indexBytes));
-    if (size !== null) return fail(ctx, "create", rel, size);
+    if (size !== null) return failCreate(size);
     const collisions = titleMatches(root, title).filter((file) => file.rel !== rel).map((file) => file.rel).sort();
     // No await from the final preflight through both mutations. This is not a
     // cross-process lock: an Index failure after creation is reported explicitly.
     try {
       const beforeMkdir = writePath(ctx, root, rel, true);
       const indexBeforeMkdir = indexRel === null ? null : writePath(ctx, root, indexRel, true);
-      if (!beforeMkdir.ok) return fail(ctx, "create", rel, beforeMkdir.reason);
-      if (indexBeforeMkdir !== null && !indexBeforeMkdir.ok) return fail(ctx, "create", rel, indexBeforeMkdir.reason);
-      if (statOrMissing(note.abs) !== null) return fail(ctx, "create", rel, existingRefusal(rel));
+      if (!beforeMkdir.ok) return failCreate(beforeMkdir.reason);
+      if (indexBeforeMkdir !== null && !indexBeforeMkdir.ok) return failCreate(indexBeforeMkdir.reason);
+      if (statOrMissing(note.abs) !== null) return failCreate(existingRefusal(rel));
       if (index !== null && index.ok) {
         const current = statOrMissing(index.abs) === null ? null : syncFs.readFileSync(index.abs);
-        if ((current === null ? null : hash(current)) !== indexBeforeHash) return fail(ctx, "create", rel, `Index changed before creation: ${index.rel}; try again`);
+        if ((current === null ? null : hash(current)) !== indexBeforeHash) return failCreate(`Index changed before creation: ${index.rel}; try again`);
       }
       syncFs.mkdirSync(path.dirname(note.abs), { recursive: true });
       const finalNote = writePath(ctx, root, rel, true);
       const finalIndex = indexRel === null ? null : writePath(ctx, root, indexRel, true);
-      if (!finalNote.ok) return fail(ctx, "create", rel, finalNote.reason);
-      if (finalIndex !== null && !finalIndex.ok) return fail(ctx, "create", rel, finalIndex.reason);
+      if (!finalNote.ok) return failCreate(finalNote.reason);
+      if (finalIndex !== null && !finalIndex.ok) return failCreate(finalIndex.reason);
       if (finalIndex !== null && finalIndex.ok) {
         const stat = statOrMissing(finalIndex.abs);
-        if (stat !== null && !stat.isFile()) return fail(ctx, "create", rel, `existing markdown note required: ${finalIndex.rel}`);
+        if (stat !== null && !stat.isFile()) return failCreate(`existing markdown note required: ${finalIndex.rel}`);
         const current = stat === null ? null : syncFs.readFileSync(finalIndex.abs);
-        if ((current === null ? null : hash(current)) !== indexBeforeHash) return fail(ctx, "create", rel, `Index changed before creation: ${finalIndex.rel}; try again`);
+        if ((current === null ? null : hash(current)) !== indexBeforeHash) return failCreate(`Index changed before creation: ${finalIndex.rel}; try again`);
       }
       const finalSize = sizeRefusal(text) ?? (indexBytes === null ? null : sizeRefusal(indexBytes));
-      if (finalSize !== null) return fail(ctx, "create", rel, finalSize);
+      if (finalSize !== null) return failCreate(finalSize);
       writeExclusive(finalNote.abs, text);
       if (finalIndex !== null && finalIndex.ok && indexText !== null) {
         try {
           if (indexBefore === null) writeExclusive(finalIndex.abs, indexText);
           else syncFs.appendFileSync(finalIndex.abs, indexAddition, "utf8");
         } catch (error) {
-          return { ...fail(ctx, "create", rel, `note created: ${rel}; Index update failed: ${finalIndex.rel} (${errorCode(error)})`), details: { ...details(ctx, "create", rel), createdByOmpUi: true, title, baseHash: hash(text), indexNotePath: finalIndex.rel } };
+          const out = failCreate(`note created: ${rel}; Index update failed: ${finalIndex.rel} (${errorCode(error)})`);
+          return { ...out, details: { ...out.details, createdByOmpUi: true, title, baseHash: hash(text), indexNotePath: finalIndex.rel } };
         }
       }
     } catch (error) {
-      if (errorCode(error) === "EEXIST") return fail(ctx, "create", rel, existingRefusal(rel));
-      return fail(ctx, "create", rel, `could not write ${rel}: ${errorCode(error)}`);
+      if (errorCode(error) === "EEXIST") return failCreate(existingRefusal(rel));
+      return failCreate(`could not write ${rel}: ${errorCode(error)}`);
     }
     const replyLink = obsidianReplyLink(ctx.entry.name, rel, title);
     const wikilink = `[[${rel.replace(/\.md$/i, "")}|${title}]]`;
     const collisionText = collisions.map((other) => `A note named ${title} also exists at ${other}. Use the full path for this note to avoid basename ambiguity.\nReply link: ${obsidianReplyLink(ctx.entry.name, other, titleOf(other))}\nWikilink for vault notes: [[${other.replace(/\.md$/i, "")}|${titleOf(other)}]]`).join("\n");
     return {
       ok: true,
-      text: `Created ${rel} in vault ${ctx.entry.name}${indexRel === null ? "." : `; linked from ${obsidianReplyLink(ctx.entry.name, indexRel, titleOf(indexRel))}.`}\nReply link: ${replyLink}\nWikilink for vault notes: ${wikilink}${collisionText ? `\n${collisionText}` : ""}`,
-      details: { ...details(ctx, "create", rel), createdByOmpUi: true, title, stamp: noteStamp.split("\n").slice(1, -2), preview: `${body}\n`, collisions, baseHash: hash(text), ...(indexRel === null ? {} : { indexNotePath: indexRel }) },
+      text: `Created ${rel} in vault ${ctx.entry.name}${indexRel === null ? "." : `; linked from ${obsidianReplyLink(ctx.entry.name, indexRel, titleOf(indexRel))}.`}\nReply link: ${replyLink}\nWikilink for vault notes: ${wikilink}${collisionText ? `\n${collisionText}` : ""}${adoptionText}`,
+      details: { ...details(ctx, "create", rel), createdByOmpUi: true, title, stamp: noteStamp.split("\n").slice(1, -2), preview: `${body}\n`, collisions, baseHash: hash(text), ...(indexRel === null ? {} : { indexNotePath: indexRel }), ...adoptedDetails },
     };
   });
 }

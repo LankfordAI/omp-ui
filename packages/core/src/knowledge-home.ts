@@ -6,7 +6,7 @@ import { git } from "./git";
 import { slugifyProjectName } from "./worktree-branch";
 import { listRemoteNames, type GitRunner } from "./branches";
 import { parseRemoteWebUrl } from "./pr-url";
-import type { KnowledgeHome, VaultRegistry } from "./types";
+import type { KnowledgeHome, VaultProjectIdentity, VaultRegistry } from "./types";
 
 const GIT_TIMEOUT_MS = 5_000;
 
@@ -74,16 +74,17 @@ export function ghLogins(hostsYml: string): Map<string, Set<string>> {
 
 /**
  * The repo's remote identity: the remote's web host and first path segment
- * (the owner), lowercased, or a marker when nothing names both — "no-repo"
- * outside a git checkout, "no-remote" inside one with no remote, "unknown"
- * when no single remote URL names a host and an owner. The remote-selection
+ * (the owner), lowercased, plus every web path segment URL-decoded in its
+ * original case, or a marker when nothing names both — "no-repo" outside a
+ * git checkout, "no-remote" inside one with no remote, "unknown" when no
+ * single remote URL names a host and an owner. The remote-selection
  * precedence is `origin`, else a single remote, else none; scp-style and URL
  * forms via parseRemoteWebUrl, credentials dropped. Never rejects.
  */
 async function remoteIdentity(
   cwd: string,
   deps: ResolvedDeps,
-): Promise<{ host: string; owner: string } | "no-repo" | "no-remote" | "unknown"> {
+): Promise<{ host: string; owner: string; segments: string[] } | "no-repo" | "no-remote" | "unknown"> {
   const opts = { timeoutMs: GIT_TIMEOUT_MS };
   try {
     await deps.runGit(cwd, ["rev-parse", "--show-toplevel"], opts);
@@ -100,9 +101,12 @@ async function remoteIdentity(
     if (web === null) return "unknown";
     const url = new URL(web);
     const host = url.hostname.toLowerCase();
-    const owner = url.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
+    const segments = url.pathname.split("/").filter(Boolean).map((segment) => {
+      try { return decodeURIComponent(segment); } catch { return segment; }
+    });
+    const owner = segments[0]?.toLowerCase();
     if (owner === undefined) return "unknown";
-    return { host, owner };
+    return { host, owner, segments };
   } catch {
     return "unknown";
   }
@@ -127,34 +131,72 @@ async function routesToDocs(cwd: string, deps: ResolvedDeps): Promise<boolean> {
   return ghLogins(text).get(identity.host)?.has(identity.owner) === true;
 }
 
-/** Cap on the whole folder name so a long owner cannot balloon the vault path. */
+/** Cap on one vault folder name (and on the #787 legacy name as a whole). */
 export const VAULT_FOLDER_MAX = 64;
 
 /**
- * The vault project folder (#787): the plain slug with no owner; otherwise
- * `slug-owner`, the whole name trimmed to VAULT_FOLDER_MAX with any trailing
- * dash stripped. An owner with no usable characters yields the plain slug; an
- * owner that slugs equal to the name is not special-cased (`ansible/ansible`
- * is `ansible-ansible`, ambiguous nowhere).
+ * The #787 folder name (v0.20.2): `slug-owner`, the whole name trimmed to
+ * VAULT_FOLDER_MAX with any trailing dash stripped; the plain slug when the
+ * owner has no usable characters. Kept only to find that legacy folder.
  */
-export function vaultProjectFolder(displayName: string, owner: string | null): string {
+function ownerSuffixedFolder(displayName: string, owner: string): string {
   const base = slugifyProjectName(displayName);
-  if (owner === null || !/[a-z0-9]/.test(owner.toLowerCase())) return base;
+  if (!/[a-z0-9]/.test(owner.toLowerCase())) return base;
   return `${base}-${slugifyProjectName(owner)}`.slice(0, VAULT_FOLDER_MAX).replace(/-+$/, "");
 }
 
+/** One remote path segment as a vault folder name, or null when nothing usable is left. */
+export function vaultFolderSegment(raw: string): string | null {
+  // eslint-disable-next-line no-control-regex -- control characters are illegal in folder names
+  let s = raw.replace(/[\\/:*?"<>|#^[\]\u0000-\u001f]/g, "-")
+    .replace(/^[.\s]+/, "").slice(0, VAULT_FOLDER_MAX).replace(/[.\s]+$/, "");
+  if (s === "") return null;
+  if (/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(s)) s = `${s}-`;
+  return s;
+}
+
+/** No web remote: today's plain-slug folder and Index, byte-identical. */
+export function plainVaultProject(displayName: string): VaultProjectIdentity {
+  const slug = slugifyProjectName(displayName);
+  return { key: null, folder: slug, indexTitle: `${slug} Index`, legacy: null };
+}
+
 /**
- * Resolve the vault project folder for a project: the name's slug plus the
- * remote's owner when the remote has a web face with an owner, so two
- * same-named repos from different owners keep separate folders in a vault
- * Obsidian Sync carries across machines. Never rejects: any git or parse
- * failure falls back to the plain slug.
+ * The vault project identity (#794): nested `Owner/Repo` folders from the
+ * remote web path in original case, keyed by the lowercased path, so every
+ * clone of one repo computes the same folder whatever its directory is
+ * called. Fewer than two usable segments yields the plain slug. Pure.
  */
-export async function resolveVaultProjectFolder(
+export function vaultProjectIdentity(displayName: string, segments: string[] | null): VaultProjectIdentity {
+  const safe = segments?.map(vaultFolderSegment) ?? null;
+  if (segments === null || safe === null || safe.length < 2 || safe.some((s) => s === null)) {
+    return plainVaultProject(displayName);
+  }
+  const folders = safe as string[];
+  const ownerSegment = folders[0]!.toLowerCase();
+  const plain = slugifyProjectName(displayName);
+  const suffixed = ownerSuffixedFolder(displayName, segments[0]!.toLowerCase());
+  return {
+    key: segments.join("/").toLowerCase(),
+    folder: folders.join("/"),
+    indexTitle: `${folders[folders.length - 1]} Index`,
+    legacy: {
+      // A legacy name equal to the owner folder (case-insensitive FS) is the owner folder itself.
+      suffixed: suffixed === plain || suffixed.toLowerCase() === ownerSegment ? null : suffixed,
+      plain: plain.toLowerCase() === ownerSegment ? "" : plain,
+    },
+  };
+}
+
+/**
+ * Resolve the vault project identity for a project from its git remote.
+ * Never rejects: any git or parse failure yields plainVaultProject.
+ */
+export async function resolveVaultProject(
   displayName: string,
   projectCwd: string,
   deps: KnowledgeHomeDeps = {},
-): Promise<string> {
+): Promise<VaultProjectIdentity> {
   const resolved: ResolvedDeps = {
     runGit: deps.runGit ?? git,
     env: deps.env ?? process.env,
@@ -163,7 +205,7 @@ export async function resolveVaultProjectFolder(
     readFile: deps.readFile ?? ((p) => readFile(p, "utf8")),
   };
   const identity = await remoteIdentity(projectCwd, resolved);
-  return vaultProjectFolder(displayName, typeof identity === "object" ? identity.owner : null);
+  return vaultProjectIdentity(displayName, typeof identity === "object" ? identity.segments : null);
 }
 
 /** Never rejects: every git or file failure maps to a rule outcome. */

@@ -249,7 +249,7 @@ async function run(base: string): Promise<void> {
   const mainLog: string[] = [];
   const hostLog: string[] = [];
   const vaultDeps: VaultBridgeDeps = {
-    context: () => ({ projectName: "Smoke", projectFolder: "Smoke", pinnedVault: null, lineage: LINEAGE }),
+    context: () => ({ projectName: "Smoke", project: { key: null, folder: "Smoke", indexTitle: "Smoke Index", legacy: null }, pinnedVault: null, lineage: LINEAGE }),
     registry: () => registry,
     guard: () => guard,
     obsidianList: async () => fixtureList,

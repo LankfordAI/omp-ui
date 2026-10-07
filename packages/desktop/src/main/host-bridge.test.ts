@@ -460,7 +460,7 @@ function vaultFixture(overrides: Partial<VaultBridgeDeps> = {}) {
     ],
     defaultWriteVault: "A",
   };
-  let context: VaultTabContext | null = { projectName: "Project", projectFolder: "Project", pinnedVault: null, lineage: "019a38bf-bbaa-7111-8123-123456789abc" };
+  let context: VaultTabContext | null = { projectName: "Project", project: { key: null, folder: "Project", indexTitle: "Project Index", legacy: null }, pinnedVault: null, lineage: "019a38bf-bbaa-7111-8123-123456789abc" };
   const logs: string[] = [];
   const sent: RpcFrame[] = [];
   const deps: VaultBridgeDeps = {
@@ -577,19 +577,39 @@ describe("HostBridge knowledge vault real filesystem dispatch", () => {
     expect(fs.existsSync(path.join(f.vaultRoot, "omp-ui/Project/Project Index.md"))).toBe(false);
   });
 
+  it("logs notes adopted into a keyed project's folder", async () => {
+    const f = vaultFixture();
+    f.setContext({
+      projectName: "app",
+      project: { key: "acme/app", folder: "Acme/app", indexTitle: "app Index", legacy: { suffixed: "app-acme", plain: "app" } },
+      pinnedVault: null,
+      lineage: "lineage",
+    });
+    fs.mkdirSync(path.join(f.vaultRoot, "omp-ui", "app-acme"));
+    fs.writeFileSync(path.join(f.vaultRoot, "omp-ui", "app-acme", "Old.md"), "---\nomp-ui: true\n---\nbody\n");
+    const created = await f.call("create", { title: "Fresh", body: "Fresh body" });
+    expect(created.isError).not.toBe(true);
+    expect(resultDetails(created).adopted).toEqual(["omp-ui/Acme/app/Old.md"]);
+    expect(fs.existsSync(path.join(f.vaultRoot, "omp-ui", "Acme", "app", "Old.md"))).toBe(true);
+    expect(f.logs).toEqual([
+      "[vault] A create omp-ui/Acme/app/Fresh.md",
+      "[vault] A create adopted 1 notes into omp-ui/Acme/app",
+    ]);
+  });
+
   it("uses explicit vault, then pin, then default and snapshots selection across setup", async () => {
     const f = vaultFixture();
-    f.setContext({ projectName: "Project", projectFolder: "Project", pinnedVault: "B", lineage: "lineage" });
+    f.setContext({ projectName: "Project", project: { key: null, folder: "Project", indexTitle: "Project Index", legacy: null }, pinnedVault: "B", lineage: "lineage" });
     expect(resultDetails(await f.call("read", { path: SOURCE })).vaultName).toBe("B");
     expect(resultDetails(await f.call("read", { path: SOURCE, vault: "A" })).vaultName).toBe("A");
     const broken = await f.call("create", { title: "x", body: "x", vault: "Unknown" });
     expect(resultText(broken)).toBe('unknown vault "Unknown"; registered: A, B');
     expect(f.logs.at(-1)).toBe('[vault] Unknown create refused: unknown vault "Unknown"; registered: A, B');
-    f.setContext({ projectName: "Project", projectFolder: "Project", pinnedVault: "Removed", lineage: "lineage" });
+    f.setContext({ projectName: "Project", project: { key: null, folder: "Project", indexTitle: "Project Index", legacy: null }, pinnedVault: "Removed", lineage: "lineage" });
     expect(resultText(await f.call("read", { path: SOURCE }))).toBe('this project\'s knowledge home names vault "Removed", which is no longer registered; registered: A, B');
     f.setContext(null);
     expect(resultText(await f.call("read", { path: SOURCE }))).toBe("this session's record is gone");
-    f.setContext({ projectName: null, projectFolder: "Project", pinnedVault: null, lineage: "lineage" });
+    f.setContext({ projectName: null, project: { key: null, folder: "Project", indexTitle: "Project Index", legacy: null }, pinnedVault: null, lineage: "lineage" });
     f.setRegistry({ vaults: [], defaultWriteVault: null });
     expect(resultText(await f.call("read", { path: SOURCE }))).toBe("no vault is registered; add one in Settings, Knowledge vault");
   });
@@ -842,7 +862,7 @@ describe("HostBridge vault quota, diagnostics, and cancellation", () => {
     f.registry().vaults[0].name = "Changed";
     f.registry().vaults[0].path = f.otherRoot;
     f.setRegistry({ vaults: [], defaultWriteVault: null });
-    f.setContext({ projectName: "Changed", projectFolder: "Other Project", pinnedVault: "B", lineage: "other-lineage" });
+    f.setContext({ projectName: "Changed", project: { key: null, folder: "Other Project", indexTitle: "Other Project Index", legacy: null }, pinnedVault: "B", lineage: "other-lineage" });
     lookup.release([]);
     const created = await request;
     expect(created.isError).not.toBe(true);
