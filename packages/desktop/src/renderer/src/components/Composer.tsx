@@ -37,6 +37,7 @@ import { answerPendingQuestion, freeTextTarget } from "./ExtensionDialogHost";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { FastModeControl } from "./FastModeControl";
+import { SlowModeControl } from "./SlowModeControl";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
@@ -162,6 +163,9 @@ export function Composer({
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
   const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
   const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
+  // The runtime's own support field is the gate (issue #777): older omp and
+  // unsupported models report false/absent, so no control and no command.
+  const slowSupported = useStore((s) => s.rpc[tabId]?.session.slowModeSupported === true);
   const compact = useCompactShell();
   const compactSurface = useStore((s) => s.compactSurface);
   const showCompactSurface = useStore((s) => s.showCompactSurface);
@@ -1123,6 +1127,10 @@ export function Composer({
 
             {(modelFastTier(currentModel) !== null || fastEnabled || fastActive) && (
               <FastModeControl tabId={tabId} disabled={unavailable} />
+            )}
+
+            {slowSupported && (
+              <SlowModeControl tabId={tabId} disabled={unavailable} />
             )}
 
             <AdvisorControl tabId={tabId} disabled={unavailable} />

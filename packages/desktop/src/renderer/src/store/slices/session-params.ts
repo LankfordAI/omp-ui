@@ -100,6 +100,7 @@ export type SessionParamsSlice = Pick<
   | "setInterruptMode"
   | "setAutoCompaction"
   | "setFastMode"
+  | "setSlowMode"
   | "setSessionServiceTier"
   | "setServiceTier"
   | "setAutoRetry"
@@ -749,6 +750,11 @@ export function createSessionParamsSlice(
         `${selected.provider}/${selected.id}`,
         thinkingLevel,
       );
+      // rpc.md: re-read all three slowMode fields after a model change —
+      // the set_model response carries only the selected Model and no
+      // model_changed frame is handled here, so this is the convergence
+      // point for slowMode* (and it re-syncs fastMode*, also per-model).
+      await refreshState(tabId);
     })();
     await trackSessionParameterAction(tabId, action);
   };
@@ -892,6 +898,25 @@ export function createSessionParamsSlice(
     const clear = get().setSessionServiceTier(tabId, null);
     await setFastModeRpc(tabId, false);
     await clear;
+  };
+
+  /**
+   * omp's slow mode (issue #777): `enabled` is the computed truth the
+   * response reports. On direct Anthropic the verb writes the persisted
+   * GLOBAL `providers.anthropic.slowMode` and enters/stops a low-priority
+   * window, so the get_state re-read is not a nicety — it is how the
+   * usageLimit chip learns the window the toggle just opened or closed
+   * (rpc.md: no event). No optimistic patch and no same-value skip: a
+   * global-scope click while another session already set the value must
+   * still re-read and can still re-enter a window.
+   */
+  const setSlowMode = async (tabId: string, enabled: boolean): Promise<void> => {
+    const resp = await m.runCommand(tabId, { type: "set_slow_mode", enabled });
+    if (resp === null) return; // failure recorded; state untouched
+    m.patchSession(tabId, {
+      slowModeEnabled: boolField(respData(resp), "enabled") ?? enabled,
+    });
+    await refreshState(tabId);
   };
 
   const setSessionServiceTier = async (
@@ -1415,7 +1440,12 @@ export function createSessionParamsSlice(
     const invoked = boolField(respData(resp), "agentInvoked");
     if (invoked === false) settle({ status: "done" });
     else if (invoked === true) settle({ status: "agent" });
-    if (command.name === "compact" || command.name === "fast") await m.refreshUsage(tabId);
+    if (
+      command.name === "compact" ||
+      command.name === "fast" ||
+      command.name === "slow"
+    )
+      await m.refreshUsage(tabId);
     // `agentInvoked` absent (older runtime): stay running — prompt_result's
     // id mapping or the next agent_start settles it.
   };
@@ -1920,6 +1950,7 @@ export function createSessionParamsSlice(
     setInterruptMode,
     setAutoCompaction,
     setFastMode,
+    setSlowMode,
     setSessionServiceTier,
     setServiceTier,
     setAutoRetry,

@@ -115,6 +115,20 @@ export interface QueuedMessages {
   followUp: string[];
 }
 
+/** omp's account-stage readout (get_state `usageLimit`, omp ≥ 18.6.3,
+ *  upstream #14153). Absent from the payload outside both stages. */
+export type UsageLimitStage = "wrap_up" | "low_priority";
+
+export interface UsageLimit {
+  stage: UsageLimitStage;
+  /** Epoch seconds; null when the runtime reports no reset time. */
+  resetsAtSec: number | null;
+  /** Reported on the low_priority stage only. */
+  allowanceLeftPercent: number | null;
+  /** Reported on the wrap_up stage only. */
+  extraUsage: boolean;
+}
+
 export interface SessionRuntime {
   thinkingLevel: string | null;
   /** omp's automatic-thinking selector, `"auto"` or null. The selector the
@@ -136,6 +150,20 @@ export interface SessionRuntime {
   *  leave it true while fastModeEnabled is false. Never derive one from the
   *  other; display reads this, the switch reads the setting. */
   fastModeActive: boolean;
+  /** Whether /slow applies to the active model (omp ≥ 18.6.3, issue #777).
+   *  The field is absent on older runtimes and for unsupported models, so
+   *  false doubles as "unknown or no"; it is the control's version- and
+   *  support gate. */
+  slowModeSupported: boolean;
+  /** Always false while slowModeSupported is false — that does NOT mean a
+   *  persisted global setting was turned off (rpc.md). */
+  slowModeEnabled: boolean;
+  /** Where the active model's setting lives: "global" persisted config
+   *  (providers.anthropic.slowMode), "session" per-family flex tier,
+   *  null when unsupported or not yet reported. */
+  slowModeScope: "global" | "session" | null;
+  /** The account-stage readout; null outside both stages and on older omp. */
+  usageLimit: UsageLimit | null;
   sessionId: string | null;
   sessionFile: string | null;
   messageCount: number;
@@ -202,6 +230,10 @@ export function emptySessionRuntime(): SessionRuntime {
     autoCompactionEnabled: false,
     fastModeEnabled: false,
     fastModeActive: false,
+    slowModeSupported: false,
+    slowModeEnabled: false,
+    slowModeScope: null,
+    usageLimit: null,
     sessionId: null,
     sessionFile: null,
     messageCount: 0,
@@ -229,6 +261,27 @@ export function parseContextUsage(value: unknown): ContextUsage | null {
     tokens: numField(value, "tokens") ?? 0,
     contextWindow: numField(value, "contextWindow") ?? 0,
     percent: numField(value, "percent") ?? 0,
+  };
+}
+
+const USAGE_LIMIT_STAGES: Record<string, UsageLimitStage> = {
+  wrap_up: "wrap_up",
+  low_priority: "low_priority",
+};
+
+/** An absent key, a non-object, or an unrecognized stage reads as null —
+ *  null means "no stage reported", never "stage unknown". The `hasOwn` guard
+ *  runs before the mapped value is trusted, the same defense
+ *  `modelSupportsFastMode` rides against wire strings like "constructor". */
+export function parseUsageLimit(value: unknown): UsageLimit | null {
+  if (value === null || typeof value !== "object") return null;
+  const stage = strField(value, "stage");
+  if (stage === undefined || !Object.hasOwn(USAGE_LIMIT_STAGES, stage)) return null;
+  return {
+    stage: USAGE_LIMIT_STAGES[stage],
+    resetsAtSec: numField(value, "resetsAtSec") ?? null,
+    allowanceLeftPercent: numField(value, "allowanceLeftPercent") ?? null,
+    extraUsage: boolField(value, "extraUsage") ?? false,
   };
 }
 
@@ -349,6 +402,14 @@ export function parseSessionRuntime(value: unknown, previous: SessionRuntime): S
       boolField(value, "autoCompactionEnabled") ?? previous.autoCompactionEnabled,
     fastModeEnabled: boolField(value, "fastModeEnabled") ?? previous.fastModeEnabled,
     fastModeActive: boolField(value, "fastModeActive") ?? previous.fastModeActive,
+    slowModeSupported: boolField(value, "slowModeSupported") ?? previous.slowModeSupported,
+    slowModeEnabled: boolField(value, "slowModeEnabled") ?? previous.slowModeEnabled,
+    slowModeScope:
+      strField(value, "slowModeScope") === "global" ||
+      strField(value, "slowModeScope") === "session"
+        ? (strField(value, "slowModeScope") as "global" | "session")
+        : previous.slowModeScope,
+    usageLimit: parseUsageLimit(field(value, "usageLimit")) ?? previous.usageLimit,
     sessionId: strField(value, "sessionId") ?? previous.sessionId,
     sessionFile: strField(value, "sessionFile") ?? previous.sessionFile,
     messageCount: numField(value, "messageCount") ?? previous.messageCount,

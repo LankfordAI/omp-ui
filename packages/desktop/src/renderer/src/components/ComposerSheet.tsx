@@ -9,6 +9,7 @@ import { ModelSelector } from "./ModelSelector";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { QueuedMessageList } from "./QueuedMessageList";
 import { FastModeControl } from "./FastModeControl";
+import { SlowModeControl } from "./SlowModeControl";
 import { Button, Chip, Label, Sheet } from "./ui";
 
 /** Stable empty so the per-field selector doesn't fire on every store tick. */
@@ -53,6 +54,10 @@ export function ComposerSheet({
   const model = useStore((s) => s.rpc[tabId]?.model ?? null);
   const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
   const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
+  // Slow mode's gate is the runtime's support field alone (issue #777): the
+  // control is meaningless without a supporting model, so unlike fast there
+  // is no second-section fallback row.
+  const slowSupported = useStore((s) => s.rpc[tabId]?.session.slowModeSupported === true);
   // One fast control per sheet: the gate's yes puts it in the model/effort
   // section beside the pills it belongs to (issue #689); its no keeps #677's
   // always-available row in the session section, so the affordance is never
@@ -84,6 +89,11 @@ export function ComposerSheet({
           {fastVisible && (
             <div className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
               <FastModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
+            </div>
+          )}
+          {slowSupported && (
+            <div className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
+              <SlowModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
             </div>
           )}
         </section>
