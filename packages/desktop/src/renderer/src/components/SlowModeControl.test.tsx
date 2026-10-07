@@ -2,7 +2,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import { rpcTabState } from "../test/fixtures";
 import { t } from "../lib/i18n";
@@ -18,38 +17,17 @@ const TAB = "tab-slow";
 const setSlowMode = vi.fn(async () => {});
 let root: Root | null = null;
 
-const gate = (ompVersion: string | null): CapabilitySnapshot => ({
-  version: 1 as const,
-  processKey: "p",
-  sessionId: null,
-  revision: 1,
-  updatedAt: 0,
-  ompVersion,
-  skillCommandsEnabled: null,
-  skills: { status: "unavailable", reason: "missing-api" },
-  tools: { status: "unavailable", reason: "missing-api" },
-  magicKeywords: { status: "available", items: [] },
-  toolControl: "unsupported",
-  toolMutation: null,
-});
-
-/** Seeds the gate pair plus the setting truth; version null reads incapable. */
+/** Seeds the setting truth the control reads; support is the callsite's gate. */
 const seed = (
-  opts: {
-    supported?: boolean;
-    enabled?: boolean;
-    scope?: "session" | "global" | null;
-    version?: string | null;
-  },
+  opts: { enabled?: boolean; scope?: "session" | "global" | null },
 ): void => {
   useStore.setState({
     rpc: {
       [TAB]: rpcTabState({
         status: "ready",
-        capabilities: gate(opts.version === undefined ? "18.7.0" : opts.version),
         session: {
           ...emptySessionRuntime(),
-          slowModeSupported: opts.supported ?? false,
+          slowModeSupported: true,
           slowModeEnabled: opts.enabled ?? false,
           slowModeScope: opts.scope ?? null,
         },
@@ -58,11 +36,11 @@ const seed = (
   });
 };
 
-const render = (layout?: "inline" | "sheet"): HTMLElement => {
+const render = (layout?: "inline" | "sheet", disabled = false): HTMLElement => {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  act(() => root!.render(<SlowModeControl tabId={TAB} layout={layout} />));
+  act(() => root!.render(<SlowModeControl tabId={TAB} layout={layout} disabled={disabled} />));
   return host;
 };
 
@@ -78,71 +56,79 @@ afterEach(() => {
 });
 
 describe("SlowModeControl (issue #777)", () => {
-  it("renders nothing when the runtime reports no support", () => {
-    seed({ supported: false, enabled: true });
-    expect(render().textContent).toBe("");
-  });
-
-  it("renders nothing below 18.6.3 even when the flag says supported", () => {
-    seed({ supported: true, enabled: true, version: "18.4.11" });
-    expect(render().textContent).toBe("");
-  });
-
-  it("renders nothing when the version is unknown", () => {
-    seed({ supported: true, enabled: true, version: null });
-    expect(render().textContent).toBe("");
-  });
-
-  it("hides the inline capsule while slow mode is off", () => {
-    seed({ supported: true, enabled: false });
-    expect(render().textContent).toBe("");
-  });
-
-  it("shows the signal capsule when on, naming the global scope in the tooltip", () => {
-    seed({ supported: true, enabled: true, scope: "global" });
-    const chip = render().querySelector<HTMLButtonElement>("button")!;
-    expect(chip).not.toBeNull();
-    expect(chip.textContent).toContain(t("hud.slow.label"));
-    expect(chip.getAttribute("aria-label")).toBe(
-      `${t("hud.slow.onTitle")} · ${t("hud.slow.scopeGlobalTitle")}`,
+  it("titles an enabled capsule with the shared-setting text only for global scope", () => {
+    seed({ enabled: true, scope: "global" });
+    expect(
+      render().querySelector("button")?.getAttribute("aria-label"),
+    ).toBe(t("hud.slow.onGlobalTitle"));
+    act(() => root?.unmount());
+    root = null;
+    seed({ enabled: true, scope: "session" });
+    expect(render().querySelector("button")?.getAttribute("aria-label")).toBe(
+      t("hud.slow.onTitle"),
     );
-    expect(chip.querySelector("span")?.classList.contains("bg-signal")).toBe(true);
   });
 
-  it("omits the scope clause when the scope is unknown", () => {
-    seed({ supported: true, enabled: true, scope: null });
-    const chip = render().querySelector<HTMLButtonElement>("button")!;
-    expect(chip.getAttribute("aria-label")).toBe(t("hud.slow.onTitle"));
+  it("titles a disabled-scope capsule with the per-session off text when scope is unknown", () => {
+    seed({ enabled: false, scope: null });
+    expect(render().querySelector("button")?.getAttribute("aria-label")).toBe(
+      t("hud.slow.offTitle"),
+    );
   });
 
-  it("a capsule click turns slow mode off", () => {
-    seed({ supported: true, enabled: true });
-    const chip = render().querySelector<HTMLButtonElement>("button")!;
-    act(() => chip.click());
+  it("titles a global-scope off capsule with the shared-setting off text", () => {
+    seed({ enabled: false, scope: "global" });
+    expect(render().querySelector("button")?.getAttribute("aria-label")).toBe(
+      t("hud.slow.offGlobalTitle"),
+    );
+  });
+
+  it("shows the copper dot while on and neutral while off", () => {
+    seed({ enabled: true });
+    const dot = render().querySelector("button span")!;
+    expect(dot.classList.contains("bg-copper")).toBe(true);
+    act(() => root?.unmount());
+    root = null;
+    seed({ enabled: false });
+    expect(render().querySelector("button span")?.classList.contains("bg-copper")).toBe(false);
+  });
+
+  it("a capsule click sends the toggled setting", () => {
+    seed({ enabled: true });
+    const on = render();
+    act(() => on.querySelector("button")!.click());
     expect(setSlowMode).toHaveBeenCalledWith(TAB, false);
+    act(() => root?.unmount());
+    root = null;
+    seed({ enabled: false });
+    const off = render();
+    act(() => off.querySelector("button")!.click());
+    expect(setSlowMode).toHaveBeenCalledWith(TAB, true);
   });
 
-  it("the sheet row stays reachable while off and sends the enable", () => {
-    seed({ supported: true, enabled: false });
+  it("the sheet row keeps the switch reachable while off and titles by scope", () => {
+    seed({ enabled: false, scope: "global" });
     const host = render("sheet");
-    const sw = host.querySelector<HTMLButtonElement>(
-      'button[role="switch"][aria-label="slow mode"]',
-    )!;
-    expect(sw).not.toBeNull();
-    expect(sw.getAttribute("title")).toBe(t("hud.slow.offTitle"));
+    const sw = host.querySelector<HTMLButtonElement>('button[role="switch"]')!;
+    expect(sw.getAttribute("title")).toBe(t("hud.slow.offGlobalTitle"));
     act(() => sw.click());
     expect(setSlowMode).toHaveBeenCalledWith(TAB, true);
   });
 
-  it("appends the scope word to the sheet's on-state line", () => {
-    seed({ supported: true, enabled: true, scope: "global" });
+  it("the sheet on-state line names the setting, not a tier", () => {
+    seed({ enabled: true, scope: "global" });
     const host = render("sheet");
-    expect(host.textContent).toContain(`${t("hud.slow.on")} · ${t("hud.slow.stageGlobal")}`);
+    expect(host.textContent).toContain(t("hud.slow.labelLong"));
+    expect(host.textContent).toContain(t("hud.slow.on"));
   });
 
-  it("names the session scope word when the flex tier is session-scoped", () => {
-    seed({ supported: true, enabled: true, scope: "session" });
-    const host = render("sheet");
-    expect(host.textContent).toContain(`${t("hud.slow.on")} · ${t("hud.slow.stageSession")}`);
+  it("disables both faces when the callsite marks the session unavailable", () => {
+    seed({ enabled: true });
+    expect(render(undefined, true).querySelector<HTMLButtonElement>("button")?.disabled).toBe(true);
+    act(() => root?.unmount());
+    root = null;
+    expect(
+      render("sheet", true).querySelector<HTMLButtonElement>('button[role="switch"]')?.disabled,
+    ).toBe(true);
   });
 });

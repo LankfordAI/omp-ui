@@ -1048,8 +1048,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setInterruptMode(tabId: string, mode: string): Promise<void>;
   setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
   setFastMode(tabId: string, enabled: boolean): Promise<void>;
-  /** Toggles omp's slow mode (issue #777); the set_slow_mode answer is the
-   * computed truth, then a quiet get_state settles scope and usage stage. */
+  /** Toggles omp's slow mode (issue #777); the response's `enabled` is the
+   *  computed truth, followed by a get_state re-read for the stage chip. */
   setSlowMode(tabId: string, enabled: boolean): Promise<void>;
   /** Writes the tier this session's fast selection names (issue #719);
    *  applied by the next spawn's replay — never a respawn. null clears. */

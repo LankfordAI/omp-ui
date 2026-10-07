@@ -190,6 +190,66 @@ describe("queued messages in session state", () => {
   });
 });
 
+describe("slow mode and usageLimit in session state (issue #777)", () => {
+  const previous = {
+    ...emptySessionRuntime(),
+    slowModeSupported: true,
+    slowModeEnabled: true,
+    slowModeScope: "global" as const,
+    usageLimit: { stage: "low_priority" as const, resetsAtSec: 1, allowanceLeftPercent: 40, extraUsage: false },
+  };
+
+  it("parses all four fields from a full get_state payload", () => {
+    const next = parseSessionRuntime(
+      {
+        slowModeSupported: true,
+        slowModeEnabled: true,
+        slowModeScope: "session",
+        usageLimit: { stage: "wrap_up", resetsAtSec: 1_800, extraUsage: true },
+      },
+      emptySessionRuntime(),
+    );
+    expect(next.slowModeSupported).toBe(true);
+    expect(next.slowModeEnabled).toBe(true);
+    expect(next.slowModeScope).toBe("session");
+    expect(next.usageLimit).toEqual({
+      stage: "wrap_up",
+      resetsAtSec: 1_800,
+      allowanceLeftPercent: null,
+      extraUsage: true,
+    });
+  });
+
+  it("keeps previous values when the keys are absent (older omp, partial frames)", () => {
+    const next = parseSessionRuntime({ messageCount: 3 }, previous);
+    expect(next.slowModeSupported).toBe(true);
+    expect(next.slowModeEnabled).toBe(true);
+    expect(next.slowModeScope).toBe("global");
+    expect(next.usageLimit).toEqual(previous.usageLimit);
+  });
+
+  it("reads an unknown stage and a missing stage as null", () => {
+    expect(parseUsageLimit({ stage: "sunset", resetsAtSec: 5 })).toBeNull();
+    expect(parseUsageLimit({ resetsAtSec: 5 })).toBeNull();
+    expect(parseUsageLimit(null)).toBeNull();
+    expect(parseUsageLimit("low_priority")).toBeNull();
+  });
+
+  it("never reads a prototype-chain stage as a stage", () => {
+    expect(parseUsageLimit({ stage: "constructor" })).toBeNull();
+    expect(parseUsageLimit({ stage: "toString" })).toBeNull();
+  });
+
+  it("an unparseable usageLimit keeps the previous stage, not a reset to null", () => {
+    const next = parseSessionRuntime({ usageLimit: { stage: "bogus" } }, previous);
+    expect(next.usageLimit).toEqual(previous.usageLimit);
+  });
+
+  it("an unrecognized slowModeScope keeps the previous scope", () => {
+    expect(parseSessionRuntime({ slowModeScope: "cosmic" }, previous).slowModeScope).toBe("global");
+  });
+});
+
 describe("parseSubagents", () => {
   it("reads status and completionPercent from the nested progress object", () => {
     const [entry] = parseSubagents({
@@ -242,74 +302,5 @@ describe("parseSubagents", () => {
       subagents: [{ id: "a1", progress: { status: "idle" } }],
     });
     expect(entry.status).toBe("idle");
-  });
-});
-
-describe("slow mode and usage limit in session state (issue #777)", () => {
-  const previous = {
-    ...emptySessionRuntime(),
-    slowModeSupported: true,
-    slowModeEnabled: true,
-    slowModeScope: "global" as const,
-    usageLimit: {
-      stage: "low_priority" as const,
-      resetsAtMs: 1_760_000_000_000,
-      allowanceLeftPercent: 12,
-    },
-  };
-
-  it("takes all four fields from a full get_state payload", () => {
-    const next = parseSessionRuntime(
-      {
-        slowModeSupported: true,
-        slowModeEnabled: true,
-        slowModeScope: "session",
-        usageLimit: { stage: "wrap_up", extraUsage: true },
-      },
-      emptySessionRuntime(),
-    );
-    expect(next.slowModeSupported).toBe(true);
-    expect(next.slowModeEnabled).toBe(true);
-    expect(next.slowModeScope).toBe("session");
-    expect(next.usageLimit).toEqual({ stage: "wrap_up", resetsAtMs: null, extraUsage: true });
-  });
-
-  it("keeps the previous values when the keys are absent (partial frames)", () => {
-    const next = parseSessionRuntime({ messageCount: 3 }, previous);
-    expect(next.slowModeSupported).toBe(true);
-    expect(next.slowModeEnabled).toBe(true);
-    expect(next.slowModeScope).toBe("global");
-    expect(next.usageLimit).toEqual(previous.usageLimit);
-  });
-
-  it("clears on an explicit usageLimit null and keeps on a key-free frame", () => {
-    expect(parseSessionRuntime({ usageLimit: null }, previous).usageLimit).toBeNull();
-    expect(parseSessionRuntime({ isStreaming: false }, previous).usageLimit).toEqual(
-      previous.usageLimit,
-    );
-  });
-
-  it("keeps the scope on a value outside the two literals", () => {
-    expect(parseSessionRuntime({ slowModeScope: "world" }, previous).slowModeScope).toBe("global");
-  });
-
-  it("converts resetsAtSec to resetsAtMs and clamps the allowance", () => {
-    expect(parseUsageLimit({ stage: "low_priority", resetsAtSec: 1_760_000_000 })).toEqual({
-      stage: "low_priority",
-      resetsAtMs: 1_760_000_000_000,
-    });
-    expect(
-      parseUsageLimit({ stage: "low_priority", allowanceLeftPercent: 140 })?.allowanceLeftPercent,
-    ).toBe(100);
-    expect(
-      parseUsageLimit({ stage: "low_priority", allowanceLeftPercent: -3 })?.allowanceLeftPercent,
-    ).toBe(0);
-    expect(parseUsageLimit({ stage: "low_priority", resetsAtSec: "later" })?.resetsAtMs).toBeNull();
-  });
-
-  it("reads any other stage as no stage", () => {
-    expect(parseUsageLimit({ stage: "suspended" })).toBeNull();
-    expect(parseUsageLimit({ resetsAtSec: 1 })).toBeNull();
-    expect(parseUsageLimit(null)).toBeNull();
   });
 });

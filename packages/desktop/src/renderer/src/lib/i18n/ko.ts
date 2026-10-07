@@ -1523,19 +1523,25 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.fast.tierUltrafast": "울트라패스트",
   "hud.fast.tierUltrafastTitle": "울트라패스트 처리 · 클릭하여 이 티어 설정",
   "hud.fast.ultraTitle": "빠른 모드 활성 — 울트라패스트 처리 작동 중 · 클릭하여 끄기",
-  // Session HUD 느린 모드 (issue #777, omp ≥ 18.6.3 / 업스트림 #14153):
-  // 설정은 하나, 하위 티어 없음. 쓰기가 반영되는 위치를 범위 문구가
-  // 명시한다 — Anthropic에서는 스위치가 omp의 영구 전역 설정을 바꾼다.
+  // Session HUD 슬로우 모드 (issue #777, omp ≥ 18.6.3): /slow의 우선순위
+  // 낮춤 처리. 전역 쌍은 세션 간에 공유되는 영구 설정을 이름으로 밝힌다 —
+  // 원격 변경은 이벤트를 보내지 않으므로 값이 지연될 수 있음을 툴팁이 알린다.
   "hud.slow.label": "느림",
   "hud.slow.labelLong": "느린 모드",
   "hud.slow.off": "꺼짐",
-  "hud.slow.offTitle": "느린 모드 꺼짐 · 클릭하여 유연 티어 처리 활성화",
+  "hud.slow.offGlobalTitle": "느린 모드 꺼짐 — 영구 전역 설정 · 클릭하여 활성화(모든 세션에 적용)",
+  "hud.slow.offTitle": "느린 모드 꺼짐 · 클릭하여 우선순위 낮춤 처리 활성화",
   "hud.slow.on": "켜짐",
-  "hud.slow.onTitle": "느린 모드 활성 — 유연 티어 처리 중 · 클릭하여 끄기",
-  "hud.slow.scopeGlobalTitle": "영구 전역 설정(providers.anthropic.slowMode)",
-  "hud.slow.scopeSessionTitle": "이 세션의 유연 티어",
-  "hud.slow.stageGlobal": "전역",
-  "hud.slow.stageSession": "세션",
+  "hud.slow.onGlobalTitle": "느린 모드 활성 — 세션 간 공유되는 영구 전역 설정 · 클릭하여 끄기",
+  "hud.slow.onTitle": "느린 모드 활성 — 우선순위 낮춤 처리 중 · 클릭하여 끄기",
+  // get_state usageLimit 계정 단계 (issue #777): 다음 전체 get_state가 필드
+  // 부재를 보고할 때까지 유지되며, 턴 범위 쿼터 칩(#673)과 다르다.
+  "hud.usage.allowanceLeft": "{percent}% 한도 남아 있음",
+  "hud.usage.extraUsage": " · 초기화 후 추가 사용 가능",
+  "hud.usage.lowPriority": "저우선순위",
+  "hud.usage.resetsIn": " · {duration} 후 초기화",
+  "hud.usage.stageTitle": "{stage} · 초기화 {time}",
+  "hud.usage.wrapUp": "정리 단계",
   // Session HUD 승인 모드 (issue #681, ADR-0038): 칩은 고정(PIN)된 세션에만
   // 표시되며, 상속이 조용한 기본값이다.
   "hud.approval.labelLong": "승인 모드",
@@ -1602,14 +1608,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.limits.chipWait": "rate limit — 대기 중{delay}",
   "hud.limits.chipDelay": " {duration}간",
   "hud.limits.chipRotation": "credential 전환됨",
-  // 사용 한도 단계 칩 (issue #777): 계정이 사용 한도를 초과했다.
-  // {at}은 지역 절대 재설정 시각이다.
-  "hud.limits.wrapUp": "정리 중",
-  "hud.limits.lowPriority": "저우선 처리",
-  "hud.limits.resetAt": "{at}에 재설정",
-  "hud.limits.allowance": "한도 {percent}% 남아",
-  "hud.limits.extraUsageOn": "추가 사용 활성화됨",
-  "hud.limits.extraUsageOff": "추가 사용 없음",
   "hud.mode.sessionMode": "세션 모드",
   "hud.modes.allAtOnceHint": "대기 중인 모든 메시지를 한 번에 처리",
   "hud.modes.controlLabel": "대기열 모드 및 재시도",

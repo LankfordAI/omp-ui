@@ -396,7 +396,7 @@ test("render follows GROUP_ORDER, skips empty groups, and orders entries descend
   );
   assert.match(body, /^## Highlights$/m);
   assert.match(body, /^\* Curated prose \(issue #9\)\.$/m);
-  assert.match(body, /This release ships 5 changes in 6 commits from 2 contributors\./);
+  assert.match(body, /This release ships 6 changes in 6 commits from 2 contributors\./);
   assert.match(body, /^## New Contributors$/m);
   assert.match(
     body,
@@ -434,6 +434,36 @@ test("an oversized body wraps the change list then collapses Other changes", () 
   assert.ok(mixed.indexOf("</details>") < mixed.indexOf("**Full diff:**"));
   assert.match(mixed, /^- 4 further commits, see the full diff$/m);
   assert.equal(mixed.includes("untracked 3 "), false);
+});
+
+// #784: reference-free commits render under Other changes but were never
+// counted; the summary must match the rendered row count.
+test("the summary counts reference-free commits, not just keyed entries", () => {
+  const { entries, untracked } = groupCommits(
+    [
+      commit(0, "a1b2c3d4e5f6a7", "feat: ship the inspector rail"),
+      commit(1, "b2c3d4e5f6a7a1", "chore: bump version to 1.2.3"),
+    ],
+    { branchChildren: () => [] },
+  );
+
+  assert.equal([...entries.keys()].length, 0);
+  assert.deepEqual(
+    untracked.map((row) => row.subject),
+    ["feat: ship the inspector rail", "chore: bump version to 1.2.3"],
+  );
+  const body = render({ entries: [], untracked, commits: 2, contributors: ["author-0"] });
+
+  assert.match(body, /This release ships 2 changes in 2 commits from 1 contributor\./);
+  assert.match(body, /^### Other changes$/m);
+  assert.match(
+    body,
+    /^- ship the inspector rail \(\[a1b2c3d\]\(https:\/\/github\.com\/octo\/widgets\/commit\/a1b2c3d4e5f6a7\)\)$/m,
+  );
+  assert.match(
+    body,
+    /^- bump version to 1\.2\.3 \(\[b2c3d4e\]\(https:\/\/github\.com\/octo\/widgets\/commit\/b2c3d4e5f6a7a1\)\)$/m,
+  );
 });
 
 test("a vanished issue still shows its commit once under Other changes", () => {

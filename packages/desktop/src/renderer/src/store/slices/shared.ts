@@ -20,7 +20,6 @@ import {
   parseSessionStats,
   type ModelInfo,
   parseTodoPhases,
-  parseUsageLimit,
   type SessionRuntime,
 } from "../../lib/rpc-types";
 import {
@@ -983,22 +982,22 @@ export function createMachinery(
     const payload = respData(resp);
     if (!tab || payload === null || typeof payload !== "object") return;
     const model = parseModelInfo(field(payload, "model")) ?? tab.model;
-    const session = parseSessionRuntime(payload, tab.session);
-    // A FULL state read is authoritative: get_state omits `usageLimit` once
-    // the stage clears, and parseSessionRuntime cannot tell that from a frame.
+    // get_state is a full snapshot: an absent `usageLimit` means the account
+    // left both stages, so the merged keep-previous value must be cleared —
+    // unlike the partial frames (session_info_update, config_update) that
+    // parseSessionRuntime also serves, where key absence carries no meaning.
+    const parsed = parseSessionRuntime(payload, tab.session);
+    const session =
+      // `in` alone: a present key — even one valued undefined — counts as
+      // reported, and parseSessionRuntime already fell back to previous.
+      "usageLimit" in payload ? parsed : { ...parsed, usageLimit: null };
     patchRpc(tabId, {
       todos:
         "todoPhases" in payload
           ? parseTodoPhases(field(payload, "todoPhases"))
           : tab.todos,
       model,
-      session: {
-        ...session,
-        usageLimit:
-          "usageLimit" in payload
-            ? parseUsageLimit(field(payload, "usageLimit"))
-            : null,
-      },
+      session,
     });
     if (model) {
       // get_state reports only the RESOLVED level: persist the selector when

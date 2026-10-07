@@ -1,5 +1,4 @@
 import { modelFastTier, type PromptRoute } from "../lib/rpc-types";
-import { showsSlowMode } from "../lib/slow-mode";
 import { useT } from "../lib/i18n";
 import { queueChipCount, queueChipView } from "../lib/queue-chip";
 import { findOwner, useStore } from "../store";
@@ -55,17 +54,15 @@ export function ComposerSheet({
   const model = useStore((s) => s.rpc[tabId]?.model ?? null);
   const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
   const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
+  // Slow mode's gate is the runtime's support field alone (issue #777): the
+  // control is meaningless without a supporting model, so unlike fast there
+  // is no second-section fallback row.
+  const slowSupported = useStore((s) => s.rpc[tabId]?.session.slowModeSupported === true);
   // One fast control per sheet: the gate's yes puts it in the model/effort
   // section beside the pills it belongs to (issue #689); its no keeps #677's
   // always-available row in the session section, so the affordance is never
   // hidden — and the sheet never carries two switches with one label.
   const fastVisible = modelFastTier(model) !== null || fastEnabled || fastActive;
-  const slowVisible = useStore((s) =>
-    showsSlowMode(
-      s.rpc[tabId]?.capabilities?.ompVersion ?? null,
-      s.rpc[tabId]?.session.slowModeSupported === true,
-    ),
-  );
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const abortAgent = useStore((s) => s.abortAgent);
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
@@ -94,10 +91,7 @@ export function ComposerSheet({
               <FastModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
             </div>
           )}
-          {/* Slow mode (issue #777): the bordered row must not render as an
-              empty box on an incapable runtime, so the visibility gate sits
-              on the wrapper; inside, the component's own gate still rules. */}
-          {slowVisible && (
+          {slowSupported && (
             <div className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
               <SlowModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
             </div>

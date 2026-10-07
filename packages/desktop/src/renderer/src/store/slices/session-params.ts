@@ -27,7 +27,6 @@ import { t, type MessageKey } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { hasSeenSharePrivacy } from "../../lib/share-privacy";
 import { supportsRestoreQueue } from "../../lib/queue-chip";
-import { supportsSlowMode } from "../../lib/slow-mode";
 import { parseRestoreResult, projectImages, splitQueuedWireText } from "../../lib/queue-restore";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
 import {
@@ -751,10 +750,11 @@ export function createSessionParamsSlice(
         `${selected.provider}/${selected.id}`,
         thinkingLevel,
       );
-      // omp emits no model-change event (issue #777): slow-mode support and
-      // the usage-limit stage follow the new model only through a quiet re-read.
-      if (supportsSlowMode(get().rpc[tabId]?.capabilities?.ompVersion ?? null))
-        await refreshState(tabId);
+      // rpc.md: re-read all three slowMode fields after a model change —
+      // the set_model response carries only the selected Model and no
+      // model_changed frame is handled here, so this is the convergence
+      // point for slowMode* (and it re-syncs fastMode*, also per-model).
+      await refreshState(tabId);
     })();
     await trackSessionParameterAction(tabId, action);
   };
@@ -901,19 +901,22 @@ export function createSessionParamsSlice(
   };
 
   /**
-   * omp's slow mode (issue #777): the command answers whether slow mode is
-   * NOW on — the computed truth, not the request — so there is no optimistic
-   * patch, the same contract as setFastModeRpc. A successful write is followed
-   * by a quiet get_state: omp emits no slow-mode event, and that read is what
-   * settles `slowModeScope` and the usage-limit stage beside the toggle.
+   * omp's slow mode (issue #777): `enabled` is the computed truth the
+   * response reports. On direct Anthropic the verb writes the persisted
+   * GLOBAL `providers.anthropic.slowMode` and enters/stops a low-priority
+   * window, so the get_state re-read is not a nicety — it is how the
+   * usageLimit chip learns the window the toggle just opened or closed
+   * (rpc.md: no event). No optimistic patch and no same-value skip: a
+   * global-scope click while another session already set the value must
+   * still re-read and can still re-enter a window.
    */
   const setSlowMode = async (tabId: string, enabled: boolean): Promise<void> => {
     const resp = await m.runCommand(tabId, { type: "set_slow_mode", enabled });
-    if (resp === null) return; // failure already recorded; state untouched
+    if (resp === null) return; // failure recorded; state untouched
     m.patchSession(tabId, {
       slowModeEnabled: boolField(respData(resp), "enabled") ?? enabled,
     });
-    await refreshState(tabId); // get_state re-read: scope and stage converge
+    await refreshState(tabId);
   };
 
   const setSessionServiceTier = async (
@@ -1437,7 +1440,12 @@ export function createSessionParamsSlice(
     const invoked = boolField(respData(resp), "agentInvoked");
     if (invoked === false) settle({ status: "done" });
     else if (invoked === true) settle({ status: "agent" });
-    if (command.name === "compact" || command.name === "fast") await m.refreshUsage(tabId);
+    if (
+      command.name === "compact" ||
+      command.name === "fast" ||
+      command.name === "slow"
+    )
+      await m.refreshUsage(tabId);
     // `agentInvoked` absent (older runtime): stay running — prompt_result's
     // id mapping or the next agent_start settles it.
   };

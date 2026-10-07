@@ -163,6 +163,9 @@ export function Composer({
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
   const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
   const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
+  // The runtime's own support field is the gate (issue #777): older omp and
+  // unsupported models report false/absent, so no control and no command.
+  const slowSupported = useStore((s) => s.rpc[tabId]?.session.slowModeSupported === true);
   const compact = useCompactShell();
   const compactSurface = useStore((s) => s.compactSurface);
   const showCompactSurface = useStore((s) => s.showCompactSurface);
@@ -1126,9 +1129,9 @@ export function Composer({
               <FastModeControl tabId={tabId} disabled={unavailable} />
             )}
 
-            {/* Slow mode (issue #777): self-gated like the fast pill above —
-                a runtime without slow mode renders nothing here. */}
-            <SlowModeControl tabId={tabId} disabled={unavailable} />
+            {slowSupported && (
+              <SlowModeControl tabId={tabId} disabled={unavailable} />
+            )}
 
             <AdvisorControl tabId={tabId} disabled={unavailable} />
 

@@ -6,12 +6,10 @@ import type { GoalState, NativeGoal } from "@omp-ui/core/goal";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type { LimitsView } from "@omp-ui/core/limits";
 import type { BackendState, ExperimentRecord, OmpSettingsSnapshot, ProjectExperiments, ServiceTier } from "@omp-ui/core/types";
-import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
-import { emptySessionRuntime } from "../lib/rpc-types";
-import type { SessionRuntime } from "../lib/rpc-types";
-import { localeTag, t } from "../lib/i18n";
+import { emptySessionRuntime, type SessionRuntime } from "../lib/rpc-types";
 import { backendState, remoteInstance, rpcTabState, tabInfo } from "../test/fixtures";
 import type { ExperimentsCache, RpcTabState } from "../store/types";
+import { t } from "../lib/i18n";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 const readOmpSettings = vi.fn((): Promise<OmpSettingsSnapshot> =>
@@ -1381,7 +1379,7 @@ describe("SessionHud fast mode chip (issue #677)", () => {
   });
 });
 
-describe("SessionHud slow mode chip (issue #777)", () => {
+describe("SessionHud slow mode and usage-limit chip (issue #777)", () => {
   const desktop = (): void => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -1389,31 +1387,11 @@ describe("SessionHud slow mode chip (issue #777)", () => {
     });
   };
 
-  /** A capabilities snapshot whose only relevant field is the version. */
-  const gate = (ompVersion: string | null): CapabilitySnapshot => ({
-    version: 1 as const,
-    processKey: "p",
-    sessionId: null,
-    revision: 1,
-    updatedAt: 0,
-    ompVersion,
-    skillCommandsEnabled: null,
-    skills: { status: "unavailable", reason: "missing-api" },
-    tools: { status: "unavailable", reason: "missing-api" },
-    magicKeywords: { status: "available", items: [] },
-    toolControl: "unsupported",
-    toolMutation: null,
-  });
-
-  const seedSlow = (fields: Partial<SessionRuntime>, ompVersion: string | null = "18.7.0"): void => {
-    useStore.setState((s) => ({
+  const seedSlow = (patch: Partial<SessionRuntime>): void => {
+    useStore.setState((state) => ({
       rpc: {
-        ...s.rpc,
-        [TAB]: {
-          ...s.rpc[TAB]!,
-          capabilities: gate(ompVersion),
-          session: { ...s.rpc[TAB]!.session!, ...fields },
-        },
+        ...state.rpc,
+        [TAB]: { ...state.rpc[TAB]!, session: { ...state.rpc[TAB]!.session!, ...patch } },
       },
     }));
   };
@@ -1427,120 +1405,73 @@ describe("SessionHud slow mode chip (issue #777)", () => {
     return host;
   };
 
-  it("hides the chip when slow mode is off", () => {
+  it("hides the slow chip when slow mode is off", () => {
     seedSlow({ slowModeSupported: true, slowModeEnabled: false });
-    expect(renderWide().textContent).not.toContain(t("hud.slow.label"));
+    const host = renderWide();
+    expect(host.textContent).not.toContain(t("hud.slow.label"));
   });
 
-  it("hides the chip on an unsupported model even while enabled", () => {
-    seedSlow({ slowModeSupported: false, slowModeEnabled: true });
-    expect(renderWide().textContent).not.toContain(t("hud.slow.label"));
-  });
-
-  it("hides the chip below omp 18.6.3 even when the flag says supported", () => {
-    seedSlow({ slowModeSupported: true, slowModeEnabled: true }, "18.4.11");
-    expect(renderWide().textContent).not.toContain(t("hud.slow.label"));
-  });
-
-  it("shows the capsule when enabled on a supported model, and a click disables", () => {
-    const setSlowMode = vi.fn(async () => {});
-    useStore.setState({ setSlowMode });
+  it("shows the copper slow chip when enabled", () => {
     seedSlow({ slowModeSupported: true, slowModeEnabled: true, slowModeScope: "session" });
     const host = renderWide();
     const chip = host.querySelector<HTMLButtonElement>(
-      `button[aria-label="${t("hud.slow.onTitle")} · ${t("hud.slow.scopeSessionTitle")}"]`,
+      `button[aria-label="${t("hud.slow.onTitle")}"]`,
     )!;
     expect(chip).not.toBeNull();
+    expect(chip.querySelector("span")?.classList.contains("bg-copper")).toBe(true);
+  });
+
+  it("a global-scope enable titles with the shared-setting tooltip", () => {
+    seedSlow({ slowModeSupported: true, slowModeEnabled: true, slowModeScope: "global" });
+    const host = renderWide();
+    expect(
+      host.querySelector(`button[aria-label="${t("hud.slow.onGlobalTitle")}"]`),
+    ).not.toBeNull();
+  });
+
+  it("a chip click sends setSlowMode with the toggled setting", () => {
+    const setSlowMode = vi.fn(async () => {});
+    useStore.setState({ setSlowMode });
+    seedSlow({ slowModeSupported: true, slowModeEnabled: true });
+    const host = renderWide();
+    const chip = host.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t("hud.slow.onTitle")}"]`,
+    )!;
     act(() => chip.click());
     expect(setSlowMode).toHaveBeenCalledWith(TAB, false);
   });
 
-  it("the modes popover row carries the always-available switch", () => {
-    const setSlowMode = vi.fn(async () => {});
-    useStore.setState({ setSlowMode });
-    seedSlow({ slowModeSupported: true, slowModeEnabled: false });
+  it("the modes popover carries the slow switch only when supported", () => {
+    seedSlow({ slowModeSupported: false, slowModeEnabled: false });
     const host = renderWide();
     const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
+    act(() => trigger.click());
+    expect(document.body.querySelector('button[role="switch"][aria-label="slow mode"]')).toBeNull();
+    act(() => trigger.click());
+    seedSlow({ slowModeSupported: true });
     act(() => trigger.click());
     const sw = document.body.querySelector<HTMLButtonElement>(
       'button[role="switch"][aria-label="slow mode"]',
     )!;
     expect(sw).not.toBeNull();
     expect(sw.getAttribute("title")).toBe(t("hud.slow.offTitle"));
-    act(() => sw.click());
-    expect(setSlowMode).toHaveBeenCalledWith(TAB, true);
   });
 
-  it("hides the popover switch below the gate", () => {
-    seedSlow({ slowModeSupported: true, slowModeEnabled: false }, "18.4.11");
+  it("renders the usage-limit chip with its countdown when a stage is seeded", () => {
+    const resetsAtSec = Math.floor(Date.now() / 1000) + 3600;
+    seedSlow({ usageLimit: { stage: "low_priority", resetsAtSec, allowanceLeftPercent: 33, extraUsage: false } });
     const host = renderWide();
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
-    act(() => trigger.click());
-    expect(
-      document.body.querySelector('button[role="switch"][aria-label="slow mode"]'),
-    ).toBeNull();
-  });
-});
-
-describe("SessionHud usage-limit chip (issue #777)", () => {
-  const desktop = (): void => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
-  };
-
-  const seedLimit = (limit: SessionRuntime["usageLimit"]): void => {
-    useStore.setState((s) => ({
-      rpc: {
-        ...s.rpc,
-        [TAB]: {
-          ...s.rpc[TAB]!,
-          session: { ...s.rpc[TAB]!.session!, usageLimit: limit },
-        },
-      },
-    }));
-  };
-
-  const renderWide = (): HTMLElement => {
-    desktop();
-    const host = document.createElement("div");
-    document.body.append(host);
-    root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
-    return host;
-  };
-
-  it("renders no chip while no stage is reported", () => {
-    seedLimit(null);
-    const host = renderWide();
-    expect(host.textContent).not.toContain(t("hud.limits.wrapUp"));
-    expect(host.textContent).not.toContain(t("hud.limits.lowPriority"));
+    const chip = host.querySelector(`[title*="${t("hud.usage.lowPriority")}"]`)!;
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toContain(t("hud.usage.lowPriority"));
+    expect(chip.getAttribute("title")).toContain("33% allowance left");
   });
 
-  it("names the wrap-up stage in rose with its reset time", () => {
-    const at = Date.now() + 60 * 60 * 1000;
-    seedLimit({ stage: "wrap_up", resetsAtMs: at, extraUsage: false });
+  it("renders no usage-limit chip when usageLimit is null", () => {
+    seedSlow({ usageLimit: null });
     const host = renderWide();
-    const chip = [...host.querySelectorAll<HTMLElement>("span")]
-      .find((span) => span.className.includes("bg-rose-wash"))!;
-    expect(chip).toBeDefined();
-    expect(chip.textContent).toContain(t("hud.limits.wrapUp"));
-    expect(chip.getAttribute("title")).toContain(
-      t("hud.limits.resetAt", { at: new Date(at).toLocaleString(localeTag()) }),
-    );
-    expect(chip.getAttribute("title")).toContain(t("hud.limits.extraUsageOff"));
-  });
-
-  it("names the low-priority stage in copper with the allowance", () => {
-    seedLimit({ stage: "low_priority", resetsAtMs: null, allowanceLeftPercent: 4 });
-    const host = renderWide();
-    const chip = [...host.querySelectorAll<HTMLElement>("span")]
-      .find((span) => span.className.includes("bg-copper-wash"))!;
-    expect(chip).toBeDefined();
-    expect(chip.textContent).toContain(t("hud.limits.lowPriority"));
-    // No reset time: the tooltip carries the allowance line alone.
-    expect(chip.getAttribute("title")).toBe(t("hud.limits.allowance", { percent: 4 }));
+    expect(host.textContent).not.toContain(t("hud.usage.wrapUp"));
+    expect(host.textContent).not.toContain(t("hud.usage.lowPriority"));
   });
 });
 

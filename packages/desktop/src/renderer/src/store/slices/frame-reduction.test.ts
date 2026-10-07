@@ -3305,6 +3305,12 @@ describe("handleRpcFrame routing", () => {
     expect(setModel?.cmd).toMatchObject({ provider: "p2", modelId: "mx" });
     h.respond(h.TAB, setModel!.cmd, {});
     await h.flushMicrotasks();
+    // setModel re-reads get_state so the per-model slowMode fields converge
+    // (issue #777); the staged chain waits on that re-read.
+    const stateRead = h.sent.find((s) => onTab(s) && s.cmd.type === "get_state");
+    expect(stateRead).toBeDefined();
+    h.respond(h.TAB, stateRead!.cmd, {});
+    await h.flushMicrotasks();
     const setLevel = h.sent.find(
       (s) => onTab(s) && s.cmd.type === "set_thinking_level",
     );
@@ -3468,6 +3474,12 @@ describe("handleRpcFrame routing", () => {
     const setModel = h.sent.find((s) => onFresh(s) && s.cmd.type === "set_model");
     expect(setModel?.cmd).toMatchObject({ provider: "p2", modelId: "mx" });
     h.respond("fresh-tab", setModel!.cmd, {});
+    await h.flushMicrotasks();
+    // The staged setModel re-reads get_state (issue #777) before the chain
+    // sends the staged thinking level.
+    const freshStateRead = h.sent.find((s) => onFresh(s) && s.cmd.type === "get_state");
+    expect(freshStateRead).toBeDefined();
+    h.respond("fresh-tab", freshStateRead!.cmd, {});
     await h.flushMicrotasks();
     const setLevel = h.sent.find(
       (s) => onFresh(s) && s.cmd.type === "set_thinking_level",

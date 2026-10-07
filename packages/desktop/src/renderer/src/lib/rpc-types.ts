@@ -115,18 +115,18 @@ export interface QueuedMessages {
   followUp: string[];
 }
 
-/** omp 18.6.3+ (upstream #14153) usage-limit stages: the account is past its
- *  usage limit and serving is degraded until the window resets. */
-export type UsageLimitStage = "low_priority" | "wrap_up";
+/** omp's account-stage readout (get_state `usageLimit`, omp ≥ 18.6.3,
+ *  upstream #14153). Absent from the payload outside both stages. */
+export type UsageLimitStage = "wrap_up" | "low_priority";
 
 export interface UsageLimit {
   stage: UsageLimitStage;
-  /** Epoch ms of the window reset; null when omp reports no reset time. */
-  resetsAtMs: number | null;
-  /** low_priority only: remaining allowance, clamped 0–100. */
-  allowanceLeftPercent?: number;
-  /** wrap_up only: whether extra usage is enabled on the account. */
-  extraUsage?: boolean;
+  /** Epoch seconds; null when the runtime reports no reset time. */
+  resetsAtSec: number | null;
+  /** Reported on the low_priority stage only. */
+  allowanceLeftPercent: number | null;
+  /** Reported on the wrap_up stage only. */
+  extraUsage: boolean;
 }
 
 export interface SessionRuntime {
@@ -150,20 +150,19 @@ export interface SessionRuntime {
   *  leave it true while fastModeEnabled is false. Never derive one from the
   *  other; display reads this, the switch reads the setting. */
   fastModeActive: boolean;
-  /** omp 18.6.3+ (upstream #14153): whether `/slow` applies to the active
-   *  model. Non-optional on any capable runtime; older omp never emits the
-   *  key, so the emptyRuntime default of false is also the pre-gate truth. */
+  /** Whether /slow applies to the active model (omp ≥ 18.6.3, issue #777).
+   *  The field is absent on older runtimes and for unsupported models, so
+   *  false doubles as "unknown or no"; it is the control's version- and
+   *  support gate. */
   slowModeSupported: boolean;
-  /** Whether `/slow` is on for the active model; always false when
-   *  unsupported. get_state-owned — omp emits no slow-mode event. */
+  /** Always false while slowModeSupported is false — that does NOT mean a
+   *  persisted global setting was turned off (rpc.md). */
   slowModeEnabled: boolean;
-  /** Where a true `slowModeEnabled` lives: `global` is omp's persisted
-   *  config (providers.anthropic.slowMode) shared by every session,
-   *  `session` is this session's flex tier. Null on unsupported runtimes. */
-  slowModeScope: "session" | "global" | null;
-  /** The account is past its usage limit; null outside a stage. Absent from
-   *  a FULL state report once the stage clears — applyRpcState reads that
-   *  absence as clear; partial frames keep the previous value. */
+  /** Where the active model's setting lives: "global" persisted config
+   *  (providers.anthropic.slowMode), "session" per-family flex tier,
+   *  null when unsupported or not yet reported. */
+  slowModeScope: "global" | "session" | null;
+  /** The account-stage readout; null outside both stages and on older omp. */
   usageLimit: UsageLimit | null;
   sessionId: string | null;
   sessionFile: string | null;
@@ -265,23 +264,24 @@ export function parseContextUsage(value: unknown): ContextUsage | null {
   };
 }
 
-/** get_state's `usageLimit`: anything without an exact stage word is no stage.
- *  `resetsAtSec` (epoch seconds) becomes `resetsAtMs` here so the HUD's
- *  reset-time formatting keeps one home (`toLocaleString(localeTag())`). */
+const USAGE_LIMIT_STAGES: Record<string, UsageLimitStage> = {
+  wrap_up: "wrap_up",
+  low_priority: "low_priority",
+};
+
+/** An absent key, a non-object, or an unrecognized stage reads as null —
+ *  null means "no stage reported", never "stage unknown". The `hasOwn` guard
+ *  runs before the mapped value is trusted, the same defense
+ *  `modelSupportsFastMode` rides against wire strings like "constructor". */
 export function parseUsageLimit(value: unknown): UsageLimit | null {
   if (value === null || typeof value !== "object") return null;
   const stage = strField(value, "stage");
-  if (stage !== "low_priority" && stage !== "wrap_up") return null;
-  const resetsAtSec = numField(value, "resetsAtSec");
-  const percent = numField(value, "allowanceLeftPercent");
-  const extraUsage = boolField(value, "extraUsage");
+  if (stage === undefined || !Object.hasOwn(USAGE_LIMIT_STAGES, stage)) return null;
   return {
-    stage,
-    resetsAtMs: resetsAtSec !== undefined && Number.isFinite(resetsAtSec) ? resetsAtSec * 1000 : null,
-    ...(percent !== undefined && Number.isFinite(percent)
-      ? { allowanceLeftPercent: Math.min(100, Math.max(0, percent)) }
-      : {}),
-    ...(extraUsage !== undefined ? { extraUsage } : {}),
+    stage: USAGE_LIMIT_STAGES[stage],
+    resetsAtSec: numField(value, "resetsAtSec") ?? null,
+    allowanceLeftPercent: numField(value, "allowanceLeftPercent") ?? null,
+    extraUsage: boolField(value, "extraUsage") ?? false,
   };
 }
 
@@ -383,13 +383,6 @@ export function parseTodoPhases(value: unknown): TodoPhase[] {
   }));
 }
 
-/** `slowModeScope` carries exactly one of the two literals on a capable runtime;
- * anything else (older omp, a lying frame) keeps the previous value. */
-function slowModeScopeField(value: unknown): "session" | "global" | undefined {
-  const scope = strField(value, "slowModeScope");
-  return scope === "session" || scope === "global" ? scope : undefined;
-}
-
 /** `get_state.data` → the subset the UI renders; `systemPrompt`/`dumpTools` are dropped. */
 export function parseSessionRuntime(value: unknown, previous: SessionRuntime): SessionRuntime {
   if (value === null || typeof value !== "object") return previous;
@@ -411,12 +404,12 @@ export function parseSessionRuntime(value: unknown, previous: SessionRuntime): S
     fastModeActive: boolField(value, "fastModeActive") ?? previous.fastModeActive,
     slowModeSupported: boolField(value, "slowModeSupported") ?? previous.slowModeSupported,
     slowModeEnabled: boolField(value, "slowModeEnabled") ?? previous.slowModeEnabled,
-    slowModeScope: slowModeScopeField(value) ?? previous.slowModeScope,
-    // Presence of the key matters: an explicit `usageLimit: null` clears the
-    // stage, while a partial frame that omits the key keeps it.
-    usageLimit: Object.hasOwn(value, "usageLimit")
-      ? parseUsageLimit(field(value, "usageLimit"))
-      : previous.usageLimit,
+    slowModeScope:
+      strField(value, "slowModeScope") === "global" ||
+      strField(value, "slowModeScope") === "session"
+        ? (strField(value, "slowModeScope") as "global" | "session")
+        : previous.slowModeScope,
+    usageLimit: parseUsageLimit(field(value, "usageLimit")) ?? previous.usageLimit,
     sessionId: strField(value, "sessionId") ?? previous.sessionId,
     sessionFile: strField(value, "sessionFile") ?? previous.sessionFile,
     messageCount: numField(value, "messageCount") ?? previous.messageCount,
