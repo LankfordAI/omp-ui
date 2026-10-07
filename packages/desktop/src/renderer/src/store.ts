@@ -508,6 +508,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     handleRpcFrame: frame.handleRpcFrame,
 
     setInitialPrompt: rpcCommandSlice.setInitialPrompt,
+    dispatchEarlyTitle: rpcCommandSlice.dispatchEarlyTitle,
     renameSession: rpcCommandSlice.renameSession,
     executePlan: plan.executePlan,
     refinePlan: plan.refinePlan,

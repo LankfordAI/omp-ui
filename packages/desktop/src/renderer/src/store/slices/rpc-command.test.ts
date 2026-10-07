@@ -1006,6 +1006,31 @@ describe("auto-titling dispatch (issue #788)", () => {
     h.sent.length = 0;
   });
 
+  /** Acknowledges every command sent so far without draining the log:
+   *  the wire order stays observable for the send-order assertions. */
+  const ackAll = async (data: unknown = {}): Promise<void> => {
+    const acked = new Set<Record<string, unknown>>();
+    for (let wave = 0; wave < 4; wave++) {
+      await h.flushMicrotasks();
+      for (const { tabId, cmd } of h.sent) {
+        if (acked.has(cmd)) continue;
+        acked.add(cmd);
+        h.respond(tabId, cmd, data);
+      }
+    }
+  };
+
+  /** The human-send path: send a substantive first prompt, ack succeeds,
+   *  then let the reducer see the user message's `message_start` — the
+   *  frame at which omp's history holds it and the shot goes out. */
+  const sendFirstPrompt = async (message = "Refactor the auth module"): Promise<void> => {
+    const sent = h.useStore.getState().sendPrompt(h.TAB, message);
+    await ackAll();
+    await expect(sent).resolves.toBe(true);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "message_start", message: { role: "user" } });
+    await h.flushMicrotasks();
+  };
+
   const renames = (): Array<Record<string, unknown>> =>
     h.sent.filter(
       (s) =>
@@ -1013,9 +1038,9 @@ describe("auto-titling dispatch (issue #788)", () => {
         (s.cmd.type === "prompt" && String(s.cmd.message).startsWith("/rename")),
     );
 
-  it("captures a substantive first prompt without sending anything at prompt time", () => {
-    // omp digests the conversation, not the prompt: nothing may reach the
-    // engine before the first turn ends.
+  it("arms a substantive first prompt without dispatching at arm time", () => {
+    // The arm alone spends nothing: the dispatch rides the turn's user
+    // `message_start`, the frame that proves omp admitted the message.
     h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
     expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe(
       "Refactor the auth module",
@@ -1024,28 +1049,31 @@ describe("auto-titling dispatch (issue #788)", () => {
     expect(h.sent).toHaveLength(0);
   });
 
-  it("dispatches at the first agent_end, then retries at later turn ends past the floor", async () => {
-    h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+  it("titles at the user message commit, before the first turn ends", async () => {
+    // issue #795: the ack alone must NOT dispatch — omp's digest reads
+    // `session.messages`, which only holds the prompt from the user
+    // `message_start` frame. The reducer fires the shot there.
+    const sent = h.useStore.getState().sendPrompt(h.TAB, "Refactor the auth module");
+    await ackAll();
+    await expect(sent).resolves.toBe(true);
+    expect(renames()).toHaveLength(0);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "message_start", message: { role: "user" } });
     await h.flushMicrotasks();
-    const rename = h.sent.find(
-      (s) => s.cmd.type === "prompt" && s.cmd.message === "/rename",
-    );
-    expect(rename).toBeTruthy();
+    expect(renames()).toHaveLength(1);
     expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
     expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
     expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 1 });
-    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    const mark = h.sent.length;
 
-    // The record is still untitled and the first generation may be in flight:
-    // the immediate second turn end leaves the attempt parked.
+    // The first untitled agent_end is now the retry rung, not the trigger:
+    // the attempt stays parked inside the floor, and nothing re-dispatches.
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
-    expect(renames()).toHaveLength(0);
+    expect(renames()).toHaveLength(1);
+    expect(h.sent.slice(mark).filter((s) => renames().includes(s.cmd))).toHaveLength(0);
     expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt!.n).toBe(1);
 
-    // A declined generation stays untitled; past the floor the next turn end
-    // re-dispatches (attempt 2 of 3, issue #791).
+    // A declined early generation re-dispatches past the floor (issue #791).
     h.useStore.setState({
       rpc: {
         ...h.useStore.getState().rpc,
@@ -1055,12 +1083,67 @@ describe("auto-titling dispatch (issue #788)", () => {
         },
       },
     });
+    const beforeRetry = h.sent.length;
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
     expect(
-      h.sent.find((s) => s.cmd.type === "prompt" && s.cmd.message === "/rename"),
-    ).toBeTruthy();
+      h.sent.slice(beforeRetry).filter((s) => s.cmd.type === "prompt" && s.cmd.message === "/rename"),
+    ).toHaveLength(1);
     expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 2 });
+  });
+
+  it("fires the one shot from a failed prompt ack at the armed turn end", async () => {
+    // A rejected ack returns null: the arm stays live and the unchanged
+    // agent_end first-shot branch remains the safety net.
+    const sent = h.useStore.getState().sendPrompt(h.TAB, "Refactor the auth module");
+    await h.flushMicrotasks();
+    const promptFrame = h.sent.find((s) => s.cmd.type === "prompt")!;
+    h.respond(h.TAB, promptFrame.cmd, "prompt rejected", false);
+    await expect(sent).resolves.toBe(false);
+    expect(renames()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe(
+      "Refactor the auth module",
+    );
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
+
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 1 });
+  });
+
+  it("clears the attempt at the first agent_end when the early shot titled", async () => {
+    await sendFirstPrompt();
+    const mark = h.sent.length;
+    // The watcher hydrated the prompt-derived title: the first turn end
+    // clears the attempt and spends nothing further (title ASAP is done).
+    const titled = structuredClone(h.backendState);
+    titled.projects[0]!.sessions[0]!.title = "Auth module refactor";
+    h.backendState = titled;
+    h.useStore.setState({ state: titled });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(h.sent.slice(mark).filter((s) => renames().includes(s.cmd))).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
+  });
+
+  it("dispatches one shot for two prompts in quick succession", async () => {
+    // The second commit's dispatch call is a no-op: the first consumed
+    // the arm and latched the session.
+    await sendFirstPrompt("Fix the login redirect");
+    expect(renames()).toHaveLength(1);
+    h.sent.length = 0;
+    const second = h.useStore.getState().sendPrompt(h.TAB, "Actually, fix logout too");
+    await ackAll();
+    await expect(second).resolves.toBe(true);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "message_start", message: { role: "user" } });
+    await h.flushMicrotasks();
+    expect(
+      h.sent.filter((s) => s.cmd.type === "prompt" && s.cmd.message === "/rename"),
+    ).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
   });
 
   it("stops after attempt 3 and clears the attempt", async () => {

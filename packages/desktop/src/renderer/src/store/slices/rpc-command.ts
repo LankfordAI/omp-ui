@@ -52,6 +52,7 @@ export type RpcCommandSlice = Pick<
   | "refreshCapabilities"
   | "rpcCommand"
   | "setInitialPrompt"
+  | "dispatchEarlyTitle"
   | "renameSession"
   | "setSessionToolEnabled"
   | "reloadHistory"
@@ -874,8 +875,10 @@ export function createRpcCommandSlice(
     // avoids a pointless engine call: omp's generator gates its digest,
     // but the latch here would already be set by then.
     if (isLowSignalTitleInput(prompt)) return;
-    // Titling fires at the first untitled `agent_end` (reduce-agent-event's
-    // rename-session effect); nothing goes out at prompt time.
+    // The shot rides the message's commit to omp's history: the reducer
+    // calls `dispatchEarlyTitle` at the user `message_start` the turn
+    // admits (issue #795); the first untitled `agent_end` stays the safety
+    // net if that frame never arrived.
     m.patchRpc(tabId, { initialPrompt: prompt });
   };
 
@@ -903,13 +906,41 @@ export function createRpcCommandSlice(
     // precedence: the bare `/rename` runs its generator in the background
     // over rpc-ui and answers with a `command_output` notice. The command
     // is checked before the streaming-queue branch in omp's prompt path,
-    // so the dispatch is safe even if the session resumed streaming in the
-    // interim; at the agent_end trigger point the session is idle.
+    // so the dispatch is safe even while the just-submitted first turn
+    // streams (the message_start trigger) or the session resumed streaming
+    // in the interim (the agent_end safety net).
     void get()
       .rpcCommand(tabId, { type: "prompt", message: "/rename" }, { quiet: true })
       .catch((err: unknown) => {
         console.warn("[session-rename] /rename dispatch failed:", err);
       });
+  };
+
+  // The one shot, from either trigger: latch it closed and, while the
+  // record is still untitled, spend it. The record is re-read here so a
+  // title that landed between trigger and fire (plan branch, watcher
+  // hydration) is never paid for twice.
+  const fireTitleShot = (tabId: string): void => {
+    const record = findRecord(get().state, tabId);
+    const titled = !isUntitled(record?.title);
+    m.patchRpc(tabId, {
+      hasRenamed: true,
+      initialPrompt: null,
+      titleAttempt: titled ? null : { at: Date.now(), n: 1 },
+    });
+    if (!titled) dispatchTitle(tabId, record);
+  };
+
+  // The prompt-commit trigger (issue #795): the reducer calls this when a
+  // turn's first `message_start` carries role `user` — the frame at which
+  // omp has the message in `session.messages`, so `/rename`'s digest is
+  // non-empty and the sidebar gets its name while the first turn is still
+  // streaming (the ack pre-dates that commit, hence NOT the ack path). A
+  // consumed arm or a latched session is a no-op.
+  const dispatchEarlyTitle = (tabId: string): void => {
+    const tab = get().rpc[tabId];
+    if (!tab || !tab.initialPrompt || tab.hasRenamed) return;
+    fireTitleShot(tabId);
   };
 
   const renameSession = (tabId: string): void => {
@@ -918,14 +949,10 @@ export function createRpcCommandSlice(
     const record = findRecord(get().state, tabId);
     const titled = !isUntitled(record?.title);
 
-    // First shot: the armed first prompt's turn just ended.
+    // Safety net: the armed turn ran without a user `message_start` the
+    // reducer could act on, so the shot goes out at the armed turn's end.
     if (tab.initialPrompt && !tab.hasRenamed) {
-      m.patchRpc(tabId, {
-        hasRenamed: true,
-        initialPrompt: null,
-        titleAttempt: titled ? null : { at: Date.now(), n: 1 },
-      });
-      if (!titled) dispatchTitle(tabId, record);
+      fireTitleShot(tabId);
       return;
     }
 
@@ -1174,6 +1201,7 @@ export function createRpcCommandSlice(
     refreshCapabilities,
     rpcCommand,
     setInitialPrompt,
+    dispatchEarlyTitle,
     renameSession,
     setSessionToolEnabled,
     reloadHistory: loadHistory,

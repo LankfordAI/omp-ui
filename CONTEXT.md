@@ -372,18 +372,27 @@ _Avoid_: voice typing, speech recognition, push-to-talk
 
 **Auto-title**:
 The name a new session gets from omp's own renamer, dispatched over the
-prompt channel: at the first untitled `agent_end`, omp-ui sends the bare
-`/rename`, and omp's in-process generator digests the conversation, walks the
-`tiny`/`commit`/`smol` role chain, and names the session itself (issue #788).
+prompt channel: when the first substantive prompt's turn admits its user
+`message_start` — the frame that proves omp holds the message — omp-ui
+sends the bare `/rename`, and omp's in-process generator digests the
+conversation, walks the `tiny`/`commit`/`smol` role chain, and names the
+session itself while the first turn is still streaming (issue #795,
+matching the TUI). The prompt's ack alone never fires the shot: omp's
+digest reads the session's message history, which only holds the prompt
+from that frame. The first untitled `agent_end` is the safety net and
+retry rung, not the trigger: it fires the shot when the turn never
+admitted a user message, and otherwise drives the bounded retry ladder
+(issue #791).
 omp-ui keeps only the gates: a session whose record already carries a title is
 latched out at prompt time — a `set_session_name` write is user-sourced, and
 omp refuses every later "auto" title once a "user" one exists — and a greeting
 defers rather than latching the one shot. For a session seeded from an
 approved plan, the plan titles it from the record's `planTitle`, never the
-seed text that carried the plan. One shot per session: a declined or failed
-generation leaves the row prompt-titled until a manual path names it. The
-title reaches the UI through the watcher, like every other engine-side
-session-file change; the engine's settlement notice is the visible signal.
+seed text that carried the plan. One shot per session: a declined generation
+retries at later turn ends, then leaves the row prompt-titled until a manual
+path names it. The title reaches the UI through the watcher, like every other
+engine-side session-file change; the engine's settlement notice is the visible
+signal.
 _Avoid_: session name generation, summary, label, two-phase titling
 
 **Re-titling**:
