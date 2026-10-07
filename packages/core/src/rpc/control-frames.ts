@@ -19,7 +19,7 @@ export type WireRecord = Record<string, unknown>;
 export type RpcControlFrame =
   | { kind: "response"; id: unknown; success: unknown; data: unknown; error: unknown; frame: WireRecord }
   | { kind: "ready"; frame: WireRecord }
-  | { kind: "omp_ui_error"; message: string; frame: WireRecord }
+  | { kind: "omp_ui_error"; message: string; failedModel?: string; frame: WireRecord }
   | { kind: "ext_request"; id: unknown; method: unknown; frame: WireRecord }
   | { kind: "ext_response"; id: unknown; value: unknown; frame: WireRecord }
   | { kind: "host_tool_call"; id: unknown; frame: WireRecord }
@@ -53,6 +53,11 @@ export function normalizeControlFrame(wire: unknown): RpcControlFrame | null {
       return {
         kind: "omp_ui_error",
         message: typeof frame.message === "string" ? frame.message : "omp rpc error",
+        // Issue #774: main stamps the model omp could not restore; the field
+        // rides only when it is a usable non-empty string.
+        ...(typeof frame.failedModel === "string" && frame.failedModel !== ""
+          ? { failedModel: frame.failedModel }
+          : {}),
         frame,
       };
     case "extension_ui_request":

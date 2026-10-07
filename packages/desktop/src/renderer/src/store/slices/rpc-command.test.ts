@@ -466,6 +466,40 @@ describe("bootRpcTab", () => {
     });
   });
 
+  it("carries the model-recovery marker through the boot failure patch (issue #774)", async () => {
+    // The death lands mid-boot: the omp_ui_error frame stamps the failed
+    // model while get_state is in flight, and the dropped command rephrases
+    // the failure — the marker must survive the rephrasing or the model
+    // picker never appears on the failure surface.
+    h.backendState = h.stateWithRecord("s");
+    h.useStore.setState({ state: h.backendState });
+    const boot = h.useStore.getState().bootRpcTab(h.TAB);
+    // get_state leaves with wave one; the process-death frame settles it as
+    // dropped, and boot continues into the failure patch — answer the boot
+    // commands issued after the rejection or allSettled waits on a real timer.
+    await h.flushMicrotasks();
+    for (const { cmd } of h.sent.splice(0)) {
+      if (cmd.type !== "get_state") h.respond(h.TAB, cmd, {});
+    }
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "omp_ui_error",
+      message: "omp exited with code 1; stderr: Could not restore model x/y",
+      failedModel: "x/y",
+    });
+    for (let wave = 0; wave < 4; wave++) {
+      await h.flushMicrotasks();
+      for (const { cmd } of h.sent.splice(0)) h.respond(h.TAB, cmd, {});
+    }
+    await boot;
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.status).toBe("error");
+    expect(tab.failure).toMatchObject({
+      kind: "boot",
+      command: "get_state",
+      failedModel: "x/y",
+    });
+  });
+
   it("clears the prior failure after a successful boot retry", async () => {
     h.backendState = h.stateWithRecord("s");
     h.useStore.setState({
@@ -685,6 +719,7 @@ describe("late-ack command classification (issue #335)", () => {
       "handoff",
       "abort",
       "abort_and_prompt",
+      "abort_and_restore_queue",
       "export_html",
       "login",
       "new_session",
@@ -712,6 +747,7 @@ describe("late-ack command classification (issue #335)", () => {
       "set_steering_mode",
       "set_fast_mode",
       "goal",
+      "remove_queued_message",
     ]) {
       expect(h.isLateAckCommand({ type })).toBe(false);
     }

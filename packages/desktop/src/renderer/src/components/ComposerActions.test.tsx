@@ -74,7 +74,7 @@ describe("ComposerActions desktop", () => {
     expect(interrupt!.textContent).toBe("interrupt & send");
     expect(queue!.textContent).toBe("queue");
     expect(steer!.textContent).toBe("steer");
-    expect(abort!.title).toBe("abort the agent (esc)");
+    expect(abort!.title).toBe("stop the turn — queued messages return to the draft (esc)");
 
     click(interrupt!);
     expect(onSubmit).toHaveBeenCalledWith("interrupt");

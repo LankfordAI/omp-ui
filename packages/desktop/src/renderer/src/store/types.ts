@@ -107,6 +107,10 @@ export interface RpcFailure {
   sessionStatus?: RpcTabState["status"];
   liveState?: LiveState;
   recovery: string;
+  /** Issue #774: the model omp could not restore, when the death was a
+   *  resume that found its saved model gone. Drives the model picker on the
+   *  failure surface; absent on every other failure. */
+  failedModel?: string;
 }
 
 
@@ -932,6 +936,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   terminate(tabId: string): Promise<void>;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;
   resumeDead(tabId: string): Promise<void>;
+  /** Relaunch a dead tab forcing `model` (issue #774's recovery resume). */
+  resumeWithModel(tabId: string, model: string): Promise<void>;
   deleteSession(tabId: string): Promise<void>;
   confirmDeleteSession(skipFuture: boolean): Promise<void>;
   releaseWorktreeSession(
@@ -1032,6 +1038,13 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * into omp's steering queue (issue #714). Never falls back to `steer`.
    */
   promoteQueuedMessage(tabId: string, message: string): Promise<void>;
+  /**
+   * Withdraws one queued message whose queue-chip text is `message` from
+   * omp's `queue` and restores it — prose, images, documents — to the
+   * composer draft (issue #776). Never falls back to another verb: a
+   * rejection is recorded and nothing else is sent.
+   */
+  editQueuedMessage(tabId: string, message: string, queue: "steering" | "followUp"): Promise<void>;
   setInterruptMode(tabId: string, mode: string): Promise<void>;
   setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
   setFastMode(tabId: string, enabled: boolean): Promise<void>;

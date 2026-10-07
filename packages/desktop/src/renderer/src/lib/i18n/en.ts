@@ -370,6 +370,10 @@ export const en = {
   "composer.queue.promoteTitleRunning": "move to steering — delivered at the next tool boundary",
   "composer.queue.promoteTitleIdle": "move to steering and start a turn now",
   "composer.queue.unlisted": "+{n} more queued (advisor cards, deferred items)",
+  "composer.queue.edit": "edit",
+  "composer.queue.editTitle": "remove from the queue and return to the draft",
+  "composer.queue.restoreImagesDropped": "queued messages returned to the draft without their images — they exceeded the transport limit",
+  "composer.queue.restoreTruncated": "queued messages were cleared — only the oldest fit the transport limit and returned to the draft",
   // Inline status/error strips
   "composer.error.dismissPaste": "dismiss paste warning",
   "composer.error.dismissWorktree": "dismiss worktree error",
@@ -457,7 +461,7 @@ export const en = {
   "composer.actions.queueTitle": "queue this for after the current turn (mod+enter)",
   "composer.actions.queue": "queue",
   "composer.actions.steerTitle": "inject this into the running turn (enter)",
-  "composer.actions.abortLabel": "abort the agent (esc)",
+  "composer.actions.abortLabel": "stop the turn — queued messages return to the draft (esc)",
   "composer.actions.runTitle": "run this command (enter)",
   "composer.actions.sendTitle": "send (enter) · shift+enter for a newline",
   // Compact prompt-options sheet (ComposerSheet)
@@ -1513,6 +1517,8 @@ export const en = {
   "markdown.codeblock.diagram": "diagram",
   "markdown.diagram.aria": "mermaid diagram",
   "markdown.codeblock.document": "document",
+  "markdown.codeblock.image": "image",
+  "markdown.svg.aria": "SVG image",
   "markdown.plan.frameTitle": "html plan",
   "markdown.inf.tip": "Model-flagged inference: not verified against sources",
   // Last-resort app crash surface
@@ -1543,6 +1549,8 @@ export const en = {
   "tab.failure.retryBoot": "Retry boot",
   "tab.failure.refresh": "Refresh state",
   "tab.failure.dismiss": "Dismiss",
+  "tab.failure.chooseModel": "choose a model…",
+  "tab.failure.modelCatalogFailed": "the model probe failed: {error}",
   "tab.exited.titleHibernated": "Hibernated",
   "tab.exited.titleExited": "Agent exited",
   "tab.exited.idleChip": "idle — process stopped to free memory",

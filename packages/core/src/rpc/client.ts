@@ -28,8 +28,9 @@ export interface RpcClientOpts {
   resumeSessionId?: string;
   /**
    * Exact per-process model selector (`provider/model[:level]`) passed to omp as
-   * `--model`. Only the dev/test spawn gate sets it: it is the one mechanism that
-   * reaches a resumed session, whose model otherwise comes from the transcript.
+   * `--model`. The dev/test spawn gate and the issue #774 model-recovery
+   * resume set it: it is the one mechanism that reaches a resumed session,
+   * whose model otherwise comes from the transcript.
    */
   model?: string;
   advisor?: boolean;

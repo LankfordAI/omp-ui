@@ -131,6 +131,11 @@ import { WorktreeOps } from "./worktree-ops";
 const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
 
+/** omp's restore failure (issue #774): only the resume path prints it, so the
+ *  exit tail matching this is the whole detection — the group is the dead
+ *  selector (`provider/id`). */
+const MODEL_RESTORE_RE = /Could not restore model (\S+)/;
+
 /** How long a tool toggle waits for its correlated completion before `unconfirmed`. */
 const TOOL_MUTATION_TTL_MS = 30_000;
 
@@ -667,6 +672,11 @@ export class SessionManager {
         if (req.advisorModel !== undefined && req.advisorModel !== record.advisorModel) {
           patch.advisorModel = req.advisorModel;
         }
+        // The recovery pick (issue #774): the chip and the next hibernate
+        // wake must agree with what relaunched. The transcript gains its
+        // model_change from the initial set_model command (spawnRpc), not
+        // from --model itself, which never rewrites the file.
+        if (req.model !== undefined && req.model !== record.model) patch.model = req.model;
         if (Object.keys(patch).length > 0) {
           record = this.deps.registry.updateSession(record.tabId, patch) ?? record;
         }
@@ -678,7 +688,7 @@ export class SessionManager {
           : record.agentMode === "plan");
       const result =
         mode === "rpc-ui"
-          ? await this.spawnRpc(record, planMode, ompPath)
+          ? await this.spawnRpc(record, planMode, ompPath, req.origin === "resume" ? req.model : undefined)
           : await this.spawnPty(record, req, ompPath);
       this.deps.breadcrumb?.record(
         req.origin === "new" ? "session-spawn" : "session-resume",
@@ -865,6 +875,7 @@ export class SessionManager {
     record: OwnedSessionRecord,
     planMode: boolean,
     ompPath: string,
+    modelOverride?: string,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const entry = createRpcLiveEntry(record);
@@ -990,6 +1001,22 @@ export class SessionManager {
       setHostUriSchemesCommand(),
       setHostToolsCommand({ vault: vaults.vaults.length > 0 }),
     );
+    // The issue #774 recovery pick: `--model` forces the boot but never
+    // rewrites the transcript, so the same initialCommands rail restates the
+    // model through `set_model` — the entry it appends is what a later
+    // hibernate wake restores from. Skipped when the gate pins the process:
+    // the gate owns the model there, exactly as it wins in the opts below.
+    if (modelOverride !== undefined && gateSelector(this.gate) === null) {
+      const slash = modelOverride.indexOf("/");
+      if (slash > 0) {
+        initialCommands.push({
+          type: "set_model",
+          id: `omp-ui-initial-model-${randomUUID()}`,
+          provider: modelOverride.slice(0, slash),
+          modelId: modelOverride.slice(slash + 1),
+        });
+      }
+    }
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate, this.subagentSpawnConfig());
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
@@ -1023,7 +1050,9 @@ export class SessionManager {
       lineageDir: absLineageDir,
       ompPath,
       resumeSessionId: record.sessionId ?? undefined,
-      model: gateSelector(this.gate) ?? undefined,
+      // The dev/test spawn gate keeps winning over the recovery pick, exactly
+      // as it wins over the record everywhere else.
+      model: gateSelector(this.gate) ?? modelOverride ?? undefined,
       advisor: record.advisor,
       configOverlays,
       extensions,
@@ -1085,8 +1114,21 @@ export class SessionManager {
         this.deliverFrame(record.tabId, frame, entry);
       },
       onExit: (code) => this.handleExit(record.tabId, entry, code ?? -1),
-      onError: (msg) =>
-        this.deps.send(CH.onRpcFrame, record.tabId, { type: "omp_ui_error", message: msg }),
+      onError: (msg) => {
+        // A dead spawn never stamps its successor's tab (the same identity
+        // fence every other callback here carries; callbacks only fire off
+        // the event loop, after this.live.set below).
+        if (this.live.get(record.tabId) !== entry) return;
+        // Issue #774: a resume whose saved model is gone dies before its
+        // first frame; the selector rides to the renderer so the failure
+        // surface can offer the model picker.
+        const failed = MODEL_RESTORE_RE.exec(msg);
+        this.deps.send(CH.onRpcFrame, record.tabId, {
+          type: "omp_ui_error",
+          message: msg,
+          ...(failed !== null ? { failedModel: failed[1] } : {}),
+        });
+      },
     });
     wireRpc(entry, rpc);
     this.live.set(record.tabId, entry);

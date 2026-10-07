@@ -81,6 +81,7 @@ export type LifecycleSlice = Pick<
   | "terminate"
   | "switchMode"
   | "resumeDead"
+  | "resumeWithModel"
   | "deleteSession"
   | "confirmDeleteSession"
   | "releaseWorktreeSession"
@@ -1248,6 +1249,38 @@ export function createLifecycleSlice(
     }
   };
 
+  /**
+   * The issue #774 recovery resume: relaunch a dead rpc tab forcing a fresh
+   * model, so a session whose saved model vanished can boot again. Same
+   * effect as resumeDead plus the per-spawn `model` override main hands to
+   * omp as `--model`.
+   */
+  const resumeWithModel = async (tabId: string, model: string): Promise<void> => {
+    const owner = findOwner(get().state, tabId);
+    if (!owner) return;
+    const { instanceId, record: rec } = owner;
+    try {
+      if (rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
+      await backend.spawnSession({
+        origin: "resume",
+        resumeTabId: tabId,
+        cols: 80,
+        rows: 24,
+        model,
+      });
+      set((s) => ({
+        tabs: s.tabs.map((t) =>
+          t.tabId === tabId ? { ...t, hidden: false } : t,
+        ),
+        ...focusOn(s, tabId, projectKey(instanceId, rec.projectCwd)),
+        exited: dropExited(s.exited, tabId),
+        hibernated: dropHibernated(s.hibernated, tabId),
+      }));
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+
   const deleteSession = async (tabId: string): Promise<void> => {
     const rec = findRecord(get().state, tabId);
     if (!rec) return;
@@ -1471,6 +1504,7 @@ export function createLifecycleSlice(
     terminate,
     switchMode,
     resumeDead,
+    resumeWithModel,
     deleteSession,
     confirmDeleteSession,
     releaseWorktreeSession,

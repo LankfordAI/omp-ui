@@ -6,6 +6,7 @@ import {
   queueChipView,
   queueEntryDisplayText,
   supportsPromoteQueued,
+  supportsRestoreQueue,
 } from "./queue-chip";
 import { emptySessionRuntime } from "./rpc-types";
 
@@ -41,6 +42,17 @@ describe("supportsPromoteQueued", () => {
     ["19.0.0", true],
   ] as const)("at omp %s → %s", (version, expected) => {
     expect(supportsPromoteQueued(version)).toBe(expected);
+  });
+});
+
+describe("supportsRestoreQueue", () => {
+  it.each([
+    [null, false],
+    ["18.6.2", false],
+    ["18.6.3", true],
+    ["18.7.0", true],
+  ] as const)("at omp %s → %s", (version, expected) => {
+    expect(supportsRestoreQueue(version)).toBe(expected);
   });
 });
 

@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { findMatches, preExchange, type RenderItem } from "../lib/transcript";
-import { findRecord, useStore, type RpcFailure } from "../store";
+import { findOwner, findRecord, useStore, type RpcFailure } from "../store";
+import { backend } from "../backend";
+import type { ModelCatalogSnapshot } from "@omp-ui/core/types";
 import { useT } from "../lib/i18n";
 import { Composer } from "./Composer";
 import { ConsoleDrawer } from "./ConsoleDrawer";
@@ -17,6 +19,7 @@ import { SubagentView } from "./SubagentView";
 import { linkify } from "./Markdown";
 import { MarkdownVaultProvider } from "./MarkdownVaultProvider";
 import { TranscriptView, ShareLinkRow, TuiHandoffButton } from "./TranscriptView";
+import { ModelPalette } from "./ModelSelector";
 import { Button, Chip, CopyButton, Panel, ProgressSweep, Sheet } from "./ui";
 import { BrowserPane } from "./browser-pane/BrowserPane";
 import { BrowserPaneSplit, useDesktopPanelWidths } from "./browser-pane/BrowserPaneSplit";
@@ -129,6 +132,66 @@ function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
         ) : null,
       )}
     </div>
+  );
+}
+
+/**
+ * The issue #774 recovery control: when a resume died because omp could not
+ * restore the model its transcript saved, offer the owning instance's chat
+ * catalog and relaunch with the pick forced via `--model`. Mounted on both
+ * failure surfaces (banner and exit overlay) whenever the marker is set.
+ */
+function ModelRecoveryPicker({ tabId, failedModel }: { tabId: string; failedModel: string }) {
+  const t = useT();
+  const resumeWithModel = useStore((s) => s.resumeWithModel);
+  const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
+  const [open, setOpen] = useState(false);
+  const [catalog, setCatalog] = useState<ModelCatalogSnapshot | null>(null);
+  // One probe per failure surface: this surface's life is a single recovery
+  // decision, so the local cache is all the freshness the picker needs
+  // (the readJudgeModels uncached-probe precedent at the store layer).
+  const probe = () => {
+    setOpen(true);
+    if (catalog === null) {
+      void backend.readModelCatalog(tabId).then(
+        (snapshot) => setCatalog(snapshot),
+        (err: unknown) => setCatalog({ models: [], discovered: false, error: String(err) }),
+      );
+    }
+  };
+  return (
+    <>
+      <Button
+        size="xs"
+        variant="ghost"
+        tone="rose"
+        title={failedModel}
+        onClick={probe}
+      >
+        {t("tab.failure.chooseModel")}
+      </Button>
+      {open && catalog === null && (
+        <p className="self-center font-mono text-[11px] text-ink-faint">…</p>
+      )}
+      {open && catalog !== null && !catalog.discovered && (
+        <p className="self-center whitespace-pre-wrap text-[11px] text-rose">
+          {t("tab.failure.modelCatalogFailed", { error: catalog.error ?? "" })}
+        </p>
+      )}
+      {open && catalog !== null && catalog.discovered && (
+        <ModelPalette
+          variant="main"
+          instanceId={instanceId}
+          models={catalog.models}
+          current={null}
+          onClose={() => setOpen(false)}
+          onPick={(picked) => {
+            setOpen(false);
+            void resumeWithModel(tabId, `${picked.provider}/${picked.id}`);
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -362,6 +425,9 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
               {failureText}
             </p>
             <CopyButton text={failureText} label={t("tab.failure.copy")} />
+            {failure.failedModel !== undefined && (
+              <ModelRecoveryPicker tabId={tabId} failedModel={failure.failedModel} />
+            )}
             {failure.kind === "boot" && (
               <Button size="xs" variant="ghost" tone="rose" onClick={() => void bootRpcTab(tabId)}>
                 {t("tab.failure.retryBoot")}
@@ -529,6 +595,9 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                 </p>
                 <CopyButton text={failureText} label={t("tab.failure.copy")} />
               </div>
+            )}
+            {failure?.failedModel !== undefined && (
+              <ModelRecoveryPicker tabId={tabId} failedModel={failure.failedModel} />
             )}
             <Button variant="solid" tone="signal" onClick={() => void resumeDead(tabId)}>
               {t("tab.exited.resume")}

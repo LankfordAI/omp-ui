@@ -139,6 +139,7 @@ const VALID_ARGS = {
   readProviderKeys: [null],
   readProviderOAuth: [],
   readJudgeModels: [],
+  readModelCatalog: ["tab-1"],
   readSttModels: [],
   readWebSearchProviders: [],
   regenerateRemoteToken: [],

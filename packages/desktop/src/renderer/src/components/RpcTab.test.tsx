@@ -6,6 +6,7 @@ import { emptySessionRuntime } from "../lib/rpc-types";
 import { backendState, rpcTabState } from "../test/fixtures";
 import type { RenderItem } from "../lib/transcript";
 import type { RpcFailure } from "../store/types";
+import type { ModelCatalogSnapshot } from "@omp-ui/core/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -43,6 +44,13 @@ const backendMock = {
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(async () => {}),
   browserPaneSubscribe: vi.fn(),
+  readModelCatalog: vi.fn(
+    async (): Promise<ModelCatalogSnapshot> => ({
+      models: [],
+      discovered: true,
+      error: null,
+    }),
+  ),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -362,6 +370,84 @@ describe("RpcTab exit overlay", () => {
     )!;
     act(() => resume.click());
     expect(resumeDead).toHaveBeenCalledWith(TAB);
+  });
+});
+
+describe("RpcTab model recovery picker (issue #774)", () => {
+  const restoreFailure: RpcFailure = {
+    message: "omp exited with code 1; stderr: Could not restore model x/y",
+    kind: "process",
+    fatal: true,
+    sessionStatus: "error",
+    recovery: "The live session process stopped. Resume the session to continue.",
+    failedModel: "x/y",
+  };
+
+  afterEach(() => {
+    backendMock.readModelCatalog.mockReset();
+    backendMock.readModelCatalog.mockResolvedValue({ models: [], discovered: true, error: null });
+  });
+
+  it("offers the choose-model control on the overlay and resumes with the pick", async () => {
+    seedExited(restoreFailure);
+    backendMock.readModelCatalog.mockResolvedValueOnce({
+      models: [
+        { provider: "litellm", id: "Qwen", name: "Qwen", input: ["text"] },
+      ],
+      discovered: true,
+      error: null,
+    });
+    const resumeWithModel = vi.fn(async () => {});
+    useStore.setState({ resumeWithModel });
+    renderTab();
+
+    const choose = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "choose a model…",
+    )!;
+    act(() => choose.click());
+    await act(async () => {});
+
+    expect(backendMock.readModelCatalog).toHaveBeenCalledWith(TAB);
+    // The palette opens on Favorites, which is empty for a fresh store; the
+    // provider tab lists the probed rows (the ModelSelector.test precedent).
+    act(() => document.body.querySelector<HTMLButtonElement>('button[title="litellm"]')!.click());
+    await act(async () => {});
+    const row = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("litellm/Qwen") === true,
+    )!;
+    act(() => row.click());
+    await act(async () => {});
+
+    expect(resumeWithModel).toHaveBeenCalledWith(TAB, "litellm/Qwen");
+  });
+
+  it("reports a failed probe instead of a spinner and keeps Resume", async () => {
+    seedExited(restoreFailure);
+    backendMock.readModelCatalog.mockResolvedValueOnce({
+      models: [],
+      discovered: false,
+      error: "omp binary not found",
+    });
+    renderTab();
+
+    const choose = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "choose a model…",
+    )!;
+    act(() => choose.click());
+    await act(async () => {});
+
+    expect(document.body.textContent).toContain("the model probe failed: omp binary not found");
+    expect(
+      [...document.body.querySelectorAll<HTMLButtonElement>("button")].some(
+        (button) => button.textContent?.trim() === "resume session",
+      ),
+    ).toBe(true);
+  });
+
+  it("stays off both surfaces without the marker", () => {
+    seedExited({ ...restoreFailure, failedModel: undefined });
+    renderTab();
+    expect(document.body.textContent).not.toContain("choose a model");
   });
 });
 
