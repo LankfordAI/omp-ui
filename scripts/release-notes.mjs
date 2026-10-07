@@ -344,8 +344,11 @@ function renderLines(model, collapseOtherChanges) {
   const lines = [];
   lines.push("## Highlights", "");
   const contributors = model.contributors.length;
+  // Count every row the notes render: keyed entries plus reference-free
+  // commits (#784), so the summary matches the What's Changed list.
+  const changes = model.entries.length + model.untracked.length;
   lines.push(
-    `This release ships ${model.entries.length} changes in ${model.commits} commits from ${contributors} contributor${contributors === 1 ? "" : "s"}.`,
+    `This release ships ${changes} changes in ${model.commits} commits from ${contributors} contributor${contributors === 1 ? "" : "s"}.`,
   );
   for (const highlight of model.highlights) lines.push("", "* " + highlight);
   lines.push("", "## What's Changed", "");
