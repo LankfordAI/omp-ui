@@ -21,8 +21,9 @@ import type {
   ImageAttachment,
   McpServersResult,
   InstanceIdentity,
-  KnowledgeHome,
   JudgeModelSnapshot,
+  KnowledgeHome,
+  ModelCatalogSnapshot,
   McpSetEnabledRequest,
   MemoryOverview,
   ExperimentDetail,
@@ -551,6 +552,17 @@ export const BACKEND_CHANNELS = {
   readJudgeModels: {
     channel: "judge:readModels",
     ...request<[], JudgeModelSnapshot>([]),
+  },
+  /**
+   * The owning instance's chat-model catalog (`omp models --kind chat
+   * --json`), probed by its own omp binary for the resume-recovery picker
+   * (issue #774). Tab-routed: a remote session's catalog is the one the
+   * owning host sees. Never rejects — `discovered` and `error` say so (the
+   * readJudgeModels contract).
+   */
+  readModelCatalog: {
+    channel: "session:modelCatalog",
+    ...request<[tabId: string], ModelCatalogSnapshot>([str()]),
   },
   /**
    * One dictation round trip: a 16 kHz mono PCM16 WAV (bare base64) posted to

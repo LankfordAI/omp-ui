@@ -1390,6 +1390,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "tab.failure.retryBoot": "boot 재시도",
   "tab.failure.refresh": "상태 새로고침",
   "tab.failure.dismiss": "닫기",
+  "tab.failure.chooseModel": "모델 선택…",
+  "tab.failure.modelCatalogFailed": "모델 검색 실패: {error}",
   "tab.exited.titleHibernated": "최대 절전됨",
   "tab.exited.titleExited": "에이전트 종료됨",
   "tab.exited.idleChip": "유휴 — 메모리 확보를 위해 프로세스 중지됨",

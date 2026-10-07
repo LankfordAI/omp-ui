@@ -99,6 +99,7 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "worktree:renameBranch",
   "session:release-worktree",
   "session:capabilities",
+  "session:modelCatalog",
   "session:tool-enabled",
   "pty:pasteImage",
   // Document Attachments materialize on the owning instance's machine (ADR-0044).

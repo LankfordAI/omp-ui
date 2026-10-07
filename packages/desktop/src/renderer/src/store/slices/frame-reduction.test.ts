@@ -439,6 +439,22 @@ describe("handleRpcFrame routing", () => {
     });
   });
 
+  it("omp_ui_error carries the unrestoreable model marker (issue #774)", () => {
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, {
+        type: "omp_ui_error",
+        message: "omp exited with code 1; stderr: Could not restore model p/dead",
+        failedModel: "p/dead",
+      });
+    expect(h.useStore.getState().rpc[h.TAB]!.failure).toMatchObject({ failedModel: "p/dead" });
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, { type: "omp_ui_error", message: "process stopped" });
+    expect(h.useStore.getState().rpc[h.TAB]!.failure).not.toHaveProperty("failedModel");
+  });
+
   it("a successful loud command cannot clear a fatal process failure", async () => {
     h.useStore
       .getState()

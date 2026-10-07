@@ -67,8 +67,9 @@ const rpcInstances: {
   kill: Mock;
   send: Mock;
   exit: (code: number) => void;
-  frame: (frame: unknown) => void;
   inputFrame: (frame: unknown) => void;
+  frame: (frame: unknown) => void;
+  error: (msg: string) => void;
 }[] = [];
 /** The arm/prompt messages among a spawn's initial commands: host registration commands (#688) carry no message, and tests that assert the arm order filter them out. */
 function armMessages(initialCommands: unknown): unknown[] {
@@ -390,7 +391,7 @@ beforeEach(() => {
   RpcClientMock.mockReset();
   RpcClientMock.mockImplementation(function (
     this: unknown,
-    opts: { onExit: (code: number | null) => void; onFrame: (frame: unknown) => void; onInputFrame?: (frame: unknown) => void },
+    opts: { onExit: (code: number | null) => void; onFrame: (frame: unknown) => void; onInputFrame?: (frame: unknown) => void; onError: (msg: string) => void },
   ) {
     const instance = {
       kill: vi.fn(),
@@ -404,6 +405,9 @@ beforeEach(() => {
         opts.onFrame(frame);
       },
       inputFrame: (frame: unknown) => opts.onInputFrame?.(frame),
+      // The exit-tail path: the real client reports the death through
+      // onError with the stderr tail (issue #774).
+      error: (msg: string) => opts.onError(msg),
     };
     rpcInstances.push(instance);
     return instance;
@@ -1697,6 +1701,118 @@ describe("test-run spawn gate (issue #371)", () => {
       'advisor:\n  enabled: false\nmodelRoles:\n  advisor: "gate/advisor:low"\n',
     );
     expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({ advisor: false });
+  });
+});
+
+describe("resume model recovery (issue #774)", () => {
+  const gated = (model: string | null): SpawnGate =>
+    parseSpawnGate({ ...(model === null ? {} : { OMP_UI_TEST_MODEL: model }) });
+
+  it("threads the recovery model to the spawn opts and the record", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+
+    await manager.spawn({
+      origin: "resume",
+      resumeTabId: TAB,
+      cols: 80,
+      rows: 24,
+      model: "p/m",
+    });
+
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as {
+      model?: string;
+      initialCommands?: { type: string; id?: unknown; provider?: string; modelId?: string }[];
+    };
+    expect(options.model).toBe("p/m");
+    // The durable half of the fix: the transcript's model_change comes from
+    // the initial set_model command, so the next wake restores the pick.
+    expect(options.initialCommands).toContainEqual({
+      type: "set_model",
+      id: expect.stringMatching(/^omp-ui-initial-model-/),
+      provider: "p",
+      modelId: "m",
+    });
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({ model: "p/m" });
+  });
+
+  it("leaves the spawn opts untouched without the override", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+
+    await resume(manager);
+
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as { model?: string };
+    expect(options.model).toBeUndefined();
+  });
+
+  it("lets the dev/test gate win over the recovery pick", async () => {
+    const { manager } = setup({ mode: "rpc-ui", spawnGate: gated("gate/model:low") });
+
+    await manager.spawn({
+      origin: "resume",
+      resumeTabId: TAB,
+      cols: 80,
+      rows: 24,
+      model: "p/m",
+    });
+
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as {
+      model?: string;
+      initialCommands?: { type: string }[];
+    };
+    expect(options.model).toBe("gate/model:low");
+    // The gate owns the process model: no set_model, or it would restamp the
+    // transcript away from what actually runs.
+    expect(options.initialCommands?.some((command) => command.type === "set_model")).toBe(false);
+  });
+
+  it("stamps the failed model on the error frame and the plain message without it", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    const rpc = rpcInstances.at(-1)!;
+    sent.length = 0;
+
+    rpc.error("omp exited with code 1; stderr: Could not restore model x/y");
+    expect(sent).toContainEqual({
+      channel: CH.onRpcFrame,
+      args: [
+        TAB,
+        {
+          type: "omp_ui_error",
+          message: "omp exited with code 1; stderr: Could not restore model x/y",
+          failedModel: "x/y",
+        },
+      ],
+    });
+
+    sent.length = 0;
+    rpc.error("omp exited with code 1; stderr: spawn ENOENT");
+    expect(sent).toEqual([
+      {
+        channel: CH.onRpcFrame,
+        args: [TAB, { type: "omp_ui_error", message: "omp exited with code 1; stderr: spawn ENOENT" }],
+      },
+    ]);
+  });
+
+  it("a killed spawn cannot stamp its successor's tab", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    const first = rpcInstances[0]!;
+    first.kill.mockImplementation(() => first.exit(0));
+    manager.terminate(TAB);
+    // Microtask drain (the tool-control describe owns the shared `flush`).
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+
+    await resume(manager);
+    const second = rpcInstances.at(-1)!;
+    expect(second).not.toBe(first);
+    sent.length = 0;
+
+    first.error("omp exited with code 1; stderr: Could not restore model x/y");
+    expect(sent).toEqual([]);
+
+    second.error("omp exited with code 1; stderr: Could not restore model x/y");
+    expect(sent).toHaveLength(1);
   });
 });
 

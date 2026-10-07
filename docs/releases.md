@@ -8,6 +8,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Vault notes now file under a project folder suffixed with the git remote's owner (`omp-ui/ansible-austinm731/`), so two same-named repos owned by different accounts keep separate notes, Index notes, and wikilink namespaces in a vault Obsidian Sync carries across machines. Projects without a web-facing remote keep today's plain folder; existing folders are never renamed. #787
 - A settled `svg` code block in the native transcript now renders as an image with a source toggle, with the theme's ink color replacing `currentColor` so diagrams follow the theme; unparsable sources and still-streaming blocks stay plain code. #780
 - Escape and the stop control now abort the turn and return every queued message — steers, follow-ups, and their attachments — to the composer draft (omp 18.6.3 or newer; older runtimes abort plain). The queue chip's rows gain an **edit** action that withdraws one message to the draft while the turn keeps running. #776
+- A resumed session whose saved model no longer resolves no longer dies forever on "Could not restore model": the failure surface gains a model picker, and the pick relaunches the session with that model. #774
 
 ## Choose a download
 

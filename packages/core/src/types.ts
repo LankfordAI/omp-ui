@@ -719,6 +719,11 @@ interface ResumeSpawnRequestBase {
   /** Omitted overrides retain the persisted session value. */
   advisor?: boolean;
   advisorModel?: string | null;
+  /** omp `provider/id` selector forcing the relaunched model (issue #774:
+   *  the recovery resume after `Could not restore model`). Absent leaves the
+   *  spawn args byte-identical to a plain resume — omp restores the model
+   *  the transcript saved. */
+  model?: string;
   projectCwd?: never;
   worktree?: never;
   planImplementationSource?: never;
@@ -1253,6 +1258,29 @@ export interface JudgeModelOption {
 /** The judge-role picker's whole payload; `discovered` false => probe failed. */
 export interface JudgeModelSnapshot {
   models: JudgeModelOption[];
+  discovered: boolean;
+  error: string | null;
+}
+
+/**
+ * One picker-ready chat model (issue #774), shaped to be ModelInfo-compatible
+ * so ModelPalette renders it with no translation layer.
+ */
+export interface CatalogModelOption {
+  provider: string;
+  id: string;
+  name: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  reasoning?: boolean;
+  input?: string[];
+  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  thinking?: { efforts?: string[] };
+}
+
+/** The resume-recovery picker's whole payload; `discovered` false => probe failed. */
+export interface ModelCatalogSnapshot {
+  models: CatalogModelOption[];
   discovered: boolean;
   error: string | null;
 }

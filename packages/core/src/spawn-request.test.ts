@@ -119,8 +119,16 @@ describe("parseSpawnRequest", () => {
     ["experiment metric", { ...newExperimentRequest, experiment: { ...experiment, metric: "" } }],
     ["missing resume tab", { ...resumeRequest, resumeTabId: "" }],
     ["legacy plan field", { ...newRpcRequest, startInPlanMode: false }],
+    ["resume non-string model", { ...resumeRequest, model: 42 }],
+    ["resume empty model", { ...resumeRequest, model: "" }],
+    ["resume null model", { ...resumeRequest, model: null }],
   ] as const)("rejects %s", (_label, raw) => {
     expect(() => parseSpawnRequest(raw)).toThrow(/spawn request/);
+  });
+
+  it("accepts the recovery-resume model override (issue #774)", () => {
+    const request: SpawnRequest = { ...resumeRequest, model: "litellm/Qwen3.8-Flash-Next" };
+    expect(parseSpawnRequest(request)).toEqual(request);
   });
 
   it("normalises an absent mint baseBranch to null (older remote client)", () => {

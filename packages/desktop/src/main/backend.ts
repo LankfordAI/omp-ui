@@ -30,6 +30,7 @@ import {
   readOmpCompactionMethods,
   readWebSearchProviders,
   readJudgeModels,
+  readModelCatalog,
   readBranchDiff,
   readInstalledOmpVersion,
   listBranches,
@@ -959,6 +960,10 @@ export class MainBackend {
         // The judge catalog belongs to the installed omp version and the
         // provider keys: one probe per browse, no cache (issue #669).
         [CH.readJudgeModels]: () => readJudgeModels({ ompPath: this.ompPath }),
+        // The chat catalog for the resume-recovery picker (issue #774): the
+        // tabId argument exists only to ride the tab router — the handler
+        // runs on whichever host routing picked, and probes that host's omp.
+        [CH.readModelCatalog]: () => readModelCatalog({ ompPath: this.ompPath }),
         // Each write answers with the refreshed snapshot in the same round trip,
         // so the page never has to guess what the store now holds.
         [CH.readProviderKeys]: (projectCwd: string | null) => this.providerSnapshot(projectCwd),

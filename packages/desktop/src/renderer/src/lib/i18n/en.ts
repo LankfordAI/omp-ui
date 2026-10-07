@@ -1544,6 +1544,8 @@ export const en = {
   "tab.failure.retryBoot": "Retry boot",
   "tab.failure.refresh": "Refresh state",
   "tab.failure.dismiss": "Dismiss",
+  "tab.failure.chooseModel": "choose a model…",
+  "tab.failure.modelCatalogFailed": "the model probe failed: {error}",
   "tab.exited.titleHibernated": "Hibernated",
   "tab.exited.titleExited": "Agent exited",
   "tab.exited.idleChip": "idle — process stopped to free memory",
