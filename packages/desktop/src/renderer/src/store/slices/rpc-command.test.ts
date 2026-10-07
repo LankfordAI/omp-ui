@@ -685,6 +685,7 @@ describe("late-ack command classification (issue #335)", () => {
       "handoff",
       "abort",
       "abort_and_prompt",
+      "abort_and_restore_queue",
       "export_html",
       "login",
       "new_session",
@@ -712,6 +713,7 @@ describe("late-ack command classification (issue #335)", () => {
       "set_steering_mode",
       "set_fast_mode",
       "goal",
+      "remove_queued_message",
     ]) {
       expect(h.isLateAckCommand({ type })).toBe(false);
     }

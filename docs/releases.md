@@ -6,6 +6,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 - Explicit Obsidian Markdown links in native replies now show clickable note titles that open the exact file on the owning desktop. Browser and joined-instance viewers copy portable links instead; plain paths, wikilinks, and sandboxed HTML plans are unchanged. #781
 - Vault notes now file under a project folder suffixed with the git remote's owner (`omp-ui/ansible-austinm731/`), so two same-named repos owned by different accounts keep separate notes, Index notes, and wikilink namespaces in a vault Obsidian Sync carries across machines. Projects without a web-facing remote keep today's plain folder; existing folders are never renamed. #787
+- Escape and the stop control now abort the turn and return every queued message — steers, follow-ups, and their attachments — to the composer draft (omp 18.6.3 or newer; older runtimes abort plain). The queue chip's rows gain an **edit** action that withdraws one message to the draft while the turn keeps running. #776
 
 ## Choose a download
 

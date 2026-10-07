@@ -86,6 +86,7 @@ const predictWord = vi.fn<(tabId: string, text: string, cursor: number) => Promi
 );
 const sendWordPredictionFeedback = vi.fn();
 const promoteQueuedMessage = vi.fn(async () => {});
+const editQueuedMessage = vi.fn(async () => {});
 let root: Root | null = null;
 
 const state = backendState({
@@ -125,6 +126,7 @@ function seed(status: "starting" | "ready" | "running", dead = false): void {
       hasRenamed: true,
     }) },
     compactSurface: null, sendPrompt, abortAndPrompt, abortAgent, setFastMode, promoteQueuedMessage,
+    editQueuedMessage,
     predictWord, sendWordPredictionFeedback,
   });
 }
@@ -729,7 +731,7 @@ describe("Composer action row overflow", () => {
     }));
     renderComposer();
 
-    const row = document.querySelector('button[title="abort the agent (esc)"]')!.parentElement!;
+    const row = document.querySelector('button[title="stop the turn — queued messages return to the draft (esc)"]')!.parentElement!;
     const byTitle = (prefix: string): HTMLButtonElement =>
       row.querySelector<HTMLButtonElement>(`button[title^="${prefix}"]`)!;
 
@@ -741,7 +743,7 @@ describe("Composer action row overflow", () => {
 
     expect(byTitle("queue this").classList.contains("shrink-0")).toBe(true);
     expect(byTitle("inject this").classList.contains("shrink-0")).toBe(true);
-    expect(byTitle("abort the agent").classList.contains("shrink-0")).toBe(true);
+    expect(byTitle("stop the turn").classList.contains("shrink-0")).toBe(true);
 
     const interrupt = byTitle("abort the current turn");
     expect(interrupt.classList.contains("shrink")).toBe(true);
@@ -1785,6 +1787,8 @@ describe("Composer queue chip list (issue #714)", () => {
     [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "parked: 2") ?? null;
   const promoteButtons = (): HTMLButtonElement[] =>
     [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter((b) => b.textContent === "promote");
+  const editButtons = (): HTMLButtonElement[] =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter((b) => b.textContent === "edit");
 
   it("lists both queues with cleaned text and promotes the raw follow-up", async () => {
     desktop();
@@ -1808,13 +1812,34 @@ describe("Composer queue chip list (issue #714)", () => {
     expect(promoteQueuedMessage).toHaveBeenCalledWith(TAB, WIRE);
   });
 
-  it("offers no promote when the omp version is unknown", () => {
+  it("offers neither promote nor edit when the omp version is unknown", () => {
     desktop();
     seedListed(null);
     renderComposer();
     act(() => chipButton()!.click());
     expect(document.body.textContent).toContain("fix the parser");
     expect(promoteButtons()).toHaveLength(0);
+    expect(editButtons()).toHaveLength(0);
+  });
+
+  it("gates edit at 18.6.3: every row edits, and the follow-up sends its raw text", async () => {
+    desktop();
+    seedListed("18.6.3");
+    renderComposer();
+    act(() => chipButton()!.click());
+    // Steering rows gain edit too — withdrawal-to-draft is what they lacked.
+    expect(editButtons()).toHaveLength(2);
+    await act(async () => editButtons()[1]!.click());
+    expect(editQueuedMessage).toHaveBeenCalledWith(TAB, WIRE, "followUp");
+  });
+
+  it("between 18.4.6 and 18.6.3 promotes still show but edit does not", () => {
+    desktop();
+    seedListed("18.4.10");
+    renderComposer();
+    act(() => chipButton()!.click());
+    expect(promoteButtons()).toHaveLength(1);
+    expect(editButtons()).toHaveLength(0);
   });
 
   it("keeps the plain chip when the runtime reports no queue text", () => {
