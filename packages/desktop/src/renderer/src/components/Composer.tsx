@@ -38,6 +38,8 @@ import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { FastModeControl } from "./FastModeControl";
 import { SlowModeControl } from "./SlowModeControl";
+import { LiveVoiceControl } from "./LiveVoiceControl";
+import { LiveVoiceStrip } from "./LiveVoiceStrip";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
@@ -46,6 +48,7 @@ import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, I
 import { DictationControl, DictationStrip } from "./ComposerDictation";
 import { useDictation } from "../lib/use-dictation";
 import { useDictationHotkey } from "../lib/use-dictation-hotkey";
+import { supportsNativeLive } from "../lib/live-voice";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -166,6 +169,18 @@ export function Composer({
   // The runtime's own support field is the gate (issue #777): older omp and
   // unsupported models report false/absent, so no control and no command.
   const slowSupported = useStore((s) => s.rpc[tabId]?.session.slowModeSupported === true);
+  // Live voice gates on the omp version (issue #778): 18.5.1 added the
+  // live_* verbs, unknown version hides the feature.
+  const liveSupported = useStore(
+    (s) => supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
+  );
+  // Live voice holds the microphone (omp records audio itself): dictation's
+  // getUserMedia would fail anyway, so the disabled state replaces the
+  // failure instead of racing it.
+  const liveActive = useStore((s) => {
+    const live = s.rpc[tabId]?.live;
+    return live !== null && live !== undefined && !live.ended;
+  });
   const compact = useCompactShell();
   const compactSurface = useStore((s) => s.compactSurface);
   const showCompactSurface = useStore((s) => s.showCompactSurface);
@@ -1133,6 +1148,13 @@ export function Composer({
               <SlowModeControl tabId={tabId} disabled={unavailable} />
             )}
 
+            {liveSupported && (
+              <LiveVoiceControl
+                tabId={tabId}
+                disabled={unavailable || voice.phase === "recording" || voice.phase === "requesting"}
+              />
+            )}
+
             <AdvisorControl tabId={tabId} disabled={unavailable} />
 
             <BuildPlanControl
@@ -1152,7 +1174,14 @@ export function Composer({
             />
 
             <AttachmentButton disabled={unavailable} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
-            <DictationControl disabled={unavailable} voice={voice} />
+            {/* Disabled buttons drop pointer events, so the title rides the
+                wrapper: the mic is omp's while live voice runs (issue #778). */}
+            <span
+              title={liveActive ? t("composer.live.micInUse") : undefined}
+              className={cn("inline-flex", liveActive && "cursor-not-allowed")}
+            >
+              <DictationControl disabled={unavailable || liveActive} voice={voice} />
+            </span>
 
 
             {queueChip && !queueListed && (
@@ -1213,7 +1242,18 @@ export function Composer({
           {compact && (
             <div className="flex min-h-11 items-center gap-1.5 px-1.5 pb-1.5">
               <AttachmentButton compact disabled={unavailable} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
-              <DictationControl compact disabled={unavailable} voice={voice} />
+              <span
+                title={liveActive ? t("composer.live.micInUse") : undefined}
+                className={cn("inline-flex", liveActive && "cursor-not-allowed")}
+              >
+                <DictationControl compact disabled={unavailable || liveActive} voice={voice} />
+              </span>
+              {liveSupported && (
+                <LiveVoiceControl
+                  tabId={tabId}
+                  disabled={unavailable || voice.phase === "recording" || voice.phase === "requesting"}
+                />
+              )}
               <Button
                 variant="ghost"
                 title={t("composer.options.title")}
@@ -1265,6 +1305,8 @@ export function Composer({
         )}
 
         <DictationStrip voice={voice} />
+
+        <LiveVoiceStrip tabId={tabId} />
 
         {/* The worktree-conversion status lives here, not in the branch chip's
             popover (issue #227): the conversion runs on send, when the popover

@@ -534,6 +534,9 @@ export function disposeTabRuntime(
     vibe: null,
     // Likewise the side-question topics: the next process republishes its own.
     sideQuestions: null,
+    // The live session died with the process; the successor owns its own
+    // realtime state (issue #778).
+    live: null,
     subagentControlBusy: {},
     subagentControlError: null,
     autoresearch: null,
@@ -593,6 +596,7 @@ function freshRpcTabState(
     goal: null,
     vibe: null,
     sideQuestions: null,
+    live: null,
     autoresearch: null,
     limits: null,
     capabilities: null,

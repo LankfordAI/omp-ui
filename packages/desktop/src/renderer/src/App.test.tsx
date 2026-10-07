@@ -36,7 +36,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     hasRenamed: true, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false,
     planReadiness: null, experimentProposal: null, approvalPrompt: null,
     advisorStats: null, mcpStatus: null, advisorReply: true,
-    capabilities: null, capabilitiesLoad: "idle", goal: null, vibe: null, sideQuestions: null, autoresearch: null, limits: null,
+    capabilities: null, capabilitiesLoad: "idle", goal: null, vibe: null, sideQuestions: null, live: null, autoresearch: null, limits: null,
     subagentControlBusy: {}, subagentControlError: null,
     browserPane: { open: false, fullscreen: false, agentOpened: false, ensure: "idle", unavailableReason: null, state: null, frame: null },
     ...patch,

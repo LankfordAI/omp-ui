@@ -54,6 +54,14 @@ export const SESSION_COMMANDS = {
   set_session_name: { lateAck: false },
   set_todos: { lateAck: false },
   goal: { lateAck: false },
+  // Live voice (issue #778): omp runs the realtime session and records audio
+  // itself; omp-ui only sends these three verbs. live_start IS in omp's
+  // off-chain set (verified on the 18.7.0 binary: bash/predict_word/
+  // live_start/btw_cancel) — silence while it connects proves nothing.
+  // live_stop and live_mute are NOT listed, so they queue on the serial chain.
+  live_start: { lateAck: false, offChain: true },
+  live_stop: { lateAck: false },
+  live_mute: { lateAck: false },
   // `btw` is NOT in omp's off-chain set (verified on the 18.7.0 binary: the
   // set is bash/predict_word/live_start/btw_cancel): it queues on the serial
   // chain, so its ack can beat the ordinary budget behind a model turn.

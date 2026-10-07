@@ -3898,6 +3898,75 @@ describe("btw frames (issue #775)", () => {
   });
 });
 
+describe("live voice frames (issue #778)", () => {
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+  });
+
+  const items = (): unknown[] => h.useStore.getState().rpc[h.TAB]?.items ?? [];
+  const live = () => h.useStore.getState().rpc[h.TAB]?.live ?? null;
+
+  it("a phase frame patches the snapshot and adds no transcript item", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "connecting" });
+    expect(live()).toMatchObject({ phase: "connecting", ended: false, error: null });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
+    expect(live()?.phase).toBe("listening");
+    expect(items()).toEqual([]);
+  });
+
+  it("an unknown phase value keeps the previous phase", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "dreaming" });
+    expect(live()?.phase).toBe("listening");
+  });
+
+  it("levels clamp into [0, 1] and patch without transcript rows", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_levels", input: 1.5, output: -1 });
+    expect(live()?.levels).toEqual({ input: 1, output: 0 });
+    expect(items()).toEqual([]);
+  });
+
+  it("a malformed levels frame drops", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_levels", input: 0.5 });
+    expect(live()).toBeNull();
+  });
+
+  it("transcript turns replace by (role, turn) and never become rows", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "live_transcript", role: "assistant", turn: 0, text: "he", final: false,
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "live_transcript", role: "assistant", turn: 0, text: "hello", final: true,
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "live_transcript", role: "user", turn: 0, text: "hi", final: true,
+    });
+    expect(live()?.turns).toEqual([
+      { role: "assistant", turn: 0, text: "hello", final: true },
+      { role: "user", turn: 0, text: "hi", final: true },
+    ]);
+    expect(items()).toEqual([]);
+  });
+
+  it("a live_end frame marks the end and carries the error", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "speaking" });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_end", error: "boom" });
+    expect(live()).toMatchObject({ phase: "speaking", ended: true, error: "boom" });
+    expect(items()).toEqual([]);
+  });
+
+  it("a live_end without error keeps error null", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_end" });
+    expect(live()).toMatchObject({ ended: true, error: null });
+  });
+
+  it("a new connecting after live_end reopens the session", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_end", error: "boom" });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "connecting" });
+    expect(live()).toMatchObject({ phase: "connecting", ended: false, error: null });
+  });
+});
+
 describe("stall auto-continue (issue #251)", () => {
   // The loop-guard state lives in module-scoped watchers keyed by tab id, so
   // each test owns its own tab: a shared id would leak counts between cases.

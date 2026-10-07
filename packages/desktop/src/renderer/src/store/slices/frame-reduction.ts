@@ -15,6 +15,16 @@ import { goalStateFromFrame } from "@omp-ui/core/goal";
 import { VIBE_STATUS_KEY, parseVibeSnapshot } from "@omp-ui/core/vibe";
 import { applyBtwDelta, applyBtwRecord, parseBtwRecord } from "@omp-ui/core/side-questions";
 import {
+  applyLiveEnd,
+  applyLiveLevels,
+  applyLivePhase,
+  applyLiveTranscript,
+  emptyLiveSnapshot,
+  parseLiveLevelsFrame,
+  parseLivePhaseFrame,
+  parseLiveTranscriptFrame,
+} from "@omp-ui/core/live-voice";
+import {
   AUTORESEARCH_STATUS_KEY,
   AUTORESEARCH_WIDGET_KEY,
   parseAutoresearchSnapshot,
@@ -842,6 +852,47 @@ export function createFrameReductionSlice(
           const delta = strField(frame, "delta");
           if (recordId !== undefined && delta !== undefined)
             m.patchRpc(tabId, { sideQuestions: applyBtwDelta(tab.sideQuestions, recordId, delta) });
+          return;
+        }
+        case "live_phase": {
+          // Live voice state intake (issue #778): the same snapshot-slice
+          // pattern as the btw frames above — tolerant parse, patchRpc,
+          // return before the agent-event reducer so no transcript rows
+          // appear. omp owns the phase machine; an unknown phase value keeps
+          // the previous one (the slowModeScope forward-compat rule).
+          const phase = parseLivePhaseFrame(frame);
+          if (phase !== null) {
+            const live = tab.live ?? emptyLiveSnapshot();
+            m.patchRpc(tabId, { live: applyLivePhase(live, phase) });
+          }
+          return;
+        }
+        case "live_levels": {
+          // ≤10 Hz; a direct patch is fine — btw deltas patch at a higher rate.
+          const levels = parseLiveLevelsFrame(frame);
+          if (levels !== null) {
+            const live = tab.live ?? emptyLiveSnapshot();
+            m.patchRpc(tabId, { live: applyLiveLevels(live, levels.input, levels.output) });
+          }
+          return;
+        }
+        case "live_transcript": {
+          // Replaces the entry with the same (role, turn); never appended to
+          // the transcript, whose unknown-type path would drop the frames.
+          const turn = parseLiveTranscriptFrame(frame);
+          if (turn !== null) {
+            const live = tab.live ?? emptyLiveSnapshot();
+            m.patchRpc(tabId, { live: applyLiveTranscript(live, turn) });
+          }
+          return;
+        }
+        case "live_end": {
+          // Sent exactly once per session; the strip's dismiss and the
+          // control's idle state read `ended`.
+          const live = tab.live ?? emptyLiveSnapshot();
+          m.patchRpc(tabId, {
+            live: applyLiveEnd(live, strField(frame, "error") ?? null),
+          });
           return;
         }
         default: {
