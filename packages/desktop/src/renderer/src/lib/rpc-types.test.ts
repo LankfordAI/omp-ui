@@ -6,8 +6,8 @@ import {
   parseModelInfo,
   parseQueuedMessages,
   parseSessionRuntime,
-  parseSubagents,
   parseUsageLimit,
+  parseSubagents,
   type ModelInfo,
 } from "./rpc-types";
 

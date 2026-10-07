@@ -4,6 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- Sessions on models that support it gain a slow-mode toggle — a `slow` chip while reduced-priority serving is on, and a switch in the modes popover and both sheets whose tooltip names where the setting lives: omp's persisted global one or this session's alone. While the account is past its usage limit, the HUD carries a stage chip — wrap-up or low priority — with the reset time and remaining allowance. The runtime's own support field is the gate, so older omp shows nothing. #777
 - Explicit Obsidian Markdown links in native replies now show clickable note titles that open the exact file on the owning desktop. Browser and joined-instance viewers copy portable links instead; plain paths, wikilinks, and sandboxed HTML plans are unchanged. #781
 - Vault notes now file under a project folder suffixed with the git remote's owner (`omp-ui/ansible-austinm731/`), so two same-named repos owned by different accounts keep separate notes, Index notes, and wikilink namespaces in a vault Obsidian Sync carries across machines. Projects without a web-facing remote keep today's plain folder; existing folders are never renamed. #787
 - A settled `svg` code block in the native transcript now renders as an image with a source toggle, with the theme's ink color replacing `currentColor` so diagrams follow the theme; unparsable sources and still-streaming blocks stay plain code. #780
