@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Vault actions on a web client — including one rendered inside another instance's Electron **Browser pane** — decide open-vs-copy from the preload transport, not the user agent, so a pane viewer copies the note's `obsidian://` link instead of launching Obsidian on the host (#782).
+- The slow-mode toggle and the Session HUD's `slow` chip are removed; omp's `/slow` command is the only slow-mode surface. The usage-limit stage chip stays (#792).
 
 Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 

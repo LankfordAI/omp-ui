@@ -1379,7 +1379,7 @@ describe("SessionHud fast mode chip (issue #677)", () => {
   });
 });
 
-describe("SessionHud slow mode and usage-limit chip (issue #777)", () => {
+describe("SessionHud usage-limit chip", () => {
   const desktop = (): void => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -1404,58 +1404,6 @@ describe("SessionHud slow mode and usage-limit chip (issue #777)", () => {
     act(() => root!.render(<SessionHud tabId={TAB} />));
     return host;
   };
-
-  it("hides the slow chip when slow mode is off", () => {
-    seedSlow({ slowModeSupported: true, slowModeEnabled: false });
-    const host = renderWide();
-    expect(host.textContent).not.toContain(t("hud.slow.label"));
-  });
-
-  it("shows the copper slow chip when enabled", () => {
-    seedSlow({ slowModeSupported: true, slowModeEnabled: true, slowModeScope: "session" });
-    const host = renderWide();
-    const chip = host.querySelector<HTMLButtonElement>(
-      `button[aria-label="${t("hud.slow.onTitle")}"]`,
-    )!;
-    expect(chip).not.toBeNull();
-    expect(chip.querySelector("span")?.classList.contains("bg-copper")).toBe(true);
-  });
-
-  it("a global-scope enable titles with the shared-setting tooltip", () => {
-    seedSlow({ slowModeSupported: true, slowModeEnabled: true, slowModeScope: "global" });
-    const host = renderWide();
-    expect(
-      host.querySelector(`button[aria-label="${t("hud.slow.onGlobalTitle")}"]`),
-    ).not.toBeNull();
-  });
-
-  it("a chip click sends setSlowMode with the toggled setting", () => {
-    const setSlowMode = vi.fn(async () => {});
-    useStore.setState({ setSlowMode });
-    seedSlow({ slowModeSupported: true, slowModeEnabled: true });
-    const host = renderWide();
-    const chip = host.querySelector<HTMLButtonElement>(
-      `button[aria-label="${t("hud.slow.onTitle")}"]`,
-    )!;
-    act(() => chip.click());
-    expect(setSlowMode).toHaveBeenCalledWith(TAB, false);
-  });
-
-  it("the modes popover carries the slow switch only when supported", () => {
-    seedSlow({ slowModeSupported: false, slowModeEnabled: false });
-    const host = renderWide();
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
-    act(() => trigger.click());
-    expect(document.body.querySelector('button[role="switch"][aria-label="slow mode"]')).toBeNull();
-    act(() => trigger.click());
-    seedSlow({ slowModeSupported: true });
-    act(() => trigger.click());
-    const sw = document.body.querySelector<HTMLButtonElement>(
-      'button[role="switch"][aria-label="slow mode"]',
-    )!;
-    expect(sw).not.toBeNull();
-    expect(sw.getAttribute("title")).toBe(t("hud.slow.offTitle"));
-  });
 
   it("renders the usage-limit chip with its countdown when a stage is seeded", () => {
     const resetsAtSec = Math.floor(Date.now() / 1000) + 3600;

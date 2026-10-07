@@ -190,28 +190,19 @@ describe("queued messages in session state", () => {
   });
 });
 
-describe("slow mode and usageLimit in session state (issue #777)", () => {
+describe("usageLimit in session state", () => {
   const previous = {
     ...emptySessionRuntime(),
-    slowModeSupported: true,
-    slowModeEnabled: true,
-    slowModeScope: "global" as const,
     usageLimit: { stage: "low_priority" as const, resetsAtSec: 1, allowanceLeftPercent: 40, extraUsage: false },
   };
 
-  it("parses all four fields from a full get_state payload", () => {
+  it("parses usageLimit from a full get_state payload", () => {
     const next = parseSessionRuntime(
       {
-        slowModeSupported: true,
-        slowModeEnabled: true,
-        slowModeScope: "session",
         usageLimit: { stage: "wrap_up", resetsAtSec: 1_800, extraUsage: true },
       },
       emptySessionRuntime(),
     );
-    expect(next.slowModeSupported).toBe(true);
-    expect(next.slowModeEnabled).toBe(true);
-    expect(next.slowModeScope).toBe("session");
     expect(next.usageLimit).toEqual({
       stage: "wrap_up",
       resetsAtSec: 1_800,
@@ -222,9 +213,6 @@ describe("slow mode and usageLimit in session state (issue #777)", () => {
 
   it("keeps previous values when the keys are absent (older omp, partial frames)", () => {
     const next = parseSessionRuntime({ messageCount: 3 }, previous);
-    expect(next.slowModeSupported).toBe(true);
-    expect(next.slowModeEnabled).toBe(true);
-    expect(next.slowModeScope).toBe("global");
     expect(next.usageLimit).toEqual(previous.usageLimit);
   });
 
@@ -243,10 +231,6 @@ describe("slow mode and usageLimit in session state (issue #777)", () => {
   it("an unparseable usageLimit keeps the previous stage, not a reset to null", () => {
     const next = parseSessionRuntime({ usageLimit: { stage: "bogus" } }, previous);
     expect(next.usageLimit).toEqual(previous.usageLimit);
-  });
-
-  it("an unrecognized slowModeScope keeps the previous scope", () => {
-    expect(parseSessionRuntime({ slowModeScope: "cosmic" }, previous).slowModeScope).toBe("global");
   });
 });
 

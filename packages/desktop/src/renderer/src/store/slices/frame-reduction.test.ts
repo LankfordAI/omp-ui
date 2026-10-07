@@ -3305,8 +3305,8 @@ describe("handleRpcFrame routing", () => {
     expect(setModel?.cmd).toMatchObject({ provider: "p2", modelId: "mx" });
     h.respond(h.TAB, setModel!.cmd, {});
     await h.flushMicrotasks();
-    // setModel re-reads get_state so the per-model slowMode fields converge
-    // (issue #777); the staged chain waits on that re-read.
+    // setModel re-reads get_state so the fastMode fields and the runtime
+    // converge; the staged chain waits on that re-read.
     const stateRead = h.sent.find((s) => onTab(s) && s.cmd.type === "get_state");
     expect(stateRead).toBeDefined();
     h.respond(h.TAB, stateRead!.cmd, {});

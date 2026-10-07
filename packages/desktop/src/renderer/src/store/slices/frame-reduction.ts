@@ -859,7 +859,7 @@ export function createFrameReductionSlice(
           // pattern as the btw frames above — tolerant parse, patchRpc,
           // return before the agent-event reducer so no transcript rows
           // appear. omp owns the phase machine; an unknown phase value keeps
-          // the previous one (the slowModeScope forward-compat rule).
+          // the previous one.
           const phase = parseLivePhaseFrame(frame);
           if (phase !== null) {
             const live = tab.live ?? emptyLiveSnapshot();

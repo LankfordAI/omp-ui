@@ -150,18 +150,6 @@ export interface SessionRuntime {
   *  leave it true while fastModeEnabled is false. Never derive one from the
   *  other; display reads this, the switch reads the setting. */
   fastModeActive: boolean;
-  /** Whether /slow applies to the active model (omp ≥ 18.6.3, issue #777).
-   *  The field is absent on older runtimes and for unsupported models, so
-   *  false doubles as "unknown or no"; it is the control's version- and
-   *  support gate. */
-  slowModeSupported: boolean;
-  /** Always false while slowModeSupported is false — that does NOT mean a
-   *  persisted global setting was turned off (rpc.md). */
-  slowModeEnabled: boolean;
-  /** Where the active model's setting lives: "global" persisted config
-   *  (providers.anthropic.slowMode), "session" per-family flex tier,
-   *  null when unsupported or not yet reported. */
-  slowModeScope: "global" | "session" | null;
   /** The account-stage readout; null outside both stages and on older omp. */
   usageLimit: UsageLimit | null;
   sessionId: string | null;
@@ -230,9 +218,6 @@ export function emptySessionRuntime(): SessionRuntime {
     autoCompactionEnabled: false,
     fastModeEnabled: false,
     fastModeActive: false,
-    slowModeSupported: false,
-    slowModeEnabled: false,
-    slowModeScope: null,
     usageLimit: null,
     sessionId: null,
     sessionFile: null,
@@ -402,13 +387,6 @@ export function parseSessionRuntime(value: unknown, previous: SessionRuntime): S
       boolField(value, "autoCompactionEnabled") ?? previous.autoCompactionEnabled,
     fastModeEnabled: boolField(value, "fastModeEnabled") ?? previous.fastModeEnabled,
     fastModeActive: boolField(value, "fastModeActive") ?? previous.fastModeActive,
-    slowModeSupported: boolField(value, "slowModeSupported") ?? previous.slowModeSupported,
-    slowModeEnabled: boolField(value, "slowModeEnabled") ?? previous.slowModeEnabled,
-    slowModeScope:
-      strField(value, "slowModeScope") === "global" ||
-      strField(value, "slowModeScope") === "session"
-        ? (strField(value, "slowModeScope") as "global" | "session")
-        : previous.slowModeScope,
     usageLimit: parseUsageLimit(field(value, "usageLimit")) ?? previous.usageLimit,
     sessionId: strField(value, "sessionId") ?? previous.sessionId,
     sessionFile: strField(value, "sessionFile") ?? previous.sessionFile,

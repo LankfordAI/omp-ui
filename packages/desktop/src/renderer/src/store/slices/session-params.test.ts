@@ -2656,7 +2656,7 @@ describe("fast mode (issue #677)", () => {
   });
 });
 
-describe("slow mode (issue #777)", () => {
+describe("usage limit and state re-reads", () => {
   beforeEach(() => {
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
   });
@@ -2669,57 +2669,7 @@ describe("slow mode (issue #777)", () => {
     }
   };
 
-  it("setSlowMode sends set_slow_mode, patches from data.enabled, then re-reads state", async () => {
-    const promise = h.useStore.getState().setSlowMode(h.TAB, true);
-    const cmd = h.sent[0]!.cmd;
-    expect(cmd).toMatchObject({ type: "set_slow_mode", enabled: true });
-    h.respond(h.TAB, cmd, { enabled: true });
-    await h.flushMicrotasks();
-    expect(h.sent.map(({ cmd: c }) => c.type)).toEqual(["set_slow_mode", "get_state"]);
-    h.respond(h.TAB, h.sent[1]!.cmd, { slowModeSupported: true, slowModeEnabled: true, slowModeScope: "global" });
-    await promise;
-    const session = h.useStore.getState().rpc[h.TAB]!.session;
-    expect(session.slowModeEnabled).toBe(true);
-    expect(session.slowModeSupported).toBe(true);
-    expect(session.slowModeScope).toBe("global");
-  });
-
-  it("a failed enable records the failure and sends nothing further", async () => {
-    h.useStore.setState({
-      rpc: {
-        [h.TAB]: rpcTabState({
-          session: { ...emptySessionRuntime(), slowModeSupported: true },
-        }),
-      },
-    });
-    const promise = h.useStore.getState().setSlowMode(h.TAB, true);
-    h.respond(h.TAB, h.sent[0]!.cmd, "Slow mode is unavailable for the current model.", false);
-    await promise;
-    expect(h.useStore.getState().rpc[h.TAB]!.failure).toMatchObject({
-      command: "set_slow_mode",
-      fatal: false,
-    });
-    expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["set_slow_mode"]);
-    const session = h.useStore.getState().rpc[h.TAB]!.session;
-    expect(session.slowModeEnabled).toBe(false);
-  });
-
-  it("a disable the runtime reports off patches off even though the click said off", async () => {
-    h.useStore.setState({
-      rpc: {
-        [h.TAB]: rpcTabState({
-          session: { ...emptySessionRuntime(), slowModeSupported: true, slowModeEnabled: true },
-        }),
-      },
-    });
-    const promise = h.useStore.getState().setSlowMode(h.TAB, false);
-    h.respond(h.TAB, h.sent[0]!.cmd, { enabled: false });
-    await settleAll({ slowModeSupported: true, slowModeEnabled: false, slowModeScope: "global" });
-    await promise;
-    expect(h.useStore.getState().rpc[h.TAB]!.session.slowModeEnabled).toBe(false);
-  });
-
-  it("typing /slow refreshes state so the chip converges without a frame", async () => {
+  it("typing /slow refreshes state so the usage-limit chip converges without a frame", async () => {
     h.useStore.setState({
       rpc: {
         [h.TAB]: rpcTabState({
@@ -2732,16 +2682,20 @@ describe("slow mode (issue #777)", () => {
     await h.flushMicrotasks();
     const state = h.sent.find((s) => s.cmd.type === "get_state");
     expect(state).toBeDefined();
-    h.respond(h.TAB, state!.cmd, { slowModeSupported: true, slowModeEnabled: true, slowModeScope: "session" });
+    h.respond(h.TAB, state!.cmd, { usageLimit: { stage: "low_priority", resetsAtSec: 99, allowanceLeftPercent: 10, extraUsage: false } });
     const stats = h.sent.find((s) => s.cmd.type === "get_session_stats");
     if (stats !== undefined) h.respond(h.TAB, stats.cmd, {});
     await promise;
     const session = h.useStore.getState().rpc[h.TAB]!.session;
-    expect(session.slowModeEnabled).toBe(true);
-    expect(session.slowModeScope).toBe("session");
+    expect(session.usageLimit).toEqual({
+      stage: "low_priority",
+      resetsAtSec: 99,
+      allowanceLeftPercent: 10,
+      extraUsage: false,
+    });
   });
 
-  it("setModel re-reads get_state so the per-model slowMode fields converge", async () => {
+  it("setModel re-reads get_state so fastMode fields and the runtime converge", async () => {
     h.backendState = h.stateWithRecord(null);
     h.useStore.setState({
       state: h.backendState,
@@ -2753,13 +2707,13 @@ describe("slow mode (issue #777)", () => {
       await h.flushMicrotasks();
       for (const { tabId, cmd } of h.sent.splice(0)) {
         h.respond(tabId, cmd, cmd.type === "get_state"
-          ? { slowModeSupported: true, slowModeEnabled: false, slowModeScope: "session" }
+          ? { fastModeEnabled: true, fastModeActive: true }
           : model);
       }
     }
     await promise;
-    expect(h.useStore.getState().rpc[h.TAB]!.session.slowModeSupported).toBe(true);
-    expect(h.useStore.getState().rpc[h.TAB]!.session.slowModeScope).toBe("session");
+    expect(h.useStore.getState().rpc[h.TAB]!.session.fastModeEnabled).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.session.fastModeActive).toBe(true);
   });
 
   it("a full get_state without a usageLimit key clears the seeded stage", async () => {
