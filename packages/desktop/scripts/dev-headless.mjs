@@ -9,9 +9,9 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 
 // The hoisted workspace bin, so `node scripts/dev-headless.mjs` works outside npm too.
@@ -76,6 +76,13 @@ if (!env.OMP_UI_TEST_MODEL) {
 
 console.log(
   `dev:headless: cdp=http://127.0.0.1:${env.OMP_UI_CDP_PORT} registry=${env.OMP_UI_REGISTRY_PATH} userData=@omp-ui/desktop-dev-headless`,
+);
+// The app records its live CDP port here (a main-rebuild restart that cannot
+// rebind the preferred port falls back to the next free one, #783); this file
+// is authoritative after any fallback.
+const appData = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+console.log(
+  `dev:headless: cdp-port-file=${join(appData, "@omp-ui/desktop-dev-headless", "dev-cdp-port.txt")}`,
 );
 if (pane) {
   console.log(`dev:headless: pane=http://127.0.0.1:${seeded.remotePort}/?t=${paneToken}`);
