@@ -1031,6 +1031,13 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * into omp's steering queue (issue #714). Never falls back to `steer`.
    */
   promoteQueuedMessage(tabId: string, message: string): Promise<void>;
+  /**
+   * Withdraws one queued message whose queue-chip text is `message` from
+   * omp's `queue` and restores it — prose, images, documents — to the
+   * composer draft (issue #776). Never falls back to another verb: a
+   * rejection is recorded and nothing else is sent.
+   */
+  editQueuedMessage(tabId: string, message: string, queue: "steering" | "followUp"): Promise<void>;
   setInterruptMode(tabId: string, mode: string): Promise<void>;
   setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
   setFastMode(tabId: string, enabled: boolean): Promise<void>;

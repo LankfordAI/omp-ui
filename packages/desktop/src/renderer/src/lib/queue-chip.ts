@@ -46,6 +46,16 @@ export function supportsPromoteQueued(ompVersion: string | null): boolean {
   return ompVersion !== null && compareVersions(ompVersion, PROMOTE_QUEUED_MIN_OMP) >= 0;
 }
 
+/** First omp release with `abort_and_restore_queue` and `remove_queued_message`
+ *  returning images (upstream #14179, omp 18.6.3). */
+export const RESTORE_QUEUE_MIN_OMP = "18.6.3";
+
+/** Unknown version means plain `abort` and no edit action: an older runtime
+ *  rejects the verb, and a text-only restore would silently drop attachments. */
+export function supportsRestoreQueue(ompVersion: string | null): boolean {
+  return ompVersion !== null && compareVersions(ompVersion, RESTORE_QUEUE_MIN_OMP) >= 0;
+}
+
 /**
  * The chip's number. `queue_update` lands immediately while the count waits
  * for a get_state, and live-steered messages are listed but not counted —

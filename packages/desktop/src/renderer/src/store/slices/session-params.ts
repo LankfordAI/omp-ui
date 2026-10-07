@@ -26,6 +26,8 @@ import { DOCUMENT_MIME } from "../../lib/clipboard-image";
 import { t, type MessageKey } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { hasSeenSharePrivacy } from "../../lib/share-privacy";
+import { supportsRestoreQueue } from "../../lib/queue-chip";
+import { parseRestoreResult, projectImages, splitQueuedWireText } from "../../lib/queue-restore";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
 import {
   parseModelInfo,
@@ -94,6 +96,7 @@ export type SessionParamsSlice = Pick<
   | "setSteeringMode"
   | "setFollowUpMode"
   | "promoteQueuedMessage"
+  | "editQueuedMessage"
   | "setInterruptMode"
   | "setAutoCompaction"
   | "setFastMode"
@@ -509,7 +512,44 @@ export function createSessionParamsSlice(
   };
 
   const abortAgent = async (tabId: string): Promise<void> => {
-    await m.runCommand(tabId, { type: "abort" });
+    const version = get().rpc[tabId]?.capabilities?.ompVersion ?? null;
+    if (!supportsRestoreQueue(version)) {
+      await m.runCommand(tabId, { type: "abort" });
+      return;
+    }
+    // Esc and both stop controls land here (issue #776): omp withdraws every
+    // user-authored steering/follow-up message and aborts the turn in one
+    // verb. A rejection is recorded by runCommand and NOTHING is retried —
+    // the turn was aborted by omp or it wasn't, and a second `abort` can
+    // only duplicate a guess.
+    const resp = await m.runCommand(tabId, { type: "abort_and_restore_queue" });
+    if (resp === null) return;
+    const restored = parseRestoreResult(respData(resp));
+    if (restored !== null) {
+      // Staging rides the existing composerQueue drain — the identical
+      // plumbing rewind's edit-resend uses and the browser pane's hand-back.
+      for (const entry of [...restored.steering, ...restored.followUp]) {
+        const { text, documents } = splitQueuedWireText(entry.text);
+        if (text !== "") get().queueComposerText(tabId, text);
+        for (const image of entry.images)
+          get().queueComposerAttachment(tabId, image, "");
+        // Path-only re-attach: zero re-upload; a swept scratch file fails at
+        // send with `document not found` and the draft survives for re-pick.
+        for (const doc of documents)
+          get().queueComposerDocument(
+            tabId,
+            { type: "document", mimeType: DOCUMENT_MIME, name: doc.name, path: doc.path },
+            "",
+          );
+      }
+      if (restored.imagesDropped)
+        m.appendItem(tabId, noticeItem(t("composer.queue.restoreImagesDropped"), "info"));
+      if (restored.truncated)
+        m.appendItem(tabId, noticeItem(t("composer.queue.restoreTruncated"), "info"));
+    }
+    // The chip count/list settle now, not at the next turn end (the
+    // promoteQueuedMessage `promoted:false` idiom).
+    void get().refreshState(tabId);
   };
 
   const abortAndPrompt = async (
@@ -767,6 +807,37 @@ export function createSessionParamsSlice(
     // promoted:false means it was delivered first — not an error. Re-read
     // state so the chip count and list settle without waiting for a turn end.
     if (boolField(respData(resp), "promoted") === false) void get().refreshState(tabId);
+  };
+
+  const editQueuedMessage = async (
+    tabId: string,
+    message: string,
+    queue: "steering" | "followUp",
+  ): Promise<void> => {
+    // Loud: a user action. A rejection (older runtime) surfaces as the
+    // command failure and nothing else is sent — the same discipline as
+    // promoteQueuedMessage, never a fallback verb (issue #776).
+    const resp = await m.runCommand(tabId, { type: "remove_queued_message", message, queue });
+    if (resp === null) return;
+    const data = respData(resp);
+    if (boolField(data, "removed") !== true) {
+      // Delivered between render and click — not an error (the promote
+      // `promoted:false` shape). Re-read so the list settles.
+      void get().refreshState(tabId);
+      return;
+    }
+    const { text, documents } = splitQueuedWireText(message);
+    if (text !== "") get().queueComposerText(tabId, text);
+    for (const image of projectImages(arrField(data, "images")))
+      get().queueComposerAttachment(tabId, image, "");
+    for (const doc of documents)
+      get().queueComposerDocument(
+        tabId,
+        { type: "document", mimeType: DOCUMENT_MIME, name: doc.name, path: doc.path },
+        "",
+      );
+    if (boolField(data, "imagesDropped") === true)
+      m.appendItem(tabId, noticeItem(t("composer.queue.restoreImagesDropped"), "info"));
   };
 
   const setInterruptMode = async (tabId: string, mode: string): Promise<void> => {
@@ -1844,6 +1915,7 @@ export function createSessionParamsSlice(
     setSteeringMode,
     setFollowUpMode,
     promoteQueuedMessage,
+    editQueuedMessage,
     setInterruptMode,
     setAutoCompaction,
     setFastMode,

@@ -1,6 +1,7 @@
 // Session parameter slice tests (moved verbatim from store.test.ts for #295).
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EXPERIMENT_PROPOSAL_SENTINEL, type ExperimentProposal } from "@omp-ui/core/autoresearch";
+import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { rpcTabState, tabInfo } from "../../test/fixtures";
 import type { RenderItem } from "../../lib/transcript";
@@ -1159,6 +1160,172 @@ describe("prompting, slash commands, and session ops", () => {
         kind: "command",
         fatal: false,
         command: "promote_queued_message",
+      });
+      expect(h.sent).toEqual([]);
+    });
+  });
+
+  describe("abortAgent queue restore (issue #776)", () => {
+    /** A capabilities snapshot whose only relevant field is the version. */
+    const gate = (ompVersion: string | null): CapabilitySnapshot => ({
+      version: 1 as const,
+      processKey: "p",
+      sessionId: null,
+      revision: 1,
+      updatedAt: 0,
+      ompVersion,
+      skillCommandsEnabled: null,
+      skills: { status: "unavailable", reason: "missing-api" },
+      tools: { status: "unavailable", reason: "missing-api" },
+      magicKeywords: { status: "available", items: [] },
+      toolControl: "unsupported",
+      toolMutation: null,
+    });
+    const seedVersion = (ompVersion: string | null): void => {
+      h.useStore.setState({
+        rpc: { [h.TAB]: rpcTabState({ status: "running", capabilities: gate(ompVersion) }) },
+      });
+    };
+    const DOCUMENT_BLOCK = "<attached documents>\nspec.pdf: /tmp/spec.pdf\n</attached documents>";
+
+    it("at omp 18.6.3+ sends abort_and_restore_queue and stages both queues oldest-first", async () => {
+      seedVersion("18.7.0");
+      const promise = h.useStore.getState().abortAgent(h.TAB);
+      expect(h.sent).toHaveLength(1);
+      expect(h.sent[0]!.cmd).toEqual({ type: "abort_and_restore_queue", id: expect.anything() });
+      h.respond(h.TAB, h.sent.pop()!.cmd, {
+        steering: [{ text: `context only\n\n${TWO_IMAGE_CONTEXT}` }],
+        followUp: [
+          {
+            text: `fix it\n\n${DOCUMENT_BLOCK}\n\n${TWO_IMAGE_CONTEXT}`,
+            images: [{ type: "image", data: "QQ==", mimeType: "image/jpeg", detail: "low" }],
+          },
+        ],
+      });
+      await promise;
+      await h.flushMicrotasks();
+      // The chip count/list settle now via get_state, not at the next turn end.
+      expect(h.sent.map((s) => s.cmd.type)).toEqual(["get_state"]);
+      h.respond(h.TAB, h.sent.pop()!.cmd, {});
+      await h.flushMicrotasks();
+      expect(h.sent).toEqual([]);
+      expect(h.useStore.getState().drainComposerQueue(h.TAB)).toEqual({
+        images: [{ type: "image", data: "QQ==", mimeType: "image/jpeg" }],
+        documents: [
+          { type: "document", mimeType: "application/pdf", name: "spec.pdf", path: "/tmp/spec.pdf" },
+        ],
+        // The routing suffix is stripped from every entry: the draft gets one
+        // fresh suffix at send. A blocks-only entry contributes no text line.
+        text: ["context only", "fix it"],
+      });
+    });
+
+    it("restores nothing on an empty queue and sends no other command", async () => {
+      seedVersion("18.6.3");
+      const promise = h.useStore.getState().abortAgent(h.TAB);
+      h.respond(h.TAB, h.sent.pop()!.cmd, { steering: [], followUp: [] });
+      await promise;
+      await h.flushMicrotasks();
+      expect(h.useStore.getState().rpc[h.TAB]!.composerQueue).toBeUndefined();
+      h.respond(h.TAB, h.sent.pop()!.cmd, {});
+      expect(h.sent).toEqual([]);
+    });
+
+    it.each(["18.6.2", null])("below the gate (%s) sends the plain abort frame only", async (ompVersion) => {
+      seedVersion(ompVersion);
+      const promise = h.useStore.getState().abortAgent(h.TAB);
+      expect(h.sent).toHaveLength(1);
+      expect(h.sent[0]!.cmd).toEqual({ type: "abort", id: expect.anything() });
+      h.respond(h.TAB, h.sent.pop()!.cmd, {});
+      await promise;
+      await h.flushMicrotasks();
+      expect(h.sent).toEqual([]);
+    });
+
+    it("a rejected verb records the failure and never retries with plain abort", async () => {
+      seedVersion("18.7.0");
+      const promise = h.useStore.getState().abortAgent(h.TAB);
+      h.respond(h.TAB, h.sent.pop()!.cmd, "unknown command", false);
+      await promise;
+      await h.flushMicrotasks();
+      expect(h.useStore.getState().rpc[h.TAB]!.failure).toMatchObject({
+        kind: "command",
+        fatal: false,
+        command: "abort_and_restore_queue",
+      });
+      expect(h.sent).toEqual([]);
+      expect(h.useStore.getState().rpc[h.TAB]!.composerQueue).toBeUndefined();
+    });
+
+    it("imagesDropped and truncated stage the text and tell the transcript why", async () => {
+      seedVersion("18.7.0");
+      const promise = h.useStore.getState().abortAgent(h.TAB);
+      h.respond(h.TAB, h.sent.pop()!.cmd, {
+        steering: [],
+        followUp: [{ text: `with attachments\n\n${TWO_IMAGE_CONTEXT}` }],
+        imagesDropped: true,
+        truncated: true,
+      });
+      await promise;
+      await h.flushMicrotasks();
+      expect(h.useStore.getState().drainComposerQueue(h.TAB)).toEqual({
+        images: [],
+        text: ["with attachments"],
+      });
+      const texts = h
+        .useStore.getState()
+        .rpc[h.TAB]!.items.flatMap((i) => (i.kind === "notice" ? [i.text] : []));
+      expect(texts.some((x) => x.includes("without their images"))).toBe(true);
+      expect(texts.some((x) => x.includes("only the oldest fit"))).toBe(true);
+    });
+  });
+
+  describe("editQueuedMessage (issue #776)", () => {
+    const wire = `fix the parser\n\n<attached documents>\nspec.pdf: /tmp/spec.pdf\n</attached documents>`;
+
+    it("sends the raw message and its queue, and stages text and documents on removal", async () => {
+      const promise = h.useStore.getState().editQueuedMessage(h.TAB, wire, "followUp");
+      expect(h.sent).toHaveLength(1);
+      expect(h.sent[0]!.cmd).toEqual({
+        type: "remove_queued_message",
+        message: wire,
+        queue: "followUp",
+        id: expect.anything(),
+      });
+      h.respond(h.TAB, h.sent.pop()!.cmd, {
+        removed: true,
+        images: [{ type: "image", data: "QUJD", mimeType: "image/png" }],
+      });
+      await promise;
+      await h.flushMicrotasks();
+      expect(h.sent).toEqual([]);
+      expect(h.useStore.getState().drainComposerQueue(h.TAB)).toEqual({
+        images: [{ type: "image", data: "QUJD", mimeType: "image/png" }],
+        documents: [
+          { type: "document", mimeType: "application/pdf", name: "spec.pdf", path: "/tmp/spec.pdf" },
+        ],
+        text: ["fix the parser"],
+      });
+    });
+
+    it("a removal that raced delivery re-reads state and stages nothing", async () => {
+      const promise = h.useStore.getState().editQueuedMessage(h.TAB, "gone", "steering");
+      h.respond(h.TAB, h.sent.pop()!.cmd, { removed: false });
+      await promise;
+      expect(h.sent.map((s) => s.cmd.type)).toEqual(["get_state"]);
+      expect(h.useStore.getState().rpc[h.TAB]!.composerQueue).toBeUndefined();
+      expect(h.useStore.getState().rpc[h.TAB]!.failure).toBeUndefined();
+    });
+
+    it("a rejection records a nonfatal failure and sends nothing else", async () => {
+      const promise = h.useStore.getState().editQueuedMessage(h.TAB, "x", "steering");
+      h.respond(h.TAB, h.sent.pop()!.cmd, "unknown command", false);
+      await promise;
+      await h.flushMicrotasks();
+      expect(h.useStore.getState().rpc[h.TAB]!.failure).toMatchObject({
+        kind: "command",
+        fatal: false,
+        command: "remove_queued_message",
       });
       expect(h.sent).toEqual([]);
     });

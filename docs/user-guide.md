@@ -86,11 +86,11 @@ A new native session gets an **auto-title** when its first substantive turn ends
 
 ### Steer, queue, interrupt, and abort
 
-When the agent is idle, `Enter` sends a new prompt. While it is running, `Enter` steers the current turn. Use `Mod+Enter` to queue a follow-up for the next clean turn, or `Mod+Shift+Enter` to abort the current turn and send the draft as a fresh prompt. `Escape` aborts a running agent without sending the draft.
+When the agent is idle, `Enter` sends a new prompt. While it is running, `Enter` steers the current turn. Use `Mod+Enter` to queue a follow-up for the next clean turn, or `Mod+Shift+Enter` to abort the current turn and send the draft as a fresh prompt. `Escape` aborts a running agent without sending the draft; on OMP 18.6.3 or newer it also returns every queued message — steers and follow-ups, attachments included — to the composer draft, where you can edit and re-send them. Older runtimes abort plain.
 
 The queue count covers all displayable queued work, not only user follow-ups. It can include steers, advisor cards, custom entries, and deferred items. After a user interrupt, follow-ups do not drain automatically; they remain **parked** until you send an explicit new prompt. The composer and Session pane label an idle non-empty queue `parked: N`.
 
-On omp 18.4.6 or newer, clicking the queue chip lists the queued steering and follow-up messages. **Promote** moves a follow-up into steering: while the agent runs it is delivered at the next tool boundary, and while the agent is idle (including parked after an interrupt) it starts a turn right away. Advisor cards and deferred items are counted but not listed. In the compact shell the list sits in the prompt-options sheet.
+On omp 18.4.6 or newer, clicking the queue chip lists the queued steering and follow-up messages. **Promote** moves a follow-up into steering: while the agent runs it is delivered at the next tool boundary, and while the agent is idle (including parked after an interrupt) it starts a turn right away. On omp 18.6.3 or newer every row also carries **edit**, which withdraws that one message from the queue and returns it to the draft — the turn keeps running. Advisor cards and deferred items are counted but not listed. In the compact shell the list sits in the prompt-options sheet.
 
 ### Rewinding and the session tree
 
@@ -313,7 +313,7 @@ For connecting a phone or another browser to the compact shell, see [Remote acce
 | `Shift+Enter` | Insert a line break. |
 | `Mod+Enter` | Queue a follow-up after the current turn. |
 | `Mod+Shift+Enter` | Abort the current turn and send the draft as a fresh prompt. |
-| `Escape` | Abort a running agent. When a slash or `@` picker is open, close that picker first. |
+| `Escape` | Abort a running agent; queued messages return to the draft on OMP 18.6.3 or newer. When a slash or `@` picker is open, close that picker first. |
 | `Up` / `Down` | Recall sent composer text when the draft is empty, or navigate an open slash or `@` picker. |
 | `Tab` | Accept the selected row of an open slash or `@` picker. |
 

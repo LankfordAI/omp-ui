@@ -1,20 +1,21 @@
 import { useState, type ReactNode } from "react";
 import { useT } from "../lib/i18n";
-import { queueEntryDisplayText, supportsPromoteQueued } from "../lib/queue-chip";
+import { queueEntryDisplayText, supportsPromoteQueued, supportsRestoreQueue } from "../lib/queue-chip";
 import { useStore } from "../store";
 import { Button, Label } from "./ui";
 
 /**
  * omp's queue, listed from its own queue-chip text (issue #714): steering
- * rows are read-only, follow-up rows carry a promote action that moves the
- * message into steering. Store-aware on `tabId` — the same idiom as
- * AdvisorControl and BuildPlanControl — so the composer popover and the
- * compact sheet mount it identically.
+ * rows carry only an edit action, follow-up rows carry promote and edit;
+ * edit withdraws the message from omp and restores it to the composer draft
+ * (issue #776). Store-aware on `tabId` — the same idiom as AdvisorControl
+ * and BuildPlanControl — so the composer popover and the compact sheet
+ * mount it identically.
  *
- * Promote sends the RAW text: omp matches it exactly, while the row shows
- * it cleaned the way the transcript does. The action hides when the runtime
- * version is unknown or older than the verb — a rejected promote must never
- * fall back to `steer`, so offering it blind would only ever fail.
+ * Actions send the RAW text: omp matches it exactly, while the row shows it
+ * cleaned the way the transcript does. An action hides when the runtime
+ * version is unknown or older than its verb — a rejected command must never
+ * fall back to another verb, so offering it blind would only ever fail.
  */
 export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled: boolean }) {
   const t = useT();
@@ -22,21 +23,27 @@ export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled
   const count = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
   const running = useStore((s) => s.rpc[tabId]?.status === "running");
   const canPromote = useStore((s) => supportsPromoteQueued(s.rpc[tabId]?.capabilities?.ompVersion ?? null));
+  const canEdit = useStore((s) => supportsRestoreQueue(s.rpc[tabId]?.capabilities?.ompVersion ?? null));
   const promoteQueuedMessage = useStore((s) => s.promoteQueuedMessage);
-  // One promote at a time: the list is re-sent by omp after each move, so a
+  const editQueuedMessage = useStore((s) => s.editQueuedMessage);
+  // One action at a time: omp re-sends the list after each mutation, so a
   // second click before it lands could target a row index that shifted.
   const [pending, setPending] = useState<number | null>(null);
 
   if (queued === null) return null;
 
-  const promote = async (index: number, raw: string): Promise<void> => {
+  const act = async (index: number, run: () => Promise<void>): Promise<void> => {
     setPending(index);
     try {
-      await promoteQueuedMessage(tabId, raw);
+      await run();
     } finally {
       setPending(null);
     }
   };
+  const promote = (index: number, raw: string): Promise<void> =>
+    act(index, () => promoteQueuedMessage(tabId, raw));
+  const edit = (index: number, raw: string, queue: "steering" | "followUp"): Promise<void> =>
+    act(index, () => editQueuedMessage(tabId, raw, queue));
   // Advisor cards and deferred items are counted but never listed.
   const unlisted = Math.max(0, count - (queued.steering.length + queued.followUp.length));
 
@@ -46,7 +53,9 @@ export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled
         <section className="flex flex-col gap-1">
           <Label>{t("composer.queue.steering")}</Label>
           {queued.steering.map((raw, index) => (
-            <QueueRow key={`steering-${index}`} raw={raw} />
+            <QueueRow key={`steering-${index}`} raw={raw}>
+              {canEdit && <EditButton disabled={disabled} title={t("composer.queue.editTitle")} pending={pending !== null} onEdit={() => void edit(index, raw, "steering")} />}
+            </QueueRow>
           ))}
         </section>
       )}
@@ -67,6 +76,7 @@ export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled
                   {t("composer.queue.promote")}
                 </Button>
               )}
+              {canEdit && <EditButton disabled={disabled} title={t("composer.queue.editTitle")} pending={pending !== null} onEdit={() => void edit(index, raw, "followUp")} />}
             </QueueRow>
           ))}
         </section>
@@ -88,5 +98,31 @@ function QueueRow({ raw, children }: { raw: string; children?: ReactNode }) {
       </span>
       {children}
     </div>
+  );
+}
+
+function EditButton({
+  disabled,
+  title,
+  pending,
+  onEdit,
+}: {
+  disabled: boolean;
+  title: string;
+  pending: boolean;
+  onEdit: () => void;
+}) {
+  const t = useT();
+  return (
+    <Button
+      size="xs"
+      tone="copper"
+      disabled={disabled || pending}
+      title={title}
+      onClick={onEdit}
+      className="shrink-0"
+    >
+      {t("composer.queue.edit")}
+    </Button>
   );
 }
