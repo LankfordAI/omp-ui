@@ -165,7 +165,6 @@ export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     extensionQueue: [],
     busy: false,
     initialPrompt: null,
-    autoTitleSent: null,
     hasRenamed: false,
     plan: null,
     planReview: null,

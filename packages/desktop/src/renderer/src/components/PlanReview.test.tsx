@@ -144,8 +144,8 @@ function tabState(patch: Parameters<typeof rpcTabState>[0] = {}, html = false) {
   const ext = html ? "html" : "md";
   return rpcTabState({
     status: "ready",
-    // Skip the auto-title path: the implementation prompt would otherwise
-    // reach for backend.generateTitle, which this mock does not provide.
+    // Skip the auto-title latch: an agent_end must not dispatch /rename in
+    // the middle of a review case.
     hasRenamed: true,
     planReview: {
       request: {

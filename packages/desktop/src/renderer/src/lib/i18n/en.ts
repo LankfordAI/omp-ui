@@ -204,8 +204,6 @@ export const en = {
     "Could not change the approval mode: {reason}\n\nThe agent has stopped — resume the session to continue.",
   "session.error.retitleNotLive":
     "This session is not running, so its title cannot be regenerated. Resume the session first, then re-title it.",
-  "session.error.retitleNoTranscript":
-    "This session has no exchange to re-title from yet. Send a prompt, let the assistant answer, then try again.",
   "session.error.rewindBusy":
     "Rewind needs a live, idle native session. Wait for the turn to finish (or stop it), then try again.",
   "session.error.rewindCorrelation":

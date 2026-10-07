@@ -155,7 +155,6 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     extensionQueue: [],
     busy: false,
     initialPrompt: null,
-    autoTitleSent: null,
     hasRenamed: true,
     plan: null,
     planReview: null,

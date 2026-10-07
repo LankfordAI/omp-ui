@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import { compactionThresholdTokens } from "@omp-ui/core/compaction-threshold";
@@ -18,7 +18,6 @@ import type { ContextUsage } from "../lib/rpc-types";
 import { findInstance, findOwner, findRecord, sessionCwd, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
 import { useDismissal } from "../lib/use-dismissal";
-import { buildTitleTranscript } from "../lib/session-transcript";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
 import { BuildPlanControl } from "./BuildPlanControl";
@@ -384,14 +383,6 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
   const t = useT();
   const renameSessionTo = useStore((s) => s.renameSessionTo);
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
-  const regenerating = useStore((s) => s.rpc[tabId]?.titleRegeneration != null);
-  const items = useStore((s) => s.rpc[tabId]?.items);
-  // Re-titling needs at least one exchange (issue #433): with no assistant
-  // answer yet, the transcript digest has nothing the model could learn from.
-  const thin = useMemo(() => {
-    const digest = buildTitleTranscript(items ?? []);
-    return digest.userTurns < 1 || digest.assistantTurns < 1;
-  }, [items]);
   const [draft, setDraft] = useState<string | null>(null);
 
   if (draft === null) {
@@ -412,7 +403,6 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
           type="button"
           aria-label={t("hud.session.retitle")}
           title={t("hud.session.retitleTitle", { title })}
-          disabled={regenerating || thin}
           onClick={() => void regenerateSessionTitle(tabId)}
           className="grid size-5 shrink-0 place-items-center rounded text-ink-dim opacity-0 transition-opacity duration-150 hover:bg-hover hover:text-ink group-hover/title:opacity-100 focus-visible:opacity-100 focus-visible:outline-none [app-region:no-drag]"
         >

@@ -354,14 +354,9 @@ export * from "./collab-cli";
 export { withoutAppImageRuntime } from "./appimage-env";
 export {
   generateBranchNameWithOmp,
-  generateTitleWithOmp,
   parseBranchNameOutput,
-  parseTitleOutput,
-  retitleSessionWithOmp,
   sanitizeBranchName,
-  sanitizeModelTitle,
   TITLE_MODEL_ROLES,
-  type RetitleRequest,
   type TitleRequest,
 } from "./title-model";
 export {

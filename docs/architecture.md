@@ -154,7 +154,7 @@ The Providers page's **Preferred provider** select writes omp's `providers.webSe
 
 ### Managed OMP binary
 
-Core owns binary discovery, version comparison, release asset selection, temporary-executable validation, and atomic replacement. Resolution prefers an explicit `OMP_UI_OMP_PATH`, then omp-ui's private managed copy, then `PATH` and known user install locations. Desktop main owns the visible update state and refreshes the resolved path after an install. Session, title, and branch-name processes all use that resolved binary. The renderer never downloads or launches omp itself.
+Core owns binary discovery, version comparison, release asset selection, temporary-executable validation, and atomic replacement. Resolution prefers an explicit `OMP_UI_OMP_PATH`, then omp-ui's private managed copy, then `PATH` and known user install locations. Desktop main owns the visible update state and refreshes the resolved path after an install. Session and branch-name processes both use that resolved binary. The renderer never downloads or launches omp itself. Session titling needs no omp-ui process at all: it rides the rpc prompt channel as omp's own `/rename`.
 
 ### Plan mode and plan review
 

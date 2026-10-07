@@ -1,7 +1,6 @@
 // RPC command slice tests (moved verbatim from store.test.ts for #295).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "../../lib/rpc-types";
-import { generateTitleFromPrompt } from "../../lib/session-title";
 import { rpcTabState } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 import type { StoreMachinery, TabRuntime } from "./shared";
@@ -961,7 +960,7 @@ describe("pending commands are abandoned when the process goes away (issue #338)
     }
   });
 });
-describe("auto-title gating (setInitialPrompt)", () => {
+describe("auto-titling dispatch (issue #788)", () => {
   beforeEach(() => {
     h.backendState = h.stateWithRecord("sess-1");
     h.useStore.setState({
@@ -971,24 +970,40 @@ describe("auto-title gating (setInitialPrompt)", () => {
     h.sent.length = 0;
   });
 
-  it("renames immediately from a substantive first prompt, no agent_end needed", async () => {
+  const renames = (): Array<Record<string, unknown>> =>
+    h.sent.filter(
+      (s) =>
+        s.cmd.type === "set_session_name" ||
+        (s.cmd.type === "prompt" && String(s.cmd.message).startsWith("/rename")),
+    );
+
+  it("captures a substantive first prompt without sending anything at prompt time", () => {
+    // omp digests the conversation, not the prompt: nothing may reach the
+    // engine before the first turn ends.
     h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
-    // Latched and phase-1 sent synchronously — the derived name goes out as
-    // soon as the prompt is offered, not when the first run ends.
     expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe(
       "Refactor the auth module",
     );
-    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
+    expect(h.sent).toHaveLength(0);
+  });
+
+  it("sends the bare /rename once at the first agent_end, then never again", async () => {
+    h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
-    const renames = h.sent.filter((s) => s.cmd.type === "set_session_name");
-    expect(renames).toHaveLength(1);
-    expect(renames[0]!.cmd.name).toBe("Refactor the auth module");
-    // Ack the derived send; the default model mock (null) means no upgrade.
-    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
-    await h.flushMicrotasks();
-    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
-      "Refactor the auth module",
+    const rename = h.sent.find(
+      (s) => s.cmd.type === "prompt" && s.cmd.message === "/rename",
     );
+    expect(rename).toBeTruthy();
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+
+    // The latch is one shot per session; omp's generator retries internally.
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
   });
 
   it("defers on a greeting, then titles from the next real prompt", async () => {
@@ -996,28 +1011,29 @@ describe("auto-title gating (setInitialPrompt)", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
     expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
 
-    // agent_end on the greeting turn must not name the session.
+    // agent_end on the greeting turn must not spend the one shot.
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
-    expect(h.sent.find((s) => s.cmd.type === "set_session_name")).toBeUndefined();
+    expect(renames()).toHaveLength(0);
 
     h.useStore
       .getState()
       .setInitialPrompt(h.TAB, "Add pagination to the sessions list");
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
-    const rename = h.sent.find((s) => s.cmd.type === "set_session_name");
-    expect(rename!.cmd.name).toBe("Add pagination to the sessions list");
+    expect(
+      h.sent.find(
+        (s) => s.cmd.type === "prompt" && s.cmd.message === "/rename",
+      ),
+    ).toBeTruthy();
   });
 
-  it("keeps the first substantive prompt as the title source", () => {
-    // The first prompt latches and renames; a second prompt must not displace it.
+  it("keeps the first substantive prompt's latch against a second prompt", () => {
     h.useStore.getState().setInitialPrompt(h.TAB, "Fix the login redirect");
     h.useStore.getState().setInitialPrompt(h.TAB, "Actually, fix logout too");
     expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe(
       "Fix the login redirect",
     );
-    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
   });
 
   it("never titles a session that already has a user-visible name", async () => {
@@ -1037,347 +1053,40 @@ describe("auto-title gating (setInitialPrompt)", () => {
 
     h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
 
-    // Latched closed: no source captured, and no later prompt can reopen it.
+    // Latched closed at prompt time: a resumed/named session's title is
+    // final, and no later prompt can reopen the shot.
     expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
     expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
-    h.useStore.getState().setInitialPrompt(h.TAB, "Add pagination to the list");
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
-    expect(h.sent.find((s) => s.cmd.type === "set_session_name")).toBeUndefined();
+    expect(renames()).toHaveLength(0);
   });
 
   it("titles a session whose record is still the 'New session' placeholder", async () => {
     h.useStore.getState().setInitialPrompt(h.TAB, "Create a login page with OAuth");
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
-    const rename = h.sent.find((s) => s.cmd.type === "set_session_name");
-    expect(rename!.cmd.name).toBe("Create a login page with OAuth");
-  });
-
-  it("titles from the captured prompt even if omp renamed mid-turn", async () => {
-    h.useStore.getState().setInitialPrompt(h.TAB, "Build a feature for the app");
-    const base = h.stateWithRecord("sess-1");
-    h.backendState = {
-      ...base,
-      projects: [
-        {
-          ...base.projects[0]!,
-          sessions: [
-            { ...base.projects[0]!.sessions[0]!, title: "Some other title" },
-          ],
-        },
-      ],
-    };
-    h.useStore.setState({ state: h.backendState });
-
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
-    await h.flushMicrotasks();
-    const rename = h.sent.find((s) => s.cmd.type === "set_session_name");
-    expect(rename!.cmd.name).toBe("Build a feature for the app");
-  });
-});
-
-describe("auto-title end-to-end", () => {
-  beforeEach(() => {
-    h.backendState = h.stateWithRecord("sess-1");
-    h.useStore.setState({
-      state: h.backendState,
-      rpc: { [h.TAB]: rpcTabState({ status: "running" }) },
-    });
-    h.sent.length = 0;
-  });
-
-  it("sends set_session_name once, then clears the stored prompt", async () => {
-    const model = h.deferred<string | null>();
-    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    h.useStore.getState().setInitialPrompt(h.TAB, "Create a login page with OAuth");
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
-    await h.flushMicrotasks();
-
-    // Deferred so phase 2 settles after the phase-1 ack, not ahead of it.
-    const rename = h.sent.find((s) => s.cmd.type === "set_session_name");
-    expect(rename!.cmd.name).toBe("Create a login page with OAuth");
-
-    for (const { tabId: tid, cmd } of h.sent.splice(0)) h.respond(tid, cmd, {});
-    await h.flushMicrotasks();
-    model.resolve(null);
-    await h.flushMicrotasks();
-    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
-    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
-      "Create a login page with OAuth",
-    );
-
-    // A later turn must not rename again.
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
-    await h.flushMicrotasks();
     expect(
-      h.sent.splice(0).find((s) => s.cmd.type === "set_session_name"),
-    ).toBeUndefined();
-  });
-
-  it("retries on the next agent_end when set_session_name fails", async () => {
-    h.useStore.getState().setInitialPrompt(h.TAB, "Add a new API endpoint");
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
-    await h.flushMicrotasks();
-
-    const firstBatch = h.sent.splice(0);
-    expect(
-      firstBatch.find((s) => s.cmd.type === "set_session_name"),
-    ).toBeTruthy();
-    for (const { tabId: tid, cmd } of firstBatch) {
-      const ok = cmd.type !== "set_session_name";
-      h.respond(tid, cmd, ok ? {} : "rejected", ok);
-    }
-    await h.flushMicrotasks();
-
-    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
-    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe(
-      "Add a new API endpoint",
-    );
-
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
-    await h.flushMicrotasks();
-    expect(
-      h.sent.splice(0).find((s) => s.cmd.type === "set_session_name"),
+      h.sent.find((s) => s.cmd.type === "prompt" && s.cmd.message === "/rename"),
     ).toBeTruthy();
   });
 
-  it("titles from omp's small model rather than the raw prompt", async () => {
-    // The model title is a background upgrade: two sends, the derived name
-    // first, the model's summary second.
-    const prompt = "can you add pagination to the sessions list please";
-    const model = h.deferred<string | null>();
-    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
-    await h.flushMicrotasks();
-
-    expect(
-      h.sent.filter((s) => s.cmd.type === "set_session_name"),
-    ).toHaveLength(1);
-    expect(
-      h.sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
-    ).toBe(generateTitleFromPrompt(prompt));
-
-    const wave1 = h.sent.splice(0);
-    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
-    await h.flushMicrotasks();
-    model.resolve("Add sessions list pagination");
-    await h.flushMicrotasks();
-    const wave2 = h.sent.splice(0);
-    const renames = [...wave1, ...wave2].filter(
-      (s) => s.cmd.type === "set_session_name",
-    );
-    expect(renames).toHaveLength(2);
-    expect(renames[0]!.cmd.name).toBe(generateTitleFromPrompt(prompt));
-    expect(renames[1]!.cmd.name).toBe("Add sessions list pagination");
-    for (const { tabId, cmd } of wave2) h.respond(tabId, cmd, {});
-    await h.flushMicrotasks();
-
-    expect(h.mockBackend.generateTitle).toHaveBeenCalledWith("/p", prompt, null);
-    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
-      "Add sessions list pagination",
-    );
-    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
-  });
-
-  it("falls back to the derived title when the model declines", async () => {
-    // null covers every failure path in main: no omp, bad model, timeout,
-    // or a `<title/>` answer. The session is already named by phase 1, so
-    // the decline only forgoes the upgrade.
-    const model = h.deferred<string | null>();
-    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    h.useStore.getState().setInitialPrompt(h.TAB, "Can you fix the login redirect");
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
-    await h.flushMicrotasks();
-
-    const wave1 = h.sent.splice(0);
-    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
-    await h.flushMicrotasks();
-    model.resolve(null);
-    await h.flushMicrotasks();
-
-    const renames = [...wave1, ...h.sent].filter(
-      (s) => s.cmd.type === "set_session_name",
-    );
-    expect(renames).toHaveLength(1);
-    expect(renames[0]!.cmd.name).toBe("Fix the login redirect");
-    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
-    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
-      "Fix the login redirect",
-    );
-  });
-
-  it("falls back to the derived title when the model call rejects", async () => {
-    let rejectModel!: (err: unknown) => void;
-    const model = new Promise<string | null>((_resolve, reject) => {
-      rejectModel = reject;
-    });
-    h.mockBackend.generateTitle.mockReturnValueOnce(model);
+  it("does not fire after a manual rename cleared the latch source", async () => {
     h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
-    await h.flushMicrotasks();
-
-    const wave1 = h.sent.splice(0);
-    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
-    await h.flushMicrotasks();
-    rejectModel(new Error("ipc died"));
-    await h.flushMicrotasks();
-
-    const renames = [...wave1, ...h.sent].filter(
-      (s) => s.cmd.type === "set_session_name",
-    );
-    expect(renames).toHaveLength(1);
-    expect(renames[0]!.cmd.name).toBe("Refactor the auth module");
-    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
-    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
-      "Refactor the auth module",
-    );
-  });
-
-  it("sends the derived name before the model resolves", async () => {
-    const prompt = "Can you fix the login redirect";
-    const model = h.deferred<string | null>();
-    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
-    await h.flushMicrotasks();
-
-    // Phase 1 is already in flight while the model is still pending.
-    expect(
-      h.sent.filter((s) => s.cmd.type === "set_session_name"),
-    ).toHaveLength(1);
-    expect(
-      h.sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
-    ).toBe("Fix the login redirect");
-
-    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
-    await h.flushMicrotasks();
-
-    model.resolve("Fix the login redirect race");
-    await h.flushMicrotasks();
-    expect(
-      h.sent.filter((s) => s.cmd.type === "set_session_name"),
-    ).toHaveLength(1);
-    expect(
-      h.sent.filter((s) => s.cmd.type === "set_session_name").at(0)!.cmd.name,
-    ).toBe("Fix the login redirect race");
-
-    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
-    await h.flushMicrotasks();
-    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
-      "Fix the login redirect race",
-    );
-    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
-  });
-
-  it("skips the upgrade when the model title equals the derived name", async () => {
-    const prompt = "Create a login page with OAuth";
-    const model = h.deferred<string | null>();
-    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
-    await h.flushMicrotasks();
-
-    const wave1 = h.sent.splice(0);
-    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
-    await h.flushMicrotasks();
-    model.resolve(generateTitleFromPrompt(prompt));
-    await h.flushMicrotasks();
-
-    const renames = [...wave1, ...h.sent].filter(
-      (s) => s.cmd.type === "set_session_name",
-    );
-    expect(renames).toHaveLength(1);
-    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
-    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
-      generateTitleFromPrompt(prompt),
-    );
-  });
-
-  it("does not upgrade after a manual rename in the interim", async () => {
-    const prompt = "Refactor the auth module";
-    const model = h.deferred<string | null>();
-    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
-    await h.flushMicrotasks();
-
-    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
-    await h.flushMicrotasks();
-
-    // The user's name is final: renameSessionTo clears initialPrompt, which
-    // cancels the pending upgrade.
     const manual = h.useStore.getState().renameSessionTo(h.TAB, "My name");
     for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
     await manual;
-    await h.flushMicrotasks();
 
-    model.resolve("Model upgrade attempt");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
-
-    expect(
-      h.sent.filter(
-        (s) =>
-          s.cmd.type === "set_session_name" && s.cmd.name === "Model upgrade attempt",
-      ),
-    ).toHaveLength(0);
-    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    // The user's name is final: renameSessionTo cleared initialPrompt and
+    // latched hasRenamed, so agent_end is a no-op.
+    expect(renames()).toHaveLength(0);
   });
 
-  it("does not title a replacement session after /new", async () => {
-    const prompt = "Refactor the auth module";
-    const model = h.deferred<string | null>();
-    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
-    await h.flushMicrotasks();
-
-    const wave1 = h.sent.splice(0);
-    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
-    await h.flushMicrotasks();
-
-    // A /new or /branch while the model thought: the record now points at a
-    // different session — the upgrade must not name it.
-    h.backendState = h.stateWithRecord("sess-2");
-    h.useStore.setState({ state: h.backendState });
-
-    model.resolve("Model upgrade attempt");
-    await h.flushMicrotasks();
-
-    // Phase 1 already went out; the upgrade never reached the wire.
-    const totalRenames = [...wave1, ...h.sent].filter(
-      (s) => s.cmd.type === "set_session_name",
-    );
-    expect(totalRenames).toHaveLength(1);
-  });
-
-  it("keeps the derived name when the upgrade is rejected", async () => {
-    const prompt = "Refactor the auth module";
-    const model = h.deferred<string | null>();
-    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    h.useStore.getState().setInitialPrompt(h.TAB, prompt);
-    await h.flushMicrotasks();
-
-    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
-    await h.flushMicrotasks();
-    model.resolve("Model upgrade attempt");
-    await h.flushMicrotasks();
-
-    // A future omp that refuses the user→user overwrite degrades to the
-    // derived name standing; the titling still settles.
-    for (const { tabId, cmd } of h.sent.splice(0)) {
-      const ok = cmd.type !== "set_session_name";
-      h.respond(tabId, cmd, ok ? {} : "rejected", ok);
-    }
-    await h.flushMicrotasks();
-
-    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
-    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
-      "Refactor the auth module",
-    );
-    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
-  });
-
-  it("titles a plan-seeded implementation session from the plan, not the seed", async () => {
-    // The first prompt is the constant seed sentence plus the whole plan body;
-    // the record already names what the session is: the plan title.
+  it("titles a plan-seeded implementation session from the plan, not /rename", async () => {
+    // The first prompt is the constant seed sentence plus the whole plan
+    // body; the record already names what the session is: the plan title.
     const seeded = structuredClone(h.stateWithRecord("sess-1"));
     seeded.projects[0]!.sessions[0]!.planImplementationSource = {
       sourceTabId: "plan-tab",
@@ -1386,42 +1095,34 @@ describe("auto-title end-to-end", () => {
     };
     h.backendState = seeded;
     h.useStore.setState({ state: seeded });
-    const model = h.deferred<string | null>();
-    h.mockBackend.generateTitle.mockReturnValueOnce(model.promise);
-    const seed =
-      "ultrathink. A plan was approved for this project. Implement it now.\n\n" +
-      "# Plan\n" +
-      "x".repeat(9_000) +
-      "\n\nProceed with the implementation.";
-    h.useStore.getState().setInitialPrompt(h.TAB, seed);
+    h.useStore
+      .getState()
+      .setInitialPrompt(h.TAB, "ultrathink. A plan was approved. Implement it now.");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
 
-    const wave1 = h.sent.splice(0);
-    const first = wave1.find((s) => s.cmd.type === "set_session_name")!;
-    expect(first.cmd.name).toBe("Ship dark mode");
-    // The model is asked about the plan title — never the seed lead.
-    expect(h.mockBackend.generateTitle).toHaveBeenCalledWith(
-      "/p",
-      "Ship dark mode",
-      "Ship dark mode",
-    );
+    const rename = h.sent.find((s) => s.cmd.type === "set_session_name");
+    expect(rename!.cmd.name).toBe("Ship dark mode");
+    expect(
+      h.sent.find((s) => s.cmd.type === "prompt" && s.cmd.message === "/rename"),
+    ).toBeUndefined();
+  });
 
-    for (const { tabId, cmd } of wave1) h.respond(tabId, cmd, {});
+  it("settles without a latch release when the dispatch fails", async () => {
+    h.useStore.getState().setInitialPrompt(h.TAB, "Add a new API endpoint");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
-    model.resolve("Ship dark mode everywhere");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, "gone", false);
     await h.flushMicrotasks();
-    const wave2 = h.sent.splice(0);
-    const renames = [...wave1, ...wave2].filter(
-      (s) => s.cmd.type === "set_session_name",
-    );
-    expect(renames).toHaveLength(2);
-    expect(renames[1]!.cmd.name).toBe("Ship dark mode everywhere");
-    for (const { tabId, cmd } of wave2) h.respond(tabId, cmd, {});
+
+    // One shot: a failed dispatch leaves the latch set — the manual paths
+    // title the session, matching omp's own /rename semantics.
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
-    expect(h.useStore.getState().rpc[h.TAB]!.autoTitleSent).toBe(
-      "Ship dark mode everywhere",
-    );
-    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(renames()).toHaveLength(0);
+    warn.mockRestore();
   });
 });
 describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)", () => {
