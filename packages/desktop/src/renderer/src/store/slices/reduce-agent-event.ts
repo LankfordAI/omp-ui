@@ -343,7 +343,7 @@ export function reduceAgentEvent(
       rpc.streamStallMs = undefined;
       hasRpcPatch = true;
     }
-    if (tab.initialPrompt && !tab.hasRenamed)
+    if ((tab.initialPrompt && !tab.hasRenamed) || tab.titleAttempt !== null)
       effects.push({ phase: "after-commit", type: "rename-session" });
     effects.push({
       phase: "after-commit",

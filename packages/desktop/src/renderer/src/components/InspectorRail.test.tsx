@@ -157,6 +157,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     busy: false,
     initialPrompt: null,
     hasRenamed: true,
+    titleAttempt: null,
     plan: null,
     planReview: null,
     planText: null,

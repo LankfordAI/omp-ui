@@ -254,6 +254,10 @@ export interface RpcTabState {
   failure?: RpcFailure;
   initialPrompt: string | null;
   hasRenamed: boolean;
+  /** Outstanding auto-title attempt: dispatched at `at`, attempt `n` of
+   *  MAX_RENAME_ATTEMPTS; judged against the record's title at later turn
+   *  ends (issue #791). */
+  titleAttempt: { at: number; n: number } | null;
   plan: PlanStatus | null;
   planReview: { request: PlanReviewRequest; frame: unknown } | null;
   /** The agent's pending propose_experiment select, until Launch or Cancel answers it (issue #567). */

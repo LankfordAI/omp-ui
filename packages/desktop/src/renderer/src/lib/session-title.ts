@@ -6,8 +6,12 @@
  * omp to do it: at the first untitled `agent_end` it sends the bare
  * `/rename`, whose generator digests the conversation, walks the configured
  * model chain, retries, and applies omp's own title precedence (issue #788).
- * What stays here is the two omp-ui gates that decide whether that one shot
- * is worth spending.
+ * A declined generation is no longer lost: the dispatch outcome is judged at
+ * later turn ends against the record's title (the ground truth, never engine
+ * output strings) and an untitled record re-dispatches — three attempts with
+ * a 15 s floor — so one per-model decline doesn't leave the session
+ * `New session` forever (issue #791). What stays here is the omp-ui gates
+ * that decide whether a dispatch is worth spending.
  *
  * A title omp-ui writes itself with `set_session_name` lands with source
  * `"user"`, and omp (verified in 18.0.4) refuses every later `"auto"` title

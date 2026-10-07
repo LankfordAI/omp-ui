@@ -22,7 +22,7 @@ function runtime(queue: unknown[]): RpcTabState {
     activeTurnKeywords: [],
     session: emptySessionRuntime(), stats: null, subagents: [], subagentItems: {}, selectedSubagent: null,
     subagentMarkers: new Map(), stallCount: 0, extensionStatus: {},
-    extensionQueue: queue, busy: false, initialPrompt: null, hasRenamed: true,
+    extensionQueue: queue, busy: false, initialPrompt: null, hasRenamed: true, titleAttempt: null,
     plan: null, planReview: null, planReadiness: null, experimentProposal: null, approvalPrompt: null,
     planHtml: null, planText: null, planDeferred: false, advisorStats: null, mcpStatus: null, advisorReply: true, capabilities: null, capabilitiesLoad: "idle", goal: null, vibe: null, sideQuestions: null, live: null, autoresearch: null, limits: null,
     subagentControlBusy: {}, subagentControlError: null,
