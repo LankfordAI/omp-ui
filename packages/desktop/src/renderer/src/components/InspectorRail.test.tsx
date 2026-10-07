@@ -718,7 +718,7 @@ describe("desktop InspectorRail", () => {
   });
 });
 
-describe("Side questions pane (issue #682)", () => {
+describe("Side questions pane (issue #775)", () => {
   const topic = (id: string, question: string, status: "complete" | "error" | "cancelled", answer = "") => ({
     id,
     question,
@@ -734,26 +734,55 @@ describe("Side questions pane (issue #682)", () => {
     publishedAt: 1,
     ...patch,
   });
-  const btwFrames = (verb: string): string[] =>
-    backendMock.rpcSend.mock.calls
-      .map(([, cmd]) => (cmd as { message?: unknown }).message)
-      .filter((message): message is string => typeof message === "string" && message.startsWith(`/omp-ui-btw ${verb} `));
+  // The pane's verbs ride omp's native btw commands (issue #775).
+  const btwCommands = (type: string): number =>
+    backendMock.rpcSend.mock.calls.filter(
+      ([, cmd]) => (cmd as { type?: unknown }).type === type,
+    ).length;
+  const cap = (ompVersion: string | null) => ({
+    version: 1 as const,
+    processKey: "p",
+    sessionId: null,
+    revision: 1,
+    updatedAt: 0,
+    ompVersion,
+    skillCommandsEnabled: null,
+    skills: { status: "unavailable" as const, reason: "missing-api" as const },
+    tools: { status: "unavailable" as const, reason: "missing-api" as const },
+    magicKeywords: { status: "unavailable" as const, reason: "missing-api" as const },
+    toolControl: "unsupported" as const,
+    toolMutation: null,
+  });
 
   beforeEach(() => backendMock.rpcSend.mockReset());
 
   it("opens only its own pane from the sixth icon and refreshes on mount", () => {
+    useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.7.0") }) } });
     renderRail();
     act(() => railTab("side questions")!.click());
     expect(button("side questions")?.getAttribute("aria-pressed")).toBe("true");
     expect(document.body.textContent).toContain(t("rail.btw.emptyTitle"));
     expect(document.body.textContent).not.toContain("First task");
-    expect(btwFrames("refresh")).toHaveLength(1);
+    expect(btwCommands("get_btw_history")).toBe(1);
+  });
+
+  it("shows the unavailable line and dispatches nothing on an older omp", () => {
+    useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.6.2") }) } });
+    renderRail();
+    act(() => railTab("side questions")!.click());
+    expect(document.body.textContent).toContain(t("rail.btw.unavailable"));
+    expect(btwCommands("get_btw_history")).toBe(0);
+    expect(btwCommands("btw")).toBe(0);
+    expect(
+      document.body.querySelector<HTMLInputElement>(`input[aria-label="${t("rail.btw.askPlaceholder")}"]`)?.disabled,
+    ).toBe(true);
   });
 
   it("badges answered topics only", () => {
     useStore.setState({
       rpc: {
         [TAB]: runtime({
+          capabilities: cap("18.7.0"),
           sideQuestions: snapshot({
             topics: [topic("a", "one", "complete", "x"), topic("b", "two", "error"), topic("c", "three", "cancelled")],
           }),
@@ -768,6 +797,7 @@ describe("Side questions pane (issue #682)", () => {
     useStore.setState({
       rpc: {
         [TAB]: runtime({
+          capabilities: cap("18.7.0"),
           sideQuestions: snapshot({
             topics: [topic("a", "why is the sky blue?", "complete", "Rayleigh scattering"), topic("b", "broken one", "error")],
           }),
@@ -791,6 +821,7 @@ describe("Side questions pane (issue #682)", () => {
     useStore.setState({
       rpc: {
         [TAB]: runtime({
+          capabilities: cap("18.7.0"),
           sideQuestions: snapshot({ active: { topicId: "t", question: "in flight", answer: "partial words" } }),
         }),
       },
@@ -804,13 +835,14 @@ describe("Side questions pane (issue #682)", () => {
       (b) => b.textContent === t("rail.btw.cancel"),
     )!;
     act(() => cancel.click());
-    expect(btwFrames("cancel")).toHaveLength(1);
+    expect(btwCommands("btw_cancel")).toBe(1);
   });
 
   it("renders the unavailable and busy banners", () => {
     useStore.setState({
       rpc: {
         [TAB]: runtime({
+          capabilities: cap("18.7.0"),
           sideQuestions: snapshot({ available: false, unavailableReason: "no ephemeral API here", busy: "still running" }),
         }),
       },

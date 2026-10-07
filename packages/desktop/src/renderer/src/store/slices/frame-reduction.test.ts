@@ -3831,6 +3831,61 @@ describe("handleRpcFrame routing", () => {
   });
 });
 
+describe("btw frames (issue #775)", () => {
+  const btwRecord = (patch: Record<string, unknown> = {}) => ({
+    id: "t1",
+    question: "why?",
+    answer: "because",
+    status: "complete",
+    createdAt: 1,
+    updatedAt: 2,
+    leafId: null,
+    ...patch,
+  });
+
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+  });
+
+  const items = (): unknown[] => h.useStore.getState().rpc[h.TAB]?.items ?? [];
+  const snap = () => h.useStore.getState().rpc[h.TAB]?.sideQuestions;
+
+  it("a btw_record patches the snapshot and adds no transcript item", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "btw_record", record: btwRecord() });
+    expect(snap()?.topics).toMatchObject([{ id: "t1", answer: "because", status: "complete" }]);
+    expect(items()).toEqual([]);
+  });
+
+  it("deltas stream into the running answer and the final record wins", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "btw_record",
+      record: btwRecord({ status: "running", answer: "", updatedAt: 3 }),
+    });
+    expect(snap()?.active).toEqual({ topicId: "t1", question: "why?", answer: "" });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "btw_delta", recordId: "t1", delta: "par" });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "btw_delta", recordId: "t1", delta: "tial" });
+    expect(snap()?.topics[0]?.answer).toBe("partial");
+    expect(snap()?.active?.answer).toBe("partial");
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "btw_record",
+      record: btwRecord({ status: "complete", answer: "the full answer", updatedAt: 4 }),
+    });
+    expect(snap()?.topics[0]).toMatchObject({ answer: "the full answer", status: "complete" });
+    expect(snap()?.active).toBeNull();
+    expect(items()).toEqual([]);
+  });
+
+  it("a delta for an unknown id and a malformed record change nothing", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "btw_delta", recordId: "ghost", delta: "x" });
+    expect(snap()).toBeNull();
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "btw_record", record: { bogus: true } });
+    expect(snap()).toBeNull();
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "btw_delta", recordId: "t1" });
+    expect(snap()).toBeNull();
+    expect(items()).toEqual([]);
+  });
+});
+
 describe("stall auto-continue (issue #251)", () => {
   // The loop-guard state lives in module-scoped watchers keyed by tab id, so
   // each test owns its own tab: a shared id would leak counts between cases.

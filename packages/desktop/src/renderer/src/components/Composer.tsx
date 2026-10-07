@@ -10,7 +10,6 @@ import {
 import { flushSync } from "react-dom";
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
-import { BTW_COMMAND } from "@omp-ui/core/side-questions";
 import { AUTORESEARCH_COMMAND } from "@omp-ui/core/autoresearch";
 import { VIBE_COMMAND } from "@omp-ui/core/vibe";
 import { backend, backendFor, displayMessage } from "../backend";
@@ -140,7 +139,6 @@ export function Composer({
           c.name !== "plan" &&
           c.name !== PLAN_COMMAND &&
           c.name !== CAPABILITIES_COMMAND &&
-          c.name !== BTW_COMMAND &&
           c.name !== VIBE_COMMAND &&
           c.name !== AUTORESEARCH_COMMAND &&
           !owned.has(c.name),
@@ -1351,9 +1349,10 @@ const UI_GUIDED_GOAL_COMMAND: SlashCommandInfo = {
 };
 
 /**
- * omp's `/btw` is TUI-only and absent from `get_available_commands`, so the
- * palette would never show it; the store intercepts the line in native tabs
- * (issue #682) and the hidden `omp-ui-btw` driver never appears as a row.
+ * omp's `/btw` is TUI-only (its entry defines `handleTui` only) and absent
+ * from `get_available_commands`, so the palette would never show it; the
+ * store intercepts the line in native tabs and dispatches omp's native `btw`
+ * command there (issue #775).
  */
 const UI_BTW_COMMAND: SlashCommandInfo = {
   name: "btw",

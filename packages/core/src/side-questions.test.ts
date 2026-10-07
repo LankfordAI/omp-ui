@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  BTW_COMMAND,
-  BTW_STATUS_BYTE_LIMIT,
-  btwAskMessage,
-  btwCancelMessage,
+  applyBtwDelta,
+  applyBtwRecord,
   btwEntryFileName,
-  btwPromptText,
-  btwRefreshMessage,
+  btwSnapshotFromRecords,
+  btwTopicFromRecord,
   parseBtwRecord,
-  parseBtwSnapshot,
 } from "./side-questions";
 
 const turn = {
@@ -63,56 +60,181 @@ describe("btw history record grammar", () => {
   });
 });
 
-describe("hidden bridge frames", () => {
-  it("are single-line slash commands with compact JSON", () => {
-    const ask = btwAskMessage({ requestId: "r1", question: "line one\nline two", topicId: "t" });
-    expect(ask).not.toContain("\n");
-    expect(ask.startsWith(`/${BTW_COMMAND} ask `)).toBe(true);
-    expect(JSON.parse(ask.slice(`/${BTW_COMMAND} ask `.length))).toEqual({
-      requestId: "r1",
-      question: "line one\nline two",
-      topicId: "t",
+describe("btwTopicFromRecord", () => {
+  it("titles with the root question and reads the latest turn's verdict", () => {
+    const topic = btwTopicFromRecord(
+      parseBtwRecord(
+        JSON.stringify({
+          ...record,
+          status: "running",
+          answer: "root answer",
+          updatedAt: 5,
+          followUps: [
+            { question: "and then?", answer: "follow-up answer", status: "complete", createdAt: 6, updatedAt: 7 },
+          ],
+        }),
+      )!,
+    );
+    expect(topic).toMatchObject({
+      id: "abc-1",
+      question: "why?",
+      answer: "follow-up answer",
+      status: "complete",
+      updatedAt: 7,
     });
-    expect(btwCancelMessage({ requestId: "r2" })).toBe(`/${BTW_COMMAND} cancel {"requestId":"r2"}`);
-    expect(btwRefreshMessage({ requestId: "r3" })).toBe(`/${BTW_COMMAND} refresh {"requestId":"r3"}`);
+    expect(topic.turns.map((t) => t.question)).toEqual(["why?", "and then?"]);
+    // The view turns drop the record's createdAt but keep every other field.
+    expect(topic.turns[0]).toEqual({
+      question: "why?",
+      answer: "root answer",
+      status: "running",
+      updatedAt: 5,
+    });
   });
 
-  it("wraps a question without interpreting $ replacement patterns", () => {
-    expect(btwPromptText("cost is $& and $1")).toContain("cost is $& and $1");
+  it("carries a latest-turn error and keeps follow-up order", () => {
+    const topic = btwTopicFromRecord(
+      parseBtwRecord(
+        JSON.stringify({
+          ...record,
+          followUps: [
+            { ...turn, question: "a", createdAt: 3, updatedAt: 4 },
+            { ...turn, question: "b", status: "error", error: "boom", createdAt: 5, updatedAt: 6 },
+          ],
+        }),
+      )!,
+    );
+    expect(topic.turns.map((t) => t.question)).toEqual(["why?", "a", "b"]);
+    expect(topic).toMatchObject({ status: "error", error: "boom", updatedAt: 6 });
   });
 });
 
-describe("parseBtwSnapshot", () => {
-  const snapshot = {
-    available: true,
-    active: null,
-    topics: [
-      {
-        id: "t1",
-        question: "q",
-        answer: "a",
-        status: "complete",
-        updatedAt: 5,
-        turns: [{ question: "q", answer: "a", status: "complete", updatedAt: 5 }],
-      },
-    ],
-    publishedAt: 9,
-  };
-
-  it("accepts a well-formed snapshot", () => {
-    expect(parseBtwSnapshot(JSON.stringify(snapshot))).toEqual(snapshot);
+describe("btwSnapshotFromRecords", () => {
+  it("sorts newest updatedAt first and sets available/publishedAt", () => {
+    const snapshot = btwSnapshotFromRecords(
+      [
+        { ...record, id: "old", updatedAt: 10 },
+        { ...record, id: "new", updatedAt: 20 },
+      ],
+      99,
+    );
+    expect(snapshot.topics.map((t) => t.id)).toEqual(["new", "old"]);
+    expect(snapshot).toMatchObject({ available: true, active: null, publishedAt: 99 });
+    expect(snapshot.busy).toBeUndefined();
   });
 
-  it("returns null for malformed, wrong-shaped or over-limit payloads", () => {
-    expect(parseBtwSnapshot(undefined)).toBeNull();
-    expect(parseBtwSnapshot("{")).toBeNull();
-    expect(parseBtwSnapshot(JSON.stringify({ ...snapshot, available: "yes" }))).toBeNull();
-    expect(
-      parseBtwSnapshot(
-        JSON.stringify({ ...snapshot, topics: [{ ...snapshot.topics[0], status: "bogus" }] }),
-      ),
-    ).toBeNull();
-    const huge = JSON.stringify({ ...snapshot, busy: "x".repeat(BTW_STATUS_BYTE_LIMIT) });
-    expect(parseBtwSnapshot(huge)).toBeNull();
+  it("derives active from the running topic's latest turn", () => {
+    const snapshot = btwSnapshotFromRecords(
+      [
+        {
+          ...record,
+          id: "t1",
+          status: "running",
+          answer: "partial",
+          updatedAt: 30,
+          followUps: [
+            { ...turn, question: "follow", status: "running", answer: "streaming", createdAt: 30, updatedAt: 31 },
+          ],
+        },
+      ],
+      99,
+    );
+    // The running card shows what is being answered: the latest turn's question.
+    expect(snapshot.active).toEqual({
+      topicId: "t1",
+      question: "follow",
+      answer: "streaming",
+    });
+  });
+
+  it("skips malformed entries and tolerates an empty list", () => {
+    const snapshot = btwSnapshotFromRecords(
+      [{ nope: true }, null, "x", { ...record, id: "good" }],
+      1,
+    );
+    expect(snapshot.topics.map((t) => t.id)).toEqual(["good"]);
+    expect(btwSnapshotFromRecords([], 1).topics).toEqual([]);
+  });
+});
+
+describe("applyBtwRecord", () => {
+  const base = btwSnapshotFromRecords([{ ...record, id: "a", updatedAt: 5 }], 1);
+
+  it("replaces a known topic and inserts an unknown one, newest first", () => {
+    const replaced = applyBtwRecord(base, parseBtwRecord(JSON.stringify({ ...record, id: "a", answer: "fresh", updatedAt: 6 }))!);
+    expect(replaced.topics).toHaveLength(1);
+    expect(replaced.topics[0]).toMatchObject({ id: "a", answer: "fresh" });
+
+    const inserted = applyBtwRecord(base, parseBtwRecord(JSON.stringify({ ...record, id: "b", updatedAt: 7 }))!);
+    expect(inserted.topics.map((t) => t.id)).toEqual(["b", "a"]);
+  });
+
+  it("clears the refusal line and re-derives active", () => {
+    const refused = { ...base, busy: "A side question is still running" };
+    const running = applyBtwRecord(refused, parseBtwRecord(JSON.stringify({ ...record, id: "a", status: "running", updatedAt: 8 }))!);
+    expect(running.busy).toBeUndefined();
+    expect(running.active).toEqual({ topicId: "a", question: "why?", answer: "because" });
+    const done = applyBtwRecord(running, parseBtwRecord(JSON.stringify({ ...record, id: "a", updatedAt: 9 }))!);
+    expect(done.active).toBeNull();
+  });
+
+  it("re-titles nothing on a follow-up record: the root question stays the title", () => {
+    const follow = applyBtwRecord(
+      base,
+      parseBtwRecord(
+        JSON.stringify({
+          ...record,
+          id: "a",
+          status: "running",
+          updatedAt: 10,
+          followUps: [{ ...turn, question: "and then?", status: "running", createdAt: 10, updatedAt: 11 }],
+        }),
+      )!,
+    );
+    expect(follow.topics[0]?.question).toBe("why?");
+    expect(follow.active).toEqual({ topicId: "a", question: "and then?", answer: "because" });
+  });
+});
+
+describe("applyBtwDelta", () => {
+  const running = btwSnapshotFromRecords(
+    [{ ...record, id: "a", status: "running", answer: "par", updatedAt: 5 }],
+    1,
+  );
+
+  it("appends to the running topic's latest answer", () => {
+    const next = applyBtwDelta(running, "a", "tial")!;
+    expect(next.topics[0]).toMatchObject({ answer: "partial" });
+    expect(next.topics[0]?.turns[0]?.answer).toBe("partial");
+    expect(next.active).toEqual({ topicId: "a", question: "why?", answer: "partial" });
+  });
+
+  it("drops a delta for an unknown id or a finished topic", () => {
+    expect(applyBtwDelta(running, "ghost", "x")).toBe(running);
+    const done = applyBtwRecord(null, parseBtwRecord(JSON.stringify({ ...record, id: "a" }))!);
+    expect(applyBtwDelta(done, "a", "x")).toBe(done);
+  });
+
+  it("appends to the latest turn of a follow-up topic, not the root", () => {
+    const followed = btwSnapshotFromRecords(
+      [
+        {
+          ...record,
+          id: "a",
+          status: "complete",
+          answer: "root answer",
+          updatedAt: 5,
+          followUps: [{ ...turn, question: "and then?", status: "running", answer: "par", createdAt: 6, updatedAt: 7 }],
+        },
+      ],
+      1,
+    );
+    const next = applyBtwDelta(followed, "a", "tial")!;
+    expect(next.topics[0]?.turns.map((t) => t.answer)).toEqual(["root answer", "partial"]);
+    expect(next.topics[0]?.answer).toBe("partial");
+  });
+
+  it("has nothing to append to without a snapshot", () => {
+    expect(applyBtwDelta(null, "a", "x")).toBeNull();
   });
 });

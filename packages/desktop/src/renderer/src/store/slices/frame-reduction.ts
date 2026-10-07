@@ -13,7 +13,7 @@ import {
 } from "@omp-ui/core/mcp-status";
 import { goalStateFromFrame } from "@omp-ui/core/goal";
 import { VIBE_STATUS_KEY, parseVibeSnapshot } from "@omp-ui/core/vibe";
-import { BTW_STATUS_KEY, parseBtwSnapshot } from "@omp-ui/core/side-questions";
+import { applyBtwDelta, applyBtwRecord, parseBtwRecord } from "@omp-ui/core/side-questions";
 import {
   AUTORESEARCH_STATUS_KEY,
   AUTORESEARCH_WIDGET_KEY,
@@ -197,11 +197,6 @@ export function createFrameReductionSlice(
     [VIBE_STATUS_KEY]: (tabId, text) => {
       const snapshot = parseVibeSnapshot(text);
       if (snapshot !== null) acceptVibeSnapshot(tabId, snapshot, get, m);
-    },
-    [BTW_STATUS_KEY]: (tabId, text) => {
-      // A malformed or over-budget publish keeps the last good snapshot.
-      const snapshot = parseBtwSnapshot(text);
-      if (snapshot !== null) m.patchRpc(tabId, { sideQuestions: snapshot });
     },
     [CAPABILITIES_STATUS_KEY]: (tabId, text) => {
       const snapshot = parseCapabilitySnapshot(text);
@@ -828,6 +823,27 @@ export function createFrameReductionSlice(
         case "goal_updated":
           // State intake ran above; the HUD chip is the surface, not a marker.
           return;
+        case "btw_record": {
+          // Side-question state intake (issue #775): the full record on each
+          // lifecycle change; last-per-id wins, healing any dropped delta.
+          // These frames never become transcript rows — return before the
+          // agent-event reducer, the goal_updated precedent.
+          const record = parseBtwRecord(
+            JSON.stringify(field(frame, "record") ?? null),
+          );
+          if (record !== null)
+            m.patchRpc(tabId, { sideQuestions: applyBtwRecord(tab.sideQuestions, record) });
+          return;
+        }
+        case "btw_delta": {
+          // Appends to the running topic's latest answer; a delta for an
+          // unknown id (pane opened mid-run) drops — the mount refresh heals.
+          const recordId = strField(frame, "recordId");
+          const delta = strField(frame, "delta");
+          if (recordId !== undefined && delta !== undefined)
+            m.patchRpc(tabId, { sideQuestions: applyBtwDelta(tab.sideQuestions, recordId, delta) });
+          return;
+        }
         default: {
           const reduction = reduceAgentEvent(
             tab,

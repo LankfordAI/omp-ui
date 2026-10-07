@@ -28,7 +28,6 @@ import {
   writePlanExtension,
   writeReviewExtension,
   writeReviewRosterSnapshot,
-  writeSideQuestionsExtension,
   writeTreeExtension,
   writeSubagentModelOverlay,
   writeVaultOverlay,
@@ -190,7 +189,6 @@ export const RPC_BRIDGE_IDS = [
   "autoresearch",
   "limits",
   "tree",
-  "sideQuestions",
   "review",
   "knowledgeVault",
 ] as const;
@@ -207,7 +205,6 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   autoresearch: writeAutoresearchExtension,
   limits: writeLimitsExtension,
   tree: writeTreeExtension,
-  sideQuestions: writeSideQuestionsExtension,
   review: writeReviewExtension,
   knowledgeVault: writeKnowledgeVaultExtension,
 };
@@ -227,7 +224,6 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "autoresearch", logId: "autoresearch", warning: "autoresearch", enabled: (enabled) => enabled },
   { id: "limits", logId: "limits", warning: "limits", enabled: () => true },
   { id: "tree", logId: "tree", warning: "tree", enabled: () => true },
-  { id: "sideQuestions", logId: "btw", warning: "btw", enabled: () => true },
   { id: "review", logId: "review", warning: "code-review", enabled: (enabled) => enabled },
   { id: "knowledgeVault", logId: "vault", warning: "knowledge-vault", enabled: () => true },
 ];
