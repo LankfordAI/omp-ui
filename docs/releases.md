@@ -9,6 +9,7 @@ This guide explains what users receive from a release and how maintainers publis
 - A settled `svg` code block in the native transcript now renders as an image with a source toggle, with the theme's ink color replacing `currentColor` so diagrams follow the theme; unparsable sources and still-streaming blocks stay plain code. #780
 - Escape and the stop control now abort the turn and return every queued message — steers, follow-ups, and their attachments — to the composer draft (omp 18.6.3 or newer; older runtimes abort plain). The queue chip's rows gain an **edit** action that withdraws one message to the draft while the turn keeps running. #776
 - A resumed session whose saved model no longer resolves no longer dies forever on "Could not restore model": the failure surface gains a model picker, and the pick relaunches the session with that model. #774
+- Provider sign-in rows now read stored credentials through omp's rpc `get_logout_accounts` and sign out through its `logout` verb instead of parsing `omp token --list` output, so the ChatGPT Device row reports the credential it actually shares with ChatGPT Plus/Pro — and signing out there removes it — instead of always showing **not signed in**. Binaries older than omp 18.7.0 say to update omp rather than claim no accounts. #779
 
 ## Choose a download
 

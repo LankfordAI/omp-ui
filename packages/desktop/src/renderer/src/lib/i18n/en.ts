@@ -983,6 +983,11 @@ export const en = {
   "settings.providers.oauthNotSignedIn": "not signed in",
   "settings.providers.oauthSignIn": "Sign in",
   "settings.providers.oauthSignOut": "sign out",
+  "settings.providers.oauthStoredAs": "stored as {provider}",
+  "settings.providers.oauthRequiresOmp":
+    "update omp to see what is signed in",
+  "settings.providers.oauthStillAuthenticated":
+    "omp reports you are still authenticated through:",
   "settings.providers.oauthCancel": "cancel",
   "settings.providers.oauthDismiss": "dismiss",
   "settings.providers.oauthStarting": "Starting omp\u2026",

@@ -14,6 +14,7 @@ import type {
   ProviderKeyStatus,
   ProviderOAuthState,
   ProviderOAuthStatus,
+  ProviderSignOutResult,
   RemoteState,
   WebSearchProviderSnapshot,
 } from "@omp-ui/core/types";
@@ -195,7 +196,7 @@ const backendMock = {
   startProviderOAuth: vi.fn(async () => {}),
   submitProviderOAuthInput: vi.fn(async () => {}),
   cancelProviderOAuth: vi.fn(async () => {}),
-  signOutProviderOAuth: vi.fn(async (): Promise<ProviderOAuthStatus[]> => []),
+  signOutProviderOAuth: vi.fn(async (): Promise<ProviderSignOutResult> => ({ rows: [], remainingSource: null })),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -1439,6 +1440,15 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     });
   };
 
+  const credential = {
+    credentialId: 11,
+    provider: "openai-codex",
+    label: "me@example.com (Org)",
+    detail: "Codex subscription",
+    type: "oauth" as const,
+    active: true,
+  };
+
   const oauthRow = (
     patch: Partial<ProviderOAuthStatus> = {},
   ): ProviderOAuthStatus => ({
@@ -1446,18 +1456,56 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     providerId: "openai-codex",
     label: "ChatGPT Plus/Pro",
     hint: "Codex subscription \u2014 models appear as openai-codex/\u2026",
-    accounts: [],
+    credentials: [],
+    accountsUnsupported: false,
     ...patch,
   });
 
-  it("shows the signed-in identity and sign-out action", async () => {
-    seedProviders([oauthRow({ accounts: ["me@example.com"] })]);
+  it("shows each stored credential with its own sign-out action", async () => {
+    seedProviders([oauthRow({ credentials: [credential] })]);
     await renderSettings();
     expect(document.body.textContent).toContain("signed in");
-    expect(document.body.textContent).toContain("me@example.com");
+    expect(document.body.textContent).toContain("me@example.com (Org)");
     expect(buttonWithText("sign out")).not.toBeNull();
   });
 
+  it("signs out the clicked credential by id", async () => {
+    const other = { ...credential, credentialId: 12, label: "other@example.com" };
+    seedProviders([oauthRow({ credentials: [credential, other] })]);
+    await renderSettings();
+    const buttons = [...document.querySelectorAll("button")].filter(
+      (b) => b.textContent?.trim() === "sign out",
+    );
+    expect(buttons).toHaveLength(2);
+    click(buttons[1]!);
+    await act(async () => {});
+    expect(backendMock.signOutProviderOAuth).toHaveBeenCalledWith("openai-codex", 12);
+  });
+
+  it("labels a credential stored under a different provider id (#779)", async () => {
+    seedProviders([
+      oauthRow({
+        id: "openai-codex-device",
+        providerId: "openai-codex-device",
+        credentials: [credential],
+      }),
+    ]);
+    await renderSettings();
+    expect(document.body.textContent).toContain("stored as openai-codex");
+  });
+
+  it("reports what is still authenticated after a sign-out", async () => {
+    seedProviders([oauthRow({ credentials: [credential] })]);
+    backendMock.signOutProviderOAuth.mockResolvedValueOnce({
+      rows: [oauthRow()],
+      remainingSource: "environment variable OPENAI_API_KEY",
+    });
+    await renderSettings();
+    click(buttonWithText("sign out")!);
+    await act(async () => {});
+    expect(document.body.textContent).toContain("still authenticated");
+    expect(document.body.textContent).toContain("environment variable OPENAI_API_KEY");
+  });
 
   it("shows an unsigned-in row with a Sign in action and no sign out", async () => {
     seedProviders([oauthRow()]);
@@ -1467,6 +1515,13 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
 
     click(buttonWithText("Sign in")!);
     expect(backendMock.startProviderOAuth).toHaveBeenCalledWith("openai-codex");
+  });
+
+  it("says the omp update instead of \u201cnot signed in\u201d on an old binary", async () => {
+    seedProviders([oauthRow({ accountsUnsupported: true })]);
+    await renderSettings();
+    expect(document.body.textContent).toContain("update omp");
+    expect(document.body.textContent).not.toContain("not signed in");
   });
 
   it("renders the input phase and submits the pasted redirect URL", async () => {

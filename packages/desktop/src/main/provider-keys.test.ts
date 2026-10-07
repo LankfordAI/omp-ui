@@ -26,7 +26,7 @@ vi.mock("electron", () => ({
   },
 }));
 // No omp binary in the IPC tests: the subscription read must answer from the
-// catalog alone (accounts: []) without spawning anything real.
+// catalog alone (empty credentials) without spawning anything real.
 vi.mock("@omp-ui/core", async (importOriginal) => {
   const core = await importOriginal<typeof import("@omp-ui/core")>();
   return { ...core, resolveOmpBinary: () => null };
@@ -145,17 +145,25 @@ describe("provider-keys IPC", () => {
 });
 
 describe("provider-oauth IPC", () => {
-  it("reads the subscription rows — catalog text and accounts, no key material", async () => {
+  it("reads the subscription rows — catalog text and credentials, no key material", async () => {
     const rows = (await invoke(CH.readProviderOAuth)) as ProviderOAuthStatus[];
-    // The boundary: exactly the catalog fields plus omp's own identity strings.
-    expect(Object.keys(rows[0]!).sort()).toEqual(["accounts", "hint", "id", "label", "providerId"]);
+    // The boundary: exactly the catalog fields plus omp's own credential list.
+    expect(Object.keys(rows[0]!).sort()).toEqual([
+      "accountsUnsupported",
+      "credentials",
+      "hint",
+      "id",
+      "label",
+      "providerId",
+    ]);
     expect(rows).toEqual([
       {
         id: "openai-codex",
         providerId: "openai-codex",
         label: "ChatGPT Plus/Pro",
         hint: "Codex subscription — models appear as openai-codex/…",
-        accounts: [],
+        credentials: [],
+        accountsUnsupported: false,
       },
     ]);
     expect(JSON.stringify(rows)).not.toContain(VALUE);

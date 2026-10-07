@@ -100,13 +100,16 @@ function keyRow(patch: Partial<ProviderKeyStatus>): ProviderKeyStatus {
   };
 }
 
-function subscriptionRow(accounts: string[]): ProviderOAuthStatus {
+function subscriptionRow(label: string): ProviderOAuthStatus {
   return {
     id: "openai-codex",
     providerId: "openai-codex",
     label: "ChatGPT",
     hint: "",
-    accounts,
+    credentials: [
+      { credentialId: 1, provider: "openai-codex", label, detail: "", type: "oauth", active: true },
+    ],
+    accountsUnsupported: false,
   };
 }
 
@@ -289,7 +292,7 @@ describe("Getting started checklist rows (issue #623)", () => {
   });
 
   it("a signed-in subscription flips the provider step even with no key rows", async () => {
-    backendMock.readProviderOAuth.mockResolvedValue([subscriptionRow(["me@example.com"])]);
+    backendMock.readProviderOAuth.mockResolvedValue([subscriptionRow("me@example.com")]);
     await renderChecklist();
     expect(buttonWithText("Open provider settings")).toBeNull();
   });

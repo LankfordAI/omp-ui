@@ -576,8 +576,8 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       return backend.cancelProviderOAuth();
     },
 
-    signOutProviderOAuth(id) {
-      return backend.signOutProviderOAuth(id);
+    signOutProviderOAuth(id, credentialId) {
+      return backend.signOutProviderOAuth(id, credentialId);
     },
   };
 };

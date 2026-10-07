@@ -83,7 +83,7 @@ export function providerSpecById(id: string): ProviderKeySpec | undefined {
 export interface OAuthProviderSpec {
   /** Row key within the provider sign-in group. */
   id: string;
-  /** omp's provider id — the argument to `login`, `omp token`, `omp auth-broker logout`. */
+  /** omp's provider id — the argument to `login`, `get_logout_accounts`, `logout`. */
   providerId: string;
   label: string;
   hint: string;

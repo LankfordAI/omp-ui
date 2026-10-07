@@ -1297,13 +1297,32 @@ export interface SttTranscribeResult {
   text: string;
 }
 
-/** One subscription row on the providers page. `accounts` are omp's own identity strings (email/org), never tokens. */
+/** One stored credential omp's `logout` verb can remove, from `get_logout_accounts`. */
+export interface ProviderCredential {
+  credentialId: number;
+  /** The storage provider id; differs from the row's providerId for a login alias (issue #779). */
+  provider: string;
+  label: string;
+  detail: string;
+  type: "oauth" | "api_key";
+  active: boolean;
+}
+
+/** One subscription row on the providers page. `credentials` are omp's own identity strings, never tokens. */
 export interface ProviderOAuthStatus {
   id: string;
   providerId: string;
   label: string;
   hint: string;
-  accounts: string[];
+  credentials: ProviderCredential[];
+  /** True when the installed omp predates get_logout_accounts: status unknown, never "not signed in". */
+  accountsUnsupported: boolean;
+}
+
+export interface ProviderSignOutResult {
+  rows: ProviderOAuthStatus[];
+  /** omp's description of auth that still applies after the removal; null when nothing remains. */
+  remainingSource: string | null;
 }
 
 export type ProviderOAuthPhase = "idle" | "starting" | "browser" | "input" | "done" | "error";
