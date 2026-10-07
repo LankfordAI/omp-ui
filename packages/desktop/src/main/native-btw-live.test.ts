@@ -139,7 +139,7 @@ function spawnScope(env: NodeJS.ProcessEnv, model?: string): Scope {
   return { base, frames, client, exited };
 }
 
-let scopes: Scope[] = [];
+const scopes: Scope[] = [];
 async function killScope(scope: Scope): Promise<void> {
   scope.client.kill();
   const exitedNow = await Promise.race([
