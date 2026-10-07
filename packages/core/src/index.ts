@@ -125,10 +125,6 @@ export { vibeExtensionPath, writeVibeExtension } from "./vibe-extension";
 export { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-pane-extension";
 export { treeExtensionPath, writeTreeExtension } from "./tree-extension";
 export {
-  sideQuestionsExtensionPath,
-  writeSideQuestionsExtension,
-} from "./side-questions-extension";
-export {
   autoresearchExtensionPath,
   writeAutoresearchExtension,
 } from "./autoresearch-extension";

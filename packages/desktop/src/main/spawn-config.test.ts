@@ -31,7 +31,6 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     autoresearch: () => write("autoresearch"),
     limits: () => write("limits"),
     tree: () => write("tree"),
-    sideQuestions: () => write("sideQuestions"),
     review: () => write("review"),
     knowledgeVault: () => write("knowledgeVault"),
   };
@@ -54,7 +53,6 @@ describe("writeRpcExtensions", () => {
         "/autoresearch.ts",
         "/limits.ts",
         "/tree.ts",
-        "/sideQuestions.ts",
         "/review.ts",
         "/knowledgeVault.ts",
       ],
@@ -68,7 +66,6 @@ describe("writeRpcExtensions", () => {
         autoresearch: true,
         limits: true,
         tree: true,
-        sideQuestions: true,
         review: true,
         knowledgeVault: true,
       },

@@ -261,8 +261,9 @@ const localCommands: readonly LocalCommand[] = [
   },
   {
     // omp's /btw is TUI-only: over rpc the line would reach the model as
-    // literal prompt text (issue #682). A native tab drives the side-questions
-    // bridge instead; a terminal tab's TUI keeps omp's own implementation.
+    // literal prompt text (issue #682). A native tab dispatches omp's native
+    // `btw` command instead (issue #775); a terminal tab's TUI keeps omp's
+    // own implementation.
     match: /^\/btw(?:\s[\s\S]*)?$/,
     run(tabId, get, line) {
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);

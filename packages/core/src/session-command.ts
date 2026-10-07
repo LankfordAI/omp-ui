@@ -51,6 +51,12 @@ export const SESSION_COMMANDS = {
   set_session_name: { lateAck: false },
   set_todos: { lateAck: false },
   goal: { lateAck: false },
+  // `btw` is NOT in omp's off-chain set (verified on the 18.7.0 binary: the
+  // set is bash/predict_word/live_start/btw_cancel): it queues on the serial
+  // chain, so its ack can beat the ordinary budget behind a model turn.
+  btw: { lateAck: true },
+  btw_cancel: { lateAck: false, offChain: true },
+  get_btw_history: { lateAck: true },
 } as const satisfies Record<string, SessionCommandDescriptor>;
 
 export type SessionCommandType = keyof typeof SESSION_COMMANDS;

@@ -1,47 +1,20 @@
 // The side-question (`/btw`) wire contract. Pure — zero runtime imports —
 // because the renderer imports it directly via the @omp-ui/core/side-questions
-// subpath, exactly like goal.ts and session-tree.ts. The generating half
-// (which writes the extension file) lives in side-questions-extension.ts and
-// consumes these same constants, so the two sides of the channel can never
-// drift.
+// subpath, exactly like goal.ts and session-tree.ts. The channel is omp's own
+// native rpc-ui commands — `btw`, `btw_cancel`, `get_btw_history` (omp ≥ 18.6.3,
+// upstream #14110; issue #775) — and the `btw_delta` / `btw_record` frames they
+// stream. omp owns `btw-history/` as reader and writer, so the snapshot below
+// is built from those frames and records here, never parsed from a publish.
+// omp's `/btw` slash entry is still `handleTui`-only, which is why the
+// composer intercepts the line and dispatches the command itself.
 //
-// omp's `/btw` is TUI-only: the built-in registry entry defines `handleTui`
-// and no `handle`, the noninteractive dispatcher skips entries without
-// `handle`, and `get_available_commands` omits it — so over rpc-ui a `/btw`
-// line would fall through to `session.prompt()` and reach the model as literal
-// prompt text (issue #682; the same hole ADR-0007 documents for `/plan`). The
-// bridge drives `AgentSession.runEphemeralTurn` — the API omp's own
-// BtwController uses — from inside the owned process and keeps omp's own
-// `btw-history/` file grammar, so a topic started here is readable by omp's
-// TUI history overlay too.
-
-/** Hidden command family the renderer dispatches (`ask`, `cancel`, `refresh`). */
-export const BTW_COMMAND = "omp-ui-btw";
-
-/** `setStatus` key carrying the JSON side-question snapshot. Routed, never rendered raw. */
-export const BTW_STATUS_KEY = "omp-ui:btw";
+// omp's history records ride the frames as objects, so the strict grammar
+// below stays as the validation gate every record passes before it can touch a
+// snapshot. The `running` → `interrupted` normalisation omp applies when a
+// store opens remains omp's loader's job, not this file's.
 
 /** Cap on one question, checked before anything is sent (never silently truncated). */
 export const BTW_QUESTION_CHAR_LIMIT = 32_000;
-
-/**
- * Hard cap on the serialized snapshot (UTF-8 bytes). The publisher drops the
- * oldest topics to fit; the parser rejects anything over it, leaving the last
- * good snapshot standing.
- */
-export const BTW_STATUS_BYTE_LIMIT = 512 * 1024;
-
-/** Per-turn answer cap inside a snapshot; the history file always holds the full text. */
-export const BTW_SNAPSHOT_ANSWER_CHAR_LIMIT = 64 * 1024;
-
-/** Appended to an answer the snapshot had to cut. */
-export const BTW_TRUNCATION_MARKER = "\n\n[… answer truncated in this view; the full text is in the session's btw-history]";
-
-/** Refusal line while a side question is already running (one at a time, no queue). */
-export const BTW_BUSY_REFUSAL = "A side question is still running — wait for it or cancel it.";
-
-/** omp's own sentence for a session with no model yet. */
-export const BTW_NO_MODEL_MESSAGE = "No active model available for /btw.";
 
 /** The five turn states omp's history grammar allows. */
 export type BtwTurnStatus =
@@ -84,64 +57,18 @@ export interface BtwTopic {
   turns: BtwTurn[];
 }
 
-/** What the bridge publishes on {@link BTW_STATUS_KEY}. */
+/** What the pane renders, built by the reducers below from omp's frames. */
 export interface BtwSnapshot {
   available: boolean;
-  /** Why the bridge cannot answer (older omp, missing API). */
+  /** Why this omp cannot answer side questions (retained from an earlier snapshot). */
   unavailableReason?: string;
-  /** The last refusal, cleared by the next publish. */
+  /** The last refusal, cleared by the next snapshot-producing publish. */
   busy?: string;
   /** The running turn, or null. */
   active: { topicId: string; question: string; answer: string } | null;
   /** Newest `updatedAt` first. */
   topics: BtwTopic[];
   publishedAt: number;
-}
-
-/** One hidden-bridge request. */
-export interface BtwRequest {
-  requestId: string;
-  question?: string;
-  topicId?: string;
-}
-
-/** Hidden slash command carrying one side question (or a follow-up on `topicId`). */
-export function btwAskMessage(request: {
-  requestId: string;
-  question: string;
-  topicId?: string;
-}): string {
-  return `/${BTW_COMMAND} ask ${JSON.stringify(request)}`;
-}
-
-/** Hidden slash command cancelling the running side question. */
-export function btwCancelMessage(request: { requestId: string }): string {
-  return `/${BTW_COMMAND} cancel ${JSON.stringify(request)}`;
-}
-
-/** Hidden slash command republishing the snapshot after re-reading `btw-history/`. */
-export function btwRefreshMessage(request: { requestId: string }): string {
-  return `/${BTW_COMMAND} refresh ${JSON.stringify(request)}`;
-}
-
-/**
- * omp's own wrapper around a side question (`prompts/system/btw-user.md`,
- * read from the shipped 18.4.2 binary). Cosmetic — `runEphemeralTurn`
- * supplies the no-tools directive itself — but kept verbatim so a follow-up's
- * history reads the way omp's TUI would have written it.
- */
-export const OMP_BTW_USER_TEMPLATE = `<btw>
-Ephemeral side question for current interactive session.
-Answer briefly, directly; use conversation context already provided.
-NEVER use tools.
-NEVER ask follow-up questions.
-Question:
-{{question}}
-</btw>`;
-
-/** The wrapped question exactly as the ephemeral turn's prompt text. */
-export function btwPromptText(question: string): string {
-  return OMP_BTW_USER_TEMPLATE.replace("{{question}}", () => question);
 }
 
 // ---------------------------------------------------------- history file grammar
@@ -221,7 +148,7 @@ function readTurn(
 }
 
 /**
- * Strict parse of one history file, mirroring omp's `BtwHistoryStore` schema:
+ * Strict parse of one history record, mirroring omp's `BtwHistoryStore` schema:
  * unknown keys rejected (also inside follow-ups, which cannot nest), the id
  * grammar enforced, statuses and timestamps range-checked. Returns null for
  * anything else. The `running` → `interrupted` normalisation omp applies when a
@@ -263,116 +190,115 @@ export function parseBtwRecord(json: string): BtwRecord | null {
   };
 }
 
-// ---------------------------------------------------------- snapshot parsing
+// ---------------------------------------------------------- snapshot reducers
+
+/** One history record → one topic: root question as title, latest turn's verdict. */
+export function btwTopicFromRecord(record: BtwRecord): BtwTopic {
+  // The view turn drops the record's `createdAt`; the root plus follow-ups map
+  // through the same projection so `turns` stays BtwTurn-clean.
+  const turns: BtwTurn[] = [record, ...(record.followUps ?? [])].map(
+    ({ question, answer, status, updatedAt, error }) => ({
+      question,
+      answer,
+      status,
+      updatedAt,
+      ...(error !== undefined ? { error } : {}),
+    }),
+  );
+  const latest = turns[turns.length - 1] as BtwTurn;
+  return {
+    id: record.id,
+    question: record.question,
+    answer: latest.answer,
+    status: latest.status,
+    updatedAt: latest.updatedAt,
+    ...(latest.error !== undefined ? { error: latest.error } : {}),
+    turns,
+  };
+}
+
+function deriveActive(topics: readonly BtwTopic[]): BtwSnapshot["active"] {
+  for (const topic of topics) {
+    const latest = topic.turns[topic.turns.length - 1];
+    if (latest !== undefined && latest.status === "running")
+      return {
+        topicId: topic.id,
+        question: latest.question,
+        answer: latest.answer,
+      };
+  }
+  return null;
+}
+
+const byNewestUpdate = (a: BtwTopic, b: BtwTopic): number =>
+  b.updatedAt - a.updatedAt;
 
 /**
- * Parses the JSON published on {@link BTW_STATUS_KEY}. Total: malformed or
- * over-budget input returns null, and the caller keeps the last good snapshot —
- * nothing is ever half-applied.
+ * The full snapshot from `get_btw_history`'s records (the in-memory running
+ * record is already merged in by omp). Total: each entry round-trips through
+ * {@link parseBtwRecord} and malformed entries drop; nothing is half-applied.
  */
-export function parseBtwSnapshot(text: string | undefined): BtwSnapshot | null {
-  if (text === undefined || utf8Length(text) > BTW_STATUS_BYTE_LIMIT)
-    return null;
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  const record = asRecord(raw);
-  if (record === null) return null;
-  if (typeof record.available !== "boolean") return null;
-  if (
-    record.unavailableReason !== undefined &&
-    typeof record.unavailableReason !== "string"
-  )
-    return null;
-  if (record.busy !== undefined && typeof record.busy !== "string") return null;
-  if (
-    typeof record.publishedAt !== "number" ||
-    !Number.isFinite(record.publishedAt)
-  )
-    return null;
-  let active: BtwSnapshot["active"] = null;
-  if (record.active !== null) {
-    const value = asRecord(record.active);
-    if (
-      value === null ||
-      typeof value.topicId !== "string" ||
-      typeof value.question !== "string" ||
-      typeof value.answer !== "string"
-    )
-      return null;
-    active = {
-      topicId: value.topicId,
-      question: value.question,
-      answer: value.answer,
-    };
-  }
-  if (!Array.isArray(record.topics)) return null;
+export function btwSnapshotFromRecords(
+  records: readonly unknown[],
+  publishedAt: number,
+): BtwSnapshot {
   const topics: BtwTopic[] = [];
-  for (const value of record.topics) {
-    const topic = readTopic(value);
-    if (topic === null) return null;
-    topics.push(topic);
+  for (const value of records) {
+    const record = parseBtwRecord(JSON.stringify(value));
+    if (record !== null) topics.push(btwTopicFromRecord(record));
   }
+  topics.sort(byNewestUpdate);
   return {
-    available: record.available,
-    ...(record.unavailableReason !== undefined
-      ? { unavailableReason: record.unavailableReason as string }
-      : {}),
-    ...(record.busy !== undefined ? { busy: record.busy as string } : {}),
-    active,
+    available: true,
+    active: deriveActive(topics),
     topics,
-    publishedAt: record.publishedAt,
+    publishedAt,
   };
 }
 
-function readSnapshotTurn(value: unknown): BtwTurn | null {
-  const record = asRecord(value);
-  if (record === null) return null;
-  if (typeof record.question !== "string" || typeof record.answer !== "string")
-    return null;
-  if (!TURN_STATUSES.includes(record.status as BtwTurnStatus)) return null;
-  if (typeof record.updatedAt !== "number" || !Number.isFinite(record.updatedAt))
-    return null;
-  if (record.error !== undefined && typeof record.error !== "string")
-    return null;
+/** One `btw_record` frame (or a `btw` response): replace-or-insert by id. */
+export function applyBtwRecord(
+  snapshot: BtwSnapshot | null,
+  record: BtwRecord,
+): BtwSnapshot {
+  const topic = btwTopicFromRecord(record);
+  const topics = (snapshot?.topics ?? []).filter((t) => t.id !== topic.id);
+  topics.push(topic);
+  topics.sort(byNewestUpdate);
+  // Every snapshot-producing publish clears the last refusal line.
   return {
-    question: record.question,
-    answer: record.answer,
-    status: record.status as BtwTurnStatus,
-    updatedAt: record.updatedAt,
-    ...(record.error !== undefined ? { error: record.error as string } : {}),
+    available: true,
+    active: deriveActive(topics),
+    topics,
+    publishedAt: Date.now(),
   };
 }
 
-function readTopic(value: unknown): BtwTopic | null {
-  const record = asRecord(value);
-  if (record === null) return null;
-  if (typeof record.id !== "string" || record.id.length === 0) return null;
-  const head = readSnapshotTurn(record);
-  if (head === null || !Array.isArray(record.turns)) return null;
-  const turns: BtwTurn[] = [];
-  for (const raw of record.turns) {
-    const turn = readSnapshotTurn(raw);
-    if (turn === null) return null;
-    turns.push(turn);
-  }
-  return { ...head, id: record.id, turns };
-}
-
-/** UTF-8 byte length without runtime imports (pure scan, no allocation). */
-function utf8Length(text: string): number {
-  let bytes = 0;
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    if (code < 0x80) bytes += 1;
-    else if (code < 0x800) bytes += 2;
-    else if (code >= 0xd800 && code <= 0xdbff) {
-      bytes += 4;
-      i++;
-    } else bytes += 3;
-  }
-  return bytes;
+/**
+ * One `btw_delta` frame: append to the running topic's latest answer. A delta
+ * for an unknown id (the pane opened mid-run) or a topic that is not running
+ * changes nothing — the next `btw_record` or refresh is the truth.
+ */
+export function applyBtwDelta(
+  snapshot: BtwSnapshot | null,
+  recordId: string,
+  delta: string,
+): BtwSnapshot | null {
+  if (snapshot === null) return null;
+  let touched = false;
+  const topics = snapshot.topics.map((topic) => {
+    if (topic.id !== recordId) return topic;
+    const latest = topic.turns[topic.turns.length - 1];
+    if (latest === undefined || latest.status !== "running") return topic;
+    touched = true;
+    const answer = latest.answer + delta;
+    return {
+      ...topic,
+      answer,
+      turns: [...topic.turns.slice(0, -1), { ...latest, answer }],
+    };
+  });
+  // The running card reads `active`, so the streamed answer must land there
+  // too; re-deriving keeps it equal to the running topic's latest turn.
+  return touched ? { ...snapshot, topics, active: deriveActive(topics) } : snapshot;
 }

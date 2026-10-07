@@ -3,14 +3,18 @@ import type { BtwTopic, BtwTurnStatus } from "@omp-ui/core/side-questions";
 import { relativeTime } from "../lib/format";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
+import { supportsNativeBtw } from "../lib/native-btw";
 import { useStore } from "../store";
 import { Markdown } from "./Markdown";
 import { Button, Chip, Empty, IconButton, IconRefresh, type Tone } from "./ui";
 
 /**
- * The Side questions rail pane (issue #682): the `/btw` exchanges asked against
- * this session's context, none of which enter the transcript. The bridge
- * publishes the whole picture; this pane only asks, cancels, and displays.
+ * The Side questions rail pane (issue #682, native since #775): the `/btw`
+ * exchanges asked against this session's context, none of which enter the
+ * transcript. omp's native `btw` commands and the `btw_delta`/`btw_record`
+ * frames build the snapshot; this pane only asks, cancels, and displays. Below
+ * the native-command version floor it renders itself unavailable and
+ * dispatches nothing.
  */
 
 const STATUS_TONE: Record<BtwTurnStatus, Tone> = {
@@ -142,6 +146,9 @@ function TopicCard({
 export function SideQuestionsPane({ tabId }: { tabId: string }) {
   const t = useT();
   const snapshot = useStore((s) => s.rpc[tabId]?.sideQuestions) ?? null;
+  const native = useStore((s) =>
+    supportsNativeBtw(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
+  );
   const askSideQuestion = useStore((s) => s.askSideQuestion);
   const cancelSideQuestion = useStore((s) => s.cancelSideQuestion);
   const refreshSideQuestions = useStore((s) => s.refreshSideQuestions);
@@ -150,12 +157,13 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
   // Opening the pane re-reads the history files: topics from before a
   // hibernation, or written by omp's own TUI, appear without a new question.
   useEffect(() => {
-    void refreshSideQuestions(tabId);
-  }, [tabId, refreshSideQuestions]);
+    if (native) void refreshSideQuestions(tabId);
+  }, [tabId, native, refreshSideQuestions]);
 
   const active = snapshot?.active ?? null;
   const topics = snapshot?.topics ?? [];
-  const unavailable = snapshot !== null && !snapshot.available;
+  const unavailable =
+    !native || (snapshot !== null && !snapshot.available);
   const busy = active !== null;
 
   return (
