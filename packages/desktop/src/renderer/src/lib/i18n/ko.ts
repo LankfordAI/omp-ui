@@ -19,6 +19,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "app.titlebar.addProject": "프로젝트 추가",
   "app.titlebar.expandSidebar": "사이드바 펼치기",
   "app.titlebar.collapseSidebar": "사이드바 접기",
+
+  // App.tsx — mod+shift+n 스폰 가드 (이슈 #789): 조용한 무동작 없음.
+  "app.spawn.noCurrentSession":
+    "현재 세션이 없어 새 세션을 만들 프로젝트를 정할 수 없습니다 — 세션을 먼저 열거나 프로젝트의 새 세션 버튼을 사용하세요.",
   "app.restoring.label": "세션 복원 중…",
   "app.welcome.hasProjectsHint":
     "사이드바에서 세션을 선택하거나 추적 중인 프로젝트에서 새 세션을 시작하세요.",
@@ -196,6 +200,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "session.error.navigateUnconfirmed":
     "트리 브리지가 이 이동의 결과를 보고하지 않았습니다. 세션을 새로 고친 뒤 다시 이동하세요.",
   "session.error.navigateFailed": "세션을 해당 항목으로 이동하지 못했습니다.",
+  "session.error.spawnTimedOut":
+    "새 세션이 30초 안에 시작되지 않았습니다. 아직 시작 중일 수 있습니다 — 앱 logs 폴더의 breadcrumbs.log를 확인하세요.",
 
   // TranscriptView.tsx / SessionTreeViewer.tsx — 되돌리기 작업 (이슈 #680)
   "transcript.rewind.here": "여기로 되돌리기",

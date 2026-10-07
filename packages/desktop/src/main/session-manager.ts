@@ -583,6 +583,16 @@ export class SessionManager {
 
 
   async spawn(req: SpawnRequest): Promise<{ tabId: string }> {
+    // Recorded before validateSpawnSemantics so even a rejected or stalled
+    // attempt leaves a trace (issue #789): today only success lands a line,
+    // so a hung spawn reads as if nothing was ever tried. Ids only in the
+    // detail — never prompt text.
+    this.deps.breadcrumb?.record("spawn-attempt", {
+      detail:
+        req.origin === "new"
+          ? `origin=new mode=${req.mode} project=${req.projectCwd}`
+          : `origin=resume mode=${req.mode ?? "unset"} tab=${req.resumeTabId}`,
+    });
     this.validateSpawnSemantics(req);
     if (req.origin === "new") return this.spawnInner(req);
     const tabId = req.resumeTabId;

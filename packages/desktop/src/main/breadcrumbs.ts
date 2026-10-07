@@ -11,6 +11,7 @@ export type BreadcrumbKind =
   | "launch"
   | "window-created"
   | "quit"
+  | "spawn-attempt"
   | "session-spawn"
   | "session-resume"
   | "session-exit"

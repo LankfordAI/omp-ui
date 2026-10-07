@@ -3,6 +3,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "./lib/rpc-types";
+import { en } from "./lib/i18n/en";
+import { backendState } from "./test/fixtures";
 import type { RpcTabState } from "./store";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -19,7 +21,11 @@ vi.mock("./components/ProjectPicker", () => ({ ProjectPicker: () => null }));
 vi.mock("./components/CapabilitiesViewer", () => ({ CapabilitiesViewer: () => null }));
 vi.mock("./components/Settings", () => ({ Settings: () => null }));
 
+// Dynamic imports are the module-loading boundary under test: ./backend and
+// ./store capture window.ompBackend at evaluation, so the window stub above
+// must land before they load.
 const { useStore } = await import("./store");
+const { backend } = await import("./backend");
 const { default: App } = await import("./App");
 
 let compact = true;
@@ -219,5 +225,71 @@ describe("update restore surface (issue #99)", () => {
 
     act(() => useStore.setState({ restoringTabs: false }));
     expect(document.body.textContent).toContain("Add project");
+  });
+});
+
+describe("mod+shift+n with no focused session (issue #789)", () => {
+  const pressModShiftN = (): void => {
+    document.body.focus();
+    act(() => {
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "n", ctrlKey: true, shiftKey: true, bubbles: true }),
+      );
+    });
+  };
+
+  it("reports instead of silently doing nothing with zero tabs", async () => {
+    useStore.setState({
+      tabs: [],
+      activeTabId: null,
+      errorNotices: [],
+      state: backendState({
+        projects: [
+          {
+            project: {
+              path: "/p",
+              name: "p",
+              addedAt: "t",
+              lastModel: null,
+              lastThinkingLevel: null,
+              lastAdvisor: null,
+              lastAdvisorModel: null,
+              defaultModel: null,
+              defaultAdvisorModel: null,
+              browserClock: false,
+              reviewRoster: null,
+              knowledgeHome: null,
+            },
+            sessions: [],
+          },
+        ],
+      }),
+    });
+    const spawnSession = vi.fn();
+    (backend as unknown as Record<string, unknown>).spawnSession = spawnSession;
+    renderApp();
+    pressModShiftN();
+    await act(async () => {});
+
+    expect(spawnSession).not.toHaveBeenCalled();
+    expect(useStore.getState().errorNotices.map((notice) => notice.message)).toEqual([
+      en["app.spawn.noCurrentSession"],
+    ]);
+  });
+
+  it("spawns into the focused session's project as before", async () => {
+    renderApp();
+    const spawnSession = vi.fn().mockResolvedValue({ tabId: "fresh" });
+    (backend as unknown as Record<string, unknown>).spawnSession = spawnSession;
+    pressModShiftN();
+    await act(async () => {});
+
+    expect(spawnSession).toHaveBeenCalledTimes(1);
+    expect(spawnSession.mock.calls[0]?.[0]).toMatchObject({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "pty",
+    });
+    expect(useStore.getState().tabs.map((tab) => tab.tabId)).toContain("fresh");
   });
 });

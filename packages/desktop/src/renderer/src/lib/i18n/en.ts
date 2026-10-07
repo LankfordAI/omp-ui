@@ -21,6 +21,10 @@ export const en = {
   "app.titlebar.expandSidebar": "expand sidebar",
   "app.titlebar.collapseSidebar": "collapse sidebar",
 
+  // App.tsx — the mod+shift+n spawn guardrail (issue #789): no silent no-ops.
+  "app.spawn.noCurrentSession":
+    "No current session — a new session spawns into the focused session's project. Open or focus one first, or use a project's new-session button.",
+
   // App RestoringSessions
   "app.restoring.label": "Restoring sessions…",
 
@@ -215,6 +219,8 @@ export const en = {
   "session.error.navigateUnconfirmed":
     "The tree bridge did not report a result for this jump. Refresh the session before navigating again.",
   "session.error.navigateFailed": "The session could not navigate to that entry.",
+  "session.error.spawnTimedOut":
+    "The new session did not start within 30 s. It may still be starting — check breadcrumbs.log in the app's logs folder.",
 
   // TranscriptView.tsx / SessionTreeViewer.tsx — rewind affordances (issue #680)
   "transcript.rewind.here": "rewind here",
