@@ -45,6 +45,7 @@ import type {
   PythonCheckSnapshot,
   ProviderOAuthState,
   ProviderOAuthStatus,
+  ProviderSignOutResult,
   RemoteBind,
   RemoteInstanceInput,
   RemoteInstancePatch,
@@ -593,8 +594,9 @@ export const BACKEND_CHANNELS = {
     ]),
   },
   /**
-   * Subscription (OAuth) sign-in rows, re-read from omp's own auth store
-   * (`omp token <id> --list`). Carries account identities, never a token.
+   * Subscription (OAuth) sign-in rows, re-read from omp's own auth store with
+   * `get_login_providers` + `get_logout_accounts` over one bare rpc child
+   * (never a CLI). Carries stored credentials, never a token.
    */
   readProviderOAuth: {
     channel: "provider-oauth:read",
@@ -620,10 +622,10 @@ export const BACKEND_CHANNELS = {
     channel: "provider-oauth:cancel",
     ...request<[], void>([]),
   },
-  /** Signs out via `omp auth-broker logout`; resolves with the refreshed rows. */
+  /** Removes one stored credential via omp's rpc `logout`; resolves with refreshed rows + remaining auth. */
   signOutProviderOAuth: {
     channel: "provider-oauth:signOut",
-    ...request<[id: string], ProviderOAuthStatus[]>([str()]),
+    ...request<[id: string, credentialId: number], ProviderSignOutResult>([str(), num()]),
   },
   spawnSession: {
     channel: "session:spawn",

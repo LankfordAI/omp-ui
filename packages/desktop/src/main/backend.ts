@@ -983,7 +983,8 @@ export class MainBackend {
         [CH.cancelProviderOAuth]: () => {
           this.providerOAuth.cancel();
         },
-        [CH.signOutProviderOAuth]: (id: string) => this.providerOAuth.signOut(id),
+        [CH.signOutProviderOAuth]: (id: string, credentialId: number) =>
+          this.providerOAuth.signOut(id, credentialId),
         [CH.setWindowChrome]: (background: string, symbol: string) => {
           if (this.win.isDestroyed()) return;
           try {

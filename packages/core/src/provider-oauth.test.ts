@@ -6,12 +6,11 @@ import { setImmediate as tick } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcChildProcess } from "./rpc/client";
 import {
-  OAUTH_FLOW_TIMEOUT_MS,
   IDLE_PROVIDER_OAUTH_STATE,
+  OAUTH_FLOW_TIMEOUT_MS,
   ProviderOAuth,
-  parseOAuthAccountList,
 } from "./provider-oauth";
-import type { ProviderOAuthState } from "./types";
+import type { ProviderCredential, ProviderOAuthState } from "./types";
 import type { LoginProvider } from "./provider-catalog";
 
 interface FakeProc {
@@ -58,23 +57,34 @@ const READY = {
   maxFrameBytes: 1_048_576,
 };
 
-// ES2022's library lacks Promise.withResolvers; match the existing test convention.
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((settle) => { resolve = settle; });
-  return { promise, resolve };
-}
 const nextTick = (): Promise<void> => tick();
+
+function credential(label: string, provider: string): ProviderCredential {
+  return { credentialId: 11, provider, label, detail: "stored credential", type: "oauth", active: true };
+}
+
+type AccountsAnswer = { accounts: ProviderCredential[] } | { error: string };
+type LogoutAnswer = { ok: true; remainingSource?: string } | { error: string };
+
+/** The curated row answered as an available roster entry: what refresh() commits by default. */
+const CODEX: LoginProvider = {
+  id: "openai-codex",
+  name: "ChatGPT Plus/Pro",
+  available: true,
+  authenticated: false,
+};
 
 interface Harness {
   oauth: ProviderOAuth;
   states: ProviderOAuthState[];
-  /** Ordered log: `state:<phase>` publishes and `run:<argv0>` one-shot runs, for ordering assertions. */
+  /** Ordered log: `state:<phase>` publishes and `accounts` one answered accounts errand, for ordering assertions. */
   events: string[];
-  runCalls: Array<{ argv: string[] }>;
   spawnArgs: string[];
   stdinLines: object[];
   openedUrls: string[];
+  /** Provider ids the discovery child was asked for via `get_logout_accounts`, in command order. */
+  accountCalls: string[];
+  logoutCalls: Array<{ providerId: string; credentialId: number }>;
   frame: (f: unknown) => void;
   /** Write a raw stdout line (no frame validation) — e.g. an oversized one. */
   raw: (line: string) => void;
@@ -82,34 +92,45 @@ interface Harness {
   scratchDir: string;
   /** Make the next start() throw at spawn; later spawns succeed. */
   failNextSpawn: boolean;
-  /** Swap the one-shot `omp token --list` runner for a deferred/rejecting one. */
-  setListRun: (fn: (opts: { argv: string[] }) => Promise<string | null>) => void;
+  /** null answers the roster as a failed command — a transport failure for the read. */
   setProviders: (providers: LoginProvider[] | null) => void;
+  /** Answer the per-id `get_logout_accounts` errands; defaults to empty lists. */
+  setAccounts: (fn: (providerId: string) => AccountsAnswer) => void;
+  /** Answer the rpc `logout` command; defaults to a plain success. */
+  setLogout: (fn: (call: { providerId: string; credentialId: number }) => LogoutAnswer) => void;
   setOmpPath: (ompPath: string | null) => void;
+  spawnCount: () => number;
   discoveryCount: () => number;
   discoveryKilled: () => boolean;
+  /** Hold the next roster answer; the returned function delivers it. */
   deferDiscovery: () => (providers: LoginProvider[] | null) => void;
+  /** Hold every `get_logout_accounts` answer; the returned function delivers them. */
+  deferAccounts: () => () => void;
 }
 
 const harnesses: Harness[] = [];
 function harness(opts: {
   ompPath?: string | null;
-  listOutput?: string | null;
-  logoutOutput?: string | null;
   providers?: LoginProvider[] | null;
 } = {}): Harness {
   let fake = fakeProc();
   let loginFake: FakeProc | null = null;
   let discoveryFake: FakeProc | null = null;
-  let providers = opts.providers ?? null;
+  let providers = opts.providers === undefined ? [CODEX] : opts.providers;
   let ompPath = opts.ompPath === undefined ? "/opt/omp" : opts.ompPath;
+  let spawnCount = 0;
   let discoveryCount = 0;
   let holdDiscovery = false;
+  let holdAccounts = false;
   let pendingDiscovery: ((rows: LoginProvider[] | null) => void) | null = null;
+  const pendingAccounts: Array<() => void> = [];
+  let accountsFor: (providerId: string) => AccountsAnswer = () => ({ accounts: [] });
+  let logoutFor: (call: { providerId: string; credentialId: number }) => LogoutAnswer = () => ({ ok: true });
   const states: ProviderOAuthState[] = [];
   const events: string[] = [];
-  const runCalls: Array<{ argv: string[] }> = [];
   const openedUrls: string[] = [];
+  const accountCalls: string[] = [];
+  const logoutCalls: Array<{ providerId: string; credentialId: number }> = [];
   const stdinLines: object[] = [];
   let spawnArgs: string[] = [];
   let failNext = false;
@@ -118,7 +139,12 @@ function harness(opts: {
     child.stdin.on("data", (chunk: Buffer) => {
       for (const line of chunk.toString("utf8").split("\n")) {
         if (line.trim() === "") continue;
-        const command = JSON.parse(line) as { type: string; id?: string };
+        const command = JSON.parse(line) as {
+          type: string;
+          id?: string;
+          providerId?: string;
+          credentialId?: number;
+        };
         if (command.type === "get_login_providers") {
           discoveryFake = child;
           discoveryCount++;
@@ -133,6 +159,33 @@ function harness(opts: {
             holdDiscovery = false;
             pendingDiscovery = answer;
           } else answer(providers);
+        } else if (command.type === "get_logout_accounts" && typeof command.id === "string") {
+          const providerId = command.providerId ?? "";
+          accountCalls.push(providerId);
+          const respond = (): void => {
+            const answer = accountsFor(providerId);
+            events.push("accounts");
+            queueMicrotask(() => child.stdout.write(`${JSON.stringify({
+              id: command.id, type: "response", command: "get_logout_accounts",
+              success: "accounts" in answer,
+              ...("accounts" in answer
+                ? { data: { accounts: answer.accounts } }
+                : { error: answer.error }),
+            })}\n`));
+          };
+          if (holdAccounts) pendingAccounts.push(respond);
+          else respond();
+        } else if (command.type === "logout" && typeof command.id === "string") {
+          const call = { providerId: command.providerId ?? "", credentialId: command.credentialId ?? 0 };
+          logoutCalls.push(call);
+          const answer = logoutFor(call);
+          queueMicrotask(() => child.stdout.write(`${JSON.stringify({
+            id: command.id, type: "response", command: "logout",
+            success: "ok" in answer,
+            ...("ok" in answer
+              ? { data: answer.remainingSource === undefined ? {} : { remainingSource: answer.remainingSource } }
+              : { error: answer.error }),
+          })}\n`));
         } else {
           if (command.type === "login") loginFake = child;
           // Discovery negotiation is not part of the human sign-in stream.
@@ -140,13 +193,6 @@ function harness(opts: {
         }
       }
     });
-  };
-  let oauthRun: (o: { argv: string[] }) => Promise<string | null> = async (o) => {
-    runCalls.push({ argv: o.argv });
-    events.push(`run:${o.argv[0]}`);
-    return o.argv[0] === "auth-broker"
-      ? (opts.logoutOutput === undefined ? "Logged out of openai-codex" : opts.logoutOutput)
-      : (opts.listOutput ?? null);
   };
   const oauth = new ProviderOAuth({
     getOmpPath: () => ompPath,
@@ -156,8 +202,8 @@ function harness(opts: {
       events.push(`state:${state.phase}`);
     },
     onOpenUrl: (url) => openedUrls.push(url),
-    run: (o) => oauthRun(o),
     spawnProcess: (_cmd, args) => {
+      spawnCount++;
       spawnArgs = args;
       if (failNext) {
         failNext = false;
@@ -174,7 +220,8 @@ function harness(opts: {
     oauth,
     states,
     events,
-    runCalls,
+    accountCalls,
+    logoutCalls,
     get spawnArgs() {
       return spawnArgs;
     },
@@ -193,15 +240,11 @@ function harness(opts: {
     set failNextSpawn(v: boolean) {
       failNext = v;
     },
-    setListRun(fn) {
-      oauthRun = async (o) => {
-        runCalls.push({ argv: o.argv });
-        events.push(`run:${o.argv[0]}`);
-        return fn(o);
-      };
-    },
     setProviders(rows) { providers = rows; },
+    setAccounts(fn) { accountsFor = fn; },
+    setLogout(fn) { logoutFor = fn; },
     setOmpPath(value) { ompPath = value; },
+    spawnCount: () => spawnCount,
     discoveryCount: () => discoveryCount,
     discoveryKilled: () => discoveryFake?.killed() ?? false,
     deferDiscovery() {
@@ -210,6 +253,13 @@ function harness(opts: {
         if (pendingDiscovery === null) throw new Error("discovery has not started");
         pendingDiscovery(rows);
         pendingDiscovery = null;
+      };
+    },
+    deferAccounts() {
+      holdAccounts = true;
+      return () => {
+        holdAccounts = false;
+        for (const respond of pendingAccounts.splice(0)) respond();
       };
     },
   };
@@ -240,37 +290,31 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("parseOAuthAccountList", () => {
-  it("keeps numbered identity lines and ignores the rest", () => {
-    expect(parseOAuthAccountList("1. a@b.com (Org)\n2. c@d.com\n")).toEqual([
-      "a@b.com (Org)",
-      "c@d.com",
-    ]);
-    expect(parseOAuthAccountList("\nNo OAuth accounts found for provider \"openai-codex\"\n")).toEqual([]);
-  });
-});
-
 describe("refresh", () => {
-  it("compatibility fallback retains account identities and the spawn gate", async () => {
-    const h = harness({ listOutput: "1. me@example.com\n" });
+  it("a failed roster read answers from the static catalog with no accounts", async () => {
+    const h = harness({ providers: null });
     const rows = await h.oauth.refresh();
-    expect(rows.find((row) => row.providerId === "openai-codex")?.accounts).toEqual(["me@example.com"]);
-    expect(h.oauth.hasModelAccount()).toBe(true);
+    expect(rows.map((row) => row.providerId)).toEqual(["openai-codex"]);
+    expect(rows[0].credentials).toEqual([]);
+    expect(rows[0].accountsUnsupported).toBe(false);
+    expect(h.oauth.hasModelAccount()).toBe(false);
     expect(h.discoveryKilled()).toBe(true);
   });
 
-  it("a missing list reads as no accounts", async () => {
-    const h = harness({ listOutput: null });
-    const rows = await h.oauth.refresh();
-    expect(rows[0].accounts).toEqual([]);
-    expect(h.oauth.hasModelAccount()).toBe(false);
-  });
-
-  it("without an omp binary nothing is run", async () => {
+  it("without an omp binary nothing spawns", async () => {
     const h = harness({ ompPath: null });
     const rows = await h.oauth.refresh();
-    expect(h.runCalls).toEqual([]);
-    expect(rows[0].accounts).toEqual([]);
+    expect(h.spawnCount()).toBe(0);
+    expect(rows[0].credentials).toEqual([]);
+  });
+
+  it("an omp without get_logout_accounts keeps the roster but reports status unknown", async () => {
+    const h = harness();
+    h.setAccounts(() => ({ error: "Unknown command: get_logout_accounts" }));
+    const rows = await h.oauth.refresh();
+    expect(rows.map((row) => row.providerId)).toEqual(["openai-codex"]);
+    expect(rows[0].credentials).toEqual([]);
+    expect(rows[0].accountsUnsupported).toBe(true);
   });
 });
 
@@ -325,8 +369,7 @@ describe("start", () => {
 
   it("a failed restart does not suppress the previous flow's in-flight done publish", async () => {
     const h = harness();
-    let resolveList: (v: string | null) => void = () => {};
-    h.setListRun(() => new Promise((res) => (resolveList = res)));
+    const finishAccounts = h.deferAccounts();
     await startAtBrowser(h);
     h.frame({ type: "response", command: "login", success: true, data: { providerId: "openai-codex" } });
     await nextTick();
@@ -334,11 +377,12 @@ describe("start", () => {
     // spawn fails: installing no flow, it must not invalidate A's completion.
     h.failNextSpawn = true;
     expect(() => h.oauth.start("openai-codex")).toThrow("ENOENT");
-    resolveList("1. me@example.com\n");
+    h.setAccounts(() => ({ accounts: [credential("me@example.com", "openai-codex")] }));
+    finishAccounts();
     await nextTick();
     await nextTick();
     expect(h.states.at(-1)).toMatchObject({ phase: "done", prompt: null });
-    expect(h.oauth.statuses()[0]!.accounts).toEqual(["me@example.com"]);
+    expect(h.oauth.statuses()[0].credentials).toEqual([credential("me@example.com", "openai-codex")]);
     h.oauth.dispose();
   });
 });
@@ -417,8 +461,7 @@ describe("input prompt", () => {
 describe("login response", () => {
   it("a stale account read cannot clobber a newer flow started after the login", async () => {
     const h = harness();
-    let resolveList: (v: string | null) => void = () => {};
-    h.setListRun(() => new Promise((res) => (resolveList = res)));
+    const finishAccounts = h.deferAccounts();
     await startAtBrowser(h);
     h.frame({ type: "response", command: "login", success: true, data: { providerId: "openai-codex" } });
     await nextTick();
@@ -426,7 +469,8 @@ describe("login response", () => {
     // the first one's account read is still in flight.
     h.oauth.start("openai-codex");
     expect(h.states.at(-1)).toMatchObject({ phase: "starting" });
-    resolveList("1. me@example.com\n");
+    h.setAccounts(() => ({ accounts: [credential("me@example.com", "openai-codex")] }));
+    finishAccounts();
     await nextTick();
     await nextTick();
     // The stale completion must not have published done over the new flow.
@@ -436,45 +480,31 @@ describe("login response", () => {
 
   it("cancelling during the post-login read suppresses the late done publish", async () => {
     const h = harness();
-    let resolveList: (v: string | null) => void = () => {};
-    h.setListRun(() => new Promise((res) => (resolveList = res)));
+    const finishAccounts = h.deferAccounts();
     await startAtBrowser(h);
     h.frame({ type: "response", command: "login", success: true, data: { providerId: "openai-codex" } });
     await nextTick();
     h.oauth.cancel();
     expect(h.states.at(-1)).toEqual(IDLE_PROVIDER_OAUTH_STATE);
-    resolveList("1. me@example.com\n");
+    h.setAccounts(() => ({ accounts: [credential("me@example.com", "openai-codex")] }));
+    finishAccounts();
     await nextTick();
     await nextTick();
     expect(h.states.at(-1)).toEqual(IDLE_PROVIDER_OAUTH_STATE);
   });
 
-  it("a failing account read after success publishes an error, not a stuck flow", async () => {
-    const h = harness();
-    h.setListRun(() => Promise.reject(new Error("pipe closed")));
-    await startAtBrowser(h);
-    h.frame({ type: "response", command: "login", success: true, data: { providerId: "openai-codex" } });
-    await nextTick();
-    await nextTick();
-    expect(h.states.at(-1)).toMatchObject({
-      phase: "error",
-      error: "sign-in finished, but the account read failed: pipe closed",
-    });
-    // The error is terminal: the page can dismiss it and start again.
-    h.oauth.cancel();
-    expect(h.states.at(-1)).toEqual(IDLE_PROVIDER_OAUTH_STATE);
-  });
   it("success settles, refreshes accounts first, then publishes done", async () => {
-    const h = harness({ listOutput: "1. me@example.com\n" });
+    const h = harness();
+    h.setAccounts(() => ({ accounts: [credential("me@example.com", "openai-codex")] }));
     await startAtBrowser(h);
     h.frame({ type: "response", command: "login", success: true, data: { providerId: "openai-codex" } });
     await nextTick();
     await nextTick();
-    // The refresh ran before the done publish, so a page reading statuses on done sees the account.
-    expect(h.events.indexOf("run:token")).toBeGreaterThanOrEqual(0);
-    expect(h.events.indexOf("run:token")).toBeLessThan(h.events.indexOf("state:done"));
+    // The refresh ran before the done publish, so a page reading statuses on done sees the accounts.
+    expect(h.events.indexOf("accounts")).toBeGreaterThanOrEqual(0);
+    expect(h.events.indexOf("accounts")).toBeLessThan(h.events.indexOf("state:done"));
     expect(h.states.at(-1)).toMatchObject({ phase: "done", prompt: null, url: "https://chatgpt.com/auth" });
-    expect(h.oauth.statuses()[0].accounts).toEqual(["me@example.com"]);
+    expect(h.oauth.statuses()[0].credentials).toEqual([credential("me@example.com", "openai-codex")]);
     // The child exited (killed) — the late exit must not turn done into an error.
     h.exit(0);
     await nextTick();
@@ -538,7 +568,7 @@ describe("cancel", () => {
   });
 
   it("after done, merely dismisses", async () => {
-    const h = harness({ listOutput: "1. me@example.com\n" });
+    const h = harness();
     await startAtBrowser(h);
     h.frame({ type: "response", command: "login", success: true, data: { providerId: "openai-codex" } });
     await nextTick();
@@ -556,24 +586,42 @@ describe("cancel", () => {
 });
 
 describe("signOut", () => {
-  it("logs out via the auth broker, then refreshes", async () => {
-    const h = harness({ listOutput: null });
-    const rows = await h.oauth.signOut("openai-codex");
-    expect(h.runCalls.map((c) => c.argv)).toEqual([
-      ["auth-broker", "logout", "openai-codex"],
-      ["token", "openai-codex", "--list"],
-    ]);
-    expect(rows[0].accounts).toEqual([]);
+  it("removes one credential via rpc logout, then refreshes", async () => {
+    const h = harness();
+    const result = await h.oauth.signOut("openai-codex", 11);
+    expect(h.logoutCalls).toEqual([{ providerId: "openai-codex", credentialId: 11 }]);
+    expect(result.rows[0].credentials).toEqual([]);
+    expect(result.remainingSource).toBeNull();
   });
 
-  it("rejects when the logout fails, with an unknown id, or during a flow", async () => {
-    const h = harness({ logoutOutput: null });
-    await expect(h.oauth.signOut("openai-codex")).rejects.toThrow("omp could not sign out of ChatGPT Plus/Pro");
-    const h2 = harness();
-    await expect(h2.oauth.signOut("nope")).rejects.toThrow();
+  it("reports omp's remaining auth source verbatim", async () => {
+    const h = harness();
+    h.setLogout(() => ({ ok: true, remainingSource: "environment variable OPENAI_API_KEY" }));
+    const result = await h.oauth.signOut("openai-codex", 11);
+    expect(result.remainingSource).toBe("environment variable OPENAI_API_KEY");
+  });
+
+  it("rejects a failed logout with omp's message", async () => {
+    const h = harness();
+    h.setLogout(() => ({ error: "No credential 11 for openai-codex" }));
+    await expect(h.oauth.signOut("openai-codex", 11)).rejects.toThrow("No credential 11 for openai-codex");
+  });
+
+  it("an omp without the logout verb gets a version message", async () => {
+    const h = harness();
+    h.setLogout(() => ({ error: "Unknown command: logout" }));
+    await expect(h.oauth.signOut("openai-codex", 11)).rejects.toThrow(/requires omp .* or later/);
+  });
+
+  it("rejects with an unknown id, without a binary, or during a flow", async () => {
+    const h = harness();
+    await expect(h.oauth.signOut("nope", 1)).rejects.toThrow("unknown sign-in provider: nope");
+    const h2 = harness({ ompPath: null });
+    await expect(h2.oauth.signOut("openai-codex", 1)).rejects.toThrow("omp binary not found");
     const h3 = harness();
     h3.oauth.start("openai-codex");
-    await expect(h3.oauth.signOut("openai-codex")).rejects.toThrow("finish or cancel the sign-in first");
+    await expect(h3.oauth.signOut("openai-codex", 1)).rejects.toThrow("finish or cancel the sign-in first");
+    expect(h3.logoutCalls).toEqual([]);
     h3.oauth.dispose();
   });
 });
@@ -582,22 +630,34 @@ const factory: LoginProvider = { id: "factory-droid", name: "Factory Droid", ava
 const future: LoginProvider = { id: "future-provider", name: "Future Provider", available: true, authenticated: false };
 
 describe("discovered sign-ins", () => {
-  it("uses OAuth identities, not credential availability, for signed-in state and the spawn gate", async () => {
-    const h = harness({ providers: [factory, future], listOutput: null });
+  it("reads accounts for every roster id, not just authenticated ones", async () => {
+    const h = harness({ providers: [factory, future] });
     const rows = await h.oauth.refresh();
-    expect(rows.map((row) => [row.providerId, row.accounts])).toEqual([
+    expect(rows.map((row) => [row.providerId, row.credentials])).toEqual([
       ["factory-droid", []], ["future-provider", []],
     ]);
-    expect(h.runCalls.map((call) => call.argv[1])).toEqual(["factory-droid"]);
+    expect(h.accountCalls).toEqual(["factory-droid", "future-provider"]);
     expect(h.oauth.hasModelAccount()).toBe(false);
-    h.setListRun(async () => "1. factory@example.com\n");
+    h.setAccounts((providerId) =>
+      providerId === "factory-droid" ? { accounts: [credential("factory@example.com", "factory-droid")] } : { accounts: [] },
+    );
     await h.oauth.refresh();
-    expect(h.oauth.statuses()[0].accounts).toEqual(["factory@example.com"]);
+    expect(h.oauth.statuses()[0].credentials).toEqual([credential("factory@example.com", "factory-droid")]);
+    expect(h.oauth.hasModelAccount()).toBe(true);
+  });
+
+  it("an alias roster row shows the credential omp stored under the canonical id (#779)", async () => {
+    const h = harness({ providers: [{ id: "openai-codex-device", name: "ChatGPT Device", available: true, authenticated: true }] });
+    h.setAccounts(() => ({ accounts: [credential("me@example.com", "openai-codex")] }));
+    const rows = await h.oauth.refresh();
+    expect(rows[0].providerId).toBe("openai-codex-device");
+    expect(rows[0].credentials[0].provider).toBe("openai-codex");
     expect(h.oauth.hasModelAccount()).toBe(true);
   });
 
   it("an unknown-to-omp-ui provider completes a browser/input flow before publishing its identity", async () => {
-    const h = harness({ providers: [future], listOutput: "1. future@example.com\n" });
+    const h = harness({ providers: [future] });
+    h.setAccounts(() => ({ accounts: [credential("future@example.com", "future-provider")] }));
     await h.oauth.refresh();
     h.oauth.start(future.id);
     await nextTick();
@@ -610,30 +670,35 @@ describe("discovered sign-ins", () => {
     await nextTick();
     await nextTick();
     expect(h.oauth.state.phase).toBe("done");
-    expect(h.oauth.statuses()[0].accounts).toEqual(["future@example.com"]);
-    expect(h.events.indexOf("run:token")).toBeLessThan(h.events.indexOf("state:done"));
-    expect(h.runCalls.some((call) => call.argv[1] === future.id)).toBe(true);
+    expect(h.oauth.statuses()[0].credentials).toEqual([credential("future@example.com", "future-provider")]);
+    expect(h.events.indexOf("accounts")).toBeLessThan(h.events.indexOf("state:done"));
+    expect(h.accountCalls).toContain(future.id);
     expect(() => h.oauth.start("unlisted")).toThrow();
   });
 
   it("signs Factory out through the discovered lookup and replaces its account snapshot", async () => {
-    const h = harness({ providers: [factory], listOutput: "1. factory@example.com\n" });
+    const h = harness({ providers: [factory] });
+    let signedOut = false;
+    h.setAccounts((providerId) =>
+      !signedOut && providerId === "factory-droid"
+        ? { accounts: [credential("factory@example.com", "factory-droid")] }
+        : { accounts: [] },
+    );
     await h.oauth.refresh();
-    h.setListRun(async ({ argv }) => {
-      if (argv[0] === "auth-broker") {
-        h.setProviders([{ ...factory, authenticated: false }]);
-        return "Logged out";
-      }
-      return null;
+    expect(h.oauth.hasModelAccount()).toBe(true);
+    h.setLogout(() => {
+      signedOut = true;
+      h.setProviders([{ ...factory, authenticated: false }]);
+      return { ok: true };
     });
-    const rows = await h.oauth.signOut(factory.id);
-    expect(rows[0].accounts).toEqual([]);
+    const result = await h.oauth.signOut(factory.id, 11);
+    expect(result.rows[0].credentials).toEqual([]);
     expect(h.oauth.hasModelAccount()).toBe(false);
-    expect(h.runCalls.some((call) => call.argv[0] === "auth-broker" && call.argv[2] === factory.id)).toBe(true);
+    expect(h.logoutCalls).toEqual([{ providerId: "factory-droid", credentialId: 11 }]);
   });
 
   it("retains same-binary discovery on failure but removes disappeared rows on a valid roster", async () => {
-    const h = harness({ providers: [factory], listOutput: "1. factory@example.com\n" });
+    const h = harness({ providers: [factory] });
     await h.oauth.refresh();
     h.setProviders(null);
     expect((await h.oauth.refresh())[0].providerId).toBe(factory.id);
@@ -657,29 +722,31 @@ describe("discovered sign-ins", () => {
 
   it("shares concurrent reads while preserving atomic account publication", async () => {
     const h = harness({ providers: [factory] });
-    const pending = deferred<string | null>();
-    h.setListRun(() => pending.promise);
+    h.setAccounts(() => ({ accounts: [credential("factory@example.com", "factory-droid")] }));
+    const finishAccounts = h.deferAccounts();
     const first = h.oauth.refresh();
     const second = h.oauth.refresh();
     await nextTick();
     expect(h.discoveryCount()).toBe(1);
     expect(h.oauth.statuses().some((row) => row.providerId === factory.id)).toBe(false);
-    pending.resolve("1. factory@example.com\n");
+    finishAccounts();
     const [a, b] = await Promise.all([first, second]);
     expect(a).toEqual(b);
-    expect(a[0].accounts).toEqual(["factory@example.com"]);
+    expect(a[0].credentials).toEqual([credential("factory@example.com", "factory-droid")]);
   });
 
-  it("a newer binary read wins over an old delayed account read", async () => {
+  it("a newer binary read wins over an old delayed read", async () => {
     const h = harness({ providers: [factory] });
-    const pending = deferred<string | null>();
-    h.setListRun(() => pending.promise);
+    h.setAccounts((providerId) =>
+      providerId === "factory-droid" ? { accounts: [credential("stale@example.com", "factory-droid")] } : { accounts: [] },
+    );
+    const finishOld = h.deferDiscovery();
     const older = h.oauth.refresh();
     await nextTick();
     h.setOmpPath("/new/omp");
     h.setProviders([future]);
     await h.oauth.refresh();
-    pending.resolve("1. stale@example.com\n");
+    finishOld([factory]);
     await older;
     expect(h.oauth.statuses().map((row) => row.providerId)).toEqual([future.id]);
     expect(h.oauth.hasModelAccount()).toBe(false);
@@ -688,6 +755,7 @@ describe("discovered sign-ins", () => {
   it("login completion drains the pre-login read then samples fresh accounts", async () => {
     const h = harness({ providers: [{ ...factory, authenticated: false }] });
     await h.oauth.refresh();
+    h.setAccounts(() => ({ accounts: [credential("before@example.com", "factory-droid")] }));
     const finishOld = h.deferDiscovery();
     const older = h.oauth.refresh();
     await nextTick();
@@ -696,17 +764,18 @@ describe("discovered sign-ins", () => {
     h.frame({ type: "response", command: "login", success: true });
     await nextTick();
     expect(h.oauth.state.phase).toBe("starting");
-    h.setListRun(async () => "1. fresh@example.com\n");
+    h.setAccounts(() => ({ accounts: [credential("fresh@example.com", "factory-droid")] }));
     finishOld([{ ...factory, authenticated: false }]);
     await older;
     await nextTick();
     expect(h.oauth.state.phase).toBe("done");
-    expect(h.oauth.statuses()[0].accounts).toEqual(["fresh@example.com"]);
+    expect(h.oauth.statuses()[0].credentials).toEqual([credential("fresh@example.com", "factory-droid")]);
     expect(h.discoveryCount()).toBe(3);
   });
 
   it("a superseded mutation refresh cannot publish done before a forced identity snapshot", async () => {
-    const h = harness({ providers: [{ ...factory, authenticated: false }], listOutput: "1. fresh@example.com\n" });
+    const h = harness({ providers: [{ ...factory, authenticated: false }] });
+    h.setAccounts(() => ({ accounts: [credential("fresh@example.com", "factory-droid")] }));
     await h.oauth.refresh();
     h.oauth.start(factory.id);
     await nextTick();
@@ -718,26 +787,38 @@ describe("discovered sign-ins", () => {
     const replacement = h.oauth.refresh();
     await nextTick();
     expect(h.oauth.state.phase).not.toBe("done");
-    expect(h.oauth.statuses()[0].accounts).toEqual([]);
     finishReplacement([{ ...factory, authenticated: false }]);
     await replacement;
     await nextTick();
     expect(h.oauth.state.phase).toBe("done");
-    expect(h.oauth.statuses()[0].accounts).toEqual(["fresh@example.com"]);
+    expect(h.oauth.statuses()[0].credentials).toEqual([credential("fresh@example.com", "factory-droid")]);
   });
 
   it("logout does not reuse an older account read", async () => {
-    const h = harness({ providers: [factory], listOutput: "1. before@example.com\n" });
+    const h = harness({ providers: [factory] });
+    let signedOut = false;
+    h.setAccounts((providerId) =>
+      !signedOut && providerId === "factory-droid"
+        ? { accounts: [credential("before@example.com", "factory-droid")] }
+        : { accounts: [] },
+    );
     await h.oauth.refresh();
+    expect(h.oauth.hasModelAccount()).toBe(true);
     const finishOld = h.deferDiscovery();
+    const finishAccounts = h.deferAccounts();
     const older = h.oauth.refresh();
     await nextTick();
-    const logout = h.oauth.signOut(factory.id);
-    await nextTick();
-    h.setProviders([{ ...factory, authenticated: false }]);
+    h.setLogout(() => {
+      signedOut = true;
+      h.setProviders([{ ...factory, authenticated: false }]);
+      return { ok: true };
+    });
+    const logout = h.oauth.signOut(factory.id, 11);
     finishOld([factory]);
+    await nextTick();
+    finishAccounts();
     await older;
-    expect((await logout)[0].accounts).toEqual([]);
+    expect((await logout).rows[0].credentials).toEqual([]);
     expect(h.oauth.hasModelAccount()).toBe(false);
   });
 

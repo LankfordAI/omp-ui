@@ -6,6 +6,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 - Explicit Obsidian Markdown links in native replies now show clickable note titles that open the exact file on the owning desktop. Browser and joined-instance viewers copy portable links instead; plain paths, wikilinks, and sandboxed HTML plans are unchanged. #781
 - Vault notes now file under a project folder suffixed with the git remote's owner (`omp-ui/ansible-austinm731/`), so two same-named repos owned by different accounts keep separate notes, Index notes, and wikilink namespaces in a vault Obsidian Sync carries across machines. Projects without a web-facing remote keep today's plain folder; existing folders are never renamed. #787
+- Provider sign-in rows now read stored credentials through omp's rpc `get_logout_accounts` and sign out through its `logout` verb instead of parsing `omp token --list` output, so the ChatGPT Device row reports the credential it actually shares with ChatGPT Plus/Pro — and signing out there removes it — instead of always showing **not signed in**. Binaries older than omp 18.7.0 say to update omp rather than claim no accounts. #779
 
 ## Choose a download
 

@@ -1,30 +1,15 @@
-import { runOmpOnce, type RunOmpOnceOptions } from "./omp-process";
+import { logoutCredential, readProviderAccounts } from "./provider-accounts";
 import { OAUTH_PROVIDER_SPECS, resolveOAuthProviderSpecs, type OAuthProviderSpec } from "./provider-catalog";
-import { readLoginProviders } from "./provider-login";
 import { RpcClient, type RpcSpawnFn } from "./rpc/client";
 import type { RpcFrame } from "./rpc/codec";
-import type { ProviderOAuthState, ProviderOAuthStatus } from "./types";
+import type { ProviderCredential, ProviderOAuthState, ProviderOAuthStatus, ProviderSignOutResult } from "./types";
 
-export type OmpOnceRunner = (opts: RunOmpOnceOptions) => Promise<string | null>;
-
-const LIST_TIMEOUT_MS = 10_000;
-const LOGOUT_TIMEOUT_MS = 10_000;
 /** omp's own rpc login handler gives the human 600 s per prompt; the whole flow gets the same. */
 export const OAUTH_FLOW_TIMEOUT_MS = 600_000;
 
 export const IDLE_PROVIDER_OAUTH_STATE: ProviderOAuthState = {
   providerId: null, phase: "idle", url: null, instructions: null, prompt: null, error: null,
 };
-
-/** `omp token <id> --list` prints `N. identity` per account; anything else is ignored. */
-export function parseOAuthAccountList(stdout: string): string[] {
-  const accounts: string[] = [];
-  for (const line of stdout.split("\n")) {
-    const m = /^\d+\. (.+)$/.exec(line.trim());
-    if (m) accounts.push(m[1]!);
-  }
-  return accounts;
-}
 
 export interface ProviderOAuthDeps {
   getOmpPath: () => string | null;
@@ -33,7 +18,6 @@ export interface ProviderOAuthDeps {
   send: (state: ProviderOAuthState) => void;
   /** Host-side browser launch for the open_url frame (desktop: openExternalSafe). */
   onOpenUrl?: (url: string) => void;
-  run?: OmpOnceRunner;
   spawnProcess?: RpcSpawnFn;
 }
 
@@ -46,14 +30,18 @@ interface ActiveFlow {
 }
 
 /**
- * Provider sign-ins, owned by MainBackend. Two responsibilities:
- * a discovered login catalog and cached OAuth account identities (read through `omp token
- * --list`, so no token ever reaches this process), and the one app-wide
- * sign-in flow, which drives omp's rpc `login` command in a bare rpc-ui child.
+ * Provider sign-ins, owned by MainBackend. Two responsibilities: a discovered
+ * login catalog and the stored credentials behind each row (read with omp's
+ * `get_logout_accounts` over one bare rpc child, so no token ever reaches this
+ * process), and the one app-wide sign-in flow, which drives omp's rpc `login`
+ * command in a bare rpc-ui child. Both account reads and sign-out (`logout`)
+ * resolve login aliases, so an alias row shows and removes the canonical
+ * credential (issue #779).
  */
 export class ProviderOAuth {
   #specs: readonly OAuthProviderSpec[] = OAUTH_PROVIDER_SPECS;
-  #accounts = new Map<string, string[]>();
+  #accounts = new Map<string, ProviderCredential[]>();
+  #accountsUnsupported = false;
   #catalogPath: string | null | undefined;
   #refreshGeneration = 0;
   #refreshFlight: { path: string | null; promise: Promise<ProviderOAuthStatus[]>; abort: AbortController } | null = null;
@@ -79,11 +67,12 @@ export class ProviderOAuth {
   statuses(): ProviderOAuthStatus[] {
     return this.#specs.map((spec) => ({
       id: spec.id, providerId: spec.providerId, label: spec.label, hint: spec.hint,
-      accounts: this.#accounts.get(spec.providerId) ?? [],
+      credentials: this.#accounts.get(spec.providerId) ?? [],
+      accountsUnsupported: this.#accountsUnsupported,
     }));
   }
 
-  /** OAuth identities, not discovery's broader authenticated flag, satisfy the existing spawn gate. */
+  /** Any stored credential, not discovery's broader authenticated flag, satisfies the existing spawn gate. */
   hasModelAccount(): boolean {
     for (const accounts of this.#accounts.values()) {
       if (accounts.length > 0) return true;
@@ -99,12 +88,12 @@ export class ProviderOAuth {
     return this.#beginRefresh(ompPath);
   }
 
-  #beginRefresh(ompPath: string | null, forceProvider?: string): Promise<ProviderOAuthStatus[]> {
+  #beginRefresh(ompPath: string | null): Promise<ProviderOAuthStatus[]> {
     this.#assertUsable();
     const generation = ++this.#refreshGeneration;
     this.#refreshFlight?.abort.abort();
     const abort = new AbortController();
-    const promise = this.#readSnapshot(ompPath, generation, abort.signal, forceProvider);
+    const promise = this.#readSnapshot(ompPath, generation, abort.signal);
     const flight = { path: ompPath, promise, abort };
     this.#refreshFlight = flight;
     const clear = (): void => {
@@ -118,51 +107,49 @@ export class ProviderOAuth {
     ompPath: string | null,
     generation: number,
     signal: AbortSignal,
-    forceProvider?: string,
   ): Promise<ProviderOAuthStatus[]> {
-    const providers = await readLoginProviders({
+    const read = await readProviderAccounts({
       ompPath, scratchDir: this.deps.scratchDir,
       spawnProcess: this.deps.spawnProcess, signal,
     });
     if (signal.aborted || generation !== this.#refreshGeneration) return this.statuses();
-    const specs = providers === null
-      ? (this.#catalogPath === ompPath ? this.#specs : OAUTH_PROVIDER_SPECS)
-      : resolveOAuthProviderSpecs(providers);
-    // First occurrence wins, just as it does in catalog resolution.
-    const authenticated = new Map<string, boolean>();
-    for (const provider of providers ?? []) {
-      if (!authenticated.has(provider.id)) authenticated.set(provider.id, provider.authenticated);
+    if (read === null) {
+      // Transport failure: a committed roster stays authoritative for its own
+      // binary (issue #721); otherwise answer from the static catalog.
+      if (!signal.aborted && generation === this.#refreshGeneration && !this.#disposed &&
+          (ompPath === null || this.#catalogPath !== ompPath)) {
+        this.#specs = OAUTH_PROVIDER_SPECS;
+        this.#accounts = new Map();
+        this.#accountsUnsupported = false;
+        this.#catalogPath = ompPath;
+      }
+      return this.statuses();
     }
-    const accounts = new Map<string, string[]>();
-    const run = this.deps.run ?? runOmpOnce;
-    for (const spec of specs) {
-      if (signal.aborted || generation !== this.#refreshGeneration) return this.statuses();
-      const shouldRead = providers === null || authenticated.get(spec.providerId) === true || spec.providerId === forceProvider;
-      const out = ompPath === null || !shouldRead
-        ? null
-        : await run({ ompPath, argv: ["token", spec.providerId, "--list"], timeout: LIST_TIMEOUT_MS });
-      accounts.set(spec.providerId, out === null ? [] : parseOAuthAccountList(out));
-    }
+    const specs = resolveOAuthProviderSpecs(read.providers);
     if (!signal.aborted && generation === this.#refreshGeneration && !this.#disposed) {
       this.#specs = specs;
-      this.#accounts = accounts;
-      this.#catalogPath = providers === null && this.#catalogPath !== ompPath ? undefined : ompPath;
+      this.#accounts = new Map(specs.map((spec) => [
+        spec.providerId,
+        read.ok ? read.accounts.get(spec.providerId) ?? [] : [],
+      ]));
+      this.#accountsUnsupported = !read.ok;
+      this.#catalogPath = ompPath;
     }
     return this.statuses();
   }
 
   /** Never share an account snapshot sampled before a credential mutation. */
-  async #refreshAfterMutation(forceProvider?: string): Promise<ProviderOAuthStatus[]> {
+  async #refreshAfterMutation(): Promise<ProviderOAuthStatus[]> {
     for (;;) {
       while (this.#refreshFlight !== null) {
         await this.#refreshFlight.promise.catch(() => undefined);
         this.#assertUsable();
       }
       const generation = this.#refreshGeneration + 1;
-      const rows = await this.#beginRefresh(this.deps.getOmpPath(), forceProvider);
+      const rows = await this.#beginRefresh(this.deps.getOmpPath());
       this.#assertUsable();
-      // A path switch may supersede this read. Drain its replacement before
-      // sampling again with the completed login's forced identity read.
+      // A path switch may supersede this read. Drain its replacement and
+      // sample again before returning.
       if (generation === this.#refreshGeneration) return rows;
     }
   }
@@ -224,18 +211,24 @@ export class ProviderOAuth {
     this.#publish(IDLE_PROVIDER_OAUTH_STATE);
   }
 
-  async signOut(id: string): Promise<ProviderOAuthStatus[]> {
+  /** Removes one stored credential via omp's rpc `logout`, then refreshes the rows. */
+  async signOut(id: string, credentialId: number): Promise<ProviderSignOutResult> {
     this.#assertUsable();
     const spec = this.#specs.find((entry) => entry.id === id);
     if (spec === undefined) throw new Error(`unknown sign-in provider: ${id}`);
     if (this.#flow !== null) throw new Error("finish or cancel the sign-in first");
     const ompPath = this.deps.getOmpPath();
     if (ompPath === null) throw new Error("omp binary not found");
-    const out = await (this.deps.run ?? runOmpOnce)({
-      ompPath, argv: ["auth-broker", "logout", spec.providerId], timeout: LOGOUT_TIMEOUT_MS,
+    const remainingSource = await logoutCredential({
+      ompPath, providerId: spec.providerId, credentialId,
+      scratchDir: this.deps.scratchDir, spawnProcess: this.deps.spawnProcess,
     });
-    if (out === null) throw new Error(`omp could not sign out of ${spec.label}`);
-    return this.#refreshAfterMutation();
+    // The credential is already gone when the refresh fails: report the
+    // snapshot main still holds rather than lose the mutation's result.
+    const rows: ProviderOAuthStatus[] = await this.#refreshAfterMutation().catch(
+      () => this.statuses(),
+    );
+    return { rows, remainingSource };
   }
 
   /** App teardown owns discovery as well as the human sign-in flow. */
@@ -287,7 +280,7 @@ export class ProviderOAuth {
         // in that window must not be clobbered by this completion, and a
         // failing read must surface as an error, not a stuck flow.
         const generation = this.#flowGeneration;
-        void this.#refreshAfterMutation(flow.providerId)
+        void this.#refreshAfterMutation()
           .then(() => {
             if (this.#flowGeneration === generation) {
               this.#publish({ ...this.#state, phase: "done", prompt: null });

@@ -219,7 +219,9 @@ function flowActive(flow: ProviderOAuthState): boolean {
  * One provider sign-in row plus, under it while its flow is live, the sign-in
  * panel: the browser phase (link omp opened) and, only if omp asks, the
  * pasted-redirect-URL input. The renderer never sees a token — the row shows
- * omp's own identity strings and the flow state is main's.
+ * omp's own stored credentials and the flow state is main's. One sign-out
+ * button per credential: a login alias row lists the same credential as its
+ * canonical row, and signing out from either removes it from both (#779).
  */
 function ProviderSignInRow({
   row,
@@ -235,14 +237,14 @@ function ProviderSignInRow({
   /** A flow is running somewhere (this row or another) — buttons disabled. */
   flowBusy: boolean;
   onSignIn: () => void;
-  onSignOut: () => void;
+  onSignOut: (credentialId: number) => void;
   onSubmit: (value: string) => void;
   onCancel: () => void;
 }) {
   const t = useT();
   const [draft, setDraft] = useState("");
   const input = useRef<HTMLInputElement>(null);
-  const signedIn = row.accounts.length > 0;
+  const signedIn = row.credentials.length > 0;
   const mine = flow.providerId === row.providerId;
 
   useEffect(() => {
@@ -270,23 +272,43 @@ function ProviderSignInRow({
             </span>
             {signedIn ? (
               <Chip tone="signal">{t("settings.providers.oauthSignedIn")}</Chip>
+            ) : row.accountsUnsupported ? (
+              <Chip>{t("settings.providers.oauthRequiresOmp")}</Chip>
             ) : (
               <Chip>{t("settings.providers.oauthNotSignedIn")}</Chip>
             )}
           </div>
-          <p className="mt-0.5 break-words font-mono text-[10px] text-ink-faint">
-            {signedIn ? row.accounts.join(", ") : row.hint}
-          </p>
+          {signedIn ? (
+            row.credentials.map((c) => (
+              <div key={c.credentialId}>
+                <p className="mt-0.5 break-words text-[10px] text-ink-faint">{c.label}</p>
+                <p className="break-words font-mono text-[10px] text-ink-faint">{c.detail}</p>
+                {c.provider !== row.providerId && (
+                  <p className="break-words font-mono text-[10px] text-ink-faint">
+                    {t("settings.providers.oauthStoredAs", { provider: c.provider })}
+                  </p>
+                )}
+              </div>
+            ))
+          ) : (
+            <p className="mt-0.5 break-words font-mono text-[10px] text-ink-faint">{row.hint}</p>
+          )}
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <Button size="xs" disabled={flowBusy} onClick={onSignIn}>
             {t("settings.providers.oauthSignIn")}
           </Button>
-          {signedIn && (
-            <Button size="xs" variant="ghost" disabled={flowBusy} onClick={onSignOut}>
+          {row.credentials.map((c) => (
+            <Button
+              key={c.credentialId}
+              size="xs"
+              variant="ghost"
+              disabled={flowBusy}
+              onClick={() => onSignOut(c.credentialId)}
+            >
               {t("settings.providers.oauthSignOut")}
             </Button>
-          )}
+          ))}
         </div>
       </div>
 
@@ -745,6 +767,10 @@ export function ProvidersPage({
   const [webSearch, setWebSearch] = useState<WebSearchLoad>({ status: "loading" });
   /** env name of the row with a write in flight; its controls stay disabled. */
   const [pendingEnv, setPendingEnv] = useState<string | null>(null);
+  /** the credential with a sign-out in flight; every subscription button waits. */
+  const [pendingSignOut, setPendingSignOut] = useState<{ rowId: string; credentialId: number } | null>(null);
+  /** omp's note that other auth still applies after a removal; null when nothing remains. */
+  const [stillAuthenticated, setStillAuthenticated] = useState<string | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
   const gen = useRef(0);
   const oauthGen = useRef(0);
@@ -770,6 +796,7 @@ export function ProvidersPage({
   useEffect(() => {
     const g = ++oauthGen.current;
     setOauth({ status: "loading" });
+    setStillAuthenticated(null);
     readProviderOAuth().then(
       (rows) => {
         if (g === oauthGen.current) setOauth({ status: "loaded", rows });
@@ -836,21 +863,38 @@ export function ProvidersPage({
   };
 
   const signIn = (id: string): void => {
+    setStillAuthenticated(null);
     void startProviderOAuth(id).catch((err: unknown) =>
       setWriteError(displayMessage(err)),
     );
   };
 
-  const signOut = (id: string): void => {
-    setPendingEnv(id);
-    signOutProviderOAuth(id).then(
-      (rows) => {
+  const signOut = (id: string, credentialId: number): void => {
+    setPendingSignOut({ rowId: id, credentialId });
+    setStillAuthenticated(null);
+    signOutProviderOAuth(id, credentialId).then(
+      (result) => {
         setWriteError(null);
         // The response carries the refreshed rows — no re-read.
-        setOauth({ status: "loaded", rows });
+        setOauth({ status: "loaded", rows: result.rows });
+        setStillAuthenticated(result.remainingSource);
       },
-      (err: unknown) => setWriteError(displayMessage(err)),
-    ).finally(() => setPendingEnv(null));
+      (err: unknown) => {
+        setWriteError(displayMessage(err));
+        // A failed logout usually means the list was stale: re-read through
+        // the same generation guard the page's own reads use.
+        const g = ++oauthGen.current;
+        readProviderOAuth().then(
+          (rows) => {
+            if (g === oauthGen.current) setOauth({ status: "loaded", rows });
+          },
+          (readErr: unknown) => {
+            if (g === oauthGen.current)
+              setOauth({ status: "error", message: displayMessage(readErr) });
+          },
+        );
+      },
+    ).finally(() => setPendingSignOut(null));
   };
 
   const submit = (value: string): void => {
@@ -870,7 +914,7 @@ export function ProvidersPage({
   const oauthRows = oauth.status === "loaded" ? oauth.rows : [];
   const configured = providers.filter((p) => p.source !== "none");
   const configuredCount =
-    configured.length + oauthRows.filter((r) => r.accounts.length > 0).length;
+    configured.length + oauthRows.filter((r) => r.credentials.length > 0).length;
   const totalCount = providers.length + oauthRows.length;
   // Unreadable saved entries never count as usable credentials.
   const unreadableCount = providers.filter(
@@ -982,15 +1026,21 @@ export function ProvidersPage({
                 key={row.id}
                 row={row}
                 flow={providerOAuth}
-                flowBusy={flowActive(providerOAuth) || pendingEnv !== null}
+                flowBusy={flowActive(providerOAuth) || pendingEnv !== null || pendingSignOut !== null}
                 onSignIn={() => signIn(row.id)}
-                onSignOut={() => signOut(row.id)}
+                onSignOut={(credentialId) => signOut(row.id, credentialId)}
                 onSubmit={submit}
                 onCancel={() => void cancelProviderOAuth()}
               />
             ))}
           </div>
         ) : null}
+        {stillAuthenticated !== null && (
+          <p className="break-words py-2.5 text-[11px] leading-relaxed text-ink-dim">
+            {t("settings.providers.oauthStillAuthenticated")}{" "}
+            <span className="font-mono">{stillAuthenticated}</span>
+          </p>
+        )}
       </div>
 
       {ompEntries.has(OMP_TELEMETRY_EXPORT_KEY) && (

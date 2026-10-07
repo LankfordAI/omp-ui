@@ -310,7 +310,7 @@ const mockBackend = {
   startProviderOAuth: vi.fn(async () => {}),
   submitProviderOAuthInput: vi.fn(async () => {}),
   cancelProviderOAuth: vi.fn(async () => {}),
-  signOutProviderOAuth: vi.fn(async (): Promise<never[]> => []),
+  signOutProviderOAuth: vi.fn(async () => ({ rows: [], remainingSource: null })),
   // Remote instances (issue #416): the proxy answers nothing until a case
   // arms it, and the four management calls simply resolve.
   addRemoteInstance: vi.fn(async () => {}),

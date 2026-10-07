@@ -228,7 +228,7 @@ const VALID_ARGS = {
   shellWrite: ["tab-1", "input"],
   showAppUpdateDownload: [],
   showPathInFolder: ["/tmp/file"],
-  signOutProviderOAuth: ["openai-codex"],
+  signOutProviderOAuth: ["openai-codex", 11],
   spawnSession: [spawnRequest],
   setSessionToolEnabled: ["tab-1", "proc-1", "sess-1", "web search", true],
   startProviderOAuth: ["openai-codex"],

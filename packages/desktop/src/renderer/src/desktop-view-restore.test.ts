@@ -144,7 +144,7 @@ const mockBackend = {
   startProviderOAuth: vi.fn(async () => {}),
   submitProviderOAuthInput: vi.fn(async () => {}),
   cancelProviderOAuth: vi.fn(async () => {}),
-  signOutProviderOAuth: vi.fn(async () => []),
+  signOutProviderOAuth: vi.fn(async () => ({ rows: [], remainingSource: null })),
 };
 Object.assign(window, { ompBackend: mockBackend });
 

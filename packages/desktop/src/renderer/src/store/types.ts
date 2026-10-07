@@ -30,6 +30,7 @@ import type {
   ProviderKeysSnapshot,
   ProviderOAuthState,
   ProviderOAuthStatus,
+  ProviderSignOutResult,
   RemoteBind,
   RemoteInstanceInput,
   RemoteInstancePatch,
@@ -541,7 +542,7 @@ export interface SettingsSlice {
   startProviderOAuth(id: string): Promise<void>;
   submitProviderOAuthInput(value: string): Promise<void>;
   cancelProviderOAuth(): Promise<void>;
-  signOutProviderOAuth(id: string): Promise<ProviderOAuthStatus[]>;
+  signOutProviderOAuth(id: string, credentialId: number): Promise<ProviderSignOutResult>;
 }
 
 export interface UpdatesSlice {
