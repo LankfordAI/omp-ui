@@ -22,7 +22,6 @@ import { ConsoleToggle } from "./ConsoleDrawer";
 import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { FastModeControl } from "./FastModeControl";
-import { SlowModeControl } from "./SlowModeControl";
 import { AdvisorRosterView } from "./AdvisorRoster";
 import { ApprovalModeControl } from "./ApprovalModeControl";
 import { GoalChip } from "./GoalChip";
@@ -891,14 +890,6 @@ function ModesPopover({
           <div className="mt-2">
             <FastModeControl tabId={tabId} layout="sheet" />
           </div>
-          {/* Slow mode (issue #777): the same always-reachable entry-point
-              rule as the fast row, gated on the runtime's support field so an
-              older omp or an unsupported model never shows a dead toggle. */}
-          {session?.slowModeSupported === true && (
-            <div className="mt-2">
-              <SlowModeControl tabId={tabId} layout="sheet" />
-            </div>
-          )}
           {/* Approval mode is always reachable here, like fast mode: the chip
               only marks a pinned session, so this row is the entry point for
               inherit and for un-pinning (issue #681). */}
@@ -1146,16 +1137,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
         className={compact ? "shrink-0" : "shrink-0 [app-region:no-drag]"}
       />
     );
-  // Slow mode (issue #777): quiet when off, mirroring the fastChip gating —
-  // the modes popover and the session-actions sheet carry the always-reachable
-  // toggle, gated on slowModeSupported.
-  const slowChip = session?.slowModeEnabled === true && (
-    <SlowModeControl
-      tabId={tabId}
-      disabled={status === "starting"}
-      className={compact ? "shrink-0" : "shrink-0 [app-region:no-drag]"}
-    />
-  );
   // Durable until the next full get_state reports usageLimit absent; the chip
   // is null outside both account stages (issue #777).
   const usageLimitChip = session?.usageLimit != null && (
@@ -1201,7 +1182,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {vibeChip}
           {autoresearchChip}
           {fastChip}
-          {slowChip}
           {approvalChip}
           <span className="min-w-0 flex-1" />
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
@@ -1247,11 +1227,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
               <div className="mt-2 rounded-md border border-line px-3">
                 <FastModeControl tabId={tabId} layout="sheet" />
               </div>
-              {session?.slowModeSupported === true && (
-                <div className="mt-2 rounded-md border border-line px-3">
-                  <SlowModeControl tabId={tabId} layout="sheet" />
-                </div>
-              )}
             </div>
           </div>
           <CompactModes tabId={tabId} autoRetry={autoRetry} onAutoRetry={updateAutoRetry} />
@@ -1282,7 +1257,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {vibeChip}
       {autoresearchChip}
       {fastChip}
-      {slowChip}
       {approvalChip}
       {/* Remote sessions retain the informational and finish-capable chip;
           only host-local open rows are suppressed (issue #435). */}

@@ -1059,9 +1059,6 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setInterruptMode(tabId: string, mode: string): Promise<void>;
   setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
   setFastMode(tabId: string, enabled: boolean): Promise<void>;
-  /** Toggles omp's slow mode (issue #777); the response's `enabled` is the
-   *  computed truth, followed by a get_state re-read for the stage chip. */
-  setSlowMode(tabId: string, enabled: boolean): Promise<void>;
   /** Starts omp's live voice session (issue #778); truth arrives as the
    *  `live_*` frames, the ack only settles start/stop/mute dispatch. */
   startLiveVoice(tabId: string): Promise<void>;

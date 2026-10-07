@@ -37,7 +37,6 @@ import { answerPendingQuestion, freeTextTarget } from "./ExtensionDialogHost";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
 import { ModelSelector } from "./ModelSelector";
 import { FastModeControl } from "./FastModeControl";
-import { SlowModeControl } from "./SlowModeControl";
 import { LiveVoiceControl } from "./LiveVoiceControl";
 import { LiveVoiceStrip } from "./LiveVoiceStrip";
 import { BuildPlanControl } from "./BuildPlanControl";
@@ -166,9 +165,6 @@ export function Composer({
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
   const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
   const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
-  // The runtime's own support field is the gate (issue #777): older omp and
-  // unsupported models report false/absent, so no control and no command.
-  const slowSupported = useStore((s) => s.rpc[tabId]?.session.slowModeSupported === true);
   // Live voice gates on the omp version (issue #778): 18.5.1 added the
   // live_* verbs, unknown version hides the feature.
   const liveSupported = useStore(
@@ -1142,10 +1138,6 @@ export function Composer({
 
             {(modelFastTier(currentModel) !== null || fastEnabled || fastActive) && (
               <FastModeControl tabId={tabId} disabled={unavailable} />
-            )}
-
-            {slowSupported && (
-              <SlowModeControl tabId={tabId} disabled={unavailable} />
             )}
 
             {liveSupported && (

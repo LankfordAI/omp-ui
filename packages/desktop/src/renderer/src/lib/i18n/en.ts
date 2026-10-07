@@ -1706,17 +1706,6 @@ export const en = {
   "hud.fast.tierUltrafast": "ultrafast",
   "hud.fast.tierUltrafastTitle": "ultrafast serving · click to set this tier",
   "hud.fast.ultraTitle": "fast mode active — ultrafast serving live · click to turn off",
-  // Session HUD slow mode (issue #777, omp ≥ 18.6.3): /slow's reduced-priority
-  // serving. The global pair names the persisted cross-session setting — a
-  // remote change emits no event, so the title says the value can lag.
-  "hud.slow.label": "slow",
-  "hud.slow.labelLong": "slow mode",
-  "hud.slow.off": "off",
-  "hud.slow.offGlobalTitle": "slow mode off — persisted global setting · click to enable (applies to every session)",
-  "hud.slow.offTitle": "slow mode off · click to enable reduced-priority serving",
-  "hud.slow.on": "on",
-  "hud.slow.onGlobalTitle": "slow mode active — persisted global setting shared across sessions · click to turn off",
-  "hud.slow.onTitle": "slow mode active — served at reduced priority · click to turn off",
   // The get_state usageLimit account stage (issue #777): durable until the
   // next full get_state reports the field absent, unlike the turn-scoped
   // quota chip (#673).
