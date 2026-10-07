@@ -6834,6 +6834,23 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
       });
     });
 
+    it.each(["user", "assistant"] as const)("arms the %s-voice sentence from the setting", async (voice) => {
+      const { manager, registry } = setup({ mode: "rpc-ui", knowledgeHome: { home: "vault" } });
+      registry.setSetting("vaultRegistry", { vaults: [NOTES], defaultWriteVault: "Notes" });
+      registry.setSetting("vaultNoteVoice", voice);
+      await resume(manager);
+      const options = RpcClientMock.mock.calls.at(-1)?.[0];
+      const arms = knowledgeArms(options?.initialCommands as Array<Record<string, unknown>> | undefined);
+      expect(arms).toHaveLength(1);
+      const message = String(arms[0]!["message"]);
+      expect(message).toContain(
+        voice === "user" ? "the user's own voice" : "your own voice as the user's assistant",
+      );
+      expect(message).not.toContain(
+        voice === "user" ? "your own voice as the user's assistant" : "the user's own voice",
+      );
+    });
+
     it("sends no guidance for an empty vault registry", async () => {
       const { manager, registry } = setup({ mode: "rpc-ui", knowledgeHome: { home: "vault" } });
       registry.setSetting("vaultRegistry", { vaults: [], defaultWriteVault: null });

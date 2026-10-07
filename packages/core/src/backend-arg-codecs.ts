@@ -26,6 +26,7 @@ import type {
   SttTranscribeRequest,
   TranscriptWidth,
   UpdateTrain,
+  VaultNoteVoice,
   WorktreeReleaseOptions,
   WatchdogAdvisorEntry,
   WatchdogDocument,
@@ -196,6 +197,8 @@ export const remoteBindCodec: ArgCodec<RemoteBind> = oneOf("localhost", "lan");
 /** The omp collab access levels (issue #686). */
 export const collabAccessCodec: ArgCodec<"full" | "view"> = oneOf("full", "view");
 export const updateTrainCodec: ArgCodec<UpdateTrain> = oneOf("stable", "nightly");
+
+export const vaultNoteVoiceCodec: ArgCodec<VaultNoteVoice> = oneOf("user", "assistant");
 
 export const remoteInstanceSecretCodec: ArgCodec<RemoteInstanceInput["secret"]> = {
   expected: "a { kind: password | token, value } secret",

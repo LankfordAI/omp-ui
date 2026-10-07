@@ -1537,6 +1537,7 @@ export class MainBackend {
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),
       appUpdateTrain: this.registry.getSetting("appUpdateTrain"),
       vaultRegistry: this.registry.getSetting("vaultRegistry"),
+      vaultNoteVoice: this.registry.getSetting("vaultNoteVoice"),
       ompUpdateCheckOnLaunch: this.registry.getSetting("ompUpdateCheckOnLaunch"),
       dismissedAppUpdateVersion: this.registry.getSetting("dismissedAppUpdateVersion"),
       dismissedOmpUpdateVersion: this.registry.getSetting("dismissedOmpUpdateVersion"),

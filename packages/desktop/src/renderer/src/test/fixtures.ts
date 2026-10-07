@@ -34,6 +34,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     appUpdateCheckOnLaunch: true,
     appUpdateTrain: "stable",
     vaultRegistry: { vaults: [], defaultWriteVault: null },
+    vaultNoteVoice: "user",
     ompUpdateCheckOnLaunch: true,
     dismissedAppUpdateVersion: null,
     dismissedOmpUpdateVersion: null,

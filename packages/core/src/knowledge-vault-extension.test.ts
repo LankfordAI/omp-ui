@@ -149,22 +149,34 @@ describe("writeKnowledgeVaultExtension", () => {
 
 describe("knowledgeVaultGuidance", () => {
   it("is null when nothing touches a vault and there is no day part", () => {
-    expect(knowledgeVaultGuidance({ write: null, dayWriteUp: false })).toBeNull();
+    expect(knowledgeVaultGuidance({ write: null, dayWriteUp: false, voice: "user" })).toBeNull();
   });
 
   it("fits the arm command's cap at its longest", () => {
-    const guidance = knowledgeVaultGuidance({ write: { vault: "V".repeat(255), both: true }, dayWriteUp: true })!;
+    const guidance = knowledgeVaultGuidance({
+      write: { vault: "V".repeat(255), both: true },
+      dayWriteUp: true,
+      voice: "user",
+    })!;
     expect(guidance.length).toBeLessThanOrEqual(KNOWLEDGE_VAULT_TEXT_MAX);
+  });
+
+  it("speaks on the user's behalf by default and as the assistant when chosen", () => {
+    const user = knowledgeVaultGuidance({ write: { vault: "Notes", both: false }, dayWriteUp: false, voice: "user" })!;
+    expect(user).toContain("the user's own voice");
+    const assistant = knowledgeVaultGuidance({ write: null, dayWriteUp: true, voice: "assistant" })!;
+    expect(assistant).toContain("your own voice");
+    expect(assistant).not.toContain("the user's own voice");
   });
 });
 
 describe("guidance delivery", () => {
   it.each([
-    { write: { vault: "Notes", both: false }, dayWriteUp: false },
-    { write: { vault: "Notes", both: true }, dayWriteUp: false },
-    { write: null, dayWriteUp: true },
-    { write: { vault: "Notes", both: false }, dayWriteUp: true },
-    { write: { vault: "Notes", both: true }, dayWriteUp: true },
+    { write: { vault: "Notes", both: false }, dayWriteUp: false, voice: "user" as const },
+    { write: { vault: "Notes", both: true }, dayWriteUp: false, voice: "user" as const },
+    { write: null, dayWriteUp: true, voice: "user" as const },
+    { write: { vault: "Notes", both: false }, dayWriteUp: true, voice: "assistant" as const },
+    { write: { vault: "Notes", both: true }, dayWriteUp: true, voice: "user" as const },
   ])("delivers generated guidance unchanged for %j", async (input) => {
     const guidance = knowledgeVaultGuidance(input)!;
     expect(guidance).not.toBeNull();
@@ -208,7 +220,7 @@ describe("guidance delivery", () => {
     async (event) => {
       const h = harness();
       await bound(h);
-      const guidance = knowledgeVaultGuidance({ write: null, dayWriteUp: true })!;
+      const guidance = knowledgeVaultGuidance({ write: null, dayWriteUp: true, voice: "user" })!;
       await h.invoke(setArgs(guidance));
       await h.fire(event);
       expect(h.sent.map((s) => s.msg.content)).toEqual([guidance, guidance]);

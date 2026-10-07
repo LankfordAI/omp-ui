@@ -98,6 +98,7 @@ describe("SETTINGS", () => {
       "appUpdateCheckOnLaunch",
       "appUpdateTrain",
       "vaultRegistry",
+      "vaultNoteVoice",
       "ompUpdateCheckOnLaunch",
       "remoteEnabled",
       "remoteBind",
@@ -281,6 +282,7 @@ describe("Registry.load", () => {
           appUpdateCheckOnLaunch: "yes",
           appUpdateTrain: "canary",
           vaultRegistry: "nope",
+          vaultNoteVoice: 0,
           ompUpdateCheckOnLaunch: 0,
           remoteEnabled: "no",
           remoteBind: "public",
@@ -312,6 +314,7 @@ describe("Registry.load", () => {
     expect(reg.getSetting("appUpdateCheckOnLaunch")).toBe(true);
     expect(reg.getSetting("appUpdateTrain")).toBe("stable");
     expect(reg.getSetting("vaultRegistry")).toEqual({ vaults: [], defaultWriteVault: null });
+    expect(reg.getSetting("vaultNoteVoice")).toBe("user");
     expect(reg.getSetting("ompUpdateCheckOnLaunch")).toBe(true);
     expect(reg.getSetting("remoteEnabled")).toBe(false);
     expect(reg.getSetting("remoteBind")).toBe("localhost");
@@ -649,6 +652,7 @@ describe("Registry persistence", () => {
     expect(reg.getSetting("appUpdateCheckOnLaunch")).toBe(true);
     expect(reg.getSetting("appUpdateTrain")).toBe("stable");
     expect(reg.getSetting("ompUpdateCheckOnLaunch")).toBe(true);
+    expect(reg.getSetting("vaultNoteVoice")).toBe("user");
     expect(reg.getSetting("gettingStartedSeen")).toBe(false);
   });
 
@@ -659,6 +663,7 @@ describe("Registry persistence", () => {
     reg.setSetting("localeId", "ko");
     reg.setSetting("appUpdateCheckOnLaunch", false);
     reg.setSetting("appUpdateTrain", "nightly");
+    reg.setSetting("vaultNoteVoice", "assistant");
     reg.setSetting("ompUpdateCheckOnLaunch", false);
     reg.setSetting("gettingStartedSeen", true);
 
@@ -667,6 +672,7 @@ describe("Registry persistence", () => {
     expect(reloaded.getSetting("localeId")).toBe("ko");
     expect(reloaded.getSetting("appUpdateCheckOnLaunch")).toBe(false);
     expect(reloaded.getSetting("appUpdateTrain")).toBe("nightly");
+    expect(reloaded.getSetting("vaultNoteVoice")).toBe("assistant");
     expect(reloaded.getSetting("ompUpdateCheckOnLaunch")).toBe(false);
     expect(reloaded.getSetting("gettingStartedSeen")).toBe(true);
   });
@@ -707,6 +713,7 @@ describe("Registry persistence", () => {
       ["localeId", (registry) => registry.setSetting("localeId", "en")],
       ["appUpdateCheckOnLaunch", (registry) => registry.setSetting("appUpdateCheckOnLaunch", true)],
       ["appUpdateTrain", (registry) => registry.setSetting("appUpdateTrain", "stable")],
+      ["vaultNoteVoice", (registry) => registry.setSetting("vaultNoteVoice", "user")],
       ["ompUpdateCheckOnLaunch", (registry) => registry.setSetting("ompUpdateCheckOnLaunch", true)],
       ["remoteEnabled", (registry) => registry.setSetting("remoteEnabled", false)],
       ["remoteBind", (registry) => registry.setSetting("remoteBind", "localhost")],

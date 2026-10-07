@@ -224,6 +224,15 @@ describe("settings:setAppUpdateTrain (issue #493)", () => {
   });
 });
 
+describe("settings:setVaultNoteVoice (issue #793)", () => {
+  it("replies, writes the registry, and broadcasts once", async () => {
+    await expect(invoke(CH.setVaultNoteVoice, "assistant")).resolves.toBeUndefined();
+    expect(Registry.load(path.join(base, "registry.json")).getSetting("vaultNoteVoice")).toBe("assistant");
+    expect(broadcastStates()).toHaveLength(1);
+    expect(broadcastStates()[0]?.vaultNoteVoice).toBe("assistant");
+  });
+});
+
 describe("ordered backend broadcasts (issue #146)", () => {
   it("finishes an older state build and delivery before starting the next one", async () => {
     const firstReadStarted = deferred<void>();

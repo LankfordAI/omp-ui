@@ -1092,6 +1092,9 @@ export interface VaultRegistry {
   defaultWriteVault: string | null;
 }
 
+/** Whose voice the agent uses in vault note bodies (#793). */
+export type VaultNoteVoice = "user" | "assistant";
+
 export type VaultRowStatus = "ok" | "no-obsidian-dir" | "missing" | "refused-root";
 export interface ObsidianListEntry { id: string; path: string; open: boolean }
 export interface VaultDetection {

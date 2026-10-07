@@ -39,6 +39,7 @@ import type {
   SttModelSnapshot,
   TranscriptWidth,
   UpdateTrain,
+  VaultNoteVoice,
   WorktreeReleaseOptions,
   WorktreeReleaseResult,
   WebSearchProviderSnapshot,
@@ -509,6 +510,8 @@ export interface SettingsSlice {
   setLocaleId(id: string): Promise<void>;
   setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;
   setAppUpdateTrain(train: UpdateTrain): Promise<void>;
+  /** Voice vault note bodies take (#793); reaches sessions started afterwards. */
+  setVaultNoteVoice(voice: VaultNoteVoice): Promise<void>;
   /** Knowledge vault registry (issue #764); always the local backend, which on a web client is the host's (#759). Rejects so the picker shows the refusal inline. */
   addVault(path: string): Promise<void>;
   /** Null after a reported failure. */

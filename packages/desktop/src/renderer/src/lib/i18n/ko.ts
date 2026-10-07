@@ -992,6 +992,11 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.vault.open": "열림",
   "settings.vault.importConfirm": "가져오기",
   "settings.vault.importCancel": "취소",
+  "settings.vault.noteVoice": "노트 화자",
+  "settings.vault.noteVoiceUser": "내 대신 (1인칭)",
+  "settings.vault.noteVoiceAssistant": "어시스턴트로서",
+  "settings.vault.noteVoiceHint":
+    "어시스턴트가 볼트 노트 본문에 사용하는 화자입니다. 이후 시작하는 세션부터 적용됩니다.",
 
   "settings.omp.reading": "omp 설정 읽는 중…",
   "settings.omp.readingHint": "값, layer, enum member는 omp의 config CLI에서 가져옵니다.",

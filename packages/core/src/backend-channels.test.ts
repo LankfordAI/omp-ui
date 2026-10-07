@@ -257,6 +257,7 @@ const VALID_ARGS = {
   setDefaultWriteVault: ["Vault"],
   setVaultHomeFolder: ["Vault", "omp-ui/"],
   setVaultWritesOutsideHome: ["Vault", true],
+  setVaultNoteVoice: ["assistant"],
   openVault: ["Vault", null],
   vaultNames: [],
 } satisfies { [Method in InboundMethod]: MethodArgs<Method> };
@@ -401,6 +402,7 @@ describe("transport dispatch", () => {
     [CH.setSessionSubagentModels, ["tab-1", { scout: "bad selector" }], "argument 1"],
     [CH.openVault, ["Vault", 7], "argument 1"],
     [CH.setVaultWritesOutsideHome, ["Vault", "yes"], "argument 1"],
+    [CH.setVaultNoteVoice, ["delegate"], "argument 0"],
     [CH.importVaults, ["id"], "argument 0"],
     [CH.setProjectKnowledgeHome, ["/project", { home: "docs", vault: "" }], "argument 1.vault"],
     [CH.setProjectKnowledgeHome, ["/project", { home: "repo" }], "argument 1.home"],

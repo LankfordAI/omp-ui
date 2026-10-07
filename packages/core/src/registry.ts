@@ -24,6 +24,7 @@ import type {
   ServiceTier,
   UpdateTrain,
   TranscriptWidth,
+  VaultNoteVoice,
   VaultRegistry,
 } from "./types";
 
@@ -100,6 +101,8 @@ export interface RegistrySettings {
   appUpdateTrain: UpdateTrain;
   /** Knowledge vault registry (CONTEXT.md "Vault registry", #764). */
   vaultRegistry: VaultRegistry;
+  /** Voice the agent uses for vault note bodies (#793); default user. */
+  vaultNoteVoice: VaultNoteVoice;
   /** Check for a newer omp binary at launch. */
   ompUpdateCheckOnLaunch: boolean;
   /** Embedded remote-access server: off by default (issue #37). */
@@ -312,6 +315,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is UpdateTrain => value === "nightly",
   ),
   vaultRegistry: { fallback: () => ({ vaults: [], defaultWriteVault: null }), parse: parseVaultRegistry },
+  vaultNoteVoice: validatedSetting<VaultNoteVoice>(
+    () => "user",
+    (value): value is VaultNoteVoice => value === "assistant",
+  ),
   ompUpdateCheckOnLaunch: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",
