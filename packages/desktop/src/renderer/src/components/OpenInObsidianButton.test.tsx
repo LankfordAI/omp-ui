@@ -2,12 +2,13 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as RendererBackend from "../backend";
 import { t } from "../lib/i18n";
 import { backendState, remoteOwnedState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
-const mocks = vi.hoisted(() => ({ electron: false }));
+const mocks = vi.hoisted(() => ({ electron: false, webTransport: false }));
 
 vi.mock("../lib/platform", () => ({
   get IS_ELECTRON() {
@@ -16,6 +17,16 @@ vi.mock("../lib/platform", () => ({
   IS_MAC: false,
   IS_WINDOWS: false,
 }));
+
+vi.mock("../backend", async (importOriginal) => {
+  const actual = await importOriginal<typeof RendererBackend>();
+  return {
+    ...actual,
+    get desktopPaneMedia() {
+      return mocks.webTransport ? null : actual.desktopPaneMedia;
+    },
+  };
+});
 
 Object.assign(window, { ompBackend: {} });
 // Dynamic imports are required because store.ts captures window.ompBackend at module evaluation.
@@ -45,6 +56,7 @@ async function click(button: HTMLButtonElement): Promise<void> {
 
 beforeEach(() => {
   mocks.electron = false;
+  mocks.webTransport = false;
   vi.clearAllMocks();
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
   useStore.setState({ state: backendState(), openVault });
@@ -68,6 +80,18 @@ describe("OpenInObsidianButton", () => {
 
     expect(openVault).toHaveBeenCalledWith("Notes", "omp-ui/Foo.md");
     expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("copies in an Electron-hosted browser pane: web transport, no preload (#782)", async () => {
+    mocks.electron = true;
+    mocks.webTransport = true;
+    const button = render();
+    expect(button.title).toBe(t("transcript.vault.copyTitle"));
+
+    await click(button);
+
+    expect(openVault).not.toHaveBeenCalled();
+    expect(writeText).toHaveBeenCalledWith("obsidian://open?vault=Notes&file=omp-ui%2FFoo");
   });
 
   it("copies when no obsidian:// handler is registered", async () => {

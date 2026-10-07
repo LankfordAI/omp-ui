@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.20.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.20.2). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Vault actions on a web client — including one rendered inside another instance's Electron **Browser pane** — decide open-vs-copy from the preload transport, not the user agent, so a pane viewer copies the note's `obsidian://` link instead of launching Obsidian on the host (#782).
+
+Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
