@@ -67,9 +67,11 @@ function useObsidianAction(vaultName: string, file: string | null, mode: "open" 
 }
 
 /**
- * "Open in Obsidian" (issue #764). Open mode needs the Electron shell, a local
- * owner and an obsidian:// handler: it sends the registry name and the
- * vault-relative note to main, which resolves both and builds the URI. Anything
+ * "Open in Obsidian" (issue #764). Open mode needs the Electron shell's preload
+ * transport — a shared Electron user agent alone misreads a viewer inside an
+ * Electron browser pane (#782) — a local owner and an obsidian:// handler: it
+ * sends the registry name and the vault-relative note to main, which resolves
+ * both and builds the URI. Anything
  * else is copy mode: a basename-keyed obsidian:// link goes to the clipboard
  * for a machine that has this vault (#759), never opened here. When the
  * clipboard refuses, the link shows inline in a selectable mono line instead;
@@ -95,7 +97,8 @@ export function OpenInObsidianButton({
 }) {
   const t = useT();
   const local = useStore((s) => tabId === undefined || findOwner(s.state, tabId)?.instanceId == null);
-  const mode = IS_ELECTRON && local && uriHandler !== false ? "open" : "copy";
+  // An Electron-hosted browser viewer still has an Electron UA, but no preload transport (#782).
+  const mode = IS_ELECTRON && desktopPaneMedia !== null && local && uriHandler !== false ? "open" : "copy";
   const { activate, copied, failedUri } = useObsidianAction(vaultName, file, mode);
 
   if (iconOnly) {
