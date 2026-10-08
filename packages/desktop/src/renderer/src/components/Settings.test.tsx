@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateState,
   JudgeModelSnapshot,
+  ModelCatalogSnapshot,
   MemoryOverview,
   OmpSettingValue,
   OmpSettingsSnapshot,
@@ -154,6 +155,11 @@ const backendMock = {
   readWebSearchProviders: vi.fn(async () => emptyWebSearchProviders),
   readSttModels: vi.fn(async () => ({ models: [], discovered: true, error: null })),
   readJudgeModels: vi.fn(async (): Promise<JudgeModelSnapshot> => ({
+    models: [],
+    discovered: true,
+    error: null,
+  })),
+  readChatModels: vi.fn(async (): Promise<ModelCatalogSnapshot> => ({
     models: [],
     discovered: true,
     error: null,
@@ -2261,8 +2267,11 @@ describe("Settings omp page judge role row (issue #669)", () => {
   ];
 
   async function openBrowse(): Promise<void> {
+    // Chat rows carry their own browse… buttons now (#797); the judge row's
+    // is the one beside its own field.
+    const browse = judgeField().parentElement!.querySelector<HTMLButtonElement>("button")!;
     await act(async () => {
-      click(buttonWithText("browse…")!);
+      click(browse);
     });
   }
 

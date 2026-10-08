@@ -17,6 +17,7 @@ import type {
   BranchListOptions,
   ImageAttachment,
   JudgeModelSnapshot,
+  ModelCatalogSnapshot,
   KnowledgeHome,
   LiveState,
   MergeBackResult,
@@ -548,6 +549,8 @@ export interface SettingsSlice {
   readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
   /** The installed omp's judge-kind catalog for the judge role row (issue #669). */
   readJudgeModels(): Promise<JudgeModelSnapshot>;
+  /** The installed omp's chat-kind catalog for the model-role browse picker (#797). */
+  readChatModels(): Promise<ModelCatalogSnapshot>;
   setProviderKey(
     projectCwd: string | null,
     envName: string,
