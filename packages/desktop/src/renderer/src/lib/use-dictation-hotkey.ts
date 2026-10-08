@@ -13,8 +13,19 @@ export const DICTATION_HOTKEY_KEY = "r";
  * guards; and registering bare `r` there would make `isAppHotkey` claim it and
  * steal the letter from the browser pane (issue #519). The suppression rules
  * (typing-target check, composition guard) are reused from hotkeys.ts.
+ *
+ * `suppressed` parks the listener while omp's native live voice holds the
+ * microphone (issue #805): the capture path would fail on `getUserMedia` and
+ * no affordance would signal the conflict — the mic is replaced by the live
+ * capsule there, or disabled in the transient gate-drop case. Pass the live
+ * session state, never the version gate: push-to-talk stays alive whenever
+ * the microphone is free.
  */
-export function useDictationHotkey(tabId: string, voice: Dictation): void {
+export function useDictationHotkey(
+  tabId: string,
+  voice: Dictation,
+  suppressed = false,
+): void {
   const enabled = useStore(
     (s) =>
       s.activeTabId === tabId &&
@@ -23,9 +34,10 @@ export function useDictationHotkey(tabId: string, voice: Dictation): void {
   );
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
+  const active = enabled && !suppressed;
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!active) return;
     const isVoicePhase = (p: string): boolean => p === "recording" || p === "requesting";
     const bareR = (e: KeyboardEvent): boolean =>
       !e.repeat &&
@@ -74,5 +86,5 @@ export function useDictationHotkey(tabId: string, voice: Dictation): void {
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
     };
-  }, [enabled]);
+  }, [active]);
 }

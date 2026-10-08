@@ -1006,6 +1006,56 @@ describe("Composer dictation (issue #647)", () => {
     expect(micButton()).toBeDefined();
     expect(stopButton()).toBeUndefined();
   });
+
+  /** Flips the shell out of compact so the desktop action row renders. */
+  function desktopRow(): void {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  }
+
+  function seedLiveCapable(live: RpcTabState["live"] = null): void {
+    useStore.setState((s) => ({
+      rpc: {
+        ...s.rpc,
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          capabilities: { ...gateSnapshot([]), ompVersion: "18.5.1" },
+          live,
+        },
+      },
+    }));
+  }
+
+  it("native live support replaces the mic with the live capsule in the mic's slot (#805)", () => {
+    desktopRow();
+    seed("ready");
+    enableVoice();
+    seedLiveCapable();
+    renderComposer();
+    expect(micButton()).toBeUndefined();
+    expect(
+      [...document.body.querySelectorAll<HTMLButtonElement>("button")].some(
+        (b) => b.getAttribute("aria-label") === "start live voice",
+      ),
+    ).toBe(true);
+  });
+
+  it("push-to-talk r opens no capture while a live session holds the microphone (#805)", async () => {
+    seed("ready");
+    enableVoice();
+    seedLiveCapable({ ended: false, phase: "listening", levels: null, turns: [], error: null });
+    renderComposer();
+    unfocus();
+    pushKey(document.body, "keydown");
+    await settle();
+    expect(getUserMediaMock).not.toHaveBeenCalled();
+    expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
+    pushKey(document.body, "keyup");
+    await settle();
+    expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
+  });
 });
 
 describe("Composer focus treatment", () => {
