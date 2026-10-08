@@ -4,7 +4,11 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.21.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.21.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Every model-role row on Settings → omp gains a browse control that opens the chat model catalog, so a role's model is picked from the list omp reports rather than typed; picking the omp-default row clears the role. Pointing `tiny` at a working model rescues auto-titling for sessions whose own model rejects omp's title fork. #797
+- Closing the console drawer hands the caret to the tab's composer instead of leaving it on the page body; a close started from a control outside the drawer leaves focus wherever the user put it. #798
+- An approved html plan quoted into the implementation session renders in the plan viewer instead of as raw HTML source, and the fenced seed means prose inside the document can no longer arm a magic keyword the user never staged. #799
+
+Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
