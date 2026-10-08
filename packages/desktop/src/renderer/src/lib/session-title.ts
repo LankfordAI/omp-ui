@@ -18,6 +18,12 @@
  * What stays here is the omp-ui gates that decide whether a dispatch is
  * worth spending.
  *
+ * Live voice is the third route (issue #803): omp's live controller hands the
+ * spoken request over as an agent-attributed `live-delegation` custom
+ * message, which no send path arms and omp's digest skips. The reducer arms
+ * it in the renderer that started live voice and holds the shot for the
+ * first assistant `message_end` that carries text or thinking.
+ *
  * A title omp-ui writes itself with `set_session_name` lands with source
  * `"user"`, and omp (verified in 18.0.4) refuses every later `"auto"` title
  * once one exists. Hence the untitled-record check in `setInitialPrompt`:

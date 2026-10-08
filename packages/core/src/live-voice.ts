@@ -45,6 +45,15 @@ export interface LiveSnapshot {
   error: string | null;
 }
 
+/**
+ * The custom message type omp's live controller hands a spoken request to the
+ * agent with: `sendCustomMessage({ customType: "live-delegation", content,
+ * display: true, attribution: "agent" }, { triggerTurn: true })` (omp 18.8.5
+ * `live/controller.ts`, exported there as LIVE_DELEGATION_MESSAGE_TYPE). It is
+ * not a user prompt, so no send path arms Auto-title for it (issue #803).
+ */
+export const LIVE_DELEGATION_CUSTOM_TYPE = "live-delegation";
+
 const LIVE_PHASES: readonly LivePhase[] = [
   "connecting",
   "listening",

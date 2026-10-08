@@ -112,6 +112,20 @@ export interface TabRuntime {
   wordPredictionUnsupported?: boolean;
   /** Epoch ms before which `predict_word` is not re-sent after a failure (#715). */
   wordPredictionRetryAt?: number;
+  /**
+   * This renderer's `live_start` succeeded on the current process (issue #803).
+   * Only the renderer that started live voice arms Auto-title from a live
+   * voice delegation, so a second client viewing the same tab never sends a
+   * duplicate `/rename`. Not cleared at `live_end` — a delegation queued as a
+   * steer can be admitted after live voice stops; a reboot rebuilds the runtime.
+   */
+  liveVoiceOwner?: boolean;
+  /**
+   * A live voice delegation armed Auto-title; the shot waits for the first
+   * assistant `message_end` whose text or thinking omp's title digest can
+   * read (issue #803). Cleared when it fires and at `agent_end`.
+   */
+  delegatedTitlePending?: boolean;
 }
 
 export interface StoreMachinery {

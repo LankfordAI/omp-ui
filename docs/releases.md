@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.21.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.21.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- A native session started from live voice now gets its Auto-title within seconds of the agent's first reply instead of staying "New session"; only the window or browser that started live voice sends the rename. #803
+
+Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 

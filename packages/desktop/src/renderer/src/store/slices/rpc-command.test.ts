@@ -1366,6 +1366,185 @@ describe("auto-titling dispatch (issue #788)", () => {
     warn.mockRestore();
   });
 });
+
+describe("live voice Auto-title (issue #803)", () => {
+  beforeEach(() => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: {
+        [h.TAB]: rpcTabState({
+          status: "running",
+          capabilities: { ompVersion: "18.8.5" } as unknown as CapabilitySnapshot,
+        }),
+      },
+    });
+    h.sent.length = 0;
+  });
+
+  /** Starts live voice the way the composer does: dispatch `live_start`,
+   *  ack it, and leave the log empty so the rename assertions below see
+   *  only the frames the case feeds. */
+  const startLive = async (): Promise<void> => {
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    const cmd = h.sent.find((s) => s.cmd.type === "live_start")!.cmd;
+    h.respond(h.TAB, cmd, {});
+    await starting;
+    h.sent.length = 0;
+  };
+
+  /** omp's live voice request arrives as a `live-delegation` custom
+   *  message, never a user prompt (issue #803). */
+  const delegate = (text: string): void => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "message_start",
+      message: {
+        role: "custom",
+        customType: "live-delegation",
+        display: true,
+        attribution: "agent",
+        content: text,
+      },
+    });
+  };
+
+  const assistantEnd = (content: unknown): void => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "message_end",
+      message: { role: "assistant", content, stopReason: "toolUse" },
+    });
+  };
+
+  const renames = (): Array<Record<string, unknown>> =>
+    h.sent.filter(
+      (s) =>
+        s.cmd.type === "set_session_name" ||
+        (s.cmd.type === "prompt" && String(s.cmd.message).startsWith("/rename")),
+    );
+
+  it("titles a voice-started session at the first readable assistant reply", async () => {
+    await startLive();
+    delegate("Add a CSV export button to the reports page");
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe(
+      "Add a CSV export button to the reports page",
+    );
+    expect(renames()).toHaveLength(0);
+
+    // Tool calls alone are invisible to omp's title digest: no shot yet.
+    assistantEnd([{ type: "toolCall", name: "read", args: { path: "reports.ts" }, id: "t1" }]);
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+
+    // The first message the digest can read — thinking counts — spends it.
+    assistantEnd([{ type: "thinking", thinking: "The user wants a CSV export on reports." }]);
+    await h.flushMicrotasks();
+    expect(
+      h.sent.filter(
+        (s) => s.cmd.type === "prompt" && s.cmd.message === "/rename",
+      ),
+    ).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 1 });
+
+    // The turn end stays a no-op: the shot was already spent.
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(
+      h.sent.filter((s) => s.cmd.type === "prompt" && s.cmd.message === "/rename"),
+    ).toHaveLength(1);
+  });
+
+  it("a renderer that did not start live voice never titles from a delegation", async () => {
+    delegate("Add a CSV export button to the reports page");
+    await h.flushMicrotasks();
+    assistantEnd([{ type: "thinking", thinking: "The user wants a CSV export." }]);
+    await h.flushMicrotasks();
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+  });
+
+  it("a failed live_start grants no ownership", async () => {
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    const cmd = h.sent.find((s) => s.cmd.type === "live_start")!.cmd;
+    h.respond(h.TAB, cmd, "no audio input device", false);
+    await starting;
+    h.sent.length = 0;
+
+    delegate("Add a CSV export button to the reports page");
+    await h.flushMicrotasks();
+    assistantEnd([{ type: "thinking", thinking: "The user wants a CSV export." }]);
+    await h.flushMicrotasks();
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+  });
+
+  it("a titled session latches at the delegation", async () => {
+    const titled = structuredClone(h.backendState);
+    titled.projects[0]!.sessions[0]!.title = "Reports export";
+    h.backendState = titled;
+    h.useStore.setState({ state: titled });
+    await startLive();
+
+    delegate("Add a CSV export button to the reports page");
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+
+    assistantEnd([{ type: "thinking", thinking: "The user wants a CSV export." }]);
+    await h.flushMicrotasks();
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+  });
+
+  it("a greeting delegation defers to the next substantive one", async () => {
+    await startLive();
+    delegate("okay thanks");
+    await h.flushMicrotasks();
+    assistantEnd([{ type: "text", text: "Anything else I can help with?" }]);
+    await h.flushMicrotasks();
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
+
+    delegate("Add a CSV export button to the reports page");
+    await h.flushMicrotasks();
+    assistantEnd([{ type: "text", text: "I'll add the export button now." }]);
+    await h.flushMicrotasks();
+    expect(
+      h.sent.filter(
+        (s) => s.cmd.type === "prompt" && s.cmd.message === "/rename",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("falls back to the turn end", async () => {
+    await startLive();
+    delegate("Add a CSV export button to the reports page");
+    await h.flushMicrotasks();
+    assistantEnd([{ type: "toolCall", name: "read", args: { path: "reports.ts" }, id: "t1" }]);
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+
+    // No assistant message carried digest text: agent_end is the safety net.
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(
+      h.sent.filter(
+        (s) => s.cmd.type === "prompt" && s.cmd.message === "/rename",
+      ),
+    ).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+  });
+});
+
 describe("subagent marker coalescing, buffers, and drill-down (issues #62, #63)", () => {
   const THROTTLE_TAB = `${h.TAB}-throttle`;
 

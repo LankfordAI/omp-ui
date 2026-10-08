@@ -145,6 +145,132 @@ describe("reduceAgentEvent", () => {
     ).toBe(false);
   });
 
+  describe("live voice Auto-title (issue #803)", () => {
+    const delegationFrame = (content: unknown) => ({
+      type: "message_start",
+      message: {
+        role: "custom",
+        customType: "live-delegation",
+        display: true,
+        attribution: "agent",
+        content,
+      },
+    });
+    const ownerRuntime = (): ObservedTabRuntime => ({
+      ...runtime(),
+      liveVoiceOwner: true,
+    });
+
+    it("arms from the spoken text only where live voice was started", () => {
+      const spoken = "Add a CSV export to the reports page";
+      const spokenArmed = reduceAgentEvent(
+        rpcTabState(),
+        ownerRuntime(),
+        delegationFrame(spoken),
+      );
+      expect(
+        spokenArmed.effects.filter((effect) => effect.type === "arm-delegated-title"),
+      ).toEqual([{ phase: "after-commit", type: "arm-delegated-title", prompt: spoken }]);
+      const blocksArmed = reduceAgentEvent(
+        rpcTabState(),
+        ownerRuntime(),
+        delegationFrame([{ type: "text", text: "Add a CSV export" }]),
+      );
+      expect(
+        blocksArmed.effects.filter((effect) => effect.type === "arm-delegated-title"),
+      ).toEqual([
+        { phase: "after-commit", type: "arm-delegated-title", prompt: "Add a CSV export" },
+      ]);
+
+      // Non-owner renderers, already-armed/renamed tabs, and silent audio
+      // never arm a title from the delegation frame.
+      expect(
+        reduceAgentEvent(rpcTabState(), runtime(), delegationFrame(spoken)).effects.some(
+          (effect) => effect.type === "arm-delegated-title",
+        ),
+      ).toBe(false);
+      expect(
+        reduceAgentEvent(
+          rpcTabState({ hasRenamed: true }),
+          ownerRuntime(),
+          delegationFrame(spoken),
+        ).effects.some((effect) => effect.type === "arm-delegated-title"),
+      ).toBe(false);
+      expect(
+        reduceAgentEvent(
+          rpcTabState({ initialPrompt: "Fix the login redirect" }),
+          ownerRuntime(),
+          delegationFrame(spoken),
+        ).effects.some((effect) => effect.type === "arm-delegated-title"),
+      ).toBe(false);
+      expect(
+        reduceAgentEvent(rpcTabState(), ownerRuntime(), delegationFrame("   ")).effects.some(
+          (effect) => effect.type === "arm-delegated-title",
+        ),
+      ).toBe(false);
+    });
+
+    it("fires at the first assistant message the digest can read", () => {
+      const tab = rpcTabState({ initialPrompt: "Add a CSV export", hasRenamed: false });
+      const pendingRuntime = (): ObservedTabRuntime => ({
+        ...runtime(),
+        delegatedTitlePending: true,
+      });
+      const assistantEnd = (content: unknown) => ({
+        type: "message_end",
+        message: { role: "assistant", content },
+      });
+
+      // Tool calls alone leave omp's digest empty: no shot, and the arm
+      // stays pending for a later message or the agent_end safety net.
+      const toolOnly = reduceAgentEvent(
+        tab,
+        pendingRuntime(),
+        assistantEnd([{ type: "toolCall", id: "t1", name: "read", arguments: {} }]),
+      );
+      expect(
+        toolOnly.effects.some((effect) => effect.type === "dispatch-early-title"),
+      ).toBe(false);
+      expect(toolOnly.patch.runtime.delegatedTitlePending).toBeUndefined();
+
+      for (const content of [
+        [{ type: "thinking", thinking: "The user wants a CSV export." }],
+        [{ type: "text", text: "Adding it now." }],
+      ]) {
+        const reduced = reduceAgentEvent(tab, pendingRuntime(), assistantEnd(content));
+        expect(
+          reduced.effects.some((effect) => effect.type === "dispatch-early-title"),
+        ).toBe(true);
+        expect(reduced.patch.runtime.delegatedTitlePending).toBe(false);
+      }
+    });
+
+    it("never fires a prompt-armed shot at message_end", () => {
+      // A tab armed by its own send path (issue #795) has no pending flag;
+      // its shot already went out at the user message_start.
+      const tab = rpcTabState({ initialPrompt: "Fix the login redirect" });
+      const reduced = reduceAgentEvent(tab, runtime(), {
+        type: "message_end",
+        message: { role: "assistant", content: [{ type: "text", text: "Redirect fixed." }] },
+      });
+      expect(
+        reduced.effects.some((effect) => effect.type === "dispatch-early-title"),
+      ).toBe(false);
+    });
+
+    it("hands a pending arm to the turn end", () => {
+      const tab = rpcTabState({ initialPrompt: "Add a CSV export", hasRenamed: false });
+      const reduced = reduceAgentEvent(
+        tab,
+        { ...runtime(), delegatedTitlePending: true },
+        { type: "agent_end" },
+      );
+      expect(
+        reduced.effects.some((effect) => effect.type === "rename-session"),
+      ).toBe(true);
+      expect(reduced.patch.runtime.delegatedTitlePending).toBe(false);
+    });
+  });
 });
 
 describe("authoritative running-input keywords (issue #726)", () => {

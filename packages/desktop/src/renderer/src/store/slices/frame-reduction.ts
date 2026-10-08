@@ -417,6 +417,9 @@ export function createFrameReductionSlice(
       case "dispatch-early-title":
         get().dispatchEarlyTitle(tabId);
         return;
+      case "arm-delegated-title":
+        get().armDelegatedTitle(tabId, effect.prompt);
+        return;
       case "append-transcript-item":
         m.appendItem(tabId, effect.item);
         return;

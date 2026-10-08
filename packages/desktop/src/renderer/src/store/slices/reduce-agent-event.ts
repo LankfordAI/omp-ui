@@ -1,8 +1,9 @@
+import { LIVE_DELEGATION_CUSTOM_TYPE } from "@omp-ui/core/live-voice";
 import { MAGIC_KEYWORDS } from "@omp-ui/core/magic-keywords";
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
 import { formatDuration } from "../../lib/duration";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
-import { noticeItem, type NoticeItem } from "../../lib/transcript";
+import { noticeItem, textFromContent, type NoticeItem } from "../../lib/transcript";
 import type { LastTurnMeta, RpcTabState } from "../types";
 import type { TabRuntime } from "./shared";
 
@@ -58,6 +59,7 @@ type AfterCommitEffect =
   | { phase: "after-commit"; type: "settle-browser-pane-close" }
   | { phase: "after-commit"; type: "rename-session" }
   | { phase: "after-commit"; type: "dispatch-early-title" }
+  | { phase: "after-commit"; type: "arm-delegated-title"; prompt: string }
   | {
       phase: "after-commit";
       type: "append-transcript-item";
@@ -129,6 +131,27 @@ function isStreamStallEnd(lastTurn: LastTurnMeta): boolean {
     STALL_MESSAGE_RE.test(lastTurn.errorMessage ?? "")
   );
 }
+
+/**
+ * True when omp's title digest can read this assistant message: omp 18.8.5's
+ * digest keeps an assistant message only for non-empty text or thinking —
+ * tool calls alone contribute nothing (issue #803).
+ */
+function carriesTitleDigest(message: unknown): boolean {
+  const content = field(message, "content");
+  if (typeof content === "string") return content.trim() !== "";
+  return arrField(message, "content").some((block) => {
+    const kind = strField(block, "type");
+    const text =
+      kind === "text"
+        ? strField(block, "text")
+        : kind === "thinking"
+          ? strField(block, "thinking")
+          : undefined;
+    return text !== undefined && text.trim() !== "";
+  });
+}
+
 /**
  * The quota chip's source event, or null when the frame says nothing about
  * rate windows (issue #673). `auto_retry_end` recoveries outrank the wait
@@ -314,6 +337,21 @@ export function reduceAgentEvent(
       // (issue #795). Idempotent; the arm and latch gate the no-ops.
       if (tab.initialPrompt && !tab.hasRenamed)
         effects.push({ phase: "after-commit", type: "dispatch-early-title" });
+    } else if (
+      role === "custom" &&
+      strField(message, "customType") === LIVE_DELEGATION_CUSTOM_TYPE
+    ) {
+      // A live voice request is omp's agent-attributed custom message, never
+      // a user prompt, so no send path armed it (issue #803). Only the
+      // renderer that started live voice arms, from the spoken text.
+      const prompt = textFromContent(field(message, "content")).trim();
+      if (
+        runtime.liveVoiceOwner === true &&
+        !tab.initialPrompt &&
+        !tab.hasRenamed &&
+        prompt !== ""
+      )
+        effects.push({ phase: "after-commit", type: "arm-delegated-title", prompt });
     }
   }
 
@@ -326,6 +364,17 @@ export function reduceAgentEvent(
         errorId: numField(message, "errorId"),
       };
       hasRpcPatch = true;
+      // The delegated shot (issue #803): the first assistant message omp's
+      // digest can read is the earliest frame `/rename` can title from.
+      if (
+        runtime.delegatedTitlePending === true &&
+        tab.initialPrompt &&
+        !tab.hasRenamed &&
+        carriesTitleDigest(message)
+      ) {
+        runtimePatch.delegatedTitlePending = false;
+        effects.push({ phase: "after-commit", type: "dispatch-early-title" });
+      }
     }
     if (
       tab.status === "running" &&
@@ -350,6 +399,9 @@ export function reduceAgentEvent(
       rpc.streamStallMs = undefined;
       hasRpcPatch = true;
     }
+    // A still-pending delegated arm hands over to the turn end: the safety
+    // net below fires it when no assistant message carried digest text.
+    if (runtime.delegatedTitlePending === true) runtimePatch.delegatedTitlePending = false;
     if ((tab.initialPrompt && !tab.hasRenamed) || tab.titleAttempt !== null)
       effects.push({ phase: "after-commit", type: "rename-session" });
     effects.push({
