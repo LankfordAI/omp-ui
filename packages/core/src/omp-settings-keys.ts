@@ -141,6 +141,12 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     ],
   },
   {
+    // omp's Codex realtime voice timbre (#802). An omp that does not
+    // publish the key renders no section — readOmpSettings' per-key rule.
+    title: "Live voice",
+    keys: ["live.voice"],
+  },
+  {
     title: "Display",
     keys: [
       "display.showTokenUsage",
