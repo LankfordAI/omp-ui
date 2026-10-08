@@ -498,6 +498,12 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       return backend.readJudgeModels();
     },
 
+    readChatModels() {
+      // Uncached on purpose, exactly like readJudgeModels: the catalog belongs
+      // to the installed omp version and the provider keys (issue #797).
+      return backend.readChatModels();
+    },
+
     async ensureCompactionSettings(projectCwd) {
       // Cache hit (a failed read lands null, which is also cached): the value
       // is valid until a compaction.* write clears it or the app relaunches.

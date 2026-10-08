@@ -1034,6 +1034,11 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.omp.subagentRosterEmpty": "발견된 에이전트 없음 — 새로고침으로 omp 에이전트 열거",
   "settings.omp.modelRoleLabel": "모델 역할 {role}",
   "settings.omp.modelRolePlaceholder": "model[:level] — 비워 두면 unset",
+  "settings.omp.modelRoleBrowse": "목록 보기…",
+  "settings.omp.modelRoleReading": "모델 목록 읽는 중…",
+  "settings.omp.modelRoleCatalogFailed": "모델 목록을 읽을 수 없습니다: {message} — 입력창은 계속 사용 가능합니다",
+  "settings.omp.modelRolesHint":
+    "목록 보기는 omp의 chat 카탈로그에서 기본 provider/id를 선택하며 해당 역할의 :level 접미사를 제거합니다; 접미사나 카탈로그 밖의 값은 입력창에서 직접 편집할 수 있습니다.",
   "settings.omp.judgePlaceholder": "provider/model — 비워 두면 unset",
   "settings.omp.judgeBrowse": "목록 보기…",
   "settings.omp.judgeUnset": "미설정 — omp 기본 판정 체인",

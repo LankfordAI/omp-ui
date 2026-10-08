@@ -964,6 +964,9 @@ export class MainBackend {
         // tabId argument exists only to ride the tab router — the handler
         // runs on whichever host routing picked, and probes that host's omp.
         [CH.readModelCatalog]: () => readModelCatalog({ ompPath: this.ompPath }),
+        // The chat catalog for the model-role browse picker (issue #797):
+        // unrouted, since the settings page can be open with no live session.
+        [CH.readChatModels]: () => readModelCatalog({ ompPath: this.ompPath }),
         // Each write answers with the refreshed snapshot in the same round trip,
         // so the page never has to guess what the store now holds.
         [CH.readProviderKeys]: (projectCwd: string | null) => this.providerSnapshot(projectCwd),

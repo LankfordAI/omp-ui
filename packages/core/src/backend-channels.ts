@@ -573,6 +573,18 @@ export const BACKEND_CHANNELS = {
     ...request<[tabId: string], ModelCatalogSnapshot>([str()]),
   },
   /**
+   * The installed omp's chat-kind model catalog (`omp models --kind chat
+   * --json`) for the model-role browse picker (issue #797). Unrouted, unlike
+   * readModelCatalog: the omp settings page can be open with no live session,
+   * so there is no tab to ride — whichever host answers probes its own
+   * binary. Never a curated omp-ui list (ADR-0027 lineage); never rejects —
+   * `discovered` and `error` say so (the readJudgeModels contract).
+   */
+  readChatModels: {
+    channel: "models:readChat",
+    ...request<[], ModelCatalogSnapshot>([]),
+  },
+  /**
    * One dictation round trip: a 16 kHz mono PCM16 WAV (bare base64) posted to
    * the selected model's provider from the main process, using the credential
    * the app already resolved. The renderer never sees a key (issue #647).

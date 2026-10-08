@@ -1151,6 +1151,11 @@ export const en = {
   "settings.omp.subagentRosterEmpty": "no agents discovered yet — refresh to enumerate omp's agents",
   "settings.omp.modelRoleLabel": "model role {role}",
   "settings.omp.modelRolePlaceholder": "model[:level] — blank = unset",
+  "settings.omp.modelRoleBrowse": "browse…",
+  "settings.omp.modelRoleReading": "reading models…",
+  "settings.omp.modelRoleCatalogFailed": "model list failed: {message} — the field stays editable",
+  "settings.omp.modelRolesHint":
+    "browse picks a bare provider/id from omp's chat catalog and drops any :level suffix on that role; the field stays editable for suffixes and values outside the catalog.",
   "settings.omp.judgePlaceholder": "provider/model — blank = unset",
   "settings.omp.judgeBrowse": "browse…",
   "settings.omp.judgeUnset": "Unset — omp's built-in judge chain",

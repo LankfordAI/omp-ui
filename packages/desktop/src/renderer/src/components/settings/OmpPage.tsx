@@ -1,20 +1,15 @@
 import type { OmpSettingEntry, OmpSettingValue } from "@omp-ui/core/types";
-import {
-  OMP_MODEL_ROLE_IDS,
-  OMP_MODEL_ROLES_KEY,
-  OMP_SETTING_GROUPS,
-} from "@omp-ui/core/omp-settings-keys";
+import { OMP_MODEL_ROLES_KEY, OMP_SETTING_GROUPS } from "@omp-ui/core/omp-settings-keys";
 import { findRecord, sessionCwd, useStore } from "../../store";
 import { Button, Empty, Label } from "../ui";
-import { CommitField, Row, SettingControl, layerBadge } from "./rows";
+import { Row, SettingControl, layerBadge } from "./rows";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
 import {
   APPROVAL_SETTING_KEY,
-  OMP_JUDGE_ROLE_ID,
   OMP_MAX_CONCURRENCY_KEY,
   OMP_SUBAGENT_MODELS_KEY,
 } from "@omp-ui/core/omp-settings-keys";
-import { JudgeRoleRow } from "./JudgeRoleRow";
+import { ModelRolesSection } from "./ModelRolesSection";
 import { SubagentModelsSection } from "./SubagentModelsSection";
 import { SubagentConcurrencySection } from "./SubagentConcurrencySection";
 import { ApprovalModeSection } from "./ApprovalModeSection";
@@ -96,25 +91,6 @@ export function OmpPage({
     snapshot.entries.map((e) => [e.key, e]),
   );
   const rolesEntry = byKey.get(OMP_MODEL_ROLES_KEY);
-  const rolesRecord: Record<string, unknown> =
-    rolesEntry !== undefined &&
-    typeof rolesEntry.value === "object" &&
-    rolesEntry.value !== null &&
-    !Array.isArray(rolesEntry.value)
-      ? rolesEntry.value
-      : {};
-
-  const commitRole = (role: string, raw: string): void => {
-    const next = raw.trim();
-    // `omp config set modelRoles` is REPLACE-not-merge: a partial post would
-    // delete every sibling role, so the WHOLE merged record goes out, with the
-    // role's key omitted when cleared (blank = unset).
-    const merged: Record<string, unknown> = { ...rolesRecord };
-    if (next === "") delete merged[role];
-    else merged[role] = next;
-    commit(OMP_MODEL_ROLES_KEY, merged);
-  };
-
 
   const tab =
     activeTabId === null
@@ -139,48 +115,7 @@ export function OmpPage({
       )}
 
       {rolesEntry !== undefined && (
-        <section className="px-4 pt-3">
-          <div className="flex items-center gap-2">
-            <Label>{t("settings.omp.modelRoles")}</Label>
-            {layerBadge(rolesEntry.layer)}
-          </div>
-          {rolesEntry.description !== "" && (
-            <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
-              {rolesEntry.description}
-            </p>
-          )}
-          <div className="mt-1.5 divide-y divide-line-soft">
-            {OMP_MODEL_ROLE_IDS.map((role) => (
-              <div key={role} className="flex items-center gap-3 py-1.5">
-                <span className="w-20 shrink-0 font-mono text-[11px] text-ink-mid">
-                  {role}
-                </span>
-                <CommitField
-                  current={
-                    typeof rolesRecord[role] === "string"
-                      ? (rolesRecord[role] as string)
-                      : ""
-                  }
-                  kind="text"
-                  label={t("settings.omp.modelRoleLabel", { role })}
-                  placeholder={t("settings.omp.modelRolePlaceholder")}
-                  disabled={pendingKey === OMP_MODEL_ROLES_KEY}
-                  className="flex-1"
-                  onCommit={(raw) => commitRole(role, raw)}
-                />
-              </div>
-            ))}
-            <JudgeRoleRow
-              value={
-                typeof rolesRecord[OMP_JUDGE_ROLE_ID] === "string"
-                  ? (rolesRecord[OMP_JUDGE_ROLE_ID] as string)
-                  : ""
-              }
-              pending={pendingKey === OMP_MODEL_ROLES_KEY}
-              onCommit={(raw) => commitRole(OMP_JUDGE_ROLE_ID, raw)}
-            />
-          </div>
-        </section>
+        <ModelRolesSection entry={rolesEntry} pendingKey={pendingKey} commit={commit} />
       )}
 
       <SubagentModelsSection
