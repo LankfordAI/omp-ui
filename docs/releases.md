@@ -4,16 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Native sessions gain live voice conversation with omp 18.5.1 or newer: a capsule on the composer starts and stops the realtime session — omp records the audio itself — with mute, level meters, and a live transcript strip beside the turn, while composer dictation stands down because omp holds the microphone. #778
-- Vault actions on a web client — including one rendered inside another instance's Electron **Browser pane** — decide open-vs-copy from the preload transport, not the user agent, so a pane viewer copies the note's `obsidian://` link instead of launching Obsidian on the host (#782).
-- The slow-mode toggle and the Session HUD's `slow` chip are removed; omp's `/slow` command is the only slow-mode surface. The usage-limit stage chip stays (#792).
-- New-session actions are never silent: the keyboard shortcut with no focused tab reports why nothing spawned, every spawn attempt leaves a breadcrumb, and a spawn that stalls is reported after 30 seconds — one that settles late still mounts its tab exactly once. #789
-- One declined title generation no longer leaves a session `New session` forever: an untitled session re-dispatches its auto-rename at later turn ends, up to three attempts spaced at least 15 seconds apart. #791
-- Settings → Knowledge vault gains a voice toggle — write notes *on my behalf* or *as the assistant* — carried in the knowledge-vault guidance every spawner arms, so sessions started after the change pick up the new choice. #793
-- Vault project folders are keyed to the project's remote identity: notes file under `Owner/Repo` beneath the Knowledge home, the project key stamped on the Index note lets renamed, recased, or differently-cloned folders converge on one folder, and each create adopts the folders older versions wrote, rewriting wikilinks and merging Index notes as it moves. #794
-- Auto-titling fires the moment the first substantive prompt enters omp's history, not at that turn's end, so the session is named while the turn is still running; a first quiet turn end stays as the safety net. #795
-
-Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+Nothing since [v0.21.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.21.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
