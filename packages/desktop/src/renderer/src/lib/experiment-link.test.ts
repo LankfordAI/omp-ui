@@ -56,6 +56,7 @@ function session(patch: Partial<SessionSummary> & Pick<SessionSummary, "tabId">)
     advisor: false,
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
+ autoTitled: false,
     cachedTitle: null,
     cachedModified: null,
     title: "t",

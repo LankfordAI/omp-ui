@@ -31,6 +31,13 @@
  * Latching a shot onto a greeting is the other thing worth avoiding, which
  * is what the low-signal filter below gates — mirroring omp's own
  * `isLowSignalTitleInput` deferral.
+ *
+ * The fourth route is the replan refresh (issue #804): a `todo` `op:"init"`
+ * frame means the work took a new shape, so `refreshAutoTitle` re-dispatches
+ * the bare `/rename` — but only while the registry's `autoTitled` marker
+ * says the current title is one omp-ui generated. omp records generator
+ * titles with source "user", so the on-disk header cannot tell an auto-title
+ * from a typed name; the marker can, and every typed rename clears it.
  */
 
 /**

@@ -1031,6 +1031,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  or thinking omp's title digest can read. */
   armDelegatedTitle(tabId: string, prompt: string): void;
   renameSession(tabId: string): void;
+  /** The replan refresh (issue #804): re-dispatch the bare `/rename` after a
+   *  `todo init` when the title is still an omp-ui-generated auto-title;
+   *  no-op when any gate (marker, titled, ladder, floor) refuses. */
+  refreshAutoTitle(tabId: string): void;
   sendPrompt(
     tabId: string,
     message: string,

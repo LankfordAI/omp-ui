@@ -179,6 +179,7 @@ function sessionRecord(tabId: string, title: string) {
     advisor: false,
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
+ autoTitled: false,
     cachedTitle: title,
     cachedModified: "t",
     title,

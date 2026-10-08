@@ -60,6 +60,7 @@ type AfterCommitEffect =
   | { phase: "after-commit"; type: "rename-session" }
   | { phase: "after-commit"; type: "dispatch-early-title" }
   | { phase: "after-commit"; type: "arm-delegated-title"; prompt: string }
+  | { phase: "after-commit"; type: "refresh-auto-title" }
   | {
       phase: "after-commit";
       type: "append-transcript-item";
@@ -449,6 +450,22 @@ export function reduceAgentEvent(
         phase: "after-commit",
         type: "trigger-stall-continue",
       });
+  }
+
+  // A `todo` init is omp's own replan-refresh trigger (issue #804): the
+  // session's work has visibly taken a new shape, so an omp-ui-generated
+  // title deserves a fresh generator pass. `op: "init"` and a `phases`
+  // array mirror what omp's `onTodoResultDetails` validates before it
+  // consults `op`; a `refine` or an errored call is not a replan. The
+  // gates (marker, ladder, floor) live in `refreshAutoTitle`.
+  if (
+    type === "tool_execution_end" &&
+    strField(frame, "toolName") === "todo" &&
+    boolField(frame, "isError") !== true
+  ) {
+    const details = field(field(frame, "result"), "details");
+    if (strField(details, "op") === "init" && Array.isArray(field(details, "phases")))
+      effects.push({ phase: "after-commit", type: "refresh-auto-title" });
   }
 
   return {

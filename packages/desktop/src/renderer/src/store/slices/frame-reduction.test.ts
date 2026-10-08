@@ -271,6 +271,54 @@ describe("reduceAgentEvent", () => {
       expect(reduced.patch.runtime.delegatedTitlePending).toBe(false);
     });
   });
+
+  describe("replan auto-title refresh detection (issue #804)", () => {
+    const todoEnd = (result: object, isError = false) => ({
+      type: "tool_execution_end",
+      toolName: "todo",
+      isError,
+      result,
+    });
+    const emitsRefresh = (frame: object): boolean =>
+      reduceAgentEvent(rpcTabState(), runtime(), frame).effects.some(
+        (effect) => effect.type === "refresh-auto-title",
+      );
+
+    it("emits the refresh for a todo init result", () => {
+      expect(
+        emitsRefresh(
+          todoEnd({
+            content: [],
+            details: { op: "init", phases: [{ title: "Ship", todos: [] }], storage: "file" },
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it("stays quiet for an errored call, a refine, another tool, or no details", () => {
+      const init = {
+        op: "init",
+        phases: [{ title: "Ship", todos: [] }],
+        storage: "file",
+      };
+      expect(emitsRefresh(todoEnd({ content: [], details: init }, true))).toBe(false);
+      expect(
+        emitsRefresh(todoEnd({ content: [], details: { ...init, op: "refine" } })),
+      ).toBe(false);
+      expect(
+        reduceAgentEvent(rpcTabState(), runtime(), {
+          type: "tool_execution_end",
+          toolName: "write",
+          isError: false,
+          result: { content: [], details: init },
+        }).effects.some((effect) => effect.type === "refresh-auto-title"),
+      ).toBe(false);
+      // `onTodoResultDetails` validates the phases array before consulting
+      // op; a details-less or phases-less result is not a replan.
+      expect(emitsRefresh(todoEnd({ content: [] }))).toBe(false);
+      expect(emitsRefresh(todoEnd({ content: [], details: { op: "init" } }))).toBe(false);
+    });
+  });
 });
 
 describe("authoritative running-input keywords (issue #726)", () => {

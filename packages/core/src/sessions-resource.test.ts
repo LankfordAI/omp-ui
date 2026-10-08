@@ -46,6 +46,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     advisorModel: null,
     subagentModels: null,
     proposedPlans: [],
+    autoTitled: false,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",

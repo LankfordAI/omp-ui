@@ -132,6 +132,7 @@ const summary: SessionSummary = {
   advisor: false,
   advisorModel: null, subagentModels: null,
  proposedPlans: [],
+ autoTitled: false,
   cachedTitle: null,
   cachedModified: null,
   title: "Finish me",

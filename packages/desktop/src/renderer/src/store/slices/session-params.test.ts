@@ -2332,6 +2332,47 @@ describe("re-titling (issues #433, #788)", () => {
   });
 });
 
+describe("auto-title marker on rename paths (issue #804)", () => {
+  beforeEach(() => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: {
+        [h.TAB]: rpcTabState({ commands: [{ name: "rename", description: "" }] }),
+      },
+    });
+    h.sent.length = 0;
+  });
+
+  it("renameSessionTo clears the auto-title marker after a successful ack", async () => {
+    const promise = h.useStore.getState().renameSessionTo(h.TAB, "My name");
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "set_session_name", name: "My name" });
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await promise;
+    // A user-chosen name is final: the registry mirror must stop refreshing
+    // auto-titles for this session.
+    expect(h.mockBackend.setSessionAutoTitled).toHaveBeenCalledWith(h.TAB, false);
+  });
+
+  it("a failed set_session_name ack never touches the marker", async () => {
+    const promise = h.useStore.getState().renameSessionTo(h.TAB, "My name");
+    h.respond(h.TAB, h.sent[0]!.cmd, "rename failed", false);
+    await promise;
+    // Early return on the null ack: the marker stays exactly as it was.
+    expect(h.mockBackend.setSessionAutoTitled).not.toHaveBeenCalled();
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
+  });
+
+  it("regenerateSessionTitle re-arms the marker after dispatching /rename", async () => {
+    const run = h.useStore.getState().regenerateSessionTitle(h.TAB);
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "prompt", message: "/rename" });
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await run;
+    // The generator's name is an auto-title again: replans must keep it fresh.
+    expect(h.mockBackend.setSessionAutoTitled).toHaveBeenCalledWith(h.TAB, true);
+  });
+});
+
 describe("reconcilePendingDialogs (issue #555)", () => {
   /** The harness record with its summary `pendingDialogs` set to `frames`. */
   const stateWithDialogs = (

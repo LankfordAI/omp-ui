@@ -421,6 +421,11 @@ export interface OwnedSessionRecord {
    * malformed entry drops only itself, never the session record.
    */
   proposedPlans: ProposedPlan[];
+  /** True while the session's title is one omp-ui generated via `/rename`
+   *  (issue #804). omp records generator titles with source "user", so this
+   *  marker — not the header — is what distinguishes an auto-title from a
+   *  typed name. Post-dates schema-1: absent normalizes to false. */
+  autoTitled: boolean;
   cachedTitle: string | null;
   cachedModified: string | null;
 }

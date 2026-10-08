@@ -55,6 +55,7 @@ export type RpcCommandSlice = Pick<
   | "dispatchEarlyTitle"
   | "armDelegatedTitle"
   | "renameSession"
+  | "refreshAutoTitle"
   | "setSessionToolEnabled"
   | "reloadHistory"
 >;
@@ -630,6 +631,10 @@ const MAX_RENAME_ATTEMPTS = 3;
 /** A second dispatch waits for a later turn end while a generation may still
  *  be in flight; a turn end inside this floor leaves the attempt parked. */
 const RENAME_RETRY_FLOOR_MS = 15_000;
+/** One generator per replan burst: a multi-phase `todo init` or a model
+ *  re-initing twice in a turn pays for a single refresh inside this floor
+ *  (issue #804). */
+const REPLAN_REFRESH_FLOOR_MS = 15_000;
 
 export function createRpcCommandSlice(
   set: SetState,
@@ -924,6 +929,12 @@ export function createRpcCommandSlice(
     // so the dispatch is safe even while the just-submitted first turn
     // streams (the message_start trigger) or the session resumed streaming
     // in the interim (the agent_end safety net).
+    // The marker records that the title about to land is generator output,
+    // not a typed name (issue #804). omp writes generator titles with source
+    // "user", so only this registry field lets a later replan tell the two
+    // apart. The plan branch above does NOT mark: that title is the plan's own
+    // name, and a replan would just re-set the same string.
+    void backend.setSessionAutoTitled(tabId, true);
     void get()
       .rpcCommand(tabId, { type: "prompt", message: "/rename" }, { quiet: true })
       .catch((err: unknown) => {
@@ -985,6 +996,29 @@ export function createRpcCommandSlice(
     }
     if (Date.now() - attempt.at < RENAME_RETRY_FLOOR_MS) return;
     m.patchRpc(tabId, { titleAttempt: { at: Date.now(), n: attempt.n + 1 } });
+    dispatchTitle(tabId, record);
+  };
+
+  // The replan refresh (issue #804): a `todo init` reshaped the session's
+  // work, so re-run the generator over the new plan — but only while the
+  // current title is one omp-ui generated (the registry marker), never
+  // while the first-shot ladder still owns the tab, and at most once per
+  // floor. Every gate that fails is a silent no-op.
+  const refreshAutoTitle = (tabId: string): void => {
+    const tab = get().rpc[tabId];
+    if (!tab) return;
+    const record = findRecord(get().state, tabId);
+    // A user-named, resumed, plan-seeded, or pre-marker session owns its
+    // title — the marker is only set by generator dispatches and cleared
+    // by every typed rename.
+    if (record?.autoTitled !== true) return;
+    // Nothing to refresh yet: the ladder is still working on the first
+    // title, and the next replan refreshes after it lands.
+    if (record === undefined || isUntitled(record.title)) return;
+    // The initial shot/retry ladder owns the tab until it settles.
+    if (tab.titleAttempt !== null || tab.initialPrompt !== null) return;
+    if (Date.now() - (m.runtime(tabId).replanTitleAt ?? 0) < REPLAN_REFRESH_FLOOR_MS) return;
+    m.patchRuntime(tabId, { replanTitleAt: Date.now() });
     dispatchTitle(tabId, record);
   };
 
@@ -1219,6 +1253,7 @@ export function createRpcCommandSlice(
     dispatchEarlyTitle,
     armDelegatedTitle,
     renameSession,
+    refreshAutoTitle,
     setSessionToolEnabled,
     reloadHistory: loadHistory,
     reconcileGoals,
