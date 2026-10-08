@@ -1045,7 +1045,7 @@ describe("Composer dictation (issue #647)", () => {
   it("push-to-talk r opens no capture while a live session holds the microphone (#805)", async () => {
     seed("ready");
     enableVoice();
-    seedLiveCapable({ ended: false, phase: "listening", levels: null, turns: [], error: null });
+    seedLiveCapable({ ended: false, phase: "listening", levels: null, turns: [], error: null, connectionId: null });
     renderComposer();
     unfocus();
     pushKey(document.body, "keydown");

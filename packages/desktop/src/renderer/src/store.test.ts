@@ -595,6 +595,7 @@ describe("live voice tab visibility (issue #801)", () => {
     turns: [],
     ended,
     error: null,
+    connectionId: null,
   });
 
   /** Fresh store with the guard installed (init ran), plus the runtime seam. */

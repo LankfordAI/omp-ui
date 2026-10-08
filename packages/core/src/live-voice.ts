@@ -24,6 +24,46 @@ export type LivePhase =
 
 export type LiveRole = "user" | "assistant";
 
+/** One recording's identity: session AND connection are both load-bearing (#809). */
+export interface LiveAudioRef {
+  /** The owned session's UUID — from the capability frame / OwnedSessionRecord. */
+  sessionId: string;
+  /** A fresh UUID the renderer mints on each successful `live_start`. */
+  connectionId: string;
+  role: LiveRole;
+  /** omp's per-connection integer. Reused across connections is fine: the
+   * connection segment keeps the refs (and files) from ever colliding. */
+  turn: number;
+}
+
+/**
+ * One recording on disk as the confined lister reports it. Keys are the ref
+ * minus the session (the lister is already scoped to one lineage dir), plus
+ * the file's size and mtime.
+ */
+export interface LiveAudioEntry {
+  connectionId: string;
+  role: LiveRole;
+  turn: number;
+  sizeBytes: number;
+  /** ISO timestamp of the file's last write. */
+  modifiedAt: string;
+}
+
+/**
+ * One load attempt. `ready` carries the bytes; `unavailable` means no file
+ * answers the reference — including "omp exposed no audio at all", which is
+ * every reference with omp ≤ 18.8.6 (ADR-0049); `incomplete` means only a
+ * `.partial` sibling exists — a writer left a half recording. A load never
+ * substitutes anything.
+ */
+export interface LiveAudioLoad {
+  status: "ready" | "unavailable" | "incomplete";
+  /** Only with status "ready". */
+  wavBase64?: string;
+  sizeBytes?: number;
+}
+
 /** One realtime turn: a frame replaces earlier frames with the same (role, turn). */
 export interface LiveTurn {
   role: LiveRole;
@@ -43,6 +83,14 @@ export interface LiveSnapshot {
   ended: boolean;
   /** live_end's error text, or a live_start/live_stop/live_mute failure line. */
   error: string | null;
+  /**
+   * The connection these turns belong to (#809): minted by the renderer on
+   * each successful `live_start` and kept until the next start replaces it,
+   * so history keys on it even after `ended`. Null before any local start.
+   * `applyLivePhase` deliberately leaves it alone — omp owns the phase
+   * machine; the start/stop actions own this field's lifecycle.
+   */
+  connectionId: string | null;
 }
 
 /**
@@ -79,7 +127,7 @@ function frameField(frame: unknown, key: string): unknown {
 }
 
 export function emptyLiveSnapshot(): LiveSnapshot {
-  return { phase: null, levels: null, turns: [], ended: false, error: null };
+  return { phase: null, levels: null, turns: [], ended: false, error: null, connectionId: null };
 }
 
 /** Tolerant: an unknown value (a newer omp's new phase) keeps the previous phase. */
@@ -173,4 +221,35 @@ export function isLiveSessionActive(snap: LiveSnapshot | null | undefined): bool
     snap.phase !== null &&
     snap.phase !== "error"
   );
+}
+
+/**
+ * Voice recording reference (#809): `v1/<sessionId>/<connectionId>/<role>/<turn>`.
+ * Both the session AND the connection ride in the key, so a numeric turn
+ * reused by a later connection can never attach a recording to the wrong
+ * message. Storage mirrors the shape:
+ * `<lineageDir>/live-audio/<connectionId>/<role>-<turn>.wav`.
+ */
+export function formatLiveAudioRef(ref: LiveAudioRef): string {
+  return `v1/${ref.sessionId}/${ref.connectionId}/${ref.role}/${ref.turn}`;
+}
+
+const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Strict parse: the v1 prefix, two UUID segments (session UUIDv7, connection
+ * UUIDv4 — both validated by shape, not version nibble), the role enum, and
+ * a non-negative integer turn. Anything else is null; a stored or crafted
+ * string never reaches the filesystem unvalidated.
+ */
+export function parseLiveAudioRef(ref: string): LiveAudioRef | null {
+  const parts = ref.split("/");
+  if (parts.length !== 5 || parts[0] !== "v1") return null;
+  const [, sessionId, connectionId, role, turnRaw] = parts;
+  if (!UUID_SEGMENT.test(sessionId) || !UUID_SEGMENT.test(connectionId)) return null;
+  if (!isLiveRole(role)) return null;
+  if (!/^\d+$/.test(turnRaw)) return null;
+  const turn = Number(turnRaw);
+  if (!Number.isSafeInteger(turn)) return null;
+  return { sessionId, connectionId, role, turn };
 }

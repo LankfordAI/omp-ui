@@ -22,6 +22,7 @@ const snapshot = (turns: LiveTurn[], patch: Partial<LiveSnapshot> = {}): LiveSna
   turns,
   ended: false,
   error: null,
+  connectionId: null,
   ...patch,
 });
 
@@ -190,5 +191,53 @@ describe("LiveVoiceStrip (issue #800)", () => {
     seed(null);
     rerender();
     expect(el.textContent).toBe("");
+  });
+});
+
+// #809: a final assistant row whose load answers `unavailable` carries a
+// disabled speaker glyph naming the constraint — the honest state, never a
+// silent hole. In omp ≤ 18.8.6 every reference is unavailable (ADR-0049).
+describe("LiveVoiceStrip recording affordance (issue #809)", () => {
+  it("marks a final assistant row unavailable after the probe resolves", async () => {
+    const loadLiveRecording = vi.fn(async () => ({ status: "unavailable" as const }));
+    useStore.setState({ loadLiveRecording });
+    seed(snapshot([turn("assistant", 1, "here you go")], { connectionId: "c-1" }));
+    const el = render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const glyph = el.querySelector('[role="img"]');
+    expect(glyph?.getAttribute("title")).toContain("output audio");
+    expect(glyph?.getAttribute("aria-disabled")).toBe("true");
+    // One probe per (connection, turn) — re-render must not re-dispatch.
+    rerender();
+    expect(loadLiveRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("probes nothing for streaming or user rows", async () => {
+    const loadLiveRecording = vi.fn(async () => ({ status: "unavailable" as const }));
+    useStore.setState({ loadLiveRecording });
+    seed(
+      snapshot(
+        [turn("user", 0, "hi"), turn("assistant", 1, "…", false)],
+        { connectionId: "c-1" },
+      ),
+    );
+    render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(loadLiveRecording).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="img"]')).toBeNull();
+  });
+
+  it("renders no glyph when a recording exists", async () => {
+    useStore.setState({ loadLiveRecording: vi.fn(async () => ({ status: "ready" as const, wavBase64: "AA" })) });
+    seed(snapshot([turn("assistant", 0, "done")], { connectionId: "c-1" }));
+    const el = render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(el.querySelector('[role="img"]')).toBeNull();
   });
 });

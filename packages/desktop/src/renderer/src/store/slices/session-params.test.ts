@@ -3207,7 +3207,7 @@ describe("live voice actions (issue #778)", () => {
       rpc: {
         [h.TAB]: rpcTabState({
           capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
-          live: { phase: "listening", levels: null, turns: [], ended: false, error: null },
+          live: { phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null },
         }),
       },
     });
@@ -3236,7 +3236,7 @@ describe("live voice actions (issue #778)", () => {
       rpc: {
         [h.TAB]: rpcTabState({
           capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
-          live: { phase: "listening", levels: null, turns: [], ended: false, error: null },
+          live: { phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null },
         }),
       },
     });
@@ -3271,7 +3271,7 @@ describe("live voice actions (issue #778)", () => {
       rpc: {
         [h.TAB]: rpcTabState({
           capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
-          live: { phase: "working", levels: null, turns: [], ended: false, error: "no audio device" },
+          live: { phase: "working", levels: null, turns: [], ended: false, error: "no audio device", connectionId: null },
         }),
       },
     });
@@ -3282,7 +3282,7 @@ describe("live voice actions (issue #778)", () => {
       rpc: {
         [h.TAB]: rpcTabState({
           capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
-          live: { phase: "error", levels: null, turns: [], ended: true, error: "stream dropped" },
+          live: { phase: "error", levels: null, turns: [], ended: true, error: "stream dropped", connectionId: null },
         }),
       },
     });
@@ -3296,7 +3296,7 @@ describe("live voice actions (issue #778)", () => {
       rpc: {
         [h.TAB]: rpcTabState({
           capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
-          live: { phase: "listening", levels: null, turns: [], ended: true, error: null },
+          live: { phase: "listening", levels: null, turns: [], ended: true, error: null, connectionId: null },
         }),
       },
     });

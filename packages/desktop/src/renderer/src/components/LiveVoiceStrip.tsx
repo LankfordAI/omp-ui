@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { useCompactShell } from "../lib/responsive";
@@ -28,6 +28,12 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
   const compact = useCompactShell();
   const live = useStore((s) => s.rpc[tabId]?.live ?? null);
   const clearLiveError = useStore((s) => s.clearLiveError);
+  const loadLiveRecording = useStore((s) => s.loadLiveRecording);
+  // #809: per-final-assistant-turn, the honest recording state. `unavailable`
+  // is omp ≤ 18.8.6's answer for every reference (ADR-0049) — a disabled
+  // speaker that says WHY, never a silent hole. Probed once per (connection,
+  // turn); the next start's new connectionId re-probes.
+  const [audioStates, setAudioStates] = useState<Record<string, "unavailable" | "other">>({});
   const box = useRef<HTMLDivElement>(null);
   const following = useRef(true);
 
@@ -41,6 +47,23 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
     const el = box.current;
     if (el !== null && following.current) el.scrollTop = el.scrollHeight;
   }, [live?.turns]);
+
+  useEffect(() => {
+    if (live === null) return;
+    const connectionId = live.connectionId;
+    for (const turn of live.turns) {
+      if (turn.role !== "assistant" || !turn.final) continue;
+      const key = `${connectionId ?? "none"}:${turn.turn}`;
+      if (audioStates[key] !== undefined) continue;
+      void loadLiveRecording(tabId, turn).then((load) =>
+        setAudioStates((prev) =>
+          prev[key] !== undefined
+            ? prev
+            : { ...prev, [key]: load.status === "unavailable" ? "unavailable" : "other" },
+        ),
+      );
+    }
+  }, [live, tabId, loadLiveRecording, audioStates]);
 
   if (live === null) return null;
 
@@ -83,6 +106,22 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
             >
               {turn.text}
             </span>
+            {turn.role === "assistant" &&
+              turn.final &&
+              audioStates[`${live.connectionId ?? "none"}:${turn.turn}`] === "unavailable" && (
+                <span
+                  role="img"
+                  aria-label={t("composer.live.audioUnavailable")}
+                  title={t("composer.live.audioUnavailable")}
+                  aria-disabled="true"
+                  className="ml-auto shrink-0 cursor-default text-ink-faint opacity-60"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-3.5">
+                    <path d="M3 6h2.5L9 3v10L5.5 10H3z" stroke="currentColor" strokeLinejoin="round" />
+                    <path d="M11.5 6.5 14 9m0-2.5L11.5 9" stroke="currentColor" strokeLinecap="round" />
+                  </svg>
+                </span>
+              )}
           </div>
         ))}
       </div>

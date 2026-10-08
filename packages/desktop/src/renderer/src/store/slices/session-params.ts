@@ -58,7 +58,7 @@ import {
   treeNavigateMessage,
   type TreeSnapshot,
 } from "@omp-ui/core/session-tree";
-import { randomId } from "../../lib/random-id";
+import { randomId, randomUuid } from "../../lib/random-id";
 import {
   COMPACT_SETTLE_DEADLINE_MS,
   RPC_COMMAND_TIMEOUT_MS,
@@ -951,10 +951,14 @@ export function createSessionParamsSlice(
     // (issue #803). `patchRuntime` never invents an owner: take the slot first.
     m.runtime(tabId);
     m.patchRuntime(tabId, { liveVoiceOwner: true });
-    // Optimistic fresh snapshot; the first live_phase frame repaints it. A
-    // phase "connecting" that follows any stale end clears `ended` (the
-    // applier's new-session rule).
-    livePatch(tabId, applyLivePhase(emptyLiveSnapshot(), "connecting"));
+    // A fresh connection identity per successful start (#809): recording
+    // refs key on it, so a reused turn number from a later connection can
+    // never attach a recording to the wrong message. stopLiveVoice/live_end
+    // leave it — history keys on it until the next local `connecting`.
+    livePatch(tabId, {
+      ...applyLivePhase(emptyLiveSnapshot(), "connecting"),
+      connectionId: randomUuid(),
+    });
   };
 
   const stopLiveVoice = async (tabId: string): Promise<void> => {

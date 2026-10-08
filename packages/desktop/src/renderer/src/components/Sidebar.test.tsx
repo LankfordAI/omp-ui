@@ -2468,6 +2468,7 @@ describe("Sidebar live voice speaker glyph (issue #807)", () => {
     turns: [],
     ended: false,
     error: null,
+    connectionId: null,
     ...patch,
   });
 

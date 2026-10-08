@@ -375,6 +375,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.live.phasePending": "…",
   "composer.live.roleUser": "사용자",
   "composer.live.roleAssistant": "어시스턴트",
+  "composer.live.audioUnavailable": "omp가 이 응답의 출력 오디오를 공개하지 않았습니다",
   "composer.live.dismiss": "라이브 음성 메시지 닫기",
   "composer.strip.converting": "워크트리 분리 중…",
   "composer.slash.new": "새 라이브 세션을 새 탭에",

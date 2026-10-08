@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import {
   applyLiveEnd,
   applyLiveLevels,
   applyLivePhase,
   applyLiveTranscript,
+  formatLiveAudioRef,
   isLiveSessionActive,
   emptyLiveSnapshot,
+  parseLiveAudioRef,
   parseLiveLevelsFrame,
   parseLivePhaseFrame,
   parseLiveTranscriptFrame,
+  type LivePhase,
   type LiveSnapshot,
 } from "./live-voice";
 
@@ -198,5 +202,49 @@ describe("isLiveSessionActive", () => {
     expect(isLiveSessionActive(applyLiveEnd(applyLivePhase(fresh(), "listening"), null))).toBe(
       false,
     );
+  });
+});
+
+const SESSION = "01890a2b-3c4d-7e5f-8a1b-2c3d4e5f6a7b";
+const CONNECTION = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+
+describe("voice recording references (#809)", () => {
+  it("formats the v1 scheme", () => {
+    expect(
+      formatLiveAudioRef({ sessionId: SESSION, connectionId: CONNECTION, role: "assistant", turn: 3 }),
+    ).toBe(`v1/${SESSION}/${CONNECTION}/assistant/3`);
+  });
+
+  it("round-trips a well-formed reference", () => {
+    const ref = { sessionId: SESSION, connectionId: CONNECTION, role: "user" as const, turn: 0 };
+    expect(parseLiveAudioRef(formatLiveAudioRef(ref))).toEqual(ref);
+  });
+
+  it("rejects malformed segments", () => {
+    expect(parseLiveAudioRef("")).toBeNull();
+    expect(parseLiveAudioRef(`v1/${SESSION}/${CONNECTION}/assistant`)).toBeNull();
+    expect(parseLiveAudioRef(`v1/${SESSION}/${CONNECTION}/assistant/3/extra`)).toBeNull();
+    expect(parseLiveAudioRef(`v2/${SESSION}/${CONNECTION}/assistant/3`)).toBeNull();
+    expect(parseLiveAudioRef(`v1/not-a-uuid/${CONNECTION}/assistant/3`)).toBeNull();
+    expect(parseLiveAudioRef(`v1/${SESSION}/../../etc/assistant/3`)).toBeNull();
+    expect(parseLiveAudioRef(`v1/${SESSION}/${CONNECTION}/system/3`)).toBeNull();
+    expect(parseLiveAudioRef(`v1/${SESSION}/${CONNECTION}/assistant/-1`)).toBeNull();
+    expect(parseLiveAudioRef(`v1/${SESSION}/${CONNECTION}/assistant/1.5`)).toBeNull();
+    expect(parseLiveAudioRef(`v1/${SESSION}/${CONNECTION}/assistant/3%00`)).toBeNull();
+  });
+
+  it("a turn number reused across connections yields distinct refs", () => {
+    const a = formatLiveAudioRef({ sessionId: SESSION, connectionId: CONNECTION, role: "assistant", turn: 2 });
+    const b = formatLiveAudioRef({ sessionId: SESSION, connectionId: randomUUID(), role: "assistant", turn: 2 });
+    expect(a).not.toBe(b);
+    const [pa, pb] = [parseLiveAudioRef(a), parseLiveAudioRef(b)] as const;
+    expect(pa?.turn).toBe(pb?.turn);
+    expect(pa?.connectionId).not.toBe(pb?.connectionId);
+  });
+
+  it("applyLivePhase leaves the connectionId alone", () => {
+    const snap = { ...emptyLiveSnapshot(), connectionId: CONNECTION };
+    expect(applyLivePhase(snap, "connecting").connectionId).toBe(CONNECTION);
+    expect(applyLiveEnd(snap, null).connectionId).toBe(CONNECTION);
   });
 });

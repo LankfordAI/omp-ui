@@ -64,7 +64,7 @@ describe("LiveVoiceControl (issue #778)", () => {
   });
 
   it("active renders the phase and a click on it stops", () => {
-    seed({ phase: "listening", levels: null, turns: [], ended: false, error: null });
+    seed({ phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null });
     const host = render();
     expect(host.textContent).toContain("listening");
     act(() => button("stop live voice")!.click());
@@ -73,7 +73,7 @@ describe("LiveVoiceControl (issue #778)", () => {
   });
 
   it("active renders the mute toggle and it sends the opposite", () => {
-    seed({ phase: "listening", levels: null, turns: [], ended: false, error: null });
+    seed({ phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null });
     render();
     act(() => button("mute live voice")!.click());
     expect(setLiveMuted).toHaveBeenCalledWith(TAB, true);
@@ -81,7 +81,7 @@ describe("LiveVoiceControl (issue #778)", () => {
     useStore.setState({
       rpc: {
         [TAB]: rpcTabState({
-          live: { phase: "muted", levels: null, turns: [], ended: false, error: null },
+          live: { phase: "muted", levels: null, turns: [], ended: false, error: null, connectionId: null },
         }),
       },
     });
@@ -91,7 +91,7 @@ describe("LiveVoiceControl (issue #778)", () => {
   });
 
   it("meters render only while levels are known", () => {
-    seed({ phase: "speaking", levels: { input: 0.5, output: 0.2 }, turns: [], ended: false, error: null });
+    seed({ phase: "speaking", levels: { input: 0.5, output: 0.2 }, turns: [], ended: false, error: null, connectionId: null });
     const host = render();
     // One Meter per channel: the overflow-hidden bg-line track.
     const tracks = () => host.querySelectorAll('[class*="overflow-hidden"]');
@@ -99,7 +99,7 @@ describe("LiveVoiceControl (issue #778)", () => {
     useStore.setState({
       rpc: {
         [TAB]: rpcTabState({
-          live: { phase: "speaking", levels: null, turns: [], ended: false, error: null },
+          live: { phase: "speaking", levels: null, turns: [], ended: false, error: null, connectionId: null },
         }),
       },
     });
@@ -108,7 +108,7 @@ describe("LiveVoiceControl (issue #778)", () => {
   });
 
   it("a session error shows in the idle capsule and starts remain available", () => {
-    seed({ phase: "listening", levels: null, turns: [], ended: true, error: "stream dropped" });
+    seed({ phase: "listening", levels: null, turns: [], ended: true, error: "stream dropped", connectionId: null });
     const host = render();
     expect(host.textContent).toContain("live");
     act(() => button("start live voice")!.click());
@@ -116,7 +116,7 @@ describe("LiveVoiceControl (issue #778)", () => {
   });
 
   it("the sheet row renders a switch labelled by state", () => {
-    seed({ phase: "working", levels: null, turns: [], ended: false, error: null });
+    seed({ phase: "working", levels: null, turns: [], ended: false, error: null, connectionId: null });
     const host = render("sheet");
     expect(host.textContent).toContain("working");
     const switchButton = [...document.querySelectorAll("button")].find(
@@ -126,7 +126,7 @@ describe("LiveVoiceControl (issue #778)", () => {
   });
 
   it("disables both faces when the callsite marks the session unavailable", () => {
-    seed({ phase: "listening", levels: null, turns: [], ended: false, error: null });
+    seed({ phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null });
     render(undefined, true);
     for (const b of document.querySelectorAll("button"))
       expect(b.disabled, b.getAttribute("aria-label") ?? "").toBe(true);

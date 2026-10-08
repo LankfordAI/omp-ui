@@ -412,6 +412,7 @@ export const en = {
   "composer.live.phasePending": "…",
   "composer.live.roleUser": "you",
   "composer.live.roleAssistant": "assistant",
+  "composer.live.audioUnavailable": "omp did not expose the output audio for this reply",
   "composer.live.dismiss": "dismiss live voice message",
   "composer.strip.converting": "cutting the worktree…",
   "composer.slash.new": "new live session in a new tab",
