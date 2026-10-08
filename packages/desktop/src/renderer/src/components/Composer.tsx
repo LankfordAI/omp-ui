@@ -171,8 +171,10 @@ export function Composer({
     (s) => supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
   );
   // Live voice holds the microphone (omp records audio itself): dictation's
-  // getUserMedia would fail anyway, so the disabled state replaces the
-  // failure instead of racing it.
+  // getUserMedia would fail anyway, so the mic gives up its slot while a live
+  // session runs and push-to-talk `r` is suppressed (issue #805). The
+  // disabled-with-title mic only reappears in the transient case where the
+  // capabilities snapshot drops out mid-live-session and the gate flips.
   const liveActive = useStore((s) => {
     const live = s.rpc[tabId]?.live;
     return live !== null && live !== undefined && !live.ended;
@@ -770,7 +772,7 @@ export function Composer({
   const focusDraft = useCallback(() => box.current?.focus({ preventScroll: true }), []);
 
   const voice = useDictation({ insert: insertAtCaret, focus: focusDraft });
-  useDictationHotkey(tabId, voice);
+  useDictationHotkey(tabId, voice, liveActive);
   /** Commits a draft the ghost produced; the DOM caret lags the state write by a commit. */
   const applyGhostDraft = (next: { text: string; caret: number }): void => {
     setText(next.text);
@@ -1140,13 +1142,6 @@ export function Composer({
               <FastModeControl tabId={tabId} disabled={unavailable} />
             )}
 
-            {liveSupported && (
-              <LiveVoiceControl
-                tabId={tabId}
-                disabled={unavailable || voice.phase === "recording" || voice.phase === "requesting"}
-              />
-            )}
-
             <AdvisorControl tabId={tabId} disabled={unavailable} />
 
             <BuildPlanControl
@@ -1166,16 +1161,23 @@ export function Composer({
             />
 
             <AttachmentButton disabled={unavailable} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
-            {/* Disabled buttons drop pointer events, so the title rides the
-                wrapper: the mic is omp's while live voice runs (issue #778). */}
-            <span
-              title={liveActive ? t("composer.live.micInUse") : undefined}
-              className={cn("inline-flex", liveActive && "cursor-not-allowed")}
-            >
-              <DictationControl disabled={unavailable || liveActive} voice={voice} />
-            </span>
-
-
+            {/* One voice affordance (issue #805): the live capsule takes the
+                mic's slot on a runtime with native live voice. */}
+            {liveSupported ? (
+              <LiveVoiceControl
+                tabId={tabId}
+                disabled={unavailable || voice.phase === "recording" || voice.phase === "requesting"}
+              />
+            ) : (
+              /* Disabled buttons drop pointer events, so the title rides the
+                 wrapper: reachable when the version gate drops out mid-live-session. */
+              <span
+                title={liveActive ? t("composer.live.micInUse") : undefined}
+                className={cn("inline-flex", liveActive && "cursor-not-allowed")}
+              >
+                <DictationControl disabled={unavailable || liveActive} voice={voice} />
+              </span>
+            )}
             {queueChip && !queueListed && (
               <Chip
                 mono
@@ -1234,17 +1236,19 @@ export function Composer({
           {compact && (
             <div className="flex min-h-11 items-center gap-1.5 px-1.5 pb-1.5">
               <AttachmentButton compact disabled={unavailable} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
-              <span
-                title={liveActive ? t("composer.live.micInUse") : undefined}
-                className={cn("inline-flex", liveActive && "cursor-not-allowed")}
-              >
-                <DictationControl compact disabled={unavailable || liveActive} voice={voice} />
-              </span>
-              {liveSupported && (
+              {/* Same exclusive slot in the compact row (issue #805). */}
+              {liveSupported ? (
                 <LiveVoiceControl
                   tabId={tabId}
                   disabled={unavailable || voice.phase === "recording" || voice.phase === "requesting"}
                 />
+              ) : (
+                <span
+                  title={liveActive ? t("composer.live.micInUse") : undefined}
+                  className={cn("inline-flex", liveActive && "cursor-not-allowed")}
+                >
+                  <DictationControl compact disabled={unavailable || liveActive} voice={voice} />
+                </span>
               )}
               <Button
                 variant="ghost"
