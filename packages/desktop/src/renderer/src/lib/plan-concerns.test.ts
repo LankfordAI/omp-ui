@@ -233,6 +233,30 @@ describe("composeImplementationPrompt", () => {
     );
   });
 
+  it("ships an html plan body fenced even when nothing arms a keyword", () => {
+    const body = "<!doctype html>\n<html><body><p>plan-body</p></body></html>\n";
+    const prompt = composeImplementationPrompt({
+      lead: "A plan was approved for this project. Implement it now.",
+      plan: { body, info: "html" },
+      concerns: [],
+      options: {},
+    });
+    expect(prompt).toContain("```html\n" + body);
+    expect([...keywordsIn(prompt)]).toEqual([]);
+  });
+
+  it("never lets html plan prose arm a keyword the user did not stage", () => {
+    const body = "<!doctype html>\n<html><body><p>we orchestrate the calls</p></body></html>\n";
+    const prompt = composeImplementationPrompt({
+      lead: "A plan was approved for this project. Implement it now.",
+      plan: { body, info: "html" },
+      concerns: [],
+      options: {},
+    });
+    expect(prompt).toContain("```html\n" + body);
+    expect([...keywordsIn(prompt)]).toEqual([]);
+  });
+
   it("arms exactly the staged keywords whatever the parts hold", () => {
     const corpus = [
       "we orchestrate the RPC calls",

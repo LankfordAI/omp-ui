@@ -600,6 +600,23 @@ describe("Markdown html plan documents", () => {
     }
   });
 
+  it("renders the shipped plan seed shape with prose on both sides of the fence", async () => {
+    const seed =
+      "A plan was approved for this project. Implement it now.\n\n" +
+      "```html\n" +
+      PLAN +
+      "```\n\nProceed with the implementation.";
+    const view = render(seed);
+    try {
+      await until(() => srcdocOf(view.el) !== "");
+      expect(srcdocOf(view.el)).toContain("plan-body");
+      expect(view.el.textContent).toContain("A plan was approved");
+      expect(view.el.textContent).toContain("Proceed with the implementation.");
+    } finally {
+      dispose(view);
+    }
+  });
+
   it.each([
     ["a fragment html fence", "```html\n<div>frag</div>\n```", "frag"],
     ["a document followed by prose", PLAN + "\n\nthoughts?", "plan-body"],

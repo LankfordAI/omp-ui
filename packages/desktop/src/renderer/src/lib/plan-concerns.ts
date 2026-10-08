@@ -1,5 +1,6 @@
 import type { PlanImplementationSource } from "@omp-ui/core/types";
 import {
+  inertBlock,
   type KeywordQuoting,
   type MagicKeyword,
   VERBATIM_QUOTING,
@@ -119,14 +120,27 @@ export interface ImplementationPromptParts {
  * when the verbatim bytes would arm a keyword the user never typed — a plan
  * saying "we orchestrate the RPC calls", a branch name, a concerns note —
  * every un-authored field rebuilds inert-quoted. The staged keywords then
- * lead, so the armed set is exactly what review switched on.
+ * lead, so the armed set is exactly what review switched on. An html plan
+ * body is fenced in both passes: the transcript's plan viewer renders a
+ * settled ```html fence, inertBlock's fence cannot be escaped from inside
+ * the document, and the fence masks the body for keyword detection.
  */
 export function composeImplementationPrompt(parts: ImplementationPromptParts): string {
   const body = withoutAccidentalKeywords((q) => {
-    const head =
+    // An html body always ships fenced: the transcript's plan viewer renders a
+    // settled ```html fence (Markdown.tsx Block case), inertBlock's fence cannot
+    // be escaped from inside the document, and the fence masks the body for
+    // keyword detection. Markdown stays verbatim; inert rebuilds still fence.
+    const planBlock =
       parts.plan === null
+        ? null
+        : parts.plan.info === "html"
+          ? inertBlock(parts.plan.body, "html")
+          : q.block(parts.plan.body, parts.plan.info);
+    const head =
+      planBlock === null
         ? parts.lead
-        : `${parts.lead}\n\n${q.block(parts.plan.body, parts.plan.info)}\n\nProceed with the implementation.`;
+        : `${parts.lead}\n\n${planBlock}\n\nProceed with the implementation.`;
     return withExecutionDestination(
       withConcerns(head, renderConcernsBlock(parts.concerns, PLAN_CONCERNS_LEAD, q)),
       parts.options?.destination,
