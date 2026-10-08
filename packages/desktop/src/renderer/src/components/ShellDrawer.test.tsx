@@ -228,6 +228,8 @@ describe("ShellDrawer focus", () => {
   it("focuses the console when it opens, never while hidden or on a respawn", async () => {
     await render(false);
     expect(mocks.focus).not.toHaveBeenCalled();
+    // Mounting hidden must not hand focus to a composer either.
+    expect(document.activeElement).toBe(document.body);
 
     await render(true);
     expect(mocks.focus).toHaveBeenCalledTimes(1);
@@ -241,6 +243,47 @@ describe("ShellDrawer focus", () => {
     await render(false);
     await render(true);
     expect(mocks.focus).toHaveBeenCalledTimes(2);
+  });
+
+  it("hands the caret to the composer when the drawer closes from the terminal", async () => {
+    const tab = document.createElement("div");
+    tab.dataset.tabId = mocks.TAB;
+    const composer = document.createElement("textarea");
+    composer.setAttribute("data-composer-input", "");
+    tab.append(composer);
+    document.body.appendChild(tab);
+
+    await render(true);
+    // Model the caret being in the shell: a focusin inside the drawer host,
+    // which is what term.focus() (or a click in the canvas) produces.
+    mocks.focus.mockClear();
+    mocks.host!.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+
+    // No focusout is dispatched when the drawer hides (jsdom swaps a class, no
+    // synthetic blur), so this proves the close branch keys on the record, not
+    // on activeElement.
+    await render(false);
+    expect(document.activeElement).toBe(composer);
+  });
+
+  it("leaves focus alone when the drawer closes without having held it", async () => {
+    const tab = document.createElement("div");
+    tab.dataset.tabId = mocks.TAB;
+    const composer = document.createElement("textarea");
+    composer.setAttribute("data-composer-input", "");
+    tab.append(composer);
+    document.body.appendChild(tab);
+    composer.focus();
+
+    await render(true);
+    // The user moved focus out while the drawer was open.
+    mocks.host!.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    const elsewhere = document.createElement("input");
+    document.body.appendChild(elsewhere);
+    elsewhere.focus();
+
+    await render(false);
+    expect(document.activeElement).toBe(elsewhere);
   });
 
   it("hands mod+j to the app's console toggle instead of the shell", async () => {
