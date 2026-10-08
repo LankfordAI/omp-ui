@@ -515,6 +515,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     dispatchEarlyTitle: rpcCommandSlice.dispatchEarlyTitle,
     armDelegatedTitle: rpcCommandSlice.armDelegatedTitle,
     renameSession: rpcCommandSlice.renameSession,
+    refreshAutoTitle: rpcCommandSlice.refreshAutoTitle,
     executePlan: plan.executePlan,
     refinePlan: plan.refinePlan,
     deferPlanReview: plan.deferPlanReview,

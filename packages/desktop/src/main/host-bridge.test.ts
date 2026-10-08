@@ -245,6 +245,7 @@ describe("HostBridge omp-ui://sessions", () => {
       advisorModel: null,
       subagentModels: null,
       proposedPlans: [],
+      autoTitled: false,
       cachedTitle: "Ship the day index",
       cachedModified: new Date(2026, 9, 6, 10, 30).toISOString(),
       agentMode: "build",

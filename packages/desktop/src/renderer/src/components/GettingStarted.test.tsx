@@ -133,6 +133,7 @@ function sessionSummary(): SessionSummary {
     advisorModel: null,
     subagentModels: null,
     proposedPlans: [],
+    autoTitled: false,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",

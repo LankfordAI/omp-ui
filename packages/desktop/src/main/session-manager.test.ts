@@ -1837,6 +1837,27 @@ describe("session approval mode pinning (issue #681)", () => {
       approvalMode: "write",
     });
   });
+
+  it("copies the auto-title marker to a fork (issue #804)", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.updateSession(TAB, { autoTitled: true });
+    const transcript = path.join(
+      sessionsRoot,
+      LINEAGE,
+      "2026-08-13T00-00-00-000Z_appr-src.jsonl",
+    );
+    fs.writeFileSync(
+      transcript,
+      `${JSON.stringify({ type: "session", id: "appr-src", cwd: "/proj" })}\n`,
+    );
+
+    const { tabId: forkTabId } = await manager.forkSession(TAB);
+
+    // The fork inherits the title and its origin.
+    expect(registry.sessions.find((s) => s.tabId === forkTabId)).toMatchObject({
+      autoTitled: true,
+    });
+  });
 });
 
 describe("plan implementation handoff persistence (issue #238)", () => {

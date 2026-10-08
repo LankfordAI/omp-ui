@@ -84,6 +84,7 @@ beforeEach(() => {
               advisorModel: null,
               subagentModels: null,
               proposedPlans: [],
+              autoTitled: false,
               cachedTitle: null,
               cachedModified: null,
               title: "T",

@@ -129,6 +129,12 @@ export interface TabRuntime {
    * read (issue #803). Cleared when it fires and at `agent_end`.
    */
   delegatedTitlePending?: boolean;
+  /**
+   * Epoch ms of the last replan auto-title refresh this tab fired (issue
+   * #804). Renderer-only like `lastFrameAt`: losing it across a reload
+   * costs at most one duplicate refresh, which is idempotent work.
+   */
+  replanTitleAt?: number;
 }
 
 export interface StoreMachinery {

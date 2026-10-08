@@ -414,6 +414,9 @@ export function createFrameReductionSlice(
       case "rename-session":
         get().renameSession(tabId);
         return;
+      case "refresh-auto-title":
+        get().refreshAutoTitle(tabId);
+        return;
       case "dispatch-early-title":
         get().dispatchEarlyTitle(tabId);
         return;

@@ -666,6 +666,7 @@ export class SessionManager {
           advisorModel: req.advisorModel ?? null,
           subagentModels: null,
           proposedPlans: [],
+          autoTitled: false,
           cachedTitle: null,
           cachedModified: null,
         });
@@ -2009,6 +2010,7 @@ export class SessionManager {
       proposedPlans: [],
       cachedTitle: source.cachedTitle,
       cachedModified: new Date().toISOString(),
+      autoTitled: source.autoTitled,
     });
     await this.deps.broadcast();
       return { tabId: fork.tabId };

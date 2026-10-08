@@ -756,6 +756,17 @@ export const BACKEND_CHANNELS = {
   },
 
   /**
+   * Records that the session's current title is omp-ui-generated (issue #804).
+   * Registry write plus broadcast: replans land after reloads and in second
+   * clients, and a rename from any client must clear the marker for all of
+   * them.
+   */
+  setSessionAutoTitled: {
+    channel: "session:setAutoTitled",
+    ...request<[tabId: string, autoTitled: boolean], void>([str(), bool()]),
+  },
+
+  /**
    * Session-scope subagent model choices (ADR-0031). Registry write, then the
    * session's overlay is rewritten IN PLACE — omp re-reads the `--config`
    * layer before every subagent spawn, so the change lands at the next spawn

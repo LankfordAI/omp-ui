@@ -780,6 +780,10 @@ export class MainBackend {
           this.registry.setSessionModel(tabId, model, thinkingLevel);
           void this.broadcast();
         },
+        [CH.setSessionAutoTitled]: (tabId: string, autoTitled: boolean) => {
+          this.registry.updateSession(tabId, { autoTitled });
+          void this.broadcast();
+        },
         [CH.setSessionSubagentModels]: (tabId: string, map: SubagentModelMap | null) =>
           this.sessions.setSessionSubagentModels(tabId, map),
         [CH.spawnSession]: (req: SpawnRequest) => this.sessions.spawn(req),

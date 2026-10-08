@@ -78,6 +78,7 @@ function liveSession(tabId: string): SessionSummary {
     advisor: false,
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
+ autoTitled: false,
     cachedTitle: "T",
     cachedModified: "t",
     title: "T",

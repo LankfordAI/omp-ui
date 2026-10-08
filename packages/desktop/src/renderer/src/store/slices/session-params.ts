@@ -1429,6 +1429,9 @@ export function createSessionParamsSlice(
     // A user-chosen name is final — the auto-titler must not overwrite it.
     // Clearing the attempt retires any in-flight retry budget (issue #791).
     m.patchRpc(tabId, { hasRenamed: true, initialPrompt: null, titleAttempt: null });
+    // omp-ui's mirror of omp's `titleSource === "user"` gate: a typed name
+    // also clears the auto-title marker, so replans stop refreshing (issue #804).
+    void backend.setSessionAutoTitled(tabId, false);
   };
 
   const regenerateSessionTitle = async (tabId: string): Promise<void> => {
@@ -1444,6 +1447,9 @@ export function createSessionParamsSlice(
     // transcript: the command row plus its settlement notice are the
     // feedback (issue #788).
     await get().runSlashCommand(tabId, "/rename");
+    // The user asked the generator to name the session, so the result is
+    // again an auto-title: mark it so later replans keep it fresh (issue #804).
+    void backend.setSessionAutoTitled(tabId, true);
   };
 
   const setPlanMode = async (tabId: string, enabled: boolean): Promise<void> => {

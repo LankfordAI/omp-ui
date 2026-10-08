@@ -84,6 +84,7 @@ function session(
     advisorModel: null,
     subagentModels: null,
     proposedPlans: [],
+    autoTitled: false,
     cachedTitle: null,
     cachedModified: null,
     ...override,

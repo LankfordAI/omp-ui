@@ -5,6 +5,7 @@ import { rpcTabState } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 import type { StoreMachinery, TabRuntime } from "./shared";
 import type { SessionCommand } from "@omp-ui/core/session-command";
+import type { RpcTabState } from "../types";
 import type {
   CapabilitySection,
   CapabilitySnapshot,
@@ -1364,6 +1365,119 @@ describe("auto-titling dispatch (issue #788)", () => {
     await h.flushMicrotasks();
     expect(renames()).toHaveLength(0);
     warn.mockRestore();
+  });
+});
+
+describe("replan auto-title refresh (issue #804)", () => {
+  beforeEach(() => {
+    h.mockBackend.setSessionAutoTitled.mockClear();
+  });
+
+  /** A settled, titled, omp-ui-generated session: every gate open. */
+  const seedAutoTitled = (patch?: {
+    title?: string;
+    autoTitled?: boolean;
+    rpc?: Partial<RpcTabState>;
+  }): void => {
+    const base = h.stateWithRecord("sess-1");
+    const state = structuredClone(base);
+    const record = state.projects[0]!.sessions[0]!;
+    record.title = patch?.title ?? "Refactor the auth module";
+    record.autoTitled = patch?.autoTitled ?? true;
+    h.backendState = state;
+    h.useStore.setState({
+      state,
+      rpc: {
+        [h.TAB]: rpcTabState({
+          status: "ready",
+          hasRenamed: true,
+          ...patch?.rpc,
+        }),
+      },
+    });
+    h.sent.length = 0;
+  };
+
+  const replanFrame = (): void => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "tool_execution_end",
+      toolName: "todo",
+      isError: false,
+      result: {
+        content: [],
+        details: { op: "init", phases: [{ title: "Ship", todos: [] }], storage: "file" },
+      },
+    });
+  };
+
+  const renameDispatches = () =>
+    h.sent.filter((s) => s.cmd.type === "prompt" && s.cmd.message === "/rename");
+
+  it("re-dispatches the quiet /rename from a todo init frame", async () => {
+    seedAutoTitled();
+    replanFrame();
+    await h.flushMicrotasks();
+    expect(renameDispatches()).toHaveLength(1);
+    // The refresh rides dispatchTitle's bare branch, which re-marks the
+    // title as generator output.
+    expect(h.mockBackend.setSessionAutoTitled).toHaveBeenCalledWith(h.TAB, true);
+
+    // A second replan inside the floor pays for one generator, not two.
+    const mark = h.sent.length;
+    replanFrame();
+    await h.flushMicrotasks();
+    expect(h.sent.slice(mark).filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+  });
+
+  it("never touches a session whose title is not omp-ui-generated", async () => {
+    seedAutoTitled({ autoTitled: false });
+    replanFrame();
+    await h.flushMicrotasks();
+    expect(renameDispatches()).toHaveLength(0);
+  });
+
+  it("defers while the initial title ladder still owns the tab", async () => {
+    seedAutoTitled({ rpc: { titleAttempt: { at: Date.now(), n: 1 } } });
+    replanFrame();
+    await h.flushMicrotasks();
+    expect(renameDispatches()).toHaveLength(0);
+
+    h.useStore.setState((s) => ({
+      rpc: { [h.TAB]: { ...s.rpc[h.TAB]!, titleAttempt: null, initialPrompt: "pending" } },
+    }));
+    replanFrame();
+    await h.flushMicrotasks();
+    expect(renameDispatches()).toHaveLength(0);
+  });
+
+  it("never refreshes an untitled record", async () => {
+    seedAutoTitled({ title: "New session" });
+    replanFrame();
+    await h.flushMicrotasks();
+    expect(renameDispatches()).toHaveLength(0);
+  });
+
+  it("refreshes again once the floor has elapsed", async () => {
+    vi.useFakeTimers();
+    try {
+      seedAutoTitled();
+      replanFrame();
+      await h.flushMicrotasks();
+      expect(renameDispatches()).toHaveLength(1);
+      const mark = h.sent.length;
+      replanFrame();
+      await h.flushMicrotasks();
+      // Inside the floor the runtime stamp dedups the burst (issue #804).
+      expect(h.sent.slice(mark).filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+
+      // Past the floor the next replan pays for a generator again.
+      vi.advanceTimersByTime(20_000);
+      replanFrame();
+      await h.flushMicrotasks();
+      expect(h.sent.slice(mark).filter((s) => s.cmd.message === "/rename")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

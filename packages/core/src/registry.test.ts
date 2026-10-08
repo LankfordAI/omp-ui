@@ -36,6 +36,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     advisorModel: null,
     subagentModels: null,
     proposedPlans: [],
+    autoTitled: false,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",
@@ -1758,6 +1759,38 @@ describe("legacy registries with absent optional fields (issue #294)", () => {
       worktree: null,
       planImplementationSource: null, experiment: null,
     });
+  });
+});
+
+describe("autoTitled marker (issue #804)", () => {
+  it("normalizes a legacy session without autoTitled to false on load", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord() };
+    delete legacy.autoTitled;
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]).toMatchObject({ tabId: "tab-1", autoTitled: false });
+  });
+
+  it("drops a session whose present autoTitled is not a boolean", () => {
+    // Same guard shape as advisor: absent loads as false, a present
+    // non-boolean is a malformed record (issue #804).
+    const file = tmpFile();
+    const bad = { ...sessionRecord(), autoTitled: "yes" };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [bad] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(0);
+  });
+
+  it("persists the marker set and cleared through updateSession across a reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord());
+    reg.updateSession("tab-1", { autoTitled: true });
+    expect(Registry.load(file).sessions[0]).toMatchObject({ tabId: "tab-1", autoTitled: true });
+    reg.updateSession("tab-1", { autoTitled: false });
+    expect(Registry.load(file).sessions[0]).toMatchObject({ tabId: "tab-1", autoTitled: false });
   });
 });
 
