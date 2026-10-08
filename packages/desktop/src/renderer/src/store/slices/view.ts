@@ -29,6 +29,7 @@ import { projectKey } from "../../lib/project-key";
 import { markSharePrivacySeen } from "../../lib/share-privacy";
 import type { StoreMachinery } from "./shared";
 import type { CompactSurface, ErrorNotice, SidebarGroupDialogRequest, UiStore } from "../types";
+import { isLiveSessionActive } from "@omp-ui/core/live-voice";
 import { TREE_COMMAND } from "@omp-ui/core/session-tree";
 
 export type { CompactSurface } from "../types";
@@ -381,10 +382,10 @@ export function installLiveVoiceVisibilityGuard(
     const left = previous.activeTabId;
     if (left !== null) {
       const live = previous.rpc[left]?.live;
-      if (
-        live !== undefined && live !== null && !live.ended &&
-        live.phase !== null && live.phase !== "muted" && live.phase !== "error"
-      ) {
+      // The shared predicate answers "could still be talked to"; a session
+      // already in the muted phase (the user's own mute) needs no second
+      // command.
+      if (isLiveSessionActive(live) && live.phase !== "muted") {
         // A live snapshot means a booted rpc tab, so the runtime exists (or
         // is created here); a PTY tab never reaches this line.
         m.runtime(left);
