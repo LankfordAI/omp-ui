@@ -266,12 +266,18 @@ export function liftHighlights(markdown, previousRefs, url) {
   const block = RE.unreleased.exec(markdown ?? "");
   const baseDir = path.posix.dirname(RELEASES_DOC);
   const out = [];
+  const bullets = [];
   for (const line of (block?.[1] ?? "").split("\n")) {
     const bullet = RE.bullet.exec(line);
-    if (!bullet) continue;
-    const refs = [...parseRefs(bullet[1]).keys()];
+    if (bullet) bullets.push(bullet[1]);
+    // A long bullet wraps onto indented continuation lines; markdown joins
+    // them with a space, and so must the lifted copy (#806).
+    else if (bullets.length && /^\s+\S/.test(line)) bullets[bullets.length - 1] += ` ${line.trim()}`;
+  }
+  for (const text of bullets) {
+    const refs = [...parseRefs(text).keys()];
     if (refs.length && refs.every((number) => previousRefs.has(number))) continue;
-    const linked = bullet[1].replace(
+    const linked = text.replace(
       RE.bare,
       (_match, before, number) => `${before}[#${number}](${url.issue(number)})`,
     );

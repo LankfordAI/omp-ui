@@ -300,6 +300,22 @@ test("highlights lift verbatim, linkify refs, and drop stale bullets", () => {
   ]);
 });
 
+test("a bullet wrapped onto indented lines lifts whole", () => {
+  const releasesDoc = [
+    "## Unreleased",
+    "",
+    "- Live voice listens only in the tab you are viewing: switching mutes a",
+    "  running session's microphone and returning unmutes it (#801).",
+    "- Next bullet (#802).",
+    "",
+  ].join("\n");
+
+  assert.deepEqual(liftHighlights(releasesDoc, new Set(), url), [
+    "Live voice listens only in the tab you are viewing: switching mutes a running session's microphone and returning unmutes it ([#801](https://github.com/octo/widgets/issues/801)).",
+    "Next bullet ([#802](https://github.com/octo/widgets/issues/802)).",
+  ]);
+});
+
 test("only the previous Highlights section dedupes lifted bullets", () => {
   const releasesDoc = ["## Unreleased", "", "- Keep the canvas visible across resizes (#653).", ""].join("\n");
   const finalized = (prevBody) =>
