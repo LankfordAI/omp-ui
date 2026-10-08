@@ -4,7 +4,8 @@ import type { PlanImplementationSource, SessionSummary } from "@omp-ui/core/type
 import { useT, type MessageKey } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
-import { Button, Dot, IconButton, IconGrip, type Tone } from "./ui";
+import { Button, Dot, IconButton, IconGrip, IconSpeaker, type Tone } from "./ui";
+import type { LivePhase } from "@omp-ui/core/live-voice";
 
 const SESSION_FACE: Record<
   SidebarSessionState,
@@ -82,7 +83,15 @@ const SESSION_FACE: Record<
   },
 };
 
-
+// Live voice output (issue #807): phase → the existing composer phase label.
+const LIVE_PHASE_TITLE: Record<LivePhase, MessageKey> = {
+  connecting: "composer.live.phaseConnecting",
+  listening: "composer.live.phaseListening",
+  working: "composer.live.phaseWorking",
+  speaking: "composer.live.phaseSpeaking",
+  muted: "composer.live.phaseMuted",
+  error: "composer.live.phaseError",
+};
 
 function absoluteTime(iso: string | null): string {
   if (!iso) return "";
@@ -194,6 +203,17 @@ export function SessionRow({
   const exited = useStore((st) => st.exited[s.tabId]);
   const sidebarState = useStore((st) => deriveSidebarSessionState(s, st.rpc[s.tabId]));
   const activeTabId = useStore((st) => st.activeTabId);
+
+  // Live voice output (issue #807): a running live session speaks even when
+  // its tab is not visible — the visibility guard (#801) mutes background
+  // mics only. The selector reads phase, not the snapshot, so 10 Hz
+  // `live_levels` patches never re-render the row; `ended` hides the glyph
+  // once no audio plays anymore, matching the strip's clean-end rule (#800).
+  const livePhase = useStore((st): LivePhase | null => {
+    if (s.mode !== "rpc-ui") return null;
+    const live = st.rpc[s.tabId]?.live;
+    return live !== undefined && live !== null && !live.ended ? live.phase : null;
+  });
 
   const missing = s.live === "missing";
   const selected = s.tabId === activeTabId;
@@ -310,6 +330,25 @@ export function SessionRow({
       </button>
 
       <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
+        {livePhase !== null ? (
+          <span
+            role="img"
+            aria-label={t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[livePhase]) })}
+            title={t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[livePhase]) })}
+            className={cn(
+              "shrink-0 self-center",
+              livePhase === "speaking"
+                ? "text-signal"
+                : livePhase === "error"
+                  ? "text-rose"
+                  : livePhase === "muted"
+                    ? "text-ink-faint"
+                    : "text-ink-mid",
+            )}
+          >
+            <IconSpeaker waves={livePhase === "speaking" ? 2 : 1} />
+          </span>
+        ) : null}
         {source !== null && (
           <IconButton
             label={t("sidebar.session.openPlanning")}

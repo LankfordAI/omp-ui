@@ -7,6 +7,7 @@ export {
   IconGrip,
   IconGroup,
   IconMic,
+  IconSpeaker,
   IconPencil,
   IconPlus,
   IconRefresh,
