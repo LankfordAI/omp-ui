@@ -186,6 +186,10 @@ const mockBackend = {
     async (_tabId: string, absPath: string): Promise<string | null> =>
       absPath.endsWith(".html") ? "<h1>Plan</h1>" : "# Plan\n\nstep one\n",
   ),
+  // #809: honest empty by default — no recordings exist, and a load answers
+  // unavailable until a test's own override says otherwise.
+  listLiveAudio: vi.fn(async (): Promise<never[]> => []),
+  readLiveAudio: vi.fn(async (): Promise<{ status: "unavailable" }> => ({ status: "unavailable" })),
   listBranches: vi.fn(),
   checkoutBranch: vi.fn(),
   pullBranch: vi.fn(),

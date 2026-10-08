@@ -65,7 +65,7 @@ import type {
 import type { GoalState } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { BtwSnapshot } from "@omp-ui/core/side-questions";
-import type { LiveSnapshot } from "@omp-ui/core/live-voice";
+import type { LiveAudioEntry, LiveAudioLoad, LiveSnapshot, LiveTurn } from "@omp-ui/core/live-voice";
 import type { RailTab } from "../lib/panel-layout";
 import type { AutoresearchSnapshot, ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { ApprovalPrompt } from "@omp-ui/core/approval";
@@ -1087,6 +1087,15 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setLiveMuted(tabId: string, muted: boolean): Promise<void>;
   /** Drops the live error strip; keeps a running session's snapshot. */
   clearLiveError(tabId: string): void;
+  /** The recordings stored under this session's lineage dir (#809), newest
+   *  first — disk enumeration, so a session that is not being viewed lists
+   *  the same entries. [] while omp exposes no audio at all (ADR-0049). */
+  listLiveRecordings(tabId: string): Promise<LiveAudioEntry[]>;
+  /** Loads one live turn's recording by reference built from the session
+   *  AND the connection these turns belong to (#809); never invents an id —
+   *  a session that never materialized or never started live voice answers
+   *  `unavailable` without dispatch. */
+  loadLiveRecording(tabId: string, turn: LiveTurn): Promise<LiveAudioLoad>;
   /** Writes the tier this session's fast selection names (issue #719);
    *  applied by the next spawn's replay — never a respawn. null clears. */
   setSessionServiceTier(tabId: string, tier: ServiceTier | null): Promise<void>;

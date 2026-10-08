@@ -12,3 +12,19 @@ export function randomId(): string {
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   );
 }
+
+/**
+ * A UUID v4 string that also works on a non-secure origin. The UUID SHAPE is
+ * load-bearing here — `parseLiveAudioRef` rejects a connection segment that
+ * is not UUID-shaped (#809), so the connection id cannot ride `randomId`'s
+ * timestamp fallback. `crypto.getRandomValues` exists even on origins where
+ * `crypto.randomUUID` is undefined (issue #37's LAN case).
+ */
+export function randomUuid(): string {
+  if (crypto.randomUUID !== undefined) return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}

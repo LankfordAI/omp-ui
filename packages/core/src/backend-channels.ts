@@ -72,6 +72,7 @@ import type {
   WorktreeReleaseResult,
   WorktreeSyncResult,
 } from "./types";
+import type { LiveAudioEntry, LiveAudioLoad } from "./live-voice";
 import type { SubagentModelMap } from "./subagent-model";
 import type { ReviewRosterView, ReviewWriteRequest } from "./review-config";
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
@@ -592,6 +593,28 @@ export const BACKEND_CHANNELS = {
   transcribeAudio: {
     channel: "stt:transcribe",
     ...request<[req: SttTranscribeRequest], SttTranscribeResult>([sttTranscribeRequestCodec]),
+  },
+  /**
+   * The recordings stored under the session's lineage dir (#809), newest
+   * first. Disk enumeration is the truth source — a session that is not
+   * being viewed lists the same entries. Empty, never an error, when no
+   * `live-audio/` dir exists yet.
+   */
+  listLiveAudio: {
+    channel: "liveAudio:list",
+    ...request<[tabId: string], LiveAudioEntry[]>([str()]),
+  },
+  /**
+   * One recording's bytes by voice recording reference
+   * (`v1/<sessionId>/<connectionId>/<role>/<turn>`). Confined to the
+   * session's lineage dir; never throws at this boundary — `unavailable`
+   * (no file answers, malformed ref, escape, over-cap) and `incomplete`
+   * (only a `.partial` sibling exists) are honest states, not failures
+   * (ADR-0049).
+   */
+  readLiveAudio: {
+    channel: "liveAudio:read",
+    ...request<[tabId: string, ref: string], LiveAudioLoad>([str(), str()]),
   },
   /**
    * Provider credentials omp-ui supplies to every omp it launches, with the

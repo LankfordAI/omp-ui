@@ -137,6 +137,7 @@ import { NO_BREADCRUMBS, type BreadcrumbSink } from "./breadcrumbs";
 import { readExperimentDetail, readProjectExperiments, readRunLog } from "./experiments";
 import { registerSettingsHandlers } from "./settings-handlers";
 import { registerSttHandlers } from "./stt-handlers";
+import { registerLiveAudioHandlers } from "./live-audio";
 import { registerRemoteHandlers } from "./remote-handlers";
 import { registerVaultHandlers } from "./vault-handlers";
 import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
@@ -761,6 +762,10 @@ export class MainBackend {
         ...registerSttHandlers({
           registry: this.registry,
           ompPath: this.ompPath,
+        }),
+        ...registerLiveAudioHandlers({
+          registry: this.registry,
+          getSessionsRoot: () => this.sessionsRoot,
         }),
         // The appUpdateDismiss/ompUpdateDismiss channels only ever set a dismissal;
         // re-arming a dismissed card from Settings needs its own pair.

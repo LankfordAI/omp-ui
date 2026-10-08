@@ -2941,6 +2941,7 @@ describe("handleRpcFrame routing", () => {
       turns: [],
       ended,
       error: null,
+      connectionId: null,
     });
 
     /** Dispatches a fresh execute with `live` seeded on the planning tab. */

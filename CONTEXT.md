@@ -370,6 +370,17 @@ of the draft in spoken order — never submitted. Gated app-wide by the Voice
 input setting.
 _Avoid_: voice typing, speech recognition, push-to-talk
 
+**Voice Recording Reference**:
+The address of one turn's audio in a live voice session:
+`v1/<sessionId>/<connectionId>/<role>/<turn>` — the owned session, the UUID one
+live connection minted at connect (omp's turn numbers restart each connection,
+so the connection id is what keeps two connections' turn 0 apart), the role, and
+the turn number (issue #809, ADR-0049). A reference is not a promise: bytes live
+in the lineage's `live-audio/` dir only if something wrote them, and omp's
+current rpc surface exposes no assistant output audio, so a reference honestly
+answers `unavailable` until a capture source exists.
+_Avoid_: audio id, clip id, recording url
+
 **Auto-title**:
 The name a new session gets from omp's own renamer, dispatched over the
 prompt channel: when the first substantive prompt's turn admits its user
