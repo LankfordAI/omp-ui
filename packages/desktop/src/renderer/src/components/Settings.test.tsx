@@ -946,6 +946,85 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
   });
 });
 
+describe("Settings omp Live voice group (issue #802)", () => {
+  function seedOmp(snapshot: OmpSettingsSnapshot): void {
+    backendMock.readOmpSettings.mockResolvedValue(snapshot);
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  it("renders the timbre select and writes the chosen voice", async () => {
+    seedOmp({
+      ...emptyOmpSettings,
+      entries: [
+        {
+          key: "live.voice",
+          type: "enum" as const,
+          description: "Voice used by Codex-backed realtime voice sessions",
+          value: "sol",
+          globalValue: undefined,
+          options: [
+            "arbor",
+            "breeze",
+            "cove",
+            "ember",
+            "juniper",
+            "maple",
+            "sol",
+            "spruce",
+            "vale",
+          ],
+          layer: "default" as const,
+        },
+      ],
+    });
+    await renderSettings();
+
+    expect(document.body.textContent).toContain("Live voice");
+    expect(document.body.textContent).toContain(
+      "Voice used by Codex-backed realtime voice sessions",
+    );
+    const select = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="live.voice"]',
+    )!;
+    expect([...select.options].map((option) => option.value)).toEqual([
+      "arbor",
+      "breeze",
+      "cove",
+      "ember",
+      "juniper",
+      "maple",
+      "sol",
+      "spruce",
+      "vale",
+    ]);
+    expect(select.value).toBe("sol");
+    await act(async () => {
+      select.value = "juniper";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "live.voice",
+      "juniper",
+    );
+  });
+
+  it("omits the section when omp does not publish the key", async () => {
+    seedOmp(emptyOmpSettings);
+    await renderSettings();
+    expect(
+      document.querySelector('select[aria-label="live.voice"]'),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("Live voice");
+  });
+});
+
 describe("Settings omp Python section (issue #671)", () => {
   const pythonEntries = (): OmpSettingsSnapshot["entries"] => [
     {

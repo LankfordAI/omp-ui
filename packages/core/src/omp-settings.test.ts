@@ -600,6 +600,18 @@ describe("writeOmpSetting", () => {
     ]);
   });
 
+  it("allowlists live.voice for the realtime voice timbre (issue #802)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "live.voice", value: "juniper" },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "live.voice", "juniper", "--json"]);
+  });
+
   it("puts a negative number after `--` so omp's CLI does not read it as a flag (issue #105)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(
