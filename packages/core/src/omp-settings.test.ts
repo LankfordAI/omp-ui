@@ -126,6 +126,20 @@ describe("readOmpGoalContinuationModes", () => {
 });
 
 describe("readOmpSettings", () => {
+
+  it("forces plain output on every spawn (issue #812)", async () => {
+    // The real execFile runner, with node standing in for omp: the child
+    // prints what the environment it received carries. An inherited
+    // FORCE_COLOR=1 in the caller's env must not survive into the spawn.
+    const stdout = await execOmpConfigRunner(process.execPath)(
+      [
+        "-e",
+        "process.stdout.write(JSON.stringify([process.env.NO_COLOR, process.env.FORCE_COLOR]))",
+      ],
+      { cwd: os.tmpdir(), env: { ...process.env, FORCE_COLOR: "1" } },
+    );
+    expect(JSON.parse(stdout)).toEqual(["1", "0"]);
+  });
   it("marks a value the project layer overrides as project", async () => {
     const snapshot = await readOmpSettings(
       { ompPath: OMP, projectCwd: "/repo" },
@@ -487,6 +501,26 @@ describe("parseEnumOptions", () => {
     expect(options["advisor.immuneTurns"]).toBeNull();
     // Keys outside the request never appear, even when omp prints them.
     expect(Object.keys(options)).not.toContain("unrelated.key");
+  });
+
+  it("parses enum members from colorized output (issue #812)", () => {
+    // The real shape of a FORCE_COLOR=1 `omp config list` line: escapes wrap
+    // the key and value, and a trailing ESC[22m sits after the closing paren
+    // where LIST_LINE_RE's `\\s*$` would otherwise reject the line.
+    const text =
+      "\x1b[37mlive.voice\x1b[39m = \x1b[33msol\x1b[39m " +
+      "\x1b[2m(arbor|breeze|cove|ember|juniper|maple|sol|spruce|vale)\x1b[22m";
+    expect(parseEnumOptions(text, ["live.voice"])["live.voice"]).toEqual([
+      "arbor",
+      "breeze",
+      "cove",
+      "ember",
+      "juniper",
+      "maple",
+      "sol",
+      "spruce",
+      "vale",
+    ]);
   });
 });
 

@@ -97,7 +97,16 @@ export const execOmpConfigRunner: (ompPath: string) => OmpConfigRunner =
         [...args],
         // `config list --json` is ~80 KB today; the raised maxBuffer keeps a
         // future omp with more settings from being silently truncated.
-        { cwd: opts.cwd, env: opts.env, timeout: 15_000, maxBuffer: 4 * 1024 * 1024 },
+        // NO_COLOR/FORCE_COLOR=0 keep the human `config list` scrape plain
+        // text (issue #812): an inherited FORCE_COLOR or a TTY launch would
+        // otherwise colorize the enum lines past LIST_LINE_RE's tail and lose
+        // every enum's options. Harmless for the `--json` reads.
+        {
+          cwd: opts.cwd,
+          env: { ...opts.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+          timeout: 15_000,
+          maxBuffer: 4 * 1024 * 1024,
+        },
         (err, stdout, stderr) => {
           // omp's stderr carries the actionable message ("Unknown setting: x",
           // "Invalid value: ... Valid values: ..."), and it is what the
@@ -140,6 +149,12 @@ const TYPE_PLACEHOLDERS: Record<string, true> = {
 /** `advisor.syncBacklog = off (off|1|3|5)` — the key, then the parenthesised tail. */
 const LIST_LINE_RE = /^\s*(\S+) = .*\(([^)]*)\)\s*$/;
 
+/** ANSI CSI SGR sequences; stripped before matching so a colorized human
+ * `config list` (issue #812) still parses even if the spawn env lets omp
+ * colorize anyway. */
+// eslint-disable-next-line no-control-regex -- stripping them is the point
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
 /**
  * Enum members per key, scraped from the human `omp config list`. The `--json`
  * form carries only value/type/description — it does not list enum members — so
@@ -154,7 +169,7 @@ export function parseEnumOptions(
   const wanted = new Set(keys);
   const options: Record<string, string[] | null> = {};
   for (const key of keys) options[key] = null;
-  for (const line of text.split("\n")) {
+  for (const line of text.replace(ANSI_RE, "").split("\n")) {
     const match = LIST_LINE_RE.exec(line);
     if (match === null) continue;
     const [, key, group] = match;

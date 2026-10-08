@@ -6,6 +6,7 @@ import { Row, SettingControl, layerBadge } from "./rows";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
 import {
   APPROVAL_SETTING_KEY,
+  LIVE_VOICE_SETTING_KEY,
   OMP_MAX_CONCURRENCY_KEY,
   OMP_SUBAGENT_MODELS_KEY,
 } from "@omp-ui/core/omp-settings-keys";
@@ -13,6 +14,7 @@ import { ModelRolesSection } from "./ModelRolesSection";
 import { SubagentModelsSection } from "./SubagentModelsSection";
 import { SubagentConcurrencySection } from "./SubagentConcurrencySection";
 import { ApprovalModeSection } from "./ApprovalModeSection";
+import { LiveVoiceSection } from "./LiveVoiceSection";
 import { useT } from "../../lib/i18n";
 
 export function OmpPage({
@@ -140,6 +142,12 @@ export function OmpPage({
         pendingKey={pendingKey}
         commit={commit}
         retry={retry}
+      />
+
+      <LiveVoiceSection
+        entry={byKey.get(LIVE_VOICE_SETTING_KEY)}
+        pendingKey={pendingKey}
+        commit={commit}
       />
 
       {OMP_SETTING_GROUPS.map((group) => {
