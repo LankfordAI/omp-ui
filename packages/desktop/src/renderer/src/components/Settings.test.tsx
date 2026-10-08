@@ -1015,6 +1015,68 @@ describe("Settings omp Live voice group (issue #802)", () => {
     );
   });
 
+  it("plays a bundled sample per voice and stops the previous clip (issue #813)", async () => {
+    // jsdom's media element resolves nothing: stub playback so the toggle's
+    // state machine is observable.
+    const played: { src: string }[] = [];
+    let paused = 0;
+    const playSpy = vi
+      .spyOn(window.HTMLMediaElement.prototype, "play")
+      .mockImplementation(function (this: HTMLAudioElement) {
+        played.push({ src: this.src });
+        return Promise.resolve();
+      });
+    const pauseSpy = vi
+      .spyOn(window.HTMLMediaElement.prototype, "pause")
+      .mockImplementation(() => {
+        paused += 1;
+      });
+    try {
+      seedOmp({
+        ...emptyOmpSettings,
+        entries: [
+          {
+            key: "live.voice",
+            type: "enum" as const,
+            description: "",
+            value: "sol",
+            globalValue: undefined,
+            options: ["arbor", "sol", "willow"],
+            layer: "default" as const,
+          },
+        ],
+      });
+      await renderSettings();
+
+      // Bundled voices get a button; an omp voice with no sample does not.
+      const arbor = buttonWithText("▶ arbor");
+      const sol = buttonWithText("▶ sol");
+      expect(arbor).not.toBeNull();
+      expect(sol).not.toBeNull();
+      expect(buttonWithText("▶ willow")).toBeNull();
+
+      click(arbor!);
+      expect(played).toHaveLength(1);
+      expect(played[0]!.src).toContain("arbor");
+      // The button flips to its stop state while the clip runs.
+      expect(buttonWithText("■ arbor")).not.toBeNull();
+
+      // A second voice stops the first clip and starts its own.
+      click(buttonWithText("■ arbor")!);
+      expect(paused).toBeGreaterThan(0);
+      expect(buttonWithText("▶ arbor")).not.toBeNull();
+
+      click(sol!);
+      expect(played).toHaveLength(2);
+      expect(played[1]!.src).toContain("sol");
+      expect(buttonWithText("▶ sol")).toBeNull();
+      expect(buttonWithText("■ sol")).not.toBeNull();
+    } finally {
+      playSpy.mockRestore();
+      pauseSpy.mockRestore();
+    }
+  });
+
   it("omits the section when omp does not publish the key", async () => {
     seedOmp(emptyOmpSettings);
     await renderSettings();

@@ -103,6 +103,18 @@ export const APPROVAL_SETTING_GROUP: OmpSettingGroup = {
   keys: [APPROVAL_SETTING_KEY],
 };
 
+/**
+ * omp's Codex realtime voice timbre (#802). Allowlisted but NOT in
+ * OMP_SETTING_GROUPS: the page's dedicated "Live voice" section renders the
+ * generic enum select plus bundled sample playback (issue #813), so the
+ * generic loop would show a duplicate row.
+ */
+export const LIVE_VOICE_SETTING_KEY = "live.voice";
+export const LIVE_VOICE_SETTING_GROUP: OmpSettingGroup = {
+  title: "Live voice",
+  keys: [LIVE_VOICE_SETTING_KEY],
+};
+
 /** The exact-interpreter override; "" means "let omp discover one" (issue #671). */
 export const PYTHON_INTERPRETER_KEY = "python.interpreter";
 
@@ -141,12 +153,6 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     ],
   },
   {
-    // omp's Codex realtime voice timbre (#802). An omp that does not
-    // publish the key renders no section — readOmpSettings' per-key rule.
-    title: "Live voice",
-    keys: ["live.voice"],
-  },
-  {
     title: "Display",
     keys: [
       "display.showTokenUsage",
@@ -169,6 +175,7 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...PRIVACY_SETTING_GROUP.keys,
   ...SHARE_SETTING_GROUP.keys,
   ...APPROVAL_SETTING_GROUP.keys,
+  ...LIVE_VOICE_SETTING_GROUP.keys,
 ];
 /** modelRoles is a record edited per-role, so it is handled apart from the scalar list. */
 export const OMP_MODEL_ROLES_KEY = "modelRoles";

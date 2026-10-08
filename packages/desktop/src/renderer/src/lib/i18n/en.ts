@@ -1186,6 +1186,10 @@ export const en = {
 
   // rows.tsx
   "settings.rows.unset": "unset",
+
+  // LiveVoiceSection.tsx (#813)
+  "settings.omp.liveVoicePlay": "play a {voice} sample",
+  "settings.omp.liveVoiceStop": "stop the {voice} sample",
   "update.app.restartNow": "Restart now",
   "update.app.restartKicker": "Live sessions",
   "update.app.restartTitle": "Restart omp-ui now?",

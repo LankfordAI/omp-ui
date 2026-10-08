@@ -1061,6 +1061,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.about.ompPath": "omp path",
   "settings.about.ompConfigDir": "omp config dir",
   "settings.rows.unset": "unset",
+  "settings.omp.liveVoicePlay": "{voice} 샘플 재생",
+  "settings.omp.liveVoiceStop": "{voice} 샘플 중지",
 
   "update.app.restartNow": "지금 재시작",
   "update.app.restartKicker": "라이브 세션",
