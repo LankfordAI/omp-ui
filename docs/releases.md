@@ -4,10 +4,14 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- The live voice transcript strip is bounded: it scrolls inside its own box instead of growing up the page and painting over the scrolled transcript, and it carries the composer card's background. #800
 - Live voice now listens only in the tab you are viewing: switching tabs mutes a
   running live session's microphone and returning unmutes it, while your own mute
   choice survives the visit (#801).
+- Settings → omp gains the `live.voice` timbre control, so the voice a Codex-backed realtime session answers in is picked there instead of only in omp's own TUI. #802
 - A native session started from live voice now gets its Auto-title within seconds of the agent's first reply instead of staying "New session"; only the window or browser that started live voice sends the rename. #803
+- An Auto-title refreshes when a todo-init replan lands and the work turns out to be something else; a title you renamed by hand is never touched. #804
+- When a tab's runtime supports native live voice, the composer shows one voice affordance instead of two: the `live` capsule takes the dictation mic's slot, so nothing competes for the same microphone. #805
 
 Add one bullet per shipped change above, citing its issue as `#N`; the release tag lifts these into Highlights.
 
