@@ -88,20 +88,73 @@ describe("prompting, slash commands, and session ops", () => {
     await promise;
   });
 
-  it("sendPrompt captures the prompt for the auto-titler without sending", async () => {
+  /** Acknowledges every command sent so far without draining the log:
+   *  the wire order stays observable for the send-order assertions. */
+  const ackAll = async (): Promise<void> => {
+    const acked = new Set<Record<string, unknown>>();
+    for (let wave = 0; wave < 4; wave++) {
+      await h.flushMicrotasks();
+      for (const { tabId, cmd } of h.sent) {
+        if (acked.has(cmd)) continue;
+        acked.add(cmd);
+        h.respond(tabId, cmd, {});
+      }
+    }
+  };
+
+  it("sendPrompt titles at the user message commit, after the prompt frame", async () => {
+    // issue #795: the ack must NOT dispatch — omp's `/rename` digest is
+    // only non-empty once the user `message_start` frame carries the
+    // message into history. The reducer fires the shot at that frame,
+    // so on the wire `/rename` follows the prompt.
     const promise = h.useStore
       .getState()
       .sendPrompt(h.TAB, "Refactor the auth module");
     expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe(
       "Refactor the auth module",
     );
-    // Nothing titles at prompt time (issue #788): omp's /rename digests the
-    // conversation at the turn's agent_end, not the opening prompt.
-    await h.flushMicrotasks();
-    expect(h.sent.find((s) => s.cmd.type === "set_session_name")).toBeUndefined();
-    // settleAll answers the prompt so sendPrompt resolves.
-    await settleAll();
+    await ackAll();
     await promise;
+    expect(
+      h.sent.filter((s) => s.cmd.type === "prompt" && s.cmd.message === "/rename"),
+    ).toHaveLength(0);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "message_start", message: { role: "user" } });
+    await h.flushMicrotasks();
+    const sent = h.sent.map((s) => s.cmd);
+    const promptAt = sent.findIndex(
+      (cmd) => cmd.type === "prompt" && cmd.message === "Refactor the auth module",
+    );
+    const renameAt = sent.findIndex(
+      (cmd) => cmd.type === "prompt" && cmd.message === "/rename",
+    );
+    expect(promptAt).toBeGreaterThanOrEqual(0);
+    expect(renameAt).toBeGreaterThan(promptAt);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 1 });
+  });
+
+  it("sendPrompt arms nothing and sends no /rename for a low-signal prompt", async () => {
+    const promise = h.useStore.getState().sendPrompt(h.TAB, "hi!");
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+    await ackAll();
+    await promise;
+    expect(
+      h.sent.filter((s) => s.cmd.type === "prompt" && s.cmd.message === "/rename"),
+    ).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
+  });
+
+  it("abortAndPrompt titles at the user message commit", async () => {
+    const abort = h.useStore.getState().abortAndPrompt(h.TAB, "Fix the flaky test");
+    await ackAll();
+    await abort;
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "message_start", message: { role: "user" } });
+    await h.flushMicrotasks();
+    expect(
+      h.sent.filter((s) => s.cmd.type === "prompt" && s.cmd.message === "/rename"),
+    ).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
   });
 
   it("routes prompt and abort image handles without changing image objects", async () => {

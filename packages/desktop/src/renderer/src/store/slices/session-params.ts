@@ -520,6 +520,11 @@ export function createSessionParamsSlice(
     // `images` is omitted entirely when empty: omp's own client sends no key
     // rather than an empty array, and every byte here is on one JSON line.
     const response = await m.runCommand(tabId, images?.length ? { ...cmd, images } : cmd);
+    // The early title shot does NOT ride the ack: the ack pre-dates omp
+    // committing the user message to history, so `/rename` dispatched here
+    // finds an empty digest and declines (issue #795). The reducer fires it
+    // at the user message's `message_start`, and the first untitled
+    // `agent_end` stays the safety net for a prompt whose ack never came.
     return response !== null;
   };
 
@@ -580,6 +585,8 @@ export function createSessionParamsSlice(
       withDocumentContext(message, docRefs ?? []),
       images?.length ?? 0,
     );
+    // The title shot rides the user message's `message_start` in the
+    // reducer, same as `sendPrompt` (issue #795).
     await m.runCommand(
       tabId,
       images?.length ? { type, message: wireMessage, images } : { type, message: wireMessage },

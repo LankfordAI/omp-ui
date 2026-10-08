@@ -57,6 +57,7 @@ type AfterCommitEffect =
   | { phase: "after-commit"; type: "refresh-branch-diff" }
   | { phase: "after-commit"; type: "settle-browser-pane-close" }
   | { phase: "after-commit"; type: "rename-session" }
+  | { phase: "after-commit"; type: "dispatch-early-title" }
   | {
       phase: "after-commit";
       type: "append-transcript-item";
@@ -307,6 +308,12 @@ export function reduceAgentEvent(
       }
       runtimePatch.pendingTurnKeywords = [];
       runtimePatch.keywordInputBatchStarted = true;
+      // The user message is in omp's history from this frame (the ack
+      // pre-dates the commit), so `/rename`'s digest is non-empty here:
+      // the auto-title shot goes out while the first turn streams
+      // (issue #795). Idempotent; the arm and latch gate the no-ops.
+      if (tab.initialPrompt && !tab.hasRenamed)
+        effects.push({ phase: "after-commit", type: "dispatch-early-title" });
     }
   }
 

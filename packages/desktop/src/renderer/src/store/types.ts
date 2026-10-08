@@ -1019,6 +1019,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    */
   reconcilePendingDialogs(state: BackendState): void;
   setInitialPrompt(tabId: string, prompt: string): void;
+  /** The prompt-commit auto-title trigger (issue #795): no-op unless the
+   * first-prompt arm is still live when the turn admits the user
+   * message's `message_start`. */
+  dispatchEarlyTitle(tabId: string): void;
   renameSession(tabId: string): void;
   sendPrompt(
     tabId: string,
