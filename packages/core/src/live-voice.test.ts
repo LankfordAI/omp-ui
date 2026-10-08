@@ -4,6 +4,7 @@ import {
   applyLiveLevels,
   applyLivePhase,
   applyLiveTranscript,
+  isLiveSessionActive,
   emptyLiveSnapshot,
   parseLiveLevelsFrame,
   parseLivePhaseFrame,
@@ -170,5 +171,32 @@ describe("immutability", () => {
     // applyLiveEnd keeps the turns array by reference — immutability means
     // never mutating the input, not re-copying untouched state.
     expect(ended.turns).toEqual(turned.turns);
+  });
+});
+
+describe("isLiveSessionActive", () => {
+  it.each(["connecting", "listening", "working", "speaking", "muted"])(
+    "a booted %s session is active",
+    (phase) => {
+      expect(isLiveSessionActive(applyLivePhase(fresh(), phase as LivePhase))).toBe(true);
+    },
+  );
+
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["the pre-frame snapshot", fresh()],
+  ])("treats %s as no session", (_label, snap) => {
+    expect(isLiveSessionActive(snap)).toBe(false);
+  });
+
+  it("an error verdict is not active", () => {
+    expect(isLiveSessionActive(applyLivePhase(fresh(), "error"))).toBe(false);
+  });
+
+  it("an ended session is not active", () => {
+    expect(isLiveSessionActive(applyLiveEnd(applyLivePhase(fresh(), "listening"), null))).toBe(
+      false,
+    );
   });
 });

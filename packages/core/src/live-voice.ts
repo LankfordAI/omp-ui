@@ -157,3 +157,20 @@ export function applyLiveEnd(snap: LiveSnapshot, error: string | null): LiveSnap
     ...(error !== null && error !== "" ? { error } : {}),
   };
 }
+
+/**
+ * True while a live snapshot names a session that could still be talked to or
+ * muted: frames booted, not ended, no error verdict, phase reported. The #801
+ * visibility guard's mutability test and the plan-handoff carry-over are the
+ * same question — one session's running realtime connection — so one
+ * predicate serves both.
+ */
+export function isLiveSessionActive(snap: LiveSnapshot | null | undefined): boolean {
+  return (
+    snap !== null &&
+    snap !== undefined &&
+    !snap.ended &&
+    snap.phase !== null &&
+    snap.phase !== "error"
+  );
+}

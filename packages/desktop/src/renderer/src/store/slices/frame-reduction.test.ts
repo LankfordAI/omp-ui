@@ -8,6 +8,8 @@ import type {
   ProviderOAuthState,
   RemoteState,
 } from "@omp-ui/core/types";
+import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
+import type { LivePhase, LiveSnapshot } from "@omp-ui/core/live-voice";
 import {
   ADVISOR_REPLY_CAP_NOTICE,
   ADVISOR_REPLY_LEAD,
@@ -2382,7 +2384,10 @@ describe("handleRpcFrame routing", () => {
     });
   };
 
-  const dispatchFreshSeed = async (id: string): Promise<(typeof h.sent)[number]> => {
+  const dispatchFreshSeed = async (
+    id: string,
+    freshPatch: Partial<Parameters<typeof rpcTabState>[0]> = {},
+  ): Promise<(typeof h.sent)[number]> => {
     h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
     h.useStore.setState({ state: h.stateWithRecord(null) });
     openReview(id);
@@ -2392,7 +2397,7 @@ describe("handleRpcFrame routing", () => {
     h.useStore.setState((state) => ({
       rpc: {
         ...state.rpc,
-        "fresh-tab": rpcTabState({ status: "ready", planText: null }),
+        "fresh-tab": rpcTabState({ status: "ready", planText: null, ...freshPatch }),
       },
     }));
     await h.flushMicrotasks();
@@ -2925,6 +2930,178 @@ describe("handleRpcFrame routing", () => {
     await h.flushMicrotasks();
 
     expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+  });
+
+  describe("live-voice carry-over on a fresh handoff (issue #808)", () => {
+    const withVersion = (ompVersion: string | null): CapabilitySnapshot =>
+      ({ ompVersion }) as unknown as CapabilitySnapshot;
+    const liveSnap = (phase: LivePhase | null, ended = false): LiveSnapshot => ({
+      phase,
+      levels: null,
+      turns: [],
+      ended,
+      error: null,
+    });
+
+    /** Dispatches a fresh execute with `live` seeded on the planning tab. */
+    const dispatchWithLive = (
+      id: string,
+      live: LiveSnapshot | null,
+      freshPatch: Partial<Parameters<typeof rpcTabState>[0]> = {},
+    ): Promise<void> => {
+      h.useStore.setState((state) => ({
+        rpc: {
+          ...state.rpc,
+          [h.TAB]: rpcTabState({
+            capabilities: withVersion("18.7.0"),
+            live,
+          }),
+        },
+      }));
+      return dispatchFreshSeed(id, {
+        capabilities: withVersion("18.7.0"),
+        ...freshPatch,
+      });
+    };
+
+    /** Answers every command dispatched after the call, in waves. */
+    const settleSends = async (): Promise<void> => {
+      let cursor = h.sent.length;
+      for (let wave = 0; wave < 3; wave++) {
+        await h.flushMicrotasks();
+        for (const { tabId, cmd } of h.sent.slice(cursor)) {
+          h.respond(tabId, cmd, {});
+        }
+        cursor = h.sent.length;
+      }
+      await h.flushMicrotasks();
+    };
+
+    const liveVerbs = () =>
+      h.sent
+        .filter((s) => s.cmd.type === "live_stop" || s.cmd.type === "live_start")
+        .map((s) => ({ tabId: s.tabId, type: s.cmd.type }));
+
+    it("stops the planning session and starts voice on the fresh tab", async () => {
+      await dispatchWithLive("carry-active", liveSnap("listening"));
+      const seed = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
+      )!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await settleSends();
+
+      expect(liveVerbs()).toEqual([
+        { tabId: h.TAB, type: "live_stop" },
+        { tabId: "fresh-tab", type: "live_start" },
+      ]);
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    });
+
+    it("carries nothing when the planning session has no live snapshot", async () => {
+      await dispatchWithLive("carry-silent", null);
+      const seed = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
+      )!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await settleSends();
+
+      expect(liveVerbs()).toEqual([]);
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    });
+
+    it("carries nothing when the user stopped the session mid-spawn", async () => {
+      h.useStore.setState((state) => ({
+        rpc: {
+          ...state.rpc,
+          [h.TAB]: rpcTabState({
+            capabilities: withVersion("18.7.0"),
+            live: liveSnap("listening"),
+          }),
+        },
+      }));
+      h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
+      h.useStore.setState({ state: h.stateWithRecord(null) });
+      openReview("carry-stopped");
+      await h.flushMicrotasks();
+      h.useStore.getState().executePlan(h.TAB, "fresh");
+      await h.flushMicrotasks();
+      // The user ends the live session while the fresh tab is still booting.
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_end", error: null });
+      h.useStore.setState((state) => ({
+        rpc: {
+          ...state.rpc,
+          "fresh-tab": rpcTabState({
+            status: "ready",
+            planText: null,
+            capabilities: withVersion("18.7.0"),
+          }),
+        },
+      }));
+      await h.flushMicrotasks();
+      const seed = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
+      )!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await settleSends();
+
+      expect(liveVerbs()).toEqual([]);
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    });
+
+    it("dispatches nothing — not even the stop — when the fresh omp is below the gate", async () => {
+      vi.useFakeTimers();
+      try {
+        await dispatchWithLive("carry-old-omp", liveSnap("listening"), {
+          capabilities: withVersion("18.4.0"),
+        });
+        const seed = h.sent.find(
+          (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
+        )!;
+        h.respond("fresh-tab", seed.cmd, {});
+        // The gate never passes; only the 5 s deadline closes the wait, and
+        // the no-stop rule means the source keeps the guard's mute.
+        await vi.advanceTimersByTimeAsync(5_000);
+        await h.flushMicrotasks();
+
+        expect(liveVerbs()).toEqual([]);
+        expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("gives up the carry-over after the bounded version wait", async () => {
+      vi.useFakeTimers();
+      try {
+        await dispatchWithLive("carry-no-version", liveSnap("listening"), {
+          capabilities: null,
+        });
+        const seed = h.sent.find(
+          (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
+        )!;
+        h.respond("fresh-tab", seed.cmd, {});
+        // The 5 s gate deadline is the only thing keeping the dispatch open.
+        await vi.advanceTimersByTimeAsync(5_000);
+        await h.flushMicrotasks();
+
+        expect(liveVerbs()).toEqual([]);
+        expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("carries nothing on an error-phase snapshot", async () => {
+      await dispatchWithLive("carry-error", liveSnap("error"));
+      const seed = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
+      )!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await settleSends();
+
+      expect(liveVerbs()).toEqual([]);
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    });
   });
 
   it("holds execute for the drafting turn's advisor review, then folds its concerns", async () => {

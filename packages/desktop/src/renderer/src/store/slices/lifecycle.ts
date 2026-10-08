@@ -21,6 +21,8 @@ import {
 } from "../../lib/plan-concerns";
 import { gitResolutionPrompt, type GitResolutionTrigger } from "../../lib/git-resolution-prompt";
 import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolution";
+import { isLiveSessionActive } from "@omp-ui/core/live-voice";
+import { supportsNativeLive } from "../../lib/live-voice";
 import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
@@ -481,6 +483,34 @@ export function createLifecycleSlice(
         "info",
       ),
     );
+    // Live-voice carry-over: the new tab taking focus already left the planning
+    // session muted by the #801 guard; for a hands-free user the voice follows
+    // the handoff instead — stop the planning session (releasing the mic and
+    // the realtime slot), start a fresh one on the implementation session. The
+    // realtime conversation itself cannot transfer (omp owns it in-process; the
+    // wire contract is three verbs, live-voice.ts) — the plan seed is the
+    // context bridge. Both gates check BEFORE dispatching: a failed check
+    // leaves the source in the guard's mute, exactly the pre-change behavior.
+    if (isLiveSessionActive(get().rpc[srcTabId]?.live)) {
+      // startLiveVoice's supportsNativeLive gate reads the DESTINATION's
+      // capabilities, which boot publishes shortly after ready; waiting keeps
+      // a not-yet-published roster from silently no-op'ing the start after the
+      // source was already stopped.
+      await m.pollUntil(
+        freshId,
+        (rpc) => supportsNativeLive(rpc?.capabilities?.ompVersion ?? null),
+        5_000,
+      );
+      if (supportsNativeLive(get().rpc[freshId]?.capabilities?.ompVersion ?? null)) {
+        // Awaited stop first: on-chain, so it lands behind the planner's
+        // ending turn, and it releases the microphone before the destination's
+        // off-chain live_start reaches for it. The start is fire-and-forget;
+        // its failure owns its error line on the fresh tab's strip
+        // (startLiveVoice's sendFailed path) and never disturbs the handoff.
+        await get().stopLiveVoice(srcTabId);
+        void get().startLiveVoice(freshId);
+      }
+    }
     try {
       await backend.hibernatePlanSource(srcTabId, freshId);
     } catch (err) {
