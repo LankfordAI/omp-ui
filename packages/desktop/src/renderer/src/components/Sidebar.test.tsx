@@ -3,7 +3,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OmpUpdateState, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
-import { backendState, remoteInstance } from "../test/fixtures";
+import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
+import type { LiveSnapshot } from "@omp-ui/core/live-voice";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.setPointerCapture = vi.fn();
@@ -2454,5 +2455,58 @@ describe("Sidebar groups (issue #745)", () => {
     renderSidebar();
     await pressAlt(button("reorder group Team A"), "ArrowDown");
     expect(backendMock.moveSidebarGroup).toHaveBeenCalledWith("g1", null);
+  });
+});
+
+// issue #807: live voice output plays from every running session (the
+// visibility guard #801 mutes background mics only), so the row carries a
+// speaker glyph while its snapshot runs.
+describe("Sidebar live voice speaker glyph (issue #807)", () => {
+  const live = (patch: Partial<LiveSnapshot>): LiveSnapshot => ({
+    phase: "listening",
+    levels: null,
+    turns: [],
+    ended: false,
+    error: null,
+    ...patch,
+  });
+
+  const glyph = (): Element | null => document.body.querySelector('[role="img"]');
+
+  it("the row of a live-voice session carries the speaker glyph", () => {
+    useStore.setState({ rpc: { "tab-1": rpcTabState({ live: live({ phase: "speaking" }) }) } });
+    renderSidebar();
+    const mark = glyph();
+    expect(mark).not.toBeNull();
+    expect(mark?.getAttribute("aria-label")).toBe("Live voice: speaking");
+  });
+
+  it("an ended live session shows no glyph", () => {
+    useStore.setState({
+      rpc: { "tab-1": rpcTabState({ live: live({ phase: "speaking", ended: true }) }) },
+    });
+    renderSidebar();
+    expect(glyph()).toBeNull();
+  });
+
+  it("a PTY row never carries the glyph", () => {
+    useStore.setState({
+      state: {
+        ...state,
+        projects: [
+          {
+            ...state.projects[0]!,
+            sessions: state.projects[0]!.sessions.map((s) =>
+              s.tabId === "tab-1" ? { ...s, mode: "pty" as const } : s,
+            ),
+          },
+          ...state.projects.slice(1),
+        ],
+      },
+      // Forced rpc entry: the row must gate on mode, not on rpc presence.
+      rpc: { "tab-1": rpcTabState({ live: live({ phase: "speaking" }) }) },
+    });
+    renderSidebar();
+    expect(glyph()).toBeNull();
   });
 });

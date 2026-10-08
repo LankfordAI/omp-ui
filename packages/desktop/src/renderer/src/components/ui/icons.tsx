@@ -137,6 +137,17 @@ export function IconMic({ className }: { className?: string }) {
   );
 }
 
+/** Speaker — live voice output in a session row (issue #807): cone + one near arc (+ one far arc when speaking). */
+export function IconSpeaker({ className, waves = 1 }: { className?: string; waves?: 1 | 2 }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M2.8 6.2h2.2L8.4 3.4v9.2L5 9.8H2.8z" />
+      <path d="M10.6 6a3 3 0 0 1 0 4" />
+      {waves === 2 ? <path d="M12.6 4.2a5.6 5.6 0 0 1 0 7.6" /> : null}
+    </svg>
+  );
+}
+
 /** Counter-clockwise arrow — rewind to a prompt (issue #680). */
 export function IconRewind({ className }: { className?: string }) {
   return (
