@@ -112,6 +112,9 @@ export interface TabRuntime {
   wordPredictionUnsupported?: boolean;
   /** Epoch ms before which `predict_word` is not re-sent after a failure (#715). */
   wordPredictionRetryAt?: number;
+  /** True while live voice is muted by tab visibility rather than by the user
+   *  (#801): returning to the tab unmutes only when this bit is set. */
+  liveVisibilityMuted?: boolean;
 }
 
 export interface StoreMachinery {
@@ -463,6 +466,12 @@ export function resetTabRuntimesForTests(): void {
     }
   }
   tabRuntimes.clear();
+}
+
+/** Test seam: the runtime a tab owns, or undefined when it has none. Never
+ *  creates one — tests assert that a path left PTY tabs runtime-free. */
+export function peekTabRuntimeForTests(tabId: string): TabRuntime | undefined {
+  return tabRuntimes.get(tabId);
 }
 
 

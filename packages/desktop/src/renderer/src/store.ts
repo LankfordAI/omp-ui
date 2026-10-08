@@ -48,6 +48,7 @@ import {
   findInstance,
   findRecord,
   installDesktopViewPersistence,
+  installLiveVoiceVisibilityGuard,
   installViewedTabReporter,
   pruneFocus,
   restoreDesktopView,
@@ -490,6 +491,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);
       installViewedTabReporter(api);
+      // Live voice listens only in the viewed tab (#801); installed with the
+      // other focus subscriber so the first change it sees is post-restore.
+      installLiveVoiceVisibilityGuard(api, m);
       // First-run onboarding (issue #623): the desktop shell of a fresh install
       // opens the Getting started checklist once. Remote renderers never
       // auto-open — joining someone's app is not an install — and a surfaced
