@@ -28,6 +28,11 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   const spawnedCwdRef = useRef<string | null>(null);
   /** Handoff key already spawned into this PTY; a newer key forces a respawn. */
   const handoffKeyRef = useRef<number | null>(null);
+  /** Live mirror of `visible` for the focusout handler below. */
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  /** True while the last focusin inside this drawer has not been followed by a focusout. */
+  const drawerHadFocus = useRef(false);
   const theme = useTheme();
   const font = useFontFamily();
   const projectCwd = useStore(
@@ -82,6 +87,28 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
     };
   }, [tabId]);
 
+  // Track whether focus lives inside the drawer, for the close handoff below.
+  // The focusout guard matters: hiding the drawer blurs the terminal, and that
+  // blur must NOT clear the record — the close effect reads it after the hide.
+  // A focusout while still visible means the user clicked elsewhere, which does
+  // clear it, so a later close leaves that focus alone.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (host === null) return;
+    const onFocusIn = (): void => {
+      drawerHadFocus.current = true;
+    };
+    const onFocusOut = (): void => {
+      if (visibleRef.current) drawerHadFocus.current = false;
+    };
+    host.addEventListener("focusin", onFocusIn);
+    host.addEventListener("focusout", onFocusOut);
+    return () => {
+      host.removeEventListener("focusin", onFocusIn);
+      host.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
+
   // Spawn on first visible; on later visible flips just re-fit and re-size
   // (display:none → real box degenerates fit, same as TerminalTab's refit).
   // A staged handoff key the PTY has not seen yet spawns omp's TUI client
@@ -121,15 +148,36 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
       });
   }, [visible, tabId, projectCwd, clearShellExited, handoff?.key]);
 
-  // Focus follows the drawer opening, as it follows the active terminal tab
-  // (issue #126, issue #637): the first open (the drawer mounts visible) and
-  // every reopen put the cursor in the shell. Keyed on `visible` alone — the
-  // spawn effect above also re-runs on a working-tree move or a handoff
-  // restage, which must not pull focus out of the composer. focus() is a
-  // browser no-op while #root is inert under a modal or the tab is hidden.
+  // Focus follows the drawer in both directions (issue #126, issue #637, and
+  // the close handoff below): the first open (the drawer mounts visible) and
+  // every reopen put the cursor in the shell; closing hands it back. Keyed on
+  // `visible` alone — the spawn effect above also re-runs on a working-tree
+  // move or a handoff restage, which must not pull focus out of the composer.
+  // focus() is a browser no-op while #root is inert under a modal or the tab
+  // is hidden.
   useEffect(() => {
-    if (visible) termRef.current?.term.focus();
-  }, [visible]);
+    if (visible) {
+      drawerHadFocus.current = false;
+      termRef.current?.term.focus();
+      return;
+    }
+    // Closing hands the caret back to the composer (symmetric with the focus
+    // above, issues #637 and this fix) — but only when the drawer held focus.
+    // Hiding the drawer drops focus to body, so a restore here is the only way
+    // it returns; a close started from a control that stays visible (the HUD
+    // toggle button mid-click) leaves focus elsewhere, and if the user had
+    // already moved focus out of the drawer, drawerHadFocus is false and their
+    // focus stays put. Focus on a composer hidden by an active plan review
+    // (RpcTab.tsx:536-541) or disabled while `unavailable` is a browser no-op,
+    // which is the correct landing either way.
+    if (!drawerHadFocus.current) return;
+    drawerHadFocus.current = false;
+    document
+      .querySelector<HTMLTextAreaElement>(
+        `[data-tab-id="${CSS.escape(tabId)}"] [data-composer-input]`,
+      )
+      ?.focus({ preventScroll: true });
+  }, [visible, tabId]);
 
   // Re-theme and re-font a live terminal in place. Deliberately NOT a dep of
   // the mount effect: rebuilding the terminal would drop the scrollback and
