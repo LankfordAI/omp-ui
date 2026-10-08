@@ -4,7 +4,11 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.21.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.21.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Live voice now listens only in the tab you are viewing: switching tabs mutes a
+  running live session's microphone and returning unmutes it, while your own mute
+  choice survives the visit (#801).
+
+Add one bullet per shipped change above, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 

@@ -27,6 +27,7 @@ import {
 import { randomId } from "../../lib/random-id";
 import { projectKey } from "../../lib/project-key";
 import { markSharePrivacySeen } from "../../lib/share-privacy";
+import type { StoreMachinery } from "./shared";
 import type { CompactSurface, ErrorNotice, SidebarGroupDialogRequest, UiStore } from "../types";
 import { TREE_COMMAND } from "@omp-ui/core/session-tree";
 
@@ -352,6 +353,61 @@ export function installViewedTabReporter(api: StoreApi<UiStore>): () => void {
     unsubscribe();
     clearInterval(timer);
   };
+}
+
+const liveGuardInstalled = new WeakSet<StoreApi<UiStore>>();
+
+/**
+ * Mutes the microphone of every live session the user is NOT looking at and
+ * unmutes the one they return to (#801). omp records audio per session, so
+ * without this every rpc-ui tab with live voice listens at once. The rule
+ * mirrors the push-to-talk hotkey's `activeTabId === tabId` gate (#707):
+ * tab visibility only — a window blur leaves the sessions as they are.
+ *
+ * The user's own mute survives a visit: unmute on return fires only when the
+ * guard itself muted the session (runtime flag). Dispatch rides the existing
+ * `setLiveMuted` action, so the `supportsNativeLive` version gate holds for
+ * dispatch too and `live_phase` "muted" stays the display truth.
+ */
+export function installLiveVoiceVisibilityGuard(
+  api: StoreApi<UiStore>,
+  m: StoreMachinery,
+): () => void {
+  if (liveGuardInstalled.has(api)) return () => {};
+  liveGuardInstalled.add(api);
+  const unsubscribe = api.subscribe((state, previous) => {
+    if (state.activeTabId === previous.activeTabId) return;
+    // Leave: mute a running, not-already-muted session behind us.
+    const left = previous.activeTabId;
+    if (left !== null) {
+      const live = previous.rpc[left]?.live;
+      if (
+        live !== undefined && live !== null && !live.ended &&
+        live.phase !== null && live.phase !== "muted" && live.phase !== "error"
+      ) {
+        // A live snapshot means a booted rpc tab, so the runtime exists (or
+        // is created here); a PTY tab never reaches this line.
+        m.runtime(left);
+        m.patchRuntime(left, { liveVisibilityMuted: true });
+        void state.setLiveMuted(left, true);
+      }
+    }
+    // Enter: unmute only what the guard muted, never the user's explicit mute.
+    const entered = state.activeTabId;
+    if (entered === null) return;
+    // The rpc entry first: m.runtime auto-creates, and a PTY tab (no rpc
+    // state at all) must never gain a runtime from a tab switch.
+    if (state.rpc[entered] === undefined) return;
+    if (m.runtime(entered).liveVisibilityMuted !== true) return;
+    // The flag clears on any return, so a session that ended or was reset
+    // while away cannot leave a stale unmuting grant behind.
+    m.patchRuntime(entered, { liveVisibilityMuted: false });
+    const live = state.rpc[entered]?.live;
+    if (live !== undefined && live !== null && !live.ended && live.phase === "muted") {
+      void state.setLiveMuted(entered, false);
+    }
+  });
+  return unsubscribe;
 }
 
 export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, get) => ({

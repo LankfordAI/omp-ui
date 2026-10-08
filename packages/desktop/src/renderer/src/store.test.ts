@@ -7,6 +7,9 @@ import type {
   RemoteState,
   SessionSummary,
 } from "@omp-ui/core/types";
+import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
+import type { LivePhase, LiveSnapshot } from "@omp-ui/core/live-voice";
+import type { TabRuntime } from "./store/slices/shared";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import { applyTheme, resolveTheme } from "./lib/themes";
 import {
@@ -574,6 +577,192 @@ describe("viewed-tab reporter (issue #266)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("live voice tab visibility (issue #801)", () => {
+  // A fresh module evaluation per test: init latches per evaluation, and the
+  // guard subscriber installs there, so each case observes its own guard and
+  // its own `h.sent` log (same convention as the viewed-tab reporter test).
+  const A = "tab-801-a";
+  const B = "tab-801-b";
+
+  const version = (ompVersion: string): CapabilitySnapshot =>
+    ({ ompVersion }) as unknown as CapabilitySnapshot;
+  const liveSnap = (phase: LivePhase | null, ended = false): LiveSnapshot => ({
+    phase,
+    levels: null,
+    turns: [],
+    ended,
+    error: null,
+  });
+
+  /** Fresh store with the guard installed (init ran), plus the runtime seam. */
+  const freshGuardedStore = async (): Promise<{
+    fresh: typeof h.useStore;
+    peek: (tabId: string) => TabRuntime | undefined;
+  }> => {
+    // Dynamic import is the module-boundary test itself: init latches per
+    // evaluation, so each case needs its own store and its own shared-module
+    // instance (a static import would peek the previous evaluation's map).
+    vi.resetModules();
+    const { useStore: fresh } = await import("./store");
+    const { peekTabRuntimeForTests } = await import("./store/slices/shared");
+    await fresh.getState().init();
+    h.sent.length = 0;
+    return { fresh, peek: peekTabRuntimeForTests };
+  };
+
+  /** Ack every live_mute recorded so far, without leaving it pending. */
+  const settleSends = async (fresh: typeof h.useStore): Promise<void> => {
+    for (let wave = 0; wave < 2; wave++) {
+      await h.flushMicrotasks();
+      for (const { tabId, cmd } of h.sent.splice(0)) {
+        fresh.getState().handleRpcFrame(tabId, {
+          type: "response",
+          id: cmd.id,
+          command: cmd.type,
+          success: true,
+          data: {},
+        });
+      }
+    }
+    await h.flushMicrotasks();
+  };
+
+  const liveMutes = () => h.sent.filter((s) => s.cmd.type === "live_mute");
+
+  it("leaving a tab mutes its running live session", async () => {
+    const { fresh, peek } = await freshGuardedStore();
+    fresh.setState({
+      tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
+      rpc: {
+        [A]: rpcTabState({ capabilities: version("18.7.0"), live: liveSnap("listening") }),
+        [B]: rpcTabState({ capabilities: version("18.7.0") }),
+      },
+      activeTabId: A,
+    });
+
+    fresh.getState().focusTab(B);
+
+    expect(liveMutes()).toEqual([
+      { tabId: A, cmd: expect.objectContaining({ type: "live_mute", muted: true }) },
+    ]);
+    expect(peek(A)?.liveVisibilityMuted).toBe(true);
+    await settleSends(fresh);
+  });
+
+  it("returning unmutes a session the guard muted", async () => {
+    const { fresh, peek } = await freshGuardedStore();
+    fresh.setState({
+      tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
+      rpc: {
+        [A]: rpcTabState({ capabilities: version("18.7.0"), live: liveSnap("listening") }),
+        [B]: rpcTabState({ capabilities: version("18.7.0") }),
+      },
+      activeTabId: A,
+    });
+    fresh.getState().focusTab(B);
+    await settleSends(fresh);
+    // omp's mute truth lands before the return.
+    fresh.getState().handleRpcFrame(A, { type: "live_phase", phase: "muted" });
+
+    h.sent.length = 0;
+    fresh.getState().focusTab(A);
+
+    expect(liveMutes()).toEqual([
+      { tabId: A, cmd: expect.objectContaining({ type: "live_mute", muted: false }) },
+    ]);
+    expect(peek(A)?.liveVisibilityMuted).toBe(false);
+    await settleSends(fresh);
+  });
+
+  it("a user's own mute survives the visit untouched", async () => {
+    const { fresh, peek } = await freshGuardedStore();
+    fresh.setState({
+      tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
+      rpc: {
+        [A]: rpcTabState({ capabilities: version("18.7.0"), live: liveSnap("muted") }),
+        [B]: rpcTabState({ capabilities: version("18.7.0") }),
+      },
+      activeTabId: A,
+    });
+
+    fresh.getState().focusTab(B);
+    fresh.getState().focusTab(A);
+
+    expect(liveMutes()).toEqual([]);
+    expect(peek(A)?.liveVisibilityMuted).not.toBe(true);
+  });
+
+  it("a session that ended while hidden comes back silent", async () => {
+    const { fresh, peek } = await freshGuardedStore();
+    fresh.setState({
+      tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
+      rpc: {
+        [A]: rpcTabState({ capabilities: version("18.7.0"), live: liveSnap("listening") }),
+        [B]: rpcTabState({ capabilities: version("18.7.0") }),
+      },
+      activeTabId: A,
+    });
+    fresh.getState().focusTab(B);
+    await settleSends(fresh);
+    fresh.getState().handleRpcFrame(A, { type: "live_phase", phase: "muted" });
+    // The session ends while the tab is in the background.
+    fresh.getState().handleRpcFrame(A, { type: "live_end", error: null });
+
+    h.sent.length = 0;
+    fresh.getState().focusTab(A);
+
+    expect(liveMutes()).toEqual([]);
+    // The grant clears either way; a later start is governed by fresh visibility.
+    expect(peek(A)?.liveVisibilityMuted).toBe(false);
+  });
+
+  it("an ended session behind us is left alone", async () => {
+    const { fresh } = await freshGuardedStore();
+    fresh.setState({
+      tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
+      rpc: {
+        [A]: rpcTabState({ capabilities: version("18.7.0"), live: liveSnap("listening", true) }),
+        [B]: rpcTabState({ capabilities: version("18.7.0") }),
+      },
+      activeTabId: A,
+    });
+
+    fresh.getState().focusTab(B);
+
+    expect(liveMutes()).toEqual([]);
+  });
+
+  it("an omp below the live floor dispatches nothing", async () => {
+    const { fresh } = await freshGuardedStore();
+    fresh.setState({
+      tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
+      rpc: {
+        [A]: rpcTabState({ capabilities: version("18.5.0"), live: liveSnap("listening") }),
+        [B]: rpcTabState({ capabilities: version("18.5.0") }),
+      },
+      activeTabId: A,
+    });
+
+    fresh.getState().focusTab(B);
+
+    expect(liveMutes()).toEqual([]);
+  });
+
+  it("a PTY tab is untouched and gains no runtime from a tab switch", async () => {
+    const { fresh, peek } = await freshGuardedStore();
+    fresh.setState({
+      tabs: [tabInfo({ tabId: A, mode: "pty" }), tabInfo({ tabId: B, mode: "rpc-ui" })],
+      rpc: { [B]: rpcTabState({ capabilities: version("18.7.0") }) },
+      activeTabId: A,
+    });
+
+    fresh.getState().focusTab(B);
+
+    expect(liveMutes()).toEqual([]);
+    expect(peek(A)).toBeUndefined();
   });
 });
 
