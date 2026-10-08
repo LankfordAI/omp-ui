@@ -1026,6 +1026,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * first-prompt arm is still live when the turn admits the user
    * message's `message_start`. */
   dispatchEarlyTitle(tabId: string): void;
+  /** The live voice Auto-title arm (issue #803): `setInitialPrompt`'s gates,
+   *  then the shot waits for the first assistant `message_end` whose text
+   *  or thinking omp's title digest can read. */
+  armDelegatedTitle(tabId: string, prompt: string): void;
   renameSession(tabId: string): void;
   sendPrompt(
     tabId: string,

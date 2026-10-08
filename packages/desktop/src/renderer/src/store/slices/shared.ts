@@ -115,6 +115,20 @@ export interface TabRuntime {
   /** True while live voice is muted by tab visibility rather than by the user
    *  (#801): returning to the tab unmutes only when this bit is set. */
   liveVisibilityMuted?: boolean;
+  /**
+   * This renderer's `live_start` succeeded on the current process (issue #803).
+   * Only the renderer that started live voice arms Auto-title from a live
+   * voice delegation, so a second client viewing the same tab never sends a
+   * duplicate `/rename`. Not cleared at `live_end` — a delegation queued as a
+   * steer can be admitted after live voice stops; a reboot rebuilds the runtime.
+   */
+  liveVoiceOwner?: boolean;
+  /**
+   * A live voice delegation armed Auto-title; the shot waits for the first
+   * assistant `message_end` whose text or thinking omp's title digest can
+   * read (issue #803). Cleared when it fires and at `agent_end`.
+   */
+  delegatedTitlePending?: boolean;
 }
 
 export interface StoreMachinery {

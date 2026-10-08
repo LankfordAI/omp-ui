@@ -7,6 +7,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Live voice now listens only in the tab you are viewing: switching tabs mutes a
   running live session's microphone and returning unmutes it, while your own mute
   choice survives the visit (#801).
+- A native session started from live voice now gets its Auto-title within seconds of the agent's first reply instead of staying "New session"; only the window or browser that started live voice sends the rename. #803
 
 Add one bullet per shipped change above, citing its issue as `#N`; the release tag lifts these into Highlights.
 

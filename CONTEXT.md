@@ -383,6 +383,12 @@ from that frame. The first untitled `agent_end` is the safety net and
 retry rung, not the trigger: it fires the shot when the turn never
 admitted a user message, and otherwise drives the bounded retry ladder
 (issue #791).
+A live voice request reaches omp as an agent-attributed `live-delegation`
+custom message, not a user prompt, and omp's digest skips it: the renderer
+that started live voice arms the shot from the spoken text and fires it at the
+first assistant `message_end` carrying text or thinking — the earliest frame
+whose digest has something to read — with the turn end as its safety net
+(issue #803).
 omp-ui keeps only the gates: a session whose record already carries a title is
 latched out at prompt time — a `set_session_name` write is user-sourced, and
 omp refuses every later "auto" title once a "user" one exists — and a greeting

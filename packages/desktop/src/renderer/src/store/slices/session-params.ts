@@ -947,6 +947,10 @@ export function createSessionParamsSlice(
       });
       return;
     }
+    // Only the renderer that started live voice titles from its delegations
+    // (issue #803). `patchRuntime` never invents an owner: take the slot first.
+    m.runtime(tabId);
+    m.patchRuntime(tabId, { liveVoiceOwner: true });
     // Optimistic fresh snapshot; the first live_phase frame repaints it. A
     // phase "connecting" that follows any stale end clears `ended` (the
     // applier's new-session rule).

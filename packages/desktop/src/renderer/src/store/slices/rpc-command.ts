@@ -53,6 +53,7 @@ export type RpcCommandSlice = Pick<
   | "rpcCommand"
   | "setInitialPrompt"
   | "dispatchEarlyTitle"
+  | "armDelegatedTitle"
   | "renameSession"
   | "setSessionToolEnabled"
   | "reloadHistory"
@@ -860,26 +861,40 @@ export function createRpcCommandSlice(
     return rpcCommandMachinery.begin(tabId, cmd, opts, get, m);
   };
 
-  const setInitialPrompt = (tabId: string, prompt: string): void => {
+  // The one arm both prompt routes share; false when a gate refused it.
+  const armTitle = (tabId: string, prompt: string): boolean => {
     const tab = get().rpc[tabId];
-    if (!tab || tab.initialPrompt || tab.hasRenamed) return;
+    if (!tab || tab.initialPrompt || tab.hasRenamed) return false;
     // A resumed or user-named session owns its title — never overwrite it.
     // Decided here, at prompt time, because `set_session_name` writes with
     // source "user" and omp then refuses every later auto title.
     if (!isUntitled(findRecord(get().state, tabId)?.title)) {
       m.patchRpc(tabId, { hasRenamed: true });
-      return;
+      return false;
     }
     // A greeting or bare ack would latch permanently — defer to the next
     // prompt instead (same policy as omp's own titling). The deferral also
     // avoids a pointless engine call: omp's generator gates its digest,
     // but the latch here would already be set by then.
-    if (isLowSignalTitleInput(prompt)) return;
+    if (isLowSignalTitleInput(prompt)) return false;
     // The shot rides the message's commit to omp's history: the reducer
     // calls `dispatchEarlyTitle` at the user `message_start` the turn
     // admits (issue #795); the first untitled `agent_end` stays the safety
     // net if that frame never arrived.
     m.patchRpc(tabId, { initialPrompt: prompt });
+    return true;
+  };
+
+  const setInitialPrompt = (tabId: string, prompt: string): void => {
+    armTitle(tabId, prompt);
+  };
+
+  // The live voice route (issue #803): the request arrived as omp's
+  // `live-delegation` custom message, which omp's title digest skips, so the
+  // shot waits for the first assistant message the digest can read — the
+  // reducer fires it at that `message_end`, `agent_end` stays the safety net.
+  const armDelegatedTitle = (tabId: string, prompt: string): void => {
+    if (armTitle(tabId, prompt)) m.patchRuntime(tabId, { delegatedTitlePending: true });
   };
 
   // A decline happens per-model (issue #791): the generator can 400 on one
@@ -1202,6 +1217,7 @@ export function createRpcCommandSlice(
     rpcCommand,
     setInitialPrompt,
     dispatchEarlyTitle,
+    armDelegatedTitle,
     renameSession,
     setSessionToolEnabled,
     reloadHistory: loadHistory,
