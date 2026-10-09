@@ -91,7 +91,7 @@ import {
   isLiveSessionActive,
   type LiveSnapshot,
 } from "@omp-ui/core/live-voice";
-import { supportsNativeLive } from "../../lib/live-voice";
+import { liveAudioLocalToClient, supportsNativeLive } from "../../lib/live-voice";
 import type { CompactionOutcome, UiStore, WordPredictionFeedback } from "../types";
 
 export type SessionParamsSlice = Pick<
@@ -979,6 +979,11 @@ export function createSessionParamsSlice(
     opts?: { instructions?: string },
   ): Promise<void> => {
     if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) return;
+    // #816: live_start arms the *host's* microphone; only a client that is
+    // the host may dispatch it. Render gates already hide the control —
+    // this closes the store-level path (handoff carry-over, hotkeys, any
+    // future caller).
+    if (!liveAudioLocalToClient(findOwner(get().state, tabId)?.instanceId ?? null)) return;
     const current = get().rpc[tabId]?.live;
     // omp rejects a second live session ("A live session is already
     // active"); the action refuses before the command is sent. A parked

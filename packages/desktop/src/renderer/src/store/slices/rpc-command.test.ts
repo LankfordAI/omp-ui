@@ -1,4 +1,13 @@
 // RPC command slice tests (moved verbatim from store.test.ts for #295).
+const platformMocks = vi.hoisted(() => ({ electron: false }));
+vi.mock("../../lib/platform", () => ({
+  get IS_ELECTRON() {
+    return platformMocks.electron;
+  },
+  IS_MAC: false,
+  IS_WINDOWS: false,
+}));
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { rpcTabState } from "../../test/fixtures";
@@ -1483,6 +1492,7 @@ describe("replan auto-title refresh (issue #804)", () => {
 
 describe("live voice Auto-title (issue #803)", () => {
   beforeEach(() => {
+    platformMocks.electron = true;
     h.backendState = h.stateWithRecord("sess-1");
     h.useStore.setState({
       state: h.backendState,
@@ -1494,6 +1504,10 @@ describe("live voice Auto-title (issue #803)", () => {
       },
     });
     h.sent.length = 0;
+  });
+
+  afterEach(() => {
+    platformMocks.electron = false;
   });
 
   /** Starts live voice the way the composer does: dispatch `live_start`,

@@ -9,8 +9,9 @@ import { Capsule, CAPSULE_SEGMENT, Dot, IconButton, IconClose, IconMic, Meter, S
  * omp's live voice (issue #778): one control for start/mute/stop over three
  * native verbs. omp owns the phase machine — the display reads only the
  * snapshot the `live_*` frames patch, never a local toggle. The component
- * never gates on its own support flag: every callsite gates on
- * `supportsNativeLive`, so a hidden-by-gate control can never render.
+ * never gates on its own: every callsite gates on `supportsNativeLive`
+ * && `liveAudioLocalToClient` (#816), so a hidden-by-gate control can
+ * never render.
  */
 const PHASE_TONE: Record<LivePhase, Tone> = {
   connecting: "copper",
