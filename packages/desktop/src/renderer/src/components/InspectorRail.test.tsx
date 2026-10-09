@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { BranchDiff } from "@omp-ui/core/types";
+import type { LiveAudioEntry } from "@omp-ui/core/live-voice";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +24,9 @@ const backendMock = {
   // The subagent models popover reads the settings layers when it opens.
   readOmpSettings: vi.fn(async () => null),
   getProjectSubagentModels: vi.fn(async () => null),
+  // The #810 recordings section lists through the confined channel.
+  listLiveAudio: vi.fn(async (): Promise<LiveAudioEntry[]> => []),
+  readLiveAudio: vi.fn(async () => ({ status: "unavailable" as const })),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -862,5 +866,70 @@ describe("Side questions pane (issue #775)", () => {
     act(() => useStore.getState().focusRailPane(TAB, "btw"));
     expect(button("collapse inspector")).not.toBeNull();
     expect(button("side questions")?.getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+// #810: the Session pane grows a Voice recordings section fed by the
+// confined listing — absent when nothing is on disk, rows with working
+// Play once something is.
+describe("Voice recordings section (issue #810)", () => {
+  beforeEach(() => {
+    backendMock.listLiveAudio.mockReset();
+    backendMock.listLiveAudio.mockResolvedValue([]);
+  });
+
+  /** Render the rail with the Session pane open (default pane is todos). */
+  const openSessionPane = async (): Promise<void> => {
+    renderRail();
+    act(() => useStore.getState().focusRailPane(TAB, "session"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
+  it("renders nothing when no recordings exist", async () => {
+    await openSessionPane();
+    expect(document.body.textContent).toContain(t("rail.tabs.session"));
+    expect(document.body.textContent).not.toContain(t("rail.session.voiceSection"));
+  });
+
+  it("lists entries newest-first and wires Play to the entry target", async () => {
+    const entries = [
+      { connectionId: "conn-a", role: "assistant" as const, turn: 2, sizeBytes: 4096, modifiedAt: "2026-10-08T12:00:01.000Z" },
+      { connectionId: "conn-a", role: "user" as const, turn: 1, sizeBytes: 2048, modifiedAt: "2026-10-08T12:00:00.000Z" },
+    ];
+    backendMock.listLiveAudio.mockResolvedValue(entries);
+    const playLiveRecording = vi.fn(async (): Promise<void> => {});
+    useStore.setState({ playLiveRecording });
+    await openSessionPane();
+    expect(document.body.textContent).toContain(t("rail.session.voiceSection"));
+    const play = button(t("rail.session.voicePlay"));
+    expect(play).not.toBeNull();
+    act(() => play!.click());
+    expect(playLiveRecording).toHaveBeenCalledWith(TAB, { kind: "entry", entry: entries[0] });
+  });
+
+  it("the row holding the slot shows Pause, and while live speaks others stay disabled", async () => {
+    backendMock.listLiveAudio.mockResolvedValue([
+      { connectionId: "conn-a", role: "assistant" as const, turn: 2, sizeBytes: 4096, modifiedAt: "2026-10-08T12:00:01.000Z" },
+      { connectionId: "conn-b", role: "assistant" as const, turn: 1, sizeBytes: 1024, modifiedAt: "2026-10-08T12:00:00.000Z" },
+    ]);
+    useStore.setState({
+      liveReplay: {
+        key: `${TAB}:conn-a:2`,
+        tabId: TAB,
+        ref: "v1/s/conn-a/assistant/2",
+        status: "playing",
+        notice: null,
+      },
+      rpc: { [TAB]: runtime({ live: { phase: "speaking", levels: null, turns: [], ended: false, error: null, connectionId: "conn-c" } }) },
+    });
+    await openSessionPane();
+    expect(button(t("rail.session.voicePause"))).not.toBeNull();
+    // The other row refuses honestly: disabled with the busy reason.
+    expect(button(t("rail.session.voicePlay"))).toBeNull();
+    const busy = button(t("composer.live.replayLiveBusy"));
+    expect(busy).not.toBeNull();
+    expect(busy?.disabled).toBe(true);
   });
 });

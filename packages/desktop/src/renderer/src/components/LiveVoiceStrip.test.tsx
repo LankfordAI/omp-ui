@@ -241,3 +241,111 @@ describe("LiveVoiceStrip recording affordance (issue #809)", () => {
     expect(el.querySelector('[role="img"]')).toBeNull();
   });
 });
+
+// #810: a ready recording turns the row's affordance into a real control;
+// an incomplete take keeps the disabled-glyph shape with its own reason;
+// while live output speaks every Play renders disabled with the reason —
+// never a silent dead click, never an enabled control without audio.
+describe("LiveVoiceStrip replay controls (issue #810)", () => {
+  it("shows an enabled Play on a ready row and dispatches the turn target", async () => {
+    const playLiveRecording = vi.fn(async (): Promise<void> => {});
+    useStore.setState({
+      loadLiveRecording: vi.fn(async () => ({ status: "ready" as const, wavBase64: "AA" })),
+      playLiveRecording,
+    });
+    seed(snapshot([turn("assistant", 1, "here you go")], { connectionId: "c-1" }));
+    const el = render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const play = el.querySelector<HTMLButtonElement>('button[aria-label="play recording"]');
+    expect(play).not.toBeNull();
+    expect(play?.disabled).toBe(false);
+    act(() => play!.click());
+    expect(playLiveRecording).toHaveBeenCalledWith(TAB, {
+      kind: "turn",
+      turn: { role: "assistant", turn: 1, text: "here you go", final: true },
+    });
+  });
+
+  it("a playing clip's row shows Pause wired to the pause verb", async () => {
+    const pauseLiveReplay = vi.fn();
+    useStore.setState({
+      loadLiveRecording: vi.fn(async () => ({ status: "ready" as const, wavBase64: "AA" })),
+      pauseLiveReplay,
+      liveReplay: {
+        key: `${TAB}:c-1:1`,
+        tabId: TAB,
+        ref: "v1/s/c/assistant/1",
+        status: "playing",
+        notice: null,
+      },
+    });
+    seed(snapshot([turn("assistant", 1, "here you go")], { connectionId: "c-1" }));
+    const el = render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const pause = el.querySelector<HTMLButtonElement>('button[aria-label="pause recording"]');
+    expect(pause).not.toBeNull();
+    act(() => pause!.click());
+    expect(pauseLiveReplay).toHaveBeenCalled();
+  });
+
+  it("an incomplete take renders the disabled glyph with its own reason", async () => {
+    useStore.setState({
+      loadLiveRecording: vi.fn(async () => ({ status: "incomplete" as const })),
+    });
+    seed(snapshot([turn("assistant", 2, "partial")], { connectionId: "c-1" }));
+    const el = render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const glyph = el.querySelector('[role="img"]');
+    expect(glyph?.getAttribute("title")).toContain("incomplete");
+    expect(glyph?.getAttribute("aria-disabled")).toBe("true");
+    expect(el.querySelector("button")).toBeNull();
+  });
+
+  it("phase speaking renders Play disabled with the busy reason", async () => {
+    useStore.setState({
+      loadLiveRecording: vi.fn(async () => ({ status: "ready" as const, wavBase64: "AA" })),
+      liveReplay: null,
+    });
+    seed(snapshot([turn("assistant", 3, "done")], { connectionId: "c-1", phase: "speaking" }));
+    const el = render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const busy = el.querySelector<HTMLButtonElement>(
+      'button[aria-label="live voice is speaking — replay waits"]',
+    );
+    expect(busy).not.toBeNull();
+    expect(busy?.disabled).toBe(true);
+  });
+
+  it("a guard-paused row shows Resume, not a fresh play", async () => {
+    const resumeLiveReplay = vi.fn();
+    useStore.setState({
+      loadLiveRecording: vi.fn(async () => ({ status: "ready" as const, wavBase64: "AA" })),
+      resumeLiveReplay,
+      liveReplay: {
+        key: `${TAB}:c-1:1`,
+        tabId: TAB,
+        ref: "v1/s/c/assistant/1",
+        status: "paused",
+        notice: "live-speaking",
+      },
+    });
+    seed(snapshot([turn("assistant", 1, "here you go")], { connectionId: "c-1" }));
+    const el = render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const play = el.querySelector<HTMLButtonElement>('button[aria-label="play recording"]');
+    expect(play).not.toBeNull();
+    expect(play?.disabled).toBe(false);
+    act(() => play!.click());
+    expect(resumeLiveReplay).toHaveBeenCalled();
+  });
+});

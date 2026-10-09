@@ -29,6 +29,7 @@ import type {
   SessionCapabilitiesResult,
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
+import type { LiveAudioLoad } from "@omp-ui/core/live-voice";
 import type { BrowserPaneEnsureResult } from "@omp-ui/core/browser-pane";
 import { backendState as makeBackendState } from "./fixtures";
 
@@ -189,7 +190,7 @@ const mockBackend = {
   // #809: honest empty by default — no recordings exist, and a load answers
   // unavailable until a test's own override says otherwise.
   listLiveAudio: vi.fn(async (): Promise<never[]> => []),
-  readLiveAudio: vi.fn(async (): Promise<{ status: "unavailable" }> => ({ status: "unavailable" })),
+  readLiveAudio: vi.fn(async (): Promise<LiveAudioLoad> => ({ status: "unavailable" })),
   listBranches: vi.fn(),
   checkoutBranch: vi.fn(),
   pullBranch: vi.fn(),
@@ -565,6 +566,8 @@ beforeEach(() => {
     exited: {},
     hibernated: {},
     rpc: {},
+    // The replay player's one clip (#810): each test starts from boot's null.
+    liveReplay: null,
     ptyRedrawRevision: {},
     compactSurface: null,
     compactionSettings: {},

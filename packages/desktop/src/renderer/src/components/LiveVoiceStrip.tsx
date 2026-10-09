@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
+import type { LiveTurn } from "@omp-ui/core/live-voice";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { useCompactShell } from "../lib/responsive";
 import { cn } from "../lib/cn";
-import { IconButton, IconClose } from "./ui";
+import { IconButton, IconClose, IconPause, IconPlay } from "./ui";
 
 // Re-entry window for the strip's follow mode, mirroring TranscriptView's
 // AT_BOTTOM_SLACK reasoning: within this many pixels of the tail, the view is
@@ -29,11 +30,19 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
   const live = useStore((s) => s.rpc[tabId]?.live ?? null);
   const clearLiveError = useStore((s) => s.clearLiveError);
   const loadLiveRecording = useStore((s) => s.loadLiveRecording);
-  // #809: per-final-assistant-turn, the honest recording state. `unavailable`
-  // is omp ≤ 18.8.6's answer for every reference (ADR-0049) — a disabled
-  // speaker that says WHY, never a silent hole. Probed once per (connection,
-  // turn); the next start's new connectionId re-probes.
-  const [audioStates, setAudioStates] = useState<Record<string, "unavailable" | "other">>({});
+  const playLiveRecording = useStore((s) => s.playLiveRecording);
+  const pauseLiveReplay = useStore((s) => s.pauseLiveReplay);
+  const resumeLiveReplay = useStore((s) => s.resumeLiveReplay);
+  const liveReplay = useStore((s) => s.liveReplay);
+  // #809: per-final-assistant-turn, the honest recording state — the load's
+  // real status, so `ready` can drive a Play button and `incomplete` names
+  // the half-written take. `unavailable` is omp ≤ 18.8.6's answer for every
+  // reference (ADR-0049) — a disabled speaker that says WHY, never a silent
+  // hole. Probed once per (connection, turn); the next start's new
+  // connectionId re-probes.
+  const [audioStates, setAudioStates] = useState<
+    Record<string, "ready" | "unavailable" | "incomplete">
+  >({});
   const box = useRef<HTMLDivElement>(null);
   const following = useRef(true);
 
@@ -57,15 +66,125 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
       if (audioStates[key] !== undefined) continue;
       void loadLiveRecording(tabId, turn).then((load) =>
         setAudioStates((prev) =>
-          prev[key] !== undefined
-            ? prev
-            : { ...prev, [key]: load.status === "unavailable" ? "unavailable" : "other" },
+          prev[key] !== undefined ? prev : { ...prev, [key]: load.status },
         ),
       );
     }
   }, [live, tabId, loadLiveRecording, audioStates]);
 
   if (live === null) return null;
+
+  // One final assistant row's recording control, in the strip's ml-auto
+  // slot. Only the button is a control — the row stays plain text (the
+  // issue rejected whole-row click targets: selection and links). The gate
+  // is honest in both directions: an enabled button exists only where a
+  // load answered `ready` (AC 6), and while the live output is speaking
+  // the Play renders disabled with the reason as its title — a visible
+  // refusal, not a silent dead click (AC 4). A clip keeps playing when
+  // the session ends or the strip otherwise disappears: replay is
+  // independent of the connection (#809 design).
+  const recordingAffordance = (
+    row: LiveTurn,
+    state: "ready" | "unavailable" | "incomplete" | undefined,
+  ): JSX.Element | null => {
+    if (state === undefined) return null;
+    if (state === "unavailable") {
+      return (
+        <span
+          role="img"
+          aria-label={t("composer.live.audioUnavailable")}
+          title={t("composer.live.audioUnavailable")}
+          aria-disabled="true"
+          className="ml-auto shrink-0 cursor-default text-ink-faint opacity-60"
+        >
+          <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-3.5">
+            <path d="M3 6h2.5L9 3v10L5.5 10H3z" stroke="currentColor" strokeLinejoin="round" />
+            <path d="M11.5 6.5 14 9m0-2.5L11.5 9" stroke="currentColor" strokeLinecap="round" />
+          </svg>
+        </span>
+      );
+    }
+    if (state === "incomplete") {
+      // A half-written take is a real recording that cannot play; the
+      // disabled speaker says so, same shape as the unavailable glyph.
+      return (
+        <span
+          role="img"
+          aria-label={t("composer.live.audioIncomplete")}
+          title={t("composer.live.audioIncomplete")}
+          aria-disabled="true"
+          className="ml-auto shrink-0 cursor-default text-ink-faint opacity-60"
+        >
+          <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-3.5">
+            <path d="M3 6h2.5L9 3v10L5.5 10H3z" stroke="currentColor" strokeLinejoin="round" />
+            <path d="M12.75 8h2.5" stroke="currentColor" strokeLinecap="round" strokeDasharray="1.5 1.5" />
+          </svg>
+        </span>
+      );
+    }
+    // ready: the row's clip, identified by the key the slice builds.
+    const clipKey = `${tabId}:${live.connectionId}:${row.turn}`;
+    const replay = liveReplay?.key === clipKey ? liveReplay : null;
+    if (replay?.status === "playing") {
+      return (
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          {replay.notice !== null && (
+            <span className="text-[10px] text-ink-faint" title={t("composer.live.replayLiveBusy")}>
+              {t("composer.live.phaseSpeaking")}
+            </span>
+          )}
+          <IconButton label={t("composer.live.replayPause")} onClick={pauseLiveReplay}>
+            <IconPause className="size-3" />
+          </IconButton>
+        </span>
+      );
+    }
+    // Live output owns the audio while it speaks: every other Play on
+    // this tab renders disabled with the reason — an enabled button the
+    // slice would silently refuse is the dead-click the issue forbids
+    // (AC 4). A clip the guard paused is exempt: Resume is an explicit
+    // user decision, not an overlap starter.
+    if (live.phase === "speaking" && replay?.status !== "paused") {
+      return (
+        <span className="ml-auto shrink-0">
+          <IconButton label={t("composer.live.replayLiveBusy")} onClick={() => {}} disabled>
+            <IconPlay className="size-3" />
+          </IconButton>
+        </span>
+      );
+    }
+    if (replay?.status === "paused") {
+      // Resume rides the same slot: the guard paused this clip (tab leave
+      // or live output), and only a user click starts it again (AC 3).
+      return (
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          {replay.notice !== null && (
+            <span className="text-[10px] text-ink-faint" title={t("composer.live.replayLiveBusy")}>
+              {t("composer.live.phaseSpeaking")}
+            </span>
+          )}
+          <IconButton label={t("composer.live.replayPlay")} onClick={resumeLiveReplay}>
+            <IconPlay className="size-3" />
+          </IconButton>
+        </span>
+      );
+    }
+    return (
+      <span className="ml-auto shrink-0">
+        <IconButton
+          label={
+            replay?.status === "loading"
+              ? t("composer.live.replayLoading")
+              : t("composer.live.replayPlay")
+          }
+          onClick={() => void playLiveRecording(tabId, { kind: "turn", turn: row })}
+          disabled={replay?.status === "loading"}
+        >
+          <IconPlay className="size-3" />
+        </IconButton>
+      </span>
+    );
+  };
 
   // A clean end renders nothing: the exchange is in the main transcript or
   // was idle chatter, and a lingering empty strip is noise.
@@ -108,19 +227,9 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
             </span>
             {turn.role === "assistant" &&
               turn.final &&
-              audioStates[`${live.connectionId ?? "none"}:${turn.turn}`] === "unavailable" && (
-                <span
-                  role="img"
-                  aria-label={t("composer.live.audioUnavailable")}
-                  title={t("composer.live.audioUnavailable")}
-                  aria-disabled="true"
-                  className="ml-auto shrink-0 cursor-default text-ink-faint opacity-60"
-                >
-                  <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-3.5">
-                    <path d="M3 6h2.5L9 3v10L5.5 10H3z" stroke="currentColor" strokeLinejoin="round" />
-                    <path d="M11.5 6.5 14 9m0-2.5L11.5 9" stroke="currentColor" strokeLinecap="round" />
-                  </svg>
-                </span>
+              recordingAffordance(
+                turn,
+                audioStates[`${live.connectionId ?? "none"}:${turn.turn}`],
               )}
           </div>
         ))}

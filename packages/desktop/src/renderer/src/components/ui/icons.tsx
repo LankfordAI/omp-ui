@@ -18,6 +18,24 @@ export const ICON_STROKE = {
   strokeLinejoin: "round",
 } as const;
 
+/** Play triangle — the replay affordance (#810). */
+export function IconPlay({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)}>
+      <path d="M5.5 3.5v9l7-4.5z" fill="currentColor" stroke="currentColor" strokeWidth={1.2} strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Pause bars — the clip-is-playing control (#810). */
+export function IconPause({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)}>
+      <path d="M5.5 3.5v9M10.5 3.5v9" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** Sliders — the shared "options/settings" glyph (composer options, project settings, queue modes). */
 export function IconTune({ className }: { className?: string }) {
   return (

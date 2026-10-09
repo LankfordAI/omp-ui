@@ -28,7 +28,10 @@ import { createCollabSlice } from "./store/slices/collab";
 import { createFrameReductionSlice } from "./store/slices/frame-reduction";
 import { createStatsSlice } from "./store/slices/stats";
 import { createLabSlice } from "./store/slices/lab";
-import { createLiveAudioSlice } from "./store/slices/live-audio";
+import {
+  createLiveAudioSlice,
+  installLiveReplayGuards,
+} from "./store/slices/live-audio";
 import { createLifecycleSlice } from "./store/slices/lifecycle";
 import { createPlanExecutionSlice } from "./store/slices/plan-execution";
 import { createRpcCommandSlice } from "./store/slices/rpc-command";
@@ -180,7 +183,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const collab = createCollabSlice(set, get);
   const sideQuestions = createSideQuestionsSlice(get, m);
   const subagentControl = createSubagentControlSlice(get, m);
-  const liveAudio = createLiveAudioSlice(get);
+  const liveAudio = createLiveAudioSlice(get, set);
   /**
    * Repaints the document to match the registry's persisted themeId. The
    * registry stays authoritative; lib/themes.ts keeps only a localStorage
@@ -497,6 +500,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // Live voice listens only in the viewed tab (#801); installed with the
       // other focus subscriber so the first change it sees is post-restore.
       installLiveVoiceVisibilityGuard(api, m);
+      // Replay pauses when its tab leaves the view and when live output
+      // takes the audio back (#810); installed beside the mic guard so the
+      // first transition it sees is post-restore, same rationale.
+      installLiveReplayGuards(api);
       // First-run onboarding (issue #623): the desktop shell of a fresh install
       // opens the Getting started checklist once. Remote renderers never
       // auto-open — joining someone's app is not an install — and a surfaced

@@ -66,6 +66,7 @@ import type { GoalState } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { BtwSnapshot } from "@omp-ui/core/side-questions";
 import type { LiveAudioEntry, LiveAudioLoad, LiveSnapshot, LiveTurn } from "@omp-ui/core/live-voice";
+import type { LiveReplayState, LiveReplayTarget } from "./slices/live-audio";
 import type { RailTab } from "../lib/panel-layout";
 import type { AutoresearchSnapshot, ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { ApprovalPrompt } from "@omp-ui/core/approval";
@@ -1096,6 +1097,22 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  a session that never materialized or never started live voice answers
    *  `unavailable` without dispatch. */
   loadLiveRecording(tabId: string, turn: LiveTurn): Promise<LiveAudioLoad>;
+  /** The one clip the replay player holds (#810); null while nothing is
+   *  loaded, playing, or paused. The player dispatches only the read
+   *  channel — replay never sends a live command. */
+  liveReplay: LiveReplayState | null;
+  /** Plays one recording (#810): resolves the ref from the entry's own
+   *  connection (reopen-safe) or the live snapshot's, loads the bytes, and
+   *  claims the module-level singleton. Refuses without a state change
+   *  while this tab's live output is speaking; a load that does not answer
+   *  `ready` clears the slot — never a fallback. */
+  playLiveRecording(tabId: string, target: LiveReplayTarget): Promise<void>;
+  /** Pauses the clip in place; its state (and any notice) stays. */
+  pauseLiveReplay(): void;
+  /** Resumes the paused clip and clears the guard's notice. */
+  resumeLiveReplay(): void;
+  /** Stops and releases the clip; the affordances render idle. */
+  stopLiveReplay(): void;
   /** Writes the tier this session's fast selection names (issue #719);
    *  applied by the next spawn's replay — never a respawn. null clears. */
   setSessionServiceTier(tabId: string, tier: ServiceTier | null): Promise<void>;
