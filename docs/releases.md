@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.21.5](https://github.com/LankfordAI/omp-ui/releases/tag/v0.21.5). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Session restarts carry the renderer's retained transcript into a relaunched process whose `omp` transcript never persisted: a session killed before its first turn completed resumes with its earlier messages as context (#824).
 
 ## Choose a download
 

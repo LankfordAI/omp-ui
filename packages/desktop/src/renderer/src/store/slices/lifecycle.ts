@@ -23,6 +23,7 @@ import { gitResolutionPrompt, type GitResolutionTrigger } from "../../lib/git-re
 import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolution";
 import { liveAudioLocalToClient, supportsNativeLive } from "../../lib/live-voice";
 import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
+import { composeCarryoverContext } from "../../lib/carryover-context";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
 import { randomId } from "../../lib/random-id";
@@ -779,9 +780,14 @@ export function createLifecycleSlice(
   const restartSession = async (tabId: string): Promise<boolean> => {
     const rec = findRecord(get().state, tabId);
     try {
+      // The #824 seed must be captured before the relaunch preparation:
+      // the successor's bootRpcTab wipes items when it announces itself.
+      const digest =
+        rec?.mode === "rpc-ui" ? composeCarryoverContext(m.effectiveItems(tabId)) : null;
       if (rec?.live === "live" && rec.mode === "rpc-ui")
         prepareRpcRelaunch(tabId);
-      await backend.restartSession(tabId);
+      // "" is the channel's "no seed"; the codec is a plain trailing string.
+      await backend.restartSession(tabId, digest ?? "");
       return true;
     } catch (err) {
       get().reportError(err);
@@ -1331,12 +1337,18 @@ export function createLifecycleSlice(
     if (!owner) return;
     const { instanceId, record: rec } = owner;
     try {
+      // Items survive teardown (teardownProcess settles and keeps them):
+      // the digest rides the resume so a never-persisted transcript still
+      // seeds the successor (#824).
+      const digest =
+        rec.mode === "rpc-ui" ? composeCarryoverContext(m.effectiveItems(tabId)) : null;
       if (rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
       await backend.spawnSession({
         origin: "resume",
         resumeTabId: tabId,
         cols: 80,
         rows: 24,
+        ...(digest === null ? {} : { carryoverContext: digest }),
       });
       set((s) => ({
         tabs: s.tabs.map((t) =>
@@ -1362,6 +1374,11 @@ export function createLifecycleSlice(
     if (!owner) return;
     const { instanceId, record: rec } = owner;
     try {
+      // Inert in main — a #774 recovery resume always has a transcript file
+      // to --resume — but the request shape stays uniform with resumeDead
+      // (#824).
+      const digest =
+        rec.mode === "rpc-ui" ? composeCarryoverContext(m.effectiveItems(tabId)) : null;
       if (rec.mode === "rpc-ui") prepareRpcRelaunch(tabId);
       await backend.spawnSession({
         origin: "resume",
@@ -1369,6 +1386,7 @@ export function createLifecycleSlice(
         cols: 80,
         rows: 24,
         model,
+        ...(digest === null ? {} : { carryoverContext: digest }),
       });
       set((s) => ({
         tabs: s.tabs.map((t) =>

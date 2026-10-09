@@ -1049,11 +1049,13 @@ export const BACKEND_CHANNELS = {
   /**
    * Restarts a live session in place (kill + relaunch with `--resume`, same
    * dance as the advisor/mode-switch relaunch) so it picks up changed MCP
-   * config. Rejects when the session is not live.
+   * config. Rejects when the session is not live. The trailing digest (#824)
+   * seeds the successor when the restarted session's omp transcript never
+   * materialized; "" or absent means no seed.
    */
   restartSession: {
     channel: "session:restart",
-    ...request<[tabId: string], void>([str()]),
+    ...request<[tabId: string, carryoverContext?: string], void>([str(), trailingOptional(str())]),
   },
   convertToWorktree: {
     channel: "session:convert-to-worktree",

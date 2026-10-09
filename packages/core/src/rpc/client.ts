@@ -27,6 +27,12 @@ export interface RpcClientOpts {
   ompPath: string;
   resumeSessionId?: string;
   /**
+   * Path of the carryover-context artifact to append to the system prompt
+   * via `--append-system-prompt` (#824). Set only when the resumed record
+   * has no transcript to restore — a real `--resume` already has history.
+   */
+  appendSystemPromptFile?: string;
+  /**
    * Exact per-process model selector (`provider/model[:level]`) passed to omp as
    * `--model`. The dev/test spawn gate and the issue #774 model-recovery
    * resume set it: it is the one mechanism that reaches a resumed session,
@@ -114,6 +120,7 @@ export class RpcClient {
     );
     const args = ["--mode=rpc-ui", "--cwd", opts.cwd, "--session-dir", opts.lineageDir];
     if (opts.resumeSessionId) args.push(`--resume=${opts.resumeSessionId}`);
+    if (opts.appendSystemPromptFile) args.push("--append-system-prompt", opts.appendSystemPromptFile);
     if (opts.model) args.push("--model", opts.model);
     if (opts.advisor) args.push("--advisor");
     for (const overlay of opts.configOverlays ?? []) args.push("--config", overlay);

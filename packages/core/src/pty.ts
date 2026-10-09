@@ -61,6 +61,9 @@ export function spawnOmp(opts: {
   lineageDir: string;
   ompPath: string;
   resumeSessionId?: string;
+  /** Carryover-context artifact for `--append-system-prompt` (#824);
+   *  symmetric with RpcClient — no PTY caller sets it in v1. */
+  appendSystemPromptFile?: string;
   /**
    * Exact per-process model selector (`provider/model[:level]`) passed to omp as
    * `--model`. Only the dev/test spawn gate sets it; it is the one mechanism that
@@ -75,6 +78,7 @@ export function spawnOmp(opts: {
 }): PtyHandle {
   const args = ["--cwd", opts.cwd, "--session-dir", opts.lineageDir];
   if (opts.resumeSessionId) args.push(`--resume=${opts.resumeSessionId}`);
+  if (opts.appendSystemPromptFile) args.push("--append-system-prompt", opts.appendSystemPromptFile);
   if (opts.model) args.push("--model", opts.model);
   if (opts.advisor) args.push("--advisor");
   for (const overlay of opts.configOverlays ?? []) args.push("--config", overlay);

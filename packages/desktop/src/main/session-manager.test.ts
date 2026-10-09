@@ -7160,3 +7160,87 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
     );
   });
 });
+
+describe("carryover context seed (issue #824)", () => {
+  const SEED = '<turn role="user">\nhello\n</turn>';
+  const CARRYOVER_FILE = "carryover-context.md";
+  const SESSION_ID = "019ffc67-522c-7000-95a3-01eca0266c03";
+
+  it("seeds a resume whose transcript never materialized", async () => {
+    const { manager, sessionsRoot } = setup({ mode: "rpc-ui" });
+
+    await manager.spawn({
+      origin: "resume",
+      resumeTabId: TAB,
+      cols: 80,
+      rows: 24,
+      carryoverContext: SEED,
+    });
+
+    const opts = RpcClientMock.mock.calls.at(-1)![0];
+    const file = path.join(sessionsRoot, LINEAGE, CARRYOVER_FILE);
+    expect(opts.appendSystemPromptFile).toBe(file);
+    expect(fs.readFileSync(file, "utf8")).toBe(SEED);
+  });
+
+  it("drops the seed and removes the stale artifact when a real resume target exists", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    fs.writeFileSync(
+      path.join(sessionsRoot, LINEAGE, `2026-08-13T00-00-00-000Z_${SESSION_ID}.jsonl`),
+      `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: "/proj" })}\n`,
+    );
+    registry.updateSession(TAB, { sessionId: SESSION_ID });
+    const stale = path.join(sessionsRoot, LINEAGE, CARRYOVER_FILE);
+    fs.writeFileSync(stale, "stale seed");
+
+    await manager.spawn({
+      origin: "resume",
+      resumeTabId: TAB,
+      cols: 80,
+      rows: 24,
+      carryoverContext: SEED,
+    });
+
+    const opts = RpcClientMock.mock.calls.at(-1)![0];
+    expect(opts.appendSystemPromptFile).toBeUndefined();
+    expect(fs.existsSync(stale)).toBe(false);
+  });
+
+  it("lands the seed from manager.restart on the null-id successor spawn", async () => {
+    const { manager, sessionsRoot } = setup({ mode: "rpc-ui" });
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+    expect(RpcClientMock.mock.calls.at(-1)![0].appendSystemPromptFile).toBeUndefined();
+    const predecessor = rpcInstances[0]!;
+    predecessor.kill.mockImplementation(() => predecessor.exit(0));
+
+    await manager.restart(TAB, SEED);
+
+    const opts = RpcClientMock.mock.calls.at(-1)![0];
+    const file = path.join(sessionsRoot, LINEAGE, CARRYOVER_FILE);
+    expect(opts.appendSystemPromptFile).toBe(file);
+    expect(fs.readFileSync(file, "utf8")).toBe(SEED);
+  });
+
+  it("never writes the artifact for a fresh spawn", async () => {
+    const { manager, sessionsRoot } = setup({ mode: "rpc-ui" });
+
+    await manager.spawn({
+      origin: "new",
+      mode: "rpc-ui",
+      projectCwd: "/proj",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+    });
+
+    const opts = RpcClientMock.mock.calls.at(-1)![0];
+    expect(opts.appendSystemPromptFile).toBeUndefined();
+    const written = fs
+      .readdirSync(sessionsRoot)
+      .flatMap((dir) =>
+        fs.existsSync(path.join(sessionsRoot, dir, CARRYOVER_FILE)) ? [dir] : [],
+      );
+    expect(written).toEqual([]);
+  });
+});

@@ -2248,3 +2248,145 @@ describe("Finish worktree agent resolution (issue #727)", () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+describe("carryover context seed (issue #824)", () => {
+  const rec = (tabId: string, live: LiveState, mode: "pty" | "rpc-ui" = "rpc-ui") => ({
+    tabId,
+    sessionId: `sid-${tabId}`,
+    lineageDir: `omp-ui--p--${tabId}`,
+    projectCwd: "/p",
+    launchedAt: "t",
+    mode,
+    worktree: null,
+    planImplementationSource: null, experiment: null,
+    agentMode: "build" as const,
+    compactionMethod: null,
+    approvalMode: null,
+    serviceTier: null,
+    model: null,
+    thinkingLevel: null,
+    advisor: false,
+    advisorModel: null, subagentModels: null,
+    proposedPlans: [],
+    autoTitled: false,
+    cachedTitle: null,
+    cachedModified: null,
+    title: "New session",
+    status: null,
+    live,
+    pendingPlan: null,
+    planSettle: null,
+    streamStalled: false,
+  });
+
+  const projectWith = (session: SessionSummary) =>
+    makeBackendState({
+      projects: [
+        {
+          project: {
+            path: "/p",
+            name: "p",
+            addedAt: "t",
+            lastModel: null,
+            lastThinkingLevel: null,
+            lastAdvisor: null,
+            lastAdvisorModel: null,
+            defaultModel: null,
+            defaultAdvisorModel: null,
+            browserClock: false,
+            reviewRoster: null,
+            knowledgeHome: null,
+          },
+          sessions: [session],
+        },
+      ],
+    });
+
+  const transcript = () =>
+    rpcTabState({
+      status: "ready",
+      items: [
+        { kind: "user", id: "u1", text: "hello there" },
+        { kind: "assistant", id: "a1", text: "hi", thinking: "", streaming: false },
+      ],
+    });
+
+  it("restartSession sends the digest composed from the live items", async () => {
+    h.mockBackend.restartSession.mockResolvedValueOnce(undefined);
+    h.useStore.setState({
+      state: projectWith(rec(h.TAB, "live")),
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p" })],
+      rpc: { [h.TAB]: transcript() },
+    });
+
+    await h.useStore.getState().restartSession(h.TAB);
+
+    const [tabId, digest] = h.mockBackend.restartSession.mock.calls[0]!;
+    expect(tabId).toBe(h.TAB);
+    expect(digest).toContain('<turn role="user">\nhello there\n</turn>');
+    expect(digest).toContain('<turn role="assistant">\nhi\n</turn>');
+  });
+
+  it("restartSession sends the empty string for a pty tab", async () => {
+    h.mockBackend.restartSession.mockResolvedValueOnce(undefined);
+    h.useStore.setState({
+      state: projectWith(rec(h.TAB, "live", "pty")),
+      tabs: [tabInfo({ tabId: h.TAB, mode: "pty", projectCwd: "/p" })],
+      rpc: { [h.TAB]: transcript() },
+    });
+
+    await h.useStore.getState().restartSession(h.TAB);
+
+    expect(h.mockBackend.restartSession.mock.calls[0]![1]).toBe("");
+  });
+
+  it("resumeDead rides the retained transcript when the dead rpc tab has items", async () => {
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: h.TAB });
+    h.useStore.setState({
+      state: projectWith(rec(h.TAB, "dormant")),
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p" })],
+      rpc: { [h.TAB]: transcript() },
+      exited: { [h.TAB]: 1 },
+    });
+
+    await h.useStore.getState().resumeDead(h.TAB);
+
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "resume",
+      resumeTabId: h.TAB,
+      cols: 80,
+      rows: 24,
+      carryoverContext: expect.stringContaining('<turn role="user">\nhello there\n</turn>'),
+    });
+  });
+
+  it("resumeDead omits the seed when the transcript is empty", async () => {
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: h.TAB });
+    h.useStore.setState({
+      state: projectWith(rec(h.TAB, "dormant")),
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p" })],
+      rpc: { [h.TAB]: rpcTabState({ status: "ready" }) },
+      exited: { [h.TAB]: 1 },
+    });
+
+    await h.useStore.getState().resumeDead(h.TAB);
+
+    const request = h.mockBackend.spawnSession.mock.calls[0]![0];
+    expect(request).not.toHaveProperty("carryoverContext");
+  });
+
+  it("resumeDead passes no seed for a pty record", async () => {
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: h.TAB });
+    h.useStore.setState({
+      state: projectWith(rec(h.TAB, "dormant", "pty")),
+      tabs: [tabInfo({ tabId: h.TAB, mode: "pty", projectCwd: "/p" })],
+      rpc: { [h.TAB]: transcript() },
+      exited: { [h.TAB]: 1 },
+    });
+
+    await h.useStore.getState().resumeDead(h.TAB);
+
+    const request = h.mockBackend.spawnSession.mock.calls[0]![0];
+    expect(request).not.toHaveProperty("carryoverContext");
+  });
+});
