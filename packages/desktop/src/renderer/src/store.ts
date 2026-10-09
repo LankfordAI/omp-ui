@@ -52,7 +52,7 @@ import {
   findInstance,
   findRecord,
   installDesktopViewPersistence,
-  installLiveVoiceVisibilityGuard,
+  installLiveVoiceParkResumeGuard,
   installViewedTabReporter,
   pruneFocus,
   restoreDesktopView,
@@ -400,6 +400,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...liveAudio,
     state: null,
     exited: {},
+    liveVoice: {},
     hibernated: {},
     handedOffFor: {},
     observedPlanHandoffs: {},
@@ -497,9 +498,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);
       installViewedTabReporter(api);
-      // Live voice listens only in the viewed tab (#801); installed with the
-      // other focus subscriber so the first change it sees is post-restore.
-      installLiveVoiceVisibilityGuard(api, m);
+      // Live voice parks in background tabs and resumes on return (#811);
+      // installed with the other focus subscribers so the first change it
+      // sees is post-restore.
+      installLiveVoiceParkResumeGuard(api, m);
       // Replay pauses when its tab leaves the view and when live output
       // takes the audio back (#810); installed beside the mic guard so the
       // first transition it sees is post-restore, same rationale.

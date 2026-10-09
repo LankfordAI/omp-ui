@@ -19,7 +19,9 @@ import {
   applyLiveLevels,
   applyLivePhase,
   applyLiveTranscript,
+  appendLiveRecap,
   emptyLiveSnapshot,
+  isLiveSessionActive,
   parseLiveLevelsFrame,
   parseLivePhaseFrame,
   parseLiveTranscriptFrame,
@@ -433,6 +435,37 @@ export function createFrameReductionSlice(
         )
           stallContinueWatcher.trigger(tabId);
         return;
+      case "store-live-pending-feedback": {
+        // #811: the items settled with the commit; the last non-empty
+        // assistant row is omp's visible final answer (its
+        // extractVisibleAssistantText equivalent). Empty text skips the
+        // store entirely.
+        const items = m.effectiveItems(tabId);
+        let text = "";
+        for (let i = items.length - 1; i >= 0; i--) {
+          const item = items[i]!;
+          if (item.kind === "assistant" && item.text.trim() !== "") {
+            text = item.text;
+            break;
+          }
+        }
+        if (text === "") return;
+        const rt = m.runtime(tabId);
+        m.patchRuntime(tabId, {
+          livePendingFeedback: [...rt.livePendingFeedback, text],
+          // The orphan: an open call never heard a spoken request for this
+          // live-owned turn — refresh-restart at the next `listening`.
+          ...(effect.callOpen ? { liveOrphanRestart: true } : {}),
+        });
+        m.syncLiveVoiceBadge(tabId);
+        // The listening frame may already have passed; restart now (the
+        // frame hook would never fire for it). Other phases leave
+        // liveOrphanRestart for the frame hook; restartLiveCall clears it
+        // before dispatch.
+        if (effect.callOpen && get().rpc[tabId]?.live?.phase === "listening")
+          void restartLiveCall(tabId);
+        return;
+      }
       default: {
         const exhaustive: never = effect;
         void exhaustive;
@@ -447,6 +480,27 @@ export function createFrameReductionSlice(
   ): void => {
     for (const effect of effects)
       if (effect.phase === phase) runAgentEventEffect(tabId, effect);
+  };
+
+  /**
+   * Orphan refresh-restart (#811): an answer stored while the call could not
+   * receive it rides a fresh start's instructions. Parking first releases
+   * the mic before the new `live_start` reaches for it (the #808 ordering
+   * lesson); `parkLiveVoice` folds the current turns into the recap and
+   * `startLiveVoice` rebuilds the instructions from the runtime, so the
+   * stored answer rides along and `liveParked` clears on the ack. The
+   * orphan flag clears BEFORE dispatch: a failed start owns its error line
+   * (startLiveVoice's sendFailed path) and never restarts every `listening`
+   * frame.
+   */
+  const restartLiveCall = async (tabId: string): Promise<void> => {
+    // parkLiveVoice folds the current turns into the recap; folding here
+    // too would double-append the same spoken text. Clearing the flag at
+    // entry is the loop guard.
+    m.patchRuntime(tabId, { liveOrphanRestart: false });
+    await get().parkLiveVoice(tabId);
+    if (get().rpc[tabId]?.live === undefined) return;
+    await get().startLiveVoice(tabId);
   };
 
   const handleRpcFrame = (tabId: string, frame: object): void => {
@@ -873,6 +927,20 @@ export function createFrameReductionSlice(
           if (phase !== null) {
             const live = tab.live ?? emptyLiveSnapshot();
             m.patchRpc(tabId, { live: applyLivePhase(live, phase) });
+            // Orphan refresh-restart (#811): a stored answer the open call
+            // could not receive rides the next start's instructions. Only a
+            // fresh transition into `listening` restarts — never during
+            // speaking/working (AC 5). `restartLiveCall` clears the flag
+            // before dispatching, so a failed start cannot loop-restart.
+            if (phase === "listening") {
+              const liveRt = m.runtime(tabId);
+              if (
+                liveRt.liveVoiceOwner === true &&
+                liveRt.liveArmed === true &&
+                liveRt.liveOrphanRestart === true
+              )
+                void restartLiveCall(tabId);
+            }
           }
           return;
         }
@@ -892,6 +960,22 @@ export function createFrameReductionSlice(
           if (turn !== null) {
             const live = tab.live ?? emptyLiveSnapshot();
             m.patchRpc(tabId, { live: applyLiveTranscript(live, turn) });
+            // The resume's instructions carried `livePendingIncluded`
+            // pending answers; the call's first final assistant transcript
+            // proves the model got its turn — clear exactly that prefix
+            // (#811, AC 4: never on tab selection; later arrivals stay
+            // pending, which is the orphan pipeline).
+            if (turn.role === "assistant" && turn.final) {
+              const liveRt = m.runtime(tabId);
+              const n = liveRt.livePendingIncluded ?? 0;
+              if (n > 0 && liveRt.livePendingFeedback.length > 0) {
+                m.patchRuntime(tabId, {
+                  livePendingFeedback: liveRt.livePendingFeedback.slice(n),
+                  livePendingIncluded: undefined,
+                });
+                m.syncLiveVoiceBadge(tabId);
+              }
+            }
           }
           return;
         }
@@ -902,6 +986,23 @@ export function createFrameReductionSlice(
           m.patchRpc(tabId, {
             live: applyLiveEnd(live, strField(frame, "error") ?? null),
           });
+          // #811: a call that ended on its own (omp's idle timeout, a
+          // realtime-side error) never ran parkLiveVoice's recap fold —
+          // without it, the resume would speak a recap missing the
+          // conversation that just happened. An armed session keeps its
+          // intent: the turns fold into the recap and liveParked hands the
+          // call back to the enter guard. An explicit stop reaches
+          // live_end with the snapshot already `ended`, a park with the
+          // fold already done, so this branch cannot double-fold; and
+          // appendLiveRecap dedupes by turn key regardless.
+          if (isLiveSessionActive(live) && m.runtime(tabId).liveArmed === true) {
+            const foldRt = m.runtime(tabId);
+            m.patchRuntime(tabId, {
+              liveRecap: appendLiveRecap(foldRt.liveRecap, live.turns),
+              liveParked: true,
+            });
+            m.syncLiveVoiceBadge(tabId);
+          }
           return;
         }
         default: {

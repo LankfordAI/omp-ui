@@ -66,7 +66,8 @@ type AfterCommitEffect =
       type: "append-transcript-item";
       item: NoticeItem;
     }
-  | { phase: "after-commit"; type: "trigger-stall-continue" };
+  | { phase: "after-commit"; type: "trigger-stall-continue" }
+  | { phase: "after-commit"; type: "store-live-pending-feedback"; callOpen: boolean };
 
 /**
  * Effects are ordered within each phase. The explicit pre-commit phase keeps
@@ -289,6 +290,8 @@ export function reduceAgentEvent(
     rpc.activeTurnKeywords = [];
     runtimePatch.pendingTurnKeywords = [];
     runtimePatch.keywordInputBatchStarted = false;
+    // Turn-scoped live ownership clears with the turn it described (#811).
+    runtimePatch.liveDelegatedTurnSeen = false;
     hasRpcPatch = true;
     effects.push(
       { phase: "after-commit", type: "restart-stream-stall-timer" },
@@ -353,6 +356,14 @@ export function reduceAgentEvent(
         prompt !== ""
       )
         effects.push({ phase: "after-commit", type: "arm-delegated-title", prompt });
+      if (runtime.liveVoiceOwner === true) {
+        // #811: this turn's answer is live-owned (turn flag, cleared at
+        // `agent_start`), and this call has heard a spoken request (call
+        // flag, cleared at each `live_start` ack) — together they decide
+        // who delivers the final answer at `agent_end`.
+        runtimePatch.liveDelegatedTurnSeen = true;
+        runtimePatch.liveCallSawDelegation = true;
+      }
     }
   }
 
@@ -395,6 +406,21 @@ export function reduceAgentEvent(
     runtimePatch.pendingTurnKeywords = [];
     runtimePatch.keywordInputBatchStarted = false;
     hasRpcPatch = true;
+    // #811: a live-owned turn that ended while parked — or that an open
+    // call never heard a spoken request for (the orphan) — leaves its
+    // answer stranded: omp's controller silently discards appends after
+    // `live_stop`. Store it for the next start; an open call that saw a
+    // spoken request this call delivers "Agent Final Message" itself.
+    if (
+      runtime.liveVoiceOwner === true &&
+      runtime.liveArmed === true &&
+      runtime.liveDelegatedTurnSeen === true
+    ) {
+      const callOpen = tab.live !== undefined && tab.live !== null && !tab.live.ended;
+      if (!callOpen || runtime.liveCallSawDelegation !== true)
+        effects.push({ phase: "after-commit", type: "store-live-pending-feedback", callOpen });
+    }
+    runtimePatch.liveDelegatedTurnSeen = false;
     if (tab.status === "running") {
       rpc.status = "ready";
       rpc.streamStallMs = undefined;

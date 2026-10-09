@@ -204,15 +204,20 @@ export function SessionRow({
   const sidebarState = useStore((st) => deriveSidebarSessionState(s, st.rpc[s.tabId]));
   const activeTabId = useStore((st) => st.activeTabId);
 
-  // Live voice output (issue #807): a running live session speaks even when
-  // its tab is not visible — the visibility guard (#801) mutes background
-  // mics only. The selector reads phase, not the snapshot, so 10 Hz
-  // `live_levels` patches never re-render the row; `ended` hides the glyph
-  // once no audio plays anymore, matching the strip's clean-end rule (#800).
-  const livePhase = useStore((st): LivePhase | null => {
+  // Live voice output (issue #807) plus the park/resume badges (#811): a
+  // running live session speaks even when its tab is not visible, and the
+  // row says what a closed call is waiting for. The selector reads phase,
+  // not the snapshot, so 10 Hz `live_levels` patches never re-render the
+  // row; `ended` swaps the phase glyph for the runtime badge mirror —
+  // results waiting outranks merely-ready, and a tab with no live voice at
+  // all (no key) stays bare.
+  const liveBadge = useStore((st): LivePhase | "armed" | "pending" | null => {
     if (s.mode !== "rpc-ui") return null;
     const live = st.rpc[s.tabId]?.live;
-    return live !== undefined && live !== null && !live.ended ? live.phase : null;
+    if (live !== undefined && live !== null && !live.ended) return live.phase;
+    const badge = st.liveVoice[s.tabId];
+    if (badge === undefined) return null;
+    return badge.pending ? "pending" : badge.armed ? "armed" : null;
   });
 
   const missing = s.live === "missing";
@@ -330,23 +335,35 @@ export function SessionRow({
       </button>
 
       <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
-        {livePhase !== null ? (
+        {liveBadge !== null ? (
           <span
             role="img"
-            aria-label={t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[livePhase]) })}
-            title={t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[livePhase]) })}
+            aria-label={
+              liveBadge === "armed"
+                ? t("sidebar.session.liveVoiceArmed")
+                : liveBadge === "pending"
+                  ? t("sidebar.session.liveVoicePending")
+                  : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge]) })
+            }
+            title={
+              liveBadge === "armed"
+                ? t("sidebar.session.liveVoiceArmed")
+                : liveBadge === "pending"
+                  ? t("sidebar.session.liveVoicePending")
+                  : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge]) })
+            }
             className={cn(
               "shrink-0 self-center",
-              livePhase === "speaking"
+              liveBadge === "speaking" || liveBadge === "pending"
                 ? "text-signal"
-                : livePhase === "error"
+                : liveBadge === "error"
                   ? "text-rose"
-                  : livePhase === "muted"
+                  : liveBadge === "muted" || liveBadge === "armed"
                     ? "text-ink-faint"
                     : "text-ink-mid",
             )}
           >
-            <IconSpeaker waves={livePhase === "speaking" ? 2 : 1} />
+            <IconSpeaker waves={liveBadge === "speaking" ? 2 : 1} />
           </span>
         ) : null}
         {source !== null && (

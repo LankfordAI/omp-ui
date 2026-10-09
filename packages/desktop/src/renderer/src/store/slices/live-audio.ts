@@ -183,8 +183,8 @@ const replayGuardsInstalled = new WeakSet<StoreApi<UiStore>>();
 
 /**
  * The two replay guards (#810), the replay twin of
- * `installLiveVoiceVisibilityGuard`: the same activeTabId diff, so "left
- * the session" means exactly what it means for the mic guard.
+ * `installLiveVoiceParkResumeGuard`: the same activeTabId diff, so "left
+ * the session" means exactly what it means for the park guard.
  *
  * - Leaving the tab a clip is playing in pauses it; returning never
  *   auto-resumes — replaying audio at a user who did not just ask for it

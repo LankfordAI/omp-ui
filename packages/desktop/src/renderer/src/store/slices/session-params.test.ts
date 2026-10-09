@@ -3248,6 +3248,40 @@ describe("live voice actions (issue #778)", () => {
     expect(live()).toMatchObject({ phase: "listening", ended: true });
   });
 
+  // #811: the start's command carries the built instructions, and an
+  // explicit stop clears the park/resume state it owns.
+  it("start carries the vendored base in instructions", async () => {
+    withVersion("18.7.0");
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    expect(h.sent[0]!.cmd.type).toBe("live_start");
+    expect(h.sent[0]!.cmd.instructions).toEqual(expect.stringContaining("<critical>"));
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await starting;
+    // The ack arms the intent and the badge mirror.
+    expect(h.useStore.getState().liveVoice[h.TAB]).toEqual({
+      armed: true,
+      parked: false,
+      pending: false,
+    });
+  });
+
+  it("stop clears the armed intent and recap", async () => {
+    withVersion("18.7.0");
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
+          live: { phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null },
+        }),
+      },
+      liveVoice: { [h.TAB]: { armed: true, parked: false, pending: true } },
+    });
+    const stopping = h.useStore.getState().stopLiveVoice(h.TAB);
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await stopping;
+    expect(h.useStore.getState().liveVoice[h.TAB]).toBeUndefined();
+  });
+
   it("stop no-ops on an idle or already-ended session", async () => {
     withVersion("18.7.0");
     await h.useStore.getState().stopLiveVoice(h.TAB);

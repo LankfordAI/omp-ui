@@ -31,6 +31,7 @@ import { projectKey } from "../../lib/project-key";
 import {
   dropExited,
   dropHibernated,
+  dropLiveVoiceBadge,
   dropTuiHandoff,
   type GetState,
   type SetState,
@@ -265,8 +266,12 @@ export function createLifecycleSlice(
               },
             }
           : s.rpc;
+      // The park/resume badge is the dying process's (#811): a ghost glyph on
+      // a tab whose runtime is gone would promise a resume that cannot fire.
+      const liveVoice = dropLiveVoiceBadge(s.liveVoice, tabId);
       return {
         exited: { ...s.exited, [tabId]: code },
+        liveVoice,
         ...(hibernated
           ? { hibernated: { ...s.hibernated, [tabId]: true } }
           : {}),
@@ -301,6 +306,7 @@ export function createLifecycleSlice(
           s.focusedTabByProject,
         ),
         exited: gone.reduce((ex, id) => dropExited(ex, id), s.exited),
+        liveVoice: gone.reduce((badge, id) => dropLiveVoiceBadge(badge, id), s.liveVoice),
         hibernated: gone.reduce((hb, id) => dropHibernated(hb, id), s.hibernated),
         tuiHandoff: gone.reduce(
           (th, id) => dropTuiHandoff(th, id),
@@ -483,15 +489,26 @@ export function createLifecycleSlice(
         "info",
       ),
     );
-    // Live-voice carry-over: the new tab taking focus already left the planning
-    // session muted by the #801 guard; for a hands-free user the voice follows
-    // the handoff instead — stop the planning session (releasing the mic and
-    // the realtime slot), start a fresh one on the implementation session. The
-    // realtime conversation itself cannot transfer (omp owns it in-process; the
-    // wire contract is three verbs, live-voice.ts) — the plan seed is the
-    // context bridge. Both gates check BEFORE dispatching: a failed check
-    // leaves the source in the guard's mute, exactly the pre-change behavior.
-    if (isLiveSessionActive(get().rpc[srcTabId]?.live)) {
+    // Live-voice carry-over (#811): the implementation tab taking focus has
+    // already PARKED the planning session via the park/resume guard (recap
+    // folded, call closed, mic released); for a hands-free user the voice
+    // follows the handoff instead — stopLiveVoice on the parked snapshot
+    // clears the source's armed intent (its ended path skips the dispatch,
+    // the clear is the job) and a fresh call starts on the implementation
+    // session. The realtime conversation itself cannot transfer (omp owns
+    // it in-process; the wire contract is three verbs, live-voice.ts) — the
+    // plan seed is the context bridge, and the fresh tab's own runtime
+    // (empty recap, empty pending) makes its first call base-only. Both
+    // gates check BEFORE dispatching: a failed check leaves the source
+    // parked, badge lit, resuming whenever its tab is viewed again.
+    // The gate covers an open call too: the guard runs on the store
+    // transition, and this async path can be mid-flight on a slow stop.
+    const srcRt = m.runtime(srcTabId);
+    const srcLive = get().rpc[srcTabId]?.live;
+    const voiceFollows =
+      srcRt.liveArmed === true ||
+      (srcLive !== undefined && srcLive !== null && isLiveSessionActive(srcLive));
+    if (voiceFollows) {
       // startLiveVoice's supportsNativeLive gate reads the DESTINATION's
       // capabilities, which boot publishes shortly after ready; waiting keeps
       // a not-yet-published roster from silently no-op'ing the start after the

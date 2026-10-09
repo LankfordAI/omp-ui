@@ -381,6 +381,39 @@ current rpc surface exposes no assistant output audio, so a reference honestly
 answers `unavailable` until a capture source exists.
 _Avoid_: audio id, clip id, recording url
 
+**Armed**:
+The per-session live voice intent (issue #811): the user wants to talk in this
+session. A successful `live_start` sets it; only an explicit stop or the plan
+hand-off's carry-over clears it. Parking never clears it — the microphone went
+quiet because the tab left the view, not because the user asked.
+_Avoid_: enabled, connected, on
+
+**Parked**:
+Armed with no realtime call open, because the session's tab is not the viewed
+tab (issue #811). The call closed on leaving — omp records audio per session,
+so an unviewed tab must not listen at all; closing is the honest mute. The
+session keeps its *voice recap*; returning to the tab opens a fresh call whose
+instructions carry it, plus any *pending voice feedback*.
+Not the *Hibernated session* sense its _Avoid_ list warns about: a parked
+session's process runs on; only its realtime call is closed.
+_Avoid_: muted, paused, suspended, backgrounded
+
+**Pending voice feedback**:
+The text of a live-delegated turn's final answer that the voice never spoke:
+the turn ended while the session was *parked*, or an open call never heard the
+spoken request the answer belongs to (the orphan rule, issue #811). Order is
+kept — the next resume's instructions carry every entry, oldest first — and
+the call's first final assistant transcript proves delivery and clears them.
+_Avoid_: missed message, unread reply, backlog
+
+**Voice recap**:
+The rolling per-tab text transcript of earlier spoken turns (issue #811),
+appended from the snapshot's turns at every park; a turn the call closed
+mid-sentence rides marked as cut off. The resume's `live_start` instructions
+carry it (bounded, oldest trimmed first) so the model hears the conversation
+the closed call had.
+_Avoid_: history, summary, chat log
+
 **Auto-title**:
 The name a new session gets from omp's own renamer, dispatched over the
 prompt channel: when the first substantive prompt's turn admits its user

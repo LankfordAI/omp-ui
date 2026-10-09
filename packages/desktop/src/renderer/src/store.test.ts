@@ -580,10 +580,11 @@ describe("viewed-tab reporter (issue #266)", () => {
   });
 });
 
-describe("live voice tab visibility (issue #801)", () => {
+describe("live voice park/resume (issue #811)", () => {
   // A fresh module evaluation per test: init latches per evaluation, and the
-  // guard subscriber installs there, so each case observes its own guard and
-  // its own `h.sent` log (same convention as the viewed-tab reporter test).
+  // park/resume guard subscriber installs there, so each case observes its
+  // own guard and its own `h.sent` log (same convention as the #801 suite
+  // this replaces).
   const A = "tab-801-a";
   const B = "tab-801-b";
 
@@ -614,11 +615,14 @@ describe("live voice tab visibility (issue #801)", () => {
     return { fresh, peek: peekTabRuntimeForTests };
   };
 
-  /** Ack every live_mute recorded so far, without leaving it pending. */
+  /** Ack every command recorded so far, without leaving one pending.
+   *  Acks instead of splicing so commands fired by an ack (the resume's
+   *  re-mute) stay assertable afterwards; re-acking a settled id is a
+   *  no-op — the pending lookup misses. */
   const settleSends = async (fresh: typeof h.useStore): Promise<void> => {
-    for (let wave = 0; wave < 2; wave++) {
+    for (let wave = 0; wave < 3; wave++) {
       await h.flushMicrotasks();
-      for (const { tabId, cmd } of h.sent.splice(0)) {
+      for (const { tabId, cmd } of h.sent) {
         fresh.getState().handleRpcFrame(tabId, {
           type: "response",
           id: cmd.id,
@@ -631,109 +635,186 @@ describe("live voice tab visibility (issue #801)", () => {
     await h.flushMicrotasks();
   };
 
-  const liveMutes = () => h.sent.filter((s) => s.cmd.type === "live_mute");
+  const sentOf = (type: string) => h.sent.filter((s) => s.cmd.type === type);
 
-  it("leaving a tab mutes its running live session", async () => {
-    const { fresh, peek } = await freshGuardedStore();
+  /** Arm a tab through the real start path (owner + armed ride the ack). */
+  const arm = async (fresh: typeof h.useStore, tabId: string): Promise<void> => {
+    const starting = fresh.getState().startLiveVoice(tabId);
+    await h.flushMicrotasks();
+    // The start must be on the wire before its ack; a silently no-op'ed
+    // start would otherwise hang here instead of failing at the gate.
+    const start = h.sent.find((s) => s.tabId === tabId && s.cmd.type === "live_start");
+    if (start === undefined) throw new Error(`startLiveVoice dispatched nothing for ${tabId}`);
+    fresh.getState().handleRpcFrame(tabId, {
+      type: "response",
+      id: start.cmd.id,
+      command: "live_start",
+      success: true,
+      data: {},
+    });
+    await starting;
+    // The ack lands `live: null` on the rpc entry; a live_phase frame
+    // reopens the snapshot so the guard's isLiveSessionActive sees a call
+    // (the truth omp delivers the same way in the app).
+    fresh.getState().handleRpcFrame(tabId, { type: "live_phase", phase: "listening" });
+    h.sent.length = 0;
+  };
+
+  const seedRpc = (
+    fresh: typeof h.useStore,
+    aLive: LiveSnapshot | null,
+    bLive: LiveSnapshot | null = null,
+  ): void => {
     fresh.setState({
       tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
       rpc: {
-        [A]: rpcTabState({ capabilities: version("18.7.0"), live: liveSnap("listening") }),
-        [B]: rpcTabState({ capabilities: version("18.7.0") }),
+        [A]: rpcTabState({ capabilities: version("18.7.0"), live: aLive }),
+        [B]: rpcTabState({ capabilities: version("18.7.0"), live: bLive }),
       },
       activeTabId: A,
     });
+  };
+
+  it("leaving an armed session closes the call, keeps the intent (AC 1)", async () => {
+    const { fresh, peek } = await freshGuardedStore();
+    // Seeded with no live snapshot: arm's real start opens the call, and
+    // the guard's isLiveSessionActive sees it through the phase frame.
+    seedRpc(fresh, null);
+    await arm(fresh, A);
 
     fresh.getState().focusTab(B);
 
-    expect(liveMutes()).toEqual([
+    expect(sentOf("live_stop")).toEqual([
+      { tabId: A, cmd: expect.objectContaining({ type: "live_stop" }) },
+    ]);
+    // The mute dispatch died with #801: parking closes the call.
+    expect(sentOf("live_mute")).toEqual([]);
+    expect(peek(A)?.liveParked).toBe(true);
+    expect(peek(A)?.liveArmed).toBe(true);
+    expect(fresh.getState().liveVoice[A]).toEqual({ armed: true, parked: true, pending: false });
+    await settleSends(fresh);
+    // The parked snapshot reads ended, so the control shows idle.
+    expect(fresh.getState().rpc[A]?.live?.ended).toBe(true);
+  });
+
+  it("returning resumes with the recap inside instructions (AC 2)", async () => {
+    const { fresh, peek } = await freshGuardedStore();
+    seedRpc(fresh, null);
+    await arm(fresh, A);
+    fresh.getState().handleRpcFrame(A, {
+      type: "live_transcript",
+      role: "user",
+      turn: 0,
+      text: "deploy the preview",
+      final: true,
+    });
+    fresh.getState().handleRpcFrame(A, {
+      type: "live_transcript",
+      role: "assistant",
+      turn: 1,
+      text: "Deployed the preview build",
+      final: true,
+    });
+
+    fresh.getState().focusTab(B);
+    await settleSends(fresh);
+    h.sent.length = 0;
+    fresh.getState().focusTab(A);
+
+    const starts = sentOf("live_start");
+    expect(starts).toHaveLength(1);
+    // `cmd` is the harness's untyped record; stringContaining narrows at
+    // the assertion instead of a cast at the read.
+    expect(starts[0]!.cmd.instructions).toEqual(expect.stringContaining("<voice-recap>"));
+    expect(starts[0]!.cmd.instructions).toEqual(
+      expect.stringContaining("User: deploy the preview"),
+    );
+    expect(starts[0]!.cmd.instructions).toEqual(
+      expect.stringContaining("Assistant: Deployed the preview build"),
+    );
+    await settleSends(fresh);
+    expect(peek(A)?.liveParked).toBe(false);
+    expect(fresh.getState().rpc[A]?.live?.phase).toBe("connecting");
+  });
+
+  it("switching between two armed sessions leaves exactly one call open (AC 6)", async () => {
+    const { fresh } = await freshGuardedStore();
+    seedRpc(fresh, null, null);
+    await arm(fresh, A);
+    await arm(fresh, B);
+    h.sent.length = 0;
+
+    fresh.getState().focusTab(B);
+
+    // Left behind: A parks. Entered: B is open, not parked — never restarted.
+    expect(sentOf("live_stop")).toEqual([
+      { tabId: A, cmd: expect.objectContaining({ type: "live_stop" }) },
+    ]);
+    expect(sentOf("live_start")).toEqual([]);
+    expect(fresh.getState().rpc[A]?.live?.ended).toBe(false); // stop not acked yet
+    await settleSends(fresh);
+    expect(fresh.getState().rpc[A]?.live?.ended).toBe(true);
+    expect(fresh.getState().rpc[B]?.live?.ended).toBe(false);
+  });
+
+  it("a user-muted park re-mutes the resumed call (AC 7a)", async () => {
+    const { fresh } = await freshGuardedStore();
+    seedRpc(fresh, null);
+    await arm(fresh, A);
+    // The user muted while listening: omp's truth lands before the leave.
+    fresh.getState().handleRpcFrame(A, { type: "live_phase", phase: "muted" });
+
+    fresh.getState().focusTab(B);
+    await settleSends(fresh);
+    h.sent.length = 0;
+    fresh.getState().focusTab(A);
+
+    expect(sentOf("live_start")).toHaveLength(1);
+    await settleSends(fresh);
+    expect(sentOf("live_mute")).toEqual([
       { tabId: A, cmd: expect.objectContaining({ type: "live_mute", muted: true }) },
     ]);
-    expect(peek(A)?.liveVisibilityMuted).toBe(true);
     await settleSends(fresh);
   });
 
-  it("returning unmutes a session the guard muted", async () => {
+  it("an explicit stop disarms and never resumes (AC 7b)", async () => {
     const { fresh, peek } = await freshGuardedStore();
-    fresh.setState({
-      tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
-      rpc: {
-        [A]: rpcTabState({ capabilities: version("18.7.0"), live: liveSnap("listening") }),
-        [B]: rpcTabState({ capabilities: version("18.7.0") }),
-      },
-      activeTabId: A,
-    });
+    seedRpc(fresh, null);
+    await arm(fresh, A);
     fresh.getState().focusTab(B);
     await settleSends(fresh);
-    // omp's mute truth lands before the return.
-    fresh.getState().handleRpcFrame(A, { type: "live_phase", phase: "muted" });
 
+    // Stop from the parked capsule: no dispatch (the call is closed), the
+    // clear is the job (AC 8 covers the hand-off with the same path).
     h.sent.length = 0;
-    fresh.getState().focusTab(A);
+    await fresh.getState().stopLiveVoice(A);
+    expect(sentOf("live_stop")).toEqual([]);
+    expect(peek(A)?.liveArmed).toBe(false);
+    expect(peek(A)?.liveParked).toBe(false);
+    expect(fresh.getState().liveVoice[A]).toBeUndefined();
 
-    expect(liveMutes()).toEqual([
-      { tabId: A, cmd: expect.objectContaining({ type: "live_mute", muted: false }) },
-    ]);
-    expect(peek(A)?.liveVisibilityMuted).toBe(false);
-    await settleSends(fresh);
+    fresh.getState().focusTab(A);
+    expect(sentOf("live_start")).toEqual([]);
   });
 
-  it("a user's own mute survives the visit untouched", async () => {
-    const { fresh, peek } = await freshGuardedStore();
-    fresh.setState({
-      tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
-      rpc: {
-        [A]: rpcTabState({ capabilities: version("18.7.0"), live: liveSnap("muted") }),
-        [B]: rpcTabState({ capabilities: version("18.7.0") }),
-      },
-      activeTabId: A,
-    });
+  it("a non-owner renderer never dispatches on a switch (AC 9)", async () => {
+    const { fresh } = await freshGuardedStore();
+    // A live snapshot with no local start: no runtime owner exists.
+    seedRpc(fresh, liveSnap("listening"));
 
     fresh.getState().focusTab(B);
-    fresh.getState().focusTab(A);
 
-    expect(liveMutes()).toEqual([]);
-    expect(peek(A)?.liveVisibilityMuted).not.toBe(true);
-  });
-
-  it("a session that ended while hidden comes back silent", async () => {
-    const { fresh, peek } = await freshGuardedStore();
-    fresh.setState({
-      tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
-      rpc: {
-        [A]: rpcTabState({ capabilities: version("18.7.0"), live: liveSnap("listening") }),
-        [B]: rpcTabState({ capabilities: version("18.7.0") }),
-      },
-      activeTabId: A,
-    });
-    fresh.getState().focusTab(B);
-    await settleSends(fresh);
-    fresh.getState().handleRpcFrame(A, { type: "live_phase", phase: "muted" });
-    // The session ends while the tab is in the background.
-    fresh.getState().handleRpcFrame(A, { type: "live_end", error: null });
-
-    h.sent.length = 0;
-    fresh.getState().focusTab(A);
-
-    expect(liveMutes()).toEqual([]);
-    // The grant clears either way; a later start is governed by fresh visibility.
-    expect(peek(A)?.liveVisibilityMuted).toBe(false);
+    expect(sentOf("live_stop")).toEqual([]);
+    expect(sentOf("live_mute")).toEqual([]);
   });
 
   it("an ended session behind us is left alone", async () => {
     const { fresh } = await freshGuardedStore();
-    fresh.setState({
-      tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
-      rpc: {
-        [A]: rpcTabState({ capabilities: version("18.7.0"), live: liveSnap("listening", true) }),
-        [B]: rpcTabState({ capabilities: version("18.7.0") }),
-      },
-      activeTabId: A,
-    });
+    seedRpc(fresh, liveSnap("listening", true));
 
     fresh.getState().focusTab(B);
 
-    expect(liveMutes()).toEqual([]);
+    expect(sentOf("live_stop")).toEqual([]);
   });
 
   it("an omp below the live floor dispatches nothing", async () => {
@@ -747,9 +828,11 @@ describe("live voice tab visibility (issue #801)", () => {
       activeTabId: A,
     });
 
+    // Even the arm no-ops below the floor, so nothing is armed to park.
+    await fresh.getState().startLiveVoice(A);
     fresh.getState().focusTab(B);
 
-    expect(liveMutes()).toEqual([]);
+    expect(h.sent).toEqual([]);
   });
 
   it("a PTY tab is untouched and gains no runtime from a tab switch", async () => {
@@ -762,7 +845,7 @@ describe("live voice tab visibility (issue #801)", () => {
 
     fresh.getState().focusTab(B);
 
-    expect(liveMutes()).toEqual([]);
+    expect(h.sent).toEqual([]);
     expect(peek(A)).toBeUndefined();
   });
 });

@@ -253,3 +253,138 @@ export function parseLiveAudioRef(ref: string): LiveAudioRef | null {
   if (!Number.isSafeInteger(turn)) return null;
   return { sessionId, connectionId, role, turn };
 }
+
+/**
+ * Live voice park/resume (issue #811). A parked tab's call is closed, so the
+ * resumed `live_start` carries the conversation as `instructions`: omp's
+ * handler passes them to its controller and a passed string REPLACES the
+ * default prompt, which is why the base below is vendored verbatim and the
+ * recap rides behind it. Pure functions only; the renderer owns when they run.
+ */
+
+/** Marks a spoken turn the call closed mid-sentence (park while speaking). */
+export const LIVE_RECAP_CUTOFF_SUFFIX = " … [cut off]";
+
+/**
+ * Fold one connection's turns into the rolling recap (#811). Final entries
+ * go in order; a (role, turn) with only non-final entries contributes its
+ * last partial, marked as cut off — the call closed mid-sentence. A final
+ * entry for a key that also has partials replaces them (only the final is
+ * appended). Snapshot semantics keep at most one entry per key in `turns`;
+ * the last-occurrence rule below covers a hand-built array that breaks it.
+ */
+export function appendLiveRecap(
+  recap: readonly LiveTurn[],
+  turns: readonly LiveTurn[],
+): LiveTurn[] {
+  const key = (t: LiveTurn): string => `${t.role}\u0000${t.turn}`;
+  const finals = new Set(turns.filter((t) => t.final).map(key));
+  const lastIndex = new Map<string, number>();
+  turns.forEach((t, i) => lastIndex.set(key(t), i));
+  const next = recap.slice();
+  turns.forEach((t, i) => {
+    if (t.final) next.push(t);
+    else if (!finals.has(key(t)) && lastIndex.get(key(t)) === i)
+      next.push({ ...t, text: t.text + LIVE_RECAP_CUTOFF_SUFFIX });
+  });
+  return next;
+}
+
+/** Ceilings the instruction builder trims to. If a `live_start` ever fails
+ *  on payload size, record omp's server limit here (issue #811). */
+export const LIVE_INSTRUCTION_LIMITS = {
+  recapTurns: 20,
+  recapChars: 6_000,
+  pendingEntryChars: 4_000,
+  totalChars: 16_000,
+} as const;
+
+export interface LiveInstructions {
+  instructions: string;
+  /** Prefix of `pending` the builder carried; the clear rule consumes it. */
+  pendingUsed: number;
+}
+
+const recapLine = (turn: LiveTurn): string =>
+  `${turn.role === "user" ? "User" : "Assistant"}: ${turn.text}`;
+
+const PENDING_TRUNCATION_NOTE = "\n[truncated — full answer in the session transcript]";
+
+/**
+ * base + `<voice-recap>` + `<pending-results>`. The recap keeps its last
+ * `recapTurns` entries and never exceeds `recapChars` (oldest trimmed
+ * first); each pending entry truncates at `pendingEntryChars` with a note
+ * that the full answer is in the session. While the total is over
+ * `totalChars`, trim oldest recap turns first, then drop whole newest
+ * pending entries — recap before pending, never a partial pending entry.
+ * An empty recap omits its section, an empty pending omits its section, so
+ * the first call of a session is exactly the base. `pendingUsed` counts the
+ * entries actually carried (dropping newest leaves the oldest as a prefix).
+ */
+export function buildLiveInstructions(opts: {
+  recap: readonly LiveTurn[];
+  pending: readonly string[];
+  base?: string;
+}): LiveInstructions {
+  const base = opts.base ?? LIVE_BASE_INSTRUCTIONS;
+  let recapLines = opts.recap
+    .slice(-LIVE_INSTRUCTION_LIMITS.recapTurns)
+    .map(recapLine);
+  let entries = opts.pending.map((entry) =>
+    entry.length > LIVE_INSTRUCTION_LIMITS.pendingEntryChars
+      ? entry.slice(0, LIVE_INSTRUCTION_LIMITS.pendingEntryChars) + PENDING_TRUNCATION_NOTE
+      : entry,
+  );
+  const assemble = (): string => {
+    let text = base;
+    if (recapLines.length > 0)
+      text += `\n\n<voice-recap>\nEarlier in this conversation, oldest first:\n${recapLines.join("\n")}\n</voice-recap>`;
+    if (entries.length > 0)
+      text += `\n\n<pending-results>\nBefore anything else, tell the user these results, briefly and in speech-friendly form.\n${entries.join("\n\n")}\n</pending-results>`;
+    return text;
+  };
+  while (
+    recapLines.length > 1 &&
+    recapLines.join("\n").length > LIVE_INSTRUCTION_LIMITS.recapChars
+  )
+    recapLines = recapLines.slice(1);
+  let text = assemble();
+  while (text.length > LIVE_INSTRUCTION_LIMITS.totalChars && recapLines.length > 0) {
+    recapLines = recapLines.slice(1);
+    text = assemble();
+  }
+  while (text.length > LIVE_INSTRUCTION_LIMITS.totalChars && entries.length > 0) {
+    entries = entries.slice(0, -1);
+    text = assemble();
+  }
+  return { instructions: text, pendingUsed: entries.length };
+}
+
+/** Vendored verbatim from omp 18.8.6 `live/prompts/live-instructions.md`
+ *  (issue #811). Re-check when the bundled omp is bumped — risk: prompt
+ *  drift. `{{firstName}}`/`{{username}}` are rendered by omp's placeholder
+ *  pass on any passed string, verified on the 18.8.6 binary. */
+export const LIVE_BASE_INSTRUCTIONS = `You: omp Live, realtime voice surface of one unified coding assistant for {{firstName}} (OS account: {{username}}).
+
+<conventions>
+RFC 2119 keywords: MUST, REQUIRED, SHOULD, RECOMMENDED, MAY, OPTIONAL. \`NEVER\` = \`MUST NOT\`.
+</conventions>
+
+<critical>
+- You + omp coding agent: one assistant, not separate agents.
+- MUST delegate repository work, coding, tool use, verification to client backend.
+- MUST keep conversation natural while client backend works.
+</critical>
+
+User speaks to you. MUST respond directly, briefly, conversationally, with speech-friendly phrasing. NEVER use markdown, code blocks, long lists, or read implementation detail aloud unless requested.
+
+Client backend: same assistant's execution surface; repository context, normal omp AgentSession, coding model, tools. Coding, investigation, repository changes, commands, or verification → MUST promptly create client delegation with complete plain-language request and all relevant conversational context; NEVER attempt tool work. New request during active work MUST create new delegation, steering same backend session.
+
+Treat delegation context as own internal progress/results. NEVER describe backend as another assistant. MAY briefly acknowledge active work; NEVER claim changes, findings, or verification before backend reports. Commentary context: silent progress for conversational continuity; NEVER recite. Context beginning with \`"Agent Final Message":\`: backend's final visible answer; MUST present useful result naturally as own, NEVER mention label, protocol, delegation, or backend.
+
+Greetings, clarification, ordinary conversation needing no repository/tools: MUST answer directly without delegation. MUST ask concise clarifying question only when execution request genuinely underspecified.
+
+<critical>
+MUST preserve one-assistant continuity: converse here, delegate execution, communicate returned result as own.
+</critical>
+`;
