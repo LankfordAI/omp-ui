@@ -5,8 +5,13 @@ import {
   applyLiveLevels,
   applyLivePhase,
   applyLiveTranscript,
+  appendLiveRecap,
+  buildLiveInstructions,
   formatLiveAudioRef,
   isLiveSessionActive,
+  LIVE_BASE_INSTRUCTIONS,
+  LIVE_INSTRUCTION_LIMITS,
+  LIVE_RECAP_CUTOFF_SUFFIX,
   emptyLiveSnapshot,
   parseLiveAudioRef,
   parseLiveLevelsFrame,
@@ -14,6 +19,7 @@ import {
   parseLiveTranscriptFrame,
   type LivePhase,
   type LiveSnapshot,
+  type LiveTurn,
 } from "./live-voice";
 
 const fresh = (): LiveSnapshot => emptyLiveSnapshot();
@@ -246,5 +252,143 @@ describe("voice recording references (#809)", () => {
     const snap = { ...emptyLiveSnapshot(), connectionId: CONNECTION };
     expect(applyLivePhase(snap, "connecting").connectionId).toBe(CONNECTION);
     expect(applyLiveEnd(snap, null).connectionId).toBe(CONNECTION);
+  });
+});
+
+const turn = (role: LiveTurn["role"], n: number, text: string, final = true): LiveTurn => ({
+  role,
+  turn: n,
+  text,
+  final,
+});
+
+describe("appendLiveRecap (#811)", () => {
+  it("appends finals in order", () => {
+    expect(appendLiveRecap([], [turn("user", 0, "hi"), turn("assistant", 0, "hello")])).toEqual([
+      turn("user", 0, "hi"),
+      turn("assistant", 0, "hello"),
+    ]);
+  });
+
+  it("marks a partial-only key as cut off", () => {
+    const [only] = appendLiveRecap([], [turn("assistant", 1, "half a sent", false)]);
+    expect(only).toEqual({
+      role: "assistant",
+      turn: 1,
+      text: `half a sent${LIVE_RECAP_CUTOFF_SUFFIX}`,
+      final: false,
+    });
+  });
+
+  it("a final supersedes the partials of the same key", () => {
+    const turns = [
+      turn("assistant", 1, "hel", false),
+      turn("assistant", 1, "hello", false),
+      turn("assistant", 1, "hello!", true),
+    ];
+    expect(appendLiveRecap([], turns)).toEqual([turn("assistant", 1, "hello!")]);
+  });
+
+  it("keeps the recap prefix and appends after it", () => {
+    const recap = [turn("user", 0, "before")];
+    expect(appendLiveRecap(recap, [turn("assistant", 0, "after")])).toEqual([
+      ...recap,
+      turn("assistant", 0, "after"),
+    ]);
+  });
+
+  it("an empty connection adds nothing", () => {
+    const recap = [turn("user", 0, "x")];
+    expect(appendLiveRecap(recap, [])).toEqual(recap);
+  });
+});
+
+describe("buildLiveInstructions (#811)", () => {
+  it("empty inputs are the base verbatim", () => {
+    const built = buildLiveInstructions({ recap: [], pending: [] });
+    expect(built.instructions).toBe(LIVE_BASE_INSTRUCTIONS);
+    expect(built.pendingUsed).toBe(0);
+  });
+
+  it("renders the recap oldest first and keeps pending out when empty", () => {
+    const built = buildLiveInstructions({
+      recap: [turn("user", 0, "fix the bug"), turn("assistant", 0, "on it")],
+      pending: [],
+    });
+    expect(built.instructions.startsWith(LIVE_BASE_INSTRUCTIONS)).toBe(true);
+    expect(built.instructions).toContain(
+      "User: fix the bug\nAssistant: on it",
+    );
+    expect(built.instructions).not.toContain("<pending-results>");
+  });
+
+  it("a pending section names the results and counts what it carried", () => {
+    const built = buildLiveInstructions({ recap: [], pending: ["done: tests pass"] });
+    expect(built.instructions).toContain("<pending-results>");
+    expect(built.instructions).toContain("done: tests pass");
+    expect(built.pendingUsed).toBe(1);
+  });
+
+  it("keeps the newest recapTurns entries", () => {
+    const recap = Array.from({ length: 30 }, (_, i) => turn("user", i, `u${i}`));
+    const built = buildLiveInstructions({ recap, pending: [], base: "B" });
+    expect(built.instructions).toContain("User: u29");
+    expect(built.instructions).not.toContain("User: u9\n");
+    expect(built.instructions).toContain("User: u10");
+  });
+
+  it("trims the oldest recap lines down to recapChars", () => {
+    const fat = "x".repeat(1000);
+    const recap = Array.from({ length: 10 }, (_, i) => turn("user", i, fat));
+    const built = buildLiveInstructions({ recap, pending: [], base: "B" });
+    const lines = built.instructions
+      .slice(built.instructions.indexOf("<voice-recap>") + "<voice-recap>".length)
+      .split("\n")
+      .filter((line) => line.startsWith("User: "));
+    // 6 lines would run 6 041 joined chars past the 6 000 cap; 5 fit.
+    expect(lines.join("\n").length).toBeLessThanOrEqual(
+      LIVE_INSTRUCTION_LIMITS.recapChars,
+    );
+    expect(lines).toHaveLength(5);
+    expect(lines.at(-1)).toBe(`User: ${fat}`);
+  });
+
+  it("truncates an oversized pending entry with the in-session note", () => {
+    const big = "y".repeat(LIVE_INSTRUCTION_LIMITS.pendingEntryChars + 500);
+    const built = buildLiveInstructions({ recap: [], pending: [big], base: "B" });
+    expect(built.instructions).toContain(
+      "y".repeat(LIVE_INSTRUCTION_LIMITS.pendingEntryChars) +
+        "\n[truncated — full answer in the session transcript]",
+    );
+    expect(built.pendingUsed).toBe(1);
+  });
+
+  it("trims recap before dropping pending entries when the total is over", () => {
+    // A recap inside its own caps plus pending that alone fits: the total
+    // cap sacrifices the recap whole, and no pending entry is dropped.
+    const line = "z".repeat(5_900);
+    const recap = [turn("user", 0, line)];
+    const entry = "w".repeat(3_345);
+    const pending = [entry, entry, entry];
+    const built = buildLiveInstructions({ recap, pending, base: "B" });
+    expect(built.instructions.length).toBeLessThanOrEqual(
+      LIVE_INSTRUCTION_LIMITS.totalChars,
+    );
+    expect(built.instructions).not.toContain("<voice-recap>");
+    expect(built.pendingUsed).toBe(3);
+  });
+
+  it("drops newest pending entries down to the total cap", () => {
+    const padding = "q".repeat(LIVE_INSTRUCTION_LIMITS.pendingEntryChars - 4);
+    const pending = Array.from({ length: 6 }, (_, i) => `e${i} ${padding}`);
+    const built = buildLiveInstructions({ recap: [], pending, base: "B" });
+    expect(built.instructions.length).toBeLessThanOrEqual(
+      LIVE_INSTRUCTION_LIMITS.totalChars,
+    );
+    // A prefix survives whole: the oldest entries ride, the newest drop.
+    expect(built.pendingUsed).toBeGreaterThan(0);
+    expect(built.pendingUsed).toBeLessThan(pending.length);
+    expect(built.instructions).toContain(pending[0]!);
+    expect(built.instructions).not.toContain(`e${pending.length - 1} `);
   });
 });

@@ -359,18 +359,22 @@ export function installViewedTabReporter(api: StoreApi<UiStore>): () => void {
 const liveGuardInstalled = new WeakSet<StoreApi<UiStore>>();
 
 /**
- * Mutes the microphone of every live session the user is NOT looking at and
- * unmutes the one they return to (#801). omp records audio per session, so
- * without this every rpc-ui tab with live voice listens at once. The rule
- * mirrors the push-to-talk hotkey's `activeTabId === tabId` gate (#707):
- * tab visibility only — a window blur leaves the sessions as they are.
+ * Parks the live session of every armed tab the user leaves and resumes the
+ * armed session they return to (#811), replacing the #801 mute guard: omp
+ * records audio per session, so an unviewed tab must not listen at all —
+ * closing the call is the honest mute. The rule mirrors the push-to-talk
+ * hotkey's `activeTabId === tabId` gate (#707): tab visibility only — a
+ * window blur leaves the sessions as they are.
  *
- * The user's own mute survives a visit: unmute on return fires only when the
- * guard itself muted the session (runtime flag). Dispatch rides the existing
- * `setLiveMuted` action, so the `supportsNativeLive` version gate holds for
- * dispatch too and `live_phase` "muted" stays the display truth.
+ * Parking keeps `liveArmed` — the user never asked to stop — and folding the
+ * spoken turns into the recap before the stop lets the resume's
+ * `live_start { instructions }` carry the conversation on (#811). The owner
+ * gate (#803) parks only in the renderer whose `live_start` succeeded; a
+ * second client viewing the same tab never disturbs the call. The enter
+ * path is idempotent: `startLiveVoice` refuses while a call is open and
+ * clears `liveParked` on its ack, so at most one call stays open (AC 6).
  */
-export function installLiveVoiceVisibilityGuard(
+export function installLiveVoiceParkResumeGuard(
   api: StoreApi<UiStore>,
   m: StoreMachinery,
 ): () => void {
@@ -378,35 +382,27 @@ export function installLiveVoiceVisibilityGuard(
   liveGuardInstalled.add(api);
   const unsubscribe = api.subscribe((state, previous) => {
     if (state.activeTabId === previous.activeTabId) return;
-    // Leave: mute a running, not-already-muted session behind us.
+    // Leave: park an armed session behind us. The snapshot reads the same
+    // between the two states for a pure tab switch; the rpc entry first,
+    // because m.runtime auto-creates and a PTY tab must never gain one.
     const left = previous.activeTabId;
-    if (left !== null) {
-      const live = previous.rpc[left]?.live;
-      // The shared predicate answers "could still be talked to"; a session
-      // already in the muted phase (the user's own mute) needs no second
-      // command.
-      if (isLiveSessionActive(live) && live.phase !== "muted") {
-        // A live snapshot means a booted rpc tab, so the runtime exists (or
-        // is created here); a PTY tab never reaches this line.
-        m.runtime(left);
-        m.patchRuntime(left, { liveVisibilityMuted: true });
-        void state.setLiveMuted(left, true);
-      }
+    if (left !== null && state.rpc[left] !== undefined) {
+      const rt = m.runtime(left);
+      if (
+        rt.liveVoiceOwner === true &&
+        rt.liveArmed === true &&
+        isLiveSessionActive(state.rpc[left]!.live)
+      )
+        void state.parkLiveVoice(left);
     }
-    // Enter: unmute only what the guard muted, never the user's explicit mute.
+    // Enter: resume an armed, parked session.
     const entered = state.activeTabId;
-    if (entered === null) return;
-    // The rpc entry first: m.runtime auto-creates, and a PTY tab (no rpc
-    // state at all) must never gain a runtime from a tab switch.
-    if (state.rpc[entered] === undefined) return;
-    if (m.runtime(entered).liveVisibilityMuted !== true) return;
-    // The flag clears on any return, so a session that ended or was reset
-    // while away cannot leave a stale unmuting grant behind.
-    m.patchRuntime(entered, { liveVisibilityMuted: false });
-    const live = state.rpc[entered]?.live;
-    if (live !== undefined && live !== null && !live.ended && live.phase === "muted") {
-      void state.setLiveMuted(entered, false);
-    }
+    if (entered === null || state.rpc[entered] === undefined) return;
+    const rt = m.runtime(entered);
+    if (rt.liveVoiceOwner !== true || rt.liveArmed !== true || rt.liveParked !== true)
+      return;
+    // The builder reads recap + pending from the runtime; no plumbing here.
+    void state.startLiveVoice(entered);
   });
   return unsubscribe;
 }

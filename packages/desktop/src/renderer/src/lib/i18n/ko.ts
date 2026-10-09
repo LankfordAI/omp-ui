@@ -2075,6 +2075,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.session.deleteRecord": "이 세션의 기록 삭제",
   "sidebar.session.deleteFiles": "세션과 해당 파일 삭제",
   "sidebar.session.liveVoice": "라이브 음성: {phase}",
+  "sidebar.session.liveVoiceArmed": "라이브 음성: 대기 중 — 열면 재개",
+  "sidebar.session.liveVoicePending": "라이브 음성: 결과 대기 중",
 
   "sidebar.project.reorder": "{name} 순서 변경",
   "sidebar.project.reorderTitle": "{name} 순서 변경 — 드래그하거나 Alt+↑ / Alt+↓",

@@ -37,6 +37,7 @@ import {
   tabInfo,
 } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
+import { peekTabRuntimeForTests } from "./shared";
 import { reduceAgentEvent } from "./reduce-agent-event";
 import type { ObservedTabRuntime } from "./reduce-agent-event";
 // The shared bridge mock predates the acknowledged plan-answer channel (issue
@@ -54,6 +55,8 @@ describe("reduceAgentEvent", () => {
     pendingTurnKeywords: [],
     keywordInputBatchStarted: false,
     pendingNotices: [],
+    liveRecap: [],
+    livePendingFeedback: [],
     slashCommandItems,
     lastFrameAt: 1_000,
     capabilitiesGeneration: 0,
@@ -2945,7 +2948,7 @@ describe("handleRpcFrame routing", () => {
     });
 
     /** Dispatches a fresh execute with `live` seeded on the planning tab. */
-    const dispatchWithLive = (
+    const dispatchWithLive = async (
       id: string,
       live: LiveSnapshot | null,
       freshPatch: Partial<Parameters<typeof rpcTabState>[0]> = {},
@@ -2959,7 +2962,7 @@ describe("handleRpcFrame routing", () => {
           }),
         },
       }));
-      return dispatchFreshSeed(id, {
+      await dispatchFreshSeed(id, {
         capabilities: withVersion("18.7.0"),
         ...freshPatch,
       });
@@ -2995,6 +2998,15 @@ describe("handleRpcFrame routing", () => {
         { tabId: h.TAB, type: "live_stop" },
         { tabId: "fresh-tab", type: "live_start" },
       ]);
+      // #811: the voice follows the handoff — the source's armed intent
+      // clears (stop ack), so the parked tab never resumes on a later
+      // visit, and the destination owns the call (AC 8).
+      expect(h.useStore.getState().liveVoice[h.TAB]).toBeUndefined();
+      expect(h.useStore.getState().liveVoice["fresh-tab"]).toEqual({
+        armed: true,
+        parked: false,
+        pending: false,
+      });
       expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
     });
 
@@ -4316,6 +4328,203 @@ describe("live voice frames (issue #778)", () => {
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_end", error: "boom" });
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "connecting" });
     expect(live()).toMatchObject({ phase: "connecting", ended: false, error: null });
+  });
+});
+
+describe("live voice park/resume frames (issue #811)", () => {
+  // Same store-level convention as the #778 suite: real actions seed the
+  // runtime (owner + armed ride the live_start ack), frames drive the rest.
+  const withVersion = (ompVersion: string): CapabilitySnapshot =>
+    ({ ompVersion }) as unknown as CapabilitySnapshot;
+
+  /** Opens a call through the real start path and lands omp's listening. */
+  const arm = async (): Promise<void> => {
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    const start = h.sent.find(
+      (s) => s.tabId === h.TAB && s.cmd.type === "live_start",
+    );
+    if (start === undefined) throw new Error("startLiveVoice dispatched nothing");
+    h.respond(h.TAB, start.cmd, {});
+    await starting;
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
+    h.sent.length = 0;
+  };
+
+  /** Closes the call through the real park path (recap folds, stop acks). */
+  const park = async (): Promise<void> => {
+    const parking = h.useStore.getState().parkLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    for (const s of h.sent.filter((e) => e.cmd.type === "live_stop"))
+      h.respond(h.TAB, s.cmd, {});
+    await parking;
+    h.sent.length = 0;
+  };
+
+  const frame = (event: object): void => {
+    h.useStore.getState().handleRpcFrame(h.TAB, event);
+  };
+  const delegation = (): void =>
+    frame({
+      type: "message_start",
+      message: {
+        role: "custom",
+        customType: "live-delegation",
+        display: true,
+        attribution: "agent",
+        content: "deploy the preview",
+      },
+    });
+  const finalAnswer = (text: string): void =>
+    frame({
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text }] },
+    });
+  /** Resolves any live_start/live_stop already on the wire. */
+  const settleVerbs = async (): Promise<void> => {
+    for (let wave = 0; wave < 3; wave++) {
+      await h.flushMicrotasks();
+      for (const s of h.sent.filter((e) => e.cmd.type === "live_stop" || e.cmd.type === "live_start"))
+        h.respond(h.TAB, s.cmd, {});
+    }
+    await h.flushMicrotasks();
+  };
+
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ capabilities: withVersion("18.7.0") }) } });
+  });
+
+  const badge = () => h.useStore.getState().liveVoice[h.TAB];
+  const pending = () => peekTabRuntimeForTests(h.TAB)?.livePendingFeedback ?? [];
+
+  it("a parked turn's answer is stored as pending and lights the badge (AC 3)", async () => {
+    await arm();
+    frame({ type: "agent_start" });
+    delegation();
+    await park();
+    finalAnswer("Deployed the preview build");
+    frame({ type: "agent_end" });
+
+    expect(pending()).toEqual(["Deployed the preview build"]);
+    expect(badge()).toEqual({ armed: true, parked: true, pending: true });
+    // Parked: the answer waits for the resume; no dispatch on a closed call.
+    expect(h.sent.filter((s) => s.cmd.type === "live_start")).toEqual([]);
+  });
+
+  it("a call that heard the request delivers nothing extra (omp speaks it)", async () => {
+    await arm();
+    frame({ type: "agent_start" });
+    delegation();
+    finalAnswer("Deployed the preview build");
+    frame({ type: "agent_end" });
+
+    expect(pending()).toEqual([]);
+    // Still armed, still open: the badge says armed-only (the row shows
+    // the phase glyph while the call is open).
+    expect(badge()).toEqual({ armed: true, parked: false, pending: false });
+  });
+
+  it("the first final spoken answer clears exactly the carried prefix (AC 4)", async () => {
+    await arm();
+    frame({ type: "agent_start" });
+    delegation();
+    await park();
+    finalAnswer("Deployed the preview build");
+    frame({ type: "agent_end" });
+
+    // Resume: the ack accounts one pending entry as carried.
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    const start = h.sent.find((s) => s.cmd.type === "live_start")!;
+    h.respond(h.TAB, start.cmd, {});
+    await starting;
+
+    // A partial of the answer clears nothing — it is not delivered yet.
+    frame({ type: "live_transcript", role: "assistant", turn: 0, text: "Deploy", final: false });
+    expect(pending()).toEqual(["Deployed the preview build"]);
+
+    frame({ type: "live_transcript", role: "assistant", turn: 0, text: "Deployed the preview build", final: true });
+    expect(pending()).toEqual([]);
+    expect(badge()).toEqual({ armed: true, parked: false, pending: false });
+  });
+
+  it("an orphan answer restarts at the next listening phase", async () => {
+    await arm();
+    frame({ type: "agent_start" });
+    delegation();
+    await park();
+    // Resume mid-turn: the ack clears the call's spoken-request flag while
+    // the live-owned turn is still running — the orphan.
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    h.respond(h.TAB, h.sent.find((s) => s.cmd.type === "live_start")!.cmd, {});
+    await starting;
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
+    h.sent.length = 0;
+
+    // The answer lands while the call sits in `speaking`: stored, restart
+    // deferred to the next `listening` (AC 5).
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "speaking" });
+    finalAnswer("Deployed the preview build");
+    frame({ type: "agent_end" });
+    expect(pending()).toEqual(["Deployed the preview build"]);
+    expect(h.sent.filter((s) => s.cmd.type === "live_stop")).toEqual([]);
+
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
+    await settleVerbs();
+    const stops = h.sent.filter((s) => s.cmd.type === "live_stop");
+    const starts = h.sent.filter((s) => s.cmd.type === "live_start");
+    expect(stops).toHaveLength(1);
+    expect(starts).toHaveLength(1);
+    expect(starts[0]!.cmd.instructions).toEqual(
+      expect.stringContaining("Deployed the preview build"),
+    );
+  });
+
+  it("stores the orphan during `working` without restarting (AC 5)", async () => {
+    await arm();
+    frame({ type: "agent_start" });
+    delegation();
+    await park();
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    h.respond(h.TAB, h.sent.find((s) => s.cmd.type === "live_start")!.cmd, {});
+    await starting;
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "working" });
+    h.sent.length = 0;
+
+    finalAnswer("Deployed the preview build");
+    frame({ type: "agent_end" });
+
+    expect(pending()).toEqual(["Deployed the preview build"]);
+    // Never restart mid-work: only a fresh `listening` closes the call.
+    expect(h.sent.filter((s) => s.cmd.type === "live_stop")).toEqual([]);
+  });
+
+  it("a self-ended armed call folds its turns into the recap", async () => {
+    await arm();
+    frame({
+      type: "live_transcript",
+      role: "assistant",
+      turn: 0,
+      text: "The preview is live",
+      final: true,
+    });
+    // omp's idle timeout ends the call without a park ever running.
+    frame({ type: "live_end", error: null });
+
+    const rt = peekTabRuntimeForTests(h.TAB)!;
+    expect(rt.liveRecap.map((turn) => turn.text)).toEqual(["The preview is live"]);
+    expect(rt.liveParked).toBe(true);
+    expect(badge()).toEqual({ armed: true, parked: true, pending: false });
+  });
+
+  it("a call ending for a stopped session folds nothing", () => {
+    // No runtime at all (no start ever acked): live_end is pure truth.
+    frame({ type: "live_phase", phase: "listening" });
+    frame({ type: "live_end", error: null });
+    expect(peekTabRuntimeForTests(h.TAB)?.liveRecap).toEqual([]);
+    expect(badge()).toBeUndefined();
   });
 });
 

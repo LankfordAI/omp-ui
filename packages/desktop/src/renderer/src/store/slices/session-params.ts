@@ -70,15 +70,19 @@ import {
   type GetState,
   type SetState,
   type StoreMachinery,
+  type TabRuntime,
   type Watchers,
 } from "./shared";
 import { rpcCommandMachinery } from "./rpc-command";
 import { findOwner, findRecord, sessionCwd } from "./view";
 import type { SessionCommand } from "@omp-ui/core/session-command";
 import {
+  appendLiveRecap,
   applyLiveEnd,
   applyLivePhase,
+  buildLiveInstructions,
   emptyLiveSnapshot,
+  isLiveSessionActive,
   type LiveSnapshot,
 } from "@omp-ui/core/live-voice";
 import { supportsNativeLive } from "../../lib/live-voice";
@@ -108,6 +112,7 @@ export type SessionParamsSlice = Pick<
   | "setAutoCompaction"
   | "setFastMode"
   | "startLiveVoice"
+  | "parkLiveVoice"
   | "stopLiveVoice"
   | "setLiveMuted"
   | "clearLiveError"
@@ -923,20 +928,50 @@ export function createSessionParamsSlice(
    * `live_*` frames frame-reduction applies, and each one carries the
    * `supportsNativeLive` gate so an older omp can never dispatch (the
    * side-questions.ts rule: gate both rendering AND dispatch).
+   *
+   * Park/resume (issue #811): `liveArmed` is the intent, `liveParked` the
+   * call-closed-because-unviewed state; the sidebar badge mirrors both.
    */
   const livePatch = (tabId: string, next: LiveSnapshot): void => {
     m.patchRpc(tabId, { live: next });
   };
 
-  const startLiveVoice = async (tabId: string): Promise<void> => {
+  /** An explicit stop disarms everything the park/resume machinery owns
+   *  (#811) — shared by the open-call and parked-call stop paths. */
+  const clearLiveVoiceState: Partial<TabRuntime> = {
+    liveArmed: false,
+    liveParked: false,
+    liveUserMuted: false,
+    liveRecap: [],
+    livePendingFeedback: [],
+    liveCallSawDelegation: false,
+    liveOrphanRestart: false,
+    livePendingIncluded: undefined,
+  };
+
+  const startLiveVoice = async (
+    tabId: string,
+    opts?: { instructions?: string },
+  ): Promise<void> => {
     if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) return;
     const current = get().rpc[tabId]?.live;
     // omp rejects a second live session ("A live session is already
-    // active"); the action refuses before the command is sent.
+    // active"); the action refuses before the command is sent. A parked
+    // snapshot is `ended`, so the resume path passes this gate.
     if (current !== null && current !== undefined && !current.ended) return;
+    // Building from the runtime means the composer's first start sends the
+    // base-only text and both resume paths always carry the freshest recap
+    // and pending without extra plumbing (#811). A passed `instructions`
+    // (manual probes) carries no accounted pending: nothing is marked
+    // delivered, so a later final transcript clears nothing spuriously.
+    const rt = m.runtime(tabId);
+    const built =
+      opts?.instructions !== undefined
+        ? { instructions: opts.instructions, pendingUsed: 0 }
+        : buildLiveInstructions({ recap: rt.liveRecap, pending: rt.livePendingFeedback });
     const resp = await m.runCommand(
       tabId,
-      { type: "live_start" },
+      { type: "live_start", instructions: built.instructions },
       { quiet: true },
     );
     if (resp === null) {
@@ -950,7 +985,21 @@ export function createSessionParamsSlice(
     // Only the renderer that started live voice titles from its delegations
     // (issue #803). `patchRuntime` never invents an owner: take the slot first.
     m.runtime(tabId);
-    m.patchRuntime(tabId, { liveVoiceOwner: true });
+    m.patchRuntime(tabId, {
+      liveVoiceOwner: true,
+      liveArmed: true,
+      liveParked: false,
+      liveCallSawDelegation: false,
+      liveOrphanRestart: false,
+      livePendingIncluded: built.pendingUsed,
+    });
+    m.syncLiveVoiceBadge(tabId);
+    // #811: parked while the user's own mute was on — omp's mute does not
+    // survive a closed call, so re-mute the fresh one after the ack.
+    if (m.runtime(tabId).liveUserMuted === true) {
+      m.patchRuntime(tabId, { liveUserMuted: false });
+      void setLiveMuted(tabId, true);
+    }
     // A fresh connection identity per successful start (#809): recording
     // refs key on it, so a reused turn number from a later connection can
     // never attach a recording to the wrong message. stopLiveVoice/live_end
@@ -961,15 +1010,64 @@ export function createSessionParamsSlice(
     });
   };
 
+  /**
+   * Park (#811): close the realtime call of an armed session the user just
+   * stopped viewing, keeping the intent. The recap folds in first — after
+   * the stop, omp discards what the call never heard. A delegated agent
+   * turn keeps running (it is off the call); the mic dies with the stop.
+   */
+  const parkLiveVoice = async (tabId: string): Promise<void> => {
+    if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) return;
+    const live = get().rpc[tabId]?.live;
+    if (live === null || live === undefined || !isLiveSessionActive(live)) return;
+    const rt = m.runtime(tabId);
+    m.patchRuntime(tabId, {
+      liveRecap: appendLiveRecap(rt.liveRecap, live.turns),
+      // Derived, not remembered: the user's mute was on iff the phase says
+      // so; the model must be muted again on resume.
+      liveUserMuted: live.phase === "muted",
+      liveParked: true,
+    });
+    m.syncLiveVoiceBadge(tabId);
+    const resp = await m.runCommand(tabId, { type: "live_stop" }, { quiet: true });
+    if (resp === null) {
+      // The call survived the park attempt: un-park so the next leave retries.
+      m.patchRuntime(tabId, { liveParked: false });
+      m.syncLiveVoiceBadge(tabId);
+      livePatch(tabId, { ...live, error: t("composer.live.sendFailed") });
+      return;
+    }
+    livePatch(tabId, applyLiveEnd(live, null)); // live_end is the truth
+  };
+
   const stopLiveVoice = async (tabId: string): Promise<void> => {
     if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) return;
     const current = get().rpc[tabId]?.live;
-    if (current === null || current === undefined || current.ended) return;
+    if (current === null || current === undefined) return;
+    const stopRt = m.runtime(tabId);
+    // `liveParked` skips the dispatch even while `live_end` is still in
+    // flight: parkLiveVoice set the flag synchronously before its own
+    // `live_stop`, and a second stop would race the first (the #808
+    // hand-off lands here on a source the guard just parked).
+    if (current.ended || stopRt.liveParked === true) {
+      // A parked call has nothing to close. The clear below is the whole
+      // job: an explicit stop disarms, so returning to the tab never
+      // resumes (AC 8).
+      if (stopRt.liveArmed !== true && stopRt.liveParked !== true) return;
+      m.patchRuntime(tabId, clearLiveVoiceState);
+      m.syncLiveVoiceBadge(tabId);
+      return;
+    }
     const resp = await m.runCommand(tabId, { type: "live_stop" }, { quiet: true });
     if (resp === null) {
       livePatch(tabId, { ...current, error: t("composer.live.sendFailed") });
       return;
     }
+    // An explicit stop clears the intent (#811): returning to the tab must
+    // not resume what the user stopped. Parking never reaches this line —
+    // it goes through `parkLiveVoice`, which keeps `liveArmed`.
+    m.patchRuntime(tabId, clearLiveVoiceState);
+    m.syncLiveVoiceBadge(tabId);
     // live_end is the truth; this only marks ended so the control returns to
     // idle without a visible flash of a still-running session.
     livePatch(tabId, applyLiveEnd(current, null));
@@ -2040,6 +2138,7 @@ export function createSessionParamsSlice(
     setAutoCompaction,
     setFastMode,
     startLiveVoice,
+    parkLiveVoice,
     stopLiveVoice,
     setLiveMuted,
     clearLiveError,

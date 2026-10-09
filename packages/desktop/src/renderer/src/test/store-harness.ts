@@ -565,6 +565,7 @@ beforeEach(() => {
     restoringTabs: false,
     exited: {},
     hibernated: {},
+    liveVoice: {},
     rpc: {},
     // The replay player's one clip (#810): each test starts from boot's null.
     liveReplay: null,

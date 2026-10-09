@@ -728,6 +728,18 @@ export interface StatsSlice {
  */
 export type CollabTabView = { kind: "off" } | { kind: "sharing"; state: CollabTabState };
 
+/**
+ * Sidebar badge for live voice park/resume (#811): the reactive mirror of
+ * the runtime's `liveArmed` / `liveParked` / `livePendingFeedback` flags —
+ * `patchRuntime` fires no store update, so the sidebar row reads this map.
+ * A tab with no entry has nothing to show.
+ */
+export interface LiveVoiceBadge {
+  armed: boolean;
+  parked: boolean;
+  pending: boolean;
+}
+
 export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice {
   state: BackendState | null;
   tabs: TabInfo[];
@@ -736,6 +748,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   restoringTabs: boolean;
   exited: Record<string, number>;
   shellExited: Record<string, number>;
+  /** Sidebar badge for live voice park/resume (#811); mirrors the runtime. */
+  liveVoice: Record<string, LiveVoiceBadge>;
   /** True for tabs whose process omp-ui hibernated while idle (issue #246). */
   hibernated: Record<string, boolean>;
   /** Active source → implementation plan handoffs derived from persisted records. */
@@ -1079,9 +1093,16 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setAutoCompaction(tabId: string, enabled: boolean): Promise<void>;
   setFastMode(tabId: string, enabled: boolean): Promise<void>;
   /** Starts omp's live voice session (issue #778); truth arrives as the
-   *  `live_*` frames, the ack only settles start/stop/mute dispatch. */
-  startLiveVoice(tabId: string): Promise<void>;
-  /** Stops omp's live voice session (issue #778); `live_end` is the truth. */
+   *  `live_*` frames, the ack only settles start/stop/mute dispatch.
+   *  `instructions` override the built recap+pending text (manual probes,
+   *  issue #811); omitted means build from the runtime. */
+  startLiveVoice(tabId: string, opts?: { instructions?: string }): Promise<void>;
+  /** Parks live voice (#811): closes the realtime call of an armed session
+   *  the user stopped viewing, folding the spoken turns into the recap. The
+   *  intent survives; returning resumes through `startLiveVoice`. */
+  parkLiveVoice(tabId: string): Promise<void>;
+  /** Stops omp's live voice session (issue #778); `live_end` is the truth.
+   *  Clears the #811 armed intent and the recap/pending buffers. */
   stopLiveVoice(tabId: string): Promise<void>;
   /** Toggles the live session's mute (issue #778); `live_phase` "muted"
    *  reports omp's truth, so no local toggle state is kept. */

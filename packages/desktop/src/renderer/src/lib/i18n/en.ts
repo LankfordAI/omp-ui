@@ -2243,6 +2243,8 @@ export const en = {
   "sidebar.session.deleteRecord": "delete this session's record",
   "sidebar.session.deleteFiles": "delete session and its files",
   "sidebar.session.liveVoice": "Live voice: {phase}",
+  "sidebar.session.liveVoiceArmed": "live voice: ready — resume by viewing",
+  "sidebar.session.liveVoicePending": "live voice: results waiting",
 
   "sidebar.project.reorder": "reorder {name}",
   "sidebar.project.reorderTitle": "reorder {name} — drag, or Alt+↑ / Alt+↓",

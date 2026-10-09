@@ -12,6 +12,7 @@ import {
   type SessionCommand,
   type SessionCommandType,
 } from "@omp-ui/core/session-command";
+import type { LiveTurn } from "@omp-ui/core/live-voice";
 import { formatDuration } from "../../lib/duration";
 import { field, isObj } from "../../lib/fields";
 import {
@@ -35,6 +36,7 @@ import type { StallContinueWatcher } from "../../lib/stall-continue";
 import { backend } from "../../backend";
 import type {
   CompactionOutcome,
+  LiveVoiceBadge,
   RpcTabState,
   SidebarSessionState,
   TuiHandoff,
@@ -112,9 +114,36 @@ export interface TabRuntime {
   wordPredictionUnsupported?: boolean;
   /** Epoch ms before which `predict_word` is not re-sent after a failure (#715). */
   wordPredictionRetryAt?: number;
-  /** True while live voice is muted by tab visibility rather than by the user
-   *  (#801): returning to the tab unmutes only when this bit is set. */
-  liveVisibilityMuted?: boolean;
+  /** Live voice park/resume (issue #811): the user wants live voice in this
+   *  session. Set on a successful `live_start`; cleared only by an explicit
+   *  stop or the #808 hand-off — parking does not clear it. */
+  liveArmed?: boolean;
+  /** Armed, but no realtime call is open because the tab is not the viewed
+   *  tab (#811). Avoid: muted, paused, suspended. */
+  liveParked?: boolean;
+  /** Parked while the user's own mute was on; restored after the resume ack
+   *  (#811) — omp's mute survives the park, so the model must be muted again. */
+  liveUserMuted?: boolean;
+  /** Rolling spoken transcript (#811): appended at every park, read by the
+   *  instruction builder on every start. */
+  liveRecap: LiveTurn[];
+  /** Final answers awaiting delivery, oldest first (#811). */
+  livePendingFeedback: string[];
+  /** A live-delegation was received during the current call (cleared at each
+   *  `live_start` ack) — the orphan rule's counter-evidence (#811). */
+  liveCallSawDelegation?: boolean;
+  /** A live-delegation was received during the current agent turn (cleared at
+   *  `agent_start`) — whose answer is live-owned, whichever call outlives it
+   *  (#811). Without the turn scope, a typed turn during a call whose earlier
+   *  spoken request set the call flag would false-fire the orphan rule. */
+  liveDelegatedTurnSeen?: boolean;
+  /** An orphan answer is stored and the call should refresh-restart at the
+   *  next `listening` phase (#811). Cleared before dispatch so a failed
+   *  start cannot loop-restart. */
+  liveOrphanRestart?: boolean;
+  /** How many pending entries the in-flight resume instructions carried; the
+   *  first final assistant transcript clears exactly this prefix (#811). */
+  livePendingIncluded?: number;
   /**
    * This renderer's `live_start` succeeded on the current process (issue #803).
    * Only the renderer that started live voice arms Auto-title from a live
@@ -141,6 +170,9 @@ export interface StoreMachinery {
   patchRpc(tabId: string, patch: Partial<RpcTabState>): void;
   runtime(tabId: string): TabRuntime;
   patchRuntime(tabId: string, patch: Partial<TabRuntime>): void;
+  /** Mirrors the runtime's live-voice park/resume flags into the reactive
+   *  `liveVoice` map the sidebar reads (#811); no-ops when unchanged. */
+  syncLiveVoiceBadge(tabId: string): void;
   createTabRuntime(tabId: string): TabRuntime;
   discardTabRuntime(tabId: string): void;
   bumpCompactionUsageGeneration(tabId: string): number;
@@ -383,7 +415,17 @@ function dropTuiHandoff(
   return next;
 }
 
-export { dropExited, dropHibernated, dropTuiHandoff };
+function dropLiveVoiceBadge(
+  liveVoice: Record<string, LiveVoiceBadge>,
+  tabId: string,
+): Record<string, LiveVoiceBadge> {
+  if (liveVoice[tabId] === undefined) return liveVoice;
+  const next = { ...liveVoice };
+  delete next[tabId];
+  return next;
+}
+
+export { dropExited, dropHibernated, dropTuiHandoff, dropLiveVoiceBadge };
 
 export function persistedPlanHandoffs(state: BackendState): Record<string, string> {
   const result: Record<string, string> = {};
@@ -470,6 +512,8 @@ function freshTabRuntime(): TabRuntime {
     slashCommandItems: new Map(),
     capabilitiesGeneration: 0,
     vibeRequests: new Map(),
+    liveRecap: [],
+    livePendingFeedback: [],
   };
 }
 /** Test seam for the renderer store harness's whole-state reset. */
@@ -566,6 +610,36 @@ export function createMachinery(
     const current = tabRuntimes.get(tabId);
     if (current === undefined) return;
     tabRuntimes.set(tabId, { ...current, ...patch });
+  };
+
+  /**
+   * The sidebar glyph cannot read the runtime — `patchRuntime` fires no store
+   * update — so park/resume mirrors three booleans into `liveVoice` (#811).
+   * Writes a new entry only when one changes and drops the key when all are
+   * false, so selectors compare by reference cheaply.
+   */
+  const syncLiveVoiceBadge = (tabId: string): void => {
+    const rt = tabRuntimes.get(tabId);
+    const armed = rt?.liveArmed === true;
+    const parked = rt?.liveParked === true;
+    const pending = (rt?.livePendingFeedback.length ?? 0) > 0;
+    set((s) => {
+      const current = s.liveVoice[tabId];
+      if (
+        current !== undefined &&
+        current.armed === armed &&
+        current.parked === parked &&
+        current.pending === pending
+      )
+        return s;
+      if (!armed && !parked && !pending) {
+        if (current === undefined) return s;
+        const next = { ...s.liveVoice };
+        delete next[tabId];
+        return { liveVoice: next };
+      }
+      return { liveVoice: { ...s.liveVoice, [tabId]: { armed, parked, pending } } };
+    });
   };
 
   const discardTabRuntime = (tabId: string): void => {
@@ -1119,6 +1193,7 @@ export function createMachinery(
     patchRpc,
     runtime,
     patchRuntime,
+    syncLiveVoiceBadge,
     createTabRuntime,
     discardTabRuntime,
     bumpCompactionUsageGeneration,

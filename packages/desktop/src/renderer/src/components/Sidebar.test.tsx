@@ -2458,10 +2458,11 @@ describe("Sidebar groups (issue #745)", () => {
   });
 });
 
-// issue #807: live voice output plays from every running session (the
-// visibility guard #801 mutes background mics only), so the row carries a
-// speaker glyph while its snapshot runs.
-describe("Sidebar live voice speaker glyph (issue #807)", () => {
+// issue #807: live voice output plays from every running session, so the
+// row carries a speaker glyph while its snapshot runs. #811 extends the
+// glyph to the closed-call states: armed (dim, resumes on view) and
+// pending results waiting (signal accent).
+describe("Sidebar live voice speaker glyph (issue #807, #811)", () => {
   const live = (patch: Partial<LiveSnapshot>): LiveSnapshot => ({
     phase: "listening",
     levels: null,
@@ -2509,5 +2510,37 @@ describe("Sidebar live voice speaker glyph (issue #807)", () => {
     });
     renderSidebar();
     expect(glyph()).toBeNull();
+  });
+
+  // #811: while the call is closed the badge mirror decides the glyph.
+  it("an armed parked row shows the dim ready glyph", () => {
+    useStore.setState({
+      rpc: { "tab-1": rpcTabState({ live: live({ phase: "listening", ended: true }) }) },
+      liveVoice: { "tab-1": { armed: true, parked: true, pending: false } },
+    });
+    renderSidebar();
+    const mark = glyph();
+    expect(mark?.getAttribute("aria-label")).toBe("live voice: ready — resume by viewing");
+    expect(mark?.getAttribute("class")).toContain("text-ink-faint");
+  });
+
+  it("a parked row with results waiting shows the accent glyph", () => {
+    useStore.setState({
+      rpc: { "tab-1": rpcTabState({ live: live({ phase: "listening", ended: true }) }) },
+      liveVoice: { "tab-1": { armed: true, parked: true, pending: true } },
+    });
+    renderSidebar();
+    const mark = glyph();
+    expect(mark?.getAttribute("aria-label")).toBe("live voice: results waiting");
+    expect(mark?.getAttribute("class")).toContain("text-signal");
+  });
+
+  it("an open call's phase glyph outranks the badge", () => {
+    useStore.setState({
+      rpc: { "tab-1": rpcTabState({ live: live({ phase: "speaking" }) }) },
+      liveVoice: { "tab-1": { armed: true, parked: false, pending: true } },
+    });
+    renderSidebar();
+    expect(glyph()?.getAttribute("aria-label")).toBe("Live voice: speaking");
   });
 });
