@@ -97,7 +97,7 @@ import {
   type LiveSnapshot,
   type LivePlanReviewContext,
 } from "@omp-ui/core/live-voice";
-import { supportsNativeLive } from "../../lib/live-voice";
+import { liveAudioLocalToClient, supportsNativeLive } from "../../lib/live-voice";
 import { planReviewText } from "../../lib/plan-review-text";
 import type { CompactionOutcome, UiStore, WordPredictionFeedback } from "../types";
 
@@ -1086,6 +1086,11 @@ export function createSessionParamsSlice(
     opts?: { instructions?: string },
   ): Promise<void> => {
     if (!valid() || !liveAdmitted(tabId) || rt.liveStartInFlight !== undefined) return;
+    // #816: live_start arms the *host's* microphone; only a client that is
+    // the host may dispatch it. Render gates already hide the control —
+    // this closes the store-level path (handoff carry-over, hotkeys, any
+    // future caller).
+    if (!liveAudioLocalToClient(findOwner(get().state, tabId)?.instanceId ?? null)) return;
     if (rt.liveStopInFlight !== undefined) {
       const stopped = await rt.liveStopInFlight.catch(() => null);
       if (stopped === null || !valid() || !liveAdmitted(tabId)) return;

@@ -1,13 +1,26 @@
 // Session parameter slice tests (moved verbatim from store.test.ts for #295).
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EXPERIMENT_PROPOSAL_SENTINEL, type ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { emptySessionRuntime } from "../../lib/rpc-types";
-import { rpcTabState, tabInfo } from "../../test/fixtures";
+import { remoteOwnedState, rpcTabState, tabInfo } from "../../test/fixtures";
 import type { RenderItem } from "../../lib/transcript";
 import { h } from "../../test/store-harness";
 import { createMachinery, peekTabRuntime, resetTabRuntimesForTests } from "./shared";
 import { installLiveVoiceParkResumeGuard } from "./view";
+
+// #816: liveAudioLocalToClient reads the Electron-shell signal, false under
+// node/jsdom; the live-voice dispatch tests opt in per-describe (the same
+// hoisted-mutable-getter pattern as store.test.ts).
+const platformMocks = vi.hoisted(() => ({ electron: false }));
+
+vi.mock("../../lib/platform", () => ({
+  get IS_ELECTRON() {
+    return platformMocks.electron;
+  },
+  IS_MAC: false,
+  IS_WINDOWS: false,
+}));
 
 const ONE_IMAGE_CONTEXT =
   "[omp-ui attachment routing: For tool calls, this prompt's attached image is available as attachment://1. Attachment handles restart at 1 for each prompt.]";
@@ -3166,10 +3179,17 @@ describe("word prediction (issue #715)", () => {
 });
 
 describe("live voice actions (issue #778)", () => {
+  // #816: startLiveVoice dispatches only when the client owns the session's
+  // audio, i.e. the Electron shell on a locally owned tab, so the dispatch
+  // tests opt into the shell for their whole run.
   beforeEach(() => {
+    platformMocks.electron = true;
     h.backendState = h.stateWithRecord("sess-1");
     h.useStore.setState({ state: h.backendState, activeTabId: h.TAB, rpc: { [h.TAB]: rpcTabState() } });
     h.sent.length = 0;
+  });
+  afterEach(() => {
+    platformMocks.electron = false;
   });
 
   /** The capabilities snapshot seed the version gate reads. */
@@ -3433,6 +3453,28 @@ describe("live voice actions (issue #778)", () => {
     expect(live()).toMatchObject({ phase: "connecting", ended: false });
   });
 
+  // #816: live_start arms the session host's microphone, so the store
+  // refuses to dispatch for a client that is not the host — a tab owned by
+  // a remote instance, or a remote (non-Electron) renderer.
+  it("start on a remote-instance-owned tab sends nothing even in the shell", async () => {
+    withVersion("18.5.1");
+    h.backendState = remoteOwnedState(h.TAB, "inst-1");
+    h.useStore.setState({ state: h.backendState });
+    await h.useStore.getState().startLiveVoice(h.TAB);
+    expect(h.sent.filter((s) => s.cmd.type === "live_start")).toEqual([]);
+    expect(live()).toBeNull();
+    expect(peekTabRuntime(h.TAB)?.liveArmed).not.toBe(true);
+  });
+
+  it("start from a remote web client sends nothing on a locally owned tab", async () => {
+    platformMocks.electron = false;
+    withVersion("18.5.1");
+    await h.useStore.getState().startLiveVoice(h.TAB);
+    expect(h.sent.filter((s) => s.cmd.type === "live_start")).toEqual([]);
+    expect(live()).toBeNull();
+    expect(peekTabRuntime(h.TAB)?.liveArmed).not.toBe(true);
+  });
+
   it("tab departure parks locally owned transient-error and levels-only calls through the common switch", async () => {
     const machinery = createMachinery(h.useStore.setState, h.useStore.getState, h.useStore);
     const uninstall = installLiveVoiceParkResumeGuard(h.useStore, machinery);
@@ -3502,6 +3544,7 @@ describe("live voice in plan review", () => {
   };
 
   beforeEach(() => {
+    platformMocks.electron = true;
     acknowledged.clear();
     h.backendState = h.stateWithRecord("sess-1");
     h.useStore.setState({
@@ -3509,6 +3552,10 @@ describe("live voice in plan review", () => {
       activeTabId: h.TAB,
       rpc: { [h.TAB]: rpcTabState({ capabilities: version }) },
     });
+  });
+
+  afterEach(() => {
+    platformMocks.electron = false;
   });
 
   it("a ready unarmed gate never opens the microphone; explanation clicks share one start with the full artifact", async () => {

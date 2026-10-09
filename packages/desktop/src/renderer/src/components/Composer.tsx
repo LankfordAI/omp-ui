@@ -47,7 +47,7 @@ import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, I
 import { DictationControl, DictationStrip } from "./ComposerDictation";
 import { useDictation } from "../lib/use-dictation";
 import { useDictationHotkey } from "../lib/use-dictation-hotkey";
-import { supportsNativeLive } from "../lib/live-voice";
+import { liveAudioLocalToClient, supportsNativeLive } from "../lib/live-voice";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -171,9 +171,13 @@ export function Composer({
   const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
   const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
   // Live voice gates on the omp version (issue #778): 18.5.1 added the
-  // live_* verbs, unknown version hides the feature.
+  // live_* verbs, unknown version hides the feature. It also gates on the
+  // hardware (issue #816): the call runs on the session host's mic and
+  // speakers, so only the desktop shell on a locally owned tab offers it.
   const liveSupported = useStore(
-    (s) => supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
+    (s) =>
+      supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null) &&
+      liveAudioLocalToClient(findOwner(s.state, tabId)?.instanceId ?? null),
   );
   // Live voice holds the microphone (omp records audio itself): dictation's
   // getUserMedia would fail anyway, so the mic gives up its slot while a live

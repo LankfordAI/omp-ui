@@ -41,6 +41,18 @@ import { h } from "../../test/store-harness";
 import { peekTabRuntime, resetTabRuntimesForTests } from "./shared";
 import { reduceAgentEvent } from "./reduce-agent-event";
 import type { ObservedTabRuntime } from "./reduce-agent-event";
+// #816: startLiveVoice is gated on liveAudioLocalToClient (IS_ELECTRON &&
+// no remote instance). Node/jsdom reports a plain browser shell, so suites
+// that drive the real start path opt into the Electron signal below.
+const platformMocks = vi.hoisted(() => ({ electron: false }));
+vi.mock("../../lib/platform", () => ({
+  get IS_ELECTRON() {
+    return platformMocks.electron;
+  },
+  IS_MAC: false,
+  IS_WINDOWS: false,
+}));
+
 // The shared bridge mock predates the acknowledged plan-answer channel (issue
 // #312 follow-up): an HTML gate settles only through it, so install it here.
 // Markdown gates never reach it and keep their direct `rpcSend` semantics.
@@ -3040,6 +3052,14 @@ describe("handleRpcFrame routing", () => {
         .filter((s) => s.cmd.type === "live_stop" || s.cmd.type === "live_start")
         .map((s) => ({ tabId: s.tabId, type: s.cmd.type }));
 
+    beforeEach(() => {
+      platformMocks.electron = true;
+    });
+
+    afterEach(() => {
+      platformMocks.electron = false;
+    });
+
     it.each(["listening", null] as const)("stops the owned planning capture before voice follows the fresh tab (%s)", async (phase) => {
       await dispatchWithLive("carry-active", liveSnap(phase));
       const seed = h.sent.find(
@@ -4541,11 +4561,16 @@ describe("live voice park/resume frames (issue #811)", () => {
   };
 
   beforeEach(() => {
+    platformMocks.electron = true;
     h.useStore.setState({
       state: h.backendState,
       activeTabId: h.TAB,
       rpc: { [h.TAB]: rpcTabState({ capabilities: withVersion("18.7.0") }) },
     });
+  });
+
+  afterEach(() => {
+    platformMocks.electron = false;
   });
 
   const badge = () => h.useStore.getState().liveVoice[h.TAB];
@@ -4741,11 +4766,16 @@ describe("live voice work parking (issue #815)", () => {
   };
 
   beforeEach(() => {
+    platformMocks.electron = true;
     h.useStore.setState({
       state: h.backendState,
       rpc: { [h.TAB]: rpcTabState({ capabilities: withVersion("18.7.0") }) },
       activeTabId: h.TAB,
     });
+  });
+
+  afterEach(() => {
+    platformMocks.electron = false;
   });
 
   const badge = () => h.useStore.getState().liveVoice[h.TAB];

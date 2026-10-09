@@ -21,7 +21,7 @@ import {
 } from "../../lib/plan-concerns";
 import { gitResolutionPrompt, type GitResolutionTrigger } from "../../lib/git-resolution-prompt";
 import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolution";
-import { supportsNativeLive } from "../../lib/live-voice";
+import { liveAudioLocalToClient, supportsNativeLive } from "../../lib/live-voice";
 import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
@@ -494,10 +494,19 @@ export function createLifecycleSlice(
     const sourceGeneration = liveVoiceGeneration(srcTabId);
     const sourceIntendsVoice = (): boolean => {
       const live = get().rpc[srcTabId]?.live;
-      return srcRt !== undefined && peekTabRuntime(srcTabId) === srcRt &&
-        srcRt.liveVoiceOwner === true &&
-        live?.phase !== "error" && live?.error == null &&
-        (srcRt.liveArmed === true || (live != null && !live.ended));
+      if (srcRt === undefined || peekTabRuntime(srcTabId) !== srcRt ||
+        live?.phase === "error" || live?.error != null) return false;
+      if (srcRt.liveVoiceOwner === true) {
+        return srcRt.liveArmed === true || (live != null && !live.ended);
+      }
+      // #816: a client that is not the session host can never own or arm a
+      // call, so an open source snapshot is the host's microphone and the
+      // handoff still releases it (stopLiveVoice is version-gated, never
+      // hardware-gated; the destination start no-ops at the store gate).
+      // A second Electron view of a locally owned call never lands here —
+      // it must not steal the other view's call (#821).
+      return live != null && !live.ended &&
+        !liveAudioLocalToClient(findOwner(get().state, srcTabId)?.instanceId ?? null);
     };
     const destinationViewed = (): boolean => get().activeTabId === freshId &&
       get().tabs.some((tab) => tab.tabId === freshId && !tab.hidden) &&

@@ -4,10 +4,23 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchList, ServiceTier } from "@omp-ui/core/types";
 import { backendState, rpcTabState } from "../test/fixtures";
+import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import { t } from "../lib/i18n";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+
+const platformMocks = vi.hoisted(() => ({ electron: false }));
+
+// live-voice.ts gates live audio on the Electron shell (issue #816); the
+// live-gate describe below flips this, following the store.test.ts idiom.
+vi.mock("../lib/platform", () => ({
+  get IS_ELECTRON() {
+    return platformMocks.electron;
+  },
+  IS_MAC: false,
+  IS_WINDOWS: false,
+}));
 
 const OFF_REPO: BranchList = {
   repoRoot: null,
@@ -104,6 +117,19 @@ function seedTier(
   }));
 }
 
+/** Live-capable seed: omp 18.5.1 advertises the native live verbs (issue #778). */
+function seedLiveCapable(): void {
+  seed("ready");
+  useStore.setState((s) => ({
+    rpc: {
+      [TAB]: {
+        ...s.rpc[TAB]!,
+        capabilities: { ompVersion: "18.5.1" } as unknown as CapabilitySnapshot,
+      },
+    },
+  }));
+}
+
 function render(open = true): void {
   const host = document.createElement("div");
   document.body.append(host);
@@ -146,6 +172,7 @@ afterEach(() => {
   root = null;
   document.body.replaceChildren();
   vi.unstubAllGlobals();
+  platformMocks.electron = false;
 });
 
 describe("ComposerSheet", () => {
@@ -153,6 +180,7 @@ describe("ComposerSheet", () => {
   afterEach(() => useStore.setState(voiceActions));
 
   it("keeps live voice available by default and starts it from the sheet", async () => {
+    platformMocks.electron = true;
     seed("ready");
     const start = vi.fn(async () => {});
     useStore.setState((current) => ({
@@ -419,5 +447,40 @@ describe("ComposerSheet", () => {
     expect(dialog.textContent).toContain("follow-up");
     expect(dialog.textContent).toContain("first");
     expect(dialog.textContent).toContain("second");
+  });
+});
+
+// Issue #816: the sheet's live row rides the host-local audio gate — the
+// switch shows only on the Electron shell, on a locally owned tab, next to
+// the model/effort controls it belongs to; a web client never arms a call
+// whose audio would land on someone else's hardware.
+describe("ComposerSheet live voice gate (issue #816)", () => {
+  const liveSwitch = (): HTMLButtonElement | null =>
+    document.body.querySelector<HTMLButtonElement>(
+      `button[role="switch"][aria-label="${t("composer.live.start")}"]`,
+    );
+
+  beforeEach(() => {
+    platformMocks.electron = true;
+  });
+
+  afterEach(() => {
+    platformMocks.electron = false;
+  });
+
+  it("rides the model/effort section on the desktop shell", () => {
+    seedLiveCapable();
+    render(true);
+    const sw = liveSwitch();
+    expect(sw).not.toBeNull();
+    expect(sw!.closest("section")!.textContent).toContain("model & effort");
+  });
+
+  it("is absent for a web client on the same live-capable runtime", () => {
+    platformMocks.electron = false;
+    seedLiveCapable();
+    render(true);
+    expect(liveSwitch()).toBeNull();
+    expect(document.body.textContent).not.toContain(t("composer.live.start"));
   });
 });

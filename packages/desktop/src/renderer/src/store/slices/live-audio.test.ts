@@ -3,13 +3,25 @@
 // to, so a turn number reused by a later connection cannot collide; and with
 // no session or no local live start, the load answers `unavailable` without
 // dispatching anything.
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { formatLiveAudioRef, type LiveHistoryEntry, type LiveSnapshot } from "@omp-ui/core/live-voice";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { rpcTabState } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { installLiveReplayGuards } from "./live-audio";
+
+// #816: startLiveVoice refuses to dispatch live_start off the Electron shell
+// (liveAudioLocalToClient). These tests were written pre-#816 under desktop
+// semantics, so opt into the shell path around the file's setup.
+const platformMocks = vi.hoisted(() => ({ electron: false }));
+vi.mock("../../lib/platform", () => ({
+  get IS_ELECTRON() {
+    return platformMocks.electron;
+  },
+  IS_MAC: false,
+  IS_WINDOWS: false,
+}));
 
 const TAB = "tab-809";
 const SESSION = "01890a2b-3c4d-7e5f-8a1b-2c3d4e5f6a7b";
@@ -45,10 +57,15 @@ function seed(
 }
 
 beforeEach(() => {
+  platformMocks.electron = true;
   h.mockBackend.readLiveAudio.mockReset();
   h.mockBackend.readLiveAudio.mockResolvedValue({ status: "unavailable" });
   h.backendState = h.stateWithRecord("sess-1");
   h.sent.length = 0;
+});
+
+afterEach(() => {
+  platformMocks.electron = false;
 });
 
 describe("loadLiveRecording (#809)", () => {
