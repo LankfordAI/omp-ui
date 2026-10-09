@@ -29,7 +29,7 @@ import type {
   SessionCapabilitiesResult,
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
-import type { LiveAudioLoad } from "@omp-ui/core/live-voice";
+import type { LiveAudioLoad, LiveHistoryEntry } from "@omp-ui/core/live-voice";
 import type { BrowserPaneEnsureResult } from "@omp-ui/core/browser-pane";
 import { backendState as makeBackendState } from "./fixtures";
 
@@ -191,6 +191,10 @@ const mockBackend = {
   // unavailable until a test's own override says otherwise.
   listLiveAudio: vi.fn(async (): Promise<never[]> => []),
   readLiveAudio: vi.fn(async (): Promise<LiveAudioLoad> => ({ status: "unavailable" })),
+  // #817: honest empty by default — no persisted history exists until a
+  // test's own override says otherwise.
+  liveTranscriptAppend: vi.fn(async (): Promise<void> => {}),
+  liveTranscriptRead: vi.fn(async (): Promise<LiveHistoryEntry[]> => []),
   listBranches: vi.fn(),
   checkoutBranch: vi.fn(),
   pullBranch: vi.fn(),

@@ -65,7 +65,13 @@ import type {
 import type { GoalState } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { BtwSnapshot } from "@omp-ui/core/side-questions";
-import type { LiveAudioEntry, LiveAudioLoad, LiveSnapshot, LiveTurn } from "@omp-ui/core/live-voice";
+import type {
+  LiveAudioEntry,
+  LiveAudioLoad,
+  LiveHistoryEntry,
+  LiveSnapshot,
+  LiveTurn,
+} from "@omp-ui/core/live-voice";
 import type { LiveReplayState, LiveReplayTarget } from "./slices/live-audio";
 import type { RailTab } from "../lib/panel-layout";
 import type { AutoresearchSnapshot, ExperimentProposal } from "@omp-ui/core/autoresearch";
@@ -1116,10 +1122,20 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  the same entries. [] while omp exposes no audio at all (ADR-0049). */
   listLiveRecordings(tabId: string): Promise<LiveAudioEntry[]>;
   /** Loads one live turn's recording by reference built from the session
-   *  AND the connection these turns belong to (#809); never invents an id —
-   *  a session that never materialized or never started live voice answers
-   *  `unavailable` without dispatch. */
-  loadLiveRecording(tabId: string, turn: LiveTurn): Promise<LiveAudioLoad>;
+   *  AND the connection these turns belong to (#809); `connectionId`
+   *  overrides the snapshot's for a history row from an earlier connection
+   *  (#817). Never invents an id — a session that never materialized or
+   *  never started live voice answers `unavailable` without dispatch. */
+  loadLiveRecording(tabId: string, turn: LiveTurn, connectionId?: string | null): Promise<LiveAudioLoad>;
+  /** Persist one FINAL spoken turn under the session's lineage dir (#817).
+   *  Fire-and-forget from the frame reducer; non-finals, un-minted
+   *  connection ids, and dispatch failures all no-op — the strip renders
+   *  from the snapshot; disk is the durable copy. */
+  appendLiveHistory(tabId: string, connectionId: string, turn: LiveTurn): Promise<void>;
+  /** The session's persisted spoken turns (#817), oldest connection first —
+   *  disk enumeration, so a session that is not being viewed reads the same
+   *  history. [] for a session that never spoke. */
+  listLiveHistory(tabId: string): Promise<LiveHistoryEntry[]>;
   /** The one clip the replay player holds (#810); null while nothing is
    *  loaded, playing, or paused. The player dispatches only the read
    *  channel — replay never sends a live command. */

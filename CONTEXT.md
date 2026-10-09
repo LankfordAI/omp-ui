@@ -417,6 +417,18 @@ carry it (bounded, oldest trimmed first) so the model hears the conversation
 the closed call had.
 _Avoid_: history, summary, chat log
 
+**Live transcript history**:
+The session's spoken turns persisted under
+`<lineageDir>/live-transcript/<connectionId>.jsonl` (issue #817): the
+renderer appends each *final* `live_transcript` frame as it arrives, keyed by
+the connection UUID the composer minted at connect — the same identity the
+*Voice Recording Reference* carries. The composer strip renders disk history
+plus the current snapshot's turns, so the exchange survives every park,
+resume, clean end, and app restart. Distinct from the *Voice recap*, which is
+the capped, process-local text the resume's `live_start` carries to the model
+— the history never feeds the voice model.
+_Avoid_: call log, voice log
+
 **Auto-title**:
 The name a new session gets from omp's own renamer, dispatched over the
 prompt channel: when the first substantive prompt's turn admits its user

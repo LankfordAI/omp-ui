@@ -8,12 +8,15 @@ import {
   appendLiveRecap,
   buildLiveInstructions,
   formatLiveAudioRef,
+  isLiveConnectionId,
   isLiveSessionActive,
   LIVE_BASE_INSTRUCTIONS,
+  LIVE_HISTORY_TEXT_MAX_BYTES,
   LIVE_INSTRUCTION_LIMITS,
   LIVE_RECAP_CUTOFF_SUFFIX,
   emptyLiveSnapshot,
   parseLiveAudioRef,
+  parseLiveHistoryLine,
   parseLiveLevelsFrame,
   parseLivePhaseFrame,
   parseLiveTranscriptFrame,
@@ -390,5 +393,56 @@ describe("buildLiveInstructions (#811)", () => {
     expect(built.pendingUsed).toBeLessThan(pending.length);
     expect(built.instructions).toContain(pending[0]!);
     expect(built.instructions).not.toContain(`e${pending.length - 1} `);
+  });
+});
+
+describe("live transcript history (#817)", () => {
+  it("isLiveConnectionId admits exactly the ref grammar's UUID shape", () => {
+    expect(isLiveConnectionId(randomUUID())).toBe(true);
+    expect(isLiveConnectionId(randomUUID().toUpperCase())).toBe(true);
+    expect(isLiveConnectionId("../../etc/passwd")).toBe(false);
+    expect(isLiveConnectionId("")).toBe(false);
+    expect(isLiveConnectionId(`${randomUUID()}x`)).toBe(false);
+    expect(isLiveConnectionId(null)).toBe(false);
+    expect(isLiveConnectionId(7)).toBe(false);
+  });
+
+  it("parseLiveHistoryLine accepts the written shape", () => {
+    expect(parseLiveHistoryLine('{"role":"assistant","turn":2,"text":"hello"}')).toEqual({
+      role: "assistant",
+      turn: 2,
+      text: "hello",
+    });
+    // Forward tolerance: an unknown field is ignored, not rejected.
+    expect(parseLiveHistoryLine('{"role":"user","turn":0,"text":"x","final":true}')).toEqual({
+      role: "user",
+      turn: 0,
+      text: "x",
+    });
+  });
+
+  it("parseLiveHistoryLine is null for every malformed shape", () => {
+    expect(parseLiveHistoryLine("")).toBeNull();
+    expect(parseLiveHistoryLine('{"role":"user","tu')).toBeNull(); // torn line
+    expect(parseLiveHistoryLine('"a string"')).toBeNull();
+    expect(parseLiveHistoryLine("null")).toBeNull();
+    expect(parseLiveHistoryLine("[]")).toBeNull();
+    expect(parseLiveHistoryLine('{"role":"intruder","turn":0,"text":"x"}')).toBeNull();
+    expect(parseLiveHistoryLine('{"turn":0,"text":"x"}')).toBeNull();
+    expect(parseLiveHistoryLine('{"role":"user","turn":"0","text":"x"}')).toBeNull();
+    expect(parseLiveHistoryLine('{"role":"user","turn":1.5,"text":"x"}')).toBeNull();
+    expect(parseLiveHistoryLine('{"role":"user","turn":-1,"text":"x"}')).toBeNull();
+    expect(parseLiveHistoryLine('{"role":"user","turn":0}')).toBeNull();
+    expect(
+      parseLiveHistoryLine(
+        `{"role":"user","turn":0,"text":"${"x".repeat(LIVE_HISTORY_TEXT_MAX_BYTES + 1)}"}`,
+      ),
+    ).toBeNull();
+    // At the cap, a text passes — the cap is a ceiling, not a hair trigger.
+    expect(
+      parseLiveHistoryLine(
+        `{"role":"user","turn":0,"text":"${"x".repeat(LIVE_HISTORY_TEXT_MAX_BYTES)}"}`,
+      ),
+    ).not.toBeNull();
   });
 });

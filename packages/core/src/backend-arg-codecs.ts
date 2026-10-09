@@ -33,6 +33,7 @@ import type {
   WatchdogWriteRequest,
 } from "./types";
 import type { ReviewDocument, ReviewReviewer, ReviewTargetKind, ReviewWriteRequest } from "./review-config";
+import type { LiveHistoryTurn } from "./live-voice";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 
 export interface ArgCodec<T> {
@@ -199,6 +200,19 @@ export const collabAccessCodec: ArgCodec<"full" | "view"> = oneOf("full", "view"
 export const updateTrainCodec: ArgCodec<UpdateTrain> = oneOf("stable", "nightly");
 
 export const vaultNoteVoiceCodec: ArgCodec<VaultNoteVoice> = oneOf("user", "assistant");
+
+/** One persisted live transcript turn (#817): strict record — the writer
+ * dispatches exactly role/turn/text, and main re-validates on disk anyway. */
+export const liveHistoryTurnCodec: ArgCodec<LiveHistoryTurn> = {
+  expected: "a { role: user | assistant, turn, text } live transcript turn",
+  decode(value, path) {
+    return objectOf<LiveHistoryTurn>({
+      role: oneOf("user", "assistant"),
+      turn: codec("a non-negative safe integer", (v) => Number.isSafeInteger(v) && (v as number) >= 0),
+      text: str(),
+    }).decode(value, path);
+  },
+};
 
 export const remoteInstanceSecretCodec: ArgCodec<RemoteInstanceInput["secret"]> = {
   expected: "a { kind: password | token, value } secret",
