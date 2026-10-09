@@ -30,6 +30,7 @@ type SettingsHandlerChannels =
   | typeof CH.setGettingStartedSeen
   | typeof CH.setExperimentsEnabled
   | typeof CH.setVoiceInputEnabled
+  | typeof CH.setLiveWorkParking
   | typeof CH.setSttModel
   | typeof CH.setThemeId
   | typeof CH.setFontFamilyId
@@ -84,6 +85,7 @@ export function registerSettingsHandlers(
     [CH.setGettingStartedSeen]: (value: boolean) => commit("gettingStartedSeen", value),
     [CH.setExperimentsEnabled]: (value: boolean) => commit("experimentsEnabled", value),
     [CH.setVoiceInputEnabled]: (value: boolean) => commit("voiceInputEnabled", value),
+    [CH.setLiveWorkParking]: (value: boolean) => commit("liveWorkParking", value),
     [CH.setSttModel]: (value: string | null) => commit("sttModel", value),
     [CH.setThemeId]: (value: string) => commit("themeId", value),
     [CH.setFontFamilyId]: (value: string) => commit("fontFamilyId", value),

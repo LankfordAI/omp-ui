@@ -503,6 +503,8 @@ export interface SettingsSlice {
   setExperimentsEnabled(on: boolean): Promise<void>;
   /** Shows/hides the composer mic button app-wide (issue #647). */
   setVoiceInputEnabled(on: boolean): Promise<void>;
+  /** Parks the live voice call while a delegated backend turn works (issue #815). */
+  setLiveWorkParking(on: boolean): Promise<void>;
   /** The app-wide dictation model; null auto-resolves at call time. */
   setSttModel(model: string | null): Promise<void>;
   setThemeId(id: string): Promise<void>;

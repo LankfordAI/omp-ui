@@ -165,6 +165,7 @@ const backendMock = {
     error: null,
   })),
   setVoiceInputEnabled: vi.fn(async () => {}),
+  setLiveWorkParking: vi.fn(async () => {}),
   setSttModel: vi.fn(async () => {}),
   memoryOverview: vi.fn(),
   detectVaults: vi.fn(async () => ({

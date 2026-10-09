@@ -226,6 +226,7 @@ const VALID_ARGS = {
   setLocaleId: ["ko"],
   setTranscriptWidth: ["wide"],
   setVoiceInputEnabled: [true],
+  setLiveWorkParking: [true],
   setWindowChrome: ["#000", "#fff"],
   shellKill: ["tab-1"],
   shellResize: ["tab-1", 120, 40],

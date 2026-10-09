@@ -227,6 +227,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setLiveWorkParking(on) {
+      try {
+        await backend.setLiveWorkParking(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setSttModel(model) {
       try {
         await backend.setSttModel(model);

@@ -82,6 +82,7 @@ describe("SETTINGS", () => {
       "skipDeleteConfirmation",
       "experimentsEnabled",
       "voiceInputEnabled",
+      "liveWorkParking",
       "sttModel",
       "sessionOrderFrozen",
       "memoryDefaultsSeeded",
@@ -136,6 +137,8 @@ describe("Registry.load", () => {
     expect(reg.getSetting("experimentsEnabled")).toBe(false);
     // Issue #647: the mic button is off, and the dictation model auto-resolves.
     expect(reg.getSetting("voiceInputEnabled")).toBe(false);
+    // Issue #815: work-parking defaults on — the burn is the status quo.
+    expect(reg.getSetting("liveWorkParking")).toBe(true);
     expect(reg.getSetting("sttModel")).toBeNull();
     // Issue #109: HTML is the default plan review rendition.
     expect(reg.getSetting("planFormat")).toBe("html");
@@ -706,6 +709,7 @@ describe("Registry persistence", () => {
       ["gettingStartedSeen", (registry) => registry.setSetting("gettingStartedSeen", false)],
       ["experimentsEnabled", (registry) => registry.setSetting("experimentsEnabled", false)],
       ["voiceInputEnabled", (registry) => registry.setSetting("voiceInputEnabled", false)],
+      ["liveWorkParking", (registry) => registry.setSetting("liveWorkParking", true)],
       ["sttModel", (registry) => registry.setSetting("sttModel", null)],
       ["themeId", (registry) => registry.setSetting("themeId", "graphite")],
       ["fontFamilyId", (registry) => registry.setSetting("fontFamilyId", "default")],

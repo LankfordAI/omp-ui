@@ -609,10 +609,10 @@ describe("live voice park/resume (issue #811)", () => {
     // instance (a static import would peek the previous evaluation's map).
     vi.resetModules();
     const { useStore: fresh } = await import("./store");
-    const { peekTabRuntimeForTests } = await import("./store/slices/shared");
+    const { peekTabRuntime } = await import("./store/slices/shared");
     await fresh.getState().init();
     h.sent.length = 0;
-    return { fresh, peek: peekTabRuntimeForTests };
+    return { fresh, peek: peekTabRuntime };
   };
 
   /** Ack every command recorded so far, without leaving one pending.

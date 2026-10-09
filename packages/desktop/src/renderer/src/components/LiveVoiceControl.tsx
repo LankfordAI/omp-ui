@@ -43,6 +43,9 @@ export function LiveVoiceControl({
 }) {
   const t = useT();
   const live = useStore((s) => s.rpc[tabId]?.live ?? null);
+  // The badge map mirrors the runtime's park flags; the parked capsule reads
+  // it so an ended-but-armed snapshot stays visibly resumable (#815).
+  const parked = useStore((s) => s.liveVoice[tabId]?.parked === true);
   const startLiveVoice = useStore((s) => s.startLiveVoice);
   const stopLiveVoice = useStore((s) => s.stopLiveVoice);
   const setLiveMuted = useStore((s) => s.setLiveMuted);
@@ -62,10 +65,10 @@ export function LiveVoiceControl({
           </span>
         </span>
         <Switch
-          on={active}
+          on={active || parked}
           disabled={disabled}
           label={t("composer.live.start")}
-          title={active ? t("composer.live.stop") : t("composer.live.start")}
+          title={active || parked ? t("composer.live.stop") : t("composer.live.start")}
           onChange={(next) => void (next ? startLiveVoice(tabId) : stopLiveVoice(tabId))}
         />
       </div>
@@ -73,6 +76,29 @@ export function LiveVoiceControl({
   }
 
   if (!active) {
+    // A parked call (#811) and an idle one look identical in the snapshot;
+    // the badge map says which. Parked clicks stop (disarm) — the automatic
+    // resume is the enter guard's or the wake's, not a click's (#815).
+    if (parked) {
+      return (
+        <Capsule
+          tone="neutral"
+          title={t("composer.live.parkedHint")}
+          className={cn("h-6", className)}
+        >
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => void stopLiveVoice(tabId)}
+            aria-label={t("composer.live.stop")}
+            className={cn(CAPSULE_SEGMENT, "text-[10px] font-mono")}
+          >
+            <Dot tone="neutral" />
+            {t("composer.live.parked")}
+          </button>
+        </Capsule>
+      );
+    }
     return (
       <Capsule
         tone={live?.error != null ? "rose" : "neutral"}

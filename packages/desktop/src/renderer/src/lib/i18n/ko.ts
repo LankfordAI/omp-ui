@@ -382,6 +382,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.live.replayLiveBusy": "라이브 음성이 말하는 중 — 재생 대기",
   "composer.live.audioIncomplete": "녹음 불완전 — 일부만 기록됨",
   "composer.live.dismiss": "라이브 음성 메시지 닫기",
+  "composer.live.parked": "라이브 · 대기 중",
+  "composer.live.parkedHint":
+    "어시스턴트가 작업하는 동안 통화는 조용합니다 — 끝나면 다시 말합니다.",
   "composer.strip.converting": "워크트리 분리 중…",
   "composer.slash.new": "새 라이브 세션을 새 탭에",
   "composer.slash.plan": "플랜 모드 — 읽기 전용, 요청 시 플랜 작성 및 검토",
@@ -731,6 +734,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.skipDeleteConfirmationHint": "세션을 삭제하면 전체 계보 디렉터리와 모든 플랜 구현 하위 세션이 지워집니다. 건너뛰면 경고가 표시되지 않습니다. 워크트리 체크아웃을 제거하는 삭제는 계속 확인을 요청합니다.",
   "settings.general.voiceInput": "음성 입력",
   "settings.general.voiceInputHint": "모든 composer에 마이크 버튼을 추가합니다. 말을 멈출 때마다 아래 제공자가 구절을 텍스트로 변환하여 초안에 삽입하며, 자동으로 보내지 않습니다.",
+  "settings.general.liveWorkParking": "어시스턴트 작업 중 라이브 음성 대기",
+  "settings.general.liveWorkParkingHint": "음성 요청이 어시스턴트에게 작업을 넘기면, 작업 중에는 라이브 통화가 닫히고 할 말이 생기면 다시 열립니다 — 대기 중에는 실시간 모델이 실행되지 않습니다. 끄면 통화가 계속 열려 있습니다.",
   "settings.general.dictationModel": "구술 모델",
   "settings.general.dictationModelHint": "설치된 OMP의 음성-텍스트 카탈로그에서 발견됩니다. 자동은 저장된 제공자 키로 호출할 수 있는 첫 모델을 사용합니다.",
   "settings.general.dictationGroup": "구술 모델",

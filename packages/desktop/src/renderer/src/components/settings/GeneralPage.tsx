@@ -306,6 +306,7 @@ export function GeneralPage() {
   const setDefaultAutoThinking = useStore((s) => s.setDefaultAutoThinking);
   const setSubagentModelInheritByDefault = useStore((s) => s.setSubagentModelInheritByDefault);
   const setVoiceInputEnabled = useStore((s) => s.setVoiceInputEnabled);
+  const setLiveWorkParking = useStore((s) => s.setLiveWorkParking);
   const setSttModel = useStore((s) => s.setSttModel);
   const readSttModels = useStore((s) => s.readSttModels);
   const [sttModels, setSttModels] = useState<SttModelsLoad>({ status: "loading" });
@@ -483,6 +484,16 @@ export function GeneralPage() {
           on={state?.voiceInputEnabled === true}
           onChange={(next) => void setVoiceInputEnabled(next)}
           label={t("settings.general.voiceInput")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.liveWorkParking")}
+        hint={t("settings.general.liveWorkParkingHint")}
+      >
+        <Switch
+          on={state?.liveWorkParking !== false}
+          onChange={(next) => void setLiveWorkParking(next)}
+          label={t("settings.general.liveWorkParking")}
         />
       </Row>
       <Row

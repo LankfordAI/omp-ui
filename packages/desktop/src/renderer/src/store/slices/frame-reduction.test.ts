@@ -10,6 +10,7 @@ import type {
 } from "@omp-ui/core/types";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import type { LivePhase, LiveSnapshot } from "@omp-ui/core/live-voice";
+import { LIVE_WORK_PARK_CAP_MS, LIVE_WORK_PARK_QUIET_MS } from "@omp-ui/core/live-voice";
 import {
   ADVISOR_REPLY_CAP_NOTICE,
   ADVISOR_REPLY_LEAD,
@@ -37,7 +38,7 @@ import {
   tabInfo,
 } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
-import { peekTabRuntimeForTests } from "./shared";
+import { peekTabRuntime } from "./shared";
 import { reduceAgentEvent } from "./reduce-agent-event";
 import type { ObservedTabRuntime } from "./reduce-agent-event";
 // The shared bridge mock predates the acknowledged plan-answer channel (issue
@@ -4395,7 +4396,7 @@ describe("live voice park/resume frames (issue #811)", () => {
   });
 
   const badge = () => h.useStore.getState().liveVoice[h.TAB];
-  const pending = () => peekTabRuntimeForTests(h.TAB)?.livePendingFeedback ?? [];
+  const pending = () => peekTabRuntime(h.TAB)?.livePendingFeedback ?? [];
 
   it("a parked turn's answer is stored as pending and lights the badge (AC 3)", async () => {
     await arm();
@@ -4513,7 +4514,7 @@ describe("live voice park/resume frames (issue #811)", () => {
     // omp's idle timeout ends the call without a park ever running.
     frame({ type: "live_end", error: null });
 
-    const rt = peekTabRuntimeForTests(h.TAB)!;
+    const rt = peekTabRuntime(h.TAB)!;
     expect(rt.liveRecap.map((turn) => turn.text)).toEqual(["The preview is live"]);
     expect(rt.liveParked).toBe(true);
     expect(badge()).toEqual({ armed: true, parked: true, pending: false });
@@ -4523,8 +4524,340 @@ describe("live voice park/resume frames (issue #811)", () => {
     // No runtime at all (no start ever acked): live_end is pure truth.
     frame({ type: "live_phase", phase: "listening" });
     frame({ type: "live_end", error: null });
-    expect(peekTabRuntimeForTests(h.TAB)?.liveRecap).toEqual([]);
+    expect(peekTabRuntime(h.TAB)?.liveRecap).toEqual([]);
     expect(badge()).toBeUndefined();
+  });
+});
+
+describe("live voice work parking (issue #815)", () => {
+  // Same harness as the #811 suite: real actions seed the runtime, frames
+  // drive the turn. The controller facts these tests pin: `listening` never
+  // returns mid-delegated-turn and `live_levels` is edge-triggered, so the
+  // park moment is the scheduled deadline, never a frame count.
+  const withVersion = (ompVersion: string): CapabilitySnapshot =>
+    ({ ompVersion }) as unknown as CapabilitySnapshot;
+
+  const arm = async (): Promise<void> => {
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    const start = h.sent.find(
+      (s) => s.tabId === h.TAB && s.cmd.type === "live_start",
+    );
+    if (start === undefined) throw new Error("startLiveVoice dispatched nothing");
+    h.respond(h.TAB, start.cmd, {});
+    await starting;
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
+    h.sent.length = 0;
+  };
+
+  const frame = (event: object): void => {
+    h.useStore.getState().handleRpcFrame(h.TAB, event);
+  };
+  const delegation = (): void =>
+    frame({
+      type: "message_start",
+      message: {
+        role: "custom",
+        customType: "live-delegation",
+        display: true,
+        attribution: "agent",
+        content: "deploy the preview",
+      },
+    });
+  const finalAnswer = (text: string): void =>
+    frame({
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text }] },
+    });
+  const levels = (output: number): void =>
+    frame({ type: "live_levels", input: 0.05, output });
+  /** Settles every live verb already on the wire, in waves. */
+  const settleVerbs = async (): Promise<void> => {
+    for (let wave = 0; wave < 4; wave++) {
+      await h.flushMicrotasks();
+      for (const s of h.sent.filter(
+        (e) => e.cmd.type === "live_stop" || e.cmd.type === "live_start",
+      ))
+        h.respond(h.TAB, s.cmd, {});
+    }
+    await h.flushMicrotasks();
+  };
+
+  beforeEach(() => {
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: { [h.TAB]: rpcTabState({ capabilities: withVersion("18.7.0") }) },
+      activeTabId: h.TAB,
+    });
+  });
+
+  const badge = () => h.useStore.getState().liveVoice[h.TAB];
+  const pending = () => peekTabRuntime(h.TAB)?.livePendingFeedback ?? [];
+  const verbs = (type: string) => h.sent.filter((s) => s.cmd.type === type);
+
+  it("the first quiet frame after a loud one parks the call (AC 1)", async () => {
+    vi.useFakeTimers();
+    try {
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      // The model acknowledges on the call: loud output.
+      levels(0.4);
+      expect(verbs("live_stop")).toEqual([]);
+      // Silence after the acknowledgment: the deadline starts, and it fires.
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS - 1);
+      expect(verbs("live_stop")).toEqual([]);
+      await vi.advanceTimersByTimeAsync(2);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(verbs("live_stop")).toHaveLength(1);
+    await settleVerbs();
+    // The intent survives the park; the badge shows the closed call.
+    expect(peekTabRuntime(h.TAB)?.liveParked).toBe(true);
+    expect(peekTabRuntime(h.TAB)?.liveWorkPark).toBe(true);
+    expect(badge()).toEqual({ armed: true, parked: true, pending: false });
+  });
+
+  it("quiet before any loud frame never parks; the cap bounds the turn", async () => {
+    vi.useFakeTimers();
+    try {
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      // Quiet from the start: the acknowledgment may not have begun, so no
+      // quiet deadline — only the hard cap may park.
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS * 3);
+      expect(verbs("live_stop")).toEqual([]);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_CAP_MS);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(verbs("live_stop")).toHaveLength(1);
+    await settleVerbs();
+    expect(peekTabRuntime(h.TAB)?.liveParked).toBe(true);
+  });
+
+  it("a loud frame cancels a pending quiet deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS / 2);
+      // The model starts speaking its progress: the deadline dies, and
+      // without a NEW quiet edge no arm replaces it.
+      levels(0.5);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(verbs("live_stop")).toEqual([]);
+    expect(peekTabRuntime(h.TAB)?.liveWorkPark).toBe(true);
+  });
+
+  it("`agent_end` stores the answer and wakes the call with it (AC 2)", async () => {
+    vi.useFakeTimers();
+    try {
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+    await settleVerbs();
+    h.sent.length = 0;
+
+    finalAnswer("Deployed the preview build");
+    frame({ type: "agent_end" });
+    await h.flushMicrotasks();
+
+    // Stranded answer stored (the closed call could not hear it), then the
+    // wake reopens the call and the pending rides the instructions.
+    expect(pending()).toEqual(["Deployed the preview build"]);
+    const start = verbs("live_start")[0];
+    expect(start).toBeDefined();
+    expect(String(start!.cmd.instructions)).toContain("Deployed the preview build");
+    h.respond(h.TAB, start!.cmd, {});
+    await h.flushMicrotasks();
+    expect(peekTabRuntime(h.TAB)?.liveWorkPark).toBe(false);
+    expect(badge()).toEqual({ armed: true, parked: false, pending: true });
+  });
+
+  it("the wake waits for the park's stop before dispatching the start", async () => {
+    vi.useFakeTimers();
+    try {
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+    // The park's `live_stop` is on the wire, unacked — omp still owns the
+    // session. A fast turn ends now.
+    expect(verbs("live_stop")).toHaveLength(1);
+    finalAnswer("Done");
+    frame({ type: "agent_end" });
+    await h.flushMicrotasks();
+    // No `live_start` while the stop is unanswered: wire order is the
+    // contract, and omp rejects a start into a live session.
+    expect(verbs("live_start")).toEqual([]);
+    const stop = verbs("live_stop")[0]!;
+    h.respond(h.TAB, stop.cmd, {});
+    await h.flushMicrotasks();
+    expect(verbs("live_start")).toHaveLength(1);
+    await settleVerbs();
+  });
+
+  it("a parked unviewed tab stores the answer without reopening", async () => {
+    vi.useFakeTimers();
+    try {
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+    await settleVerbs();
+    // The user switched away while the turn worked.
+    h.useStore.setState({ activeTabId: "another-tab" });
+    h.sent.length = 0;
+    finalAnswer("Deployed the preview build");
+    frame({ type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(pending()).toEqual(["Deployed the preview build"]);
+    // The enter guard owns the resume; no wake dispatch here.
+    expect(verbs("live_start")).toEqual([]);
+  });
+
+  it("with the switch off a delegated turn behaves exactly like #811", async () => {
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({ state: { ...h.backendState, liveWorkParking: false } });
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_CAP_MS + LIVE_WORK_PARK_QUIET_MS);
+      // The call stays open for the whole turn: nothing dispatched.
+      expect(verbs("live_stop")).toEqual([]);
+      expect(peekTabRuntime(h.TAB)?.liveWorkPark).toBeUndefined();
+      finalAnswer("Deployed the preview build");
+      frame({ type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(1_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
+    expect(verbs("live_stop")).toEqual([]);
+    expect(verbs("live_start")).toEqual([]);
+    expect(pending()).toEqual([]);
+  });
+
+  it("an explicit stop during a work-park cancels every timer", async () => {
+    vi.useFakeTimers();
+    try {
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      const stopping = h.useStore.getState().stopLiveVoice(h.TAB);
+      await vi.advanceTimersByTimeAsync(0);
+      const stop = verbs("live_stop")[0];
+      expect(stop).toBeDefined();
+      h.respond(h.TAB, stop!.cmd, {});
+      await stopping;
+      // Neither deadline may fire anymore.
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_CAP_MS + LIVE_WORK_PARK_QUIET_MS);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(verbs("live_stop")).toHaveLength(1);
+    expect(badge()).toBeUndefined();
+  });
+
+  it("a start ack landing after an explicit stop closes the call, not re-arms it", async () => {
+    // The wake's `live_start` is in flight when the user stops: the ack
+    // must clean omp's fresh call up instead of restoring the intent.
+    await arm();
+    const parking = h.useStore.getState().parkLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    for (const s of verbs("live_stop")) h.respond(h.TAB, s.cmd, {});
+    await parking;
+    h.sent.length = 0;
+
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    const start = verbs("live_start")[0]!;
+
+    // The stop lands while the start is still on the wire: a parked call
+    // has nothing to close, so the stop dispatches nothing but bumps the
+    // cancellation generation and disarms.
+    const stopping = h.useStore.getState().stopLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    await stopping;
+    expect(verbs("live_stop")).toEqual([]);
+    expect(badge()).toBeUndefined();
+
+    // The orphaned ack lands after the user stopped.
+    h.respond(h.TAB, start.cmd, {});
+    await starting;
+    await h.flushMicrotasks();
+    // Cleanup stop for omp's fresh call, and NOTHING re-armed.
+    expect(verbs("live_stop")).toHaveLength(1);
+  });
+
+  it("an orphan restart parks first and starts only after the stop acks", async () => {
+    // #811's orphan path now rides the switch: stop ack BEFORE start, wire
+    // order asserted, exactly one pair dispatched.
+    await arm();
+    frame({ type: "agent_start" });
+    delegation();
+    const parking = h.useStore.getState().parkLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    for (const s of verbs("live_stop")) h.respond(h.TAB, s.cmd, {});
+    await parking;
+    // Resume mid-turn: the ack clears the call's spoken-request flag while
+    // the live-owned turn is still running — the orphan.
+    const resuming = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    h.respond(h.TAB, verbs("live_start")[0]!.cmd, {});
+    await resuming;
+    frame({ type: "live_phase", phase: "listening" });
+    h.sent.length = 0;
+
+    // The answer lands while the call sits in `speaking`: stored, restart
+    // deferred to the next `listening` (AC 5 unchanged).
+    frame({ type: "live_phase", phase: "speaking" });
+    finalAnswer("Deployed the preview build");
+    frame({ type: "agent_end" });
+    expect(pending()).toEqual(["Deployed the preview build"]);
+    expect(verbs("live_stop")).toEqual([]);
+
+    frame({ type: "live_phase", phase: "listening" });
+    await h.flushMicrotasks();
+    expect(verbs("live_stop")).toHaveLength(1);
+    expect(verbs("live_start")).toEqual([]);
+    h.respond(h.TAB, verbs("live_stop")[0]!.cmd, {});
+    await h.flushMicrotasks();
+    expect(verbs("live_start")).toHaveLength(1);
+    const restart = verbs("live_start")[0]!;
+    expect(String(restart.cmd.instructions)).toContain("Deployed the preview build");
+    h.respond(h.TAB, restart.cmd, {});
+    await h.flushMicrotasks();
   });
 });
 

@@ -384,16 +384,19 @@ _Avoid_: audio id, clip id, recording url
 **Armed**:
 The per-session live voice intent (issue #811): the user wants to talk in this
 session. A successful `live_start` sets it; only an explicit stop or the plan
-hand-off's carry-over clears it. Parking never clears it — the microphone went
-quiet because the tab left the view, not because the user asked.
+hand-off's carry-over clears it. Parking — for either reason, the tab leaving
+the view or *work parking* — never clears it: the microphone went quiet because
+the call could not use it right now, not because the user asked.
 _Avoid_: enabled, connected, on
 
 **Parked**:
-Armed with no realtime call open, because the session's tab is not the viewed
-tab (issue #811). The call closed on leaving — omp records audio per session,
-so an unviewed tab must not listen at all; closing is the honest mute. The
-session keeps its *voice recap*; returning to the tab opens a fresh call whose
-instructions carry it, plus any *pending voice feedback*.
+Armed with no realtime call open. Two causes: the session's tab is not the
+viewed tab (issue #811) — omp records audio per session, so an unviewed tab
+must not listen at all; closing is the honest mute — or the call stepped aside
+while the agent worked unassisted (*work parking*, issue #815). Either way the
+session keeps its *voice recap*; returning to the tab (or the work finishing)
+opens a fresh call whose instructions carry it, plus any *pending voice
+feedback*.
 Not the *Hibernated session* sense its _Avoid_ list warns about: a parked
 session's process runs on; only its realtime call is closed.
 _Avoid_: muted, paused, suspended, backgrounded

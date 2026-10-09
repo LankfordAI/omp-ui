@@ -20,6 +20,9 @@ import {
   applyLivePhase,
   applyLiveTranscript,
   appendLiveRecap,
+  LIVE_WORK_PARK_CAP_MS,
+  LIVE_WORK_PARK_QUIET_MS,
+  LIVE_WORK_PARK_QUIET_RMS,
   emptyLiveSnapshot,
   isLiveSessionActive,
   parseLiveLevelsFrame,
@@ -66,7 +69,19 @@ import {
   type CommandItem,
   type RenderItem,
 } from "../../lib/transcript";
-import { respData, type GetState, type StoreMachinery, type Watchers } from "./shared";
+import { peekTabRuntime, respData, type GetState, type StoreMachinery, type Watchers } from "./shared";
+import {
+  armLiveWorkCapTimer,
+  armLiveWorkQuietTimer,
+  bumpLiveVoiceGeneration,
+  cancelLiveWorkQuietTimer,
+  claimLiveSwitch,
+  clearLiveWorkTimers,
+  finishLiveSwitch,
+  liveVoiceGeneration,
+  type LiveSwitchEntry,
+  type LiveSwitchMode,
+} from "./live-work-park";
 import {
   reduceAgentEvent,
   type AgentEventEffect,
@@ -462,8 +477,67 @@ export function createFrameReductionSlice(
         // frame hook would never fire for it). Other phases leave
         // liveOrphanRestart for the frame hook; restartLiveCall clears it
         // before dispatch.
-        if (effect.callOpen && get().rpc[tabId]?.live?.phase === "listening")
-          void restartLiveCall(tabId);
+        // A still-pending work-park defers the restart to the wake effect.
+        if (
+          effect.callOpen &&
+          m.runtime(tabId).liveWorkPark !== true &&
+          get().rpc[tabId]?.live?.phase === "listening"
+        )
+          restartLiveCall(tabId);
+        return;
+      }
+      case "arm-live-work-park": {
+        // #815: the delegation landed on an armed, open call and the
+        // setting is on — park for the duration of the backend turn. The
+        // cap timer bounds a turn that never goes quiet; the quiet timer
+        // arms itself from the first quiet `live_levels` frame after a loud
+        // one (levels are edge-triggered, so counting frames would drift).
+        if (get().state?.liveWorkParking === false) return;
+        const armLive = get().rpc[tabId]?.live;
+        if (armLive === undefined || armLive === null || !isLiveSessionActive(armLive))
+          return;
+        clearLiveWorkTimers(tabId);
+        m.patchRuntime(tabId, {
+          liveWorkPark: true,
+          liveOutputLoudAt: undefined,
+        });
+        {
+          const armGen = liveVoiceGeneration(tabId);
+          armLiveWorkCapTimer(tabId, LIVE_WORK_PARK_CAP_MS, () => {
+            const rt = peekTabRuntime(tabId);
+            if (
+              rt?.liveWorkPark !== true ||
+              rt.liveVoiceOwner !== true ||
+              rt.liveArmed !== true ||
+              liveVoiceGeneration(tabId) !== armGen
+            )
+              return;
+            scheduleLiveCallSwitch(tabId, "park");
+          });
+        }
+        return;
+      }
+      case "wake-live-call": {
+        // #815: the delegated turn ended; the reducer already cleared the
+        // flag and this handler clears the timers, since a wake supersedes
+        // them. If the call is still open and unparked, omp answered on it
+        // (or the park never landed): nothing to reopen. An open-but-parked
+        // snapshot or an ended one gets a switch; unviewed tabs leave the
+        // stored answer pending for the enter guard instead.
+        clearLiveWorkTimers(tabId);
+        const wakeRt = peekTabRuntime(tabId);
+        if (
+          wakeRt === undefined ||
+          wakeRt.liveVoiceOwner !== true ||
+          wakeRt.liveArmed !== true ||
+          wakeRt.liveWorkPark !== false
+        )
+          return;
+        if (get().rpc[tabId]?.live === undefined) return;
+        if (get().rpc[tabId]?.live?.ended === false && wakeRt.liveParked !== true)
+          return;
+        if (get().activeTabId !== tabId) return;
+        scheduleLiveCallSwitch(tabId, "wake");
         return;
       }
       default: {
@@ -483,25 +557,94 @@ export function createFrameReductionSlice(
   };
 
   /**
+   * Single-flight work-park switch (#815): `park` closes the open call,
+   * `wake` parks first when the call is still open and then starts a fresh
+   * one carrying the recap and any stored pending. A request landing while
+   * a cycle runs only re-queues (a wake upgrades a queued park: the world
+   * the park was scheduled for is already over), and exactly one
+   * re-evaluation pass follows the cycle. A failed park never starts — omp
+   * still owns the session, and a second `live_start` would be rejected.
+   */
+  const scheduleLiveCallSwitch = (tabId: string, mode: LiveSwitchMode): void => {
+    const claimed = claimLiveSwitch(tabId, mode);
+    if (claimed === "coalesced") return;
+    void runLiveCallSwitch(tabId, claimed);
+  };
+
+  /**
    * Orphan refresh-restart (#811): an answer stored while the call could not
-   * receive it rides a fresh start's instructions. Parking first releases
-   * the mic before the new `live_start` reaches for it (the #808 ordering
-   * lesson); `parkLiveVoice` folds the current turns into the recap and
+   * receive it rides a fresh start's instructions. It runs through the
+   * work-park switch (#815) so a concurrent park/wake cannot double-dispatch
+   * the pair of verbs; the wake mode parks first (the #808 ordering lesson —
+   * the mic must be released before a new `live_start` reaches for it),
+   * `parkLiveVoice` folds the current turns into the recap, and
    * `startLiveVoice` rebuilds the instructions from the runtime, so the
-   * stored answer rides along and `liveParked` clears on the ack. The
-   * orphan flag clears BEFORE dispatch: a failed start owns its error line
+   * stored answer rides along and `liveParked` clears on the ack. The orphan
+   * flag clears BEFORE scheduling: a failed start owns its error line
    * (startLiveVoice's sendFailed path) and never restarts every `listening`
    * frame.
    */
-  const restartLiveCall = async (tabId: string): Promise<void> => {
-    // parkLiveVoice folds the current turns into the recap; folding here
-    // too would double-append the same spoken text. Clearing the flag at
-    // entry is the loop guard.
+  const restartLiveCall = (tabId: string): void => {
     m.patchRuntime(tabId, { liveOrphanRestart: false });
-    await get().parkLiveVoice(tabId);
-    if (get().rpc[tabId]?.live === undefined) return;
-    await get().startLiveVoice(tabId);
+    scheduleLiveCallSwitch(tabId, "wake");
   };
+
+  const runLiveCallSwitch = async (
+    tabId: string,
+    entry: LiveSwitchEntry,
+  ): Promise<void> => {
+    for (;;) {
+      await runLiveCallPass(tabId, entry);
+      // A guard exit frees the slot the same way a finished pass does:
+      // `finishLiveSwitch` drops it when nothing queued, and re-runs
+      // exactly once when something did — the re-evaluation re-checks the
+      // guards, so a superseded wake can never loop.
+      const again = finishLiveSwitch(tabId);
+      if (again === null) return;
+      entry = again;
+    }
+  };
+
+  /** One switch pass; its guards answer for the world at dispatch time. */
+  const runLiveCallPass = async (
+    tabId: string,
+    entry: LiveSwitchEntry,
+  ): Promise<void> => {
+    if (entry.mode === "wake") {
+      const live = get().rpc[tabId]?.live;
+      if (live !== undefined && live !== null && isLiveSessionActive(live)) {
+        // Open-but-parked means the park's stop is still in flight: wait
+        // for it instead of re-parking (which would double-fold the
+        // recap); otherwise park first so the recap folds and the mic
+        // releases before the new `live_start` reaches for it.
+        const stopRt = peekTabRuntime(tabId);
+        if (stopRt?.liveParked === true)
+          await stopRt.liveStopInFlight?.catch(() => undefined);
+        else await get().parkLiveVoice(tabId);
+      }
+      const after = get().rpc[tabId]?.live;
+      // The park failed or the call is open again: omp owns the session,
+      // and a second `live_start` would only be rejected.
+      if (after !== undefined && after !== null && isLiveSessionActive(after))
+        return;
+      const rt = peekTabRuntime(tabId);
+      if (rt === undefined || rt.liveVoiceOwner !== true || rt.liveArmed !== true)
+        return;
+      // A fresh cancellation boundary for this start: continuations of
+      // anything the parked call left in flight die here (#815).
+      bumpLiveVoiceGeneration(tabId);
+      clearLiveWorkTimers(tabId);
+      await get().startLiveVoice(tabId);
+      return;
+    }
+    const live = get().rpc[tabId]?.live;
+    // Already ended, or ended on its own: nothing to park.
+    if (live === undefined || live === null || !isLiveSessionActive(live))
+      return;
+    await get().parkLiveVoice(tabId);
+    return;
+  };
+
 
   const handleRpcFrame = (tabId: string, frame: object): void => {
     
@@ -934,12 +1077,16 @@ export function createFrameReductionSlice(
             // before dispatching, so a failed start cannot loop-restart.
             if (phase === "listening") {
               const liveRt = m.runtime(tabId);
+              // A work-park still pending suppresses the orphan restart:
+              // the wake at `agent_end` carries the stored answer anyway,
+              // and restarting now would fight the scheduled switch (#815).
               if (
                 liveRt.liveVoiceOwner === true &&
                 liveRt.liveArmed === true &&
-                liveRt.liveOrphanRestart === true
+                liveRt.liveOrphanRestart === true &&
+                liveRt.liveWorkPark !== true
               )
-                void restartLiveCall(tabId);
+                restartLiveCall(tabId);
             }
           }
           return;
@@ -950,6 +1097,39 @@ export function createFrameReductionSlice(
           if (levels !== null) {
             const live = tab.live ?? emptyLiveSnapshot();
             m.patchRpc(tabId, { live: applyLiveLevels(live, levels.input, levels.output) });
+            // Work-park quiet deadline (#815): levels are edge-triggered,
+            // so the park moment is a scheduled check, not a frame count —
+            // a loud frame (the model still speaking, e.g. its "working on
+            // it" acknowledgment) marks the output loud and cancels a
+            // pending quiet timer; the FIRST quiet frame after a loud one
+            // owns the deadline, and quiet before any loud frame never
+            // arms (the acknowledgment may not have started yet).
+            const levelsRt = m.runtime(tabId);
+            if (
+              levelsRt.liveWorkPark === true &&
+              levelsRt.liveVoiceOwner === true &&
+              levelsRt.liveArmed === true &&
+              get().activeTabId === tabId
+            ) {
+              if (levels.output >= LIVE_WORK_PARK_QUIET_RMS) {
+                cancelLiveWorkQuietTimer(tabId);
+                m.patchRuntime(tabId, { liveOutputLoudAt: Date.now() });
+              } else if (levelsRt.liveOutputLoudAt !== undefined) {
+                const quietGen = liveVoiceGeneration(tabId);
+                armLiveWorkQuietTimer(tabId, LIVE_WORK_PARK_QUIET_MS, () => {
+                  const rt = peekTabRuntime(tabId);
+                  if (
+                    rt?.liveWorkPark !== true ||
+                    rt.liveVoiceOwner !== true ||
+                    rt.liveArmed !== true ||
+                    liveVoiceGeneration(tabId) !== quietGen ||
+                    get().activeTabId !== tabId
+                  )
+                    return;
+                  scheduleLiveCallSwitch(tabId, "park");
+                });
+              }
+            }
           }
           return;
         }

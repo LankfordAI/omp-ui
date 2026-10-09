@@ -299,6 +299,18 @@ export const LIVE_INSTRUCTION_LIMITS = {
   totalChars: 16_000,
 } as const;
 
+/** Work-parking (issue #815): the live call parks while a delegated backend
+ *  turn works. omp's controller emits `live_levels` edge-triggered — an
+ *  unchanged level never repeats — so quiet output is one frame, not a
+ *  heartbeat: the quiet verdict is a scheduled deadline, never a frame count.
+ *  `LIVE_WORK_PARK_QUIET_RMS` is the loud/quiet split on the output level;
+ *  `LIVE_WORK_PARK_QUIET_MS` is the deadline after the first quiet frame
+ *  following a loud one (a loud frame resets it); `LIVE_WORK_PARK_CAP_MS`
+ *  caps the wait from arming when output never registers loud. */
+export const LIVE_WORK_PARK_QUIET_RMS = 0.02;
+export const LIVE_WORK_PARK_QUIET_MS = 600;
+export const LIVE_WORK_PARK_CAP_MS = 4_000;
+
 export interface LiveInstructions {
   instructions: string;
   /** Prefix of `pending` the builder carried; the clear rule consumes it. */
