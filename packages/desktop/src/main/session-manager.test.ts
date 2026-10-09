@@ -1543,9 +1543,24 @@ describe("default auto thinking (issue #743)", () => {
     expect(fs.readFileSync(overlay, "utf8")).toBe('defaultThinkingLevel: "auto"\n');
   });
 
-  it("keeps the remembered thinking level ahead of the toggle", async () => {
-    const { manager, registry } = setup({ mode: "rpc-ui" });
+  it("starts a fresh session on auto over the remembered level when the setting is on", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     registry.setSetting("defaultAutoThinking", true);
+    registry.setSessionModel(TAB, null, "high");
+
+    const { tabId } = await freshSpawn(manager);
+    const record = registry.sessions.find((s) => s.tabId === tabId);
+    expect(record).toMatchObject({ thinkingLevel: "auto" });
+
+    // The flag-on seed reaches omp through the settings overlay key, never a
+    // `:auto` suffix, even though the project remembers a fixed level
+    // (the composition itself is pinned in spawn-config.test.ts).
+    const overlay = Core.modelOverlayPath(path.join(sessionsRoot, record!.lineageDir));
+    expect(fs.readFileSync(overlay, "utf8")).toBe('defaultThinkingLevel: "auto"\n');
+  });
+
+  it("defers to the remembered level with the setting off", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
     registry.setSessionModel(TAB, null, "high");
 
     const { tabId } = await freshSpawn(manager);

@@ -736,7 +736,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.defaultAdvisor": "기본 어드바이저",
   "settings.general.defaultAdvisorHint": "새 세션을 어드바이저가 실행 중인 상태로 시작합니다. 어드바이저 상태를 기억한 프로젝트는 마지막 설정을 유지합니다.",
   "settings.general.autoThinking": "기본 auto thinking",
-  "settings.general.autoThinkingHint": "새 세션이 omp의 자동 thinking selector로 시작하여 프롬프트마다 모델 사다리의 수준으로 해석합니다. thinking 수준을 기억한 프로젝트는 그 값을 유지합니다.",
+  "settings.general.autoThinkingHint": "켜면 프로젝트가 기억하는 thinking 수준과 관계없이 새 세션이 omp의 자동 thinking selector로 시작하여 프롬프트마다 모델 사다리의 수준으로 해석하며, 수동으로 고른 수준은 해당 세션에만 적용됩니다. 끄면 기억된 수준이 다시 새 세션의 시작값이 됩니다.",
   "settings.general.subagentInherit": "하위 에이전트가 세션 모델 상속",
   "settings.general.subagentInheritHint": "더 좁은 범위의 선택이 없으면 새 세션은 모든 하위 에이전트를 세션 자체 모델로 스폰합니다. 이후에 시작되는 세션과, 에이전트별 선택이 없는 실행 중 세션에 적용됩니다.",
   "settings.general.skipDeleteConfirmation": "삭제 확인 건너뛰기",

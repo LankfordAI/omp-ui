@@ -659,9 +659,13 @@ export class SessionManager {
           approvalMode: null,
           serviceTier: null,
           model: project?.defaultModel ?? project?.lastModel ?? null,
-          thinkingLevel:
-            project?.lastThinkingLevel ??
-            (this.deps.registry.getSetting("defaultAutoThinking") ? "auto" : null),
+          // The app-level auto-thinking flag wins over last-used memory: with it
+          // on, every fresh session starts on omp's automatic selector and a
+          // fixed effort exists only where the user picks one this session.
+          // With it off, the remembered level resumes as the seed.
+          thinkingLevel: this.deps.registry.getSetting("defaultAutoThinking")
+            ? "auto"
+            : (project?.lastThinkingLevel ?? null),
           advisor: req.advisor,
           advisorModel: req.advisorModel ?? null,
           subagentModels: null,
