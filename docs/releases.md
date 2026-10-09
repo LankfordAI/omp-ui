@@ -4,12 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Live voice parks instead of muting when you leave its tab: the microphone closes, and returning opens a fresh call that already knows the conversation — plus any results the agent finished while you were away ([#811](https://github.com/LankfordAI/omp-ui/issues/811)).
-- A session row carries a speaker glyph while live voice talks in it, so you can see which session is speaking even while you work in another tab ([#807](https://github.com/LankfordAI/omp-ui/issues/807)).
-- Live voice carries across the plan hand-off: a fresh or worktree implementation tab launched from a session with a live call takes the call over instead of leaving it open in the abandoned process ([#808](https://github.com/LankfordAI/omp-ui/issues/808)).
-- The live voice transcript strip grew Play/Pause on final assistant turns and the Session pane grew a Voice recordings section; each recording answers an honest unavailable until a capture source exists ([#809](https://github.com/LankfordAI/omp-ui/issues/809), [#810](https://github.com/LankfordAI/omp-ui/issues/810)).
-- Enum settings keep their option picker even when omp colorizes its `config list` output; previously every enum fell back to free text ([#812](https://github.com/LankfordAI/omp-ui/issues/812)).
-- Settings gains a dedicated Live voice section with a playable sample bundled for each voice, so you can hear one before choosing it ([#813](https://github.com/LankfordAI/omp-ui/issues/813)).
+Nothing since [v0.21.3](https://github.com/LankfordAI/omp-ui/releases/tag/v0.21.3). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
