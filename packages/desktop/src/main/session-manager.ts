@@ -2012,7 +2012,12 @@ export class SessionManager {
       approvalMode: source.approvalMode,
       serviceTier: source.serviceTier,
       model: source.model,
-      thinkingLevel: source.thinkingLevel,
+      // The fork is a new session, so the app-level auto-thinking flag wins
+      // over what the source carries — same precedence as the fresh-spawn
+      // seed above. With the flag off, the source's level still rides along.
+      thinkingLevel: this.deps.registry.getSetting("defaultAutoThinking")
+        ? "auto"
+        : source.thinkingLevel,
       advisor: source.advisor,
       advisorModel: source.advisorModel,
       subagentModels: source.subagentModels,

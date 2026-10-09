@@ -47,7 +47,10 @@ let base: string;
  * `file`: "active" writes the transcript, "archived" only a .gz, "missing"
  * leaves the lineage empty.
  */
-function setup(file: "active" | "archived" | "missing" = "active"): { sessionsRoot: string; archiveRoot: string } {
+function setup(
+  file: "active" | "archived" | "missing" = "active",
+  opts: { thinkingLevel?: string | null; autoThinking?: boolean } = {},
+): { sessionsRoot: string; archiveRoot: string } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-fork-be-"));
   const agentDir = path.join(base, "agent");
   // Default profile, so PI_CODING_AGENT_DIR wins over the XDG branch (paths.ts:38).
@@ -74,7 +77,7 @@ function setup(file: "active" | "archived" | "missing" = "active"): { sessionsRo
   }
 
   seedRegistry(path.join(base, "registry.json"), {
-    settings: { defaultMode: "pty" },
+    settings: { defaultMode: "pty", ...(opts.autoThinking === undefined ? {} : { defaultAutoThinking: opts.autoThinking }) },
     projects: [
       {
         path: "/proj",
@@ -103,6 +106,7 @@ function setup(file: "active" | "archived" | "missing" = "active"): { sessionsRo
         advisorModel: "openrouter/a/b:high",
         cachedTitle: "Old session",
         cachedModified: "2026-07-29T16:18:42.427Z",
+        ...(opts.thinkingLevel === undefined ? {} : { thinkingLevel: opts.thinkingLevel }),
       }),
     ],
   });
@@ -156,6 +160,29 @@ describe("sessionFork", () => {
     expect(readRegistry().sessions).toHaveLength(2);
     // The renderer opens the fork on resolve, so state must already be out.
     expect(sent.some((m) => m.channel === CH.onStateChanged)).toBe(true);
+  });
+
+  it("seeds the fork on auto when default auto thinking is on, overriding the source's pinned level", async () => {
+    setup("active", { thinkingLevel: "xhigh", autoThinking: true });
+
+    const res = (await invoke(CH.forkSession, "tab-1")) as { tabId: string };
+
+    // The fork is a new session, so the flag wins over what the source carries.
+    const forkRecord = readRegistry().sessions.find((s) => s.tabId === res.tabId)!;
+    expect(forkRecord).toMatchObject({ thinkingLevel: "auto" });
+    // The source tab keeps its manual pick; only the fork re-seeds.
+    expect(readRegistry().sessions.find((s) => s.tabId === "tab-1")).toMatchObject({
+      thinkingLevel: "xhigh",
+    });
+  });
+
+  it("copies the source's thinking level to the fork when the flag is off", async () => {
+    setup("active", { thinkingLevel: "xhigh", autoThinking: false });
+
+    const res = (await invoke(CH.forkSession, "tab-1")) as { tabId: string };
+
+    const forkRecord = readRegistry().sessions.find((s) => s.tabId === res.tabId)!;
+    expect(forkRecord).toMatchObject({ thinkingLevel: "xhigh" });
   });
 
   it("rejects for an unknown tab", async () => {
