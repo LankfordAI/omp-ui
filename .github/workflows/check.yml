@@ -70,6 +70,27 @@ jobs:
               npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once --out=out/browser-pane-smoke/xvfb; rc=$?
           fi
           exit "$rc"
+      - name: Smoke the plan verifier under headless Electron
+        # The verifier window once SIGSEGV'd main on headless Ozone (#820);
+        # run this rung headless unconditionally so the crash class stays gated.
+        shell: bash
+        run: |
+          set -uo pipefail
+          smoke() { npm run smoke:plan-verifier --workspace @omp-ui/desktop -- --once --ozone-platform=headless "$@"; }
+          smoke --out=out/plan-verifier-smoke/headless; rc=$?
+          if [ "$rc" -eq 3 ] && command -v xvfb-run >/dev/null; then
+            xvfb-run -a --server-args='-screen 0 1600x1000x24' \
+              npm run smoke:plan-verifier --workspace @omp-ui/desktop -- --once --out=out/plan-verifier-smoke/xvfb; rc=$?
+          fi
+          exit "$rc"
+      - name: Publish the plan verifier smoke summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-verifier-smoke-summary
+          path: packages/desktop/out/plan-verifier-smoke/**/summary.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Publish the browser pane smoke summary
         if: always()
         uses: actions/upload-artifact@v4
