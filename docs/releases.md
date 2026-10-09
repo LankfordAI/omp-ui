@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.21.3](https://github.com/LankfordAI/omp-ui/releases/tag/v0.21.3). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- When you ask the agent to do work out loud, the live call steps aside while it works: once the room goes quiet the microphone closes, the composer shows `live · parked`, and when the turn finishes the call reopens and says the result out loud ([#815](https://github.com/LankfordAI/omp-ui/issues/815)).
 
 ## Choose a download
 
