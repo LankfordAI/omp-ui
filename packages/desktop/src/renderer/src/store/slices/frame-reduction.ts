@@ -1140,6 +1140,13 @@ export function createFrameReductionSlice(
           if (turn !== null) {
             const live = tab.live ?? emptyLiveSnapshot();
             m.patchRpc(tabId, { live: applyLiveTranscript(live, turn) });
+            // #817: persist finals as they arrive — the fold-on-park recap
+            // is the model's capped context, not the display record; disk
+            // is the only copy that survives a park, a restart, or a quit.
+            // Fire-and-forget: the snapshot already rendered the text.
+            if (turn.final && live.connectionId !== null) {
+              void get().appendLiveHistory(tabId, live.connectionId, turn);
+            }
             // The resume's instructions carried `livePendingIncluded`
             // pending answers; the call's first final assistant transcript
             // proves the model got its turn — clear exactly that prefix

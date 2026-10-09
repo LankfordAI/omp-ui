@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { rpcTabState } from "../test/fixtures";
-import type { LiveSnapshot, LiveTurn } from "@omp-ui/core/live-voice";
+import type { LiveHistoryEntry, LiveSnapshot, LiveTurn } from "@omp-ui/core/live-voice";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 Object.assign(window, { ompBackend: {} });
@@ -265,6 +265,7 @@ describe("LiveVoiceStrip replay controls (issue #810)", () => {
     expect(playLiveRecording).toHaveBeenCalledWith(TAB, {
       kind: "turn",
       turn: { role: "assistant", turn: 1, text: "here you go", final: true },
+      connectionId: "c-1",
     });
   });
 
@@ -347,5 +348,113 @@ describe("LiveVoiceStrip replay controls (issue #810)", () => {
     expect(play?.disabled).toBe(false);
     act(() => play!.click());
     expect(resumeLiveReplay).toHaveBeenCalled();
+  });
+});
+
+// #817: the persisted history rides under every render of the strip. Disk
+// rows from earlier connections appear above the snapshot's own turns,
+// never twice (the current connection's disk copy is filtered out — the
+// snapshot owns those rows, partials included); a reopen with no snapshot
+// at all shows the whole exchange; a clean end with prior history on disk
+// stays visible instead of collapsing to nothing.
+describe("LiveVoiceStrip persisted history (issue #817)", () => {
+  const A = "11111111-1111-4111-8111-111111111111";
+  const B = "22222222-2222-4222-8222-222222222222";
+
+  const seedHistory = (entries: LiveHistoryEntry[]): void => {
+    useStore.setState({ listLiveHistory: async () => entries });
+  };
+
+  const settle = async (): Promise<void> => {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
+  it("renders disk history above the snapshot with no double rows", async () => {
+    seedHistory([
+      { connectionId: A, role: "user", turn: 0, text: "earlier ask" },
+      { connectionId: A, role: "assistant", turn: 1, text: "earlier answer" },
+      // Same connection as the snapshot: the disk copy must NOT render —
+      // the snapshot's turns (partial included) own these.
+      { connectionId: B, role: "user", turn: 0, text: "stale duplicate" },
+    ]);
+    seed(
+      snapshot(
+        [turn("user", 0, "now ask", true), turn("assistant", 1, "now ans", false)],
+        { connectionId: B },
+      ),
+    );
+    const el = render();
+    await settle();
+    expect(el.textContent).toContain("earlier ask");
+    expect(el.textContent).toContain("earlier answer");
+    expect(el.textContent).toContain("now ask");
+    expect(el.textContent).toContain("now ans");
+    expect(el.textContent).not.toContain("stale duplicate");
+    // The rows' order is the exchange's: oldest disk row first.
+    const text = el.textContent ?? "";
+    expect(text.indexOf("earlier ask")).toBeLessThan(text.indexOf("now ask"));
+  });
+
+  it("renders the whole exchange after a reopen with no snapshot", async () => {
+    seedHistory([
+      { connectionId: A, role: "user", turn: 0, text: "asked yesterday" },
+      { connectionId: A, role: "assistant", turn: 1, text: "answered yesterday" },
+    ]);
+    seed(null);
+    const el = render();
+    await settle();
+    expect(el.textContent).toContain("asked yesterday");
+    expect(el.textContent).toContain("answered yesterday");
+  });
+
+  it("a clean end with prior history on disk stays visible", async () => {
+    seedHistory([{ connectionId: A, role: "user", turn: 0, text: "prior call" }]);
+    seed(snapshot([turn("assistant", 0, "bye")], { ended: true, error: null, connectionId: B }));
+    const el = render();
+    await settle();
+    expect(el.textContent).toContain("prior call");
+    expect(el.textContent).toContain("bye");
+  });
+
+  it("a history row's Play carries the row's own connection", async () => {
+    const playLiveRecording = vi.fn(async (): Promise<void> => {});
+    useStore.setState({
+      listLiveHistory: async () => [
+        { connectionId: A, role: "assistant", turn: 4, text: "older take" },
+      ],
+      loadLiveRecording: async () => ({ status: "ready" as const, wavBase64: "AA" }),
+      playLiveRecording,
+    });
+    seed(snapshot([], { connectionId: B }));
+    const el = render();
+    await settle();
+    const play = el.querySelector<HTMLButtonElement>('button[aria-label="play recording"]');
+    expect(play).not.toBeNull();
+    act(() => play!.click());
+    expect(playLiveRecording).toHaveBeenCalledWith(TAB, {
+      kind: "turn",
+      turn: { role: "assistant", turn: 4, text: "older take", final: true },
+      connectionId: A,
+    });
+  });
+
+  it("probes a history row under its own connection, not the snapshot's", async () => {
+    const loadLiveRecording = vi.fn(async () => ({ status: "unavailable" as const }));
+    useStore.setState({
+      listLiveHistory: async () => [
+        { connectionId: A, role: "assistant", turn: 2, text: "old reply" },
+      ],
+      loadLiveRecording,
+    });
+    seed(snapshot([turn("assistant", 0, "new reply")], { connectionId: B }));
+    render();
+    await settle();
+    expect(loadLiveRecording).toHaveBeenCalledWith(
+      TAB,
+      { connectionId: A, role: "assistant", turn: 2, text: "old reply", final: true },
+      A,
+    );
   });
 });

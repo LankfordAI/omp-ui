@@ -138,6 +138,7 @@ import { readExperimentDetail, readProjectExperiments, readRunLog } from "./expe
 import { registerSettingsHandlers } from "./settings-handlers";
 import { registerSttHandlers } from "./stt-handlers";
 import { registerLiveAudioHandlers } from "./live-audio";
+import { registerLiveTranscriptHandlers } from "./live-transcript";
 import { registerRemoteHandlers } from "./remote-handlers";
 import { registerVaultHandlers } from "./vault-handlers";
 import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
@@ -764,6 +765,10 @@ export class MainBackend {
           ompPath: this.ompPath,
         }),
         ...registerLiveAudioHandlers({
+          registry: this.registry,
+          getSessionsRoot: () => this.sessionsRoot,
+        }),
+        ...registerLiveTranscriptHandlers({
           registry: this.registry,
           getSessionsRoot: () => this.sessionsRoot,
         }),

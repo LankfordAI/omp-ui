@@ -4330,6 +4330,55 @@ describe("live voice frames (issue #778)", () => {
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "connecting" });
     expect(live()).toMatchObject({ phase: "connecting", ended: false, error: null });
   });
+
+  // #817: every final transcript frame persists to disk under the call's
+  // connection; partials never write, and a snapshot without a minted
+  // connection has nothing honest to file under, so nothing dispatches.
+  it("a final transcript frame appends to the persisted history once", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          live: { phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: "3f2504e0-4f89-41d3-9a0c-0305e82c3301" },
+        }),
+      },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "live_transcript", role: "assistant", turn: 2, text: "hello", final: true,
+    });
+    await h.flushMicrotasks();
+    expect(h.mockBackend.liveTranscriptAppend).toHaveBeenCalledTimes(1);
+    expect(h.mockBackend.liveTranscriptAppend).toHaveBeenCalledWith(
+      h.TAB,
+      "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+      { role: "assistant", turn: 2, text: "hello" },
+    );
+  });
+
+  it("a partial frame and a connection-less final append nothing", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          live: { phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: "3f2504e0-4f89-41d3-9a0c-0305e82c3301" },
+        }),
+      },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "live_transcript", role: "assistant", turn: 0, text: "hel", final: false,
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "live_transcript", role: "user", turn: 0, text: "hi", final: true,
+    });
+    await h.flushMicrotasks();
+    // The partial never writes; the user final does (finals write).
+    expect(h.mockBackend.liveTranscriptAppend).toHaveBeenCalledTimes(1);
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "live_transcript", role: "assistant", turn: 0, text: "orphan", final: true,
+    });
+    await h.flushMicrotasks();
+    // No connectionId minted: nothing dispatches.
+    expect(h.mockBackend.liveTranscriptAppend).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("live voice park/resume frames (issue #811)", () => {

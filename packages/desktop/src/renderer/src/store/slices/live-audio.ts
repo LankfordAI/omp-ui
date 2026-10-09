@@ -12,8 +12,10 @@
 // and the sidebar speaker glyph cannot see it (AC 5).
 import {
   formatLiveAudioRef,
+  isLiveConnectionId,
   type LiveAudioEntry,
   type LiveAudioLoad,
+  type LiveHistoryEntry,
   type LiveTurn,
 } from "@omp-ui/core/live-voice";
 import type { StoreApi } from "zustand";
@@ -23,7 +25,7 @@ import type { GetState, SetState } from "./shared";
 
 /** What a Play button points at: a strip row's turn, or a rail row's entry. */
 export type LiveReplayTarget =
-  | { kind: "turn"; turn: LiveTurn } // strip rows
+  | { kind: "turn"; turn: LiveTurn; connectionId?: string } // strip rows; history rows carry their own
   | { kind: "entry"; entry: LiveAudioEntry }; // rail rows, reopen-safe
 
 /**
@@ -47,6 +49,8 @@ export type LiveAudioSlice = Pick<
   | "liveReplay"
   | "listLiveRecordings"
   | "loadLiveRecording"
+  | "appendLiveHistory"
+  | "listLiveHistory"
   | "playLiveRecording"
   | "pauseLiveReplay"
   | "resumeLiveReplay"
@@ -65,19 +69,58 @@ export function createLiveAudioSlice(get: GetState, set: SetState): LiveAudioSli
   const listLiveRecordings = async (tabId: string): Promise<LiveAudioEntry[]> =>
     backend.listLiveAudio(tabId);
 
+  /**
+   * Persist one final spoken turn (#817). Fire-and-forget from the frame
+   * reducer: the snapshot already rendered the text, so a disk failure (or
+   * a rejected arg codec) swallows — the durable copy is a bonus, never the
+   * render source. Non-finals and un-minted connection ids never dispatch:
+   * only finals are persisted, and only under a real connection.
+   */
+  const appendLiveHistory = async (
+    tabId: string,
+    connectionId: string,
+    turn: LiveTurn,
+  ): Promise<void> => {
+    if (!turn.final || !isLiveConnectionId(connectionId)) return;
+    try {
+      await backend.liveTranscriptAppend(tabId, connectionId, {
+        role: turn.role,
+        turn: turn.turn,
+        text: turn.text,
+      });
+    } catch {
+      // The strip keeps showing the text either way.
+    }
+  };
+
+  // Channels never throw by contract; the catch is the renderer-side twin
+  // of that promise (and of appendLiveHistory's swallow): a failed read
+  // shows the snapshot alone, never an error boundary.
+  const listLiveHistory = async (tabId: string): Promise<LiveHistoryEntry[]> => {
+    try {
+      return await backend.liveTranscriptRead(tabId);
+    } catch {
+      return [];
+    }
+  };
+
+  // `connectionId` overrides the snapshot's (#817): a history row from an
+  // earlier connection probes its own connection's files — the snapshot's
+  // id would read the wrong connection's take and miss.
   const loadLiveRecording = async (
     tabId: string,
     turn: LiveTurn,
+    connectionId?: string | null,
   ): Promise<LiveAudioLoad> => {
     const tab = get().rpc[tabId];
     const sessionId = tab?.session.sessionId ?? null;
-    const connectionId = tab?.live?.connectionId ?? null;
+    const refConnectionId = connectionId ?? tab?.live?.connectionId ?? null;
     // No session, no connection: there is no honest reference to build, and
     // dispatching a fabricated one would be a lie — not an unavailable.
-    if (sessionId === null || connectionId === null) return { status: "unavailable" };
+    if (sessionId === null || refConnectionId === null) return { status: "unavailable" };
     return backend.readLiveAudio(
       tabId,
-      formatLiveAudioRef({ sessionId, connectionId, role: turn.role, turn: turn.turn }),
+      formatLiveAudioRef({ sessionId, connectionId: refConnectionId, role: turn.role, turn: turn.turn }),
     );
   };
 
@@ -129,10 +172,13 @@ export function createLiveAudioSlice(get: GetState, set: SetState): LiveAudioSli
     const sessionId = state.rpc[tabId]?.session.sessionId ?? null;
     if (sessionId === null) return;
     // The ref's connection segment: an entry carries its own (disk truth,
-    // reopen-safe); a strip turn rides the live snapshot, same rule as
-    // loadLiveRecording — no local start means no honest ref to build.
+    // reopen-safe); a strip turn rides an explicit history connectionId
+    // when the row came from disk (#817), else the live snapshot — no
+    // local start and no row id means no honest ref to build.
     const connectionId =
-      target.kind === "entry" ? target.entry.connectionId : live?.connectionId ?? null;
+      target.kind === "entry"
+        ? target.entry.connectionId
+        : target.connectionId ?? live?.connectionId ?? null;
     if (connectionId === null) return;
     const role = target.kind === "entry" ? target.entry.role : target.turn.role;
     const turnNumber = target.kind === "entry" ? target.entry.turn : target.turn.turn;
@@ -172,6 +218,8 @@ export function createLiveAudioSlice(get: GetState, set: SetState): LiveAudioSli
     liveReplay: null,
     listLiveRecordings,
     loadLiveRecording,
+    appendLiveHistory,
+    listLiveHistory,
     playLiveRecording,
     pauseLiveReplay,
     resumeLiveReplay,

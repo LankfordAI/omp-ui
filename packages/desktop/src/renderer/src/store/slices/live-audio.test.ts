@@ -4,7 +4,7 @@
 // no session or no local live start, the load answers `unavailable` without
 // dispatching anything.
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { formatLiveAudioRef, type LiveSnapshot } from "@omp-ui/core/live-voice";
+import { formatLiveAudioRef, type LiveHistoryEntry, type LiveSnapshot } from "@omp-ui/core/live-voice";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { rpcTabState } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
@@ -413,5 +413,97 @@ describe("installLiveReplayGuards (#810)", () => {
       });
     lastAudio()?.onended?.();
     expect(h.useStore.getState().liveReplay).toBeNull();
+  });
+});
+
+// #817: the history channel verbs. Append dispatches only finals under a
+// real connection id and swallows channel failures — the snapshot already
+// rendered the text. Read relays the confined listing; a rejected read
+// answers empty, never an error boundary. A row's explicit connectionId
+// overrides the snapshot's: a history row probes its own connection's take.
+describe("appendLiveHistory / listLiveHistory (#817)", () => {
+  beforeEach(() => {
+    h.mockBackend.liveTranscriptAppend.mockReset();
+    h.mockBackend.liveTranscriptAppend.mockResolvedValue(undefined);
+    h.mockBackend.liveTranscriptRead.mockReset();
+    h.mockBackend.liveTranscriptRead.mockResolvedValue([]);
+  });
+
+  it("appends a final under the connection with the entry payload", async () => {
+    await h.useStore
+      .getState()
+      .appendLiveHistory(TAB, CONNECTION, { role: "assistant", turn: 2, text: "hi", final: true });
+    expect(h.mockBackend.liveTranscriptAppend).toHaveBeenCalledWith(TAB, CONNECTION, {
+      role: "assistant",
+      turn: 2,
+      text: "hi",
+    });
+  });
+
+  it("a non-final dispatches nothing", async () => {
+    await h.useStore
+      .getState()
+      .appendLiveHistory(TAB, CONNECTION, { role: "assistant", turn: 2, text: "hi", final: false });
+    expect(h.mockBackend.liveTranscriptAppend).not.toHaveBeenCalled();
+  });
+
+  it("an un-minted connection id dispatches nothing", async () => {
+    await h.useStore
+      .getState()
+      .appendLiveHistory(TAB, "c-not-a-uuid", { role: "user", turn: 0, text: "hi", final: true });
+    expect(h.mockBackend.liveTranscriptAppend).not.toHaveBeenCalled();
+  });
+
+  it("a channel rejection is swallowed", async () => {
+    h.mockBackend.liveTranscriptAppend.mockRejectedValue(new Error("disk full"));
+    await expect(
+      h.useStore
+        .getState()
+        .appendLiveHistory(TAB, CONNECTION, { role: "user", turn: 0, text: "hi", final: true }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("listLiveHistory relays the confined read", async () => {
+    const entries: LiveHistoryEntry[] = [{ connectionId: CONNECTION, role: "user", turn: 0, text: "hi" }];
+    h.mockBackend.liveTranscriptRead.mockResolvedValueOnce(entries);
+    expect(await h.useStore.getState().listLiveHistory(TAB)).toEqual(entries);
+    expect(h.mockBackend.liveTranscriptRead).toHaveBeenCalledWith(TAB);
+  });
+
+  it("a rejected read answers empty", async () => {
+    h.mockBackend.liveTranscriptRead.mockRejectedValueOnce(new Error("ipc down"));
+    expect(await h.useStore.getState().listLiveHistory(TAB)).toEqual([]);
+  });
+});
+
+describe("explicit connectionId overrides (#817)", () => {
+  it("loadLiveRecording builds the ref from the explicit connection", async () => {
+    seed({ connectionId: CONNECTION });
+    const other = "9e2504e0-4f89-41d3-9a0c-0305e82c3309";
+    await h.useStore
+      .getState()
+      .loadLiveRecording(TAB, { role: "assistant", turn: 4, text: "old", final: true }, other);
+    expect(h.mockBackend.readLiveAudio).toHaveBeenCalledWith(
+      TAB,
+      `v1/${SESSION}/${other}/assistant/4`,
+    );
+  });
+
+  it("a turn target's connectionId wins over the snapshot's", async () => {
+    h.mockBackend.readLiveAudio.mockResolvedValue(READY);
+    seed({ connectionId: CONNECTION });
+    const other = "9e2504e0-4f89-41d3-9a0c-0305e82c3309";
+    await h.useStore
+      .getState()
+      .playLiveRecording(TAB, {
+        kind: "turn",
+        turn: { role: "assistant", turn: 4, text: "old", final: true },
+        connectionId: other,
+      });
+    expect(h.mockBackend.readLiveAudio).toHaveBeenCalledWith(
+      TAB,
+      `v1/${SESSION}/${other}/assistant/4`,
+    );
+    expect(h.useStore.getState().liveReplay?.key).toBe(`${TAB}:${other}:4`);
   });
 });

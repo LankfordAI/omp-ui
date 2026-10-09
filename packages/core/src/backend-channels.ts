@@ -72,7 +72,7 @@ import type {
   WorktreeReleaseResult,
   WorktreeSyncResult,
 } from "./types";
-import type { LiveAudioEntry, LiveAudioLoad } from "./live-voice";
+import type { LiveAudioEntry, LiveAudioLoad, LiveHistoryEntry, LiveHistoryTurn } from "./live-voice";
 import type { SubagentModelMap } from "./subagent-model";
 import type { ReviewRosterView, ReviewWriteRequest } from "./review-config";
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
@@ -105,6 +105,7 @@ import {
   glassChromeCodec,
   imageAttachmentCodec,
   knowledgeHomeCodec,
+  liveHistoryTurnCodec,
   mcpSetEnabledRequestCodec,
   nullable,
   num,
@@ -620,6 +621,31 @@ export const BACKEND_CHANNELS = {
   readLiveAudio: {
     channel: "liveAudio:read",
     ...request<[tabId: string, ref: string], LiveAudioLoad>([str(), str()]),
+  },
+  /**
+   * Persist one final spoken turn (#817). The renderer dispatches it the
+   * moment a final `live_transcript` frame lands, keyed by the connectionId
+   * it minted at `live_start` — the same identity #809's refs use. Appended
+   * to `<lineageDir>/live-transcript/<connectionId>.jsonl`; an invalid
+   * connection id or over-cap text is dropped, never written.
+   */
+  liveTranscriptAppend: {
+    channel: "liveTranscript:append",
+    ...request<[tabId: string, connectionId: string, entry: LiveHistoryTurn], void>([
+      str(),
+      str(),
+      liveHistoryTurnCodec,
+    ]),
+  },
+  /**
+   * The session's persisted spoken turns (#817), oldest connection first —
+   * disk enumeration, so a session that is not being viewed reads the same
+   * history. Malformed lines are skipped; an unknown tab or a session with
+   * no `live-transcript/` dir answers [], never an error.
+   */
+  liveTranscriptRead: {
+    channel: "liveTranscript:read",
+    ...request<[tabId: string], LiveHistoryEntry[]>([str()]),
   },
   /**
    * Provider credentials omp-ui supplies to every omp it launches, with the

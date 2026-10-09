@@ -255,6 +255,61 @@ export function parseLiveAudioRef(ref: string): LiveAudioRef | null {
 }
 
 /**
+ * One persisted spoken turn (#817): finals only — the renderer appends a
+ * line the moment a final `live_transcript` frame lands. Storage is
+ * `<lineageDir>/live-transcript/<connectionId>.jsonl`, so the row key is
+ * `(connectionId, role, turn)` and `final` is implied by the write. Distinct
+ * from the voice recap: display surface, not model context.
+ */
+export interface LiveHistoryTurn {
+  role: LiveRole;
+  turn: number;
+  text: string;
+}
+
+/** A persisted turn with the connection its file names stamped on it. */
+export interface LiveHistoryEntry extends LiveHistoryTurn {
+  connectionId: string;
+}
+
+/** Writer cap per turn: well above any real realtime turn, far below the
+ *  JSON transport's ceiling — an over-cap entry is dropped, never written. */
+export const LIVE_HISTORY_TEXT_MAX_BYTES = 65_536;
+/** Reader cap per connection file: read at most this many bytes, tail-trimmed
+ *  to a newline boundary — a longer file simply reads as its head. */
+export const LIVE_HISTORY_FILE_MAX_BYTES = 8 * 1024 * 1024;
+
+/** A minted connection id — the same UUID grammar `parseLiveAudioRef` admits
+ *  (#809); the history writer/reader and the arg codec all validate through it. */
+export function isLiveConnectionId(value: unknown): value is string {
+  return typeof value === "string" && UUID_SEGMENT.test(value);
+}
+
+/**
+ * Tolerant single-line parse (#817): a torn last line, a wrong role, a
+ * non-integer turn, or an over-cap text yields null — the reader skips, the
+ * writer drops. Unknown fields are ignored (forward tolerance inside one
+ * layout); the shape needs no connectionId, the file name carries it.
+ */
+export function parseLiveHistoryLine(line: string): LiveHistoryTurn | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const fields = value as Record<string, unknown>;
+  if (!isLiveRole(fields["role"])) return null;
+  const turn = fields["turn"];
+  if (typeof turn !== "number" || !Number.isSafeInteger(turn) || turn < 0) return null;
+  const text = fields["text"];
+  if (typeof text !== "string") return null;
+  if (new TextEncoder().encode(text).byteLength > LIVE_HISTORY_TEXT_MAX_BYTES) return null;
+  return { role: fields["role"], turn, text };
+}
+
+/**
  * Live voice park/resume (issue #811). A parked tab's call is closed, so the
  * resumed `live_start` carries the conversation as `instructions`: omp's
  * handler passes them to its controller and a passed string REPLACES the

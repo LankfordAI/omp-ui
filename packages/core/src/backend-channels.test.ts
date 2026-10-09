@@ -105,6 +105,12 @@ const VALID_ARGS = {
   hibernatePlanSource: ["source", "implementation"],
   listBranches: ["/project", { fetchUpstream: true }],
   listCompactionMethods: [],
+  liveTranscriptAppend: [
+    "tab-1",
+    "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+    { role: "assistant", turn: 2, text: "hi" },
+  ],
+  liveTranscriptRead: ["tab-1"],
   listLiveAudio: ["tab-1"],
   listProjectFiles: ["/project"],
   memoryOverview: ["/project"],
