@@ -6,7 +6,11 @@ This guide explains what users receive from a release and how maintainers publis
 
 - omp-ui now counts providers configured in OMP's `models.yml` as ready: a configured gateway starts new sessions and appears on the Providers page without a built-in key (#814).
 
-Live voice joins plan review (#818): an armed call reconnects at each proposal gate carrying the complete readable plan, speaks one automatic overview per gate, and answers spoken questions about it; "Explain this plan" requests a briefing on demand, and executing the plan carries the call to the implementation session. Verdicts stay human-only. See [ADR-0051](adr/0051-park-the-live-call-while-the-agent-works.md).
+- Live voice joins plan review: an armed call reconnects at each proposal gate carrying the complete readable plan, speaks one automatic overview per gate, and answers spoken questions about it; "Explain this plan" requests a briefing on demand, and executing the plan carries the call to the implementation session so exactly one tab owns the microphone. Verdicts stay human-only. See [ADR-0051](adr/0051-park-the-live-call-while-the-agent-works.md) (#818, #819, #821, #822).
+- The spoken exchange is kept: every final live voice turn is written to disk per connection, so the transcript strip survives park/resume, clean call ends, and app restarts (#817).
+- Live voice now starts only on the machine you are sitting at: remote web clients and joined remote tabs no longer arm the host's microphone, and fall back to the dictation mic instead (#816).
+- With the default auto thinking setting on, new sessions start on `auto` even when the project remembers a manual thinking level — one manual pick no longer permanently opts a project's new sessions out of auto (#823).
+- Submitting an HTML plan proposal no longer crashes the app in headless runs: the plan verifier's window runs offscreen (#820).
 
 ## Choose a download
 
