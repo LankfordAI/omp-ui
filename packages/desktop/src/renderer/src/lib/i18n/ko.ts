@@ -912,6 +912,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.providers.telemetryExport": "텔레메트리 내보내기",
   "settings.providers.noneConfigured": "프로바이더 credential 없음 — omp는 키가 필요 없는 모델만 제공할 수 있습니다",
   "settings.providers.someConfigured": "프로바이더 {total}개 중 {configured}개에 credential 있음",
+  "settings.providers.modelsFileNote":
+    "omp의 models.yml에 설정되어 여기서는 키가 필요 없습니다: {providers}",
   "settings.providers.encryptedPrefix": "추가한 키는 OS credential store에서 암호화됩니다(",
   "settings.providers.encryptedSuffix": ").",
   "settings.providers.noCredentialStore": "사용 가능한 OS credential store가 없어 키를 안전하게 저장할 수 없으므로 추가가 거부됩니다. 대신 shell profile에서 변수를 export하세요.",

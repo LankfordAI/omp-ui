@@ -222,7 +222,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity> } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity> } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -285,6 +285,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     registryFile,
     providerKeys,
     hasOAuthProvider: opts.hasOAuthProvider,
+    hasConfiguredModelsFileProvider: opts.hasConfiguredModelsFileProvider,
     getOmpPath: () => "/test/omp",
     // The collab poll never shells out in tests: every probe reads as a CLI
     // hiccup, which holds the last snapshot (issue #686).
@@ -2049,6 +2050,13 @@ describe("fresh-spawn provider gate (issue #368)", () => {
   it("rejects when no key is set and no oauth dep is wired at all", async () => {
     const { manager } = setup({ mode: "rpc-ui", providerEnv: {} });
     await expect(freshSpawn(manager)).rejects.toThrow("No model provider is configured");
+  });
+
+  it("proceeds when only a models.yml provider is configured", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui", providerEnv: {}, hasOAuthProvider: () => false, hasConfiguredModelsFileProvider: () => true });
+    const addSession = vi.spyOn(registry, "addSession");
+    await expect(freshSpawn(manager)).resolves.toMatchObject({ tabId: expect.any(String) });
+    expect(addSession).toHaveBeenCalled();
   });
 });
 

@@ -910,11 +910,19 @@ export function ProvidersPage({
     return <Empty title={t("settings.providers.readFailed")} hint={keysLoad.message} />;
   }
 
-  const { providers, encryptionAvailable, backend } = keysLoad.snapshot;
+  const { providers, encryptionAvailable, backend, configFileProviders } = keysLoad.snapshot;
   const oauthRows = oauth.status === "loaded" ? oauth.rows : [];
   const configured = providers.filter((p) => p.source !== "none");
   const configuredCount =
-    configured.length + oauthRows.filter((r) => r.credentials.length > 0).length;
+    configured.length +
+    oauthRows.filter((r) => r.credentials.length > 0).length +
+    configFileProviders.length;
+  // The note splits its own sentence around the id list so each provider id
+  // renders in mono (issue #814); a translation without the placeholder just
+  // appends the ids after the lead.
+  const [modelsFileLead, modelsFileTail = ""] = t(
+    "settings.providers.modelsFileNote",
+  ).split("{providers}");
   const totalCount = providers.length + oauthRows.length;
   // Unreadable saved entries never count as usable credentials.
   const unreadableCount = providers.filter(
@@ -994,6 +1002,18 @@ export function ProvidersPage({
                   }
                 />
               ))}
+              {id === "models" && configFileProviders.length > 0 && (
+                <p className="break-words py-2.5 text-[11px] leading-relaxed text-ink-faint">
+                  {modelsFileLead}
+                  {configFileProviders.map((providerId, index) => (
+                    <span key={providerId}>
+                      {index > 0 ? ", " : ""}
+                      <span className="font-mono">{providerId}</span>
+                    </span>
+                  ))}
+                  {modelsFileTail}
+                </p>
+              )}
               {id === "search" && (
                 <WebSearchProviderRow
                   load={load}

@@ -56,8 +56,9 @@ export function getOmpAgentDir(env: NodeJS.ProcessEnv = process.env): string {
 /** omp reads `config.yml` first, then `config.yaml` — same order here. */
 const CONFIG_FILENAMES = ["config.yml", "config.yaml"] as const;
 
-/** Strips `#` comments outside quotes and the trailing newline. */
-function scalar(raw: string): string {
+/** Strips `#` comments outside quotes and the trailing newline.
+ * Shared with the models-file reader; kept off the public core index. */
+export function scalar(raw: string): string {
   let out = "";
   let quote: string | undefined;
   for (const char of raw) {

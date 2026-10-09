@@ -998,6 +998,8 @@ export const en = {
     "No provider credentials — omp can only offer models that need no key",
   "settings.providers.someConfigured":
     "{configured} of {total} providers have a credential",
+  "settings.providers.modelsFileNote":
+    "Configured in omp's models.yml, so no key is needed here: {providers}",
   "settings.providers.encryptedPrefix":
     "Keys you add are encrypted by your OS credential store (",
   "settings.providers.encryptedSuffix": ").",

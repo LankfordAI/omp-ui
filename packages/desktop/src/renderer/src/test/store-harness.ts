@@ -311,8 +311,14 @@ const mockBackend = {
   getProviderOAuthState: vi.fn(async () => idleProviderOAuth),
   onProviderOAuthState: vi.fn(),
   readProviderKeys: vi.fn(
-    async (): Promise<{ providers: never[]; encryptionAvailable: boolean; backend: string }> => ({
+    async (): Promise<{
+      providers: never[];
+      configFileProviders: string[];
+      encryptionAvailable: boolean;
+      backend: string;
+    }> => ({
       providers: [],
+      configFileProviders: [],
       encryptionAvailable: true,
       backend: "test_stub",
     }),

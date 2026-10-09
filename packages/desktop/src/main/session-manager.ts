@@ -155,6 +155,12 @@ export interface SessionManagerDependencies {
    * wires it to ProviderOAuth.hasModelAccount.
    */
   hasOAuthProvider?: () => boolean;
+  /**
+   * A provider configured in omp's models.yml counts as a model provider
+   * for the fresh-spawn gate (issue #814); the desktop backend wires it to
+   * core's readModelsFileModelProviders.
+   */
+  hasConfiguredModelsFileProvider?: () => boolean;
   getOmpPath: () => string | null;
   getSessionsRoot: () => string;
   getArchiveRoot: () => string;
@@ -607,7 +613,8 @@ export class SessionManager {
     if (
       req.origin === "new" &&
       !this.deps.providerKeys.hasModelProvider(req.projectCwd) &&
-      !(this.deps.hasOAuthProvider?.() ?? false)
+      !(this.deps.hasOAuthProvider?.() ?? false) &&
+      !(this.deps.hasConfiguredModelsFileProvider?.() ?? false)
     ) {
       throw new Error(
         "No model provider is configured. Add an API key or sign in to a provider under Settings → Providers before starting a session.",

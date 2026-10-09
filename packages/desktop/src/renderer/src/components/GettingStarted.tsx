@@ -82,7 +82,8 @@ export function GettingStarted() {
         if (g !== gen.current) return;
         setProviderDone(
           keys.providers.some((row) => row.group === "models" && row.source !== "none") ||
-            subscriptions.some((row) => row.credentials.length > 0),
+            subscriptions.some((row) => row.credentials.length > 0) ||
+            keys.configFileProviders.length > 0,
         );
       },
       (err: unknown) => {
