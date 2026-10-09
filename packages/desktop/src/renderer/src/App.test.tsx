@@ -41,6 +41,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     extensionQueue: [], busy: false, initialPrompt: null,
     hasRenamed: true, titleAttempt: null, plan: null, planReview: null, planText: null, planHtml: null, planDeferred: false,
     planReadiness: null, experimentProposal: null, approvalPrompt: null,
+    planSourceKey: null, planVoice: { ready: false, busy: false, error: null },
     advisorStats: null, mcpStatus: null, advisorReply: true,
     capabilities: null, capabilitiesLoad: "idle", goal: null, vibe: null, sideQuestions: null, live: null, autoresearch: null, limits: null,
     subagentControlBusy: {}, subagentControlError: null,

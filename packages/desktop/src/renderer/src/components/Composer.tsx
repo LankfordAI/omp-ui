@@ -65,6 +65,8 @@ export function Composer({
   tabId,
   onPrompt,
   unprompted = false,
+  liveVoiceVisible = true,
+  onDictationActiveChange,
 }: {
   tabId: string;
   /** Fires when a non-slash draft is submitted on any route — the first one docks the hero. */
@@ -75,6 +77,9 @@ export function Composer({
    * send may convert the session to a worktree before the prompt goes out.
    */
   unprompted?: boolean;
+  /** Review owns the live controls while the composer draft stays mounted. */
+  liveVoiceVisible?: boolean;
+  onDictationActiveChange?: (active: boolean) => void;
 }) {
   const t = useT();
   // The palette's UI-authored descriptions must refresh with the locale, and
@@ -777,6 +782,11 @@ export function Composer({
 
   const voice = useDictation({ insert: insertAtCaret, focus: focusDraft });
   useDictationHotkey(tabId, voice, liveActive);
+  const dictationActive = voice.phase === "recording" || voice.phase === "requesting";
+  useEffect(() => {
+    onDictationActiveChange?.(dictationActive);
+  }, [dictationActive, onDictationActiveChange]);
+  useEffect(() => () => onDictationActiveChange?.(false), [onDictationActiveChange]);
   /** Commits a draft the ghost produced; the DOM caret lags the state write by a commit. */
   const applyGhostDraft = (next: { text: string; caret: number }): void => {
     setText(next.text);
@@ -1167,12 +1177,12 @@ export function Composer({
             <AttachmentButton disabled={unavailable} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
             {/* One voice affordance (issue #805): the live capsule takes the
                 mic's slot on a runtime with native live voice. */}
-            {liveSupported ? (
+            {liveSupported ? (liveVoiceVisible && (
               <LiveVoiceControl
                 tabId={tabId}
                 disabled={unavailable || voice.phase === "recording" || voice.phase === "requesting"}
               />
-            ) : (
+            )) : (
               /* Disabled buttons drop pointer events, so the title rides the
                  wrapper: reachable when the version gate drops out mid-live-session. */
               <span
@@ -1241,12 +1251,12 @@ export function Composer({
             <div className="flex min-h-11 items-center gap-1.5 px-1.5 pb-1.5">
               <AttachmentButton compact disabled={unavailable} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
               {/* Same exclusive slot in the compact row (issue #805). */}
-              {liveSupported ? (
+              {liveSupported ? (liveVoiceVisible && (
                 <LiveVoiceControl
                   tabId={tabId}
                   disabled={unavailable || voice.phase === "recording" || voice.phase === "requesting"}
                 />
-              ) : (
+              )) : (
                 <span
                   title={liveActive ? t("composer.live.micInUse") : undefined}
                   className={cn("inline-flex", liveActive && "cursor-not-allowed")}
@@ -1306,7 +1316,7 @@ export function Composer({
 
         <DictationStrip voice={voice} />
 
-        <LiveVoiceStrip tabId={tabId} />
+        {liveVoiceVisible && <LiveVoiceStrip tabId={tabId} />}
 
         {/* The worktree-conversion status lives here, not in the branch chip's
             popover (issue #227): the conversion runs on send, when the popover
@@ -1338,6 +1348,7 @@ export function Composer({
         tabId={tabId}
         projectCwd={cwd}
         unavailable={unavailable}
+        liveVoiceVisible={liveVoiceVisible}
         canSend={canSend}
         onSubmit={(route) => void submit(route)}
       />

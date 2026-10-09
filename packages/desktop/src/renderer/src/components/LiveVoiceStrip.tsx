@@ -27,7 +27,13 @@ const FOLLOW_SLACK = 24;
  * carries the composer card's own background treatment so scrolled transcript
  * never paints through the text (ADR-0026: no per-component translucency).
  */
-export function LiveVoiceStrip({ tabId }: { tabId: string }) {
+export function LiveVoiceStrip({
+  tabId,
+  layout = "composer",
+}: {
+  tabId: string;
+  layout?: "composer" | "review";
+}) {
   const t = useT();
   const compact = useCompactShell();
   const live = useStore((s) => s.rpc[tabId]?.live ?? null);
@@ -255,19 +261,31 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
 
   return (
     <div
+      ref={layout === "review" ? box : undefined}
+      onScroll={(e) => {
+        if (layout !== "review") return;
+        const el = e.currentTarget;
+        following.current = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_SLACK;
+      }}
       className={cn(
-        "animate-rise mt-2 rounded-lg border border-line text-[11px]",
+        "animate-rise min-w-0 rounded-lg border border-line text-[11px]",
+        layout === "composer" && "mt-2",
+        layout === "review" && "max-h-[min(6rem,18dvh)] overflow-y-auto overscroll-contain",
         compact ? "bg-raised" : "ambient glass-surface",
       )}
     >
       <div
-        ref={box}
+        ref={layout === "composer" ? box : undefined}
         onScroll={(e) => {
+          if (layout !== "composer") return;
           const el = e.currentTarget;
           following.current =
             el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_SLACK;
         }}
-        className="flex max-h-[min(10rem,30dvh)] flex-col gap-1 overflow-y-auto overscroll-contain px-3 pt-2"
+        className={cn(
+          "flex min-w-0 flex-col gap-1 px-3 pt-2",
+          layout === "composer" && "max-h-[min(10rem,30dvh)] overflow-y-auto overscroll-contain",
+        )}
       >
         {rows.map((row) => (
           <div
@@ -284,7 +302,7 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
             </span>
             <span
               className={cn(
-                "min-w-0 break-words",
+                "min-w-0 [overflow-wrap:anywhere]",
                 row.final ? "text-ink" : "text-ink-mid",
               )}
               data-selectable
@@ -311,7 +329,7 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
             <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
             <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
           </svg>
-          <span className="min-w-0 flex-1 break-words" data-selectable>
+          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]" data-selectable>
             {error}
           </span>
           <IconButton label={t("composer.live.dismiss")} onClick={() => clearLiveError(tabId)}>

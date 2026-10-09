@@ -73,14 +73,10 @@ import { peekTabRuntime, respData, type GetState, type StoreMachinery, type Watc
 import {
   armLiveWorkCapTimer,
   armLiveWorkQuietTimer,
-  bumpLiveVoiceGeneration,
   cancelLiveWorkQuietTimer,
-  claimLiveSwitch,
   clearLiveWorkTimers,
-  finishLiveSwitch,
   liveVoiceGeneration,
-  type LiveSwitchEntry,
-  type LiveSwitchMode,
+  planReviewGateKey,
 } from "./live-work-park";
 import {
   reduceAgentEvent,
@@ -493,6 +489,8 @@ export function createFrameReductionSlice(
         // arms itself from the first quiet `live_levels` frame after a loud
         // one (levels are edge-triggered, so counting frames would drift).
         if (get().state?.liveWorkParking === false) return;
+        // A review gate is already the wake boundary, never a new work park.
+        if (get().rpc[tabId]?.planReview !== null) return;
         const armLive = get().rpc[tabId]?.live;
         if (armLive === undefined || armLive === null || !isLiveSessionActive(armLive))
           return;
@@ -512,7 +510,7 @@ export function createFrameReductionSlice(
               liveVoiceGeneration(tabId) !== armGen
             )
               return;
-            scheduleLiveCallSwitch(tabId, "park");
+            void get().switchLiveVoice(tabId, { mode: "park" });
           });
         }
         return;
@@ -537,7 +535,7 @@ export function createFrameReductionSlice(
         if (get().rpc[tabId]?.live?.ended === false && wakeRt.liveParked !== true)
           return;
         if (get().activeTabId !== tabId) return;
-        scheduleLiveCallSwitch(tabId, "wake");
+        void get().switchLiveVoice(tabId, { mode: "wake" });
         return;
       }
       default: {
@@ -556,95 +554,12 @@ export function createFrameReductionSlice(
       if (effect.phase === phase) runAgentEventEffect(tabId, effect);
   };
 
-  /**
-   * Single-flight work-park switch (#815): `park` closes the open call,
-   * `wake` parks first when the call is still open and then starts a fresh
-   * one carrying the recap and any stored pending. A request landing while
-   * a cycle runs only re-queues (a wake upgrades a queued park: the world
-   * the park was scheduled for is already over), and exactly one
-   * re-evaluation pass follows the cycle. A failed park never starts — omp
-   * still owns the session, and a second `live_start` would be rejected.
-   */
-  const scheduleLiveCallSwitch = (tabId: string, mode: LiveSwitchMode): void => {
-    const claimed = claimLiveSwitch(tabId, mode);
-    if (claimed === "coalesced") return;
-    void runLiveCallSwitch(tabId, claimed);
-  };
-
-  /**
-   * Orphan refresh-restart (#811): an answer stored while the call could not
-   * receive it rides a fresh start's instructions. It runs through the
-   * work-park switch (#815) so a concurrent park/wake cannot double-dispatch
-   * the pair of verbs; the wake mode parks first (the #808 ordering lesson —
-   * the mic must be released before a new `live_start` reaches for it),
-   * `parkLiveVoice` folds the current turns into the recap, and
-   * `startLiveVoice` rebuilds the instructions from the runtime, so the
-   * stored answer rides along and `liveParked` clears on the ack. The orphan
-   * flag clears BEFORE scheduling: a failed start owns its error line
-   * (startLiveVoice's sendFailed path) and never restarts every `listening`
-   * frame.
-   */
+  /** Orphan answers share the work/visibility/review switch. Clear before
+   * scheduling so a failed refresh never loops on listening frames. */
   const restartLiveCall = (tabId: string): void => {
     m.patchRuntime(tabId, { liveOrphanRestart: false });
-    scheduleLiveCallSwitch(tabId, "wake");
+    void get().switchLiveVoice(tabId, { mode: "wake" });
   };
-
-  const runLiveCallSwitch = async (
-    tabId: string,
-    entry: LiveSwitchEntry,
-  ): Promise<void> => {
-    for (;;) {
-      await runLiveCallPass(tabId, entry);
-      // A guard exit frees the slot the same way a finished pass does:
-      // `finishLiveSwitch` drops it when nothing queued, and re-runs
-      // exactly once when something did — the re-evaluation re-checks the
-      // guards, so a superseded wake can never loop.
-      const again = finishLiveSwitch(tabId);
-      if (again === null) return;
-      entry = again;
-    }
-  };
-
-  /** One switch pass; its guards answer for the world at dispatch time. */
-  const runLiveCallPass = async (
-    tabId: string,
-    entry: LiveSwitchEntry,
-  ): Promise<void> => {
-    if (entry.mode === "wake") {
-      const live = get().rpc[tabId]?.live;
-      if (live !== undefined && live !== null && isLiveSessionActive(live)) {
-        // Open-but-parked means the park's stop is still in flight: wait
-        // for it instead of re-parking (which would double-fold the
-        // recap); otherwise park first so the recap folds and the mic
-        // releases before the new `live_start` reaches for it.
-        const stopRt = peekTabRuntime(tabId);
-        if (stopRt?.liveParked === true)
-          await stopRt.liveStopInFlight?.catch(() => undefined);
-        else await get().parkLiveVoice(tabId);
-      }
-      const after = get().rpc[tabId]?.live;
-      // The park failed or the call is open again: omp owns the session,
-      // and a second `live_start` would only be rejected.
-      if (after !== undefined && after !== null && isLiveSessionActive(after))
-        return;
-      const rt = peekTabRuntime(tabId);
-      if (rt === undefined || rt.liveVoiceOwner !== true || rt.liveArmed !== true)
-        return;
-      // A fresh cancellation boundary for this start: continuations of
-      // anything the parked call left in flight die here (#815).
-      bumpLiveVoiceGeneration(tabId);
-      clearLiveWorkTimers(tabId);
-      await get().startLiveVoice(tabId);
-      return;
-    }
-    const live = get().rpc[tabId]?.live;
-    // Already ended, or ended on its own: nothing to park.
-    if (live === undefined || live === null || !isLiveSessionActive(live))
-      return;
-    await get().parkLiveVoice(tabId);
-    return;
-  };
-
 
   const handleRpcFrame = (tabId: string, frame: object): void => {
     
@@ -868,18 +783,16 @@ export function createFrameReductionSlice(
           const frameId = control?.kind === "ext_request" ? control.id : undefined;
           const review = parsePlanReviewTitle(strField(frame, "title"));
           if (review) {
-            m.patchRpc(tabId, {
-              planReview: { request: review, frame },
-              // A fresh proposal is never deferred — it demands its verdict.
-              planDeferred: false,
-            });
+            const nextReview = { request: review, frame };
+            if (tab.planReview !== null &&
+              planReviewGateKey(tab.planReview) === planReviewGateKey(nextReview)) return;
             const planItem = planProposalItem(
               review.title,
               review.planFilePath,
               review.planAbsPath,
             );
             m.appendItem(tabId, planItem);
-            void get().loadPlanText(tabId, review.planAbsPath, planItem.id);
+            get().acceptPlanReview(tabId, nextReview, planItem.id);
             return;
           }
           const proposal = parseExperimentProposalTitle(strField(frame, "title"));
@@ -1068,8 +981,10 @@ export function createFrameReductionSlice(
           // the previous one.
           const phase = parseLivePhaseFrame(frame);
           if (phase !== null) {
-            const live = tab.live ?? emptyLiveSnapshot();
+            const live = phase === "connecting" && runtime.liveStartInFlight !== undefined
+              ? emptyLiveSnapshot() : tab.live ?? emptyLiveSnapshot();
             m.patchRpc(tabId, { live: applyLivePhase(live, phase) });
+            get().reconcileLivePlanReview(tabId);
             // Orphan refresh-restart (#811): a stored answer the open call
             // could not receive rides the next start's instructions. Only a
             // fresh transition into `listening` restarts — never during
@@ -1097,6 +1012,10 @@ export function createFrameReductionSlice(
           if (levels !== null) {
             const live = tab.live ?? emptyLiveSnapshot();
             m.patchRpc(tabId, { live: applyLiveLevels(live, levels.input, levels.output) });
+            // The first level report can be a late view's only evidence of an
+            // existing call. Publish review ownership without inventing a phase.
+            if (tab.live?.phase == null && tab.live?.levels == null && tab.planReview !== null)
+              get().reconcileLivePlanReview(tabId);
             // Work-park quiet deadline (#815): levels are edge-triggered,
             // so the park moment is a scheduled check, not a frame count —
             // a loud frame (the model still speaking, e.g. its "working on
@@ -1126,7 +1045,7 @@ export function createFrameReductionSlice(
                     get().activeTabId !== tabId
                   )
                     return;
-                  scheduleLiveCallSwitch(tabId, "park");
+                  void get().switchLiveVoice(tabId, { mode: "park" });
                 });
               }
             }
@@ -1178,11 +1097,11 @@ export function createFrameReductionSlice(
           // without it, the resume would speak a recap missing the
           // conversation that just happened. An armed session keeps its
           // intent: the turns fold into the recap and liveParked hands the
-          // call back to the enter guard. An explicit stop reaches
-          // live_end with the snapshot already `ended`, a park with the
-          // fold already done, so this branch cannot double-fold; and
-          // appendLiveRecap dedupes by turn key regardless.
-          if (isLiveSessionActive(live) && m.runtime(tabId).liveArmed === true) {
+          // call back to the enter guard. A park marks liveParked before its
+          // stop dispatch, so an early live_end cannot fold those turns again.
+          const endedRt = m.runtime(tabId);
+          if (isLiveSessionActive(live) && endedRt.liveArmed === true &&
+            endedRt.liveParked !== true) {
             const foldRt = m.runtime(tabId);
             m.patchRuntime(tabId, {
               liveRecap: appendLiveRecap(foldRt.liveRecap, live.turns),
@@ -1190,6 +1109,7 @@ export function createFrameReductionSlice(
             });
             m.syncLiveVoiceBadge(tabId);
           }
+          get().reconcileLivePlanReview(tabId);
           return;
         }
         default: {

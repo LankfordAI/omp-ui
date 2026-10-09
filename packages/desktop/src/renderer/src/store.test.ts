@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   BackendState,
   BranchList,
@@ -355,6 +355,36 @@ describe("deriveSidebarSessionState", () => {
   });
 });
 
+describe("plan review relaunch lifetime", () => {
+  it("preparing a resume retires loaded review bytes, readiness, and reactive voice state", async () => {
+    h.useStore.setState({
+      state: h.stateWithRecord("saved-session", "dormant"),
+      tabs: [tabInfo({ tabId: h.TAB })],
+      rpc: { [h.TAB]: rpcTabState() },
+    });
+    h.useStore.getState().acceptPlanReview(h.TAB, {
+      request: { title: "old process plan", planFilePath: "local://old.html", planAbsPath: "/l/old.html" },
+      frame: { id: "old-process-gate" },
+    });
+    await h.flushMicrotasks();
+    const sourceKey = h.useStore.getState().rpc[h.TAB]!.planSourceKey!;
+    h.useStore.getState().setPlanReadiness(h.TAB, { sourceKey, status: "ready" });
+    const spawning = h.deferred<{ tabId: string }>();
+    h.mockBackend.spawnSession.mockReturnValueOnce(spawning.promise);
+    const resuming = h.useStore.getState().resumeDead(h.TAB);
+    expect(h.useStore.getState().rpc[h.TAB]!).toMatchObject({
+      status: "starting", planReview: null, planText: null, planHtml: null,
+      planSourceKey: null, planReadiness: null, planDeferred: false,
+      planVoice: { ready: false, busy: false, error: null },
+    });
+    h.useStore.getState().setPlanReadiness(h.TAB, { sourceKey, status: "ready" });
+    expect(h.useStore.getState().rpc[h.TAB]!.planReadiness).toBeNull();
+    expect(h.sent.some((s) => s.cmd.type === "live_start")).toBe(false);
+    spawning.resolve({ tabId: h.TAB });
+    await resuming;
+  });
+});
+
 describe("settings", () => {
   it("opens on general by default, honours an explicit page, and closes back to null", () => {
     h.useStore.getState().openSettings();
@@ -588,6 +618,16 @@ describe("live voice park/resume (issue #811)", () => {
   const A = "tab-801-a";
   const B = "tab-801-b";
 
+  // #816: dispatching live verbs requires the Electron-shell signal; the
+  // whole suite opts in (per-test try/finally below stays harmless).
+  beforeEach(() => {
+    platformMocks.electron = true;
+  });
+
+  afterEach(() => {
+    platformMocks.electron = false;
+  });
+
   const version = (ompVersion: string): CapabilitySnapshot =>
     ({ ompVersion }) as unknown as CapabilitySnapshot;
   const liveSnap = (phase: LivePhase | null, ended = false): LiveSnapshot => ({
@@ -675,6 +715,58 @@ describe("live voice park/resume (issue #811)", () => {
     });
   };
 
+  it("deferring and reopening a reviewed source preserve the healthy call and overview accounting", async () => {
+    const { fresh, peek } = await freshGuardedStore();
+    seedRpc(fresh, null);
+    await arm(fresh, A);
+    const gate = {
+      request: { title: "held plan", planFilePath: "local://held.html", planAbsPath: "/l/held.html" },
+      frame: { id: "held" },
+    };
+    const gateKey = JSON.stringify(["held", "/l/held.html", null]);
+    const sourceKey = JSON.stringify([gateKey, 1]);
+    const runtime = peek(A)!;
+    runtime.liveReviewAppliedSourceKey = sourceKey;
+    runtime.liveReviewAutoRequestedGateKey = gateKey;
+    runtime.liveReviewExplicitBriefingKey = gateKey;
+    runtime.liveReviewTextCache = { sourceKey, text: "Held plan purpose" };
+    runtime.livePendingFeedback.push("An undelivered final answer");
+    fresh.setState({ rpc: {
+      ...fresh.getState().rpc,
+      [A]: {
+        ...fresh.getState().rpc[A]!,
+        planReview: gate,
+        planText: "<p>Held plan purpose</p>",
+        planHtml: "<p>Held plan purpose</p>",
+        planSourceKey: sourceKey,
+        planReadiness: { sourceKey, status: "ready" },
+        planVoice: { ready: true, busy: false, error: null },
+      },
+    } });
+    fresh.getState().deferPlanReview(A);
+    await h.flushMicrotasks();
+    expect(fresh.getState().rpc[A]!.planDeferred).toBe(true);
+    expect(fresh.getState().rpc[A]!.live?.phase).toBe("listening");
+    expect(runtime.liveArmed).toBe(true);
+    expect(runtime.liveReviewAppliedSourceKey).toBe(sourceKey);
+    expect(runtime.liveReviewAutoRequestedGateKey).toBe(gateKey);
+    expect(runtime.liveReviewExplicitBriefingKey).toBe(gateKey);
+    expect(runtime.livePendingFeedback).toEqual(["An undelivered final answer"]);
+    fresh.getState().showPlanReview(A);
+    await h.flushMicrotasks();
+    expect(fresh.getState().rpc[A]!.planDeferred).toBe(false);
+    expect(fresh.getState().rpc[A]!.planSourceKey).toBe(sourceKey);
+    expect(sentOf("live_stop")).toEqual([]);
+    expect(sentOf("live_start")).toEqual([]);
+    expect(runtime.liveReviewAutoRequestedGateKey).toBe(gateKey);
+    const stopping = fresh.getState().stopLiveVoice(A);
+    await settleSends(fresh);
+    await stopping;
+    expect(runtime.liveReviewAutoRequestedGateKey).toBeUndefined();
+    expect(runtime.liveReviewAppliedSourceKey).toBeNull();
+    expect(runtime.liveReviewTextCache).toBeUndefined();
+  });
+
   it("leaving an armed session closes the call, keeps the intent (AC 1)", async () => {
     // #816: `startLiveVoice` gates on the live-audio hardware check, so every
     // arm/resume below needs the desktop shell; the mock pattern is #623's.
@@ -755,16 +847,25 @@ describe("live voice park/resume (issue #811)", () => {
       const { fresh } = await freshGuardedStore();
       seedRpc(fresh, null, null);
       await arm(fresh, A);
+      fresh.getState().focusTab(B);
+      await settleSends(fresh);
+      h.sent.length = 0;
       await arm(fresh, B);
+      fresh.getState().focusTab(A);
+      await settleSends(fresh);
+      expect(fresh.getState().rpc[A]?.live?.ended).toBe(false);
+      expect(fresh.getState().rpc[B]?.live?.ended).toBe(true);
       h.sent.length = 0;
 
       fresh.getState().focusTab(B);
 
-      // Left behind: A parks. Entered: B is open, not parked — never restarted.
+      // Both were armed while viewed: A parks as the parked B resumes.
       expect(sentOf("live_stop")).toEqual([
         { tabId: A, cmd: expect.objectContaining({ type: "live_stop" }) },
       ]);
-      expect(sentOf("live_start")).toEqual([]);
+      expect(sentOf("live_start")).toEqual([
+        { tabId: B, cmd: expect.objectContaining({ type: "live_start" }) },
+      ]);
       expect(fresh.getState().rpc[A]?.live?.ended).toBe(false); // stop not acked yet
       await settleSends(fresh);
       expect(fresh.getState().rpc[A]?.live?.ended).toBe(true);
@@ -1131,6 +1232,76 @@ describe("mounted tab reconciliation (issues #416 and #510)", () => {
     expect(fresh.getState().handedOffFor).toEqual({
       [source.tabId]: replacement.tabId,
     });
+  });
+
+  it("keeps the newest launch across reordered activity broadcasts and a human release", async () => {
+    const source = record("plan-source", "rpc-ui", "/keep");
+    const provenance = {
+      sourceTabId: source.tabId,
+      planTitle: "Ship it",
+      planFilePath: "local://plan.md",
+    };
+    const older = {
+      ...record("implementation-old", "rpc-ui", "/keep"),
+      launchedAt: "2026-10-09T10:00:00.000Z",
+      cachedModified: "2026-10-09T12:00:00.000Z",
+      planImplementationSource: provenance,
+    };
+    const newer = {
+      ...older,
+      tabId: "implementation-new",
+      launchedAt: "2026-10-09T11:00:00.000Z",
+      cachedModified: "2026-10-09T11:00:00.000Z",
+    };
+    const { fresh, onState } = await seeded(localState([source, older]));
+    onState(localState([newer, source, older]));
+    expect(fresh.getState().handedOffFor).toEqual({ [source.tabId]: newer.tabId });
+
+    fresh.setState({
+      tabs: [tabInfo({ tabId: newer.tabId, projectCwd: "/keep" })],
+      activeTabId: newer.tabId,
+      focusedTabByProject: { "/keep": newer.tabId },
+    });
+    const startLiveVoice = vi.spyOn(fresh.getState(), "startLiveVoice");
+    onState(localState([older, newer, source]));
+    expect(fresh.getState().observedPlanHandoffs).toEqual({ [source.tabId]: newer.tabId });
+    expect(fresh.getState().handedOffFor).toEqual({ [source.tabId]: newer.tabId });
+    expect(fresh.getState().activeTabId).toBe(newer.tabId);
+    expect(fresh.getState().focusedTabByProject["/keep"]).toBe(newer.tabId);
+    expect(startLiveVoice).not.toHaveBeenCalled();
+
+    fresh.setState({ handedOffFor: {} });
+    onState(localState([newer, older, source]));
+    onState(localState([source, older, newer]));
+    expect(fresh.getState().handedOffFor).toEqual({});
+    expect(fresh.getState().observedPlanHandoffs).toEqual({ [source.tabId]: newer.tabId });
+
+    const newest = { ...newer, tabId: "implementation-newest", launchedAt: "2026-10-09T13:00:00.000Z" };
+    onState(localState([newest, newer, older, source]));
+    expect(fresh.getState().handedOffFor).toEqual({ [source.tabId]: newest.tabId });
+    startLiveVoice.mockRestore();
+  });
+
+  it("resolves launch ties deterministically across local and remote project order", async () => {
+    const source = record("plan-source", "rpc-ui", "/keep");
+    const implementation = {
+      ...record("implementation-a", "rpc-ui", "/keep"),
+      launchedAt: "2026-10-09T11:00:00.000Z",
+      planImplementationSource: { sourceTabId: source.tabId, planTitle: "Ship it", planFilePath: "local://plan.md" },
+    };
+    const tied = { ...implementation, tabId: "implementation-z", projectCwd: "/p" };
+    const snapshot = {
+      ...localState([source, implementation]),
+      remoteInstances: withInstance("joined", [tied]).remoteInstances,
+    };
+    const { fresh, onState } = await seeded(snapshot);
+    expect(fresh.getState().observedPlanHandoffs).toEqual({ [source.tabId]: tied.tabId });
+    onState({
+      ...localState([source, { ...tied, projectCwd: "/keep" }]),
+      remoteInstances: withInstance("joined", [{ ...implementation, projectCwd: "/p" }]).remoteInstances,
+    });
+    expect(fresh.getState().observedPlanHandoffs).toEqual({ [source.tabId]: tied.tabId });
+    expect(fresh.getState().handedOffFor).toEqual({ [source.tabId]: tied.tabId });
   });
 
   it("drops locally owned tabs omitted from the authoritative project snapshot", async () => {

@@ -442,7 +442,7 @@ export async function preparePlanDocument(
 }
 
 /** Prepared-document state exposed to the plan surfaces (§3). */
-export type PreparedPlanState =
+export type PreparedPlanState = { sourceKey?: string } & (
   | { status: "pending" }
   | { status: "ready"; doc: string; diagnostics: PlanDiagnostic[]; identity?: string }
   | { status: "failed"; doc: string | null; diagnostics: PlanDiagnostic[]; identity?: string }
@@ -451,7 +451,8 @@ export type PreparedPlanState =
       doc: string | null;
       diagnostics: PlanDiagnostic[];
       identity?: string;
-    };
+    }
+);
 
 
 

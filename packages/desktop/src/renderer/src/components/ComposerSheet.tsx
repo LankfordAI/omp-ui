@@ -29,6 +29,7 @@ export function ComposerSheet({
   tabId,
   projectCwd,
   unavailable,
+  liveVoiceVisible = true,
   canSend,
   onSubmit,
 }: {
@@ -37,6 +38,7 @@ export function ComposerSheet({
   tabId: string;
   projectCwd: string | undefined;
   unavailable: boolean;
+  liveVoiceVisible?: boolean;
   canSend: boolean;
   onSubmit: (route: PromptRoute | "interrupt") => void;
 }) {
@@ -96,7 +98,7 @@ export function ComposerSheet({
               <FastModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
             </div>
           )}
-          {liveSupported && (
+          {liveSupported && liveVoiceVisible && (
             <div className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
               <LiveVoiceControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
             </div>

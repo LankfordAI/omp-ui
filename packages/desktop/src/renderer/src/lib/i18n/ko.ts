@@ -594,6 +594,15 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "plan.review.stepReview": "플랜 검토",
   "plan.review.stepRefine": "변경 요청",
   "plan.review.stepSetup": "구현 설정",
+  "plan.review.liveVoice": "실시간 음성",
+  "plan.review.explainPlan": "이 플랜 설명",
+  "plan.review.startExplainPlan": "실시간 음성을 시작하고 설명",
+  "plan.review.voicePreparing": "플랜 컨텍스트 준비 중…",
+  "plan.review.voiceUnavailable": "검토 중인 플랜을 실시간 음성에 제공할 수 없습니다.",
+  "plan.review.voiceOwnedElsewhere":
+    "다른 화면에서 실시간 음성을 제어 중입니다. 플랜 설명을 들으려면 음성을 중지한 뒤 여기서 시작하세요.",
+  "plan.review.voiceVerdicts":
+    "여기서 논의하고, 수정 요청이나 실행은 검토 컨트롤을 사용하세요.",
   "plan.context.sameSession": "이 세션",
   "plan.context.compactedSession": "이 세션, 압축됨",
   "plan.context.freshSession": "새 세션",

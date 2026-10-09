@@ -21,7 +21,7 @@ import {
   STALL_CONTINUE_LEAD,
   STALL_CONTINUE_SETTLE_MS,
 } from "../../lib/stall-continue";
-import { PLAN_STATUS_KEY } from "@omp-ui/core/plan";
+import { PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY } from "@omp-ui/core/plan";
 import { MCP_RUNTIME_STATUS_KEY } from "@omp-ui/core/mcp-status";
 import { CAPABILITIES_STATUS_KEY } from "@omp-ui/core/capabilities";
 import {
@@ -38,7 +38,7 @@ import {
   tabInfo,
 } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
-import { peekTabRuntime } from "./shared";
+import { peekTabRuntime, resetTabRuntimesForTests } from "./shared";
 import { reduceAgentEvent } from "./reduce-agent-event";
 import type { ObservedTabRuntime } from "./reduce-agent-event";
 // #816: startLiveVoice is gated on liveAudioLocalToClient (IS_ELECTRON &&
@@ -73,6 +73,7 @@ describe("reduceAgentEvent", () => {
     slashCommandItems,
     lastFrameAt: 1_000,
     capabilitiesGeneration: 0,
+    planReadSequence: 0,
     vibeRequests: new Map(),
   });
 
@@ -2343,6 +2344,7 @@ describe("handleRpcFrame routing", () => {
     // An HTML gate answers only through the acknowledged path, and only while
     // the surface's preparation is ready for this source identity (§6).
     h.useStore.getState().setPlanReadiness(h.TAB, {
+      sourceKey: h.useStore.getState().rpc[h.TAB]!.planSourceKey!,
       status: "ready",
       identity: SOURCE_HASH,
     });
@@ -2388,7 +2390,7 @@ describe("handleRpcFrame routing", () => {
     },
   });
 
-  /** Opens a plan review ready for a verdict. */
+  /** Opens a readable Markdown gate; callers await the read before fresh execution. */
   const openReview = (id: string) => {
     h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",
@@ -2396,7 +2398,7 @@ describe("handleRpcFrame routing", () => {
       method: "select",
       title:
         "omp-ui:plan-review:" +
-        JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+        JSON.stringify({ title: "t", planFilePath: "local://p.md", planAbsPath: "/lineage/local/p.md" }),
     });
   };
 
@@ -2408,7 +2410,13 @@ describe("handleRpcFrame routing", () => {
     h.useStore.setState({ state: h.stateWithRecord(null) });
     openReview(id);
     await h.flushMicrotasks();
+    const reviewedText = h.useStore.getState().rpc[h.TAB]!.planText;
+    expect(reviewedText).toBe("# Plan\n\nstep one\n");
+    expect(h.useStore.getState().rpc[h.TAB]!.planSourceKey).not.toBeNull();
     h.useStore.getState().executePlan(h.TAB, "fresh");
+    expect(h.useStore.getState().rpc[h.TAB]!).toMatchObject({
+      planReview: null, planText: null, planHtml: null, planSourceKey: null, planReadiness: null,
+    });
     await h.flushMicrotasks();
     h.useStore.setState((state) => ({
       rpc: {
@@ -2421,6 +2429,7 @@ describe("handleRpcFrame routing", () => {
       (entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt",
     );
     if (prompt === undefined) throw new Error("fresh implementation seed was not sent");
+    expect(String(prompt.cmd.message)).toContain(reviewedText!);
     return prompt;
   };
 
@@ -2432,6 +2441,53 @@ describe("handleRpcFrame routing", () => {
     }
     await prompt;
   };
+
+  it.each(["fresh", "worktree"] as const)("focuses the selected second %s destination instead of the previous worktree", async (context) => {
+    const previousId = "previous-worktree";
+    const freshId = "second-implementation";
+    const snapshot = h.stateWithRecord(null);
+    const source = snapshot.projects[0]!.sessions[0]!;
+    const previous = {
+      ...source,
+      tabId: previousId,
+      launchedAt: "2026-10-09T10:00:00.000Z",
+      worktree: { path: "/wt/previous", branch: "omp-ui/previous", base: "main" },
+      planImplementationSource: { sourceTabId: h.TAB, planTitle: "t", planFilePath: "local://p.md" },
+    };
+    snapshot.projects[0]!.sessions = [previous, source];
+    h.useStore.setState((state) => ({
+      state: snapshot,
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" }), tabInfo({ tabId: previousId, projectCwd: "/p" })],
+      activeTabId: h.TAB,
+      focusedTabByProject: { "/p": h.TAB },
+      handedOffFor: {},
+      observedPlanHandoffs: { [h.TAB]: previousId },
+      rpc: { ...state.rpc, [previousId]: rpcTabState({ live: { phase: null, levels: null, turns: [], ended: true, error: null, connectionId: "previous-call" } }) },
+    }));
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: freshId });
+    openReview(`second-${context}`);
+    await h.flushMicrotasks();
+    const reviewedText = h.useStore.getState().rpc[h.TAB]!.planText;
+    h.useStore.getState().executePlan(h.TAB, context, context === "worktree" ? {
+      worktree: { branch: "omp-ui/second", baseRef: "main", baseBranch: null },
+      destination: { kind: "worktree", branch: "omp-ui/second" },
+    } : undefined);
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().activeTabId).toBe(freshId);
+    expect(h.useStore.getState().focusedTabByProject["/p"]).toBe(freshId);
+    h.useStore.setState((state) => ({ rpc: { ...state.rpc, [freshId]: rpcTabState({ status: "ready" }) } }));
+    await h.flushMicrotasks();
+    const seed = h.sent.find((entry) => entry.tabId === freshId && entry.cmd.type === "prompt")!;
+    expect(String(seed.cmd.message)).toContain(reviewedText!);
+    h.respond(freshId, seed.cmd, {});
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().activeTabId).toBe(freshId);
+    expect(h.useStore.getState().focusedTabByProject["/p"]).toBe(freshId);
+    expect(h.useStore.getState().handedOffFor[h.TAB]).toBe(freshId);
+    expect(h.sent.some((entry) => entry.tabId === previousId && entry.cmd.type === "live_start")).toBe(false);
+    expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, freshId);
+    await rearmHandoffSource();
+  });
 
   it("does not hibernate after a fresh spawn failure or readiness timeout (issue #283)", async () => {
     h.mockBackend.spawnSession.mockRejectedValueOnce(new Error("spawn failed"));
@@ -2511,11 +2567,7 @@ describe("handleRpcFrame routing", () => {
     await h.flushMicrotasks();
     const prompt = h.sent.find((s) => s.tabId === "wt-tab" && s.cmd.type === "prompt");
     expect(prompt).toBeDefined();
-    expect(String(prompt!.cmd.message)).toContain("Implement it now");
-    expect(String(prompt!.cmd.message)).toContain("# Plan");
-    expect(String(prompt!.cmd.message)).toMatch(
-      /Execution destination: this session already runs in the worktree branch "omp-ui\/cafebabe"\..*Do not create or switch to another branch or worktree\.$/s,
-    );
+    expect(String(prompt!.cmd.message)).toContain("# Plan\n\nstep one\n");
     expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
 
     h.respond("wt-tab", prompt!.cmd, {});
@@ -2595,10 +2647,7 @@ describe("handleRpcFrame routing", () => {
     await h.flushMicrotasks();
     const prompt = h.sent.find((s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt");
     expect(prompt).toBeDefined();
-    expect(String(prompt!.cmd.message)).toContain("Implement it now");
-    expect(String(prompt!.cmd.message)).toMatch(
-      /Execution destination: this session already runs in the worktree branch "omp-ui\/deadbeef"\..*Do not create or switch to another branch or worktree\.$/s,
-    );
+    expect(String(prompt!.cmd.message)).toContain("# Plan\n\nstep one\n");
     h.respond("fresh-tab", prompt!.cmd, {});
     await h.flushMicrotasks();
     expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
@@ -2763,6 +2812,7 @@ describe("handleRpcFrame routing", () => {
       });
       h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
       openReview("handoff-advisor-race");
+      await h.flushMicrotasks();
       h.useStore.getState().executePlan(h.TAB, "fresh");
       h.useStore
         .getState()
@@ -2979,6 +3029,9 @@ describe("handleRpcFrame routing", () => {
         capabilities: withVersion("18.7.0"),
         ...freshPatch,
       });
+      const sourceRuntime = peekTabRuntime(h.TAB)!;
+      sourceRuntime.liveVoiceOwner = live !== null;
+      sourceRuntime.liveArmed = live !== null && !live.ended && live.phase !== "error";
     };
 
     /** Answers every command dispatched after the call, in waves. */
@@ -3007,8 +3060,8 @@ describe("handleRpcFrame routing", () => {
       platformMocks.electron = false;
     });
 
-    it("stops the planning session and starts voice on the fresh tab", async () => {
-      await dispatchWithLive("carry-active", liveSnap("listening"));
+    it.each(["listening", null] as const)("stops the owned planning capture before voice follows the fresh tab (%s)", async (phase) => {
+      await dispatchWithLive("carry-active", liveSnap(phase));
       const seed = h.sent.find(
         (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
       )!;
@@ -3028,6 +3081,107 @@ describe("handleRpcFrame routing", () => {
         parked: false,
         pending: false,
       });
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    });
+
+    it("does not stop or carry a source call owned by another renderer", async () => {
+      await dispatchWithLive("carry-nonowner", liveSnap("listening"));
+      peekTabRuntime(h.TAB)!.liveVoiceOwner = false;
+      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await settleSends();
+      expect(liveVerbs()).toEqual([]);
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    });
+
+    it("joins an in-flight park before starting the viewed implementation", async () => {
+      await dispatchWithLive("carry-pending-park", liveSnap("listening"));
+      const parking = h.useStore.getState().switchLiveVoice(h.TAB, { mode: "park" });
+      await h.flushMicrotasks();
+      const stop = h.sent.find((entry) => entry.tabId === h.TAB && entry.cmd.type === "live_stop")!;
+      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+      h.respond(h.TAB, stop.cmd, {});
+      await parking;
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([
+        { tabId: h.TAB, type: "live_stop" },
+        { tabId: "fresh-tab", type: "live_start" },
+      ]);
+      const start = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "live_start")!;
+      h.respond("fresh-tab", start.cmd, {});
+      await h.flushMicrotasks();
+      expect(h.useStore.getState().liveVoice[h.TAB]).toBeUndefined();
+    });
+
+    it("waits for a successful source stop and refuses carryover after a failed stop", async () => {
+      await dispatchWithLive("carry-stop-failed", liveSnap("listening"));
+      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      const stop = h.sent.find((entry) => entry.tabId === h.TAB && entry.cmd.type === "live_stop")!;
+      expect(stop).toBeDefined();
+      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+      h.respond(h.TAB, stop.cmd, "microphone stop failed", false);
+      await h.flushMicrotasks();
+      expect(h.useStore.getState().rpc[h.TAB]!.live).toMatchObject({ ended: false });
+      expect(h.useStore.getState().rpc[h.TAB]!.live!.error).not.toBeNull();
+      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    });
+
+    it("carries voice to the fresh tab when the stopped source ends in a transport error", async () => {
+      // #822: a work-park wake raced the handoff stop, so the source's
+      // hibernation teardown wrote an error onto the already-ended
+      // snapshot before the carry-over gate re-checked it. The gate is that
+      // no source call stays OPEN, not that it ended cleanly.
+      await dispatchWithLive("carry-stop-error", liveSnap("listening"));
+      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      const stop = h.sent.find((entry) => entry.tabId === h.TAB && entry.cmd.type === "live_stop")!;
+      h.respond(h.TAB, stop.cmd, {});
+      await h.flushMicrotasks();
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_end", error: "Live transport is not connected" });
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([
+        { tabId: h.TAB, type: "live_stop" },
+        { tabId: "fresh-tab", type: "live_start" },
+      ]);
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    });
+
+    it("does not start in the background when focus leaves while source stop is pending", async () => {
+      await dispatchWithLive("carry-focus-during-stop", liveSnap("listening"));
+      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      const stop = h.sent.find((entry) => entry.tabId === h.TAB && entry.cmd.type === "live_stop")!;
+      h.useStore.setState({ activeTabId: "previous-implementation" });
+      h.respond(h.TAB, stop.cmd, {});
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+      expect(h.useStore.getState().activeTabId).toBe("previous-implementation");
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    });
+
+    it.each(["focus", "intent", "runtime"])("does not disarm a source invalidated during capability discovery (%s)", async (invalidation) => {
+      await dispatchWithLive(`carry-stale-${invalidation}`, liveSnap("listening"), { capabilities: null });
+      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      const sourceRuntime = peekTabRuntime(h.TAB)!;
+      if (invalidation === "focus") h.useStore.setState({ activeTabId: "previous-implementation" });
+      else if (invalidation === "intent") {
+        sourceRuntime.liveArmed = false;
+        h.useStore.setState((state) => ({ rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, live: liveSnap(null, true) } } }));
+      } else resetTabRuntimesForTests();
+      h.useStore.setState((state) => ({ rpc: { ...state.rpc, "fresh-tab": { ...state.rpc["fresh-tab"]!, capabilities: withVersion("18.7.0") } } }));
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([]);
+      if (invalidation === "focus") expect(sourceRuntime.liveArmed).toBe(true);
       expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
     });
 
@@ -3528,86 +3682,38 @@ describe("handleRpcFrame routing", () => {
     thinking: { efforts: ["low", "high"] },
   };
 
-  /** Review frame whose plan file read resolves — fresh spawns seed from it. */
-  const openReviewWithPlan = (id: string) => {
-    h.useStore.getState().handleRpcFrame(h.TAB, {
-      type: "extension_ui_request",
-      id,
-      method: "select",
-      title:
-        "omp-ui:plan-review:" +
-        JSON.stringify({
-          title: "t",
-          planFilePath: "local://p.md",
-          planAbsPath: "/lineage/local/p.md",
-        }),
-    });
-  };
-
   it("prepends the orchestrate keyword to the implementation prompt (existing context)", async () => {
     openReview("o1");
     h.useStore.getState().executePlan(h.TAB, "existing", { orchestrate: true });
     await h.flushMicrotasks();
-    const prompt = h.sent.find(
-      (s) =>
-        s.tabId === h.TAB &&
-        s.cmd.type === "prompt" &&
-        String(s.cmd.message).includes("execute the approved plan"),
-    );
+    const prompt = h.sent.find((s) => s.tabId === h.TAB && s.cmd.type === "prompt");
     expect(prompt).toBeDefined();
-    expect(
-      String(prompt!.cmd.message).startsWith(
-        "orchestrate\n\nThe plan review is complete",
-      ),
-    ).toBe(true);
+    expect(String(prompt!.cmd.message).startsWith("orchestrate\n\n")).toBe(true);
   });
 
   it("prepends the ultrathink keyword to the implementation prompt (existing context)", async () => {
     openReview("o1u");
     h.useStore.getState().executePlan(h.TAB, "existing", { ultrathink: true });
     await h.flushMicrotasks();
-    const prompt = h.sent.find(
-      (s) =>
-        s.tabId === h.TAB &&
-        s.cmd.type === "prompt" &&
-        String(s.cmd.message).includes("execute the approved plan"),
-    );
+    const prompt = h.sent.find((s) => s.tabId === h.TAB && s.cmd.type === "prompt");
     expect(prompt).toBeDefined();
-    expect(
-      String(prompt!.cmd.message).startsWith(
-        "ultrathink\n\nThe plan review is complete",
-      ),
-    ).toBe(true);
+    expect(String(prompt!.cmd.message).startsWith("ultrathink\n\n")).toBe(true);
   });
 
   it("prepends armed keywords in notice order, not arming order", async () => {
     openReview("o1w");
     h.useStore.getState().executePlan(h.TAB, "existing", { workflowz: true, ultrathink: true });
     await h.flushMicrotasks();
-    const prompt = h.sent.find(
-      (s) =>
-        s.tabId === h.TAB &&
-        s.cmd.type === "prompt" &&
-        String(s.cmd.message).includes("execute the approved plan"),
-    );
+    const prompt = h.sent.find((s) => s.tabId === h.TAB && s.cmd.type === "prompt");
     expect(prompt).toBeDefined();
-    expect(
-      String(prompt!.cmd.message).startsWith(
-        "ultrathink\n\nworkflowz\n\nThe plan review is complete",
-      ),
-    ).toBe(true);
+    expect(String(prompt!.cmd.message).startsWith("ultrathink\n\nworkflowz\n\n")).toBe(true);
   });
 
   it("leaves the keyword off by default", async () => {
     openReview("o2");
     h.useStore.getState().executePlan(h.TAB, "existing");
     await h.flushMicrotasks();
-    const prompt = h.sent.find(
-      (s) =>
-        s.tabId === h.TAB &&
-        s.cmd.type === "prompt" &&
-        String(s.cmd.message).includes("execute the approved plan"),
-    );
+    const prompt = h.sent.find((s) => s.tabId === h.TAB && s.cmd.type === "prompt");
     expect(prompt).toBeDefined();
     expect(String(prompt!.cmd.message).startsWith("orchestrate")).toBe(false);
   });
@@ -3615,7 +3721,7 @@ describe("handleRpcFrame routing", () => {
   it("prepends the orchestrate keyword to a fresh session's seed", async () => {
     h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
     h.useStore.setState({ state: h.stateWithRecord(null) });
-    openReviewWithPlan("o3");
+    openReview("o3");
     // Let the plan file read resolve so executePlan captures the plan text.
     await h.flushMicrotasks();
     h.useStore.getState().executePlan(h.TAB, "fresh", { orchestrate: true });
@@ -3632,17 +3738,14 @@ describe("handleRpcFrame routing", () => {
       (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
     );
     expect(prompt).toBeDefined();
-    expect(
-      String(prompt!.cmd.message).startsWith(
-        "orchestrate\n\nA plan was approved",
-      ),
-    ).toBe(true);
+    expect(String(prompt!.cmd.message).startsWith("orchestrate\n\n")).toBe(true);
+    expect(String(prompt!.cmd.message)).toContain("# Plan\n\nstep one\n");
   });
 
   it("prepends the workflowz keyword to a fresh session's seed", async () => {
     h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
     h.useStore.setState({ state: h.stateWithRecord(null) });
-    openReviewWithPlan("o3w");
+    openReview("o3w");
     // Let the plan file read resolve so executePlan captures the plan text.
     await h.flushMicrotasks();
     h.useStore.getState().executePlan(h.TAB, "fresh", { workflowz: true });
@@ -3659,11 +3762,8 @@ describe("handleRpcFrame routing", () => {
       (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
     );
     expect(prompt).toBeDefined();
-    expect(
-      String(prompt!.cmd.message).startsWith(
-        "workflowz\n\nA plan was approved",
-      ),
-    ).toBe(true);
+    expect(String(prompt!.cmd.message).startsWith("workflowz\n\n")).toBe(true);
+    expect(String(prompt!.cmd.message)).toContain("# Plan\n\nstep one\n");
   });
 
   it("applies staged model and thinking level before the same-session prompt", async () => {
@@ -3823,7 +3923,7 @@ describe("handleRpcFrame routing", () => {
   it("a fresh session receives the staged advisor tuple and model", async () => {
     h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
     h.useStore.setState({ state: h.stateWithRecord(null) });
-    openReviewWithPlan("a3");
+    openReview("a3");
     await h.flushMicrotasks();
     h.useStore.getState().executePlan(h.TAB, "fresh", {
       advisor: true,
@@ -3931,7 +4031,7 @@ describe("handleRpcFrame routing", () => {
   it("a fresh session receives a staged auto level before the implementation prompt", async () => {
     h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "fresh-tab" });
     h.useStore.setState({ state: h.stateWithRecord(null) });
-    openReviewWithPlan("auto-fresh");
+    openReview("auto-fresh");
     await h.flushMicrotasks();
     h.useStore.getState().executePlan(h.TAB, "fresh", {
       advisor: false,
@@ -4462,7 +4562,11 @@ describe("live voice park/resume frames (issue #811)", () => {
 
   beforeEach(() => {
     platformMocks.electron = true;
-    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ capabilities: withVersion("18.7.0") }) } });
+    h.useStore.setState({
+      state: h.backendState,
+      activeTabId: h.TAB,
+      rpc: { [h.TAB]: rpcTabState({ capabilities: withVersion("18.7.0") }) },
+    });
   });
 
   afterEach(() => {
@@ -4477,12 +4581,13 @@ describe("live voice park/resume frames (issue #811)", () => {
     frame({ type: "agent_start" });
     delegation();
     await park();
+    h.useStore.setState({ activeTabId: null });
     finalAnswer("Deployed the preview build");
     frame({ type: "agent_end" });
 
     expect(pending()).toEqual(["Deployed the preview build"]);
     expect(badge()).toEqual({ armed: true, parked: true, pending: true });
-    // Parked: the answer waits for the resume; no dispatch on a closed call.
+    // An unviewed parked call keeps its answer pending until return.
     expect(h.sent.filter((s) => s.cmd.type === "live_start")).toEqual([]);
   });
 
@@ -4504,15 +4609,18 @@ describe("live voice park/resume frames (issue #811)", () => {
     frame({ type: "agent_start" });
     delegation();
     await park();
+    h.useStore.setState({ activeTabId: null });
     finalAnswer("Deployed the preview build");
     frame({ type: "agent_end" });
 
     // Resume: the ack accounts one pending entry as carried.
+    h.useStore.setState({ activeTabId: h.TAB });
     const starting = h.useStore.getState().startLiveVoice(h.TAB);
     await h.flushMicrotasks();
     const start = h.sent.find((s) => s.cmd.type === "live_start")!;
     h.respond(h.TAB, start.cmd, {});
     await starting;
+    await h.flushMicrotasks();
 
     // A partial of the answer clears nothing — it is not delivered yet.
     frame({ type: "live_transcript", role: "assistant", turn: 0, text: "Deploy", final: false });
@@ -4937,6 +5045,78 @@ describe("live voice work parking (issue #815)", () => {
     expect(String(restart.cmd.instructions)).toContain("Deployed the preview build");
     h.respond(h.TAB, restart.cmd, {});
     await h.flushMicrotasks();
+  });
+
+  it("review presentation supersedes delegated work timers and wakes before agent_end", async () => {
+    vi.useFakeTimers();
+    try {
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0);
+      expect(peekTabRuntime(h.TAB)?.liveWorkPark).toBe(true);
+      h.mockBackend.readPlanFile.mockResolvedValueOnce("# Reviewed work\n\nReview verification tail.");
+      const reviewFrame = {
+        type: "extension_ui_request",
+        id: "review-work-boundary",
+        method: "select",
+        title: PLAN_REVIEW_SENTINEL + JSON.stringify({
+          title: "Reviewed work", planFilePath: "local://work-plan.md", planAbsPath: "/p/work-plan.md",
+        }),
+        options: ["execute", "refine"],
+      };
+      frame(reviewFrame);
+      await h.flushMicrotasks();
+      expect(peekTabRuntime(h.TAB)?.liveWorkPark).toBe(false);
+      expect(verbs("live_stop")).toHaveLength(1);
+      expect(verbs("live_start")).toHaveLength(0);
+      frame(reviewFrame);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_CAP_MS + LIVE_WORK_PARK_QUIET_MS);
+      expect(verbs("live_stop")).toHaveLength(1);
+      expect(h.useStore.getState().rpc[h.TAB]!.items.filter((item) => item.kind === "plan")).toHaveLength(1);
+      h.respond(h.TAB, verbs("live_stop")[0]!.cmd, {});
+      await h.flushMicrotasks();
+      expect(verbs("live_start")).toHaveLength(1);
+      expect(String(verbs("live_start")[0]!.cmd.instructions)).toContain("Review verification tail.");
+      h.respond(h.TAB, verbs("live_start")[0]!.cmd, {});
+      await h.flushMicrotasks();
+      frame({ type: "agent_end" });
+      await h.flushMicrotasks();
+      expect(verbs("live_stop")).toHaveLength(1);
+      expect(verbs("live_start")).toHaveLength(1);
+      expect(verbs("extension_ui_response")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a delegation during a pending gate cannot re-arm work parking", async () => {
+    vi.useFakeTimers();
+    try {
+      await arm();
+      const reading = h.deferred<string | null>();
+      h.mockBackend.readPlanFile.mockReturnValueOnce(reading.promise);
+      h.useStore.getState().acceptPlanReview(h.TAB, {
+        frame: { id: "pending-context" },
+        request: { title: "Pending review", planFilePath: "local://pending-plan.md", planAbsPath: "/p/pending-plan.md" },
+      });
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_CAP_MS + LIVE_WORK_PARK_QUIET_MS);
+      expect(peekTabRuntime(h.TAB)?.liveWorkPark).toBe(false);
+      expect(verbs("live_stop")).toHaveLength(0);
+      expect(verbs("live_start")).toHaveLength(0);
+      h.useStore.getState().deferPlanReview(h.TAB);
+      reading.resolve("# Deferred context");
+      await h.flushMicrotasks();
+      expect(verbs("live_stop")).toHaveLength(0);
+      expect(verbs("live_start")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

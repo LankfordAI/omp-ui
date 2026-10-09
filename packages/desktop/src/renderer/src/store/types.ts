@@ -139,6 +139,7 @@ export interface PlanRevisionNotes {
  * the gate's own sourceHash.
  */
 export interface PlanReadiness {
+  sourceKey: string;
   status: "pending" | "ready" | "failed" | "unavailable";
   identity?: string;
 }
@@ -277,6 +278,10 @@ export interface RpcTabState {
   approvalPrompt: { prompt: ApprovalPrompt; frame: unknown } | null;
   planText: string | null;
   planHtml: string | null;
+  /** Exact gate and read sequence that supplied the displayed artifact. */
+  planSourceKey: string | null;
+  /** Reactive review voice availability; runtime ownership is process-local. */
+  planVoice: { ready: boolean; busy: boolean; error: string | null };
   planDeferred: boolean;
   /** PlanReview's local preparation verdict for the current gate (§6 guard). */
   planReadiness: PlanReadiness | null;
@@ -1225,6 +1230,18 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     options?: PlanExecutionOptions,
   ): void;
   refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
+  acceptPlanReview(
+    tabId: string,
+    review: NonNullable<RpcTabState["planReview"]>,
+    itemId?: string,
+  ): void;
+  clearPlanReview(tabId: string, expectedGateKey?: string): void;
+  switchLiveVoice(
+    tabId: string,
+    request: { mode: "park" | "wake"; reviewKey?: string | null; briefOverview?: boolean },
+  ): Promise<void>;
+  reconcileLivePlanReview(tabId: string): void;
+  explainPlanVoice(tabId: string): Promise<void>;
   loadPlanText(
     tabId: string,
     absPath: string | null,
@@ -1239,8 +1256,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** PlanReview publishes its local preparation readiness here (§6 guard). */
   setPlanReadiness(
     tabId: string,
-    readiness:
-      { status: "pending" | "ready" | "failed" | "unavailable"; identity?: string } | null,
+    readiness: PlanReadiness | null,
   ): void;
   runSlashCommand(tabId: string, line: string): Promise<void>;
   /** One "!" draft as omp's concurrent bash command; settles its shell row

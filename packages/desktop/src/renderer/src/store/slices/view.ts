@@ -29,7 +29,7 @@ import { projectKey } from "../../lib/project-key";
 import { markSharePrivacySeen } from "../../lib/share-privacy";
 import type { StoreMachinery } from "./shared";
 import type { CompactSurface, ErrorNotice, SidebarGroupDialogRequest, UiStore } from "../types";
-import { isLiveSessionActive } from "@omp-ui/core/live-voice";
+import { bumpLiveVoiceGeneration, cancelLiveSwitch } from "./live-work-park";
 import { TREE_COMMAND } from "@omp-ui/core/session-tree";
 
 export type { CompactSurface } from "../types";
@@ -388,24 +388,28 @@ export function installLiveVoiceParkResumeGuard(
     const left = previous.activeTabId;
     if (left !== null && state.rpc[left] !== undefined) {
       const rt = m.runtime(left);
+      // Leaving cancels even a start whose acknowledgment has not landed.
+      bumpLiveVoiceGeneration(left);
+      cancelLiveSwitch(left);
+      const live = state.rpc[left]!.live;
       if (
         rt.liveVoiceOwner === true &&
         rt.liveArmed === true &&
-        isLiveSessionActive(state.rpc[left]!.live)
+        live != null && !live.ended
       )
-        void state.parkLiveVoice(left);
+        void state.switchLiveVoice(left, { mode: "park" });
     }
     // Enter: resume an armed, parked session.
     const entered = state.activeTabId;
     if (entered === null || state.rpc[entered] === undefined) return;
     const rt = m.runtime(entered);
+    state.reconcileLivePlanReview(entered);
     if (rt.liveVoiceOwner !== true || rt.liveArmed !== true || rt.liveParked !== true)
       return;
     // A work-park's wake owns this resume (#815): entering the tab mid-turn
     // must not reopen a call the agent is still working against.
     if (rt.liveWorkPark === true) return;
-    // The builder reads recap + pending from the runtime; no plumbing here.
-    void state.startLiveVoice(entered);
+    void state.switchLiveVoice(entered, { mode: "wake" });
   });
   return unsubscribe;
 }

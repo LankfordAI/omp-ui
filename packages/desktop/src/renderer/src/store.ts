@@ -349,6 +349,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       for (const [sourceTabId, implementationTabId] of Object.entries(
         observedPlanHandoffs,
       )) {
+        // The launch-ordered persisted winner is stable under sidebar moves
+        // and activity broadcasts. Only a different launch re-arms a source
+        // the human released; repeated snapshots must preserve that release.
         if (
           current.observedPlanHandoffs[sourceTabId] !== implementationTabId ||
           current.handedOffFor[sourceTabId] === implementationTabId
@@ -528,6 +531,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     armDelegatedTitle: rpcCommandSlice.armDelegatedTitle,
     renameSession: rpcCommandSlice.renameSession,
     refreshAutoTitle: rpcCommandSlice.refreshAutoTitle,
+    acceptPlanReview: plan.acceptPlanReview,
+    clearPlanReview: plan.clearPlanReview,
     executePlan: plan.executePlan,
     refinePlan: plan.refinePlan,
     deferPlanReview: plan.deferPlanReview,

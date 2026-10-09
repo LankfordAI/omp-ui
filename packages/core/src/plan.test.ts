@@ -134,6 +134,9 @@ describe("isPlanArtifactPath", () => {
 describe("isHtmlPlanPath", () => {
   it("routes html plans off the extension of either path shape", () => {
     expect(isHtmlPlanPath("/lineage/local/auth-plan.html")).toBe(true);
+    expect(isHtmlPlanPath("local://review.html")).toBe(true);
+    expect(isHtmlPlanPath("/lineage/HTML.HTML")).toBe(true);
+    expect(isHtmlPlanPath("local://review.html.md")).toBe(false);
     expect(isHtmlPlanPath("local://auth-plan.md")).toBe(false);
     expect(isHtmlPlanPath(null)).toBe(false);
   });

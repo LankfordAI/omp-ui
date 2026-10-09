@@ -24,6 +24,7 @@ function runtime(queue: unknown[]): RpcTabState {
     subagentMarkers: new Map(), stallCount: 0, extensionStatus: {},
     extensionQueue: queue, busy: false, initialPrompt: null, hasRenamed: true, titleAttempt: null,
     plan: null, planReview: null, planReadiness: null, experimentProposal: null, approvalPrompt: null,
+    planSourceKey: null, planVoice: { ready: false, busy: false, error: null },
     planHtml: null, planText: null, planDeferred: false, advisorStats: null, mcpStatus: null, advisorReply: true, capabilities: null, capabilitiesLoad: "idle", goal: null, vibe: null, sideQuestions: null, live: null, autoresearch: null, limits: null,
     subagentControlBusy: {}, subagentControlError: null,
     browserPane: { open: false, fullscreen: false, agentOpened: false, ensure: "idle", unavailableReason: null, state: null, frame: null } };

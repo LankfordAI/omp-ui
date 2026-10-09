@@ -535,6 +535,17 @@ configured advisor answers the verdict first, waits (bounded) for that review
 to land, then folds its concerns into the implementation prompt in every
 context; refine stays immediate because the planner revises in situ, where the
 advisor's notes already land. The fold is a per-review switch, default on.
+Voice joins the gate without owning it: with the session's live voice call
+armed, a new gate reconnects the call with the complete readable plan
+embedded in the reconnect instructions — OMP exposes no in-call update verb,
+so the artifact rides `live_start` only, never truncated — and asks for one
+spoken overview per gate (issue #818). The overview marker records that a
+briefing was *requested*, not that speech was proven. "Explain this plan"
+requests a briefing explicitly; when voice is off the action reads "Start
+live voice and explain". Verdicts stay human-only: no utterance executes,
+refines, or defers. On execute, voice follows the implementation to the
+viewed destination session — the source's call is stopped and acknowledged
+before the destination starts.
 _Avoid_: plan approval dialog, confirmation, plan prompt
 
 **Plan preflight**:

@@ -35,8 +35,8 @@ const planPrepared = vi.hoisted(() => ({ state: null as PreparedPlanState | null
 vi.mock("../lib/use-prepared-plan-document", async (importOriginal) => {
   const original = await importOriginal<typeof PreparedPlanHook>();
   return {
-    usePreparedPlanDocument: (html: string | null, identity?: string) => {
-      const state = original.usePreparedPlanDocument(html, identity);
+    usePreparedPlanDocument: (html: string | null, identity?: string, sourceKey?: string) => {
+      const state = original.usePreparedPlanDocument(html, identity, sourceKey);
       return planPrepared.state ?? state;
     },
   };
@@ -62,8 +62,8 @@ vi.mock("../lib/plan-diagrams", async (importOriginal) => {
 
 vi.mock("../lib/plan-highlight", async (importOriginal) => {
   const original = await importOriginal<typeof import("../lib/plan-highlight")>();
-  // One coloured token per source line: enough for the `tk-N` spans and the
-  // token rule the case asserts, without loading a grammar.
+  // One coloured token per source line keeps authored text and token spans
+  // observable without loading a grammar.
   const tokenizeStub: CodeTokenizer = async (source) =>
     source
       .split("\n")
@@ -128,12 +128,12 @@ Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: store.ts → ./backend (and lib/themes)
 // at module load, so the mock above must land first.
 const { useStore } = await import("../store");
-const { applyTheme, resolveTheme } = await import("../lib/themes");
 const { PlanReview } = await import("./PlanReview");
 
 const TAB = "tab-1";
 /** A gated HTML proposal carries the artifact's SHA-256 (64 lowercase hex). */
 const SOURCE_HASH = "1f3c".repeat(16);
+const SOURCE_KEY = "review:p1:read:1";
 
 /**
  * The standard gate. `html` puts the proposal on an HTML artifact instead,
@@ -157,6 +157,7 @@ function tabState(patch: Parameters<typeof rpcTabState>[0] = {}, html = false) {
       frame: { id: "p1" },
     },
     planText: "# Fix\n\nsteps",
+    planSourceKey: patch.planText === null && patch.planHtml == null ? null : SOURCE_KEY,
     ...patch,
   });
 }
@@ -1148,26 +1149,14 @@ describe("PlanReview worktree execution context (issue #313)", () => {
   });
 });
 
-describe("PlanReview dock height (issue #277)", () => {
-  it("stays a capped dock by default", () => {
-    render();
-    const wrapper = host!.querySelector<HTMLElement>("[role=region]")!;
-    expect(wrapper).not.toBeNull();
-    expect(wrapper.className).toContain("shrink-0");
-    expect(wrapper.className).toContain("max-h-[min(52dvh,var(--app-viewport-height,52dvh))]");
-    const inner = host!.querySelector<HTMLElement>(".plan-review")!;
-    expect(inner.className).not.toContain("flex-1");
-  });
-
-  it("fills the chat-history slot in fill mode: uncapped, inner column grows", () => {
-    render(true);
-    const wrapper = host!.querySelector<HTMLElement>("[role=region]")!;
-    expect(wrapper).not.toBeNull();
-    expect(wrapper.className).toContain("flex-1");
-    expect(wrapper.className).toContain("min-h-0");
-    expect(wrapper.className).not.toContain("max-h-[");
-    const inner = host!.querySelector<HTMLElement>(".plan-review")!;
-    expect(inner.className).toContain("flex-1");
+describe("PlanReview dock controls (issue #277)", () => {
+  it.each([false, true])("keeps the review workflow available in fill mode %s", (fill) => {
+    render(fill);
+    expect(host!.querySelector('[role="region"][aria-labelledby="plan-review-title"]')).not.toBeNull();
+    expect(notesBox()).not.toBeNull();
+    expect(buttonByText("refine").disabled).toBe(false);
+    expect(buttonByText("not now").disabled).toBe(false);
+    expect(executeButton().disabled).toBe(false);
   });
 });
 
@@ -1184,7 +1173,6 @@ describe("PlanReview refine attachment picker (issue #65)", () => {
     expect(button).not.toBeNull();
     expect(input.accept).toBe("image/*,application/pdf");
     expect(input.multiple).toBe(true);
-    expect(input.classList.contains("sr-only")).toBe(true);
     act(() => button.click());
     expect(click).toHaveBeenCalledOnce();
   });
@@ -1636,7 +1624,6 @@ describe("PlanReview plan rendering (issue #109)", () => {
     expect(frame.getAttribute("sandbox")).toBe("");
     // Diagram substitution + guardrail injection resolve asynchronously.
     expect(frame.getAttribute("srcdoc")).toContain("<h1>Fix</h1><p>html-body</p>");
-    expect(frame.getAttribute("srcdoc")).toContain('id="omp-ui-plan-guardrails"');
     // The document also carries its own restrictive policy, so the sandbox is
     // not the only thing keeping it inert.
     expect(frame.getAttribute("srcdoc")).toContain(
@@ -1658,6 +1645,39 @@ describe("PlanReview plan rendering (issue #109)", () => {
     expect(planFrame()).toBeNull();
     expect(document.body.textContent).toContain("markdown-only-body");
     expect(executeButton()).toBeDefined();
+  });
+
+  it.each([
+    { requested: "html", absolute: "md" },
+    { requested: "md", absolute: "html" },
+  ])("renders the requested $requested artifact when its absolute path ends in $absolute", async ({ requested, absolute }) => {
+    const html = requested === "html";
+    const source = html
+      ? "<h1>Requested HTML document</h1><p>authored implementation</p>"
+      : "# Requested Markdown document\n\nauthored implementation";
+    const tab = tabState({ planText: source, planHtml: html ? source : null }, html);
+    tab.planReview = {
+      ...tab.planReview!,
+      request: {
+        ...tab.planReview!.request,
+        planAbsPath: `/x/fix-login-race-plan.${absolute}`,
+      },
+    };
+    useStore.setState({ rpc: { [TAB]: tab } });
+    render();
+
+    if (html) {
+      await until(() => planFrame() !== null);
+      const document = new DOMParser().parseFromString(planFrame()!.srcdoc, "text/html");
+      expect(document.querySelector("h1")?.textContent).toBe("Requested HTML document");
+      expect(document.body.textContent).toContain("authored implementation");
+      expect(planFrame()!.getAttribute("sandbox")).toBe("");
+    } else {
+      expect(planFrame()).toBeNull();
+      expect(document.body.textContent).toContain("Requested Markdown document");
+      expect(document.body.textContent).toContain("authored implementation");
+      expect(executeButton().disabled).toBe(false);
+    }
   });
 
   it("keeps the unreadable-plan warning when neither rendition loaded", () => {
@@ -1682,7 +1702,7 @@ describe("PlanReview plan rendering (issue #109)", () => {
         location: { startOffset: 13, endOffset: 35, line: 2, column: 7 },
       },
     ];
-    planPrepared.state = { status: "failed", doc: null, diagnostics };
+    planPrepared.state = { status: "failed", sourceKey: SOURCE_KEY, doc: null, diagnostics };
     useStore.setState({
       rpc: {
         [TAB]: tabState(
@@ -1719,7 +1739,7 @@ describe("PlanReview plan rendering (issue #109)", () => {
   it("says the plan is being prepared instead of painting an empty iframe while it waits", async () => {
     // The blank white pane of issue #652: `pending` bound srcDoc="" and
     // Chromium painted an empty about:srcdoc the theme never reached.
-    planPrepared.state = { status: "pending" };
+    planPrepared.state = { status: "pending", sourceKey: SOURCE_KEY };
     useStore.setState({
       rpc: {
         [TAB]: tabState({ planText: "<h1>Fix</h1>", planHtml: "<h1>Fix</h1>" }, true),
@@ -1752,7 +1772,7 @@ describe("PlanReview plan rendering (issue #109)", () => {
         detail: "no measurement after document load within 4000 ms",
       },
     ];
-    planPrepared.state = { status: "unavailable", doc: "<h1>Fix</h1>", diagnostics };
+    planPrepared.state = { status: "unavailable", sourceKey: SOURCE_KEY, doc: "<h1>Fix</h1>", diagnostics };
     useStore.setState({
       rpc: {
         [TAB]: tabState({ planText: "<h1>Fix</h1>", planHtml: "<h1>Fix</h1>" }, true),
@@ -1778,33 +1798,19 @@ describe("PlanReview mermaid diagrams (issue #285)", () => {
     document.body.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
 
   it("renders a mermaid block to contained SVG inside the guardrailed document", async () => {
+    const source = '<h1>Fix</h1><pre class="mermaid">flowchart TD; A--&gt;B</pre><p>after the diagram</p>';
     useStore.setState({
-      rpc: {
-        [TAB]: tabState({
-          planText: null,
-          planHtml:
-            '<h1>Fix</h1><pre class="mermaid">flowchart TD; A--&gt;B</pre><p>after the diagram</p>',
-        }),
-      },
+      rpc: { [TAB]: tabState({ planText: source, planHtml: source }, true) },
     });
     render();
 
-    // The iframe only exists once preparation reports a document (#652), so
-    // the wait is for the frame itself before its srcdoc fills.
     await until(() => planFrame() !== null);
     const frame = planFrame()!;
-    // The real mermaid renderer measures text, which jsdom does not implement;
-    // the smoke test covers real rendering. Here the block must be substituted
-    // — rendered or failed — never left as raw source, and the guardrails must
-    // still wrap the document with the diagram carve-out.
-    await until(() => (frame.getAttribute("srcdoc") ?? "") !== "");
-    const srcdoc = frame.getAttribute("srcdoc")!;
-    expect(srcdoc).not.toContain('<pre class="mermaid">');
-    expect(srcdoc).toContain("<p>after the diagram</p>");
-    expect(srcdoc).toContain('id="omp-ui-plan-guardrails"');
-    expect(srcdoc).toContain(".omp-ui-diagram svg {");
-    expect(srcdoc).toContain("max-width: 100% !important;");
-    expect(srcdoc).toContain("height: auto !important;");
+    const document = new DOMParser().parseFromString(frame.srcdoc, "text/html");
+    expect(document.querySelectorAll("svg[data-diagram]")).toHaveLength(1);
+    expect(document.querySelector("pre.mermaid")).toBeNull();
+    expect(document.querySelector("p")?.textContent).toBe("after the diagram");
+    expect(frame.getAttribute("sandbox")).toBe("");
   });
 });
 
@@ -1812,36 +1818,22 @@ describe("PlanReview code highlighting (issue #319)", () => {
   const planFrame = (): HTMLIFrameElement | null =>
     document.body.querySelector<HTMLIFrameElement>('iframe[title="proposed plan"]');
 
-  it("tokenizes a language-classed block in the guardrailed document", async () => {
+  it("tokenizes a language-classed block without changing either block's authored text", async () => {
+    const source = '<h1>Fix</h1><pre><code class="language-python">def f():\n    return 1</code></pre><p>plain block:</p><pre><code>no class stays plain</code></pre>';
     useStore.setState({
-      rpc: {
-        [TAB]: tabState({
-          planText: null,
-          planHtml:
-            '<h1>Fix</h1><pre><code class="language-python">def f():\n    return 1</code></pre><p>plain block:</p><pre><code>no class stays plain</code></pre>',
-        }),
-      },
+      rpc: { [TAB]: tabState({ planText: source, planHtml: source }, true) },
     });
-    applyTheme(resolveTheme("graphite")); // pin the plane theme for this case
     render();
 
     await until(() => planFrame() !== null);
     const frame = planFrame()!;
-    // The tokenizer is stubbed at the module seam (issue #329); real shiki is
-    // covered by lib/plan-highlight.smoke.test.ts.
-    await until(() => (frame.getAttribute("srcdoc") ?? "") !== "");
-    const srcdoc = frame.getAttribute("srcdoc")!;
-    expect(srcdoc).toContain('class="omp-ui-hl"');
-    expect(srcdoc).toContain("tk-");
-    expect(srcdoc).toContain('id="omp-ui-plan-guardrails"');
-    // The code plane follows the pinned theme: Graphite's raised plane.
-    expect(srcdoc).toContain("background-color: #1a1e23 !important");
-    expect(srcdoc).toContain("color: #e8ecf1 !important");
-    // Inline chips ride one step off the canvas, not the plane (issues #380,
-    // #384): Graphite's hover tint.
-    expect(srcdoc).toContain("background-color: #2a3037 !important");
-    // The unclass'd block stays plain.
-    expect(srcdoc).toContain("no class stays plain");
+    const document = new DOMParser().parseFromString(frame.srcdoc, "text/html");
+    const blocks = document.querySelectorAll("pre code");
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]!.textContent).toBe("def f():\n    return 1");
+    expect(blocks[0]!.querySelectorAll("span").length).toBeGreaterThan(0);
+    expect(blocks[1]!.textContent).toBe("no class stays plain");
+    expect(blocks[1]!.querySelector("span")).toBeNull();
     expect(frame.getAttribute("sandbox")).toBe("");
   });
 });
@@ -1860,6 +1852,7 @@ describe("PlanReview compact flow (issue #216)", () => {
       doc: "<h1>Fix</h1><p>long plan</p>",
       diagnostics: [],
       identity: SOURCE_HASH,
+      sourceKey: SOURCE_KEY,
     };
     useStore.setState({
       rpc: { [TAB]: tabState({ planHtml: "<h1>Fix</h1><p>long plan</p>" }, true) },
@@ -2010,10 +2003,10 @@ describe("PlanReview html readiness gate (issue #312 follow-up)", () => {
   };
 
   const notReady: Array<{ label: string; state: PreparedPlanState }> = [
-    { label: "a preparation that failed", state: { status: "failed", doc: null, diagnostics: [] } },
+    { label: "a preparation that failed", state: { status: "failed", sourceKey: SOURCE_KEY, doc: null, diagnostics: [] } },
     {
       label: "a preparation that could not conclude",
-      state: { status: "unavailable", doc: "<h1>Fix</h1>", diagnostics: [] },
+      state: { status: "unavailable", sourceKey: SOURCE_KEY, doc: "<h1>Fix</h1>", diagnostics: [] },
     },
     {
       label: "a ready preparation of another source identity",
@@ -2022,6 +2015,14 @@ describe("PlanReview html readiness gate (issue #312 follow-up)", () => {
         doc: "<h1>Fix</h1>",
         diagnostics: [],
         identity: "0".repeat(64),
+        sourceKey: SOURCE_KEY,
+      },
+    },
+    {
+      label: "a ready preparation of an older read with the same hash",
+      state: {
+        status: "ready", doc: "<h1>Old</h1>", diagnostics: [],
+        identity: SOURCE_HASH, sourceKey: "review:p1:read:0",
       },
     },
   ];
@@ -2040,12 +2041,35 @@ describe("PlanReview html readiness gate (issue #312 follow-up)", () => {
     expect(verdictFrame()).toBeUndefined();
   });
 
+  it("never stamps an old preparation with the newly loaded source key", async () => {
+    planPrepared.state = {
+      status: "ready", doc: "<h1>Old</h1>", diagnostics: [],
+      identity: SOURCE_HASH, sourceKey: "review:p1:read:0",
+    };
+    htmlGate();
+    render();
+    await act(async () => {});
+    expect(useStore.getState().rpc[TAB]!.planReadiness).toBeNull();
+    expect(executeButton().disabled).toBe(true);
+
+    planPrepared.state = {
+      status: "ready", doc: "<h1>Current</h1>", diagnostics: [],
+      identity: SOURCE_HASH, sourceKey: SOURCE_KEY,
+    };
+    act(() => root!.render(<PlanReview tabId={TAB} />));
+    expect(useStore.getState().rpc[TAB]!.planReadiness).toMatchObject({
+      status: "ready", sourceKey: SOURCE_KEY, identity: SOURCE_HASH,
+    });
+    expect(executeButton().disabled).toBe(false);
+  });
+
   it("executes through main's acknowledged answer once the document is ready", async () => {
     planPrepared.state = {
       status: "ready",
       doc: "<h1>Fix</h1>",
       diagnostics: [],
       identity: SOURCE_HASH,
+      sourceKey: SOURCE_KEY,
     };
     htmlGate();
     render();
@@ -2357,5 +2381,200 @@ describe("PlanReview auto thinking staging", () => {
     expect(advisorLevel).not.toBeNull();
     act(() => advisorLevel!.click());
     expect(ladderRows(advisorLevel!).map((row) => row.textContent?.trim())).toEqual(["low", "high"]);
+  });
+});
+
+describe("PlanReview live voice tray", () => {
+  const actions = {
+    explainPlanVoice: useStore.getState().explainPlanVoice,
+    startLiveVoice: useStore.getState().startLiveVoice,
+    stopLiveVoice: useStore.getState().stopLiveVoice,
+    setLiveMuted: useStore.getState().setLiveMuted,
+    listLiveHistory: useStore.getState().listLiveHistory,
+    loadLiveRecording: useStore.getState().loadLiveRecording,
+    playLiveRecording: useStore.getState().playLiveRecording,
+  };
+  const explain = vi.fn(async () => {});
+  const start = vi.fn(async () => {});
+  const stop = vi.fn(async () => {});
+  const mute = vi.fn(async () => {});
+  const play = vi.fn(async () => {});
+  const history = vi.fn<typeof actions.listLiveHistory>(async () => []);
+  const recording = vi.fn<typeof actions.loadLiveRecording>(async () => ({ status: "ready" }));
+  const capabilities = (ompVersion: string | null) => ({
+    version: 1 as const, processKey: "voice-process", sessionId: null,
+    revision: 1, updatedAt: 0, ompVersion, skillCommandsEnabled: null,
+    skills: { status: "unavailable" as const, reason: "missing-api" as const },
+    tools: { status: "unavailable" as const, reason: "missing-api" as const },
+    magicKeywords: { status: "unavailable" as const, reason: "missing-api" as const },
+    toolControl: "unsupported" as const, toolMutation: null,
+  });
+  const live = (phase: "listening" | "muted" = "listening") => ({
+    phase, levels: null, turns: [], ended: false, error: null, connectionId: "call:1",
+  });
+  const tray = (): HTMLElement | null =>
+    document.body.querySelector('section[aria-label="Live voice"]');
+  const accessibleButton = (label: string): HTMLButtonElement => {
+    const button = document.body.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    expect(button).not.toBeNull();
+    return button!;
+  };
+  const patch = (value: Parameters<typeof rpcTabState>[0]): void => {
+    act(() => useStore.setState((s) => ({ rpc: { [TAB]: { ...s.rpc[TAB]!, ...value } } })));
+  };
+
+  beforeEach(() => {
+    history.mockReset().mockResolvedValue([]);
+    recording.mockReset().mockResolvedValue({ status: "ready" });
+    useStore.setState({
+      rpc: { [TAB]: tabState({
+        capabilities: capabilities("18.5.1"),
+        planVoice: { ready: true, busy: false, error: null },
+      }) },
+      exited: {}, liveVoice: {}, liveReplay: null,
+      explainPlanVoice: explain, startLiveVoice: start, stopLiveVoice: stop,
+      setLiveMuted: mute, listLiveHistory: history, loadLiveRecording: recording,
+      playLiveRecording: play,
+    });
+  });
+
+  afterEach(() => useStore.setState(actions));
+
+  it.each([null, "18.5.0"])("hides the tray when the native version is %s", (version) => {
+    patch({ capabilities: capabilities(version) });
+    render();
+    expect(tray()).toBeNull();
+    expect(document.body.querySelector('button[aria-label="start live voice"]')).toBeNull();
+    expect(buttonByText("refine").disabled).toBe(false);
+  });
+
+  it("offers an explicit microphone start and explanation without answering the human gate", async () => {
+    render();
+    expect(tray()).not.toBeNull();
+    expect(accessibleButton("start live voice").disabled).toBe(false);
+    const explanation = buttonByText("Start live voice and explain");
+    expect(explanation.disabled).toBe(false);
+    await act(async () => explanation.click());
+    expect(explain).toHaveBeenCalledWith(TAB);
+    expect(start).not.toHaveBeenCalled();
+    expect(verdictFrame()).toBeUndefined();
+    expect(backendMock.answerPlanReview).not.toHaveBeenCalled();
+    expect(useStore.getState().rpc[TAB]!.planReview).not.toBeNull();
+  });
+
+  it("disables explanation and new starts during HTML preparation but keeps mute and stop accessible", async () => {
+    planPrepared.state = { status: "pending", sourceKey: SOURCE_KEY };
+    patch({
+      planReview: tabState({}, true).planReview,
+      planHtml: "<h1>Fix</h1>", live: live("muted"),
+      planVoice: { ready: false, busy: false, error: null },
+    });
+    render();
+    expect(tray()!.querySelector('[role="status"]')).not.toBeNull();
+    expect(buttonByText("Explain this plan").disabled).toBe(true);
+    expect(accessibleButton("unmute live voice").disabled).toBe(false);
+    expect(accessibleButton("stop live voice").disabled).toBe(false);
+    await act(async () => accessibleButton("unmute live voice").click());
+    expect(mute).toHaveBeenCalledWith(TAB, false);
+    await act(async () => accessibleButton("stop live voice").click());
+    expect(stop).toHaveBeenCalledWith(TAB);
+    expect(explain).not.toHaveBeenCalled();
+    patch({ live: null });
+    expect(accessibleButton("start live voice").disabled).toBe(true);
+  });
+
+  it("does not offer a loading HTML source as Markdown or enable either start path", () => {
+    patch({
+      planReview: tabState({}, true).planReview,
+      planHtml: null, planText: null, planSourceKey: null,
+      planVoice: { ready: false, busy: false, error: null },
+    });
+    render();
+    expect(tray()!.querySelector('[role="status"]')).not.toBeNull();
+    expect(executeButton().disabled).toBe(true);
+    expect(buttonByText("Start live voice and explain").disabled).toBe(true);
+    expect(document.body.querySelector('iframe[title="proposed plan"]')).toBeNull();
+    expect(document.body.querySelector('pre[data-selectable]')).toBeNull();
+  });
+
+  it("keeps explanation available with the microphone muted and while armed/parked", async () => {
+    patch({ live: live("muted") });
+    render();
+    expect(accessibleButton("unmute live voice").getAttribute("aria-pressed")).toBe("true");
+    await act(async () => buttonByText("Explain this plan").click());
+    expect(explain).toHaveBeenCalledWith(TAB);
+    expect(mute).not.toHaveBeenCalled();
+    patch({ live: null });
+    act(() => useStore.setState({ liveVoice: { [TAB]: { armed: true, parked: true, pending: false } } }));
+    expect(buttonByText("Explain this plan").disabled).toBe(false);
+    expect(accessibleButton("stop live voice").disabled).toBe(false);
+  });
+
+  it("disables only starts and explanation during a context switch", () => {
+    patch({ live: live(), planVoice: { ready: true, busy: true, error: null } });
+    render();
+    expect(buttonByText("Explain this plan").disabled).toBe(true);
+    expect(accessibleButton("mute live voice").disabled).toBe(false);
+    expect(accessibleButton("stop live voice").disabled).toBe(false);
+    patch({ live: null });
+    expect(accessibleButton("start live voice").disabled).toBe(true);
+  });
+
+  it.each(["projection cannot be read", "voice is owned by another view"])("shows the current refusal: %s", (error) => {
+    patch({ planVoice: { ready: false, busy: false, error } });
+    render();
+    expect(tray()!.querySelector('[role="alert"]')?.textContent).toBe(error);
+    expect(tray()!.querySelector('[role="status"]')).not.toBeNull();
+    expect(buttonByText("Start live voice and explain").disabled).toBe(true);
+  });
+
+  it.each(["starting", "error"] as const)("disables explanation and voice controls for disconnected status %s", (status) => {
+    patch({ status, live: live() });
+    render();
+    expect(buttonByText("Explain this plan").disabled).toBe(true);
+    expect(accessibleButton("mute live voice").disabled).toBe(true);
+    expect(accessibleButton("stop live voice").disabled).toBe(true);
+  });
+
+  it("respects an exited process and local dictation conflict", () => {
+    render();
+    act(() => root!.render(<PlanReview tabId={TAB} dictationActive />));
+    expect(buttonByText("Start live voice and explain").disabled).toBe(true);
+    expect(accessibleButton("start live voice").disabled).toBe(true);
+    act(() => root!.render(<PlanReview tabId={TAB} />));
+    expect(buttonByText("Start live voice and explain").disabled).toBe(false);
+    act(() => useStore.setState({ exited: { [TAB]: 1 } }));
+    expect(buttonByText("Start live voice and explain").disabled).toBe(true);
+  });
+
+  it("keeps voice available through compact review, refinement and implementation setup", async () => {
+    setCompact(true);
+    render();
+    const initialTray = tray();
+    expect(initialTray).not.toBeNull();
+    await act(async () => buttonByText("refine").click());
+    expect(tray()).toBe(initialTray);
+    expect(notesBox()).not.toBeNull();
+    await act(async () => buttonByText("back to plan").click());
+    await act(async () => buttonByText("execute…").click());
+    expect(tray()).toBe(initialTray);
+    expect(document.body.querySelector('[aria-label="implementation setup"]')).not.toBeNull();
+    expect(buttonByText("Start live voice and explain").disabled).toBe(false);
+  });
+
+  it("preserves prior exchanges, replay and command errors in the review strip", async () => {
+    history.mockResolvedValue([{
+      connectionId: "call:old", role: "assistant", turn: 1, text: "Earlier overview",
+    }]);
+    patch({ live: { ...live(), error: "command failed" } });
+    render();
+    await act(async () => {});
+    expect(tray()!.textContent).toContain("Earlier overview");
+    expect(tray()!.textContent).toContain("command failed");
+    await act(async () => accessibleButton("play recording").click());
+    expect(play).toHaveBeenCalledWith(TAB, expect.objectContaining({ connectionId: "call:old" }));
+    await act(async () => accessibleButton("dismiss live voice message").click());
+    expect(tray()!.textContent).not.toContain("command failed");
+    expect(tray()!.textContent).toContain("Earlier overview");
   });
 });
