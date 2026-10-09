@@ -154,7 +154,7 @@ describe("readModelsFileModelProviders", () => {
   });
 
   it("honours the env default for the agent dir", () => {
-    const { env, dir } = agentDir(["providers:", "  vllm:", "    baseUrl: http://localhost:8000/v1"].join("\n"));
+    const { env } = agentDir(["providers:", "  vllm:", "    baseUrl: http://localhost:8000/v1"].join("\n"));
     expect(readModelsFileModelProviders({ ...env })).toEqual(["vllm"]);
   });
 
