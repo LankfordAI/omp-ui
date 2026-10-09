@@ -207,6 +207,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   const resumeDead = useStore((s) => s.resumeDead);
   const compact = useCompactShell();
   const [dismissedFailure, setDismissedFailure] = useState<RpcFailure | null>(null);
+  const [dictationActive, setDictationActive] = useState(false);
 
   useEffect(() => {
     if (!rpc) void bootRpcTab(tabId);
@@ -464,7 +465,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                     gate and extension dialogs must stay answerable. Remounts
                     on switch; a half-typed editor draft resets, while pending
                     requests themselves live in the store. */}
-                {active && <PlanReview tabId={tabId} />}
+                {active && <PlanReview tabId={tabId} dictationActive={dictationActive} />}
                 {/* The approval card rides along for the same reason (issue
                     #681): a session blocked behind the subagent view must
                     stay answerable. */}
@@ -478,7 +479,7 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                 {/* Keep a deferred gate mounted while its transcript is shown:
                     PlanReview returns null while deferred, but its staged
                     execution destination survives reopening the same gate. */}
-                {active && rpc?.planReview != null && <PlanReview tabId={tabId} fill />}
+                {active && rpc?.planReview != null && <PlanReview tabId={tabId} fill dictationActive={dictationActive} />}
                 {(!planReviewOpen || !active) &&
                   (paneColumn ? (
                     /* The subagent view above already owns the column, so this
@@ -537,7 +538,13 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
                     ref={slotRef}
                     className={cn(centered && "pb-2", planReviewOpen && active && "hidden")}
                   >
-                    <Composer tabId={tabId} onPrompt={() => setPrompted(true)} unprompted={centered} />
+                    <Composer
+                      tabId={tabId}
+                      onPrompt={() => setPrompted(true)}
+                      unprompted={centered}
+                      liveVoiceVisible={!(planReviewOpen && active)}
+                      onDictationActiveChange={setDictationActive}
+                    />
                   </div>
                 </div>
                 {centered && <HeroFooter items={items} tabId={tabId} />}

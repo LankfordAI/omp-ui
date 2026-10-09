@@ -34,11 +34,14 @@ export function LiveVoiceControl({
   tabId,
   layout = "inline",
   disabled = false,
+  startDisabled = false,
   className,
 }: {
   tabId: string;
   layout?: "inline" | "sheet";
   disabled?: boolean;
+  /** Only new starts are gated; an existing call remains stoppable/mutable. */
+  startDisabled?: boolean;
   className?: string;
 }) {
   const t = useT();
@@ -66,7 +69,7 @@ export function LiveVoiceControl({
         </span>
         <Switch
           on={active || parked}
-          disabled={disabled}
+          disabled={disabled || (!(active || parked) && startDisabled)}
           label={t("composer.live.start")}
           title={active || parked ? t("composer.live.stop") : t("composer.live.start")}
           onChange={(next) => void (next ? startLiveVoice(tabId) : stopLiveVoice(tabId))}
@@ -107,7 +110,7 @@ export function LiveVoiceControl({
       >
         <button
           type="button"
-          disabled={disabled}
+          disabled={disabled || startDisabled}
           onClick={() => void startLiveVoice(tabId)}
           aria-label={t("composer.live.start")}
           className={cn(CAPSULE_SEGMENT, "text-[10px] font-mono")}

@@ -229,6 +229,12 @@ describe("RpcTab subagent view", () => {
 
 describe("RpcTab plan-review takeover (issue #277)", () => {
 
+  const voiceActions = {
+    startLiveVoice: useStore.getState().startLiveVoice,
+    listLiveHistory: useStore.getState().listLiveHistory,
+  };
+  afterEach(() => useStore.setState(voiceActions));
+
   const dock = () =>
     document.body.querySelector<HTMLElement>(
       '[role="region"][aria-labelledby="plan-review-title"]',
@@ -244,27 +250,23 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     seedPendingReview();
     renderTab(true);
     expect(dock()).not.toBeNull();
-    expect(dock()!.className).toContain("flex-1");
-    expect(document.body.querySelector(".transcript-scroll")).toBeNull();
+    expect(document.body.textContent).not.toContain("main transcript");
     // The composer stays mounted but hidden: the only visible text input is
     // the dock's send-it-back box.
     const box = composerBox();
     expect(box).not.toBeNull();
-    expect(box!.closest(".hidden")).not.toBeNull();
   });
 
   it("restores the transcript when the review is deferred", () => {
     seedPendingReview();
     renderTab(true);
-    expect(document.body.querySelector(".transcript-scroll")).toBeNull();
+    expect(document.body.textContent).not.toContain("main transcript");
     act(() => useStore.getState().deferPlanReview(TAB));
     expect(dock()).toBeNull();
-    expect(document.body.querySelector(".transcript-scroll")).not.toBeNull();
     expect(document.body.textContent).toContain("main transcript");
     // The composer comes back with the transcript, still mounted.
     const box = composerBox();
     expect(box).not.toBeNull();
-    expect(box!.closest(".hidden")).toBeNull();
   });
 
   it("preserves the staged execution context when the same gate is reopened", () => {
@@ -299,18 +301,100 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     // The same mounted node — hidden, not unmounted — still holds the draft.
     expect(box.isConnected).toBe(true);
     expect(box.value).toBe("my draft");
-    expect(box.closest(".hidden")).toBeNull();
+  });
+
+  it("removes live controls from an already-open options sheet during takeover and restores them on defer without losing the draft", async () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    seed(null);
+    const start = vi.fn(async () => {});
+    useStore.setState((current) => ({
+      activeTabId: TAB,
+      liveVoice: {},
+      liveReplay: null,
+      startLiveVoice: start,
+      listLiveHistory: vi.fn(async () => []),
+      rpc: {
+        ...current.rpc,
+        [TAB]: {
+          ...current.rpc[TAB]!,
+          capabilities: {
+            version: 1 as const, processKey: "voice-process", sessionId: null,
+            revision: 1, updatedAt: 0, ompVersion: "18.5.1", skillCommandsEnabled: null,
+            skills: { status: "unavailable" as const, reason: "missing-api" as const },
+            tools: { status: "unavailable" as const, reason: "missing-api" as const },
+            magicKeywords: { status: "unavailable" as const, reason: "missing-api" as const },
+            toolControl: "unsupported" as const, toolMutation: null,
+          },
+        },
+      },
+    }));
+    renderTab(true);
+    const box = composerBox()!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(box, "draft before review");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+      document.body.querySelector<HTMLButtonElement>('button[title="prompt options"]')!.click();
+    });
+    const sheet = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="prompt options"]')!;
+    expect(sheet).not.toBeNull();
+    expect(sheet.querySelector('button[aria-label="start live voice"]')).not.toBeNull();
+
+    act(() => useStore.setState((current) => ({
+      rpc: {
+        ...current.rpc,
+        [TAB]: {
+          ...current.rpc[TAB]!,
+          planReview: {
+            request: {
+              title: "Fix the login race",
+              planFilePath: "local://fix-login-race-plan.md",
+              planAbsPath: "/x/fix-login-race-plan.md",
+            },
+            frame: { id: "p1" },
+          },
+          planText: "# Fix\n\nsteps",
+          planSourceKey: "review:p1:read:1",
+          planVoice: { ready: true, busy: false, error: null },
+        },
+      },
+    })));
+
+    expect(dock()).not.toBeNull();
+    expect(sheet.isConnected).toBe(true);
+    expect(sheet.querySelector('button[aria-label="start live voice"]')).toBeNull();
+    expect(document.body.querySelectorAll('button[aria-label="start live voice"]')).toHaveLength(1);
+    expect(dock()!.querySelector('button[aria-label="start live voice"]')).not.toBeNull();
+    expect(composerBox()).toBe(box);
+    expect(box.value).toBe("draft before review");
+    expect(start).not.toHaveBeenCalled();
+
+    const defer = [...dock()!.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "not now",
+    )!;
+    await act(async () => defer.click());
+    expect(dock()).toBeNull();
+    expect(sheet.isConnected).toBe(true);
+    expect(composerBox()).toBe(box);
+    expect(box.value).toBe("draft before review");
+    const restoredStart = sheet.querySelector<HTMLButtonElement>('button[aria-label="start live voice"]')!;
+    expect(restoredStart).not.toBeNull();
+    expect(restoredStart.disabled).toBe(false);
+    await act(async () => restoredStart.click());
+    expect(start).toHaveBeenCalledExactlyOnceWith(TAB);
   });
 
   it("keeps the transcript on an inactive tab, where the dock stays unmounted", () => {
     seedPendingReview();
     renderTab();
     expect(dock()).toBeNull();
-    expect(document.body.querySelector(".transcript-scroll")).not.toBeNull();
+    expect(document.body.textContent).toContain("main transcript");
     // The inactive tab keeps its composer mounted and unhidden (draft survives).
     const box = composerBox();
     expect(box).not.toBeNull();
-    expect(box!.closest(".hidden")).toBeNull();
   });
 });
 

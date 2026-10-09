@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PreparedPlanState } from "./plan-document";
 import { preparePlanForReview } from "./plan-verify";
 import { useTheme } from "./themes";
@@ -16,10 +16,34 @@ export const PREPARE_BUDGET_MS = 15_000;
 export function usePreparedPlanDocument(
   html: string | null,
   identity?: string,
+  sourceKey?: string,
 ): PreparedPlanState {
   const theme = useTheme();
-  const [state, setState] = useState<PreparedPlanState>({ status: "pending" });
   const [generation, setGeneration] = useState(0);
+  const [result, setResult] = useState<{
+    html: string;
+    identity?: string;
+    sourceKey?: string;
+    theme: typeof theme;
+    generation: number;
+    state: PreparedPlanState;
+  } | null>(null);
+  const pending = useMemo<PreparedPlanState>(
+    () => ({ status: "pending", ...(sourceKey === undefined ? {} : { sourceKey }) }),
+    [sourceKey],
+  );
+  // Effects run after rendering: return pending immediately when any source
+  // input changes, rather than lending the next read the previous verdict.
+  const state: PreparedPlanState =
+    html !== null &&
+    result !== null &&
+    result.html === html &&
+    result.identity === identity &&
+    result.sourceKey === sourceKey &&
+    result.theme === theme &&
+    result.generation === generation
+      ? result.state
+      : pending;
   const inconclusive = state.status === "unavailable";
   useEffect(() => {
     if (!inconclusive) return;
@@ -30,12 +54,20 @@ export function usePreparedPlanDocument(
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [inconclusive]);
   useEffect(() => {
-    if (html === null) {
-      setState({ status: "pending" });
-      return;
-    }
+    if (html === null) return;
     let alive = true;
     let ended = false;
+    const publish = (outcome: PreparedPlanState): void => {
+      if (!alive) return;
+      setResult({
+        html,
+        identity,
+        sourceKey,
+        theme,
+        generation,
+        state: { ...outcome, ...(sourceKey === undefined ? {} : { sourceKey }) },
+      });
+    };
     // A preparation that never settles must still name itself: an unresolved
     // promise is indistinguishable from a healthy slow one, and pending renders
     // no document at all (issue #652). The verdict is inconclusive — never a
@@ -43,7 +75,7 @@ export function usePreparedPlanDocument(
     const timer = setTimeout(() => {
       if (!alive || ended) return;
       ended = true;
-      setState({
+      publish({
         status: "unavailable",
         doc: null,
         identity,
@@ -63,7 +95,7 @@ export function usePreparedPlanDocument(
       (settled) => {
         ended = true;
         clearTimeout(timer);
-        if (alive) setState({ ...settled, identity } as PreparedPlanState);
+        publish({ ...settled, identity } as PreparedPlanState);
       },
       (err: unknown) => {
         // The pipeline's "never rejects" contract broken somewhere: settle
@@ -72,7 +104,7 @@ export function usePreparedPlanDocument(
         ended = true;
         clearTimeout(timer);
         if (!alive) return;
-        setState({
+        publish({
           status: "failed",
           doc: null,
           identity,
@@ -96,6 +128,6 @@ export function usePreparedPlanDocument(
       alive = false;
       clearTimeout(timer);
     };
-  }, [html, theme, identity, generation]);
+  }, [html, theme, identity, sourceKey, generation]);
   return state;
 }

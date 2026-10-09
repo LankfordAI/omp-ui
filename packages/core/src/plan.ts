@@ -153,7 +153,7 @@ export function isPlanArtifactPath(path: string | undefined | null): boolean {
  * because the renderer decides off whichever it holds.
  */
 export function isHtmlPlanPath(path: string | undefined | null): boolean {
-  return typeof path === "string" && /-plan\.html$/i.test(path);
+  return typeof path === "string" && /\.html$/i.test(path);
 }
 
 const PROPOSED_PLAN_STATUSES: readonly ProposedPlan["status"][] = [

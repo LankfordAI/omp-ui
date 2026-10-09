@@ -94,6 +94,10 @@ describe("loadLiveRecording (#809)", () => {
 });
 
 describe("startLiveVoice connection identity (#809)", () => {
+  beforeEach(() => {
+    h.useStore.setState({ activeTabId: TAB });
+  });
+
   // The running-session guard refuses a second live_start; an ended
   // snapshot is the lawful precondition for a fresh start.
   const start = async (): Promise<void> => {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { parseModelRole } from "@omp-ui/core/model-role";
+import { isHtmlPlanPath } from "@omp-ui/core/plan";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { useT, type MessageKey } from "../lib/i18n";
@@ -11,13 +12,16 @@ import type { PlanExecutionContext, PlanExecutionOptions, StagedKeyword } from "
 import { usePreparedPlanDocument } from "../lib/use-prepared-plan-document";
 import { shortModelLabel } from "../lib/format";
 import { projectKey } from "../lib/project-key";
+import { supportsNativeLive } from "../lib/live-voice";
 import { useCompactShell } from "../lib/responsive";
 import type { ModelInfo } from "../lib/rpc-types";
-import { findOwner, findRecord, useStore } from "../store";
+import { findInstance, findOwner, findRecord, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { usePlanDispatchStaging } from "../lib/use-plan-dispatch-staging";
 import { ExecutionBranchSetup, useExecutionBranch } from "./ExecutionBranchSetup";
+import { LiveVoiceControl } from "./LiveVoiceControl";
+import { LiveVoiceStrip } from "./LiveVoiceStrip";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
 import { PreparedPlanView } from "./PlanDocumentView";
@@ -145,26 +149,50 @@ function ExecutePlanButton({
   );
 }
 
-export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: boolean }) {
+export function PlanReview({
+  tabId,
+  fill = false,
+  dictationActive = false,
+}: {
+  tabId: string;
+  fill?: boolean;
+  dictationActive?: boolean;
+}) {
   const review = useStore((s) => s.rpc[tabId]?.planReview);
   const planText = useStore((s) => s.rpc[tabId]?.planText);
   /** Present only when the session planned in html format and the file read. */
-  const planHtml = useStore((s) => s.rpc[tabId]?.planHtml);
-  // The hook is told WHICH source identity it prepares (§6): a previous
-  // plan's ready state can never enable a new proposal, and the readiness
-  // rides into the store's execution guard below.
-  const prepared = usePreparedPlanDocument(planHtml ?? null, review?.request.sourceHash);
+  const planHtml = useStore((s) => s.rpc[tabId]?.planHtml ?? null);
+  const planSourceKey = useStore((s) => s.rpc[tabId]?.planSourceKey ?? null);
+  const planIsHtml = isHtmlPlanPath(review?.request.planFilePath);
+  const prepared = usePreparedPlanDocument(
+    planHtml,
+    review?.request.sourceHash,
+    planSourceKey ?? undefined,
+  );
   const setPlanReadiness = useStore((s) => s.setPlanReadiness);
   useEffect(() => {
-    if (planHtml === null) {
+    if (planSourceKey === null) {
       setPlanReadiness(tabId, null);
       return;
     }
+    if (!planIsHtml || prepared.sourceKey === undefined) return;
     setPlanReadiness(tabId, {
       status: prepared.status,
+      sourceKey: prepared.sourceKey,
       ...(prepared.status !== "pending" ? { identity: prepared.identity } : {}),
     });
-  }, [planHtml, prepared, tabId, setPlanReadiness]);
+  }, [planSourceKey, planIsHtml, prepared, tabId, setPlanReadiness]);
+  const voiceReady = useStore((s) => s.rpc[tabId]?.planVoice.ready === true);
+  const voiceBusy = useStore((s) => s.rpc[tabId]?.planVoice.busy === true);
+  const voiceError = useStore((s) => s.rpc[tabId]?.planVoice.error ?? null);
+  const explainPlanVoice = useStore((s) => s.explainPlanVoice);
+  const liveActive = useStore((s) => {
+    const live = s.rpc[tabId]?.live;
+    return live != null && !live.ended;
+  });
+  const liveArmed = useStore((s) => s.liveVoice[tabId]?.armed === true);
+  const rpcStatus = useStore((s) => s.rpc[tabId]?.status);
+  const exited = useStore((s) => s.exited[tabId] !== undefined);
   const advisorConfigured = useStore((s) => s.rpc[tabId]?.advisorStats?.configured === true);
   const executePlan = useStore((s) => s.executePlan);
   const refinePlan = useStore((s) => s.refinePlan);
@@ -234,6 +262,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   // The session's owning instance (issue #416): its advisor defaults live on
   // that host, keyed by projectKey in the store.
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
+  const instanceDown = useStore(
+    (s) => instanceId !== null && findInstance(s.state, instanceId)?.status !== "joined",
+  );
+  const voiceDisabled = sessionRecord?.live !== "live" || rpcStatus === "starting" ||
+    rpcStatus === "error" || exited || instanceDown || dictationActive;
   const loadAdvisorDefaults = useStore((s) => s.loadAdvisorDefaults);
   const advisorDefaults = useStore((s) => (projectCwd ? s.advisorDefaults[projectKey(instanceId, projectCwd)] : undefined));
   // This instance's dev/test advisor override (issue #372): the same backend
@@ -355,9 +388,11 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
   // pending, failed, unavailable, or a preparation made for a DIFFERENT
   // source identity all keep execute disabled. Refine and defer stay live.
   const htmlNotReady =
-    planHtml !== null &&
-    (prepared.status !== "ready" ||
-      (review?.request.sourceHash !== undefined &&
+    planIsHtml &&
+    (planSourceKey === null ||
+      prepared.sourceKey !== planSourceKey ||
+      prepared.status !== "ready" ||
+      (review.request.sourceHash !== undefined &&
         prepared.identity !== review.request.sourceHash));
   const executeDisabled =
     htmlNotReady ||
@@ -502,28 +537,69 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             </IconButton>
           </div>
         </header>
+        {supportsNativeLive(capabilities?.ompVersion ?? null) && (
+          <section
+            aria-label={t("plan.review.liveVoice")}
+            className="flex min-w-0 shrink-0 flex-col gap-2 border-b border-line px-5 py-3"
+          >
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Label>{t("plan.review.liveVoice")}</Label>
+              <LiveVoiceControl
+                tabId={tabId}
+                disabled={voiceDisabled}
+                startDisabled={!voiceReady || voiceBusy}
+              />
+              <Button
+                variant="ghost"
+                disabled={!voiceReady || voiceBusy || voiceDisabled}
+                onClick={() => void explainPlanVoice(tabId)}
+                className="h-auto min-w-0 whitespace-normal text-left"
+              >
+                {t(liveActive || liveArmed
+                  ? "plan.review.explainPlan"
+                  : "plan.review.startExplainPlan")}
+              </Button>
+            </div>
+            <p className="min-w-0 [overflow-wrap:anywhere] text-xs text-ink-dim">
+              {t("plan.review.voiceVerdicts")}
+            </p>
+            {!voiceReady && (
+              <p role="status" className="min-w-0 [overflow-wrap:anywhere] text-xs text-ink-dim">
+                {t(planIsHtml && prepared.status === "pending"
+                  ? "plan.review.voicePreparing"
+                  : "plan.review.voiceUnavailable")}
+              </p>
+            )}
+            {voiceError !== null && (
+              <p role="alert" className="min-w-0 [overflow-wrap:anywhere] text-xs text-copper">
+                {voiceError}
+              </p>
+            )}
+            <LiveVoiceStrip tabId={tabId} layout="review" />
+          </section>
+        )}
 
         <div className={cn(
-          "plan-review-layout grid min-h-0 flex-1 overflow-hidden",
+          "plan-review-layout grid min-h-0 min-w-0 flex-1 overflow-hidden",
           compact ? "grid-cols-1" : "grid-cols-[minmax(0,1fr)_21rem]",
         )}>
           {(!compact || compactStep !== "setup") && (
           <section
             className={cn(
-              "plan-review-document min-h-0 px-5 py-4",
+              "plan-review-document min-h-0 min-w-0 px-5 py-4",
               // The iframe scrolls its own content (unreachable for parent
               // measurement under an empty sandbox), so the section stops being
               // the scroll container and just hands it the leftover height.
-              planHtml ? "flex flex-col overflow-hidden" : "overflow-y-auto",
+              planIsHtml ? "flex flex-col overflow-hidden" : "overflow-y-auto",
             )}
             aria-label={t("plan.review.proposedPlan")}
           >
             {(!compact || compactStep === "review") && (
-              <div className={cn("plan-review-preview min-h-0 flex-1", planHtml && "flex flex-col")}>
-                {planHtml ? (
+              <div className={cn("plan-review-preview min-h-0 min-w-0 flex-1", planIsHtml && "flex flex-col")}>
+                {planIsHtml ? (
                   <PreparedPlanView
                     prepared={prepared}
-                    source={planText ?? planHtml}
+                    source={planText ?? planHtml ?? ""}
                     title={t("plan.review.proposedPlan")}
                     className="min-h-0 flex-1"
                   />
@@ -536,7 +612,7 @@ export function PlanReview({ tabId, fill = false }: { tabId: string; fill?: bool
             )}
 
             {(!compact || compactStep === "refine") && (
-            <div className={cn("plan-review-refine mt-6 border-t border-line pt-4", planHtml && "shrink-0")}>
+            <div className={cn("plan-review-refine mt-6 border-t border-line pt-4", planIsHtml && "shrink-0")}>
               <div className="flex items-baseline justify-between gap-3">
                 <div>
                   <Label>{t("plan.review.sendBack")}</Label>

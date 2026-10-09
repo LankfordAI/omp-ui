@@ -394,6 +394,77 @@ describe("buildLiveInstructions (#811)", () => {
     expect(built.instructions).toContain(pending[0]!);
     expect(built.instructions).not.toContain(`e${pending.length - 1} `);
   });
+
+  it("carries the complete review artifact as JSON data without changing the base", () => {
+    const review = {
+      title: 'A "quoted" <title>',
+      planFilePath: "/plans/<review>.html",
+      sourceHash: "hash>value",
+      text: 'First\n[Code]\n  if (a < b) return "</plan-artifact-json>";\n[/Code]\nTAIL',
+      briefOverview: true,
+    };
+    const built = buildLiveInstructions({ recap: [], pending: [], review });
+    expect(built.instructions.startsWith(LIVE_BASE_INSTRUCTIONS)).toBe(true);
+    expect(built.pendingUsed).toBe(0);
+    const json = built.instructions.split("<plan-artifact-json>\n")[1]!.split("\n</plan-artifact-json>")[0]!;
+    expect(json).not.toContain("<");
+    expect(json).not.toContain(">");
+    expect(JSON.parse(json)).toEqual({
+      title: review.title,
+      planFilePath: review.planFilePath,
+      sourceHash: review.sourceHash,
+      text: review.text,
+    });
+  });
+
+  it("omits an absent source hash without losing artifact identity or text", () => {
+    const built = buildLiveInstructions({
+      recap: [], pending: [],
+      review: { title: "Plan", planFilePath: "/plan.md", text: "Complete", briefOverview: false },
+    });
+    const json = built.instructions.split("<plan-artifact-json>\n")[1]!.split("\n</plan-artifact-json>")[0]!;
+    expect(JSON.parse(json)).toEqual({ title: "Plan", planFilePath: "/plan.md", text: "Complete" });
+  });
+
+  it.each(["Short artifact", `${"Authored section\n".repeat(4_000)}TAIL <kept>`])(
+    "keeps ordinary trim order and pending prefix independent of review size",
+    (text) => {
+      const recap = Array.from({ length: 24 }, (_, i) => turn("assistant", i, `${i}: ${"r".repeat(900)}`));
+      const pending = Array.from({ length: 6 }, (_, i) => `result-${i}: ${"p".repeat(4_800)}`);
+      const ordinary = buildLiveInstructions({ recap, pending });
+      const reviewed = buildLiveInstructions({
+        recap, pending,
+        review: { title: "Plan", planFilePath: "/plan.html", sourceHash: "same-bytes", text, briefOverview: true },
+      });
+      const sectionStart = reviewed.instructions.indexOf("\n\n<plan-review>");
+      const sectionLength = reviewed.instructions.length - sectionStart;
+      expect(reviewed.instructions.slice(0, sectionStart)).toBe(ordinary.instructions);
+      expect(reviewed.pendingUsed).toBe(ordinary.pendingUsed);
+      expect(reviewed.pendingUsed).toBeGreaterThan(0);
+      expect(reviewed.pendingUsed).toBeLessThan(pending.length);
+      expect(reviewed.instructions.length).toBeLessThanOrEqual(LIVE_INSTRUCTION_LIMITS.totalChars + sectionLength);
+      for (let i = 0; i < pending.length; i++) {
+        expect(reviewed.instructions.includes(`result-${i}:`)).toBe(i < reviewed.pendingUsed);
+      }
+      const json = reviewed.instructions.split("<plan-artifact-json>\n")[1]!.split("\n</plan-artifact-json>")[0]!;
+      expect(JSON.parse(json).text).toBe(text);
+    },
+  );
+
+  it("retains ordinary pending truncation and recap before pending sacrifice with a large review", () => {
+    const recap = [turn("user", 0, "r".repeat(5_900))];
+    const pending = Array.from({ length: 3 }, (_, i) => `${i}: ${"p".repeat(3_342)}`);
+    const ordinary = buildLiveInstructions({ recap, pending, base: "B" });
+    const reviewed = buildLiveInstructions({
+      recap, pending, base: "B",
+      review: { title: "Long", planFilePath: "/long.md", text: "a".repeat(70_000) + "TAIL", briefOverview: false },
+    });
+    expect(reviewed.pendingUsed).toBe(3);
+    expect(reviewed.instructions).not.toContain("<voice-recap>");
+    expect(reviewed.instructions.startsWith(ordinary.instructions)).toBe(true);
+    expect(reviewed.instructions).toContain("TAIL");
+  });
+
 });
 
 describe("live transcript history (#817)", () => {

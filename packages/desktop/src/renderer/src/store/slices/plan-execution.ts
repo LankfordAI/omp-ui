@@ -15,6 +15,7 @@ import {
 import { goalOwnsSession as coreGoalOwnsSession } from "@omp-ui/core/goal";
 import { backend } from "../../backend";
 import { strField } from "../../lib/fields";
+import { t } from "../../lib/i18n";
 import { AdvisorReplyWatcher } from "../../lib/advisor-reply";
 import {
   PlanConcernWatcher,
@@ -28,9 +29,21 @@ import {
 } from "../../lib/stall-continue";
 import { noticeItem, type AdvisorNote } from "../../lib/transcript";
 import { findRecord } from "./view";
-import type { GetState, SetState, StoreMachinery, Watchers } from "./shared";
-import type { PlanRevisionNotes, RpcTabState } from "../types";
+import { peekTabRuntime, type GetState, type SetState, type StoreMachinery, type Watchers } from "./shared";
+import {
+  bumpLiveVoiceGeneration,
+  cancelLiveSwitch,
+  clearLiveWorkTimers,
+  planReviewGateKey,
+} from "./live-work-park";
+import type { PlanReadiness, PlanRevisionNotes, RpcTabState } from "../types";
 export interface PlanExecutionSlice {
+  acceptPlanReview(
+    tabId: string,
+    review: NonNullable<RpcTabState["planReview"]>,
+    itemId?: string,
+  ): void;
+  clearPlanReview(tabId: string, expectedGateKey?: string): void;
   executePlan(
     tabId: string,
     context: PlanExecutionContext,
@@ -51,7 +64,7 @@ export interface PlanExecutionSlice {
   /** PlanReview publishes its local preparation readiness here (§6 guard). */
   setPlanReadiness(
     tabId: string,
-    readiness: { status: "pending" | "ready" | "failed" | "unavailable"; identity?: string } | null,
+    readiness: PlanReadiness | null,
   ): void;
 }
 
@@ -87,18 +100,80 @@ export function createPlanExecutionSlice(
   m: StoreMachinery,
   deps: PlanExecutionDeps,
 ): PlanExecutionSlice & PlanRuntime {
+  const cancelReviewSwitch = (tabId: string): void => {
+    bumpLiveVoiceGeneration(tabId);
+    cancelLiveSwitch(tabId);
+    clearLiveWorkTimers(tabId);
+  };
+
+  const resetReviewRuntime = (tabId: string): void => {
+    const runtime = m.runtime(tabId);
+    m.patchRuntime(tabId, {
+      planReadSequence: (runtime.planReadSequence ?? 0) + 1,
+      liveReviewTextCache: undefined,
+      liveReviewAppliedSourceKey: null,
+      liveReviewAutoRequestedGateKey: undefined,
+      liveReviewExplicitBriefingKey: undefined,
+      liveWorkPark: false,
+      liveReviewFailedSourceKey: undefined,
+      liveOutputLoudAt: undefined,
+      liveOrphanRestart: false,
+    });
+  };
+
+  const clearPlanReview = (tabId: string, expectedGateKey?: string): void => {
+    const tab = get().rpc[tabId];
+    if (!tab || (expectedGateKey !== undefined &&
+      (tab.planReview === null || planReviewGateKey(tab.planReview) !== expectedGateKey))) return;
+    cancelReviewSwitch(tabId);
+    resetReviewRuntime(tabId);
+    m.patchRpc(tabId, {
+      planReview: null,
+      planText: null,
+      planHtml: null,
+      planSourceKey: null,
+      planReadiness: null,
+      planDeferred: false,
+      planVoice: { ready: false, busy: false, error: null },
+    });
+    // Remove review-only instructions through the shared switch queue; the
+    // human verdict never waits for a realtime reconnect.
+    if (tab.planReview !== null) {
+      void get().switchLiveVoice(tabId, { mode: "wake", reviewKey: null });
+    }
+  };
+
+  const acceptPlanReview = (
+    tabId: string,
+    review: NonNullable<RpcTabState["planReview"]>,
+    itemId?: string,
+  ): void => {
+    const tab = get().rpc[tabId];
+    if (!tab || (tab.planReview !== null &&
+      planReviewGateKey(tab.planReview) === planReviewGateKey(review))) return;
+    cancelReviewSwitch(tabId);
+    resetReviewRuntime(tabId);
+    m.patchRpc(tabId, {
+      planReview: review,
+      planText: null,
+      planHtml: null,
+      planSourceKey: null,
+      planReadiness: null,
+      planDeferred: false,
+      planVoice: { ready: false, busy: false, error: null },
+    });
+    void get().loadPlanText(tabId, review.request.planAbsPath, itemId);
+    get().reconcileLivePlanReview(tabId);
+  };
+
   /** Settles every renderer-owned representation of a reviewed plan together. */
   const settlePlanReview = (
     tabId: string,
     key: string,
     verdict: PlanSettle["verdict"],
+    expectedGateKey: string,
   ): void => {
-    m.patchRpc(tabId, {
-      planReview: null,
-      planText: null,
-      planHtml: null,
-      planDeferred: false,
-    });
+    clearPlanReview(tabId, expectedGateKey);
     m.patchItems(tabId, (i) =>
       i.kind === "plan" && i.planFilePath === key && i.status === "pending"
         ? { ...i, status: verdict }
@@ -122,30 +197,16 @@ export function createPlanExecutionSlice(
       const review = tab.planReview;
 
       if (pending !== null) {
-        // Hydrate — or replace a stale local review (the record wins).
-        const frameId =
-          review !== null && typeof review.frame === "object" && review.frame !== null
-            ? strField(review.frame, "id")
-            : null;
-        if (frameId !== pending.frameId) {
-          m.patchRpc(tabId, {
-            planReview: {
-              request: {
-                title: pending.title,
-                planFilePath: pending.planFilePath,
-                planAbsPath: pending.planAbsPath,
-                // The hash survives late-join hydration (§6): a client that
-                // never saw the frame answers with the same identity.
-                ...(pending.sourceHash !== undefined ? { sourceHash: pending.sourceHash } : {}),
-                ...(pending.represented === true ? { represented: true as const } : {}),
-              },
-              // Minimal reconstructed frame: answerPlanSelect reads only `.id`.
-              frame: { id: pending.frameId },
-            },
-            planDeferred: false,
-          });
-          void get().loadPlanText(tabId, pending.planAbsPath);
-        }
+        get().acceptPlanReview(tabId, {
+          request: {
+            title: pending.title,
+            planFilePath: pending.planFilePath,
+            planAbsPath: pending.planAbsPath,
+            ...(pending.sourceHash !== undefined ? { sourceHash: pending.sourceHash } : {}),
+            ...(pending.represented === true ? { represented: true as const } : {}),
+          },
+          frame: { id: pending.frameId },
+        });
         continue;
       }
 
@@ -159,16 +220,11 @@ export function createPlanExecutionSlice(
       const settle = rec.planSettle;
       if (settle !== null && settle.frameId === localId) {
         const key = review.request.planFilePath;
-        settlePlanReview(tabId, key, settle.verdict);
+        settlePlanReview(tabId, key, settle.verdict, planReviewGateKey(review));
       } else {
         // Gate lost without an observed verdict (process died, mode switch):
         // close the pane; the plan row stays a dimmed pending record.
-        m.patchRpc(tabId, {
-          planReview: null,
-          planText: null,
-          planHtml: null,
-          planDeferred: false,
-        });
+        get().clearPlanReview(tabId, planReviewGateKey(review));
       }
     }
   };
@@ -194,12 +250,7 @@ export function createPlanExecutionSlice(
       id,
       value,
     });
-    m.patchRpc(tabId, {
-      planReview: null,
-      planText: null,
-      planHtml: null,
-      planDeferred: false,
-    });
+    get().clearPlanReview(tabId, planReviewGateKey(tab.planReview));
     return true;
   };
 
@@ -218,6 +269,8 @@ export function createPlanExecutionSlice(
     const review = tab?.planReview;
     if (!review) return false;
     const frameId = strField(review.frame, "id") ?? "";
+    const runtime = m.runtime(tabId);
+    const gateKey = planReviewGateKey(review);
     try {
       const result = await backend.answerPlanReview(
         tabId,
@@ -225,7 +278,10 @@ export function createPlanExecutionSlice(
         verdict,
         review.request.sourceHash ?? null,
       );
-      return result.status === "accepted";
+      const current = get().rpc[tabId]?.planReview;
+      return result.status === "accepted" && peekTabRuntime(tabId) === runtime &&
+        get().rpc[tabId] !== undefined &&
+        (current === null || (current !== undefined && planReviewGateKey(current) === gateKey));
     } catch {
       return false;
     }
@@ -448,6 +504,7 @@ export function createPlanExecutionSlice(
     const planText = tab?.planText ?? null;
     const review = tab?.planReview?.request;
     const planKey = review?.planFilePath;
+    const gateKey = tab?.planReview ? planReviewGateKey(tab.planReview) : undefined;
     // A re-presented review (ADR-0033) answers no turn: no drafting turn ends,
     // so no advisor review is coming and nothing may wait for one.
     const represented = review?.represented === true;
@@ -458,14 +515,17 @@ export function createPlanExecutionSlice(
           planFilePath: review.planFilePath,
         })
       : null;
-    if (!planImplementationSource || review === undefined) return;
+    if (!planImplementationSource || review === undefined || gateKey === undefined) return;
     const html = isHtmlPlanPath(review.planFilePath);
     if (
       html &&
       !(
-        tab?.planReadiness != null &&
+        tab?.planSourceKey != null &&
+        tab.planHtml !== null &&
+        tab.planReadiness != null &&
+        tab.planReadiness.sourceKey === tab.planSourceKey &&
         tab.planReadiness.status === "ready" &&
-        tab.planReadiness.identity === review.sourceHash
+        (review.sourceHash === undefined || tab.planReadiness.identity === review.sourceHash)
       )
     ) {
       // The store-side execution guard (§6): pending/failed/unavailable
@@ -476,7 +536,7 @@ export function createPlanExecutionSlice(
     // Everything that follows the verdict: settle the history rows, then
     // hold for the drafting turn's advisor review or dispatch directly.
     const proceed = (): void => {
-      if (planKey) settlePlanReview(tabId, planKey, "executed");
+      if (planKey) settlePlanReview(tabId, planKey, "executed", gateKey);
       // The drafting turn's review lands after the verdict, so hold dispatch
       // for it when the user wants the advisor's concerns actioned. Execute
       // only: the execute ToolResult tells the agent to stop and wait, so this
@@ -516,10 +576,13 @@ export function createPlanExecutionSlice(
   };
 
   const refinePlan = (tabId: string, notes?: PlanRevisionNotes): void => {
-    const review = get().rpc[tabId]?.planReview?.request;
+    const gate = get().rpc[tabId]?.planReview;
+    if (!gate) return;
+    const gateKey = planReviewGateKey(gate);
+    const review = gate.request;
     const planKey = review?.planFilePath;
     const sendNotes = (): void => {
-      if (planKey) settlePlanReview(tabId, planKey, "refined");
+      if (planKey) settlePlanReview(tabId, planKey, "refined", gateKey);
       const text = notes?.text?.trim() ?? "";
       const images = notes?.images;
       const documents = notes?.documents;
@@ -573,11 +636,14 @@ export function createPlanExecutionSlice(
   };
 
   const deferPlanReview = (tabId: string): void => {
+    cancelReviewSwitch(tabId);
     m.patchRpc(tabId, { planDeferred: true });
+    get().reconcileLivePlanReview(tabId);
   };
 
   const showPlanReview = (tabId: string): void => {
     m.patchRpc(tabId, { planDeferred: false });
+    get().reconcileLivePlanReview(tabId);
   };
 
   const loadPlanText = async (
@@ -585,45 +651,89 @@ export function createPlanExecutionSlice(
     absPath: string | null,
     itemId?: string,
   ): Promise<void> => {
+    const tab = get().rpc[tabId];
+    if (!tab) return;
+    const runtime = m.runtime(tabId);
+    const wanted = tab.planReview;
+    const gateKey = wanted === null ? null : planReviewGateKey(wanted);
+    const sequence = (runtime.planReadSequence ?? 0) + 1;
+    m.patchRuntime(tabId, { planReadSequence: sequence });
+    const current = (): boolean => {
+      const review = get().rpc[tabId]?.planReview;
+      return peekTabRuntime(tabId) === runtime && runtime.planReadSequence === sequence &&
+        gateKey !== null && review != null && review.request.planAbsPath === absPath &&
+        planReviewGateKey(review) === gateKey;
+    };
+    const clearSource = (unavailable = false): void => {
+      m.patchRuntime(tabId, { liveReviewTextCache: undefined });
+      m.patchRpc(tabId, {
+        planText: null,
+        planHtml: null,
+        planSourceKey: null,
+        planReadiness: null,
+        planVoice: {
+          ready: false,
+          busy: false,
+          error: unavailable ? t("plan.review.voiceUnavailable") : null,
+        },
+      });
+    };
+    if (current()) clearSource();
     if (!absPath) {
-      m.patchRpc(tabId, { planText: null, planHtml: null });
+      if (current()) {
+        clearSource(true);
+        get().reconcileLivePlanReview(tabId);
+      }
       return;
     }
-    // §6: a slow read of the PREVIOUS proposal must not overwrite a newer
-    // one. Capture the reviewing frame identity; patch the pane only while
-    // it still stands.
-    const wanted = get().rpc[tabId]?.planReview ?? null;
     try {
       const text = await backend.readPlanFile(tabId, absPath);
-      const now = get().rpc[tabId]?.planReview ?? null;
-      const stillCurrent =
-        wanted === null ||
-        strField(now?.frame ?? null, "id") === strField(wanted.frame, "id");
-      if (stillCurrent) {
-        // One file, one read: the html plan IS the plan, so `planHtml` is the
-        // render-mode flag rather than a second document (ADR-0014).
+      if (current()) {
+        // These exact bytes feed both the document and the voice projection.
         m.patchRpc(tabId, {
           planText: text,
-          planHtml: isHtmlPlanPath(absPath) ? text : null,
+          planHtml: isHtmlPlanPath(wanted!.request.planFilePath) ? text : null,
+          planSourceKey: text === null ? null : JSON.stringify([gateKey, sequence]),
+          planReadiness: null,
+          ...(text === null ? { planVoice: {
+            ready: false, busy: false, error: t("plan.review.voiceUnavailable"),
+          } } : {}),
         });
+        get().reconcileLivePlanReview(tabId);
       }
-      if (itemId !== undefined) {
+      // An obsolete gate can still enrich its own transcript row, but never
+      // the pane or a replacement process's history.
+      if (itemId !== undefined && peekTabRuntime(tabId) === runtime) {
         m.patchItems(tabId, (i) =>
           i.kind === "plan" && i.id === itemId ? { ...i, text } : i,
         );
       }
     } catch {
-      // The pane falls back to the plan's path — a failed read must never
-      // strand the review, because the agent is waiting on the verdict.
-      const now = get().rpc[tabId]?.planReview ?? null;
-      const stillCurrent =
-        wanted === null ||
-        strField(now?.frame ?? null, "id") === strField(wanted.frame, "id");
-      if (stillCurrent) m.patchRpc(tabId, { planText: null, planHtml: null });
+      if (current()) {
+        clearSource(true);
+        get().reconcileLivePlanReview(tabId);
+      }
     }
   };
 
+  const setPlanReadiness = (tabId: string, readiness: PlanReadiness | null): void => {
+    const tab = get().rpc[tabId];
+    if (!tab) return;
+    if (readiness === null) {
+      // A late cleanup from a previous document must not erase a loaded
+      // successor's readiness. Installation and retirement clear directly.
+      if (tab.planSourceKey !== null) return;
+    } else if (tab.planReview === null || tab.planSourceKey === null ||
+      readiness.sourceKey !== tab.planSourceKey) {
+      return;
+    }
+    m.patchRpc(tabId, { planReadiness: readiness });
+    get().reconcileLivePlanReview(tabId);
+  };
+
   return {
+    acceptPlanReview,
+    clearPlanReview,
     reconcilePlanGates,
     concern,
     advisorReply,
@@ -635,6 +745,6 @@ export function createPlanExecutionSlice(
     loadPlanText,
     representPlan,
     dismissProposedPlan,
-    setPlanReadiness: (tabId, readiness) => m.patchRpc(tabId, { planReadiness: readiness }),
+    setPlanReadiness,
   };
 }

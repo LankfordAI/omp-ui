@@ -176,6 +176,8 @@ export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     planHtml: null,
     planDeferred: false,
     planReadiness: null,
+    planSourceKey: null,
+    planVoice: { ready: false, busy: false, error: null },
     experimentProposal: null,
     approvalPrompt: null,
     advisorStats: null,

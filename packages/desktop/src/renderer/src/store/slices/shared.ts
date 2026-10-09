@@ -118,6 +118,15 @@ export interface TabRuntime {
   wordPredictionUnsupported?: boolean;
   /** Epoch ms before which `predict_word` is not re-sent after a failure (#715). */
   wordPredictionRetryAt?: number;
+  /** Loaded review generations and voice accounting belong to this process. */
+  planReadSequence: number;
+  liveReviewTextCache?: { sourceKey: string; text: string };
+  liveReviewAppliedSourceKey?: string | null;
+  liveReviewAutoRequestedGateKey?: string;
+  liveReviewExplicitBriefingKey?: string;
+  /** A failed refresh is retried only by an intentional request. */
+  liveReviewFailedSourceKey?: string | null;
+  liveMuteRequestGeneration?: number;
   /** Live voice park/resume (issue #811): the user wants live voice in this
    *  session. Set on a successful `live_start`; cleared only by an explicit
    *  stop or the #808 hand-off — parking does not clear it. */
@@ -125,8 +134,8 @@ export interface TabRuntime {
   /** Armed, but no realtime call is open because the tab is not the viewed
    *  tab (#811). Avoid: muted, paused, suspended. */
   liveParked?: boolean;
-  /** Parked while the user's own mute was on; restored after the resume ack
-   *  (#811) — omp's mute survives the park, so the model must be muted again. */
+  /** Requested mute intent, independent of observed phase. Only an unset
+   * intent adopts observed mute at park; a new call reapplies it after ack. */
   liveUserMuted?: boolean;
   /** Rolling spoken transcript (#811): appended at every park, read by the
    *  instruction builder on every start. */
@@ -155,10 +164,10 @@ export interface TabRuntime {
   liveOutputLoudAt?: number;
   /** The in-flight `live_stop` promise, identity-cleared in a finally;
    *  published by every dispatch site of the verb (issue #815). */
-  liveStopInFlight?: Promise<void>;
+  liveStopInFlight?: Promise<unknown>;
   /** The in-flight `live_start` promise, identity-cleared in a finally;
    *  published by every dispatch site of the verb (issue #815). */
-  liveStartInFlight?: Promise<void>;
+  liveStartInFlight?: Promise<unknown>;
   /** How many pending entries the in-flight resume instructions carried; the
    *  first final assistant transcript clears exactly this prefix (#811). */
   livePendingIncluded?: number;
@@ -447,6 +456,7 @@ export { dropExited, dropHibernated, dropTuiHandoff, dropLiveVoiceBadge };
 
 export function persistedPlanHandoffs(state: BackendState): Record<string, string> {
   const result: Record<string, string> = {};
+  const launches: Record<string, SessionSummary> = {};
   const groups = [
     ...state.projects,
     ...state.remoteInstances.flatMap((instance) => instance.projects),
@@ -454,7 +464,18 @@ export function persistedPlanHandoffs(state: BackendState): Record<string, strin
   for (const group of groups) {
     for (const record of group.sessions) {
       const sourceTabId = record.planImplementationSource?.sourceTabId;
-      if (sourceTabId !== undefined) result[sourceTabId] = record.tabId;
+      if (sourceTabId === undefined) continue;
+      const latest = launches[sourceTabId];
+      // Sidebar order and activity can change after dispatch; launch provenance
+      // cannot. Break equal launch timestamps by tab id, never iteration order.
+      if (
+        latest === undefined ||
+        record.launchedAt > latest.launchedAt ||
+        (record.launchedAt === latest.launchedAt && record.tabId > latest.tabId)
+      ) {
+        launches[sourceTabId] = record;
+        result[sourceTabId] = record.tabId;
+      }
     }
   }
   return result;
@@ -530,6 +551,7 @@ function freshTabRuntime(): TabRuntime {
     slashCommandItems: new Map(),
     capabilitiesGeneration: 0,
     vibeRequests: new Map(),
+    planReadSequence: 0,
     liveRecap: [],
     livePendingFeedback: [],
   };
@@ -629,7 +651,7 @@ export function createMachinery(
   ): void => {
     const current = tabRuntimes.get(tabId);
     if (current === undefined) return;
-    tabRuntimes.set(tabId, { ...current, ...patch });
+    Object.assign(current, patch);
   };
 
   /**

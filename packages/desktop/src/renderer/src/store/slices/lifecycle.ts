@@ -21,7 +21,6 @@ import {
 } from "../../lib/plan-concerns";
 import { gitResolutionPrompt, type GitResolutionTrigger } from "../../lib/git-resolution-prompt";
 import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolution";
-import { isLiveSessionActive } from "@omp-ui/core/live-voice";
 import { supportsNativeLive } from "../../lib/live-voice";
 import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
@@ -33,12 +32,14 @@ import {
   dropHibernated,
   dropLiveVoiceBadge,
   dropTuiHandoff,
+  peekTabRuntime,
   type GetState,
   type SetState,
   type StoreMachinery,
   type Watchers,
 } from "./shared";
 import { disposeTabRuntime } from "./rpc-command";
+import { liveVoiceGeneration } from "./live-work-park";
 import { findInstance, findOwner, findRecord, findWorktreeAt, focusOn, forgetFocus } from "./view";
 import type {
   DeleteConfirmation,
@@ -209,10 +210,6 @@ export function createLifecycleSlice(
       plan: null,
       session: { ...tab.session, isStreaming: false },
       extensionQueue: [],
-      planReview: null,
-      planText: null,
-      planHtml: null,
-      planDeferred: false,
       experimentProposal: null,
       approvalPrompt: null,
       failure: undefined,
@@ -223,6 +220,7 @@ export function createLifecycleSlice(
       streamStallMs: undefined,
       activeTurnKeywords: [],
     });
+    get().clearPlanReview(tabId);
   };
 
   /** One terminal boundary for both unexpected exit and idle hibernation. */
@@ -489,26 +487,22 @@ export function createLifecycleSlice(
         "info",
       ),
     );
-    // Live-voice carry-over (#811): the implementation tab taking focus has
-    // already PARKED the planning session via the park/resume guard (recap
-    // folded, call closed, mic released); for a hands-free user the voice
-    // follows the handoff instead — stopLiveVoice on the parked snapshot
-    // clears the source's armed intent (its ended path skips the dispatch,
-    // the clear is the job) and a fresh call starts on the implementation
-    // session. The realtime conversation itself cannot transfer (omp owns
-    // it in-process; the wire contract is three verbs, live-voice.ts) — the
-    // plan seed is the context bridge, and the fresh tab's own runtime
-    // (empty recap, empty pending) makes its first call base-only. Both
-    // gates check BEFORE dispatching: a failed check leaves the source
-    // parked, badge lit, resuming whenever its tab is viewed again.
-    // The gate covers an open call too: the guard runs on the store
-    // transition, and this async path can be mid-flight on a slow stop.
-    const srcRt = m.runtime(srcTabId);
-    const srcLive = get().rpc[srcTabId]?.live;
-    const voiceFollows =
-      srcRt.liveArmed === true ||
-      (srcLive !== undefined && srcLive !== null && isLiveSessionActive(srcLive));
-    if (voiceFollows) {
+    // Voice follows only the viewed implementation and the source runtime that
+    // still owns the user's armed intent. Capability discovery and live_stop
+    // can outlive navigation, an explicit stop, or a replacement source call.
+    const srcRt = peekTabRuntime(srcTabId);
+    const sourceGeneration = liveVoiceGeneration(srcTabId);
+    const sourceIntendsVoice = (): boolean => {
+      const live = get().rpc[srcTabId]?.live;
+      return srcRt !== undefined && peekTabRuntime(srcTabId) === srcRt &&
+        srcRt.liveVoiceOwner === true &&
+        live?.phase !== "error" && live?.error == null &&
+        (srcRt.liveArmed === true || (live != null && !live.ended));
+    };
+    const destinationViewed = (): boolean => get().activeTabId === freshId &&
+      get().tabs.some((tab) => tab.tabId === freshId && !tab.hidden) &&
+      get().exited[freshId] === undefined;
+    if (sourceIntendsVoice() && destinationViewed()) {
       // startLiveVoice's supportsNativeLive gate reads the DESTINATION's
       // capabilities, which boot publishes shortly after ready; waiting keeps
       // a not-yet-published roster from silently no-op'ing the start after the
@@ -518,14 +512,39 @@ export function createLifecycleSlice(
         (rpc) => supportsNativeLive(rpc?.capabilities?.ompVersion ?? null),
         5_000,
       );
-      if (supportsNativeLive(get().rpc[freshId]?.capabilities?.ompVersion ?? null)) {
-        // Awaited stop first: on-chain, so it lands behind the planner's
-        // ending turn, and it releases the microphone before the destination's
-        // off-chain live_start reaches for it. The start is fire-and-forget;
-        // its failure owns its error line on the fresh tab's strip
-        // (startLiveVoice's sendFailed path) and never disturbs the handoff.
-        await get().stopLiveVoice(srcTabId);
-        void get().startLiveVoice(freshId);
+      if (
+        supportsNativeLive(get().rpc[freshId]?.capabilities?.ompVersion ?? null) &&
+        destinationViewed() && sourceIntendsVoice() &&
+        liveVoiceGeneration(srcTabId) === sourceGeneration
+      ) {
+        // An already-pending park owns the same stop acknowledgment. Explicit
+        // stop disarms the source, but must not treat that pending stop as done.
+        const pendingStop = srcRt!.liveStopInFlight;
+        const stopping = get().stopLiveVoice(srcTabId);
+        const stopGeneration = liveVoiceGeneration(srcTabId);
+        await stopping;
+        if (pendingStop !== undefined) await pendingStop.catch(() => null);
+        // A wake that raced the stop's generation bump can hold an unacked
+        // live_start on the source (live_start rides off-chain). Wait for its
+        // outcome rather than refusing on it: an abandoned start must not
+        // strand the destination's voice (#822). A start that SUCCEEDED after
+        // the stop leaves an open source call, and its closing stop ack ends it.
+        const racingStart = srcRt!.liveStartInFlight;
+        if (racingStart !== undefined) await racingStart.catch(() => null);
+        const closingStop = srcRt!.liveStopInFlight;
+        if (closingStop !== undefined) await closingStop.catch(() => null);
+        const stopped = get().rpc[srcTabId]?.live;
+        // The gate is that no source call stays OPEN, not that it ended
+        // cleanly: a wake that raced the handoff ends in a transport-teardown
+        // error once the source hibernates, and pinning error-free here would
+        // strand the destination's voice forever (#822).
+        if (
+          peekTabRuntime(srcTabId) === srcRt &&
+          liveVoiceGeneration(srcTabId) === stopGeneration &&
+          srcRt!.liveArmed !== true && srcRt!.liveStartInFlight === undefined &&
+          (stopped == null || stopped.ended) &&
+          destinationViewed()
+        ) void get().startLiveVoice(freshId);
       }
     }
     try {

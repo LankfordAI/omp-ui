@@ -27,21 +27,28 @@ interface Harness {
   states: PreparedPlanState[];
   last: () => PreparedPlanState;
   unmount: () => void;
+  rerender: (html: string | null, identity?: string, sourceKey?: string) => void;
 }
 
-function mount(html: string | null, identity?: string): Harness {
+function mount(html: string | null, identity?: string, sourceKey?: string): Harness {
   const states: PreparedPlanState[] = [];
-  function Probe(): null {
-    states.push(usePreparedPlanDocument(html, identity));
+  function Probe(props: { html: string | null; identity?: string; sourceKey?: string }): null {
+    states.push(usePreparedPlanDocument(props.html, props.identity, props.sourceKey));
     return null;
   }
   const host = document.createElement("div");
   document.body.append(host);
   const root: Root = createRoot(host);
-  act(() => root.render(createElement(Probe)));
+  act(() => root.render(createElement(Probe, { html, identity, sourceKey })));
   return {
     states,
     last: () => states.at(-1)!,
+    rerender: (nextHtml, nextIdentity, nextSourceKey) =>
+      act(() => root.render(createElement(Probe, {
+        html: nextHtml,
+        identity: nextIdentity,
+        sourceKey: nextSourceKey,
+      }))),
     unmount: () =>
       act(() => {
         root.unmount();
@@ -107,7 +114,7 @@ describe("usePreparedPlanDocument settles every path (issue #652)", () => {
     vi.useFakeTimers();
     prepare.mockReturnValue(new Promise<PreparedReviewOutcome>(() => {}));
 
-    const harness = mount("<h1>Fix</h1>", "sha-abc");
+    const harness = mount("<h1>Fix</h1>", "sha-abc", "read:1");
     act(() => {
       vi.advanceTimersByTime(PREPARE_BUDGET_MS - 1);
     });
@@ -122,6 +129,7 @@ describe("usePreparedPlanDocument settles every path (issue #652)", () => {
     // Inconclusive, never a failed plan: nothing here indicts the source.
     expect(state.doc).toBeNull();
     expect(state.identity).toBe("sha-abc");
+    expect(state.sourceKey).toBe("read:1");
     expect(state.diagnostics).toHaveLength(1);
     expect(state.diagnostics[0]!.code).toBe("VERIFIER_TIMEOUT");
     expect(state.diagnostics[0]!.stage).toBe("prepare");
@@ -225,6 +233,49 @@ describe("usePreparedPlanDocument settles every path (issue #652)", () => {
     await act(async () => {
       root.unmount();
     });
+  });
+
+  it("returns pending on every render of a new read before that read settles, even for identical bytes and hash", async () => {
+    const next = deferred();
+    prepare.mockResolvedValueOnce(ready("<html>first</html>"))
+      .mockReturnValueOnce(next.promise);
+    const harness = mount("same bytes", "same hash", "read:1");
+    await flush();
+    expect(harness.last()).toMatchObject({ status: "ready", sourceKey: "read:1" });
+
+    const before = harness.states.length;
+    harness.rerender("same bytes", "same hash", "read:2");
+    expect(harness.states.slice(before)).not.toHaveLength(0);
+    expect(harness.states.slice(before).every((state) =>
+      state.status === "pending" && state.sourceKey === "read:2")).toBe(true);
+
+    next.resolve(ready("<html>second</html>"));
+    await flush();
+    expect(harness.last()).toMatchObject({
+      status: "ready", doc: "<html>second</html>", sourceKey: "read:2", identity: "same hash",
+    });
+    harness.unmount();
+  });
+
+  it("never labels a superseded read's late outcome with the next source key", async () => {
+    const first = deferred();
+    const second = deferred();
+    prepare.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const harness = mount("first", "hash:1", "read:1");
+    harness.rerender("second", "hash:2", "read:2");
+    first.resolve(ready("<html>old</html>"));
+    await flush();
+    expect(harness.last()).toEqual({ status: "pending", sourceKey: "read:2" });
+    expect(harness.states.some((state) => state.status === "ready")).toBe(false);
+
+    second.resolve(ready("<html>new</html>"));
+    await flush();
+    expect(harness.last()).toMatchObject({
+      status: "ready", doc: "<html>new</html>", sourceKey: "read:2", identity: "hash:2",
+    });
+    harness.rerender(null, "hash:2");
+    expect(harness.last()).toEqual({ status: "pending" });
+    harness.unmount();
   });
 
   it("holds pending with no preparation at all for a source-less plan", () => {

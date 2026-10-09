@@ -4,10 +4,10 @@
 // must OUTLIVE `discardTabRuntime` (a runtime re-created under the same tab id
 // can never match a continuation's captured generation), and the timer and
 // switch maps are plain per-tab side channels dropped with the tab. The
-// callbacks that fire live in frame-reduction.ts, which owns what a firing
-// timer dispatches; this module only owns the state and the arm/cancel/
-// coalescing discipline. Import direction: slices import this module; it
-// imports no slice.
+// callbacks live in session-params.ts; this leaf owns only cancellation,
+// timers and the one shared switch queue. It imports no slice at runtime.
+import type { RpcTabState } from "../types";
+import { strField } from "../../lib/fields";
 
 /** One tab's work-park timers, per slot; `undefined` slot = not armed. */
 export interface LiveWorkTimerSlots {
@@ -21,11 +21,27 @@ export interface LiveWorkTimerSlots {
  *  scheduled for is already over. */
 export type LiveSwitchMode = "park" | "wake";
 
-/** One tab's switch coalescing entry: the entry's existence means a cycle
- *  is running; a further request only records `again` (and upgrades `wake`). */
-export interface LiveSwitchEntry {
-  again: boolean;
+export interface LiveSwitchRequest {
   mode: LiveSwitchMode;
+  /** A loaded source key; null requires retirement, omitted re-evaluates. */
+  reviewKey?: string | null;
+  briefOverview?: boolean;
+}
+
+/** Runtime identity and generation are captured for every queued pass. */
+export interface LiveSwitchEntry {
+  request: LiveSwitchRequest;
+  runtime: object;
+  generation: number;
+  again?: LiveSwitchRequest;
+}
+
+export function planReviewGateKey(review: NonNullable<RpcTabState["planReview"]>): string {
+  return JSON.stringify([
+    strField(review.frame, "id"),
+    review.request.planAbsPath,
+    review.request.sourceHash ?? null,
+  ]);
 }
 
 const liveWorkTimers = new Map<string, LiveWorkTimerSlots>();
@@ -103,38 +119,50 @@ export function clearLiveWorkTimers(tabId: string): void {
   liveWorkTimers.delete(tabId);
 }
 
-/** Claim the tab's single-flight switch slot. The entry's existence means
- *  a runner owns the tab, so any request here only records a
- *  re-evaluation (a queued wake upgrades a queued park: the world the park
- *  was scheduled for is already over) and returns the string "coalesced";
- *  the idle tab gets the fresh entry to run. */
+/** Wake outranks an ordinary park; a new review replaces obsolete work. */
 export function claimLiveSwitch(
   tabId: string,
-  mode: LiveSwitchMode,
+  request: LiveSwitchRequest,
+  runtime: object,
 ): LiveSwitchEntry | "coalesced" {
   const existing = liveSwitches.get(tabId);
-  if (existing !== undefined) {
-    existing.again = true;
-    if (mode === "wake") existing.mode = "wake";
+  if (existing !== undefined && existing.runtime === runtime) {
+    const queued = existing.again ?? existing.request;
+    if (request.mode === "park" && queued.mode === "wake" && request.reviewKey === undefined)
+      return "coalesced";
+    if (request.mode === queued.mode && request.reviewKey === queued.reviewKey) {
+      // Speech may be upgraded during the park wait, before start dispatch.
+      if (request.briefOverview === true) queued.briefOverview = true;
+      return "coalesced";
+    }
+    if (request.reviewKey !== queued.reviewKey ||
+      (request.mode === "wake" && queued.mode === "park"))
+      bumpLiveVoiceGeneration(tabId);
+    existing.again = request;
     return "coalesced";
   }
-  const fresh: LiveSwitchEntry = { again: false, mode };
+  const fresh: LiveSwitchEntry = {
+    request, runtime, generation: liveVoiceGeneration(tabId),
+  };
   liveSwitches.set(tabId, fresh);
   return fresh;
 }
 
-/** One pass finished: keep the slot claimed and hand back the entry when a
- *  request arrived during the pass (its `again` flag resets), or drop the
- *  slot and return null. */
-export function finishLiveSwitch(tabId: string): LiveSwitchEntry | null {
-  const entry = liveSwitches.get(tabId);
-  if (entry === undefined) return null;
-  if (!entry.again) {
+/** An old runner may never release a replacement runner's slot. */
+export function finishLiveSwitch(tabId: string, captured: LiveSwitchEntry): LiveSwitchEntry | null {
+  if (liveSwitches.get(tabId) !== captured) return null;
+  if (captured.again === undefined) {
     liveSwitches.delete(tabId);
     return null;
   }
-  entry.again = false;
-  return entry;
+  captured.request = captured.again;
+  captured.again = undefined;
+  captured.generation = liveVoiceGeneration(tabId);
+  return captured;
+}
+
+export function cancelLiveSwitch(tabId: string): void {
+  liveSwitches.delete(tabId);
 }
 
 /** Tear down every work-park side channel for a tab whose runtime is dying.

@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.21.4](https://github.com/LankfordAI/omp-ui/releases/tag/v0.21.4). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+Live voice joins plan review (#818): an armed call reconnects at each proposal gate carrying the complete readable plan, speaks one automatic overview per gate, and answers spoken questions about it; "Explain this plan" requests a briefing on demand, and executing the plan carries the call to the implementation session. Verdicts stay human-only. See [ADR-0051](adr/0051-park-the-live-call-while-the-agent-works.md).
 
 ## Choose a download
 

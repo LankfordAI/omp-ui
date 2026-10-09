@@ -149,6 +149,39 @@ afterEach(() => {
 });
 
 describe("ComposerSheet", () => {
+  const voiceActions = { startLiveVoice: useStore.getState().startLiveVoice };
+  afterEach(() => useStore.setState(voiceActions));
+
+  it("keeps live voice available by default and starts it from the sheet", async () => {
+    seed("ready");
+    const start = vi.fn(async () => {});
+    useStore.setState((current) => ({
+      exited: {}, liveVoice: {}, liveReplay: null,
+      startLiveVoice: start,
+      rpc: {
+        [TAB]: {
+          ...current.rpc[TAB]!,
+          capabilities: {
+            version: 1 as const, processKey: "voice-process", sessionId: null,
+            revision: 1, updatedAt: 0, ompVersion: "18.5.1", skillCommandsEnabled: null,
+            skills: { status: "unavailable" as const, reason: "missing-api" as const },
+            tools: { status: "unavailable" as const, reason: "missing-api" as const },
+            magicKeywords: { status: "unavailable" as const, reason: "missing-api" as const },
+            toolControl: "unsupported" as const, toolMutation: null,
+          },
+        },
+      },
+    }));
+    render();
+    const startButton = document.querySelector<HTMLButtonElement>(
+      '[role="dialog"] button[aria-label="start live voice"]',
+    )!;
+    expect(startButton).not.toBeNull();
+    expect(startButton.disabled).toBe(false);
+    await act(async () => startButton.click());
+    expect(start).toHaveBeenCalledExactlyOnceWith(TAB);
+  });
+
   it("stays unmounted while closed", () => {
     seed("ready");
     render(false);

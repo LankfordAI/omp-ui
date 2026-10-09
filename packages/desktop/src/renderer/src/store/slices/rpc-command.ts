@@ -591,6 +591,8 @@ function freshRpcTabState(
     planReview: null,
     planText: null,
     planHtml: null,
+    planSourceKey: null,
+    planVoice: { ready: false, busy: false, error: null },
     planDeferred: false,
     planReadiness: null,
     experimentProposal: null,

@@ -635,6 +635,15 @@ export const en = {
   "plan.review.stepReview": "review plan",
   "plan.review.stepRefine": "request changes",
   "plan.review.stepSetup": "implementation setup",
+  "plan.review.liveVoice": "Live voice",
+  "plan.review.explainPlan": "Explain this plan",
+  "plan.review.startExplainPlan": "Start live voice and explain",
+  "plan.review.voicePreparing": "Preparing plan context…",
+  "plan.review.voiceUnavailable": "The reviewed plan is not available to live voice.",
+  "plan.review.voiceOwnedElsewhere":
+    "Live voice is controlled from another view. Stop it and start it here to explain the plan.",
+  "plan.review.voiceVerdicts":
+    "Discuss here; use the review controls to send changes or execute.",
   // PlanReview execution contexts
   "plan.context.sameSession": "this session",
   "plan.context.compactedSession": "this session, compacted",

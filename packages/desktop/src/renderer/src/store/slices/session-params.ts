@@ -4,7 +4,7 @@
 import type { ApprovalMode, BackendState, ImageAttachment, ServiceTier } from "@omp-ui/core/types";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { LIMITS_COMMAND } from "@omp-ui/core/limits";
-import { planMessage } from "@omp-ui/core/plan";
+import { isHtmlPlanPath, planMessage } from "@omp-ui/core/plan";
 import { parseExperimentProposalTitle } from "@omp-ui/core/autoresearch";
 import { parseApprovalPrompt } from "@omp-ui/core/approval";
 import {
@@ -61,8 +61,14 @@ import {
 import { randomId, randomUuid } from "../../lib/random-id";
 import {
   bumpLiveVoiceGeneration,
+  cancelLiveSwitch,
+  claimLiveSwitch,
   clearLiveWorkTimers,
+  finishLiveSwitch,
   liveVoiceGeneration,
+  planReviewGateKey,
+  type LiveSwitchEntry,
+  type LiveSwitchRequest,
 } from "./live-work-park";
 import {
   COMPACT_SETTLE_DEADLINE_MS,
@@ -88,10 +94,11 @@ import {
   applyLivePhase,
   buildLiveInstructions,
   emptyLiveSnapshot,
-  isLiveSessionActive,
   type LiveSnapshot,
+  type LivePlanReviewContext,
 } from "@omp-ui/core/live-voice";
 import { supportsNativeLive } from "../../lib/live-voice";
+import { planReviewText } from "../../lib/plan-review-text";
 import type { CompactionOutcome, UiStore, WordPredictionFeedback } from "../types";
 
 export type SessionParamsSlice = Pick<
@@ -122,6 +129,9 @@ export type SessionParamsSlice = Pick<
   | "stopLiveVoice"
   | "setLiveMuted"
   | "clearLiveError"
+  | "switchLiveVoice"
+  | "reconcileLivePlanReview"
+  | "explainPlanVoice"
   | "setSessionServiceTier"
   | "setServiceTier"
   | "setAutoRetry"
@@ -942,12 +952,24 @@ export function createSessionParamsSlice(
     m.patchRpc(tabId, { live: next });
   };
 
+  // A late view may receive levels before a phase. An unended snapshot still
+  // reports a call; a command error does not release that call's ownership.
+  const hasLiveCall = (live: LiveSnapshot | null | undefined): live is LiveSnapshot =>
+    live != null && !live.ended;
+
+  // Only an in-flight explicit request may override observed mute state.
+  // Tokens also keep a stopped call's late acknowledgement from restoring intent.
+  const liveMuteRequests = new WeakMap<TabRuntime, object>();
+  const rememberedLiveMute = (rt: TabRuntime, live: LiveSnapshot | null | undefined): boolean =>
+    liveMuteRequests.has(rt) ? rt.liveUserMuted === true :
+      rt.liveUserMuted === true || live?.phase === "muted";
+
   /** An explicit stop disarms everything the park/resume machinery owns
    *  (#811) — shared by the open-call and parked-call stop paths. */
   const clearLiveVoiceState: Partial<TabRuntime> = {
     liveArmed: false,
     liveParked: false,
-    liveUserMuted: false,
+    liveUserMuted: undefined,
     liveRecap: [],
     livePendingFeedback: [],
     liveCallSawDelegation: false,
@@ -956,85 +978,172 @@ export function createSessionParamsSlice(
     // #815: an explicit stop disarms work-parking too — no wake follows.
     liveWorkPark: false,
     liveOutputLoudAt: undefined,
+    liveReviewTextCache: undefined,
+    liveReviewAppliedSourceKey: null,
+    liveReviewAutoRequestedGateKey: undefined,
+    liveReviewExplicitBriefingKey: undefined,
+    liveReviewFailedSourceKey: undefined,
+    liveMuteRequestGeneration: undefined,
   };
 
-  /** Publish an in-flight live verb so another dispatch site can wait on it
-   *  instead of racing omp (#815); identity-cleared when it settles, so a
-   *  stale continuation can never clear a newer call's entry. */
+  /** Exact loaded bytes are projected once per source, never from a second read. */
+  const readyLiveReview = (tabId: string, rt: TabRuntime, cache = true): {
+    sourceKey: string;
+    gateKey: string;
+    context: LivePlanReviewContext;
+  } | null => {
+    const tab = get().rpc[tabId];
+    const review = tab?.planReview;
+    const sourceKey = tab?.planSourceKey;
+    if (tab === undefined || review === null || review === undefined ||
+      sourceKey === null || sourceKey === undefined) return null;
+    const html = isHtmlPlanPath(review.request.planFilePath);
+    const source = html ? tab.planHtml : tab.planText;
+    if (source === null || source.trim() === "") return null;
+    if (html && (tab.planReadiness?.sourceKey !== sourceKey ||
+      tab.planReadiness.status !== "ready" ||
+      (review.request.sourceHash !== undefined &&
+        tab.planReadiness.identity !== review.request.sourceHash))) return null;
+    let text = rt.liveReviewTextCache?.sourceKey === sourceKey
+      ? rt.liveReviewTextCache.text : undefined;
+    if (text === undefined) {
+      try {
+        text = planReviewText(source, html ? "html" : "markdown");
+      } catch {
+        text = "";
+      }
+      if (cache) m.patchRuntime(tabId, { liveReviewTextCache: { sourceKey, text } });
+    }
+    if (text.trim() === "") return null;
+    return {
+      sourceKey,
+      gateKey: planReviewGateKey(review),
+      context: {
+        title: review.request.title,
+        planFilePath: review.request.planFilePath,
+        sourceHash: review.request.sourceHash,
+        text,
+        briefOverview: false,
+      },
+    };
+  };
+
+  const publishPlanVoice = (tabId: string): void => {
+    const tab = get().rpc[tabId];
+    const rt = peekTabRuntime(tabId);
+    if (tab === undefined || rt === undefined) return;
+    const review = readyLiveReview(tabId, rt, rt.liveArmed === true);
+    const ownedElsewhere = hasLiveCall(tab.live) && rt.liveVoiceOwner !== true &&
+      rt.liveStartInFlight === undefined;
+    const unavailable = tab.planSourceKey != null && review === null &&
+      (!isHtmlPlanPath(tab.planReview?.request.planFilePath) ||
+        tab.planReadiness?.status === "ready" || tab.planReadiness?.status === "failed" ||
+        tab.planReadiness?.status === "unavailable");
+    const error = ownedElsewhere ? t("plan.review.voiceOwnedElsewhere") :
+      unavailable ? t("plan.review.voiceUnavailable") :
+        tab.planSourceKey == null ? tab.planVoice.error : null;
+    const next = {
+      ready: review !== null,
+      busy: rt.liveStartInFlight !== undefined || rt.liveStopInFlight !== undefined,
+      error: tab.planReview === null ? null : error,
+    };
+    if (tab.planVoice.ready !== next.ready || tab.planVoice.busy !== next.busy ||
+      tab.planVoice.error !== next.error) m.patchRpc(tabId, { planVoice: next });
+  };
+
+  /** Both the promise slot and its cleanup are scoped to one process lifetime. */
   const trackLiveDispatch = (
     tabId: string,
+    rt: TabRuntime,
     field: "liveStartInFlight" | "liveStopInFlight",
     dispatch: Promise<unknown>,
   ): Promise<unknown> => {
-    const tracked: Promise<unknown> = dispatch.finally(() => {
-      if (peekTabRuntime(tabId)?.[field] === tracked)
+    const tracked = dispatch.finally(() => {
+      if (peekTabRuntime(tabId) === rt && rt[field] === tracked) {
         m.patchRuntime(tabId, { [field]: undefined });
+        publishPlanVoice(tabId);
+      }
     });
-    m.patchRuntime(tabId, { [field]: tracked });
+    if (peekTabRuntime(tabId) === rt) {
+      m.patchRuntime(tabId, { [field]: tracked });
+      publishPlanVoice(tabId);
+    }
     return tracked;
   };
 
-  const startLiveVoice = async (
+  const liveAdmitted = (tabId: string): boolean => {
+    const tab = get().rpc[tabId];
+    return tab !== undefined && tab.status !== "error" && m.acceptsCommands(tabId) &&
+      get().exited[tabId] === undefined &&
+      supportsNativeLive(tab.capabilities?.ompVersion ?? null);
+  };
+
+  const dispatchLiveStart = async (
     tabId: string,
+    rt: TabRuntime,
+    valid: (startedHere?: boolean) => boolean,
+    request?: LiveSwitchRequest,
     opts?: { instructions?: string },
   ): Promise<void> => {
-    if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) return;
-    const current = get().rpc[tabId]?.live;
-    // omp rejects a second live session ("A live session is already
-    // active"); the action refuses before the command is sent. A parked
-    // snapshot is `ended`, so the resume path passes this gate.
-    if (current !== null && current !== undefined && !current.ended) return;
-    const pre = m.runtime(tabId);
-    // One start per tab at a time, and never while a stop is still in
-    // flight: the old call would still own the session (#815).
-    if (pre.liveStartInFlight !== undefined) return;
-    if (pre.liveStopInFlight !== undefined) {
-      await pre.liveStopInFlight.catch(() => undefined);
-      // Re-gate after the wait: the world the caller dispatched into is
-      // gone — a newer start may own the tab, or the call may be open again.
-      if (peekTabRuntime(tabId)?.liveStartInFlight !== undefined) return;
-      const reopened = get().rpc[tabId]?.live;
-      if (reopened !== undefined && reopened !== null && !reopened.ended) return;
+    if (!valid() || !liveAdmitted(tabId) || rt.liveStartInFlight !== undefined) return;
+    if (rt.liveStopInFlight !== undefined) {
+      const stopped = await rt.liveStopInFlight.catch(() => null);
+      if (stopped === null || !valid() || !liveAdmitted(tabId)) return;
     }
-    // Building from the runtime means the composer's first start sends the
-    // base-only text and both resume paths always carry the freshest recap
-    // and pending without extra plumbing (#811). A passed `instructions`
-    // (manual probes) carries no accounted pending: nothing is marked
-    // delivered, so a later final transcript clears nothing spuriously.
-    const rt = m.runtime(tabId);
-    const built =
-      opts?.instructions !== undefined
-        ? { instructions: opts.instructions, pendingUsed: 0 }
-        : buildLiveInstructions({ recap: rt.liveRecap, pending: rt.livePendingFeedback });
+    if (rt.liveStartInFlight !== undefined || hasLiveCall(get().rpc[tabId]?.live)) return;
+    const review = readyLiveReview(tabId, rt);
+    if (opts?.instructions === undefined && get().rpc[tabId]?.planReview !== null && review === null) return;
+    // Requested mute is intent; observed phase is still omp's UI truth.
+    // Choose speech only now, after all waits, and claim immediately before dispatch.
+    const muted = rt.liveUserMuted === true || get().rpc[tabId]?.live?.phase === "muted";
+    const briefOverview = opts?.instructions === undefined && review !== null &&
+      get().rpc[tabId]?.planDeferred !== true &&
+      (request?.briefOverview === true ||
+        (!muted && rt.liveReviewAutoRequestedGateKey !== review.gateKey));
+    const built = opts?.instructions !== undefined
+      ? { instructions: opts.instructions, pendingUsed: 0 }
+      : buildLiveInstructions({
+          recap: rt.liveRecap,
+          pending: rt.livePendingFeedback,
+          review: review === null ? undefined : { ...review.context, briefOverview },
+        });
+    if (!valid() || !liveAdmitted(tabId)) return;
     const generation = liveVoiceGeneration(tabId);
-    const resp = await trackLiveDispatch(
-      tabId,
-      "liveStartInFlight",
-      m.runCommand(tabId, { type: "live_start", instructions: built.instructions }, { quiet: true }),
-    );
-    if (liveVoiceGeneration(tabId) !== generation) {
-      // An explicit stop or a teardown landed while the start was in
-      // flight: omp's fresh call is not ours to keep. Close it silently and
-      // patch NOTHING — the stop owns the state, and a late ack must not
-      // re-arm what the user stopped (#815).
-      void trackLiveDispatch(
-        tabId,
-        "liveStopInFlight",
-        m.runCommand(tabId, { type: "live_stop" }, { quiet: true }),
-      );
+    if (briefOverview && review !== null)
+      m.patchRuntime(tabId, { liveReviewAutoRequestedGateKey: review.gateKey });
+    const beforeStart = get().rpc[tabId]?.live;
+    const resp = await trackLiveDispatch(tabId, rt, "liveStartInFlight",
+      m.runCommand(tabId, { type: "live_start", instructions: built.instructions }, { quiet: true }));
+    if (!valid(resp !== null) || liveVoiceGeneration(tabId) !== generation || !liveAdmitted(tabId)) {
+      // A late successful call is closed without restoring intent or markers.
+      // A new process with the same id is not this call's lifetime.
+      if (resp !== null && peekTabRuntime(tabId) === rt && rt.liveStopInFlight === undefined) {
+        const closing = get().rpc[tabId]?.live;
+        void trackLiveDispatch(tabId, rt, "liveStopInFlight",
+          m.runCommand(tabId, { type: "live_stop" }, { quiet: true }).then((stopped) => {
+            const current = get().rpc[tabId]?.live;
+            if (peekTabRuntime(tabId) !== rt || current?.connectionId !== closing?.connectionId)
+              return stopped;
+            if (stopped === null) {
+              m.patchRuntime(tabId, {
+                liveReviewFailedSourceKey: get().rpc[tabId]?.planSourceKey ?? null,
+              });
+              livePatch(tabId, { ...(current ?? emptyLiveSnapshot()), error: t("composer.live.sendFailed") });
+            } else if (current !== null && current !== undefined) {
+              livePatch(tabId, applyLiveEnd(current, null));
+            }
+            return stopped;
+          }));
+      }
       return;
     }
+    m.patchRuntime(tabId, { liveReviewExplicitBriefingKey: undefined });
     if (resp === null) {
-      // Quiet dispatch records no session failure; the strip is the surface.
-      livePatch(tabId, {
-        ...emptyLiveSnapshot(),
-        error: t("composer.live.sendFailed"),
-      });
+      m.patchRuntime(tabId, { liveReviewFailedSourceKey: review?.sourceKey ?? null });
+      livePatch(tabId, { ...emptyLiveSnapshot(), ended: true, error: t("composer.live.sendFailed") });
+      publishPlanVoice(tabId);
       return;
     }
-    // Only the renderer that started live voice titles from its delegations
-    // (issue #803). `patchRuntime` never invents an owner: take the slot first.
-    m.runtime(tabId);
     m.patchRuntime(tabId, {
       liveVoiceOwner: true,
       liveArmed: true,
@@ -1042,118 +1151,228 @@ export function createSessionParamsSlice(
       liveCallSawDelegation: false,
       liveOrphanRestart: false,
       livePendingIncluded: built.pendingUsed,
+      liveReviewAppliedSourceKey: opts?.instructions === undefined ? review?.sourceKey ?? null : null,
+      liveReviewFailedSourceKey: undefined,
     });
     m.syncLiveVoiceBadge(tabId);
-    // #811: parked while the user's own mute was on — omp's mute does not
-    // survive a closed call, so re-mute the fresh one after the ack.
-    if (m.runtime(tabId).liveUserMuted === true) {
-      m.patchRuntime(tabId, { liveUserMuted: false });
-      void setLiveMuted(tabId, true);
-    }
-    // A fresh connection identity per successful start (#809): recording
-    // refs key on it, so a reused turn number from a later connection can
-    // never attach a recording to the wrong message. stopLiveVoice/live_end
-    // leave it — history keys on it until the next local `connecting`.
+    const reported = get().rpc[tabId]?.live;
     livePatch(tabId, {
-      ...applyLivePhase(emptyLiveSnapshot(), "connecting"),
+      ...(reported != null && reported !== beforeStart
+        ? reported : applyLivePhase(emptyLiveSnapshot(), "connecting")),
       connectionId: randomUuid(),
     });
+    if (rt.liveUserMuted === true) void setLiveMuted(tabId, true);
+    reconcileLivePlanReview(tabId);
   };
 
-  /**
-   * Park (#811): close the realtime call of an armed session the user just
-   * stopped viewing, keeping the intent. The recap folds in first — after
-   * the stop, omp discards what the call never heard. A delegated agent
-   * turn keeps running (it is off the call); the mic dies with the stop.
-   */
-  const parkLiveVoice = async (tabId: string): Promise<void> => {
-    if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) return;
-    const live = get().rpc[tabId]?.live;
-    if (live === null || live === undefined || !isLiveSessionActive(live)) return;
+  const startLiveVoice = async (tabId: string, opts?: { instructions?: string }): Promise<void> => {
+    if (get().activeTabId !== tabId || !liveAdmitted(tabId) || hasLiveCall(get().rpc[tabId]?.live)) return;
     const rt = m.runtime(tabId);
-    // Already parked (the work-park switch just did it): a second pass would
-    // fold the recap twice and race the first stop (#815).
-    if (rt.liveParked === true) return;
+    const generation = liveVoiceGeneration(tabId);
+    const sourceKey = get().rpc[tabId]?.planSourceKey ?? null;
+    const gateKey = get().rpc[tabId]?.planReview;
+    const valid = (): boolean => peekTabRuntime(tabId) === rt &&
+      liveVoiceGeneration(tabId) === generation && get().activeTabId === tabId &&
+      (opts?.instructions !== undefined ||
+        (get().rpc[tabId]?.planSourceKey === sourceKey && get().rpc[tabId]?.planReview === gateKey));
+    m.patchRuntime(tabId, { liveReviewFailedSourceKey: undefined });
+    await dispatchLiveStart(tabId, rt, valid, undefined, opts);
+  };
+
+  /** Fold once and wait for the exact stop. Never let an old ack end a new call. */
+  const parkLiveCall = async (tabId: string): Promise<boolean> => {
+    if (!liveAdmitted(tabId)) return false;
+    const live = get().rpc[tabId]?.live;
+    const rt = peekTabRuntime(tabId);
+    if (rt === undefined) return false;
+    if (!hasLiveCall(live)) return true;
+    if (rt.liveStopInFlight !== undefined) {
+      const resp = await rt.liveStopInFlight.catch(() => null);
+      return resp !== null && peekTabRuntime(tabId) === rt;
+    }
+    if (rt.liveParked === true) return false;
     clearLiveWorkTimers(tabId);
     m.patchRuntime(tabId, {
       liveRecap: appendLiveRecap(rt.liveRecap, live.turns),
-      // Derived, not remembered: the user's mute was on iff the phase says
-      // so; the model must be muted again on resume.
-      liveUserMuted: live.phase === "muted",
+      liveUserMuted: rememberedLiveMute(rt, live),
       liveParked: true,
     });
     m.syncLiveVoiceBadge(tabId);
-    const resp = await trackLiveDispatch(
-      tabId,
-      "liveStopInFlight",
-      m.runCommand(tabId, { type: "live_stop" }, { quiet: true }),
-    );
+    const resp = await trackLiveDispatch(tabId, rt, "liveStopInFlight",
+      m.runCommand(tabId, { type: "live_stop" }, { quiet: true }));
+    const current = get().rpc[tabId]?.live;
+    if (peekTabRuntime(tabId) !== rt || current === null || current === undefined ||
+      current.connectionId !== live.connectionId) return false;
     if (resp === null) {
-      // The call survived the park attempt: un-park so the next leave retries.
-      m.patchRuntime(tabId, { liveParked: false });
+      m.patchRuntime(tabId, {
+        liveParked: false,
+        liveReviewFailedSourceKey: get().rpc[tabId]?.planSourceKey ?? null,
+      });
       m.syncLiveVoiceBadge(tabId);
-      livePatch(tabId, { ...live, error: t("composer.live.sendFailed") });
+      livePatch(tabId, { ...current, error: t("composer.live.sendFailed") });
+      return false;
+    }
+    livePatch(tabId, applyLiveEnd(current, null));
+    publishPlanVoice(tabId);
+    return true;
+  };
+
+  const parkLiveVoice = async (tabId: string): Promise<void> => {
+    await parkLiveCall(tabId);
+  };
+
+  const switchPassValid = (tabId: string, entry: LiveSwitchEntry, request: LiveSwitchRequest, startedHere = false): boolean => {
+    const rt = peekTabRuntime(tabId);
+    const tab = get().rpc[tabId];
+    if (rt === undefined || rt !== entry.runtime || liveVoiceGeneration(tabId) !== entry.generation ||
+      !liveAdmitted(tabId) || tab === undefined) return false;
+    if (request.mode === "park") return rt.liveVoiceOwner === true && rt.liveArmed === true;
+    const intentional = request.briefOverview === true;
+    if (!intentional && rt.liveReviewFailedSourceKey !== undefined &&
+      rt.liveReviewFailedSourceKey === (tab.planSourceKey ?? null)) return false;
+    if (get().activeTabId !== tabId ||
+      (!intentional && (rt.liveVoiceOwner !== true || rt.liveArmed !== true)) ||
+      (hasLiveCall(tab.live) && rt.liveVoiceOwner !== true && rt.liveStartInFlight === undefined && !startedHere) ||
+      (rt.liveWorkPark === true && tab.planReview === null)) return false;
+    if (request.reviewKey === null) return tab.planReview === null;
+    if (tab.planReview === null) return request.reviewKey === undefined;
+    const review = readyLiveReview(tabId, rt);
+    return review !== null &&
+      (request.reviewKey === undefined ||
+        (!tab.planDeferred && request.reviewKey === review.sourceKey));
+  };
+
+  const runLiveCallPass = async (tabId: string, entry: LiveSwitchEntry): Promise<void> => {
+    const request = entry.request;
+    const valid = (startedHere = false): boolean => switchPassValid(tabId, entry, request, startedHere);
+    if (!valid()) return;
+    const rt = peekTabRuntime(tabId)!;
+    if (rt.liveStartInFlight !== undefined) {
+      await rt.liveStartInFlight.catch(() => null);
+      if (!valid()) return;
+    }
+    if (rt.liveStopInFlight !== undefined) {
+      const stopped = await rt.liveStopInFlight.catch(() => null);
+      if (stopped === null || !valid()) return;
+    }
+    if (request.mode === "park") {
+      await parkLiveCall(tabId);
       return;
     }
-    livePatch(tabId, applyLiveEnd(live, null)); // live_end is the truth
+    if (hasLiveCall(get().rpc[tabId]?.live)) {
+      const stopped = await parkLiveCall(tabId);
+      if (!stopped || !valid()) return;
+    }
+    if (!valid() || hasLiveCall(get().rpc[tabId]?.live)) return;
+    clearLiveWorkTimers(tabId);
+    bumpLiveVoiceGeneration(tabId);
+    entry.generation = liveVoiceGeneration(tabId);
+    await dispatchLiveStart(tabId, rt, valid, request);
+  };
+
+  const switchLiveVoice = async (tabId: string, request: LiveSwitchRequest): Promise<void> => {
+    const rt = peekTabRuntime(tabId);
+    if (rt === undefined) return;
+    const claimed = claimLiveSwitch(tabId, request, rt);
+    if (claimed === "coalesced") return;
+    let entry: LiveSwitchEntry | null = claimed;
+    do {
+      await runLiveCallPass(tabId, entry);
+      entry = finishLiveSwitch(tabId, entry);
+    } while (entry !== null);
+    publishPlanVoice(tabId);
+  };
+
+  const reconcileLivePlanReview = (tabId: string): void => {
+    const rt = peekTabRuntime(tabId);
+    const tab = get().rpc[tabId];
+    if (rt === undefined || tab === undefined) return;
+    const review = readyLiveReview(tabId, rt);
+    publishPlanVoice(tabId);
+    // Readiness must queue a replacement even during an old dispatch; the
+    // common switch runner waits for that dispatch and its stale-call close.
+    if (review === null || tab.planDeferred || get().activeTabId !== tabId ||
+      !liveAdmitted(tabId) || rt.liveVoiceOwner !== true || rt.liveArmed !== true ||
+      rt.liveReviewFailedSourceKey === review.sourceKey) return;
+    const briefOverview = rt.liveReviewAutoRequestedGateKey !== review.gateKey &&
+      rt.liveUserMuted !== true && tab.live?.phase !== "muted";
+    if (rt.liveReviewAppliedSourceKey === review.sourceKey && !briefOverview) return;
+    void switchLiveVoice(tabId, { mode: "wake", reviewKey: review.sourceKey });
+  };
+
+  const explainPlanVoice = async (tabId: string): Promise<void> => {
+    if (!liveAdmitted(tabId) || get().activeTabId !== tabId) return;
+    const rt = m.runtime(tabId);
+    const tab = get().rpc[tabId]!;
+    const review = readyLiveReview(tabId, rt);
+    publishPlanVoice(tabId);
+    if (review === null || tab.planDeferred) return;
+    if (hasLiveCall(tab.live) && rt.liveVoiceOwner !== true && rt.liveStartInFlight === undefined) {
+      m.patchRpc(tabId, { planVoice: { ...tab.planVoice, error: t("plan.review.voiceOwnedElsewhere") } });
+      return;
+    }
+    if (rt.liveReviewExplicitBriefingKey === review.sourceKey || rt.liveStartInFlight !== undefined) return;
+    m.patchRuntime(tabId, {
+      liveReviewExplicitBriefingKey: review.sourceKey,
+      liveReviewFailedSourceKey: undefined,
+    });
+    await switchLiveVoice(tabId, { mode: "wake", reviewKey: review.sourceKey, briefOverview: true });
+    if (peekTabRuntime(tabId) === rt && rt.liveReviewExplicitBriefingKey === review.sourceKey)
+      m.patchRuntime(tabId, { liveReviewExplicitBriefingKey: undefined });
+    publishPlanVoice(tabId);
   };
 
   const stopLiveVoice = async (tabId: string): Promise<void> => {
     if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) return;
     const current = get().rpc[tabId]?.live;
-    if (current === null || current === undefined) return;
-    const stopRt = m.runtime(tabId);
-    // An explicit stop cancels every async continuation of the call: an
-    // in-flight start ack that lands after this point sees a changed
-    // generation and cleans up instead of re-arming (#815). Work timers die
-    // with the intent; no wake may follow a stop.
+    const rt = peekTabRuntime(tabId) ?? (get().rpc[tabId] === undefined ? undefined : m.runtime(tabId));
+    if (rt === undefined) return;
     bumpLiveVoiceGeneration(tabId);
+    cancelLiveSwitch(tabId);
     clearLiveWorkTimers(tabId);
-    // `liveParked` skips the dispatch even while `live_end` is still in
-    // flight: parkLiveVoice set the flag synchronously before its own
-    // `live_stop`, and a second stop would race the first (the #808
-    // hand-off lands here on a source the guard just parked).
-    if (current.ended || stopRt.liveParked === true) {
-      // A parked call has nothing to close. The clear below is the whole
-      // job: an explicit stop disarms, so returning to the tab never
-      // resumes (AC 8).
-      if (stopRt.liveArmed !== true && stopRt.liveParked !== true) return;
-      m.patchRuntime(tabId, clearLiveVoiceState);
-      m.syncLiveVoiceBadge(tabId);
-      return;
-    }
-    const resp = await trackLiveDispatch(
-      tabId,
-      "liveStopInFlight",
-      m.runCommand(tabId, { type: "live_stop" }, { quiet: true }),
-    );
-    if (resp === null) {
-      livePatch(tabId, { ...current, error: t("composer.live.sendFailed") });
-      return;
-    }
-    // An explicit stop clears the intent (#811): returning to the tab must
-    // not resume what the user stopped. Parking never reaches this line —
-    // it goes through `parkLiveVoice`, which keeps `liveArmed`.
+    const existingStop = rt.liveStopInFlight;
+    liveMuteRequests.delete(rt);
     m.patchRuntime(tabId, clearLiveVoiceState);
     m.syncLiveVoiceBadge(tabId);
-    // live_end is the truth; this only marks ended so the control returns to
-    // idle without a visible flash of a still-running session.
-    livePatch(tabId, applyLiveEnd(current, null));
+    publishPlanVoice(tabId);
+    if (current === null || current === undefined || current.ended || existingStop !== undefined) return;
+    const resp = await trackLiveDispatch(tabId, rt, "liveStopInFlight",
+      m.runCommand(tabId, { type: "live_stop" }, { quiet: true }));
+    const after = get().rpc[tabId]?.live;
+    if (peekTabRuntime(tabId) !== rt || after === null || after === undefined ||
+      after.connectionId !== current.connectionId) return;
+    if (resp === null) {
+      livePatch(tabId, { ...after, error: t("composer.live.sendFailed") });
+      return;
+    }
+    livePatch(tabId, applyLiveEnd(after, null));
   };
 
   const setLiveMuted = async (tabId: string, muted: boolean): Promise<void> => {
-    if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) return;
-    const resp = await m.runCommand(
-      tabId,
-      { type: "live_mute", muted },
-      { quiet: true },
-    );
+    if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null) ||
+      get().rpc[tabId] === undefined) return;
+    const rt = m.runtime(tabId);
+    const previous = rt.liveUserMuted;
+    const request = (rt.liveMuteRequestGeneration ?? 0) + 1;
+    const connectionId = get().rpc[tabId]?.live?.connectionId;
+    const token = {};
+    liveMuteRequests.set(rt, token);
+    m.patchRuntime(tabId, { liveUserMuted: muted, liveMuteRequestGeneration: request });
+    const resp = await m.runCommand(tabId, { type: "live_mute", muted }, { quiet: true });
+    if (liveMuteRequests.get(rt) !== token) return;
+    liveMuteRequests.delete(rt);
+    if (peekTabRuntime(tabId) !== rt || rt.liveMuteRequestGeneration !== request ||
+      get().rpc[tabId]?.live?.connectionId !== connectionId) return;
     if (resp === null) {
+      m.patchRuntime(tabId, { liveUserMuted: previous });
       const current = get().rpc[tabId]?.live;
       if (current !== undefined && current !== null)
         livePatch(tabId, { ...current, error: t("composer.live.sendFailed") });
+      reconcileLivePlanReview(tabId);
+      return;
     }
-    // No local toggle state: `live_phase` "muted" is omp's truth.
+    // Phase frames remain truth. Explicit unmute can request an initial overview.
+    reconcileLivePlanReview(tabId);
   };
 
   const clearLiveError = (tabId: string): void => {
@@ -2210,6 +2429,9 @@ export function createSessionParamsSlice(
     stopLiveVoice,
     setLiveMuted,
     clearLiveError,
+    switchLiveVoice,
+    reconcileLivePlanReview,
+    explainPlanVoice,
     setSessionServiceTier,
     setServiceTier,
     setAutoRetry,

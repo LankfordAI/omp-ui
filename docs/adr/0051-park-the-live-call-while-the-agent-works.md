@@ -83,3 +83,20 @@ has nothing to contribute to. Verified against the managed binary
   touches no work-park state at all.
 - The orphan restart (#811) now also wire-orders stop-before-start; the
   "restart at next `listening`" trigger is unchanged.
+
+## Amendment (issue #818)
+
+A plan proposal gate is also a work-parking boundary: the planning turn ends
+at the gate, and an open call must not listen while a human reviews. The
+proposal's `extension_ui_request` closes the call through the same single-flight
+switch, and the reconnect that carries the plan artifact's full readable text
+(a separate `<plan-review>` section in `buildLiveInstructions`, exempt from the
+recap trim ceiling) rides that same wake — the artifact travels only in
+`live_start` instructions, because omp exposes no in-call update or speak verb.
+A gate whose artifact path and hash are unchanged still wakes a briefing when
+the request is explicit; automatic briefings key on the gate identity so a
+re-presented identical plan is not re-narrated unprompted. On execute, the
+hand-off carries voice to the viewed destination: the source stop is
+acknowledged before the destination start, and the gate is that no source
+call stays open — not that it ended without a transport-teardown error
+(#822).

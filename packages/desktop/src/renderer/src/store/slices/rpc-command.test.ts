@@ -1486,6 +1486,7 @@ describe("live voice Auto-title (issue #803)", () => {
     h.backendState = h.stateWithRecord("sess-1");
     h.useStore.setState({
       state: h.backendState,
+      activeTabId: h.TAB,
       rpc: {
         [h.TAB]: rpcTabState({
           status: "running",

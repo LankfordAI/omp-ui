@@ -237,6 +237,7 @@ function activeKeywordsAfter(frames: readonly Frame[]) {
     pendingTurnKeywords: [],
     keywordInputBatchStarted: false,
     liveRecap: [],
+    planReadSequence: 0,
     livePendingFeedback: [],
     pendingNotices: [],
     slashCommandItems: new Map(),
