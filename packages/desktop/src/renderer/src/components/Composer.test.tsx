@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import type { BranchList, ServiceTier } from "@omp-ui/core/types";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { MAGIC_KEYWORDS, type MagicKeyword } from "@omp-ui/core/magic-keywords";
-import { backendState, rpcTabState } from "../test/fixtures";
+import { backendState, remoteOwnedState, rpcTabState } from "../test/fixtures";
 import type { RpcTabState } from "../store";
 import { emptySessionRuntime, type SlashCommandInfo } from "../lib/rpc-types";
 import { t } from "../lib/i18n";
@@ -27,6 +27,19 @@ const clipboardImageMock = vi.hoisted(() => ({
 }));
 
 vi.mock("../lib/clipboard-image", () => clipboardImageMock);
+
+const platformMocks = vi.hoisted(() => ({ electron: false }));
+
+// The live voice render/store gates (#816) read IS_ELECTRON from lib/platform.
+// Default false keeps every other suite on the web-client path; the dictation
+// suite flips it opt-in for the live tests (pattern: store.test.ts:23-34).
+vi.mock("../lib/platform", () => ({
+  get IS_ELECTRON() {
+    return platformMocks.electron;
+  },
+  IS_MAC: false,
+  IS_WINDOWS: false,
+}));
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom has no layout, hence no scrollIntoView; the slash palette calls it on
@@ -784,6 +797,9 @@ describe("Composer dictation (issue #647)", () => {
   }
 
   beforeEach(() => {
+    // The live-gate tests in this describe need the desktop shell; #816
+    // hides the capsule for every non-Electron client otherwise.
+    platformMocks.electron = true;
     closeCalls = 0;
     stopTrack = vi.fn();
     vi.stubGlobal("AudioContext", CtxStub);
@@ -797,6 +813,7 @@ describe("Composer dictation (issue #647)", () => {
   });
 
   afterEach(() => {
+    platformMocks.electron = false;
     vi.unstubAllGlobals();
     Reflect.deleteProperty(navigator, "mediaDevices");
   });
@@ -1055,6 +1072,51 @@ describe("Composer dictation (issue #647)", () => {
     pushKey(document.body, "keyup");
     await settle();
     expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
+  });
+
+  const liveCapsule = (): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.getAttribute("aria-label") === "start live voice");
+
+  const sentLiveStart = (): boolean =>
+    backendMock.rpcSend.mock.calls
+      .map((call) => call[1] as Record<string, unknown>)
+      .some((frame) => frame.type === "live_start");
+
+  it("the web client hides the capsule and keeps the dictation mic on a live-capable session (#816)", async () => {
+    platformMocks.electron = false;
+    try {
+      desktopRow();
+      seed("ready");
+      enableVoice();
+      seedLiveCapable();
+      renderComposer();
+      expect(liveCapsule()).toBeUndefined();
+      expect(micButton()).toBeDefined();
+      // The store guard makes even a stray dispatch impossible: the mic
+      // slot records dictation, and no live_start ever reaches omp.
+      await act(async () => micButton()!.click());
+      await settle();
+      expect(sentLiveStart()).toBe(false);
+    } finally {
+      platformMocks.electron = true;
+    }
+  });
+
+  it("the Electron shell hides the capsule on a joined remote-instance tab (#816)", async () => {
+    desktopRow();
+    seed("ready");
+    // The session record moves under the joined instance's projects
+    // (fixtures.ts remoteOwnedState; ownerIndex gives instanceId = "inst-1").
+    useStore.setState({ state: remoteOwnedState(TAB, "inst-1") });
+    seedLiveCapable();
+    enableVoice();
+    renderComposer();
+    expect(liveCapsule()).toBeUndefined();
+    expect(micButton()).toBeDefined();
+    await act(async () => micButton()!.click());
+    await settle();
+    expect(sentLiveStart()).toBe(false);
   });
 });
 

@@ -10,7 +10,7 @@ import { BuildPlanControl } from "./BuildPlanControl";
 import { QueuedMessageList } from "./QueuedMessageList";
 import { FastModeControl } from "./FastModeControl";
 import { LiveVoiceControl } from "./LiveVoiceControl";
-import { supportsNativeLive } from "../lib/live-voice";
+import { liveAudioLocalToClient, supportsNativeLive } from "../lib/live-voice";
 import { Button, Chip, Label, Sheet } from "./ui";
 
 /** Stable empty so the per-field selector doesn't fire on every store tick. */
@@ -55,9 +55,13 @@ export function ComposerSheet({
   const model = useStore((s) => s.rpc[tabId]?.model ?? null);
   const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
   const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
-  // Live voice gates on the omp version, like the inline rows (issue #778).
+  // Live voice gates on the omp version, like the inline rows (issue #778),
+  // and on host-local audio (issue #816): a remote client's mic never
+  // reaches the host-side call.
   const liveSupported = useStore(
-    (s) => supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
+    (s) =>
+      supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null) &&
+      liveAudioLocalToClient(findOwner(s.state, tabId)?.instanceId ?? null),
   );
   // One fast control per sheet: the gate's yes puts it in the model/effort
   // section beside the pills it belongs to (issue #689); its no keeps #677's
