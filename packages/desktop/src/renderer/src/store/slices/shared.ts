@@ -42,6 +42,10 @@ import type {
   TuiHandoff,
   UiStore,
 } from "../types";
+import {
+  disposeLiveWorkPark,
+  resetLiveWorkParkForTests,
+} from "./live-work-park";
 import { findRecord } from "./view";
 
 export type SetState = StoreApi<UiStore>["setState"];
@@ -141,6 +145,20 @@ export interface TabRuntime {
    *  next `listening` phase (#811). Cleared before dispatch so a failed
    *  start cannot loop-restart. */
   liveOrphanRestart?: boolean;
+  /** Work-parking accepted for a running delegated turn (issue #815); the
+   *  wake owns the resume. Set ONLY by the arm effect when the setting is on;
+   *  cleared at `agent_end` and by explicit stop — never by a start ack. */
+  liveWorkPark?: boolean;
+  /** Epoch ms of the last `live_levels` frame whose output was loud;
+   *  `undefined` until the first loud frame after arming — quiet before any
+   *  loud frame never parks (the acknowledgment may not have started). */
+  liveOutputLoudAt?: number;
+  /** The in-flight `live_stop` promise, identity-cleared in a finally;
+   *  published by every dispatch site of the verb (issue #815). */
+  liveStopInFlight?: Promise<void>;
+  /** The in-flight `live_start` promise, identity-cleared in a finally;
+   *  published by every dispatch site of the verb (issue #815). */
+  liveStartInFlight?: Promise<void>;
   /** How many pending entries the in-flight resume instructions carried; the
    *  first final assistant transcript clears exactly this prefix (#811). */
   livePendingIncluded?: number;
@@ -530,11 +548,13 @@ export function resetTabRuntimesForTests(): void {
     }
   }
   tabRuntimes.clear();
+  resetLiveWorkParkForTests();
 }
 
-/** Test seam: the runtime a tab owns, or undefined when it has none. Never
- *  creates one — tests assert that a path left PTY tabs runtime-free. */
-export function peekTabRuntimeForTests(tabId: string): TabRuntime | undefined {
+/** The tab's runtime if it owns one; never creates. Async continuations use
+ *  this after an await: a discarded tab must stay discarded (#815). Tests
+ *  use it to assert that a path left PTY tabs runtime-free. */
+export function peekTabRuntime(tabId: string): TabRuntime | undefined {
   return tabRuntimes.get(tabId);
 }
 
@@ -654,6 +674,9 @@ export function createMachinery(
     if (batch?.timer !== undefined) window.clearTimeout(batch.timer);
     if (current.streamStallTimer !== undefined)
       window.clearInterval(current.streamStallTimer);
+    // Work-parking side channels die with the runtime; the generation bumps so
+    // a relaunch under this tab id can never match a captured generation (#815).
+    disposeLiveWorkPark(tabId);
     tabRuntimes.delete(tabId);
   };
 

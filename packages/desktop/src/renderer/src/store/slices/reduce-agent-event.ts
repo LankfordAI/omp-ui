@@ -67,7 +67,9 @@ type AfterCommitEffect =
       item: NoticeItem;
     }
   | { phase: "after-commit"; type: "trigger-stall-continue" }
-  | { phase: "after-commit"; type: "store-live-pending-feedback"; callOpen: boolean };
+  | { phase: "after-commit"; type: "store-live-pending-feedback"; callOpen: boolean }
+  | { phase: "after-commit"; type: "arm-live-work-park" }
+  | { phase: "after-commit"; type: "wake-live-call" };
 
 /**
  * Effects are ordered within each phase. The explicit pre-commit phase keeps
@@ -363,6 +365,16 @@ export function reduceAgentEvent(
         // who delivers the final answer at `agent_end`.
         runtimePatch.liveDelegatedTurnSeen = true;
         runtimePatch.liveCallSawDelegation = true;
+        // #815: an accepted work-park parks the call while this delegated
+        // turn works. The setting is read in the handler, not here; the
+        // open-call gate keeps a typed-turn or orphan path from arming.
+        if (
+          runtime.liveArmed === true &&
+          tab.live !== undefined &&
+          tab.live !== null &&
+          !tab.live.ended
+        )
+          effects.push({ phase: "after-commit", type: "arm-live-work-park" });
       }
     }
   }
@@ -411,16 +423,30 @@ export function reduceAgentEvent(
     // answer stranded: omp's controller silently discards appends after
     // `live_stop`. Store it for the next start; an open call that saw a
     // spoken request this call delivers "Agent Final Message" itself.
+    // #815: a work-park closes the call at delegation, so by turn end the
+    // call IS closed — the answer is stranded even though
+    // `liveCallSawDelegation` says the call heard the request. Parked
+    // counts as closed for the store gate.
     if (
       runtime.liveVoiceOwner === true &&
       runtime.liveArmed === true &&
       runtime.liveDelegatedTurnSeen === true
     ) {
       const callOpen = tab.live !== undefined && tab.live !== null && !tab.live.ended;
-      if (!callOpen || runtime.liveCallSawDelegation !== true)
+      if (!callOpen || runtime.liveParked === true || runtime.liveCallSawDelegation !== true)
         effects.push({ phase: "after-commit", type: "store-live-pending-feedback", callOpen });
     }
     runtimePatch.liveDelegatedTurnSeen = false;
+    // #815: the work-park's wake. The flag rode from the accepted arm; the
+    // store gate above already ran, so the pending text is in the runtime
+    // before the effect fires. Clear the flag on every turn end that
+    // carried it, viewed or not — the wake dispatch itself decides whether
+    // to reopen now (viewed) or leave the answer for the enter guard.
+    if (runtime.liveWorkPark === true) {
+      runtimePatch.liveWorkPark = false;
+      runtimePatch.liveOutputLoudAt = undefined;
+      effects.push({ phase: "after-commit", type: "wake-live-call" });
+    }
     if (tab.status === "running") {
       rpc.status = "ready";
       rpc.streamStallMs = undefined;

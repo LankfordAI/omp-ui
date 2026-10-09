@@ -419,6 +419,9 @@ export const en = {
   "composer.live.replayLiveBusy": "live voice is speaking — replay waits",
   "composer.live.audioIncomplete": "recording incomplete — half-written take",
   "composer.live.dismiss": "dismiss live voice message",
+  "composer.live.parked": "live · parked",
+  "composer.live.parkedHint":
+    "The call is quiet while the assistant works — it speaks again when it finishes.",
   "composer.strip.converting": "cutting the worktree…",
   "composer.slash.new": "new live session in a new tab",
   "composer.slash.plan": "plan mode — read-only; a plan is drafted and reviewed on request",
@@ -793,6 +796,9 @@ export const en = {
   "settings.general.voiceInput": "Voice input",
   "settings.general.voiceInputHint":
     "Adds a microphone button to every composer; each phrase is transcribed by the provider below when you pause and inserted into the draft, never sent.",
+  "settings.general.liveWorkParking": "Park live voice while the assistant works",
+  "settings.general.liveWorkParkingHint":
+    "When a spoken request hands work to the assistant, the live call closes while it works and reopens when there is something to say — no realtime model runs during the wait. Turning this off keeps the call open the whole time.",
   "settings.general.dictationModel": "Dictation model",
   "settings.general.dictationModelHint":
     "Discovered from the installed OMP's speech-to-text catalog. Auto uses the first model a stored provider key makes callable.",

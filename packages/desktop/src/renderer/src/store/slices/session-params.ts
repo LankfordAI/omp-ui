@@ -60,10 +60,16 @@ import {
 } from "@omp-ui/core/session-tree";
 import { randomId, randomUuid } from "../../lib/random-id";
 import {
+  bumpLiveVoiceGeneration,
+  clearLiveWorkTimers,
+  liveVoiceGeneration,
+} from "./live-work-park";
+import {
   COMPACT_SETTLE_DEADLINE_MS,
   RPC_COMMAND_TIMEOUT_MS,
   RpcCommandAbandonedError,
   dropPlanHandoff,
+  peekTabRuntime,
   respData,
   setRewindPrefill,
   takeRewindPrefill,
@@ -947,6 +953,25 @@ export function createSessionParamsSlice(
     liveCallSawDelegation: false,
     liveOrphanRestart: false,
     livePendingIncluded: undefined,
+    // #815: an explicit stop disarms work-parking too — no wake follows.
+    liveWorkPark: false,
+    liveOutputLoudAt: undefined,
+  };
+
+  /** Publish an in-flight live verb so another dispatch site can wait on it
+   *  instead of racing omp (#815); identity-cleared when it settles, so a
+   *  stale continuation can never clear a newer call's entry. */
+  const trackLiveDispatch = (
+    tabId: string,
+    field: "liveStartInFlight" | "liveStopInFlight",
+    dispatch: Promise<unknown>,
+  ): Promise<unknown> => {
+    const tracked: Promise<unknown> = dispatch.finally(() => {
+      if (peekTabRuntime(tabId)?.[field] === tracked)
+        m.patchRuntime(tabId, { [field]: undefined });
+    });
+    m.patchRuntime(tabId, { [field]: tracked });
+    return tracked;
   };
 
   const startLiveVoice = async (
@@ -959,6 +984,18 @@ export function createSessionParamsSlice(
     // active"); the action refuses before the command is sent. A parked
     // snapshot is `ended`, so the resume path passes this gate.
     if (current !== null && current !== undefined && !current.ended) return;
+    const pre = m.runtime(tabId);
+    // One start per tab at a time, and never while a stop is still in
+    // flight: the old call would still own the session (#815).
+    if (pre.liveStartInFlight !== undefined) return;
+    if (pre.liveStopInFlight !== undefined) {
+      await pre.liveStopInFlight.catch(() => undefined);
+      // Re-gate after the wait: the world the caller dispatched into is
+      // gone — a newer start may own the tab, or the call may be open again.
+      if (peekTabRuntime(tabId)?.liveStartInFlight !== undefined) return;
+      const reopened = get().rpc[tabId]?.live;
+      if (reopened !== undefined && reopened !== null && !reopened.ended) return;
+    }
     // Building from the runtime means the composer's first start sends the
     // base-only text and both resume paths always carry the freshest recap
     // and pending without extra plumbing (#811). A passed `instructions`
@@ -969,11 +1006,24 @@ export function createSessionParamsSlice(
       opts?.instructions !== undefined
         ? { instructions: opts.instructions, pendingUsed: 0 }
         : buildLiveInstructions({ recap: rt.liveRecap, pending: rt.livePendingFeedback });
-    const resp = await m.runCommand(
+    const generation = liveVoiceGeneration(tabId);
+    const resp = await trackLiveDispatch(
       tabId,
-      { type: "live_start", instructions: built.instructions },
-      { quiet: true },
+      "liveStartInFlight",
+      m.runCommand(tabId, { type: "live_start", instructions: built.instructions }, { quiet: true }),
     );
+    if (liveVoiceGeneration(tabId) !== generation) {
+      // An explicit stop or a teardown landed while the start was in
+      // flight: omp's fresh call is not ours to keep. Close it silently and
+      // patch NOTHING — the stop owns the state, and a late ack must not
+      // re-arm what the user stopped (#815).
+      void trackLiveDispatch(
+        tabId,
+        "liveStopInFlight",
+        m.runCommand(tabId, { type: "live_stop" }, { quiet: true }),
+      );
+      return;
+    }
     if (resp === null) {
       // Quiet dispatch records no session failure; the strip is the surface.
       livePatch(tabId, {
@@ -1021,6 +1071,10 @@ export function createSessionParamsSlice(
     const live = get().rpc[tabId]?.live;
     if (live === null || live === undefined || !isLiveSessionActive(live)) return;
     const rt = m.runtime(tabId);
+    // Already parked (the work-park switch just did it): a second pass would
+    // fold the recap twice and race the first stop (#815).
+    if (rt.liveParked === true) return;
+    clearLiveWorkTimers(tabId);
     m.patchRuntime(tabId, {
       liveRecap: appendLiveRecap(rt.liveRecap, live.turns),
       // Derived, not remembered: the user's mute was on iff the phase says
@@ -1029,7 +1083,11 @@ export function createSessionParamsSlice(
       liveParked: true,
     });
     m.syncLiveVoiceBadge(tabId);
-    const resp = await m.runCommand(tabId, { type: "live_stop" }, { quiet: true });
+    const resp = await trackLiveDispatch(
+      tabId,
+      "liveStopInFlight",
+      m.runCommand(tabId, { type: "live_stop" }, { quiet: true }),
+    );
     if (resp === null) {
       // The call survived the park attempt: un-park so the next leave retries.
       m.patchRuntime(tabId, { liveParked: false });
@@ -1045,6 +1103,12 @@ export function createSessionParamsSlice(
     const current = get().rpc[tabId]?.live;
     if (current === null || current === undefined) return;
     const stopRt = m.runtime(tabId);
+    // An explicit stop cancels every async continuation of the call: an
+    // in-flight start ack that lands after this point sees a changed
+    // generation and cleans up instead of re-arming (#815). Work timers die
+    // with the intent; no wake may follow a stop.
+    bumpLiveVoiceGeneration(tabId);
+    clearLiveWorkTimers(tabId);
     // `liveParked` skips the dispatch even while `live_end` is still in
     // flight: parkLiveVoice set the flag synchronously before its own
     // `live_stop`, and a second stop would race the first (the #808
@@ -1058,7 +1122,11 @@ export function createSessionParamsSlice(
       m.syncLiveVoiceBadge(tabId);
       return;
     }
-    const resp = await m.runCommand(tabId, { type: "live_stop" }, { quiet: true });
+    const resp = await trackLiveDispatch(
+      tabId,
+      "liveStopInFlight",
+      m.runCommand(tabId, { type: "live_stop" }, { quiet: true }),
+    );
     if (resp === null) {
       livePatch(tabId, { ...current, error: t("composer.live.sendFailed") });
       return;

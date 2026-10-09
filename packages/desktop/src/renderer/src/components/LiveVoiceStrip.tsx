@@ -28,6 +28,9 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
   const t = useT();
   const compact = useCompactShell();
   const live = useStore((s) => s.rpc[tabId]?.live ?? null);
+  // A parked call ended the snapshot but keeps its turns visible with the
+  // resume hint (#811/#815): the strip would otherwise vanish mid-thought.
+  const parked = useStore((s) => s.liveVoice[tabId]?.parked === true);
   const clearLiveError = useStore((s) => s.clearLiveError);
   const loadLiveRecording = useStore((s) => s.loadLiveRecording);
   const playLiveRecording = useStore((s) => s.playLiveRecording);
@@ -187,8 +190,9 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
   };
 
   // A clean end renders nothing: the exchange is in the main transcript or
-  // was idle chatter, and a lingering empty strip is noise.
-  if (live.ended && live.error === null) return null;
+  // was idle chatter, and a lingering empty strip is noise — except while
+  // parked, where the closed call is still coming back.
+  if (live.ended && live.error === null && !parked) return null;
 
   return (
     <div
@@ -234,6 +238,11 @@ export function LiveVoiceStrip({ tabId }: { tabId: string }) {
           </div>
         ))}
       </div>
+      {live.ended && live.error === null && parked && (
+        <div className="px-3 pb-2 pt-1 text-[10px] text-ink-faint">
+          {t("composer.live.parkedHint")}
+        </div>
+      )}
       {live.error !== null && (
         <div className="flex items-start gap-2 px-3 pb-2 pt-1 text-copper">
           <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">

@@ -62,6 +62,9 @@ export interface RegistrySettings {
   experimentsEnabled: boolean;
   /** Global mic button in every composer (issue #647); default off. */
   voiceInputEnabled: boolean;
+  /** Park the live voice call while a delegated backend turn works (issue #815);
+   *  default on — the burn is the status quo. */
+  liveWorkParking: boolean;
   /** omp STT selector used app-wide; null = pick the preferred callable model. */
   sttModel: string | null;
   /** One-time migration marker (#274): the sessions array order is explicit; load never re-sorts it. */
@@ -241,6 +244,10 @@ export const SETTINGS: SettingDescriptors = {
   ),
   voiceInputEnabled: validatedSetting(
     () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  liveWorkParking: validatedSetting(
+    () => true,
     (value): value is boolean => typeof value === "boolean",
   ),
   sttModel: validatedSetting<string | null>(

@@ -401,6 +401,9 @@ export function installLiveVoiceParkResumeGuard(
     const rt = m.runtime(entered);
     if (rt.liveVoiceOwner !== true || rt.liveArmed !== true || rt.liveParked !== true)
       return;
+    // A work-park's wake owns this resume (#815): entering the tab mid-turn
+    // must not reopen a call the agent is still working against.
+    if (rt.liveWorkPark === true) return;
     // The builder reads recap + pending from the runtime; no plumbing here.
     void state.startLiveVoice(entered);
   });
