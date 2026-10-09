@@ -220,6 +220,7 @@ export {
   type ModelRole,
   type OmpAdvisorDefaults,
 } from "./omp-config";
+export { readModelsFileModelProviders } from "./models-file";
 export {
   execOmpConfigRunner,
   MEMORY_SETTING_GROUP,

@@ -144,10 +144,12 @@ const backendMock = {
   readProviderKeys: vi.fn(
     async (): Promise<{
       providers: ProviderKeyStatus[];
+      configFileProviders: string[];
       encryptionAvailable: boolean;
       backend: string;
     }> => ({
       providers: [],
+      configFileProviders: [],
       encryptionAvailable: false,
       backend: "none",
     }),
@@ -1572,10 +1574,12 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
   const seedProviders = (
     rows: ProviderOAuthStatus[],
     keyRows: ProviderKeyStatus[] = [keyRow],
+    configProviders: string[] = [],
   ): void => {
     backendMock.readProviderOAuth.mockResolvedValueOnce(rows);
     backendMock.readProviderKeys.mockResolvedValueOnce({
       providers: keyRows,
+      configFileProviders: configProviders,
       encryptionAvailable: false,
       backend: "none",
     });
@@ -1707,6 +1711,18 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
       "https://auth.openai.com/callback?code=abc123",
     );
   });
+
+  it("counts models.yml providers as configured and notes them (issue #814)", async () => {
+    seedProviders([], [{ ...keyRow }], ["litellm"]);
+    await renderSettings();
+    expect(document.body.textContent).toContain(
+      "Configured in omp's models.yml, so no key is needed here:",
+    );
+    expect(document.body.textContent).toContain("litellm");
+    expect(document.body.textContent).not.toContain(
+      "No provider credentials — omp can only offer models that need no key",
+    );
+  });
 });
 
 describe("Settings Providers page web-search order (issue #394)", () => {
@@ -1752,6 +1768,7 @@ describe("Settings Providers page web-search order (issue #394)", () => {
     });
     backendMock.readProviderKeys.mockResolvedValueOnce({
       providers: [searchRow],
+      configFileProviders: [],
       encryptionAvailable: true,
       backend: "secret-service",
     });
@@ -2119,6 +2136,7 @@ describe("Settings Providers page privacy toggle (issue #670)", () => {
     backendMock.readOmpSettings.mockResolvedValueOnce({ ...emptyOmpSettings, entries });
     backendMock.readProviderKeys.mockResolvedValueOnce({
       providers: [],
+      configFileProviders: [],
       encryptionAvailable: true,
       backend: "secret-service",
     });

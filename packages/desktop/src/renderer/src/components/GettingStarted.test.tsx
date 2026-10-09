@@ -37,6 +37,7 @@ const idleProviderOAuth: ProviderOAuthState = {
 
 const emptyKeys: ProviderKeysSnapshot = {
   providers: [],
+  configFileProviders: [],
   encryptionAvailable: true,
   backend: "test_stub",
 };
@@ -294,6 +295,17 @@ describe("Getting started checklist rows (issue #623)", () => {
 
   it("a signed-in subscription flips the provider step even with no key rows", async () => {
     backendMock.readProviderOAuth.mockResolvedValue([subscriptionRow("me@example.com")]);
+    await renderChecklist();
+    expect(buttonWithText("Open provider settings")).toBeNull();
+  });
+
+  it("a models.yml provider flips the provider step with no key rows (issue #814)", async () => {
+    backendMock.readProviderKeys.mockResolvedValue({
+      ...emptyKeys,
+      providers: [keyRow({})],
+      configFileProviders: ["litellm"],
+    });
+    backendMock.readProviderOAuth.mockResolvedValue([]);
     await renderChecklist();
     expect(buttonWithText("Open provider settings")).toBeNull();
   });

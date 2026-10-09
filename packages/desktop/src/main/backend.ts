@@ -37,6 +37,7 @@ import {
   mergeWorktreeBranch,
   readMemoryOverview,
   readStatsOverview,
+  readModelsFileModelProviders,
   readMergeBackStatus,
   resolveMergeDestination,
   pullBranch,
@@ -283,6 +284,7 @@ export class MainBackend {
         registryFile,
         providerKeys: this.providerKeys,
         hasOAuthProvider: () => this.providerOAuth.hasModelAccount(),
+        hasConfiguredModelsFileProvider: () => readModelsFileModelProviders().length > 0,
         getOmpPath: () => this.ompPath,
         getSessionsRoot: () => this.sessionsRoot,
         getArchiveRoot: () => this.archiveRoot,
@@ -1336,6 +1338,7 @@ export class MainBackend {
       providers: this.providerKeys.statuses(projectCwd),
       encryptionAvailable: this.providerKeys.encryptionAvailable,
       backend: this.providerKeys.backend,
+      configFileProviders: readModelsFileModelProviders(),
     };
   }
 

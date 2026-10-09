@@ -4,6 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- omp-ui now counts providers configured in OMP's `models.yml` as ready: a configured gateway starts new sessions and appears on the Providers page without a built-in key (#814).
+
 Live voice joins plan review (#818): an armed call reconnects at each proposal gate carrying the complete readable plan, speaks one automatic overview per gate, and answers spoken questions about it; "Explain this plan" requests a briefing on demand, and executing the plan carries the call to the implementation session. Verdicts stay human-only. See [ADR-0051](adr/0051-park-the-live-call-while-the-agent-works.md).
 
 ## Choose a download

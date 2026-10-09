@@ -1250,6 +1250,9 @@ export interface ProviderKeysSnapshot {
   encryptionAvailable: boolean;
   /** safeStorage's backend label, shown so the user knows what protects the file. */
   backend: string;
+  /** Provider ids omp reads from models.yml in the agent dir (issue #814).
+   *  Ids only: file paths, baseUrls, and key material never cross here. */
+  configFileProviders: string[];
 }
 
 /** One dictation model row discovered from omp's STT catalog (issue #647). */
