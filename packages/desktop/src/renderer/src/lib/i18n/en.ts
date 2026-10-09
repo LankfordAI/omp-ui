@@ -795,7 +795,7 @@ export const en = {
     "Start new sessions with the advisor running. Projects with a remembered advisor keep their own last-used state.",
   "settings.general.autoThinking": "Default auto thinking",
   "settings.general.autoThinkingHint":
-    "New sessions start on omp's automatic thinking selector, which resolves each prompt to a level in the model's own ladder. A project that remembers a thinking level keeps it.",
+    "While on, new sessions start on omp's automatic thinking selector, which resolves each prompt to a level in the model's own ladder, regardless of the thinking level the project remembers; a manual pick holds for that session only. With it off, the remembered level seeds new sessions again.",
   "settings.general.subagentInherit": "Subagents inherit the session model",
   "settings.general.subagentInheritHint":
     "New sessions spawn every subagent on the session's own model unless a narrower choice says otherwise. Applies to sessions launched afterwards, and to running sessions whose per-agent choice is unset.",
