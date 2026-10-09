@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import type { LiveAudioEntry } from "@omp-ui/core/live-voice";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
@@ -20,14 +21,14 @@ import { findOwner, findRecord, sessionCwd, useStore, type RpcTabState } from ".
 import { DiffViewer } from "./DiffViewer";
 import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { AGENT_TONE } from "../lib/agent-tone";
-import { compactNum, exactNum, formatCost, shortBase } from "../lib/format";
+import { compactNum, exactNum, formatCost, relativeTime, shortBase } from "../lib/format";
 import { TodoPanel } from "./TodoPanel";
 import { SideQuestionsPane } from "./SideQuestionsPane";
 import { SubagentModelsControl } from "./SubagentModelsControl";
 import { SubagentControls, useSubagentControlNotice } from "./SubagentControls";
 import { Section } from "./RailSection";
 import { VaultNotesSection } from "./VaultNotesSection";
-import { Button, Chip, CopyButton, Dot, Empty, ICON_STROKE, IconRefresh, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
+import { Button, Chip, CopyButton, Dot, Empty, ICON_STROKE, IconPause, IconPlay, IconRefresh, IconButton, Label, ResizeHandle, Sheet, type Tone } from "./ui";
 
 /** Vibe worker state → tone, matching the roster's copper-pulse convention. */
 const VIBE_TONE: Record<VibeWorkerState, Tone> = {
@@ -458,6 +459,110 @@ function StatsTable({ stats }: { stats: SessionStats }) {
   );
 }
 
+/**
+ * The session's retained voice recordings (#810): the `listLiveRecordings`
+ * list, which is disk enumeration — so the section, and every Play row in
+ * it, works after the live session stopped and after a reopen wiped the
+ * snapshot (AC 2). An empty listing renders no chrome at all: until omp
+ * exposes audio there are no recordings anywhere (ADR-0049), and an empty
+ * section would be permanent noise.
+ */
+function VoiceRecordingsSection({ tabId }: { tabId: string }) {
+  const t = useT();
+  const listLiveRecordings = useStore((s) => s.listLiveRecordings);
+  const playLiveRecording = useStore((s) => s.playLiveRecording);
+  const pauseLiveReplay = useStore((s) => s.pauseLiveReplay);
+  const resumeLiveReplay = useStore((s) => s.resumeLiveReplay);
+  const liveReplay = useStore((s) => s.liveReplay);
+  const livePhase = useStore((s) => s.rpc[tabId]?.live?.phase ?? null);
+  const [entries, setEntries] = useState<LiveAudioEntry[] | null>(null);
+
+  const refresh = useCallback((): void => {
+    void listLiveRecordings(tabId).then((listed) => {
+      // Keep the section mounted once it has shown entries: a listing that
+      // transiently fails (record vanished mid-play) shouldn't erase the
+      // chrome the user is looking at — the rows answer honestly instead.
+      if (listed.length > 0) setEntries(listed);
+      else setEntries((prev) => prev ?? listed);
+    });
+  }, [listLiveRecordings, tabId]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  if (entries === null || entries.length === 0) return null;
+
+  return (
+    <Section
+      title={t("rail.session.voiceSection")}
+      action={
+        <IconButton label={t("rail.session.voiceRefreshLabel")} onClick={refresh}>
+          <IconRefresh />
+        </IconButton>
+      }
+    >
+      <ul className="space-y-1">
+        {entries.map((entry) => {
+          // The key the slice builds for an entry play (tabId is the ref's
+          // tab; the entry carries the connection recovered off disk).
+          const clipKey = `${tabId}:${entry.connectionId}:${entry.turn}`;
+          const replay = liveReplay?.key === clipKey ? liveReplay : null;
+          // Live output owns the audio while it speaks: every row except
+          // one its guard paused renders disabled with the reason — an
+          // enabled button the slice would refuse is the dead-click the
+          // issue forbids (AC 4). A guard-paused clip is exempt: Resume is
+          // the user's explicit decision, same rule as the strip. Another
+          // clip holding the slot does NOT disable this row: clicking
+          // supersedes it, and supersede is never an overlap.
+          return (
+            <li key={clipKey} className="flex min-w-0 items-center gap-1.5 text-xs">
+              <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                {entry.role === "user" ? t("composer.live.roleUser") : t("composer.live.roleAssistant")}
+              </span>
+              <Mono title={clipKey}>{entry.turn}</Mono>
+              <span className="min-w-0 flex-1 truncate text-ink-dim" title={entry.modifiedAt}>
+                {relativeTime(entry.modifiedAt)}
+              </span>
+              <span className="shrink-0 text-[10px] text-ink-faint">
+                {compactNum(entry.sizeBytes)}
+              </span>
+              {replay?.status === "playing" ? (
+                <IconButton label={t("rail.session.voicePause")} onClick={pauseLiveReplay}>
+                  <IconPause className="size-3" />
+                </IconButton>
+              ) : replay?.status === "paused" ? (
+                <IconButton label={t("rail.session.voicePlay")} onClick={resumeLiveReplay}>
+                  <IconPlay className="size-3" />
+                </IconButton>
+              ) : replay?.status === "loading" ? (
+                <IconButton label={t("composer.live.replayLoading")} onClick={() => {}} disabled>
+                  <IconPlay className="size-3" />
+                </IconButton>
+              ) : livePhase === "speaking" && replay?.status !== "paused" ? (
+                <IconButton
+                  label={t("composer.live.replayLiveBusy")}
+                  onClick={() => {}}
+                  disabled
+                >
+                  <IconPlay className="size-3" />
+                </IconButton>
+              ) : (
+                <IconButton
+                  label={t("rail.session.voicePlay")}
+                  onClick={() => void playLiveRecording(tabId, { kind: "entry", entry })}
+                >
+                  <IconPlay className="size-3" />
+                </IconButton>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Section>
+  );
+}
+
 function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) {
   const t = useT();
   const session = useStore((s) => s.rpc[tabId]?.session);
@@ -471,6 +576,7 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
   return (
     <>
       <VaultNotesSection tabId={tabId} onJump={onJump} />
+      <VoiceRecordingsSection tabId={tabId} />
       <Section
         title={t("rail.session.title")}
         action={
