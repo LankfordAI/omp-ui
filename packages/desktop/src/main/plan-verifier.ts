@@ -269,6 +269,11 @@ class BrowserVerifierPage implements VerifierPage {
       height: 800,
       webPreferences: {
         partition,
+        // Offscreen, like the pane and the stamper: a plain hidden window
+        // SIGSEGVs Electron under headless Ozone (issue #820; same hazard as
+        // clock-stamper.ts). Layout still runs on demand — the probe forces
+        // synchronous layout via getBoundingClientRect.
+        offscreen: true,
         // No preload at all: this page never reaches the backend bridge.
         nodeIntegration: false,
         contextIsolation: true,

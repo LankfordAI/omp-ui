@@ -82,6 +82,12 @@ npm run smoke:pty --workspace @omp-ui/desktop
 # for fork pull requests.
 npm run smoke:browser-pane --workspace @omp-ui/desktop
 
+# Electron-runtime smoke of the shipped plan verifier window: one real verify
+# through the shipped BrowserVerifierPage; writes out/plan-verifier-smoke/
+# summary.json. CI runs --once on Linux, headless Ozone first with an Xvfb
+# fallback — the verifier window once SIGSEGV'd main on headless Ozone (#820).
+npm run smoke:plan-verifier --workspace @omp-ui/desktop
+
 # Node-posture smoke of the Knowledge vault host tools against a generated
 # fixture vault (S1-S8); writes out/knowledge-vault-smoke/summary.json. No
 # display, no Obsidian; scripts/electron-node.cjs relaunches the built entry

@@ -8,12 +8,14 @@ directories:
 files:
   - out/**
   - package.json
-  # Developer smoke entries (npm run smoke:browser-pane, smoke:knowledge-vault)
-  # and their summary folders; never shipped.
+  # Developer smoke entries (npm run smoke:browser-pane, smoke:knowledge-vault,
+  # smoke:plan-verifier) and their summary folders; never shipped.
   - "!out/main/browser-pane-smoke.js"
   - "!out/main/knowledge-vault-smoke.js"
+  - "!out/main/plan-verifier-smoke.js"
   - "!out/knowledge-vault-smoke{,/**/*}"
   - "!out/browser-pane-smoke{,/**/*}"
+  - "!out/plan-verifier-smoke{,/**/*}"
   # node-pty ships every platform's prebuilt addon plus MSVC debug symbols; the
   # platform blocks below keep only what that platform's runtime can load.
   - "!**/node_modules/node-pty/prebuilds/**/*.pdb"
@@ -37,8 +39,10 @@ linux:
     - package.json
     - "!out/main/browser-pane-smoke.js"
     - "!out/main/knowledge-vault-smoke.js"
+    - "!out/main/plan-verifier-smoke.js"
     - "!out/knowledge-vault-smoke{,/**/*}"
     - "!out/browser-pane-smoke{,/**/*}"
+    - "!out/plan-verifier-smoke{,/**/*}"
     # No Linux prebuild exists; npm ci compiles build/Release/pty.node.
     - "!**/node_modules/node-pty/prebuilds{,/**/*}"
 mac:
@@ -57,8 +61,10 @@ mac:
     - package.json
     - "!out/main/browser-pane-smoke.js"
     - "!out/main/knowledge-vault-smoke.js"
+    - "!out/main/plan-verifier-smoke.js"
     - "!out/knowledge-vault-smoke{,/**/*}"
     - "!out/browser-pane-smoke{,/**/*}"
+    - "!out/plan-verifier-smoke{,/**/*}"
     - "!**/node_modules/node-pty/prebuilds/**/*.pdb"
     - "!**/node_modules/node-pty/prebuilds/win32-*{,/**/*}"
 dmg:
@@ -75,8 +81,10 @@ win:
     - package.json
     - "!out/main/browser-pane-smoke.js"
     - "!out/main/knowledge-vault-smoke.js"
+    - "!out/main/plan-verifier-smoke.js"
     - "!out/knowledge-vault-smoke{,/**/*}"
     - "!out/browser-pane-smoke{,/**/*}"
+    - "!out/plan-verifier-smoke{,/**/*}"
     - "!**/node_modules/node-pty/prebuilds/**/*.pdb"
     - "!**/node_modules/node-pty/prebuilds/darwin-*{,/**/*}"
     # package:win builds x64 only.
