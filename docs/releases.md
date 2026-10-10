@@ -4,7 +4,10 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- Forked sessions now start on auto thinking while Default auto thinking is on ([#825](https://github.com/LankfordAI/omp-ui/issues/825)).
 - Session restarts carry the renderer's retained transcript into a relaunched process whose `omp` transcript never persisted: a session killed before its first turn completed resumes with its earlier messages as context (#824).
+
+Nothing since [v0.21.5](https://github.com/LankfordAI/omp-ui/releases/tag/v0.21.5). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
