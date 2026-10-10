@@ -2106,6 +2106,7 @@ export const en = {
   "finish.dialog.conflictProject": "the merge stopped on {count} file(s) in the project checkout — nothing was returned",
   "finish.dialog.conflictAborted": "nothing was changed — {count} file(s) would conflict. Sync first, resolve in the worktree, then finish again",
   "finish.resolution.action": "Resolve with agent",
+  "finish.resolution.mergeFirst": "This starts the merge of {source} into {destination} in the project checkout. If it stops on conflicts, the agent resolves them there; if it lands clean, it simply finishes the merge.",
   "finish.resolution.sending": "Sending resolution task…",
   "finish.resolution.currentHint": "Send this task to this session. It will resolve the merge in {cwd}, not its worktree. Nothing will be pushed or returned.",
   "finish.resolution.freshHint": "Start a new native resolution session in {cwd}. Your original session and worktree stay unchanged. Nothing will be pushed or returned.",

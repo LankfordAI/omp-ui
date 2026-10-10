@@ -1937,6 +1937,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "finish.dialog.conflictProject": "프로젝트 체크아웃에서 {count}개 파일의 충돌로 병합이 중단되었습니다 — 아무것도 돌아가지 않았습니다",
   "finish.dialog.conflictAborted": "{count}개 파일에서 충돌이 예상되어 아무것도 변경하지 않았습니다 — 먼저 동기화하고 워크트리에서 해결한 뒤 다시 마무리하세요",
   "finish.resolution.action": "에이전트로 해결",
+  "finish.resolution.mergeFirst": "프로젝트 체크아웃에서 {destination}에 {source}를 병합하는 작업을 시작합니다. 충돌로 멈추면 에이전트가 그곳에서 해결하고, 충돌 없이 병합되면 그대로 병합을 완료합니다.",
   "finish.resolution.sending": "충돌 해결 작업 전송 중…",
   "finish.resolution.currentHint": "이 세션에 작업을 보냅니다. 세션의 워크트리가 아니라 {cwd}에서 병합을 해결합니다. 아무것도 푸시하거나 프로젝트로 복귀시키지 않습니다.",
   "finish.resolution.freshHint": "{cwd}에서 새 네이티브 충돌 해결 세션을 시작합니다. 원래 세션과 워크트리는 그대로 유지됩니다. 아무것도 푸시하거나 프로젝트로 복귀시키지 않습니다.",

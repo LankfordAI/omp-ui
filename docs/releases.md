@@ -7,6 +7,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Forked sessions now start on auto thinking while Default auto thinking is on ([#825](https://github.com/LankfordAI/omp-ui/issues/825)).
 - Session restarts carry the renderer's retained transcript into a relaunched process whose `omp` transcript never persisted: a session killed before its first turn completed resumes with its earlier messages as context (#824).
 - Live voice no longer waits on "connecting…" forever: a stalled call ends with a retryable error ([#827](https://github.com/LankfordAI/omp-ui/issues/827)).
+- The Finish worktree dialog's predicted-conflict preview offers **Resolve with agent** when the destination is checked out in the project: one click runs the merge there and hands the stopped conflicts to the agent, no stopped-merge round-trip first (#828).
 
 Nothing since [v0.21.5](https://github.com/LankfordAI/omp-ui/releases/tag/v0.21.5). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 

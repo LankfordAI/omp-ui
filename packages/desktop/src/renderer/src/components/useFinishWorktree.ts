@@ -74,6 +74,8 @@ type FinishResolution = {
   trigger: Extract<GitResolutionTrigger, { kind: "merge" }>;
   route: "current" | "fresh";
   blockedReason: string | null;
+  /** True when no merge exists yet: dispatch first runs the merge into the project checkout. */
+  startsMerge: boolean;
 };
 
 export interface FinishController {
@@ -346,6 +348,20 @@ export function useFinishWorktree(tabId: string): FinishController {
   }, [projectCwd, worktreeBranch, statusKey]);
 
   const projectConflict = phase.s === "conflict" && phase.leftIn === "project" ? phase : null;
+  // The preview-conflict state (issue #828): no merge has run, the merge-tree
+  // probe predicts conflicts, and the destination is checked out in the
+  // project — exactly where a dispatch can start the real merge and leave a
+  // stopped one for the agent. A scratch merge (new branch, or a destination
+  // checked out nowhere or elsewhere) never reaches this arm: its conflicts
+  // auto-abort, so the sync story there stays #387's.
+  const previewConflict =
+    resolutionRoute !== null && projectCwd !== undefined && worktreeBranch !== null &&
+    outcome === "merge" && newBranch === null &&
+    phase.s !== "working" && phase.s !== "done" && projectConflict === null &&
+    status !== null && !status.mergeInProgress && !status.alreadyMerged &&
+    status.destinationCheckout === "project" &&
+    status.preview.kind === "conflicts" &&
+    (branchInfo?.mergeInProgress ?? false) === false;
   const resolution: FinishResolution | null = resolutionBusy
     ? resolutionAttempt
     : resolutionRoute !== null && projectCwd !== undefined && worktreeBranch !== null &&
@@ -354,6 +370,7 @@ export function useFinishWorktree(tabId: string): FinishController {
       ? {
           route: resolutionRoute,
           blockedReason: resolutionBlockedReason,
+          startsMerge: false,
           trigger: {
             kind: "merge",
             cwd: projectCwd,
@@ -367,7 +384,24 @@ export function useFinishWorktree(tabId: string): FinishController {
             },
           },
         }
-      : null;
+      : previewConflict
+        ? {
+            route: resolutionRoute,
+            blockedReason: resolutionBlockedReason,
+            startsMerge: true,
+            trigger: {
+              kind: "merge",
+              cwd: projectCwd,
+              branch: branchInfo?.current ?? null,
+              finish: {
+                sourceBranch: worktreeBranch,
+                destinationBranch: status.destination,
+                // Advisory until the merge runs; the real result replaces them.
+                files: status.preview.kind === "conflicts" ? status.preview.files : [],
+              },
+            },
+          }
+        : null;
 
   const close = (): void => {
     if (!resolutionPending.current) closeFinishWorktree();
@@ -392,7 +426,110 @@ export function useFinishWorktree(tabId: string): FinishController {
     setResolutionBusy(true);
     setResolutionError(null);
     try {
-      const accepted = await resolveWorktreeMerge(tabId, attempt.trigger, attempt.route);
+      // The preview-conflict handoff (issue #828) starts the real merge in the
+      // project checkout first — the same core call the primary button makes,
+      // so the merge message and merge semantics stay identical — and only a
+      // merge left stopped there earns a dispatch. The playbook resolves an
+      // existing merge, never one it would have to start.
+      let dispatch = attempt;
+      if (attempt.startsMerge && record !== undefined && worktreeBranch !== null && status !== null) {
+        const cwd = record.projectCwd;
+        const mergeBranch = worktreeBranch;
+        const mergeTarget = status.destination;
+        setPhase({ s: "working", step: "merging" });
+        let result: MergeBackResult;
+        try {
+          result = await mergeWorktreeBranch(cwd, mergeBranch, mergeTarget, instanceId);
+        } catch (error) {
+          setPhase({ s: "error", message: errorMessage(error) });
+          return;
+        }
+        if (result.kind === "conflicts" && result.conflictsLeftIn === "project") {
+          // Real facts now: the merged tree's conflict list replaces the
+          // preview's advisory one, and the destination is whatever the merge
+          // actually merged into. The conflict phase matches what a stopped
+          // merge run() leaves — it survives the status refetch and keeps the
+          // affordance retryable (and the conflict row honest) if the dispatch
+          // is refused.
+          const finish = attempt.trigger.finish ?? {
+            sourceBranch: mergeBranch,
+            destinationBranch: mergeTarget,
+            files: [] as string[],
+          };
+          dispatch = {
+            ...attempt,
+            startsMerge: false,
+            trigger: {
+              ...attempt.trigger,
+              branch: result.destination,
+              finish: { ...finish, destinationBranch: result.destination, files: result.files },
+            },
+          };
+          setResolutionAttempt(dispatch);
+          appendNotice(
+            tabId,
+            t("notice.merge.conflictProject", {
+              count: result.files.length,
+              destination: result.destination,
+              cwd,
+            }),
+            "warn",
+          );
+          setPhase({ s: "conflict", files: result.files, leftIn: "project", destination: result.destination });
+          fetchStatus();
+        } else if (result.kind === "merged") {
+          // Landed clean — the preview was stale. No dispatch, no return, no
+          // release: the done row reports the landing and Finish can be
+          // reopened to return, exactly the #727 contract.
+          appendNotice(
+            tabId,
+            t("notice.merge.landed", {
+              commits: commitsText(result.commits),
+              branch: mergeBranch,
+              destination: result.destination,
+            }),
+            "info",
+          );
+          const landed = await readMergeBackStatus(
+            cwd,
+            mergeBranch,
+            mergeTarget,
+            record.worktree?.path ?? null,
+            instanceId,
+          ).catch(() => null);
+          setPushState({ s: "idle" });
+          setPrUnavailable(false);
+          setPhase({
+            s: "done",
+            destination: result.destination,
+            commits: result.commits,
+            destinationAhead: (landed ?? status).destinationAhead,
+            destinationUpstream: (landed ?? status).destinationUpstream,
+          });
+          return;
+        } else if (result.kind === "conflicts") {
+          // The destination moved out of the project checkout between the
+          // status read and the click: core merged in a scratch worktree and
+          // aborted the conflicts. Nothing to resolve, nothing to dispatch.
+          setPhase({ s: "conflict", files: result.files, leftIn: null, destination: result.destination });
+          appendNotice(
+            tabId,
+            t("notice.merge.conflictAborted", {
+              count: result.files.length,
+              destination: result.destination,
+            }),
+            "warn",
+          );
+          fetchStatus();
+          return;
+        } else {
+          // already-merged: the facts line already says the work is in.
+          fetchStatus();
+          setPhase({ s: "idle" });
+          return;
+        }
+      }
+      const accepted = await resolveWorktreeMerge(tabId, dispatch.trigger, dispatch.route);
       if (accepted) closeFinishWorktree();
       else setResolutionError(t("finish.resolution.failed"));
     } catch (error) {
