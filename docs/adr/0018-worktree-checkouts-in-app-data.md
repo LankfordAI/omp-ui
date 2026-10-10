@@ -304,7 +304,13 @@ the user made (superseded by the finish dialog addendum).
   resolved or aborted. Acknowledged dispatch closes only the dialog; it never
   runs Finish again, syncs, switches checkouts, publishes, returns/releases or
   removes the worktree, or deletes its branch. The user reopens Finish afterward.
-  Preview/sync behavior and aborted scratch conflicts above remain unchanged.
+  The same handoff is offered at the merge-tree **preview** when the destination is
+  checked out in the project (issue #828): clicking it first runs the real merge
+  into that checkout — the same core call the primary button makes — and
+  dispatches only if the merge stops there with its conflicts left in the
+  project; a clean landing shows the done row, and the scratch/auto-abort path
+  keeps sync-only behavior, superseding "Preview/sync behavior ... remain
+  unchanged" for that one combination.
 - **A dirty checkout cannot be returned.** `releaseWorktree` refuses while
   the checkout has uncommitted or untracked changes — main reads
   `git status --porcelain` (issue #388). The dialog's return checkbox

@@ -775,6 +775,107 @@ describe("FinishWorktreeDialog", () => {
       expect(resolutionMock).not.toHaveBeenCalled();
       expectNoFinishEffects();
     });
+
+    describe("Resolve with agent at the predicted-conflict preview (issue #828)", () => {
+      const previewStatus = (overrides: Partial<MergeBackStatus> = {}): MergeBackStatus =>
+        statusFixture({ preview: { kind: "conflicts", files: ["src/a.ts"] }, ...overrides });
+      const previewConflictResult = (): MergeBackResult => ({
+        kind: "conflicts", destination: "main", commits: 0,
+        files: ["src/a.ts", "src/b.ts"], conflictsLeftIn: "project",
+      });
+
+      it.each(["current", "fresh"] as const)("starts the real merge for the %s route and dispatches its real files", async (route) => {
+        backendMock.getMergeBackStatus.mockResolvedValue(previewStatus());
+        backendMock.mergeWorktreeBranch.mockResolvedValue(previewConflictResult());
+        let acknowledge!: (accepted: boolean) => void;
+        resolutionMock.mockReturnValue(new Promise<boolean>((resolve) => { acknowledge = resolve; }));
+        await openDialog();
+        if (route === "current") makeNative();
+
+        const action = resolutionButton()!;
+        expect(action).toBeDefined();
+        expect(document.body.textContent).toContain(
+          "This starts the merge of p/deadbeef into main in the project checkout.",
+        );
+        // The preview row keeps its sync affordance unchanged.
+        expect(buttonByText("sync main into the worktree")).toBeDefined();
+
+        act(() => action.click());
+        await act(async () => { await flushMicrotasks(); });
+        expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+        expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledTimes(1);
+        expect(resolutionMock).toHaveBeenCalledWith(TAB, {
+          kind: "merge", cwd: "/p", branch: "main",
+          finish: { sourceBranch: BRANCH, destinationBranch: "main", files: ["src/a.ts", "src/b.ts"] },
+        }, route);
+        await act(async () => { acknowledge(true); await flushMicrotasks(); });
+        expect(useStore.getState().finishWorktreeTab).toBeNull();
+        expectNoFinishEffects();
+      });
+
+      it("lands clean with no dispatch and no return when the preview was stale", async () => {
+        backendMock.getMergeBackStatus.mockResolvedValue(previewStatus());
+        await openDialog();
+
+        act(() => resolutionButton()!.click());
+        await act(async () => { await flushMicrotasks(); });
+
+        expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledWith("/p", BRANCH, "main");
+        expect(document.body.textContent).toContain("merged 2 commits into main");
+        expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+        expect(resolutionMock).not.toHaveBeenCalled();
+        expectNoFinishEffects();
+      });
+
+      it("renders the busy-target blocker disabled and never starts the merge on click", async () => {
+        backendMock.getMergeBackStatus.mockResolvedValue(previewStatus());
+        await openDialog();
+        const state = stateWith(summary);
+        state.projects[0]!.sessions.push({ ...summary, tabId: "busy", title: "Busy target", mode: "rpc-ui", worktree: null });
+        act(() => useStore.setState({
+          state, tabs: [tabInfo({ tabId: "busy", projectCwd: "/p" })],
+          rpc: { busy: rpcTabState({ status: "running" }) },
+        }));
+
+        expect(resolutionButton()!.disabled).toBe(true);
+        expect(document.body.textContent).toContain("Session “Busy target” is mid-turn in the project checkout");
+        act(() => resolutionButton()!.click());
+        expect(resolutionMock).not.toHaveBeenCalled();
+        expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
+        expectNoFinishEffects();
+      });
+
+      it("reports a refused dispatch after the merge started and stays retryable", async () => {
+        backendMock.getMergeBackStatus.mockResolvedValue(previewStatus());
+        backendMock.mergeWorktreeBranch.mockResolvedValue(previewConflictResult());
+        resolutionMock.mockResolvedValueOnce(false);
+        await openDialog();
+
+        act(() => resolutionButton()!.click());
+        await act(async () => { await flushMicrotasks(); });
+
+        expect(backendMock.mergeWorktreeBranch).toHaveBeenCalledTimes(1);
+        expect(document.querySelector('[role="alert"]')!.textContent).toContain("The agent did not accept");
+        expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+        expect(resolutionButton()!.disabled).toBe(false);
+        expectNoFinishEffects();
+      });
+
+      it("offers no button for the keep outcome or a destination held elsewhere", async () => {
+        backendMock.getMergeBackStatus.mockResolvedValue(previewStatus());
+        await openDialog();
+        await clickInput(outcomeRadios()[1]!);
+        expect(resolutionButton()).toBeUndefined();
+
+        await clickInput(outcomeRadios()[0]!);
+        backendMock.getMergeBackStatus.mockResolvedValue(
+          previewStatus({ destination: "feature/x", destinationCheckout: "other" }),
+        );
+        await selectInto(destinationSelect(), "feature/x");
+        await act(async () => { await flushMicrotasks(); });
+        expect(resolutionButton()).toBeUndefined();
+      });
+    });
   });
 
   describe("primary label matrix", () => {

@@ -440,8 +440,17 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             )}
             {c.resolution !== null && (
               <>
-                {!(c.phase.s === "conflict" && c.phase.leftIn === "project") && (
-                  <p className={copperClass}>{t("branch.merge.inProgress")}</p>
+                {c.resolution.startsMerge ? (
+                  <p className={copperClass}>
+                    {t("finish.resolution.mergeFirst", {
+                      source: branch,
+                      destination: c.status?.destination ?? "",
+                    })}
+                  </p>
+                ) : (
+                  !(c.phase.s === "conflict" && c.phase.leftIn === "project") && (
+                    <p className={copperClass}>{t("branch.merge.inProgress")}</p>
+                  )
                 )}
                 <p className={`${quietClass} [overflow-wrap:anywhere]`}>
                   {t(
