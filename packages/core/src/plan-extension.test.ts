@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import ts from "typescript";
+import ts from "@typescript/typescript6";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   encodePlanPreflightReply,

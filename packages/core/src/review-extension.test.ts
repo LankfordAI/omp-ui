@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as module from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import ts from "typescript";
+import ts from "@typescript/typescript6";
 import { afterEach, describe, expect, it } from "vitest";
 import { CODE_REVIEW_COMMAND, CODE_REVIEW_TOOL } from "./review";
 import type { ReviewDocument } from "./review-config";

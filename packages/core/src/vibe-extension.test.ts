@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import ts from "typescript";
+import ts from "@typescript/typescript6";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   VIBE_COMMAND,
