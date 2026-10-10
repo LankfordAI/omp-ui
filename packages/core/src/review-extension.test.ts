@@ -3,13 +3,12 @@ import * as fs from "node:fs";
 import * as module from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 import { CODE_REVIEW_COMMAND, CODE_REVIEW_TOOL } from "./review";
 import type { ReviewDocument } from "./review-config";
 import { reviewExtensionPath, writeReviewExtension } from "./review-extension";
 import { writeReviewRosterSnapshot } from "./review-roster-snapshot";
-import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const nodeRequire = module.createRequire(import.meta.url);
 const dirs: string[] = [];
@@ -51,9 +50,7 @@ function harness(options: { sendThrows?: boolean; withoutSend?: boolean } = {}):
   expect(file).toBe(reviewExtensionPath(dir));
   typecheckGeneratedExtension(file);
   const source = fs.readFileSync(file, "utf8");
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-  });
+  const outputText = transpileGeneratedExtension(source, "cjs");
   const loaded = { exports: {} as { default?: (api: unknown) => void } };
   Function("module", "exports", "require", outputText)(loaded, loaded.exports, nodeRequire);
   const factory = loaded.exports.default;

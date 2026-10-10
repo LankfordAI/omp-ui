@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CAPABILITIES_COMMAND,
@@ -11,7 +10,7 @@ import {
   type CapabilitySnapshot,
 } from "./capabilities";
 import { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabilities-extension";
-import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 import { MAGIC_KEYWORDS } from "./magic-keywords";
 
 const dirs: string[] = [];
@@ -21,14 +20,6 @@ function tempLineage(): string {
   dirs.push(dir);
   return dir;
 }
-
-function transpile(source: string, module: ts.ModuleKind): ts.TranspileOutput {
-  return ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module },
-    reportDiagnostics: true,
-  });
-}
-
 
 /** The fake root's full surface: read probes plus the tool-control methods. */
 interface FakeSession {
@@ -211,7 +202,7 @@ function executableExtension(seam: CapabilitiesSeam = fullSeam()): CapabilitiesH
   }
 
   const source = fs.readFileSync(writeCapabilitiesExtension(tempLineage()), "utf8");
-  const output = transpile(source, ts.ModuleKind.CommonJS).outputText;
+  const output = transpileGeneratedExtension(source, "cjs");
   const loaded = { exports: {} as { default?: (api: unknown) => void } };
   // The bridge reaches omp's registry and keyword table through literal dynamic
   // imports, which CommonJS transpilation turns into require() (ADR-0036).
@@ -346,7 +337,7 @@ describe("writeCapabilitiesExtension", () => {
     const file = writeCapabilitiesExtension(lineage);
     fs.writeFileSync(file, "// stale from an older omp-ui\n", "utf8");
     writeCapabilitiesExtension(lineage);
-    const output = transpile(fs.readFileSync(file, "utf8"), ts.ModuleKind.CommonJS).outputText;
+    const output = transpileGeneratedExtension(fs.readFileSync(file, "utf8"), "cjs");
     const loaded = { exports: {} as { default?: unknown } };
     Function("module", "exports", output)(loaded, loaded.exports);
     expect(typeof loaded.exports.default).toBe("function");

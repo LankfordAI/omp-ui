@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   MCP_CONNECTION_STATUS_CHANNEL,
@@ -10,7 +9,7 @@ import {
   type McpRuntimeStatus,
 } from "./mcp-status";
 import { mcpStatusExtensionPath, writeMcpStatusExtension } from "./mcp-status-extension";
-import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -22,9 +21,7 @@ function tempLineage(): string {
 
 function executableExtension(withEventBus = true) {
   const source = fs.readFileSync(writeMcpStatusExtension(tempLineage()), "utf8");
-  const output = ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-  }).outputText;
+  const output = transpileGeneratedExtension(source, "cjs");
   const loaded = { exports: {} as { default?: (api: unknown) => void } };
   Function("module", "exports", output)(loaded, loaded.exports);
   if (!loaded.exports.default) throw new Error("generated extension has no default factory");

@@ -3,7 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   encodePlanPreflightReply,
@@ -13,7 +12,7 @@ import {
   type PlanReviewRequest,
 } from "./plan";
 import { planExtensionPath, writePlanExtension } from "./plan-extension";
-import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -173,9 +172,7 @@ type ExtensionFactory = (api: ExtensionApi) => void;
  */
 async function loadExtension(): Promise<ExtensionFactory> {
   const file = writePlanExtension(tempLineage());
-  const { outputText } = ts.transpileModule(fs.readFileSync(file, "utf8"), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-  });
+  const outputText = transpileGeneratedExtension(fs.readFileSync(file, "utf8"), "esm");
   const js = file.replace(/\.ts$/, ".mjs");
   fs.writeFileSync(js, outputText, "utf8");
   const mod: unknown = await import(pathToFileURL(js).href);
@@ -195,9 +192,7 @@ async function loadExtension(): Promise<ExtensionFactory> {
  */
 function executableExtension(): ExtensionFactory {
   const file = writePlanExtension(tempLineage());
-  const { outputText } = ts.transpileModule(fs.readFileSync(file, "utf8"), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-  });
+  const outputText = transpileGeneratedExtension(fs.readFileSync(file, "utf8"), "cjs");
   const loaded = { exports: {} as { default?: ExtensionFactory } };
   Function("module", "exports", "require", outputText)(loaded, loaded.exports, nodeRequire);
   const factory = loaded.exports.default;

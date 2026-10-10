@@ -1,9 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
-import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 import {
   KNOWLEDGE_VAULT_COMMAND,
   KNOWLEDGE_VAULT_CUSTOM_TYPE,
@@ -60,9 +59,7 @@ interface Harness {
 function harness(opts: { canSendMessages?: boolean } = {}): Harness {
   const file = writeKnowledgeVaultExtension(tempLineage());
   const source = fs.readFileSync(file, "utf8");
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-  });
+  const outputText = transpileGeneratedExtension(source, "cjs");
   const loaded = { exports: {} as { default?: (api: unknown) => void } };
   Function("module", "exports", outputText)(loaded, loaded.exports);
   const factory = loaded.exports.default;

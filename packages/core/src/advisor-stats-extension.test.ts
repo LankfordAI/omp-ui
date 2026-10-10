@@ -1,14 +1,13 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ADVISOR_STATS_COMMAND, ADVISOR_STATS_KEY } from "./advisor-stats";
 import {
   advisorStatsExtensionPath,
   writeAdvisorStatsExtension,
 } from "./advisor-stats-extension";
-import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -107,9 +106,7 @@ function executableExtension() {
   }
 
   const source = fs.readFileSync(writeAdvisorStatsExtension(tempLineage()), "utf8");
-  const output = ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-  }).outputText;
+  const output = transpileGeneratedExtension(source, "cjs");
   const loaded = { exports: {} as { default?: (api: unknown) => void } };
   Function("module", "exports", output)(loaded, loaded.exports);
   const factory = loaded.exports.default;
