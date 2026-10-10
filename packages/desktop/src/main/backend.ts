@@ -1553,6 +1553,7 @@ export class MainBackend {
       experimentsEnabled: this.registry.getSetting("experimentsEnabled"),
       voiceInputEnabled: this.registry.getSetting("voiceInputEnabled"),
       liveWorkParking: this.registry.getSetting("liveWorkParking"),
+      liveProgressReportMinutes: this.registry.getSetting("liveProgressReportMinutes"),
       sttModel: this.registry.getSetting("sttModel"),
       glassChrome: this.registry.getSetting("glassChrome"),
       localeId: this.registry.getSetting("localeId"),

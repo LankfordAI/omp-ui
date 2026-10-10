@@ -24,6 +24,7 @@ import {
   LIVE_WORK_PARK_CAP_MS,
   LIVE_WORK_PARK_QUIET_MS,
   LIVE_WORK_PARK_QUIET_RMS,
+  formatLiveProgressReport,
   emptyLiveSnapshot,
   isLiveSessionActive,
   parseLiveLevelsFrame,
@@ -78,6 +79,7 @@ import {
   cancelLiveConnectTimer,
   cancelLiveWorkQuietTimer,
   clearLiveWorkTimers,
+  armLiveProgressTimer,
   liveVoiceGeneration,
   planReviewGateKey,
 } from "./live-work-park";
@@ -501,6 +503,7 @@ export function createFrameReductionSlice(
         m.patchRuntime(tabId, {
           liveWorkPark: true,
           liveOutputLoudAt: undefined,
+          liveWorkArmedAt: Date.now(),
         });
         {
           const armGen = liveVoiceGeneration(tabId);
@@ -515,6 +518,68 @@ export function createFrameReductionSlice(
               return;
             void get().switchLiveVoice(tabId, { mode: "park" });
           });
+        }
+        {
+          // #826: while the call stays parked for this delegated turn, the
+          // cadence timer wakes it every N minutes to speak one progress
+          // report. The fire callback re-verifies like the cap callback and
+          // re-arms itself, so a skipped (unviewed) tick still yields the
+          // next chance; a wake pass clears the slot, so a final answer —
+          // or an explicit stop — ends the cadence.
+          const reportMinutes = get().state?.liveProgressReportMinutes;
+          if (typeof reportMinutes === "number") {
+            const armProgress = async (): Promise<void> => {
+              const rt = peekTabRuntime(tabId);
+              if (
+                rt?.liveWorkPark !== true ||
+                rt.liveVoiceOwner !== true ||
+                rt.liveArmed !== true
+              )
+                return;
+              const minutes = get().state?.liveProgressReportMinutes;
+              if (typeof minutes !== "number") return;
+              // Unviewed or gated: the tick is skipped, not ended — the
+              // cadence reschedules for the next chance (#826).
+              if (get().activeTabId !== tabId || get().rpc[tabId]?.planReview !== null) {
+                armLiveProgressTimer(tabId, minutes * 60_000, armProgress);
+                return;
+              }
+              const running: { name: string; intent?: string }[] = [];
+              let completed = 0;
+              for (const item of m.effectiveItems(tabId)) {
+                if (item.kind !== "tool") continue;
+                if (item.status === "running")
+                  running.push({ name: item.name, ...(item.intent === undefined ? {} : { intent: item.intent }) });
+                else if (item.status === "done" || item.status === "error") completed += 1;
+              }
+              m.patchRuntime(tabId, {
+                liveProgressText: formatLiveProgressReport({
+                  elapsedMs: Math.max(0, Date.now() - (rt.liveWorkArmedAt ?? Date.now())),
+                  running,
+                  completedTools: completed,
+                }),
+              });
+              await get().switchLiveVoice(tabId, { mode: "wake", progress: true });
+              // Re-arm from the callback (not setInterval): generation is
+              // recaptured each pass and a skipped tick still re-schedules.
+              const live = get().rpc[tabId]?.live;
+              const rt2 = peekTabRuntime(tabId);
+              // The flag is the cadence gate: `agent_end` clears it (the final
+              // answer owns the call now) and an explicit stop clears it. The
+              // snapshot only has to exist — an omp idle-end leaves the parked
+              // intent, and the next tick's wake reopens the call to speak.
+              if (
+                rt2?.liveWorkPark === true &&
+                live !== undefined &&
+                typeof get().state?.liveProgressReportMinutes === "number"
+              ) {
+                const nextMinutes = get().state?.liveProgressReportMinutes;
+                if (typeof nextMinutes === "number")
+                  armLiveProgressTimer(tabId, nextMinutes * 60_000, armProgress);
+              }
+            };
+            armLiveProgressTimer(tabId, reportMinutes * 60_000, armProgress);
+          }
         }
         return;
       }

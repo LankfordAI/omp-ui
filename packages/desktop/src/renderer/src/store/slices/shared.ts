@@ -162,6 +162,13 @@ export interface TabRuntime {
    *  `undefined` until the first loud frame after arming — quiet before any
    *  loud frame never parks (the acknowledgment may not have started). */
   liveOutputLoudAt?: number;
+  /** Epoch ms the work park armed (#826); drives the progress report's
+   *  elapsed time. Cleared wherever `liveWorkPark` clears. */
+  liveWorkArmedAt?: number;
+  /** The progress sentence built at the last timer fire (#826); consumed by
+   *  the next progress start (success or failure) so a stale report never
+   *  rides an unrelated later wake. */
+  liveProgressText?: string;
   /** The in-flight `live_stop` promise, identity-cleared in a finally;
    *  published by every dispatch site of the verb (issue #815). */
   liveStopInFlight?: Promise<unknown>;

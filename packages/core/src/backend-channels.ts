@@ -426,6 +426,12 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setLiveWorkParking",
     ...request<[on: boolean], void>([bool()]),
   },
+  /** Minutes between live-voice progress reports while work parking; null
+   *  disables (issue #826). */
+  setLiveProgressReportMinutes: {
+    channel: "settings:setLiveProgressReportMinutes",
+    ...request<[minutes: number | null], void>([nullable(num())]),
+  },
   /** The app-wide dictation model: an omp STT selector, or null to auto-resolve. */
   setSttModel: {
     channel: "settings:setSttModel",

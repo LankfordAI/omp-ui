@@ -516,6 +516,9 @@ export interface SettingsSlice {
   setVoiceInputEnabled(on: boolean): Promise<void>;
   /** Parks the live voice call while a delegated backend turn works (issue #815). */
   setLiveWorkParking(on: boolean): Promise<void>;
+  /** Minutes between live-voice progress reports while work parking; null
+   *  disables (issue #826). */
+  setLiveProgressReportMinutes(minutes: number | null): Promise<void>;
   /** The app-wide dictation model; null auto-resolves at call time. */
   setSttModel(model: string | null): Promise<void>;
   setThemeId(id: string): Promise<void>;
@@ -1241,7 +1244,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   clearPlanReview(tabId: string, expectedGateKey?: string): void;
   switchLiveVoice(
     tabId: string,
-    request: { mode: "park" | "wake"; reviewKey?: string | null; briefOverview?: boolean },
+    request: {
+      mode: "park" | "wake";
+      reviewKey?: string | null;
+      briefOverview?: boolean;
+      progress?: boolean;
+    },
   ): Promise<void>;
   reconcileLivePlanReview(tabId: string): void;
   explainPlanVoice(tabId: string): Promise<void>;

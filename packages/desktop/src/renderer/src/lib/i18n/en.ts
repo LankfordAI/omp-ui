@@ -809,6 +809,14 @@ export const en = {
   "settings.general.liveWorkParking": "Park live voice while the assistant works",
   "settings.general.liveWorkParkingHint":
     "When a spoken request hands work to the assistant, the live call closes while it works and reopens when there is something to say — no realtime model runs during the wait. Turning this off keeps the call open the whole time.",
+  "settings.general.liveProgressReports": "Live voice progress reports",
+  "settings.general.liveProgressReportsHint":
+    "While the assistant works with the live call parked, briefly reopen it every so often so it can speak a short progress update, then park again. Reports only happen while you are watching the session.",
+  "settings.general.liveProgressReportOff": "Off",
+  "settings.general.liveProgressReportEvery5": "Every 5 minutes",
+  "settings.general.liveProgressReportEvery15": "Every 15 minutes",
+  "settings.general.liveProgressReportEvery30": "Every 30 minutes",
+  "settings.general.liveProgressReportEvery60": "Every hour",
   "settings.general.dictationModel": "Dictation model",
   "settings.general.dictationModelHint":
     "Discovered from the installed OMP's speech-to-text catalog. Auto uses the first model a stored provider key makes callable.",
