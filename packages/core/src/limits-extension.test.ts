@@ -1,11 +1,10 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import ts from "@typescript/typescript6";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LIMITS_COMMAND, LIMITS_STATUS_KEY } from "./limits";
 import { limitsExtensionPath, writeLimitsExtension } from "./limits-extension";
-import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -35,9 +34,7 @@ function executableExtension(session: Record<string, unknown>) {
 
   const file = writeLimitsExtension(tempLineage());
   const source = fs.readFileSync(file, "utf8");
-  const output = ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-  }).outputText;
+  const output = transpileGeneratedExtension(source, "cjs");
   const loaded = { exports: {} as { default?: (api: unknown) => void } };
   Function("module", "exports", output)(loaded, loaded.exports);
   const factory = loaded.exports.default;

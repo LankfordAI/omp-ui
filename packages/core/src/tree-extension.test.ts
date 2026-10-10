@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import ts from "@typescript/typescript6";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   parseTreeSnapshot,
@@ -11,7 +10,7 @@ import {
   type TreeSnapshot,
 } from "./session-tree";
 import { treeExtensionPath, writeTreeExtension } from "./tree-extension";
-import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -137,9 +136,7 @@ function harness(): Harness {
   const file = writeTreeExtension(dir);
   expect(file).toBe(treeExtensionPath(dir));
   const source = fs.readFileSync(file, "utf8");
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-  });
+  const outputText = transpileGeneratedExtension(source, "cjs");
   const loaded = { exports: {} as { default?: (api: unknown) => void } };
   Function("module", "exports", outputText)(loaded, loaded.exports);
   const factory = loaded.exports.default;

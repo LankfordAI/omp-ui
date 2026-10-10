@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import ts from "@typescript/typescript6";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   VIBE_COMMAND,
@@ -11,7 +10,7 @@ import {
   type VibeWorker,
 } from "./vibe";
 import { vibeExtensionPath, writeVibeExtension } from "./vibe-extension";
-import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
 
@@ -113,9 +112,7 @@ function throwRequire(specifier: string): unknown {
 function harness(options: { vibeModule?: boolean } = {}): Harness {
   const file = writeVibeExtension(tempLineage());
   const source = fs.readFileSync(file, "utf8");
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-  });
+  const outputText = transpileGeneratedExtension(source, "cjs");
   const loaded = { exports: {} as { default?: (api: unknown) => void } };
   Function("module", "exports", "require", outputText)(
     loaded,

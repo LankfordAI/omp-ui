@@ -53,6 +53,8 @@ The root scripts delegate to the npm workspaces where appropriate.
 
 `npm run dev` hot reloads the desktop renderer. Restart it when a main-process, preload, native-module, or startup environment change cannot be picked up by the running process.
 
+TypeScript runs at two versions. Every workspace typechecks and tests with TypeScript 7 (the native compiler); core tests use its `typescript/unstable/*` API and esbuild for type stripping. The root `typescript` entry is the `@typescript/typescript6` alias, kept only because `typescript-eslint` needs the classic compiler API that TypeScript 7 does not ship (typescript-eslint #10940). Remove the alias when typescript-eslint supports TypeScript 7.
+
 CI runs the knowledge-vault smoke right after the node-pty smoke, then lint
 before typecheck, tests, build, and the browser-pane smoke. Unused declarations
 are lint errors: remove obsolete helpers and fixtures rather than disabling the

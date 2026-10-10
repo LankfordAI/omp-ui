@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { transformSync } from "esbuild";
 
 const require = createRequire(import.meta.url);
 const tscBin = path.join(path.dirname(require.resolve("typescript/package.json")), "bin", "tsc");
@@ -37,4 +38,18 @@ export function typecheckGeneratedExtension(file: string): void {
   if (result.error) throw result.error;
   if (result.status === 0) return;
   throw new Error(`${result.stdout}${result.stderr}`.trim() || `tsc exited ${result.status}`);
+}
+
+/**
+ * Strips types from a generated extension so a test can execute it. CommonJS
+ * output lowers `import()` to `require()`, so a test can serve the extension's
+ * dynamic imports through its injected `require` (ADR-0036).
+ */
+export function transpileGeneratedExtension(source: string, format: "cjs" | "esm"): string {
+  return transformSync(source, {
+    loader: "ts",
+    target: "es2022",
+    format,
+    supported: format === "cjs" ? { "dynamic-import": false } : undefined,
+  }).code;
 }
