@@ -4,9 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- The workspace now typechecks against TypeScript 7.0.2's native compiler; `typescript-eslint` and the tests that need the classic compiler API stay on the TypeScript 6 alias until TS7 ships a stable JS API. (#829)
-
-Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+Nothing since [v0.22.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.22.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
