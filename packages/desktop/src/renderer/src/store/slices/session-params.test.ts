@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EXPERIMENT_PROPOSAL_SENTINEL, type ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
+import { LIVE_CONNECT_TIMEOUT_MS, type LiveSnapshot } from "@omp-ui/core/live-voice";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { remoteOwnedState, rpcTabState, tabInfo } from "../../test/fixtures";
 import type { RenderItem } from "../../lib/transcript";
@@ -3512,6 +3513,150 @@ describe("live voice actions (issue #778)", () => {
     } finally {
       uninstall();
     }
+  });
+
+  // #827: a live call whose handshake never completes must end with a
+  // restartable error instead of sitting on `connecting` forever.
+  describe("connecting watchdog (issue #827)", () => {
+    it("the watchdog ends a stalled connect and the owner closes the call", async () => {
+      withVersion("18.7.0");
+      vi.useFakeTimers();
+      try {
+        const starting = h.useStore.getState().startLiveVoice(h.TAB);
+        h.respond(h.TAB, h.sent[0]!.cmd, {});
+        await starting;
+        const before = h.sent.length;
+        await vi.advanceTimersByTimeAsync(LIVE_CONNECT_TIMEOUT_MS - 1);
+        expect(live()).toMatchObject({ phase: "connecting", ended: false });
+        expect(h.sent).toHaveLength(before);
+        await vi.advanceTimersByTimeAsync(2);
+        expect(live()).toMatchObject({
+          ended: true,
+          error: "the live call did not connect — try again",
+        });
+        expect(h.sent.filter(({ cmd }) => cmd.type === "live_stop")).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("a listening phase disarms the watchdog", async () => {
+      withVersion("18.7.0");
+      vi.useFakeTimers();
+      try {
+        const starting = h.useStore.getState().startLiveVoice(h.TAB);
+        h.respond(h.TAB, h.sent[0]!.cmd, {});
+        await starting;
+        h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
+        const before = h.sent.length;
+        await vi.advanceTimersByTimeAsync(LIVE_CONNECT_TIMEOUT_MS + 1_000);
+        expect(h.sent).toHaveLength(before);
+        expect(live()).toMatchObject({ phase: "listening", ended: false, error: null });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("a connecting phase frame alone arms the watchdog for a late viewer", async () => {
+      withVersion("18.7.0");
+      vi.useFakeTimers();
+      try {
+        h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "connecting" });
+        expect(live()).toMatchObject({ phase: "connecting", ended: false });
+        await vi.advanceTimersByTimeAsync(LIVE_CONNECT_TIMEOUT_MS);
+        expect(live()).toMatchObject({
+          ended: true,
+          error: "the live call did not connect — try again",
+        });
+        // A late viewer never owns the call: no close is dispatched.
+        expect(h.sent.filter(({ cmd }) => cmd.type === "live_stop")).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("the verdict ignores non-connecting states", async () => {
+      withVersion("18.7.0");
+      const seeds: (LiveSnapshot | null)[] = [
+        { phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null },
+        { phase: "connecting", levels: null, turns: [], ended: true, error: null, connectionId: null },
+        null,
+      ];
+      for (const seed of seeds) {
+        h.sent.length = 0;
+        h.useStore.setState({
+          rpc: {
+            [h.TAB]: rpcTabState({
+              capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
+              live: seed === null ? null : { ...seed },
+            }),
+          },
+        });
+        h.useStore.getState().abandonStalledLiveConnect(h.TAB);
+        expect(h.sent).toEqual([]);
+        expect(h.useStore.getState().rpc[h.TAB]?.live ?? null).toEqual(seed);
+      }
+    });
+
+    it("a failed stop ends the call and unblocks a restart", async () => {
+      withVersion("18.7.0");
+      h.useStore.setState({
+        rpc: {
+          [h.TAB]: rpcTabState({
+            capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
+            live: { phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null },
+          }),
+        },
+      });
+      const stopping = h.useStore.getState().stopLiveVoice(h.TAB);
+      const stopCmd = h.sent.find(({ cmd }) => cmd.type === "live_stop")!.cmd;
+      h.respond(h.TAB, stopCmd, "backend wedged", false);
+      await stopping;
+      // The regression the bug report names: an un-ended wedged call made
+      // every retry a silent no-op.
+      expect(live()).toMatchObject({
+        ended: true,
+        error: "the live voice command could not be sent",
+      });
+      h.sent.length = 0;
+      const starting = h.useStore.getState().startLiveVoice(h.TAB);
+      expect(h.sent.filter(({ cmd }) => cmd.type === "live_start")).toHaveLength(1);
+      h.respond(h.TAB, h.sent[0]!.cmd, {});
+      await starting;
+      expect(live()).toMatchObject({ phase: "connecting", ended: false });
+    });
+
+    it("an ended snapshot restarts the clock on the next start", async () => {
+      withVersion("18.7.0");
+      vi.useFakeTimers();
+      try {
+        const starting = h.useStore.getState().startLiveVoice(h.TAB);
+        h.respond(h.TAB, h.sent[0]!.cmd, {});
+        await starting;
+        await vi.advanceTimersByTimeAsync(LIVE_CONNECT_TIMEOUT_MS);
+        expect(live()).toMatchObject({ ended: true });
+        const stopCmd = h.sent.find(({ cmd }) => cmd.type === "live_stop")!.cmd;
+        h.respond(h.TAB, stopCmd, {});
+        await h.flushMicrotasks();
+        // No loop without a start: an ended snapshot fires nothing further.
+        const afterFirst = h.sent.length;
+        await vi.advanceTimersByTimeAsync(LIVE_CONNECT_TIMEOUT_MS);
+        expect(h.sent).toHaveLength(afterFirst);
+        const restarting = h.useStore.getState().startLiveVoice(h.TAB);
+        const startCmd = h.sent.at(-1)!.cmd;
+        expect(startCmd).toMatchObject({ type: "live_start" });
+        h.respond(h.TAB, startCmd, {});
+        await restarting;
+        expect(live()).toMatchObject({ phase: "connecting", ended: false });
+        await vi.advanceTimersByTimeAsync(LIVE_CONNECT_TIMEOUT_MS);
+        expect(live()).toMatchObject({
+          ended: true,
+          error: "the live call did not connect — try again",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
 

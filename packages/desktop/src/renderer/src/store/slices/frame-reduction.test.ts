@@ -3116,7 +3116,7 @@ describe("handleRpcFrame routing", () => {
       expect(h.useStore.getState().liveVoice[h.TAB]).toBeUndefined();
     });
 
-    it("waits for a successful source stop and refuses carryover after a failed stop", async () => {
+    it("ends a failed source stop locally and carries voice to the fresh tab", async () => {
       await dispatchWithLive("carry-stop-failed", liveSnap("listening"));
       const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
       h.respond("fresh-tab", seed.cmd, {});
@@ -3126,9 +3126,17 @@ describe("handleRpcFrame routing", () => {
       expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
       h.respond(h.TAB, stop.cmd, "microphone stop failed", false);
       await h.flushMicrotasks();
-      expect(h.useStore.getState().rpc[h.TAB]!.live).toMatchObject({ ended: false });
+      // #827: a stop whose response failed ends the snapshot locally — an
+      // un-ended wedged call would block every lawful restart.
+      expect(h.useStore.getState().rpc[h.TAB]!.live).toMatchObject({ ended: true });
       expect(h.useStore.getState().rpc[h.TAB]!.live!.error).not.toBeNull();
-      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+      // #827: the failed stop ends the source snapshot, so the carry-over
+      // gate (no source call stays OPEN, #822) sees a closed call and voice
+      // follows the fresh tab instead of stranding on a wedged one.
+      expect(liveVerbs()).toEqual([
+        { tabId: h.TAB, type: "live_stop" },
+        { tabId: "fresh-tab", type: "live_start" },
+      ]);
       expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
     });
 

@@ -403,6 +403,7 @@ export const en = {
   "composer.live.unmute": "unmute live voice",
   "composer.live.micInUse": "the microphone is in use by live voice",
   "composer.live.sendFailed": "the live voice command could not be sent",
+  "composer.live.connectTimeout": "the live call did not connect — try again",
   "composer.live.phaseConnecting": "connecting…",
   "composer.live.phaseListening": "listening",
   "composer.live.phaseWorking": "working",

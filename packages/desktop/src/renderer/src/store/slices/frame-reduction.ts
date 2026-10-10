@@ -20,6 +20,7 @@ import {
   applyLivePhase,
   applyLiveTranscript,
   appendLiveRecap,
+  LIVE_CONNECT_TIMEOUT_MS,
   LIVE_WORK_PARK_CAP_MS,
   LIVE_WORK_PARK_QUIET_MS,
   LIVE_WORK_PARK_QUIET_RMS,
@@ -71,8 +72,10 @@ import {
 } from "../../lib/transcript";
 import { peekTabRuntime, respData, type GetState, type StoreMachinery, type Watchers } from "./shared";
 import {
+  armLiveConnectTimer,
   armLiveWorkCapTimer,
   armLiveWorkQuietTimer,
+  cancelLiveConnectTimer,
   cancelLiveWorkQuietTimer,
   clearLiveWorkTimers,
   liveVoiceGeneration,
@@ -984,6 +987,18 @@ export function createFrameReductionSlice(
             const live = phase === "connecting" && runtime.liveStartInFlight !== undefined
               ? emptyLiveSnapshot() : tab.live ?? emptyLiveSnapshot();
             m.patchRpc(tabId, { live: applyLivePhase(live, phase) });
+            // Connecting watchdog (#827): a connecting phase is the one
+            // wait contractually bounded — a handshake, not user silence.
+            // Any other phase (or a live_end below) disarms it.
+            if (phase === "connecting") {
+              const connectGen = liveVoiceGeneration(tabId);
+              armLiveConnectTimer(tabId, LIVE_CONNECT_TIMEOUT_MS, () => {
+                if (liveVoiceGeneration(tabId) !== connectGen) return;
+                get().abandonStalledLiveConnect(tabId);
+              });
+            } else {
+              cancelLiveConnectTimer(tabId);
+            }
             get().reconcileLivePlanReview(tabId);
             // Orphan refresh-restart (#811): a stored answer the open call
             // could not receive rides the next start's instructions. Only a
@@ -1092,6 +1107,7 @@ export function createFrameReductionSlice(
           m.patchRpc(tabId, {
             live: applyLiveEnd(live, strField(frame, "error") ?? null),
           });
+          cancelLiveConnectTimer(tabId);
           // #811: a call that ended on its own (omp's idle timeout, a
           // realtime-side error) never ran parkLiveVoice's recap fold —
           // without it, the resume would speak a recap missing the

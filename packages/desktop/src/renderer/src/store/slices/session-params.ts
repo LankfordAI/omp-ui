@@ -60,6 +60,7 @@ import {
 } from "@omp-ui/core/session-tree";
 import { randomId, randomUuid } from "../../lib/random-id";
 import {
+  armLiveConnectTimer,
   bumpLiveVoiceGeneration,
   cancelLiveSwitch,
   claimLiveSwitch,
@@ -94,6 +95,7 @@ import {
   applyLivePhase,
   buildLiveInstructions,
   emptyLiveSnapshot,
+  LIVE_CONNECT_TIMEOUT_MS,
   type LiveSnapshot,
   type LivePlanReviewContext,
 } from "@omp-ui/core/live-voice";
@@ -129,6 +131,7 @@ export type SessionParamsSlice = Pick<
   | "stopLiveVoice"
   | "setLiveMuted"
   | "clearLiveError"
+  | "abandonStalledLiveConnect"
   | "switchLiveVoice"
   | "reconcileLivePlanReview"
   | "explainPlanVoice"
@@ -1168,6 +1171,16 @@ export function createSessionParamsSlice(
     });
     if (rt.liveUserMuted === true) void setLiveMuted(tabId, true);
     reconcileLivePlanReview(tabId);
+    // Connecting watchdog (#827): armed only after the ack, so an ack
+    // failure still fails through the sendFailed path above; a phase frame
+    // that beat the ack makes the fire a no-op (the guard reads phase).
+    {
+      const connectGen = liveVoiceGeneration(tabId);
+      armLiveConnectTimer(tabId, LIVE_CONNECT_TIMEOUT_MS, () => {
+        if (liveVoiceGeneration(tabId) !== connectGen) return;
+        get().abandonStalledLiveConnect(tabId);
+      });
+    }
   };
 
   const startLiveVoice = async (tabId: string, opts?: { instructions?: string }): Promise<void> => {
@@ -1347,7 +1360,9 @@ export function createSessionParamsSlice(
     if (peekTabRuntime(tabId) !== rt || after === null || after === undefined ||
       after.connectionId !== current.connectionId) return;
     if (resp === null) {
-      livePatch(tabId, { ...after, error: t("composer.live.sendFailed") });
+      // A stop that never answered must still end the local snapshot:
+      // an un-ended wedged call blocks every lawful restart (#827).
+      livePatch(tabId, applyLiveEnd(after, t("composer.live.sendFailed")));
       return;
     }
     livePatch(tabId, applyLiveEnd(after, null));
@@ -1389,6 +1404,28 @@ export function createSessionParamsSlice(
       return;
     }
     livePatch(tabId, { ...current, error: null });
+  };
+
+  /** The connecting watchdog's verdict (#827): a call that acked (or
+   *  reported connecting) and never advanced. Locally end it so the pill
+   *  reads a restartable error; the owner renderer also sends a best-effort
+   *  quiet live_stop so a half-open omp call converges. A later slow phase
+   *  frame reopens the snapshot through applyLivePhase on its own. */
+  const abandonStalledLiveConnect = (tabId: string): void => {
+    const current = get().rpc[tabId]?.live;
+    if (current === null || current === undefined) return;
+    if (current.ended || current.phase !== "connecting") return;
+    const rt = peekTabRuntime(tabId);
+    if (rt?.liveParked === true) return;
+    livePatch(tabId, applyLiveEnd(current, t("composer.live.connectTimeout")));
+    m.patchRuntime(tabId, { liveParked: false });
+    m.syncLiveVoiceBadge(tabId);
+    publishPlanVoice(tabId);
+    get().reconcileLivePlanReview(tabId);
+    if (rt !== undefined && rt.liveVoiceOwner === true && rt.liveStopInFlight === undefined) {
+      void trackLiveDispatch(tabId, rt, "liveStopInFlight",
+        m.runCommand(tabId, { type: "live_stop" }, { quiet: true }));
+    }
   };
 
   const setSessionServiceTier = async (
@@ -2434,6 +2471,7 @@ export function createSessionParamsSlice(
     stopLiveVoice,
     setLiveMuted,
     clearLiveError,
+    abandonStalledLiveConnect,
     switchLiveVoice,
     reconcileLivePlanReview,
     explainPlanVoice,

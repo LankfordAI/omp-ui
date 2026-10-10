@@ -366,6 +366,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.live.unmute": "라이브 음성 음소거 해제",
   "composer.live.micInUse": "마이크가 라이브 음성에 사용 중입니다",
   "composer.live.sendFailed": "라이브 음성 명령을 보낼 수 없습니다",
+  "composer.live.connectTimeout": "라이브 통화가 연결되지 않았습니다 — 다시 시도하세요",
   "composer.live.phaseConnecting": "연결 중…",
   "composer.live.phaseListening": "듣는 중",
   "composer.live.phaseWorking": "작업 중",

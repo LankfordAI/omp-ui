@@ -366,6 +366,12 @@ export const LIVE_WORK_PARK_QUIET_RMS = 0.02;
 export const LIVE_WORK_PARK_QUIET_MS = 600;
 export const LIVE_WORK_PARK_CAP_MS = 4_000;
 
+/** The connecting watchdog (#827): live_start acked (or a connecting phase
+ *  was observed) and no further phase arrived. Kept under the 30 s RPC
+ *  command budget so an unacked start still fails through the ack path
+ *  instead. */
+export const LIVE_CONNECT_TIMEOUT_MS = 20_000;
+
 /** The exact reviewed artifact, separate from ordinary delegated results. */
 export interface LivePlanReviewContext {
   title: string;

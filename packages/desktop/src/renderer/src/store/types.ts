@@ -1122,6 +1122,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setLiveMuted(tabId: string, muted: boolean): Promise<void>;
   /** Drops the live error strip; keeps a running session's snapshot. */
   clearLiveError(tabId: string): void;
+  /** The connecting watchdog's verdict (#827): locally end a live snapshot
+   *  stuck on `connecting` so the pill becomes a restartable error. */
+  abandonStalledLiveConnect(tabId: string): void;
   /** The recordings stored under this session's lineage dir (#809), newest
    *  first — disk enumeration, so a session that is not being viewed lists
    *  the same entries. [] while omp exposes no audio at all (ADR-0049). */

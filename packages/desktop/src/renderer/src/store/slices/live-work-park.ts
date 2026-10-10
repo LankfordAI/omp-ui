@@ -13,6 +13,7 @@ import { strField } from "../../lib/fields";
 export interface LiveWorkTimerSlots {
   quiet?: number;
   cap?: number;
+  connect?: number;
 }
 
 /** The operation a switch cycle performs: `park` closes the call and stops;
@@ -108,14 +109,44 @@ export function armLiveWorkCapTimer(
   }, ms);
 }
 
-/** Clear both work timers; idempotent. Called at every park, every explicit
- *  stop, the switch operation's start step, every `agent_end` that carried
- *  the flag, and `discardTabRuntime`. */
+/** Arm the connecting watchdog (#827); the latest arm wins — each arm means
+ *  a fresh attempt, so a repeated `connecting` frame extends the deadline. */
+export function armLiveConnectTimer(
+  tabId: string,
+  ms: number,
+  onFire: () => void,
+): void {
+  let slots = liveWorkTimers.get(tabId);
+  if (slots === undefined) {
+    slots = {};
+    liveWorkTimers.set(tabId, slots);
+  }
+  if (slots.connect !== undefined) window.clearTimeout(slots.connect);
+  const entry = slots;
+  entry.connect = window.setTimeout(() => {
+    entry.connect = undefined;
+    onFire();
+  }, ms);
+}
+
+/** Cancel the connecting watchdog (a non-connecting phase, a live_end, or
+ *  any teardown). */
+export function cancelLiveConnectTimer(tabId: string): void {
+  const slots = liveWorkTimers.get(tabId);
+  if (slots?.connect === undefined) return;
+  window.clearTimeout(slots.connect);
+  slots.connect = undefined;
+}
+
+/** Clear the work timers and the connecting watchdog; idempotent. Called at
+ *  every park, every explicit stop, the switch operation's start step, every
+ *  `agent_end` that carried the flag, and `discardTabRuntime`. */
 export function clearLiveWorkTimers(tabId: string): void {
   const slots = liveWorkTimers.get(tabId);
   if (slots === undefined) return;
   if (slots.quiet !== undefined) window.clearTimeout(slots.quiet);
   if (slots.cap !== undefined) window.clearTimeout(slots.cap);
+  if (slots.connect !== undefined) window.clearTimeout(slots.connect);
   liveWorkTimers.delete(tabId);
 }
 
@@ -179,6 +210,7 @@ export function resetLiveWorkParkForTests(): void {
   for (const slots of liveWorkTimers.values()) {
     if (slots.quiet !== undefined) window.clearTimeout(slots.quiet);
     if (slots.cap !== undefined) window.clearTimeout(slots.cap);
+    if (slots.connect !== undefined) window.clearTimeout(slots.connect);
   }
   liveWorkTimers.clear();
   liveSwitches.clear();
