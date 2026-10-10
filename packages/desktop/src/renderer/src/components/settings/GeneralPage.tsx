@@ -257,6 +257,60 @@ function DictationModelPicker({
   );
 }
 
+/**
+ * The interstitial progress-report cadence (issue #826): a static option
+ * list — Off plus four fixed intervals — rendered with the same segmented
+ * radio-group pattern as the compaction/dictation pickers. The value is the
+ * registry's minutes-or-null directly; no load state exists to show.
+ */
+function ProgressReportPicker({
+  value,
+  onSelect,
+}: {
+  value: number | null;
+  onSelect: (minutes: number | null) => void;
+}) {
+  const t = useT();
+  const options: Array<{ id: number | null; label: string }> = [
+    { id: null, label: t("settings.general.liveProgressReportOff") },
+    { id: 5, label: t("settings.general.liveProgressReportEvery5") },
+    { id: 15, label: t("settings.general.liveProgressReportEvery15") },
+    { id: 30, label: t("settings.general.liveProgressReportEvery30") },
+    { id: 60, label: t("settings.general.liveProgressReportEvery60") },
+  ];
+  return (
+    <div
+      role="group"
+      aria-label={t("settings.general.liveProgressReports")}
+      className="divide-y divide-line-soft rounded-md border border-line bg-raised"
+    >
+      {options.map((option) => {
+        const selected = option.id === value;
+        return (
+          <button
+            key={option.id ?? "off"}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => {
+              if (option.id !== value) onSelect(option.id);
+            }}
+            className={cn(
+              "flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150",
+              selected
+                ? "bg-hover text-ink"
+                : "text-ink-mid hover:bg-hover/50 focus-visible:bg-hover/50 focus-visible:outline-none",
+            )}
+          >
+            <span className={cn("min-w-0 truncate text-xs", selected && "font-medium")}>
+              {option.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function GeneralPage() {
   const state = useStore((s) => s.state);
   const setDefaultMode = useStore((s) => s.setDefaultMode);
@@ -307,6 +361,7 @@ export function GeneralPage() {
   const setSubagentModelInheritByDefault = useStore((s) => s.setSubagentModelInheritByDefault);
   const setVoiceInputEnabled = useStore((s) => s.setVoiceInputEnabled);
   const setLiveWorkParking = useStore((s) => s.setLiveWorkParking);
+  const setLiveProgressReportMinutes = useStore((s) => s.setLiveProgressReportMinutes);
   const setSttModel = useStore((s) => s.setSttModel);
   const readSttModels = useStore((s) => s.readSttModels);
   const [sttModels, setSttModels] = useState<SttModelsLoad>({ status: "loading" });
@@ -494,6 +549,16 @@ export function GeneralPage() {
           on={state?.liveWorkParking !== false}
           onChange={(next) => void setLiveWorkParking(next)}
           label={t("settings.general.liveWorkParking")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.liveProgressReports")}
+        hint={t("settings.general.liveProgressReportsHint")}
+        stacked
+      >
+        <ProgressReportPicker
+          value={state?.liveProgressReportMinutes ?? null}
+          onSelect={(minutes) => void setLiveProgressReportMinutes(minutes)}
         />
       </Row>
       <Row

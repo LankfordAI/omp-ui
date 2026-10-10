@@ -10,7 +10,11 @@ import type {
 } from "@omp-ui/core/types";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import type { LivePhase, LiveSnapshot } from "@omp-ui/core/live-voice";
-import { LIVE_WORK_PARK_CAP_MS, LIVE_WORK_PARK_QUIET_MS } from "@omp-ui/core/live-voice";
+import {
+  LIVE_PROGRESS_REPORT_CAP_MS,
+  LIVE_WORK_PARK_CAP_MS,
+  LIVE_WORK_PARK_QUIET_MS,
+} from "@omp-ui/core/live-voice";
 import {
   ADVISOR_REPLY_CAP_NOTICE,
   ADVISOR_REPLY_LEAD,
@@ -5117,6 +5121,285 @@ describe("live voice work parking (issue #815)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("live voice progress reports (issue #826)", () => {
+  const withVersion = (ompVersion: string): CapabilitySnapshot =>
+    ({ ompVersion }) as unknown as CapabilitySnapshot;
+
+  const arm = async (): Promise<void> => {
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    const start = h.sent.find(
+      (s) => s.tabId === h.TAB && s.cmd.type === "live_start",
+    );
+    if (start === undefined) throw new Error("startLiveVoice dispatched nothing");
+    h.respond(h.TAB, start.cmd, {});
+    await starting;
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
+    h.sent.length = 0;
+  };
+  const frame = (event: object): void => {
+    h.useStore.getState().handleRpcFrame(h.TAB, event);
+  };
+  const delegation = (): void =>
+    frame({
+      type: "message_start",
+      message: {
+        role: "custom",
+        customType: "live-delegation",
+        display: true,
+        attribution: "agent",
+        content: "deploy the preview",
+      },
+    });
+  const finalAnswer = (text: string): void =>
+    frame({
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text }] },
+    });
+  const levels = (output: number): void =>
+    frame({ type: "live_levels", input: 0.05, output });
+  const settleVerbs = async (): Promise<void> => {
+    for (let wave = 0; wave < 4; wave++) {
+      await h.flushMicrotasks();
+      for (const s of h.sent.filter(
+        (e) => e.cmd.type === "live_stop" || e.cmd.type === "live_start",
+      ))
+        h.respond(h.TAB, s.cmd, {});
+    }
+    await h.flushMicrotasks();
+  };
+  const verbs = (type: string) => h.sent.filter((s) => s.cmd.type === type);
+
+  const reportsOn = (minutes: number | null): void => {
+    h.useStore.setState({
+      state: { ...h.backendState, liveProgressReportMinutes: minutes },
+    });
+  };
+  const seedTools = (): void => {
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: {
+          ...tab,
+          items: [
+            { kind: "tool", id: "t1", toolCallId: "t1", name: "bash", args: {}, status: "done" },
+            { kind: "tool", id: "t2", toolCallId: "t2", name: "edit", args: {}, status: "done" },
+            { kind: "tool", id: "t3", toolCallId: "t3", name: "bash", args: {}, status: "running", intent: "running the tests" },
+          ],
+        },
+      },
+      activeTabId: h.TAB,
+    });
+  };
+
+  beforeEach(() => {
+    platformMocks.electron = true;
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: { [h.TAB]: rpcTabState({ capabilities: withVersion("18.7.0") }) },
+      activeTabId: h.TAB,
+    });
+  });
+  afterEach(() => {
+    platformMocks.electron = false;
+  });
+
+  it("the cadence wakes the parked call with one progress section, then re-parks", async () => {
+    // One fake-timer block: every timer (park, cadence, report window) is
+    // armed on the same clock the test advances.
+    vi.useFakeTimers();
+    try {
+      reportsOn(5);
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS + 1);
+      await settleVerbs();
+      h.sent.length = 0;
+      seedTools();
+      // Cadence fires while the turn still runs.
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await settleVerbs();
+      expect(verbs("live_start")).toHaveLength(1);
+      const instructions = String(verbs("live_start")[0]!.cmd.instructions);
+      expect(instructions).toContain("<progress-report>");
+      expect(instructions).toContain("Running now: bash — running the tests.");
+      expect(instructions).toContain("2 tool steps completed since the request.");
+      // The sentence is consumed by the dispatch that carried it.
+      expect(peekTabRuntime(h.TAB)?.liveProgressText).toBeUndefined();
+      h.sent.length = 0;
+      // The report window closes on its own cap: one stop, the flag survives.
+      await vi.advanceTimersByTimeAsync(LIVE_PROGRESS_REPORT_CAP_MS + 1);
+      expect(verbs("live_stop")).toHaveLength(1);
+      await settleVerbs();
+      expect(peekTabRuntime(h.TAB)?.liveWorkPark).toBe(true);
+      // And the cadence continues after the re-park.
+      h.sent.length = 0;
+      await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+      await settleVerbs();
+      expect(verbs("live_start")).toHaveLength(1);
+      expect(String(verbs("live_start")[0]!.cmd.instructions)).toContain("<progress-report>");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an unviewed tick is skipped and rescheduled, never lost", async () => {
+    vi.useFakeTimers();
+    try {
+      reportsOn(5);
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS + 1);
+      await settleVerbs();
+      h.sent.length = 0;
+      h.useStore.setState({ activeTabId: "other-tab" });
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(verbs("live_start")).toHaveLength(0);
+      // Back in view: the rescheduled tick reports.
+      h.useStore.setState({ activeTabId: h.TAB });
+      await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(verbs("live_start")).toHaveLength(1);
+    expect(String(verbs("live_start")[0]!.cmd.instructions)).toContain("<progress-report>");
+  });
+
+  it("the final answer wakes instead, and the cadence ends with the turn", async () => {
+    vi.useFakeTimers();
+    try {
+      reportsOn(5);
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS + 1);
+      await settleVerbs();
+      h.sent.length = 0;
+      finalAnswer("Deployed the preview build");
+      frame({ type: "agent_end" });
+      await h.flushMicrotasks();
+      // The answer's wake dispatches; no progress section rides it.
+      expect(verbs("live_start")).toHaveLength(1);
+      expect(String(verbs("live_start")[0]!.cmd.instructions)).not.toContain("<progress-report>");
+      h.sent.length = 0;
+      // Turn over: the cadence is gone even after many intervals.
+      await vi.advanceTimersByTimeAsync(20 * 60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(verbs("live_start")).toHaveLength(0);
+    expect(peekTabRuntime(h.TAB)?.liveWorkPark).toBe(false);
+  });
+
+  it("a report that races agent_end never displaces the answer wake", async () => {
+    vi.useFakeTimers();
+    try {
+      reportsOn(5);
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS + 1);
+      await settleVerbs();
+      h.sent.length = 0;
+      seedTools();
+      // Fire the cadence and let the report's switch begin (stop in flight).
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await h.flushMicrotasks();
+      // The answer arrives before the report's start dispatches.
+      finalAnswer("Deployed the preview build");
+      frame({ type: "agent_end" });
+      await h.flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(0);
+    } finally {
+      vi.useRealTimers();
+    }
+    await settleVerbs();
+    const starts = verbs("live_start");
+    expect(starts.length).toBeGreaterThan(0);
+    // Whatever dispatched, the final answer was carried; nothing spoke a
+    // report after the answer.
+    expect(starts.at(-1)!.cmd.instructions).toContain("Deployed the preview build");
+  });
+
+  it("a plan-review gate suppresses reports while it awaits", async () => {
+    vi.useFakeTimers();
+    try {
+      reportsOn(5);
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS + 1);
+      await settleVerbs();
+      h.sent.length = 0;
+      h.useStore.setState({
+        rpc: { [h.TAB]: { ...h.useStore.getState().rpc[h.TAB]!, planReview: {
+          frame: { id: "gate-1" },
+          request: { title: "Plan", planFilePath: "local://p.md", planAbsPath: "/p/p.md" },
+        } } },
+      });
+      await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+      expect(verbs("live_start")).toHaveLength(0);
+      // Many intervals: the gate's presence alone holds every tick.
+      await vi.advanceTimersByTimeAsync(15 * 60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(verbs("live_start")).toHaveLength(0);
+  });
+
+  it("off (null) arms no cadence at all", async () => {
+    vi.useFakeTimers();
+    try {
+      reportsOn(null);
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS + 1);
+      await settleVerbs();
+      h.sent.length = 0;
+      await vi.advanceTimersByTimeAsync(1440 * 60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(verbs("live_start")).toHaveLength(0);
+    expect(verbs("live_stop")).toHaveLength(0);
+  });
+
+  it("flipping the setting off mid-park stops the next report", async () => {
+    vi.useFakeTimers();
+    try {
+      reportsOn(5);
+      await arm();
+      frame({ type: "agent_start" });
+      delegation();
+      levels(0.4);
+      levels(0.0);
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_QUIET_MS + 1);
+      await settleVerbs();
+      h.sent.length = 0;
+      reportsOn(null);
+      await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(verbs("live_start")).toHaveLength(0);
   });
 });
 

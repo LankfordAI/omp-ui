@@ -366,6 +366,35 @@ export const LIVE_WORK_PARK_QUIET_RMS = 0.02;
 export const LIVE_WORK_PARK_QUIET_MS = 600;
 export const LIVE_WORK_PARK_CAP_MS = 4_000;
 
+/** Interstitial progress reports (issue #826): while work parking holds the
+ *  call closed, a timer wakes it every N minutes to speak one short update,
+ *  then re-parks. `LIVE_PROGRESS_REPORT_CAP_MS` bounds the report window the
+ *  same way the work-park cap bounds the acknowledgment — if the model never
+ *  registers loud output, the window still closes. `LIVE_PROGRESS_TEXT_MAX`
+ *  caps the derived status sentence before it enters the instructions. */
+export const LIVE_PROGRESS_REPORT_CAP_MS = 60_000;
+export const LIVE_PROGRESS_TEXT_MAX = 600;
+
+/** Deterministic status sentence for one progress report (the renderer
+ *  supplies the data; this shapes it so tests pin one string). Elapsed
+ *  under a minute rounds to "about a minute"; a running tool shows its
+ *  `intent` headline when the transcript carries one. No paths or code —
+ *  the base prompt already forbids reading those aloud. */
+export function formatLiveProgressReport(input: {
+  elapsedMs: number;
+  running: { name: string; intent?: string }[];
+  completedTools: number;
+}): string {
+  const minutes = Math.max(1, Math.round(input.elapsedMs / 60_000));
+  const elapsed = `Elapsed about ${minutes === 1 ? "a minute" : `${minutes} minutes`}.`;
+  const activity = input.running.length > 0
+    ? `Running now: ${input.running
+        .map((tool) => (tool.intent === undefined || tool.intent === "" ? tool.name : `${tool.name} — ${tool.intent}`))
+        .join("; ")}.`
+    : "Working between tool steps.";
+  return `${elapsed} ${activity} ${input.completedTools} tool steps completed since the request.`;
+}
+
 /** The exact reviewed artifact, separate from ordinary delegated results. */
 export interface LivePlanReviewContext {
   title: string;
@@ -411,14 +440,16 @@ ${artifact}
 }
 
 /**
- * base + `<voice-recap>` + `<pending-results>` + optional `<plan-review>`.
+ * base + `<voice-recap>` + `<pending-results>` + optional `<progress-report>`
+ * + optional `<plan-review>`.
  * The recap keeps its last `recapTurns` entries and never exceeds
  * `recapChars` (oldest trimmed first); each pending entry truncates at
  * `pendingEntryChars` with a note that the full answer is in the session.
  * The ordinary envelope stays `totalChars`: trim oldest recap turns first,
- * then drop whole newest pending entries. The review section is additional
- * and never trimmed; its size increases the effective ceiling equally.
- * Empty ordinary inputs omit their sections. `pendingUsed` counts only the
+ * then drop whole newest pending entries. The review and progress sections
+ * are additional and never trimmed; their size increases the effective
+ * ceiling equally. Empty ordinary inputs omit their sections; an empty
+ * progress string omits its section too. `pendingUsed` counts only the
  * ordinary entries actually carried (the oldest surviving prefix).
  */
 export function buildLiveInstructions(opts: {
@@ -426,10 +457,19 @@ export function buildLiveInstructions(opts: {
   pending: readonly string[];
   base?: string;
   review?: LivePlanReviewContext;
+  /** One derived status sentence (issue #826); see `formatLiveProgressReport`. */
+  progress?: string;
 }): LiveInstructions {
   const base = opts.base ?? LIVE_BASE_INSTRUCTIONS;
   const reviewSection = planReviewSection(opts.review);
-  const totalChars = LIVE_INSTRUCTION_LIMITS.totalChars + reviewSection.length;
+  // Additive like the review section, never trimmed; the sentence itself is
+  // already capped by `LIVE_PROGRESS_TEXT_MAX` (issue #826).
+  const progressSection =
+    opts.progress === undefined || opts.progress === ""
+      ? ""
+      : `\n\n<progress-report>\nThe client backend is still working on the user's request; nothing has failed.\nSTATUS: ${opts.progress.length > LIVE_PROGRESS_TEXT_MAX ? opts.progress.slice(0, LIVE_PROGRESS_TEXT_MAX) + " …" : opts.progress}\nImmediately speak ONE brief progress update in your own words from STATUS — one or two sentences, speech-friendly, no file paths or code. Do not claim completion or results. After the update, wait quietly for the backend.\n</progress-report>`;
+  const totalChars =
+    LIVE_INSTRUCTION_LIMITS.totalChars + reviewSection.length + progressSection.length;
   let recapLines = opts.recap
     .slice(-LIVE_INSTRUCTION_LIMITS.recapTurns)
     .map(recapLine);
@@ -444,7 +484,7 @@ export function buildLiveInstructions(opts: {
       text += `\n\n<voice-recap>\nEarlier in this conversation, oldest first:\n${recapLines.join("\n")}\n</voice-recap>`;
     if (entries.length > 0)
       text += `\n\n<pending-results>\nBefore anything else, tell the user these results, briefly and in speech-friendly form.\n${entries.join("\n\n")}\n</pending-results>`;
-    return text + reviewSection;
+    return text + progressSection + reviewSection;
   };
   while (
     recapLines.length > 1 &&

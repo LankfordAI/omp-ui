@@ -64,6 +64,8 @@ import {
   cancelLiveSwitch,
   claimLiveSwitch,
   clearLiveWorkTimers,
+  clearLiveWorkWindowTimers,
+  armLiveWorkCapTimer,
   finishLiveSwitch,
   liveVoiceGeneration,
   planReviewGateKey,
@@ -93,6 +95,7 @@ import {
   applyLiveEnd,
   applyLivePhase,
   buildLiveInstructions,
+  LIVE_PROGRESS_REPORT_CAP_MS,
   emptyLiveSnapshot,
   type LiveSnapshot,
   type LivePlanReviewContext,
@@ -978,6 +981,8 @@ export function createSessionParamsSlice(
     // #815: an explicit stop disarms work-parking too — no wake follows.
     liveWorkPark: false,
     liveOutputLoudAt: undefined,
+    liveWorkArmedAt: undefined,
+    liveProgressText: undefined,
     liveReviewTextCache: undefined,
     liveReviewAppliedSourceKey: null,
     liveReviewAutoRequestedGateKey: undefined,
@@ -1111,6 +1116,7 @@ export function createSessionParamsSlice(
           recap: rt.liveRecap,
           pending: rt.livePendingFeedback,
           review: review === null ? undefined : { ...review.context, briefOverview },
+          progress: request?.progress === true ? rt.liveProgressText : undefined,
         });
     if (!valid() || !liveAdmitted(tabId)) return;
     const generation = liveVoiceGeneration(tabId);
@@ -1142,7 +1148,12 @@ export function createSessionParamsSlice(
       }
       return;
     }
-    m.patchRuntime(tabId, { liveReviewExplicitBriefingKey: undefined });
+    // The report sentence was just carried (or abandoned) by this attempt;
+    // consume it so it can never ride an unrelated later wake (#826).
+    m.patchRuntime(tabId, {
+      liveReviewExplicitBriefingKey: undefined,
+      ...(request?.progress === true ? { liveProgressText: undefined } : {}),
+    });
     if (resp === null) {
       m.patchRuntime(tabId, { liveReviewFailedSourceKey: review?.sourceKey ?? null });
       livePatch(tabId, { ...emptyLiveSnapshot(), ended: true, error: t("composer.live.sendFailed") });
@@ -1159,6 +1170,25 @@ export function createSessionParamsSlice(
       liveReviewAppliedSourceKey: opts?.instructions === undefined ? review?.sourceKey ?? null : null,
       liveReviewFailedSourceKey: undefined,
     });
+    if (request?.progress === true) {
+      // Report window (#826): the mic must not stay open. A loud->quiet
+      // levels edge arms the ordinary 600ms quiet park; this cap closes a
+      // window where the model never speaks. The work-park flag is still
+      // set, which is what both park callbacks require.
+      m.patchRuntime(tabId, { liveOutputLoudAt: undefined });
+      const reportCapGen = liveVoiceGeneration(tabId);
+      armLiveWorkCapTimer(tabId, LIVE_PROGRESS_REPORT_CAP_MS, () => {
+        const windowRt = peekTabRuntime(tabId);
+        if (
+          windowRt?.liveWorkPark !== true ||
+          windowRt.liveVoiceOwner !== true ||
+          windowRt.liveArmed !== true ||
+          liveVoiceGeneration(tabId) !== reportCapGen
+        )
+          return;
+        void get().switchLiveVoice(tabId, { mode: "park" });
+      });
+    }
     m.syncLiveVoiceBadge(tabId);
     const reported = get().rpc[tabId]?.live;
     livePatch(tabId, {
@@ -1196,7 +1226,9 @@ export function createSessionParamsSlice(
       return resp !== null && peekTabRuntime(tabId) === rt;
     }
     if (rt.liveParked === true) return false;
-    clearLiveWorkTimers(tabId);
+    // A park ends the quiet/cap window, never the #826 report cadence:
+    // a progress report re-parks through this path mid-delegated-turn.
+    clearLiveWorkWindowTimers(tabId);
     m.patchRuntime(tabId, {
       liveRecap: appendLiveRecap(rt.liveRecap, live.turns),
       liveUserMuted: rememberedLiveMute(rt, live),
@@ -1238,7 +1270,10 @@ export function createSessionParamsSlice(
     if (get().activeTabId !== tabId ||
       (!intentional && (rt.liveVoiceOwner !== true || rt.liveArmed !== true)) ||
       (hasLiveCall(tab.live) && rt.liveVoiceOwner !== true && rt.liveStartInFlight === undefined && !startedHere) ||
-      (rt.liveWorkPark === true && tab.planReview === null)) return false;
+      // A progress wake (#826) may run while the work park flag is set —
+      // the flag survives the whole delegated turn so `agent_end` stays
+      // the final-answer truth.
+      (rt.liveWorkPark === true && request.progress !== true && tab.planReview === null)) return false;
     if (request.reviewKey === null) return tab.planReview === null;
     if (tab.planReview === null) return request.reviewKey === undefined;
     const review = readyLiveReview(tabId, rt);

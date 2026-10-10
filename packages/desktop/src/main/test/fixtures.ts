@@ -26,6 +26,7 @@ interface RegistrySettings {
   experimentsEnabled: boolean;
   voiceInputEnabled: boolean;
   liveWorkParking: boolean;
+  liveProgressReportMinutes: number | null;
   sttModel: string | null;
   sessionOrderFrozen: boolean;
   memoryDefaultsSeeded: boolean;
@@ -118,6 +119,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     experimentsEnabled: false,
     voiceInputEnabled: false,
     liveWorkParking: true,
+    liveProgressReportMinutes: null,
     sttModel: null,
     // Default false so seeds without the marker exercise the one-time
     // recency freeze exactly like pre-#274 registries do.
