@@ -117,6 +117,8 @@ export function createPlanExecutionSlice(
       liveWorkPark: false,
       liveReviewFailedSourceKey: undefined,
       liveOutputLoudAt: undefined,
+      liveWorkArmedAt: undefined,
+      liveProgressText: undefined,
       liveOrphanRestart: false,
     });
   };

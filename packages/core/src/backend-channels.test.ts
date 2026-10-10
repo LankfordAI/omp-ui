@@ -233,6 +233,7 @@ const VALID_ARGS = {
   setTranscriptWidth: ["wide"],
   setVoiceInputEnabled: [true],
   setLiveWorkParking: [true],
+  setLiveProgressReportMinutes: [15],
   setWindowChrome: ["#000", "#fff"],
   shellKill: ["tab-1"],
   shellResize: ["tab-1", 120, 40],
@@ -391,6 +392,7 @@ describe("transport dispatch", () => {
   it.each([
     [CH.openProject, ["/project"], "argument 1"],
     [CH.addProject, [{ secret: "do-not-echo" }], "argument 0"],
+    [CH.setLiveProgressReportMinutes, ["fifteen"], "argument 0"],
     [CH.openProject, ["/project", "secret-target"], "argument 1"],
     [CH.ptyPasteImage, ["tab-1", { type: "secret-type", data: "x", mimeType: "x" }], "argument 1.type"],
     [

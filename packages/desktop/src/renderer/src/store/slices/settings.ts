@@ -235,6 +235,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setLiveProgressReportMinutes(minutes) {
+      try {
+        await backend.setLiveProgressReportMinutes(minutes);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setSttModel(model) {
       try {
         await backend.setSttModel(model);

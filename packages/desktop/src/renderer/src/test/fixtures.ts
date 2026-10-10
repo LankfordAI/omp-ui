@@ -24,6 +24,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     experimentsEnabled: false,
     voiceInputEnabled: false,
     liveWorkParking: true,
+    liveProgressReportMinutes: null,
     sttModel: null,
     // Existing suites never auto-open the first-run checklist (issue #623).
     gettingStartedSeen: true,

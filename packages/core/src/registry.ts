@@ -65,6 +65,10 @@ export interface RegistrySettings {
   /** Park the live voice call while a delegated backend turn works (issue #815);
    *  default on — the burn is the status quo. */
   liveWorkParking: boolean;
+  /** Interstitial live-voice progress reports while work parking (issue
+   *  #826): minutes between reports; null disables. Default off — new
+   *  automatic speech is opt-in. */
+  liveProgressReportMinutes: number | null;
   /** omp STT selector used app-wide; null = pick the preferred callable model. */
   sttModel: string | null;
   /** One-time migration marker (#274): the sessions array order is explicit; load never re-sorts it. */
@@ -249,6 +253,12 @@ export const SETTINGS: SettingDescriptors = {
   liveWorkParking: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",
+  ),
+  liveProgressReportMinutes: validatedSetting<number | null>(
+    () => null,
+    (value): value is number | null =>
+      value === null ||
+      (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 1440),
   ),
   sttModel: validatedSetting<string | null>(
     () => null,
