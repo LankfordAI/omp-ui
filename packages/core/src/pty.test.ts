@@ -3,14 +3,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const ptySpawn = vi.fn((..._args: unknown[]) => ({
-  pid: 4242,
-  onData: () => ({ dispose: () => {} }),
-  onExit: () => {},
-  write: () => {},
-  resize: () => {},
-  kill: () => {},
-}));
+const ptySpawn = vi.fn((...args: unknown[]) => {
+  void args;
+  return {
+    pid: 4242,
+    onData: () => ({ dispose: () => {} }),
+    onExit: () => {},
+    write: () => {},
+    resize: () => {},
+    kill: () => {},
+  };
+});
 vi.mock("node-pty", () => ({ spawn: (...args: unknown[]) => ptySpawn(...args) as never }));
 
 const dirs: string[] = [];
