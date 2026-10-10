@@ -1,7 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { type Node, SyntaxKind } from "typescript/unstable/ast";
+import { isExportDeclaration, isImportDeclaration, isNamedImports, isStringLiteral } from "typescript/unstable/ast/is";
+import { API, type Program } from "typescript/unstable/sync";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const coreRoot = path.resolve(import.meta.dirname, "..");
 const desktopSrc = path.resolve(coreRoot, "../desktop/src");
@@ -32,33 +34,52 @@ function resolveCoreImport(fromFile: string, specifier: string): string | null {
   return null;
 }
 
+// TS7 parses through its API server: one project per renderer tsconfig gives
+// every source file the test walks, renderer and reachable core alike.
+let api: API;
+let programs: Program[];
+
+beforeAll(() => {
+  api = new API({ cwd: coreRoot });
+  const configs = ["tsconfig.web.json", "tsconfig.node.json"].map((name) => path.resolve(coreRoot, "../desktop", name));
+  const snapshot = api.updateSnapshot({ openProjects: configs });
+  programs = configs.map((config) => {
+    const project = snapshot.getProject(config);
+    if (project === undefined) throw new Error(`TypeScript did not load ${config}`);
+    return project.program;
+  });
+});
+
+afterAll(() => api?.close());
+
 function importsOf(file: string): string[] {
-  const source = fs.readFileSync(file, "utf8");
-  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const ast = programs.map((program) => program.getSourceFile(file)).find((source) => source !== undefined);
+  if (ast === undefined) throw new Error(`no TypeScript project includes ${file}`);
   const imports: string[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+  const visit = (node: Node): void => {
+    if (isImportDeclaration(node) && isStringLiteral(node.moduleSpecifier)) {
       const clause = node.importClause;
+      const clauseTypeOnly = clause?.phaseModifier === SyntaxKind.TypeKeyword;
       const bindings = clause?.namedBindings;
       const onlyNamedTypes =
         bindings !== undefined &&
-        ts.isNamedImports(bindings) &&
+        isNamedImports(bindings) &&
         bindings.elements.length > 0 &&
         bindings.elements.every((element) => element.isTypeOnly);
-      if (clause === undefined || (!clause.isTypeOnly && !onlyNamedTypes)) {
+      if (clause === undefined || (!clauseTypeOnly && !onlyNamedTypes)) {
         imports.push(node.moduleSpecifier.text);
       }
     } else if (
-      ts.isExportDeclaration(node) &&
+      isExportDeclaration(node) &&
       !node.isTypeOnly &&
       node.moduleSpecifier !== undefined &&
-      ts.isStringLiteral(node.moduleSpecifier)
+      isStringLiteral(node.moduleSpecifier)
     ) {
       imports.push(node.moduleSpecifier.text);
     }
-    ts.forEachChild(node, visit);
+    node.forEachChild(visit);
   };
-  visit(ast);
+  ast.forEachChild(visit);
   return imports;
 }
 
