@@ -1042,7 +1042,8 @@ export class MainBackend {
           await this.broadcast();
           return this.reviewRosterView(req.scopeCwd);
         },
-        [CH.restartSession]: (tabId: string) => this.sessions.restart(tabId),
+        [CH.restartSession]: (tabId: string, carryoverContext?: string) =>
+          this.sessions.restart(tabId, carryoverContext === "" ? undefined : carryoverContext),
         [CH.getSessionCapabilities]: (tabId: string) =>
           this.sessions.getSessionCapabilities(tabId),
         [CH.browserPaneEnsure]: (tabId: string) => this.sessions.browserPaneEnsure(tabId),

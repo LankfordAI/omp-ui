@@ -122,6 +122,8 @@ describe("parseSpawnRequest", () => {
     ["resume non-string model", { ...resumeRequest, model: 42 }],
     ["resume empty model", { ...resumeRequest, model: "" }],
     ["resume null model", { ...resumeRequest, model: null }],
+    ["resume non-string carryover", { ...resumeRequest, carryoverContext: 42 }],
+    ["resume empty carryover", { ...resumeRequest, carryoverContext: "" }],
   ] as const)("rejects %s", (_label, raw) => {
     expect(() => parseSpawnRequest(raw)).toThrow(/spawn request/);
   });
@@ -129,6 +131,26 @@ describe("parseSpawnRequest", () => {
   it("accepts the recovery-resume model override (issue #774)", () => {
     const request: SpawnRequest = { ...resumeRequest, model: "litellm/Qwen3.8-Flash-Next" };
     expect(parseSpawnRequest(request)).toEqual(request);
+  });
+
+  it("round-trips the #824 carryover digest", () => {
+    const request: SpawnRequest = {
+      ...resumeRequest,
+      carryoverContext: '<turn role="user">\nhello\n</turn>',
+    };
+    expect(parseSpawnRequest(request)).toEqual(request);
+  });
+
+  it("rejects a carryover digest over the 65536-character ceiling", () => {
+    expect(() =>
+      parseSpawnRequest({ ...resumeRequest, carryoverContext: "x".repeat(65_537) }),
+    ).toThrow(/carryoverContext exceeds/);
+  });
+
+  it("still rejects an unknown key beside the carryover digest", () => {
+    expect(() =>
+      parseSpawnRequest({ ...resumeRequest, carryoverContext: "x", carryoverContex: "y" }),
+    ).toThrow(/spawn request/);
   });
 
   it("normalises an absent mint baseBranch to null (older remote client)", () => {

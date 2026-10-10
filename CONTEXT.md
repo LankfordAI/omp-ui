@@ -11,7 +11,10 @@ An on-disk OMP transcript: one `<timestamp>_<uuidv7>.jsonl` file plus its
 optional sibling artifacts directory, identified by the UUID in its header.
 omp-ui reads and resumes sessions; it never edits their contents. The one write
 it performs is destructive and explicit: a user-confirmed delete that erases the
-whole lineage dir from the active and archive roots.
+whole lineage dir from the active and archive roots. omp writes the file lazily,
+on the first turn: a session restarted before its transcript materialized has
+nothing to resume, so the restart seeds the successor with the renderer's
+retained messages instead (issue #824) — prose only, never tool output.
 _Avoid_: conversation, chat, thread
 
 **Live session**:

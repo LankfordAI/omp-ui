@@ -185,6 +185,7 @@ const RESUME_KEYS = [
   "advisorModel",
   "model",
   "planMode",
+  "carryoverContext",
 ] as const;
 
 /** Parse and structurally validate a spawn request received from either wire transport. */
@@ -210,6 +211,10 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
     const advisor = optionalBoolean(value, "advisor");
     const advisorModel = optionalNullableString(value, "advisorModel");
     const model = optionalNonEmptyString(value, "model");
+    const carryoverContext = optionalNonEmptyString(value, "carryoverContext");
+    if (carryoverContext !== undefined && carryoverContext.length > 65_536) {
+      throw new Error("spawn request.carryoverContext exceeds 65536 characters");
+    }
     const common = {
       origin: "resume" as const,
       resumeTabId: requiredString(value, "resumeTabId"),
@@ -218,6 +223,7 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
       ...(advisor === undefined ? {} : { advisor }),
       ...(advisorModel === undefined ? {} : { advisorModel }),
       ...(model === undefined ? {} : { model }),
+      ...(carryoverContext === undefined ? {} : { carryoverContext }),
     };
     if (mode === "pty") return { ...common, mode };
     return {

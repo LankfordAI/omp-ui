@@ -9,6 +9,7 @@ import {
   browserPaneSetMessage,
   browserClockText,
   capabilityToolMutationMessage,
+  stageCarryoverContext,
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
   deleteSessionFiles,
@@ -703,6 +704,18 @@ export class SessionManager {
           record = this.deps.registry.updateSession(record.tabId, patch) ?? record;
         }
       }
+      // The #824 carryover seed: applies only when omp has no transcript to
+      // restore (the record never materialized a session id). A real resume
+      // target — active or unarchived — already carries full history, so
+      // the seed is dropped and any stale artifact is removed; the lineage
+      // dir always mirrors this launch.
+      const carryoverFile =
+        req.origin === "resume"
+          ? stageCarryoverContext(
+              path.join(this.deps.getSessionsRoot(), record.lineageDir),
+              record.sessionId === null ? req.carryoverContext?.trim() || null : null,
+            )
+          : null;
       const planMode =
         req.planMode ??
         (fresh
@@ -710,8 +723,8 @@ export class SessionManager {
           : record.agentMode === "plan");
       const result =
         mode === "rpc-ui"
-          ? await this.spawnRpc(record, planMode, ompPath, req.origin === "resume" ? req.model : undefined)
-          : await this.spawnPty(record, req, ompPath);
+          ? await this.spawnRpc(record, planMode, ompPath, req.origin === "resume" ? req.model : undefined, carryoverFile)
+          : await this.spawnPty(record, req, ompPath, carryoverFile);
       this.deps.breadcrumb?.record(
         req.origin === "new" ? "session-spawn" : "session-resume",
         { tabId: record.tabId, mode },
@@ -864,6 +877,7 @@ export class SessionManager {
     record: OwnedSessionRecord,
     req: SpawnRequest,
     ompPath: string,
+    appendSystemPromptFile: string | null = null,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     if (record.worktree !== null) {
@@ -875,6 +889,7 @@ export class SessionManager {
       lineageDir: absLineageDir,
       ompPath,
       resumeSessionId: record.sessionId ?? undefined,
+      appendSystemPromptFile: appendSystemPromptFile ?? undefined,
       model: gateSelector(this.gate) ?? undefined,
       cols: req.cols,
       rows: req.rows,
@@ -898,6 +913,7 @@ export class SessionManager {
     planMode: boolean,
     ompPath: string,
     modelOverride?: string,
+    appendSystemPromptFile: string | null = null,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const entry = createRpcLiveEntry(record);
@@ -1074,6 +1090,7 @@ export class SessionManager {
       lineageDir: absLineageDir,
       ompPath,
       resumeSessionId: record.sessionId ?? undefined,
+      appendSystemPromptFile: appendSystemPromptFile ?? undefined,
       // The dev/test spawn gate keeps winning over the recovery pick, exactly
       // as it wins over the record everywhere else.
       model: gateSelector(this.gate) ?? modelOverride ?? undefined,
@@ -1344,7 +1361,7 @@ export class SessionManager {
     );
   }
 
-  async restart(tabId: string): Promise<void> {
+  async restart(tabId: string, carryoverContext?: string): Promise<void> {
     return this.enqueueOp(tabId, "relaunch", async () => {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
       const entry = this.live.get(tabId);
@@ -1354,6 +1371,7 @@ export class SessionManager {
         resumeTabId: tabId,
         cols: 80,
         rows: 24,
+        ...(carryoverContext === undefined ? {} : { carryoverContext }),
       });
     });
   }

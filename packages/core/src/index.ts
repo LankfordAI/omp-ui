@@ -83,6 +83,8 @@ export * from "./approval";
 export { escapeHtml } from "./html";
 export { watchLineageDir, type LineageEvent } from "./watcher";
 export { watchGitHead, type WatchGitHeadOptions } from "./watcher";
+export * from "./carryover-context";
+export { carryoverContextPath, stageCarryoverContext } from "./carryover-artifact";
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
 export { approvalOverlayPath, writeApprovalOverlay } from "./approval-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
