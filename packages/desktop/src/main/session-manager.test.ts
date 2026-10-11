@@ -5894,14 +5894,13 @@ describe("hibernation (issue #246)", () => {
     }
   });
 
-  it("hibernates a safely handed-off planning source and preserves its files (issue #283)", async () => {
+  it("stops a handed-off planning source and preserves its files (issue #238, #840)", async () => {
     const { manager, registry, rpc, sent, sessionsRoot } = await readyHandoff();
     const sentinel = path.join(sessionsRoot, LINEAGE, "source.jsonl");
     fs.writeFileSync(sentinel, "source transcript\n");
     rpc.kill.mockImplementation(() => rpc.exit(0));
 
     const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
-    cleanProbe(rpc);
 
     await expect(result).resolves.toBe(true);
     expect(rpc.kill).toHaveBeenCalledTimes(1);
@@ -5917,7 +5916,6 @@ describe("hibernation (issue #246)", () => {
     const { manager, rpc, crumbs } = await readyHandoff();
     rpc.kill.mockImplementation(() => rpc.exit(0));
     const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
-    cleanProbe(rpc);
     await expect(result).resolves.toBe(true);
     expect(crumbs.map((entry) => entry.kind)).toEqual([
       "spawn-attempt",
@@ -5940,7 +5938,6 @@ describe("hibernation (issue #246)", () => {
 
     rpc.kill.mockImplementation(() => rpc.exit(0));
     const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
-    cleanProbe(rpc);
     await expect(result).resolves.toBe(true);
     expect(page.destroy).toHaveBeenCalledTimes(1);
     expect(listener.close).toHaveBeenCalledTimes(1);
@@ -5958,7 +5955,7 @@ describe("hibernation (issue #246)", () => {
     expect(fakeBrowserPanes[1]!.loadURL).toHaveBeenCalledWith("https://example.com/docs");
   });
 
-  it("bypasses viewed-tab and post-verdict settle guards only for a valid handoff (issue #283)", async () => {
+  it("ignores viewed-tab and post-verdict settle guards for a handoff stop (issue #840)", async () => {
     const { manager, rpc } = await readyHandoff();
     rpc.kill.mockImplementation(() => rpc.exit(0));
     manager.setViewedTab("renderer", TAB);
@@ -5970,13 +5967,19 @@ describe("hibernation (issue #246)", () => {
     });
 
     const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
-    cleanProbe(rpc);
 
     await expect(result).resolves.toBe(true);
     expect(rpc.kill).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects invalid handoff relations before probing or killing (issue #283)", async () => {
+  it("rejects invalid handoff relations before stopping anything (issue #840)", async () => {
+    const selfRef = await readyHandoff();
+    await expect(selfRef.manager.hibernatePlanSource(TAB, TAB)).rejects.toThrow(
+      "plan source and implementation must be different sessions",
+    );
+    expect(selfRef.rpc.kill).not.toHaveBeenCalled();
+    expect(selfRef.manager.isLive(TAB)).toBe(true);
+
     const unrelated = await readyHandoff();
     unrelated.registry.updateSession(IMPLEMENTATION_TAB, {
       planImplementationSource: {
@@ -6016,16 +6019,17 @@ describe("hibernation (issue #246)", () => {
     ).rejects.toThrow("unknown plan implementation tab");
   });
 
-  it("refuses a handoff reap with a running turn or blocking dialog (issue #283)", async () => {
+  it("stops a handoff source with a running turn or blocking dialog (issue #840)", async () => {
     const running = await readyHandoff();
+    running.rpc.kill.mockImplementation(() => running.rpc.exit(0));
     running.rpc.frame({ type: "agent_start" });
     await expect(
       running.manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB),
-    ).resolves.toBe(false);
-    expect(running.rpc.send).not.toHaveBeenCalled();
-    expect(running.rpc.kill).not.toHaveBeenCalled();
+    ).resolves.toBe(true);
+    expect(running.manager.isLive(TAB)).toBe(false);
 
     const blocked = await readyHandoff();
+    blocked.rpc.kill.mockImplementation(() => blocked.rpc.exit(0));
     blocked.rpc.frame({
       type: "extension_ui_request",
       id: "question",
@@ -6034,57 +6038,22 @@ describe("hibernation (issue #246)", () => {
     });
     await expect(
       blocked.manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB),
-    ).resolves.toBe(false);
-    expect(blocked.rpc.send).not.toHaveBeenCalled();
-    expect(blocked.rpc.kill).not.toHaveBeenCalled();
+    ).resolves.toBe(true);
+    expect(blocked.manager.isLive(TAB)).toBe(false);
   });
 
-  it.each([
-    ["queued messages", { queuedMessageCount: 1, isStreaming: false }],
-    ["a live stream", { queuedMessageCount: 0, isStreaming: true }],
-  ])("refuses a handoff reap with %s (issue #283)", async (_label, state) => {
-    const { manager, rpc } = await readyHandoff();
-    const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
-    rpc.frame({
-      type: "response",
-      id: lastProbeId(rpc),
-      command: "get_state",
-      success: true,
-      data: state,
-    });
-
-    await expect(result).resolves.toBe(false);
-    expect(rpc.kill).not.toHaveBeenCalled();
-    expect(manager.isLive(TAB)).toBe(true);
-  });
-
-  it("refuses a handoff reap when the safety probe times out (issue #283)", async () => {
-    vi.useFakeTimers();
-    try {
-      const { manager, rpc } = await readyHandoff();
-      const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
-      await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT);
-
-      await expect(result).resolves.toBe(false);
-      expect(rpc.kill).not.toHaveBeenCalled();
-      expect(manager.isLive(TAB)).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("honors disabled hibernation without probing the handed-off source (issue #283)", async () => {
+  it("stops a handed-off source with idle hibernation disabled (issue #840)", async () => {
     const { manager, registry, rpc } = await readyHandoff();
+    rpc.kill.mockImplementation(() => rpc.exit(0));
     registry.setSetting("hibernateIdleMinutes", 0);
 
     await expect(
       manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB),
-    ).resolves.toBe(false);
-    expect(rpc.send).not.toHaveBeenCalled();
-    expect(rpc.kill).not.toHaveBeenCalled();
+    ).resolves.toBe(true);
+    expect(manager.isLive(TAB)).toBe(false);
   });
 
-  it("is idempotent when the planning source is already dormant (issue #283)", async () => {
+  it("is idempotent when the planning source is already dormant (issue #840)", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     addImplementation(registry);
 
@@ -6093,12 +6062,29 @@ describe("hibernation (issue #246)", () => {
     ).resolves.toBe(true);
   });
 
-  it("keeps resume deduplicated while a handoff reap is in flight (issue #283)", async () => {
+  it("stops a handed-off source during boot without probing (issue #840)", async () => {
+    const harness = setup({ mode: "rpc-ui" });
+    addImplementation(harness.registry);
+    await resumeRpc(harness.manager);
+    const rpc = rpcInstances.at(-1)!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+
+    // No frame has passed yet (booting) and the probe never answers — the
+    // seed ACK alone authorizes the stop (issue #840).
+    await expect(
+      harness.manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB),
+    ).resolves.toBe(true);
+
+    expect(rpc.send).not.toHaveBeenCalled();
+    expect(rpc.kill).toHaveBeenCalledTimes(1);
+    expect(harness.manager.isLive(TAB)).toBe(false);
+  });
+
+  it("keeps a queued resume waiting for an in-flight handoff reap (issue #840)", async () => {
     const { manager, rpc } = await readyHandoff();
     rpc.kill.mockImplementation(() => {});
 
     const hibernating = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
-    cleanProbe(rpc);
     await flush();
     const resuming = resumeRpc(manager);
     await flush();
@@ -6110,18 +6096,86 @@ describe("hibernation (issue #246)", () => {
     expect(manager.liveCount).toBe(1);
   });
 
-  it("returns false when the planning child survives SIGKILL (issue #283)", async () => {
+  it("reaps once for concurrent identical handoff requests (issue #840)", async () => {
+    const { manager, rpc } = await readyHandoff();
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+
+    const [first, second] = await Promise.all([
+      manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB),
+      manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB),
+    ]);
+
+    expect([first, second]).toEqual([true, true]);
+    expect(rpc.kill).toHaveBeenCalledTimes(1);
+    expect(manager.liveCount).toBe(0);
+  });
+
+  it("serializes a queued delete and validates the registry after it deletes (issue #840)", async () => {
+    const { manager, registry, rpc } = await readyHandoff();
+    rpc.kill.mockImplementation(() => {}); // the reap lingers: later ops queue behind it
+    const hibernating = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
+    const deleting = manager.deleteSession(TAB, false);
+    const second = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
+    rpc.exit(0);
+
+    await expect(hibernating).resolves.toBe(true);
+    await expect(deleting).resolves.toEqual({ deleted: [TAB], failed: [] });
+    await expect(second).rejects.toThrow("unknown plan source tab");
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toBeUndefined();
+    expect(rpc.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("protects a successor process when the captured entry is replaced or absent (issue #840)", async () => {
+    vi.useFakeTimers();
+    try {
+      const replaced = await readyHandoff();
+      // The relaunch reap lingers until SIGKILL; the queued handoff stop
+      // must never touch the successor the relaunch spawns.
+      replaced.rpc.kill.mockImplementation((signal) => {
+        if (signal === "SIGKILL") replaced.rpc.exit(0);
+      });
+      const restarting = replaced.manager.restart(TAB);
+      const queued = replaced.manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
+      await vi.advanceTimersByTimeAsync(3_000); // SIGTERM ignored; SIGKILL lands
+      await restarting;
+      const successor = rpcInstances.at(-1)!;
+
+      await expect(queued).resolves.toBe(false);
+      expect(successor.kill).not.toHaveBeenCalled();
+      expect(replaced.manager.isLive(TAB)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const absent = setup({ mode: "rpc-ui" });
+    addImplementation(absent.registry);
+    const resuming = resumeRpc(absent.manager);
+    const early = absent.manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
+
+    await expect(early).resolves.toBe(true);
+    await resuming;
+    expect(rpcInstances.at(-1)!.kill).not.toHaveBeenCalled();
+    expect(absent.manager.isLive(TAB)).toBe(true);
+  });
+
+  it("returns false and leaves the source live when it survives SIGKILL (issue #840)", async () => {
     vi.useFakeTimers();
     try {
       const { manager, rpc, sent } = await readyHandoff();
       const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
-      cleanProbe(rpc);
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5_000); // SIGTERM grace + SIGKILL observation
 
       await expect(result).resolves.toBe(false);
       expect(rpc.kill).toHaveBeenCalledTimes(2);
+      expect(rpc.kill.mock.calls[1]![0]).toBe("SIGKILL");
       expect(manager.isLive(TAB)).toBe(true);
       expect(sent.some((event) => event.channel === CH.onSessionHibernated)).toBe(false);
+
+      // The failed reap hands the source back to the normal exit path: a
+      // later natural exit is a plain exit, not a phantom hibernation.
+      rpc.exit(0);
+      expect(sent.some((event) => event.channel === CH.onPtyExit)).toBe(true);
+      expect(sent.filter((event) => event.channel === CH.onSessionHibernated)).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }
@@ -6254,7 +6308,6 @@ describe("hibernation (issue #246)", () => {
     registry.updateSession(TAB, { cachedModified: "2026-08-01T00:00:00.000Z" });
 
     const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
-    cleanProbe(rpc);
 
     await expect(result).resolves.toBe(true);
     expect(rpc.kill).toHaveBeenCalledTimes(1);
@@ -6415,16 +6468,23 @@ describe("hibernation (issue #246)", () => {
     }
   });
 
-  it("refuses a plan handoff while the source still owns an active goal (issue #381)", async () => {
+  it("stops a handed-off source even while its goal or vibe work is live (issue #840)", async () => {
     const { manager, registry, rpc } = await readyHandoff();
-    addImplementation(registry);
     rpc.kill.mockImplementation(() => rpc.exit(0));
     goalFrame(rpc, { status: "active" });
 
     const result = manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB);
-    await expect(result).resolves.toBe(false);
-    expect(rpc.kill).not.toHaveBeenCalled();
+    await expect(result).resolves.toBe(true);
+    expect(rpc.kill).toHaveBeenCalledTimes(1);
     expect(registry.sessions.find((s) => s.tabId === TAB)).toBeDefined();
+
+    const vibe = await readyHandoff();
+    vibe.rpc.kill.mockImplementation(() => vibe.rpc.exit(0));
+    vibeFrame(vibe.rpc, [{ state: "running", killed: false, queued: 0 }]);
+    await expect(
+      vibe.manager.hibernatePlanSource(TAB, IMPLEMENTATION_TAB),
+    ).resolves.toBe(true);
+    expect(vibe.rpc.kill).toHaveBeenCalledTimes(1);
   });
 });
 

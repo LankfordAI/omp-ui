@@ -1750,10 +1750,53 @@ export class SessionManager {
     this.watcherHub.broadcastPatch(false);
   }
 
+  /**
+   * Stops the planning source once the implementation session has accepted
+   * its plan seed (issue #840). The seed ACK — not spawn, focus, or a verdict
+   * — transfers ownership, so this is a forced validated stop of the captured
+   * source process through the existing bounded reap (SIGTERM → 3 s →
+   * SIGKILL → 2 s), regardless of any live work or the idle-hibernation
+   * setting; the ordinary idle policy never applies here. False means the
+   * child survived the reap or a successor replaced it: the source stays live
+   * and the destination is warned; there is no retry or fallback.
+   */
   hibernatePlanSource(sourceTabId: string, implementationTabId: string): Promise<boolean> {
-    return this.enqueueOp(sourceTabId, "hibernate", () =>
-      this.hibernation.attemptHandoff(sourceTabId, implementationTabId),
-    );
+    // Captured before the op chain runs: if a resume replaces the process
+    // while this queues, the reap must never touch the successor.
+    const captured = this.live.get(sourceTabId);
+    return this.enqueueOp(sourceTabId, "hibernate", async () => {
+      const source = this.deps.registry.sessions.find((record) => record.tabId === sourceTabId);
+      if (source === undefined) throw new Error(`unknown plan source tab ${sourceTabId}`);
+      const implementation = this.deps.registry.sessions.find(
+        (record) => record.tabId === implementationTabId,
+      );
+      if (implementation === undefined) {
+        throw new Error(`unknown plan implementation tab ${implementationTabId}`);
+      }
+      if (sourceTabId === implementationTabId) {
+        throw new Error("plan source and implementation must be different sessions");
+      }
+      if (implementation.planImplementationSource?.sourceTabId !== sourceTabId) {
+        throw new Error("plan implementation does not belong to the requested source");
+      }
+      if (source.projectCwd !== implementation.projectCwd) {
+        throw new Error("plan source and implementation must belong to the same project");
+      }
+      if (source.mode !== "rpc-ui" || implementation.mode !== "rpc-ui") {
+        throw new Error("plan source and implementation must use rpc-ui mode");
+      }
+      // The captured process, the live verdict: absent means already dormant
+      // (true, and a successor's process is never killed); gone means the
+      // handoff's work is over (true); replaced means the destination must
+      // know nothing was stopped (false).
+      if (captured === undefined) return true;
+      const current = this.live.get(sourceTabId);
+      if (current !== captured) return current === undefined;
+      if (captured.kind !== "rpc-ui") {
+        throw new Error(`plan source ${sourceTabId} is not running an rpc-ui process`);
+      }
+      return this.hibernate(sourceTabId, captured);
+    });
   }
 
   private async hibernate(tabId: string, entry: LiveEntry): Promise<boolean> {

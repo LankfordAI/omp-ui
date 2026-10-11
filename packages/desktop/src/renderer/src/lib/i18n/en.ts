@@ -2381,6 +2381,9 @@ export const en = {
   "dialog.share.cancel": "cancel",
   // The store's share notice (issue #679): the tab advertises no /share.
   "notice.share.needsOmpCommand": "this omp session does not offer /share — update omp to publish the share command",
+  // The store's plan-handoff notice (issue #840): the seed was accepted but
+  // the planning source could not be reaped, so it stays live and suppressed.
+  "notice.planHandoff.stopFailed": "implementation started, but the planning agent could not be stopped — terminate it manually",
   // Live sharing via omp's /collab (issue #686): the Share-live dialog,
   // its first-use confirm, the terminal chip, and the palette row.
   "collab.access.full": "full",

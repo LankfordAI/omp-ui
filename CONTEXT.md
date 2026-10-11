@@ -27,20 +27,23 @@ lock (v17.1.8).
 _Avoid_: open session, active session, running session
 
 **Hibernated session**:
-An owned session whose `omp` process omp-ui stopped itself after the session
-sat idle beyond the *Hibernate idle sessions* window while no renderer was
-viewing its tab and it was not its project's most recently active session
-(issue #246; viewed-tab exemption #266; last-active exemption #304), or after
-it handed an approved plan to a fresh implementation session and passed the
-same live-work safety probe (issue #283).
-A hibernated session is dormant — transcript and worktree on disk, no process — and wakes
-through the ordinary resume path; the sidebar shows it as dormant and its tab
-offers resume. The distinction from a plain dormant session is causal: dormant
-lost its process because the app quit, hibernated lost it on purpose while idle.
+An owned session whose `omp` process omp-ui intentionally stopped while idle
+or after an accepted plan handoff. Ordinary idle hibernation waits beyond the
+*Hibernate idle sessions* window, excludes viewed and last-active sessions,
+and safety-probes for remaining work (issues #246, #266, #304). An accepted
+fresh or worktree implementation seed instead cancels the planning process's
+remaining work immediately, regardless of idle preferences (issue #840,
+superseding #283's handoff policy).
+A hibernated session is dormant — transcript, artifacts, and worktree on disk,
+no process — and wakes through explicit human resume; the sidebar shows it as
+dormant and its tab offers resume. The distinction from a plain dormant session
+is causal: dormant lost its process because the app quit, hibernated lost it on
+purpose while idle or after a plan handoff. A failed handoff reap remains live,
+with source automation suppressed and a warning in the implementation tab.
 The last-active exemption uses the sidebar recency key
 (`cachedModified ?? launchedAt`, ties to the earlier registry record) across
-all of a project's owned sessions, and like the viewed-tab exemption it
-applies to idle hibernation only, never to a plan handoff.
+all of a project's owned sessions. All idle-safety exemptions apply only to
+idle hibernation, never to an accepted plan handoff.
 _Avoid_: suspended session, parked session, sleeping session
 
 **Tab**:
@@ -86,15 +89,17 @@ _Avoid_: tab history
 
 **Plan handoff**:
 A persistent, one-way relation from a fresh implementation session to the
-planning session whose approved plan seeded it. After the fresh session
-acknowledges that seed, the renderer suppresses automatic prompts on the source
-and main hibernates it only when a safety probe finds no turn, queue, stream, or
-blocking human-answer request. A declined reap leaves the source live but still
-handed off until a human prompts or resumes it. Deletion runs one way:
-deleting the planning session deletes the
-implementation sessions it spawned, and every session descended from
-them, with it (issue #309). Deleting an implementation session never
-deletes its planning session or its siblings.
+planning session whose approved plan seeded it. After the fresh or worktree
+session acknowledges that seed, the renderer suppresses automatic prompts on
+the source and immediately requests a validated bounded stop of its captured
+process (issue #840). This explicitly abandons remaining turns, dialogs, queues,
+streams, subagents, goals, and voice commands; idle settings and safety probes
+do not delay it. A failed reap leaves the source live but still handed off, with
+a warning in the implementation tab, until a human prompts or resumes it.
+Saved sessions, artifacts, lineage directories, worktrees, and branches survive.
+Deletion runs one way: deleting the planning session deletes the implementation
+sessions it spawned, and every session descended from them, with it (issue #309).
+Deleting an implementation session never deletes its planning session or siblings.
 _Avoid_: lineage, parent session
 
 **Render item**:

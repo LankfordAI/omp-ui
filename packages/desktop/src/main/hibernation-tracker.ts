@@ -17,9 +17,10 @@ const HIBERNATE_PROBE_TIMEOUT_MS = 5_000;
 /** Post-verdict quiet window: the implementation prompt may still land (issue #246). */
 const SETTLE_WINDOW_MS = 30 * 60 * 1_000;
 /**
- * The no-kill verdicts of the shared hibernation attempt. `rearm`: a guard is
+ * The no-kill verdicts of the idle hibernation attempt. `rearm`: a guard is
  * in force or the probe said "not idle" — re-examine next window (issue #247).
- * The invalidating verdicts let the caller decide its own contract.
+ * The invalidating verdicts end the window: the current setting, a successor
+ * process, or an exit owns the next check.
  */
 type HibernateOutcome =
   | { reaped: boolean }
@@ -72,12 +73,6 @@ export interface HibernationTrackerDeps {
 export class HibernationTracker implements FrameObserver {
   /** Idle-kill timers, keyed by tabId (issue #246). */
   private readonly timers = new Map<string, NodeJS.Timeout>();
-  /**
-   * In-flight hibernation reaps, keyed by tabId: a resume or delete issued
-   * mid-reap waits for the entry to leave `live` instead of deduping
-   * against the dying process (issue #246, #296).
-   */
-  private readonly inFlight = new Map<string, Promise<boolean>>();
   private readonly records = new Map<string, HibernateRecord>();
 
   constructor(private readonly deps: HibernationTrackerDeps) {}
@@ -188,10 +183,9 @@ export class HibernationTracker implements FrameObserver {
       rec.probeId = null;
       rec.probeResolve = null;
     }
-    // The in-flight reap is NOT dropped here: exit fires before the reap
-    // promise settles, and a delete or resume arriving in that gap must
-    // still wait it out (issue #246, #296). The attempt's finally and
-    // disposeAll own the removal.
+    // The running reap is not disturbed here: exit fires before the reap
+    // promise settles, and the tab's op chain already makes a delete or
+    // resume arriving in that gap wait it out (issue #246, #296).
     this.records.delete(tabId);
   }
 
@@ -205,7 +199,6 @@ export class HibernationTracker implements FrameObserver {
   disposeAll(): void {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
-    this.inFlight.clear();
     for (const rec of this.records.values()) clearTimeout(rec.probeTimer);
     this.records.clear();
   }
@@ -248,20 +241,16 @@ export class HibernationTracker implements FrameObserver {
   }
 
   /** True when a kill cannot lose work or an in-flight exchange. */
-  private hibernable(
-    entry: LiveEntry,
-    tabId: string,
-    policy: "idle" | "plan-handoff",
-  ): boolean {
+  private hibernable(entry: LiveEntry, tabId: string): boolean {
     if (entry.kind !== "rpc-ui") return false;
     const rec = this.recordFor(tabId);
     if (!rec.armed) return false; // still booting
     if (this.deps.turns.isRunning(tabId)) return false; // mid-turn
     if (this.deps.awaitingHumanAnswer(tabId)) return false; // plan/dialog awaiting an answer
-    // Before the handoff early return: a goal veto applies to both paths, and a
-    // planning session that is also running a goal must not be reaped by either.
+    // An active goal or live vibe worker runs omp's continuation in the child;
+    // idling out here would silently end autonomous work no renderer watches
+    // (issue #381, #683).
     if (this.deps.preventsHibernation(tabId)) return false;
-    if (policy === "plan-handoff") return true;
     if (this.deps.isViewed(tabId)) return false; // the tab is being looked at (issue #266)
     if (this.isLastActiveInProject(tabId)) return false; // the project's last active session stays warm (issue #304)
     const until = rec.settleSuspendedUntil;
@@ -337,17 +326,14 @@ export class HibernationTracker implements FrameObserver {
   }
 
   /**
-   * The shared guard→probe→recheck→reap sequence. Callers own their entry
-   * gates (timer, dedupe) and map the no-kill verdicts to their own policy.
-   * The reap is registered in `inFlight` for its full duration so a
-   * delete or resume for the same tab can wait it out (issue #246, #296).
+   * The idle guard→probe→recheck→reap sequence. The caller owns the entry
+   * gate (timer) and maps the no-kill verdicts to the re-arm policy. The
+   * attempt runs on the tab's op chain, so a delete or resume issued mid-reap
+   * waits it out instead of deduping against the dying process
+   * (issue #246, #296).
    */
-  private async attemptHibernate(
-    tabId: string,
-    entry: LiveEntry,
-    policy: "idle" | "plan-handoff",
-  ): Promise<HibernateOutcome> {
-    if (!this.hibernable(entry, tabId, policy)) return "rearm";
+  private async attemptHibernate(tabId: string, entry: LiveEntry): Promise<HibernateOutcome> {
+    if (!this.hibernable(entry, tabId)) return "rearm";
     const state = await this.probeState(tabId, entry);
     if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return "setting-off";
     const current = this.deps.getLive(tabId);
@@ -360,14 +346,8 @@ export class HibernationTracker implements FrameObserver {
     // stale omp (pre-field) on the safe side: null verdict → rearm, no kill.
     if (state === null || state.parked > 0 || state.streaming || state.asyncWork)
       return "rearm";
-    if (!this.hibernable(entry, tabId, policy)) return "rearm";
-    const reap = this.deps.hibernate(tabId, entry);
-    this.inFlight.set(tabId, reap);
-    try {
-      return { reaped: await reap };
-    } finally {
-      this.inFlight.delete(tabId);
-    }
+    if (!this.hibernable(entry, tabId)) return "rearm";
+    return { reaped: await this.deps.hibernate(tabId, entry) };
   }
 
   /**
@@ -385,49 +365,9 @@ export class HibernationTracker implements FrameObserver {
     // on their own clocks, and a quiet session has no frames to re-arm. The
     // invalidating verdicts (setting off, entry stale) do not: the current
     // config or the successor's own paths own the next check.
-    if ((await this.attemptHibernate(tabId, entry, "idle")) === "rearm") {
+    if ((await this.attemptHibernate(tabId, entry)) === "rearm") {
       this.armHibernateTimer(tabId);
     }
   }
 
-  /**
-   * Hibernates an idle planning source after a fresh implementation prompt was
-   * accepted. The persisted handoff relation is the authorization boundary;
-   * viewed-tab and post-verdict guards apply only to ordinary idle hibernation.
-   */
-  async attemptHandoff(
-    sourceTabId: string,
-    implementationTabId: string,
-  ): Promise<boolean> {
-    const source = this.deps.registry.sessions.find((record) => record.tabId === sourceTabId);
-    if (source === undefined) throw new Error(`unknown plan source tab ${sourceTabId}`);
-    const implementation = this.deps.registry.sessions.find(
-      (record) => record.tabId === implementationTabId,
-    );
-    if (implementation === undefined) {
-      throw new Error(`unknown plan implementation tab ${implementationTabId}`);
-    }
-    if (implementation.planImplementationSource?.sourceTabId !== sourceTabId) {
-      throw new Error("plan implementation does not belong to the requested source");
-    }
-    if (source.projectCwd !== implementation.projectCwd) {
-      throw new Error("plan source and implementation must belong to the same project");
-    }
-    if (source.mode !== "rpc-ui" || implementation.mode !== "rpc-ui") {
-      throw new Error("plan source and implementation must use rpc-ui mode");
-    }
-
-    const entry = this.deps.getLive(sourceTabId);
-    if (entry === undefined) return true;
-    if (this.deps.registry.getSetting("hibernateIdleMinutes") <= 0) return false;
-    const pending = this.inFlight.get(sourceTabId);
-    if (pending !== undefined) return pending;
-    if (!this.hibernable(entry, sourceTabId, "plan-handoff")) return false;
-
-    // `gone` (the source already exited) reads as hibernated for the handoff;
-    // every other no-kill verdict — including a survived SIGKILL — is false.
-    const outcome = await this.attemptHibernate(sourceTabId, entry, "plan-handoff");
-    if (outcome === "gone") return true;
-    return typeof outcome === "object" ? outcome.reaped : false;
-  }
 }

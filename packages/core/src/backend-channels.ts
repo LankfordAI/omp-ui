@@ -727,9 +727,11 @@ export const BACKEND_CHANNELS = {
     ...request<[tabId: string], void>([str()]),
   },
   /**
-   * Hibernates a planning source after its fresh implementation session has
-   * accepted the seed prompt (issue #283). Main validates the persisted
-   * handoff relation and refuses to reap live or uncertain work.
+   * Stops the validated planning source after a fresh or worktree implementation
+   * session accepts the plan seed (issue #840), regardless of live work or idle
+   * settings. Reaps only the captured process through the existing bounded
+   * SIGTERM→SIGKILL window. Returns true for a stopped/already-dormant source,
+   * false for a survived reap or a replacement process; never reaps a successor.
    */
   hibernatePlanSource: {
     channel: "session:hibernatePlanSource",
@@ -1386,7 +1388,7 @@ export const BACKEND_CHANNELS = {
     channel: "pty:exit",
     ...event<[tabId: string, exitCode: number]>(),
   },
-  /** The session's process was hibernated after an idle window (issue #246). */
+  /** The session's process was intentionally stopped: idle hibernation or an accepted plan handoff (issue #246, #840). */
   onSessionHibernated: {
     channel: "session:hibernated",
     ...event<[tabId: string]>(),

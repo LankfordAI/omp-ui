@@ -468,6 +468,34 @@ export function createLifecycleSlice(
     const accepted = await get().sendPrompt(freshId, seed, "prompt");
     if (!accepted) return;
 
+    // Issue #840: the seed ACK — not the spawn or the verdict — transfers
+    // ownership, so everything the carry-over needs is snapshotted here,
+    // before suppression state or notices move. A successful reap discards
+    // the source runtime; the fire-and-forget stop still bumps the source
+    // wake generation synchronously before teardown. The destination voice
+    // token only exists while the implementation is actually viewed.
+    const srcRt = peekTabRuntime(srcTabId);
+    const srcLive = get().rpc[srcTabId]?.live;
+    const sourceWantsVoice =
+      srcRt !== undefined &&
+      srcLive?.phase !== "error" &&
+      srcLive?.error == null &&
+      (srcRt.liveVoiceOwner === true
+        ? srcRt.liveArmed === true || (srcLive != null && !srcLive.ended)
+        : // #816: a client that is not the session host can never own or arm
+          // a call, so an open source snapshot is the host's microphone and
+          // the handoff still releases it (stopLiveVoice is version-gated,
+          // never hardware-gated; the destination start no-ops at the store
+          // gate). A second Electron view of a locally owned call must not
+          // steal the other view's call (#821).
+          srcLive != null &&
+          !srcLive.ended &&
+          !liveAudioLocalToClient(findOwner(get().state, srcTabId)?.instanceId ?? null));
+    const destinationViewed = (): boolean => get().activeTabId === freshId &&
+      get().tabs.some((tab) => tab.tabId === freshId && !tab.hidden) &&
+      get().exited[freshId] === undefined;
+    const destRt = destinationViewed() ? m.runtime(freshId) : undefined;
+    const destGeneration = destRt === undefined ? undefined : liveVoiceGeneration(freshId);
     set((state) => ({
       handedOffFor: { ...state.handedOffFor, [srcTabId]: freshId },
       observedPlanHandoffs: {
@@ -488,82 +516,68 @@ export function createLifecycleSlice(
         "info",
       ),
     );
-    // Voice follows only the viewed implementation and the source runtime that
-    // still owns the user's armed intent. Capability discovery and live_stop
-    // can outlive navigation, an explicit stop, or a replacement source call.
-    const srcRt = peekTabRuntime(srcTabId);
-    const sourceGeneration = liveVoiceGeneration(srcTabId);
-    const sourceIntendsVoice = (): boolean => {
-      const live = get().rpc[srcTabId]?.live;
-      if (srcRt === undefined || peekTabRuntime(srcTabId) !== srcRt ||
-        live?.phase === "error" || live?.error != null) return false;
-      if (srcRt.liveVoiceOwner === true) {
-        return srcRt.liveArmed === true || (live != null && !live.ended);
-      }
-      // #816: a client that is not the session host can never own or arm a
-      // call, so an open source snapshot is the host's microphone and the
-      // handoff still releases it (stopLiveVoice is version-gated, never
-      // hardware-gated; the destination start no-ops at the store gate).
-      // A second Electron view of a locally owned call never lands here —
-      // it must not steal the other view's call (#821).
-      return live != null && !live.ended &&
-        !liveAudioLocalToClient(findOwner(get().state, srcTabId)?.instanceId ?? null);
-    };
-    const destinationViewed = (): boolean => get().activeTabId === freshId &&
-      get().tabs.some((tab) => tab.tabId === freshId && !tab.hidden) &&
-      get().exited[freshId] === undefined;
-    if (sourceIntendsVoice() && destinationViewed()) {
-      // startLiveVoice's supportsNativeLive gate reads the DESTINATION's
-      // capabilities, which boot publishes shortly after ready; waiting keeps
-      // a not-yet-published roster from silently no-op'ing the start after the
-      // source was already stopped.
+    // The reap request leaves before anything is awaited; its rejection
+    // handler is attached immediately so a rejection that lands while the
+    // await below parks can never surface as an unhandled rejection.
+    const reaping = backend.hibernatePlanSource(srcTabId, freshId);
+    reaping.catch(() => undefined);
+    if (sourceWantsVoice) {
+      // Release the microphone without joining any in-flight park, racing
+      // start, or closing stop on the source: the reap terminates the whole
+      // process, so those acknowledgments are nobody's prerequisite.
+      void get().stopLiveVoice(srcTabId).catch(() => undefined);
+    }
+    let reaped = false;
+    try {
+      reaped = await reaping;
+    } catch (error: unknown) {
+      console.warn(
+        `[plan-handoff] failed to hibernate source ${srcTabId} for implementation ${freshId}:`,
+        error,
+      );
+    }
+    if (!reaped) {
+      // A failed reap leaves the source live and suppressed: exactly one
+      // visible warning on the implementation tab, no retry, no re-seed,
+      // and voice never carries over (issue #840).
+      m.appendItem(freshId, noticeItem(t("notice.planHandoff.stopFailed"), "warn"));
+      return;
+    }
+    // The confirmed source exit is the realtime terminal boundary. Voice
+    // only follows when the destination token snapshotted at the ACK is
+    // still current — never wait on capabilities for a destination that was
+    // never viewed or has since been stopped, replaced, or navigated away.
+    if (
+      sourceWantsVoice &&
+      destRt !== undefined &&
+      destinationViewed() &&
+      peekTabRuntime(freshId) === destRt &&
+      liveVoiceGeneration(freshId) === destGeneration
+    ) {
+      // Wait out destination capability discovery — startLiveVoice's
+      // supportsNativeLive gate reads the DESTINATION's capabilities, which
+      // boot publishes shortly after ready.
       await m.pollUntil(
         freshId,
         (rpc) => supportsNativeLive(rpc?.capabilities?.ompVersion ?? null),
         5_000,
       );
+      const srcAfter = peekTabRuntime(srcTabId);
+      const destState = get().rpc[freshId];
+      // The confirmed exit ended the source process, so a pending source
+      // live_stop ack never gates the destination — that would rejoin the
+      // closing stop the reap made moot. Only a source that came back — a
+      // replacement runtime or a re-armed intent — cancels the carryover.
       if (
-        supportsNativeLive(get().rpc[freshId]?.capabilities?.ompVersion ?? null) &&
-        destinationViewed() && sourceIntendsVoice() &&
-        liveVoiceGeneration(srcTabId) === sourceGeneration
-      ) {
-        // An already-pending park owns the same stop acknowledgment. Explicit
-        // stop disarms the source, but must not treat that pending stop as done.
-        const pendingStop = srcRt!.liveStopInFlight;
-        const stopping = get().stopLiveVoice(srcTabId);
-        const stopGeneration = liveVoiceGeneration(srcTabId);
-        await stopping;
-        if (pendingStop !== undefined) await pendingStop.catch(() => null);
-        // A wake that raced the stop's generation bump can hold an unacked
-        // live_start on the source (live_start rides off-chain). Wait for its
-        // outcome rather than refusing on it: an abandoned start must not
-        // strand the destination's voice (#822). A start that SUCCEEDED after
-        // the stop leaves an open source call, and its closing stop ack ends it.
-        const racingStart = srcRt!.liveStartInFlight;
-        if (racingStart !== undefined) await racingStart.catch(() => null);
-        const closingStop = srcRt!.liveStopInFlight;
-        if (closingStop !== undefined) await closingStop.catch(() => null);
-        const stopped = get().rpc[srcTabId]?.live;
-        // The gate is that no source call stays OPEN, not that it ended
-        // cleanly: a wake that raced the handoff ends in a transport-teardown
-        // error once the source hibernates, and pinning error-free here would
-        // strand the destination's voice forever (#822).
-        if (
-          peekTabRuntime(srcTabId) === srcRt &&
-          liveVoiceGeneration(srcTabId) === stopGeneration &&
-          srcRt!.liveArmed !== true && srcRt!.liveStartInFlight === undefined &&
-          (stopped == null || stopped.ended) &&
-          destinationViewed()
-        ) void get().startLiveVoice(freshId);
-      }
-    }
-    try {
-      await backend.hibernatePlanSource(srcTabId, freshId);
-    } catch (err) {
-      console.warn(
-        `[plan-handoff] failed to hibernate source ${srcTabId} for implementation ${freshId}:`,
-        err,
-      );
+        supportsNativeLive(destState?.capabilities?.ompVersion ?? null) &&
+        destinationViewed() &&
+        peekTabRuntime(freshId) === destRt &&
+        liveVoiceGeneration(freshId) === destGeneration &&
+        destRt.liveStartInFlight === undefined &&
+        (destState?.live == null || destState.live.ended) &&
+        (srcAfter === undefined ||
+          (srcAfter === srcRt && srcAfter.liveArmed !== true))
+      ) void get().startLiveVoice(freshId);
     }
   };
 

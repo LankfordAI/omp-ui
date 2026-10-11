@@ -96,7 +96,10 @@ recap trim ceiling) rides that same wake — the artifact travels only in
 A gate whose artifact path and hash are unchanged still wakes a briefing when
 the request is explicit; automatic briefings key on the gate identity so a
 re-presented identical plan is not re-narrated unprompted. On execute, the
-hand-off carries voice to the viewed destination: the source stop is
-acknowledged before the destination start, and the gate is that no source
-call stays open — not that it ended without a transport-teardown error
-(#822).
+hand-off carries eligible voice intent to the viewed destination. Issue #840
+supersedes the source-stop acknowledgement boundary (#822): after accepted
+fresh or worktree seeding, confirmed planning-process exit closes the source
+call before a destination start. The reap request precedes capability discovery
+and never waits for source park, start, or stop acknowledgements. Destination
+runtime/generation and visibility guards cancel stale carry-over. No old call,
+recap, or realtime conversation transfers; ordinary park/wake behavior is unchanged.
