@@ -88,6 +88,7 @@ export { carryoverContextPath, stageCarryoverContext } from "./carryover-artifac
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
 export { approvalOverlayPath, writeApprovalOverlay } from "./approval-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
+export { gitGuardOverlayPath, writeGitGuardOverlay } from "./git-guard-overlay";
 export {
   compactionMethodOverlayPath,
   writeCompactionMethodOverlay,
@@ -225,6 +226,7 @@ export {
 export { readModelsFileModelProviders } from "./models-file";
 export {
   execOmpConfigRunner,
+  BASH_GIT_GUARD_KEY,
   MEMORY_SETTING_GROUP,
   OMP_MODEL_ROLE_IDS,
   OMP_MODEL_ROLES_KEY,

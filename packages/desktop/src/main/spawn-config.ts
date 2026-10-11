@@ -19,10 +19,12 @@ import {
   writeAdvisorStatsExtension,
   writeCapabilitiesExtension,
   writeCompactionMethodOverlay,
+  readLayeredConfigScalar,
   writeGoalContinuationOverlay,
   writeDefaultModelOverlay,
   writeKnowledgeVaultExtension,
   writeMcpStatusExtension,
+  writeGitGuardOverlay,
   writeVibeExtension,
   writeLimitsExtension,
   writePlanExtension,
@@ -109,6 +111,23 @@ export function writeSessionOverlays(
     overlays.push(writeVaultOverlay(absLineageDir));
   } catch (err) {
     console.warn("[vault] could not write the overlay:", err);
+  }
+  // #832: a worktree session shares its checkout with sibling sessions, so
+  // boot it with omp's destructive-git guard unless the user's own config
+  // layers already name bash.gitGuard — an explicit value, either way, is
+  // the override and gets restated by omp itself, not by us.
+  try {
+    const configured =
+      record.worktree === null
+        ? undefined
+        : readLayeredConfigScalar(record.projectCwd, "bash", "gitGuard");
+    const overlay = writeGitGuardOverlay(
+      absLineageDir,
+      record.worktree !== null && configured === undefined ? true : null,
+    );
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[git-guard] could not write the overlay:", err);
   }
   return overlays;
 }
