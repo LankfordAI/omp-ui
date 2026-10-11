@@ -70,6 +70,14 @@ export function spawnOmp(opts: {
    * reaches a resumed session, whose model otherwise comes from the transcript.
    */
   model?: string;
+  /**
+   * Thinking level passed to omp as `--thinking`, symmetric with
+   * `RpcClientOpts`. omp-ui sets `"auto"` (#843): the overlay's
+   * `defaultThinkingLevel` key sits below the model catalog's own default in
+   * omp's boot resolver and never sets omp's auto flag, so only this param
+   * makes a catalog-default model boot auto.
+   */
+  thinking?: string;
   cols: number;
   rows: number;
   advisor?: boolean;
@@ -80,6 +88,7 @@ export function spawnOmp(opts: {
   if (opts.resumeSessionId) args.push(`--resume=${opts.resumeSessionId}`);
   if (opts.appendSystemPromptFile) args.push("--append-system-prompt", opts.appendSystemPromptFile);
   if (opts.model) args.push("--model", opts.model);
+  if (opts.thinking) args.push("--thinking", opts.thinking);
   if (opts.advisor) args.push("--advisor");
   for (const overlay of opts.configOverlays ?? []) args.push("--config", overlay);
 

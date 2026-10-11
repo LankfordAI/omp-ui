@@ -1578,6 +1578,77 @@ describe("default auto thinking (issue #743)", () => {
       thinkingLevel: null,
     });
   });
+
+  // #843: the overlay key loses to the model catalog default in omp's boot
+  // resolver, so the effective auto pick must ride an explicit --thinking param —
+  // the frames' configured field (pill + persistence) depends on it.
+  const gated = (model: string): SpawnGate =>
+    parseSpawnGate({ OMP_UI_TEST_MODEL: model });
+
+  it("rides a fresh native spawn's auto on an explicit boot param", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("defaultAutoThinking", true);
+
+    await freshSpawn(manager);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as { thinking?: string };
+    expect(options?.thinking).toBe("auto");
+  });
+
+  it("leaves the boot param off for a concrete effective level", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSessionModel(TAB, null, "high");
+
+    await freshSpawn(manager);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as { thinking?: string };
+    expect(options?.thinking).toBeUndefined();
+  });
+
+  it("lets a gated concrete level own the boot param over the record's auto", async () => {
+    // Gate wins over the record, exactly as it wins over it in the overlay
+    // composition — a gated concrete level must not boot auto.
+    const { manager, registry } = setup({ mode: "rpc-ui", spawnGate: gated("p/m:low") });
+    registry.setSetting("defaultAutoThinking", true);
+
+    await freshSpawn(manager);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as { thinking?: string };
+    expect(options?.thinking).toBeUndefined();
+  });
+
+  it("rides an auto gate pin on the boot param with the setting off", async () => {
+    const { manager } = setup({ mode: "rpc-ui", spawnGate: gated("p/m:auto") });
+
+    await freshSpawn(manager);
+    const options = RpcClientMock.mock.calls.at(-1)?.[0] as { thinking?: string };
+    expect(options?.thinking).toBe("auto");
+  });
+
+  it("rides the boot param on a terminal spawn too", async () => {
+    const { manager, registry } = setup({ mode: "pty" });
+    registry.setSetting("defaultAutoThinking", true);
+
+    await manager.spawn({
+      origin: "new",
+      worktree: null,
+      projectCwd: "/proj",
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+    expect(spawnCalls.at(-1)?.thinking).toBe("auto");
+
+    registry.setSetting("defaultAutoThinking", false);
+    await manager.spawn({
+      origin: "new",
+      worktree: null,
+      projectCwd: "/proj",
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+    });
+    expect(spawnCalls.at(-1)?.thinking).toBeUndefined();
+  });
 });
 
 describe("test-run spawn gate (issue #371)", () => {

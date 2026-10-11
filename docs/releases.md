@@ -4,6 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- A new session's auto thinking pick now survives a model whose catalog carries its own default thinking level: the effective auto choice rides an explicit `--thinking auto` boot param, so omp boots its automatic selector, the effort pill reads `auto`, and the concrete catalog level is never persisted (#843).
 - A plan handoff from a spoken plan review parks the destination's carried live call while the implementation seed turn works, and an in-place execute parks the session's own open call — the final answer wakes the call either way (#842).
 
 ## Choose a download
