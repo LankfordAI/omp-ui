@@ -77,8 +77,11 @@ branched session from showing a goal its current runtime no longer has.
   and the race window, with OMP's `goal` tool the only writer of `complete`.
 - **A running goal holds the process awake.** Hibernation must not kill the loop
   that is doing the work, so the hibernation tracker consults the goal snapshot
-  before its `plan-handoff` early return. A paused or budget-limited idle goal
-  owns no loop and applies no veto.
+  in its idle-hibernation guard. A paused or budget-limited idle goal owns no
+  loop and applies no veto.
+  Superseded for plan handoffs by #840: accepted implementation seeding now
+  explicitly cancels the planning process, including its goal. The goal veto
+  remains an ordinary idle-hibernation safeguard only.
 - **Auto-prompts defer to the goal.** Advisor reply and stall auto-continue are
   gated while a goal owns the session: an automatic prompt must not restart a
   goal the user paused or exhausted. Diagnostics still render — the gate is on

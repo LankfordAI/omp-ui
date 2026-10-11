@@ -2210,6 +2210,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.share.cancel": "취소",
   // 저장소의 공유 알림 (issue #679): 이 탭은 /share를 광고하지 않습니다.
   "notice.share.needsOmpCommand": "이 omp 세션은 /share를 제공하지 않습니다 — omp를 업데이트하여 share 명령을 게시하세요",
+  // 저장소의 계획 인계 알림 (issue #840): 시드는 접수되었지만 계획 세션을 중지하지 못했습니다.
+  "notice.planHandoff.stopFailed": "구현이 시작되었지만 계획 에이전트를 중지하지 못했습니다 — 직접 종료하세요",
   "collab.access.full": "전체",
   "collab.access.view": "보기 전용",
   "collab.dialog.title": "실시간 공유",

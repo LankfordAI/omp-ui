@@ -44,6 +44,8 @@ import {
 } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 import { peekTabRuntime, resetTabRuntimesForTests } from "./shared";
+import type { LifecycleSlice } from "./lifecycle";
+import type { UiStore } from "../types";
 import { reduceAgentEvent } from "./reduce-agent-event";
 import type { ObservedTabRuntime } from "./reduce-agent-event";
 // #816: startLiveVoice is gated on liveAudioLocalToClient (IS_ELECTRON &&
@@ -2917,6 +2919,15 @@ describe("handleRpcFrame routing", () => {
       expect(h.sent.some((entry) => entry.tabId === h.TAB && entry.cmd.type === "prompt")).toBe(
         false,
       );
+      // Issue #840: an unconfirmed reap warns the implementation exactly
+      // once — no retry, no second seed, no voice carry-over.
+      expect(
+        h.useStore
+          .getState()
+          .rpc["fresh-tab"]!.items.filter(
+            (item) => item.kind === "notice" && item.level === "warn",
+          ),
+      ).toHaveLength(1);
       expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
@@ -3003,7 +3014,7 @@ describe("handleRpcFrame routing", () => {
     expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
   });
 
-  describe("live-voice carry-over on a fresh handoff (issue #808)", () => {
+  describe("live-voice carry-over on a fresh handoff (issues #808, #840)", () => {
     const withVersion = (ompVersion: string | null): CapabilitySnapshot =>
       ({ ompVersion }) as unknown as CapabilitySnapshot;
     const liveSnap = (phase: LivePhase | null, ended = false): LiveSnapshot => ({
@@ -3014,6 +3025,14 @@ describe("handleRpcFrame routing", () => {
       error: null,
       connectionId: null,
     });
+
+    /** Performs the source-side half of a confirmed reap: main's
+     *  `onSessionHibernated` reaches the renderer before `hibernatePlanSource`
+     *  resolves true, so tests that report success discard the runtime for
+     *  real through the same teardown the hibernated event drives. */
+    const teardownSource = (): void => {
+      (h.useStore.getState() as UiStore & LifecycleSlice).teardownProcess(h.TAB, 0, true);
+    };
 
     /** Dispatches a fresh execute with `live` seeded on the planning tab. */
     const dispatchWithLive = async (
@@ -3039,6 +3058,15 @@ describe("handleRpcFrame routing", () => {
       sourceRuntime.liveArmed = live !== null && !live.ended && live.phase !== "error";
     };
 
+    /** Acknowledges the pending implementation seed. */
+    const ackSeed = async (): Promise<void> => {
+      const seed = h.sent.find(
+        (entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt",
+      )!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+    };
+
     /** Answers every command dispatched after the call, in waves. */
     const settleSends = async (): Promise<void> => {
       let cursor = h.sent.length;
@@ -3057,6 +3085,13 @@ describe("handleRpcFrame routing", () => {
         .filter((s) => s.cmd.type === "live_stop" || s.cmd.type === "live_start")
         .map((s) => ({ tabId: s.tabId, type: s.cmd.type }));
 
+    const warnNotices = () =>
+      h.useStore
+        .getState()
+        .rpc["fresh-tab"]!.items.filter(
+          (item) => item.kind === "notice" && item.level === "warn",
+        );
+
     beforeEach(() => {
       platformMocks.electron = true;
     });
@@ -3064,146 +3099,223 @@ describe("handleRpcFrame routing", () => {
     afterEach(() => {
       platformMocks.electron = false;
     });
-
-    it.each(["listening", null] as const)("stops the owned planning capture before voice follows the fresh tab (%s)", async (phase) => {
+    it.each(["listening", null] as const)("carries the owned capture across the reaped source (%s)", async (phase) => {
+      h.mockBackend.hibernatePlanSource.mockImplementationOnce(async () => {
+        await Promise.resolve();
+        teardownSource();
+        return true;
+      });
       await dispatchWithLive("carry-active", liveSnap(phase));
-      const seed = h.sent.find(
-        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
-      )!;
-      h.respond("fresh-tab", seed.cmd, {});
-      await settleSends();
-
+      await ackSeed();
       expect(liveVerbs()).toEqual([
         { tabId: h.TAB, type: "live_stop" },
         { tabId: "fresh-tab", type: "live_start" },
       ]);
+      // Issue #840: the seed ACK triggers exactly one reap request, and a
+      // confirmed exit is the terminal boundary — the source runtime is
+      // gone by the time the destination's voice starts.
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledTimes(1);
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+      expect(peekTabRuntime(h.TAB)).toBeUndefined();
+      expect(warnNotices()).toHaveLength(0);
+      const start = h.sent.find(
+        (entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "live_start",
+      )!;
+      h.respond("fresh-tab", start.cmd, {});
+      await h.flushMicrotasks();
       // #811: the voice follows the handoff — the source's armed intent
-      // clears (stop ack), so the parked tab never resumes on a later
-      // visit, and the destination owns the call (AC 8).
+      // clears, so the parked tab never resumes on a later visit, and the
+      // destination owns the call (AC 8).
       expect(h.useStore.getState().liveVoice[h.TAB]).toBeUndefined();
       expect(h.useStore.getState().liveVoice["fresh-tab"]).toEqual({
         armed: true,
         parked: false,
         pending: false,
       });
+    });
+    it("requests the reap at the seed ACK, before capabilities resolve or the stop is acknowledged (issue #840)", async () => {
+      const reap = h.deferred<boolean>();
+      h.mockBackend.hibernatePlanSource.mockImplementationOnce(() => reap.promise);
+      await dispatchWithLive("carry-deferred-reap", liveSnap("listening"), {
+        capabilities: null,
+      });
+      await ackSeed();
+      // The ACK alone already sent the reap and released the microphone;
+      // neither the unresolved destination capabilities nor the unacknowledged
+      // live_stop gate the request.
       expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+      reap.resolve(true);
+      teardownSource();
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+      h.useStore.setState((state) => ({
+        rpc: {
+          ...state.rpc,
+          "fresh-tab": { ...state.rpc["fresh-tab"]!, capabilities: withVersion("18.7.0") },
+        },
+      }));
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([
+        { tabId: h.TAB, type: "live_stop" },
+        { tabId: "fresh-tab", type: "live_start" },
+      ]);
+    });
+
+    it("does not join an in-flight source park before the destination start (issue #840)", async () => {
+      await dispatchWithLive("carry-pending-park", liveSnap("listening"));
+      const parking = h.useStore.getState().switchLiveVoice(h.TAB, { mode: "park" });
+      await h.flushMicrotasks();
+      await ackSeed();
+      // The reap moots every source-side acknowledgment: the destination
+      // starts while the park's live_stop is still unacknowledged, and the
+      // fire-and-forget stop never double-dispatches the park's stop.
+      expect(liveVerbs()).toEqual([
+        { tabId: h.TAB, type: "live_stop" },
+        { tabId: "fresh-tab", type: "live_start" },
+      ]);
+      const stop = h.sent.find((entry) => entry.tabId === h.TAB && entry.cmd.type === "live_stop");
+      h.respond(h.TAB, stop!.cmd, {});
+      await parking;
+      await h.flushMicrotasks();
+      expect(
+        h.sent.filter((entry) => entry.tabId === h.TAB && entry.cmd.type === "live_stop"),
+      ).toHaveLength(1);
+      expect(liveVerbs()).toEqual([
+        { tabId: h.TAB, type: "live_stop" },
+        { tabId: "fresh-tab", type: "live_start" },
+      ]);
+    });
+
+    it("warns once, keeps the source live and suppressed, and carries no voice when the reap fails (issue #840)", async () => {
+      h.mockBackend.hibernatePlanSource.mockResolvedValueOnce(false);
+      await dispatchWithLive("carry-reap-false", liveSnap("listening"));
+      await ackSeed();
+      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+      expect(liveVerbs().filter((entry) => entry.type === "live_start")).toHaveLength(0);
+      expect(warnNotices()).toHaveLength(1);
+      // No retry, no re-seed: one reap request and one seed, and the source
+      // process is left running (its runtime untouched by any teardown).
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledTimes(1);
+      expect(
+        h.sent.filter((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt"),
+      ).toHaveLength(1);
+      expect(peekTabRuntime(h.TAB)).toBeDefined();
+    });
+
+    it("cancels the carry-over when the source re-arms during the capability wait (issue #840)", async () => {
+      // A source that takes voice back while the destination's capabilities
+      // are still landing owns a live call again — the carry-over must not
+      // steal it.
+      h.mockBackend.hibernatePlanSource.mockImplementationOnce(async () => {
+        await Promise.resolve();
+        peekTabRuntime(h.TAB)!.liveArmed = true;
+        return true;
+      });
+      await dispatchWithLive("carry-rearm-source", liveSnap("listening"), {
+        capabilities: null,
+      });
+      await ackSeed();
+      await h.flushMicrotasks();
+      h.useStore.setState((state) => ({
+        rpc: {
+          ...state.rpc,
+          "fresh-tab": { ...state.rpc["fresh-tab"]!, capabilities: withVersion("18.7.0") },
+        },
+      }));
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+    });
+
+    it("cancels the carry-over when a replacement source runtime boots during the reap (issue #840)", async () => {
+      h.mockBackend.hibernatePlanSource.mockImplementationOnce(async () => {
+        await Promise.resolve();
+        teardownSource();
+        // A frame for the exited tab re-creates its runtime slot — the same
+        // fresh identity bootRpcTab would install — proving the source that
+        // comes back is not the runtime the ACK snapshotted.
+        h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+        return true;
+      });
+      await dispatchWithLive("carry-source-reboot", liveSnap("listening"));
+      await ackSeed();
+      await h.flushMicrotasks();
+      expect(peekTabRuntime(h.TAB)).toBeDefined();
+      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+    });
+
+    it("cancels the carry-over when the destination runtime is discarded during the reap (issue #840)", async () => {
+      h.mockBackend.hibernatePlanSource.mockImplementationOnce(async () => {
+        await Promise.resolve();
+        teardownSource();
+        resetTabRuntimesForTests();
+        return true;
+      });
+      await dispatchWithLive("carry-dest-discarded", liveSnap("listening"));
+      await ackSeed();
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+    });
+
+    it("does not start in the background when focus leaves while the reap is pending", async () => {
+      const reap = h.deferred<boolean>();
+      h.mockBackend.hibernatePlanSource.mockImplementationOnce(() => reap.promise);
+      await dispatchWithLive("carry-focus-during-reap", liveSnap("listening"));
+      await ackSeed();
+      h.useStore.setState({ activeTabId: "previous-implementation" });
+      reap.resolve(true);
+      teardownSource();
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
+      expect(h.useStore.getState().activeTabId).toBe("previous-implementation");
+    });
+
+    it("carries voice when focus returns before the exit confirms", async () => {
+      const reap = h.deferred<boolean>();
+      h.mockBackend.hibernatePlanSource.mockImplementationOnce(() => reap.promise);
+      await dispatchWithLive("carry-focus-return", liveSnap("listening"));
+      await ackSeed();
+      h.useStore.setState({ activeTabId: "previous-implementation" });
+      h.useStore.setState({ activeTabId: "fresh-tab" });
+      reap.resolve(true);
+      teardownSource();
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([
+        { tabId: h.TAB, type: "live_stop" },
+        { tabId: "fresh-tab", type: "live_start" },
+      ]);
+    });
+
+    it("lets an explicit destination start win over the carry-over (issue #840)", async () => {
+      const reap = h.deferred<boolean>();
+      h.mockBackend.hibernatePlanSource.mockImplementationOnce(() => reap.promise);
+      await dispatchWithLive("carry-explicit-start", liveSnap("listening"));
+      await ackSeed();
+      // The user presses Play before the exit confirms; the carry-over then
+      // finds the destination's call already in flight and stands down.
+      void h.useStore.getState().startLiveVoice("fresh-tab");
+      await h.flushMicrotasks();
+      reap.resolve(true);
+      teardownSource();
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toEqual([
+        { tabId: h.TAB, type: "live_stop" },
+        { tabId: "fresh-tab", type: "live_start" },
+      ]);
     });
 
     it("does not stop or carry a source call owned by another renderer", async () => {
       await dispatchWithLive("carry-nonowner", liveSnap("listening"));
       peekTabRuntime(h.TAB)!.liveVoiceOwner = false;
-      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
-      h.respond("fresh-tab", seed.cmd, {});
+      await ackSeed();
       await settleSends();
       expect(liveVerbs()).toEqual([]);
       expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
     });
 
-    it("joins an in-flight park before starting the viewed implementation", async () => {
-      await dispatchWithLive("carry-pending-park", liveSnap("listening"));
-      const parking = h.useStore.getState().switchLiveVoice(h.TAB, { mode: "park" });
-      await h.flushMicrotasks();
-      const stop = h.sent.find((entry) => entry.tabId === h.TAB && entry.cmd.type === "live_stop")!;
-      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
-      h.respond("fresh-tab", seed.cmd, {});
-      await h.flushMicrotasks();
-      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
-      h.respond(h.TAB, stop.cmd, {});
-      await parking;
-      await h.flushMicrotasks();
-      expect(liveVerbs()).toEqual([
-        { tabId: h.TAB, type: "live_stop" },
-        { tabId: "fresh-tab", type: "live_start" },
-      ]);
-      const start = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "live_start")!;
-      h.respond("fresh-tab", start.cmd, {});
-      await h.flushMicrotasks();
-      expect(h.useStore.getState().liveVoice[h.TAB]).toBeUndefined();
-    });
-
-    it("ends a failed source stop locally and carries voice to the fresh tab", async () => {
-      await dispatchWithLive("carry-stop-failed", liveSnap("listening"));
-      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
-      h.respond("fresh-tab", seed.cmd, {});
-      await h.flushMicrotasks();
-      const stop = h.sent.find((entry) => entry.tabId === h.TAB && entry.cmd.type === "live_stop")!;
-      expect(stop).toBeDefined();
-      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
-      h.respond(h.TAB, stop.cmd, "microphone stop failed", false);
-      await h.flushMicrotasks();
-      // #827: a stop whose response failed ends the snapshot locally — an
-      // un-ended wedged call would block every lawful restart.
-      expect(h.useStore.getState().rpc[h.TAB]!.live).toMatchObject({ ended: true });
-      expect(h.useStore.getState().rpc[h.TAB]!.live!.error).not.toBeNull();
-      // #827: the failed stop ends the source snapshot, so the carry-over
-      // gate (no source call stays OPEN, #822) sees a closed call and voice
-      // follows the fresh tab instead of stranding on a wedged one.
-      expect(liveVerbs()).toEqual([
-        { tabId: h.TAB, type: "live_stop" },
-        { tabId: "fresh-tab", type: "live_start" },
-      ]);
-      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
-    });
-
-    it("carries voice to the fresh tab when the stopped source ends in a transport error", async () => {
-      // #822: a work-park wake raced the handoff stop, so the source's
-      // hibernation teardown wrote an error onto the already-ended
-      // snapshot before the carry-over gate re-checked it. The gate is that
-      // no source call stays OPEN, not that it ended cleanly.
-      await dispatchWithLive("carry-stop-error", liveSnap("listening"));
-      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
-      h.respond("fresh-tab", seed.cmd, {});
-      await h.flushMicrotasks();
-      const stop = h.sent.find((entry) => entry.tabId === h.TAB && entry.cmd.type === "live_stop")!;
-      h.respond(h.TAB, stop.cmd, {});
-      await h.flushMicrotasks();
-      h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_end", error: "Live transport is not connected" });
-      await h.flushMicrotasks();
-      expect(liveVerbs()).toEqual([
-        { tabId: h.TAB, type: "live_stop" },
-        { tabId: "fresh-tab", type: "live_start" },
-      ]);
-      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
-    });
-
-    it("does not start in the background when focus leaves while source stop is pending", async () => {
-      await dispatchWithLive("carry-focus-during-stop", liveSnap("listening"));
-      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
-      h.respond("fresh-tab", seed.cmd, {});
-      await h.flushMicrotasks();
-      const stop = h.sent.find((entry) => entry.tabId === h.TAB && entry.cmd.type === "live_stop")!;
-      h.useStore.setState({ activeTabId: "previous-implementation" });
-      h.respond(h.TAB, stop.cmd, {});
-      await h.flushMicrotasks();
-      expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
-      expect(h.useStore.getState().activeTabId).toBe("previous-implementation");
-      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
-    });
-
-    it.each(["focus", "intent", "runtime"])("does not disarm a source invalidated during capability discovery (%s)", async (invalidation) => {
-      await dispatchWithLive(`carry-stale-${invalidation}`, liveSnap("listening"), { capabilities: null });
-      const seed = h.sent.find((entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "prompt")!;
-      h.respond("fresh-tab", seed.cmd, {});
-      await h.flushMicrotasks();
-      const sourceRuntime = peekTabRuntime(h.TAB)!;
-      if (invalidation === "focus") h.useStore.setState({ activeTabId: "previous-implementation" });
-      else if (invalidation === "intent") {
-        sourceRuntime.liveArmed = false;
-        h.useStore.setState((state) => ({ rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, live: liveSnap(null, true) } } }));
-      } else resetTabRuntimesForTests();
-      h.useStore.setState((state) => ({ rpc: { ...state.rpc, "fresh-tab": { ...state.rpc["fresh-tab"]!, capabilities: withVersion("18.7.0") } } }));
-      await h.flushMicrotasks();
-      expect(liveVerbs()).toEqual([]);
-      if (invalidation === "focus") expect(sourceRuntime.liveArmed).toBe(true);
-      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
-    });
-
     it("carries nothing when the planning session has no live snapshot", async () => {
       await dispatchWithLive("carry-silent", null);
-      const seed = h.sent.find(
-        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
-      )!;
-      h.respond("fresh-tab", seed.cmd, {});
+      await ackSeed();
       await settleSends();
 
       expect(liveVerbs()).toEqual([]);
@@ -3239,71 +3351,59 @@ describe("handleRpcFrame routing", () => {
         },
       }));
       await h.flushMicrotasks();
-      const seed = h.sent.find(
-        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
-      )!;
-      h.respond("fresh-tab", seed.cmd, {});
+      await ackSeed();
       await settleSends();
 
       expect(liveVerbs()).toEqual([]);
       expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
     });
 
-    it("dispatches nothing — not even the stop — when the fresh omp is below the gate", async () => {
+    it("carries nothing on an error-phase snapshot", async () => {
+      await dispatchWithLive("carry-error", liveSnap("error"));
+      await ackSeed();
+      await settleSends();
+
+      expect(liveVerbs()).toEqual([]);
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    });
+
+    it("still releases the source microphone when the fresh omp is below the gate", async () => {
       vi.useFakeTimers();
       try {
         await dispatchWithLive("carry-old-omp", liveSnap("listening"), {
           capabilities: withVersion("18.4.0"),
         });
-        const seed = h.sent.find(
-          (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
-        )!;
-        h.respond("fresh-tab", seed.cmd, {});
-        // The gate never passes; only the 5 s deadline closes the wait, and
-        // the no-stop rule means the source keeps the guard's mute.
+        await ackSeed();
+        // #840: the source is reaped regardless of destination support, so
+        // its microphone is released even though no start can follow — only
+        // the 5 s deadline closes the capability wait.
         await vi.advanceTimersByTimeAsync(5_000);
         await h.flushMicrotasks();
 
-        expect(liveVerbs()).toEqual([]);
+        expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
         expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
       } finally {
         vi.useRealTimers();
       }
     });
 
-    it("gives up the carry-over after the bounded version wait", async () => {
+    it("releases the source when destination capabilities never resolve", async () => {
       vi.useFakeTimers();
       try {
         await dispatchWithLive("carry-no-version", liveSnap("listening"), {
           capabilities: null,
         });
-        const seed = h.sent.find(
-          (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
-        )!;
-        h.respond("fresh-tab", seed.cmd, {});
-        // The 5 s gate deadline is the only thing keeping the dispatch open.
+        await ackSeed();
+        // The 5 s gate deadline is the only thing keeping the carry-over open.
         await vi.advanceTimersByTimeAsync(5_000);
         await h.flushMicrotasks();
 
-        expect(liveVerbs()).toEqual([]);
+        expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
         expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
       } finally {
         vi.useRealTimers();
       }
     });
-
-    it("carries nothing on an error-phase snapshot", async () => {
-      await dispatchWithLive("carry-error", liveSnap("error"));
-      const seed = h.sent.find(
-        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
-      )!;
-      h.respond("fresh-tab", seed.cmd, {});
-      await settleSends();
-
-      expect(liveVerbs()).toEqual([]);
-      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
-    });
-
     // #842: the destination of a plan-to-build handoff runs a TYPED seed
     // turn that emits no delegation frame, so the ordinary work-park never
     // arms on it. The lifecycle carry-over rides the arm intent on the

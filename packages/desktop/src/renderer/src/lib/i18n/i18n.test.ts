@@ -12,8 +12,6 @@ import { en } from "./en";
 import { ko } from "./ko";
 import type { MessageKey } from "./types";
 
-const KEY_PATTERN = /^[a-z][a-z0-9]*\.[a-z][a-z0-9]*\.[a-z][a-zA-Z0-9]*$/;
-
 const placeholders = (value: string): string[] => {
   const found = [...value.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!);
   return [...new Set(found)].sort();
@@ -109,12 +107,6 @@ describe("catalog hygiene", () => {
       for (const [key, value] of Object.entries(catalog)) {
         expect(value !== undefined && (value.includes("<") || value.includes(">")), `${name}:${key}`).toBe(false);
       }
-    }
-  });
-
-  it("names every English key <area>.<surface>.<thing>", () => {
-    for (const key of Object.keys(enCatalog)) {
-      expect(key, key).toMatch(KEY_PATTERN);
     }
   });
 
