@@ -44,7 +44,7 @@ import {
 } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 import { peekTabRuntime, resetTabRuntimesForTests } from "./shared";
-import type { LifecycleSlice } from "./lifecycle";
+import { HANDOFF_SOURCE_GRACE_MS, type LifecycleSlice } from "./lifecycle";
 import type { UiStore } from "../types";
 import { reduceAgentEvent } from "./reduce-agent-event";
 import type { ObservedTabRuntime } from "./reduce-agent-event";
@@ -2997,6 +2997,88 @@ describe("handleRpcFrame routing", () => {
             entry.tabId === h.TAB &&
             entry.cmd.type === "prompt" &&
             String(entry.cmd.message).includes("review resumed work"),
+        ),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Issue #844: the non-voice reap waits for the source's verdict turn to
+  // end (or the bounded grace), so the planner gets a close-out window.
+  it("defers the reap until the source's verdict turn ends (issue #844)", async () => {
+    const seed = await dispatchFreshSeed("handoff-deferred");
+    h.useStore.setState((state) => ({
+      rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, status: "running" } },
+    }));
+    h.respond("fresh-tab", seed.cmd, {});
+    await h.flushMicrotasks();
+    expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+  });
+
+  it("caps the close-out window and reaps a run-away source anyway (issue #844)", async () => {
+    vi.useFakeTimers();
+    try {
+      const seed = await dispatchFreshSeed("handoff-grace-cap");
+      h.useStore.setState((state) => ({
+        rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, status: "running" } },
+      }));
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(HANDOFF_SOURCE_GRACE_MS + 1);
+      await h.flushMicrotasks();
+      expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
+    } finally {
+      await rearmHandoffSource();
+      vi.useRealTimers();
+    }
+  });
+
+  it("a human prompt during the close-out window cancels the deferred reap (issue #844)", async () => {
+    vi.useFakeTimers();
+    try {
+      const seed = await dispatchFreshSeed("handoff-rearm-window");
+      h.useStore.setState((state) => ({
+        rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, status: "running" } },
+      }));
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+
+      await rearmHandoffSource();
+      await vi.advanceTimersByTimeAsync(HANDOFF_SOURCE_GRACE_MS + 1);
+      await h.flushMicrotasks();
+      expect(h.mockBackend.hibernatePlanSource).not.toHaveBeenCalled();
+      expect(
+        h.useStore
+          .getState()
+          .rpc["fresh-tab"]!.items.some(
+            (item) => item.kind === "notice" && item.level === "warn",
+          ),
+      ).toBe(false);
+
+      // The source is handed back: its advisor replies flow again.
+      h.useStore.setState((state) => ({
+        rpc: { ...state.rpc, [h.TAB]: { ...state.rpc[h.TAB]!, status: "running" } },
+      }));
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+      h.useStore
+        .getState()
+        .handleRpcFrame(h.TAB, advisorReviewFrame("review re-armed work", "concern", "advisor"));
+      await vi.advanceTimersByTimeAsync(ADVISOR_REPLY_SETTLE_MS);
+      await h.flushMicrotasks();
+      expect(
+        h.sent.some(
+          (entry) =>
+            entry.tabId === h.TAB &&
+            entry.cmd.type === "prompt" &&
+            String(entry.cmd.message).includes("review re-armed work"),
         ),
       ).toBe(true);
     } finally {

@@ -6,6 +6,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 - A new session's auto thinking pick now survives a model whose catalog carries its own default thinking level: the effective auto choice rides an explicit `--thinking auto` boot param, so omp boots its automatic selector, the effort pill reads `auto`, and the concrete catalog level is never persisted (#843).
 - A plan handoff from a spoken plan review parks the destination's carried live call while the implementation seed turn works, and an in-place execute parks the session's own open call — the final answer wakes the call either way (#842).
+- An accepted fresh or worktree plan handoff no longer kills the planning session mid-verdict: its automation is suppressed at once, but the process gets until its planning turn ends (up to two minutes) to file lessons learned and notes before the reap lands; a live-voice handoff still stops immediately, and prompting or resuming the source during the window keeps it live (#844).
 
 ## Choose a download
 

@@ -57,6 +57,11 @@ import type {
  */
 const SPAWN_SETTLE_MS = 30_000;
 
+/** Post-verdict close-out window on the planning source before the handoff
+ * reap lands (issue #844): a compliant planner ends its verdict turn in
+ * seconds; one that re-investigates is capped (#840 follow-up). */
+export const HANDOFF_SOURCE_GRACE_MS = 120_000;
+
 export type LifecycleSlice = Pick<
   UiStore,
   | "shellExited"
@@ -516,10 +521,28 @@ export function createLifecycleSlice(
         "info",
       ),
     );
-    // The reap request leaves before anything is awaited; its rejection
-    // handler is attached immediately so a rejection that lands while the
-    // await below parks can never surface as an unhandled rejection.
-    const reaping = backend.hibernatePlanSource(srcTabId, freshId);
+    // The seed ACK transfers ownership and suppresses automation, but the
+    // kill waits for the source's in-flight verdict turn to end — that turn
+    // is where lessons learned and notes get filed (issue #844). A voice
+    // handoff keeps #840's immediate stop: the confirmed source exit is the
+    // realtime voice boundary. The rejection handler stays attached at
+    // creation so a rejection landing while the poll parks cannot surface.
+    const reaping = sourceWantsVoice
+      ? backend.hibernatePlanSource(srcTabId, freshId)
+      : m
+          .pollUntil(
+            srcTabId,
+            (tab) =>
+              get().exited[srcTabId] !== undefined || tab?.status !== "running",
+            HANDOFF_SOURCE_GRACE_MS,
+          )
+          .then(() =>
+            // A human prompt/abort/resume during the window re-armed the
+            // source (dropPlanHandoff): leave it live, warn nothing.
+            get().handedOffFor[srcTabId] === freshId
+              ? backend.hibernatePlanSource(srcTabId, freshId)
+              : true,
+          );
     reaping.catch(() => undefined);
     if (sourceWantsVoice) {
       // Release the microphone without joining any in-flight park, racing

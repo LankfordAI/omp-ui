@@ -1066,7 +1066,8 @@ export default function (pi: PlanExtensionApi) {
     // implementation context the renderer chooses can read it, then leave plan
     // mode so write access returns. Crucially the agent does NOT implement
     // here — the renderer issues a separate implementation prompt (same
-    // session, compacted, or a fresh session), so stop and wait for it.
+    // session, compacted, or a fresh session), so the planner may close out
+    // its own record (lessons learned, notes) and then stop.
     // The agent path answers with a ToolResult that already says plan mode
     // exited; a re-presented review answers nothing, so its exit must carry
     // the retraction itself (ADR-0033).
@@ -1081,8 +1082,9 @@ export default function (pi: PlanExtensionApi) {
           text:
             "Plan accepted and pinned as the reference at " +
             planFilePath +
-            ". Plan mode exited. Do NOT start the implementation yet — a separate " +
-            "implementation prompt will be issued. Stop and wait for it.",
+            ". Plan mode exited. Do NOT start the implementation and do NOT re-investigate " +
+            "the problem — a separate session implements the plan. Finish this turn now: " +
+            "you may first close out the planning record (lessons learned, notes), then stop.",
         },
       ],
       details,
