@@ -911,6 +911,51 @@ describe("reduceEvent markers, notice, irc, unknowns", () => {
     expect(items[2]).toMatchObject({ kind: "notice", level: undefined });
   });
 
+  // The xdev mount notice wall (issue #848): the collapse contract and its
+  // deliberately narrow pass-throughs.
+  it("collapses an xdev mount notice with MCP tools to a count", () => {
+    const items = reduceEvent([], {
+      type: "notice",
+      level: "info",
+      source: "xdev",
+      message: "xd://: mounted mcp__a_x, mcp__b_y, lsp",
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "notice",
+      level: "info",
+      source: "xdev",
+      text: "",
+      mcpMount: { count: 2 },
+    });
+  });
+
+  it("keeps a mounted notice without mcp__ names verbatim", () => {
+    const items = reduceEvent([], {
+      type: "notice",
+      source: "xdev",
+      message: "xd://: mounted lsp, skill://foo",
+    });
+    expect(items[0]).toMatchObject({
+      kind: "notice",
+      text: "xd://: mounted lsp, skill://foo",
+    });
+    expect(items[0]).not.toHaveProperty("mcpMount");
+  });
+
+  it("keeps a mixed-segment xdev notice verbatim", () => {
+    const items = reduceEvent([], {
+      type: "notice",
+      source: "xdev",
+      message: "xd://: mounted mcp__a_x; unmounted mcp__b_y",
+    });
+    expect(items[0]).toMatchObject({
+      kind: "notice",
+      text: "xd://: mounted mcp__a_x; unmounted mcp__b_y",
+    });
+    expect(items[0]).not.toHaveProperty("mcpMount");
+  });
+
   it("renders thinking_level_changed as a marker and adds nothing for goal_updated", () => {
     let items: RenderItem[] = [];
     items = reduceEvent(items, { type: "thinking_level_changed", thinkingLevel: "high" });
