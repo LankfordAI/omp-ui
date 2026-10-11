@@ -449,7 +449,10 @@ export function createFrameReductionSlice(
           get().rpc[tabId] !== undefined &&
           get().state?.stallAutoContinue !== false
         )
-          stallContinueWatcher.trigger(tabId);
+          stallContinueWatcher.trigger(
+            tabId,
+            effect.repetition === true ? "repetition" : "stall",
+          );
         return;
       case "store-live-pending-feedback": {
         // #811: the items settled with the commit; the last non-empty

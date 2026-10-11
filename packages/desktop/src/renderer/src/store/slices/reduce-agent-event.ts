@@ -17,6 +17,8 @@ const OMP_ERROR_FLAG_USAGE_LIMIT = 0x0008_0000;
 /** Every built-in provider's stall/first-event watchdog message (pi-ai providers/*). */
 const STALL_MESSAGE_RE =
   /stream (stalled|timed out) while waiting for the (next|first) event/i;
+/** The repetition-halt notice a proxy gateway appends to the final assistant text (#839). */
+const REPETITION_STOP_RE = /response stopped:\s*repetition detected/i;
 
 export interface AgentEventPatch {
   rpc?: Partial<RpcTabState>;
@@ -66,7 +68,7 @@ type AfterCommitEffect =
       type: "append-transcript-item";
       item: NoticeItem;
     }
-  | { phase: "after-commit"; type: "trigger-stall-continue" }
+  | { phase: "after-commit"; type: "trigger-stall-continue"; repetition?: true }
   | { phase: "after-commit"; type: "store-live-pending-feedback"; callOpen: boolean }
   | { phase: "after-commit"; type: "arm-live-work-park" }
   | { phase: "after-commit"; type: "wake-live-call" };
@@ -154,6 +156,12 @@ function carriesTitleDigest(message: unknown): boolean {
           : undefined;
     return text !== undefined && text.trim() !== "";
   });
+}
+
+/** True when the terminal assistant text carries the server's repetition-halt notice (#839). */
+function carriesRepetitionStop(message: unknown): boolean {
+  const text = textFromContent(field(message, "content"));
+  return REPETITION_STOP_RE.test(text.slice(-400));
 }
 
 /**
@@ -386,6 +394,7 @@ export function reduceAgentEvent(
         stopReason: strField(message, "stopReason"),
         errorMessage: strField(message, "errorMessage"),
         errorId: numField(message, "errorId"),
+        repetitionStop: carriesRepetitionStop(message),
       };
       hasRpcPatch = true;
       // The delegated shot (issue #803): the first assistant message omp's
@@ -501,6 +510,12 @@ export function reduceAgentEvent(
       effects.push({
         phase: "after-commit",
         type: "trigger-stall-continue",
+      });
+    else if (tab.lastTurn?.repetitionStop === true)
+      effects.push({
+        phase: "after-commit",
+        type: "trigger-stall-continue",
+        repetition: true,
       });
   }
 
