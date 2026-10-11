@@ -357,6 +357,7 @@ export {
   type RunOmpOnceOptions,
 } from "./omp-process";
 export * from "./collab-cli";
+export * from "./anonymize";
 export { withoutAppImageRuntime } from "./appimage-env";
 export {
   generateBranchNameWithOmp,

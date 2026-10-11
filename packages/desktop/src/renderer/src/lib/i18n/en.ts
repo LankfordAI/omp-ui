@@ -1369,6 +1369,8 @@ export const en = {
   "palette.action.shareLive": "Share live",
   "palette.action.shareLiveDesc": "{title} — a live Collab room from this terminal",
   "palette.action.shareLiveDescNative": "{title} — live sharing needs a terminal tab",
+  "palette.action.anonymize": "Share anonymized",
+  "palette.action.anonymizeDesc": "{title} — a redacted copy written beside the transcripts",
   "palette.action.sessionTree": "Session tree",
   "palette.action.sessionTreeDesc": "rewind to a prompt or jump between branches of {title}",
   "palette.action.lab": "Open the Lab",
@@ -1652,6 +1654,8 @@ export const en = {
   "hud.actions.exportTitle": "export transcript as html",
   "hud.actions.share": "share",
   "hud.actions.shareTitle": "publish an encrypted snapshot of this session",
+  "hud.actions.anonymize": "anonymize",
+  "hud.actions.anonymizeTitle": "write a redacted copy of this session beside the transcripts",
   "hud.actions.failureCount": "{count} failed",
   "hud.actions.heading": "actions",
   "hud.actions.capabilities": "Capabilities",
@@ -2390,6 +2394,10 @@ export const en = {
   "dialog.share.cancel": "cancel",
   // The store's share notice (issue #679): the tab advertises no /share.
   "notice.share.needsOmpCommand": "this omp session does not offer /share — update omp to publish the share command",
+  // The store's share-anonymized notices (issue #834): the output folder of
+  // the omp-side redaction, or why it failed.
+  "notice.anonymize.done": "an anonymized copy was written to the session folder",
+  "notice.anonymize.failed": "anonymize failed: {message}",
   // The store's plan-handoff notice (issue #840): the seed was accepted but
   // the planning source could not be reaped, so it stays live and suppressed.
   "notice.planHandoff.stopFailed": "implementation started, but the planning agent could not be stopped — terminate it manually",

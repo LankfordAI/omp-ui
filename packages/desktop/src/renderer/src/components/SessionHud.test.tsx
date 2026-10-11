@@ -196,6 +196,40 @@ describe("wide Session HUD", () => {
     expect(shareSession).toHaveBeenCalledWith(TAB);
   });
 
+  it("hides the anonymize button below the omp floor and shows it above (#834)", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    // Unknown installed version: no affordance.
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(
+      host.querySelector('button[aria-label="write a redacted copy of this session beside the transcripts"]'),
+    ).toBeNull();
+    act(() => root!.unmount());
+    // A binary at the floor: the button appears and fires the store action.
+    const anonymizeSession = vi.fn(async () => {});
+    useStore.setState({
+      ompUpdate: {
+        status: "idle",
+        installPath: "/bin/omp",
+        installedVersion: "18.8.9",
+        latestVersion: null,
+        progress: null,
+        error: null,
+      },
+      anonymizeSession,
+    });
+    root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const trigger = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="write a redacted copy of this session beside the transcripts"]',
+    )!;
+    act(() => trigger.click());
+    expect(anonymizeSession).toHaveBeenCalledWith(TAB);
+  });
+
   it("shows a remote worktree chip with only remote-safe actions (#435)", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,

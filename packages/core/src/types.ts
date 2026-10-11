@@ -1553,6 +1553,11 @@ export interface DiagnosticsExportResult {
   warnings: string[];
 }
 
+/** One `omp anonymize` (anonymize) outcome: the written dir, or omp's refusal. */
+export type AnonymizeSessionResult =
+  | { ok: true; path: string; message: null }
+  | { ok: false; path: null; message: string };
+
 
 export type { OmpBackend } from "./backend-channels";
 

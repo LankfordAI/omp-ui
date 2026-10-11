@@ -1235,6 +1235,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "palette.action.shareLive": "실시간 공유",
   "palette.action.shareLiveDesc": "{title} — 이 터미널의 실시간 Collab 방",
   "palette.action.shareLiveDescNative": "{title} — 실시간 공유에는 터미널 탭이 필요합니다",
+  "palette.action.anonymize": "아너미스 화로 공유",
+  "palette.action.anonymizeDesc": "{title} — 대화록 별에 출력되는 텍시케이션 사본",
   "palette.action.sessionTree": "세션 트리",
   "palette.action.sessionTreeDesc": "{title}의 프롬프트로 되돌리거나 브랜치 간 이동",
   "palette.action.lab": "Lab 열기",
@@ -1493,6 +1495,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.actions.exportTitle": "대화를 HTML로 내보내기",
   "hud.actions.share": "공유",
   "hud.actions.shareTitle": "이 세션의 암호화 스냅샷 게시",
+  "hud.actions.anonymize": "아너미스화",
+  "hud.actions.anonymizeTitle": "이 세션의 텍시케이션 사본을 대화록 별에 쓰기",
   "hud.actions.failureCount": "{count}개 실패",
   "hud.actions.heading": "작업",
   "hud.actions.new": "새로 만들기",
@@ -2219,6 +2223,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.share.cancel": "취소",
   // 저장소의 공유 알림 (issue #679): 이 탭은 /share를 광고하지 않습니다.
   "notice.share.needsOmpCommand": "이 omp 세션은 /share를 제공하지 않습니다 — omp를 업데이트하여 share 명령을 게시하세요",
+  // 아너미스 공유 알련 (issue #834): 출력 폴더와 실패 사유.
+  "notice.anonymize.done": "아너미스화된 사본이 세션 폴더에 쓰어졌습니다",
+  "notice.anonymize.failed": "아너미스화 실패: {message}",
   // 저장소의 계획 인계 알림 (issue #840): 시드는 접수되었지만 계획 세션을 중지하지 못했습니다.
   "notice.planHandoff.stopFailed": "구현이 시작되었지만 계획 에이전트를 중지하지 못했습니다 — 직접 종료하세요",
   "collab.access.full": "전체",
