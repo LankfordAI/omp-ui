@@ -23,7 +23,7 @@ import type {
   ShellItem,
   UserItem,
 } from "../lib/transcript";
-import { findOwner, findRecord, useStore } from "../store";
+import { findOwner, findRecord, sessionCwd, useStore } from "../store";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown, linkify, OpenExternalLink } from "./Markdown";
 import { openImageViewer } from "./ImageViewer";
@@ -362,6 +362,7 @@ const NOTICE_TONE: Record<string, Tone> = { error: "rose", warn: "copper", info:
 function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
   const t = useT();
   const reportError = useStore((s) => s.reportError);
+  const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   // A path on a remote instance's disk (issue #416) cannot be opened here:
   // `file:open` is host-local, so the notice reads as plain text there.
   const remote = useStore((s) => tabId !== undefined && findOwner(s.state, tabId)?.instanceId != null);
@@ -383,7 +384,33 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
         {item.source && (
           <span className="shrink-0 font-mono text-[10px] text-ink-faint">{item.source}</span>
         )}
-        {path === undefined ? (
+        {item.mcpMount !== undefined ? (
+          // The collapsed xdev mount notice (issue #848): the tool-name wall
+          // is one count here; the full roster is the Tools tab of the
+          // CapabilitiesViewer, one click away.
+          <button
+            type="button"
+            className="cursor-pointer text-left underline decoration-dotted underline-offset-2 hover:text-ink"
+            data-selectable
+            // Pin the viewer to the session's own working tree (the /mcp
+            // list pattern, session-params.ts): a null scope with a tabId
+            // would read as drift-detached and hide the roster.
+            onClick={() => {
+              const s = useStore.getState();
+              const tab = tabId === undefined ? undefined : s.tabs.find((c) => c.tabId === tabId);
+              const scopeCwd =
+                (tabId !== undefined ? sessionCwd(findRecord(s.state, tabId)) : undefined) ??
+                tab?.projectCwd;
+              openCapabilitiesViewer(scopeCwd ?? null, tabId, "tools", tab?.instanceId ?? null);
+            }}
+          >
+            {t(
+              item.mcpMount.count === 1 ? "notice.mcpMount.one" : "notice.mcpMount",
+              { count: item.mcpMount.count },
+            )}{" "}
+            <span className="text-ink-dim">{t("notice.mcpMount.view")}</span>
+          </button>
+        ) : path === undefined ? (
           <span className="min-w-0 break-words" data-selectable>
             {item.text}
           </span>

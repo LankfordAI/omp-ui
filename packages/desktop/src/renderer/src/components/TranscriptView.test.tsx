@@ -13,7 +13,7 @@ import {
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
 import { localeTag } from "../lib/i18n";
-import { backendState, rpcTabState } from "../test/fixtures";
+import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 import { useStore } from "../store";
 import { TranscriptView, type FindState } from "./TranscriptView";
 
@@ -54,6 +54,10 @@ vi.mock("../backend", () => ({
     showPathInFolder: vi.fn(async () => {}),
   },
 }));
+
+// The mcpMount branch reaches for the real store action; the summary test
+// stubs it and restores the original below.
+const originalOpenCapabilitiesViewer = useStore.getState().openCapabilitiesViewer;
 
 function assistant(id: string, text: string): RenderItem {
   return { kind: "assistant", id, text, thinking: "", streaming: false };
@@ -712,6 +716,56 @@ describe("NoticeLine path actions (issue #84)", () => {
     const { el, root } = render([notice("plan approved")]);
     expect(el.textContent).toContain("plan approved");
     expect(el.querySelector("button")).toBeNull();
+    act(() => root.unmount());
+  });
+});
+
+describe("NoticeLine mcpMount summary (issue #848)", () => {
+  afterEach(() => {
+    useStore.setState({ openCapabilitiesViewer: originalOpenCapabilitiesViewer, tabs: [] });
+  });
+
+  it("renders the count line and opens the Tools tab on click", () => {
+    const open = vi.fn();
+    useStore.setState({
+      openCapabilitiesViewer: open,
+      tabs: [tabInfo({ tabId: "tab-1", projectCwd: "/p" })],
+    });
+    const { el, root } = render(
+      [
+        {
+          kind: "notice",
+          id: "n1",
+          text: "",
+          level: "info",
+          source: "xdev",
+          mcpMount: { count: 3 },
+        },
+      ],
+      "tab-1",
+    );
+
+    expect(el.textContent).toContain("3 MCP tools are active");
+    const button = el.querySelector<HTMLButtonElement>("button");
+    expect(button).not.toBeNull();
+    expect(button!.textContent).toContain("View");
+
+    act(() => {
+      button!.click();
+    });
+    // Pinned to the session's own working tree, like /mcp list: a null scope
+    // with a tabId would read as drift-detached inside the viewer.
+    expect(open).toHaveBeenCalledWith("/p", "tab-1", "tools", null);
+    act(() => root.unmount());
+  });
+
+  it("singularizes a one-tool mount", () => {
+    const open = vi.fn();
+    useStore.setState({ openCapabilitiesViewer: open });
+    const { el, root } = render([
+      { kind: "notice", id: "n1", text: "", level: "info", source: "xdev", mcpMount: { count: 1 } },
+    ]);
+    expect(el.textContent).toContain("1 MCP tool is active");
     act(() => root.unmount());
   });
 });

@@ -113,6 +113,13 @@ export interface NoticeItem {
    * open/reveal actions without parsing the path back out of the text.
    */
   path?: string;
+  /**
+   * The omp xdev mount notice collapsed to a count (issue #848): the raw
+   * comma-list of `mcp__…` tool names is dropped; `count` is how many MCP
+   * tools the notice announced. The view renders a View affordance that
+   * opens the CapabilitiesViewer Tools tab instead of the wall.
+   */
+  mcpMount?: { count: number };
 }
 export interface IrcItem {
   kind: "irc";
@@ -188,6 +195,21 @@ let counter = 0;
 /** Marker labels are hairlines — long provider errors get clipped. */
 function truncateLabel(s: string, max = 120): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
+/**
+ * The omp xdev mount notice (`xd://: mounted a, b, c…`, source "xdev") carrying
+ * MCP tools → the MCP-tool count it announces. Null for anything else —
+ * including mounted lists with zero `mcp__` names, mixed segments
+ * (`"mounted …; unmounted …"`), and every other notice — which all keep
+ * their verbatim text (issue #848).
+ */
+export function mcpMountCount(text: string): { count: number } | null {
+  const m = /^xd:\/\/: mounted ((?:[^,;]+)(?:, [^,;]+)*)$/.exec(text);
+  if (m === null) return null;
+  const names = m[1]!.split(", ").map((s) => s.trim());
+  const mcp = names.filter((n) => n.startsWith("mcp__"));
+  return mcp.length === 0 ? null : { count: mcp.length };
 }
 
 export function markerItem(label: string, tone?: MarkerItem["tone"], timestamp = Date.now()): MarkerItem {
@@ -928,11 +950,15 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
 
     case "notice": {
       const text = str(event.message) ?? str(event.text) ?? str(event.notice) ?? "";
+      // The xdev mount notice's comma-list of tool names is the wall (issue
+      // #848): collapse it to a structured count, text empty by design.
+      const mcpMount = mcpMountCount(text);
       return [
         ...items,
         {
-          ...noticeItem(text, NOTICE_LEVELS[str(event.level) ?? ""]),
+          ...noticeItem(mcpMount === null ? text : "", NOTICE_LEVELS[str(event.level) ?? ""]),
           source: str(event.source),
+          ...(mcpMount === null ? {} : { mcpMount }),
         },
       ];
     }
