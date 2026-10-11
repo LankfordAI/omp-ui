@@ -718,7 +718,7 @@ describe("SessionHud compaction threshold notch (issue #249)", () => {
 
   const seed = (
     autoCompaction: boolean,
-    settings?: Record<string, { thresholdPercent?: number; thresholdTokens?: number; reserveTokens?: number } | null>,
+    settings?: Record<string, { thresholdPercent?: number; thresholdTokens?: number; reserveTokens?: number; modelThresholds?: Record<string, { thresholdPercent: number; thresholdTokens: number; fixed?: boolean }>; modelThresholdsEnabled?: boolean } | null>,
   ): void => {
     useStore.setState({
       rpc: {
@@ -794,6 +794,29 @@ describe("SessionHud compaction threshold notch (issue #249)", () => {
     const notch = bar.querySelector("span");
     expect(notch).not.toBeNull();
     expect(notch!.style.left).toBe("calc(85% - 1px)");
+  });
+
+  it("moves the notch to the modelThresholds base for the session's model (issue #831)", () => {
+    desktop();
+    // Base 60 on the fixture's 100-token window: e = 60, and the 16K default
+    // reserve is impossible there, so the 15% reserve decides → 60 − 9 = 51.
+    seed(true, {
+      "/p": {
+        thresholdPercent: -1,
+        thresholdTokens: -1,
+        modelThresholds: {
+          "anthropic/claude-sonnet-4-5": { thresholdPercent: -1, thresholdTokens: 60 },
+        },
+      },
+    });
+    useStore.setState((s) => ({
+      rpc: { [TAB]: { ...s.rpc[TAB]!, model: { id: "claude-sonnet-4-5", name: "Sonnet", provider: "anthropic" } } },
+    }));
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const notch = meter(host).querySelector("span");
+    expect(notch).not.toBeNull();
+    expect(notch!.style.left).toBe("calc(51% - 1px)");
   });
 });
 
