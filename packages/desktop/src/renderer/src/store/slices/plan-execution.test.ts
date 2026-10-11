@@ -986,3 +986,84 @@ describe("in-place execute arms the work-park on the review-close wake (#842)", 
     expect(peekTabRuntime(h.TAB)?.liveWorkPark).not.toBe(true);
   });
 });
+
+describe("Run as goal arms a native goal after the accepted implementation prompt", () => {
+  const openGate = (id: string): void => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id,
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({ title: "Fix login", planFilePath: "local://fix-plan.md" }),
+    });
+  };
+
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.sent.length = 0;
+  });
+
+  it("arms nothing when the flag is absent", async () => {
+    openGate("ga1");
+    h.useStore.getState().executePlan(h.TAB, "existing");
+    await h.flushMicrotasks();
+    h.respond(h.TAB, h.sent.find((s) => s.cmd.type === "prompt")!.cmd, {});
+    await h.flushMicrotasks();
+    expect(h.sent.some((s) => s.cmd.type === "goal")).toBe(false);
+    expect(
+      h.useStore.getState().rpc[h.TAB]!.items.filter((i) => i.kind === "notice" && i.level === "warn"),
+    ).toHaveLength(0);
+  });
+
+  it("sends the goal create strictly after the accepted prompt, objective built from the plan source", async () => {
+    openGate("ga2");
+    h.useStore.getState().executePlan(h.TAB, "existing", { goal: true });
+    await h.flushMicrotasks();
+    // Before the prompt ack, the create frame must not be on the wire.
+    expect(h.sent.some((s) => s.cmd.type === "goal")).toBe(false);
+    const promptIndex = h.sent.findIndex((s) => s.cmd.type === "prompt");
+    h.respond(h.TAB, h.sent[promptIndex]!.cmd, {});
+    await h.flushMicrotasks();
+    const goalIndex = h.sent.findIndex((s) => s.cmd.type === "goal");
+    expect(goalIndex).toBeGreaterThan(promptIndex);
+    expect(h.sent[goalIndex]!.cmd).toMatchObject({
+      type: "goal",
+      op: "create",
+      objective:
+        'Execute the approved plan: "Fix login" (plan file: local://fix-plan.md). Complete every item.',
+    });
+    // A successful create owns no notice: the HUD mirrors goal_updated.
+    expect(
+      h.useStore.getState().rpc[h.TAB]!.items.filter((i) => i.kind === "notice" && i.level === "warn"),
+    ).toHaveLength(0);
+  });
+
+  it("a refused create appends omp's sentence as a warn notice and keeps the run", async () => {
+    openGate("ga3");
+    h.useStore.getState().executePlan(h.TAB, "existing", { goal: true });
+    await h.flushMicrotasks();
+    h.respond(h.TAB, h.sent.find((s) => s.cmd.type === "prompt")!.cmd, {});
+    await h.flushMicrotasks();
+    h.respond(h.TAB, h.sent.find((s) => s.cmd.type === "goal")!.cmd, "A goal is already active", false);
+    await h.flushMicrotasks();
+    expect(
+      h.useStore.getState().rpc[h.TAB]!.items.filter((i) => i.kind === "notice" && i.level === "warn").at(-1),
+    ).toMatchObject({
+      text: "A goal is already active",
+      level: "warn",
+    });
+    // The implementation already executed: only one prompt, no retry.
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(1);
+    expect(h.sent.filter((s) => s.cmd.type === "goal")).toHaveLength(1);
+  });
+
+  it("a rejected prompt sends no goal frame", async () => {
+    openGate("ga4");
+    h.useStore.getState().executePlan(h.TAB, "existing", { goal: true });
+    await h.flushMicrotasks();
+    h.respond(h.TAB, h.sent.find((s) => s.cmd.type === "prompt")!.cmd, "prompt refused", false);
+    await h.flushMicrotasks();
+    expect(h.sent.some((s) => s.cmd.type === "goal")).toBe(false);
+  });
+});

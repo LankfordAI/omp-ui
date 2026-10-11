@@ -10,6 +10,7 @@
 
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { ALL_MAGIC_KEYWORDS, type MagicKeyword } from "@omp-ui/core/magic-keywords";
+import type { ToolsAtScope } from "@omp-ui/core/types";
 
 /**
  * The keywords omp would attach a notice for right now. Unknown (no snapshot,
@@ -59,4 +60,21 @@ export function keywordsOffInSettings(
     }
   }
   return off;
+}
+
+/**
+ * True when the scoped catalog's tools section is available and the `goal`
+ * gate reads `enabled === false` — omp's goal RPC create would be refused.
+ * Config truth, not the session roster: the roster's `goal` row reports
+ * membership in the model-facing tool set, which plan mode detaches even
+ * while `goal.enabled` is on, and the review always opens in plan mode. An
+ * unavailable section (or the row's `enabled: null`, omp published the key
+ * without a boolean) is not off, the same fallback rule as
+ * {@link keywordsOffInSettings}.
+ */
+export function goalDisabledInCatalog(
+  tools: ToolsAtScope | { status: "error"; message: string } | null | undefined,
+): boolean {
+  if (tools === undefined || tools === null || tools.status !== "available") return false;
+  return tools.items.some((row) => row.tool === "goal" && row.enabled === false);
 }

@@ -5,7 +5,7 @@ import type {
   CapabilityTool,
 } from "@omp-ui/core/capabilities";
 import { ALL_MAGIC_KEYWORDS } from "@omp-ui/core/magic-keywords";
-import { firingKeywords, keywordsOffInSettings } from "./magic-keyword-gate";
+import { firingKeywords, goalDisabledInCatalog, keywordsOffInSettings } from "./magic-keyword-gate";
 
 const KEYWORDS: CapabilityMagicKeyword[] = [
   { id: "ultrathink", word: "ultrathink", requires: [], enabled: true },
@@ -118,5 +118,35 @@ describe("keywordsOffInSettings", () => {
       ALL_TOOLS,
     );
     expect(keywordsOffInSettings(snap).size).toBe(0);
+  });
+});
+
+describe("goalDisabledInCatalog", () => {
+  it("is true only for an explicitly off goal gate", () => {
+    expect(
+      goalDisabledInCatalog({
+        status: "available",
+        items: [{ tool: "goal", key: "goal.enabled", enabled: false, layer: "global" }],
+      }),
+    ).toBe(true);
+    expect(
+      goalDisabledInCatalog({
+        status: "available",
+        items: [{ tool: "goal", key: "goal.enabled", enabled: true, layer: "default" }],
+      }),
+    ).toBe(false);
+  });
+
+  it("cannot-tell is not off: error, absent, or non-boolean rows", () => {
+    expect(goalDisabledInCatalog(null)).toBe(false);
+    expect(goalDisabledInCatalog(undefined)).toBe(false);
+    expect(goalDisabledInCatalog({ status: "error", message: "config read failed" })).toBe(false);
+    expect(goalDisabledInCatalog({ status: "available", items: [] })).toBe(false);
+    expect(
+      goalDisabledInCatalog({
+        status: "available",
+        items: [{ tool: "goal", key: "goal.enabled", enabled: null, layer: "default" }],
+      }),
+    ).toBe(false);
   });
 });

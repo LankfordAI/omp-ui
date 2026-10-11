@@ -1,12 +1,16 @@
 import { useState } from "react";
 import type { OwnedSessionRecord } from "@omp-ui/core/types";
-import type { StagedKeyword } from "./plan-concerns";
 import type { ModelInfo } from "./rpc-types";
+import type { PlanExecutionOptions, StagedKeyword } from "./plan-concerns";
 
-const EMPTY_KEYWORDS: Record<StagedKeyword, boolean> = {
+/** The staged Execute options the hook owns: the keyword switches plus goal. */
+export type StagedSwitches = Required<Pick<PlanExecutionOptions, StagedKeyword | "goal">>;
+
+const EMPTY_SWITCHES: StagedSwitches = {
   ultrathink: false,
   orchestrate: false,
   workflowz: false,
+  goal: false,
 };
 
 export function usePlanDispatchStaging(
@@ -21,7 +25,7 @@ export function usePlanDispatchStaging(
   const [stagedAdvisorModel, setStagedAdvisorModel] = useState<string | null>(
     sessionRecord?.advisorModel ?? null,
   );
-  const [keywords, setKeywords] = useState<Record<StagedKeyword, boolean>>(EMPTY_KEYWORDS);
+  const [switches, setSwitches] = useState<StagedSwitches>(EMPTY_SWITCHES);
   const [pickingModel, setPickingModel] = useState(false);
   const [pickingAdvisorModel, setPickingAdvisorModel] = useState(false);
   const [seededFor, setSeededFor] = useState<unknown>(null);
@@ -32,13 +36,13 @@ export function usePlanDispatchStaging(
     setStagedThinking(thinkingLevel);
     setStagedAdvisor(sessionRecord?.advisor ?? false);
     setStagedAdvisorModel(sessionRecord?.advisorModel ?? null);
-    setKeywords(EMPTY_KEYWORDS);
+    setSwitches(EMPTY_SWITCHES);
     setPickingModel(false);
     setPickingAdvisorModel(false);
   }
 
-  const setKeyword = (keyword: StagedKeyword, armed: boolean): void => {
-    setKeywords((current) => ({ ...current, [keyword]: armed }));
+  const setSwitch = <K extends keyof StagedSwitches>(key: K, armed: boolean): void => {
+    setSwitches((current) => ({ ...current, [key]: armed }));
   };
 
   return {
@@ -50,8 +54,8 @@ export function usePlanDispatchStaging(
     setStagedAdvisor,
     stagedAdvisorModel,
     setStagedAdvisorModel,
-    keywords,
-    setKeyword,
+    switches,
+    setSwitch,
     pickingModel,
     setPickingModel,
     pickingAdvisorModel,

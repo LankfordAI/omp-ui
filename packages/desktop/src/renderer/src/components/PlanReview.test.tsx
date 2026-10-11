@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BranchList, SessionWorktree } from "@omp-ui/core/types";
+import type { BranchList, ScopedCapabilitiesResult, SessionWorktree } from "@omp-ui/core/types";
 import type { ThemedToken } from "shiki/core";
 import type { PlanDiagnostic } from "@omp-ui/core/plan";
 import type { PreparedPlanState } from "../lib/plan-document";
@@ -96,6 +96,25 @@ const branches: BranchList = {
   defaultRemote: "origin",
 };
 
+/** The scoped-catalog shape the Run-as-goal gate consumes (issue #846). */
+function emptyCatalog(): ScopedCapabilitiesResult {
+  return {
+    skills: {
+      status: "available" as const,
+      items: [],
+      roots: [],
+      masterEnabled: true,
+      skillCommandsEnabled: true,
+      note: "bundles-not-listed" as const,
+      truncated: false,
+    },
+    tools: { status: "available" as const, items: [] },
+    agentDir: "/home/u/.omp/agent",
+    projectConfigPath: null,
+    ompVersion: null,
+  };
+}
+
 const backendMock = {
   listBranches: vi.fn(async () => branches),
   checkoutBranch: vi.fn(async () => {}),
@@ -123,6 +142,10 @@ const backendMock = {
   // An HTML gate settles only through main's accepted answer (#312 follow-up);
   // markdown gates never reach it.
   answerPlanReview: vi.fn(async () => ({ status: "accepted" as const })),
+  // The Run-as-goal gate reads omp's `goal.enabled` config truth through the
+  // scoped catalog (issue #846); a catalog that says nothing about the tool
+  // leaves the switch on, matching the viewer's fallback.
+  getScopedCapabilities: vi.fn(async () => emptyCatalog()),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: store.ts → ./backend (and lib/themes)
@@ -365,6 +388,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   backendMock.listBranches.mockResolvedValue(branches);
   backendMock.suggestBranchName.mockResolvedValue(null);
+  backendMock.getScopedCapabilities.mockResolvedValue(emptyCatalog());
   clipboardImageMock.hasClipboardImage.mockReset().mockReturnValue(false);
   clipboardImageMock.hasClipboardDocument.mockReset().mockReturnValue(false);
   clipboardImageMock.readClipboardImages.mockReset();
@@ -1435,6 +1459,128 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
     });
     const message = String(promptFrame()!.message);
     expect(message).not.toContain("workflowz\n\n");
+  });
+
+  it("arming Run as goal flows goal: true into executePlan and the summary chip", async () => {
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ executePlan: executePlanSpy });
+    try {
+      render();
+      await act(async () => {
+        document
+          .body.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="run the implementation as a goal"]')!
+          .click();
+      });
+      expect(document.body.textContent).toContain("· goal");
+      await act(async () => {
+        executeButton().click();
+        await Promise.resolve();
+      });
+      expect(executePlanSpy).toHaveBeenCalledWith(
+        TAB,
+        "existing",
+        expect.objectContaining({ goal: true }),
+      );
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
+  });
+
+  it("holds Run as goal disabled when omp's goal.enabled setting is off, and never dispatches it", async () => {
+    // The gate is config truth, not the session roster: plan mode detaches
+    // the goal tool from the roster while the setting stays on, so a roster
+    // read would disable the switch on every review.
+    backendMock.getScopedCapabilities.mockResolvedValue({
+      ...emptyCatalog(),
+      tools: {
+        status: "available" as const,
+        items: [{ tool: "goal", key: "goal.enabled", enabled: false, layer: "default" as const }],
+      },
+    });
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ executePlan: executePlanSpy });
+    try {
+      render();
+      await until(() =>
+        document
+          .body!.querySelector<HTMLButtonElement>(
+            'button[role="switch"][aria-label="run the implementation as a goal"]',
+          )!
+          .disabled,
+      );
+      const goalSwitch = document.body.querySelector<HTMLButtonElement>(
+        'button[role="switch"][aria-label="run the implementation as a goal"]',
+      )!;
+      expect(goalSwitch.getAttribute("title")).toBe(
+        "Off in omp's goal.enabled setting — omp would refuse it.",
+      );
+      await act(async () => {
+        goalSwitch.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+      });
+      await act(async () => {
+        executeButton().click();
+        await Promise.resolve();
+      });
+      expect(executePlanSpy).toHaveBeenCalledWith(
+        TAB,
+        "existing",
+        expect.objectContaining({ goal: false }),
+      );
+      expect(document.body.textContent).not.toContain("· goal");
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
+  });
+
+  it("holds Run as goal disabled while the session already carries a goal, and never dispatches it", async () => {
+    const busyTab = {
+      ...tabState(),
+      goal: {
+        enabled: true,
+        exiting: false,
+        goal: {
+          id: "g1",
+          objective: "something else",
+          status: "active" as const,
+          tokenBudget: null,
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      },
+    };
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ rpc: { [TAB]: busyTab }, executePlan: executePlanSpy });
+    try {
+      render();
+      const goalSwitch = document.body.querySelector<HTMLButtonElement>(
+        'button[role="switch"][aria-label="run the implementation as a goal"]',
+      )!;
+      expect(goalSwitch.disabled).toBe(true);
+      expect(goalSwitch.getAttribute("title")).toBe(
+        "This session already has a goal — drop it before running one.",
+      );
+      await act(async () => {
+        goalSwitch.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+      });
+      await act(async () => {
+        executeButton().click();
+        await Promise.resolve();
+      });
+      expect(executePlanSpy).toHaveBeenCalledWith(
+        TAB,
+        "existing",
+        expect.objectContaining({ goal: false }),
+      );
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
   });
 
   it("a staged model pick flows to the set_model frame at execute", async () => {
