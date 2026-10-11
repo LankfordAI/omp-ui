@@ -32,8 +32,11 @@ or after an accepted plan handoff. Ordinary idle hibernation waits beyond the
 *Hibernate idle sessions* window, excludes viewed and last-active sessions,
 and safety-probes for remaining work (issues #246, #266, #304). An accepted
 fresh or worktree implementation seed instead cancels the planning process's
-remaining work immediately, regardless of idle preferences (issue #840,
-superseding #283's handoff policy).
+remaining work after the planning turn's close-out window — the in-flight turn
+ending or a bounded grace, whichever comes first — regardless of idle
+preferences (issue #844 following #840's policy, superseding #283's). A
+live-voice handoff stops immediately instead, and a human prompt or resume
+into the source during the window cancels the stop.
 A hibernated session is dormant — transcript, artifacts, and worktree on disk,
 no process — and wakes through explicit human resume; the sidebar shows it as
 dormant and its tab offers resume. The distinction from a plain dormant session
@@ -91,10 +94,12 @@ _Avoid_: tab history
 A persistent, one-way relation from a fresh implementation session to the
 planning session whose approved plan seeded it. After the fresh or worktree
 session acknowledges that seed, the renderer suppresses automatic prompts on
-the source and immediately requests a validated bounded stop of its captured
-process (issue #840). This explicitly abandons remaining turns, dialogs, queues,
-streams, subagents, goals, and voice commands; idle settings and safety probes
-do not delay it. A failed reap leaves the source live but still handed off, with
+the source and requests a validated bounded stop of its captured process
+after the planning turn's close-out window — the in-flight turn ending or a
+bounded grace, whichever comes first (issue #844 following #840); a live-voice
+handoff stops immediately. This explicitly abandons dialogs, queues, streams,
+subagents, goals, and voice commands left past the window; idle settings and
+safety probes do not delay it. A failed reap leaves the source live but still handed off, with
 a warning in the implementation tab, until a human prompts or resumes it.
 Saved sessions, artifacts, lineage directories, worktrees, and branches survive.
 Deletion runs one way: deleting the planning session deletes the implementation
