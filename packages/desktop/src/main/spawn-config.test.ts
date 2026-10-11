@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { subagentModelOverlayPath } from "@omp-ui/core";
+import { gitGuardOverlayPath, subagentModelOverlayPath } from "@omp-ui/core";
 import {
   RPC_BRIDGE_IDS,
   writeRpcExtensions,
@@ -121,6 +121,53 @@ describe("writeSessionOverlays vault pin", () => {
     } finally {
       warning.mockRestore();
     }
+  });
+});
+
+describe("writeSessionOverlays — git guard pin (#832)", () => {
+  const savedAgentDir = process.env.PI_CODING_AGENT_DIR;
+  afterEach(() => {
+    if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
+  });
+  function isolatedAgentDir(): { dir: string; agent: string } {
+    const dir = tmp();
+    const agent = path.join(dir, "agent");
+    fs.mkdirSync(agent, { recursive: true });
+    process.env.PI_CODING_AGENT_DIR = agent;
+    return { dir, agent };
+  }
+  const worktree = {
+    path: "/wt/branch",
+    branch: "omp-ui/proj-11111111",
+    base: "main",
+  };
+
+  it("pins the guard on for an unconfigured worktree session", () => {
+    const { dir } = isolatedAgentDir();
+    const file = gitGuardOverlayPath(dir);
+    const overlays = writeSessionOverlays(ownedSessionRecord({ worktree }), dir);
+    expect(overlays).toContain(file);
+    expect(fs.readFileSync(file, "utf8")).toBe("bash:\n  gitGuard: true\n");
+  });
+
+  it("omits the pin for a project-checkout session", () => {
+    const { dir } = isolatedAgentDir();
+    const file = gitGuardOverlayPath(dir);
+    fs.writeFileSync(file, "bash:\n  gitGuard: true\n");
+    const overlays = writeSessionOverlays(ownedSessionRecord({ worktree: null }), dir);
+    expect(overlays).not.toContain(file);
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it("omits the pin and drops the stale artifact when the global layer names the key", () => {
+    const { dir, agent } = isolatedAgentDir();
+    fs.writeFileSync(path.join(agent, "config.yml"), "bash:\n  gitGuard: false\n", "utf8");
+    const file = gitGuardOverlayPath(dir);
+    fs.writeFileSync(file, "bash:\n  gitGuard: true\n");
+    const overlays = writeSessionOverlays(ownedSessionRecord({ worktree }), dir);
+    expect(overlays).not.toContain(file);
+    expect(fs.existsSync(file)).toBe(false);
   });
 });
 

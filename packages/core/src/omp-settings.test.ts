@@ -2,6 +2,7 @@ import * as os from "node:os";
 import { describe, expect, it } from "vitest";
 import { resolveOmpBinary } from "./paths";
 import {
+  BASH_GIT_GUARD_KEY,
   execOmpConfigRunner,
   parseEnumOptions,
   readOmpCompactionMethods,
@@ -394,6 +395,32 @@ describe("readOmpSettings", () => {
       layer: "default",
     });
   });
+
+  it("emits the git guard key when the binary publishes it (#832)", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
+        {
+          global: {
+            [BASH_GIT_GUARD_KEY]: entry(
+              false,
+              "boolean",
+              "Refuse git commands that discard or move shared work in the bash tool",
+            ),
+          },
+          pristine: { [BASH_GIT_GUARD_KEY]: entry(false, "boolean", "") },
+          human: "",
+        },
+        null,
+      ),
+    );
+    expect(snapshot.error).toBeNull();
+    expect(snapshot.entries.find((e) => e.key === BASH_GIT_GUARD_KEY)).toMatchObject({
+      type: "boolean",
+      value: false,
+      layer: "default",
+    });
+  });
 });
 
 describe("OpenRouter variant", () => {
@@ -570,6 +597,18 @@ describe("writeOmpSetting", () => {
       "false",
       "--json",
     ]);
+  });
+
+  it("admits bash.gitGuard to the write boundary (#832)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: BASH_GIT_GUARD_KEY, value: false },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", BASH_GIT_GUARD_KEY, "false", "--json"]);
   });
 
   it("refuses a missing binary without invoking the runner", async () => {

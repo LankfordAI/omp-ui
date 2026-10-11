@@ -126,6 +126,17 @@ export const LIVE_VOICE_SETTING_GROUP: OmpSettingGroup = {
   keys: [LIVE_VOICE_SETTING_KEY],
 };
 
+/** The shared-work guard for the bash tool (omp 18.8.7, issue #832). */
+export const BASH_GIT_GUARD_KEY = "bash.gitGuard";
+
+/** Git safety for the bash tool. A plain boolean row; the worktree default
+ *  lives in git-guard-overlay.ts, so an unconfigured worktree session boots
+ *  guarded while an explicit user value always wins. */
+export const GIT_SETTING_GROUP: OmpSettingGroup = {
+  title: "Git",
+  keys: [BASH_GIT_GUARD_KEY],
+};
+
 /** The exact-interpreter override; "" means "let omp discover one" (issue #671). */
 export const PYTHON_INTERPRETER_KEY = "python.interpreter";
 
@@ -178,6 +189,7 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     title: "Python",
     keys: [PYTHON_INTERPRETER_KEY, "python.kernelMode"],
   },
+  GIT_SETTING_GROUP,
 ];
 export const OMP_SETTING_KEYS: readonly string[] = [
   ...OMP_SETTING_GROUPS.flatMap((group) => group.keys),

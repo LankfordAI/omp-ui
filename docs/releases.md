@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - The activity bar on running tool cards and the rpc-ui transcript top bar now sweeps continuously while the tool runs; the bar freezes only when the model stream stalls (#796).
+- Worktree sessions now boot with omp's destructive-git guard (`bash.gitGuard`) on, so a session cannot stash or reset away a sibling session's uncommitted work; the new Git row on the omp settings page overrides it (#832).
 
 ## Choose a download
 
