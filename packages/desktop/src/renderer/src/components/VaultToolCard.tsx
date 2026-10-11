@@ -110,7 +110,7 @@ export function VaultToolCard({ item, tabId }: { item: ToolItem; tabId?: string 
           {openable && <OpenInObsidianButton vaultName={openable.vaultName} file={openable.file} tabId={tabId} />}
         </span>
       </div>
-      {item.status === "running" && <ProgressSweep tone="copper" activity={item.argsText?.length ?? 0} />}
+      {item.status === "running" && <ProgressSweep tone="copper" />}
       {open && hasBody && (
         <div className="space-y-2 border-t border-line-soft px-2.5 py-2 text-ink">
           {pathLine !== null && (

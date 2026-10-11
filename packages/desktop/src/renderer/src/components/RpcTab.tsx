@@ -411,7 +411,6 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
           <div className="absolute inset-x-0 -top-px">
             <ProgressSweep
               tone={status === "starting" ? "neutral" : "signal"}
-              activity={rpc?.transcriptRevision ?? 0}
             />
           </div>
         </div>

@@ -194,8 +194,9 @@ const STATUS: Record<
 
 /**
  * The live stream-stall chip (issue #228), one component for both HUD
- * faces. The dot has no pulse: ADR-0004 reserves `breathe` for "work is
- * happening right now", and a stalled stream is the negation of that.
+ * faces. The dot has no pulse: ADR-0004 marks "work is happening right
+ * now" with the dot's static active halo, and a stalled stream is the
+ * negation of that.
  */
 function StreamStallChip({
   stallMs,
