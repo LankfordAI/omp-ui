@@ -12,6 +12,7 @@ import { capabilitiesExtensionPath } from "./capabilities-extension";
 import { compactionMethodOverlayPath } from "./compaction-overlay";
 import { gitGuardOverlayPath } from "./git-guard-overlay";
 import { goalOverlayPath } from "./goal-overlay";
+import { worktreeOverlayPath } from "./worktree-overlay";
 import { limitsExtensionPath } from "./limits-extension";
 import { mcpStatusExtensionPath } from "./mcp-status-extension";
 import { modelOverlayPath } from "./model-overlay";
@@ -99,7 +100,7 @@ const LOG_FILES = [
   "breadcrumbs.log.old",
 ] as const;
 
-/** The 12 generated per-session files (7 extensions + 5 overlays). */
+/** The 13 generated per-session files (7 extensions + 6 overlays). */
 const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   planExtensionPath,
   capabilitiesExtensionPath,
@@ -113,6 +114,7 @@ const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   compactionMethodOverlayPath,
   goalOverlayPath,
   gitGuardOverlayPath,
+  worktreeOverlayPath,
 ];
 
 /** One planned file: either a source path to copy, or bytes built in memory. */

@@ -87,6 +87,7 @@ export * from "./carryover-context";
 export { carryoverContextPath, stageCarryoverContext } from "./carryover-artifact";
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
 export { approvalOverlayPath, writeApprovalOverlay } from "./approval-overlay";
+export { worktreeOverlayPath, writeWorktreeOverlay } from "./worktree-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
 export { gitGuardOverlayPath, writeGitGuardOverlay } from "./git-guard-overlay";
 export {

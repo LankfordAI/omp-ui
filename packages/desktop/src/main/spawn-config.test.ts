@@ -171,6 +171,34 @@ describe("writeSessionOverlays — git guard pin (#832)", () => {
   });
 });
 
+describe("writeSessionOverlays worktree pin", () => {
+  it("appends one worktree pin once on every rewrite, stale file replaced", () => {
+    const dir = tmp();
+    const file = path.join(dir, "omp-ui-worktree.yml");
+    fs.writeFileSync(file, "worktree:\n  onStart: create\n  onExit: remove\n");
+    const record = ownedSessionRecord({ approvalMode: "always-ask" });
+    for (let launch = 0; launch < 2; launch += 1) {
+      const overlays = writeSessionOverlays(record, dir);
+      expect(overlays.filter((overlay) => overlay === file)).toEqual([file]);
+      expect(fs.readFileSync(file, "utf8")).toBe("worktree:\n  onStart: off\n  onExit: keep\n");
+    }
+  });
+
+  it("warns and preserves the other overlays if the worktree pin cannot be written", () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, "omp-ui-worktree.yml"));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const overlays = writeSessionOverlays(ownedSessionRecord({ approvalMode: "write" }), dir);
+      expect(overlays).toContain(path.join(dir, "omp-ui-approval.yml"));
+      expect(overlays).not.toContain(path.join(dir, "omp-ui-worktree.yml"));
+      expect(warning).toHaveBeenCalledExactlyOnceWith("[worktree] could not write the overlay:", expect.any(Error));
+    } finally {
+      warning.mockRestore();
+    }
+  });
+});
+
 
 describe("writeSessionOverlays — subagent overlay (ADR-0031)", () => {
   it("umbrella on + no session choice: every roster name inherits the session model", () => {
