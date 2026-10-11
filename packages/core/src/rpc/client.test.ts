@@ -55,7 +55,7 @@ interface Harness {
 }
 
 const lineageDirs: string[] = [];
-function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[]; bare?: boolean; model?: string; advisor?: boolean; appendSystemPromptFile?: string } = {}): Harness {
+function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[]; bare?: boolean; model?: string; thinking?: string; advisor?: boolean; appendSystemPromptFile?: string } = {}): Harness {
   const fake = fakeProc();
   const frames: unknown[] = [];
   const errors: string[] = [];
@@ -71,6 +71,7 @@ function harness(opts: { resumeSessionId?: string; ompPath?: string; initialComm
     resumeSessionId: opts.resumeSessionId,
     appendSystemPromptFile: opts.appendSystemPromptFile,
     model: opts.model,
+    thinking: opts.thinking,
     advisor: opts.advisor,
     initialCommands: opts.initialCommands,
     bare: opts.bare,
@@ -165,6 +166,24 @@ describe("RpcClient spawn", () => {
       "p/m",
       "--advisor",
     ]);
+  });
+  it("passes --thinking auto after --model and omits it when unset (#843)", () => {
+    // The overlay's defaultThinkingLevel key loses to the model catalog default in
+    // omp's resolver, so --thinking is the only lever that sets omp's auto flag.
+    const h = harness({ model: "p/m", thinking: "auto", advisor: true });
+    expect(h.spawnArgs).toEqual([
+      "--mode=rpc-ui",
+      "--cwd",
+      "/proj",
+      "--session-dir",
+      h.lineageDir,
+      "--model",
+      "p/m",
+      "--thinking",
+      "auto",
+      "--advisor",
+    ]);
+    // Unset thinking leaves argv byte-identical: every test above pins the full array.
   });
 
   it("appends the six bare flags in order for a credential errand", () => {

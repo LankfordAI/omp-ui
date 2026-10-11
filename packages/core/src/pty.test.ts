@@ -69,6 +69,23 @@ describe("spawnOmp args", () => {
       "--resume=abc-123",
     ]);
   });
+
+  it("passes --thinking auto after --model and omits it when unset (#843)", () => {
+    // The overlay's defaultThinkingLevel key loses to the model catalog default in
+    // omp's resolver, so --thinking is the only lever that sets omp's auto flag.
+    expect(spawnOmpArgs({ ...base, model: "p/m", thinking: "auto", advisor: true })).toEqual([
+      "--cwd",
+      "/proj",
+      "--session-dir",
+      expect.stringContaining("pty-lineage-"),
+      "--model",
+      "p/m",
+      "--thinking",
+      "auto",
+      "--advisor",
+    ]);
+    // Unset thinking leaves the argv byte-identical: the test above pins the full array.
+  });
 });
 
 describe("defaultShell", () => {

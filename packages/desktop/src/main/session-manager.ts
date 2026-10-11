@@ -883,6 +883,14 @@ export class SessionManager {
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
     }
+    // #843: auto must ride an explicit --thinking boot param: the overlay's
+    // defaultThinkingLevel key sits below the model catalog default in omp's
+    // resolver and never sets omp's auto flag, so frames would lack
+    // configured:"auto" and the reducer would persist the catalog level.
+    const autoThinking =
+      this.gate.model !== null
+        ? this.gate.model.level === "auto"
+        : record.thinkingLevel === "auto";
     const ptyHandle = spawnOmp({
       id: record.tabId,
       cwd: record.worktree?.path ?? record.projectCwd,
@@ -891,6 +899,7 @@ export class SessionManager {
       resumeSessionId: record.sessionId ?? undefined,
       appendSystemPromptFile: appendSystemPromptFile ?? undefined,
       model: gateSelector(this.gate) ?? undefined,
+      ...(autoThinking ? { thinking: "auto" } : {}),
       cols: req.cols,
       rows: req.rows,
       advisor: record.advisor,
@@ -1085,6 +1094,14 @@ export class SessionManager {
     // negotiation — or echoes full mode — the spawn streams full snapshots
     // instead. Silent-by-design fallback, loud once for the logs.
     let eventFilterWarned = false;
+    // #843: auto must ride an explicit --thinking boot param: the overlay's
+    // defaultThinkingLevel key sits below the model catalog default in omp's
+    // resolver and never sets omp's auto flag, so frames would lack
+    // configured:"auto" and the reducer would persist the catalog level.
+    const autoThinking =
+      this.gate.model !== null
+        ? this.gate.model.level === "auto"
+        : record.thinkingLevel === "auto";
     const rpc = new RpcClient({
       cwd: record.worktree?.path ?? record.projectCwd,
       lineageDir: absLineageDir,
@@ -1094,6 +1111,7 @@ export class SessionManager {
       // The dev/test spawn gate keeps winning over the recovery pick, exactly
       // as it wins over the record everywhere else.
       model: gateSelector(this.gate) ?? modelOverride ?? undefined,
+      ...(autoThinking ? { thinking: "auto" } : {}),
       advisor: record.advisor,
       configOverlays,
       extensions,

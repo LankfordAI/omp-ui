@@ -39,6 +39,13 @@ export interface RpcClientOpts {
    * whose model otherwise comes from the transcript.
    */
   model?: string;
+  /**
+   * Thinking level passed to omp as `--thinking`. omp-ui sets `"auto"`
+   * (#843): the overlay's `defaultThinkingLevel` key sits below the model
+   * catalog's own default in omp's boot resolver and never sets omp's auto
+   * flag, so only this param makes a catalog-default model boot auto.
+   */
+  thinking?: string;
   advisor?: boolean;
   /** Extra `--config` overlays — the advisor-model pin (see advisor-overlay.ts). */
   configOverlays?: string[];
@@ -122,6 +129,7 @@ export class RpcClient {
     if (opts.resumeSessionId) args.push(`--resume=${opts.resumeSessionId}`);
     if (opts.appendSystemPromptFile) args.push("--append-system-prompt", opts.appendSystemPromptFile);
     if (opts.model) args.push("--model", opts.model);
+    if (opts.thinking) args.push("--thinking", opts.thinking);
     if (opts.advisor) args.push("--advisor");
     for (const overlay of opts.configOverlays ?? []) args.push("--config", overlay);
     for (const extension of opts.extensions ?? []) args.push("-e", extension);
