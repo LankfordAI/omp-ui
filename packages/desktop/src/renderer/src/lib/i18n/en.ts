@@ -664,6 +664,12 @@ export const en = {
   "plan.keyword.workflowz":
     "Drive the implementation as a deterministic multi-subagent workflow — omp's {keyword} keyword leads the prompt.",
   "plan.review.armKeyword": "{keyword} the implementation",
+  "plan.review.runAsGoal": "Run as goal",
+  "plan.review.runAsGoalHint":
+    "After dispatch, set the plan as this session's goal — omp keeps working until it is complete. With goal.continuationModes set to interactive only, the goal will not auto-continue under rpc-ui.",
+  "plan.review.goalOff": "Off in omp's goal.enabled setting — omp would refuse it.",
+  "plan.review.goalBusy": "This session already has a goal — drop it before running one.",
+  "plan.review.armGoal": "run the implementation as a goal",
   "plan.review.keywordOff": "Off in omp's magicKeywords settings — omp would ignore it.",
   // PlanReview dispatch summary and execute button
   "plan.review.dispatchReady": "ready to dispatch",

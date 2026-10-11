@@ -2496,6 +2496,36 @@ describe("handleRpcFrame routing", () => {
     await rearmHandoffSource();
   });
 
+  it("Run as goal on a fresh spawn arms the goal on the new tab after the accepted seed (issue #846)", async () => {
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "goal-fresh" });
+    h.useStore.setState({ state: h.stateWithRecord(null) });
+    openReview("handoff-goal-fresh");
+    await h.flushMicrotasks();
+    h.useStore.getState().executePlan(h.TAB, "fresh", { goal: true });
+    await h.flushMicrotasks();
+    h.useStore.setState((state) => ({
+      rpc: { ...state.rpc, "goal-fresh": rpcTabState({ status: "ready" }) },
+    }));
+    await h.flushMicrotasks();
+    const seed = h.sent.find(
+      (entry) => entry.tabId === "goal-fresh" && entry.cmd.type === "prompt",
+    )!;
+    expect(seed).toBeDefined();
+    // The create frame waits for the seed ack.
+    expect(h.sent.some((e) => e.tabId === "goal-fresh" && e.cmd.type === "goal")).toBe(false);
+    h.respond("goal-fresh", seed.cmd, {});
+    await h.flushMicrotasks();
+    const goal = h.sent.find((e) => e.tabId === "goal-fresh" && e.cmd.type === "goal");
+    expect(goal!.cmd).toMatchObject({
+      type: "goal",
+      op: "create",
+      objective: 'Execute the approved plan: "t" (plan file: local://p.md). Complete every item.',
+    });
+    h.respond("goal-fresh", goal!.cmd, {});
+    await h.flushMicrotasks();
+    await rearmHandoffSource();
+  });
+
   it("does not hibernate after a fresh spawn failure or readiness timeout (issue #283)", async () => {
     h.mockBackend.spawnSession.mockRejectedValueOnce(new Error("spawn failed"));
     h.useStore.setState({ state: h.stateWithRecord(null) });

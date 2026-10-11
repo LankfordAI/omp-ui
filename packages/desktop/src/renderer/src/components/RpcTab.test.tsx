@@ -52,6 +52,22 @@ const backendMock = {
     ahead: 0, behind: 0, mergeInProgress: false, upstreamFetchedAt: null, upstreamRefreshError: null, defaultRemote: null,
   })),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  // PlanReview's Run-as-goal gate reads the goal.enabled config truth here.
+  getScopedCapabilities: vi.fn(async () => ({
+    skills: {
+      status: "available" as const,
+      items: [],
+      roots: [],
+      masterEnabled: true,
+      skillCommandsEnabled: true,
+      note: "bundles-not-listed" as const,
+      truncated: false,
+    },
+    tools: { status: "available" as const, items: [] },
+    agentDir: null,
+    projectConfigPath: null,
+    ompVersion: null,
+  })),
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(async () => {}),

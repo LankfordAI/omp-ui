@@ -4,11 +4,13 @@ import { isHtmlPlanPath } from "@omp-ui/core/plan";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { useT, type MessageKey } from "../lib/i18n";
-import { backend, displayMessage } from "../backend";
+import { backend, backendFor, displayMessage } from "../backend";
 import type { DocumentRef } from "../lib/document-context";
 import { keywordColors } from "../lib/keyword-colors";
-import { keywordsOffInSettings } from "../lib/magic-keyword-gate";
+import { goalDisabledInCatalog, keywordsOffInSettings } from "../lib/magic-keyword-gate";
+import { goalOwnsSession as coreGoalOwnsSession } from "@omp-ui/core/goal";
 import type { PlanExecutionContext, PlanExecutionOptions, StagedKeyword } from "../lib/plan-concerns";
+import type { ToolsAtScope } from "@omp-ui/core/types";
 import { usePreparedPlanDocument } from "../lib/use-prepared-plan-document";
 import { shortModelLabel } from "../lib/format";
 import { projectKey } from "../lib/project-key";
@@ -98,6 +100,7 @@ function DispatchSummary({
   ultrathink,
   orchestrate,
   workflowz,
+  goal,
   branch,
   className,
 }: {
@@ -106,6 +109,7 @@ function DispatchSummary({
   ultrathink: boolean;
   orchestrate: boolean;
   workflowz: boolean;
+  goal: boolean;
   branch: string | null;
   className?: string;
 }) {
@@ -119,6 +123,7 @@ function DispatchSummary({
         {ultrathink && " · ultrathink"}
         {orchestrate && " · orchestrate"}
         {workflowz && " · workflowz"}
+        {goal && " · goal"}
         {branch !== null && <>{" · "}{branch}</>}
       </p>
     </div>
@@ -289,8 +294,8 @@ export function PlanReview({
     setStagedAdvisor,
     stagedAdvisorModel,
     setStagedAdvisorModel,
-    keywords,
-    setKeyword,
+    switches,
+    setSwitch,
     pickingModel,
     setPickingModel,
     pickingAdvisorModel,
@@ -304,9 +309,38 @@ export function PlanReview({
   // here — the receiving roster differs from this one.
   const capabilities = useStore((s) => s.rpc[tabId]?.capabilities ?? null);
   const off = useMemo(() => keywordsOffInSettings(capabilities), [capabilities]);
-  const ultrathink = keywords.ultrathink && !off.has("ultrathink");
-  const orchestrate = keywords.orchestrate && !off.has("orchestrate");
-  const workflowz = keywords.workflowz && !off.has("workflowz");
+  const ultrathink = switches.ultrathink && !off.has("ultrathink");
+  const orchestrate = switches.orchestrate && !off.has("orchestrate");
+  const workflowz = switches.workflowz && !off.has("workflowz");
+  // The goal switch's honesty gates: omp's `goal.enabled` setting read as
+  // config truth through the scoped catalog (issue #846), NOT the session's
+  // tool roster — plan mode detaches the goal tool from the roster while the
+  // setting stays on, and every review opens in plan mode. A catalog read
+  // that failed or says nothing leaves the switch honest-on. The second
+  // gate: a source session already carrying an unfinished goal (omp refuses
+  // a second create). Force-cleared for dispatch exactly like the keyword
+  // rows above.
+  const [goalCatalog, setGoalCatalog] = useState<
+    ToolsAtScope | { status: "error"; message: string } | null
+  >(null);
+  useEffect(() => {
+    let live = true;
+    backendFor(instanceId)
+      .getScopedCapabilities(projectCwd ?? null)
+      .then((result) => {
+        if (live) setGoalCatalog(result.tools);
+      })
+      .catch(() => {
+        // An unreadable catalog is "cannot tell": not off, same fallback as
+        // the keyword gate's unknown section.
+      });
+    return () => {
+      live = false;
+    };
+  }, [instanceId, projectCwd]);
+  const goalOff = useMemo(() => goalDisabledInCatalog(goalCatalog), [goalCatalog]);
+  const goalBusy = coreGoalOwnsSession(useStore((s) => s.rpc[tabId]?.goal ?? null));
+  const goal = switches.goal && !goalOff && !goalBusy;
   const [levelMenu, setLevelMenu] = useState<"main" | "advisor" | null>(null);
 
   // A new proposal resets navigation and checkout staging. Dispatch parameters
@@ -454,6 +488,7 @@ export function PlanReview({
       ultrathink,
       orchestrate,
       workflowz,
+      goal,
       model: stagedModel,
       thinkingLevel: stagedThinking,
       advisor: stagedAdvisor,
@@ -1073,14 +1108,29 @@ export function PlanReview({
                       </span>
                     </div>
                     <Switch
-                      on={keywords[keyword] && !off.has(keyword)}
+                      on={switches[keyword] && !off.has(keyword)}
                       disabled={off.has(keyword)}
                       title={off.has(keyword) ? t("plan.review.keywordOff") : undefined}
-                      onChange={(armed) => setKeyword(keyword, armed)}
+                      onChange={(armed) => setSwitch(keyword, armed)}
                       label={t("plan.review.armKeyword", { keyword })}
                     />
                   </div>
                 ))}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="block text-[11px] font-medium text-ink">{t("plan.review.runAsGoal")}</span>
+                    <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
+                      {t("plan.review.runAsGoalHint")}
+                    </span>
+                  </div>
+                  <Switch
+                    on={goal}
+                    disabled={goalOff || goalBusy}
+                    title={goalOff ? t("plan.review.goalOff") : goalBusy ? t("plan.review.goalBusy") : undefined}
+                    onChange={(armed) => setSwitch("goal", armed)}
+                    label={t("plan.review.armGoal")}
+                  />
+                </div>
               </div>
             </fieldset>
 
@@ -1110,6 +1160,7 @@ export function PlanReview({
                 ultrathink={ultrathink}
                 orchestrate={orchestrate}
                 workflowz={workflowz}
+                goal={goal}
                 branch={dispatchBranch}
                 className="flex-1"
               />
@@ -1151,6 +1202,7 @@ export function PlanReview({
               ultrathink={ultrathink}
               orchestrate={orchestrate}
               workflowz={workflowz}
+              goal={goal}
               branch={dispatchBranch}
             />
             <div className="flex shrink-0 items-center gap-2">

@@ -621,6 +621,12 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "plan.keyword.workflowz":
     "결정론적 다중 서브에이전트 workflow로 구현 진행 — omp의 {keyword} keyword가 프롬프트 맨 앞에 붙습니다.",
   "plan.review.armKeyword": "구현에 {keyword} 적용",
+  "plan.review.runAsGoal": "목표로 실행",
+  "plan.review.runAsGoalHint":
+    "전송 후 이 플랜을 이 세션의 목표로 설정합니다 — omp가 완료까지 계속 작업합니다. goal.continuationModes가 interactive뿐이면 rpc-ui에서 목표가 자동 계속되지 않습니다.",
+  "plan.review.goalOff": "omp의 goal.enabled 설정에서 꺼져 있어 omp가 거부합니다.",
+  "plan.review.goalBusy": "이 세션에는 이미 목표가 있습니다 — 먼저 목표를 삭제하세요.",
+  "plan.review.armGoal": "구현을 목표로 실행",
   "plan.review.keywordOff": "omp의 magicKeywords 설정에서 꺼져 있어 omp가 무시합니다.",
   "plan.review.dispatchReady": "전송 준비됨",
   "plan.review.switchingBranch": "브랜치 전환 중…",

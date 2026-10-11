@@ -17,8 +17,10 @@ import type {
 import { backend, backendFor } from "../../backend";
 import {
   composeImplementationPrompt,
+  planGoalObjective,
   type PlanExecutionOptions,
 } from "../../lib/plan-concerns";
+import { armPlanGoal } from "./plan-goal-dispatch";
 import { gitResolutionPrompt, type GitResolutionTrigger } from "../../lib/git-resolution-prompt";
 import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolution";
 import { liveAudioLocalToClient, supportsNativeLive } from "../../lib/live-voice";
@@ -472,6 +474,12 @@ export function createLifecycleSlice(
     });
     const accepted = await get().sendPrompt(freshId, seed, "prompt");
     if (!accepted) return;
+    // "Run as goal": the create frame rides the NEW tab strictly after the
+    // accepted seed prompt. A fresh session cannot pre-carry a goal, so the
+    // only refusal cause is goal.enabled off — already hidden by the modal's
+    // disabled switch; a failure still lands as a warn notice, never a cancel.
+    if (options?.goal === true)
+      await armPlanGoal(get, m, freshId, planGoalObjective(planImplementationSource));
 
     // Issue #840: the seed ACK — not the spawn or the verdict — transfers
     // ownership, so everything the carry-over needs is snapshotted here,

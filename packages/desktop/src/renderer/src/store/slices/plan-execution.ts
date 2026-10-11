@@ -20,9 +20,11 @@ import { AdvisorReplyWatcher } from "../../lib/advisor-reply";
 import {
   PlanConcernWatcher,
   composeImplementationPrompt,
+  planGoalObjective,
   type PlanExecutionContext,
   type PlanExecutionOptions,
 } from "../../lib/plan-concerns";
+import { armPlanGoal } from "./plan-goal-dispatch";
 import {
   STALL_CONTINUE_LEAD,
   STALL_CONTINUE_REPETITION_LEAD,
@@ -424,8 +426,17 @@ export function createPlanExecutionSlice(
       const sending = get().sendPrompt(tabId, message, relaunched ? "prompt" : "follow_up");
       // A rejected implementation prompt emits no turn, hence no `agent_end`
       // to consume the arm intent — clear it so it cannot ride a later start.
-      void sending.then((accepted) => {
-        if (!accepted) m.patchRuntime(tabId, { liveWorkParkHandoff: undefined });
+      void sending.then(async (accepted) => {
+        if (!accepted) {
+          m.patchRuntime(tabId, { liveWorkParkHandoff: undefined });
+          return;
+        }
+        // "Run as goal": the create frame lands strictly after the accepted
+        // implementation prompt — the prompt never queues behind goal
+        // machinery, and the goalOwnsSession watcher gate above sees the goal
+        // only once implementation is genuinely running.
+        if (options?.goal === true && planImplementationSource !== undefined)
+          await armPlanGoal(get, m, tabId, planGoalObjective(planImplementationSource));
       });
     })();
   };

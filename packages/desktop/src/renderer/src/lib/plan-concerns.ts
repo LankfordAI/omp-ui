@@ -65,6 +65,8 @@ export interface PlanExecutionOptions {
   orchestrate?: boolean;
   /** Prepend omp's `workflowz` magic keyword to the implementation prompt. */
   workflowz?: boolean;
+  /** Arm omp goal mode on the executing session after the implementation prompt. */
+  goal?: boolean;
   /** Staged main model; applied to the receiving session when it differs. */
   model?: ModelInfo | null;
   /** Staged main thinking level; applied when it differs. */
@@ -105,6 +107,22 @@ export function withKeywords(
 ): string {
   const lead = STAGED_KEYWORDS.filter((k) => keywords[k] === true).join("\n\n");
   return lead === "" ? base : `${lead}\n\n${base}`;
+}
+
+/**
+ * The objective an armed plan dispatch creates on the executing session (the
+ * "Run as goal" switch). One construction shared by both dispatch paths and
+ * their tests so the goal text is deterministic: the plan's title and
+ * artifact, never plan prose — prose in a goal objective would be a second
+ * surface that can arm magic keywords.
+ */
+export function planGoalObjective(
+  source: Pick<PlanImplementationSource, "planTitle" | "planFilePath">,
+): string {
+  return (
+    `Execute the approved plan: "${source.planTitle}" ` +
+    `(plan file: ${source.planFilePath}). Complete every item.`
+  );
 }
 
 export interface ImplementationPromptParts {
