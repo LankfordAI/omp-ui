@@ -6,7 +6,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 - A new session's auto thinking pick now survives a model whose catalog carries its own default thinking level: the effective auto choice rides an explicit `--thinking auto` boot param, so omp boots its automatic selector, the effort pill reads `auto`, and the concrete catalog level is never persisted (#843).
 - A plan handoff from a spoken plan review parks the destination's carried live call while the implementation seed turn works, and an in-place execute parks the session's own open call — the final answer wakes the call either way (#842).
-- An accepted fresh or worktree plan handoff no longer kills the planning session mid-verdict: its automation is suppressed at once, but the process gets until its planning turn ends (up to two minutes) to file lessons learned and notes before the reap lands; a live-voice handoff still stops immediately, and prompting or resuming the source during the window keeps it live (#844).
+- An accepted fresh or worktree plan handoff no longer kills the planning session mid-verdict: its automation is suppressed at once, but the process gets until its planning turn ends (up to two minutes) to file lessons learned and notes before the reap lands; a live-voice handoff still stops immediately, and prompting or resuming the source during the window keeps it live (#840, #844).
+- Stall auto-continue now fires beyond stream stalls: when the server halts a turn because the model began repeating itself, omp-ui sends the same bounded continue prompt (max 2 in a row; any prompt re-arms), so the session carries on instead of sitting idle (#839).
+- The Session HUD's compaction notch now follows omp 18.8.8's threshold semantics — `compaction.modelThresholds` per-model overrides including percent and `f<n>` exact-trigger forms, percent overrides, and scaled base windows — so the notch marks the token count where omp actually compacts (#831).
 
 ## Choose a download
 
