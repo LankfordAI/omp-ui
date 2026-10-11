@@ -1130,6 +1130,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** The connecting watchdog's verdict (#827): locally end a live snapshot
    *  stuck on `connecting` so the pill becomes a restartable error. */
   abandonStalledLiveConnect(tabId: string): void;
+  /** The work-park arm (#815): gates and timers for parking the open call
+   *  while a live-owned turn works. Reached from the delegation frame, the
+   *  plan-handoff seed turn's start ack, and an in-place execute on an open
+   *  call (issue #842); every gate re-verifies, so callers only signal
+   *  intent. */
+  armLiveWorkPark(tabId: string): void;
   /** The recordings stored under this session's lineage dir (#809), newest
    *  first — disk enumeration, so a session that is not being viewed lists
    *  the same entries. [] while omp exposes no audio at all (ADR-0049). */

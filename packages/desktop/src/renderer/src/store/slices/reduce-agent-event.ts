@@ -436,16 +436,29 @@ export function reduceAgentEvent(
     // call IS closed — the answer is stranded even though
     // `liveCallSawDelegation` says the call heard the request. Parked
     // counts as closed for the store gate.
+    const callOpen = tab.live !== undefined && tab.live !== null && !tab.live.ended;
+    const closedForTurn = !callOpen || runtime.liveParked === true;
     if (
       runtime.liveVoiceOwner === true &&
       runtime.liveArmed === true &&
-      runtime.liveDelegatedTurnSeen === true
+      (
+        (runtime.liveDelegatedTurnSeen === true &&
+          (closedForTurn || runtime.liveCallSawDelegation !== true)) ||
+        // #842: a plan-handoff seed turn is typed and emits no delegation
+        // frame, but an accepted work-park is the same statement — this
+        // turn is live-owned and its call is closed for it — so a parked
+        // handoff turn's answer stores onto the wake too. An open,
+        // unparked call hears the final message itself: a plain typed turn
+        // still never passes this gate.
+        (runtime.liveWorkPark === true && closedForTurn)
+      )
     ) {
-      const callOpen = tab.live !== undefined && tab.live !== null && !tab.live.ended;
-      if (!callOpen || runtime.liveParked === true || runtime.liveCallSawDelegation !== true)
-        effects.push({ phase: "after-commit", type: "store-live-pending-feedback", callOpen });
+      effects.push({ phase: "after-commit", type: "store-live-pending-feedback", callOpen });
     }
     runtimePatch.liveDelegatedTurnSeen = false;
+    // #842: the seed turn is over; the handoff's arm intent is spent
+    // whether or not a call ever opened on the destination.
+    runtimePatch.liveWorkParkHandoff = undefined;
     // #815: the work-park's wake. The flag rode from the accepted arm; the
     // store gate above already ran, so the pending text is in the runtime
     // before the effect fires. Clear the flag on every turn end that

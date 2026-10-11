@@ -404,11 +404,29 @@ export function createPlanExecutionSlice(
       if (get().rpc[tabId]?.plan?.enabled === true) {
         await ensureBuildMode(tabId);
       }
-      await get().sendPrompt(
-        tabId,
-        message,
-        relaunched ? "prompt" : "follow_up",
-      );
+      // #842: the EXECUTION_PROMPT is a typed turn, so no delegation frame
+      // arms the park — yet an owned, open call would stream the mic
+      // through the whole execution turn. The verdict's clearPlanReview has
+      // already queued the review-close's wake restart, so the call is
+      // mid-restart right here: the arm intent rides the one-shot flag to
+      // the restart's start ack, where armLiveWorkPark's own gates decide
+      // (a turn that ends before that ack clears the flag at `agent_end`).
+      // Same rule as the handoff carry: owner + armed + open at the verdict.
+      const execRt = peekTabRuntime(tabId);
+      const execLive = get().rpc[tabId]?.live;
+      if (
+        execRt?.liveVoiceOwner === true &&
+        execRt.liveArmed === true &&
+        execLive != null &&
+        !execLive.ended
+      )
+        m.patchRuntime(tabId, { liveWorkParkHandoff: true });
+      const sending = get().sendPrompt(tabId, message, relaunched ? "prompt" : "follow_up");
+      // A rejected implementation prompt emits no turn, hence no `agent_end`
+      // to consume the arm intent — clear it so it cannot ride a later start.
+      void sending.then((accepted) => {
+        if (!accepted) m.patchRuntime(tabId, { liveWorkParkHandoff: undefined });
+      });
     })();
   };
 

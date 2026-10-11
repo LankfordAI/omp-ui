@@ -554,7 +554,15 @@ export function createLifecycleSlice(
           srcRt!.liveArmed !== true && srcRt!.liveStartInFlight === undefined &&
           (stopped == null || stopped.ended) &&
           destinationViewed()
-        ) void get().startLiveVoice(freshId);
+        ) {
+          // #842: the seed turn is typed, so no delegation frame will arm
+          // the park on the destination; the intent rides the flag to the
+          // destination's first successful start ack. Same rule as the
+          // carry itself: only when the source owned the call and the
+          // destination is the viewed tab.
+          m.patchRuntime(freshId, { liveWorkParkHandoff: true });
+          void get().startLiveVoice(freshId);
+        }
       }
     }
     try {

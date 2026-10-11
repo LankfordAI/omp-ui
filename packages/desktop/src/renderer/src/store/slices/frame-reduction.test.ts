@@ -3303,6 +3303,168 @@ describe("handleRpcFrame routing", () => {
       expect(liveVerbs()).toEqual([]);
       expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
     });
+
+    // #842: the destination of a plan-to-build handoff runs a TYPED seed
+    // turn that emits no delegation frame, so the ordinary work-park never
+    // arms on it. The lifecycle carry-over rides the arm intent on the
+    // one-shot `liveWorkParkHandoff` flag onto the destination's start ack;
+    // these pin that the arm lands there, that the flag is consumed exactly
+    // once on every path, and that a parked handoff turn still stores its
+    // answer onto the wake.
+    it("arms the cap on the destination's start ack and parks the fresh call at the cap", async () => {
+      await dispatchWithLive("carry-arm-cap", liveSnap("listening"));
+      const seed = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
+      )!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      // The carry-over stop is on the wire unacked; answering it releases the
+      // destination start, which the lifecycle then dispatches (fire-and-
+      // forget).
+      const sourceStop = h.sent.find(
+        (s) => s.tabId === h.TAB && s.cmd.type === "live_stop",
+      )!;
+      h.respond(h.TAB, sourceStop.cmd, {});
+      await h.flushMicrotasks();
+      const destStart = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "live_start",
+      )!;
+      // The seed turn is mid-flight (no turn-start frame has run yet), so the
+      // cap is the only thing that can close the mic for it.
+      vi.useFakeTimers();
+      try {
+        h.respond("fresh-tab", destStart.cmd, {});
+        await h.flushMicrotasks();
+        expect(peekTabRuntime("fresh-tab")?.liveWorkParkHandoff).toBeUndefined();
+        expect(peekTabRuntime("fresh-tab")?.liveWorkPark).toBe(true);
+        await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_CAP_MS);
+      } finally {
+        vi.useRealTimers();
+      }
+      await h.flushMicrotasks();
+      expect(liveVerbs()).toContainEqual({ tabId: "fresh-tab", type: "live_stop" });
+    });
+
+    it("a parked handoff turn stores its answer and wakes without a delegation frame", async () => {
+      await dispatchWithLive("carry-parked-turn", liveSnap("listening"));
+      const seed = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
+      )!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      const sourceStop = h.sent.find(
+        (s) => s.tabId === h.TAB && s.cmd.type === "live_stop",
+      )!;
+      h.respond(h.TAB, sourceStop.cmd, {});
+      await h.flushMicrotasks();
+      const destStart = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "live_start",
+      )!;
+      vi.useFakeTimers();
+      try {
+        h.respond("fresh-tab", destStart.cmd, {});
+        await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_CAP_MS);
+      } finally {
+        vi.useRealTimers();
+      }
+      // The cap-park's stop on the fresh tab must settle before the wake.
+      for (let wave = 0; wave < 4; wave++) {
+        await h.flushMicrotasks();
+        for (const s of h.sent.filter(
+          (e) =>
+            (e.cmd.type === "live_stop" || e.cmd.type === "live_start") &&
+            e.tabId === "fresh-tab",
+        ))
+          h.respond("fresh-tab", s.cmd, {});
+      }
+      await h.flushMicrotasks();
+      h.sent.length = 0;
+      h.useStore.setState({ activeTabId: "fresh-tab" });
+      // A final answer with NO delegation frame and NO `liveDelegatedTurnSeen`
+      // — only the accepted work-park proves this turn is live-owned.
+      h.useStore.getState().handleRpcFrame("fresh-tab", {
+        type: "message_end",
+        message: { role: "assistant", content: [{ type: "text", text: "Migrated the schema" }] },
+      });
+      h.useStore.getState().handleRpcFrame("fresh-tab", { type: "agent_end" });
+      await h.flushMicrotasks();
+      expect(peekTabRuntime("fresh-tab")?.livePendingFeedback).toEqual([
+        "Migrated the schema",
+      ]);
+      const wake = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "live_start",
+      );
+      expect(wake).toBeDefined();
+      expect(String(wake!.cmd.instructions)).toContain("Migrated the schema");
+    });
+
+    it("an `agent_end` before the destination's start ack clears the arm intent", async () => {
+      await dispatchWithLive("carry-end-before-ack", liveSnap("listening"));
+      const seed = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
+      )!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      const sourceStop = h.sent.find(
+        (s) => s.tabId === h.TAB && s.cmd.type === "live_stop",
+      )!;
+      h.respond(h.TAB, sourceStop.cmd, {});
+      await h.flushMicrotasks();
+      // The seed turn ends before its start ever acks: `agent_end` consumes
+      // the flag, so the late ack arms nothing — no cap, no park.
+      h.useStore.getState().handleRpcFrame("fresh-tab", { type: "agent_end" });
+      await h.flushMicrotasks();
+      const destStart = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "live_start",
+      )!;
+      vi.useFakeTimers();
+      try {
+        h.respond("fresh-tab", destStart.cmd, {});
+        expect(peekTabRuntime("fresh-tab")?.liveWorkPark).not.toBe(true);
+        await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_CAP_MS);
+      } finally {
+        vi.useRealTimers();
+      }
+      await h.flushMicrotasks();
+      expect(
+        h.sent.filter((s) => s.tabId === "fresh-tab" && s.cmd.type === "live_stop"),
+      ).toHaveLength(0);
+    });
+
+    it("with the switch off a handoff turn behaves exactly like #811", async () => {
+      await dispatchWithLive("carry-arm-off", liveSnap("listening"));
+      const seed = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "prompt",
+      )!;
+      h.respond("fresh-tab", seed.cmd, {});
+      await h.flushMicrotasks();
+      const sourceStop = h.sent.find(
+        (s) => s.tabId === h.TAB && s.cmd.type === "live_stop",
+      )!;
+      h.respond(h.TAB, sourceStop.cmd, {});
+      await h.flushMicrotasks();
+      const destStart = h.sent.find(
+        (s) => s.tabId === "fresh-tab" && s.cmd.type === "live_start",
+      )!;
+      vi.useFakeTimers();
+      try {
+        h.useStore.setState({ state: { ...h.useStore.getState().state!, liveWorkParking: false } });
+        h.respond("fresh-tab", destStart.cmd, {});
+        expect(peekTabRuntime("fresh-tab")?.liveWorkPark).toBeUndefined();
+        h.useStore.getState().handleRpcFrame("fresh-tab", {
+          type: "message_end",
+          message: { role: "assistant", content: [{ type: "text", text: "Migrated the schema" }] },
+        });
+        h.useStore.getState().handleRpcFrame("fresh-tab", { type: "agent_end" });
+        await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_CAP_MS);
+      } finally {
+        vi.useRealTimers();
+      }
+      await h.flushMicrotasks();
+      // No arm, no store, no wake — the mic just stayed open for the turn.
+      expect(h.sent.filter((s) => s.cmd.type === "live_stop")).toHaveLength(1);
+      expect(peekTabRuntime("fresh-tab")?.livePendingFeedback ?? []).toEqual([]);
+    });
   });
 
   it("holds execute for the drafting turn's advisor review, then folds its concerns", async () => {
