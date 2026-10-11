@@ -507,18 +507,19 @@ describe("activity sweeps", () => {
     expect(path.classList.contains("motion-reduce:animate-none")).toBe(true);
   });
 
-  it("moves the progress strip on activity and holds while paused", async () => {
-    await render(<ProgressSweep activity={1} />);
+  it("animates continuously and freezes only while paused", async () => {
+    await render(<ProgressSweep />);
     const sweep = document.querySelector<HTMLElement>("[data-progress-sweep]")!;
-    expect(sweep.classList.contains("animate-sweep")).toBe(false);
-    expect(sweep.style.transform).toBe("translateX(-100%)");
+    expect(sweep.classList.contains("animate-sweep")).toBe(true);
+    expect(sweep.classList.contains("motion-reduce:animate-none")).toBe(true);
 
-    act(() => root!.render(<ProgressSweep activity={2} />));
-    const moved = sweep.style.transform;
-    expect(moved).not.toBe("translateX(-100%)");
+    act(() => root!.render(<ProgressSweep paused />));
+    expect(sweep.getAttribute("data-paused")).toBe("true");
+    expect(sweep.classList.contains("[animation-play-state:paused]")).toBe(true);
 
-    act(() => root!.render(<ProgressSweep activity={3} paused />));
-    expect(sweep.style.transform).toBe(moved);
+    act(() => root!.render(<ProgressSweep />));
+    expect(sweep.hasAttribute("data-paused")).toBe(false);
+    expect(sweep.classList.contains("[animation-play-state:paused]")).toBe(false);
   });
 });
 

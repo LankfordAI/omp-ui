@@ -137,6 +137,7 @@
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
   --animate-rise: rise 0.34s var(--ease-out-quint) both;
   --animate-slide-in: slide-in 0.2s var(--ease-out-quint) both;
+  --animate-sweep: sweep 1.6s linear infinite;
   --animate-sweep-loop: sweep-loop 2.8s linear infinite;
   --animate-caret: caret 1.05s step-end infinite;
   --animate-sheet-left: sheet-in-left 0.3s var(--ease-out-quint) both;
@@ -169,6 +170,15 @@
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(400%);
   }
 }
 

@@ -29,43 +29,31 @@ export function Dot({
 }
 
 /**
- * An indeterminate activity bar whose position advances only when its caller
- * observes new work. No autonomous animation: a quiet stream must let the
- * Chromium and Wayland compositors sleep between transcript commits.
+ * An indeterminate activity bar: one lit segment loops the card width on the
+ * compositor for as long as its host renders it (#796). Motion is transform-only
+ * CSS so the animation lives on the compositor thread; `paused` freezes it
+ * mid-sweep, so a stalled stream still shows a frozen bar (ADR-0004). The
+ * continuous animation costs no extra frame wakes while a turn runs: the
+ * composer's PerimeterSweep already keeps the compositor on a display-rate
+ * clock for that whole window (#512).
  */
 export function ProgressSweep({
   tone = "signal",
   paused = false,
-  activity = 0,
 }: {
   tone?: Tone;
   paused?: boolean;
-  /** Changes once per visible work commit; magnitude is deliberately ignored. */
-  activity?: number;
 }) {
-  const sweepRef = useRef<HTMLDivElement>(null);
-  const previousActivity = useRef(activity);
-  const step = useRef(0);
-
-  useLayoutEffect(() => {
-    if (previousActivity.current === activity) return;
-    previousActivity.current = activity;
-    if (paused) return;
-    step.current = (step.current + 1) % 28;
-    sweepRef.current?.style.setProperty(
-      "transform",
-      `translateX(${-100 + (step.current * 500) / 28}%)`,
-    );
-  }, [activity, paused]);
-
   return (
     <div className="relative h-px w-full overflow-hidden bg-line">
       <div
-        ref={sweepRef}
         data-progress-sweep
         data-paused={paused || undefined}
-        className={cn("absolute inset-y-0 w-1/4", TONE_DOT[tone])}
-        style={{ transform: "translateX(-100%)" }}
+        className={cn(
+          "absolute inset-y-0 w-1/4 animate-sweep motion-reduce:animate-none",
+          TONE_DOT[tone],
+          paused && "[animation-play-state:paused]",
+        )}
       />
     </div>
   );

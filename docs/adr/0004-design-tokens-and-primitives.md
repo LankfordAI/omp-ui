@@ -51,10 +51,15 @@ holds, which is why `signal` is called out above.
   `lib/themes.ts` derives the renderer chrome, xterm palette, and Shiki palette
   from that source. The generated `theme-default.css` projects the same
   graphite tokens into the build-time first-paint fallback.
-- **Motion is CSS-only** — five named animations (`rise`, `slide-in`, `breathe`,
-  `sweep`, `caret`) and one easing curve (`ease-out-quint`). No animation
-  library. `breathe` means "work is happening now"; `sweep` means "indeterminate
-  progress".
+- **Motion is CSS-only** — the named animations in `style.css` (`rise`,
+  `slide-in`, `sweep`, `sweep-loop`, `caret`, and the sheet/scrim entries) and
+  one easing curve (`ease-out-quint`). No animation library. `sweep` means
+  "indeterminate progress" — continuous CSS motion while its host is active,
+  frozen only by `animation-play-state` on a stalled stream, never stepped from
+  data commits. The compositor-sleep rationale that briefly made `sweep`
+  commit-stepped no longer constrains it: the running-turn `PerimeterSweep` on
+  the composer already keeps the compositor on a display-rate clock for that
+  whole window (#512, #796).
 - **`@utility` takes no pseudo-selector.** `@utility grain::after` is invalid in
   Tailwind v4 and fails the *entire* stylesheet, silently resolving every class
   in the app to nothing. Nest the pseudo as `&::after` inside the utility body.

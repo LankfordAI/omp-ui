@@ -660,15 +660,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
       </button>
 
       {item.status === "running" && (
-        <ProgressSweep
-          tone="copper"
-          paused={streamStallMs !== undefined}
-          activity={
-            (typeof item.args === "string" ? item.args.length : 0) +
-            (item.partialText?.length ?? 0) +
-            (item.resultText?.length ?? 0)
-          }
-        />
+        <ProgressSweep tone="copper" paused={streamStallMs !== undefined} />
       )}
       {open && hasBody && (
         <div className="space-y-2 border-t border-line-soft px-2.5 py-2">

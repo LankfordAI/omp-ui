@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.22.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.22.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- The activity bar on running tool cards and the rpc-ui transcript top bar now sweeps continuously while the tool runs; the bar freezes only when the model stream stalls (#796).
 
 ## Choose a download
 
