@@ -425,6 +425,30 @@ describe("bootRpcTab", () => {
     expect(commands).toContain("get_messages");
   });
 
+  it("seeds auto from the backend when ready beats the spawn broadcast", async () => {
+    // The backend already holds the fresh auto record; the renderer's state
+    // predates it (non-null, record absent) — the ready-first race (#847).
+    const withRecord = h.stateWithRecord(null);
+    const group = withRecord.projects[0]!;
+    h.backendState = {
+      ...withRecord,
+      projects: [{ ...group, sessions: [{ ...group.sessions[0]!, thinkingLevel: "auto" }] }],
+    };
+    h.useStore.setState({ state: { ...withRecord, projects: [] } });
+
+    await h.driveBoot(h.TAB, {
+      get_state: {
+        data: { thinkingLevel: "high", model: { id: "m1", name: "M1", provider: "p" } },
+      },
+    });
+
+    const session = h.useStore.getState().rpc[h.TAB]!.session;
+    expect(session.thinkingConfigured).toBe("auto");
+    expect(session.thinkingLevel).toBe("high");
+    expect(h.mockBackend.setSessionModel).toHaveBeenCalledWith(h.TAB, "p/m1", "auto");
+    expect(h.mockBackend.setSessionModel).not.toHaveBeenCalledWith(h.TAB, "p/m1", "high");
+  });
+
   it("does not request history for a never-materialized session", async () => {
     h.backendState = h.stateWithRecord(null);
     h.useStore.setState({ state: h.backendState });
