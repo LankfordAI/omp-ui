@@ -158,6 +158,12 @@ export interface TabRuntime {
    *  wake owns the resume. Set ONLY by the arm effect when the setting is on;
    *  cleared at `agent_end` and by explicit stop — never by a start ack. */
   liveWorkPark?: boolean;
+  /** A plan handoff carries armed voice onto a destination whose seed turn is
+   *  typed, so no delegation frame will arm the park (issue #842). Set at the
+   *  handoff stop->start carry-over; consumed by the destination's first
+   *  successful `live_start` ack and cleared at `agent_end` and by explicit
+   *  stop. */
+  liveWorkParkHandoff?: boolean;
   /** Epoch ms of the last `live_levels` frame whose output was loud;
    *  `undefined` until the first loud frame after arming — quiet before any
    *  loud frame never parks (the acknowledgment may not have started). */

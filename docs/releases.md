@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.22.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.22.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- A plan handoff from a spoken plan review parks the destination's carried live call while the implementation seed turn works, and an in-place execute parks the session's own open call — the final answer wakes the call either way (#842).
 
 ## Choose a download
 

@@ -1,5 +1,5 @@
 // Plan-execution slice tests (moved verbatim from store.test.ts for #295).
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlanAnswerResult } from "@omp-ui/core/plan";
 import type {
   BackendState,
@@ -11,8 +11,22 @@ import { planProposalItem } from "../../lib/transcript";
 import { rpcTabState } from "../../test/fixtures";
 import type { RpcTabState } from "../types";
 import { h } from "../../test/store-harness";
-import { peekTabRuntime } from "./shared";
+import { createMachinery, peekTabRuntime } from "./shared";
 import { planReviewGateKey } from "./live-work-park";
+import { LIVE_WORK_PARK_CAP_MS } from "@omp-ui/core/live-voice";
+
+// #842: the in-place execute arm test drives the live dispatch path, which
+// `dispatchLiveStart` gates on the Electron-shell signal; the rest of the
+// file runs with the shell off, so opt in per-describe like the other suites.
+const platformMocks = vi.hoisted(() => ({ electron: false }));
+
+vi.mock("../../lib/platform", () => ({
+  get IS_ELECTRON() {
+    return platformMocks.electron;
+  },
+  IS_MAC: false,
+  IS_WINDOWS: false,
+}));
 
 // The shared bridge mock predates the acknowledged plan-answer channel (issue
 // #312 follow-up); an HTML gate settles only through it.
@@ -837,5 +851,138 @@ describe("re-presented reviews (ADR-0033)", () => {
       level: "warn",
       text: expect.stringContaining("no such channel"),
     });
+  });
+});
+
+describe("in-place execute arms the work-park on the review-close wake (#842)", () => {
+  const withVersion = (ompVersion: string): void => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          capabilities: { ompVersion } as never,
+        }),
+      },
+    });
+  };
+  // The open, owner-armed call the verdict must carry over — the same
+  // gate the fresh handoff's lifecycle uses (owner + armed + open call).
+  const seedLiveCall = (): void => {
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: {
+          ...tab,
+          live: {
+            phase: "listening",
+            levels: null,
+            turns: [],
+            ended: false,
+            error: null,
+            connectionId: "c1",
+          } as never,
+        },
+      },
+    });
+    const rt = createMachinery(h.useStore.setState, h.useStore.getState, h.useStore).runtime(h.TAB);
+    rt.liveVoiceOwner = true;
+    rt.liveArmed = true;
+  };
+  const openReviewGate = (id: string): void => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id,
+      method: "select",
+      title:
+        "omp-ui:plan-review:" +
+        JSON.stringify({ title: "t", planFilePath: "local://p.md", planAbsPath: "/lineage/local/p.md" }),
+    });
+  };
+  const finalAnswer = (text: string): void => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text }] },
+    });
+  };
+  const verbs = (type: string) => h.sent.filter((s) => s.tabId === h.TAB && s.cmd.type === type);
+  const settleLive = async (): Promise<void> => {
+    for (let wave = 0; wave < 4; wave++) {
+      await h.flushMicrotasks();
+      for (const s of h.sent.filter(
+        (e) => e.tabId === h.TAB && (e.cmd.type === "live_stop" || e.cmd.type === "live_start"),
+      ))
+        h.respond(h.TAB, s.cmd, {});
+    }
+    await h.flushMicrotasks();
+  };
+
+  beforeEach(() => {
+    platformMocks.electron = true;
+    h.useStore.setState({ state: h.stateWithRecord("sess-1"), activeTabId: h.TAB });
+    h.sent.length = 0;
+  });
+  afterEach(() => {
+    platformMocks.electron = false;
+  });
+
+  it("an execute over an open owned call parks the mic for the typed turn", async () => {
+    vi.useFakeTimers();
+    try {
+      withVersion("18.7.0");
+      openReviewGate("d1");
+      await h.flushMicrotasks();
+      seedLiveCall();
+      h.useStore.getState().executePlan(h.TAB, "existing");
+      await h.flushMicrotasks();
+      // The review-close wake parked the open call (live_stop) and the
+      // execution prompt is on the wire. Answering the stop releases the
+      // wake's reconnect (live_start), which carries the arm intent.
+      const stop = verbs("live_stop")[0];
+      expect(stop).toBeDefined();
+      h.respond(h.TAB, stop!.cmd, {});
+      await h.flushMicrotasks();
+      const start = verbs("live_start")[0];
+      expect(start).toBeDefined();
+      h.respond(h.TAB, start!.cmd, {});
+      await h.flushMicrotasks();
+      // The one-shot arm intent landed exactly once, at the ack — and armed
+      // the cap timer (the typed execution turn never goes quiet).
+      expect(peekTabRuntime(h.TAB)?.liveWorkParkHandoff).toBeUndefined();
+      expect(peekTabRuntime(h.TAB)?.liveWorkPark).toBe(true);
+      const prompt = verbs("prompt")[0];
+      expect(prompt).toBeDefined();
+      h.respond(h.TAB, prompt!.cmd, {});
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+      // The cap closes the mic: a typed turn emits no delegation frame, so
+      // the cap is the only path that can silence the stream.
+      await vi.advanceTimersByTimeAsync(LIVE_WORK_PARK_CAP_MS + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+    await settleLive();
+    h.sent.length = 0;
+    // The parked execution turn's answer is stranded; an `agent_end` stores
+    // it and wakes the call with it — the same wake the #815 park drives,
+    // reached here with NO delegation frame on the turn.
+    finalAnswer("Migrated the schema");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(peekTabRuntime(h.TAB)?.livePendingFeedback).toEqual(["Migrated the schema"]);
+    const wake = verbs("live_start")[0];
+    expect(wake).toBeDefined();
+    expect(String(wake!.cmd.instructions)).toContain("Migrated the schema");
+  });
+
+  it("an execute over an unowned or closed call carries no arm intent", async () => {
+    withVersion("18.7.0");
+    openReviewGate("d1");
+    await h.flushMicrotasks();
+    // No owned, open call: the verdict gate must stay closed, so the flag
+    // never rides and a later start arms nothing.
+    const rt = createMachinery(h.useStore.setState, h.useStore.getState, h.useStore).runtime(h.TAB);
+    rt.liveVoiceOwner = false;
+    h.useStore.getState().executePlan(h.TAB, "existing");
+    await h.flushMicrotasks();
+    expect(peekTabRuntime(h.TAB)?.liveWorkParkHandoff).toBeUndefined();
+    expect(peekTabRuntime(h.TAB)?.liveWorkPark).not.toBe(true);
   });
 });

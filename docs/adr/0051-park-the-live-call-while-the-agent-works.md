@@ -100,3 +100,22 @@ hand-off carries voice to the viewed destination: the source stop is
 acknowledged before the destination start, and the gate is that no source
 call stays open — not that it ended without a transport-teardown error
 (#822).
+
+## Amendment (issue #842)
+
+A plan handoff's implementation seed turn is typed — omp emits no
+`live-delegation` frame for it — so the destination of an executed spoken
+review would stream its microphone for the whole turn. The amendment keeps
+the rule's shape: typed turns still never arm on their own. What arms is the
+hand-off itself — the same explicit voice carry-over #818 already defines. On
+the fresh-session route the intent rides a one-shot runtime flag set only at
+the stop->start carry-over gate, consumed by the destination's first
+successful `live_start` ack (a failed ack consumes it too, so it can never
+ride an unrelated later call) and cleared at `agent_end` and by explicit
+stop; arming at the ack is the one point where the call provably exists,
+ownership is set, and turn status is readable. On the in-place route the
+EXECUTION_PROMPT lands on a tab whose call is open right now, so the
+dispatch arms directly after an accepted prompt. Either way the arm runs the
+identical gates, and the `agent_end` store gate reads an accepted work-park
+as live-ownership evidence — a plain typed turn still passes neither flag,
+so the orphan rule stays un-false-fired.

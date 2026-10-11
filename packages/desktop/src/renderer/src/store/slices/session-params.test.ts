@@ -2,7 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EXPERIMENT_PROPOSAL_SENTINEL, type ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
-import { LIVE_CONNECT_TIMEOUT_MS, type LiveSnapshot } from "@omp-ui/core/live-voice";
+import {
+  LIVE_CONNECT_TIMEOUT_MS,
+  LIVE_WORK_PARK_CAP_MS,
+  type LiveSnapshot,
+} from "@omp-ui/core/live-voice";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { remoteOwnedState, rpcTabState, tabInfo } from "../../test/fixtures";
 import type { RenderItem } from "../../lib/transcript";
@@ -3657,6 +3661,63 @@ describe("live voice actions (issue #778)", () => {
         vi.useRealTimers();
       }
     });
+  });
+});
+
+describe("handoff park carry-over across the start ack (issue #842)", () => {
+  beforeEach(() => {
+    platformMocks.electron = true;
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      activeTabId: h.TAB,
+      rpc: { [h.TAB]: rpcTabState() },
+    });
+    h.sent.length = 0;
+  });
+  afterEach(() => {
+    platformMocks.electron = false;
+  });
+
+  it("a failed destination start ack consumes the arm intent without arming", async () => {
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({
+        rpc: {
+          [h.TAB]: rpcTabState({
+            capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
+          }),
+        },
+      });
+      const starting = h.useStore.getState().startLiveVoice(h.TAB);
+      h.respond(h.TAB, h.sent.find((e) => e.cmd.type === "live_start")!.cmd, {});
+      await starting;
+      const stopping = h.useStore.getState().stopLiveVoice(h.TAB);
+      h.respond(h.TAB, h.sent.filter((e) => e.cmd.type === "live_stop").pop()!.cmd, {});
+      await stopping;
+      // The lifecycle carry-over gate rode the one-shot arm intent onto a
+      // destination start. Here that start's ack comes back FAILED: the call
+      // never opens, so the intent is consumed silently — an arm would park a
+      // call that does not exist, and the flag must not ride a later start.
+      const rt = peekTabRuntime(h.TAB)!;
+      rt.liveVoiceOwner = true;
+      rt.liveArmed = true;
+      rt.liveWorkParkHandoff = true;
+      const restarting = h.useStore.getState().startLiveVoice(h.TAB);
+      h.respond(
+        h.TAB,
+        h.sent.filter((e) => e.cmd.type === "live_start").pop()!.cmd,
+        "voice unavailable",
+        false,
+      );
+      await restarting;
+      expect(peekTabRuntime(h.TAB)?.liveWorkParkHandoff).toBeUndefined();
+      expect(peekTabRuntime(h.TAB)?.liveWorkPark).not.toBe(true);
+      vi.advanceTimersByTime(LIVE_WORK_PARK_CAP_MS);
+      expect(h.sent.filter((e) => e.cmd.type === "live_stop")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
