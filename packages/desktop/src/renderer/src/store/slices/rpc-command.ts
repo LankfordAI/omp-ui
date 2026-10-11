@@ -726,12 +726,18 @@ export function createRpcCommandSlice(
           () => m.patchRpc(tabId, { subagentAckLevel: "progress" }),
           () => {},
         );
-      // Boot can outrun init()'s first getState — the record decides whether
-      // history (get_messages) is fetched, so don't read it from thin air.
-      if (!get().state) set({ state: await backend.getState() });
-      const rec = findRecord(get().state, tabId);
-      // Boot can outrun the state read above, so the seed may have read thin
-      // air; re-assert it from the record before get_state merges over it.
+      // The record decides history (get_messages) and the auto-thinking seed.
+      // ready can beat both init()'s first getState and the spawn's own
+      // state broadcast, so a missing record is read from the backend — the
+      // main process registers it before the child is spawned. get_state has
+      // no `configured` field: without the seed it would paint, and
+      // applyRpcState would persist, the boot-resolved level.
+      let rec = findRecord(get().state, tabId);
+      if (rec === undefined) {
+        const fetched = await backend.getState();
+        if (!get().state) set({ state: fetched });
+        rec = findRecord(fetched, tabId);
+      }
       if (rec?.thinkingLevel === "auto")
         m.patchSession(tabId, { thinkingConfigured: "auto" });
       // get_state is the canary: if it fails, the tab is dead, not "ready".
