@@ -1006,6 +1006,10 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const vibe = useStore((s) => s.rpc[tabId]?.vibe);
   const autoresearch = useStore((s) => s.rpc[tabId]?.autoresearch);
   const limits = useStore((s) => s.rpc[tabId]?.limits);
+  // The live session model (frame-owned since config_update): omp resolves
+  // compaction.modelThresholds against provider/id, so the notch moves with a
+  // model switch (issue #831). null before the first config_update → global path.
+  const model = useStore((s) => s.rpc[tabId]?.model);
   const quotaEvent = useStore((s) => s.rpc[tabId]?.quotaEvent);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
@@ -1064,7 +1068,8 @@ export function SessionHud({ tabId }: { tabId: string }) {
     session?.autoCompactionEnabled === true &&
     compactionSettings !== null &&
     compactionSettings !== undefined
-      ? compactionThresholdTokens(usage.contextWindow, compactionSettings)
+      ? compactionThresholdTokens(usage.contextWindow, compactionSettings,
+          model ? { provider: model.provider, id: model.id } : null)
       : null;
   const face = hibernated ? null : (STATUS[status] ?? STATUS.starting);
   const resolvedFace = face ?? { ...STATUS.starting, pulse: false };

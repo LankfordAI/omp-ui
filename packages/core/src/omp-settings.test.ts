@@ -17,6 +17,7 @@ import {
   pristineEnvironment,
   type OmpConfigRunner,
 } from "./omp-settings";
+import { COMPACTION_MODEL_THRESHOLD_SETTING_GROUP } from "./omp-settings-keys";
 
 const OMP = "/x/omp";
 
@@ -819,6 +820,33 @@ describe("readWebSearchProviders", () => {
     expect(snapshot.entries.some((e) => e.key === "providers.webSearchOrder")).toBe(false);
   });
 
+  it("carries the compaction model-threshold keys in the settings snapshot", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
+        {
+          global: {
+            "compaction.modelThresholds": entry({ "anthropic/claude-sonnet-4-5": 400000 }, "record", ""),
+            "compaction.modelThresholdsEnabled": entry(true, "boolean", ""),
+          },
+          pristine: {
+            "compaction.modelThresholds": entry({}, "record", ""),
+            "compaction.modelThresholdsEnabled": entry(true, "boolean", ""),
+          },
+        },
+        null,
+      ),
+    );
+    expect(snapshot.entries.find((e) => e.key === "compaction.modelThresholds")).toMatchObject({
+      type: "record",
+      value: { "anthropic/claude-sonnet-4-5": 400000 },
+      layer: "global",
+    });
+    expect(
+      snapshot.entries.find((e) => e.key === "compaction.modelThresholdsEnabled"),
+    ).toMatchObject({ type: "boolean", value: true });
+  });
+
   it("parity with the live omp binary — skipped when there is none", async () => {
     const ompPath = resolveOmpBinary();
     if (ompPath === null) return;
@@ -839,6 +867,10 @@ describe("readWebSearchProviders", () => {
     ).toBeDefined();
     // The first-share dialog's effective read (issue #679).
     for (const key of SHARE_SETTING_GROUP.keys) {
+      expect(listed[key], `omp no longer publishes ${key}`).toBeDefined();
+    }
+    // The HUD compaction notch's per-model keys (issue #831).
+    for (const key of COMPACTION_MODEL_THRESHOLD_SETTING_GROUP.keys) {
       expect(listed[key], `omp no longer publishes ${key}`).toBeDefined();
     }
     const discovered = await readWebSearchProviders({ ompPath });

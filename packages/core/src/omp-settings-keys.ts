@@ -53,6 +53,17 @@ export const SHARE_SETTING_GROUP: OmpSettingGroup = {
 };
 
 /**
+ * The per-model compaction thresholds (omp 18.8.8, issue #831). Allowlisted
+ * but NOT in OMP_SETTING_GROUPS: `modelThresholds` is a record and would
+ * render as a read-only JSON span (rows.tsx); the HUD reads both keys purely
+ * to draw the notch, and no omp-ui surface writes them.
+ */
+export const COMPACTION_MODEL_THRESHOLD_SETTING_GROUP: OmpSettingGroup = {
+  title: "Compaction model thresholds",
+  keys: ["compaction.modelThresholds", "compaction.modelThresholdsEnabled"],
+};
+
+/**
  * The privacy keys. Allowlisted but NOT in OMP_SETTING_GROUPS: the Providers
  * page renders its own switch for the telemetry opt-out (issue #670), so the
  * omp page shows no duplicate row for it. Allowlisted so the write boundary
@@ -176,6 +187,7 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...SHARE_SETTING_GROUP.keys,
   ...APPROVAL_SETTING_GROUP.keys,
   ...LIVE_VOICE_SETTING_GROUP.keys,
+  ...COMPACTION_MODEL_THRESHOLD_SETTING_GROUP.keys,
 ];
 /** modelRoles is a record edited per-role, so it is handled apart from the scalar list. */
 export const OMP_MODEL_ROLES_KEY = "modelRoles";
