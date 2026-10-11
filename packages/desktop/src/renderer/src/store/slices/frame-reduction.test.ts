@@ -23,6 +23,7 @@ import {
 import {
   STALL_CONTINUE_CAP_NOTICE,
   STALL_CONTINUE_LEAD,
+  STALL_CONTINUE_REPETITION_LEAD,
   STALL_CONTINUE_SETTLE_MS,
 } from "../../lib/stall-continue";
 import { PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY } from "@omp-ui/core/plan";
@@ -5867,6 +5868,144 @@ describe("stall auto-continue (issue #251)", () => {
       vi.useRealTimers();
     }
     await h.flushMicrotasks();
+  });
+
+  // The gateway's repetition halt (issue #839): the server stops generation
+  // and appends its notice to the final assistant text; the turn ends clean.
+  const repetitionEndFrame = (text: string) => ({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text:
+            text +
+            "\n\n⚠️ **Response stopped: repetition detected.** The model appears to be " +
+            "repeating itself. The text above may be incomplete.",
+        },
+      ],
+      stopReason: "stop",
+    },
+  });
+
+  const repetitionPrompts = () =>
+    h.sent.filter(
+      (s) => s.cmd.type === "prompt" && s.cmd.message === STALL_CONTINUE_REPETITION_LEAD,
+    );
+
+  it("continues a repetition-halted clean turn end with the repetition lead", async () => {
+    const T = "tab-stall-r1";
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
+      store.handleRpcFrame(T, {
+        type: "message_start",
+        message: { role: "assistant", content: [] },
+      });
+      store.handleRpcFrame(T, repetitionEndFrame("Here is the analysis so far: the parser"));
+      store.handleRpcFrame(T, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS - 1);
+      expect(repetitionPrompts()).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
+
+    const prompts = repetitionPrompts();
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.cmd).toMatchObject({ streamingBehavior: "followUp" });
+    expect(String(prompts[0]!.cmd.message)).toContain("halted by the server");
+    expect(STALL_CONTINUE_LEAD).not.toBe(STALL_CONTINUE_REPETITION_LEAD);
+    // The dispatch notice names the repetition cause; the injected gateway
+    // text is itself the diagnostic, so no provider-stall notice.
+    const items = h.useStore.getState().rpc[T]!.items;
+    expect(
+      items.some(
+        (i) =>
+          i.kind === "notice" &&
+          i.level === "info" &&
+          i.text.includes("stall auto-continue #1") &&
+          i.text.includes("repeating"),
+      ),
+    ).toBe(true);
+    expect(
+      items.some((i) => i.kind === "notice" && i.text.includes("provider stream stall")),
+    ).toBe(false);
+  });
+
+  it("the app switch gates repetition continues", async () => {
+    const T = "tab-stall-r2";
+    vi.useFakeTimers();
+    try {
+      h.backendState = { ...h.backendState, stallAutoContinue: false };
+      h.useStore.setState({
+        state: h.backendState,
+        rpc: { [T]: rpcTabState({ status: "running" }) },
+      });
+      const store = h.useStore.getState();
+      store.handleRpcFrame(T, repetitionEndFrame("partial work"));
+      store.handleRpcFrame(T, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+  });
+
+  it("a message merely quoting the notice earlier than its tail sends nothing", async () => {
+    const T = "tab-stall-r3";
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
+      // The phrase is discussed at the top; the tail is far past the window.
+      store.handleRpcFrame(T, {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text:
+                "The gateway can append “Response stopped: repetition detected.” to a " +
+                "halted message. " +
+                "x".repeat(500) +
+                " And that is why the classifier only reads the tail.",
+            },
+          ],
+          stopReason: "stop",
+        },
+      });
+      store.handleRpcFrame(T, { type: "agent_end" });
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
+    expect(h.sent.filter((s) => s.cmd.type === "prompt")).toHaveLength(0);
+  });
+
+  it("a user prompt inside the settle window wins the repetition race", async () => {
+    const T = "tab-stall-r4";
+    vi.useFakeTimers();
+    try {
+      h.useStore.setState({ rpc: { [T]: rpcTabState({ status: "running" }) } });
+      const store = h.useStore.getState();
+      store.handleRpcFrame(T, repetitionEndFrame("partial work"));
+      store.handleRpcFrame(T, { type: "agent_end" });
+      void h.useStore.getState().sendPrompt(T, "carry on where you stopped");
+      await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+    await h.flushMicrotasks();
+    const prompts = h.sent.filter((s) => s.cmd.type === "prompt");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.cmd.message).toBe("carry on where you stopped");
   });
 });
 

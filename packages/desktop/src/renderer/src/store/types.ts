@@ -366,6 +366,8 @@ export interface LastTurnMeta {
   stopReason?: string;
   errorMessage?: string;
   errorId?: number;
+  /** The terminal assistant text carried a server repetition-halt notice (issue #839). */
+  repetitionStop?: boolean;
 }
 
 export type SidebarSessionState =

@@ -3,6 +3,7 @@ import {
   STALL_CONTINUE_CAP_NOTICE,
   STALL_CONTINUE_LEAD,
   STALL_CONTINUE_MAX,
+  STALL_CONTINUE_REPETITION_LEAD,
   STALL_CONTINUE_SETTLE_MS,
   StallContinueWatcher,
 } from "./stall-continue";
@@ -12,6 +13,7 @@ const TAB = "tab-stall";
 describe("StallContinueWatcher", () => {
   let notices: Array<{ text: string; level: "info" | "warn" }>;
   let dispatches: string[];
+  let reasons: Array<"stall" | "repetition">;
   /** Stands in for the session being promptable; the store predicate gates on it. */
   let continuable: boolean;
   let capChanges: Array<[string, boolean]>;
@@ -21,12 +23,14 @@ describe("StallContinueWatcher", () => {
     vi.useFakeTimers();
     notices = [];
     dispatches = [];
+    reasons = [];
     continuable = true;
     capChanges = [];
     watcher = new StallContinueWatcher({
       canContinue: () => continuable,
-      onDispatch: (tabId) => {
+      onDispatch: (tabId, reason) => {
         dispatches.push(tabId);
+        reasons.push(reason);
       },
       onNotice: (_tabId, text, level) => {
         notices.push({ text, level });
@@ -161,5 +165,33 @@ describe("StallContinueWatcher", () => {
     // One dispatch per stall event, not two.
     expect(dispatches).toHaveLength(1);
     expect(notices.filter((n) => n.level === "info")).toHaveLength(1);
+  });
+
+  it("dispatches a repetition trigger with the repetition lead and reason", async () => {
+    watcher.trigger(TAB, "repetition");
+
+    await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+    expect(dispatches).toHaveLength(1);
+    expect(reasons).toEqual(["repetition"]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.level).toBe("info");
+    expect(notices[0]!.text).toContain("repeating");
+    // The lead is what the store sends; assert it names the repetition halt.
+    expect(STALL_CONTINUE_REPETITION_LEAD).toContain("repeating");
+  });
+
+  it("a default trigger reports the stall reason", async () => {
+    watcher.trigger(TAB);
+    await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+    expect(reasons).toEqual(["stall"]);
+  });
+
+  it("a stall superseding a pending repetition trigger keeps the latest reason", async () => {
+    watcher.trigger(TAB, "repetition");
+    await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS / 2);
+    watcher.trigger(TAB);
+    await vi.advanceTimersByTimeAsync(STALL_CONTINUE_SETTLE_MS);
+    expect(dispatches).toHaveLength(1);
+    expect(reasons).toEqual(["stall"]);
   });
 });

@@ -43,14 +43,29 @@ export const STALL_CONTINUE_LEAD =
 export const STALL_CONTINUE_CAP_NOTICE =
   `stall auto-continue paused after ${STALL_CONTINUE_MAX} consecutive continues — send a prompt to re-arm`;
 
-export function stallContinueNotice(count: number): string {
-  return `stall auto-continue #${count} — the previous turn's model stream stalled; continuing`;
+export type StallContinueReason = "stall" | "repetition";
+
+export const STALL_CONTINUE_REPETITION_LEAD =
+  "Your previous turn was halted by the server because the model began repeating " +
+  "itself, so the output above is truncated. Continue from where you left off — do " +
+  "not re-emit text you already produced. Resume the interrupted work, or state " +
+  "explicitly what is blocked.";
+
+export function stallContinueNotice(
+  count: number,
+  reason: StallContinueReason = "stall",
+): string {
+  const cause =
+    reason === "repetition"
+      ? "the model began repeating itself and the server halted the response"
+      : "the previous turn's model stream stalled";
+  return `stall auto-continue #${count} — ${cause}; continuing`;
 }
 
 export interface StallContinueCallbacks {
   /** True when this tab may be auto-prompted right now (see the store's predicate). */
   canContinue(tabId: string): boolean;
-  onDispatch(tabId: string): void;
+  onDispatch(tabId: string, reason: StallContinueReason): void;
   onNotice(tabId: string, text: string, level: "info" | "warn"): void;
   /**
    * The cap transition, for main's OS notifier (issue #271): true when the
@@ -63,6 +78,7 @@ export interface StallContinueCallbacks {
 interface ContinueState {
   count: number;
   capPosted: boolean;
+  reason: StallContinueReason;
   timer: ReturnType<typeof setTimeout> | undefined;
 }
 
@@ -74,16 +90,17 @@ export class StallContinueWatcher {
     private settleMs: number = STALL_CONTINUE_SETTLE_MS,
   ) {}
 
-  /** Called from the agent_end handler when the turn died to a stall-classified error end. */
-  trigger(tabId: string): void {
+  /** Called from the agent_end handler when the turn ended stall-classified or repetition-halted. */
+  trigger(tabId: string, reason: StallContinueReason = "stall"): void {
     let st = this.states.get(tabId);
     if (!st) {
-      st = { count: 0, capPosted: false, timer: undefined };
+      st = { count: 0, capPosted: false, reason, timer: undefined };
       this.states.set(tabId, st);
     }
     // A stall on top of a pending continue (the continue turn itself stalled)
-    // supersedes the old timer: one dispatch per stall event.
-    if (st.timer !== undefined) clearTimeout(st.timer);
+    // supersedes the old timer: one dispatch per turn end, latest cause wins.
+    clearTimeout(st.timer);
+    st.reason = reason;
     if (st.count >= STALL_CONTINUE_MAX) {
       if (!st.capPosted) {
         st.capPosted = true;
@@ -96,8 +113,8 @@ export class StallContinueWatcher {
       st!.timer = undefined;
       if (!this.callbacks.canContinue(tabId)) return; // user moved on, tab died, or a gate owns the session
       st!.count += 1;
-      this.callbacks.onNotice(tabId, stallContinueNotice(st!.count), "info");
-      this.callbacks.onDispatch(tabId);
+      this.callbacks.onNotice(tabId, stallContinueNotice(st!.count, st!.reason), "info");
+      this.callbacks.onDispatch(tabId, st!.reason);
     }, this.settleMs);
   }
 

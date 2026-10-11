@@ -784,7 +784,7 @@ export const en = {
   "settings.general.streamStallWatchdogLabel": "stall watchdog",
   "settings.general.stallAutoContinue": "Stall auto-continue",
   "settings.general.stallAutoContinueHint":
-    "When a turn is aborted because the model stream stalled, send a bounded continue prompt (max 2 in a row; any prompt re-arms) so the session resumes instead of sitting idle. The stall diagnostic still appears with this off. Terminal tabs have no prompt channel and are unaffected.",
+    "When a turn is aborted because the model stream stalled, or the server halted a turn because the model began repeating itself, send a bounded continue prompt (max 2 in a row; any prompt re-arms) so the session resumes instead of sitting idle. The stall diagnostic still appears with this off. Terminal tabs have no prompt channel and are unaffected.",
   "settings.general.desktopNotifications": "Desktop notifications",
   "settings.general.desktopNotificationsHint":
     "Post an OS notification when a background native session needs attention — its turn finished, a plan review is waiting for an answer, or stall auto-continue paused at its cap. The banner appears while the window is unfocused or a different tab is in view; clicking it focuses the window and resurfaces the session. Terminal sessions are not announced, and remote browser clients are unaffected.",

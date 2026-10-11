@@ -25,6 +25,7 @@ import {
 } from "../../lib/plan-concerns";
 import {
   STALL_CONTINUE_LEAD,
+  STALL_CONTINUE_REPETITION_LEAD,
   StallContinueWatcher,
 } from "../../lib/stall-continue";
 import { noticeItem, type AdvisorNote } from "../../lib/transcript";
@@ -488,8 +489,14 @@ export function createPlanExecutionSlice(
       if (get().state?.stallAutoContinue === false) return false;
       return permission.tab.extensionQueue.length === 0;
     },
-    onDispatch: (tabId) => {
-      void get().sendPrompt(tabId, STALL_CONTINUE_LEAD, "stall_continue");
+    onDispatch: (tabId, reason) => {
+      void get().sendPrompt(
+        tabId,
+        reason === "repetition"
+          ? STALL_CONTINUE_REPETITION_LEAD
+          : STALL_CONTINUE_LEAD,
+        "stall_continue",
+      );
     },
     onNotice: (tabId, text, level) => m.appendItem(tabId, noticeItem(text, level)),
     onCapChange: (tabId, paused) => backend.reportStallCap(tabId, paused),

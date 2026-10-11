@@ -123,3 +123,18 @@ classifier; the watchdog's omp_ui_notice now carries reason: "stall-abort",
 and the renderer feeds the following agent_end into the same bounded
 continue. The watchdog abort's diagnostic is that notice itself — the issue
 #100 provider diagnostic still posts only for provider-classified ends.
+
+**Amended 2026-10-10 (#839):** behind a LiteLLM-style proxy gateway, a model that
+degenerates into repetition has its generation halted by the server, which appends
+a "Response stopped: repetition detected" notice to the final assistant text and
+ends the turn clean — `stopReason: "stop"`, no error fields — so neither the error
+classifier nor the watchdog flag can see it and the session sits idle. The
+continue class is extended to that clean turn end: a turn whose terminal assistant
+text carries the notice in its last 400 characters is continue-eligible. The tail
+match is the classifier's whole evidence base — a proxy convention, not an omp
+field — and it keeps a session merely quoting the notice from misfiring. The
+notice itself is the diagnostic, the same posture the 2026-08-22 amendment took for
+the watchdog abort, and the dispatched continue prompt carries a repetition-
+specific lead so the model resumes instead of re-emitting what it already
+produced. The guard, switch, cap, and gates are unchanged; a repetition notice
+riding an already-classified stall end keeps the stall reason.

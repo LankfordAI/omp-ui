@@ -728,7 +728,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.streamStallWatchdogLabel": "정체 감시기",
   "settings.general.stallAutoContinue": "Stall auto-continue",
   "settings.general.stallAutoContinueHint":
-    "모델 스트림 정체로 턴이 중단되면 제한된 계속 프롬프트를 전송해(연속 최대 2회, 프롬프트를 보내면 재활성화) 세션이 유휴 상태에 머물지 않고 재개되도록 합니다. 이 기능을 꺼도 정체 진단은 표시됩니다. 프롬프트 채널이 없는 터미널 탭에는 영향을 주지 않습니다.",
+    "모델 스트림 정체로 턴이 중단되거나 서버가 모델의 반복 진입으로 턴을 정지시킨 경우, 제한된 계속 프롬프트를 전송해(연속 최대 2회, 프롬프트를 보내면 재활성화) 세션이 유휴 상태에 머물지 않고 재개되도록 합니다. 이 기능을 꺼도 정체 진단은 표시됩니다. 프롬프트 채널이 없는 터미널 탭에는 영향을 주지 않습니다.",
   "settings.general.desktopNotifications": "데스크톱 알림",
   "settings.general.desktopNotificationsHint":
     "백그라운드 네이티브 세션에 주의가 필요할 때 OS 알림을 보냅니다. 턴이 끝났거나, 플랜 검토가 답변을 기다리거나, stall auto-continue가 한도에서 일시정지된 경우입니다. 창이 포커스를 잃었거나 다른 탭을 보는 동안 배너가 표시되며, 클릭하면 창과 해당 세션이 표시됩니다. 터미널 세션은 알리지 않으며 원격 브라우저 클라이언트에는 영향을 주지 않습니다.",
