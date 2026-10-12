@@ -184,6 +184,9 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       "hideThinkingBlock",
       "git.enabled",
       "colorBlindMode",
+      // omp 18.8.7 title cards (issue #838); the select options ride in from
+      // `omp config list` via parseEnumOptions, so no option plumbing here.
+      "title.icons",
     ],
   },
   {

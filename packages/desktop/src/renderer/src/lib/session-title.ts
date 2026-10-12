@@ -38,6 +38,14 @@
  * says the current title is one omp-ui generated. omp records generator
  * titles with source "user", so the on-disk header cannot tell an auto-title
  * from a typed name; the marker can, and every typed rename clears it.
+ *
+ * The card question (issue #838): the 18.8.9 binary still gates omp's own
+ * auto-title off for rpc-ui (`noTitle || mode === "rpc" || "rpc-ui" ||
+ * "acp"`), so the `message_start` dispatch above remains our whole timing
+ * story; omp's title-starts-at-reply-begin change (its #803) is TUI-only.
+ * What 18.8.7+ did change is the string itself — card titles arrive as
+ * `${icon} ${code}: ${title}` inside it, which title-card.ts splits at
+ * render time.
  */
 
 /**
