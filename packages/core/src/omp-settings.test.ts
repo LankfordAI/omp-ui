@@ -18,7 +18,10 @@ import {
   pristineEnvironment,
   type OmpConfigRunner,
 } from "./omp-settings";
-import { COMPACTION_MODEL_THRESHOLD_SETTING_GROUP } from "./omp-settings-keys";
+import {
+  COMPACTION_MODEL_THRESHOLD_SETTING_GROUP,
+  CONTEXT_FILES_EXTRA_KEY,
+} from "./omp-settings-keys";
 
 const OMP = "/x/omp";
 
@@ -728,6 +731,24 @@ describe("writeOmpSetting", () => {
     expect(seen).toEqual(["config", "set", "tts.localSpeed", "0.5", "--json"]);
   });
 
+  it("allowlists contextFiles.extra and serializes the array as JSON (issue #837)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: CONTEXT_FILES_EXTRA_KEY, value: ["AGENTS.local.md"] },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      "contextFiles.extra",
+      '["AGENTS.local.md"]',
+      "--json",
+    ]);
+  });
+
   it("puts a negative number after `--` so omp's CLI does not read it as a flag (issue #105)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(
@@ -889,6 +910,26 @@ describe("readWebSearchProviders", () => {
       type: "array",
       description: "Prioritized providers for the web_search tool",
       value: ["brave"],
+      layer: "global",
+    });
+  });
+
+  it("carries contextFiles.extra in the settings snapshot (issue #837)", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
+        {
+          global: {
+            [CONTEXT_FILES_EXTRA_KEY]: entry(["AGENTS.local.md"], "array", ""),
+          },
+          pristine: { [CONTEXT_FILES_EXTRA_KEY]: entry([], "array", "") },
+        },
+        null,
+      ),
+    );
+    expect(snapshot.entries.find((e) => e.key === CONTEXT_FILES_EXTRA_KEY)).toMatchObject({
+      type: "array",
+      value: ["AGENTS.local.md"],
       layer: "global",
     });
   });

@@ -6,6 +6,7 @@ import { Row, SettingControl, layerBadge } from "./rows";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
 import {
   APPROVAL_SETTING_KEY,
+  CONTEXT_FILES_EXTRA_KEY,
   LIVE_VOICE_SETTING_KEY,
   OMP_MAX_CONCURRENCY_KEY,
   OMP_SUBAGENT_MODELS_KEY,
@@ -16,6 +17,7 @@ import { ModelRolesSection } from "./ModelRolesSection";
 import { SubagentModelsSection } from "./SubagentModelsSection";
 import { SubagentConcurrencySection } from "./SubagentConcurrencySection";
 import { ApprovalModeSection } from "./ApprovalModeSection";
+import { ContextFilesSection } from "./ContextFilesSection";
 import { LiveVoiceSection } from "./LiveVoiceSection";
 import { useT } from "../../lib/i18n";
 
@@ -144,6 +146,12 @@ export function OmpPage({
         pendingKey={pendingKey}
         commit={commit}
         retry={retry}
+      />
+
+      <ContextFilesSection
+        entry={byKey.get(CONTEXT_FILES_EXTRA_KEY)}
+        pendingKey={pendingKey}
+        commit={commit}
       />
 
       <LiveVoiceSection

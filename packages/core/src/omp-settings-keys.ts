@@ -64,6 +64,18 @@ export const COMPACTION_MODEL_THRESHOLD_SETTING_GROUP: OmpSettingGroup = {
 };
 
 /**
+ * Extra instruction files loaded beside the usual context file
+ * (omp 18.8.8, issue #837). Allowlisted but NOT in OMP_SETTING_GROUPS:
+ * an array value renders as a read-only JSON span there (rows.tsx), so
+ * ContextFilesSection owns the editable row on the omp page.
+ */
+export const CONTEXT_FILES_EXTRA_KEY = "contextFiles.extra";
+export const CONTEXT_FILES_SETTING_GROUP: OmpSettingGroup = {
+  title: "Context files",
+  keys: [CONTEXT_FILES_EXTRA_KEY],
+};
+
+/**
  * The privacy keys. Allowlisted but NOT in OMP_SETTING_GROUPS: the Providers
  * page renders its own switch for the telemetry opt-out (issue #670), so the
  * omp page shows no duplicate row for it. Allowlisted so the write boundary
@@ -206,6 +218,7 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...APPROVAL_SETTING_GROUP.keys,
   ...LIVE_VOICE_SETTING_GROUP.keys,
   ...COMPACTION_MODEL_THRESHOLD_SETTING_GROUP.keys,
+  ...CONTEXT_FILES_SETTING_GROUP.keys,
 ];
 /** modelRoles is a record edited per-role, so it is handled apart from the scalar list. */
 export const OMP_MODEL_ROLES_KEY = "modelRoles";
