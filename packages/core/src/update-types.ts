@@ -9,6 +9,8 @@ export interface OmpUpdateInfo {
   installedVersion: string | null;
   latestVersion: string | null;
   updateAvailable: boolean;
+  /** Installed binary is older than MIN_SUPPORTED_OMP. False when no binary. */
+  belowMinimum: boolean;
   error: UpdateFailure | null;
 }
 
@@ -62,6 +64,8 @@ export interface OmpUpdateState {
   installPath: string | null;
   installedVersion: string | null;
   latestVersion: string | null;
+  /** Installed binary is older than MIN_SUPPORTED_OMP (harness floor). */
+  belowMinimum: boolean;
   progress: number | null;
   error: UpdateFailure | null;
 }

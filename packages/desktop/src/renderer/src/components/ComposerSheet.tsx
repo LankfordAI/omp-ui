@@ -10,7 +10,7 @@ import { BuildPlanControl } from "./BuildPlanControl";
 import { QueuedMessageList } from "./QueuedMessageList";
 import { FastModeControl } from "./FastModeControl";
 import { LiveVoiceControl } from "./LiveVoiceControl";
-import { liveAudioLocalToClient, supportsNativeLive } from "../lib/live-voice";
+import { NATIVE_LIVE_MIN_OMP, liveAudioLocalToClient, supportsNativeLive } from "../lib/live-voice";
 import { Button, Chip, Label, Sheet } from "./ui";
 
 /** Stable empty so the per-field selector doesn't fire on every store tick. */
@@ -65,6 +65,12 @@ export function ComposerSheet({
       supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null) &&
       liveAudioLocalToClient(findOwner(s.state, tabId)?.instanceId ?? null),
   );
+  // The version gate alone, so the row's title can name the required omp
+  // when old-harness omp — not remote audio — is why live voice is absent.
+  const liveGateBlocked = useStore((s) => {
+    const v = s.rpc[tabId]?.capabilities?.ompVersion ?? null;
+    return v !== null && !supportsNativeLive(v);
+  });
   // One fast control per sheet: the gate's yes puts it in the model/effort
   // section beside the pills it belongs to (issue #689); its no keeps #677's
   // always-available row in the session section, so the affordance is never
@@ -98,11 +104,22 @@ export function ComposerSheet({
               <FastModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
             </div>
           )}
-          {liveSupported && liveVoiceVisible && (
+          {/* The row stays mounted, inert, with the required version in the
+              wrapper's title when the version gate closes it (floor plan §6).
+              Remote-host audio (issue #816) keeps hiding the row: a newer
+              omp would not bring it back here. */}
+          {liveVoiceVisible && (liveSupported ? (
             <div className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
               <LiveVoiceControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
             </div>
-          )}
+          ) : liveGateBlocked ? (
+            <div
+              className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3"
+              title={t("composer.live.needsNewerOmp", { version: NATIVE_LIVE_MIN_OMP })}
+            >
+              <LiveVoiceControl tabId={tabId} layout="sheet" disabled startDisabled className="w-full" />
+            </div>
+          ) : null)}
         </section>
         <section className="rounded-xl border border-line bg-raised/60 p-3">
           <Label>{t("composer.sheet.session")}</Label>

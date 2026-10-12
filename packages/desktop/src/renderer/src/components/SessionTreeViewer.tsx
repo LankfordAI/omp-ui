@@ -5,7 +5,7 @@ import {
 } from "@omp-ui/core/session-tree";
 import { useMemo, useState, type JSX } from "react";
 import { useT, type MessageKey } from "../lib/i18n";
-import { supportsNativeFork } from "../lib/session-fork";
+import { NATIVE_FORK_MIN_OMP, supportsNativeFork } from "../lib/session-fork";
 import { useStore } from "../store";
 import { Chip, ICON_STROKE, IconSessionTree, Label, Modal } from "./ui";
 import { IconPencil, IconRewind } from "./ui";
@@ -127,6 +127,8 @@ export function SessionTreeViewer(): JSX.Element | null {
   const leafId = snapshot?.available === true ? snapshot.leafId : null;
   const disabled = busy || snapshot === null || !snapshot.available;
   const busyTitle = busy ? t("session.tree.busy") : undefined;
+  // A below-gate fork button stays mounted, inert, and tells why (floor plan §6).
+  const forkTitle = canFork ? busyTitle : (busyTitle ?? t("session.tree.needsNewerOmp", { version: NATIVE_FORK_MIN_OMP }));
 
   return (
     <Modal
@@ -207,18 +209,16 @@ export function SessionTreeViewer(): JSX.Element | null {
                         >
                           <IconPencil />
                         </button>
-                        {canFork && (
-                          <button
-                            type="button"
-                            className="grid size-6 place-items-center rounded-md text-ink-dim transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:text-ink-faint"
-                            aria-label={t("session.tree.fork")}
-                            title={busyTitle}
-                            disabled={disabled}
-                            onClick={() => void stageForkEntry(tabId, row.id)}
-                          >
-                            <IconTreeBranch />
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="grid size-6 place-items-center rounded-md text-ink-dim transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:text-ink-faint"
+                          aria-label={t("session.tree.fork")}
+                          title={forkTitle}
+                          disabled={disabled || !canFork}
+                          onClick={() => void stageForkEntry(tabId, row.id)}
+                        >
+                          <IconTreeBranch />
+                        </button>
                       </>
                     ) : (
                       <button

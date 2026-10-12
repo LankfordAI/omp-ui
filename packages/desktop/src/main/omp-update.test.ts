@@ -69,8 +69,9 @@ function makeUpdater(overrides: Partial<OmpUpdaterDeps> = {}): MadeUpdater {
     send: (channel, state) => sent.push({ channel, state: { ...state } }),
     channel: "omp:updateState",
     installPath: "/managed/omp",
-    fetchImpl: registryFetch({ version: "1.2.0" }),
-    runner: async () => "omp/1.0.0",
+    autoUpgrade: () => true,
+    fetchImpl: registryFetch({ version: "19.1.0" }),
+    runner: async () => "omp/19.0.0",
     ...overrides,
   });
   return { updater, dismissed, onApplied };
@@ -110,8 +111,8 @@ describe("OmpUpdater.checkNow", () => {
     const pushes = sent.filter((s) => s.state.status === "available");
     expect(pushes).toHaveLength(1);
     expect(pushes[0].channel).toBe("omp:updateState");
-    expect(pushes[0].state.installedVersion).toBe("1.0.0");
-    expect(pushes[0].state.latestVersion).toBe("1.2.0");
+    expect(pushes[0].state.installedVersion).toBe("19.0.0");
+    expect(pushes[0].state.latestVersion).toBe("19.1.0");
     expect(pushes[0].state.installPath).toBe("/managed/omp");
   });
 
@@ -123,28 +124,28 @@ describe("OmpUpdater.checkNow", () => {
     expect(pushes).toHaveLength(1);
     expect(pushes[0].state.installPath).toBeNull();
     expect(pushes[0].state.installedVersion).toBeNull();
-    expect(pushes[0].state.latestVersion).toBe("1.2.0");
+    expect(pushes[0].state.latestVersion).toBe("19.1.0");
   });
 
   it("stays silent in the background when already current", async () => {
-    const { updater } = makeUpdater({ fetchImpl: registryFetch({ version: "1.0.0" }) });
+    const { updater } = makeUpdater({ fetchImpl: registryFetch({ version: "19.0.0" }) });
     await updater.checkNow(false);
     expect(updater.state.status).toBe("idle");
     expect(statuses()).toEqual(["checking", "idle"]);
   });
 
   it("records the resolved install facts when no update is offered (issue #76)", async () => {
-    const { updater } = makeUpdater({ fetchImpl: registryFetch({ version: "1.0.0" }) });
+    const { updater } = makeUpdater({ fetchImpl: registryFetch({ version: "19.0.0" }) });
     await updater.checkNow(false);
     expect(updater.state.installPath).toBe("/managed/omp");
-    expect(updater.state.installedVersion).toBe("1.0.0");
+    expect(updater.state.installedVersion).toBe("19.0.0");
   });
 
   it("answers a manual same-version check with up-to-date", async () => {
-    const { updater } = makeUpdater({ fetchImpl: registryFetch({ version: "1.0.0" }) });
+    const { updater } = makeUpdater({ fetchImpl: registryFetch({ version: "19.0.0" }) });
     await updater.checkNow(true);
     expect(updater.state.status).toBe("up-to-date");
-    expect(updater.state.installedVersion).toBe("1.0.0");
+    expect(updater.state.installedVersion).toBe("19.0.0");
   });
 
   it("keeps the locally read version when the registry is unreachable", async () => {
@@ -155,12 +156,12 @@ describe("OmpUpdater.checkNow", () => {
     });
     await updater.checkNow(false);
     expect(updater.state.status).toBe("idle");
-    expect(updater.state.installedVersion).toBe("1.0.0");
+    expect(updater.state.installedVersion).toBe("19.0.0");
   });
 
   it("stays quiet for a dismissed version in the background but answers a manual check", async () => {
     const { updater, dismissed } = makeUpdater();
-    dismissed.value = "1.2.0";
+    dismissed.value = "19.1.0";
     await updater.checkNow(false);
     expect(updater.state.status).toBe("idle");
     expect(statuses()).not.toContain("available");
@@ -168,17 +169,17 @@ describe("OmpUpdater.checkNow", () => {
     sent.length = 0;
     await updater.checkNow(true);
     expect(updater.state.status).toBe("available");
-    expect(updater.state.latestVersion).toBe("1.2.0");
+    expect(updater.state.latestVersion).toBe("19.1.0");
   });
 
   it("re-announces when a newer-than-dismissed version exists", async () => {
     const { updater, dismissed } = makeUpdater({
-      fetchImpl: registryFetch({ version: "1.3.0" }),
+      fetchImpl: registryFetch({ version: "19.2.0" }),
     });
-    dismissed.value = "1.2.0";
+    dismissed.value = "19.1.0";
     await updater.checkNow(false);
     expect(updater.state.status).toBe("available");
-    expect(updater.state.latestVersion).toBe("1.3.0");
+    expect(updater.state.latestVersion).toBe("19.2.0");
   });
 });
 
@@ -186,13 +187,13 @@ describe("OmpUpdater.dismiss", () => {
   it("persists the version when remember is true", async () => {
     const { updater, dismissed } = makeUpdater();
     await updater.checkNow(false);
-    updater.dismiss("1.2.0", true);
-    expect(dismissed.value).toBe("1.2.0");
+    updater.dismiss("19.1.0", true);
+    expect(dismissed.value).toBe("19.1.0");
     expect(updater.state.status).toBe("idle");
     expect(updater.state.latestVersion).toBeNull();
     // Last-known install facts survive the hide.
     expect(updater.state.installPath).toBe("/managed/omp");
-    expect(updater.state.installedVersion).toBe("1.0.0");
+    expect(updater.state.installedVersion).toBe("19.0.0");
   });
 
   it("persists nothing on a transient hide", () => {
@@ -215,7 +216,7 @@ describe("OmpUpdater.download", () => {
 
   it("streams the download, then reports installed with the binary in place", async () => {
     const target = path.join(mkTmp(), "bin", "omp");
-    const payload = Buffer.from("#!/bin/sh\necho omp/1.2.0\n");
+    const payload = Buffer.from("#!/bin/sh\necho omp/19.1.0\n");
     const applied: string[] = [];
     const { updater } = makeUpdater({
       targetPath: target,
@@ -228,7 +229,7 @@ describe("OmpUpdater.download", () => {
     });
     await updater.checkNow(false);
     await updater.download();
-    expect(applied).toEqual(["1.2.0"]);
+    expect(applied).toEqual(["19.1.0"]);
     expect(fs.readFileSync(target)).toEqual(payload);
     const seq = statuses();
     expect(seq[0]).toBe("checking");
@@ -241,7 +242,7 @@ describe("OmpUpdater.download", () => {
     expect(progress[0]).toBeNull(); // the initial downloading push
     expect(progress).toContain(100);
     expect(updater.state.installPath).toBe(target);
-    expect(updater.state.installedVersion).toBe("1.2.0");
+    expect(updater.state.installedVersion).toBe("19.1.0");
   });
 
   it("installs from the missing offer too", async () => {
@@ -290,7 +291,7 @@ describe("OmpUpdater.download", () => {
       installPath,
       targetPath: target,
       // The installed binary reads fine; the downloaded body is garbage.
-      runner: async (p) => (p === installPath ? "omp/1.0.0" : "garbage"),
+      runner: async (p) => (p === installPath ? "omp/19.0.0" : "garbage"),
       downloadFetchImpl: streamFetch([Buffer.from("captive-portal-html")]),
     });
     await updater.checkNow(false);
@@ -307,25 +308,25 @@ describe("OmpUpdater.download", () => {
 describe("OmpUpdater dismissal reaping (issue #88)", () => {
   it("drops a dismissal the installed omp has caught up to", async () => {
     const { updater, dismissed } = makeUpdater();
-    dismissed.value = "1.0.0"; // the runner reports omp/1.0.0
+    dismissed.value = "19.0.0"; // the runner reports omp/19.0.0
     await updater.checkNow(false);
     expect(dismissed.value).toBeNull();
   });
 
   it("keeps — and still honors — a dismissal newer than the installed omp", async () => {
     const { updater, dismissed } = makeUpdater();
-    dismissed.value = "1.2.0"; // the live offer; background checks stay quiet for it
+    dismissed.value = "19.1.0"; // the live offer; background checks stay quiet for it
     await updater.checkNow(false);
-    expect(dismissed.value).toBe("1.2.0");
+    expect(dismissed.value).toBe("19.1.0");
     expect(updater.state.status).toBe("idle");
     expect(statuses()).not.toContain("available");
   });
 
   it("keeps the dismissal while omp is missing — it still suppresses that install offer", async () => {
     const { updater, dismissed } = makeUpdater({ installPath: null });
-    dismissed.value = "1.2.0";
+    dismissed.value = "19.1.0";
     await updater.checkNow(false);
-    expect(dismissed.value).toBe("1.2.0");
+    expect(dismissed.value).toBe("19.1.0");
     expect(updater.state.status).toBe("idle");
   });
 
@@ -335,12 +336,115 @@ describe("OmpUpdater dismissal reaping (issue #88)", () => {
       targetPath: target,
       downloadFetchImpl: streamFetch([Buffer.from("#!/bin/sh\n")]),
     });
-    // Newer than the installed 1.0.0 (survives the check), older than the 1.2.0 offer.
-    dismissed.value = "1.1.0";
+    // Newer than the installed 19.0.0 (survives the check), older than the 19.1.0 offer.
+    dismissed.value = "19.0.1";
     await updater.checkNow(false);
-    expect(dismissed.value).toBe("1.1.0");
+    expect(dismissed.value).toBe("19.0.1");
     await updater.download();
     expect(updater.state.status).toBe("installed");
     expect(dismissed.value).toBeNull();
+  });
+});
+
+// The harness floor: below MIN_SUPPORTED_OMP the launch check is a
+// requirement, not an offer — it auto-installs (unless opted out or pinned),
+// ignores stored dismissals, and never persists a "Later".
+describe("OmpUpdater harness floor (auto-upgrade below MIN_SUPPORTED_OMP)", () => {
+  /** Registry latest well above the floor; runner reports below-floor 18.0.0. */
+  const belowFloor = (overrides: Partial<OmpUpdaterDeps> = {}): Partial<OmpUpdaterDeps> => ({
+    fetchImpl: registryFetch({ version: "19.1.0" }),
+    runner: async () => "omp/18.0.0",
+    downloadFetchImpl: streamFetch([Buffer.from("#!/bin/sh\necho omp/19.1.0\n")]),
+    targetPath: path.join(mkTmp(), "omp"),
+    ...overrides,
+  });
+
+  it("auto-installs on the background check, walking available → downloading → installed", async () => {
+    const { updater, onApplied } = makeUpdater(belowFloor());
+    await updater.checkNow(false);
+    // The second `downloading` is the single-chunk stream's progress event.
+    expect(statuses()).toEqual(["checking", "available", "downloading", "downloading", "installed"]);
+    expect(updater.state.installedVersion).toBe("19.1.0");
+    expect(updater.state.belowMinimum).toBe(false);
+    expect(onApplied).toHaveBeenCalledWith("19.1.0");
+  });
+
+  it("stays at the required available state when auto-upgrade is off", async () => {
+    const { updater, onApplied } = makeUpdater(belowFloor({ autoUpgrade: () => false }));
+    await updater.checkNow(false);
+    expect(updater.state.status).toBe("available");
+    expect(updater.state.belowMinimum).toBe(true);
+    expect(statuses()).toEqual(["checking", "available"]);
+    expect(onApplied).not.toHaveBeenCalled();
+  });
+
+  it("stays at the required available state when a dev pin outranks the managed copy", async () => {
+    const { updater, onApplied } = makeUpdater(belowFloor({ pinActive: () => true }));
+    await updater.checkNow(false);
+    expect(updater.state.status).toBe("available");
+    expect(updater.state.belowMinimum).toBe(true);
+    expect(onApplied).not.toHaveBeenCalled();
+  });
+
+  it("re-surfaces a below-floor offer a background check would otherwise suppress", async () => {
+    const { updater, dismissed } = makeUpdater(belowFloor({ autoUpgrade: () => false }));
+    dismissed.value = "19.1.0";
+    await updater.checkNow(false);
+    expect(updater.state.status).toBe("available");
+    expect(statuses()).toContain("available");
+  });
+
+  it("surfaces a failed auto-install as error and keeps the old install facts", async () => {
+    const dir = mkTmp();
+    const target = path.join(dir, "omp");
+    fs.writeFileSync(target, "old-binary");
+    const { updater, onApplied } = makeUpdater(
+      belowFloor({
+        installPath: target,
+        targetPath: target,
+        downloadFetchImpl: async () => ({
+          ok: false,
+          status: 500,
+          arrayBuffer: async () => new ArrayBuffer(0),
+        }),
+      }),
+    );
+    await updater.checkNow(false);
+    expect(statuses()).toContain("downloading");
+    expect(updater.state.status).toBe("error");
+    expect(updater.state.installedVersion).toBe("18.0.0");
+    expect(updater.state.belowMinimum).toBe(true);
+    expect(onApplied).not.toHaveBeenCalled();
+    expect(fs.readFileSync(target, "utf8")).toBe("old-binary");
+  });
+
+  it("keeps the belowMinimum flag on offline background checks", async () => {
+    const { updater } = makeUpdater(
+      belowFloor({
+        fetchImpl: async () => {
+          throw new Error("offline");
+        },
+      }),
+    );
+    await updater.checkNow(false);
+    expect(updater.state.status).toBe("idle");
+    expect(updater.state.belowMinimum).toBe(true);
+  });
+
+  it("never persists a remembered dismissal while below the floor", async () => {
+    const { updater, dismissed } = makeUpdater(belowFloor({ autoUpgrade: () => false }));
+    await updater.checkNow(false);
+    updater.dismiss("19.1.0", true);
+    expect(dismissed.value).toBeNull();
+    expect(updater.state.status).toBe("idle");
+    // The card-only hide resolves the flag; the next check re-raises it.
+    expect(updater.state.belowMinimum).toBe(false);
+  });
+
+  it("does not re-raise belowMinimum on an up-to-date check once installed above the floor", async () => {
+    const { updater } = makeUpdater(belowFloor());
+    await updater.checkNow(false);
+    expect(updater.state.status).toBe("installed");
+    expect(updater.state.belowMinimum).toBe(false);
   });
 });

@@ -14,7 +14,7 @@ import type { ToolsAtScope } from "@omp-ui/core/types";
 import { usePreparedPlanDocument } from "../lib/use-prepared-plan-document";
 import { shortModelLabel } from "../lib/format";
 import { projectKey } from "../lib/project-key";
-import { supportsNativeLive } from "../lib/live-voice";
+import { NATIVE_LIVE_MIN_OMP, supportsNativeLive } from "../lib/live-voice";
 import { useCompactShell } from "../lib/responsive";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findInstance, findOwner, findRecord, useStore } from "../store";
@@ -308,6 +308,9 @@ export function PlanReview({
   // for fresh and worktree receivers; tool gating is deliberately not applied
   // here — the receiving roster differs from this one.
   const capabilities = useStore((s) => s.rpc[tabId]?.capabilities ?? null);
+  // The section stays mounted when the version gate closes it: controls inert,
+  // the required version in the section's title (floor plan §6).
+  const nativeLive = supportsNativeLive(capabilities?.ompVersion ?? null);
   const off = useMemo(() => keywordsOffInSettings(capabilities), [capabilities]);
   const ultrathink = switches.ultrathink && !off.has("ultrathink");
   const orchestrate = switches.orchestrate && !off.has("orchestrate");
@@ -572,47 +575,46 @@ export function PlanReview({
             </IconButton>
           </div>
         </header>
-        {supportsNativeLive(capabilities?.ompVersion ?? null) && (
-          <section
-            aria-label={t("plan.review.liveVoice")}
-            className="flex min-w-0 shrink-0 flex-col gap-2 border-b border-line px-5 py-3"
-          >
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <Label>{t("plan.review.liveVoice")}</Label>
-              <LiveVoiceControl
-                tabId={tabId}
-                disabled={voiceDisabled}
-                startDisabled={!voiceReady || voiceBusy}
-              />
-              <Button
-                variant="ghost"
-                disabled={!voiceReady || voiceBusy || voiceDisabled}
-                onClick={() => void explainPlanVoice(tabId)}
-                className="h-auto min-w-0 whitespace-normal text-left"
-              >
-                {t(liveActive || liveArmed
-                  ? "plan.review.explainPlan"
-                  : "plan.review.startExplainPlan")}
-              </Button>
-            </div>
-            <p className="min-w-0 [overflow-wrap:anywhere] text-xs text-ink-dim">
-              {t("plan.review.voiceVerdicts")}
+        <section
+          aria-label={t("plan.review.liveVoice")}
+          title={nativeLive ? undefined : t("composer.live.needsNewerOmp", { version: NATIVE_LIVE_MIN_OMP })}
+          className="flex min-w-0 shrink-0 flex-col gap-2 border-b border-line px-5 py-3"
+        >
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Label>{t("plan.review.liveVoice")}</Label>
+            <LiveVoiceControl
+              tabId={tabId}
+              disabled={voiceDisabled || !nativeLive}
+              startDisabled={!voiceReady || voiceBusy || !nativeLive}
+            />
+            <Button
+              variant="ghost"
+              disabled={!voiceReady || voiceBusy || voiceDisabled || !nativeLive}
+              onClick={() => void explainPlanVoice(tabId)}
+              className="h-auto min-w-0 whitespace-normal text-left"
+            >
+              {t(liveActive || liveArmed
+                ? "plan.review.explainPlan"
+                : "plan.review.startExplainPlan")}
+            </Button>
+          </div>
+          <p className="min-w-0 [overflow-wrap:anywhere] text-xs text-ink-dim">
+            {t("plan.review.voiceVerdicts")}
+          </p>
+          {!voiceReady && (
+            <p role="status" className="min-w-0 [overflow-wrap:anywhere] text-xs text-ink-dim">
+              {t(planIsHtml && prepared.status === "pending"
+                ? "plan.review.voicePreparing"
+                : "plan.review.voiceUnavailable")}
             </p>
-            {!voiceReady && (
-              <p role="status" className="min-w-0 [overflow-wrap:anywhere] text-xs text-ink-dim">
-                {t(planIsHtml && prepared.status === "pending"
-                  ? "plan.review.voicePreparing"
-                  : "plan.review.voiceUnavailable")}
-              </p>
-            )}
-            {voiceError !== null && (
-              <p role="alert" className="min-w-0 [overflow-wrap:anywhere] text-xs text-copper">
-                {voiceError}
-              </p>
-            )}
-            <LiveVoiceStrip tabId={tabId} layout="review" />
-          </section>
-        )}
+          )}
+          {voiceError !== null && (
+            <p role="alert" className="min-w-0 [overflow-wrap:anywhere] text-xs text-copper">
+              {voiceError}
+            </p>
+          )}
+          <LiveVoiceStrip tabId={tabId} layout="review" />
+        </section>
 
         <div className={cn(
           "plan-review-layout grid min-h-0 min-w-0 flex-1 overflow-hidden",

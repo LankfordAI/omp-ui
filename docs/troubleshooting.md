@@ -20,7 +20,7 @@ A managed copy takes precedence over a copy on `PATH`. If About shows a valid bi
 
 On Settings → Updates, choose **Install** when the binary is missing or **Update now** when an update is offered. The app verifies the download before replacing its managed copy. New sessions use the installed binary; a live session keeps the process it already started.
 
-`OMP_UI_OMP_PATH` is only a development override for testing a local `omp` build. It takes precedence over the managed copy. Do not use it to repair an installed app. Developers can find the development workflow in the [development guide](development.md).
+`OMP_UI_OMP_PATH` is only a development override for testing a local `omp` build. It takes precedence over the managed copy and is never replaced — not by a click and not by the below-floor auto-upgrade, which skips a pinned binary entirely. Do not use it to repair an installed app. Developers can find the development workflow in the [development guide](development.md).
 
 ## A provider or model is missing after desktop launch
 
@@ -73,7 +73,7 @@ After the build completes, reload the same connection URL. The server checks bun
 
 ### Cause
 
-Choosing **Later** remembers the dismissal for that exact offered version. omp-ui updates and managed `omp` updates have separate cards, launch-check switches, and dismissal records.
+Choosing **Later** remembers the dismissal for that exact offered version. omp-ui updates and managed `omp` updates have separate cards, launch-check switches, and dismissal records. A managed-omp **Later** never sticks while the installed binary is below the version omp-ui requires: that card returns every launch, because the offer is a requirement.
 
 ### Check
 

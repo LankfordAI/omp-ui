@@ -10,8 +10,9 @@ import { Capsule, CAPSULE_SEGMENT, Dot, IconButton, IconClose, IconMic, Meter, S
  * native verbs. omp owns the phase machine — the display reads only the
  * snapshot the `live_*` frames patch, never a local toggle. The component
  * never gates on its own: every callsite gates on `supportsNativeLive`
- * && `liveAudioLocalToClient` (#816), so a hidden-by-gate control can
- * never render.
+ * && `liveAudioLocalToClient` (#816), mounting the control disabled with a
+ * hint when the version gate closes it (floor plan §6) and hiding it only
+ * when remote-host audio is the reason.
  */
 const PHASE_TONE: Record<LivePhase, Tone> = {
   connecting: "copper",

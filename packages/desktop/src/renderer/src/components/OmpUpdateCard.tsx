@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { MIN_SUPPORTED_OMP } from "@omp-ui/core/harness-floor";
 import { useStore } from "../store";
 import { Button, UpdateCard } from "./ui";
 import { useT } from "../lib/i18n";
@@ -9,7 +10,9 @@ import { useT } from "../lib/i18n";
  * install offer. Same corner-stack pattern as the app update card (App.tsx
  * owns the positioning); renders nothing for idle/checking so background
  * failures stay silent by design. No `signal` tokens: ADR-0004 reserves
- * signal for agent liveness.
+ * signal for agent liveness. Below the harness floor the copy switches to
+ * required-must language: this is a requirement, not an offer, and a "Later"
+ * here is transient.
  */
 export function OmpUpdateCard() {
   const ompUpdate = useStore((s) => s.ompUpdate);
@@ -17,9 +20,10 @@ export function OmpUpdateCard() {
   const dismissOmpUpdate = useStore((s) => s.dismissOmpUpdate);
   const t = useT();
 
-  const { status, installedVersion, latestVersion, progress, error } = ompUpdate;
+  const { status, installedVersion, latestVersion, progress, error, belowMinimum } = ompUpdate;
   const version = latestVersion ?? "";
-  const dismissOfferedVersion = () => void dismissOmpUpdate(version, true);
+  // A below-floor "Later" must never persist: the requirement returns next check.
+  const dismissOfferedVersion = () => void dismissOmpUpdate(version, !belowMinimum);
 
   if (status === "idle" || status === "checking") return null;
 
@@ -27,11 +31,17 @@ export function OmpUpdateCard() {
   if (status === "available") {
     body = (
       <>
-        <p className="text-sm font-medium text-ink">{t("update.omp.available", { version })}</p>
+        <p className="text-sm font-medium text-ink">
+          {belowMinimum
+            ? t("update.omp.requiresNewer", { version: MIN_SUPPORTED_OMP })
+            : t("update.omp.available", { version })}
+        </p>
         <p className="mt-0.5 text-xs text-ink-dim">
           {t("update.omp.installedVersion", { version: installedVersion ?? "" })}
         </p>
-        <p className="mt-0.5 text-xs text-ink-dim">{t("update.omp.availableHint")}</p>
+        <p className="mt-0.5 text-xs text-ink-dim">
+          {belowMinimum ? t("update.omp.requiresHint") : t("update.omp.availableHint")}
+        </p>
         <div className="mt-3 flex items-center gap-2">
           <Button variant="solid" onClick={() => void downloadOmpUpdate()}>
             {t("update.omp.updateNow")}
@@ -63,7 +73,11 @@ export function OmpUpdateCard() {
   } else if (status === "downloading") {
     body = (
       <>
-        <p className="text-sm font-medium text-ink">{t("update.omp.installing", { version })}</p>
+        <p className="text-sm font-medium text-ink">
+          {belowMinimum
+            ? t("update.omp.requiresNewer", { version: MIN_SUPPORTED_OMP })
+            : t("update.omp.installing", { version })}
+        </p>
         <div className="mt-2.5 h-1 rounded bg-raised">
           {progress === null ? (
             <div className="h-1 w-full animate-pulse rounded bg-iris" />
@@ -93,11 +107,13 @@ export function OmpUpdateCard() {
   } else {
     // The shared shell auto-dismisses up-to-date; errors stay sticky.
     const title =
-      status === "up-to-date"
-        ? t("update.omp.upToDate", { version: installedVersion ?? "" })
-        : error?.kind === "unreachable"
-          ? t("update.omp.checkFailed")
-          : t("update.omp.installFailed");
+      belowMinimum && status === "error"
+        ? t("update.omp.requiresNewer", { version: MIN_SUPPORTED_OMP })
+        : status === "up-to-date"
+          ? t("update.omp.upToDate", { version: installedVersion ?? "" })
+          : error?.kind === "unreachable"
+            ? t("update.omp.checkFailed")
+            : t("update.omp.installFailed");
     body = (
       <div className="min-w-0">
         <p className="text-sm font-medium text-ink">{title}</p>

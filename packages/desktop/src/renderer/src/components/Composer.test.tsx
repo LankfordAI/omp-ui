@@ -1924,14 +1924,19 @@ describe("Composer queue chip list (issue #714)", () => {
     expect(promoteQueuedMessage).toHaveBeenCalledWith(TAB, WIRE);
   });
 
-  it("offers neither promote nor edit when the omp version is unknown", () => {
+  it("mounts promote and edit disabled with the required version when the omp version is unknown", () => {
     desktop();
     seedListed(null);
     renderComposer();
     act(() => chipButton()!.click());
     expect(document.body.textContent).toContain("fix the parser");
-    expect(promoteButtons()).toHaveLength(0);
-    expect(editButtons()).toHaveLength(0);
+    // Floor plan §6: the affordance stays visible and says why it waits.
+    expect(promoteButtons()).toHaveLength(1);
+    expect(editButtons()).toHaveLength(2);
+    expect(promoteButtons()[0]!.disabled).toBe(true);
+    expect(promoteButtons()[0]!.title).toContain("18.4.6");
+    expect(editButtons()[0]!.disabled).toBe(true);
+    expect(editButtons()[0]!.title).toContain("18.6.3");
   });
 
   it("gates edit at 18.6.3: every row edits, and the follow-up sends its raw text", async () => {
@@ -1945,13 +1950,16 @@ describe("Composer queue chip list (issue #714)", () => {
     expect(editQueuedMessage).toHaveBeenCalledWith(TAB, WIRE, "followUp");
   });
 
-  it("between 18.4.6 and 18.6.3 promotes still show but edit does not", () => {
+  it("between 18.4.6 and 18.6.3 promotes but edit stays mounted disabled", () => {
     desktop();
     seedListed("18.4.10");
     renderComposer();
     act(() => chipButton()!.click());
     expect(promoteButtons()).toHaveLength(1);
-    expect(editButtons()).toHaveLength(0);
+    expect(promoteButtons()[0]!.disabled).toBe(false);
+    expect(editButtons()).toHaveLength(2);
+    expect(editButtons().every((b) => b.disabled)).toBe(true);
+    expect(editButtons()[0]!.title).toContain("18.6.3");
   });
 
   it("keeps the plain chip when the runtime reports no queue text", () => {

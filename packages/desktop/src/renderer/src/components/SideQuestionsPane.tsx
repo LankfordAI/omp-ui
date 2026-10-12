@@ -3,7 +3,7 @@ import type { BtwTopic, BtwTurnStatus } from "@omp-ui/core/side-questions";
 import { relativeTime } from "../lib/format";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
-import { supportsNativeBtw } from "../lib/native-btw";
+import { NATIVE_BTW_MIN_OMP, supportsNativeBtw } from "../lib/native-btw";
 import { useStore } from "../store";
 import { Markdown } from "./Markdown";
 import { Button, Chip, Empty, IconButton, IconRefresh, type Tone } from "./ui";
@@ -184,7 +184,13 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
 
       {unavailable && (
         <p role="status" className="rounded-md border border-line bg-raised px-2 py-1.5 text-[11px] text-ink-mid">
-          {snapshot?.unavailableReason ?? t("rail.btw.unavailable")}
+          {/* A runtime-reported reason outranks everything; with the version
+              gate closed the message names the required version, otherwise
+              the generic line. */}
+          {snapshot?.unavailableReason ??
+            (native
+              ? t("rail.btw.unavailable")
+              : t("rail.btw.needsNewerOmp", { version: NATIVE_BTW_MIN_OMP }))}
         </p>
       )}
       {snapshot?.busy !== undefined && (

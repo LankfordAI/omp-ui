@@ -48,7 +48,7 @@ import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, I
 import { DictationControl, DictationStrip } from "./ComposerDictation";
 import { useDictation } from "../lib/use-dictation";
 import { useDictationHotkey } from "../lib/use-dictation-hotkey";
-import { liveAudioLocalToClient, supportsNativeLive } from "../lib/live-voice";
+import { NATIVE_LIVE_MIN_OMP, liveAudioLocalToClient, supportsNativeLive } from "../lib/live-voice";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -181,6 +181,12 @@ export function Composer({
       supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null) &&
       liveAudioLocalToClient(findOwner(s.state, tabId)?.instanceId ?? null),
   );
+  // The version gate alone, so the mic's title can name the required omp
+  // when old-harness omp — not remote audio — is why live voice is absent.
+  const liveGateBlocked = useStore((s) => {
+    const v = s.rpc[tabId]?.capabilities?.ompVersion ?? null;
+    return v !== null && !supportsNativeLive(v);
+  });
   // Live voice holds the microphone (omp records audio itself): dictation's
   // getUserMedia would fail anyway, so the mic gives up its slot while a live
   // session runs and push-to-talk `r` is suppressed (issue #805). The
@@ -1186,12 +1192,19 @@ export function Composer({
               />
             )) : (
               /* Disabled buttons drop pointer events, so the title rides the
-                 wrapper: reachable when the version gate drops out mid-live-session. */
+                 wrapper: reachable when the version gate drops out mid-live-session.
+                 The dictation mic rides the app's own STT (no omp dependency) and
+                 stays enabled; when it self-hides and the version gate holds live
+                 voice back, a disabled live capsule names the required omp. */
               <span
-                title={liveActive ? t("composer.live.micInUse") : undefined}
+                title={liveActive ? t("composer.live.micInUse") : liveGateBlocked ? t("composer.live.needsNewerOmp", { version: NATIVE_LIVE_MIN_OMP }) : undefined}
                 className={cn("inline-flex", liveActive && "cursor-not-allowed")}
               >
-                <DictationControl disabled={unavailable || liveActive} voice={voice} />
+                {voice.supported ? (
+                  <DictationControl disabled={unavailable || liveActive} voice={voice} />
+                ) : liveGateBlocked && liveVoiceVisible ? (
+                  <LiveVoiceControl tabId={tabId} disabled startDisabled />
+                ) : null}
               </span>
             )}
             {queueChip && !queueListed && (
@@ -1260,10 +1273,14 @@ export function Composer({
                 />
               )) : (
                 <span
-                  title={liveActive ? t("composer.live.micInUse") : undefined}
+                  title={liveActive ? t("composer.live.micInUse") : liveGateBlocked ? t("composer.live.needsNewerOmp", { version: NATIVE_LIVE_MIN_OMP }) : undefined}
                   className={cn("inline-flex", liveActive && "cursor-not-allowed")}
                 >
-                  <DictationControl compact disabled={unavailable || liveActive} voice={voice} />
+                  {voice.supported ? (
+                    <DictationControl compact disabled={unavailable || liveActive} voice={voice} />
+                  ) : liveGateBlocked && liveVoiceVisible ? (
+                    <LiveVoiceControl tabId={tabId} disabled startDisabled />
+                  ) : null}
                 </span>
               )}
               <Button

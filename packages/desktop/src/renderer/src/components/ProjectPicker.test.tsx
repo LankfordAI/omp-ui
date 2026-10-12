@@ -14,6 +14,7 @@ const idleOmpUpdate: OmpUpdateState = {
   installPath: null,
   installedVersion: null,
   latestVersion: null,
+  belowMinimum: false,
   progress: null,
   error: null,
 };

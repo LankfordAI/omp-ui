@@ -55,7 +55,8 @@ Linux AppImage and macOS are the supported desktop packages. Windows remains a p
 - **Check now** checks immediately. **Check on launch** controls the check at the next omp-ui launch.
 - If omp is missing, **Install** downloads it. If a newer version is available, **Update now** installs it.
 - An installed omp update does not replace a running session's process. New sessions and restarted sessions use the new binary on their next spawn.
-- Dismissing an offer hides only that omp version. **Re-offer** clears the dismissal and checks again.
+- Dismissing an offer hides only that omp version. **Re-offer** clears the dismissal and checks again. A dismissal never sticks below the required version: while the installed omp is older than omp-ui requires, the card returns every launch.
+- **Auto-upgrade** controls what the launch check does below that required version (the harness floor, currently omp 18.8.8): with it on, omp-ui downloads and installs the latest omp automatically; with it off, the card offers the upgrade and waits. A binary pinned with `OMP_UI_OMP_PATH` is never replaced automatically either way.
 
 ## Remote access
 

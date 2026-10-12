@@ -554,6 +554,7 @@ export interface SettingsSlice {
   setVaultWritesOutsideHome(name: string, on: boolean): Promise<void>;
   openVault(name: string, file: string | null): Promise<void>;
   setOmpUpdateCheckOnLaunch(on: boolean): Promise<void>;
+  setOmpAutoUpgrade(on: boolean): Promise<void>;
   clearDismissedAppUpdate(): Promise<void>;
   clearDismissedOmpUpdate(): Promise<void>;
   setRemoteEnabled(on: boolean): Promise<void>;

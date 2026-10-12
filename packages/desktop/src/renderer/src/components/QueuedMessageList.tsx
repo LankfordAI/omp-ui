@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useT } from "../lib/i18n";
-import { queueEntryDisplayText, supportsPromoteQueued, supportsRestoreQueue } from "../lib/queue-chip";
+import { PROMOTE_QUEUED_MIN_OMP, queueEntryDisplayText, RESTORE_QUEUE_MIN_OMP, supportsPromoteQueued, supportsRestoreQueue } from "../lib/queue-chip";
 import { useStore } from "../store";
 import { Button, Label } from "./ui";
 
@@ -13,9 +13,10 @@ import { Button, Label } from "./ui";
  * mount it identically.
  *
  * Actions send the RAW text: omp matches it exactly, while the row shows it
- * cleaned the way the transcript does. An action hides when the runtime
- * version is unknown or older than its verb — a rejected command must never
- * fall back to another verb, so offering it blind would only ever fail.
+ * cleaned the way the transcript does. An action renders disabled with the
+ * required version in its title when the runtime predates its verb — a
+ * rejected command must never fall back to another verb, so offering it
+ * blind would only ever fail, and hiding it would leave no upgrade hint.
  */
 export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled: boolean }) {
   const t = useT();
@@ -54,7 +55,12 @@ export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled
           <Label>{t("composer.queue.steering")}</Label>
           {queued.steering.map((raw, index) => (
             <QueueRow key={`steering-${index}`} raw={raw}>
-              {canEdit && <EditButton disabled={disabled} title={t("composer.queue.editTitle")} pending={pending !== null} onEdit={() => void edit(index, raw, "steering")} />}
+              <EditButton
+                disabled={disabled || !canEdit}
+                title={canEdit ? t("composer.queue.editTitle") : t("composer.queue.needsNewerOmp", { version: RESTORE_QUEUE_MIN_OMP })}
+                pending={pending !== null}
+                onEdit={() => void edit(index, raw, "steering")}
+              />
             </QueueRow>
           ))}
         </section>
@@ -64,19 +70,22 @@ export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled
           <Label>{t("composer.queue.followUp")}</Label>
           {queued.followUp.map((raw, index) => (
             <QueueRow key={`followUp-${index}`} raw={raw}>
-              {canPromote && (
-                <Button
-                  size="xs"
-                  tone="copper"
-                  disabled={disabled || pending !== null}
-                  title={running ? t("composer.queue.promoteTitleRunning") : t("composer.queue.promoteTitleIdle")}
-                  onClick={() => void promote(index, raw)}
-                  className="shrink-0"
-                >
-                  {t("composer.queue.promote")}
-                </Button>
-              )}
-              {canEdit && <EditButton disabled={disabled} title={t("composer.queue.editTitle")} pending={pending !== null} onEdit={() => void edit(index, raw, "followUp")} />}
+              <Button
+                size="xs"
+                tone="copper"
+                disabled={disabled || pending !== null || !canPromote}
+                title={canPromote ? (running ? t("composer.queue.promoteTitleRunning") : t("composer.queue.promoteTitleIdle")) : t("composer.queue.needsNewerOmp", { version: PROMOTE_QUEUED_MIN_OMP })}
+                onClick={() => void promote(index, raw)}
+                className="shrink-0"
+              >
+                {t("composer.queue.promote")}
+              </Button>
+              <EditButton
+                disabled={disabled || !canEdit}
+                title={canEdit ? t("composer.queue.editTitle") : t("composer.queue.needsNewerOmp", { version: RESTORE_QUEUE_MIN_OMP })}
+                pending={pending !== null}
+                onEdit={() => void edit(index, raw, "followUp")}
+              />
             </QueueRow>
           ))}
         </section>

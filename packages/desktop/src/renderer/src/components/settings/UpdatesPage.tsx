@@ -1,3 +1,4 @@
+import { MIN_SUPPORTED_OMP } from "@omp-ui/core/harness-floor";
 import type { AppUpdateState, OmpUpdateState, UpdateTrain } from "@omp-ui/core/types";
 import { useStore } from "../../store";
 import { AppUpdateRestartAction } from "../AppUpdateCard";
@@ -40,9 +41,11 @@ function ompStatusLine(u: OmpUpdateState): string {
     case "missing":
       return t("settings.updates.notInstalled");
     case "available":
-      return t("settings.updates.available", {
-        version: u.latestVersion ?? t("settings.updates.newerRelease"),
-      });
+      return u.belowMinimum
+        ? t("settings.updates.requiresNewer", { version: MIN_SUPPORTED_OMP })
+        : t("settings.updates.available", {
+            version: u.latestVersion ?? t("settings.updates.newerRelease"),
+          });
     case "downloading":
       return t("settings.updates.installing", {
         version: u.latestVersion ?? "",
@@ -74,6 +77,7 @@ export function UpdatesPage() {
   const setOmpUpdateCheckOnLaunch = useStore(
     (s) => s.setOmpUpdateCheckOnLaunch,
   );
+  const setOmpAutoUpgrade = useStore((s) => s.setOmpAutoUpgrade);
   const clearDismissedAppUpdate = useStore((s) => s.clearDismissedAppUpdate);
   const clearDismissedOmpUpdate = useStore((s) => s.clearDismissedOmpUpdate);
   const checkAppUpdate = useStore((s) => s.checkAppUpdate);
@@ -254,6 +258,16 @@ export function UpdatesPage() {
             on={state?.ompUpdateCheckOnLaunch ?? true}
             onChange={(next) => void setOmpUpdateCheckOnLaunch(next)}
             label={t("settings.updates.checkOmpOnLaunchLabel")}
+          />
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span className="text-xs text-ink-mid" title={t("settings.updates.autoUpgradeHint")}>
+            {t("settings.updates.autoUpgrade")}
+          </span>
+          <Switch
+            on={state?.ompAutoUpgrade ?? true}
+            onChange={(next) => void setOmpAutoUpgrade(next)}
+            label={t("settings.updates.autoUpgradeLabel")}
           />
         </div>
         {typeof state?.dismissedOmpUpdateVersion === "string" && (

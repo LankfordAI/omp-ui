@@ -185,6 +185,7 @@ const VALID_ARGS = {
   setGlassChrome: ["subtle"],
   setHibernateIdleMinutes: [30],
   setMcpServerEnabled: [{ projectCwd: null, name: "github", enabled: true }],
+  setOmpAutoUpgrade: [true],
   setOmpUpdateCheckOnLaunch: [true],
   setPlanFormat: ["html"],
   setProjectBrowserClock: ["/project", true],

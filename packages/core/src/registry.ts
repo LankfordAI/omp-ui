@@ -112,6 +112,8 @@ export interface RegistrySettings {
   vaultNoteVoice: VaultNoteVoice;
   /** Check for a newer omp binary at launch. */
   ompUpdateCheckOnLaunch: boolean;
+  /** Auto-download a newer omp when the installed binary is below the harness floor. */
+  ompAutoUpgrade: boolean;
   /** Embedded remote-access server: off by default (issue #37). */
   remoteEnabled: boolean;
   /** "localhost" binds 127.0.0.1; "lan" binds 0.0.0.0 and is an explicit, warned choice. */
@@ -337,6 +339,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is VaultNoteVoice => value === "assistant",
   ),
   ompUpdateCheckOnLaunch: validatedSetting(
+    () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  ompAutoUpgrade: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",
   ),

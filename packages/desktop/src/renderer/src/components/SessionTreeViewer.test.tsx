@@ -214,15 +214,18 @@ describe("SessionTreeViewer (issue #680)", () => {
     expect(stageForkEntry).toHaveBeenCalledWith(TAB, "e1");
   });
 
-  it("the fork button is absent on older or unknown omp while rewind and navigate stay", () => {
+  it("the fork button stays mounted disabled on older or unknown omp while rewind and navigate stay", () => {
     for (const ompVersion of ["18.4.10", null]) {
       liveState();
       withOmpVersion(ompVersion);
       const el = render();
+      const fork = buttonIn(rowOf(el, "first prompt"), "fork from here");
+      expect(fork.disabled).toBe(true);
+      // Floor plan §6: the tooltip names the version that unlocks it.
+      expect(fork.title).toContain("18.4.11");
       const labels = [...el.querySelectorAll("button")].map((b) =>
         b.getAttribute("aria-label"),
       );
-      expect(labels).not.toContain("fork from here");
       expect(labels).toContain("rewind here");
       expect(labels).toContain("navigate here");
       act(() => root!.unmount());

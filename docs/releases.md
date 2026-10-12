@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.23.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- omp-ui requires omp 18.8.8 or later: below that harness floor the launch check downloads and installs the latest managed `omp` automatically unless **Auto-upgrade** is off or `OMP_UI_OMP_PATH` pins a binary, version-gated features appear disabled with the required version instead of vanishing, and **Later** never persists below the floor ([#849](https://github.com/LankfordAI/omp-ui/issues/849)).
 
 ## Choose a download
 
@@ -93,7 +93,7 @@ After migration, updates use the supported in-place AppImage path. The skipped b
 
 omp-ui updates its managed `omp` binary separately from the desktop application. It checks the npm registry at launch when that check is enabled, or on demand from `Check for omp updates`. A missing binary offers `Install`; an older binary offers `Update now`.
 
-The binary never downloads without that click. omp-ui downloads to a temporary path, verifies that the candidate runs as `omp --version`, and atomically replaces the managed copy. A failure leaves the previous binary in place. Live sessions keep the binary they already started with; only new sessions use the installed version. The omp and omp-ui launch checks have separate switches.
+An optional update never downloads without that click. The one exception is the harness floor: when the installed binary is older than the version omp-ui requires (`MIN_SUPPORTED_OMP`, 18.8.8), the launch check downloads and installs the latest release automatically — the feature set the UI promises simply does not exist below it. **Auto-upgrade** on Settings → Updates opts out, and a binary pinned with `OMP_UI_OMP_PATH` is never touched. omp-ui downloads to a temporary path, verifies that the candidate runs as `omp --version`, and atomically replaces the managed copy. A failure leaves the previous binary in place. Live sessions keep the binary they already started with; only new sessions use the installed version. The omp and omp-ui launch checks have separate switches.
 
 ### Nightly builds
 

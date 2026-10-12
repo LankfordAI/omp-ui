@@ -2586,11 +2586,13 @@ describe("PlanReview live voice tray", () => {
 
   afterEach(() => useStore.setState(actions));
 
-  it.each([null, "18.5.0"])("hides the tray when the native version is %s", (version) => {
+  it.each([null, "18.5.0"])("mounts the tray disabled when the native version is %s", (version) => {
     patch({ capabilities: capabilities(version) });
     render();
-    expect(tray()).toBeNull();
-    expect(document.body.querySelector('button[aria-label="start live voice"]')).toBeNull();
+    // Floor plan §6: the section stays mounted and names the requirement.
+    expect(tray()).not.toBeNull();
+    expect(tray()!.getAttribute("title")).toContain("18.5.1");
+    expect(accessibleButton("start live voice").disabled).toBe(true);
     expect(buttonByText("refine").disabled).toBe(false);
   });
 

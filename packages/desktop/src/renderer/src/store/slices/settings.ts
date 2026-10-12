@@ -388,6 +388,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setOmpAutoUpgrade(on) {
+      try {
+        await backend.setOmpAutoUpgrade(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async clearDismissedAppUpdate() {
       try {
         await backend.clearDismissedAppUpdate();
