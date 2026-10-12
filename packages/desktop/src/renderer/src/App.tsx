@@ -448,7 +448,7 @@ export default function App() {
     stats !== null ? t("stats.header.title") : lab !== null ? t("lab.header.title") : activeTitle ?? t("app.compact.projectsAndSessions");
   const badges =
     activeTab?.mode === "rpc-ui" ? inspectorBadges(activeRuntime, activeRecord) : null;
-  const inspectorCount = badges ? badges.todos + badges.agents + badges.plans : 0;
+  const inspectorCount = badges ? badges.todos + badges.agents + badges.jobs + badges.plans : 0;
 
   return (
     <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden backdrop-wash font-sans text-ink">

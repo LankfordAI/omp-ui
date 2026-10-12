@@ -144,6 +144,9 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     subagentControlError: null,
     autoresearch: null,
     limits: null,
+    asyncJobs: null,
+    asyncJobsKill: null,
+    asyncJobsKillError: null,
     items: [],
     transcriptRevision: 0,
     todos: [{ phase: "work", tasks: [{ content: "First task", status: "pending" }] }],
@@ -724,6 +727,189 @@ describe("desktop InspectorRail", () => {
     renderRail();
     expect(document.body.querySelector('[role="dialog"][aria-label="inspector"]')).not.toBeNull();
     expect(document.body.querySelector('[role="separator"]')).toBeNull();
+  });
+});
+
+describe("Jobs pane (issue #835)", () => {
+  const runningJob = {
+    id: "bg_1",
+    type: "bash",
+    status: "running" as const,
+    label: "sleep 300; echo done",
+    command: "sleep 300; echo done",
+    cwd: "/tmp/scratch",
+    startTime: 1_000,
+    endTime: null,
+    agentId: null,
+    pids: [4242],
+    exitCode: null,
+    outputTail: "still sleeping",
+    outputTruncated: false,
+  };
+  const finishedJob = {
+    ...runningJob,
+    id: "bg_0",
+    status: "completed" as const,
+    endTime: 5_000,
+    pids: [],
+    exitCode: 0,
+    outputTail: "done",
+  };
+  function publishJobs(patch: Record<string, unknown> = {}): void {
+    act(() => {
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "extension_ui_request",
+        id: "frame-jobs",
+        method: "setStatus",
+        statusKey: "omp-ui:async-jobs",
+        statusText: JSON.stringify({
+          version: 1,
+          processKey: "omp-ui-proc-1",
+          revision: 1,
+          available: true,
+          unavailable: null,
+          canInspect: true,
+          canCancel: true,
+          running: [runningJob],
+          recent: [finishedJob],
+          result: null,
+          ...patch,
+        }),
+      });
+    });
+  }
+  function killFrames(): Array<{ id: string; message: string }> {
+    return backendMock.rpcSend.mock.calls
+      .map((call) => call[1] as { id: string; type?: string; message?: string })
+      .filter((frame) => frame?.type === "prompt" && String(frame.message).startsWith("/omp-ui-async-jobs kill"))
+      .map((frame) => ({ id: frame.id, message: String(frame.message) }));
+  }
+  function settleKill(frames: Array<{ id: string; message: string }>, requestId: string): void {
+    act(() => {
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "response",
+        id: frames[0]!.id,
+        command: "prompt",
+        success: true,
+        data: {},
+      });
+    });
+    publishJobs({
+      revision: 2,
+      running: [],
+      recent: [{ ...finishedJob, id: "bg_1", status: "cancelled" }],
+      result: { requestId, ok: true, cancelled: ["bg_1"], text: "Cancelled background job bg_1." },
+    });
+  }
+
+  beforeEach(() => backendMock.rpcSend.mockReset());
+
+  it("lists running and finished jobs, and the strip badge counts running ones", () => {
+    publishJobs();
+    renderRail();
+    expect(railTab("jobs")?.title).toBe("jobs (1)");
+    act(() => railTab("jobs")!.click());
+    expect(document.body.textContent).toContain("bg_1");
+    expect(document.body.textContent).toContain("bg_0");
+    expect(document.body.textContent).toContain("running · 1");
+    expect(document.body.textContent).toContain("finished · 1");
+  });
+
+  it("expanding a row shows command, cwd, pids, and the output tail", () => {
+    publishJobs();
+    renderRail();
+    act(() => railTab("jobs")!.click());
+    act(() => document.body.querySelector<HTMLButtonElement>('button[aria-label="show details for job bg_1"]')!.click());
+    expect(document.body.textContent).toContain("sleep 300; echo done");
+    expect(document.body.textContent).toContain("/tmp/scratch");
+    expect(document.body.textContent).toContain("4242");
+    expect(document.body.textContent).toContain("still sleeping");
+  });
+
+  it("kill sends the kill frame with the job's guard and settles on the result", async () => {
+    publishJobs();
+    renderRail();
+    act(() => railTab("jobs")!.click());
+    const kill = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "kill",
+    )!;
+    await act(async () => kill.click());
+    const frames = killFrames();
+    expect(frames).toHaveLength(1);
+    const request = JSON.parse(frames[0]!.message.slice("/omp-ui-async-jobs kill ".length));
+    expect(request).toMatchObject({ processKey: "omp-ui-proc-1", jobId: "bg_1", startTime: 1_000 });
+    expect(request.requestId).toBeTruthy();
+    settleKill(frames, request.requestId);
+    expect(useStore.getState().rpc[TAB]?.asyncJobsKill).toBeNull();
+    expect(useStore.getState().rpc[TAB]?.asyncJobsKillError).toBeNull();
+  });
+
+  it("kill all sends jobId null", async () => {
+    publishJobs();
+    renderRail();
+    act(() => railTab("jobs")!.click());
+    const killAll = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "kill all",
+    )!;
+    await act(async () => killAll.click());
+    const request = JSON.parse(killFrames()[0]!.message.slice("/omp-ui-async-jobs kill ".length));
+    expect(request).toMatchObject({ jobId: null, startTime: null });
+  });
+
+  it("kill buttons are absent when canCancel is false", () => {
+    publishJobs({ canCancel: false });
+    renderRail();
+    act(() => railTab("jobs")!.click());
+    expect(
+      [...document.body.querySelectorAll<HTMLButtonElement>("button")].some(
+        (b) => b.textContent?.trim() === "kill" || b.textContent?.trim() === "kill all",
+      ),
+    ).toBe(false);
+  });
+
+  it("kill buttons are disabled while a kill is pending", async () => {
+    publishJobs();
+    renderRail();
+    act(() => railTab("jobs")!.click());
+    const kill = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "kill",
+    )!;
+    await act(async () => kill.click());
+    const again = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "kill",
+    )!;
+    expect(again.disabled).toBe(true);
+  });
+
+  it("an unavailable snapshot shows its reason", () => {
+    publishJobs({ available: false, unavailable: "this omp build has no background-job API", running: [], recent: [] });
+    renderRail();
+    act(() => railTab("jobs")!.click());
+    expect(document.body.textContent).toContain("Background jobs unavailable");
+    expect(document.body.textContent).toContain("no background-job API");
+  });
+
+  it("a rostered task job offers open, which selects the subagent", () => {
+    useStore.setState({
+      rpc: { [TAB]: runtime({ subagents: [{ id: "agent-1", name: "worker", status: "working" }] }) },
+    });
+    publishJobs({
+      running: [{ ...runningJob, id: "agent-1", type: "task", agentId: "agent-1", command: null }],
+    });
+    renderRail();
+    act(() => railTab("jobs")!.click());
+    const open = document.body.querySelector<HTMLButtonElement>('button[aria-label="open agent agent-1"]')!;
+    act(() => open.click());
+    expect(useStore.getState().rpc[TAB]?.selectedSubagent).toBe("agent-1");
+  });
+
+  it("the strip badge excludes a rostered task job", () => {
+    useStore.setState({
+      rpc: { [TAB]: runtime({ subagents: [{ id: "agent-1", name: "worker", status: "working" }] }) },
+    });
+    publishJobs({ running: [{ ...runningJob, id: "agent-1", type: "task", agentId: "agent-1" }] });
+    renderRail();
+    expect(railTab("jobs")?.title).toBe("jobs");
   });
 });
 

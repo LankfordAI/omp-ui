@@ -142,8 +142,8 @@ on chrome destroys the property that a glance answers "is it working?".
 _Avoid_: primary colour, brand colour, green
 
 **Inspector rail**:
-The right-hand icon strip in an rpc-ui tab, with six panes behind it —
-Todos, Agents, Session, Plans, Diffs, Side questions. The strip is the permanent posture:
+The right-hand icon strip in an rpc-ui tab, with seven panes behind it —
+Todos, Agents, Jobs, Session, Plans, Diffs, Side questions. The strip is the permanent posture:
 pressing an icon opens just that one pane beside it, re-pressing the active
 icon (or the pane's close control) dismisses it, and badge counts live on
 the strip icons. Remembers its selected pane per tab.
@@ -1175,6 +1175,16 @@ but whose screen did not is reported `parked`.
 _Avoid_: subagent (omp-ui's `task` delegation is the subagent; a worker is
 spawned by the session's own model in vibe mode), background job, screen (the
 screen is the runtime surface a worker lives on)
+
+**Background job**:
+One entry in OMP's async job manager for a *live session*: an async `bash`
+command, a background `task` subagent, an eval agent, or other work that runs
+past the tool call that started it, identified by OMP's job id (`bg_N`, or the
+subagent's id). omp-ui reads and cancels them through a per-lineage generated
+bridge and shows them in the **Inspector rail**'s _Jobs_ pane; OMP owns them
+and evicts a finished one shortly after its result is delivered. A named
+`bash` service is daemon-supervised and is not a background job.
+_Avoid_: process, service, task (the `task` tool is one job type), worker
 
 **Vibe snapshot**:
 The reduced, monotonic view of one session's vibe mode that the generated

@@ -543,6 +543,11 @@ export function disposeTabRuntime(
     subagentControlBusy: {},
     subagentControlError: null,
     autoresearch: null,
+    // The job list belongs to the dying process: its bridge's processKey is
+    // dead, and the successor's bridge republishes on the boot arm (#835).
+    asyncJobs: null,
+    asyncJobsKill: null,
+    asyncJobsKillError: null,
   });
   rpcCommandMachinery.abandon(tabId, reason, m);
   m.discardTabRuntime(tabId);
@@ -605,6 +610,9 @@ function freshRpcTabState(
     live: null,
     autoresearch: null,
     limits: null,
+    asyncJobs: null,
+    asyncJobsKill: null,
+    asyncJobsKillError: null,
     capabilities: null,
     capabilitiesLoad: "idle",
     subagentControlBusy: {},
@@ -796,6 +804,10 @@ export function createRpcCommandSlice(
       // idempotent shot at ready; the bridge then auto-refreshes at turn ends
       // past omp's five-minute usage-probe cooldown.
       void get().refreshLimits(tabId);
+      // Arm the background-jobs bridge (issue #835): binds its ui channel and
+      // starts its digest-gated poll; every renderer that boots the tab
+      // force-republishes.
+      void get().refreshAsyncJobs(tabId);
       // The roster is a backend read, not a command: boot takes one whether
       // or not the session ever publishes, so an open viewer is never stuck
       // on "idle" for want of a turn (issue #374).

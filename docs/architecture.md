@@ -341,6 +341,32 @@ re-arming a saved mode. A vibe mode with work in flight vetoes ordinary idle
 hibernation beside the goal veto; an idle roster owns no loop and applies none.
 This does not veto explicit cancellation after an accepted plan handoff (#840).
 
+### Background jobs
+
+OMP keeps background jobs — async `bash` commands, background `task`
+subagents, eval agents — in an in-process async job manager no rpc frame
+carries: `get_state` only reports `hasPendingAsyncWork`. A per-lineage
+generated bridge ([ADR-0054](adr/0054-background-jobs-ride-a-generated-bridge.md))
+is the only surface: `omp-ui-async-jobs.ts` captures the root session through
+the `AgentSession.prototype.prompt` hook and, once armed by the hidden
+`/omp-ui-async-jobs` command at boot, polls
+`getAsyncJobSnapshot`/`inspectAsyncJob` every 1.5 s, publishing a digest-gated,
+revisioned `AsyncJobsSnapshot` on `ui.setStatus("omp-ui:async-jobs")`. Detail
+fields (command, cwd, pids, exit code, output tail) come from
+`inspectAsyncJob`; when the serialized snapshot passes 256 KiB the bridge
+degrades by byte rungs — short tails, empty tails, then `available: false`.
+Kill rides the same command as `/omp-ui-async-jobs kill <json>` with no
+`streamingBehavior`: omp resolves extension commands inside `prompt` before
+its streaming check, so a kill works mid-turn. The request carries the
+publisher's `processKey` and the target job's `startTime` — omp reuses `bg_N`
+ids after eviction — and the outcome returns on the next snapshot's `result`,
+correlated by `requestId`. Degradation is by method presence: a missing
+`cancelAsyncJob` clears `canCancel`, and the renderer's Jobs pane and HUD
+jobs chip follow it. Task jobs already on the Agents roster are excluded from
+the badge count (omp's own rule). Named `bash` services are
+daemon-supervised and never enter the job manager; they stay outside this
+seam (`omp ps`).
+
 ### Experiments (autoresearch)
 
 OMP's `/autoresearch` loop owns the whole experiment: the mode, the benchmark
@@ -596,3 +622,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [Live voice parks with vendored instructions](adr/0050-live-voice-park-resume-with-vendored-instructions.md) | Leaving a tab closes its live call (armed intent kept, recap folded, answers stored) and returning reopens with `live_start` instructions; omp's `instructions` field replaces its default prompt wholesale, so omp-ui vendors the 18.8.6 base verbatim and appends recap/pending sections. |
 | [Park the live call while the agent works](adr/0051-park-the-live-call-while-the-agent-works.md) | A delegated backend turn closes the viewed tab's live call on the first quiet output frame after a loud one (edge-triggered `live_levels`, no mid-turn `listening`), and `agent_end` wakes it with the answer as pending voice feedback; stop-ack-before-start wire order and a module-scoped cancellation generation keep close/reopen safe. |
 | [Live progress reports reuse the park's switch](adr/0053-live-progress-reports-reuse-the-park-s-switch.md) | An opt-in cadence wakes a work-parked call every N minutes to speak one `<progress-report>` sentence carried in `live_start` instructions, then re-parks; the marked wake rides the existing single-flight switch at strict-lowest precedence so a finished answer always speaks ahead of a scheduled report. |
+| [Background jobs ride a generated bridge](adr/0054-background-jobs-ride-a-generated-bridge.md) | A per-lineage bridge polls omp's async job manager and publishes a digest-gated revisioned snapshot on `setStatus`; kill rides the same hidden slash command with no `streamingBehavior`, guarded by `processKey` plus the target's `startTime` because omp reuses `bg_N` ids; degradation is by method presence. |

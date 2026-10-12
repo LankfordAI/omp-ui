@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GoalState, NativeGoal } from "@omp-ui/core/goal";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
+import type { AsyncJob, AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
 import type { LimitsView } from "@omp-ui/core/limits";
 import type { BackendState, ExperimentRecord, OmpSettingsSnapshot, ProjectExperiments, ServiceTier } from "@omp-ui/core/types";
 import { emptySessionRuntime, type SessionRuntime } from "../lib/rpc-types";
@@ -1573,5 +1574,87 @@ describe("SessionHud approval mode control (issue #681)", () => {
       await Promise.resolve();
     });
     expect(document.body.textContent).toContain("omp resolves: always-ask");
+  });
+});
+
+describe("SessionHud background-jobs chip (issue #835)", () => {
+  const job = (overrides: Partial<AsyncJob> = {}): AsyncJob => ({
+    id: "bg_1",
+    type: "bash",
+    status: "running",
+    label: "sleep",
+    command: "sleep 300",
+    cwd: "/tmp",
+    startTime: 1,
+    endTime: null,
+    agentId: null,
+    pids: [],
+    exitCode: null,
+    outputTail: "",
+    outputTruncated: false,
+    ...overrides,
+  });
+  const seedJobs = (snapshot: AsyncJobsSnapshot | null): void => {
+    useStore.setState({
+      rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, asyncJobs: snapshot } },
+    });
+  };
+  const renderWide = (): HTMLElement => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    return host;
+  };
+
+  it("renders no chip at count zero", () => {
+    seedJobs({
+      version: 1, processKey: "p", revision: 1, available: true, unavailable: null,
+      canInspect: true, canCancel: true, running: [], recent: [], result: null,
+    });
+    const host = renderWide();
+    expect(host.querySelector('button[aria-label^="jobs"]')).toBeNull();
+  });
+
+  it("shows the count for running bash jobs and skips a rostered task job", () => {
+    const tab = { ...useStore.getState().rpc[TAB]! };
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...tab,
+          subagents: [{ id: "agent-1", name: "worker", status: "working" }],
+          asyncJobs: {
+            version: 1, processKey: "p", revision: 1, available: true, unavailable: null,
+            canInspect: true, canCancel: true, result: null, recent: [],
+            running: [
+              job({ id: "bg_1" }),
+              job({ id: "bg_2" }),
+              job({ id: "agent-1", type: "task", agentId: "agent-1" }),
+            ],
+          },
+        },
+      },
+    });
+    const host = renderWide();
+    const chip = host.querySelector<HTMLButtonElement>('button[aria-label*="background job"]');
+    expect(chip).not.toBeNull();
+    expect(chip?.textContent).toContain("2");
+  });
+
+  it("clicking opens the inspector on the Jobs pane", () => {
+    seedJobs({
+      version: 1, processKey: "p", revision: 1, available: true, unavailable: null,
+      canInspect: true, canCancel: true, recent: [], result: null,
+      running: [job()],
+    });
+    const host = renderWide();
+    const chip = host.querySelector<HTMLButtonElement>('button[aria-label*="background job"]')!;
+    act(() => chip.click());
+    expect(useStore.getState().inspectorOpen).toBe(true);
+    expect(useStore.getState().railPaneFocus[TAB]?.pane).toBe("jobs");
   });
 });
