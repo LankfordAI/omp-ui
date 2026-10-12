@@ -7,6 +7,15 @@ This guide explains what users receive from a release and how maintainers publis
 - The activity bar on running tool cards and the rpc-ui transcript top bar now sweeps continuously while the tool runs; the bar freezes only when the model stream stalls (#796).
 - Worktree sessions now boot with omp's destructive-git guard (`bash.gitGuard`) on, so a session cannot stash or reset away a sibling session's uncommitted work; the new Git row on the omp settings page overrides it (#832).
 - A new native session with default auto thinking on now shows `auto` in the composer from its first paint, instead of the level omp resolved at boot, and no longer records that level as the session's thinking choice before the first prompt (#847).
+- A new Jobs pane and HUD chip list the background jobs a session is running, tail their output, and cancel them from the HUD/inspector (#835).
+- A Share anonymized affordance (HUD icon, compact sheet, command palette) shells out to `omp anonymize` and lands the redacted copy beside the transcripts; the entry points appear only when the installed omp supports it (#834).
+- Sidebar rows now parse omp's session title cards into icon + code chip + title, leaving non-card rows pixel-identical, with a new `title.icons` select on the omp settings page for the icon style (#838).
+- The plan review dispatch gains a Run as goal switch: once the implementation prompt is accepted, omp-ui creates a native goal on the executing session naming the approved plan; a refused goal create warns but never cancels the run (#846).
+- The xdev MCP tool-mount wall now collapses to a one-line summary — `N MCP tools are active` — whose click opens the Capabilities viewer's Tools tab instead of dumping every mounted tool name into the transcript (#848).
+- The Finish dialog's blocked "Resolve with agent" now reads as a disabled framed button with its blocking reason and unblock actions (Stop that turn / Open that session) on the same row, instead of looking like static hint text (#845).
+- The omp settings page gains an editable Context Files section for the `contextFiles.extra` allowlist, committing the full merged list through the global-settings write path (#837).
+- The Live voice section now carries numeric rows for `speech.speed` and `tts.localSpeed`, clamped to 0.5–2.5 on commit; older omp binaries simply omit the rows (#836).
+- Every worktree session spawn now writes a per-lineage config overlay pinning `worktree.onStart` off and `worktree.onExit` to keep, so a global omp config cannot mint or remove worktrees behind the UI's back (#833).
 
 ## Choose a download
 
