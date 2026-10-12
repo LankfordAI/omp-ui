@@ -2544,3 +2544,50 @@ describe("Sidebar live voice speaker glyph (issue #807, #811)", () => {
     expect(glyph()?.getAttribute("aria-label")).toBe("Live voice: speaking");
   });
 });
+
+// issue #838: omp composes title cards (`${icon} ${code}: ${title}`) into the
+// title string itself; the row splits the shape at render time and keeps the
+// raw string as the row's tooltip.
+describe("Sidebar title cards (issue #838)", () => {
+  const rowButton = (title: string): HTMLButtonElement => {
+    const found = [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")].find(
+      (candidate) => candidate.title === title,
+    );
+    if (found === undefined) throw new Error(`row not found: ${title}`);
+    return found;
+  };
+
+  const titleLine = (button: HTMLButtonElement): HTMLElement =>
+    button.querySelector("span.min-w-0.flex-1")!.firstElementChild as HTMLElement;
+
+  it("a card title renders the icon, the code chip, and the bare title", () => {
+    useStore.setState({
+      state: {
+        ...state,
+        projects: [
+          {
+            ...state.projects[0]!,
+            sessions: state.projects[0]!.sessions.map((s) =>
+              s.tabId === "tab-1" ? { ...s, cachedTitle: "📝 PLAN: Ship dark mode", title: "📝 PLAN: Ship dark mode" } : s,
+            ),
+          },
+          ...state.projects.slice(1),
+        ],
+      },
+    });
+    renderSidebar();
+    const button = rowButton("📝 PLAN: Ship dark mode");
+    const line = titleLine(button);
+    expect(line.querySelector('[aria-hidden="true"]')?.textContent).toBe("📝");
+    const chip = [...line.querySelectorAll("span")].find((el) => el.textContent === "PLAN");
+    expect(chip?.className).toContain("font-mono");
+    expect(line.querySelector("span.min-w-0.truncate")?.textContent).toBe("Ship dark mode");
+  });
+
+  it("a plain title renders exactly as before — bare text, no chip", () => {
+    renderSidebar();
+    const line = titleLine(rowButton("Owned session"));
+    expect(line.firstChild).toBeInstanceOf(Text);
+    expect(line.querySelector("span")).toBeNull();
+  });
+});

@@ -1,6 +1,7 @@
 import type { DragEvent as ReactDragEvent } from "react";
 import { relativeTime } from "../lib/format";
 import type { PlanImplementationSource, SessionSummary } from "@omp-ui/core/types";
+import { parseTitleCard } from "@omp-ui/core/title-card";
 import { useT, type MessageKey } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
@@ -225,6 +226,11 @@ export function SessionRow({
   const rpc = s.mode === "rpc-ui";
   const when = relativeTime(s.cachedModified);
   const face = SESSION_FACE[sidebarState];
+  // omp's title card (issue #838): the icon/code ride inside the title
+  // string itself; recognized at render time, never stored. The tooltip and
+  // every search/filter path keep the raw string — the card verbatim is the
+  // unambiguous identity, and searching "PLAN" must still find the row.
+  const card = parseTitleCard(s.title);
   const showPersistedStatus = !(s.live === "live" && rpc);
 
   // Plan handoff (issue #238). The dispatch snapshot lives on the row's own
@@ -312,7 +318,21 @@ export function SessionRow({
               selected && !missing && "text-ink",
             )}
           >
-            {s.title}
+            {card === null ? (
+              s.title
+            ) : (
+              <span className="flex min-w-0 items-baseline gap-1.5">
+                {card.icon !== null && (
+                  <span aria-hidden className="shrink-0">
+                    {card.icon}
+                  </span>
+                )}
+                <span className="shrink-0 rounded bg-raised px-1 font-mono text-[10px] tracking-wide text-ink-mid">
+                  {card.code}
+                </span>
+                <span className="min-w-0 truncate">{card.title}</span>
+              </span>
+            )}
           </span>
           <span
             title={absoluteTime(s.cachedModified)}
