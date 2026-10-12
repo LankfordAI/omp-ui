@@ -1962,6 +1962,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "finish.resolution.blockedSource": "이 세션이 작업 중이거나 충돌 해결 요청을 받을 준비가 되지 않았습니다 — 준비될 때까지 기다리세요.",
   "finish.resolution.blockedAnswer": "이 세션이 사람의 답변을 기다리고 있습니다 — 먼저 답변한 뒤 병합 해결을 요청하세요.",
   "finish.resolution.blockedTarget": "“{title}” 세션이 프로젝트 체크아웃에서 턴을 진행 중입니다 — 끝날 때까지 기다리거나 해당 턴을 중지한 뒤 병합을 해결하세요.",
+  "finish.resolution.stopBlocker": "해당 턴 중지",
+  "finish.resolution.openBlocker": "해당 세션 열기",
   "finish.resolution.failed": "에이전트가 충돌 해결 요청을 수락하지 않았습니다. 병합은 그대로입니다. 다시 시도하거나 직접 해결하세요.",
   "finish.resolution.stale": "요청을 보내기 전에 세션 또는 워크트리가 변경되었습니다. 워크트리 마무리를 다시 열고 시도하세요.",
   "finish.step.creating": "브랜치 생성 중…",

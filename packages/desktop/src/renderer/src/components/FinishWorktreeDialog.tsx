@@ -39,6 +39,8 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
   const t = useT();
   const c = useFinishWorktree(tabId);
   const toggleConsole = useStore((s) => s.toggleConsole);
+  const abortAgent = useStore((s) => s.abortAgent);
+  const openSession = useStore((s) => s.openSession);
   const consoleIsOpen = useStore((s) => s.consoleOpen[tabId] === true);
   const ids = useId();
 
@@ -79,6 +81,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
       (status.destinationCheckout === "project" && status.mergeInProgress));
 
   const working = c.phase.s === "working";
+  const blockerTab = c.resolution?.blockedByTabId ?? null;
   const label =
     c.phase.s === "loading"
       ? t("finish.dialog.loading")
@@ -460,17 +463,42 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                     { cwd: c.resolution.trigger.cwd },
                   )}
                 </p>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  tone="copper"
-                  disabled={c.resolutionBusy || working || c.resolution.blockedReason !== null}
-                  onClick={() => void c.resolveWithAgent()}
-                >
-                  {t(c.resolutionBusy ? "finish.resolution.sending" : "finish.resolution.action")}
-                </Button>
-                {c.resolution.blockedReason !== null && (
-                  <p className={copperClass}>{c.resolution.blockedReason}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="xs"
+                    variant={c.resolution.blockedReason !== null ? "outline" : "ghost"}
+                    tone="copper"
+                    disabled={c.resolutionBusy || working || c.resolution.blockedReason !== null}
+                    onClick={() => void c.resolveWithAgent()}
+                  >
+                    {t(c.resolutionBusy ? "finish.resolution.sending" : "finish.resolution.action")}
+                  </Button>
+                  {c.resolution.blockedReason !== null && (
+                    <p className={`${copperClass} min-w-0`}>{c.resolution.blockedReason}</p>
+                  )}
+                </div>
+                {blockerTab !== null && (
+                  <div className="flex gap-1.5">
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={c.resolutionBusy || working}
+                      onClick={() => void abortAgent(blockerTab)}
+                    >
+                      {t("finish.resolution.stopBlocker")}
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={c.resolutionBusy || working}
+                      onClick={() => {
+                        void openSession(blockerTab);
+                        c.close();
+                      }}
+                    >
+                      {t("finish.resolution.openBlocker")}
+                    </Button>
+                  </div>
                 )}
                 {c.resolutionError !== null && (
                   <p role="alert" className="text-xs leading-relaxed text-rose">

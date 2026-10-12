@@ -6,7 +6,7 @@ import { t } from "./i18n";
 export function worktreeMergeResolutionState(
   s: Pick<UiStore, "state" | "tabs" | "rpc" | "exited">,
   tabId: string,
-): { route: "current" | "fresh"; blockedReason: string | null } | null {
+): { route: "current" | "fresh"; blockedReason: string | null; blockedByTabId?: string } | null {
   const owner = findOwner(s.state, tabId);
   if (!owner?.record.worktree) return null;
   const { record, instanceId } = owner;
@@ -38,7 +38,7 @@ export function worktreeMergeResolutionState(
     if (tab.tabId === tabId || tab.mode !== "rpc-ui" || s.rpc[tab.tabId]?.status !== "running") continue;
     const target = findOwner(s.state, tab.tabId);
     if (target?.instanceId === instanceId && sessionCwd(target.record) === record.projectCwd) {
-      return { route, blockedReason: t("finish.resolution.blockedTarget", { title: target.record.title }) };
+      return { route, blockedReason: t("finish.resolution.blockedTarget", { title: target.record.title }), blockedByTabId: tab.tabId };
     }
   }
   return { route, blockedReason: null };

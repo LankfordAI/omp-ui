@@ -74,6 +74,8 @@ type FinishResolution = {
   trigger: Extract<GitResolutionTrigger, { kind: "merge" }>;
   route: "current" | "fresh";
   blockedReason: string | null;
+  /** The tab of another session mid-turn on the destination checkout; null unless blockedTarget. */
+  blockedByTabId: string | null;
   /** True when no merge exists yet: dispatch first runs the merge into the project checkout. */
   startsMerge: boolean;
 };
@@ -188,6 +190,9 @@ export function useFinishWorktree(tabId: string): FinishController {
   const resolutionRoute = useStore((s) => worktreeMergeResolutionState(s, tabId)?.route ?? null);
   const resolutionBlockedReason = useStore(
     (s) => worktreeMergeResolutionState(s, tabId)?.blockedReason ?? null,
+  );
+  const resolutionBlockedBy = useStore(
+    (s) => worktreeMergeResolutionState(s, tabId)?.blockedByTabId ?? null,
   );
 
   const [suggestedDestination, setSuggestedDestination] = useState<string | null>(null);
@@ -370,6 +375,7 @@ export function useFinishWorktree(tabId: string): FinishController {
       ? {
           route: resolutionRoute,
           blockedReason: resolutionBlockedReason,
+          blockedByTabId: resolutionBlockedBy,
           startsMerge: false,
           trigger: {
             kind: "merge",
@@ -388,6 +394,7 @@ export function useFinishWorktree(tabId: string): FinishController {
         ? {
             route: resolutionRoute,
             blockedReason: resolutionBlockedReason,
+            blockedByTabId: resolutionBlockedBy,
             startsMerge: true,
             trigger: {
               kind: "merge",
