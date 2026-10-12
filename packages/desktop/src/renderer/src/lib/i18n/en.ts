@@ -1180,6 +1180,11 @@ export const en = {
   "settings.omp.subagentConcurrencyClear": "clear",
   "settings.omp.subagentConcurrencyUnsupported":
     "This project's task.maxConcurrency can't be edited here: {reason}",
+  "settings.omp.contextFiles": "Context files",
+  "settings.omp.contextFilesHint":
+    "Extra instruction files omp loads beside the usual context file (omp 18.8.8+), resolved per project. Edits write the global layer.",
+  "settings.omp.contextFilesAdd": "add instruction file",
+  "settings.omp.contextFilesRemove": "remove",
   "settings.omp.approval": "Tool approval",
   "settings.omp.approvalHint":
     "Which omp tools ask for approval. always-ask gates every tool, write gates the mutating ones, yolo gates none. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. An unset key means yolo — omp's own default. Changes apply to sessions started afterwards.",

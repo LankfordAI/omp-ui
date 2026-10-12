@@ -1061,6 +1061,11 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.omp.subagentConcurrencyClear": "지우기",
   "settings.omp.subagentConcurrencyUnsupported":
     "이 프로젝트의 task.maxConcurrency는 여기서 편집할 수 없습니다: {reason}",
+  "settings.omp.contextFiles": "컨텍스트 파일",
+  "settings.omp.contextFilesHint":
+    "omp가 일반 컨텍스트 파일과 함께 로드하는 추가 지침 파일입니다 (omp 18.8.8+, 프로젝트별로 해석). 편집은 global 레이어에 기록됩니다.",
+  "settings.omp.contextFilesAdd": "지침 파일 추가",
+  "settings.omp.contextFilesRemove": "제거",
   "settings.omp.approval": "도구 승인",
   "settings.omp.approvalHint":
     "어떤 omp 도구가 승인을 요청하는지 설정합니다. always-ask는 모든 도구, write는 변경을 수반하는 도구에만 승인을 요구하고, yolo은 요구하지 않습니다. Global 편집은 omp config set으로 이루어지고, Project 편집은 프로젝트의 .omp/config.yml에 이 키 하나만 쓰며, Project 값을 지우면 Global로 대체됩니다. 키가 없으면 omp 기본값인 yolo입니다. 변경 사항은 이후에 시작된 세션에 적용됩니다.",
