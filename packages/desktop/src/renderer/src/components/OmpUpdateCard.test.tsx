@@ -11,6 +11,7 @@ const idleOmpUpdate: OmpUpdateState = {
   installPath: null,
   installedVersion: null,
   latestVersion: null,
+  belowMinimum: false,
   progress: null,
   error: null,
 };
@@ -133,6 +134,24 @@ describe("OmpUpdateCard", () => {
 
     click(document.body.querySelector<HTMLButtonElement>('[aria-label="dismiss omp 1.2.0 offer"]')!);
     expect(backendMock.dismissOmpUpdate).toHaveBeenLastCalledWith("1.2.0", true);
+  });
+
+  it("swaps to required copy below the harness floor and keeps Later transient", () => {
+    useStore.setState({
+      ompUpdate: ompUpdateState({
+        status: "available",
+        installedVersion: "18.0.0",
+        latestVersion: "19.0.0",
+        belowMinimum: true,
+      }),
+    });
+    renderCard();
+    expect(document.body.textContent).toContain("omp-ui needs omp 18.8.8 or later");
+    expect(document.body.textContent).toContain("some features are disabled");
+    expect(document.body.textContent).not.toContain("omp 19.0.0 available");
+    click(buttonWithText("Later"));
+    // remember=false: a below-floor dismissal never persists.
+    expect(backendMock.dismissOmpUpdate).toHaveBeenCalledWith("19.0.0", false);
   });
 
   it("offers an install when omp is missing — never an update", () => {

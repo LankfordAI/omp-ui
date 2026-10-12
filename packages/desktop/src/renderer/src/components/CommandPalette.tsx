@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionSummary } from "@omp-ui/core/types";
-import { supportsAnonymize } from "../lib/anonymize";
+import { ANONYMIZE_MIN_OMP, supportsAnonymize } from "../lib/anonymize";
 import { cn } from "../lib/cn";
 import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { useCompactShell } from "../lib/responsive";
@@ -43,6 +43,8 @@ interface Action {
   /** A `useHotkeys` combo string, rendered through `formatHotkey`. */
   hint?: string;
   dot?: Tone;
+  /** Set when the row is inert (feature gate): shown as a title, pick is a no-op. */
+  disabledHint?: string;
   run: () => void;
 }
 
@@ -238,15 +240,16 @@ export function CommandPalette() {
       }
       // Share anonymized (issue #834): main reads the session file from disk,
       // so both tab modes qualify — only the binary's version gates the row.
-      if (supportsAnonymize(ompInstalled)) {
-        out.push({
-          id: "session:anonymize",
-          group: t("palette.group.session"),
-          name: t("palette.action.anonymize"),
-          desc: t("palette.action.anonymizeDesc", { title }),
-          run: () => void anonymizeSession(tab.tabId),
-        });
-      }
+      out.push({
+        id: "session:anonymize",
+        group: t("palette.group.session"),
+        name: t("palette.action.anonymize"),
+        desc: t("palette.action.anonymizeDesc", { title }),
+        disabledHint: supportsAnonymize(ompInstalled)
+          ? undefined
+          : t("palette.action.anonymizeNeedsOmp", { version: ANONYMIZE_MIN_OMP }),
+        run: () => void anonymizeSession(tab.tabId),
+      });
       // Live sharing (issue #686) is omp's /collab, which lives in the TUI:
       // a terminal tab hosts it directly; a native tab's dialog says so
       // plainly instead of pretending an off switch it does not have.
@@ -344,6 +347,8 @@ export function CommandPalette() {
 
   const close = useCallback(() => setOpen(false), []);
   const pick = useCallback((row: Row): void => {
+    // A gated row stays searchable and navigable but never runs.
+    if (row.action.disabledHint !== undefined) return;
     close();
     row.action.run();
   }, [close]);
@@ -407,9 +412,15 @@ export function CommandPalette() {
                 ref={i === clamped ? activeRef : null}
                 onMouseMove={() => setActive(i)}
                 onClick={() => pick(results[i])}
+                disabled={action.disabledHint !== undefined}
+                title={action.disabledHint}
                 className={cn(
                   "flex w-full items-center gap-2.5 px-3.5 py-1.5 text-left transition-colors",
-                  i === clamped ? "bg-hover" : "hover:bg-hover/50",
+                  action.disabledHint !== undefined
+                    ? "cursor-default opacity-50"
+                    : i === clamped
+                      ? "bg-hover"
+                      : "hover:bg-hover/50",
                 )}
               >
                 {action.dot ? (

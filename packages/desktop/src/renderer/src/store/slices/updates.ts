@@ -20,6 +20,7 @@ const DEFAULT_OMP_UPDATE: UpdatesSlice["ompUpdate"] = {
   installPath: null,
   installedVersion: null,
   latestVersion: null,
+  belowMinimum: false,
   progress: null,
   error: null,
 };

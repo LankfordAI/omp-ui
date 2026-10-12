@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { MIN_SUPPORTED_OMP } from "@omp-ui/core/harness-floor";
+import { compareVersions } from "@omp-ui/core/semver";
 import type { PythonCheckSnapshot } from "@omp-ui/core/types";
 import { backend, displayMessage } from "../backend";
 import { useT } from "../lib/i18n";
@@ -141,7 +143,12 @@ export function GettingStarted() {
     previousPhase.current = providerOAuth.phase;
   }, [providerOAuth.phase, reread]);
 
-  const binaryDone = ompUpdate.installedVersion !== null;
+  // Done means at or above the harness floor, not merely installed: an
+  // below-floor binary still gates features, and the updater's auto path
+  // (status below) drives the same download the card would.
+  const binaryDone =
+    ompUpdate.installedVersion !== null &&
+    compareVersions(ompUpdate.installedVersion, MIN_SUPPORTED_OMP) >= 0;
   const projectDone = (projects?.length ?? 0) > 0;
   const sessionDone = (projects ?? []).some((group) => group.sessions.length > 0);
 
@@ -149,7 +156,7 @@ export function GettingStarted() {
   const binaryHint =
     status === "downloading" ? (
       <>
-        {t("app.gettingstarted.hintBinary")}
+        {t("app.gettingstarted.hintBinary", { version: MIN_SUPPORTED_OMP })}
         <span className="mt-1.5 flex items-center gap-2">
           <span className="h-1 flex-1 overflow-hidden rounded bg-raised">
             {progress === null ? (
@@ -167,11 +174,11 @@ export function GettingStarted() {
       </>
     ) : status === "error" && error !== null ? (
       <>
-        {t("app.gettingstarted.hintBinary")}
+        {t("app.gettingstarted.hintBinary", { version: MIN_SUPPORTED_OMP })}
         <span className="mt-0.5 block break-words text-xs text-ink-faint">{error.message}</span>
       </>
     ) : (
-      t("app.gettingstarted.hintBinary")
+      t("app.gettingstarted.hintBinary", { version: MIN_SUPPORTED_OMP })
     );
 
   const pythonHint =

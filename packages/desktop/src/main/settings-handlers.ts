@@ -41,6 +41,7 @@ type SettingsHandlerChannels =
   | typeof CH.setAppUpdateCheckOnLaunch
   | typeof CH.setAppUpdateTrain
   | typeof CH.setOmpUpdateCheckOnLaunch
+  | typeof CH.setOmpAutoUpgrade
   | typeof CH.setVaultNoteVoice;
 
 interface SettingsHandlerDependencies {
@@ -102,6 +103,7 @@ export function registerSettingsHandlers(
       await deps.broadcast();
     },
     [CH.setOmpUpdateCheckOnLaunch]: (value: boolean) => commit("ompUpdateCheckOnLaunch", value),
+    [CH.setOmpAutoUpgrade]: (value: boolean) => commit("ompAutoUpgrade", value),
     [CH.setVaultNoteVoice]: (value: VaultNoteVoice) => commit("vaultNoteVoice", value),
   };
 }

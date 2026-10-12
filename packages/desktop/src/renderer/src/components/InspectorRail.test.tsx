@@ -961,11 +961,12 @@ describe("Side questions pane (issue #775)", () => {
     expect(btwCommands("get_btw_history")).toBe(1);
   });
 
-  it("shows the unavailable line and dispatches nothing on an older omp", () => {
+  it("names the required version and dispatches nothing on an older omp", () => {
     useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.6.2") }) } });
     renderRail();
     act(() => railTab("side questions")!.click());
-    expect(document.body.textContent).toContain(t("rail.btw.unavailable"));
+    // Floor plan §6: the gate reads as a requirement, not a generic refusal.
+    expect(document.body.textContent).toContain(t("rail.btw.needsNewerOmp", { version: "18.6.3" }));
     expect(btwCommands("get_btw_history")).toBe(0);
     expect(btwCommands("btw")).toBe(0);
     expect(

@@ -6,11 +6,14 @@ import {
   checkOmpUpdate,
   downloadOmp,
   fetchLatestOmpVersion,
+  MIN_SUPPORTED_OMP,
   OMP_RELEASE_BASE,
   ompAssetName,
   parseOmpVersion,
   readInstalledOmpVersion,
 } from "./omp-update";
+import { compareVersions } from "./semver";
+import { LOGOUT_ACCOUNTS_MIN_OMP } from "./provider-accounts";
 
 const tmpDirs: string[] = [];
 function mkTmp(): string {
@@ -20,6 +23,15 @@ function mkTmp(): string {
 }
 afterEach(() => {
   for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// The §1 invariant for core-owned gates: the floor must stay at or above
+// every per-feature *_MIN_OMP. Renderer-side gates are guarded by
+// renderer/src/lib/harness-floor.test.ts (the barrel is off-limits there).
+describe("MIN_SUPPORTED_OMP harness floor", () => {
+  it("is at or above LOGOUT_ACCOUNTS_MIN_OMP", () => {
+    expect(compareVersions(MIN_SUPPORTED_OMP, LOGOUT_ACCOUNTS_MIN_OMP)).toBeGreaterThanOrEqual(0);
+  });
 });
 
 describe("parseOmpVersion", () => {
@@ -193,5 +205,52 @@ describe("checkOmpUpdate", () => {
     expect(info.installPath).toBeNull();
     expect(info.installedVersion).toBeNull();
     expect(info.updateAvailable).toBe(false);
+  });
+
+  describe("belowMinimum", () => {
+    it("is true below the floor and false at or above it", async () => {
+      // Floor-minus-one: step the patch down, borrowing from the minor.
+      const [maj, min, patch] = MIN_SUPPORTED_OMP.split(".").map(Number);
+      const belowVersion =
+        patch > 0 ? `${maj}.${min}.${patch - 1}` : `${maj}.${min - 1}.999`;
+      const below = await checkOmpUpdate({
+        installPath: "/m/omp",
+        runner: async () => `omp/${belowVersion}`,
+        fetchImpl: okFetch({ version: "99.0.0" }),
+      });
+      expect(below.belowMinimum).toBe(true);
+
+      const at = await checkOmpUpdate({
+        installPath: "/m/omp",
+        runner: async () => `omp/${MIN_SUPPORTED_OMP}`,
+        fetchImpl: okFetch({ version: "99.0.0" }),
+      });
+      expect(at.belowMinimum).toBe(false);
+
+      const above = await checkOmpUpdate({
+        installPath: "/m/omp",
+        runner: async () => "omp/99.0.0",
+        fetchImpl: okFetch({ version: "99.0.0" }),
+      });
+      expect(above.belowMinimum).toBe(false);
+    });
+
+    it("is false when no binary resolves or the version read fails", async () => {
+      const none = await checkOmpUpdate({
+        installPath: null,
+        fetchImpl: okFetch({ version: "99.0.0" }),
+      });
+      expect(none.belowMinimum).toBe(false);
+
+      const unreadable = await checkOmpUpdate({
+        installPath: "/m/omp",
+        runner: async () => {
+          throw new Error("not executable");
+        },
+        fetchImpl: okFetch({ version: "99.0.0" }),
+      });
+      expect(unreadable.installedVersion).toBeNull();
+      expect(unreadable.belowMinimum).toBe(false);
+    });
   });
 });

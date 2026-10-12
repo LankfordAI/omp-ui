@@ -38,6 +38,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     vaultRegistry: { vaults: [], defaultWriteVault: null },
     vaultNoteVoice: "user",
     ompUpdateCheckOnLaunch: true,
+    ompAutoUpgrade: true,
     dismissedAppUpdateVersion: null,
     dismissedOmpUpdateVersion: null,
     spawnGate: { model: null, advisorModel: null },

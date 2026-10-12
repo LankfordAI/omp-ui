@@ -461,6 +461,10 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setOmpUpdateCheckOnLaunch",
     ...request<[on: boolean], void>([bool()]),
   },
+  setOmpAutoUpgrade: {
+    channel: "settings:setOmpAutoUpgrade",
+    ...request<[on: boolean], void>([bool()]),
+  },
   /** Whose voice vault note bodies take (#793); default "user". */
   setVaultNoteVoice: {
     channel: "settings:setVaultNoteVoice",

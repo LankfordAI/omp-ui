@@ -49,6 +49,7 @@ interface RegistrySettings {
   };
   vaultNoteVoice: "user" | "assistant";
   ompUpdateCheckOnLaunch: boolean;
+  ompAutoUpgrade: boolean;
   remoteEnabled: boolean;
   remoteBind: RemoteBind;
   remotePort: number;
@@ -142,6 +143,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     vaultRegistry: { vaults: [], defaultWriteVault: null },
     vaultNoteVoice: "user",
     ompUpdateCheckOnLaunch: true,
+    ompAutoUpgrade: true,
     remoteEnabled: false,
     remoteBind: "localhost",
     remotePort: 4677,

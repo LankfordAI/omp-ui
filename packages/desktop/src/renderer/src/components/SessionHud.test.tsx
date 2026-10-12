@@ -217,6 +217,7 @@ describe("wide Session HUD", () => {
         installPath: "/bin/omp",
         installedVersion: "18.8.9",
         latestVersion: null,
+        belowMinimum: false,
         progress: null,
         error: null,
       },

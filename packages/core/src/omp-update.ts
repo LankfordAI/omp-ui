@@ -14,6 +14,9 @@ export const OMP_NPM_LATEST_URL =
 export const OMP_GITHUB_REPO = "can1357/oh-my-pi";
 export const OMP_RELEASE_BASE = `https://github.com/${OMP_GITHUB_REPO}/releases/download`;
 
+import { MIN_SUPPORTED_OMP } from "./harness-floor";
+export { MIN_SUPPORTED_OMP };
+
 /** Extracts `omp/<X.Y.Z>` (the shape of `omp --version`) from output. */
 export function parseOmpVersion(output: string): string | null {
   const raw = /omp\/(\S+)/.exec(output)?.[1];
@@ -137,6 +140,7 @@ export async function checkOmpUpdate(opts: {
     installedVersion: null,
     latestVersion: null,
     updateAvailable: false,
+    belowMinimum: false,
     error: null,
   };
   try {
@@ -145,6 +149,9 @@ export async function checkOmpUpdate(opts: {
     if (info.latestVersion !== null && info.installedVersion !== null) {
       info.updateAvailable = compareVersions(info.installedVersion, info.latestVersion) < 0;
     }
+    info.belowMinimum =
+      info.installedVersion !== null &&
+      compareVersions(info.installedVersion, MIN_SUPPORTED_OMP) < 0;
   } catch (e) {
     info.error = {
       kind: "unreachable",

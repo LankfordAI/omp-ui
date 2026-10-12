@@ -373,6 +373,7 @@ export class MainBackend {
       getDismissed: () => this.registry.getSetting("dismissedOmpUpdateVersion"),
       setDismissed: (v) => this.registry.setSetting("dismissedOmpUpdateVersion", v),
       onApplied: () => this.refreshOmpPath(),
+      autoUpgrade: () => this.registry.getSetting("ompAutoUpgrade"),
       send: (ch, s) => {
         if (this.lastOmpUpdateStatus !== s.status) {
           this.lastOmpUpdateStatus = s.status;
@@ -1606,6 +1607,7 @@ export class MainBackend {
       vaultRegistry: this.registry.getSetting("vaultRegistry"),
       vaultNoteVoice: this.registry.getSetting("vaultNoteVoice"),
       ompUpdateCheckOnLaunch: this.registry.getSetting("ompUpdateCheckOnLaunch"),
+      ompAutoUpgrade: this.registry.getSetting("ompAutoUpgrade"),
       dismissedAppUpdateVersion: this.registry.getSetting("dismissedAppUpdateVersion"),
       dismissedOmpUpdateVersion: this.registry.getSetting("dismissedOmpUpdateVersion"),
       // Instance metadata, not registry state: identical on every read and

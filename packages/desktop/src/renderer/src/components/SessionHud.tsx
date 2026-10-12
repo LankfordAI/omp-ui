@@ -6,7 +6,7 @@ import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import { vibeWorkLive } from "@omp-ui/core/vibe";
 import type { LimitsView } from "@omp-ui/core/limits";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
-import { supportsAnonymize } from "../lib/anonymize";
+import { ANONYMIZE_MIN_OMP, supportsAnonymize } from "../lib/anonymize";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
@@ -1275,9 +1275,12 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 <Button tone="copper" disabled={session?.isCompacting === true || compacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />{t("hud.actions.compact")}</Button>
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />{t("hud.actions.export")}</Button>
                 <Button title={t("hud.actions.shareTitle")} onClick={() => void shareSession(tabId)} className={sheetAction}><IconShare />{t("hud.actions.share")}</Button>
-                {anonAvailable && (
-                  <Button title={t("hud.actions.anonymizeTitle")} onClick={() => void anonymizeSession(tabId)} className={sheetAction}><IconAnonymize />{t("hud.actions.anonymize")}</Button>
-                )}
+                <Button
+                  disabled={!anonAvailable}
+                  title={anonAvailable ? t("hud.actions.anonymizeTitle") : t("hud.actions.anonymizeNeedsOmp", { version: ANONYMIZE_MIN_OMP })}
+                  onClick={() => void anonymizeSession(tabId)}
+                  className={sheetAction}
+                ><IconAnonymize />{t("hud.actions.anonymize")}</Button>
                 <Button onClick={() => openCapabilitiesViewer(null, undefined, "mcp", instanceId)} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>
                 <Button title={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.branch")}</Button>
                 {treeAvailable && (
@@ -1412,11 +1415,13 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <IconButton label={t("hud.actions.shareTitle")} onClick={() => void shareSession(tabId)}>
           <IconShare />
         </IconButton>
-        {anonAvailable && (
-          <IconButton label={t("hud.actions.anonymizeTitle")} onClick={() => void anonymizeSession(tabId)}>
-            <IconAnonymize />
-          </IconButton>
-        )}
+        <IconButton
+          label={anonAvailable ? t("hud.actions.anonymizeTitle") : t("hud.actions.anonymizeNeedsOmp", { version: ANONYMIZE_MIN_OMP })}
+          disabled={!anonAvailable}
+          onClick={() => void anonymizeSession(tabId)}
+        >
+          <IconAnonymize />
+        </IconButton>
         {/* The button opens the global catalog (issue #383) — it needs no
             session cwd. The badge still counts THIS session's failed MCP
             servers, the one context the reader is standing in (D5). */}
