@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./anonymize": "./src/anonymize.ts",
     "./types": "./src/types.ts",
     "./carryover-context": "./src/carryover-context.ts",
     "./model-role": "./src/model-role.ts",

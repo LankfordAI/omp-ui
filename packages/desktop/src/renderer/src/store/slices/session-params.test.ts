@@ -3063,6 +3063,62 @@ describe("shareSession (issue #679)", () => {
   });
 });
 
+describe("anonymizeSession (issue #834)", () => {
+  /** Installed binary at the given version (null: unknown). */
+  const installed = (version: string | null): void => {
+    h.useStore.setState({ ompUpdate: { ...h.idleOmpUpdate, installedVersion: version } });
+  };
+
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+  });
+
+  it("sends nothing below the version floor", async () => {
+    installed("18.8.7");
+    await h.useStore.getState().anonymizeSession(h.TAB);
+    expect(h.mockBackend.anonymizeSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(0);
+  });
+
+  it("sends nothing when the installed version is unknown", async () => {
+    await h.useStore.getState().anonymizeSession(h.TAB);
+    expect(h.mockBackend.anonymizeSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(0);
+  });
+
+  it("pushes the output folder as notice data at or above the floor", async () => {
+    installed("18.8.9");
+    h.mockBackend.anonymizeSession.mockResolvedValueOnce({
+      ok: true,
+      path: "/s/abc/anon",
+      message: null,
+    });
+    await h.useStore.getState().anonymizeSession(h.TAB);
+    expect(h.mockBackend.anonymizeSession).toHaveBeenCalledWith(h.TAB);
+    // The path rides as data so the view offers open/reveal (issue #84).
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+      kind: "notice",
+      level: "info",
+      path: "/s/abc/anon",
+    });
+  });
+
+  it("leaves a warn notice carrying the failure message", async () => {
+    installed("18.8.9");
+    h.mockBackend.anonymizeSession.mockResolvedValueOnce({
+      ok: false,
+      path: null,
+      message: "session file not found",
+    });
+    await h.useStore.getState().anonymizeSession(h.TAB);
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+      kind: "notice",
+      level: "warn",
+      text: "anonymize failed: session file not found",
+    });
+  });
+});
+
 describe("word prediction (issue #715)", () => {
   beforeEach(() => {
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });

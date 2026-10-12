@@ -1202,6 +1202,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  dialog (issue #679). Native (rpc-ui) sessions only; the command must be
    *  advertised by the tab or the action leaves a notice instead of sending. */
   shareSession(tabId: string): Promise<void>;
+  /** Share anonymized (issue #834): shells out to the installed omp's
+   *  redaction command; gated on the omp version floor, hidden below it. */
+  anonymizeSession(tabId: string): Promise<void>;
   branchSession(tabId: string): Promise<void>;
   /**
    * Rewinds a live native session to one user prompt in place via omp's

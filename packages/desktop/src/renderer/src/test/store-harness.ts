@@ -263,6 +263,7 @@ const mockBackend = {
   })),
   deleteSessionPreview: vi.fn(async (): Promise<DeleteSessionPreview> => ({ descendants: [] })),
   forkSession: vi.fn(),
+  anonymizeSession: vi.fn(async (): Promise<{ ok: true; path: string; message: null } | { ok: false; path: null; message: string }> => ({ ok: true, path: "/s/anon", message: null })),
   toggleFavorite: vi.fn(),
   ptyWrite: vi.fn(),
   ptyResize: vi.fn(),

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionSummary } from "@omp-ui/core/types";
+import { supportsAnonymize } from "../lib/anonymize";
 import { cn } from "../lib/cn";
 import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { useCompactShell } from "../lib/responsive";
@@ -93,6 +94,8 @@ export function CommandPalette() {
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
   const toggleBrowserPane = useStore((s) => s.toggleBrowserPane);
   const shareSession = useStore((s) => s.shareSession);
+  const anonymizeSession = useStore((s) => s.anonymizeSession);
+  const ompInstalled = useStore((s) => s.ompUpdate.installedVersion);
   const openShareLive = useStore((s) => s.openShareLive);
   const checkAppUpdate = useStore((s) => s.checkAppUpdate);
   const checkOmpUpdate = useStore((s) => s.checkOmpUpdate);
@@ -233,6 +236,17 @@ export function CommandPalette() {
           },
         );
       }
+      // Share anonymized (issue #834): main reads the session file from disk,
+      // so both tab modes qualify — only the binary's version gates the row.
+      if (supportsAnonymize(ompInstalled)) {
+        out.push({
+          id: "session:anonymize",
+          group: t("palette.group.session"),
+          name: t("palette.action.anonymize"),
+          desc: t("palette.action.anonymizeDesc", { title }),
+          run: () => void anonymizeSession(tab.tabId),
+        });
+      }
       // Live sharing (issue #686) is omp's /collab, which lives in the TUI:
       // a terminal tab hosts it directly; a native tab's dialog says so
       // plainly instead of pretending an off switch it does not have.
@@ -311,7 +325,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, shareSession, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

@@ -15,6 +15,7 @@ import type {
   DocumentAttachment,
   DiagnosticsExportRequest,
   DiagnosticsExportResult,
+  AnonymizeSessionResult,
   DiagnosticsPreview,
   DirBrowseResult,
   GlassChrome,
@@ -1545,6 +1546,13 @@ export const BACKEND_CHANNELS = {
   chooseDiagnosticsPath: {
     channel: "diagnostics:choosePath",
     ...request<[basename: string], string | null>([str()]),
+  },
+  /** Share anonymized (issue #834): shells out to the installed omp's
+   * redaction command — omp-ui never re-implements it. Tab-routed: the
+   * session file resolves on the owning host. */
+  anonymizeSession: {
+    channel: "session:anonymize",
+    ...request<[tabId: string], AnonymizeSessionResult>([str()]),
   },
   /** The app-wide subscription sign-in flow's phase changes. */
   onProviderOAuthState: { channel: "provider-oauth:state", ...event<[state: ProviderOAuthState]>() },

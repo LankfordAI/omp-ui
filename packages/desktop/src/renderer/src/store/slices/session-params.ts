@@ -26,6 +26,7 @@ import { DOCUMENT_MIME } from "../../lib/clipboard-image";
 import { t, type MessageKey } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { hasSeenSharePrivacy } from "../../lib/share-privacy";
+import { supportsAnonymize } from "../../lib/anonymize";
 import { supportsRestoreQueue } from "../../lib/queue-chip";
 import { parseRestoreResult, projectImages, splitQueuedWireText } from "../../lib/queue-restore";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
@@ -150,6 +151,7 @@ export type SessionParamsSlice = Pick<
   | "compactSession"
   | "exportHtml"
   | "shareSession"
+  | "anonymizeSession"
   | "branchSession"
   | "stageRewind"
   | "performRewind"
@@ -1710,6 +1712,24 @@ export function createSessionParamsSlice(
     await get().runSlashCommand(tabId, "/share");
   };
 
+  const anonymizeSession = async (tabId: string): Promise<void> => {
+    // Share anonymized (issue #834): the redaction runs entirely inside the
+    // installed omp binary — this action only gates on the version floor and
+    // surfaces the outcome. The output folder rides the notice as data so the
+    // transcript offers open/reveal without parsing it back out of the text
+    // (issue #84 pattern).
+    if (!supportsAnonymize(get().ompUpdate.installedVersion)) return;
+    const result = await backend.anonymizeSession(tabId);
+    if (result.ok) {
+      m.appendItem(tabId, {
+        ...noticeItem(t("notice.anonymize.done"), "info"),
+        path: result.path,
+      });
+    } else {
+      m.appendItem(tabId, noticeItem(t("notice.anonymize.failed", { message: result.message }), "warn"));
+    }
+  };
+
   const branchSession = async (tabId: string): Promise<void> => {
     // Full-fidelity branch (issue #83): the backend copies the transcript
     // into a new lineage and registers it; the source session — this tab
@@ -2636,6 +2656,7 @@ export function createSessionParamsSlice(
     compactSession,
     exportHtml,
     shareSession,
+    anonymizeSession,
     branchSession,
     stageRewind,
     performRewind,

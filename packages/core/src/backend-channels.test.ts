@@ -53,6 +53,7 @@ const spawnRequest: SpawnRequest = {
 const VALID_ARGS = {
   addProject: ["/project"],
   addRemoteInstance: [{ url: "http://127.0.0.1:4678", nickname: "", secret: { kind: "token", value: "tok" } }],
+  anonymizeSession: ["tab-1"],
   answerPlanReview: ["tab-1", "frame-1", "execute", "0".repeat(64)],
   autoresearchExperiment: ["/project", null, 1],
   autoresearchOverview: ["/project"],

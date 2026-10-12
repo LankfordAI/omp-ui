@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pipeline } from "node:stream/promises";
+import { createGunzip } from "node:zlib";
 import { app, dialog, ipcMain, MessageChannelMain, screen, shell, type BrowserWindow, type MessagePortMain } from "electron";
 import {
   CH,
@@ -58,6 +60,7 @@ import {
   Registry,
   RemoteInstanceStore,
   resolveOmpBinary,
+  anonymizeSession,
   resolveSessionLocation,
   isSafeAgentName,
   isSafeSelector,
@@ -95,6 +98,7 @@ import {
   type ProviderKeysSnapshot,
   type DiagnosticsExportRequest,
   type DiagnosticsExportResult,
+  type AnonymizeSessionResult,
   type DiagnosticsOptions,
   type RemoteInstanceInput,
   type RemoteInstancePatch,
@@ -1118,6 +1122,46 @@ export class MainBackend {
             filters: [{ name: "Zip archive", extensions: ["zip"] }],
           });
           return result.canceled || !result.filePath ? null : result.filePath;
+        },
+        /** Share anonymized (issue #834): the redaction is 100% omp's
+         * `anonymize` command — main resolves the session file, gunzips an
+         * archived transcript to a temp file (omp rejects .jsonl.gz with exit
+         * 2), and writes the copy beside the raw transcripts. No single-flight
+         * guard: the command finishes in seconds and reruns just overwrite the
+         * output dir. */
+        [CH.anonymizeSession]: async (tabId: string): Promise<AnonymizeSessionResult> => {
+          const record = this.registry.sessions.find((s) => s.tabId === tabId);
+          if (!record) return { ok: false, path: null, message: "session not found" };
+          if (!this.ompPath) return { ok: false, path: null, message: "omp binary not resolved" };
+          const loc = await resolveSessionLocation(
+            this.sessionsRoot,
+            this.archiveRoot,
+            record.lineageDir,
+            record.sessionId,
+          );
+          if (loc.where === "missing")
+            return { ok: false, path: null, message: "session file not found" };
+          const outDir = path.join(this.sessionsRoot, record.lineageDir, "anon");
+          await fs.promises.mkdir(outDir, { recursive: true });
+          let sessionFile = loc.filePath;
+          let tmp: string | null = null;
+          try {
+            if (loc.where === "archived") {
+              // omp rejects .jsonl.gz (verified: exit 2 "not a valid session
+              // file"); gunzip to a temp file instead of unarchiving the
+              // whole lineage.
+              tmp = path.join(os.tmpdir(), `omp-ui-anon-${randomUUID()}.jsonl`);
+              await pipeline(
+                fs.createReadStream(loc.filePath),
+                createGunzip(),
+                fs.createWriteStream(tmp),
+              );
+              sessionFile = tmp;
+            }
+            return await anonymizeSession(this.ompPath, sessionFile, outDir);
+          } finally {
+            if (tmp !== null) await fs.promises.rm(tmp, { force: true });
+          }
         },
         /** Live Collab hosting is terminal-tab only (issue #686): the tracker
          * drives omp's own registry CLI and the PTY keystroke route. */
