@@ -105,7 +105,11 @@ Object.assign(window, { ompBackend: backendMock });
 const { useStore } = await import("../store");
 const { FinishWorktreeDialog } = await import("./FinishWorktreeDialog");
 const originalResolution = useStore.getState().resolveWorktreeMerge;
+const originalAbortAgent = useStore.getState().abortAgent;
+const originalOpenSession = useStore.getState().openSession;
 const resolutionMock = vi.fn<typeof originalResolution>();
+const abortAgentMock = vi.fn<typeof originalAbortAgent>(async () => {});
+const openSessionMock = vi.fn<typeof originalOpenSession>(async () => {});
 
 let root: Root | null = null;
 
@@ -273,7 +277,13 @@ async function clickInput(input: HTMLInputElement): Promise<void> {
 beforeEach(() => {
   vi.clearAllMocks();
   resolutionMock.mockReset().mockResolvedValue(true);
-  useStore.setState({ resolveWorktreeMerge: resolutionMock });
+  abortAgentMock.mockClear();
+  openSessionMock.mockClear();
+  useStore.setState({
+    resolveWorktreeMerge: resolutionMock,
+    abortAgent: abortAgentMock,
+    openSession: openSessionMock,
+  });
   backendMock.listBranches.mockResolvedValue(listing);
   backendMock.resolveMergeDestination.mockResolvedValue({ destination: "main", reason: null });
   backendMock.getMergeBackStatus.mockResolvedValue(statusFixture());
@@ -299,7 +309,11 @@ afterEach(() => {
     root = null;
   }
   document.body.replaceChildren();
-  useStore.setState({ resolveWorktreeMerge: originalResolution });
+  useStore.setState({
+    resolveWorktreeMerge: originalResolution,
+    abortAgent: originalAbortAgent,
+    openSession: originalOpenSession,
+  });
 });
 
 describe("FinishWorktreeDialog", () => {
@@ -754,6 +768,10 @@ describe("FinishWorktreeDialog", () => {
         ? "This session is busy or not ready"
         : "This session is waiting for a human answer");
       expect(document.body.textContent).toContain("git merge --continue");
+      // The source arms get the framed disabled button and the reason, never
+      // the unblock row: the blocker is this dialog's own session.
+      expect(buttonByText("Stop that turn")).toBeUndefined();
+      expect(buttonByText("Open that session")).toBeUndefined();
       act(() => resolutionButton()!.click());
       expect(resolutionMock).not.toHaveBeenCalled();
       expectNoFinishEffects();
@@ -772,7 +790,27 @@ describe("FinishWorktreeDialog", () => {
       expect(resolutionButton()!.disabled).toBe(true);
       expect(document.body.textContent).toContain("Session “Busy target” is mid-turn in the project checkout");
       expect(document.body.textContent).toContain("git merge --continue");
+      // Clicking the disabled handoff still never dispatches.
+      act(() => resolutionButton()!.click());
       expect(resolutionMock).not.toHaveBeenCalled();
+      expectNoFinishEffects();
+      // The unblock row points at the blocking session (issue #845).
+      expect(buttonByText("Stop that turn")).toBeDefined();
+      expect(buttonByText("Open that session")).toBeDefined();
+      act(() => buttonByText("Stop that turn")!.click());
+      await act(async () => { await flushMicrotasks(); });
+      expect(abortAgentMock).toHaveBeenCalledWith("busy");
+      // When the blocker's turn ends, the selectors recompute live: no
+      // dialog reopening, the handoff becomes enabled, the row vanishes.
+      act(() => useStore.setState({ rpc: { busy: rpcTabState({ status: "ready" }) } }));
+      expect(resolutionButton()!.disabled).toBe(false);
+      expect(buttonByText("Stop that turn")).toBeUndefined();
+      act(() => useStore.setState({ rpc: { busy: rpcTabState({ status: "running" }) } }));
+      expect(resolutionButton()!.disabled).toBe(true);
+      act(() => buttonByText("Open that session")!.click());
+      await act(async () => { await flushMicrotasks(); });
+      expect(openSessionMock).toHaveBeenCalledWith("busy");
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
       expectNoFinishEffects();
     });
 
@@ -843,6 +881,8 @@ describe("FinishWorktreeDialog", () => {
         expect(resolutionMock).not.toHaveBeenCalled();
         expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
         expectNoFinishEffects();
+        // The preview-conflict arm shares the same unblock affordance.
+        expect(buttonByText("Stop that turn")).toBeDefined();
       });
 
       it("reports a refused dispatch after the merge started and stays retryable", async () => {

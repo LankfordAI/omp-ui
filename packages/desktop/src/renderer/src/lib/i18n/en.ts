@@ -2131,6 +2131,8 @@ export const en = {
   "finish.resolution.blockedSource": "This session is busy or not ready to accept a resolution request — wait until it is ready.",
   "finish.resolution.blockedAnswer": "This session is waiting for a human answer — answer it before asking the agent to resolve the merge.",
   "finish.resolution.blockedTarget": "Session “{title}” is mid-turn in the project checkout — wait for it to finish or stop that turn before resolving its merge.",
+  "finish.resolution.stopBlocker": "Stop that turn",
+  "finish.resolution.openBlocker": "Open that session",
   "finish.resolution.failed": "The agent did not accept the resolution request. The merge is unchanged; try again, or resolve it manually.",
   "finish.resolution.stale": "The session or its worktree changed before the resolution request could be sent. Reopen Finish worktree and try again.",
   "finish.step.creating": "creating branch…",
