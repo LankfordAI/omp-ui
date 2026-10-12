@@ -1080,6 +1080,101 @@ describe("Settings omp Live voice group (issue #802)", () => {
     }
   });
 
+  function voiceEntry(): OmpSettingsSnapshot["entries"][number] {
+    return {
+      key: "live.voice",
+      type: "enum" as const,
+      description: "Voice used by Codex-backed realtime voice sessions",
+      value: "sol",
+      globalValue: undefined,
+      options: ["arbor", "sol"],
+      layer: "default" as const,
+    };
+  }
+
+  const speedEntry = (key: string): OmpSettingsSnapshot["entries"][number] => ({
+    key,
+    type: "number" as const,
+    description: `Speaking rate for ${key}`,
+    value: 1,
+    globalValue: undefined,
+    options: null,
+    layer: "default" as const,
+  });
+
+  async function commitSpeed(label: string, value: string): Promise<void> {
+    const input = document.querySelector<HTMLInputElement>(
+      `input[aria-label="${label}"]`,
+    )!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+  }
+
+  it("renders the speech speed rows and commits a typed rate (issue #836)", async () => {
+    seedOmp({
+      ...emptyOmpSettings,
+      entries: [
+        voiceEntry(),
+        speedEntry("speech.speed"),
+        speedEntry("tts.localSpeed"),
+      ],
+    });
+    await renderSettings();
+
+    const speech = document.querySelector<HTMLInputElement>(
+      'input[aria-label="speech.speed"]',
+    );
+    const local = document.querySelector<HTMLInputElement>(
+      'input[aria-label="tts.localSpeed"]',
+    );
+    expect(speech).not.toBeNull();
+    expect(local).not.toBeNull();
+    expect(speech!.value).toBe("1");
+    expect(local!.value).toBe("1");
+    expect(document.body.textContent).toContain("Live voice");
+
+    await commitSpeed("speech.speed", "1.8");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("speech.speed", 1.8);
+  });
+
+  it("clamps the typed speed to omp's 0.5–2.5 range (issue #836)", async () => {
+    seedOmp({
+      ...emptyOmpSettings,
+      entries: [
+        voiceEntry(),
+        speedEntry("speech.speed"),
+        speedEntry("tts.localSpeed"),
+      ],
+    });
+    await renderSettings();
+
+    await commitSpeed("tts.localSpeed", "9");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("tts.localSpeed", 2.5);
+
+    backendMock.writeOmpSetting.mockClear();
+    await commitSpeed("tts.localSpeed", "0.1");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("tts.localSpeed", 0.5);
+  });
+
+  it("omits only the speed rows on an omp that predates the keys (issue #836)", async () => {
+    seedOmp({ ...emptyOmpSettings, entries: [voiceEntry()] });
+    await renderSettings();
+
+    expect(document.querySelector('input[aria-label="speech.speed"]')).toBeNull();
+    expect(document.querySelector('input[aria-label="tts.localSpeed"]')).toBeNull();
+    expect(
+      document.querySelector('select[aria-label="live.voice"]'),
+    ).not.toBeNull();
+  });
+
   it("omits the section when omp does not publish the key", async () => {
     seedOmp(emptyOmpSettings);
     await renderSettings();

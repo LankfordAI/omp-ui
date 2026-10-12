@@ -9,6 +9,8 @@ import {
   LIVE_VOICE_SETTING_KEY,
   OMP_MAX_CONCURRENCY_KEY,
   OMP_SUBAGENT_MODELS_KEY,
+  SPEECH_SPEED_SETTING_KEY,
+  TTS_LOCAL_SPEED_SETTING_KEY,
 } from "@omp-ui/core/omp-settings-keys";
 import { ModelRolesSection } from "./ModelRolesSection";
 import { SubagentModelsSection } from "./SubagentModelsSection";
@@ -146,6 +148,8 @@ export function OmpPage({
 
       <LiveVoiceSection
         entry={byKey.get(LIVE_VOICE_SETTING_KEY)}
+        speechSpeedEntry={byKey.get(SPEECH_SPEED_SETTING_KEY)}
+        localSpeedEntry={byKey.get(TTS_LOCAL_SPEED_SETTING_KEY)}
         pendingKey={pendingKey}
         commit={commit}
       />

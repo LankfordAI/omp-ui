@@ -115,15 +115,18 @@ export const APPROVAL_SETTING_GROUP: OmpSettingGroup = {
 };
 
 /**
- * omp's Codex realtime voice timbre (#802). Allowlisted but NOT in
- * OMP_SETTING_GROUPS: the page's dedicated "Live voice" section renders the
- * generic enum select plus bundled sample playback (issue #813), so the
- * generic loop would show a duplicate row.
+ * omp's Codex realtime voice timbre (#802) and the two local-speech rates
+ * (omp 18.8.7, issue #836). Allowlisted but NOT in OMP_SETTING_GROUPS: the
+ * page's dedicated "Live voice" section renders the enum select, the sample
+ * playback (issue #813), and the speed rows, so the generic loop would show
+ * duplicate rows.
  */
 export const LIVE_VOICE_SETTING_KEY = "live.voice";
+export const SPEECH_SPEED_SETTING_KEY = "speech.speed";
+export const TTS_LOCAL_SPEED_SETTING_KEY = "tts.localSpeed";
 export const LIVE_VOICE_SETTING_GROUP: OmpSettingGroup = {
   title: "Live voice",
-  keys: [LIVE_VOICE_SETTING_KEY],
+  keys: [LIVE_VOICE_SETTING_KEY, SPEECH_SPEED_SETTING_KEY, TTS_LOCAL_SPEED_SETTING_KEY],
 };
 
 /** The shared-work guard for the bash tool (omp 18.8.7, issue #832). */
