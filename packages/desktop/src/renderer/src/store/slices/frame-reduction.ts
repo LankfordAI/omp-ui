@@ -8,6 +8,10 @@ import {
 import { parseAdvisorStats, ADVISOR_STATS_KEY } from "@omp-ui/core/advisor-stats";
 import { parseLimits, LIMITS_STATUS_KEY } from "@omp-ui/core/limits";
 import {
+  ASYNC_JOBS_STATUS_KEY,
+  parseAsyncJobsSnapshot,
+} from "@omp-ui/core/async-jobs";
+import {
   MCP_RUNTIME_STATUS_KEY,
   parseMcpRuntimeStatus,
 } from "@omp-ui/core/mcp-status";
@@ -83,6 +87,7 @@ import {
   reduceAgentEvent,
   type AgentEventEffect,
 } from "./reduce-agent-event";
+import { acceptAsyncJobsSnapshot } from "./async-jobs";
 import {
   acceptAutoresearchSnapshot,
   acceptCapabilitySnapshot,
@@ -193,6 +198,10 @@ export function createFrameReductionSlice(
     },
     [LIMITS_STATUS_KEY]: (tabId, text) => {
       m.patchRpc(tabId, { limits: parseLimits(text) });
+    },
+    [ASYNC_JOBS_STATUS_KEY]: (tabId, text) => {
+      const snapshot = parseAsyncJobsSnapshot(text);
+      if (snapshot !== null) acceptAsyncJobsSnapshot(tabId, snapshot, get, m);
     },
     [MCP_RUNTIME_STATUS_KEY]: (tabId, text) => {
       const mcpStatus = parseMcpRuntimeStatus(text);

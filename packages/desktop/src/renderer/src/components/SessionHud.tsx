@@ -15,7 +15,8 @@ import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
 import { projectKey } from "../lib/project-key";
-import type { ContextUsage, UsageLimit } from "../lib/rpc-types";
+import type { ContextUsage, SubagentInfo, UsageLimit } from "../lib/rpc-types";
+import { runningJobCount } from "../lib/async-jobs";
 import { findInstance, findOwner, findRecord, sessionCwd, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
 import { useDismissal } from "../lib/use-dismissal";
@@ -270,6 +271,34 @@ function VibeChip({
         {working && <Dot tone="copper" />}
         {t("hud.vibe.label")}
         <span className="opacity-70">{vibe.workers.length}</span>
+      </Chip>
+    </button>
+  );
+}
+/**
+ * Running background jobs (issue #835): the glanceable count only — the Jobs
+ * pane carries the list. Copper like every other live-work chip (ADR-0004).
+ */
+function JobsChip({ count, tabId, className }: { count: number; tabId: string; className?: string }) {
+  const t = useT();
+  const setInspectorOpen = useStore((s) => s.setInspectorOpen);
+  const focusRailPane = useStore((s) => s.focusRailPane);
+  const title = t("hud.jobs.running", { count });
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setInspectorOpen(true);
+        focusRailPane(tabId, "jobs");
+      }}
+      title={`${title}. ${t("hud.jobs.openTitle")}`}
+      aria-label={title}
+      className={cn("shrink-0 rounded border border-transparent", className)}
+    >
+      <Chip tone="copper" mono>
+        <Dot tone="copper" />
+        {t("hud.jobs.label")}
+        <span className="opacity-70">{count}</span>
       </Chip>
     </button>
   );
@@ -754,6 +783,7 @@ function AdvisorCluster({
 }
 
 const STEERING_MODES = ["one-at-a-time", "all-at-once"];
+const NO_SUBAGENTS: readonly SubagentInfo[] = [];
 // omp's interrupt enum is immediate|wait; "queue" is stored but behaves as
 // immediate (omp branches on `!== "wait"`), so never offer it (issue #81).
 const INTERRUPT_MODES = ["immediate", "wait"];
@@ -1021,6 +1051,10 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const vibe = useStore((s) => s.rpc[tabId]?.vibe);
   const autoresearch = useStore((s) => s.rpc[tabId]?.autoresearch);
   const limits = useStore((s) => s.rpc[tabId]?.limits);
+  const jobsCount = useStore((s) =>
+    runningJobCount(s.rpc[tabId]?.asyncJobs ?? null, s.rpc[tabId]?.subagents ?? NO_SUBAGENTS),
+  );
+  const refreshAsyncJobs = useStore((s) => s.refreshAsyncJobs);
   // The live session model (frame-owned since config_update): omp resolves
   // compaction.modelThresholds against provider/id, so the notch moves with a
   // model switch (issue #831). null before the first config_update → global path.
@@ -1138,6 +1172,10 @@ export function SessionHud({ tabId }: { tabId: string }) {
       className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
     />
   );
+  // The jobs chip rides the same row while any background job runs (#835).
+  const jobsChip = jobsCount > 0 && (
+    <JobsChip count={jobsCount} tabId={tabId} className={compact ? undefined : "shrink-0 [app-region:no-drag]"} />
+  );
   // The autoresearch chip sits beside it while omp's mode is on (ADR-0030).
   const autoresearchChip = autoresearch?.mode === "on" && (
     <AutoresearchChip
@@ -1188,6 +1226,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
     void refreshStats(tabId);
     if (status !== "running" && session?.isStreaming !== true) void refreshAdvisorStats(tabId);
     void refreshLimits(tabId);
+    void refreshAsyncJobs(tabId);
   };
 
   if (compact) {
@@ -1200,6 +1239,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {agentModeChip}
           {goalChip}
           {vibeChip}
+          {jobsChip}
           {autoresearchChip}
           {fastChip}
           {approvalChip}
@@ -1278,6 +1318,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {agentModeChip}
       {goalChip}
       {vibeChip}
+      {jobsChip}
       {autoresearchChip}
       {fastChip}
       {approvalChip}

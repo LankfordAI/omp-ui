@@ -39,6 +39,7 @@ import { createSessionParamsSlice } from "./store/slices/session-params";
 import { createSideQuestionsSlice } from "./store/slices/side-questions";
 import { createSettingsSlice } from "./store/slices/settings";
 import { createSubagentControlSlice } from "./store/slices/subagent-control";
+import { createAsyncJobsSlice } from "./store/slices/async-jobs";
 import {
   browserPaneWriters,
   createMachinery,
@@ -183,6 +184,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const collab = createCollabSlice(set, get);
   const sideQuestions = createSideQuestionsSlice(get, m);
   const subagentControl = createSubagentControlSlice(get, m);
+  const asyncJobs = createAsyncJobsSlice(get, m);
   const liveAudio = createLiveAudioSlice(get, set);
   /**
    * Repaints the document to match the registry's persisted themeId. The
@@ -400,6 +402,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...collab,
     ...sideQuestions,
     ...subagentControl,
+    ...asyncJobs,
     ...liveAudio,
     state: null,
     exited: {},

@@ -55,6 +55,7 @@ import type {
 } from "@omp-ui/core/browser-pane";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
+import type { AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
 import type { LimitsView } from "@omp-ui/core/limits";
 import type { McpRuntimeStatus } from "@omp-ui/core/mcp-status";
 import type {
@@ -326,6 +327,16 @@ export interface RpcTabState {
   autoresearch: AutoresearchSnapshot | null;
   /** Rate-window snapshot as the limits bridge published it (issue #673); null until first observed. */
   limits: LimitsView | null;
+  /**
+   * The session's omp background jobs as the async-jobs bridge published them
+   * (issue #835). Display state only — omp's async job manager owns the jobs;
+   * a malformed publish leaves the last good snapshot standing.
+   */
+  asyncJobs: AsyncJobsSnapshot | null;
+  /** The kill this client has in flight (one per tab); settled by the snapshot whose result carries its requestId. */
+  asyncJobsKill: { requestId: string; jobId: string | null } | null;
+  /** The last kill's failure — the bridge's sentence or the rpc error; cleared by the next kill. */
+  asyncJobsKillError: string | null;
   /**
    * The retry layer rotated a credential or waited on a rate window during
    * THIS turn (issue #673): set by auto_retry frames, cleared at the next
@@ -1330,6 +1341,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   refreshStats(tabId: string): Promise<void>;
   refreshAdvisorStats(tabId: string): Promise<void>;
   refreshLimits(tabId: string): Promise<void>;
+  /** Arms the async-jobs bridge and asks it to republish (issue #835); quiet. */
+  refreshAsyncJobs(tabId: string): Promise<void>;
+  /** Cancels one running background job, or every one when `job` is null (issue #835). */
+  killAsyncJob(tabId: string, job: { id: string; startTime: number } | null): Promise<void>;
   refreshSubagents(tabId: string): Promise<void>;
   openSubagent(tabId: string, key: string): void;
   closeSubagent(tabId: string): void;

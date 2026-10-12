@@ -123,6 +123,7 @@ export {
   writeAdvisorStatsExtension,
 } from "./advisor-stats-extension";
 export { limitsExtensionPath, writeLimitsExtension } from "./limits-extension";
+export { asyncJobsExtensionPath, writeAsyncJobsExtension } from "./async-jobs-extension";
 export { mcpStatusExtensionPath, writeMcpStatusExtension } from "./mcp-status-extension";
 export { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabilities-extension";
 export { vibeExtensionPath, writeVibeExtension } from "./vibe-extension";
@@ -151,6 +152,7 @@ export * from "./goal-overlay";
 export * from "./vibe";
 export * from "./collab";
 export * from "./autoresearch";
+export * from "./async-jobs";
 export * from "./session-tree";
 export * from "./side-questions";
 export {

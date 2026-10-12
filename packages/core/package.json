@@ -17,6 +17,7 @@
     "./advisor-stats": "./src/advisor-stats.ts",
     "./watchdog": "./src/watchdog.ts",
     "./review": "./src/review.ts",
+    "./async-jobs": "./src/async-jobs.ts",
     "./limits": "./src/limits.ts",
     "./mcp-status": "./src/mcp-status.ts",
     "./capabilities": "./src/capabilities.ts",

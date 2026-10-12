@@ -13,6 +13,7 @@ import { compactionMethodOverlayPath } from "./compaction-overlay";
 import { gitGuardOverlayPath } from "./git-guard-overlay";
 import { goalOverlayPath } from "./goal-overlay";
 import { worktreeOverlayPath } from "./worktree-overlay";
+import { asyncJobsExtensionPath } from "./async-jobs-extension";
 import { limitsExtensionPath } from "./limits-extension";
 import { mcpStatusExtensionPath } from "./mcp-status-extension";
 import { modelOverlayPath } from "./model-overlay";
@@ -100,13 +101,14 @@ const LOG_FILES = [
   "breadcrumbs.log.old",
 ] as const;
 
-/** The 13 generated per-session files (7 extensions + 6 overlays). */
+/** The 14 generated per-session files (8 extensions + 6 overlays). */
 const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   planExtensionPath,
   capabilitiesExtensionPath,
   advisorStatsExtensionPath,
   mcpStatusExtensionPath,
   limitsExtensionPath,
+  asyncJobsExtensionPath,
   browserPaneExtensionPath,
   treeExtensionPath,
   advisorOverlayPath,

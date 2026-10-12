@@ -14,11 +14,13 @@ import { diffCounts, parseBranchDiff, type DiffFile } from "../lib/omp-diff";
 import { projectKey } from "../lib/project-key";
 import { queueChipView } from "../lib/queue-chip";
 import type { SessionStats, SubagentInfo, TokenTotals } from "../lib/rpc-types";
+import { runningJobCount } from "../lib/async-jobs";
 import type { ProposedPlan, SessionSummary } from "@omp-ui/core/types";
 import type { VibeWorker, VibeWorkerState } from "@omp-ui/core/vibe";
 import { isInterruptedPlan, pendingPlanCount, proposedPlansFor } from "../lib/proposed-plans";
 import { findOwner, findRecord, sessionCwd, useStore, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
+import { JobsPane } from "./JobsPane";
 import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { AGENT_TONE } from "../lib/agent-tone";
 import { compactNum, exactNum, formatCost, relativeTime, shortBase } from "../lib/format";
@@ -85,6 +87,12 @@ function TabIcon({ tab }: { tab: RailTab }) {
           <path d="M1.9 13c0-2.1 1.6-3.5 3.5-3.5S8.9 10.9 8.9 13" {...ICON_STROKE} />
           <circle cx="11.6" cy="6.4" r="1.6" {...ICON_STROKE} />
           <path d="M9.9 12.6c0-1.7 1-2.7 2.3-2.7 1 0 1.9.6 2.2 1.7" {...ICON_STROKE} />
+        </>
+      )}
+      {tab === "jobs" && (
+        <>
+          <path d="M2.6 3.4h10.8a1 1 0 0 1 1 1v7.2a1 1 0 0 1-1 1H2.6a1 1 0 0 1-1-1V4.4a1 1 0 0 1 1-1z" {...ICON_STROKE} />
+          <path d="M4.4 6.4l1.8 1.6-1.8 1.6M7.8 9.8h3.4" {...ICON_STROKE} />
         </>
       )}
       {tab === "session" && (
@@ -1008,9 +1016,10 @@ function DiffsPane({ tabId }: { tabId: string }) {
 
 /* -------------------------------------------------------------- the rail */
 
-const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.session" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" }[] = [
+const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.jobs" | "rail.tabs.session" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" }[] = [
   { id: "todos", labelKey: "rail.tabs.todos" },
   { id: "agents", labelKey: "rail.tabs.agents" },
+  { id: "jobs", labelKey: "rail.tabs.jobs" },
   { id: "session", labelKey: "rail.tabs.session" },
   { id: "plans", labelKey: "rail.tabs.plans" },
   { id: "diffs", labelKey: "rail.tabs.diffs" },
@@ -1030,6 +1039,7 @@ export function inspectorBadges(
     agents: runtime?.subagents.length ?? 0,
     session: 0,
     plans: pendingPlanCount(record, runtime?.planReview?.request.planFilePath),
+    jobs: runningJobCount(runtime?.asyncJobs ?? null, runtime?.subagents ?? []),
     diffs: 0,
     // Answered topics: what the user can read back.
     btw: (runtime?.sideQuestions?.topics ?? []).filter((topic) => topic.status === "complete").length,
@@ -1116,6 +1126,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
         </>
       )}
       {tab === "session" && <SessionPane tabId={tabId} onJump={compact ? closeCompactSurface : undefined} />}
+      {tab === "jobs" && <JobsPane tabId={tabId} />}
       {tab === "plans" && <PlansPane tabId={tabId} />}
       {tab === "diffs" && <DiffsPane tabId={tabId} />}
       {tab === "btw" && <SideQuestionsPane tabId={tabId} />}
@@ -1125,7 +1136,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   if (compact) {
     return (
       <Sheet open={surface === "inspector"} placement="right" label={t("rail.chrome.inspector")} onClose={closeCompactSurface}>
-        <div className="sticky top-0 z-10 grid grid-cols-6 border-b border-line bg-sunken">
+        <div className="sticky top-0 z-10 grid grid-cols-7 border-b border-line bg-sunken">
           {TABS.map(({ id, labelKey }) => {
             const label = t(labelKey);
             return (
