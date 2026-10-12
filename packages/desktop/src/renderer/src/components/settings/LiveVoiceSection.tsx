@@ -3,7 +3,7 @@ import type { OmpSettingEntry, OmpSettingValue } from "@omp-ui/core/types";
 import { LIVE_VOICE_SETTING_GROUP } from "@omp-ui/core/omp-settings-keys";
 import { useT } from "../../lib/i18n";
 import { Label } from "../ui";
-import { Row, SettingControl, layerBadge } from "./rows";
+import { CommitField, Row, SettingControl, layerBadge } from "./rows";
 import arborSample from "../../assets/live-voice/arbor.mp3?url";
 import breezeSample from "../../assets/live-voice/breeze.mp3?url";
 import coveSample from "../../assets/live-voice/cove.mp3?url";
@@ -40,18 +40,25 @@ const previewAudio = new Audio();
 
 /**
  * The omp page's "Live voice" section (#802, #813): the generic enum row for
- * `live.voice` plus a play button per voice with a bundled sample, so a
- * picking user hears the timbre before committing it through `omp config
- * set`. Playback is local static audio only — no getUserMedia, no autoplay,
- * and omp-ui never touches the realtime API here (the #778 shape).
+ * `live.voice`, the two local-speech-rate rows (#836), plus a play button per
+ * voice with a bundled sample, so a picking user hears the timbre before
+ * committing it through `omp config set`. Playback is local static audio only
+ * — no getUserMedia, no autoplay, and omp-ui never touches the realtime API
+ * here (the #778 shape).
  */
 export function LiveVoiceSection({
   entry,
+  speechSpeedEntry,
+  localSpeedEntry,
   pendingKey,
   commit,
 }: {
   /** The live.voice snapshot entry; undefined when omp predates the key. */
   entry: OmpSettingEntry | undefined;
+  /** The speech.speed snapshot entry; undefined when omp predates the key. */
+  speechSpeedEntry?: OmpSettingEntry;
+  /** The tts.localSpeed snapshot entry; undefined when omp predates the key. */
+  localSpeedEntry?: OmpSettingEntry;
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
 }) {
@@ -99,6 +106,12 @@ export function LiveVoiceSection({
         >
           <SettingControl entry={entry} pendingKey={pendingKey} commit={commit} />
         </Row>
+        {speechSpeedEntry !== undefined && (
+          <SpeedRow entry={speechSpeedEntry} pendingKey={pendingKey} commit={commit} />
+        )}
+        {localSpeedEntry !== undefined && (
+          <SpeedRow entry={localSpeedEntry} pendingKey={pendingKey} commit={commit} />
+        )}
         {samples.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 py-2.5">
             {samples.map((voice) => (
@@ -126,5 +139,46 @@ export function LiveVoiceSection({
         )}
       </div>
     </section>
+  );
+}
+
+const SPEED_MIN = 0.5;
+const SPEED_MAX = 2.5;
+
+/**
+ * One local-speech-rate row (issue #836). omp clamps at synthesis time but
+ * stores whatever was written, so the draft is clamped here too and the
+ * config file keeps the value the user actually meant. Empty/non-finite
+ * reverts, mirroring SettingControl's number rule.
+ */
+function SpeedRow({
+  entry,
+  pendingKey,
+  commit,
+}: {
+  entry: OmpSettingEntry;
+  pendingKey: string | null;
+  commit: (key: string, value: OmpSettingValue) => void;
+}) {
+  const onCommit = (raw: string): void => {
+    const value = Number(raw);
+    if (raw.trim() === "" || !Number.isFinite(value)) return;
+    commit(entry.key, Math.min(SPEED_MAX, Math.max(SPEED_MIN, value)));
+  };
+  return (
+    <Row
+      title={entry.key}
+      hint={entry.description}
+      badge={layerBadge(entry.layer)}
+    >
+      <CommitField
+        current={entry.value === undefined ? "" : String(entry.value)}
+        kind="number"
+        label={entry.key}
+        disabled={pendingKey === entry.key}
+        className="w-24"
+        onCommit={onCommit}
+      />
+    </Row>
   );
 }

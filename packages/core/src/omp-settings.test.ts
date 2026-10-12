@@ -302,6 +302,28 @@ describe("readOmpSettings", () => {
     expect(snapshot.entries.some((e) => e.key === OMP_MAX_CONCURRENCY_KEY)).toBe(false);
   });
 
+  it("emits the allowlisted speech speed keys with omp's number schema (#836)", async () => {
+    const schema = entry(1, "number", "Speaking rate");
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
+        {
+          global: { "speech.speed": schema, "tts.localSpeed": schema },
+          pristine: { "speech.speed": schema, "tts.localSpeed": schema },
+        },
+        null,
+      ),
+    );
+    expect(snapshot.error).toBeNull();
+    for (const key of ["speech.speed", "tts.localSpeed"]) {
+      expect(snapshot.entries.find((e) => e.key === key)).toMatchObject({
+        type: "number",
+        options: null,
+        value: 1,
+      });
+    }
+  });
+
   it("emits the allowlisted telemetry.otlpExportEnabled boolean", async () => {
     const schema = entry(true, "boolean", "Allow OMP to export traces, logs, and metrics using OTEL_* endpoints.");
     const snapshot = await readOmpSettings(
@@ -684,6 +706,26 @@ describe("writeOmpSetting", () => {
       },
     );
     expect(seen).toEqual(["config", "set", "live.voice", "juniper", "--json"]);
+  });
+
+  it("allowlists the speech speed keys (issue #836)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "speech.speed", value: 1.5 },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "speech.speed", "1.5", "--json"]);
+    await writeOmpSetting(
+      { ompPath: OMP, key: "tts.localSpeed", value: 0.5 },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "tts.localSpeed", "0.5", "--json"]);
   });
 
   it("puts a negative number after `--` so omp's CLI does not read it as a flag (issue #105)", async () => {
