@@ -2719,6 +2719,30 @@ describe("ghost completion (issue #715)", () => {
     });
   });
 
+  // jsdom lays nothing out, so assert the mechanism instead: the ZWSP that
+  // keeps the ghost from fusing with the draft's last word at the wrap edge
+  // (issue #853) sits between the last run and the ghost span.
+  it("the ghost never fuses with the draft's last word", async () => {
+    const box = await showGhost();
+    const mirror = box.parentElement!.querySelector<HTMLElement>("[aria-hidden]")!;
+    const nodes = [...mirror.childNodes];
+    const ghost = nodes.indexOf(mirror.querySelector("[data-word-ghost]")!);
+    expect(ghost).toBeGreaterThan(0);
+    expect(nodes[ghost - 1].nodeType).toBe(Node.TEXT_NODE);
+    expect(nodes[ghost - 1].textContent).toBe("\u200b");
+  });
+
+  it("leaves no zero-width space in the mirror when no ghost paints", () => {
+    renderComposer();
+    const box = typeDraft(DRAFT);
+    const mirror = box.parentElement!.querySelector<HTMLElement>("[aria-hidden]")!;
+    expect(
+      [...mirror.childNodes].some(
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.includes("\u200b"),
+      ),
+    ).toBe(false);
+  });
+
   it("drops an answer for a draft that changed while it was in flight", async () => {
     renderComposer();
     typeDraft(DRAFT);

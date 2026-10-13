@@ -1034,12 +1034,21 @@ export function Composer({
                 </span>
               ))}
               {/* omp's ghost completion (issue #715): painted only here, after
-                  the last glyph, so it can never re-wrap text the textarea
-                  also lays out. */}
+                  the last glyph. Appending it directly would fuse it with the
+                  draft's last word (issue #853: "almo" + "st" lays out as
+                  "almost"), and break-words then moves the fused word — the
+                  user's glyphs included — to a mirror line the textarea never
+                  wraps to, drifting glyphs off the caret layer and clipping
+                  them. The U+200B is a break opportunity at zero width: the
+                  user's word never moves; only the ghost may wrap, and the
+                  mirror's overflow-hidden clips it. */}
               {wordGhost.ghost !== null && (
-                <span data-word-ghost className="text-ink-faint">
-                  {wordGhost.ghost.suffix}
-                </span>
+                <>
+                  {"\u200b"}
+                  <span data-word-ghost className="text-ink-faint">
+                    {wordGhost.ghost.suffix}
+                  </span>
+                </>
               )}
               {/* pre-wrap swallows a trailing newline; the textarea keeps its
                   empty last line, so the mirror needs one too. */}
