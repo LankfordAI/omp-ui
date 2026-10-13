@@ -11,6 +11,7 @@ import { cn } from "../lib/cn";
 import { copyFallback } from "../lib/clipboard";
 import { formatDuration } from "../lib/duration";
 import { formatCost, tokenCount } from "../lib/format";
+import { splitInterviewDraft } from "../lib/interview-draft";
 import { localeTag, useT } from "../lib/i18n";
 import { useTranscriptScale } from "../lib/text-scale";
 import type {
@@ -233,6 +234,9 @@ function UserBubble({
       tabId !== undefined &&
       (s.rpc[tabId]?.status === "running" || s.rpc[tabId]?.busy === true),
   );
+  // Display-only: a synthetic interview kickoff renders its draft as a
+  // captioned data block. item.text stays canonical for copy/find/rewind.
+  const draft = useMemo(() => splitInterviewDraft(item.text), [item.text]);
   const images = item.images ?? [];
   const viewerImages = useMemo(
     () =>
@@ -253,7 +257,21 @@ function UserBubble({
         className="group relative min-w-0 max-w-[72%] space-y-2 rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink has-[.md-plan]:w-full has-[.md-plan]:max-w-full"
         data-markdown-source={item.text !== "" ? item.text : undefined}
       >
-        {item.text !== "" && <Markdown text={item.text} />}
+        {draft === null ? (
+          item.text !== "" && <Markdown text={item.text} />
+        ) : (
+          <>
+            <Markdown text={draft.preamble} />
+            <div className="space-y-1">
+              <Label className="speaker-label speaker-label-right">
+                {t(draft.captionKey)}
+              </Label>
+              <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded border border-line-strong bg-sunken px-2 py-1.5 font-mono text-[0.9em]">
+                {draft.draft}
+              </pre>
+            </div>
+          </>
+        )}
         {fileMentions.length > 0 && (
           <div
             role="group"

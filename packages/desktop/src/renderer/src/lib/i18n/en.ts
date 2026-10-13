@@ -263,6 +263,8 @@ export const en = {
   "transcript.assistant.thinking": "thinking",
   "transcript.speaker.assistant": "assistant",
   "transcript.speaker.you": "you",
+  "transcript.user.objectiveDraft": "rough objective",
+  "transcript.user.roughDescription": "rough description",
   "transcript.mentions.label": "resolved file mentions",
   "transcript.document.label": "attached documents",
   "transcript.document.alt": "{name} — read at {path}",

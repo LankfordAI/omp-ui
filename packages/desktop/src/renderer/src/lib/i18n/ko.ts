@@ -239,6 +239,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.assistant.thinking": "생각 중",
   "transcript.speaker.assistant": "어시스턴트",
   "transcript.speaker.you": "나",
+  "transcript.user.objectiveDraft": "개요 초안",
+  "transcript.user.roughDescription": "개요 설명",
   "transcript.mentions.label": "확인된 파일 멘션",
   "transcript.document.label": "첨부된 문서",
   "transcript.document.alt": "{name} — {path}에서 읽기",

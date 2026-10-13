@@ -16,6 +16,7 @@ import { localeTag } from "../lib/i18n";
 import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 import { useStore } from "../store";
 import { TranscriptView, type FindState } from "./TranscriptView";
+import { guidedGoalPrompt } from "@omp-ui/core/goal";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -511,6 +512,42 @@ describe("UserBubble resolved file mentions", () => {
     expect(chips[1]!.textContent).toBe(`@${longPath}`);
     expect(chips[1]!.className).toContain("max-w-full");
     expect(chips[1]!.querySelector(".truncate")).not.toBeNull();
+    act(() => root.unmount());
+  });
+});
+
+describe("UserBubble interview draft block", () => {
+  function user(text: string): RenderItem {
+    return { kind: "user", id: "u1", text };
+  }
+  function bubbleOf(el: HTMLDivElement): HTMLElement {
+    const card = el.querySelector<HTMLDivElement>(".speaker-run > div.group");
+    if (!card) throw new Error("user bubble not found");
+    return card;
+  }
+
+  it("renders a guided-goal kickoff as boilerplate plus a captioned data block", () => {
+    const text = guidedGoalPrompt("speed up startup");
+    const { el, root } = render([user(text)]);
+    const bubble = bubbleOf(el);
+    const pre = bubble.querySelector("pre");
+    expect(pre).not.toBeNull();
+    expect(pre!.textContent).toBe("speed up startup");
+    // The raw tag lines never reach the rendered text.
+    expect(bubble.textContent).not.toContain("objective-draft");
+    expect(bubble.textContent).toContain("rough objective");
+    expect(bubble.textContent).toContain("Interview the user");
+    // Copy/find/rewind keep the canonical bytes.
+    expect(bubble.getAttribute("data-markdown-source")).toBe(text);
+    act(() => root.unmount());
+  });
+
+  it("renders an ordinary message through Markdown with no data block", () => {
+    const { el, root } = render([user("plain **question**?")]);
+    const bubble = bubbleOf(el);
+    expect(bubble.querySelector("pre")).toBeNull();
+    expect(bubble.querySelector(".md") ?? bubble.textContent).toBeTruthy();
+    expect(bubble.textContent).toContain("question");
     act(() => root.unmount());
   });
 });
