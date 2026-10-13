@@ -4,9 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Add a Settings audio-device picker that drives the OS default input and output devices (#855).
-- Stop the composer's word ghost from re-wrapping the draft's last word (#853).
-- Correct the Run as goal auto-continue caveat in the user guide (#854).
+Nothing since [v0.23.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.2). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
