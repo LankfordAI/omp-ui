@@ -88,7 +88,7 @@ export function goalWorkLive(state: GoalState | null): boolean {
 }
 
 /** What the guided-goal interview asks for, per omp-ui's guided-goal contract. */
-const GUIDED_INTERVIEW =
+export const GUIDED_INTERVIEW =
   "Interview the user to define one concrete objective, its constraints and " +
   "observable completion criteria. Ask for missing information before acting. " +
   "Once the user confirms the objective, create it with the goal tool and " +

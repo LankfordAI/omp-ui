@@ -158,7 +158,7 @@ Type `/goal` in the composer, or click the goal chip in the Session HUD:
 | `/goal pause` | Stops starting new turns; an in-progress turn may still finish. |
 | `/goal resume` | Continues a paused goal. |
 | `/goal drop` | Drops the goal immediately; a running turn finishes on its own. |
-| `/guided-goal [rough objective]` | Enables OMP's goal tool and asks the agent to shape the objective with you before it creates the goal. |
+| `/guided-goal [rough objective]` | Enables OMP's goal tool and asks the agent to shape the objective with you before it creates the goal. A rough objective you give appears in the session under a "rough objective" caption, quoted as a data block rather than raw tag markup. |
 
 The chip shows the goal's status with its token use, and dims when the goal is
 paused or budget-limited. Click it for the objective, usage, elapsed time, and
