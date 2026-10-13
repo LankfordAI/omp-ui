@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateState,
+  AudioDeviceRole,
   AudioDevicesSnapshot,
   ModelCatalogSnapshot,
   JudgeModelSnapshot,
@@ -172,11 +173,12 @@ const backendMock = {
   readSttModels: vi.fn(async () => ({ models: [], discovered: true, error: null })),
   readAudioDevices: vi.fn(async (): Promise<AudioDevicesSnapshot> => ({
     devices: [],
-    current: null,
+    currentInput: null,
+    currentOutput: null,
     supported: false,
     error: "device selection is not yet supported on this platform",
   })),
-  setAudioDevice: vi.fn(async () => {}),
+  setAudioDevice: vi.fn(async (_role: AudioDeviceRole, _id: string | null) => {}),
   readJudgeModels: vi.fn(async (): Promise<JudgeModelSnapshot> => ({
     models: [],
     discovered: true,
@@ -2761,88 +2763,146 @@ describe("Settings omp Tool approval section (issue #681)", () => {
   });
 });
 
-describe("Settings General audio device row (issue #855)", () => {
-  const seedGeneral = (audioDevice: string | null): void => {
+describe("Settings General audio device row (issue #857)", () => {
+  const seedGeneral = (audioInputDevice: string | null, audioOutputDevice: string | null): void => {
     useStore.setState({
       settingsPage: "general",
-      state: backendState({ audioDevice }),
+      state: backendState({ audioInputDevice, audioOutputDevice }),
       tabs: [],
       activeTabId: null,
       appUpdate: appUpdateState({}),
       ompUpdate: idleOmpUpdate,
     });
   };
-  const audioButtons = (): HTMLButtonElement[] => [
-    ...document.body.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Audio device"] button'),
+  const group = (label: string): HTMLButtonElement[] => [
+    ...document.body.querySelectorAll<HTMLButtonElement>(`[role="group"][aria-label="${label}"] button`),
   ];
-  const pressedLabel = (): string | null =>
-    audioButtons().find((button) => button.getAttribute("aria-pressed") === "true")?.textContent ?? null;
+  const pressedIn = (label: string): string | null =>
+    group(label).find((button) => button.getAttribute("aria-pressed") === "true")?.textContent ?? null;
+  const audioSnapshot = (overrides: Partial<AudioDevicesSnapshot> = {}): AudioDevicesSnapshot => ({
+    devices: [
+      { id: "AT2020 USB", isDefaultInput: true, isDefaultOutput: false, hasInput: true, hasOutput: false },
+      { id: "Schiit Unison Universal Dac", isDefaultInput: false, isDefaultOutput: true, hasInput: false, hasOutput: true },
+    ],
+    currentInput: null,
+    currentOutput: null,
+    supported: true,
+    error: null,
+    ...overrides,
+  });
 
-  it("lists the enumerated devices with the default chip and persists a pick", async () => {
+  it("splits the devices into capability-correct Input and Output lists with per-role chips", async () => {
     platform.electron = true;
-    backendMock.readAudioDevices.mockResolvedValue({
-      devices: [
-        { id: "AT2020 USB", isDefault: true, hasInput: true, hasOutput: false },
-        { id: "Schiit Unison Universal Dac", isDefault: false, hasInput: false, hasOutput: true },
-      ],
-      current: "AT2020 USB",
-      supported: true,
-      error: null,
-    });
-    seedGeneral("AT2020 USB");
+    backendMock.readAudioDevices.mockResolvedValue(audioSnapshot());
+    seedGeneral("AT2020 USB", null);
     await renderSettings();
-    const labels = audioButtons().map((button) => button.textContent);
-    expect(labels.some((label) => label?.startsWith("System default"))).toBe(true);
-    expect(labels.some((label) => label === "AT2020 USB (input)Default")).toBe(true);
-    expect(labels.some((label) => label === "Schiit Unison Universal Dac (output)")).toBe(true);
-    expect(pressedLabel()).toContain("AT2020 USB");
 
-    const dac = audioButtons().find((button) => button.textContent === "Schiit Unison Universal Dac (output)")!;
+    // The mic lives only in the Input list; the DAC only in the Output list.
+    expect(group("Input").some((b) => b.textContent?.startsWith("AT2020 USB"))).toBe(true);
+    expect(group("Input").some((b) => b.textContent?.includes("Schiit"))).toBe(false);
+    expect(group("Output").some((b) => b.textContent?.startsWith("Schiit Unison Universal Dac"))).toBe(true);
+    expect(group("Output").some((b) => b.textContent?.includes("AT2020"))).toBe(false);
+
+    // Each list carries its own System default row.
+    expect(group("Input")[0]!.textContent).toBe("System default");
+    expect(group("Output")[0]!.textContent).toBe("System default");
+
+    // Per-role DEFAULT chips: mic in Input, DAC in Output.
+    expect(group("Input").find((b) => b.textContent?.startsWith("AT2020 USB"))!.textContent).toBe(
+      "AT2020 USBDefault",
+    );
+    expect(group("Output").find((b) => b.textContent?.startsWith("Schiit"))!.textContent).toBe(
+      "Schiit Unison Universal DacDefault",
+    );
+
+    // Pressed state presses per role against its own stored value.
+    expect(pressedIn("Input")).toContain("AT2020 USB");
+    expect(pressedIn("Output")).toBe("System default");
+  });
+
+  it("clicking the DAC in the Output list commits the output role only", async () => {
+    platform.electron = true;
+    backendMock.readAudioDevices.mockResolvedValue(audioSnapshot({ currentInput: "AT2020 USB" }));
+    seedGeneral("AT2020 USB", null);
+    await renderSettings();
+    const dac = group("Output").find((b) => b.textContent?.startsWith("Schiit"))!;
     click(dac);
-    expect(backendMock.setAudioDevice).toHaveBeenCalledWith("Schiit Unison Universal Dac");
+    expect(backendMock.setAudioDevice).toHaveBeenCalledWith("output", "Schiit Unison Universal Dac");
+    // The input list's selection is untouched — no input-role call.
+    expect(backendMock.setAudioDevice.mock.calls.every(([role]) => role !== "input")).toBe(true);
+    expect(pressedIn("Input")).toContain("AT2020 USB");
   });
 
-  it("selecting System default clears the stored device", async () => {
+  it("a dual-role card appears in both lists with independent pressed rows", async () => {
     platform.electron = true;
-    backendMock.readAudioDevices.mockResolvedValue({
-      devices: [{ id: "AT2020 USB", isDefault: false, hasInput: true, hasOutput: false }],
-      current: "AT2020 USB",
-      supported: true,
-      error: null,
-    });
-    seedGeneral("AT2020 USB");
+    backendMock.readAudioDevices.mockResolvedValue(
+      audioSnapshot({
+        devices: [
+          { id: "Ryzen HD Audio Controller", isDefaultInput: true, isDefaultOutput: true, hasInput: true, hasOutput: true },
+        ],
+        currentInput: "Ryzen HD Audio Controller",
+        currentOutput: null,
+      }),
+    );
+    seedGeneral("Ryzen HD Audio Controller", null);
     await renderSettings();
-    const system = audioButtons().find((button) => button.textContent === "System default")!;
-    click(system);
-    expect(backendMock.setAudioDevice).toHaveBeenCalledWith(null);
+    expect(pressedIn("Input")).toBe("Ryzen HD Audio ControllerDefault");
+    expect(pressedIn("Output")).toBe("System default");
+    const outRow = group("Output").find((b) => b.textContent?.startsWith("Ryzen HD Audio Controller"))!;
+    expect(outRow.getAttribute("aria-pressed")).toBe("false");
+    click(outRow);
+    expect(backendMock.setAudioDevice).toHaveBeenCalledWith("output", "Ryzen HD Audio Controller");
   });
 
-  it("shows a stored device the live list lost as not connected", async () => {
+  it("each list's System default clears only its role", async () => {
     platform.electron = true;
-    backendMock.readAudioDevices.mockResolvedValue({
-      devices: [{ id: "USB DAC", isDefault: true, hasInput: false, hasOutput: true }],
-      current: "AT2020 USB",
-      supported: true,
-      error: null,
-    });
-    seedGeneral("AT2020 USB");
+    backendMock.readAudioDevices.mockResolvedValue(
+      audioSnapshot({
+        devices: [{ id: "AT2020 USB", isDefaultInput: false, isDefaultOutput: false, hasInput: true, hasOutput: false }],
+        currentInput: "AT2020 USB",
+        currentOutput: "AT2020 USB",
+      }),
+    );
+    seedGeneral("AT2020 USB", "AT2020 USB");
     await renderSettings();
-    expect(pressedLabel()).toBe("AT2020 USB (not connected)");
+    click(group("Output")[0]!);
+    expect(backendMock.setAudioDevice).toHaveBeenCalledWith("output", null);
+    expect(backendMock.setAudioDevice.mock.calls.every(([role]) => role === "output")).toBe(true);
   });
 
-  it("the unsupported snapshot collapses to a disabled System default with the platform hint", async () => {
+  it("shows a stored role value the live list lost for that role as not connected", async () => {
+    platform.electron = true;
+    backendMock.readAudioDevices.mockResolvedValue(
+      audioSnapshot({
+        devices: [{ id: "USB DAC", isDefaultInput: false, isDefaultOutput: true, hasInput: false, hasOutput: true }],
+        currentInput: "AT2020 USB",
+        currentOutput: "USB DAC",
+      }),
+    );
+    seedGeneral("AT2020 USB", "USB DAC");
+    await renderSettings();
+    // The legacy output-only seed shows in the Input list as not connected;
+    // the DAC exists for output, so the Output list shows it live.
+    expect(pressedIn("Input")).toBe("AT2020 USB (not connected)");
+    expect(pressedIn("Output")).toBe("USB DACDefault");
+  });
+
+  it("the unsupported snapshot collapses to two disabled System defaults with the platform hint", async () => {
     platform.electron = true;
     backendMock.readAudioDevices.mockResolvedValue({
       devices: [],
-      current: null,
+      currentInput: null,
+      currentOutput: null,
       supported: false,
       error: "device selection is not yet supported on this platform",
     });
-    seedGeneral(null);
+    seedGeneral(null, null);
     await renderSettings();
-    expect(audioButtons()).toHaveLength(1);
-    expect(audioButtons()[0]!.disabled).toBe(true);
-    expect(audioButtons()[0]!.textContent).toBe("System default");
+    for (const label of ["Input", "Output"]) {
+      expect(group(label)).toHaveLength(1);
+      expect(group(label)[0]!.disabled).toBe(true);
+      expect(group(label)[0]!.textContent).toBe("System default");
+    }
     expect(document.body.textContent).toContain(
       "Device selection isn’t supported on this platform yet",
     );
@@ -2850,7 +2910,7 @@ describe("Settings General audio device row (issue #855)", () => {
 
   it("a remote web client never sees the row", async () => {
     platform.electron = false;
-    seedGeneral(null);
+    seedGeneral(null, null);
     await renderSettings();
     expect(document.body.textContent).not.toContain("Audio device");
     expect(backendMock.readAudioDevices).not.toHaveBeenCalled();

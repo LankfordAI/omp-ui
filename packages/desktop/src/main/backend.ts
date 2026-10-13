@@ -445,14 +445,18 @@ export class MainBackend {
         .filter((s) => s.worktree)
         .map((s) => path.resolve(s.worktree!.path)),
     );
-    // The audio device choice is persisted intent (issue #855): another app
-    // may have moved the OS default since the last run, so every start
-    // re-asserts the stored device. Best-effort — an unplugged or gone device
-    // logs and leaves the OS default; never a dialog, never a failed launch.
-    const storedAudioDevice = this.registry.getSetting("audioDevice");
-    if (storedAudioDevice !== null) {
-      void applyAudioDevice(execPactlRunner(), storedAudioDevice).catch((err: unknown) => {
-        console.warn("[backend] audio device re-apply failed:", err);
+    // The audio device choices are persisted intent per role (issue #857):
+    // another app may have moved the OS default since the last run, so every
+    // start re-asserts each stored device. Best-effort — an unplugged or
+    // gone device logs and leaves the OS default; never a dialog, never a
+    // failed launch.
+    for (const role of ["input", "output"] as const) {
+      const stored = this.registry.getSetting(
+        role === "input" ? "audioInputDevice" : "audioOutputDevice",
+      );
+      if (stored === null) continue;
+      void applyAudioDevice(execPactlRunner(), stored, role).catch((err: unknown) => {
+        console.warn(`[backend] audio ${role} device re-apply failed:`, err);
       });
     }
     void sweepOrphanWorktrees(this.worktreesRoot, referencedWorktrees)
@@ -1616,7 +1620,8 @@ export class MainBackend {
       liveWorkParking: this.registry.getSetting("liveWorkParking"),
       liveProgressReportMinutes: this.registry.getSetting("liveProgressReportMinutes"),
       sttModel: this.registry.getSetting("sttModel"),
-      audioDevice: this.registry.getSetting("audioDevice"),
+      audioInputDevice: this.registry.getSetting("audioInputDevice"),
+      audioOutputDevice: this.registry.getSetting("audioOutputDevice"),
       glassChrome: this.registry.getSetting("glassChrome"),
       localeId: this.registry.getSetting("localeId"),
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),

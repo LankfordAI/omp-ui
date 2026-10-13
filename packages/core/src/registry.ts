@@ -71,8 +71,10 @@ export interface RegistrySettings {
   liveProgressReportMinutes: number | null;
   /** omp STT selector used app-wide; null = pick the preferred callable model. */
   sttModel: string | null;
-  /** App-wide audio device choice: pactl card device.description; null = OS default (issue #855). */
-  audioDevice: string | null;
+  /** Input-side audio device choice: pactl card device.description; null = OS default (issue #857). */
+  audioInputDevice: string | null;
+  /** Output-side audio device choice: pactl card device.description; null = OS default (issue #857). */
+  audioOutputDevice: string | null;
   /** One-time migration marker (#274): the sessions array order is explicit; load never re-sorts it. */
   sessionOrderFrozen: boolean;
   /** One-time seed marker (issue #570): memory defaults were applied to omp's global layer once. */
@@ -269,7 +271,12 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is string | null =>
       value === null || (typeof value === "string" && value.length > 0),
   ),
-  audioDevice: validatedSetting<string | null>(
+  audioInputDevice: validatedSetting<string | null>(
+    () => null,
+    (value): value is string | null =>
+      value === null || (typeof value === "string" && value.length > 0),
+  ),
+  audioOutputDevice: validatedSetting<string | null>(
     () => null,
     (value): value is string | null =>
       value === null || (typeof value === "string" && value.length > 0),
@@ -398,7 +405,19 @@ function buildSettings(
 
 function parseSettings(raw: object | undefined): RegistrySettings {
   const values = raw as Record<string, unknown> | undefined;
-  return buildSettings((key) => SETTINGS[key].parse(values?.[key]));
+  const settings = buildSettings((key) => SETTINGS[key].parse(values?.[key]));
+  // One-time migration (issue #857): the single legacy `audioDevice` label
+  // seeds both roles. Seeding both is deliberate — a label whose role has no
+  // nodes applies as a no-op, so a legacy mic pick never hijacks the
+  // speakers and vice versa; the mismatched list shows it as "(not
+  // connected)" until the user re-picks there. Once either role key is
+  // present on disk, the legacy key is ignored.
+  const legacy = values?.["audioDevice"];
+  if (typeof legacy === "string" && legacy.length > 0) {
+    if (!("audioInputDevice" in (values ?? {}))) settings.audioInputDevice = legacy;
+    if (!("audioOutputDevice" in (values ?? {}))) settings.audioOutputDevice = legacy;
+  }
+  return settings;
 }
 
 function emptyRegistry(): RegistryData {

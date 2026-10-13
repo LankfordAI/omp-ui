@@ -251,12 +251,13 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
-    async setAudioDevice(id) {
+    async setAudioDevice(role, id) {
       // No optimistic patch: the picker's truth is the snapshot's devices +
-      // current, and a failed OS-default apply must leave the stored choice
-      // visible with the toast saying it did not take effect (issue #855).
+      // stored role values, and a failed OS-default apply must leave the
+      // stored choice visible with the toast saying it did not take effect
+      // (issue #857).
       try {
-        await backend.setAudioDevice(id);
+        await backend.setAudioDevice(role, id);
       } catch (err) {
         get().reportError(err);
       }

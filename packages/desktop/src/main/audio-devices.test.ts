@@ -48,30 +48,32 @@ describe("readAudioDevices", () => {
   it("groups nodes by device.description and drops monitors and loopback", async () => {
     const { runner } = fixtureRunner(STANDARD);
     expect(await readAudioDevices(runner)).toEqual([
-      { id: "AT2020 USB", isDefault: true, hasInput: true, hasOutput: false },
-      { id: "USB DAC", isDefault: true, hasInput: false, hasOutput: true },
+      { id: "AT2020 USB", isDefaultInput: true, isDefaultOutput: false, hasInput: true, hasOutput: false },
+      { id: "USB DAC", isDefaultInput: false, isDefaultOutput: true, hasInput: false, hasOutput: true },
     ]);
   });
 
-  it("resolves the default marker through sink nodes too", async () => {
-    // The source query naming a sink node (a half-moved default) still marks
-    // the owning card; the card the stored source used is no longer default.
+  it("marks the output default through sink nodes without touching the input flag", async () => {
+    // The sink query names the DAC's sink; the source query still names the
+    // mic. Each role's chip tracks only its own default.
     const { runner } = fixtureRunner({
       ...STANDARD,
-      "get-default-source": "alsa_output.usb-dac.analog-stereo\n",
+      "get-default-sink": "alsa_output.usb-dac.analog-stereo\n",
     });
     const devices = await readAudioDevices(runner);
-    expect(devices.find((d) => d.id === "USB DAC")!.isDefault).toBe(true);
-    expect(devices.find((d) => d.id === "AT2020 USB")!.isDefault).toBe(false);
+    expect(devices.find((d) => d.id === "USB DAC")!.isDefaultOutput).toBe(true);
+    expect(devices.find((d) => d.id === "USB DAC")!.isDefaultInput).toBe(false);
+    expect(devices.find((d) => d.id === "AT2020 USB")!.isDefaultInput).toBe(true);
   });
 
-  it("marks nothing when the default resolves to no known label", async () => {
+  it("marks nothing when both defaults resolve to no known label", async () => {
     const { runner } = fixtureRunner({
       ...STANDARD,
       "get-default-source": "N/A\n",
       "get-default-sink": "\n",
     });
-    expect((await readAudioDevices(runner)).every((d) => !d.isDefault)).toBe(true);
+    const devices = await readAudioDevices(runner);
+    expect(devices.every((d) => !d.isDefaultInput && !d.isDefaultOutput)).toBe(true);
   });
 
   it("sorts entries by id and survives a get-default failure", async () => {
@@ -80,7 +82,8 @@ describe("readAudioDevices", () => {
     });
     const devices = await readAudioDevices(runner);
     expect(devices.map((d) => d.id)).toEqual(["AT2020 USB", "USB DAC"]);
-    expect(devices.find((d) => d.id === "USB DAC")!.isDefault).toBe(true);
+    expect(devices.find((d) => d.id === "USB DAC")!.isDefaultOutput).toBe(true);
+    expect(devices.find((d) => d.id === "AT2020 USB")!.isDefaultInput).toBe(false);
     expect(calls.some((args) => args[0] === "get-default-source")).toBe(true);
   });
 
@@ -104,35 +107,48 @@ describe("readAudioDevices", () => {
 });
 
 describe("applyAudioDevice", () => {
-  it("sets the default source and sink for every node carrying the label", async () => {
+  it("the output role sets only sinks for every node carrying the label", async () => {
     const { runner, calls } = fixtureRunner(STANDARD);
-    await applyAudioDevice(runner, "USB DAC");
+    await applyAudioDevice(runner, "USB DAC", "output");
     expect(calls).toEqual([
       ["--format=json", "list", "sources"],
       ["--format=json", "list", "sinks"],
       ["set-default-sink", "alsa_output.usb-dac.analog-stereo"],
     ]);
+    expect(calls.some((args) => args[0] === "set-default-source")).toBe(false);
   });
 
-  it("flips only the source for an input-only device", async () => {
+  it("the input role sets only sources and never issues set-default-sink", async () => {
     const { runner, calls } = fixtureRunner(STANDARD);
-    await applyAudioDevice(runner, "AT2020 USB");
+    await applyAudioDevice(runner, "AT2020 USB", "input");
     expect(calls.filter((args) => args[0] === "set-default-source")).toEqual([
       ["set-default-source", "alsa_input.usb-at2020.analog-stereo"],
     ]);
     expect(calls.some((args) => args[0] === "set-default-sink")).toBe(false);
   });
 
+  it("the input role against an output-only label warns and sets nothing", async () => {
+    // The legacy cross-role seed case: a stored mic value naming the DAC
+    // must never touch the sink.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { runner, calls } = fixtureRunner(STANDARD);
+    await applyAudioDevice(runner, "USB DAC", "input");
+    expect(calls.filter((args) => args[0].startsWith("set-default"))).toEqual([]);
+    expect(warn.mock.calls.length).toBe(1);
+    warn.mockRestore();
+  });
+
   it("null means the system default: no commands at all", async () => {
     const { runner, calls } = fixtureRunner(STANDARD);
-    await applyAudioDevice(runner, null);
+    await applyAudioDevice(runner, null, "input");
+    await applyAudioDevice(runner, null, "output");
     expect(calls).toEqual([]);
   });
 
   it("an unknown id changes nothing", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { runner, calls } = fixtureRunner(STANDARD);
-    await applyAudioDevice(runner, "Plugged-Out Mic");
+    await applyAudioDevice(runner, "Plugged-Out Mic", "input");
     expect(calls.filter((args) => args[0].startsWith("set-default"))).toEqual([]);
     expect(warn.mock.calls.length).toBe(1);
     warn.mockRestore();
@@ -142,7 +158,7 @@ describe("applyAudioDevice", () => {
     const { runner } = fixtureRunner(STANDARD, {
       fail: (args) => (args[0].startsWith("set-default") ? "refused" : undefined),
     });
-    await expect(applyAudioDevice(runner, "USB DAC")).rejects.toThrow(/USB DAC/);
+    await expect(applyAudioDevice(runner, "USB DAC", "output")).rejects.toThrow(/USB DAC/);
   });
 
   it("a partial failure warns and resolves — the default moved", async () => {
@@ -159,22 +175,25 @@ describe("applyAudioDevice", () => {
       },
       { fail: (args) => (args[1] === "alsa_input.b" ? "refused" : undefined) },
     );
-    await expect(applyAudioDevice(runner, "Both")).resolves.toBeUndefined();
+    await expect(applyAudioDevice(runner, "Both", "input")).resolves.toBeUndefined();
     expect(warn.mock.calls.length).toBeGreaterThan(0);
     warn.mockRestore();
   });
 
-  it("two nodes sharing a label both get set, sources before sinks", async () => {
+  it("two same-role nodes sharing a label both get set", async () => {
     const { runner, calls } = fixtureRunner({
-      "--format=json list sources": JSON.stringify([node("alsa_input.a", "Twin")]),
-      "--format=json list sinks": JSON.stringify([node("alsa_output.b", "Twin")]),
+      "--format=json list sources": JSON.stringify([
+        node("alsa_input.a", "Twin"),
+        node("alsa_input.b", "Twin"),
+      ]),
+      "--format=json list sinks": JSON.stringify([node("alsa_output.c", "Twin")]),
       "get-default-source": "\n",
       "get-default-sink": "\n",
     });
-    await applyAudioDevice(runner, "Twin");
+    await applyAudioDevice(runner, "Twin", "input");
     expect(calls.filter((args) => args[0].startsWith("set-default"))).toEqual([
       ["set-default-source", "alsa_input.a"],
-      ["set-default-sink", "alsa_output.b"],
+      ["set-default-source", "alsa_input.b"],
     ]);
   });
 });

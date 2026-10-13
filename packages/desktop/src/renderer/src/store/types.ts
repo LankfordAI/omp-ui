@@ -4,6 +4,7 @@ import type { ProjectSettingsSectionId } from "../components/ProjectSettings";
 import type {
   AgentMode,
   ApprovalMode,
+  AudioDeviceRole,
   AudioDevicesSnapshot,
   ServiceTier,
   AdvisorDefaults,
@@ -535,8 +536,8 @@ export interface SettingsSlice {
   setLiveProgressReportMinutes(minutes: number | null): Promise<void>;
   /** The app-wide dictation model; null auto-resolves at call time. */
   setSttModel(model: string | null): Promise<void>;
-  /** The app-wide audio device (issue #855); null = OS default. */
-  setAudioDevice(id: string | null): Promise<void>;
+  /** One role's app-wide audio device (issue #857); null = OS default. */
+  setAudioDevice(role: AudioDeviceRole, id: string | null): Promise<void>;
   setThemeId(id: string): Promise<void>;
   setFontFamilyId(id: string): Promise<void>;
   setTranscriptWidth(width: TranscriptWidth): Promise<void>;

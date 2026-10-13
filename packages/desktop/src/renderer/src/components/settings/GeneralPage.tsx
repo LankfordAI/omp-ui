@@ -401,7 +401,13 @@ export function GeneralPage() {
       (err: unknown) =>
         setAudioDevices({
           status: "loaded",
-          snapshot: { devices: [], current: null, supported: false, error: displayMessage(err) },
+          snapshot: {
+            devices: [],
+            currentInput: null,
+            currentOutput: null,
+            supported: false,
+            error: displayMessage(err),
+          },
         }),
     );
   }, [readAudioDevices]);
@@ -572,9 +578,10 @@ export function GeneralPage() {
           stacked
         >
           <AudioDevicePicker
-            value={state?.audioDevice ?? null}
+            valueInput={state?.audioInputDevice ?? null}
+            valueOutput={state?.audioOutputDevice ?? null}
             load={audioDevices}
-            onSelect={(id) => void setAudioDevice(id)}
+            onSelect={(role, id) => void setAudioDevice(role, id)}
           />
         </Row>
       )}

@@ -40,7 +40,7 @@ function handlers(run: (args: string[]) => string) {
 }
 
 describe("audio:setDevice handler", () => {
-  it("commits the registry, broadcasts, then applies the OS default", async () => {
+  it("commits the registry, broadcasts, then applies the OS default per role", async () => {
     const order: string[] = [];
     const h = registerAudioHandlers({
       registry,
@@ -54,13 +54,14 @@ describe("audio:setDevice handler", () => {
       platform: "linux",
     });
     const set = registry.setSetting.bind(registry);
-    registry.setSetting = ((key: "audioDevice", value: string | null) => {
+    registry.setSetting = ((key: "audioInputDevice" | "audioOutputDevice", value: string | null) => {
       order.push("commit");
       return set(key, value);
     }) as typeof registry.setSetting;
-    await h[CH.setAudioDevice]("AT2020 USB");
+    await h[CH.setAudioDevice]("input", "AT2020 USB");
     expect(order).toEqual(["commit", "broadcast", "apply"]);
-    expect(registry.getSetting("audioDevice")).toBe("AT2020 USB");
+    expect(registry.getSetting("audioInputDevice")).toBe("AT2020 USB");
+    expect(registry.getSetting("audioOutputDevice")).toBeNull();
   });
 
   it("keeps the persisted choice when the apply fails", async () => {
@@ -68,8 +69,8 @@ describe("audio:setDevice handler", () => {
       if (args[0] === "set-default-source") throw new Error("refused");
       return args[0] === "--format=json" && args[2] === "sources" ? SOURCES : "[]";
     });
-    await expect(h[CH.setAudioDevice]("AT2020 USB")).rejects.toThrow("refused");
-    expect(registry.getSetting("audioDevice")).toBe("AT2020 USB");
+    await expect(h[CH.setAudioDevice]("input", "AT2020 USB")).rejects.toThrow("refused");
+    expect(registry.getSetting("audioInputDevice")).toBe("AT2020 USB");
   });
 
   it("null commits and applies nothing", async () => {
@@ -78,15 +79,16 @@ describe("audio:setDevice handler", () => {
       calls.push(args);
       return "[]";
     });
-    await h[CH.setAudioDevice](null);
-    expect(registry.getSetting("audioDevice")).toBeNull();
+    await h[CH.setAudioDevice]("output", null);
+    expect(registry.getSetting("audioOutputDevice")).toBeNull();
     expect(calls).toEqual([]);
   });
 });
 
 describe("audio:readDevices handler", () => {
-  it("returns the enumerated devices with the stored current", async () => {
-    registry.setSetting("audioDevice", "AT2020 USB");
+  it("returns the enumerated devices with both stored currents", async () => {
+    registry.setSetting("audioInputDevice", "AT2020 USB");
+    registry.setSetting("audioOutputDevice", "USB DAC");
     const { h } = handlers((args) =>
       args[0] === "--format=json" && args[2] === "sources"
         ? SOURCES
@@ -95,8 +97,11 @@ describe("audio:readDevices handler", () => {
           : "[]",
     );
     expect(await h[CH.readAudioDevices]()).toEqual({
-      devices: [{ id: "AT2020 USB", isDefault: true, hasInput: true, hasOutput: false }],
-      current: "AT2020 USB",
+      devices: [
+        { id: "AT2020 USB", isDefaultInput: true, isDefaultOutput: false, hasInput: true, hasOutput: false },
+      ],
+      currentInput: "AT2020 USB",
+      currentOutput: "USB DAC",
       supported: true,
       error: null,
     });
@@ -108,7 +113,8 @@ describe("audio:readDevices handler", () => {
     });
     expect(await h[CH.readAudioDevices]()).toEqual({
       devices: [],
-      current: null,
+      currentInput: null,
+      currentOutput: null,
       supported: false,
       error: "spawn pactl ENOENT",
     });
@@ -118,7 +124,8 @@ describe("audio:readDevices handler", () => {
     const h = registerAudioHandlers({ registry, broadcast: async () => {}, platform: "darwin" });
     expect(await h[CH.readAudioDevices]()).toEqual({
       devices: [],
-      current: null,
+      currentInput: null,
+      currentOutput: null,
       supported: false,
       error: "device selection is not yet supported on this platform",
     });
