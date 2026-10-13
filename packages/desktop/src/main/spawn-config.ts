@@ -33,6 +33,8 @@ import {
   writeReviewRosterSnapshot,
   writeTreeExtension,
   writeSubagentModelOverlay,
+  writePrivateGuardExtension,
+  writePrivateOverlay,
   writeVaultOverlay,
   writeWorktreeOverlay,
 } from "@omp-ui/core";
@@ -136,6 +138,15 @@ export function writeSessionOverlays(
   } catch (err) {
     console.warn("[git-guard] could not write the overlay:", err);
   }
+  // A private session (issue #852) boots write-quiet against the memory
+  // system: the overlay closes the two config-gated passive channels, and
+  // never names the recall switches. Derived from the record every launch.
+  try {
+    const overlay = writePrivateOverlay(absLineageDir, record.private);
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[private] could not write the overlay:", err);
+  }
   return overlays;
 }
 
@@ -218,6 +229,7 @@ export const RPC_BRIDGE_IDS = [
   "tree",
   "review",
   "knowledgeVault",
+  "privateGuard",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
 export type RpcBridgeWriters = Record<RpcBridgeId, (lineageDir: string) => string>;
@@ -235,6 +247,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   tree: writeTreeExtension,
   review: writeReviewExtension,
   knowledgeVault: writeKnowledgeVaultExtension,
+  privateGuard: writePrivateGuardExtension,
 };
 
 const RPC_BRIDGES: ReadonlyArray<{
@@ -255,6 +268,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "tree", logId: "tree", warning: "tree", enabled: () => true },
   { id: "review", logId: "review", warning: "code-review", enabled: (enabled) => enabled },
   { id: "knowledgeVault", logId: "vault", warning: "knowledge-vault", enabled: () => true },
+  { id: "privateGuard", logId: "private", warning: "private-guard", enabled: () => true },
 ];
 export interface RpcExtensionWriteResult {
   paths: string[];

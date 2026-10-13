@@ -68,6 +68,7 @@ function record(patch: Partial<SessionSummary> = {}): SessionSummary {
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    private: false,
     cachedTitle: "Gated session",
     cachedModified: "t",
     title: "Gated session",

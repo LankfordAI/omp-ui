@@ -28,7 +28,7 @@ import { AdvisorRosterView } from "./AdvisorRoster";
 import { ApprovalModeControl } from "./ApprovalModeControl";
 import { GoalChip } from "./GoalChip";
 import { WorktreeChip } from "./WorktreeChip";
-import { Button, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconRefresh, IconSessionTree, IconTune, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
+import { Button, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconLock, IconRefresh, IconSessionTree, IconTune, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
 /**
  * The instrument's status bar: one line that answers "is it alive, what is it
@@ -1044,6 +1044,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const refreshLimits = useStore((s) => s.refreshLimits);
   const advisor = useStore((s) => findRecord(s.state, tabId)?.advisor);
   const approvalMode = useStore((s) => findRecord(s.state, tabId)?.approvalMode ?? null);
+  const isPrivate = useStore((s) => findRecord(s.state, tabId)?.private === true);
   const advisorStats = useStore((s) => s.rpc[tabId]?.advisorStats);
   const mcpFailureCount = useStore((s) => s.rpc[tabId]?.mcpStatus?.failedServers.length ?? 0);
   const plan = useStore((s) => s.rpc[tabId]?.plan);
@@ -1264,9 +1265,10 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <Sheet open={surface === "session-actions"} placement="bottom" label={t("hud.actions.sessionActions")} onClose={closeCompactSurface}>
           <div className="space-y-4 p-4">
             <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
-            {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || usageLimitChip || limitsCluster) && (
+            {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || usageLimitChip || limitsCluster || isPrivate) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
                 {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
+                {isPrivate && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.memory")}</Label><span className="flex items-center gap-1 text-ink-mid"><IconLock /><span title={t("session.badge.private")}>{t("hud.metrics.memoryPrivate")}</span></span></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.context")}</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
                 {stats && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{t("hud.stats.compact", { cost: formatCost(stats.cost), tokens: compactNum(stats.tokens.total), premium: stats.premiumRequests })}</span></div>}
                 {quotaEvent != null && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{quotaChip}</div>}

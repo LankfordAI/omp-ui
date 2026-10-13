@@ -421,6 +421,12 @@ export interface OwnedSessionRecord {
    * malformed entry drops only itself, never the session record.
    */
   proposedPlans: ProposedPlan[];
+  /** True pins the session write-quiet against the memory system (issue #852):
+   *  recall reads, nothing writes. Enforced per-spawn by the omp-ui-private.yml
+   *  overlay (passive retain/autolearn channels) and, in rpc-ui, the
+   *  private-guard bridge (learn/retain/manage_skill/memory_edit tools).
+   *  Post-dates schema-1: absent normalizes to false. */
+  private: boolean;
   /** True while the session's title is one omp-ui generated via `/rename`
    *  (issue #804). omp records generator titles with source "user", so this
    *  marker — not the header — is what distinguishes an auto-title from a
@@ -703,6 +709,11 @@ interface NewSpawnRequestBase {
   planImplementationSource?: PlanImplementationSource | null;
   /** Experiment provenance to persist on a fresh experiment session (rpc-ui only). */
   experiment?: SessionExperiment | null;
+  /** True spawns a private session (issue #852): pinned write-quiet against
+   *  the memory system. Absent = false; never a default, never inherited from
+   *  project state. The flag lives on the record from here on — resume
+   *  requests carry no key for it. */
+  private?: boolean;
 }
 
 export interface NewPtySpawnRequest extends NewSpawnRequestBase {

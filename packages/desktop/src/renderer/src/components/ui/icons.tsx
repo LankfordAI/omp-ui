@@ -113,6 +113,16 @@ export function IconFlask({ className }: { className?: string }) {
   );
 }
 
+/** Padlock — the private-session badge (issue #852). */
+export function IconLock({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M5 7V5a3 3 0 0 1 6 0v2" />
+      <rect x="3.5" y="7" width="9" height="6.5" rx="1.2" />
+    </svg>
+  );
+}
+
 export function Chevron({ open, className }: { open: boolean; className?: string }) {
   return (
     <svg

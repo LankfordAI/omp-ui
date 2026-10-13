@@ -77,6 +77,7 @@ const state = backendState({
           advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
           cachedTitle: "Mobile session",
           cachedModified: "t",
           title: "Mobile session",

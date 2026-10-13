@@ -5,7 +5,7 @@ import { parseTitleCard } from "@omp-ui/core/title-card";
 import { useT, type MessageKey } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
-import { Button, Dot, IconButton, IconGrip, IconSpeaker, type Tone } from "./ui";
+import { Button, Dot, IconButton, IconGrip, IconLock, IconSpeaker, type Tone } from "./ui";
 import type { LivePhase } from "@omp-ui/core/live-voice";
 
 const SESSION_FACE: Record<
@@ -355,6 +355,16 @@ export function SessionRow({
       </button>
 
       <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
+        {s.private ? (
+          <span
+            role="img"
+            aria-label={t("session.badge.private")}
+            title={t("session.badge.private")}
+            className="shrink-0 self-center text-ink-faint"
+          >
+            <IconLock />
+          </span>
+        ) : null}
         {liveBadge !== null ? (
           <span
             role="img"

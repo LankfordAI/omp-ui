@@ -77,6 +77,7 @@ function liveState(): void {
               subagentModels: null,
               proposedPlans: [],
               autoTitled: false,
+              private: false,
               cachedTitle: null,
               cachedModified: null,
               title: "Tree",

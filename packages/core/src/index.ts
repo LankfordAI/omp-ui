@@ -90,6 +90,13 @@ export { approvalOverlayPath, writeApprovalOverlay } from "./approval-overlay";
 export { worktreeOverlayPath, writeWorktreeOverlay } from "./worktree-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
 export { gitGuardOverlayPath, writeGitGuardOverlay } from "./git-guard-overlay";
+export { privateOverlayPath, writePrivateOverlay } from "./private-overlay";
+export {
+  PRIVATE_DISABLED_TOOLS,
+  privateGuardArmMessage,
+  privateGuardExtensionPath,
+  writePrivateGuardExtension,
+} from "./private-guard-extension";
 export {
   compactionMethodOverlayPath,
   writeCompactionMethodOverlay,

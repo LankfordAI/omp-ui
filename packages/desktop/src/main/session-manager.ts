@@ -32,6 +32,7 @@ import {
   knowledgeVaultArmMessage,
   knowledgeVaultGuidance,
   mcpRuntimeStatusMessage,
+  privateGuardArmMessage,
   MAX_DOCUMENT_BATCH_BYTES,
   resolveDocument,
   resolveKnowledgeHome,
@@ -679,6 +680,7 @@ export class SessionManager {
           subagentModels: null,
           proposedPlans: [],
           autoTitled: false,
+          private: req.private === true,
           cachedTitle: null,
           cachedModified: null,
         });
@@ -1002,7 +1004,7 @@ export class SessionManager {
     // The Knowledge home's hidden guidance (#766, #768, ADR-0048), sent once per
     // spawn, so a change reaches the next spawn. With no vault registered the
     // message has nothing to say: there is no write part and no day part, so no git runs.
-    if (bridgeLoaded.knowledgeVault && vaults.vaults.length > 0) {
+    if (!record.private && bridgeLoaded.knowledgeVault && vaults.vaults.length > 0) {
       const homeProject = this.deps.registry.projects.find((project) => project.path === record.projectCwd);
       const resolved = await resolveKnowledgeHome(homeProject?.knowledgeHome ?? null, record.projectCwd, vaults);
       const guidance = knowledgeVaultGuidance({
@@ -1021,6 +1023,17 @@ export class SessionManager {
           message: knowledgeVaultArmMessage(guidance),
         });
       }
+    }
+    // The private-session guard (issue #852): the overlay closed the passive
+    // channels at process start; this arm removes the four write tools from
+    // the live roster. Derived from the record, so every resume and relaunch
+    // re-arms through this same rail.
+    if (record.private && bridgeLoaded.privateGuard) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-private-guard-${randomUUID()}`,
+        message: privateGuardArmMessage(),
+      });
     }
     if (bridgeLoaded.autoresearch) {
       initialCommands.push({
@@ -2106,6 +2119,7 @@ export class SessionManager {
       cachedTitle: source.cachedTitle,
       cachedModified: new Date().toISOString(),
       autoTitled: source.autoTitled,
+      private: source.private,
     });
     await this.deps.broadcast();
       return { tabId: fork.tabId };

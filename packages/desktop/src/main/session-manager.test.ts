@@ -6966,6 +6966,81 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
     }
   });
 
+  describe("private sessions (issue #852)", () => {
+    const NOTES = { name: "Notes", path: "/notes", homeFolder: "omp-ui/", allowWritesOutsideHome: false };
+
+    it("records the flag, pins the overlay, and arms the guard instead of the vault guidance", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui", knowledgeHome: { home: "vault" } });
+      registry.setSetting("vaultRegistry", { vaults: [NOTES], defaultWriteVault: "Notes" });
+      await manager.spawn({
+        origin: "new", projectCwd: "/proj", mode: "rpc-ui", advisor: false,
+        cols: 80, rows: 24, worktree: null, planMode: false, private: true,
+      });
+      expect(registry.sessions.at(0)).toMatchObject({ private: true });
+      const options = RpcClientMock.mock.calls.at(-1)?.[0] as {
+        configOverlays?: string[];
+        extensions?: string[];
+        initialCommands?: Array<Record<string, unknown>>;
+      };
+      const pins = (options.configOverlays ?? []).filter(
+        (file) => path.basename(file) === "omp-ui-private.yml",
+      );
+      expect(pins).toHaveLength(1);
+      expect(fs.readFileSync(pins[0]!, "utf8")).toBe(
+        "autolearn:\n  enabled: false\nmnemopi:\n  autoRetain: false\n",
+      );
+      expect(options.extensions).toContainEqual(
+        expect.stringMatching(/omp-ui-private-guard\.ts$/),
+      );
+      const messages = (options.initialCommands ?? []).map((command) => command.message);
+      expect(messages).toContain(Core.privateGuardArmMessage());
+      // The proactive lesson-note guidance is what tells the agent to write;
+      // a private session never hears it, even with a vault registered.
+      expect(
+        (options.initialCommands ?? []).filter(
+          (command) => typeof command.id === "string" && command.id.startsWith("omp-ui-initial-knowledge-vault-"),
+        ),
+      ).toEqual([]);
+    });
+
+    it("arms nothing and pins nothing for an ordinary session", async () => {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await manager.spawn({
+        origin: "new", projectCwd: "/proj", mode: "rpc-ui", advisor: false,
+        cols: 80, rows: 24, worktree: null, planMode: false,
+      });
+      const options = RpcClientMock.mock.calls.at(-1)?.[0] as {
+        configOverlays?: string[];
+        initialCommands?: Array<Record<string, unknown>>;
+      };
+      expect(
+        (options.configOverlays ?? []).filter(
+          (file) => path.basename(file) === "omp-ui-private.yml",
+        ),
+      ).toEqual([]);
+      const messages = (options.initialCommands ?? []).map((command) => command.message);
+      expect(messages).not.toContain(Core.privateGuardArmMessage());
+    });
+
+    it("copies the flag to a fork", async () => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      registry.updateSession(TAB, { private: true });
+      const transcript = path.join(
+        sessionsRoot,
+        LINEAGE,
+        "2026-08-13T00-00-00-000Z_appr-src.jsonl",
+      );
+      fs.writeFileSync(
+        transcript,
+        `${JSON.stringify({ type: "session", id: "appr-src", cwd: "/proj" })}\n`,
+      );
+      const { tabId: forkTabId } = await manager.forkSession(TAB);
+      expect(registry.sessions.find((s) => s.tabId === forkTabId)).toMatchObject({
+        private: true,
+      });
+    });
+  });
+
   describe("knowledge vault guidance arm (issue #766)", () => {
     const NOTES = { name: "Notes", path: "/notes", homeFolder: "omp-ui/", allowWritesOutsideHome: false };
     const knowledgeArms = (commands: Array<Record<string, unknown>> | undefined): Array<Record<string, unknown>> =>

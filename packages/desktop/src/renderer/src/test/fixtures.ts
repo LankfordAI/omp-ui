@@ -119,6 +119,7 @@ export function remoteOwnedState(tabId: string, instanceId: string): BackendStat
                 subagentModels: null,
                 proposedPlans: [],
                 autoTitled: false,
+                private: false,
                 cachedTitle: "Remote session",
                 cachedModified: "t",
                 title: "Remote session",

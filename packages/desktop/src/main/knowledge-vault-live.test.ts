@@ -87,6 +87,7 @@ function todayRecord(projectCwd: string): OwnedSessionRecord {
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    private: false,
     cachedTitle: "Live Day Row",
     cachedModified: now,
     agentMode: "build",

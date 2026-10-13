@@ -173,6 +173,7 @@ const NEW_KEYS = [
   "planImplementationSource",
   "experiment",
   "planMode",
+  "private",
 ] as const;
 
 const RESUME_KEYS = [
@@ -240,6 +241,7 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
   }
   const advisorModel = optionalNullableString(value, "advisorModel");
   const planMode = optionalBoolean(value, "planMode");
+  const priv = optionalBoolean(value, "private");
   if (mode === "pty" && planMode !== undefined) {
     throw new Error("spawn request.planMode is not valid for pty mode");
   }
@@ -263,6 +265,7 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
     ...(advisorModel === undefined ? {} : { advisorModel }),
     ...(source === undefined ? {} : { planImplementationSource: source }),
     ...(experiment === undefined ? {} : { experiment }),
+    ...(priv === undefined ? {} : { private: priv }),
   };
   return mode === "pty"
     ? { ...common, mode }

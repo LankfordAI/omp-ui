@@ -129,6 +129,7 @@ function mount(voiceInputEnabled: boolean, ownerId: string | null = null): void 
         subagentModels: null,
         proposedPlans: [],
         autoTitled: false,
+        private: false,
         cachedTitle: null,
         cachedModified: null,
         title: "Voice",

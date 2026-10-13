@@ -559,6 +559,9 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // autoTitled post-dates the first schema-1 records like advisor; absent
     // loads as false (issue #804).
     optional(value, "autoTitled", (v) => typeof v === "boolean") &&
+    // private (issue #852) post-dates the first schema-1 records like
+    // advisor; absent loads as false, a present non-boolean drops the record.
+    optional(value, "private", (v) => typeof v === "boolean") &&
     // subagentModels post-dates the advisor picker records too; absent loads
     // as null, which is also the umbrella-applies state (ADR-0031).
     optNullable(value, "subagentModels", isSubagentModelMap) &&
@@ -611,6 +614,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       // Absent normalizes to false like advisor (issue #804); the guard
       // above drops records whose present value is not a boolean.
       autoTitled: s.autoTitled === true,
+      private: s.private === true,
       model: s.model ?? null,
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,

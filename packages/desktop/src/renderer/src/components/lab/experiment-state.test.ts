@@ -60,6 +60,7 @@ function summary(patch: Partial<SessionSummary> = {}): SessionSummary {
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
     cachedTitle: null,
     cachedModified: null,
     title: "Session",

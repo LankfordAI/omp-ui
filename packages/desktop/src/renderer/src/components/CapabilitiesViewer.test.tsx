@@ -246,6 +246,7 @@ const liveState = backendState({
           advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
           cachedTitle: "T",
           cachedModified: "t",
           title: "T",

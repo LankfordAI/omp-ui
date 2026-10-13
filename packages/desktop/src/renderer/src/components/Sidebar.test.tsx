@@ -128,6 +128,7 @@ const state = backendState({
           advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
           cachedTitle: "Owned session",
           cachedModified: "2026-08-03T00:00:00.000Z",
           title: "Owned session",
@@ -156,6 +157,7 @@ const state = backendState({
           advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
           cachedTitle: "Second owned session",
           cachedModified: "2026-08-03T01:00:00.000Z",
           title: "Second owned session",
@@ -434,7 +436,7 @@ describe("Sidebar session creation", () => {
     expect(document.activeElement).toBe(item);
     const rows = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
       .map((row) => row.textContent);
-    expect(rows).toEqual(["New terminal session", "New worktree session…"]);
+    expect(rows).toEqual(["New terminal session", "New worktree session…", "new private session"]);
 
     // Escape dismisses and hands focus back to the chevron.
     act(() =>
@@ -452,6 +454,32 @@ describe("Sidebar session creation", () => {
     expect(useStore.getState().worktreeDialogProject).toBe(projectPath);
     expect(newSession).not.toHaveBeenCalled();
     useStore.setState({ worktreeDialogProject: null });
+  });
+
+  it("the private row spawns with the options tuple tail (issue #852)", () => {
+    renderSidebar();
+    const chevron = button("new session options for Project One");
+    act(() => chevron.click());
+    const privateRow = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((row) => row.textContent === "new private session")!;
+    act(() => privateRow.click());
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(newSession).toHaveBeenCalledWith(projectPath, undefined, null, { private: true });
+  });
+
+  it("a private record's row carries the lock badge; an ordinary one does not (issue #852)", () => {
+    const privateState = structuredClone(state);
+    privateState.projects[0]!.sessions[0]!.private = true;
+    useStore.setState({ state: privateState });
+    renderSidebar();
+    const badge = document.body.querySelector('[aria-label="private — this session writes no memories or lessons"]');
+    expect(badge).not.toBeNull();
+    expect(badge!.getAttribute("title")).toBe("private — this session writes no memories or lessons");
+    act(() => root!.unmount());
+    root = null;
+    useStore.setState({ state });
+    renderSidebar();
+    expect(document.body.querySelector('[aria-label="private — this session writes no memories or lessons"]')).toBeNull();
   });
 
   it("activates the second session and exposes terminal creation on compact touch", () => {
@@ -719,6 +747,7 @@ describe("Sidebar project open control (issue #169)", () => {
     expect(rows).toEqual([
       "New session",
       "New terminal session",
+      "New private session",
       "New worktree session…",
       "Experiments",
       "New experiment…",
@@ -765,6 +794,7 @@ describe("Sidebar project open control (issue #169)", () => {
     expect(rows).toEqual([
       "New session",
       "New terminal session",
+      "New private session",
       "New worktree session…",
       "Project settings…",
       "Move to group…",
@@ -1066,6 +1096,7 @@ describe("project name display", () => {
             advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
             cachedTitle: `Session ${i + 1}`,
             cachedModified: "2026-08-03T00:00:00.000Z",
             title: `Session ${i + 1}`,
@@ -1187,6 +1218,7 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
     cachedTitle: title,
     cachedModified: "2026-08-03T00:00:00.000Z",
     title,
@@ -1504,6 +1536,7 @@ describe("Sidebar session drag-and-drop (issue #274)", () => {
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
     cachedTitle: title,
     cachedModified: "2026-08-20T00:00:00.000Z",
     title,
@@ -1666,6 +1699,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
             launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", worktree: null, agentMode: "build" as const, compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
             cachedTitle: "Tree Impl", cachedModified: "2026-08-20T00:00:00.000Z", title: "Tree Impl",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1674,6 +1708,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
             launchedAt: "2026-08-20T01:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, agentMode: "build" as const, compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
             cachedTitle: "Tree Root", cachedModified: "2026-08-20T01:00:00.000Z", title: "Tree Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1682,6 +1717,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
             launchedAt: "2026-08-20T02:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, agentMode: "build" as const, compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
             cachedTitle: "Mid Root", cachedModified: "2026-08-20T02:00:00.000Z", title: "Mid Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1690,6 +1726,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
             launchedAt: "2026-08-20T03:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, agentMode: "build" as const, compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
             cachedTitle: "Last Root", cachedModified: "2026-08-20T03:00:00.000Z", title: "Last Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1776,6 +1813,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
                 launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, agentMode: "build" as const, compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
                 cachedTitle: "Only", cachedModified: "2026-08-20T00:00:00.000Z", title: "Only",
                 status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
               },
@@ -1826,6 +1864,7 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
     cachedTitle: title,
     cachedModified: "2026-08-03T00:00:00.000Z",
     title,

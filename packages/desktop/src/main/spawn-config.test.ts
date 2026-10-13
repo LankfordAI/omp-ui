@@ -34,6 +34,7 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     tree: () => write("tree"),
     review: () => write("review"),
     knowledgeVault: () => write("knowledgeVault"),
+    privateGuard: () => write("privateGuard"),
   };
 }
 
@@ -57,6 +58,7 @@ describe("writeRpcExtensions", () => {
         "/tree.ts",
         "/review.ts",
         "/knowledgeVault.ts",
+        "/privateGuard.ts",
       ],
       loaded: {
         plan: false,
@@ -71,6 +73,7 @@ describe("writeRpcExtensions", () => {
         tree: true,
         review: true,
         knowledgeVault: true,
+        privateGuard: true,
       },
     });
     expect(warning).toHaveBeenCalledTimes(2);
@@ -174,6 +177,44 @@ describe("writeSessionOverlays — git guard pin (#832)", () => {
   });
 });
 
+describe("writeSessionOverlays private pin (issue #852)", () => {
+  it("appends the quiet pin last on every rewrite of a private record", () => {
+    const dir = tmp();
+    const file = path.join(dir, "omp-ui-private.yml");
+    const record = ownedSessionRecord({ private: true });
+    for (let launch = 0; launch < 2; launch += 1) {
+      const overlays = writeSessionOverlays(record, dir);
+      expect(overlays.filter((overlay) => overlay === file)).toEqual([file]);
+      expect(overlays.at(-1)).toBe(file);
+      expect(fs.readFileSync(file, "utf8")).toBe(
+        "autolearn:\n  enabled: false\nmnemopi:\n  autoRetain: false\n",
+      );
+    }
+  });
+
+  it("omits the pin for an ordinary record and drops a stale artifact", () => {
+    const dir = tmp();
+    const file = path.join(dir, "omp-ui-private.yml");
+    fs.writeFileSync(file, "mnemopi:\n  autoRetain: false\n");
+    const overlays = writeSessionOverlays(ownedSessionRecord(), dir);
+    expect(overlays).not.toContain(file);
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it("warns and preserves the other overlays if the pin cannot be written", () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, "omp-ui-private.yml"));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const overlays = writeSessionOverlays(ownedSessionRecord({ private: true }), dir);
+      expect(overlays).toContain(path.join(dir, "omp-ui-vault.yml"));
+      expect(overlays).not.toContain(path.join(dir, "omp-ui-private.yml"));
+      expect(warning).toHaveBeenCalledExactlyOnceWith("[private] could not write the overlay:", expect.any(Error));
+    } finally {
+      warning.mockRestore();
+    }
+  });
+});
 describe("writeSessionOverlays worktree pin", () => {
   it("appends one worktree pin once on every rewrite, stale file replaced", () => {
     const dir = tmp();

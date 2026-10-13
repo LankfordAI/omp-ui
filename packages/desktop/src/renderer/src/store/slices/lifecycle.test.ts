@@ -1221,6 +1221,39 @@ describe("newSession fetches the project's upstream listing (issue #708)", () =>
   });
 });
 
+describe("newSession private option (issue #852)", () => {
+  const seed = (): void => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: "fresh" });
+  };
+
+  it("carries private on an rpc-ui request", async () => {
+    seed();
+    await h.useStore.getState().newSession("/p", undefined, null, { private: true });
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      projectCwd: "/p",
+      mode: "rpc-ui",
+      advisor: false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      private: true,
+    });
+  });
+
+  it("omits the key entirely for an ordinary spawn", async () => {
+    seed();
+    await h.useStore.getState().newSession("/p");
+    const request = h.mockBackend.spawnSession.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(request).not.toHaveProperty("private");
+  });
+});
 describe("newSession bounds a stalled spawn and lands late tabs once (issue #789)", () => {
   /** A registered project with a preseeded advisor default (no config read).
    *  The path differs from the #708 block's: that block leaves a never-settling
@@ -1334,6 +1367,7 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
     cachedTitle: null,
     cachedModified: null,
     title: "New session",
@@ -1488,6 +1522,7 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
     cachedTitle: null,
     cachedModified: null,
     title: "New session",
@@ -2269,6 +2304,7 @@ describe("carryover context seed (issue #824)", () => {
     advisorModel: null, subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    private: false,
     cachedTitle: null,
     cachedModified: null,
     title: "New session",
