@@ -182,6 +182,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.error.dismiss": "닫기",
 
   // 스토어 슬라이스 — localized 오류 통지 (이슈 #373). 백엔드 사유·tab id·경로는 그대로 보간된다.
+  "session.badge.private": "비공개 — 이 세션은 메모나 교훈을 저장하지 않음",
   "session.error.deletePartial": "일부 세션을 삭제하지 못했습니다:\n{failures}",
   "session.error.advisorBusy": "진행 중인 세션 명령이 완료되지 않아 어드바이저를 다시 시작하지 못했습니다. 세션은 계속 실행 중입니다.",
   "session.error.advisorEnable": "어드바이저를 켜지 못했습니다: {reason}\n\n에이전트가 중지되었습니다. 계속하려면 세션을 다시 시작하세요.",
@@ -1643,6 +1644,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.approval.inheritTitle": "상속 — omp 자체 설정이 결정합니다",
   "hud.metrics.advisorTotal": "어드바이저 합계",
   "hud.metrics.context": "컨텍스트",
+  "hud.metrics.memory": "메모리",
+  "hud.metrics.memoryPrivate": "조용 — 이 세션은 메모나 교훈을 저장하지 않음",
   "hud.metrics.spend": "지출",
   "hud.metrics.worktree": "워크트리",
   "hud.mode.buildDescription": "빌드 모드 — 작업 트리 쓰기와 상태 변경 명령을 사용할 수 있습니다.",
@@ -2045,6 +2048,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "notice.merge.syncConflicts": "{source} 동기화가 {path}에서 {count}개 파일 충돌로 중단되었습니다 — 워크트리에서 해결한 뒤 git merge --continue를 실행하고 다시 마무리하세요",
   "notice.merge.landed": "{branch}을(를) {destination}에 병합했습니다({commits})",
   "notice.finish.switchSkippedBusy": "프로젝트 체크아웃이 기존 브랜치에 그대로 남았습니다 — “{title}” 세션이 그곳에서 턴을 진행 중입니다. 작업은 {destination}에 있습니다",
+  "project.actions.newPrivate": "새 비공개 세션",
   "project.actions.newSession": "새 세션",
   "project.actions.newTerminal": "새 터미널 세션",
   "project.actions.newWorktree": "새 워크트리 세션…",
@@ -2182,6 +2186,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.project.newExperiment": "{name}에서 새 실험",
   "sidebar.project.newSession": "새 세션",
   "sidebar.project.newSessionOptions": "{name}의 새 세션 옵션",
+  "sidebar.project.newPrivate": "새 비공개 세션",
   "sidebar.project.remove": "프로젝트 제거",
   "sidebar.project.noSessions": "아직 세션이 없습니다",
   "sidebar.project.showing": "{total}개 중 {shown}개 표시",

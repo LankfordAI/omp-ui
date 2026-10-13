@@ -965,6 +965,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     projectCwd: string,
     modeOverride?: SessionMode,
     instanceId?: string | null,
+    /** `{ private: true }` spawns a private session (issue #852): pinned
+     *  write-quiet against the memory system. Never a default. */
+    opts?: { private?: boolean },
   ): Promise<void>;
   /**
    * Creates a worktree session; throws on failure (the dialog renders the

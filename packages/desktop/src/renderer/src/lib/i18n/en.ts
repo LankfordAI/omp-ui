@@ -195,6 +195,7 @@ export const en = {
 
   // Store slices — localized failure notices (issue #373); backend reasons,
   // tab ids, and paths arrive verbatim as interpolation data.
+  "session.badge.private": "private — this session writes no memories or lessons",
   "session.error.deletePartial": "Some sessions could not be deleted:\n{failures}",
   "session.error.advisorBusy":
     "Could not restart the advisor because an in-flight session command did not settle. The session is still running.",
@@ -1807,6 +1808,8 @@ export const en = {
   "hud.approval.inheritTitle": "inherit — omp's own config decides",
   "hud.metrics.advisorTotal": "advisor total",
   "hud.metrics.context": "context",
+  "hud.metrics.memory": "memory",
+  "hud.metrics.memoryPrivate": "write-quiet — this session stores no memories or lessons",
   "hud.metrics.spend": "spend",
   "hud.metrics.worktree": "worktree",
   "hud.mode.buildDescription":
@@ -2214,6 +2217,7 @@ export const en = {
   "notice.merge.syncConflicts": "the sync of {source} stopped on {count} file(s) in {path} — resolve them in the worktree, then git merge --continue, then finish again",
   "notice.merge.landed": "merged {branch} ({commits}) into {destination}",
   "notice.finish.switchSkippedBusy": "the project checkout was left on its own branch — session “{title}” is mid-turn there; the work is in {destination}",
+  "project.actions.newPrivate": "New private session",
   "project.actions.newSession": "New session",
   "project.actions.newTerminal": "New terminal session",
   "project.actions.newWorktree": "New worktree session…",
@@ -2351,6 +2355,7 @@ export const en = {
   "sidebar.project.lab": "experiments in {name}",
   "sidebar.project.newExperiment": "new experiment in {name}",
   "sidebar.project.newSession": "new session",
+  "sidebar.project.newPrivate": "new private session",
   "sidebar.project.newSessionOptions": "new session options for {name}",
   "sidebar.project.remove": "remove project",
   "sidebar.project.noSessions": "no sessions yet",

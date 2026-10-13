@@ -62,6 +62,7 @@ function record(patch: Partial<SessionSummary> = {}): SessionSummary {
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
     cachedTitle: "Running task",
     cachedModified: "t",
     title: "Running task",

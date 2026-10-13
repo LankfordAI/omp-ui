@@ -1654,6 +1654,18 @@ export function Sidebar() {
               >
                 {t("project.actions.newWorktree")}
               </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const { projectCwd, instanceId } = terminalMenu;
+                  setTerminalMenu(null);
+                  void newSession(projectCwd, undefined, instanceId, { private: true });
+                }}
+                className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
+              >
+                {t("sidebar.project.newPrivate")}
+              </button>
             </Panel>
           </div>,
           document.body,

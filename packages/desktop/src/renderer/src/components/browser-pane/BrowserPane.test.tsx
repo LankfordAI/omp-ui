@@ -90,6 +90,7 @@ const session: SessionSummary = {
   advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
   cachedTitle: "Remote session",
   cachedModified: "t",
   title: "Remote session",

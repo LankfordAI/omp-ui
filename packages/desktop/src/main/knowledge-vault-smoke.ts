@@ -502,6 +502,7 @@ function sessionRecords(now: Date): OwnedSessionRecord[] {
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    private: false,
     cachedTitle: "Untitled",
     cachedModified: at(0),
     agentMode: "build",

@@ -509,6 +509,7 @@ function stateWithRecord(
             subagentModels: null,
             proposedPlans: [],
             autoTitled: false,
+            private: false,
             cachedTitle: null,
             cachedModified: null,
             title: "New session",

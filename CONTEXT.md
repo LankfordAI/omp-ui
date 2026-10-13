@@ -84,6 +84,19 @@ top, and reordering is a user action (drag or keyboard), never a side effect
 of running.
 _Avoid_: tracked session, managed session
 
+**Private session**:
+An owned session pinned write-quiet against the memory system: its spawns
+carry a per-lineage `--config` overlay (ADR-0055) pinning `autolearn.enabled:
+false` and `mnemopi.autoRetain: false`, and native sessions arm a generated
+bridge that removes the memory-write tools (`memory_edit`, `retain`, `learn`,
+`manage_skill`) from the live roster. Recall stays alive — private means
+write-quiet, not read-quiet — and omp-ui never writes the global omp config.
+The flag is a property of the record, never a project default and never part
+of a project's last-used spawn state; a branch of a private session is
+private.
+_Avoid_: incognito, anonymous, ephemeral (the transcript persists normally),
+quiet session
+
 **Lineage**:
 The sequence of sessions one spawned `omp` process produces: the initial
 session plus every `/new` and `/branch` it switches into (omp replaces the

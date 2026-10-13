@@ -124,6 +124,7 @@ describe("parseSpawnRequest", () => {
     ["resume null model", { ...resumeRequest, model: null }],
     ["resume non-string carryover", { ...resumeRequest, carryoverContext: 42 }],
     ["resume empty carryover", { ...resumeRequest, carryoverContext: "" }],
+    ["resume private (record-persisted, no resume key)", { ...resumeRequest, private: true }],
   ] as const)("rejects %s", (_label, raw) => {
     expect(() => parseSpawnRequest(raw)).toThrow(/spawn request/);
   });
@@ -159,5 +160,16 @@ describe("parseSpawnRequest", () => {
       worktree: { mint: { branch: "omp-ui/feature", baseRef: "main" } },
     });
     expect(parsed).toMatchObject({ worktree: { mint: { baseBranch: null } } });
+  });
+
+  it("parses private: true on a new request (issue #852)", () => {
+    const request: SpawnRequest = { ...newRpcRequest, private: true };
+    expect(parseSpawnRequest(request)).toEqual(request);
+  });
+
+  it("rejects a non-boolean private", () => {
+    expect(() => parseSpawnRequest({ ...newRpcRequest, private: "yes" })).toThrow(
+      /spawn request\.private must be a boolean/,
+    );
   });
 });

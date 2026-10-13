@@ -43,6 +43,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
     cachedTitle: null,
     cachedModified: null,
     title: `Session ${tabId}`,

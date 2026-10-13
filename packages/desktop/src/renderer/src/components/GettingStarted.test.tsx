@@ -136,6 +136,7 @@ function sessionSummary(): SessionSummary {
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    private: false,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",

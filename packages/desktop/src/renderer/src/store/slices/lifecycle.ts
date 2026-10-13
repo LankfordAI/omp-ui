@@ -998,6 +998,9 @@ export function createLifecycleSlice(
     projectCwd: string,
     modeOverride?: SessionMode,
     instanceId: string | null = null,
+    // Privacy is deliberately deliberate (issue #852): only the explicit menu
+    // entries pass the flag; no caller inherits it from stored state.
+    opts: { private?: boolean } = {},
   ): Promise<void> => {
     const { mode, advisor, advisorModel } = await resolveSpawnParams(
       projectCwd,
@@ -1029,6 +1032,7 @@ export function createLifecycleSlice(
             cols: 80,
             rows: 24,
             worktree: null,
+            ...(opts.private === true ? { private: true } : {}),
           }
         : {
             origin: "new",
@@ -1039,6 +1043,7 @@ export function createLifecycleSlice(
             cols: 80,
             rows: 24,
             worktree: null,
+            ...(opts.private === true ? { private: true } : {}),
           };
     const pending = backendFor(instanceId).spawnSession(request);
     // Late landing: after the timeout notice below has fired, a spawn that

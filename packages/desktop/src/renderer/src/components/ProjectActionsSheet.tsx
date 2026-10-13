@@ -81,6 +81,17 @@ export function ProjectActionsSheet({
               type="button"
               className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
               onClick={() => {
+                void newSession(project.path, undefined, instanceId, { private: true });
+                onClose();
+                onActivate();
+              }}
+            >
+              {t("project.actions.newPrivate")}
+            </button>
+            <button
+              type="button"
+              className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
+              onClick={() => {
                 openWorktreeDialog(project.path, instanceId);
                 onClose();
               }}

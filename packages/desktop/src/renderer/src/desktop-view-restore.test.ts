@@ -181,6 +181,7 @@ const session = (
   advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ private: false,
   cachedTitle: null,
   cachedModified: "2026-08-03T00:00:00.000Z",
   title: tabId,

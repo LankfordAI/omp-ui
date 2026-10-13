@@ -37,6 +37,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    private: false,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",
@@ -1804,6 +1805,35 @@ describe("autoTitled marker (issue #804)", () => {
     expect(Registry.load(file).sessions[0]).toMatchObject({ tabId: "tab-1", autoTitled: true });
     reg.updateSession("tab-1", { autoTitled: false });
     expect(Registry.load(file).sessions[0]).toMatchObject({ tabId: "tab-1", autoTitled: false });
+  });
+});
+
+describe("private session flag (issue #852)", () => {
+  it("normalizes a legacy session without private to false on load", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord() };
+    delete legacy.private;
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]).toMatchObject({ tabId: "tab-1", private: false });
+  });
+
+  it("drops a session whose present private is not a boolean", () => {
+    // Same guard shape as advisor/autoTitled: absent loads as false, a
+    // present non-boolean is a malformed record.
+    const file = tmpFile();
+    const bad = { ...sessionRecord(), private: "yes" };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [bad] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(0);
+  });
+
+  it("persists private across a reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord({ private: true }));
+    expect(Registry.load(file).sessions[0]).toMatchObject({ tabId: "tab-1", private: true });
   });
 });
 
