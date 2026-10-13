@@ -51,3 +51,41 @@ export function applyTerminalAppearance(
   term.options.fontFamily = font.mono;
   term.refresh(0, term.rows - 1);
 }
+
+/**
+ * Coalesced PTY resize pushes (#858). A ResizeObserver fires once per frame
+ * while a sidebar/inspector width transition runs, and a drag-resize fires
+ * continuously; today every callback pushes a SIGWINCH at the child, which
+ * makes the shell repaint the whole prompt each frame. This pushes the first
+ * real size change immediately (so a window drag still feels instant) and at
+ * most one further push per PTY_RESIZE_QUIET_MS, always ending with the final
+ * size. A callback whose cols/rows already match what was last pushed sends
+ * nothing at all — the common case mid-transition, where the grid only
+ * changes at character-cell thresholds.
+ */
+export const PTY_RESIZE_QUIET_MS = 150;
+
+export function createPtyResizePusher(
+  term: Terminal,
+  send: (cols: number, rows: number) => void,
+): () => void {
+  let lastSent: string | null = null;
+  let timer: number | null = null;
+  const push = (): void => {
+    timer = null;
+    const key = `${term.cols},${term.rows}`;
+    if (key === lastSent) return;
+    lastSent = key;
+    send(term.cols, term.rows);
+  };
+  return () => {
+    const key = `${term.cols},${term.rows}`;
+    if (key === lastSent) return;
+    if (timer === null) {
+      push();
+      timer = window.setTimeout(push, PTY_RESIZE_QUIET_MS);
+      return;
+    }
+    // A quiet-period change is pending; the trailing push will carry it.
+  };
+}

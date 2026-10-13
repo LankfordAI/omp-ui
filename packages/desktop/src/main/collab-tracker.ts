@@ -21,6 +21,12 @@ import {
 /** Poll cadence while at least one PTY tab is live. One short subprocess per tick. */
 export const COLLAB_POLL_MS = 2_000;
 
+/** Cadence once the registry digest has stopped changing (#858). A live PTY
+ * tab still costs one short subprocess per tick, so a quiet digest backs the
+ * chain off from `COLLAB_POLL_MS` to this. Any signal — a live-set change, a
+ * share/stop, a keystroke into the TUI, or a digest diff — snaps back fast. */
+export const COLLAB_POLL_IDLE_MS = 10_000;
+
 /** How long a share waits for its registry row before surfacing the doubt. */
 export const COLLAB_SETTLE_MS = 6_000;
 
@@ -40,6 +46,7 @@ export interface CollabTrackerDeps {
   /** Registry seams; tests fake them. Defaults to the bundled-CLI runners. */
   cli?: CollabCliDeps;
   pollMs?: number;
+  idlePollMs?: number;
   settleMs?: number;
 }
 
@@ -55,6 +62,13 @@ export class CollabTracker {
   private readonly lastStates = new Map<string, CollabTabState | null>();
   /** Shares awaiting their registry row, keyed by tab. */
   private readonly settles = new Map<string, SettleWaiter>();
+  /** True while the chain runs at the fast cadence; see COLLAB_POLL_IDLE_MS. */
+  private fast = true;
+  /** Tab-id set at the last live-set evaluation; a change snaps the chain fast. */
+  private liveKey = "";
+  /** True while the BrowserWindow is hidden/minimized; the chain stays
+   * unarmed until noteWindowVisible(true) (#858). */
+  private hidden = false;
   private timer: NodeJS.Timeout | null = null;
   private polling = false;
   private stopped = false;
@@ -72,13 +86,20 @@ export class CollabTracker {
   noteLiveChange(): void {
     if (this.stopped) return;
     const entries = [...this.deps.livePtyEntries()];
-    const hasPty = entries.length > 0;
-    if (hasPty && this.timer === null) {
-      this.timer = setInterval(() => void this.tick(), this.deps.pollMs ?? COLLAB_POLL_MS);
-      this.timer.unref?.();
-    } else if (!hasPty && this.timer !== null) {
-      clearInterval(this.timer);
-      this.timer = null;
+    const liveKey = entries.map((entry) => entry.tabId).sort().join(",");
+    const liveChanged = liveKey !== this.liveKey;
+    this.liveKey = liveKey;
+    if (liveKey === "") {
+      if (this.timer !== null) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+    } else if (this.timer === null || liveChanged) {
+      // First live tab (or the set changed shape): snap to the fast cadence.
+      if (liveChanged) this.fast = true;
+      // A hidden window stays unarmed; reveal re-arms via noteWindowVisible
+      // regardless of what the live set did meanwhile.
+      if (!this.hidden) this.schedule();
     }
     const liveTabIds = new Set(entries.map((entry) => entry.tabId));
     for (const tabId of [...this.lastStates.keys()]) {
@@ -89,6 +110,34 @@ export class CollabTracker {
     for (const tabId of this.settles.keys()) {
       if (liveTabIds.has(tabId)) continue;
       this.rejectSettle(tabId, new Error("the terminal ended before a Collab host appeared"));
+    }
+  }
+
+  /** Public wake on PTY keystrokes (#858): typed slash commands can flip
+   * collab state, so an idled chain snaps back to the fast cadence. A no-op
+   * when nothing is armed (no PTY tab live). */
+  noteActivity(): void {
+    if (this.stopped || this.hidden || this.fast || this.timer === null) return;
+    this.fast = true;
+    this.schedule();
+  }
+
+  /** Window visibility hook (#858): hidden stops the poll chain entirely —
+   * nothing reads the snapshots — and revealing re-arms at the fast cadence,
+   * so the dialog shows the live state shortly after the user is back. */
+  noteWindowVisible(visible: boolean): void {
+    if (this.stopped || this.hidden === !visible) return;
+    this.hidden = !visible;
+    if (this.hidden) {
+      if (this.timer !== null) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+      return;
+    }
+    if (this.liveKey !== "") {
+      this.fast = true;
+      this.schedule();
     }
   }
 
@@ -105,6 +154,11 @@ export class CollabTracker {
     const entry = this.findLivePty(tabId);
     if (entry === null) return Promise.reject(new Error("this session is not a live terminal tab"));
     this.deps.writePty(tabId, access === "view" ? "/collab view\r" : "/collab\r");
+    // A share may produce a row soon; snap an idled chain back to fast.
+    if (!this.fast && this.timer !== null) {
+      this.fast = true;
+      this.schedule();
+    }
     // Executor form (not Promise.withResolvers): desktop main's lib is ES2022.
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -120,6 +174,11 @@ export class CollabTracker {
     const entry = this.findLivePty(tabId);
     if (entry === null) throw new Error("this session is not a live terminal tab");
     this.deps.writePty(tabId, "/collab stop\r");
+    // A stop changes the row on the next tick; snap an idled chain to fast.
+    if (!this.fast && this.timer !== null) {
+      this.fast = true;
+      this.schedule();
+    }
   }
 
   /**
@@ -137,11 +196,21 @@ export class CollabTracker {
     return result.url;
   }
 
+  /** Arm (or re-arm) the one-shot poll chain at whichever cadence is active. */
+  private schedule(): void {
+    if (this.timer !== null) clearTimeout(this.timer);
+    const ms = this.fast
+      ? this.deps.pollMs ?? COLLAB_POLL_MS
+      : this.deps.idlePollMs ?? COLLAB_POLL_IDLE_MS;
+    this.timer = setTimeout(() => void this.tick(), ms);
+    this.timer.unref?.();
+  }
+
   /** Quit teardown: stop polling; the rows die with the processes. */
   dispose(): void {
     this.stopped = true;
     if (this.timer !== null) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
     for (const waiter of this.settles.values()) clearTimeout(waiter.timer);
@@ -151,6 +220,7 @@ export class CollabTracker {
 
   private async tick(): Promise<void> {
     if (this.polling || this.stopped) return;
+    let changed = false;
     this.polling = true;
     try {
       const ompPath = this.deps.getOmpPath();
@@ -172,7 +242,10 @@ export class CollabTracker {
                 relayConnected: row.relayConnected,
                 inputRequired: row.inputRequired,
               };
-        if (!statesEqual(this.lastStates.get(tabId), state)) this.broadcast(tabId, state);
+        if (!statesEqual(this.lastStates.get(tabId), state)) {
+          this.broadcast(tabId, state);
+          changed = true;
+        }
         const settle = this.settles.get(tabId);
         if (settle !== undefined && state !== null && state.status === settle.access) {
           clearTimeout(settle.timer);
@@ -182,8 +255,16 @@ export class CollabTracker {
       }
     } finally {
       this.polling = false;
-      // The live set may have emptied while the probe ran; re-evaluate the loop.
-      this.noteLiveChange();
+      // A dispose() during the probe owns the teardown; re-arm nothing.
+      if (!this.stopped) {
+        // The cadence is derived per tick: a digest diff or a pending settle
+        // keeps it fast; a quiet tick idles the chain. Then re-evaluate the
+        // live set (it may have emptied while the probe ran; noteLiveChange
+        // clears the arm when none remain) and re-arm the one-shot chain.
+        this.fast = changed || this.settles.size > 0;
+        this.noteLiveChange();
+        if (this.timer !== null) this.schedule();
+      }
     }
   }
 

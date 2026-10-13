@@ -683,14 +683,23 @@ function parseList(lines: string[], start: number): { list: MdList; next: number
   return { list: finalizeList(root), next: j };
 }
 
-export function parseMarkdown(src: string): MdBlock[] {
-  if (typeof src !== "string" || src === "") return [];
-  const lines = src.replace(/\r\n?/g, "\n").split("\n");
+interface ParseRange {
+  blocks: MdBlock[];
+  /** Line where the last pushed block started (0 when nothing was pushed). */
+  lastStart: number;
+}
+
+/** Parses the lines from `from` on. Every block kind is context-free (no
+ * reference link definitions, no cross-block state), so a tail slice parses
+ * exactly as it would inside the whole document. */
+function parseLines(lines: string[], from: number): ParseRange {
   const blocks: MdBlock[] = [];
-  let i = 0;
+  let lastStart = 0;
+  let i = from;
 
   while (i < lines.length) {
     const line = lines[i] ?? "";
+    const blockStart = i;
 
     if (BLANK_RE.test(line)) {
       i++;
@@ -701,6 +710,7 @@ export function parseMarkdown(src: string): MdBlock[] {
     if (fence) {
       const f = readFence(lines, i);
       blocks.push({ kind: "code", lang: f.lang, text: f.text });
+      lastStart = blockStart;
       i = f.next;
       continue;
     }
@@ -710,6 +720,7 @@ export function parseMarkdown(src: string): MdBlock[] {
     const math = readDisplayMath(lines, i);
     if (math) {
       blocks.push({ kind: "math", text: math.text });
+      lastStart = blockStart;
       i = math.next;
       continue;
     }
@@ -719,6 +730,7 @@ export function parseMarkdown(src: string): MdBlock[] {
       const level = (heading[1] ?? "#").length;
       const text = (heading[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "");
       blocks.push({ kind: "heading", level, spans: parseInline(text) });
+      lastStart = blockStart;
       i++;
       continue;
     }
@@ -740,12 +752,14 @@ export function parseMarkdown(src: string): MdBlock[] {
         j++;
       }
       blocks.push({ kind: "table", headers, rows });
+      lastStart = blockStart;
       i = j;
       continue;
     }
 
     if (isRule(line)) {
       blocks.push({ kind: "rule" });
+      lastStart = blockStart;
       i++;
       continue;
     }
@@ -761,6 +775,7 @@ export function parseMarkdown(src: string): MdBlock[] {
         j++;
       }
       blocks.push({ kind: "quote", spans: parseInline(body.join("\n")) });
+      lastStart = blockStart;
       i = j;
       continue;
     }
@@ -769,6 +784,7 @@ export function parseMarkdown(src: string): MdBlock[] {
     if (marker) {
       const { list, next } = parseList(lines, i);
       blocks.push({ kind: "list", ordered: list.ordered, items: list.items });
+      lastStart = blockStart;
       i = next;
       continue;
     }
@@ -782,10 +798,52 @@ export function parseMarkdown(src: string): MdBlock[] {
       j++;
     }
     blocks.push({ kind: "p", spans: parseInline(para.join("\n")) });
+    lastStart = blockStart;
     i = j;
   }
 
-  return blocks;
+  return { blocks, lastStart };
+}
+
+export function parseMarkdown(src: string): MdBlock[] {
+  if (typeof src !== "string" || src === "") return [];
+  const lines = src.replace(/\r\n?/g, "\n").split("\n");
+  return parseLines(lines, 0).blocks;
+}
+
+/** One-entry cache for append-only growth (streaming): when the normalized
+ * text merely grew past the cached parse, re-parse only from the last cached
+ * block's start line and reuse every block before it (#858). Any other
+ * change misses and parses whole — identical output to parseMarkdown. Block
+ * boundaries are line-based, so slicing at a block start never splits a
+ * construct, and no construct spans blank-line boundaries: a tail slice
+ * parses exactly as it would in the whole document. */
+let cacheSrc = "";
+let cacheBlocks: MdBlock[] = [];
+let cacheLastStart = 0;
+export function parseMarkdownCached(src: string): MdBlock[] {
+  if (typeof src !== "string" || src === "") return [];
+  const lines = src.replace(/\r\n?/g, "\n").split("\n");
+  // Compare on normalized text: normalization is char-local, so a prefix of
+  // the source stays a prefix after normalizing (a trailing \r joined by the
+  // next \n still yields the same single \n).
+  const normalized = lines.join("\n");
+  if (normalized.startsWith(cacheSrc)) {
+    // cacheLastStart is the start line of cacheBlocks' LAST block, so the
+    // tail re-parse replaces that one block (it may have grown) and appends
+    // whatever arrived after it. The cache then advances to this text, so
+    // each delta re-parses only its own tail.
+    const tail = parseLines(lines, cacheLastStart);
+    cacheSrc = normalized;
+    cacheBlocks = [...cacheBlocks.slice(0, -1), ...tail.blocks];
+    cacheLastStart = tail.lastStart;
+    return cacheBlocks;
+  }
+  const parsed = parseLines(lines, 0);
+  cacheSrc = normalized;
+  cacheBlocks = parsed.blocks;
+  cacheLastStart = parsed.lastStart;
+  return parsed.blocks;
 }
 
 const SAFE_SCHEME = /^(?:https?:\/\/|mailto:)/i;

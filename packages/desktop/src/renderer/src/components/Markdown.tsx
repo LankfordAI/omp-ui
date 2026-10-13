@@ -7,7 +7,7 @@ import { useHighlightTokens } from "../lib/highlight";
 import { useDiagramSvg } from "../lib/diagram";
 import { svgImageSrc } from "../lib/svg-block";
 import { useTheme } from "../lib/themes";
-import { bareUrlAt, isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "../lib/markdown";
+import { bareUrlAt, isSafeHref, parseMarkdownCached, type MdBlock, type MdList, type MdSpan } from "../lib/markdown";
 import { useT } from "../lib/i18n";
 import { isHtmlPlanDocument } from "../lib/plan-seed";
 import { PlanDocument } from "./PlanDocumentView";
@@ -581,8 +581,9 @@ export function Markdown({
   // A whole message that is one HTML plan document renders as the plan once
   // settled; streaming deltas short-circuit before the end-anchored scan.
   const planDocument = trailing === undefined && isHtmlPlanDocument(text);
-  // Streaming re-renders this on every delta, and the parse is the cost.
-  const blocks = useMemo(() => (planDocument ? [] : parseMarkdown(text)), [planDocument, text]);
+  // Streaming re-renders this on every delta, and the parse is the cost:
+  // the cached parser re-parses only the block the delta touched (#858).
+  const blocks = useMemo(() => (planDocument ? [] : parseMarkdownCached(text)), [planDocument, text]);
   if (planDocument) {
     return (
       <div className={cn("space-y-3 text-[15px]", className)} data-selectable>

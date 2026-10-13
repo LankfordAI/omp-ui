@@ -82,6 +82,7 @@ const CONTROL_APIS = [
 const DESC_LIMIT = ${CAPABILITY_DESCRIPTION_LIMIT};
 const BYTE_LIMIT = ${CAPABILITY_STATUS_BYTE_LIMIT};
 const POLL_MS = 2000;
+const POLL_IDLE_MS = 10000;
 const CONTROL_CHARS = /[\\u0000-\\u001f\\u007f-\\u009f]/g;
 
 ${generatedPollTimerSource()}
@@ -257,6 +258,8 @@ export default function (pi: ExtensionApi) {
   ${generatedRootBindingSource("SessionLike", "bindRootShutdown(candidate);")}
   let ui: StatusUi | null = null;
   let pollTimer: PollTimer | null = null;
+  /** False once the digest stopped moving; see POLL_IDLE_MS. */
+  let fast = true;
   let lastDigest: string | null = null;
   let revision = 0;
   let mutationInFlight: Promise<void> | null = null;
@@ -742,6 +745,9 @@ export default function (pi: ExtensionApi) {
     const toolControl = controlStateOf(root) ? "available" : "unsupported";
     const digest = digestOf(sessionIdValue, skillCommandsEnabled, skills, tools, keywords, toolControl, toolMutation);
     if (!force && digest === lastDigest) return;
+    // A publish means the state moved: snap an idled chain back to fast.
+    fast = true;
+    if (pollTimer !== null) schedulePoll();
     const snapshot: DraftSnapshot = {
       version: 1,
       processKey,
@@ -795,28 +801,47 @@ export default function (pi: ExtensionApi) {
   function stopPoll(): void {
     if (!pollTimer) return;
     try {
-      clearInterval(pollTimer as unknown as number);
+      clearTimeout(pollTimer as unknown as number);
     } catch {
-      /* a runtime that refuses clearInterval still loses its handle */
+      /* a runtime that refuses clearTimeout still loses its handle */
     }
     pollTimer = null;
   }
 
-  function startPoll(): void {
-    if (pollTimer) return;
-    const timer = setInterval(() => {
+  function schedulePoll(): void {
+    if (pollTimer !== null) {
       try {
-        publish(false);
+        clearTimeout(pollTimer as unknown as number);
       } catch {
-        /* a poll failure must never surface in the session */
+        /* a runtime that refuses clearTimeout still loses its handle */
       }
-    }, POLL_MS);
+    }
+    const timer = setTimeout(tick, fast ? POLL_MS : POLL_IDLE_MS);
     pollTimer = timer as unknown as PollTimer;
     try {
       pollTimer.unref?.();
     } catch {
-      /* an unref-less runtime keeps the interval as-is */
+      /* an unref-less runtime keeps the timer as-is */
     }
+  }
+
+  function tick(): void {
+    // The fired handle is spent; a publish below must not re-arm past us.
+    pollTimer = null;
+    // Cadence is derived per tick: only a real publish snaps it back to fast.
+    fast = false;
+    try {
+      publish(false);
+    } catch {
+      /* a poll failure must never surface in the session */
+    }
+    if (pollTimer === null) schedulePoll();
+  }
+
+  function startPoll(): void {
+    if (pollTimer !== null) return;
+    fast = true;
+    schedulePoll();
   }
 
   function bindRootShutdown(root: SessionLike): void {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CH, type CollabCliResult, type CollabTabSnapshot, type CollabTabState } from "@omp-ui/core";
-import { CollabTracker, COLLAB_POLL_MS, type CollabLivePty } from "./collab-tracker";
+import { CollabTracker, COLLAB_POLL_MS, COLLAB_POLL_IDLE_MS, type CollabLivePty } from "./collab-tracker";
 
 const ROW = (over: Record<string, unknown> = {}) => ({
   instanceId: "inst",
@@ -35,6 +35,7 @@ interface Harness {
   sent: Array<[string, unknown[]]>;
   setRows(rows: unknown[] | null): void;
   setLink(result: CollabCliResult): void;
+  probes(): number;
 }
 
 function harness(opts: { settleMs?: number } = {}): Harness {
@@ -43,6 +44,7 @@ function harness(opts: { settleMs?: number } = {}): Harness {
   const sent: Array<[string, unknown[]]> = [];
   let rows: unknown[] | null = [];
   let link: CollabCliResult = { stdout: JSON.stringify({ url: "https://my.omp.sh/s#k" }), stderr: "", code: 0 };
+  let probes = 0;
   const tracker = new CollabTracker({
     getOmpPath: () => "/bin/omp",
     livePtyEntries: () => entries,
@@ -50,6 +52,7 @@ function harness(opts: { settleMs?: number } = {}): Harness {
     send: (channel, ...args) => sent.push([channel, args]),
     cli: {
       exec: (_omp, argv) => {
+        probes++;
         if (argv[1] === "list") {
           return Promise.resolve(
             rows === null
@@ -73,6 +76,7 @@ function harness(opts: { settleMs?: number } = {}): Harness {
     setLink: (next) => {
       link = next;
     },
+    probes: () => probes,
   };
 }
 
@@ -153,6 +157,94 @@ describe("CollabTracker polling", () => {
     const before = h.sent.length;
     await advance(COLLAB_POLL_MS * 3);
     expect(h.sent).toHaveLength(before);
+  });
+
+  it("backs an unchanged digest off from the fast to the idle cadence", async () => {
+    const h = harness();
+    h.tracker.noteLiveChange();
+    h.setRows([ROW()]);
+    await advance(COLLAB_POLL_MS); // first probe: row appears, broadcast, fast
+    expect(h.sent).toHaveLength(1);
+    await advance(COLLAB_POLL_MS); // second probe: unchanged, idles the chain
+    expect(h.probes()).toBe(2);
+    await advance(COLLAB_POLL_IDLE_MS - 1);
+    expect(h.probes()).toBe(2); // still quiet at the old fast cadence
+    await advance(1);
+    expect(h.probes()).toBe(3); // the idle arm fired
+  });
+
+  it("a digest diff at an idle tick snaps the chain back to fast", async () => {
+    const h = harness();
+    h.tracker.noteLiveChange();
+    h.setRows([ROW()]);
+    await advance(COLLAB_POLL_MS * 2); // probe, then an unchanged probe: idle
+    h.setRows([ROW({ generation: 2 })]);
+    await advance(COLLAB_POLL_IDLE_MS);
+    expect(h.sent.at(-1)).toEqual([
+      CH.onCollabChanged,
+      ["t1", STATE({ generation: 2 })],
+    ]);
+    await advance(COLLAB_POLL_MS);
+    expect(h.probes()).toBe(4); // fast cadence resumed after the diff
+  });
+
+  it("noteActivity snaps an idled chain back to the fast cadence", async () => {
+    const h = harness();
+    h.tracker.noteLiveChange();
+    h.setRows([ROW()]);
+    await advance(COLLAB_POLL_MS * 2); // two probes: the chain idles
+    const before = h.probes();
+    h.tracker.noteActivity();
+    await advance(COLLAB_POLL_MS);
+    expect(h.probes()).toBe(before + 1);
+    h.tracker.noteActivity(); // already fast: must not re-arm and delay
+    await advance(COLLAB_POLL_MS);
+    expect(h.probes()).toBe(before + 2);
+  });
+
+  it("noteActivity is a no-op while no PTY tab arms the chain", async () => {
+    const h = harness();
+    h.entries.length = 0;
+    h.tracker.noteLiveChange();
+    h.tracker.noteActivity();
+    await advance(COLLAB_POLL_IDLE_MS * 2);
+    expect(h.probes()).toBe(0);
+  });
+
+  it("a hidden window stops the chain; reveal re-arms it fast", async () => {
+    const h = harness();
+    h.tracker.noteLiveChange();
+    await advance(COLLAB_POLL_MS); // fast tick, digest unchanged
+    await advance(COLLAB_POLL_IDLE_MS); // idle tick: chain is idled
+    h.tracker.noteWindowVisible(false);
+    const before = h.probes();
+    await advance(COLLAB_POLL_IDLE_MS * 3);
+    expect(h.probes()).toBe(before); // nothing polled while hidden
+    h.tracker.noteWindowVisible(true);
+    await advance(COLLAB_POLL_MS); // reveal: back at the fast cadence
+    expect(h.probes()).toBe(before + 1);
+  });
+
+  it("a live tab spawning while hidden arms nothing until reveal", async () => {
+    const h = harness();
+    h.entries.length = 0;
+    h.tracker.noteWindowVisible(false);
+    h.entries.push({ tabId: "t1", pid: 100 });
+    h.tracker.noteLiveChange();
+    await advance(COLLAB_POLL_IDLE_MS * 2);
+    expect(h.probes()).toBe(0);
+    h.tracker.noteWindowVisible(true);
+    await advance(COLLAB_POLL_MS);
+    expect(h.probes()).toBe(1);
+  });
+
+  it("keystrokes while hidden leave the chain unarmed", async () => {
+    const h = harness();
+    h.tracker.noteLiveChange();
+    h.tracker.noteWindowVisible(false);
+    h.tracker.noteActivity();
+    await advance(COLLAB_POLL_IDLE_MS * 2);
+    expect(h.probes()).toBe(0);
   });
 });
 

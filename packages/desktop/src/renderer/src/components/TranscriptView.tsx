@@ -921,12 +921,20 @@ export function TranscriptView({
     const el = scrollRef.current;
     const content = contentRef.current;
     if (!el || !content) return;
+    let lastElWidth = -1;
+    let lastContentWidth = -1;
     const measureHanging = () => {
       // Gutter slack (issue #392). getBoundingClientRect on both: under the
       // content's `zoom` it reports visual px for either element, offsetWidth
-      // does not.
-      const slack =
-        (el.getBoundingClientRect().width - content.getBoundingClientRect().width) / 2;
+      // does not. The observer fires on every content-height change — every
+      // streaming flush — but slack only moves with widths, so unchanged
+      // widths skip both forced-layout reads (#858).
+      const elWidth = el.getBoundingClientRect().width;
+      const contentWidth = content.getBoundingClientRect().width;
+      if (elWidth === lastElWidth && contentWidth === lastContentWidth) return;
+      lastElWidth = elWidth;
+      lastContentWidth = contentWidth;
+      const slack = (elWidth - contentWidth) / 2;
       const next = slack >= HANGING_GUTTER_PX;
       if (next !== hangingRef.current) {
         hangingRef.current = next;

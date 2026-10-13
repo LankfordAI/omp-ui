@@ -8,6 +8,7 @@ import type { LimitsView } from "@omp-ui/core/limits";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import { ANONYMIZE_MIN_OMP, supportsAnonymize } from "../lib/anonymize";
 import { cn } from "../lib/cn";
+import { startVisibleInterval } from "../lib/visible-interval";
 import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
 import { useCompactShell } from "../lib/responsive";
@@ -543,8 +544,8 @@ function LimitsCluster({ limits }: { limits: LimitsView }) {
   );
   useEffect(() => {
     if (!hasFutureReset) return;
-    const timer = window.setInterval(() => setTick((n) => n + 1), LIMITS_TICK_MS);
-    return () => window.clearInterval(timer);
+    const stop = startVisibleInterval(() => setTick((n) => n + 1), LIMITS_TICK_MS);
+    return stop;
   }, [hasFutureReset]);
   const stale =
     limits.fetchedAtMs > 0 && now - limits.fetchedAtMs > LIMITS_STALE_MS;
@@ -664,8 +665,8 @@ function UsageLimitChip({ usage, className }: { usage: UsageLimit; className?: s
   const hasFutureReset = resetMs !== null && resetMs > now;
   useEffect(() => {
     if (!hasFutureReset) return;
-    const timer = window.setInterval(() => setTick((n) => n + 1), LIMITS_TICK_MS);
-    return () => window.clearInterval(timer);
+    const stop = startVisibleInterval(() => setTick((n) => n + 1), LIMITS_TICK_MS);
+    return stop;
   }, [hasFutureReset]);
   const stage = t(usage.stage === "wrap_up" ? "hud.usage.wrapUp" : "hud.usage.lowPriority");
   const title = [

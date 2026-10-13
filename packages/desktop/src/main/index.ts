@@ -258,6 +258,18 @@ if (!app.requestSingleInstanceLock()) {
     win.on("maximize", queueWindowStateSave);
     win.on("unmaximize", queueWindowStateSave);
 
+    // Hidden-window pause (#858): background polls (collab registry) stop
+    // while nothing can see their results and re-arm on reveal. Minimize and
+    // restore report through isVisible(), not the event name — a minimized
+    // window is not visible.
+    const reportVisibility = (): void => {
+      if (!win.isDestroyed()) backend?.sessions.noteWindowVisible(win.isVisible());
+    };
+    win.on("hide", reportVisibility);
+    win.on("show", reportVisibility);
+    win.on("minimize", reportVisibility);
+    win.on("restore", reportVisibility);
+
     // Renderer anchors keep calling window.open (Markdown.tsx / tool slabs);
     // every one of those lands here, denied in-window and routed to the system
     // browser via the scheme allow-list (issue #101).

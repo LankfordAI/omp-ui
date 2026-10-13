@@ -4,7 +4,7 @@ import { backend } from "../backend";
 import { useTheme } from "../lib/themes";
 import { useFontFamily } from "../lib/font-families";
 import { matchesHotkey } from "../lib/hotkeys";
-import { applyTerminalAppearance, createTerminal, type CreatedTerminal } from "../lib/terminal";
+import { applyTerminalAppearance, createPtyResizePusher, createTerminal, type CreatedTerminal } from "../lib/terminal";
 import { findRecord, registerShellWriter, sessionCwd, useStore } from "../store";
 import { useT } from "../lib/i18n";
 import { useTerminalCopyMenu } from "./useTerminalCopyMenu";
@@ -33,6 +33,8 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   visibleRef.current = visible;
   /** True while the last focusin inside this drawer has not been followed by a focusout. */
   const drawerHadFocus = useRef(false);
+  /** Set by the mount effect: parses whatever bytes arrived while hidden. */
+  const flushPendingRef = useRef<(() => void) | null>(null);
   const theme = useTheme();
   const font = useFontFamily();
   const projectCwd = useStore(
@@ -64,14 +66,38 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
     // No spawn here: after a mode-switch round trip the drawer can remount
     // while display:none, where fit() degenerates. The visible effect spawns.
     const dataSub = term.onData((d) => backend.shellWrite(tabId, d));
-    const unregister = registerShellWriter(tabId, (data) => term.write(data));
+    // A hidden drawer renders nothing: buffer its bytes and parse them in
+    // one pass when it opens (#858). The backlog cap keeps a runaway
+    // background command from growing the buffer without bound.
+    let pending: Uint8Array[] = [];
+    let pendingBytes = 0;
+    const flushPending = (): void => {
+      if (pending.length === 0) return;
+      const chunks = pending;
+      pending = [];
+      pendingBytes = 0;
+      for (const chunk of chunks) term.write(chunk);
+    };
+    flushPendingRef.current = flushPending;
+    const unregister = registerShellWriter(tabId, (data) => {
+      if (visibleRef.current) {
+        term.write(data);
+        return;
+      }
+      pending.push(data);
+      pendingBytes += data.byteLength;
+      if (pendingBytes >= 4 * 1024 * 1024) flushPending();
+    });
 
     // The drawer width moves with the inspector rail without a window resize,
     // so TerminalTab's window-listener alone is insufficient.
+    const pushResize = createPtyResizePusher(term, (cols, rows) =>
+      backend.shellResize(tabId, cols, rows),
+    );
     const observer = new ResizeObserver(() => {
       if (host.clientWidth === 0 || host.clientHeight === 0) return;
       fit.fit();
-      backend.shellResize(tabId, term.cols, term.rows);
+      pushResize();
     });
     observer.observe(host);
 
@@ -79,6 +105,7 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
       observer.disconnect();
       dataSub.dispose();
       unregister();
+      flushPendingRef.current = null;
       term.dispose();
       termRef.current = null;
       spawnedRef.current = false;
@@ -126,6 +153,9 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
     if (key === null) handoffKeyRef.current = null;
     const t = termRef.current;
     if (!t || !visible || projectCwd === undefined) return;
+    // Parse the bytes that arrived while the drawer was closed first, so the
+    // fit and any resize echo land on the live screen (#858).
+    flushPendingRef.current?.();
     t.fit.fit();
     const staged = key !== null && key !== handoffKeyRef.current;
     const moved = spawnedCwdRef.current !== null && spawnedCwdRef.current !== projectCwd;

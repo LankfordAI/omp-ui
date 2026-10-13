@@ -3,6 +3,7 @@ import type { AsyncJob } from "@omp-ui/core/async-jobs";
 import { AGENT_TONE } from "../lib/agent-tone";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
+import { startVisibleInterval } from "../lib/visible-interval";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Section } from "./RailSection";
@@ -13,8 +14,8 @@ function useNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
+    const stop = startVisibleInterval(() => setNow(Date.now()), 1000);
+    return stop;
   }, [active]);
   return now;
 }

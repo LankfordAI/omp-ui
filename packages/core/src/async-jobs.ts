@@ -21,6 +21,9 @@ export const ASYNC_JOBS_KILL_ARG = "kill";
 export const ASYNC_JOBS_STATUS_BYTE_LIMIT = 256 * 1024;
 /** Poll cadence; a publish only leaves the process when the digest changed. */
 export const ASYNC_JOBS_POLL_MS = 1_500;
+/** Idle cadence once a poll published nothing new (#858); a digest change or
+ * a publish from any command path returns the chain to ASYNC_JOBS_POLL_MS. */
+export const ASYNC_JOBS_POLL_IDLE_MS = 10_000;
 /** Finished jobs requested from omp (omp's own /jobs asks for 5). */
 export const ASYNC_JOBS_RECENT_LIMIT = 10;
 /** Output tail per job, then the fallback rung when the snapshot is too big. */

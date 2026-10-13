@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { obsidianReplyLink, parseObsidianNoteUri } from "@omp-ui/core/vault-shared";
-import { isSafeHref, parseMarkdown, type MdBlock, type MdList, type MdSpan } from "./markdown";
+import {
+  isSafeHref,
+  parseMarkdown,
+  parseMarkdownCached,
+  type MdBlock,
+  type MdList,
+  type MdSpan,
+} from "./markdown";
 
 /** Text of one span, recursing into nested spans (issue #40 nests emphasis;
     math spans carry their TeX payload as `text`, issue #191). */
@@ -336,6 +343,70 @@ describe("parseMarkdown blocks", () => {
 
   it("normalises CRLF", () => {
     expect(parseMarkdown("a\r\n\r\nb")).toHaveLength(2);
+  });
+});
+
+describe("parseMarkdownCached (issue #858)", () => {
+  // A document touching every block kind; streaming it in must agree with a
+  // whole-document parse at every stop, not just at the end.
+  const doc = [
+    "# Title",
+    "",
+    "A paragraph that wraps",
+    "across two lines.",
+    "",
+    "- item one",
+    "- item two",
+    "  - nested",
+    "",
+    "> quoted text",
+    "> more quote",
+    "",
+    "| a | b |",
+    "| - | - |",
+    "| 1 | 2 |",
+    "",
+    "```ts",
+    "const x = 1;",
+    "```",
+    "",
+    "$$",
+    "E = mc^2",
+    "$$",
+    "",
+    "---",
+    "",
+    "The end.",
+  ].join("\n");
+
+  it("matches parseMarkdown at every streaming step", () => {
+    for (let n = 1; n <= doc.length; n += 7) {
+      const chunk = doc.slice(0, n);
+      expect(parseMarkdownCached(chunk)).toEqual(parseMarkdown(chunk));
+    }
+    expect(parseMarkdownCached(doc)).toEqual(parseMarkdown(doc));
+  });
+
+  it("reuses the blocks before the touched tail on an append", () => {
+    const a = parseMarkdownCached("alpha\n\nbeta");
+    const b = parseMarkdownCached("alpha\n\nbeta and more");
+    expect(b[0]).toBe(a[0]); // untouched prefix block, same object
+    expect(b[1]).toEqual(parseMarkdown("alpha\n\nbeta and more")[1]);
+  });
+
+  it("re-parses whole after a non-append edit", () => {
+    parseMarkdownCached("alpha\n\nbeta");
+    const edited = "ALPHA\n\nbeta";
+    expect(parseMarkdownCached(edited)).toEqual(parseMarkdown(edited));
+  });
+
+  it("reflows a streamed table row from its header once the delimiter lands", () => {
+    const partial = parseMarkdownCached("| a | b |");
+    expect(partial[0]?.kind).toBe("p");
+    const table = parseMarkdownCached("| a | b |\n| - | - |");
+    expect(table[0]?.kind).toBe("table");
+    const grown = parseMarkdownCached("| a | b |\n| - | - |\n| 1 | 2 |");
+    expect(grown).toEqual(parseMarkdown("| a | b |\n| - | - |\n| 1 | 2 |"));
   });
 });
 
