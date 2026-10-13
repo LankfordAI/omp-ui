@@ -1288,6 +1288,27 @@ export interface SttModelSnapshot {
   error: string | null;
 }
 
+/** One card-level audio device for the app-wide audio-device picker (issue #855). */
+export interface AudioDeviceEntry {
+  /** Card-level label (pactl `device.description`); the registry value and the picker id. */
+  id: string;
+  /** True when this card owns the current default source or sink. */
+  isDefault: boolean;
+  hasInput: boolean;
+  hasOutput: boolean;
+}
+
+/** The audio-device picker's whole payload; `supported` false => pactl absent (issue #855). */
+export interface AudioDevicesSnapshot {
+  /** Sorted by id; monitor nodes excluded. */
+  devices: AudioDeviceEntry[];
+  /** The registry value, echoed for the picker; null = OS default. */
+  current: string | null;
+  /** False when pactl is absent or the platform is unsupported. */
+  supported: boolean;
+  error: string | null;
+}
+
 /** One `omp models --kind judge` row for the judge role picker (issue #669). */
 export interface JudgeModelOption {
   /** omp selector, e.g. "openrouter/typesafe/jev-1.13"; stored verbatim. */

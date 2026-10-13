@@ -86,6 +86,7 @@ describe("SETTINGS", () => {
       "liveWorkParking",
       "liveProgressReportMinutes",
       "sttModel",
+      "audioDevice",
       "sessionOrderFrozen",
       "memoryDefaultsSeeded",
       "autoThinkingDefaultSeeded",
@@ -143,6 +144,8 @@ describe("Registry.load", () => {
     // Issue #815: work-parking defaults on — the burn is the status quo.
     expect(reg.getSetting("liveWorkParking")).toBe(true);
     expect(reg.getSetting("sttModel")).toBeNull();
+    // Issue #855: the audio device is unset — the OS default is used.
+    expect(reg.getSetting("audioDevice")).toBeNull();
     // Issue #109: HTML is the default plan review rendition.
     expect(reg.getSetting("planFormat")).toBe("html");
     // Issue #246: idle rpc-ui sessions hibernate after a 30 min quiet window.
@@ -479,6 +482,21 @@ describe("Registry persistence", () => {
     expect(Registry.load(file).getSetting("dismissedOmpUpdateVersion")).toBeNull();
   });
 
+  it("round-trips the audio device label and null across a reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    expect(reg.getSetting("audioDevice")).toBeNull();
+    reg.setSetting("audioDevice", "AT2020 USB");
+    expect(Registry.load(file).getSetting("audioDevice")).toBe("AT2020 USB");
+    reg.setSetting("audioDevice", null);
+    expect(Registry.load(file).getSetting("audioDevice")).toBeNull();
+
+    // An empty string is not a device label; the OS default wins.
+    const junk = tmpFile();
+    fs.writeFileSync(junk, JSON.stringify({ schemaVersion: 1, settings: { audioDevice: "" } }));
+    expect(Registry.load(junk).getSetting("audioDevice")).toBeNull();
+  });
+
   it("round-trips the plan format and falls back to html for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
@@ -720,6 +738,7 @@ describe("Registry persistence", () => {
       ["liveWorkParking", (registry) => registry.setSetting("liveWorkParking", true)],
       ["liveProgressReportMinutes", (registry) => registry.setSetting("liveProgressReportMinutes", null)],
       ["sttModel", (registry) => registry.setSetting("sttModel", null)],
+      ["audioDevice", (registry) => registry.setSetting("audioDevice", null)],
       ["themeId", (registry) => registry.setSetting("themeId", "graphite")],
       ["fontFamilyId", (registry) => registry.setSetting("fontFamilyId", "default")],
       ["transcriptWidth", (registry) => registry.setSetting("transcriptWidth", "wide")],

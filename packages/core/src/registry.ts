@@ -71,6 +71,8 @@ export interface RegistrySettings {
   liveProgressReportMinutes: number | null;
   /** omp STT selector used app-wide; null = pick the preferred callable model. */
   sttModel: string | null;
+  /** App-wide audio device choice: pactl card device.description; null = OS default (issue #855). */
+  audioDevice: string | null;
   /** One-time migration marker (#274): the sessions array order is explicit; load never re-sorts it. */
   sessionOrderFrozen: boolean;
   /** One-time seed marker (issue #570): memory defaults were applied to omp's global layer once. */
@@ -263,6 +265,11 @@ export const SETTINGS: SettingDescriptors = {
       (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 1440),
   ),
   sttModel: validatedSetting<string | null>(
+    () => null,
+    (value): value is string | null =>
+      value === null || (typeof value === "string" && value.length > 0),
+  ),
+  audioDevice: validatedSetting<string | null>(
     () => null,
     (value): value is string | null =>
       value === null || (typeof value === "string" && value.length > 0),
