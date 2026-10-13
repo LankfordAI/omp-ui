@@ -823,14 +823,13 @@ export const en = {
     "Adds a microphone button to every composer; each phrase is transcribed by the provider below when you pause and inserted into the draft, never sent.",
   "settings.general.audioDevice": "Audio device",
   "settings.general.audioDeviceHint":
-    "Microphone and speakers for dictation and live voice. Sets the system-wide default while active.",
+    "Microphone and speakers for dictation and live voice. Sets the system-wide default for each role while active.",
   "settings.general.audioDeviceUnsupportedHint":
     "Device selection isn’t supported on this platform yet; the system default is used.",
   "settings.general.audioDeviceSystemDefault": "System default",
   "settings.general.audioDeviceDefaultChip": "Default",
-  "settings.general.audioDeviceInput": "(input)",
-  "settings.general.audioDeviceOutput": "(output)",
-  "settings.general.audioDeviceInputOutput": "(input/output)",
+  "settings.general.audioDeviceInput": "Input",
+  "settings.general.audioDeviceOutput": "Output",
   "settings.general.audioDeviceNotConnected": "(not connected)",
   "settings.general.liveWorkParking": "Park live voice while the assistant works",
   "settings.general.liveWorkParkingHint":

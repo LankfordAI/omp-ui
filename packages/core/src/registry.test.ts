@@ -86,7 +86,8 @@ describe("SETTINGS", () => {
       "liveWorkParking",
       "liveProgressReportMinutes",
       "sttModel",
-      "audioDevice",
+      "audioInputDevice",
+      "audioOutputDevice",
       "sessionOrderFrozen",
       "memoryDefaultsSeeded",
       "autoThinkingDefaultSeeded",
@@ -144,8 +145,9 @@ describe("Registry.load", () => {
     // Issue #815: work-parking defaults on — the burn is the status quo.
     expect(reg.getSetting("liveWorkParking")).toBe(true);
     expect(reg.getSetting("sttModel")).toBeNull();
-    // Issue #855: the audio device is unset — the OS default is used.
-    expect(reg.getSetting("audioDevice")).toBeNull();
+    // Issue #857: both audio roles default to the OS default.
+    expect(reg.getSetting("audioInputDevice")).toBeNull();
+    expect(reg.getSetting("audioOutputDevice")).toBeNull();
     // Issue #109: HTML is the default plan review rendition.
     expect(reg.getSetting("planFormat")).toBe("html");
     // Issue #246: idle rpc-ui sessions hibernate after a 30 min quiet window.
@@ -482,19 +484,51 @@ describe("Registry persistence", () => {
     expect(Registry.load(file).getSetting("dismissedOmpUpdateVersion")).toBeNull();
   });
 
-  it("round-trips the audio device label and null across a reload", () => {
+  it("round-trips each audio role's label and null across a reload", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
-    expect(reg.getSetting("audioDevice")).toBeNull();
-    reg.setSetting("audioDevice", "AT2020 USB");
-    expect(Registry.load(file).getSetting("audioDevice")).toBe("AT2020 USB");
-    reg.setSetting("audioDevice", null);
-    expect(Registry.load(file).getSetting("audioDevice")).toBeNull();
+    expect(reg.getSetting("audioInputDevice")).toBeNull();
+    expect(reg.getSetting("audioOutputDevice")).toBeNull();
+    reg.setSetting("audioInputDevice", "AT2020 USB");
+    reg.setSetting("audioOutputDevice", "Schiit Unison Universal Dac");
+    expect(Registry.load(file).getSetting("audioInputDevice")).toBe("AT2020 USB");
+    expect(Registry.load(file).getSetting("audioOutputDevice")).toBe("Schiit Unison Universal Dac");
+    reg.setSetting("audioInputDevice", null);
+    reg.setSetting("audioOutputDevice", null);
+    expect(Registry.load(file).getSetting("audioInputDevice")).toBeNull();
+    expect(Registry.load(file).getSetting("audioOutputDevice")).toBeNull();
 
     // An empty string is not a device label; the OS default wins.
     const junk = tmpFile();
+    fs.writeFileSync(junk, JSON.stringify({ schemaVersion: 1, settings: { audioInputDevice: "" } }));
+    expect(Registry.load(junk).getSetting("audioInputDevice")).toBeNull();
+  });
+
+  it("migrates the legacy audioDevice label into both roles (issue #857)", () => {
+    const file = tmpFile();
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, settings: { audioDevice: "AT2020 USB" } }));
+    const reg = Registry.load(file);
+    expect(reg.getSetting("audioInputDevice")).toBe("AT2020 USB");
+    expect(reg.getSetting("audioOutputDevice")).toBe("AT2020 USB");
+
+    // Once either role key is present on disk, the legacy key is ignored.
+    const migrated = tmpFile();
+    fs.writeFileSync(
+      migrated,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: { audioDevice: "AT2020 USB", audioInputDevice: null, audioOutputDevice: "USB DAC" },
+      }),
+    );
+    const reg2 = Registry.load(migrated);
+    expect(reg2.getSetting("audioInputDevice")).toBeNull();
+    expect(reg2.getSetting("audioOutputDevice")).toBe("USB DAC");
+
+    // A legacy empty string is not a label; nothing seeds.
+    const junk = tmpFile();
     fs.writeFileSync(junk, JSON.stringify({ schemaVersion: 1, settings: { audioDevice: "" } }));
-    expect(Registry.load(junk).getSetting("audioDevice")).toBeNull();
+    expect(Registry.load(junk).getSetting("audioInputDevice")).toBeNull();
+    expect(Registry.load(junk).getSetting("audioOutputDevice")).toBeNull();
   });
 
   it("round-trips the plan format and falls back to html for anything unknown", () => {
@@ -738,7 +772,8 @@ describe("Registry persistence", () => {
       ["liveWorkParking", (registry) => registry.setSetting("liveWorkParking", true)],
       ["liveProgressReportMinutes", (registry) => registry.setSetting("liveProgressReportMinutes", null)],
       ["sttModel", (registry) => registry.setSetting("sttModel", null)],
-      ["audioDevice", (registry) => registry.setSetting("audioDevice", null)],
+      ["audioInputDevice", (registry) => registry.setSetting("audioInputDevice", null)],
+      ["audioOutputDevice", (registry) => registry.setSetting("audioOutputDevice", null)],
       ["themeId", (registry) => registry.setSetting("themeId", "graphite")],
       ["fontFamilyId", (registry) => registry.setSetting("fontFamilyId", "default")],
       ["transcriptWidth", (registry) => registry.setSetting("transcriptWidth", "wide")],

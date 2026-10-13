@@ -2,6 +2,7 @@ import type {
   AdvisorDefaults,
   AgentMode,
   ApprovalMode,
+  AudioDeviceRole,
   AudioDevicesSnapshot,
   ServiceTier,
   AppUpdateRestartResult,
@@ -439,10 +440,13 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setSttModel",
     ...request<[model: string | null], void>([nullable(str())]),
   },
-  /** The app-wide audio device: a pactl card label, or null for the OS default (issue #855). */
+  /** One role's audio device: a pactl card label, or null for the OS default (issue #857). */
   setAudioDevice: {
     channel: "audio:setDevice",
-    ...request<[device: string | null], void>([nullable(str())]),
+    ...request<[role: AudioDeviceRole, device: string | null], void>([
+      oneOf("input", "output"),
+      nullable(str()),
+    ]),
   },
   setThemeId: { channel: "settings:setThemeId", ...request<[id: string], void>([str()]) },
   setFontFamilyId: { channel: "settings:setFontFamilyId", ...request<[id: string], void>([str()]) },
@@ -576,7 +580,7 @@ export const BACKEND_CHANNELS = {
     ...request<[], SttModelSnapshot>([]),
   },
   /**
-   * The machine's audio devices, enumerated from pactl (issue #855). Never
+   * The machine's audio devices, enumerated from pactl (issue #857). Never
    * rejects — `supported` and `error` say when pactl is absent or the
    * platform is unsupported.
    */

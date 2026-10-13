@@ -1288,22 +1288,29 @@ export interface SttModelSnapshot {
   error: string | null;
 }
 
-/** One card-level audio device for the app-wide audio-device picker (issue #855). */
+/** Which OS default a device pick drives: the capture source or the playback sink (issue #857). */
+export type AudioDeviceRole = "input" | "output";
+
+/** One card-level audio device for the input/output device pickers (issue #857). */
 export interface AudioDeviceEntry {
   /** Card-level label (pactl `device.description`); the registry value and the picker id. */
   id: string;
-  /** True when this card owns the current default source or sink. */
-  isDefault: boolean;
+  /** True when this card owns the OS default source (input-list chip). */
+  isDefaultInput: boolean;
+  /** True when this card owns the OS default sink (output-list chip). */
+  isDefaultOutput: boolean;
   hasInput: boolean;
   hasOutput: boolean;
 }
 
-/** The audio-device picker's whole payload; `supported` false => pactl absent (issue #855). */
+/** The audio-device picker's whole payload; `supported` false => pactl absent (issue #857). */
 export interface AudioDevicesSnapshot {
   /** Sorted by id; monitor nodes excluded. */
   devices: AudioDeviceEntry[];
-  /** The registry value, echoed for the picker; null = OS default. */
-  current: string | null;
+  /** The stored input choice, echoed for the picker; null = OS default. */
+  currentInput: string | null;
+  /** The stored output choice, echoed for the picker; null = OS default. */
+  currentOutput: string | null;
   /** False when pactl is absent or the platform is unsupported. */
   supported: boolean;
   error: string | null;

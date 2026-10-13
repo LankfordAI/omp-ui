@@ -1,6 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { AudioDeviceEntry } from "@omp-ui/core";
+import type { AudioDeviceEntry, AudioDeviceRole } from "@omp-ui/core";
+
+/** Re-exported from core so main-process callers can import the role from the module that uses it. */
+export type { AudioDeviceRole } from "@omp-ui/core";
 
 const execFileAsync = promisify(execFile);
 
@@ -99,12 +102,12 @@ async function defaultLabel(
 }
 
 /**
- * Every real audio device on the machine, grouped by card label. The default
- * marker comes from the OS default source/sink node names resolved through the
- * node → label map: that is what dictation and omp's live-voice capture
- * actually follow, and the only source of truth pactl exposes on PipeWire.
- * Rejects when pactl is absent or fails — the handler turns that into
- * `supported: false`.
+ * Every real audio device on the machine, grouped by card label. Each role's
+ * default marker comes from that role's OS default node name resolved
+ * through the node → label map: that is what dictation and omp's live-voice
+ * capture actually follow, and the only source of truth pactl exposes on
+ * PipeWire. Rejects when pactl is absent or fails — the handler turns that
+ * into `supported: false`.
  */
 export async function readAudioDevices(deps: AudioDeviceRunner): Promise<AudioDeviceEntry[]> {
   const map = await enumerate(deps);
@@ -117,9 +120,11 @@ export async function readAudioDevices(deps: AudioDeviceRunner): Promise<AudioDe
     if (nodes.sources.length === 0 && nodes.sinks.length === 0) continue;
     entries.push({
       id,
-      // Source wins when the two halves disagree; a differing sink label is
-      // marked too so the row never lies about which card is the default.
-      isDefault: (sourceLabel !== null && id === sourceLabel) || (sinkLabel !== null && id === sinkLabel),
+      // Independent per role: the source query resolving through a sink node
+      // marks that card's output half only, so no row ever claims a default
+      // it does not own.
+      isDefaultInput: sourceLabel !== null && id === sourceLabel,
+      isDefaultOutput: sinkLabel !== null && id === sinkLabel,
       hasInput: nodes.sources.length > 0,
       hasOutput: nodes.sinks.length > 0,
     });
@@ -128,46 +133,45 @@ export async function readAudioDevices(deps: AudioDeviceRunner): Promise<AudioDe
 }
 
 /**
- * Point the OS defaults at every live node carrying `deviceId`'s label —
- * sources get `set-default-source`, sinks get `set-default-sink`. An
- * input-only device flips only the source and an output-only device only the
- * sink; that is correct, not a half-failure. null means "system default":
- * persisted intent only, nothing to assert (issue #855).
+ * Point one role's OS default at every live node carrying `deviceId`'s label
+ * for that role — the input role runs `set-default-source`, the output role
+ * `set-default-sink`. A label absent, or present with no nodes for that
+ * role, is "not connected" for that role: log and leave the OS default, so a
+ * legacy cross-role seed never hijacks the other side. null means "system
+ * default": persisted intent only, nothing to assert (issue #857).
  */
 export async function applyAudioDevice(
   deps: AudioDeviceRunner,
   deviceId: string | null,
+  role: AudioDeviceRole,
 ): Promise<void> {
   if (deviceId === null) return;
   const map = await enumerate(deps);
   const nodes = map[deviceId];
-  if (nodes === undefined || (nodes.sources.length === 0 && nodes.sinks.length === 0)) {
-    // Unplugged: change nothing; the OS default stays and the next resolve
-    // sees the live list again.
-    console.warn(`[audio] stored audio device "${deviceId}" is not connected; leaving the system default`);
+  const names = nodes === undefined ? [] : role === "input" ? nodes.sources : nodes.sinks;
+  if (names.length === 0) {
+    // Unplugged — or the label only serves the other role: change nothing;
+    // the OS default stays and the next resolve sees the live list again.
+    console.warn(
+      `[audio] stored audio ${role} device "${deviceId}" is not connected; leaving the system default`,
+    );
     return;
   }
+  const verb = role === "input" ? "set-default-source" : "set-default-sink";
   const failures: string[] = [];
-  let attempted = 0;
   let succeeded = 0;
-  for (const [verb, names] of [
-    ["set-default-source", nodes.sources],
-    ["set-default-sink", nodes.sinks],
-  ] as const) {
-    for (const name of names) {
-      attempted += 1;
-      try {
-        await deps.run("pactl", [verb, name]);
-        succeeded += 1;
-      } catch (err) {
-        failures.push(`${verb} ${name}: ${err instanceof Error ? err.message : String(err)}`);
-      }
+  for (const name of names) {
+    try {
+      await deps.run("pactl", [verb, name]);
+      succeeded += 1;
+    } catch (err) {
+      failures.push(`${verb} ${name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   // The picker must not claim success it did not get: only a total failure of
   // every attempted command throws (startup apply swallows it into a log).
-  if (attempted > 0 && succeeded === 0) {
-    throw new Error(`could not select audio device "${deviceId}": ${failures.join("; ")}`);
+  if (succeeded === 0) {
+    throw new Error(`could not select audio ${role} device "${deviceId}": ${failures.join("; ")}`);
   }
   for (const failure of failures) console.warn(`[audio] ${failure}`);
 }

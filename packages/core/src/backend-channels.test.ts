@@ -229,7 +229,7 @@ const VALID_ARGS = {
   setSessionServiceTier: ["tab-1", null],
   setSkipDeleteConfirmation: [true],
   setSttModel: [null],
-  setAudioDevice: [null],
+  setAudioDevice: ["input", null],
   setStallAutoContinue: [true],
   setStreamStallAbortSeconds: [45],
   setThemeId: ["dark"],
