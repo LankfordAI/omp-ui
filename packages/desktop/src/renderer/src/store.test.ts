@@ -1,3 +1,4 @@
+import type { AsyncJob, AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   BackendState,
@@ -226,6 +227,74 @@ describe("deriveSidebarSessionState", () => {
         undefined,
       ),
     ).toBe("awaiting-answer");
+  });
+
+  // Issue #851: background jobs outlive the dispatching turn — the bridge
+  // snapshot's running rows keep the row working, and settled/absent
+  // snapshots never re-arm it.
+  it("keeps the row working while a background job runs (#851)", () => {
+    const job: AsyncJob = {
+      id: "bg_1",
+      type: "bash",
+      status: "running",
+      label: "sleep 120",
+      command: "sleep 120",
+      cwd: "/p",
+      startTime: 1,
+      endTime: null,
+      agentId: null,
+      pids: [1],
+      exitCode: null,
+      outputTail: "",
+      outputTruncated: false,
+    };
+    const snapshot = (running: AsyncJob[]): AsyncJobsSnapshot => ({
+      version: 1,
+      processKey: "p",
+      revision: 1,
+      available: true,
+      unavailable: null,
+      canInspect: true,
+      canCancel: true,
+      running,
+      recent: [],
+      result: null,
+    });
+    expect(
+      h.deriveSidebarSessionState(
+        summary(),
+        rpcTabState({ status: "ready", asyncJobs: snapshot([job]) }),
+        undefined,
+      ),
+    ).toBe("working");
+    expect(
+      h.deriveSidebarSessionState(
+        summary(),
+        rpcTabState({ status: "ready", asyncJobs: snapshot([]) }),
+        undefined,
+      ),
+    ).toBe("ready");
+    const gate = {
+      title: "p",
+      planFilePath: "local://p.md",
+      planAbsPath: null,
+      frameId: "f",
+      proposedAt: "2026-09-09T00:00:00.000Z",
+    };
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), pendingPlan: gate },
+        rpcTabState({ status: "ready", asyncJobs: snapshot([job]) }),
+        undefined,
+      ),
+    ).toBe("awaiting-answer");
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), streamStalled: true },
+        rpcTabState({ status: "ready", asyncJobs: snapshot([job]) }),
+        undefined,
+      ),
+    ).toBe("stalled");
   });
 
   // Issue #436: the host's human-answer level is published level state, not a
