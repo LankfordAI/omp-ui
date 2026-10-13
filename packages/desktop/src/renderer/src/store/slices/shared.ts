@@ -13,6 +13,7 @@ import {
   type SessionCommandType,
 } from "@omp-ui/core/session-command";
 import type { LiveTurn } from "@omp-ui/core/live-voice";
+import { backgroundWorkInFlight } from "../../lib/async-jobs";
 import { formatDuration } from "../../lib/duration";
 import { field, isObj } from "../../lib/fields";
 import {
@@ -364,7 +365,11 @@ export function deriveSidebarSessionState(
   // to see. A row that joined the stream mid-turn, or whose stream is gone,
   // must not read as idle (issue #434) — and a row with no stream at all is
   // the host's to report.
-  const running = summary.turnRunning === true;
+  // Background work outlives the turn that dispatched it (issue #851): the
+  // bridge snapshot's running rows are this client's view of the same level
+  // the hibernation guard reads as hasPendingAsyncWork.
+  const running =
+    summary.turnRunning === true || backgroundWorkInFlight(rpc?.asyncJobs ?? null);
   // The host's human-answer level is a published level, not a stream edge
   // (issue #436): a dialog this client never saw still waits for a person.
   // It outranks this renderer's `running` edge exactly as the local queue

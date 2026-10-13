@@ -16,7 +16,7 @@ import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
 import { projectKey } from "../lib/project-key";
 import type { ContextUsage, SubagentInfo, UsageLimit } from "../lib/rpc-types";
-import { runningJobCount } from "../lib/async-jobs";
+import { backgroundWorkInFlight, runningJobCount } from "../lib/async-jobs";
 import { findInstance, findOwner, findRecord, sessionCwd, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
 import { useDismissal } from "../lib/use-dismissal";
@@ -1054,6 +1054,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const jobsCount = useStore((s) =>
     runningJobCount(s.rpc[tabId]?.asyncJobs ?? null, s.rpc[tabId]?.subagents ?? NO_SUBAGENTS),
   );
+  // The chip label agrees with the sidebar row (issue #434): a ready tab
+  // whose bridge still reports a running job is working, not idle (#851).
+  const backgroundWork = useStore((s) =>
+    backgroundWorkInFlight(s.rpc[tabId]?.asyncJobs ?? null),
+  );
   const refreshAsyncJobs = useStore((s) => s.refreshAsyncJobs);
   // The live session model (frame-owned since config_update): omp resolves
   // compaction.modelThresholds against provider/id, so the notch moves with a
@@ -1120,7 +1125,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
       ? compactionThresholdTokens(usage.contextWindow, compactionSettings,
           model ? { provider: model.provider, id: model.id } : null)
       : null;
-  const face = hibernated ? null : (STATUS[status] ?? STATUS.starting);
+  const face = hibernated
+    ? null
+    : status === "ready" && backgroundWork
+      ? STATUS.running
+      : (STATUS[status] ?? STATUS.starting);
   const resolvedFace = face ?? { ...STATUS.starting, pulse: false };
   const label = hibernated
     ? t("hud.status.hibernated")

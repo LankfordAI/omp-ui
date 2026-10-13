@@ -17,3 +17,17 @@ export function runningJobCount(
     (job) => job.type !== "task" || job.agentId === null || !roster.has(job.agentId),
   ).length;
 }
+
+/**
+ * True while the bridge reports at least one running background job on the
+ * live process (issue #851): background bash and backgrounded task agents
+ * both ride omp's async job manager, which outlives the turn that started
+ * them. An unavailable or absent snapshot reports false — "cannot see the
+ * jobs" is not "a job is running", and the label then falls back to the
+ * turn level alone.
+ */
+export function backgroundWorkInFlight(
+  snapshot: AsyncJobsSnapshot | null,
+): boolean {
+  return snapshot !== null && snapshot.available && snapshot.running.length > 0;
+}

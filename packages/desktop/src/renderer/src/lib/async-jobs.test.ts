@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
-import { runningJobCount } from "./async-jobs";
+import { backgroundWorkInFlight, runningJobCount } from "./async-jobs";
 import type { SubagentInfo } from "./rpc-types";
 
 function snapshot(overrides: Partial<AsyncJobsSnapshot> = {}): AsyncJobsSnapshot {
@@ -76,5 +76,37 @@ describe("runningJobCount", () => {
     expect(
       runningJobCount(snapshot({ available: false, unavailable: "nope", running: [job()] }), agents()),
     ).toBe(0);
+  });
+});
+
+describe("backgroundWorkInFlight", () => {
+  it("reports true while a job is running", () => {
+    expect(backgroundWorkInFlight(snapshot({ running: [job()] }))).toBe(true);
+  });
+
+  it("reports false once only settled recent rows remain", () => {
+    expect(
+      backgroundWorkInFlight(
+        snapshot({
+          recent: [job({ id: "bg_1", status: "completed", exitCode: 0 })],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("reports false for a null snapshot", () => {
+    expect(backgroundWorkInFlight(null)).toBe(false);
+  });
+
+  it("reports false when the bridge is unavailable even with running rows", () => {
+    expect(
+      backgroundWorkInFlight(
+        snapshot({ available: false, unavailable: "nope", running: [job()] }),
+      ),
+    ).toBe(false);
+  });
+
+  it("reports false for an empty running list", () => {
+    expect(backgroundWorkInFlight(snapshot())).toBe(false);
   });
 });

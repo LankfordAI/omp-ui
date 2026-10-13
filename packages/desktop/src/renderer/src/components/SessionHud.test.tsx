@@ -1658,4 +1658,33 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
     expect(useStore.getState().inspectorOpen).toBe(true);
     expect(useStore.getState().railPaneFocus[TAB]?.pane).toBe("jobs");
   });
+
+  // Issue #851: the chip agrees with the sidebar row — a ready tab whose
+  // bridge still reports a running job reads running, not ready.
+  it("reads running on a ready tab while a job runs, ready once it settles (#851)", () => {
+    // A sibling test leaves hibernated[TAB] true; the chip face only applies
+    // to a live tab, so clear the leak.
+    useStore.setState({ hibernated: {} });
+    seedJobs({
+      version: 1, processKey: "p", revision: 1, available: true, unavailable: null,
+      canInspect: true, canCancel: true, recent: [], result: null,
+      running: [job()],
+    });
+    let host = renderWide();
+    expect(
+      host.querySelector('[title*="rpc status"]')?.getAttribute("title"),
+    ).toBe(t("hud.status.rpcStatus", { status: t("hud.status.running") }));
+    act(() => root!.unmount());
+    seedJobs({
+      version: 1, processKey: "p", revision: 1, available: true, unavailable: null,
+      canInspect: true, canCancel: true,
+      running: [],
+      recent: [job({ status: "completed", exitCode: 0 })],
+      result: null,
+    });
+    host = renderWide();
+    expect(
+      host.querySelector('[title*="rpc status"]')?.getAttribute("title"),
+    ).toBe(t("hud.status.rpcStatus", { status: t("hud.status.ready") }));
+  });
 });
