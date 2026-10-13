@@ -675,7 +675,7 @@ export const en = {
   "plan.review.armKeyword": "{keyword} the implementation",
   "plan.review.runAsGoal": "Run as goal",
   "plan.review.runAsGoalHint":
-    "After dispatch, set the plan as this session's goal — omp keeps working until it is complete. With goal.continuationModes set to interactive only, the goal will not auto-continue under rpc-ui.",
+    "After dispatch, set the plan as this session's goal — omp keeps working until it is complete. Auto-continue follows omp's goal.continuationModes setting; keeping the interactive default carries it into rpc-ui.",
   "plan.review.goalOff": "Off in omp's goal.enabled setting — omp would refuse it.",
   "plan.review.goalBusy": "This session already has a goal — drop it before running one.",
   "plan.review.armGoal": "run the implementation as a goal",

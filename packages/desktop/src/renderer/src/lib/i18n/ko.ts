@@ -632,7 +632,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "plan.review.armKeyword": "구현에 {keyword} 적용",
   "plan.review.runAsGoal": "목표로 실행",
   "plan.review.runAsGoalHint":
-    "전송 후 이 플랜을 이 세션의 목표로 설정합니다 — omp가 완료까지 계속 작업합니다. goal.continuationModes가 interactive뿐이면 rpc-ui에서 목표가 자동 계속되지 않습니다.",
+    "전송 후 이 플랜을 이 세션의 목표로 설정합니다 — omp가 완료까지 계속 작업합니다. 자동 계속 진행은 omp의 goal.continuationModes 설정을 따르며, 기본값인 interactive를 유지하면 rpc-ui에서도 계속됩니다.",
   "plan.review.goalOff": "omp의 goal.enabled 설정에서 꺼져 있어 omp가 거부합니다.",
   "plan.review.goalBusy": "이 세션에는 이미 목표가 있습니다 — 먼저 목표를 삭제하세요.",
   "plan.review.armGoal": "구현을 목표로 실행",
