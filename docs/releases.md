@@ -4,10 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- omp-ui requires omp 18.8.8 or later: below that harness floor the launch check downloads and installs the latest managed `omp` automatically unless **Auto-upgrade** is off or `OMP_UI_OMP_PATH` pins a binary, version-gated features appear disabled with the required version instead of vanishing, and **Later** never persists below the floor ([#849](https://github.com/LankfordAI/omp-ui/issues/849)).
-- `/guided-goal` and the lab's interview kickoff no longer dump their raw `<objective-draft>` / `<experiment-draft>` tag lines into the YOU bubble; the rough objective renders as a captioned data block in the native transcript (#850).
-- The session label stays *working* while a background job still runs: the sidebar row and HUD status chip consult the async-jobs bridge instead of flipping to ready at the dispatching turn's `agent_end` (#851).
-- Private sessions opt out of memory writes: a new-session-menu option pins the session write-quiet — a per-lineage overlay closes the passive retain/autolearn channels and a generated bridge unmounts `learn`/`retain`/`manage_skill`/`memory_edit` — while recall stays live; a lock glyph marks the row and HUD (#852).
+Nothing since [v0.23.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
