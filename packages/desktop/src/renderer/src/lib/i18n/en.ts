@@ -821,6 +821,17 @@ export const en = {
   "settings.general.voiceInput": "Voice input",
   "settings.general.voiceInputHint":
     "Adds a microphone button to every composer; each phrase is transcribed by the provider below when you pause and inserted into the draft, never sent.",
+  "settings.general.audioDevice": "Audio device",
+  "settings.general.audioDeviceHint":
+    "Microphone and speakers for dictation and live voice. Sets the system-wide default while active.",
+  "settings.general.audioDeviceUnsupportedHint":
+    "Device selection isn’t supported on this platform yet; the system default is used.",
+  "settings.general.audioDeviceSystemDefault": "System default",
+  "settings.general.audioDeviceDefaultChip": "Default",
+  "settings.general.audioDeviceInput": "(input)",
+  "settings.general.audioDeviceOutput": "(output)",
+  "settings.general.audioDeviceInputOutput": "(input/output)",
+  "settings.general.audioDeviceNotConnected": "(not connected)",
   "settings.general.liveWorkParking": "Park live voice while the assistant works",
   "settings.general.liveWorkParkingHint":
     "When a spoken request hands work to the assistant, the live call closes while it works and reopens when there is something to say — no realtime model runs during the wait. Turning this off keeps the call open the whole time.",

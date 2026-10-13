@@ -142,6 +142,8 @@ import { NO_BREADCRUMBS, type BreadcrumbSink } from "./breadcrumbs";
 import { readExperimentDetail, readProjectExperiments, readRunLog } from "./experiments";
 import { registerSettingsHandlers } from "./settings-handlers";
 import { registerSttHandlers } from "./stt-handlers";
+import { registerAudioHandlers } from "./audio-handlers";
+import { applyAudioDevice, execPactlRunner } from "./audio-devices";
 import { registerLiveAudioHandlers } from "./live-audio";
 import { registerLiveTranscriptHandlers } from "./live-transcript";
 import { registerRemoteHandlers } from "./remote-handlers";
@@ -443,6 +445,16 @@ export class MainBackend {
         .filter((s) => s.worktree)
         .map((s) => path.resolve(s.worktree!.path)),
     );
+    // The audio device choice is persisted intent (issue #855): another app
+    // may have moved the OS default since the last run, so every start
+    // re-asserts the stored device. Best-effort — an unplugged or gone device
+    // logs and leaves the OS default; never a dialog, never a failed launch.
+    const storedAudioDevice = this.registry.getSetting("audioDevice");
+    if (storedAudioDevice !== null) {
+      void applyAudioDevice(execPactlRunner(), storedAudioDevice).catch((err: unknown) => {
+        console.warn("[backend] audio device re-apply failed:", err);
+      });
+    }
     void sweepOrphanWorktrees(this.worktreesRoot, referencedWorktrees)
       .then((removed) => {
         if (removed.length > 0) {
@@ -770,6 +782,10 @@ export class MainBackend {
         ...registerSttHandlers({
           registry: this.registry,
           ompPath: this.ompPath,
+        }),
+        ...registerAudioHandlers({
+          registry: this.registry,
+          broadcast: () => this.broadcast(),
         }),
         ...registerLiveAudioHandlers({
           registry: this.registry,
@@ -1600,6 +1616,7 @@ export class MainBackend {
       liveWorkParking: this.registry.getSetting("liveWorkParking"),
       liveProgressReportMinutes: this.registry.getSetting("liveProgressReportMinutes"),
       sttModel: this.registry.getSetting("sttModel"),
+      audioDevice: this.registry.getSetting("audioDevice"),
       glassChrome: this.registry.getSetting("glassChrome"),
       localeId: this.registry.getSetting("localeId"),
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),

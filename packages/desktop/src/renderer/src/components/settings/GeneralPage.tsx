@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SttModelSnapshot } from "@omp-ui/core/types";
 import { cn } from "../../lib/cn";
+import { AudioDevicePicker, type AudioDevicesLoad } from "./AudioDevicePicker";
+import { IS_ELECTRON } from "../../lib/platform";
 import {
   SCALE_STEPS,
   setTranscriptScale,
@@ -362,6 +364,9 @@ export function GeneralPage() {
   const setVoiceInputEnabled = useStore((s) => s.setVoiceInputEnabled);
   const setLiveWorkParking = useStore((s) => s.setLiveWorkParking);
   const setLiveProgressReportMinutes = useStore((s) => s.setLiveProgressReportMinutes);
+  const setAudioDevice = useStore((s) => s.setAudioDevice);
+  const readAudioDevices = useStore((s) => s.readAudioDevices);
+  const [audioDevices, setAudioDevices] = useState<AudioDevicesLoad>({ status: "loading" });
   const setSttModel = useStore((s) => s.setSttModel);
   const readSttModels = useStore((s) => s.readSttModels);
   const [sttModels, setSttModels] = useState<SttModelsLoad>({ status: "loading" });
@@ -385,6 +390,21 @@ export function GeneralPage() {
         }),
     );
   }, [readSttModels]);
+
+  // One read per General mount, exactly like the STT probe: devices hot-plug with
+  // no subscribable event (issue #855). The row itself is Electron-only — a remote
+  // web client never sees it — so the read rides the same gate.
+  useEffect(() => {
+    if (!IS_ELECTRON) return;
+    readAudioDevices().then(
+      (snapshot) => setAudioDevices({ status: "loaded", snapshot }),
+      (err: unknown) =>
+        setAudioDevices({
+          status: "loaded",
+          snapshot: { devices: [], current: null, supported: false, error: displayMessage(err) },
+        }),
+    );
+  }, [readAudioDevices]);
 
   return (
     <div className="divide-y divide-line-soft px-4">
@@ -541,6 +561,23 @@ export function GeneralPage() {
           label={t("settings.general.voiceInput")}
         />
       </Row>
+      {IS_ELECTRON && (
+        <Row
+          title={t("settings.general.audioDevice")}
+          hint={t(
+            audioDevices.status === "loaded" && !audioDevices.snapshot.supported
+              ? "settings.general.audioDeviceUnsupportedHint"
+              : "settings.general.audioDeviceHint",
+          )}
+          stacked
+        >
+          <AudioDevicePicker
+            value={state?.audioDevice ?? null}
+            load={audioDevices}
+            onSelect={(id) => void setAudioDevice(id)}
+          />
+        </Row>
+      )}
       <Row
         title={t("settings.general.liveWorkParking")}
         hint={t("settings.general.liveWorkParkingHint")}

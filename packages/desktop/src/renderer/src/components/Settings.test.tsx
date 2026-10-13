@@ -4,8 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateState,
-  JudgeModelSnapshot,
+  AudioDevicesSnapshot,
   ModelCatalogSnapshot,
+  JudgeModelSnapshot,
   MemoryOverview,
   OmpSettingValue,
   OmpSettingsSnapshot,
@@ -22,6 +23,18 @@ import type {
 import { backendState, tabInfo } from "../test/fixtures";
 import type { SettingsPage } from "../store";
 import { applyLocale, resolveLocale, t } from "../lib/i18n";
+
+// The General page gates the audio-device row on the Electron shell (issue #855);
+// the hoisted flag lets one suite opt in while every other test keeps jsdom's
+// browser identity.
+const platform = vi.hoisted(() => ({ electron: false }));
+vi.mock("../lib/platform", () => ({
+  get IS_ELECTRON() {
+    return platform.electron;
+  },
+  IS_MAC: false,
+  IS_WINDOWS: false,
+}));
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -157,6 +170,13 @@ const backendMock = {
   ),
   readWebSearchProviders: vi.fn(async () => emptyWebSearchProviders),
   readSttModels: vi.fn(async () => ({ models: [], discovered: true, error: null })),
+  readAudioDevices: vi.fn(async (): Promise<AudioDevicesSnapshot> => ({
+    devices: [],
+    current: null,
+    supported: false,
+    error: "device selection is not yet supported on this platform",
+  })),
+  setAudioDevice: vi.fn(async () => {}),
   readJudgeModels: vi.fn(async (): Promise<JudgeModelSnapshot> => ({
     models: [],
     discovered: true,
@@ -275,6 +295,7 @@ function click(el: HTMLElement): void {
 
 afterEach(() => {
   vi.clearAllMocks();
+  platform.electron = false;
   // Locale state is module-global; every test starts from the default.
   applyLocale(resolveLocale("en"));
   if (root !== null) {
@@ -2737,5 +2758,101 @@ describe("Settings omp Tool approval section (issue #681)", () => {
     await renderSettings();
     expect(document.body.textContent).not.toContain("Tool approval");
     expect(backendMock.getProjectApprovalMode).not.toHaveBeenCalled();
+  });
+});
+
+describe("Settings General audio device row (issue #855)", () => {
+  const seedGeneral = (audioDevice: string | null): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ audioDevice }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+  const audioButtons = (): HTMLButtonElement[] => [
+    ...document.body.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Audio device"] button'),
+  ];
+  const pressedLabel = (): string | null =>
+    audioButtons().find((button) => button.getAttribute("aria-pressed") === "true")?.textContent ?? null;
+
+  it("lists the enumerated devices with the default chip and persists a pick", async () => {
+    platform.electron = true;
+    backendMock.readAudioDevices.mockResolvedValue({
+      devices: [
+        { id: "AT2020 USB", isDefault: true, hasInput: true, hasOutput: false },
+        { id: "Schiit Unison Universal Dac", isDefault: false, hasInput: false, hasOutput: true },
+      ],
+      current: "AT2020 USB",
+      supported: true,
+      error: null,
+    });
+    seedGeneral("AT2020 USB");
+    await renderSettings();
+    const labels = audioButtons().map((button) => button.textContent);
+    expect(labels.some((label) => label?.startsWith("System default"))).toBe(true);
+    expect(labels.some((label) => label === "AT2020 USB (input)Default")).toBe(true);
+    expect(labels.some((label) => label === "Schiit Unison Universal Dac (output)")).toBe(true);
+    expect(pressedLabel()).toContain("AT2020 USB");
+
+    const dac = audioButtons().find((button) => button.textContent === "Schiit Unison Universal Dac (output)")!;
+    click(dac);
+    expect(backendMock.setAudioDevice).toHaveBeenCalledWith("Schiit Unison Universal Dac");
+  });
+
+  it("selecting System default clears the stored device", async () => {
+    platform.electron = true;
+    backendMock.readAudioDevices.mockResolvedValue({
+      devices: [{ id: "AT2020 USB", isDefault: false, hasInput: true, hasOutput: false }],
+      current: "AT2020 USB",
+      supported: true,
+      error: null,
+    });
+    seedGeneral("AT2020 USB");
+    await renderSettings();
+    const system = audioButtons().find((button) => button.textContent === "System default")!;
+    click(system);
+    expect(backendMock.setAudioDevice).toHaveBeenCalledWith(null);
+  });
+
+  it("shows a stored device the live list lost as not connected", async () => {
+    platform.electron = true;
+    backendMock.readAudioDevices.mockResolvedValue({
+      devices: [{ id: "USB DAC", isDefault: true, hasInput: false, hasOutput: true }],
+      current: "AT2020 USB",
+      supported: true,
+      error: null,
+    });
+    seedGeneral("AT2020 USB");
+    await renderSettings();
+    expect(pressedLabel()).toBe("AT2020 USB (not connected)");
+  });
+
+  it("the unsupported snapshot collapses to a disabled System default with the platform hint", async () => {
+    platform.electron = true;
+    backendMock.readAudioDevices.mockResolvedValue({
+      devices: [],
+      current: null,
+      supported: false,
+      error: "device selection is not yet supported on this platform",
+    });
+    seedGeneral(null);
+    await renderSettings();
+    expect(audioButtons()).toHaveLength(1);
+    expect(audioButtons()[0]!.disabled).toBe(true);
+    expect(audioButtons()[0]!.textContent).toBe("System default");
+    expect(document.body.textContent).toContain(
+      "Device selection isn’t supported on this platform yet",
+    );
+  });
+
+  it("a remote web client never sees the row", async () => {
+    platform.electron = false;
+    seedGeneral(null);
+    await renderSettings();
+    expect(document.body.textContent).not.toContain("Audio device");
+    expect(backendMock.readAudioDevices).not.toHaveBeenCalled();
   });
 });

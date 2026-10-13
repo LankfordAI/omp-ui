@@ -251,6 +251,17 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setAudioDevice(id) {
+      // No optimistic patch: the picker's truth is the snapshot's devices +
+      // current, and a failed OS-default apply must leave the stored choice
+      // visible with the toast saying it did not take effect (issue #855).
+      try {
+        await backend.setAudioDevice(id);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setThemeId(id) {
       const previousId = currentThemeId();
       applyTheme(resolveTheme(id));
@@ -513,6 +524,12 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       // belongs to the installed omp version and the provider keys, both of
       // which change without any event the store could subscribe to.
       return backend.readSttModels();
+    },
+
+    readAudioDevices() {
+      // Uncached on purpose, exactly like readSttModels: devices hot-plug with
+      // no event the store could subscribe to (issue #855).
+      return backend.readAudioDevices();
     },
 
     readJudgeModels() {

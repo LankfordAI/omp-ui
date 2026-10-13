@@ -4,6 +4,7 @@ import type { ProjectSettingsSectionId } from "../components/ProjectSettings";
 import type {
   AgentMode,
   ApprovalMode,
+  AudioDevicesSnapshot,
   ServiceTier,
   AdvisorDefaults,
   AppUpdateRestartResult,
@@ -534,6 +535,8 @@ export interface SettingsSlice {
   setLiveProgressReportMinutes(minutes: number | null): Promise<void>;
   /** The app-wide dictation model; null auto-resolves at call time. */
   setSttModel(model: string | null): Promise<void>;
+  /** The app-wide audio device (issue #855); null = OS default. */
+  setAudioDevice(id: string | null): Promise<void>;
   setThemeId(id: string): Promise<void>;
   setFontFamilyId(id: string): Promise<void>;
   setTranscriptWidth(width: TranscriptWidth): Promise<void>;
@@ -577,6 +580,8 @@ export interface SettingsSlice {
   readWebSearchProviders(): Promise<WebSearchProviderSnapshot>;
   /** The installed omp's STT catalog for the dictation picker (issue #647). */
   readSttModels(): Promise<SttModelSnapshot>;
+  /** The machine's audio devices for the audio-device picker (issue #855). */
+  readAudioDevices(): Promise<AudioDevicesSnapshot>;
   readProviderKeys(projectCwd: string | null): Promise<ProviderKeysSnapshot>;
   /** The installed omp's judge-kind catalog for the judge role row (issue #669). */
   readJudgeModels(): Promise<JudgeModelSnapshot>;
