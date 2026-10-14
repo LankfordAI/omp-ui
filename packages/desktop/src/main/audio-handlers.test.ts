@@ -49,6 +49,7 @@ describe("audio:setDevice handler", () => {
       },
       run: pactl((args) => {
         if (args[0] === "set-default-source") order.push("apply");
+        if (args[0] === "get-default-source") return "alsa_input.usb-at2020.analog-stereo";
         return args[0] === "--format=json" && args[2] === "sources" ? SOURCES : "[]";
       }),
       platform: "linux",

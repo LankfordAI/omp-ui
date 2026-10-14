@@ -114,6 +114,7 @@ describe("applyAudioDevice", () => {
       ["--format=json", "list", "sources"],
       ["--format=json", "list", "sinks"],
       ["set-default-sink", "alsa_output.usb-dac.analog-stereo"],
+      ["get-default-sink"],
     ]);
     expect(calls.some((args) => args[0] === "set-default-source")).toBe(false);
   });
@@ -195,5 +196,38 @@ describe("applyAudioDevice", () => {
       ["set-default-source", "alsa_input.a"],
       ["set-default-source", "alsa_input.b"],
     ]);
+  });
+
+  it("rejects naming the kept device when the session manager refuses the set (issue #865)", async () => {
+    // pactl accepts set-default-source, yet the effective default never moves:
+    // WirePlumber dropped the AT2020 from its default-node candidates.
+    const { runner } = fixtureRunner({
+      "--format=json list sources": JSON.stringify([
+        node("alsa_input.usb-at2020.analog-stereo", "AT2020 USB"),
+        node("alsa_input.pci-ryzen.analog-stereo", "Ryzen HD Audio Controller"),
+      ]),
+      "--format=json list sinks": "[]",
+      "get-default-source": "alsa_input.pci-ryzen.analog-stereo\n",
+    });
+    await expect(applyAudioDevice(runner, "AT2020 USB", "input")).rejects.toThrow(
+      /kept "Ryzen HD Audio Controller".*"AT2020 USB"/,
+    );
+  });
+
+  it("resolves once a slow session manager moves the effective default", async () => {
+    let reads = 0;
+    const { runner } = fixtureRunner({
+      "--format=json list sources": JSON.stringify([node("alsa_input.usb-at2020.analog-stereo", "AT2020 USB")]),
+      "--format=json list sinks": "[]",
+    });
+    const slow: typeof runner = {
+      run: async (cmd, args) => {
+        if (args[0] !== "get-default-source") return runner.run(cmd, args);
+        reads += 1;
+        return reads < 3 ? "alsa_input.pci-ryzen.analog-stereo\n" : "alsa_input.usb-at2020.analog-stereo\n";
+      },
+    };
+    await expect(applyAudioDevice(slow, "AT2020 USB", "input")).resolves.toBeUndefined();
+    expect(reads).toBe(3);
   });
 });

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 import type { AudioDeviceEntry, AudioDeviceRole } from "@omp-ui/core";
 
@@ -79,11 +80,18 @@ async function enumerate(deps: AudioDeviceRunner): Promise<NodeMap> {
   return map;
 }
 
-/** The label owning the OS default for one `get-default-*` query; null when unresolved. */
-async function defaultLabel(
+/** The label owning `name`, from either role's nodes; null when unknown. */
+function labelForNode(map: NodeMap, name: string): string | null {
+  for (const [label, nodes] of Object.entries(map)) {
+    if (nodes.sources.includes(name) || nodes.sinks.includes(name)) return label;
+  }
+  return null;
+}
+
+/** The node the OS default resolves to for one `get-default-*` query; null when unresolved. */
+async function defaultNode(
   deps: AudioDeviceRunner,
   query: "get-default-source" | "get-default-sink",
-  map: NodeMap,
 ): Promise<string | null> {
   // Best-effort per the fallback chain: a failing query leaves the default
   // unmarked rather than failing the whole read.
@@ -94,11 +102,17 @@ async function defaultLabel(
     return null;
   }
   const name = out.trim();
-  if (name === "" || name === "N/A") return null;
-  for (const [label, nodes] of Object.entries(map)) {
-    if (nodes.sources.includes(name) || nodes.sinks.includes(name)) return label;
-  }
-  return null;
+  return name === "" || name === "N/A" ? null : name;
+}
+
+/** The label owning the OS default for one `get-default-*` query; null when unresolved. */
+async function defaultLabel(
+  deps: AudioDeviceRunner,
+  query: "get-default-source" | "get-default-sink",
+  map: NodeMap,
+): Promise<string | null> {
+  const name = await defaultNode(deps, query);
+  return name === null ? null : labelForNode(map, name);
 }
 
 /**
@@ -139,6 +153,12 @@ export async function readAudioDevices(deps: AudioDeviceRunner): Promise<AudioDe
  * role, is "not connected" for that role: log and leave the OS default, so a
  * legacy cross-role seed never hijacks the other side. null means "system
  * default": persisted intent only, nothing to assert (issue #857).
+ *
+ * A `set-default-*` exit of 0 only records the *configured* default; the
+ * session manager picks the *effective* one, and WirePlumber can refuse a
+ * node outright (issue #865: invalid UTF-8 in a card's props drops it from
+ * the default-node candidates). So the apply re-reads the effective default
+ * and throws when it did not land on one of the chosen nodes.
  */
 export async function applyAudioDevice(
   deps: AudioDeviceRunner,
@@ -174,4 +194,40 @@ export async function applyAudioDevice(
     throw new Error(`could not select audio ${role} device "${deviceId}": ${failures.join("; ")}`);
   }
   for (const failure of failures) console.warn(`[audio] ${failure}`);
+  const effective = await settledDefault(
+    deps,
+    role === "input" ? "get-default-source" : "get-default-sink",
+    names,
+  );
+  // An unreadable default is neither proof of refusal nor of success; only a
+  // positive mismatch throws.
+  if (effective === null || names.includes(effective)) return;
+  const kept = labelForNode(map, effective) ?? effective;
+  throw new Error(
+    `the system kept "${kept}" as the default audio ${role}: the session manager did not accept "${deviceId}"`,
+  );
+}
+
+/** Effective-default polls after a set: the session manager rescans asynchronously. */
+const VERIFY_ATTEMPTS = 5;
+const VERIFY_INTERVAL_MS = 40;
+
+/**
+ * The effective default node once it lands on one of `wanted`, or the last
+ * value read after the polls run out. Measured on PipeWire 1.6 / WirePlumber
+ * 0.5 the default has already moved by the first read; the polls only cover
+ * a slower session manager.
+ */
+async function settledDefault(
+  deps: AudioDeviceRunner,
+  query: "get-default-source" | "get-default-sink",
+  wanted: string[],
+): Promise<string | null> {
+  let current: string | null = null;
+  for (let attempt = 0; attempt < VERIFY_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await sleep(VERIFY_INTERVAL_MS);
+    current = await defaultNode(deps, query);
+    if (current !== null && wanted.includes(current)) return current;
+  }
+  return current;
 }

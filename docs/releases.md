@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.23.4](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.4). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Choosing an audio device in Settings now fails visibly when the system keeps a different device as its default, instead of showing the choice as applied while capture uses another mic (#865).
 
 ## Choose a download
 
