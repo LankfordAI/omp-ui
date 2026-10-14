@@ -78,6 +78,7 @@ interface Session {
   goalStatus: string | null;
   activateCalls: string[][];
   deactivateCalls: string[][];
+  toolCalls: Array<{ name: string; args: unknown[] }>;
   disposeCalls: number;
   listeners: ((event: { type: string }) => void)[];
   prompt(text: string): Promise<boolean>;
@@ -136,6 +137,8 @@ function harness(options: { vibeModule?: boolean } = {}): Harness {
     workers: Worker[] = [];
     killCalls: string[] = [];
     spawnCalls: Array<Record<string, unknown>> = [];
+    /** Every mounted-tool execute the bridge makes, for the invocation contract. */
+    toolCalls: Array<{ name: string; args: unknown[] }> = [];
     isStreaming = false;
     planMode: boolean;
     goalStatus: string | null;
@@ -203,7 +206,12 @@ function harness(options: { vibeModule?: boolean } = {}): Harness {
 
     getToolByName(name: string): { execute: (...args: unknown[]) => unknown } | undefined {
       if (!this.mounted) return undefined;
-      return { execute: (...args: unknown[]) => this.runTool(name, args) };
+      return {
+        execute: (...args: unknown[]) => {
+          this.toolCalls.push({ name, args });
+          return this.runTool(name, args);
+        },
+      };
     }
 
     getEnabledToolNames(): string[] {
@@ -246,6 +254,12 @@ function harness(options: { vibeModule?: boolean } = {}): Harness {
 
     /** The vibe_* tools' shared execute: worker semantics live only here. */
     private runTool(name: string, args: unknown[]): unknown {
+      // omp's wrapper runs the tool-call preflight before the body, and an
+      // undefined id crashes inside the rule engine (issue #864); mirror the
+      // shape here so every test fails loudly on a missing call id.
+      if (typeof args[0] !== "string" || args[0] === "") {
+        throw new TypeError(name + " execute requires a defined string tool-call id");
+      }
       if (this.throwing.has(name)) throw new Error(name + " exploded");
       const input = (args[1] ?? {}) as Record<string, unknown>;
       const text = (body: string, details: Record<string, unknown>): unknown => ({
@@ -621,6 +635,34 @@ describe("vibe worker commands", () => {
     await h.command({ command: "list", sessionId: root.id });
     expect(h.snapshot().result?.text).toContain("Alpha");
     expect(h.snapshot().result?.text).toContain("running");
+  });
+
+  it("invites every tool with a defined tool-call id", async () => {
+    // The #864 regression: omp's tool-call preflight dereferences a cache
+    // read when the id is undefined, so no bridge-initiated execute may ever
+    // lead with anything but a unique non-empty string id.
+    const h = harness();
+    const root = await armed(h);
+    await h.command({ command: "toggle", sessionId: root.id });
+    await h.command({ command: "spawn", args: JSON.stringify({ prompt: "go" }), sessionId: root.id });
+    const id = String(root.spawnCalls[0]?.id);
+    await h.command({ command: "list", sessionId: root.id });
+    await h.command({ command: "kill", args: JSON.stringify({ session: id }), sessionId: root.id });
+    await h.command({ command: "toggle", sessionId: root.id });
+    const called = new Set(root.toolCalls.map((call) => call.name));
+    expect(called.has("vibe_list")).toBe(true);
+    expect(called.has("vibe_spawn")).toBe(true);
+    expect(called.has("vibe_kill")).toBe(true);
+    expect(root.toolCalls.length).toBeGreaterThan(0);
+    for (const call of root.toolCalls) {
+      expect(typeof call.args[0]).toBe("string");
+      expect(String(call.args[0])).not.toBe("");
+      if (call.name !== "vibe_list") {
+        expect(typeof call.args[1]).toBe("object");
+      }
+    }
+    const ids = root.toolCalls.map((call) => call.args[0]);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 
