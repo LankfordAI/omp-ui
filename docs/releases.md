@@ -4,7 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.23.3](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.3). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Vibe bridge commands no longer time out after mode activation: every bridge `execute` now carries a synthetic unique tool-call id, so omp's tool-call preflight no longer dereferences an undefined id and crashes the session process mid-run (#864).
+- Ghost completion now answers inside a slash command's argument: the composer elides the command word when asking omp to predict, so a slash draft ending in a prose word gets its ghost word like any other draft (#861).
 
 ## Choose a download
 
