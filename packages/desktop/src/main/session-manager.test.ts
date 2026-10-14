@@ -9,6 +9,7 @@ import type { KeyCipher, PtyHandle } from "@omp-ui/core";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { CH } from "@omp-ui/core";
 import { SessionManager, type SessionManagerDependencies } from "./session-manager";
+import { resetGoalContinuationModesCache } from "./spawn-config";
 import type { PaneContents, PaneEvent } from "./browser-pane-contents";
 import type { BridgeListener } from "./browser-pane-bridge";
 import type { Attention } from "./desktop-notifier";
@@ -386,6 +387,7 @@ beforeEach(() => {
     configuredOrder: ["remote", "soft", "shake"],
   });
   readOmpGoalContinuationModesMock.mockReset();
+  resetGoalContinuationModesCache();
   readOmpGoalContinuationModesMock.mockResolvedValue(["interactive"]);
   findObsidianListMock.mockReset();
   findObsidianListMock.mockResolvedValue(null);

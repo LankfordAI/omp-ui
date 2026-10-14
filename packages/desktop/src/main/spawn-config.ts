@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 import {
   hydrateSessionFile,
@@ -9,6 +11,7 @@ import {
   unarchiveSession,
   type ReviewDocument,
   readOmpCompactionMethods,
+  getOmpAgentDir,
   readOmpGoalContinuationModes,
   rpcGoalContinuationModes,
   type OwnedSessionRecord,
@@ -150,6 +153,64 @@ export function writeSessionOverlays(
   return overlays;
 }
 
+/**
+ * The goal probe boots a whole omp process just to read one config value, so
+ * memoize it across spawns: the answer only changes when the binary or one of
+ * the config layers omp merges for the probe cwd changes. Key on the binary
+ * path plus a content hash of those layers (global agent config, the
+ * project's `.omp/` config, HOME); any edit — settings UI, CLI, manual —
+ * busts the key and the next spawn re-probes. Failures are not cached.
+ */
+const goalContinuationModesCache = new Map<string, Promise<string[]>>();
+
+/** Content fingerprint of the config layers `goal.continuationModes` resolves from. */
+function configFingerprint(projectCwd: string | null): string {
+  const files = [
+    path.join(getOmpAgentDir(process.env), "config.yml"),
+    path.join(getOmpAgentDir(process.env), "config.yaml"),
+  ];
+  if (projectCwd !== null) {
+    files.push(
+      path.join(projectCwd, ".omp", "config.yml"),
+      path.join(projectCwd, ".omp", "config.yaml"),
+    );
+  }
+  const hash = createHash("sha256");
+  hash.update(process.env.HOME ?? "");
+  for (const file of files) {
+    hash.update("\n");
+    try {
+      hash.update(fs.readFileSync(file));
+    } catch {
+      hash.update("<absent>");
+    }
+  }
+  return hash.digest("hex");
+}
+
+/** Memoized `readOmpGoalContinuationModes`; same value, same config, no subprocess. */
+export function readGoalContinuationModesCached(
+  ompPath: string,
+  projectCwd: string | null,
+): Promise<string[]> {
+  const key = `${ompPath}|${projectCwd ?? ""}|${configFingerprint(projectCwd)}`;
+  const cached = goalContinuationModesCache.get(key);
+  if (cached !== undefined) return cached;
+  const probe = readOmpGoalContinuationModes({ ompPath, projectCwd });
+  goalContinuationModesCache.set(key, probe);
+  probe.catch(() => {
+    if (goalContinuationModesCache.get(key) === probe) {
+      goalContinuationModesCache.delete(key);
+    }
+  });
+  return probe;
+}
+
+/** Test seam: forget every memoized goal probe. */
+export function resetGoalContinuationModesCache(): void {
+  goalContinuationModesCache.clear();
+}
+
 export async function writeRpcOverlays(
   record: OwnedSessionRecord,
   absLineageDir: string,
@@ -161,7 +222,7 @@ export async function writeRpcOverlays(
   const projectCwd = record.worktree?.path ?? record.projectCwd;
   // Read concurrently with the compaction probe: omp continues goals only in the
   // modes `goal.continuationModes` lists, and rpc-ui is mode "rpc" (ADR-0046).
-  const goalModes = readOmpGoalContinuationModes({ ompPath, projectCwd }).then(
+  const goalModes = readGoalContinuationModesCached(ompPath, projectCwd).then(
     (configured) => rpcGoalContinuationModes(configured),
     (err: unknown) => {
       console.warn(
