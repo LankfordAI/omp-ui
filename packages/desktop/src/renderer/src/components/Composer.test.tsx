@@ -2602,6 +2602,8 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
 
 describe("ghost completion (issue #715)", () => {
   const DRAFT = "please implement the featu";
+  const SLASH_DRAFT = "/goal set finish the featu"; // lead "/goal " elided → 6
+  const SLASH_ASK = "set finish the featu"; // omp is asked about this
   /** Pending predictWord answers, oldest first. */
   let answers: Array<(suffix: string | null) => void>;
   let predict: Mock<(tabId: string, text: string, cursor: number) => Promise<string | null>>;
@@ -2753,18 +2755,117 @@ describe("ghost completion (issue #715)", () => {
     expect(ghostText()).toBeNull();
   });
 
-  it("never asks about a slash draft", () => {
+  it("asks about a slash command's argument with the command word elided", async () => {
     renderComposer();
-    typeDraft("/plan featu");
+    typeDraft(SLASH_DRAFT);
+    elapse(100);
+    expect(predict).toHaveBeenCalledWith(TAB, SLASH_ASK, 20);
+    await answer("re");
+    expect(ghostText()).toBe("re");
+  });
+
+  it("never asks while the command word is all there is", () => {
+    renderComposer();
+    typeDraft("/goal");
+    elapse(1000);
+    typeDraft("/goal ");
     elapse(1000);
     expect(predict).not.toHaveBeenCalled();
+  });
+
+  it("Tab takes a ghost inside a slash argument and reports the elided accept", async () => {
+    renderComposer();
+    const box = typeDraft(SLASH_DRAFT);
+    elapse(100);
+    await answer("re");
+    expect(ghostText()).toBe("re");
+    const tab = press(box, "Tab");
+    expect(tab.defaultPrevented).toBe(true);
+    expect(box.value).toBe("/goal set finish the feature ");
+    expect(ghostText()).toBeNull();
+    expect(sendWordPredictionFeedback).toHaveBeenCalledWith(TAB, {
+      text: SLASH_ASK,
+      cursor: 20,
+      suggestion: "re",
+      accepted: true,
+    });
+  });
+
+  it("typing through a slash argument ghost projects; diverging rejects elided", async () => {
+    renderComposer();
+    typeDraft(SLASH_DRAFT);
+    elapse(100);
+    await answer("re");
+    expect(ghostText()).toBe("re");
+    typeDraft(`${SLASH_DRAFT}r`);
+    expect(ghostText()).toBe("e");
+    expect(sendWordPredictionFeedback).not.toHaveBeenCalled();
+
+    typeDraft(`${SLASH_DRAFT}rx`);
+    expect(ghostText()).toBeNull();
+    expect(sendWordPredictionFeedback).toHaveBeenCalledTimes(1);
+    // The rejection carries the elided ghost as it stood before the keystroke.
+    expect(sendWordPredictionFeedback).toHaveBeenCalledWith(TAB, {
+      text: "set finish the featur",
+      cursor: 21,
+      suggestion: "e",
+      accepted: false,
+    });
+  });
+
+  it("a prose ghost never re-paints for a slash draft", async () => {
+    // The ghost state is keyed on the real draft, not the elided text omp was
+    // given: an answer for prose must not answer a command that merely ends
+    // with the same words.
+    await showGhost();
+    typeDraft(`/goal set ${DRAFT}`);
+    expect(ghostText()).toBeNull();
   });
 
   it("never asks about a shell draft", () => {
     renderComposer();
     typeDraft("!ls");
     elapse(1000);
+    // omp's own gate WOULD answer "re" for this line — the host's exclusion of
+    // shell commands is deliberate, not a shared gate (#861).
+    typeDraft("!echo please implement the featu");
+    elapse(1000);
     expect(predict).not.toHaveBeenCalled();
+  });
+
+  it("the slash palette owns Tab, and the ghost takes over when it steps aside", () => {
+    const compact: SlashCommandInfo = {
+      name: "compact",
+      description: "compact the context",
+      source: "builtin",
+      input: { hint: "[soft|remote|snapcompact] [focus]" },
+      subcommands: [
+        { name: "soft", description: "soft compaction", usage: "[focus]" },
+        { name: "remote", description: "remote compaction", usage: "[focus]" },
+        { name: "snapcompact", description: "snap compaction" },
+      ],
+    };
+    useStore.setState({
+      rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, commands: [compact] } },
+    });
+    renderComposer();
+    /** The mounted palette rows as `/command sub` labels (#382 suite's helper). */
+    const slashRows = (): string[] =>
+      [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+        .map((button) => button.getAttribute("aria-label") ?? "")
+        .filter((label) => label.startsWith("/"))
+        .map((label) => label.split(": ")[0]!);
+    typeDraft("/compact s");
+    elapse(100);
+    // Palette open over the subcommand needle: the ghost stays out of its way.
+    expect(slashRows()).toEqual(["/compact soft", "/compact snapcompact"]);
+    expect(predict).not.toHaveBeenCalled();
+    // The argument matches no subcommand name: the palette steps aside and the
+    // ghost asks with the command word elided (prefix 9).
+    typeDraft("/compact focus on db");
+    expect(slashRows()).toEqual([]);
+    elapse(100);
+    expect(predict).toHaveBeenCalledWith(TAB, "focus on db", 11);
   });
 
   it("never asks while the caret sits before the end of the draft", () => {
