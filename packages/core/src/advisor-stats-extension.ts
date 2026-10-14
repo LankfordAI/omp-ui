@@ -44,6 +44,7 @@ function extensionSource(): string {
 const STATUS_KEY = ${JSON.stringify(ADVISOR_STATS_KEY)};
 const COMMAND = ${JSON.stringify(ADVISOR_STATS_COMMAND)};
 const POLL_MS = 2000;
+const POLL_IDLE_MS = 10000;
 
 ${generatedPollTimerSource()}
 
@@ -110,6 +111,8 @@ export default function (pi: ExtensionApi) {
   let ui: StatsUi | null = null;
   let lastProbe: string | null = null;
   let pollTimer: PollTimer | null = null;
+  /** False once the probe stopped moving; see POLL_IDLE_MS. */
+  let fast = true;
 
   function unavailableReason(): string | undefined {
     return persistentUnavailable ?? treeUnavailable;
@@ -256,7 +259,11 @@ export default function (pi: ExtensionApi) {
   }
 
   function maybePublish(): void {
-    if (advisorConfigured()) publish();
+    if (!advisorConfigured()) return;
+    publish();
+    // A publish path ran: snap an idled chain back to fast.
+    fast = true;
+    if (pollTimer !== null) schedulePoll();
   }
 
   function finite(value: unknown): number {
@@ -296,20 +303,40 @@ export default function (pi: ExtensionApi) {
     return cost + ":" + messages;
   }
 
-  function startPoll(): void {
-    if (pollTimer) return;
-    const timer = setInterval(() => {
+  function schedulePoll(): void {
+    if (pollTimer !== null) {
       try {
-        const probe = probeAdvisor();
-        if (probe === null || probe === lastProbe) return;
-        lastProbe = probe;
-        maybePublish();
+        clearTimeout(pollTimer as unknown as number);
       } catch {
-        /* a poll failure must never surface */
+        /* a runtime that refuses clearTimeout still loses its handle */
       }
-    }, POLL_MS);
+    }
+    const timer = setTimeout(tick, fast ? POLL_MS : POLL_IDLE_MS);
     pollTimer = timer as unknown as PollTimer;
     pollTimer.unref?.();
+  }
+
+  function tick(): void {
+    // The fired handle is spent; maybePublish must not re-arm past us.
+    pollTimer = null;
+    // Cadence is derived per tick: only a moved probe snaps it back to fast.
+    fast = false;
+    try {
+      const probe = probeAdvisor();
+      if (probe !== null && probe !== lastProbe) {
+        lastProbe = probe;
+        maybePublish();
+      }
+    } catch {
+      /* a poll failure must never surface */
+    }
+    if (pollTimer === null) schedulePoll();
+  }
+
+  function startPoll(): void {
+    if (pollTimer !== null) return;
+    fast = true;
+    schedulePoll();
   }
 
   function publish(): void {

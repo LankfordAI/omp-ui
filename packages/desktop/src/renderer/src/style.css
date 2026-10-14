@@ -337,6 +337,15 @@
     background: transparent;
   }
 
+  /* A hidden window freezes every running CSS animation (#858, App.tsx's
+   * data-window-hidden flag): paused, not restarted, so the reveal continues
+   * from the frozen frame. Transitions are untouched — they are input-driven
+   * and never run while hidden. */
+  html[data-window-hidden] *,
+  html[data-window-hidden] {
+    animation-play-state: paused !important;
+  }
+
   /* Native selects/inputs inherit the dark palette rather than fighting it. */
   select,
   input,

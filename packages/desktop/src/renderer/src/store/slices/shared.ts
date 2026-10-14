@@ -1211,6 +1211,10 @@ export function createMachinery(
    * re-arms it, so callers only ever arm it.
    */
   const streamStallTick = (tabId: string): void => {
+    // Nothing paints while the window is hidden, so nothing reads the stall
+    // field; the silence math is checkpoint-based, so the first tick after
+    // the window is revealed shows the true number (#858).
+    if (typeof document !== "undefined" && document.hidden) return;
     const tab = get().rpc[tabId];
     // The gate is the transcript's own streaming flag: while it is set,
     // deltas would still be routed to that item, so the model owes us

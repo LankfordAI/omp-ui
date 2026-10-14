@@ -434,6 +434,22 @@ export default function App() {
     void init();
   }, [init]);
 
+  // Nothing paints while the window is hidden, so no animation should be
+  // asking for frames (#858): the root flag below freezes every CSS animation
+  // mid-flight (animation-play-state), and the reveal resumes it from the
+  // frozen frame — visually a continuation, never a jump. Infinite ones
+  // (caret, sweep, pulse) are the ones that would otherwise burn frames with
+  // no viewer; one-shots had already finished.
+  useEffect(() => {
+    const root = document.documentElement;
+    const onVisibility = (): void => {
+      root.toggleAttribute("data-window-hidden", document.hidden);
+    };
+    onVisibility();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
   useEffect(() => {
     const pane = activeTabId === null ? undefined : useStore.getState().rpc[activeTabId]?.browserPane;
     if (compact && pane?.open) showCompactSurface("browser-pane");

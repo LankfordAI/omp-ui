@@ -24,11 +24,16 @@ const mocks = vi.hoisted(() => {
     ptyPasteDocument: vi.fn(),
     ptyResize: vi.fn(),
     ptyWrite: vi.fn(),
+    write: vi.fn(),
     readClipboardImages: vi.fn(),
     readClipboardDocuments: vi.fn(),
     readImageFiles: vi.fn(),
     readDocumentFiles: vi.fn(),
-    registerTermWriter: vi.fn(() => vi.fn()),
+    registerTermWriter: vi.fn((_tabId: string, cb: (data: Uint8Array) => void) => {
+      mocks.termWriter = cb;
+      return vi.fn();
+    }),
+    termWriter: null as ((data: Uint8Array) => void) | null,
     resumeDead,
     // Mutable stub state: tests flip `searchOpen` and re-render.
     store: {
@@ -59,7 +64,9 @@ vi.mock("@xterm/xterm", () => ({
     onData() {
       return { dispose() {} };
     }
-    write() {}
+    write(d?: unknown) {
+      if (d !== undefined) mocks.write(d);
+    }
     refresh() {}
     dispose() {}
     focus() {
@@ -201,6 +208,36 @@ describe("TerminalTab focus", () => {
     act(() => root!.render(<TerminalTab tabId={TAB} active={false} />));
     act(() => root!.render(<TerminalTab tabId={TAB} active />));
     expect(mocks.focus).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("TerminalTab hidden-write buffering (issue #858)", () => {
+  it("parses nothing while hidden and replays the backlog in order on reveal", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<TerminalTab tabId={TAB} active={false} />));
+
+    const chunk = (text: string): Uint8Array => new TextEncoder().encode(text);
+    act(() => {
+      mocks.termWriter!(chunk("hidden one"));
+      mocks.termWriter!(chunk("hidden two"));
+    });
+    expect(mocks.write).not.toHaveBeenCalled();
+
+    // Revealing parses the whole backlog before the terminal takes focus.
+    act(() => root!.render(<TerminalTab tabId={TAB} active />));
+    expect(mocks.write.mock.calls.map((call) => new TextDecoder().decode(call[0]))).toEqual([
+      "hidden one",
+      "hidden two",
+    ]);
+
+    // Once active, bytes write straight through.
+    mocks.write.mockClear();
+    act(() => {
+      mocks.termWriter!(chunk("live"));
+    });
+    expect(mocks.write).toHaveBeenCalledTimes(1);
   });
 });
 

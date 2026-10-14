@@ -197,6 +197,10 @@ describe("writeAsyncJobsExtension", () => {
     await vi.advanceTimersByTimeAsync(4_500);
     expect(harness.published).toHaveLength(1);
     output = "second";
+    // An unchanged digest idles the chain to the 10s cadence; the next tick
+    // (t=11500) picks the change up — the settle a quiet session accepts.
+    await vi.advanceTimersByTimeAsync(5_500); // t=10000: the idle arm is at t=11500
+    expect(harness.published).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_500);
     expect(harness.published).toHaveLength(2);
     expect(harness.published[1]?.revision).toBe(2);

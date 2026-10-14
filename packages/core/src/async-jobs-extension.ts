@@ -7,6 +7,7 @@ import {
   ASYNC_JOBS_LABEL_CHAR_LIMIT,
   ASYNC_JOBS_OUTPUT_TAIL_CHARS,
   ASYNC_JOBS_POLL_MS,
+  ASYNC_JOBS_POLL_IDLE_MS,
   ASYNC_JOBS_RECENT_LIMIT,
   ASYNC_JOBS_SHORT_TAIL_CHARS,
   ASYNC_JOBS_STATUS_BYTE_LIMIT,
@@ -65,6 +66,7 @@ const KILL_ARG = ${JSON.stringify(ASYNC_JOBS_KILL_ARG)};
 const STATUSES: readonly string[] = ${JSON.stringify(ASYNC_JOB_STATUSES)};
 const BYTE_LIMIT = ${ASYNC_JOBS_STATUS_BYTE_LIMIT};
 const POLL_MS = ${ASYNC_JOBS_POLL_MS};
+const POLL_IDLE_MS = ${ASYNC_JOBS_POLL_IDLE_MS};
 const RECENT_LIMIT = ${ASYNC_JOBS_RECENT_LIMIT};
 const TAIL_CHARS = ${ASYNC_JOBS_OUTPUT_TAIL_CHARS};
 const SHORT_TAIL_CHARS = ${ASYNC_JOBS_SHORT_TAIL_CHARS};
@@ -162,6 +164,8 @@ export default function (pi: ExtensionApi) {
   /** Set only when the prompt hook could not be installed; outranks every read. */
   let hookBroken: string | null = null;
   let pollTimer: PollTimer | null = null;
+  /** False once the digest stopped moving; see POLL_IDLE_MS. */
+  let fast = true;
 
   ${generatedShutdownCleanupSource("JobsSession")}
 
@@ -170,28 +174,57 @@ export default function (pi: ExtensionApi) {
   function teardown(): void {
     if (pollTimer === null) return;
     try {
-      clearInterval(pollTimer as unknown as number);
+      clearTimeout(pollTimer as unknown as number);
     } catch {
-      /* a runtime that refuses clearInterval still loses its handle */
+      /* a runtime that refuses clearTimeout still loses its handle */
     }
     pollTimer = null;
   }
 
-  function startPoll(): void {
-    if (pollTimer !== null) return;
-    const timer = setInterval(() => {
+  function schedulePoll(): void {
+    if (pollTimer !== null) {
       try {
-        publish(false, null);
+        clearTimeout(pollTimer as unknown as number);
       } catch {
-        /* a poll failure must never surface in the session */
+        /* a runtime that refuses clearTimeout still loses its handle */
       }
-    }, POLL_MS);
+    }
+    const timer = setTimeout(tick, fast ? POLL_MS : POLL_IDLE_MS);
     pollTimer = timer as unknown as PollTimer;
     try {
       pollTimer.unref?.();
     } catch {
-      /* an unref-less runtime keeps the interval as-is */
+      /* an unref-less runtime keeps the timer as-is */
     }
+  }
+
+  function tick(): void {
+    // The fired handle is spent; publish's markActive must not re-arm past us.
+    pollTimer = null;
+    // Cadence is derived per tick: only a real publish snaps it back to fast.
+    fast = false;
+    try {
+      publish(false, null);
+    } catch {
+      /* a poll failure must never surface in the session */
+    }
+    if (pollTimer === null) schedulePoll();
+  }
+
+  /** A publish means the state moved; snap an idled chain back to fast. */
+  function markActive(): void {
+    if (fast || pollTimer === null) {
+      fast = true;
+      return;
+    }
+    fast = true;
+    schedulePoll();
+  }
+
+  function startPoll(): void {
+    if (pollTimer !== null) return;
+    fast = true;
+    schedulePoll();
   }
 
   function unavailable(reason: string): Collected {
@@ -307,6 +340,7 @@ export default function (pi: ExtensionApi) {
     const full = body(collected, TAIL_CHARS);
     const digest = JSON.stringify(full);
     if (!force && digest === lastDigest) return;
+    markActive();
     const envelope = (b: Record<string, unknown>): string =>
       JSON.stringify(Object.assign({ version: 1, processKey, revision: revision + 1 }, b, { result }));
     // An impossible payload degrades rung by rung, never into half a job.

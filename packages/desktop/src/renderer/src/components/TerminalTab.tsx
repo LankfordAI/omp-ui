@@ -18,6 +18,7 @@ import { useTheme } from "../lib/themes";
 import { useFontFamily } from "../lib/font-families";
 import {
   applyTerminalAppearance,
+  createPtyResizePusher,
   createTerminal,
   type CreatedTerminal,
 } from "../lib/terminal";
@@ -28,6 +29,10 @@ import { FindBar } from "./FindBar";
 import { RemoteInstanceBanner } from "./RemoteInstanceBanner";
 import { CollabChip } from "./CollabChip";
 import { Button, IconButton, IconClose } from "./ui";
+
+/** Backlog cap for a hidden tab: past this, bytes parse live anyway so a
+ * long-running background `yes` cannot grow the buffer without bound (#858). */
+const HIDDEN_WRITE_FLUSH_BYTES = 4 * 1024 * 1024;
 
 /**
  * xterm paints search decorations onto its own canvas, so — like the `term`
@@ -56,6 +61,12 @@ function searchDecorations(tokens: Record<string, string>) {
  * rather than a stock 16-colour scheme.
  */
 export function TerminalTab({ tabId, active }: { tabId: string; active: boolean }) {
+  // Whether this tab is on screen, read inside the stable mount effect so a
+  // tab switch never rebuilds the terminal (#858).
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  /** Set by the mount effect: parses whatever bytes arrived while hidden. */
+  const flushPendingRef = useRef<(() => void) | null>(null);
   const t = useT();
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<(CreatedTerminal & { search: SearchAddon }) | null>(null);
@@ -195,11 +206,35 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     const dataSub = term.onData((d) => {
       if (!instanceDownRef.current) backend.ptyWrite(tabId, d);
     });
-    const unregister = registerTermWriter(tabId, (data) => term.write(data));
+    // An inactive tab is display:none: parsing and painting its output would
+    // be invisible work (#858). Buffer bytes while hidden and parse them in
+    // one pass on reveal; a huge backlog writes through to bound memory.
+    let pending: Uint8Array[] = [];
+    let pendingBytes = 0;
+    const flushPending = (): void => {
+      if (pending.length === 0) return;
+      const chunks = pending;
+      pending = [];
+      pendingBytes = 0;
+      for (const chunk of chunks) term.write(chunk);
+    };
+    flushPendingRef.current = flushPending;
+    const unregister = registerTermWriter(tabId, (data) => {
+      if (activeRef.current) {
+        term.write(data);
+        return;
+      }
+      pending.push(data);
+      pendingBytes += data.byteLength;
+      if (pendingBytes >= HIDDEN_WRITE_FLUSH_BYTES) flushPending();
+    });
+    const pushResize = createPtyResizePusher(term, (cols, rows) =>
+      backend.ptyResize(tabId, cols, rows),
+    );
     const observer = new ResizeObserver(() => {
       if (host.clientWidth === 0 || host.clientHeight === 0) return;
       fit.fit();
-      backend.ptyResize(tabId, term.cols, term.rows);
+      pushResize();
     });
     observer.observe(host);
     // Capture phase, on the host: xterm's hidden textarea would otherwise turn
@@ -230,6 +265,7 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     return () => {
       dataSub.dispose();
       unregister();
+      flushPendingRef.current = null;
       observer.disconnect();
       host.removeEventListener("paste", onPaste, true);
       host.removeEventListener("dragover", onDragOver);
@@ -324,6 +360,9 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
     if (!active) return;
     const t = termRef.current;
     if (!t) return;
+    // Parse everything that arrived while this tab was hidden before the fit
+    // and focus land, so the revealed screen is the live one (#858).
+    flushPendingRef.current?.();
     t.fit.fit();
     backend.ptyResize(tabId, t.term.cols, t.term.rows);
     t.term.focus();

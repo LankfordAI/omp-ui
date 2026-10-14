@@ -73,6 +73,7 @@ const ARM_MESSAGE = "/" + COMMAND;
 const ARGS_LIMIT = ${VIBE_ARGS_BYTE_LIMIT};
 const BYTE_LIMIT = ${VIBE_STATUS_BYTE_LIMIT};
 const POLL_MS = ${VIBE_POLL_MS};
+const POLL_IDLE_MS = 10000;
 const TRANSITION_KEY = ${JSON.stringify(VIBE_MODE_TRANSITION_KEY)};
 const LIFECYCLE_TYPE = ${JSON.stringify(VIBE_LIFECYCLE_CUSTOM_TYPE)};
 const TOOL_NAMES = ${JSON.stringify(VIBE_TOOL_NAMES)};
@@ -192,6 +193,8 @@ export default function (pi: ExtensionApi) {
   /** The roster of the last digest, reused while an async list settles. */
   let lastRows: RosterRow[] = [];
   let pollTimer: PollTimer | null = null;
+  /** False once the digest stopped moving; see POLL_IDLE_MS. */
+  let fast = true;
   let lastResult: CommandResult | null = null;
   let lastResultSessionId: string | null = null;
   let restoring: Promise<void> | null = null;
@@ -385,6 +388,9 @@ export default function (pi: ExtensionApi) {
     const result = sessionIdOf(rootSession) === lastResultSessionId ? lastResult : null;
     const digest = digestOf(rows, enabled, result);
     if (!force && digest === lastDigest) return;
+    // A publish means the roster moved: snap an idled chain back to fast.
+    fast = true;
+    if (pollTimer !== null) schedulePoll();
     lastRows = rows;
     const snapshot: Record<string, unknown> = {
       version: 1,
@@ -440,14 +446,19 @@ export default function (pi: ExtensionApi) {
       return;
     }
     if (pollTimer !== null) return;
-    const timer = setInterval(() => {
+    fast = true;
+    schedulePoll();
+  }
+
+  function schedulePoll(): void {
+    if (pollTimer !== null) {
       try {
-        publish(false);
-        void refreshRows();
+        clearTimeout(pollTimer as unknown as number);
       } catch {
-        /* a failing poll keeps the timer; a broken publish reports itself */
+        /* a runtime that refuses clearTimeout still loses its handle */
       }
-    }, POLL_MS);
+    }
+    const timer = setTimeout(tick, fast ? POLL_MS : POLL_IDLE_MS);
     pollTimer = timer as unknown as PollTimer;
     try {
       pollTimer.unref?.();
@@ -456,12 +467,26 @@ export default function (pi: ExtensionApi) {
     }
   }
 
+  function tick(): void {
+    // The fired handle is spent; a publish below must not re-arm past us.
+    pollTimer = null;
+    // Cadence is derived per tick: only a real publish snaps it back to fast.
+    fast = false;
+    try {
+      publish(false);
+      void refreshRows();
+    } catch {
+      /* a failing poll keeps the chain; a broken publish reports itself */
+    }
+    if (pollTimer === null && modeOn()) schedulePoll();
+  }
+
   function stopPolling(): void {
     if (pollTimer === null) return;
     try {
-      clearInterval(pollTimer as unknown as number);
+      clearTimeout(pollTimer as unknown as number);
     } catch {
-      /* a runtime that refuses clearInterval still loses its handle */
+      /* a runtime that refuses clearTimeout still loses its handle */
     }
     pollTimer = null;
   }

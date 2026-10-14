@@ -1648,6 +1648,9 @@ export class SessionManager {
     if (!entry) return;
     switch (entry.kind) {
       case "pty":
+        // Typed input can flip Collab state (/collab slash commands), so a
+        // backed-off collab poll snaps back to its fast cadence (#858).
+        this.collab.noteActivity();
         entry.pty.write(data);
         return;
       case "rpc-ui":
@@ -1688,6 +1691,12 @@ export class SessionManager {
   /** Every live terminal tab's Collab host state (issue #686); `null` is off. */
   collabSnapshots(): CollabTabSnapshot[] {
     return this.collab.snapshots();
+  }
+
+  /** Main-window hide/show/minimize/restore fan-out (#858); the collab poll
+   * chain stops while hidden and re-arms fast on reveal. */
+  noteWindowVisible(visible: boolean): void {
+    this.collab.noteWindowVisible(visible);
   }
 
   collabShare(tabId: string, access: CollabAccess): Promise<void> {

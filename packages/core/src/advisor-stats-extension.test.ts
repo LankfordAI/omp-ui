@@ -197,7 +197,7 @@ describe("writeAdvisorStatsExtension", () => {
     // poll the readout permanently trails a review — stuck at $0 until the
     // next turn happens to publish.
     expect(source).toContain("getAdvisorCost");
-    expect(source).toContain("setInterval");
+    expect(source).toContain("schedulePoll");
     // The poll must never hold the omp process open on exit.
     expect(source).toContain("unref");
   });
