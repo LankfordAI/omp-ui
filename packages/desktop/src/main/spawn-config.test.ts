@@ -3,13 +3,23 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { gitGuardOverlayPath, subagentModelOverlayPath } from "@omp-ui/core";
+import * as Core from "@omp-ui/core";
 import {
   RPC_BRIDGE_IDS,
+  readGoalContinuationModesCached,
+  resetGoalContinuationModesCache,
   writeRpcExtensions,
   writeSessionOverlays,
   type RpcBridgeWriters,
 } from "./spawn-config";
 import { ownedSessionRecord } from "./test/fixtures";
+
+vi.mock("@omp-ui/core", async (importOriginal) => {
+  const core = await importOriginal<typeof Core>();
+  return { ...core, readOmpGoalContinuationModes: vi.fn() };
+});
+
+const readOmpGoalContinuationModesMock = vi.mocked(Core.readOmpGoalContinuationModes);
 
 const dirs: string[] = [];
 function tmp(): string {
@@ -340,5 +350,58 @@ describe("writeSessionOverlays — auto thinking selector", () => {
     });
     const file = overlays.find((f) => path.basename(f) === "omp-ui-model.yml");
     expect(fs.readFileSync(file!, "utf8")).toBe('modelRoles:\n  default: "p/m"\ndefaultThinkingLevel: "auto"\n');
+  });
+});
+
+describe("readGoalContinuationModesCached", () => {
+  it("probes once per identical config and re-probes when a layer changes", async () => {
+    const home = tmp();
+    const project = tmp();
+    const agentDir = path.join(home, ".omp", "agent");
+    fs.mkdirSync(agentDir, { recursive: true });
+    const prevAgent = process.env.PI_CODING_AGENT_DIR;
+    const prevHome = process.env.HOME;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.HOME = home;
+    try {
+      resetGoalContinuationModesCache();
+      readOmpGoalContinuationModesMock.mockResolvedValue(["interactive"]);
+      await expect(readGoalContinuationModesCached("/bin/omp", project)).resolves.toEqual(["interactive"]);
+      await readGoalContinuationModesCached("/bin/omp", project);
+      expect(readOmpGoalContinuationModesMock).toHaveBeenCalledTimes(1);
+
+      // A user edit to either merged layer busts the key.
+      fs.mkdirSync(path.join(project, ".omp"), { recursive: true });
+      fs.writeFileSync(path.join(project, ".omp", "config.yml"), "goal:\n  continuationModes: [rpc]\n");
+      await readGoalContinuationModesCached("/bin/omp", project);
+      expect(readOmpGoalContinuationModesMock).toHaveBeenCalledTimes(2);
+
+      fs.writeFileSync(path.join(agentDir, "config.yml"), "goal:\n  continuationModes: [rpc, pty]\n");
+      await readGoalContinuationModesCached("/bin/omp", project);
+      expect(readOmpGoalContinuationModesMock).toHaveBeenCalledTimes(3);
+
+      // Unrelated metadata: same fingerprint, still cached.
+      await readGoalContinuationModesCached("/bin/omp", project);
+      expect(readOmpGoalContinuationModesMock).toHaveBeenCalledTimes(3);
+
+      // A different binary is a different answer source.
+      await readGoalContinuationModesCached("/other/omp", project);
+      expect(readOmpGoalContinuationModesMock).toHaveBeenCalledTimes(4);
+    } finally {
+      process.env.PI_CODING_AGENT_DIR = prevAgent;
+      process.env.HOME = prevHome;
+      resetGoalContinuationModesCache();
+    }
+  });
+
+  it("does not cache failures", async () => {
+    resetGoalContinuationModesCache();
+    readOmpGoalContinuationModesMock.mockReset();
+    readOmpGoalContinuationModesMock.mockRejectedValueOnce(new Error("omp gone"));
+    await expect(readGoalContinuationModesCached("/bin/omp", null)).rejects.toThrow("omp gone");
+    readOmpGoalContinuationModesMock.mockResolvedValue(["interactive"]);
+    await expect(readGoalContinuationModesCached("/bin/omp", null)).resolves.toEqual(["interactive"]);
+    expect(readOmpGoalContinuationModesMock).toHaveBeenCalledTimes(2);
+    resetGoalContinuationModesCache();
   });
 });
