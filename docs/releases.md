@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Idle and streaming CPU use dropped with no visible change: pollers back off to 10 s once their data stops changing and snap back on any event, background PTY tabs buffer output instead of rendering and replay it on reveal, streaming markdown re-parses only the block a delta touched, terminal resizes coalesce, and a hidden window stops its poll chains and refreshes the moment it is shown again (#858).
+- The Settings audio-device picker is now two lists — input and output — each showing that role's OS default, and choosing one role leaves the other untouched; a saved device with no live node for that role reads "(not connected)" instead of steering the other side (#857).
 
 ## Choose a download
 
