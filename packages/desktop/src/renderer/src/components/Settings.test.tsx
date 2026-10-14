@@ -178,7 +178,10 @@ const backendMock = {
     supported: false,
     error: "device selection is not yet supported on this platform",
   })),
-  setAudioDevice: vi.fn(async (_role: AudioDeviceRole, _id: string | null) => {}),
+  setAudioDevice: vi.fn(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    async (_role: AudioDeviceRole, _id: string | null) => {},
+  ),
   readJudgeModels: vi.fn(async (): Promise<JudgeModelSnapshot> => ({
     models: [],
     discovered: true,
