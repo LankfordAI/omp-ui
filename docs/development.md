@@ -58,10 +58,10 @@ TypeScript runs at two versions. Every workspace typechecks and tests with TypeS
 CI runs the knowledge-vault smoke right after the node-pty smoke, then lint
 before typecheck, tests, build, and the browser-pane smoke. Unused declarations
 are lint errors: remove obsolete helpers and fixtures rather than disabling the
-rule (issue #742). When lint
-stops the job, the later smoke-summary upload can also report no files because
-the smoke never ran; diagnose the first failed check before treating that
-upload error as a browser-pane failure.
+rule (issue #742). Smoke-summary uploads run only when their corresponding
+smoke step succeeds or fails, not when an earlier gate skips it (issue #862).
+Failed smokes still upload diagnostics; an executed smoke that produces no
+summary remains an upload error.
 
 The subagent-model live proof inherits the local omp parent model. That model
 must be served by its configured provider; a provider rejection prevents the

@@ -30,7 +30,6 @@ import {
   Registry,
   resolveOmpBinary,
   type KeyCipher,
-  type RpcFrame,
 } from "@omp-ui/core";
 import { SessionManager } from "../packages/desktop/src/main/session-manager";
 import { seedRegistry } from "../packages/desktop/src/main/test/fixtures";
