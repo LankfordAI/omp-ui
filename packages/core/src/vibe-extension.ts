@@ -32,6 +32,10 @@ import {
  * surface, worker commands through the mounted tools' `execute` — omp owns
  * every worker semantic, omp-ui owns none — and the roster it reads back from
  * `vibe_list` details plus the transcript's lifecycle entries after a resume.
+ * Every bridge-initiated `execute` carries a synthetic unique tool-call id:
+ * omp runs its tool-call preflight on these calls, and an undefined id makes
+ * the rule engine dereference an empty cache read and take the process down
+ * (issue #864).
  * Worker transcripts reach the existing subagent frames on their own: vibe
  * spawns pass the rpc subagent event bus to the task executor, so the Agents
  * pane's click-through works with no bridge involvement (proven live on the
@@ -290,6 +294,19 @@ export default function (pi: ExtensionApi) {
     );
   }
 
+  let callSequence = 0;
+  /**
+   * omp's execute contract is execute(toolCallId, args, signal?, onUpdate?, ctx?):
+   * the id feeds the runtime's tool-call preflight, and an undefined id makes
+   * the rule engine dereference an empty cache read (issue #864). Every
+   * bridge-initiated call mints a unique string id, the same way omp's own
+   * native delegation path does.
+   */
+  function callId(name: string): string {
+    callSequence += 1;
+    return "omp-ui-vibe-" + name + "-" + Date.now().toString(36) + "-" + callSequence;
+  }
+
   /** Screen rows out of a tool outcome's details; null when absent. */
   function rowsOf(outcome: unknown): RosterRow[] | null {
     const details = asRecord(asRecord(outcome)?.details);
@@ -316,13 +333,31 @@ export default function (pi: ExtensionApi) {
     return rows;
   }
 
+  /** The list tool's rows, awaited; null when unreadable. Never sync-executes. */
+  async function fetchRows(): Promise<RosterRow[] | null> {
+    const tool = mounted.get("vibe_list");
+    if (tool === undefined) return null;
+    try {
+      return rowsOf(await Promise.resolve(tool.execute(callId("vibe_list"))));
+    } catch {
+      /* a failing list is reported by the next command that needs it */
+      return null;
+    }
+  }
+
   /** The live screen rows while the mode is on; null when unreadable. */
   function liveRows(): RosterRow[] | null {
     const tool = mounted.get("vibe_list");
     if (tool === undefined) return null;
     try {
-      const outcome = tool.execute();
-      return isThenable(outcome) ? null : rowsOf(outcome);
+      const outcome = tool.execute(callId("vibe_list"));
+      if (isThenable(outcome)) {
+        // The async answer arrives via refreshRows; attach a no-op handler so
+        // a rejection here can never become an unhandled rejection (issue #864).
+        void Promise.resolve(outcome).then(rowsOf, () => null);
+        return null;
+      }
+      return rowsOf(outcome);
     } catch {
       return null;
     }
@@ -419,22 +454,15 @@ export default function (pi: ExtensionApi) {
   }
 
   /**
-   * The list tool's async path: when the sync read produced nothing and the
-   * mode is on, take the tool's own promise and republish when it settles.
+   * The list tool's async path: while the mode is on, take the awaited rows
+   * and republish when they arrive.
    */
   async function refreshRows(): Promise<void> {
     if (!modeOn()) return;
-    const tool = mounted.get("vibe_list");
-    if (tool === undefined) return;
-    try {
-      const outcome = await Promise.resolve(tool.execute());
-      const rows = rowsOf(outcome);
-      if (rows === null) return;
-      lastRows = rows;
-      publish(true);
-    } catch {
-      /* a failing list is reported by the next command that needs it */
-    }
+    const rows = await fetchRows();
+    if (rows === null) return;
+    lastRows = rows;
+    publish(true);
   }
 
   // ------------------------------------------------------------- polling
@@ -561,12 +589,11 @@ export default function (pi: ExtensionApi) {
       const killTool = mounted.get("vibe_kill");
       const listTool = mounted.get("vibe_list");
       if (killTool !== undefined && listTool !== undefined) {
-        let rows = rowsOf(listTool.execute());
-        if (rows === null) rows = rowsOf(await Promise.resolve(listTool.execute()));
+        const rows = await fetchRows();
         for (const row of rows ?? []) {
           if (row.killed) continue;
           try {
-            await Promise.resolve(killTool.execute(undefined, { session: row.id }));
+            await Promise.resolve(killTool.execute(callId("vibe_kill"), { session: row.id }));
           } catch {
             /* a worker that refuses to die is reported by the settle list */
           }
@@ -707,7 +734,7 @@ export default function (pi: ExtensionApi) {
       return;
     }
     try {
-      const outcome = asRecord(await Promise.resolve(tool.execute(...toolArgs)));
+      const outcome = asRecord(await Promise.resolve(tool.execute(callId(name), ...toolArgs)));
       const first = asRecord((outcome?.content as unknown[] | undefined)?.[0]);
       const text = first !== null && isString(first.text) ? first.text : "";
       settle(request, true, text);
@@ -770,7 +797,7 @@ export default function (pi: ExtensionApi) {
       if (isString(args.name) && /^[A-Za-z0-9_-]{1,32}$/.test(args.name.trim())) {
         spawnArgs.name = args.name.trim();
       }
-      return callTool(request, "vibe_spawn", [undefined, spawnArgs]);
+      return callTool(request, "vibe_spawn", [spawnArgs]);
     }
     if (request.command === "send") {
       const session = isString(args.session) ? args.session.trim() : "";
@@ -778,7 +805,7 @@ export default function (pi: ExtensionApi) {
       if (session === "" || message.trim() === "") {
         return settle(request, false, "send needs a session and a message.");
       }
-      return callTool(request, "vibe_send", [undefined, { session, message }]);
+      return callTool(request, "vibe_send", [{ session, message }]);
     }
     if (request.command === "wait") {
       const waitArgs: Record<string, unknown> = {};
@@ -789,7 +816,7 @@ export default function (pi: ExtensionApi) {
       waitArgs.timeout = typeof args.timeout === "number" && Number.isFinite(args.timeout)
         ? Math.max(1, Math.min(600, Math.floor(args.timeout)))
         : 120;
-      return callTool(request, "vibe_wait", [undefined, waitArgs]);
+      return callTool(request, "vibe_wait", [waitArgs]);
     }
     if (request.command === "kill") {
       const session = isString(args.session) ? args.session.trim() : "";
@@ -798,7 +825,7 @@ export default function (pi: ExtensionApi) {
       if (killTool === undefined) return settle(request, false, "Vibe mode is not active; nothing is mounted.");
       const problem = await inTransition(async () => {
         try {
-          await Promise.resolve(killTool.execute(undefined, { session }));
+          await Promise.resolve(killTool.execute(callId("vibe_kill"), { session }));
           return null;
         } catch (error) {
           return error instanceof Error ? error.message : String(error);
