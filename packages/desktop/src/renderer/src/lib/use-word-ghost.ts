@@ -11,20 +11,36 @@ const WORD_END = /[\p{L}\p{M}']$/u;
 /** A suffix omp offered for the exact draft and caret it was asked about. */
 export interface WordGhost {
   suffix: string;
+  /** The real draft the ghost belongs to — never the elided text omp was given. */
   text: string;
   cursor: number;
+  /** Leading characters of `text` omp never saw: an elided command word. */
+  prefix: number;
+}
+
+/** The command word and the space after it, when the draft opens with one. */
+const COMMAND_LEAD = /^[^\S\n]*\/\S*[^\S\n]/;
+
+/** Characters elided from the head of `text` before omp is asked about it. */
+export function wordGhostLead(text: string): number {
+  const m = COMMAND_LEAD.exec(text);
+  return m === null ? 0 : m[0].length;
 }
 
 /**
- * Host-side pre-gate; omp applies the full prose rules. The caret must end
- * the whole draft (not merely its line): the ghost paints in the mirror
- * only, and a ghost before a later line would re-wrap the mirror and drift
- * every following glyph off the textarea (#282).
+ * Host-side pre-gate; omp applies the full prose rules to what it is handed.
+ * The caret must end the whole draft (not merely its line): the ghost paints
+ * in the mirror only, and a ghost before a later line would re-wrap the mirror
+ * and drift every following glyph off the textarea (#282). A shell command is
+ * never prose. A slash draft is asked about with its command word elided,
+ * because omp's gate rejects any line that starts with `/` — but while the
+ * word itself is all there is, there is no prose to ask about, and the slash
+ * palette owns Tab.
  */
 export function wordGhostCandidate(text: string, caret: number): boolean {
   if (caret !== text.length) return false;
-  const lead = text.trimStart();
-  if (lead.startsWith("/") || lead.startsWith("!")) return false;
+  if (text.trimStart().startsWith("!")) return false;
+  if (/^[^\S\n]*\/\S*$/.test(text)) return false;
   return WORD_END.test(text);
 }
 
@@ -55,6 +71,7 @@ export function useWordGhost({
   const seq = useRef(0);
   const provisional = useRef<number | null>(null);
 
+  const prefix = wordGhostLead(text);
   const eligible = active && wordGhostCandidate(text, caret);
   const ghost =
     eligible && stored !== null && stored.text === text && stored.cursor === caret ? stored : null;
@@ -64,14 +81,17 @@ export function useWordGhost({
     const id = ++seq.current;
     if (!eligible) return;
     const timer = window.setTimeout(() => {
-      void predictWord(tabId, text, caret).then((suffix) => {
+      // omp's prose gate rejects any line starting with `/`, so it is asked
+      // about the draft with the command word elided; every frame it is given
+      // carries the elided coordinates.
+      void predictWord(tabId, text.slice(prefix), caret - prefix).then((suffix) => {
         if (seq.current !== id) return;
         // null keeps a projected ghost for this exact draft, as omp's editor does.
-        if (suffix !== null) setStored({ suffix, text, cursor: caret });
+        if (suffix !== null) setStored({ suffix, text, cursor: caret, prefix });
       });
     }, WORD_GHOST_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [eligible, tabId, text, caret, predictWord]);
+  }, [eligible, prefix, tabId, text, caret, predictWord]);
 
   const noteEdit = useCallback(
     (nextText: string, nextCaret: number): void => {
@@ -91,14 +111,19 @@ export function useWordGhost({
           // Typing through the ghost: show the remainder at once, no feedback.
           setStored(
             typed.length < ghost.suffix.length
-              ? { suffix: ghost.suffix.slice(typed.length), text: nextText, cursor: nextCaret }
+              ? {
+                  suffix: ghost.suffix.slice(typed.length),
+                  text: nextText,
+                  cursor: nextCaret,
+                  prefix: ghost.prefix,
+                }
               : null,
           );
           return;
         }
         sendFeedback(tabId, {
-          text: ghost.text,
-          cursor: ghost.cursor,
+          text: ghost.text.slice(ghost.prefix),
+          cursor: ghost.cursor - ghost.prefix,
           suggestion: ghost.suffix,
           accepted: false,
         });
@@ -112,8 +137,8 @@ export function useWordGhost({
     (space: boolean): { text: string; caret: number } | null => {
       if (ghost === null) return null;
       sendFeedback(tabId, {
-        text: ghost.text,
-        cursor: ghost.cursor,
+        text: ghost.text.slice(ghost.prefix),
+        cursor: ghost.cursor - ghost.prefix,
         suggestion: ghost.suffix,
         accepted: true,
       });

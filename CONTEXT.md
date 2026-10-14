@@ -653,9 +653,10 @@ _Avoid_: autocomplete dropdown, command menu, suggestions
 
 **Ghost completion**:
 omp's word engine suggesting the rest of the prose word ending the native
-composer's draft, painted dim after the caret. Tab takes it with a provisional
-space, → without; typing past it is reported to omp as a rejection so the
-engine adapts. Native transcript only — terminal tabs show omp's own.
+composer's draft or its command argument, painted dim after the caret. Tab
+takes it with a provisional space, → without; typing past it is reported
+to omp as a rejection so the engine adapts. Native transcript only —
+terminal tabs show omp's own.
 _Avoid_: autocomplete, inline AI completion, suggestion chip
 
 **Plan format**:

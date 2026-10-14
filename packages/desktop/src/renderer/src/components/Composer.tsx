@@ -337,8 +337,9 @@ export function Composer({
   const mentionKey = atQuery === null ? null : `${atQuery.start}:${atQuery.query}`;
   const mentionOpen = !unavailable && mentionKey !== null && mentionKey !== mentionDismissedFor;
   // omp's ghost-text word completion (issue #715): prose at the end of the
-  // draft only; the palettes own Tab while open, and a slash or "!" draft
-  // is never prose (wordGhostCandidate).
+  // draft only; the palettes own Tab while open. A slash draft is asked about
+  // with its command word elided, and a shell command draft is never prose
+  // (wordGhostCandidate).
   const wordGhost = useWordGhost({
     tabId,
     text,
