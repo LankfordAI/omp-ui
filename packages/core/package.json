@@ -18,6 +18,7 @@
     "./watchdog": "./src/watchdog.ts",
     "./review": "./src/review.ts",
     "./async-jobs": "./src/async-jobs.ts",
+    "./session-spend": "./src/session-spend.ts",
     "./limits": "./src/limits.ts",
     "./mcp-status": "./src/mcp-status.ts",
     "./capabilities": "./src/capabilities.ts",

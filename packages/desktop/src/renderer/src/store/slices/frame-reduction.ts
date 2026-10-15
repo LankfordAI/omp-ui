@@ -12,6 +12,10 @@ import {
   parseAsyncJobsSnapshot,
 } from "@omp-ui/core/async-jobs";
 import {
+  SESSION_SPEND_STATUS_KEY,
+  parseSessionSpendSnapshot,
+} from "@omp-ui/core/session-spend";
+import {
   MCP_RUNTIME_STATUS_KEY,
   parseMcpRuntimeStatus,
 } from "@omp-ui/core/mcp-status";
@@ -88,6 +92,7 @@ import {
   type AgentEventEffect,
 } from "./reduce-agent-event";
 import { acceptAsyncJobsSnapshot } from "./async-jobs";
+import { isNewerSnapshot } from "../snapshot-acceptance";
 import {
   acceptAutoresearchSnapshot,
   acceptCapabilitySnapshot,
@@ -202,6 +207,12 @@ export function createFrameReductionSlice(
     [ASYNC_JOBS_STATUS_KEY]: (tabId, text) => {
       const snapshot = parseAsyncJobsSnapshot(text);
       if (snapshot !== null) acceptAsyncJobsSnapshot(tabId, snapshot, get, m);
+    },
+    [SESSION_SPEND_STATUS_KEY]: (tabId, text) => {
+      const snapshot = parseSessionSpendSnapshot(text);
+      const tab = get().rpc[tabId];
+      if (snapshot === null || tab === undefined) return;
+      if (isNewerSnapshot(tab.sessionSpend, snapshot)) m.patchRpc(tabId, { sessionSpend: snapshot });
     },
     [MCP_RUNTIME_STATUS_KEY]: (tabId, text) => {
       const mcpStatus = parseMcpRuntimeStatus(text);

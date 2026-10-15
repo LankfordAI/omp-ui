@@ -370,6 +370,38 @@ the badge count (omp's own rule). Named `bash` services are
 daemon-supervised and never enter the job manager; they stay outside this
 seam (`omp ps`).
 
+### Session spend
+
+`get_session_stats` is context-scoped: omp sums only the live message list,
+so compaction drops every earlier assistant message, and background subagents
+(async `task`, eval pool agents) never appear on the root at all. A per-lineage
+generated bridge ([ADR-0056](adr/0056-session-spend-is-read-from-session-transcripts.md)),
+`omp-ui-session-spend.ts`, computes the whole-session total from disk instead.
+It captures the root session through the `prompt` hook. The boot arm
+(`/omp-ui-session-spend`) starts a 2 s poll (10 s once idle) that tails the
+root session file and every `*.jsonl` found recursively under its artifacts dir
+(`sessionFile` minus `.jsonl`). Each file keeps a byte offset, an inode, and a
+partial-line remainder, so a poll reads only the bytes appended since the last
+one. A shrunk or re-inoded file is rescanned. The bridge publishes a
+digest-gated, revisioned `SessionSpendSnapshot` (`main`, `subagents`, `total`,
+`transcripts`) on `ui.setStatus("omp-ui:session-spend")`.
+
+The counting rule sums `usage` from assistant `message` entries and
+`model_usage` entries at or after each file's `session` header timestamp, so
+fork copies count once. `toolResult` usage is never counted, because a sync
+task's `details.usage` re-reports its own transcript. Advisor transcripts are
+excluded; the `adv` readout owns them. A `.jsonl` with no session header in
+its first 4 KiB is ignored. When the root session file changes (`/new`,
+`/branch`, resume), the bridge starts a new total.
+
+The HUD readout, the compact sheet's Spend row, and the rail's token and spend
+sections read the snapshot when it is `available`, and fall back to
+`get_session_stats` otherwise. That covers an unpersisted session, the moment
+before the arm lands, and a joined remote instance on an older omp-ui. The
+bridge runs on whichever host owns the omp process, so remote sessions need no
+new IPC. `get_session_stats` still owns the rail's message counts and context
+usage.
+
 ### Experiments (autoresearch)
 
 OMP's `/autoresearch` loop owns the whole experiment: the mode, the benchmark
@@ -626,3 +658,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [Park the live call while the agent works](adr/0051-park-the-live-call-while-the-agent-works.md) | A delegated backend turn closes the viewed tab's live call on the first quiet output frame after a loud one (edge-triggered `live_levels`, no mid-turn `listening`), and `agent_end` wakes it with the answer as pending voice feedback; stop-ack-before-start wire order and a module-scoped cancellation generation keep close/reopen safe. |
 | [Live progress reports reuse the park's switch](adr/0053-live-progress-reports-reuse-the-park-s-switch.md) | An opt-in cadence wakes a work-parked call every N minutes to speak one `<progress-report>` sentence carried in `live_start` instructions, then re-parks; the marked wake rides the existing single-flight switch at strict-lowest precedence so a finished answer always speaks ahead of a scheduled report. |
 | [Background jobs ride a generated bridge](adr/0054-background-jobs-ride-a-generated-bridge.md) | A per-lineage bridge polls omp's async job manager and publishes a digest-gated revisioned snapshot on `setStatus`; kill rides the same hidden slash command with no `streamingBehavior`, guarded by `processKey` plus the target's `startTime` because omp reuses `bg_N` ids; degradation is by method presence. |
+| [Session spend is read from the session's transcripts](adr/0056-session-spend-is-read-from-session-transcripts.md) | A per-lineage bridge tails the root journal and every non-advisor subagent transcript under its artifacts dir incrementally, summing assistant and `model_usage` usage at or after each file's header timestamp and never `toolResult` usage; `get_session_stats` (context-scoped) and `getUsageStatistics()` (no token split) are rejected and kept only as the fallback. |

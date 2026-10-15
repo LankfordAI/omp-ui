@@ -237,7 +237,9 @@ The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
 meter, spend, and the session controls (compact, auto-compact, export, share,
 branch, new, refresh, queue modes). While auto-compact is enabled, the context
 carries a notch at the compaction threshold — the token count where omp
-auto-compacts. Model, thinking level, and the advisor live in the
+auto-compacts. The main spend is whole-session: the main agent plus every
+subagent transcript at any depth, and it survives compaction (ADR-0056).
+Advisor spend stays in the `adv` readout. Model, thinking level, and the advisor live in the
 composer instead, next to the text they affect. With the advisor enabled, a
 second, quieter `adv` readout sits beside the main usage. Its context meter and
 model describe the parent advisor; its spend and token total include advisor

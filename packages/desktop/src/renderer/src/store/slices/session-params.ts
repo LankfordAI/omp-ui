@@ -4,6 +4,7 @@
 import type { ApprovalMode, BackendState, ImageAttachment, ServiceTier } from "@omp-ui/core/types";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { LIMITS_COMMAND } from "@omp-ui/core/limits";
+import { sessionSpendArmMessage } from "@omp-ui/core/session-spend";
 import { isHtmlPlanPath, planMessage } from "@omp-ui/core/plan";
 import { parseExperimentProposalTitle } from "@omp-ui/core/autoresearch";
 import { parseApprovalPrompt } from "@omp-ui/core/approval";
@@ -176,6 +177,7 @@ export type SessionParamsSlice = Pick<
   | "refreshStats"
   | "refreshAdvisorStats"
   | "refreshLimits"
+  | "refreshSessionSpend"
   | "refreshSubagents"
   | "openSubagent"
   | "closeSubagent"
@@ -2569,6 +2571,15 @@ export function createSessionParamsSlice(
     );
   };
 
+  const refreshSessionSpend = async (tabId: string): Promise<void> => {
+    // The refreshLimits shape: the bridge answers over setStatus (issue #866).
+    await m.runCommand(
+      tabId,
+      { type: "prompt", message: sessionSpendArmMessage() },
+      { allowDuringBoot: true, quiet: true },
+    );
+  };
+
   const refreshSubagents = async (tabId: string): Promise<void> => {
     // Heartbeat-driven (every subagent_* frame) — quiet, or the busy sweeps
     // strobe for the lifetime of every spawned subagent.
@@ -2681,6 +2692,7 @@ export function createSessionParamsSlice(
     refreshStats,
     refreshAdvisorStats,
     refreshLimits,
+    refreshSessionSpend,
     refreshSubagents,
     openSubagent,
     closeSubagent,

@@ -548,6 +548,9 @@ export function disposeTabRuntime(
     asyncJobs: null,
     asyncJobsKill: null,
     asyncJobsKillError: null,
+    // Spend totals belong to the dying process's bridge; the successor's
+    // bridge rescans the transcripts and republishes on the boot arm (#866).
+    sessionSpend: null,
   });
   rpcCommandMachinery.abandon(tabId, reason, m);
   m.discardTabRuntime(tabId);
@@ -613,6 +616,7 @@ function freshRpcTabState(
     asyncJobs: null,
     asyncJobsKill: null,
     asyncJobsKillError: null,
+    sessionSpend: null,
     capabilities: null,
     capabilitiesLoad: "idle",
     subagentControlBusy: {},
@@ -808,6 +812,9 @@ export function createRpcCommandSlice(
       // starts its digest-gated poll; every renderer that boots the tab
       // force-republishes.
       void get().refreshAsyncJobs(tabId);
+      // Arm the session-spend bridge (issue #866): its first scan reproduces
+      // the whole-session total from the transcripts on disk.
+      void get().refreshSessionSpend(tabId);
       // The roster is a backend read, not a command: boot takes one whether
       // or not the session ever publishes, so an open viewer is never stuck
       // on "idle" for want of a turn (issue #374).

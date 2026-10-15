@@ -30,6 +30,11 @@ import { PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY } from "@omp-ui/core/plan";
 import { MCP_RUNTIME_STATUS_KEY } from "@omp-ui/core/mcp-status";
 import { CAPABILITIES_STATUS_KEY } from "@omp-ui/core/capabilities";
 import {
+  SESSION_SPEND_STATUS_KEY,
+  emptySpendTotals,
+  type SessionSpendSnapshot,
+} from "@omp-ui/core/session-spend";
+import {
   AUTORESEARCH_STATUS_KEY,
   AUTORESEARCH_WIDGET_KEY,
   EXPERIMENT_PROPOSAL_SENTINEL,
@@ -1029,6 +1034,41 @@ describe("handleRpcFrame routing", () => {
       statusText: undefined,
     });
     expect(h.useStore.getState().rpc[h.TAB]!.extensionStatus).toEqual({});
+  });
+
+  it("accepts newer session-spend snapshots per process (issue #866)", () => {
+    const publish = (patch: Partial<SessionSpendSnapshot>): void => {
+      const snapshot: SessionSpendSnapshot = {
+        version: 1,
+        processKey: "omp-ui-proc-1",
+        revision: 1,
+        available: true,
+        unavailable: null,
+        sessionFile: "/s/root.jsonl",
+        main: emptySpendTotals(),
+        subagents: emptySpendTotals(),
+        total: { ...emptySpendTotals(), cost: 1 },
+        transcripts: 0,
+        ...patch,
+      };
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: `spend-${snapshot.processKey}-${snapshot.revision}`,
+        method: "setStatus",
+        statusKey: SESSION_SPEND_STATUS_KEY,
+        statusText: JSON.stringify(snapshot),
+      });
+    };
+    const spend = () => h.useStore.getState().rpc[h.TAB]!.sessionSpend;
+    publish({ revision: 3, total: { ...emptySpendTotals(), cost: 2 } });
+    expect(spend()?.total.cost).toBe(2);
+    // A lower revision from the same process is stale.
+    publish({ revision: 2, total: { ...emptySpendTotals(), cost: 9 } });
+    expect(spend()?.total.cost).toBe(2);
+    // A new process replaces regardless of revision.
+    publish({ processKey: "omp-ui-proc-2", revision: 1, total: { ...emptySpendTotals(), cost: 0.5 } });
+    expect(spend()?.processKey).toBe("omp-ui-proc-2");
+    expect(spend()?.total.cost).toBe(0.5);
   });
 
   it("auto-cancels a non-status extension request with a marker", () => {

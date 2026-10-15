@@ -13,6 +13,7 @@ import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
 import { AUTORESEARCH_COMMAND } from "@omp-ui/core/autoresearch";
 import { VIBE_COMMAND } from "@omp-ui/core/vibe";
 import { ASYNC_JOBS_COMMAND } from "@omp-ui/core/async-jobs";
+import { SESSION_SPEND_COMMAND } from "@omp-ui/core/session-spend";
 import { backend, backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { currentLocaleId, useT, type MessageKey } from "../lib/i18n";
@@ -151,6 +152,7 @@ export function Composer({
           c.name !== VIBE_COMMAND &&
           c.name !== AUTORESEARCH_COMMAND &&
           c.name !== ASYNC_JOBS_COMMAND &&
+          c.name !== SESSION_SPEND_COMMAND &&
           !owned.has(c.name),
       ),
     ];

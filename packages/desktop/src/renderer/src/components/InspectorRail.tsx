@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { LiveAudioEntry } from "@omp-ui/core/live-voice";
+import type { SpendTotals } from "@omp-ui/core/session-spend";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
@@ -408,58 +409,92 @@ const TOKEN_ROWS: { key: keyof TokenTotals; labelKey: "rail.stats.input" | "rail
   { key: "total", labelKey: "rail.stats.total" },
 ];
 
-function StatsTable({ stats }: { stats: SessionStats }) {
+/**
+ * Message counts are context-scoped and come from get_session_stats; tokens
+ * and spend read the whole-session bridge snapshot when it is available
+ * (issue #866), else fall back to get_session_stats.
+ */
+function StatsTable({
+  stats,
+  spend,
+  subagentCost,
+}: {
+  stats: SessionStats | null;
+  spend: SpendTotals | null;
+  subagentCost: number | null;
+}) {
   const t = useT();
+  const tokens: TokenTotals | null = spend
+    ? {
+        input: spend.input,
+        output: spend.output,
+        reasoning: spend.reasoning,
+        cacheRead: spend.cacheRead,
+        cacheWrite: spend.cacheWrite,
+        total: spend.totalTokens,
+      }
+    : (stats?.tokens ?? null);
+  const cost = spend?.cost ?? stats?.cost ?? 0;
+  const premiumRequests = spend?.premiumRequests ?? stats?.premiumRequests ?? 0;
   return (
     <>
-      <Section title={t("rail.stats.messages")}>
-        <dl>
-          <Row label={t("rail.stats.user")}>
-            <Mono>{exactNum(stats.userMessages)}</Mono>
-          </Row>
-          <Row label={t("rail.stats.assistant")}>
-            <Mono>{exactNum(stats.assistantMessages)}</Mono>
-          </Row>
-          <Row label={t("rail.stats.toolCalls")}>
-            <Mono>{exactNum(stats.toolCalls)}</Mono>
-          </Row>
-          <Row label={t("rail.stats.toolResults")}>
-            <Mono>{exactNum(stats.toolResults)}</Mono>
-          </Row>
-          <Row label={t("rail.stats.total")}>
-            <Mono>{exactNum(stats.totalMessages)}</Mono>
-          </Row>
-        </dl>
-      </Section>
-      <Section title={t("rail.stats.tokens")}>
-        <table className="w-full">
-          <tbody>
-            {TOKEN_ROWS.map(({ key, labelKey }) => (
-              <tr key={key} className={key === "total" ? "border-t border-line-soft" : undefined}>
-                <td className="py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint">
-                  {t(labelKey)}
-                </td>
-                <td
-                  title={exactNum(stats.tokens[key])}
-                  className={cn(
-                    "py-0.5 text-right font-mono text-[11px] tabular-nums",
-                    key === "total" ? "text-ink" : "text-ink-mid",
-                  )}
-                >
-                  {compactNum(stats.tokens[key])}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Section>
+      {stats && (
+        <Section title={t("rail.stats.messages")}>
+          <dl>
+            <Row label={t("rail.stats.user")}>
+              <Mono>{exactNum(stats.userMessages)}</Mono>
+            </Row>
+            <Row label={t("rail.stats.assistant")}>
+              <Mono>{exactNum(stats.assistantMessages)}</Mono>
+            </Row>
+            <Row label={t("rail.stats.toolCalls")}>
+              <Mono>{exactNum(stats.toolCalls)}</Mono>
+            </Row>
+            <Row label={t("rail.stats.toolResults")}>
+              <Mono>{exactNum(stats.toolResults)}</Mono>
+            </Row>
+            <Row label={t("rail.stats.total")}>
+              <Mono>{exactNum(stats.totalMessages)}</Mono>
+            </Row>
+          </dl>
+        </Section>
+      )}
+      {tokens && (
+        <Section title={t("rail.stats.tokens")}>
+          <table className="w-full">
+            <tbody>
+              {TOKEN_ROWS.map(({ key, labelKey }) => (
+                <tr key={key} className={key === "total" ? "border-t border-line-soft" : undefined}>
+                  <td className="py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                    {t(labelKey)}
+                  </td>
+                  <td
+                    title={exactNum(tokens[key])}
+                    className={cn(
+                      "py-0.5 text-right font-mono text-[11px] tabular-nums",
+                      key === "total" ? "text-ink" : "text-ink-mid",
+                    )}
+                  >
+                    {compactNum(tokens[key])}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Section>
+      )}
       <Section title={t("rail.stats.spend")}>
         <dl>
           <Row label={t("rail.stats.cost")}>
-            <Mono title={`${stats.cost}`}>{formatCost(stats.cost)}</Mono>
+            <Mono title={`${cost}`}>{formatCost(cost)}</Mono>
           </Row>
+          {spend && subagentCost !== null && (
+            <Row label={t("rail.stats.subagentCost")}>
+              <Mono title={`${subagentCost}`}>{formatCost(subagentCost)}</Mono>
+            </Row>
+          )}
           <Row label={t("rail.stats.premiumReqs")}>
-            <Mono>{exactNum(stats.premiumRequests)}</Mono>
+            <Mono>{exactNum(premiumRequests)}</Mono>
           </Row>
         </dl>
       </Section>
@@ -574,7 +609,9 @@ function VoiceRecordingsSection({ tabId }: { tabId: string }) {
 function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) {
   const t = useT();
   const session = useStore((s) => s.rpc[tabId]?.session);
-  const stats = useStore((s) => s.rpc[tabId]?.stats);
+  const stats = useStore((s) => s.rpc[tabId]?.stats ?? null);
+  const sessionSpend = useStore((s) => s.rpc[tabId]?.sessionSpend ?? null);
+  const spendAvailable = sessionSpend?.available === true;
   const model = useStore((s) => s.rpc[tabId]?.model);
   const status = useStore((s) => s.rpc[tabId]?.status);
   const queueChip = queueChipView(status === "running", session?.queuedMessageCount ?? 0);
@@ -671,8 +708,12 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
         </dl>
       </Section>
 
-      {stats ? (
-        <StatsTable stats={stats} />
+      {stats || spendAvailable ? (
+        <StatsTable
+          stats={stats}
+          spend={spendAvailable ? sessionSpend.total : null}
+          subagentCost={spendAvailable ? sessionSpend.subagents.cost : null}
+        />
       ) : (
         <Section title={t("rail.stats.title")}>
           <Empty
