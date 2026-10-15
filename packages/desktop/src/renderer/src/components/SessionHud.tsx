@@ -1023,6 +1023,31 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const compacting = useStore((s) => s.rpc[tabId]?.compacting !== undefined);
   const session = useStore((s) => s.rpc[tabId]?.session);
   const stats = useStore((s) => s.rpc[tabId]?.stats);
+  // Whole-session spend (issue #866): root + every subagent transcript,
+  // surviving compaction. `stats` stays the fallback until the bridge answers.
+  const sessionSpend = useStore((s) => s.rpc[tabId]?.sessionSpend ?? null);
+  const mainSpend = sessionSpend?.available
+    ? {
+        cost: sessionSpend.total.cost,
+        tokens: sessionSpend.total.totalTokens,
+        premium: sessionSpend.total.premiumRequests,
+        title: t("hud.stats.sessionDetails", {
+          cost: formatCost(sessionSpend.total.cost),
+          tokens: exactNum(sessionSpend.total.totalTokens),
+          premium: sessionSpend.total.premiumRequests,
+          main: formatCost(sessionSpend.main.cost),
+          subagents: formatCost(sessionSpend.subagents.cost),
+          count: sessionSpend.transcripts,
+        }),
+      }
+    : stats
+      ? {
+          cost: stats.cost,
+          tokens: stats.tokens.total,
+          premium: stats.premiumRequests,
+          title: t("hud.stats.details", { cost: formatCost(stats.cost), tokens: exactNum(stats.tokens.total), premium: stats.premiumRequests }),
+        }
+      : null;
   const extensionStatus = useStore((s) => s.rpc[tabId]?.extensionStatus);
   const title = useStore((s) => findRecord(s.state, tabId)?.title);
   // The owning remote instance (issue #416): the nickname chip, and the target
@@ -1062,6 +1087,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
     backgroundWorkInFlight(s.rpc[tabId]?.asyncJobs ?? null),
   );
   const refreshAsyncJobs = useStore((s) => s.refreshAsyncJobs);
+  const refreshSessionSpend = useStore((s) => s.refreshSessionSpend);
   // The live session model (frame-owned since config_update): omp resolves
   // compaction.modelThresholds against provider/id, so the notch moves with a
   // model switch (issue #831). null before the first config_update → global path.
@@ -1238,6 +1264,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
     if (status !== "running" && session?.isStreaming !== true) void refreshAdvisorStats(tabId);
     void refreshLimits(tabId);
     void refreshAsyncJobs(tabId);
+    void refreshSessionSpend(tabId);
   };
 
   if (compact) {
@@ -1266,12 +1293,12 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <Sheet open={surface === "session-actions"} placement="bottom" label={t("hud.actions.sessionActions")} onClose={closeCompactSurface}>
           <div className="space-y-4 p-4">
             <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
-            {(usage || stats || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || usageLimitChip || limitsCluster || isPrivate) && (
+            {(usage || mainSpend || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || usageLimitChip || limitsCluster || isPrivate) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
                 {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
                 {isPrivate && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.memory")}</Label><span className="flex items-center gap-1 text-ink-mid"><IconLock /><span title={t("session.badge.private")}>{t("hud.metrics.memoryPrivate")}</span></span></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.context")}</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
-                {stats && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid">{t("hud.stats.compact", { cost: formatCost(stats.cost), tokens: compactNum(stats.tokens.total), premium: stats.premiumRequests })}</span></div>}
+                {mainSpend && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={mainSpend.title}>{t("hud.stats.compact", { cost: formatCost(mainSpend.cost), tokens: compactNum(mainSpend.tokens), premium: mainSpend.premium })}</span></div>}
                 {quotaEvent != null && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{quotaChip}</div>}
                 {usageLimitChip && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{usageLimitChip}</div>}
                 {limitsCluster && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{limitsCluster}</div>}
@@ -1362,19 +1389,20 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {limitsCluster}
 
       {/* Main usage and main spend read as one group (issue #107). The wrapper keeps
-          `usage` and `stats` independent conditionals: either can be null without
-          dropping the other. */}
-      {(usage || stats) && (
+          `usage` and the spend readout independent conditionals: either can be null
+          without dropping the other. Spend is whole-session when the bridge has
+          answered (issue #866), else get_session_stats' context-scoped figure. */}
+      {(usage || mainSpend) && (
         <div className="flex shrink-0 items-center gap-2 [app-region:no-drag]">
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
-          {stats && (
+          {mainSpend && (
             <div
               className="titlebar-main-stats hidden shrink-0 items-center gap-1.5 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-mid lg:flex"
-              title={t("hud.stats.details", { cost: formatCost(stats.cost), tokens: exactNum(stats.tokens.total), premium: stats.premiumRequests })}
+              title={mainSpend.title}
             >
-              <span>{formatCost(stats.cost)}</span>
+              <span>{formatCost(mainSpend.cost)}</span>
               <span className="text-line-strong">·</span>
-              <span>{t("hud.stats.tokenShort", { tokens: compactNum(stats.tokens.total) })}</span>
+              <span>{t("hud.stats.tokenShort", { tokens: compactNum(mainSpend.tokens) })}</span>
             </div>
           )}
         </div>

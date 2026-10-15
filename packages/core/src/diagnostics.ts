@@ -14,6 +14,7 @@ import { gitGuardOverlayPath } from "./git-guard-overlay";
 import { goalOverlayPath } from "./goal-overlay";
 import { worktreeOverlayPath } from "./worktree-overlay";
 import { asyncJobsExtensionPath } from "./async-jobs-extension";
+import { sessionSpendExtensionPath } from "./session-spend-extension";
 import { limitsExtensionPath } from "./limits-extension";
 import { mcpStatusExtensionPath } from "./mcp-status-extension";
 import { modelOverlayPath } from "./model-overlay";
@@ -101,7 +102,7 @@ const LOG_FILES = [
   "breadcrumbs.log.old",
 ] as const;
 
-/** The 14 generated per-session files (8 extensions + 6 overlays). */
+/** The 15 generated per-session files (9 extensions + 6 overlays). */
 const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   planExtensionPath,
   capabilitiesExtensionPath,
@@ -109,6 +110,7 @@ const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   mcpStatusExtensionPath,
   limitsExtensionPath,
   asyncJobsExtensionPath,
+  sessionSpendExtensionPath,
   browserPaneExtensionPath,
   treeExtensionPath,
   advisorOverlayPath,

@@ -58,6 +58,7 @@ import type {
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import type { AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
+import type { SessionSpendSnapshot } from "@omp-ui/core/session-spend";
 import type { LimitsView } from "@omp-ui/core/limits";
 import type { McpRuntimeStatus } from "@omp-ui/core/mcp-status";
 import type {
@@ -339,6 +340,12 @@ export interface RpcTabState {
   asyncJobsKill: { requestId: string; jobId: string | null } | null;
   /** The last kill's failure — the bridge's sentence or the rpc error; cleared by the next kill. */
   asyncJobsKillError: string | null;
+  /**
+   * Whole-session spend as the session-spend bridge published it (issue #866):
+   * the root journal plus every subagent transcript, surviving compaction.
+   * Null until first observed; the HUD and rail fall back to `stats` then.
+   */
+  sessionSpend: SessionSpendSnapshot | null;
   /**
    * The retry layer rotated a credential or waited on a rate window during
    * THIS turn (issue #673): set by auto_retry frames, cleared at the next
@@ -1351,6 +1358,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   refreshStats(tabId: string): Promise<void>;
   refreshAdvisorStats(tabId: string): Promise<void>;
   refreshLimits(tabId: string): Promise<void>;
+  /** Arms the session-spend bridge and asks it to republish (issue #866); quiet. */
+  refreshSessionSpend(tabId: string): Promise<void>;
   /** Arms the async-jobs bridge and asks it to republish (issue #835); quiet. */
   refreshAsyncJobs(tabId: string): Promise<void>;
   /** Cancels one running background job, or every one when `job` is null (issue #835). */

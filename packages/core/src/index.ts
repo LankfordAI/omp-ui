@@ -131,6 +131,7 @@ export {
 } from "./advisor-stats-extension";
 export { limitsExtensionPath, writeLimitsExtension } from "./limits-extension";
 export { asyncJobsExtensionPath, writeAsyncJobsExtension } from "./async-jobs-extension";
+export { sessionSpendExtensionPath, writeSessionSpendExtension } from "./session-spend-extension";
 export { mcpStatusExtensionPath, writeMcpStatusExtension } from "./mcp-status-extension";
 export { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabilities-extension";
 export { vibeExtensionPath, writeVibeExtension } from "./vibe-extension";

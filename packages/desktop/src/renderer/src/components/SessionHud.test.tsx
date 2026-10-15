@@ -314,6 +314,48 @@ describe("wide Session HUD", () => {
     expect(advisorCluster.title).toContain("session-tree advisor tokens 320,000");
   });
 
+  it("prefers whole-session spend over the context-scoped stats, falling back when unavailable (#866)", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const totals = (cost: number, totalTokens: number) => ({
+      cost, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, totalTokens, premiumRequests: 0, requests: 1,
+    });
+    const sessionSpend = {
+      version: 1 as const, processKey: "omp-ui-p", revision: 1, available: true, unavailable: null,
+      sessionFile: "/s/root.jsonl",
+      main: totals(0.1987, 308_331), subagents: totals(0.5209, 519_108), total: totals(0.7196, 827_439),
+      transcripts: 2,
+    };
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          stats: {
+            userMessages: 1, assistantMessages: 1, toolCalls: 0, toolResults: 0, totalMessages: 2,
+            tokens: { input: 60_000, output: 40_000, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 100_000 },
+            cost: 0.0886, premiumRequests: 0, contextUsage: null,
+          },
+          sessionSpend,
+        },
+      },
+    });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const readout = host.querySelector<HTMLElement>(".titlebar-main-stats")!;
+    expect(readout.textContent).toContain("$0.7196");
+    expect(readout.textContent).toContain("827.4K tok");
+    expect(readout.title).toContain("main $0.1987");
+    expect(readout.title).toContain("subagents $0.5209 (2)");
+
+    act(() => useStore.setState({
+      rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, sessionSpend: { ...sessionSpend, available: false, unavailable: "this session is not persisted" } } },
+    }));
+    expect(readout.textContent).toContain("$0.0886");
+    expect(readout.title).not.toContain("subagents");
+  });
+
   it("keeps default Plan unnamed and gives exceptional Build its permission tooltip (#142)", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
