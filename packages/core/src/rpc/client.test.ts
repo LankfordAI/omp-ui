@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { setImmediate as tick } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RpcClient, type RpcChildProcess } from "./client";
+import { RpcClient, type RpcChildProcess, type RpcSinks } from "./client";
 
 interface FakeProc {
   proc: RpcChildProcess;
@@ -294,6 +294,144 @@ describe("RpcClient handshake", () => {
     expect(h.errors[0]).toMatch(/no ready frame in 10 s/);
     expect(h.errors[0]).toMatch(/some startup noise/);
     expect(h.fake.killed()).toBe(true);
+  });
+});
+
+describe("RpcClient deferred arm (warm pool, issue #908)", () => {
+  interface Deferred {
+    client: RpcClient;
+    fake: FakeProc;
+    bootReady: () => number;
+    deaths: (number | null)[];
+    stdinText: () => string;
+  }
+  function deferredHarness(): Deferred {
+    const fake = fakeProc();
+    const lineageDir = fs.mkdtempSync(path.join(os.tmpdir(), "rpc-lineage-"));
+    lineageDirs.push(lineageDir);
+    let readyCount = 0;
+    const deaths: (number | null)[] = [];
+    const client = new RpcClient({
+      cwd: "/proj",
+      lineageDir,
+      ompPath: "/opt/bun/bin/omp",
+      deferArm: true,
+      onBootReady: () => {
+        readyCount += 1;
+      },
+      // Inert-while-parked sinks: the ctor swaps these for no-ops; arm()
+      // replaces them wholesale, so nothing here may ever fire.
+      onFrame: () => {
+        throw new Error("deferred sink fired before arm");
+      },
+      onExit: () => {},
+      onError: () => {},
+      spawnProcess: () => fake.proc,
+    });
+    client.onDeath((code) => deaths.push(code));
+    return {
+      client,
+      fake,
+      bootReady: () => readyCount,
+      deaths,
+      stdinText: () => fake.stdin.read()?.toString() ?? "",
+    };
+  }
+  const recorder = (): { sinks: RpcSinks; seen: string[] } => {
+    const seen: string[] = [];
+    const typeOf = (f: unknown): string => String((f as { type?: unknown }).type);
+    return {
+      seen,
+      sinks: {
+        onInputFrame: (f) => seen.push(`in:${typeOf(f)}`),
+        onFrame: (f) => seen.push(`fwd:${typeOf(f)}`),
+        onExit: () => {},
+        onError: () => {},
+      },
+    };
+  };
+
+  it("parks a warm boot with zero wire bytes and zero forwarding", async () => {
+    const d = deferredHarness();
+    expect(d.client.armed).toBe(false);
+    d.fake.stdout.write(readyFrame());
+    d.fake.stdout.write(
+      `${JSON.stringify({ type: "extension_ui_request", id: "e1", extensionPath: "/x.ts", method: "capabilities", params: {} })}\n`,
+    );
+    await tick();
+    // Boot reached ready, yet the child consumed nothing and the inert sinks
+    // (which throw if touched) stayed untouched.
+    expect(d.stdinText()).toBe("");
+    expect(d.bootReady()).toBe(1);
+    expect(d.client.armed).toBe(false);
+  });
+
+  it("arm negotiates, flushes the rail, then replays parked frames in input order", async () => {
+    const d = deferredHarness();
+    const command = { type: "prompt", id: "omp-ui-host-tools-1", message: "/tools" };
+    d.fake.stdout.write(readyFrame());
+    d.fake.stdout.write(
+      `${JSON.stringify({ type: "extension_ui_request", id: "e1", extensionPath: "/x.ts", method: "capabilities", params: {} })}\n`,
+    );
+    await tick();
+    const rec = recorder();
+    d.client.arm(rec.sinks, [command]);
+    // Exactly the cold-spawn write sequence: negotiate, then rail.
+    expect(d.stdinText()).toBe(
+      '{"type":"negotiate_protocol","protocolVersion":2}\n' + JSON.stringify(command) + "\n",
+    );
+    // Replay keeps the input-order contract: the answerer sees every parked
+    // frame before forwarding — boot-time extension_ui_requests need answers.
+    expect(rec.seen).toEqual(["in:ready", "fwd:ready", "in:extension_ui_request", "fwd:extension_ui_request"]);
+    expect(d.client.armed).toBe(true);
+  });
+
+  it("forwards live frames to the armed sinks after replay", async () => {
+    const d = deferredHarness();
+    d.fake.stdout.write(readyFrame());
+    await tick();
+    const rec = recorder();
+    d.client.arm(rec.sinks, []);
+    rec.seen.length = 0;
+    d.fake.stdout.write(`${JSON.stringify({ type: "message_start", role: "assistant" })}\n`);
+    await tick();
+    expect(rec.seen).toEqual(["in:message_start", "fwd:message_start"]);
+  });
+
+  it("refuses to arm twice or to arm the dead", () => {
+    const d = deferredHarness();
+    const rec = recorder();
+    d.client.arm(rec.sinks, []);
+    expect(() => d.client.arm(rec.sinks, [])).toThrow(/already armed/);
+    const dead = deferredHarness();
+    dead.fake.exit(0);
+    expect(dead.client.dead).toBe(true);
+    expect(() => dead.client.arm(recorder().sinks, [])).toThrow(/dead/);
+  });
+
+  it("a parked child that dies before adoption fires onDeath with its code", () => {
+    const d = deferredHarness();
+    d.fake.exit(137);
+    expect(d.deaths).toEqual([137]);
+    expect(d.client.dead).toBe(true);
+  });
+
+  it("a parked child that never speaks ready times out and dies", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const d = deferredHarness();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(d.fake.killed()).toBe(true);
+    expect(d.deaths).toEqual([null]);
+  });
+
+  it("kill() while parked discards the queue and leaves nothing deliverable", async () => {
+    const d = deferredHarness();
+    d.fake.stdout.write(readyFrame());
+    await tick();
+    d.client.kill();
+    expect(d.fake.killed()).toBe(true);
+    expect(d.client.dead).toBe(true);
+    expect(d.stdinText()).toBe("");
   });
 });
 
