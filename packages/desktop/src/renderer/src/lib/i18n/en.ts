@@ -1629,6 +1629,10 @@ export const en = {
   "markdown.codeblock.source": "source",
   "markdown.codeblock.diagram": "diagram",
   "markdown.diagram.aria": "mermaid diagram",
+  // Transcript diagram failure strip (issue #878): the bold lead plus the
+  // parser's own one-line detail, kept verbatim in {detail}.
+  "markdown.diagram.failed": "diagram failed to render",
+  "markdown.diagram.failed.detail": "diagram failed to render — {detail}",
   "markdown.codeblock.document": "document",
   "markdown.codeblock.image": "image",
   "markdown.svg.aria": "SVG image",

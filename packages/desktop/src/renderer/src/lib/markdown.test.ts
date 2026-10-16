@@ -1332,3 +1332,134 @@ describe("bare URL autolinking (issue #101)", () => {
     }
   });
 });
+
+describe("raw pre.mermaid blocks (issue #878)", () => {
+  it("parses a settled block into a decoded mermaid code block", () => {
+    const src = [
+      "The tunnel:",
+      "",
+      '<pre class="mermaid">',
+      "flowchart LR",
+      '  A["a &lt;b&gt; &amp; c"]--&gt;B',
+      "</pre>",
+    ].join("\n");
+    expect(parseMarkdown(src)).toEqual([
+      { kind: "p", spans: [{ kind: "text", text: "The tunnel:" }] },
+      { kind: "code", lang: "mermaid", text: 'flowchart LR\n  A["a <b> & c"]-->B' },
+    ]);
+  });
+
+  it("decodes the five taught entities once and passes unknown ones through", () => {
+    const blocks = parseMarkdown(
+      '<pre class="mermaid">\nA["&quot;&lt;&gt;&amp;&#39;"] --> B["&lt;&amp;gt; &nbsp; &lt;3"]\n</pre>',
+    );
+    // `&amp;gt;` decodes exactly once (to `&gt;`); the unknown `&nbsp;` and
+    // the literal `<3` pass through byte-identical.
+    expect(blocks[0]).toEqual({
+      kind: "code",
+      lang: "mermaid",
+      text: 'A[""<>&\'"] --> B["<&gt; &nbsp; <3"]',
+    });
+  });
+
+  it("keeps an unclosed opener literal until the closer lands, then reflows", () => {
+    // Streaming: the opener interrupts the paragraph like a settled block
+    // would (startsBlock), and without a closer the run stays literal text —
+    // two paragraphs, every character preserved.
+    const streaming = '<h2>X</h2>\n<pre class="mermaid">\nflowchart LR';
+    expect(parseMarkdown(streaming).map((b) => b.kind)).toEqual(["p", "p"]);
+    expect(literalText(parseMarkdown(streaming))).toBe(streaming);
+    // The same source settled parses as heading-then-diagram (reflow, like tables).
+    const settled = parseMarkdown('## X\n<pre class="mermaid">\nflowchart LR\n</pre>');
+    expect(settled.map((b) => b.kind)).toEqual(["heading", "code"]);
+  });
+
+  it("interrupts a paragraph with no blank line before the opener", () => {
+    // The observed failure shape: prose directly under a heading, then the block.
+    const blocks = parseMarkdown(
+      'Diagram source:\n<pre class="mermaid">\nflowchart LR; A-->B\n</pre>\nafter',
+    );
+    expect(blocks.map((b) => b.kind)).toEqual(["p", "code", "p"]);
+    expect(blockText(blocks[2]!)).toBe("after");
+  });
+
+  it("matches the class token like plan-source: multi-token and quote styles", () => {
+    for (const open of [
+      '<pre class="wide mermaid">',
+      "<pre class='mermaid'>",
+      '<PRE CLASS="MERMAID">',
+      '<pre id="d1" class="mermaid" data-x=2>',
+      '<pre class="mermaid wide">',
+      '   <pre class="mermaid">',
+    ]) {
+      const blocks = parseMarkdown(`${open}\nflowchart LR; A-->B\n</pre>`);
+      expect(blocks[0], open).toEqual({
+        kind: "code",
+        lang: "mermaid",
+        text: "flowchart LR; A-->B",
+      });
+    }
+  });
+
+  it("leaves non-matching pre tags and mid-line openers literal", () => {
+    for (const src of [
+      '<pre class="mermaid-x">\nflowchart LR; A-->B\n</pre>',
+      "<pre>\ngraph TD; A--&gt;B\n</pre>",
+      '<p>see <pre class="mermaid"> flowchart LR</p>\n</pre>',
+      'use <pre class="mermaid"> inline in prose\n</pre>',
+      '<div class="mermaid">\nflowchart LR; A-->B\n</div>',
+      '<pre class="mermaid">\n</pre>',
+    ]) {
+      expect(parseMarkdown(src)[0]?.kind, src).toBe("p");
+    }
+  });
+
+  it("stops at the first dedicated closer line", () => {
+    // The line-anchored scan makes "first closer wins" automatic.
+    const blocks = parseMarkdown(
+      '<pre class="mermaid">\nflowchart LR; A-->B\n</pre>\n<pre class="mermaid">\nflowchart TD; C-->D\n</pre>',
+    );
+    expect(blocks.map((b) => b.kind)).toEqual(["code", "code"]);
+    expect(blockText(blocks[1]!)).toBe("flowchart TD; C-->D");
+  });
+
+  it("holds a settled block inside a list item at content indent (the #41 mirror)", () => {
+    const blocks = parseMarkdown(
+      '- lead\n  <pre class="mermaid">\n  flowchart LR; A-->B\n  </pre>\n- next',
+    );
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (block?.kind !== "list") throw new Error("expected one list");
+    expect(block.items).toHaveLength(2);
+    expect(block.items[0]!.blocks.map((b) => b.kind)).toEqual(["p", "code"]);
+    expect(blockText(block.items[0]!.blocks[1]!)).toBe("flowchart LR; A-->B");
+  });
+
+  it("keeps an over-indented opener literal inside an item", () => {
+    // contentIndent is 2; an 8-space opener dedents to 6, past the {0,3} cutoff.
+    const out = literalText(
+      parseMarkdown('- a\n        <pre class="mermaid">\nflowchart LR\n        </pre>'),
+    );
+    expect(out).toContain('<pre class="mermaid">');
+  });
+
+  it("re-parses an append delta identically with parseMarkdownCached", () => {
+    // #858 invariant for the new construct: line-anchored and context-free, so
+    // the tail slice must agree with a whole parse at every streaming stop.
+    const doc = [
+      "intro para",
+      "",
+      '<pre class="mermaid">',
+      "flowchart LR",
+      '  A["a &lt;b&gt;"]--&gt;B',
+      "</pre>",
+      "",
+      "outro para",
+    ].join("\n");
+    for (let n = 1; n <= doc.length; n += 5) {
+      const chunk = doc.slice(0, n);
+      expect(parseMarkdownCached(chunk)).toEqual(parseMarkdown(chunk));
+    }
+    expect(parseMarkdownCached(doc)).toEqual(parseMarkdown(doc));
+  });
+});

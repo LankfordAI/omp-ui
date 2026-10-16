@@ -3,20 +3,27 @@ import { renderMermaid } from "./plan-diagrams";
 import { useTheme } from "./themes";
 
 /**
- * SVG for a settled mermaid source, or null (streaming, in flight, failed —
- * the caller keeps showing the code block). Transcript counterpart of
- * planDiagramTransform for HTML plans (issue #285, extended to the transcript by
- * issue #361): mermaid runs in the trusted renderer with securityLevel
- * "strict"; the returned SVG is sanitizer output, inserted like KaTeX markup
- * in Markdown.tsx.
+ * SVG plus failure for a settled mermaid source (issue #878): while streaming
+ * or in flight both fields are null and the caller keeps showing the code
+ * block; on a parse failure the message rides so the transcript can surface
+ * why. Transcript counterpart of planDiagramTransform for HTML plans (issue
+ * #285, extended to the transcript by issue #361): mermaid runs in the
+ * trusted renderer with securityLevel "strict"; the returned SVG is sanitizer
+ * output, inserted like KaTeX markup in Markdown.tsx.
  */
-
 /** Rendered-SVG cache keyed (dark, source): the transcript re-renders its
  *  items often (streaming commits, theme switches, pane remounts) and one
  *  mermaid render costs ~100 ms. In-flight promises dedupe identical sources
  *  rendered by sibling blocks. LRU-capped: transcripts are long. */
 const CACHE_CAP = 64;
 const cache = new Map<string, Promise<string>>();
+
+/** Failure messages keyed like the SVG cache. A settled transcript diagram
+ * that cannot parse must stay visibly broken (issue #878): re-renders reuse
+ * the message instead of re-running mermaid, and a rejected promise never
+ * lives here — the success cache stays fail-free. */
+const ERR_CAP = 64;
+const errorsBySource = new Map<string, string>();
 
 /** Distinct from the plan path's `omp-ui-diagram-N` (per-document numbering
  *  would collide across transcript items sharing one DOM). */
@@ -34,14 +41,24 @@ function diagramSvg(source: string, dark: boolean): Promise<string> {
     cache.set(key, hit);
     return hit;
   }
+  const settledError = errorsBySource.get(key);
+  if (settledError !== undefined) return Promise.reject(new Error(settledError));
   const id = `omp-ui-t-${blockSeq++}`;
   const run = renderMermaid(id, source, dark);
   cache.set(key, run);
-  // A failed render must not poison the key: drop it, and swallow the
-  // rejection here so unhandled-rejection tracking never sees the cached
-  // promise's failure (each consumer attaches its own catch).
-  run.catch(() => {
+  // A failed render must not poison the key: drop it and keep the message
+  // beside it instead (issue #878 — the transcript strip reads it across
+  // re-renders without re-running mermaid). The rejection is swallowed here
+  // so unhandled-rejection tracking never sees the cached promise's failure
+  // (each consumer attaches its own catch).
+  run.catch((err: unknown) => {
     if (cache.get(key) === run) cache.delete(key);
+    const message = err instanceof Error ? err.message : String(err);
+    errorsBySource.set(key, message);
+    if (errorsBySource.size > ERR_CAP) {
+      const oldest = errorsBySource.keys().next().value;
+      if (oldest !== undefined) errorsBySource.delete(oldest);
+    }
   });
   if (cache.size > CACHE_CAP) {
     const oldest = cache.keys().next().value;
@@ -50,25 +67,34 @@ function diagramSvg(source: string, dark: boolean): Promise<string> {
   return run;
 }
 
+export interface DiagramState {
+  svg: string | null;
+  /** Parser message for a settled failed render; null while streaming, in
+   * flight, or on success — the transcript strip never flashes mid-stream. */
+  error: string | null;
+}
+
 /** `enabled` is false while the block streams (the caret is still riding
  *  it) — same gate CodeBlock already passes to useHighlightTokens. */
-export function useDiagramSvg(source: string, enabled: boolean): string | null {
-  const [svg, setSvg] = useState<string | null>(null);
+export function useDiagramSvg(source: string, enabled: boolean): DiagramState {
+  const [state, setState] = useState<DiagramState>({ svg: null, error: null });
   const theme = useTheme();
 
   useEffect(() => {
     if (!enabled) {
-      setSvg(null);
+      setState({ svg: null, error: null });
       return;
     }
     let alive = true;
     diagramSvg(source, theme.dark).then(
       (s) => {
-        if (alive) setSvg(s);
+        if (alive) setState({ svg: s, error: null });
       },
-      () => {
-        // failure ⇒ stay on the code block
-        if (alive) setSvg(null);
+      (err: unknown) => {
+        // Failure ⇒ keep the code block and carry the parser message so the
+        // caller can surface why (issue #878).
+        const message = err instanceof Error ? err.message : String(err);
+        if (alive) setState({ svg: null, error: message });
       },
     );
     return () => {
@@ -76,5 +102,5 @@ export function useDiagramSvg(source: string, enabled: boolean): string | null {
     };
   }, [source, enabled, theme]);
 
-  return svg;
+  return state;
 }

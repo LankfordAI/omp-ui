@@ -56,6 +56,20 @@ and ADR-0007's empty sandbox).
 > code block with a source toggle, no callout (the source *is* readable
 > content there). The plan pipeline itself is byte-for-byte unchanged.
 
+> **Addendum (2026-10-16):** The transcript also accepts the plan idiom itself.
+> Agents trained by the plan prompt write `<pre class="mermaid">…</pre>` in
+> ordinary message prose, where the transcript parser had no HTML path and the
+> raw tags rendered as literal text (issue #878). The parser now recognizes a
+> settled, line-anchored opener/closer run with the `mermaid` class token and
+> emits it as the same lang-mermaid code block a fence produces, body HTML
+> entity-decoded — classification only: message text still never becomes
+> markup, and the strict-sanitizer posture is untouched. Unclosed openers stay
+> literal (no tail swallowing). And a settled transcript diagram that fails to
+> parse now surfaces a copper strip carrying the parser's message above the
+> code block — parity with this ADR's plan-surface callout, so malformed agent
+> source is visible instead of silently degraded. The plan pipeline remains
+> byte-for-byte unchanged.
+
 ## Consequences
 
 - **`preparePlanDocument` is async.** The one callsite-visible change; both

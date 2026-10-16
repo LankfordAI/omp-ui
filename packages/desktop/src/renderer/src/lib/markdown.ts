@@ -311,6 +311,17 @@ function parseInline(src: string, links = true): MdSpan[] {
 /* --------------------------------------------------------------- blocks */
 
 const FENCE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*(.*)$/;
+
+/** Opens a raw transcript mermaid block (issue #878): a `pre` start tag whose
+ * class attribute carries the `mermaid` token and which owns its whole line.
+ * Attribute order, extra attributes, quoting style, and case are all
+ * tolerated; the tag must sit at 0-3 leading spaces, so mid-line prose that
+ * merely mentions the tag stays literal text. The token rule mirrors
+ * plan-source's `classTokens`: `wide mermaid` matches, `mermaid-x` does not. */
+const MERMAID_PRE_OPEN_RE =
+  /^ {0,3}<pre\b[^>]*?\sclass\s*=\s*(?:"(?:[^"\s]*\s)*mermaid(?:\s[^"]*)?"|'(?:[^'\s]*\s)*mermaid(?:\s[^']*)?')[^>]*>[ \t]*$/i;
+const MERMAID_PRE_CLOSE_RE = /^ {0,3}<\/pre>[ \t]*$/i;
+
 const HEADING_RE = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/;
 const QUOTE_RE = /^ {0,3}>[ \t]?(.*)$/;
 const BULLET_RE = /^( *)[-*+](?:[ \t]+(.*))?$/;
@@ -404,6 +415,46 @@ function readDisplayMath(
   if (!trimmed.endsWith("$$")) return null;
   const body = trimmed.slice(0, -2);
   return body === "" ? null : { text: body, next: i + 1 };
+}
+
+/** The five entities `escapeHtml` and the plan prompt emit for diagram
+ * sources; decoded by single-pass alternation so `&amp;lt;` decodes once, to
+ * `&lt;`, and unknown entities pass through byte-identical — they are mermaid
+ * text, not markup. */
+const ENTITY_RE = /&(?:lt|gt|quot|#39|amp);/g;
+const ENTITY_TEXT: Record<string, string> = {
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&amp;": "&",
+};
+
+function decodeEntities(s: string): string {
+  return s.replace(ENTITY_RE, (m) => ENTITY_TEXT[m]!);
+}
+
+/**
+ * Read a raw mermaid pre block at `lines[i]`, or null. A settled run yields
+ * its entity-decoded body and the line after the closer; the first
+ * line-anchored `</pre>` wins. No closer by end of input — or an empty body —
+ * returns null: streaming or malformed source degrades to literal text,
+ * exactly like readDisplayMath and unlike an unclosed fence (``` is
+ * unambiguous; a bare `<pre>` line must not swallow the rest of the message).
+ * Only decoded plain source reaches mermaid, so #285's posture holds: message
+ * text still never becomes markup (issue #878).
+ */
+function readMermaidPre(
+  lines: string[],
+  i: number,
+): { text: string; next: number } | null {
+  if (!MERMAID_PRE_OPEN_RE.test(lines[i] ?? "")) return null;
+  for (let k = i + 1; k < lines.length; k++) {
+    if (!MERMAID_PRE_CLOSE_RE.test(lines[k] ?? "")) continue;
+    const body = lines.slice(i + 1, k).join("\n");
+    return body.trim() === "" ? null : { text: decodeEntities(body), next: k + 1 };
+  }
+  return null;
 }
 
 function listMarker(
@@ -569,6 +620,7 @@ function startsBlock(line: string): boolean {
   return (
     FENCE_RE.test(line) ||
     isDisplayMathLine(line) ||
+    MERMAID_PRE_OPEN_RE.test(line) ||
     HEADING_RE.test(line) ||
     QUOTE_RE.test(line) ||
     isRule(line) ||
@@ -596,6 +648,11 @@ function fenceLead(line: string): number | null {
 /** Leading-space count when `line` is a display math line, else null. */
 function mathLead(line: string): number | null {
   return leadOf(line, isDisplayMathLine);
+}
+
+/** Leading-space count when `line` opens a raw mermaid pre block, else null. */
+function mermaidPreLead(line: string): number | null {
+  return leadOf(line, (rest) => MERMAID_PRE_OPEN_RE.test(rest));
 }
 
 /**
@@ -626,7 +683,8 @@ function dedentTo(line: string, n: number): string {
 /**
  * A list item's content, parsed after its content indent is stripped.
  * Paragraphs fold exactly like top-level ones; fences become code blocks,
- * display math blocks (issue #191). Any line that still looks like a marker
+ * display math blocks (issue #191), and raw mermaid pre runs (issue #878).
+ * Any line that still looks like a marker
  * (only depth-cap leftovers reach here — real markers were peeled into
  * children by parseList) falls through to the paragraph: list structure is
  * never re-detected here.
@@ -642,6 +700,13 @@ function parseItemBlocks(lines: string[]): MdBlock[] {
       i = next;
       continue;
     }
+
+    const pre = readMermaidPre(lines, i);
+    if (pre) {
+      blocks.push({ kind: "code", lang: "mermaid", text: pre.text });
+      i = pre.next;
+      continue;
+    }
     const math = readDisplayMath(lines, i);
     if (math) {
       blocks.push({ kind: "math", text: math.text });
@@ -653,6 +718,7 @@ function parseItemBlocks(lines: string[]): MdBlock[] {
     while (
       j < lines.length &&
       !FENCE_RE.test(lines[j] ?? "") &&
+      !MERMAID_PRE_OPEN_RE.test(lines[j] ?? "") &&
       !isDisplayMathLine(lines[j] ?? "")
     ) {
       para.push(lines[j] ?? "");
@@ -774,6 +840,17 @@ function parseList(lines: string[], start: number): { list: MdList; next: number
       j++;
       continue;
     }
+
+    // A raw mermaid pre block indented at least as far as the open item's
+    // content belongs to that item — the pre mirror of the fence and math
+    // rules above (#878): after dedent it either reads as a settled diagram
+    // run or degrades to literal text, and the list stays intact.
+    const pl = mermaidPreLead(current);
+    if (pl !== null && pl >= stack.at(-1)!.list.items.at(-1)!.contentIndent) {
+      stack.at(-1)!.list.items.at(-1)!.content.push(current);
+      j++;
+      continue;
+    }
     if (startsBlock(current)) break;
 
     // Wrapped or deeper-indented lines stay with the deepest open item,
@@ -815,6 +892,19 @@ function parseLines(lines: string[], from: number): ParseRange {
       blocks.push({ kind: "code", lang: f.lang, text: f.text });
       lastStart = blockStart;
       i = f.next;
+      continue;
+    }
+
+    // A raw `<pre class="mermaid">` run (issue #878): the plan prompt's
+    // diagram idiom arriving in transcript prose. A settled run emits a
+    // lang-mermaid code block so every downstream fence path — CodeBlock's
+    // gate, useDiagramSvg, the cache — renders it; streaming or malformed
+    // source keeps staying literal text.
+    const pre = readMermaidPre(lines, i);
+    if (pre) {
+      blocks.push({ kind: "code", lang: "mermaid", text: pre.text });
+      lastStart = blockStart;
+      i = pre.next;
       continue;
     }
 

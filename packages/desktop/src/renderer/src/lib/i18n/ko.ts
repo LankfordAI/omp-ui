@@ -1468,6 +1468,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "markdown.codeblock.source": "source",
   "markdown.codeblock.diagram": "diagram",
   "markdown.diagram.aria": "mermaid diagram",
+  "markdown.diagram.failed": "다이어그램 렌더링 실패",
+  "markdown.diagram.failed.detail": "다이어그램을 렌더링하지 못했습니다 — {detail}",
   "markdown.codeblock.document": "document",
   "markdown.codeblock.image": "image",
   "markdown.svg.aria": "SVG image",
