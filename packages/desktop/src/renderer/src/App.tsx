@@ -301,8 +301,14 @@ export default function App() {
   const toggleConsole = useStore((s) => s.toggleConsole);
   const setPlanMode = useStore((s) => s.setPlanMode);
   const activeTitle = useStore((s) => (s.activeTabId ? tabTitle(s.state, s.activeTabId) : undefined));
-  const activeRuntime = useStore((s) => (s.activeTabId ? s.rpc[s.activeTabId] : undefined));
-  const activeRecord = useStore((s) => (s.activeTabId ? findRecord(s.state, s.activeTabId) : undefined));
+  // A number, not the active runtime: a frame on the active tab must not
+  // re-render the shell (issue #867).
+  const inspectorCount = useStore((s) => {
+    const id = s.activeTabId;
+    if (id === null || s.tabs.find((tab) => tab.tabId === id)?.mode !== "rpc-ui") return 0;
+    const badges = inspectorBadges(s.rpc[id], findRecord(s.state, id));
+    return badges.todos + badges.agents + badges.jobs + badges.plans;
+  });
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const compact = useCompactShell();
@@ -366,7 +372,7 @@ export default function App() {
       e.preventDefault();
       const tab = tabs.find((t) => t.tabId === activeTabId);
       if (tab?.mode !== "rpc-ui") return;
-      const plan = activeRuntime?.plan;
+      const plan = useStore.getState().rpc[tab.tabId]?.plan;
       if (plan?.unavailable !== undefined) return;
       void setPlanMode(tab.tabId, !(plan?.enabled ?? false));
     },
@@ -462,9 +468,6 @@ export default function App() {
   // underneath, hidden, exactly as a background tab is.
   const compactTitle =
     stats !== null ? t("stats.header.title") : lab !== null ? t("lab.header.title") : activeTitle ?? t("app.compact.projectsAndSessions");
-  const badges =
-    activeTab?.mode === "rpc-ui" ? inspectorBadges(activeRuntime, activeRecord) : null;
-  const inspectorCount = badges ? badges.todos + badges.agents + badges.jobs + badges.plans : 0;
 
   return (
     <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden backdrop-wash font-sans text-ink">

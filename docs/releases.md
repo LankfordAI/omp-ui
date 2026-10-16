@@ -4,6 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- Switching to a long-running native session no longer stalls the window: the transcript renders its newest entries and loads earlier ones as you scroll up (#867).
 - Choosing an audio device in Settings now fails visibly when the system keeps a different device as its default, instead of showing the choice as applied while capture uses another mic (#865).
 
 ## Choose a download

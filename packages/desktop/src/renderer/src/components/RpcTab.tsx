@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { findMatches, preExchange, type RenderItem } from "../lib/transcript";
@@ -195,7 +195,12 @@ function ModelRecoveryPicker({ tabId, failedModel }: { tabId: string; failedMode
   );
 }
 
-export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
+/**
+ * Memoized on purpose (issue #867): a hidden tab must not pay for `App`
+ * re-renders it has no props in — the props are primitives, so an `App`
+ * re-render stops here. The tab's own store selectors still drive it.
+ */
+export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   const t = useT();
   const rpc = useStore((s) => s.rpc[tabId]);
   const bootRpcTab = useStore((s) => s.bootRpcTab);
@@ -614,4 +619,4 @@ export function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
     </div>
   );
   return <MarkdownVaultProvider tabId={tabId}>{content}</MarkdownVaultProvider>;
-}
+});

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
@@ -59,8 +59,12 @@ function searchDecorations(tokens: Record<string, string>) {
  * `background` is the `surface` plane so the terminal sits on the same colour
  * as the pane around it, and ANSI is harmonized with that theme's accent set
  * rather than a stock 16-colour scheme.
+ *
+ * Memoized on purpose (issue #867): a hidden tab must not pay for `App`
+ * re-renders it has no props in — the props are primitives, so an `App`
+ * re-render stops here. The tab's own store selectors still drive it.
  */
-export function TerminalTab({ tabId, active }: { tabId: string; active: boolean }) {
+export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId: string; active: boolean }) {
   // Whether this tab is on screen, read inside the stable mount effect so a
   // tab switch never rebuilds the terminal (#858).
   const activeRef = useRef(active);
@@ -471,4 +475,4 @@ export function TerminalTab({ tabId, active }: { tabId: string; active: boolean 
       {copyMenu.menu}
     </div>
   );
-}
+});

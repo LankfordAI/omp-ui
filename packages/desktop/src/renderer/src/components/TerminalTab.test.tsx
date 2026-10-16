@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -35,11 +35,14 @@ const mocks = vi.hoisted(() => {
     }),
     termWriter: null as ((data: Uint8Array) => void) | null,
     resumeDead,
-    // Mutable stub state: tests flip `searchOpen` and re-render.
+    // Mutable stub state: tests flip `searchOpen` and notify the subscribed
+    // components, the way the real store re-renders a memoized tab body
+    // through its listener set (issue #867).
     store: {
       state: null,
       collab: {},
       exited: {} as Record<string, number>,
+      listeners: new Set<() => void>(),
       searchOpen: {} as Record<string, boolean>,
       ptyRedrawRevision: {} as Record<string, number>,
       closeSearch: vi.fn(),
@@ -131,6 +134,9 @@ vi.mock("../store", () => ({
   // A local tab: no owner and no instance (issue #416).
   findOwner: () => undefined,
   findInstance: () => undefined,
+  // The real store's subscription semantics (issue #867): a mounted tab
+  // re-renders only when the listener set fires with a changed selector
+  // value — never because the test happened to call render() again.
   useStore: (
     selector: (state: {
       state: null;
@@ -141,7 +147,14 @@ vi.mock("../store", () => ({
       openSettings: () => void;
       resumeDead: () => void;
     }) => unknown,
-  ) => selector(mocks.store),
+  ) =>
+    useSyncExternalStore(
+      (onStoreChange) => {
+        mocks.store.listeners.add(onStoreChange);
+        return () => mocks.store.listeners.delete(onStoreChange);
+      },
+      () => selector(mocks.store),
+    ),
 }));
 
 class ResizeObserverStub {
@@ -327,14 +340,20 @@ describe("TerminalTab find (issue #270)", () => {
     });
   }
 
+  // Flips the stub store and notifies subscribers, the way opening search
+  // moves through the real store; memo means a bare re-render reaches nothing.
+  function setSearchOpen(open: boolean): void {
+    act(() => {
+      mocks.store.searchOpen[TAB] = open;
+      for (const listener of [...mocks.store.listeners]) listener();
+    });
+  }
+
   it("shows the find bar only while the store flag is set", () => {
     renderTerminal();
     expect(document.body.querySelector(".find-bar")).toBeNull();
 
-    act(() => {
-      mocks.store.searchOpen[TAB] = true;
-      root!.render(<TerminalTab tabId={TAB} active />);
-    });
+    setSearchOpen(true);
     const bar = document.body.querySelector(".find-bar");
     expect(bar).not.toBeNull();
     expect(bar!.querySelector(".find-bar-input")).not.toBeNull();
@@ -342,10 +361,7 @@ describe("TerminalTab find (issue #270)", () => {
 
   it("searches the terminal with theme-drawn decorations as the query is typed", () => {
     renderTerminal();
-    act(() => {
-      mocks.store.searchOpen[TAB] = true;
-      root!.render(<TerminalTab tabId={TAB} active />);
-    });
+    setSearchOpen(true);
     expect(mocks.findNext).not.toHaveBeenCalled();
 
     typeFindQuery("hello");
@@ -368,10 +384,7 @@ describe("TerminalTab find (issue #270)", () => {
 
   it("clears the search and refocuses the terminal when the bar closes", () => {
     renderTerminal();
-    act(() => {
-      mocks.store.searchOpen[TAB] = true;
-      root!.render(<TerminalTab tabId={TAB} active />);
-    });
+    setSearchOpen(true);
     typeFindQuery("abc");
     expect(mocks.findNext).toHaveBeenCalled();
 
@@ -379,10 +392,7 @@ describe("TerminalTab find (issue #270)", () => {
     mocks.clearActiveDecoration.mockClear();
     mocks.clearSelection.mockClear();
     mocks.focus.mockClear();
-    act(() => {
-      mocks.store.searchOpen[TAB] = false;
-      root!.render(<TerminalTab tabId={TAB} active />);
-    });
+    setSearchOpen(false);
     expect(mocks.clearDecorations).toHaveBeenCalled();
     expect(mocks.clearActiveDecoration).toHaveBeenCalled();
     expect(mocks.clearSelection).toHaveBeenCalled();
