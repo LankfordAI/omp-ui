@@ -7,7 +7,8 @@
 # therefore builds with `--config.mac.notarize=false` and delegates notarization
 # to this script, which submits the DMG (so Apple issues tickets for both the
 # disk image and the app inside), retries transient failures with backoff, then
-# staples the tickets onto the .app and .dmg and re-zips the artifact.
+# staples the tickets onto the .app and .dmg — also retried (#856) — and
+# re-zips the artifact.
 #
 # Usage: notarize-macos.sh <arm64|x64>
 #
@@ -45,8 +46,8 @@ fi
 zip="${zips[0]}"
 dmg="${dmgs[0]}"
 
-max_attempts=4
-delays=(60 300 900) # seconds before attempts 2, 3 and 4
+max_attempts="${NOTARIZE_MAX_ATTEMPTS:-4}"
+read -r -a delays <<<"${NOTARIZE_RETRY_DELAYS:-60 300 900}" # seconds before attempts 2, 3 and 4
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 
@@ -101,6 +102,35 @@ if (( notarized != 1 )); then
   exit 1
 fi
 
+# Staple with retries: `stapler staple` validates online against Apple's
+# ticket-delivery service, and a transient network drop there (NSURLErrorDomain
+# Code=-1005, "staple and validate action failed! Error 68") must not kill the
+# lane after notarization was already Accepted (#856). Ticket propagation can
+# also lag acceptance, so every staple failure after Acceptance is treated as
+# transient; a permanently broken staple just exhausts the retry schedule.
+staple_with_retry() {
+  local target="$1"
+  local attempt=1 status delay
+  while (( attempt <= max_attempts )); do
+    printf '\n=== Staple attempt %s/%s: %s ===\n' "$attempt" "$max_attempts" "$target"
+    status=0
+    xcrun stapler staple "$target" >"$log" 2>&1 || status=$?
+    cat "$log"
+    if (( status == 0 )); then
+      return 0
+    fi
+    if (( attempt >= max_attempts )); then
+      printf '\nStaple still failing after %s attempts — giving up: %s\n' \
+        "$max_attempts" "$target" >&2
+      exit 1
+    fi
+    delay="${delays[$((attempt - 1))]}"
+    printf 'Transient staple failure (exit %s) — retrying in %ss...\n' "$status" "$delay"
+    sleep "$delay"
+    attempt=$((attempt + 1))
+  done
+}
+
 # Staple the ticket to the unpacked .app, then re-create the artifact ZIP so
 # the uploaded artifact contains the stapled app.
 apps=()
@@ -114,11 +144,11 @@ if (( ${#apps[@]} != 1 )); then
 fi
 app="${apps[0]}"
 
-xcrun stapler staple "$app"
+staple_with_retry "$app"
 rm -f "$zip"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 printf 'Re-zipped stapled app into %s\n' "$zip"
 
-xcrun stapler staple "$dmg"
+staple_with_retry "$dmg"
 
 printf 'Notarization and stapling complete for %s.\n' "$arch"
