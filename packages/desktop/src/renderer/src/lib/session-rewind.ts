@@ -65,11 +65,24 @@ export function visiblePromptEntries(
   // (probed: pre-compaction user entries do not surface as messages). An
   // off-path compaction is another branch's business and is ignored; an id
   // that is not itself on the path cannot truncate the path.
+  //
+  // omp 18.11.0's remote-compaction fallback writes `firstKeptEntryId: ""`
+  // plus `providerReplayThroughEntryId`, and omp replays from *after* that
+  // entry — so the empty marker cuts at replayThrough + 1. A missing or
+  // dangling replay id keeps start = 0, matching omp dropping the marker.
   let start = 0;
   for (let i = path.length - 1; i >= 0; i--) {
     if (path[i]!.type !== "compaction") continue;
     const kept = strField(path[i]!, "firstKeptEntryId");
     if (kept === undefined) break;
+    if (kept === "") {
+      const replayThrough = strField(path[i]!, "providerReplayThroughEntryId");
+      if (replayThrough !== undefined) {
+        const at = path.findIndex((entry) => strField(entry, "id") === replayThrough);
+        if (at !== -1) start = at + 1;
+      }
+      break;
+    }
     const at = path.findIndex((entry) => strField(entry, "id") === kept);
     if (at !== -1) start = at;
     break;
