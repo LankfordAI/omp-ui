@@ -81,3 +81,50 @@ describe("Markdown mermaid via real mermaid (issue #361)", () => {
     30_000,
   );
 });
+
+// Issue #878: the exact captured failure — a tunnel diagram the agent wrote
+// as raw `<pre class="mermaid">` transcript prose (the plan-prompt idiom), in
+// its proper-quotes form. Parser classification plus real mermaid render it
+// end-to-end; the backslash-escaped-label variant stays a parse error by
+// design and is covered, with its strip, by the stubbed harness in
+// components/Markdown.test.tsx — running real mermaid on known-bad source
+// here would only re-prove what the engine's own suite pins.
+describe("Markdown raw pre.mermaid via real mermaid (issue #878)", () => {
+  it(
+    "renders a settled tunnel pre block to SVG through parser and hook",
+    async () => {
+      const renderSpy = vi.spyOn(mermaid, "render");
+      const source = [
+        '<pre class="mermaid">',
+        "flowchart LR",
+        '  A["client"] -->|"before: no signal"| B["worker"]',
+        '  B --> C["pane"]',
+        "</pre>",
+      ].join("\n");
+      const { el, root } = render("Captured:\n\n" + source);
+      // Settle-wait by convention of this file's other real-engine case
+      // (ts-no-test-timers exception): the engine boundary is a dynamic
+      // import plus mermaid's serialized render chain with no awaitable
+      // promise. A MutationObserver signal was tried first and deadlocks —
+      // async act queues React commits until its callback resolves, so the
+      // DOM event being awaited can only fire after the await ends.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      });
+      const diagram = el.querySelector(".md-diagram");
+      expect(diagram).not.toBeNull();
+      expect(diagram!.querySelectorAll("svg")).toHaveLength(1);
+      // The raw tags are gone: neither the opener nor the entity survives as
+      // text, and the decoded edge label renders instead.
+      expect(el.textContent).not.toContain("<pre");
+      expect(el.textContent).not.toContain("&quot;");
+      // The decoded edge label is in the SVG; textContent, not innerHTML:
+      // mermaid word-wraps labels into one <tspan> per word.
+      expect(diagram!.textContent).toContain("before: no signal");
+      expect(renderSpy).toHaveBeenCalledTimes(1);
+      act(() => root.unmount());
+      renderSpy.mockRestore();
+    },
+    30_000,
+  );
+});

@@ -375,7 +375,7 @@ function CodeBlock({
   // The diagram hook is called unconditionally (hook rules); `enabled` gates
   // the work, exactly like the `enabled` flag on useHighlightTokens. mermaid
   // has no shiki grammar, so pass no language and the pre stays plain.
-  const svg = useDiagramSvg(text, isDiagram && settled);
+  const { svg, error: diagramError } = useDiagramSvg(text, isDiagram && settled);
   // shiki has no svg grammar; the xml grammar tokenizes SVG markup. While the
   // image shows, tokenizing is waste — same idea as HtmlPlanBlock's gate, plus
   // the fallback code block (imgSrc null) still has to pay for its tokens.
@@ -424,7 +424,25 @@ function CodeBlock({
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       ) : (
-        <CodePre text={text} tokens={tokens} trailing={trailing} />
+        <>
+          {isDiagram && settled && diagramError !== null ? (
+            // A settled diagram that failed to parse stays the code block,
+            // plus one copper line carrying the parser message (issue #878):
+            // malformed agent source is visible, never silently degraded —
+            // transcript parity with the plan surface's callout. `truncate`
+            // keeps it one line; the title carries the full detail.
+            <p
+              className="flex items-baseline gap-1.5 border-b border-line-soft px-2 py-0.5 text-[10px] leading-snug text-copper"
+              title={t("markdown.diagram.failed.detail", { detail: diagramError })}
+            >
+              <strong className="shrink-0">{t("markdown.diagram.failed")}</strong>
+              <span className="min-w-0 truncate font-mono">
+                {diagramError.replace(/\s+/g, " ").trim()}
+              </span>
+            </p>
+          ) : null}
+          <CodePre text={text} tokens={tokens} trailing={trailing} />
+        </>
       )}
     </div>
   );

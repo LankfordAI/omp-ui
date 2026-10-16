@@ -138,13 +138,21 @@ describe("Markdown mermaid blocks (issue #361)", () => {
     act(() => root.unmount());
   });
 
-  it("failed render falls back to the source with no toggle", async () => {
+  it("failed render shows the source plus a copper failure strip, no toggle", async () => {
     // The failing stub is keyed on the exact source "fail", so this fence's
     // body must be exactly that (no uniq suffix).
     const { el, root } = render("```mermaid\nfail\n```");
     await act(async () => {});
     expect(el.querySelector(".md-diagram")).toBeNull();
     expect(el.querySelector("pre")?.textContent).toContain("fail");
+    // Issue #878: the silent fallback is gone — the parser's own message rides
+    // the strip and the full detail sits in the title.
+    const strip = Array.from(el.querySelectorAll("p")).find((p) =>
+      p.textContent?.includes("diagram failed to render"),
+    );
+    expect(strip).toBeDefined();
+    expect(strip!.textContent).toContain("Parse error on line 1");
+    expect(strip!.getAttribute("title")).toContain("Parse error on line 1");
     const buttons = Array.from(el.querySelectorAll("button"));
     // Only CopyButton chrome; no source/diagram toggle.
     expect(buttons.some((b) => b.textContent === "source" || b.textContent === "diagram")).toBe(
@@ -199,6 +207,64 @@ describe("Markdown mermaid blocks (issue #361)", () => {
     await act(async () => {});
     expect(el.querySelector(".md-diagram")).toBeNull();
     expect(el.querySelector("pre")?.textContent).toContain("const x = 1");
+    act(() => root.unmount());
+  });
+});
+
+// Issue #878: the plan prompt's `<pre class="mermaid">` idiom arriving in
+// transcript prose. The parser classifies it as a lang-mermaid code block, so
+// this exercises the same stubbed renderer seam as the fence cases above.
+describe("Markdown raw pre.mermaid blocks (issue #878)", () => {
+  it("renders a settled raw pre block to the diagram with the tags gone", async () => {
+    const body = uniq("flowchart TD; A-->B // e&lt;");
+    const decoded = body.replace("&lt;", "<");
+    const { el, root } = render('<pre class="mermaid">\n' + body + "\n</pre>");
+    await act(async () => {});
+    expect(el.querySelector(".md-diagram svg")).not.toBeNull();
+    // The stub received the entity-decoded source, not the raw bytes.
+    expect(callsFor(decoded)).toBe(1);
+    // No raw tag survives anywhere in the DOM text.
+    expect(el.textContent).not.toContain("<pre");
+    expect(el.querySelector("pre")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("failed pre render falls back to source plus the failure strip", async () => {
+    const { el, root } = render('<pre class="mermaid">\nfail\n</pre>');
+    await act(async () => {});
+    expect(el.querySelector(".md-diagram")).toBeNull();
+    // No silent fallback: the source stays and the reason rides above it.
+    expect(el.querySelector("pre")?.textContent).toContain("fail");
+    const strip = Array.from(el.querySelectorAll("p")).find((p) =>
+      p.textContent?.includes("diagram failed to render"),
+    );
+    expect(strip).toBeDefined();
+    expect(strip!.textContent).toContain("Parse error on line 1");
+    act(() => root.unmount());
+  });
+
+  it("streams a pre block as literal text without calling mermaid", async () => {
+    const src = uniq("flowchart TD; A-->B");
+    const { el, root } = render(
+      '<pre class="mermaid">\n' + src,
+      <span data-testid="caret" />,
+    );
+    await act(async () => {});
+    expect(el.querySelector(".md-diagram")).toBeNull();
+    // The raw tag itself is visible text until the closer lands — no flash.
+    expect(el.textContent).toContain('<pre class="mermaid">');
+    expect(el.querySelector('[data-testid="caret"]')).not.toBeNull();
+    expect(callsFor(src)).toBe(0);
+    act(() => root.unmount());
+  });
+
+  it("leaves a bare pre without the mermaid class as literal text", async () => {
+    const src = uniq("graph TD; A-->B");
+    const { el, root } = render("<pre>\n" + src + "\n</pre>");
+    await act(async () => {});
+    expect(el.querySelector(".md-diagram")).toBeNull();
+    expect(el.textContent).toContain("<pre>");
+    expect(callsFor(src)).toBe(0);
     act(() => root.unmount());
   });
 });
