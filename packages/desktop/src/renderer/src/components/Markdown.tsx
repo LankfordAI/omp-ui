@@ -1,4 +1,4 @@
-import { createContext, Fragment, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, Fragment, useContext, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import katex from "katex";
 import type { ThemedToken } from "shiki/core";
 import { parseObsidianNoteUri, type ObsidianNoteTarget } from "@omp-ui/core/vault-shared";
@@ -7,7 +7,7 @@ import { useHighlightTokens } from "../lib/highlight";
 import { useDiagramSvg } from "../lib/diagram";
 import { svgImageSrc } from "../lib/svg-block";
 import { useTheme } from "../lib/themes";
-import { bareUrlAt, isSafeHref, parseMarkdownCached, type MdBlock, type MdList, type MdSpan } from "../lib/markdown";
+import { bareUrlAt, isSafeHref, parseMarkdownCached, type MdBlock, type MdList, type MdSpan, type MdTableTail } from "../lib/markdown";
 import { useT } from "../lib/i18n";
 import { isHtmlPlanDocument } from "../lib/plan-seed";
 import { PlanDocument } from "./PlanDocumentView";
@@ -458,6 +458,56 @@ function HtmlPlanBlock({ text }: { text: string }) {
   );
 }
 
+/** Inline `text-align` only where the delimiter row asked for one (#874). */
+function alignStyle(table: MdTableTail, column: number): CSSProperties | undefined {
+  const align = table.alignments?.[column] ?? null;
+  return align ? { textAlign: align } : undefined;
+}
+
+/**
+ * The table grid, shared by the top-level `table` block and a quoted table's
+ * `table` field (#876). Delimiter alignments (#874) ride inline `textAlign`
+ * only where non-null; `break-words` keeps a long code span from widening
+ * the transcript past its scroll wrapper. The caret rides the last cell.
+ */
+function TableGrid({ table, trailing }: { table: MdTableTail; trailing?: ReactNode }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr>
+            {table.headers.map((cell, i) => (
+              <th
+                key={i}
+                className="border-b-2 border-line-strong px-2 py-1.5 text-left font-semibold text-ink"
+                style={alignStyle(table, i)}
+              >
+                <Spans spans={cell} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row, ri) => (
+            <tr key={ri}>
+              {row.map((cell, ci) => (
+                <td
+                  key={ci}
+                  className="break-words border-b border-line px-2 py-1.5 text-ink"
+                  style={alignStyle(table, ci)}
+                >
+                  <Spans spans={cell} />
+                  {ri === table.rows.length - 1 && ci === row.length - 1 && trailing}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** `trailing` is the streaming caret; it rides the last block so it never orphans. */
 function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
   switch (block.kind) {
@@ -506,49 +556,25 @@ function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
     case "list":
       return <ListBlock list={block} trailing={trailing} />;
 
-    case "quote":
+    case "quote": {
+      // A quoted table (#876) rides below the prose inside the same quote;
+      // the caret never enters table markup.
+      const prose = block.spans.length > 0 || trailing !== undefined || !block.table;
       return (
         <blockquote className={cn("border-l-2 border-line-strong pl-3 text-ink", MEASURE)}>
-          <p className="whitespace-pre-wrap break-words leading-[1.7]">
-            <Spans spans={block.spans} />
-            {trailing}
-          </p>
+          {prose ? (
+            <p className="whitespace-pre-wrap break-words leading-[1.7]">
+              <Spans spans={block.spans} />
+              {trailing}
+            </p>
+          ) : null}
+          {block.table ? <TableGrid table={block.table} /> : null}
         </blockquote>
       );
+    }
 
     case "table":
-      return (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                {block.headers.map((cell, i) => (
-                  <th
-                    key={i}
-                    className="border-b-2 border-line-strong px-2 py-1.5 text-left font-semibold text-ink"
-                  >
-                    <Spans spans={cell} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {block.rows.map((row, ri) => (
-                <tr key={ri}>
-                  {row.map((cell, ci) => (
-                    <td key={ci} className="border-b border-line px-2 py-1.5 text-ink">
-                      <Spans spans={cell} />
-                      {ri === block.rows.length - 1 &&
-                        ci === row.length - 1 &&
-                        trailing}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
+      return <TableGrid table={block} trailing={trailing} />;
 
     case "rule":
       return (

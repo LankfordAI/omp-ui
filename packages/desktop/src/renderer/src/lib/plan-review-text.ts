@@ -1,4 +1,4 @@
-import { parseMarkdown, type MdBlock, type MdListItem, type MdSpan } from "./markdown";
+import { parseMarkdown, type MdBlock, type MdListItem, type MdSpan, type MdTableTail } from "./markdown";
 import {
   childNodesOf,
   HTML_NS,
@@ -257,6 +257,12 @@ function markdownItems(items: readonly MdListItem[], ordered: boolean, depth: nu
   }).join("\n");
 }
 
+/** Row-per-line cell projection; alignment is presentation, not review text. */
+function tableText(table: MdTableTail): string {
+  return [table.headers, ...table.rows]
+    .map((row) => row.map(markdownSpans).join(" | ")).join("\n");
+}
+
 function markdownBlocks(blocks: readonly MdBlock[], depth = 0): string {
   return blocks.map((block) => {
     switch (block.kind) {
@@ -264,8 +270,11 @@ function markdownBlocks(blocks: readonly MdBlock[], depth = 0): string {
         return markdownSpans(block.spans);
       case "heading":
         return `${"#".repeat(block.level)} ${markdownSpans(block.spans)}`;
-      case "quote":
-        return markdownSpans(block.spans).split("\n").map((line) => `> ${line}`).join("\n");
+      case "quote": {
+        const prose = markdownSpans(block.spans).split("\n").map((line) => `> ${line}`).join("\n");
+        // A quoted table (#876) projects below the quote prose, un-prefixed.
+        return block.table ? (prose ? `${prose}\n\n${tableText(block.table)}` : tableText(block.table)) : prose;
+      }
       case "list":
         return markdownItems(block.items, block.ordered, depth);
       case "code":
@@ -273,8 +282,7 @@ function markdownBlocks(blocks: readonly MdBlock[], depth = 0): string {
       case "math":
         return `[Math]\n${block.text}\n[/Math]`;
       case "table":
-        return [block.headers, ...block.rows]
-          .map((row) => row.map(markdownSpans).join(" | ")).join("\n");
+        return tableText(block);
       case "rule":
         return "---";
     }

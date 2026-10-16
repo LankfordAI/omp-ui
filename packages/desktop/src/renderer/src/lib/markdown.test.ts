@@ -233,6 +233,7 @@ describe("parseMarkdown blocks", () => {
         [[{ kind: "text", text: "1" }], [{ kind: "text", text: "2" }]],
         [[{ kind: "text", text: "3" }], [{ kind: "text", text: "4" }]],
       ],
+      alignments: [null, null],
     });
   });
 
@@ -259,6 +260,7 @@ describe("parseMarkdown blocks", () => {
         [{ kind: "code", text: "cmd" }],
       ],
       rows: [[[{ kind: "text", text: "a" }], [{ kind: "text", text: "b" }]]],
+      alignments: [null, null],
     });
   });
   it("preserves a blank leading header cell (issue #365)", () => {
@@ -278,6 +280,7 @@ describe("parseMarkdown blocks", () => {
           [{ kind: "text", text: "B" }],
         ],
       ],
+      alignments: [null, null, null],
     });
   });
 
@@ -346,6 +349,97 @@ describe("parseMarkdown blocks", () => {
   });
 });
 
+describe("GFM table interruption and nesting (issues #873–#876)", () => {
+  const cell = (t: string) => [{ kind: "text", text: t } as MdSpan];
+
+  it("#873 interrupts a paragraph at the delimiter row", () => {
+    // The models' habit: a bold lead-in with no blank line before the table.
+    const blocks = parseMarkdown("**Issues filed**:\n| A | B |\n|---|---|\n| 1 | 2 |");
+    expect(blocks.map((b) => b.kind)).toEqual(["p", "table"]);
+    expect(blockText(blocks[0]!)).toBe("Issues filed:");
+  });
+
+  it("#873 keeps prose after an interrupted table as its own paragraph", () => {
+    const blocks = parseMarkdown("**lead**\n| A | B |\n|---|---|\n| 1 | 2 |\nafter");
+    expect(blocks.map((b) => b.kind)).toEqual(["p", "table", "p"]);
+    expect(blockText(blocks[2]!)).toBe("after");
+  });
+
+  it("#873 prose with stray pipes before the real header stays prose", () => {
+    // Only the line whose successor is a delimiter opens the table; the
+    // first pipe line inside the paragraph must not become the header.
+    const blocks = parseMarkdown("intro | pipe |\nmore text\n| A | B |\n|---|---|\n| 1 | 2 |");
+    expect(blocks.map((b) => b.kind)).toEqual(["p", "table"]);
+    expect(blockText(blocks[0]!)).toBe("intro | pipe |\nmore text");
+  });
+
+  it("#873 resumes after a table body that ends on a plain line", () => {
+    const blocks = parseMarkdown("intro\n| h |\n|-|\nplain\nmore");
+    expect(blocks.map((b) => b.kind)).toEqual(["p", "table", "p"]);
+    expect(blockText(blocks[2]!)).toBe("plain\nmore");
+  });
+
+  it("#875 requires delimiter cells to equal the header cell count", () => {
+    // Two header cells, one delimiter cell: no table, all prose.
+    expect(parseMarkdown("| A | B |\n|---|\n| 1 | 2 |").map((b) => b.kind)).toEqual(["p"]);
+  });
+
+  it("#875 pads ragged rows to the header width", () => {
+    const blocks = parseMarkdown("| A | B | C |\n|---|---|---|\n| 1 |");
+    if (blocks[0]?.kind !== "table") throw new Error("expected a table");
+    expect(blocks[0].rows).toEqual([[cell("1"), [], []]]);
+  });
+
+  it("#875 truncates over-long rows to the header width", () => {
+    const blocks = parseMarkdown("| A | B |\n|---|---|\n| 1 | 2 | 3 |");
+    if (blocks[0]?.kind !== "table") throw new Error("expected a table");
+    expect(blocks[0].rows).toEqual([[cell("1"), cell("2")]]);
+  });
+
+  it("#874 captures delimiter alignments per column", () => {
+    const blocks = parseMarkdown("| A | B | C |\n|--:|:-:|---|\n| 1 | 2 | 3 |");
+    if (blocks[0]?.kind !== "table") throw new Error("expected a table");
+    expect(blocks[0].alignments).toEqual(["right", "center", null]);
+    const left = parseMarkdown("| A | B |\n|:--|-:|\n| 1 | 2 |");
+    if (left[0]?.kind !== "table") throw new Error("expected a table");
+    expect(left[0].alignments).toEqual(["left", "right"]);
+  });
+
+  it("excludes an escaped pipe from delimiter-cell splitting", () => {
+    // `---\|---` is one escaped cell, not two delimiter columns.
+    expect(parseMarkdown("| A |\n|---\\|---|\n| 1 |").map((b) => b.kind)).toEqual(["p"]);
+  });
+
+  it("#876 nests a table in list-item content", () => {
+    const blocks = parseMarkdown("- lead\n  | A | B |\n  |---|---|\n  | 1 | 2 |");
+    if (blocks[0]?.kind !== "list") throw new Error("expected a list");
+    const itemBlocks = blocks[0].items[0]!.blocks;
+    expect(itemBlocks.map((b) => b.kind)).toEqual(["p", "table"]);
+  });
+
+  it("#876 nests a table in a blockquote body", () => {
+    const blocks = parseMarkdown("> | A | B |\n> |---|---|\n> | 1 | 2 |");
+    expect(blocks).toEqual([
+      {
+        kind: "quote",
+        spans: [],
+        table: {
+          headers: [cell("A"), cell("B")],
+          rows: [[cell("1"), cell("2")]],
+          alignments: [null, null],
+        },
+      },
+    ]);
+  });
+
+  it("#876 keeps quote prose beside the quoted table", () => {
+    const blocks = parseMarkdown("> note\n> | A | B |\n> |---|---|\n> | 1 | 2 |");
+    if (blocks[0]?.kind !== "quote") throw new Error("expected a quote");
+    expect(blockText(blocks[0])).toBe("note");
+    expect(blocks[0].table?.headers.map((c) => c.map(spanText).join(""))).toEqual(["A", "B"]);
+  });
+});
+
 describe("parseMarkdownCached (issue #858)", () => {
   // A document touching every block kind; streaming it in must agree with a
   // whole-document parse at every stop, not just at the end.
@@ -377,6 +471,21 @@ describe("parseMarkdownCached (issue #858)", () => {
     "---",
     "",
     "The end.",
+    "",
+    "**Interrupted table**:",
+    "| x | y |",
+    "| --: | :-: |",
+    "| 1 | 2 |",
+    "",
+    "- item with table",
+    "  | p | q |",
+    "  | - | - |",
+    "  | 1 | 2 |",
+    "",
+    "> quoted | prose",
+    "> | m | n |",
+    "> | --- | --- |",
+    "> | 1 | 2 |",
   ].join("\n");
 
   it("matches parseMarkdown at every streaming step", () => {
@@ -407,6 +516,18 @@ describe("parseMarkdownCached (issue #858)", () => {
     expect(table[0]?.kind).toBe("table");
     const grown = parseMarkdownCached("| a | b |\n| - | - |\n| 1 | 2 |");
     expect(grown).toEqual(parseMarkdown("| a | b |\n| - | - |\n| 1 | 2 |"));
+  });
+
+  it("streams an interrupted table to parity at every line", () => {
+    // The #873 shape streamed line-by-line: the paragraph holds the raw
+    // table lines until the delimiter lands, then the tail re-parse must
+    // split it exactly like the whole-document parse.
+    const doc = "**lead**:\n| A | B |\n|---|---|\n| 1 | 2 |\nafter";
+    const stops = [...doc.matchAll(/\n/g)].map((m) => m.index + 1);
+    for (const n of [...stops, doc.length]) {
+      const chunk = doc.slice(0, n);
+      expect(parseMarkdownCached(chunk)).toEqual(parseMarkdown(chunk));
+    }
   });
 });
 
@@ -750,6 +871,7 @@ describe("LaTeX math (issue #191)", () => {
         [{ kind: "text", text: "b" }],
       ],
       rows: [[[{ kind: "text", text: "c" }], [{ kind: "text", text: "d" }]]],
+      alignments: [null, null],
     });
     expect(parseMarkdown("- $a$")[0]).toMatchObject({
       kind: "list",
