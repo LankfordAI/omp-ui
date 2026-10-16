@@ -96,6 +96,16 @@ guard-versus-mandate separation above: `write` being enabled is not a lifted
 guard, because omp's write guard still rejects working-tree writes for as long
 as the mode reports on._
 
+_Amended after issue #877: entry delivery no longer fires only on the toggle. A
+compaction, branch, or session switch rebuilds the context from a summary that
+carries neither the hidden instruction nor the duty it assigns, so a planning turn
+that compacted could write its plan file and end without ever proposing it. While the
+mode is armed the extension now re-delivers the same entry instruction on
+`session_compact`, `session_branch`, and `session_switch` — the re-queue the
+knowledge-vault and browser-pane bridges already do — gated on the mode still being
+on so an exited session never gets a zombie instruction. Exit semantics and the
+retraction above are unchanged, and supersession is what makes a duplicate copy safe._
+
 ## Risk
 
 ADR-0007's unsupported-surface note now covers two wrapped prototype methods

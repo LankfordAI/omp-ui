@@ -160,6 +160,7 @@ interface ExtensionApi {
       handler: (args: string, ctx: { ui: PlanUi }) => Promise<void>;
     },
   ) => void;
+  on?: (event: string, handler: (...args: unknown[]) => void) => void;
 }
 
 type ExtensionFactory = (api: ExtensionApi) => void;
@@ -245,6 +246,8 @@ interface Harness {
   sent: SentMessage[];
   tools: () => string[];
   notices: string[];
+  /** Fire a session event and drain the extension's delivery chain. */
+  fire: (event: string) => Promise<void>;
 }
 
 function harness(
@@ -263,6 +266,7 @@ function harness(
   const notices: string[] = [];
   const prepared: string[] = [];
   const selects: string[] = [];
+  const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
   let tools = ["read", "grep", "write"];
   let planState: { enabled: boolean } | undefined;
   let proposalHandler: ((title: string) => Promise<ToolResult>) | undefined;
@@ -360,6 +364,9 @@ function harness(
     registerCommand: (_name, opts) => {
       handler = opts.handler;
     },
+    on: (event, fn) => {
+      (listeners[event] ??= []).push(fn);
+    },
   });
 
   const session = new FakeSession();
@@ -405,6 +412,11 @@ function harness(
     sent,
     tools: () => [...tools],
     notices,
+    fire: async (event) => {
+      for (const fn of listeners[event] ?? []) fn();
+      // The event path chains sendModeInstruction without awaiting it.
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    },
   };
 }
 
@@ -627,6 +639,62 @@ describe("plan mode transitions", () => {
   });
 });
 
+describe("instruction survives session rebuilds", () => {
+  // Issue #877: a mid-turn compaction rebuilt the context the entry
+  // instruction lived in, the summary carried neither the instruction nor the
+  // duty to propose, and the planning turn ended with no xd://propose call.
+  it.each(["session_compact", "session_branch", "session_switch"])(
+    "re-delivers the entry instruction after %s",
+    async (event) => {
+      const h = harness(await loadExtension());
+      await h.run("on html");
+      await h.fire(event);
+
+      const copies = entries(h.sent);
+      expect(copies).toHaveLength(2);
+      expect(copies[1]?.content).toBe(copies[0]?.content);
+      expect(exits(h.sent)).toHaveLength(0);
+      // The re-sent copy still carries the html contract: the plan is the
+      // html file (the md body names only -plan.md; the html body mentions
+      // -plan.md solely to forbid it).
+      expect(copies[1]?.content).toContain("-plan.html");
+    },
+  );
+
+  it("re-queues once per event, every event", async () => {
+    const h = harness(await loadExtension());
+    await h.run("on html");
+    await h.fire("session_compact");
+    await h.fire("session_compact");
+
+    // Deliberate duplicate delivery: entry supersedes stale copies by name
+    // (ADR-0013), so stacking re-sends is safe and the vault precedent does it.
+    expect(entries(h.sent)).toHaveLength(3);
+  });
+
+  it("stays silent after an exit, so an un-armed session gets no zombie instruction", async () => {
+    const h = harness(await loadExtension());
+    await h.run("on html");
+    await h.run("off");
+    await h.fire("session_compact");
+
+    expect(entries(h.sent)).toHaveLength(1);
+    expect(exits(h.sent)).toHaveLength(1);
+  });
+
+  it("re-sends the current format, never a format the user toggled away", async () => {
+    const h = harness(await loadExtension());
+    await h.run("on html");
+    await h.run("off");
+    await h.run("on md");
+    await h.fire("session_compact");
+
+    const last = entries(h.sent).at(-1);
+    expect(last?.content).toContain("-plan.md");
+    expect(last?.content).not.toContain("-plan.html");
+  });
+});
+
 /**
  * One roster application the extension asked omp for, and the path it took: the
  * presentation setter (with the mounted projection handed along) or the legacy
@@ -663,6 +731,7 @@ function runtimeHarness(options: RuntimeOptions = {}) {
   const applies: ApplyCall[] = [];
   const sent: SentMessage[] = [];
   const notices: string[] = [];
+  const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
   let handler: ((args: string, ctx: { ui: PlanUi }) => Promise<void>) | undefined;
   let statusText: string | undefined;
   let proposalHandler: ((title: string) => Promise<ToolResult>) | undefined;
@@ -817,6 +886,9 @@ function runtimeHarness(options: RuntimeOptions = {}) {
     registerCommand: (_name, opts) => {
       handler = opts.handler;
     },
+    on: (event, fn) => {
+      (listeners[event] ??= []).push(fn);
+    },
   });
 
   const root = new RuntimeSession();
@@ -841,6 +913,11 @@ function runtimeHarness(options: RuntimeOptions = {}) {
     propose: async () => {
       if (!proposalHandler) throw new Error("no proposal handler installed");
       return proposalHandler("auth");
+    },
+    fire: async (event: string) => {
+      for (const fn of listeners[event] ?? []) fn();
+      // The event path chains sendModeInstruction without awaiting it.
+      for (let i = 0; i < 12; i++) await Promise.resolve();
     },
   };
 }

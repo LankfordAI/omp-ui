@@ -360,6 +360,8 @@ interface PlanExtensionApi {
       handler: (args: string, ctx: { ui: PlanUi }) => Promise<void>;
     },
   ) => void;
+  /** omp's session-event bus; absent on an omp that fires no events. */
+  on?: (event: string, handler: (...args: unknown[]) => void) => void;
 }
 
 export default function (pi: PlanExtensionApi) {
@@ -1314,6 +1316,29 @@ export default function (pi: PlanExtensionApi) {
         publish();
       }),
   });
+
+  // A compaction, branch, or switch rebuilds the context the entry
+  // instruction lived in, and the rebuilt summary carries neither the
+  // instruction nor the duty it assigns — the bug of issue #877, where a
+  // compacted planning turn wrote its plan file and ended without ever
+  // proposing it. Re-deliver while the mode is still armed, exactly as the
+  // knowledge-vault bridge re-queues its guidance. Entry already supersedes
+  // stale instruction copies, so a duplicate message is safe; the readOnly
+  // test runs at delivery time inside the same chain every toggle uses, so a
+  // queued re-send can never land after an exit's retraction (chain order
+  // keeps entry → re-send → exit-retract).
+  if (typeof pi.on === "function") {
+    for (const eventName of ["session_compact", "session_branch", "session_switch"]) {
+      pi.on(eventName, () => {
+        const active = rootSession;
+        if (!readOnly || !active) return;
+        void serialize(async () => {
+          if (!readOnly) return;
+          await sendModeInstruction(active);
+        });
+      });
+    }
+  }
 }
 `;
 }

@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.23.5](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.5). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Plan mode now re-delivers its instruction after a compaction, branch, or session switch, so a plan authored in a compacted planning turn still reaches review (#877).
 
 ## Choose a download
 
