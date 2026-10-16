@@ -740,6 +740,10 @@ interface ResumeSpawnRequestBase {
    *  spawn args byte-identical to a plain resume — omp restores the model
    *  the transcript saved. */
   model?: string;
+  /** #872: relaunch with omp `--restore` — the interrupted turn and its
+   *  subagents continue, not just the transcript. PTY mode only (the binary
+   *  refuses --restore with --mode), ignored without a session id. */
+  restore?: boolean;
   /** Renderer-retained transcript digest for a restart whose omp transcript
    *  never materialized (#824). Ignored when a real --resume target exists. */
   carryoverContext?: string;

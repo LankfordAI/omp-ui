@@ -79,6 +79,10 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
   const font = useFontFamily();
   const exitCode = useStore((s) => s.exited[tabId]);
   const resumeDead = useStore((s) => s.resumeDead);
+  // #872: omp --restore continues the interrupted turn, but only once the
+  // session has a materialized transcript to continue — without a session id
+  // there is nothing to restore.
+  const canRestore = useStore((s) => findOwner(s.state, tabId)?.record.sessionId != null);
   const searchOpen = useStore((s) => s.searchOpen[tabId] === true);
   const closeSearch = useStore((s) => s.closeSearch);
   // A session on a remote instance that is not joined (issue #416): keystrokes
@@ -459,6 +463,16 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
           <Button tone="signal" variant="outline" onClick={() => void resumeDead(tabId)}>
             {t("terminal.tab.resume")}
           </Button>
+          {canRestore && (
+            <Button
+              tone="signal"
+              variant="solid"
+              title={t("terminal.tab.restoreHint")}
+              onClick={() => void resumeDead(tabId, { restore: true })}
+            >
+              {t("terminal.tab.restore")}
+            </Button>
+          )}
         </div>
       )}
       {searchOpen && exitCode === undefined && (

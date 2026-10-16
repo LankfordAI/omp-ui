@@ -70,6 +70,23 @@ describe("spawnOmp args", () => {
     ]);
   });
 
+  it("emits --restore instead of --resume when both ids are set (#872)", () => {
+    const args = spawnOmpArgs({ ...base, resumeSessionId: "abc-123", restoreSessionId: "abc-123" });
+    expect(args).toEqual([
+      "--cwd",
+      "/proj",
+      "--session-dir",
+      expect.stringContaining("pty-lineage-"),
+      "--restore=abc-123",
+    ]);
+  });
+
+  it("emits --restore alone for a restore without resume (#872)", () => {
+    const args = spawnOmpArgs({ ...base, restoreSessionId: "def-456" });
+    expect(args).toContain("--restore=def-456");
+    expect(args.filter((a) => a.startsWith("--resume"))).toEqual([]);
+  });
+
   it("passes --thinking auto after --model and omits it when unset (#843)", () => {
     // The overlay's defaultThinkingLevel key loses to the model catalog default in
     // omp's resolver, so --thinking is the only lever that sets omp's auto flag.

@@ -1183,6 +1183,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "terminal.tab.exited": "에이전트 종료됨",
   "terminal.tab.exitedCode": "(code {code})",
   "terminal.tab.resume": "세션 재개",
+  "terminal.tab.restore": "세션 복원",
+  "terminal.tab.restoreHint": "중단된 턴과 하위 에이전트까지 이어갑니다. 기록만 복원하는 것이 아닙니다",
   "terminal.note.attached": "이미지 {n}개 첨부됨",
   "terminal.note.attachedPlural": "이미지 {n}개 첨부됨",
   "terminal.note.attachedDocument": "문서 {n}개 첨부됨",

@@ -1387,7 +1387,7 @@ export function createLifecycleSlice(
     }
   };
 
-  const resumeDead = async (tabId: string): Promise<void> => {
+  const resumeDead = async (tabId: string, opts?: { restore?: boolean }): Promise<void> => {
     const owner = findOwner(get().state, tabId);
     if (!owner) return;
     const { instanceId, record: rec } = owner;
@@ -1403,6 +1403,9 @@ export function createLifecycleSlice(
         resumeTabId: tabId,
         cols: 80,
         rows: 24,
+        // #872: PTY-only — main degrades the flag for rpc-ui and for a
+        // record without a session id.
+        ...(opts?.restore === true && rec.mode === "pty" ? { restore: true } : {}),
         ...(digest === null ? {} : { carryoverContext: digest }),
       });
       set((s) => ({
