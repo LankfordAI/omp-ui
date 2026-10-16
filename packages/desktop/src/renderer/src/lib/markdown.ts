@@ -21,6 +21,17 @@ export interface MdList {
   items: MdListItem[];
 }
 
+/** Column alignment from a delimiter cell (`:--`, `:-:`, `--:`); null is default. */
+export type MdAlign = "left" | "center" | "right" | null;
+
+/** The table payload shared by the top-level block, quoted tables (#876), and
+ * any renderer that draws one. `alignments` is indexed by column. */
+export interface MdTableTail {
+  headers: MdSpan[][];
+  rows: MdSpan[][][];
+  alignments: MdAlign[];
+}
+
 export type MdBlock =
   | { kind: "p"; spans: MdSpan[] }
   | { kind: "heading"; level: number; spans: MdSpan[] }
@@ -28,8 +39,10 @@ export type MdBlock =
   /** Display math: `$$body$$` on one line, or a paired run of `$$`-only lines. */
   | { kind: "math"; text: string }
   | { kind: "list"; ordered: boolean; items: MdListItem[] }
-  | { kind: "quote"; spans: MdSpan[] }
-  | { kind: "table"; headers: MdSpan[][]; rows: MdSpan[][][] }
+  /** A blockquote stays a leaf: its prose rides `spans`; a body-tail table (#876)
+   * rides `table` rather than reshaping the quote into a block container. */
+  | { kind: "quote"; spans: MdSpan[]; table?: MdTableTail }
+  | { kind: "table"; headers: MdSpan[][]; rows: MdSpan[][][]; alignments: MdAlign[] }
   | { kind: "rule" };
 
 export type MdSpan =
@@ -474,6 +487,83 @@ function isDelimiterRow(line: string): boolean {
   );
 }
 
+/** Delimiter cell → alignment; `/^:?-+:?$/` is validated by `isDelimiterRow`. */
+function alignOf(cell: string): MdAlign {
+  const left = cell.startsWith(":");
+  const right = cell.endsWith(":");
+  return left && right ? "center" : left ? "left" : right ? "right" : null;
+}
+
+/** cmark-gfm's autocompletion bail: a body row is never padded past this many
+ * cells; a line that would need more ends the table instead. */
+const MAX_TABLE_AUTOCOMPLETE_CELLS = 10_000;
+
+/**
+ * Read the table whose header sits at `lines[i]` and whose delimiter row sits
+ * at `i + 1`, or null when those two lines don't form one. Header and
+ * delimiter must split to equal cell counts (cmark-gfm's
+ * `try_opening_table_header` equality rule, issue #875); body rows are then
+ * consumed while they split as rows at all, each truncated or padded with
+ * empty cells to the header width. Delimiter alignments are captured per
+ * column (issue #874). Streaming: called with the lines that exist, so an
+ * absent delimiter row yields null and the header keeps rendering as a
+ * paragraph until the delimiter lands.
+ */
+function readTableTail(
+  lines: string[],
+  i: number,
+): { table: MdTableTail; next: number } | null {
+  const headerCells = splitTableRow(lines[i] ?? "");
+  const delimiterLine = lines[i + 1] ?? "";
+  if (!headerCells || !isDelimiterRow(delimiterLine)) return null;
+  const delimiterCells = splitTableRow(delimiterLine);
+  if (!delimiterCells) return null;
+  const n = headerCells.length;
+  if (n === 0 || delimiterCells.length !== n) return null;
+  const table: MdTableTail = {
+    headers: headerCells.map((cell) => parseInline(cell)),
+    rows: [],
+    alignments: delimiterCells.map(alignOf),
+  };
+  let j = i + 2;
+  while (j < lines.length) {
+    const cells = splitTableRow(lines[j] ?? "");
+    if (!cells || cells.length === 0) break;
+    if (cells.length + MAX_TABLE_AUTOCOMPLETE_CELLS < n) break;
+    const row = cells.map((cell) => parseInline(cell));
+    while (row.length < n) row.push([]);
+    table.rows.push(row.slice(0, n));
+    j++;
+  }
+  return { table, next: j };
+}
+
+/**
+ * Split the collected paragraph lines `[from, to)` at an interrupting table,
+ * following cmark-gfm's interruption rule (#873): a pipe line only opens a
+ * table when the NEXT line is a delimiter row with an equal cell count — the
+ * same instant the streaming parser sees the delimiter. Scanning from `from`
+ * finds exactly that line: everything before the header stays prose (a
+ * soft-wrapped sentence containing two pipes never becomes a lost table
+ * header), the table is read from the header via `readTableTail`, and `next`
+ * points past the last consumed body row — which may run past `to`, because
+ * body rows are not themselves block starts. Null when no line in the range
+ * is a delimiter over a matching header; `proseEnd === from` means the prose
+ * prefix is empty (emit no `p`).
+ */
+function splitParagraphTable(
+  lines: string[],
+  from: number,
+  to: number,
+): { proseEnd: number; table: MdTableTail; next: number } | null {
+  for (let k = from + 1; k < to; k++) {
+    if (!isDelimiterRow(lines[k] ?? "")) continue;
+    const read = readTableTail(lines, k - 1);
+    if (read) return { proseEnd: k - 1, table: read.table, next: read.next };
+  }
+  return null;
+}
+
 /** Lines that interrupt an open paragraph or list item rather than joining it. */
 function startsBlock(line: string): boolean {
   return (
@@ -567,6 +657,19 @@ function parseItemBlocks(lines: string[]): MdBlock[] {
     ) {
       para.push(lines[j] ?? "");
       j++;
+    }
+    // Item content is already dedented, so a table tail arrives at column 0;
+    // the shared recognizer handles it exactly like a top-level paragraph.
+    const cut = splitParagraphTable(lines, i, j);
+    if (cut) {
+      if (cut.proseEnd > i) {
+        blocks.push({ kind: "p", spans: parseInline(lines.slice(i, cut.proseEnd).join("\n")) });
+      }
+      blocks.push({ kind: "table", ...cut.table });
+      // Resume at the recognizer's stop, not the collector's: a plain line
+      // that ended the body rows mid-paragraph re-parses as its own block.
+      i = cut.next;
+      continue;
     }
     blocks.push({ kind: "p", spans: parseInline(para.join("\n")) });
     i = j;
@@ -735,25 +838,15 @@ function parseLines(lines: string[], from: number): ParseRange {
       continue;
     }
 
-    // A GFM table: the header must be followed by a delimiter row (block
-    // boundary, like fenced code). Until the delimiter lands mid-stream the
-    // header keeps rendering as a paragraph and reflows to a table.
-    const tableCells = splitTableRow(line);
-    if (tableCells && isDelimiterRow(lines[i + 1] ?? "")) {
-      const headers = tableCells.map((cell) => parseInline(cell));
-      const rows: MdSpan[][][] = [];
-      let j = i + 2;
-      // Consume every following line that splits as a row; blank lines and
-      // anything else end the table.
-      while (j < lines.length) {
-        const cells = splitTableRow(lines[j] ?? "");
-        if (!cells) break;
-        rows.push(cells.map((cell) => parseInline(cell)));
-        j++;
-      }
-      blocks.push({ kind: "table", headers, rows });
+    // A GFM table at a block boundary: the header must be followed by a
+    // delimiter row (block boundary, like fenced code). Until the delimiter
+    // lands mid-stream the header keeps rendering as a paragraph and reflows
+    // to a table.
+    const lead = readTableTail(lines, i);
+    if (lead) {
+      blocks.push({ kind: "table", ...lead.table });
       lastStart = blockStart;
-      i = j;
+      i = lead.next;
       continue;
     }
 
@@ -774,7 +867,15 @@ function parseLines(lines: string[], from: number): ParseRange {
         body.push(next[1] ?? "");
         j++;
       }
-      blocks.push({ kind: "quote", spans: parseInline(body.join("\n")) });
+      // A table at the tail of the quote body (#876): the prose before it
+      // keeps riding `spans`; the table rides the optional `table` field.
+      const cut = splitParagraphTable(body, 0, body.length);
+      const block: MdBlock = {
+        kind: "quote",
+        spans: parseInline(body.slice(0, cut ? cut.proseEnd : body.length).join("\n")),
+      };
+      if (cut) block.table = cut.table;
+      blocks.push(block);
       lastStart = blockStart;
       i = j;
       continue;
@@ -796,6 +897,24 @@ function parseLines(lines: string[], from: number): ParseRange {
       if (BLANK_RE.test(current) || startsBlock(current)) break;
       para.push(current);
       j++;
+    }
+    // #873: a table may interrupt the paragraph — cmark-gfm matches each
+    // scanned line against the delimiter, so everything up to the header
+    // stays prose (soft-wrapped prose with stray pipes is untouched) and
+    // the recognizer reflows the rest. `startsBlock` deliberately stays
+    // pipe-blind: a paragraph's FIRST pipe line must not open a table.
+    const cut = splitParagraphTable(lines, i, j);
+    if (cut) {
+      if (cut.proseEnd > i) {
+        blocks.push({ kind: "p", spans: parseInline(lines.slice(i, cut.proseEnd).join("\n")) });
+      }
+      blocks.push({ kind: "table", ...cut.table });
+      // The last block pushed is the table, starting at its header line —
+      // #858's cache replaces exactly the last block on re-parse, so it must
+      // point there (proseEnd === i when the table leads with no prose).
+      lastStart = cut.proseEnd;
+      i = cut.next;
+      continue;
     }
     blocks.push({ kind: "p", spans: parseInline(para.join("\n")) });
     lastStart = blockStart;

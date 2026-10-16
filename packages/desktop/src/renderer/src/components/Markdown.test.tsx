@@ -507,6 +507,63 @@ describe("Markdown tables (issue #365)", () => {
   });
 });
 
+describe("table interruption and alignment (issues #873–#876)", () => {
+  const caret = <span data-testid="caret" />;
+
+  it("#873 renders a table after a bold lead-in with no blank line", () => {
+    const { el, root } = render("**Issues filed**:\n| A | B |\n|---|---|\n| 1 | 2 |");
+    expect(el.querySelector("table")).not.toBeNull();
+    expect(el.querySelector("strong")?.textContent).toBe("Issues filed");
+    expect(el.querySelectorAll("tbody td")).toHaveLength(2);
+    act(() => root.unmount());
+  });
+
+  it("#874 styles only the aligned columns", () => {
+    const { el, root } = render("| A | B | C |\n|--:|:-:|---|\n| 1 | 2 | 3 |");
+    const ths = Array.from(el.querySelectorAll("thead th"));
+    expect(ths.map((th) => th.getAttribute("style"))).toEqual([
+      "text-align: right;",
+      "text-align: center;",
+      null,
+    ]);
+    const tds = Array.from(el.querySelectorAll("tbody td"));
+    expect(tds.map((td) => td.getAttribute("style"))).toEqual([
+      "text-align: right;",
+      "text-align: center;",
+      null,
+    ]);
+    act(() => root.unmount());
+  });
+
+  it("rides the streaming caret on the last table cell", () => {
+    const { el, root } = render("| A | B |\n|---|---|\n| 1 | 2 |", caret);
+    const tds = el.querySelectorAll("tbody td");
+    expect(tds[tds.length - 1]?.querySelector('[data-testid="caret"]')).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("#876 renders a list-item table inside its item", () => {
+    const { el, root } = render("- lead\n  | A | B |\n  |---|---|\n  | 1 | 2 |");
+    const li = el.querySelector("li");
+    expect(li?.querySelector("table")).not.toBeNull();
+    expect(el.querySelectorAll("tbody td")).toHaveLength(2);
+    act(() => root.unmount());
+  });
+
+  it("#876 renders a quoted table and keeps the caret out of its markup", () => {
+    const src = "> note\n> | A | B |\n> |---|---|\n> | 1 | 2 |";
+    const settled = render(src);
+    expect(settled.el.querySelector("blockquote table")).not.toBeNull();
+    expect(settled.el.querySelector("blockquote p")?.textContent).toBe("note");
+    act(() => settled.root.unmount());
+    const streaming = render(src, caret);
+    // The caret rides the quote prose, never a table cell.
+    expect(streaming.el.querySelector("blockquote p [data-testid='caret']")).not.toBeNull();
+    expect(streaming.el.querySelector("table [data-testid='caret']")).toBeNull();
+    act(() => streaming.root.unmount());
+  });
+});
+
 describe("claim marker chip (issue #558)", () => {
   it("renders [INFERENCE] as a subscript INF chip, not prose", () => {
     const { el, root } = render("a [INFERENCE] b");
