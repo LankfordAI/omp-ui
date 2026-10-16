@@ -11,6 +11,7 @@ import {
   unarchiveSession,
   type ReviewDocument,
   readOmpCompactionMethods,
+  type OmpCompactionMethods,
   getOmpAgentDir,
   readOmpGoalContinuationModes,
   rpcGoalContinuationModes,
@@ -212,6 +213,37 @@ export function resetGoalContinuationModesCache(): void {
   goalContinuationModesCache.clear();
 }
 
+/**
+ * Memoized `readOmpCompactionMethods`, same discipline as the goal probe: the
+ * answer only changes when the binary or a merged config layer changes. The
+ * warm-pool adoption path (issue #908) re-runs the full overlay write on
+ * every spawn, so an un-memoized probe here — two full omp subprocesses —
+ * would erase most of the boot saving.
+ */
+const compactionMethodsCache = new Map<string, Promise<OmpCompactionMethods>>();
+
+export function readOmpCompactionMethodsCached(
+  ompPath: string,
+  projectCwd: string | null,
+): Promise<OmpCompactionMethods> {
+  const key = `${ompPath}|${projectCwd ?? ""}|${configFingerprint(projectCwd)}`;
+  const cached = compactionMethodsCache.get(key);
+  if (cached !== undefined) return cached;
+  const probe = readOmpCompactionMethods({ ompPath, projectCwd });
+  compactionMethodsCache.set(key, probe);
+  probe.catch(() => {
+    if (compactionMethodsCache.get(key) === probe) {
+      compactionMethodsCache.delete(key);
+    }
+  });
+  return probe;
+}
+
+/** Test seam: forget every memoized compaction probe. */
+export function resetCompactionMethodsCache(): void {
+  compactionMethodsCache.clear();
+}
+
 export async function writeRpcOverlays(
   record: OwnedSessionRecord,
   absLineageDir: string,
@@ -258,7 +290,7 @@ async function writeCompactionOverlay(
     return;
   }
   try {
-    const methods = await readOmpCompactionMethods({ ompPath, projectCwd });
+    const methods = await readOmpCompactionMethodsCached(ompPath, projectCwd);
     if (!methods.supported.includes(preferred)) {
       writeCompactionMethodOverlay(absLineageDir, null, []);
       console.warn(

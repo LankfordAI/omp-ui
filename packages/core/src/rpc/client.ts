@@ -54,6 +54,17 @@ export interface RpcClientOpts {
   /** Commands sent once, immediately after protocol negotiation and before ready is forwarded. */
   initialCommands?: object[];
   /**
+   * Warm-pool boot mode (issue #908 perf): the child spawns but the client
+   * consumes NOTHING on the wire — no `negotiate_protocol`, no
+   * `initialCommands`; every sink stays inert and frames park until `arm()`
+   * swaps in the real observer set and replays the cold-spawn byte sequence
+   * (negotiate first, then the session's commands). A probe against omp
+   * showed an idle child that was handed `negotiate_protocol` at boot never
+   * answering later commands, while one handed negotiate+commands fresh
+   * settles in ~2 ms — so a deferred client is a parked pipe until armed.
+   */
+  deferArm?: boolean;
+  /**
    * Credential errand, not a session: `--no-session` plus every discovery
    * switch off. Verified against omp v18.1.0 to still emit `ready` and
    * answer `login`.
@@ -69,13 +80,25 @@ export interface RpcClientOpts {
   onFrame: (frame: RpcFrame) => void;
   onExit: (code: number | null) => void;
   onError: (msg: string) => void;
+  /** Fires on the ready edge even while deferred — lets a warm pool await boot without owning the session sinks. */
+  onBootReady?: () => void;
   /** Test seam — defaults to child_process.spawn over pipes. */
   spawnProcess?: RpcSpawnFn;
+}
+
+/** The live observer set; `arm()` swaps this whole holder for a warm-booted client. */
+export interface RpcSinks {
+  onInputFrame?: (frame: RpcFrame) => void;
+  onFrame: (frame: RpcFrame) => void;
+  onExit: (code: number | null) => void;
+  onError: (msg: string) => void;
 }
 
 const DEFAULT_MAX_FRAME_BYTES = 1_048_576;
 const READY_TIMEOUT_MS = 10_000;
 const STDERR_TAIL_BYTES = 8192;
+/** Park ceiling for a deferred client: boot noise is a handful of frames; more means the pool forgot to arm or kill. */
+const MAX_PARKED_FRAMES = 4096;
 
 function defaultSpawn(ompPath: string, args: string[], env: NodeJS.ProcessEnv): RpcChildProcess {
   const cmd = withFdSweep(ompPath, args);
@@ -108,6 +131,14 @@ export class RpcClient {
   readonly #opts: RpcClientOpts;
   readonly #proc: RpcChildProcess;
   readonly #reassembler: RpcChunkReassembler;
+  /** The live observer set; `arm()` swaps the inert warm-boot one for it. */
+  #sinks: RpcSinks;
+  /** Non-null while deferred: reassembled frames park here until `arm()` replays them. */
+  #deferred: RpcFrame[] | null;
+  /** Deferred boot saw ready: `arm()` must negotiate before the command rail. */
+  #needsNegotiate = false;
+  /** Exit-edge observers that fire regardless of arm state (warm-pool invalidation). */
+  readonly #deathWatchers: Array<(code: number | null) => void> = [];
   #maxFrameBytes = DEFAULT_MAX_FRAME_BYTES;
   #pending: Buffer = Buffer.alloc(0);
   #stderrTail = "";
@@ -121,6 +152,18 @@ export class RpcClient {
     // spawnOmp makes (pty.ts).
     fs.mkdirSync(opts.lineageDir, { recursive: true });
     this.#opts = opts;
+    if (opts.deferArm) {
+      this.#sinks = { onFrame: () => {}, onExit: () => {}, onError: () => {} };
+      this.#deferred = [];
+    } else {
+      this.#sinks = {
+        onInputFrame: opts.onInputFrame,
+        onFrame: opts.onFrame,
+        onExit: opts.onExit,
+        onError: opts.onError,
+      };
+      this.#deferred = null;
+    }
     this.#reassembler = new RpcChunkReassembler(
       (frame) => this.#onFrame(frame),
       (msg) => this.#fatal(msg),
@@ -147,11 +190,12 @@ export class RpcClient {
       this.#dead = true;
       clearTimeout(this.#readyTimer);
       if (!fatal && code !== 0 && code !== null) {
-        this.#opts.onError(
+        this.#sinks.onError(
           `omp exited with code ${code}; stderr: ${this.#stderrTail.trim() || "(empty)"}`,
         );
       }
-      this.#opts.onExit(code);
+      for (const cb of this.#deathWatchers) cb(code);
+      this.#sinks.onExit(code);
     });
     this.#readyTimer = setTimeout(() => {
       if (!this.#readySeen) {
@@ -170,24 +214,85 @@ export class RpcClient {
   kill(signal?: NodeJS.Signals): void {
     this.#dead = true;
     clearTimeout(this.#readyTimer);
+    this.#deferred = null;
     this.#proc.kill(signal);
+  }
+
+  /** True once `arm()` has swapped in real sinks (always true for non-deferred clients). */
+  get armed(): boolean {
+    return this.#deferred === null;
+  }
+
+  get dead(): boolean {
+    return this.#dead;
+  }
+
+  /** Fires on the exit edge regardless of arm state; may fire more than once, idempotent consumers only. */
+  onDeath(cb: (code: number | null) => void): void {
+    this.#deathWatchers.push(cb);
+  }
+
+  /**
+   * Completes a deferred warm boot: swap in the session's observer set, flush
+   * every initial command, then replay the frames that parked between ready
+   * and arming (boot-time `extension_ui_request`s included — they still need
+   * an answer). Callers must have installed their identity fences first.
+   */
+  arm(sinks: RpcSinks, initialCommands?: object[]): void {
+    if (this.#dead) throw new Error("cannot arm a dead rpc-ui client");
+    if (this.#deferred === null) throw new Error("rpc-ui client is already armed");
+    this.#sinks = sinks;
+    if (this.#needsNegotiate) {
+      this.#needsNegotiate = false;
+      this.send({ type: "negotiate_protocol", protocolVersion: 2 });
+    }
+    for (const command of initialCommands ?? []) this.send(command);
+    const parked = this.#deferred;
+    this.#deferred = null;
+    // Replay keeps the input-order contract: the answerer sees every parked
+    // frame (boot-time extension_ui_requests need answers) before it forwards.
+    for (const frame of parked) {
+      this.#sinks.onInputFrame?.(frame);
+      this.#deliver(frame);
+    }
   }
 
   #onFrame(frame: RpcFrame): void {
     // The input-order hook fires before the ready interception and before
     // forwarding, so a main-process answerer sees every frame first.
-    this.#opts.onInputFrame?.(frame);
+    if (this.#deferred === null) this.#sinks.onInputFrame?.(frame);
     if (!this.#readySeen && isReadyFrame(frame)) {
       this.#readySeen = true;
       clearTimeout(this.#readyTimer);
       const max = frame.maxFrameBytes;
       if (typeof max === "number" && Number.isInteger(max) && max > 0) this.#maxFrameBytes = max;
-      // Transport concern — the renderer never sees this.
-      this.send({ type: "negotiate_protocol", protocolVersion: 2 });
-      for (const command of this.#opts.initialCommands ?? []) this.send(command);
+      // Transport concern — the renderer never sees this. A live client
+      // negotiates on the ready edge and rides its initialCommands; a
+      // deferred warm boot consumes no bytes at all until `arm()` (see the
+      // deferArm doc), so the adopted child replays the cold-spawn sequence.
+      if (this.#deferred === null) {
+        this.send({ type: "negotiate_protocol", protocolVersion: 2 });
+        for (const command of this.#opts.initialCommands ?? []) this.send(command);
+      } else {
+        this.#needsNegotiate = true;
+      }
+      this.#opts.onBootReady?.();
     }
-    // ready itself is forwarded too; the renderer ignores it.
-    this.#opts.onFrame(frame);
+    if (this.#deferred !== null) {
+      // Parked: a deferred client forwards nothing until armed. The ceiling
+      // is hygiene only — the pool arms or kills long before this.
+      this.#deferred.push(frame);
+      if (this.#deferred.length > MAX_PARKED_FRAMES) {
+        this.#fatal("deferred rpc-ui client parked too many frames");
+      }
+      return;
+    }
+    this.#deliver(frame);
+  }
+
+  /** The forwarding tail shared by live delivery and post-arm replay (ready itself is forwarded too; the renderer ignores it). */
+  #deliver(frame: RpcFrame): void {
+    this.#sinks.onFrame(frame);
   }
 
   #onStdout(chunk: Buffer): void {
@@ -216,6 +321,7 @@ export class RpcClient {
     this.#dead = true;
     clearTimeout(this.#readyTimer);
     this.#proc.kill();
-    this.#opts.onError(msg);
+    for (const cb of this.#deathWatchers) cb(null);
+    this.#sinks.onError(msg);
   }
 }

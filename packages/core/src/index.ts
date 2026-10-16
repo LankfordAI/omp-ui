@@ -424,5 +424,6 @@ export {
   RpcClient,
   type RpcClientOpts,
   type RpcChildProcess,
+  type RpcSinks,
   type RpcSpawnFn,
 } from "./rpc/client";

@@ -57,6 +57,7 @@ import {
   resolveSessionLocation,
   resolveSubagentOverlayEntries,
   RpcClient,
+  type RpcSinks,
   spawnOmp,
   writeImageToScratch,
   writeSubagentModelOverlay,
@@ -129,6 +130,13 @@ import { WatcherHub } from "./watcher-hub";
 import { ShellHost } from "./shell-host";
 import { gateSelector, NO_GATE, type SpawnGate } from "./spawn-gate";
 import { WorktreeOps } from "./worktree-ops";
+import {
+  WarmRpcPool,
+  hashLineageTree,
+  sanitizeWarmTemplate,
+  warmPlanKey,
+  type WarmSlot,
+} from "./warm-pool";
 
 const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
@@ -199,6 +207,14 @@ export interface SessionManagerDependencies {
   mainLog?: (line: string) => void;
   /** Vault project identity resolver (#787, #794); tests fake the remote lookup. Default: core resolveVaultProject. */
   vaultProject?: (displayName: string, projectCwd: string) => Promise<VaultProjectIdentity>;
+  /**
+   * Pre-boot a spare `omp --mode=rpc-ui` child and adopt it on the next
+   * eligible fresh spawn, skipping the boot latency (perf issue #908).
+   * Default on; pass false to park the pool. Unit tests never set it and
+   * run under vitest, where the pool stays inert so their mocked RpcClient
+   * remains the only client construction site in the process.
+   */
+  warmRpc?: boolean;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -239,12 +255,22 @@ export class SessionManager {
   /** The omp collab local-registry watcher for terminal tabs (issue #686). */
   private readonly collab: CollabTracker;
   private readonly gate: SpawnGate;
+  /** The parked warm rpc-ui child pool (perf issue #908); inert under vitest or with deps.warmRpc false. */
+  private readonly warmPool: WarmRpcPool;
   private obsidianListPending: Promise<ObsidianListEntry[]> | null = null;
   private obsidianListCached: ObsidianListEntry[] | null = null;
   private obsidianListExpiresAt = 0;
 
   constructor(private readonly deps: SessionManagerDependencies) {
     this.gate = deps.spawnGate ?? NO_GATE;
+    this.warmPool = new WarmRpcPool({
+      registry: deps.registry,
+      getSessionsRoot: deps.getSessionsRoot,
+      gate: () => this.gate,
+      subagentSpawnConfig: () => this.subagentSpawnConfig(),
+      enabled: () =>
+        deps.warmRpc !== false && !process.env.VITEST && process.env.NODE_ENV !== "test",
+    });
     this.worktreeOps = new WorktreeOps({
       registry: deps.registry,
       getWorktreesRoot: deps.getWorktreesRoot,
@@ -468,6 +494,7 @@ export class SessionManager {
       this.killLive(entry);
     }
     this.live.clear();
+    this.warmPool.dispose();
     this.collab.dispose();
     this.shellHost.killAll();
     this.browserPanes.disposeAll();
@@ -628,6 +655,8 @@ export class SessionManager {
     let projectCwd: string | undefined;
     let mintedWorktree: SessionWorktree | null = null;
     let record: OwnedSessionRecord | undefined;
+    /** Warm-child reservation (perf issue #908); spawnRpc owns it once called, the rollback tail releases it otherwise. */
+    let warmHandoff: { slot: WarmSlot; planKey: string } | null = null;
     try {
       if (req.origin === "resume") {
         if (this.live.has(req.resumeTabId)) return { tabId: req.resumeTabId };
@@ -649,10 +678,41 @@ export class SessionManager {
         const worktree = preparedWorktree.worktree;
         mintedWorktree = preparedWorktree.minted;
         const project = this.deps.registry.projects.find((p) => p.path === req.projectCwd);
+        // The warm-child reservation (perf issue #908): decide BEFORE the
+        // record is minted, because an adopted session uses the pool's dir
+        // as its own lineage dir — omp stages session files against
+        // --session-dir at boot, so the name must be right from frame zero.
+        // Ownership of a reservation moves to spawnRpc; a spawn that never
+        // reaches spawnRpc releases it back in the rollback tail.
+        const eligible =
+          req.mode === "rpc-ui" &&
+          req.worktree === null &&
+          req.private !== true &&
+          req.planImplementationSource == null &&
+          req.experiment == null &&
+          gateSelector(this.gate) === null &&
+          this.gate.advisorModel === null;
+        // The app-level auto-thinking flag wins over last-used memory (the
+        // mint below uses the same seed): with it on, every fresh session
+        // starts on omp's automatic selector; with it off, the remembered
+        // level resumes as the seed. Computed here so the warm plan key
+        // matches the record's boot argv exactly.
+        const thinkingSeed = this.deps.registry.getSetting("defaultAutoThinking")
+          ? "auto"
+          : (project?.lastThinkingLevel ?? null);
+        const planKey = warmPlanKey({
+          ompPath,
+          projectCwd: req.projectCwd,
+          advisor: req.advisor,
+          thinking: thinkingSeed,
+          experimentsEnabled: this.deps.registry.getSetting("experimentsEnabled"),
+        });
+        const slot = eligible ? this.warmPool.reserve(planKey) : null;
+        warmHandoff = slot === null ? null : { slot, planKey };
         record = this.deps.registry.addSession({
           tabId: freshTabId,
           sessionId: null,
-          lineageDir: mintLineageDirName(req.projectCwd),
+          lineageDir: warmHandoff?.slot.dirName ?? mintLineageDirName(req.projectCwd),
           projectCwd: req.projectCwd,
           worktree,
           planImplementationSource:
@@ -668,13 +728,7 @@ export class SessionManager {
           approvalMode: null,
           serviceTier: null,
           model: project?.defaultModel ?? project?.lastModel ?? null,
-          // The app-level auto-thinking flag wins over last-used memory: with it
-          // on, every fresh session starts on omp's automatic selector and a
-          // fixed effort exists only where the user picks one this session.
-          // With it off, the remembered level resumes as the seed.
-          thinkingLevel: this.deps.registry.getSetting("defaultAutoThinking")
-            ? "auto"
-            : (project?.lastThinkingLevel ?? null),
+          thinkingLevel: thinkingSeed,
           advisor: req.advisor,
           advisorModel: req.advisorModel ?? null,
           subagentModels: null,
@@ -725,14 +779,32 @@ export class SessionManager {
           : record.agentMode === "plan");
       const result =
         mode === "rpc-ui"
-          ? await this.spawnRpc(record, planMode, ompPath, req.origin === "resume" ? req.model : undefined, carryoverFile)
+          ? await this.spawnRpc(record, planMode, ompPath, req.origin === "resume" ? req.model : undefined, carryoverFile, warmHandoff)
           : await this.spawnPty(record, req, ompPath, carryoverFile);
+      // spawnRpc consumed the reservation either way (adopted, or killed it
+      // on a hash miss); only an exception path can leave it live for the
+      // rollback tail to release.
+      warmHandoff = null;
+      if (fresh && mode === "rpc-ui") {
+        this.warmPool.scheduleRefill({
+          planKey: warmPlanKey({
+            ompPath,
+            projectCwd: req.projectCwd,
+            advisor: req.advisor,
+            thinking: record.thinkingLevel,
+            experimentsEnabled: this.deps.registry.getSetting("experimentsEnabled"),
+          }),
+          ompPath,
+          template: sanitizeWarmTemplate(record),
+        });
+      }
       this.deps.breadcrumb?.record(
         req.origin === "new" ? "session-spawn" : "session-resume",
         { tabId: record.tabId, mode },
       );
       return result;
     } catch (cause) {
+      if (warmHandoff !== null) this.warmPool.release(warmHandoff.slot);
       const rollbackTabId = record?.tabId ?? freshTabId ?? (req.origin === "resume" ? req.resumeTabId : undefined);
       if (!rollbackTabId || projectCwd === undefined || (!record && !mintedWorktree)) throw cause;
       return this.rollbackSpawn(rollbackTabId, projectCwd, fresh, mintedWorktree, cause);
@@ -925,6 +997,7 @@ export class SessionManager {
     ompPath: string,
     modelOverride?: string,
     appendSystemPromptFile: string | null = null,
+    warmHandoff: { slot: WarmSlot; planKey: string } | null = null,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const entry = createRpcLiveEntry(record);
@@ -1115,27 +1188,18 @@ export class SessionManager {
       this.gate.model !== null
         ? this.gate.model.level === "auto"
         : record.thinkingLevel === "auto";
-    const rpc = new RpcClient({
-      cwd: record.worktree?.path ?? record.projectCwd,
-      lineageDir: absLineageDir,
-      ompPath,
-      resumeSessionId: record.sessionId ?? undefined,
-      appendSystemPromptFile: appendSystemPromptFile ?? undefined,
-      // The dev/test spawn gate keeps winning over the recovery pick, exactly
-      // as it wins over the record everywhere else.
-      model: gateSelector(this.gate) ?? modelOverride ?? undefined,
-      ...(autoThinking ? { thinking: "auto" } : {}),
-      advisor: record.advisor,
-      configOverlays,
-      extensions,
-      initialCommands,
+    // The sink set is built once and either handed to a cold RpcClient or
+    // swapped into a warm-pool client by `arm()` (issue #908). The answerer
+    // goes through the live entry, not a captured `rpc` binding, so one sinks
+    // object serves both construction paths.
+    const sinks: RpcSinks = {
       onInputFrame: (frame) => {
         // Host traffic is answered on the input-order seam BEFORE delivery:
         // the ownership mark must exist before the renderer's stub can answer
         // (see HostBridge#track). A killed spawn must not answer through its
         // successor's pipe — identity first, same fence as every capture.
         if (this.live.get(record.tabId) !== entry) return;
-        this.hostBridge.route(record.tabId, frame, (answer) => rpc.send(answer));
+        this.hostBridge.route(record.tabId, frame, (answer) => entry.rpc?.send(answer));
       },
       onFrame: (frame) => {
         if (this.live.get(record.tabId) === entry) this.hostBridge.noteFrame(record.tabId, frame);
@@ -1201,10 +1265,65 @@ export class SessionManager {
           ...(failed !== null ? { failedModel: failed[1] } : {}),
         });
       },
-    });
+    };
+    // Adoption gate (issue #908): the planKey already matched at `reserve`;
+    // the tree hash re-checked AFTER every overlay/roster write is the
+    // authority on whether the parked child's argv+dir still describe THIS
+    // spawn. A gate that flipped since reservation, a resume carryover, or a
+    // model override all force a cold boot in the same (already rewritten)
+    // dir; the parked child dies either way.
+    let adopted: WarmSlot | null = null;
+    if (warmHandoff !== null) {
+      const slot = warmHandoff.slot;
+      let dirMatches: boolean;
+      try {
+        dirMatches = hashLineageTree(absLineageDir) === slot.dirHash;
+      } catch {
+        dirMatches = false;
+      }
+      if (
+        !slot.client.dead &&
+        dirMatches &&
+        gateSelector(this.gate) === null &&
+        this.gate.advisorModel === null &&
+        record.sessionId === null &&
+        appendSystemPromptFile === null &&
+        modelOverride === undefined
+      ) {
+        adopted = slot;
+      } else {
+        slot.client.kill();
+      }
+    }
+    const rpc =
+      adopted !== null
+        ? adopted.client
+        : new RpcClient({
+            cwd: record.worktree?.path ?? record.projectCwd,
+            lineageDir: absLineageDir,
+            ompPath,
+            resumeSessionId: record.sessionId ?? undefined,
+            appendSystemPromptFile: appendSystemPromptFile ?? undefined,
+            // The dev/test spawn gate keeps winning over the recovery pick,
+            // exactly as it wins over the record everywhere else.
+            model: gateSelector(this.gate) ?? modelOverride ?? undefined,
+            ...(autoThinking ? { thinking: "auto" } : {}),
+            advisor: record.advisor,
+            configOverlays,
+            extensions,
+            initialCommands,
+            onInputFrame: sinks.onInputFrame,
+            onFrame: sinks.onFrame,
+            onExit: sinks.onExit,
+            onError: sinks.onError,
+          });
     wireRpc(entry, rpc);
     this.live.set(record.tabId, entry);
     this.watcherHub.start(record);
+    // Arm LAST: the negotiate, the real command rail, and the replay of every
+    // buffered boot frame fire synchronously inside `arm`, and each sink
+    // fences on `this.live.get(tabId) === entry` plus the wired `entry.rpc`.
+    adopted?.client.arm(sinks, initialCommands);
     await this.deps.broadcast();
     return { tabId: record.tabId };
   }
