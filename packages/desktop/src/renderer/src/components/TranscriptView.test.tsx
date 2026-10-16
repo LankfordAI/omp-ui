@@ -9,6 +9,7 @@ import {
   type RenderItem,
   type ToolItem,
 } from "../lib/transcript";
+import { requestTranscriptReveal } from "../lib/transcript-reveal";
 // Statically imported even though the module is mocked: vi.mock hoists above
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
@@ -1290,5 +1291,181 @@ describe("rewind affordances (issue #680)", () => {
     const running = rewindButton(second.el, "rewind here");
     expect(running?.hasAttribute("disabled")).toBe(true);
     act(() => second.root.unmount());
+  });
+});
+
+describe("bounded tail window (issue #867)", () => {
+  const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+  const scrollIntoViewSpy = vi.fn();
+
+  beforeEach(() => {
+    scrollIntoViewSpy.mockClear();
+    HTMLElement.prototype.scrollIntoView = scrollIntoViewSpy;
+  });
+  afterEach(() => {
+    HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+  });
+
+  function rows(n: number): RenderItem[] {
+    return Array.from({ length: n }, (_, i) => assistant(`a${i}`, `row ${i}`));
+  }
+
+  // Geometry as a getter, so heights follow what is actually rendered:
+  // every row contributes 100px. jsdom lays out nothing on its own.
+  function renderWindow(items: RenderItem[], tabId?: string) {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    act(() => {
+      root.render(<TranscriptView items={items} tabId={tabId} />);
+    });
+    const scroller = scrollEl(el);
+    Object.defineProperty(scroller, "scrollHeight", {
+      configurable: true,
+      get: () => scroller.querySelectorAll("[data-item-id]").length * 100,
+    });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 500 });
+    return { el, root, scroller };
+  }
+
+  function wrapperIds(el: HTMLDivElement): string[] {
+    return [...el.querySelectorAll("[data-item-id]")].map((n) => n.getAttribute("data-item-id")!);
+  }
+
+  function earlierButton(el: HTMLDivElement): HTMLButtonElement {
+    const button = [...el.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("earlier"),
+    );
+    if (!button) throw new Error("show-earlier button not found");
+    return button;
+  }
+
+  function jumpButton(el: HTMLDivElement): HTMLButtonElement {
+    const button = [...el.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("jump to latest"),
+    );
+    if (!button) throw new Error("jump to latest button not found");
+    return button;
+  }
+
+  it("renders only the newest 150 rows and drops the oldest as items append", () => {
+    const { el, root } = renderWindow(rows(400));
+    let ids = wrapperIds(el);
+    expect(ids).toHaveLength(150);
+    expect(ids[0]).toBe("a250");
+    expect(ids[149]).toBe("a399");
+
+    const more = [...rows(400), ...Array.from({ length: 10 }, (_, i) => assistant(`a${400 + i}`, `row ${400 + i}`))];
+    act(() => {
+      root.render(<TranscriptView items={more} />);
+    });
+    ids = wrapperIds(el);
+    expect(ids).toHaveLength(150);
+    expect(ids[0]).toBe("a260");
+    expect(ids[149]).toBe("a409");
+    // Following never left, so no "jump to latest".
+    expect(el.textContent).not.toContain("jump to latest");
+    act(() => root.unmount());
+  });
+
+  it("the show-earlier button pages 150 rows in and holds the viewport", () => {
+    const { el, root, scroller } = renderWindow(rows(400));
+    // Mid-scroll up: reading mode, window frozen at a250.
+    scrollTo(scroller, 7000);
+    expect(wrapperIds(el)).toHaveLength(150);
+    expect(earlierButton(el).textContent).toContain("show 250 earlier");
+    // Distance from the bottom before the click: 15000 - 7000.
+    act(() => {
+      earlierButton(el).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const ids = wrapperIds(el);
+    expect(ids).toHaveLength(300);
+    expect(ids[0]).toBe("a100");
+    // The rows added above pushed content down; the captured distance holds.
+    expect(scroller.scrollTop).toBe(30000 - 8000);
+    expect(el.textContent).toContain("jump to latest");
+    act(() => root.unmount());
+  });
+
+  it("scrolling within 600px of the top while reading loads older rows", () => {
+    const { el, root, scroller } = renderWindow(rows(400));
+    scrollTo(scroller, 7000); // exit follow by scrolling up mid-list
+    expect(wrapperIds(el)).toHaveLength(150);
+    scrollTo(scroller, 100); // near the top: the scroll trigger pages in
+    const ids = wrapperIds(el);
+    expect(ids).toHaveLength(300);
+    expect(ids[0]).toBe("a100");
+    act(() => root.unmount());
+  });
+
+  it("jump to latest trims the widened window back to 150", () => {
+    const { el, root, scroller } = renderWindow(rows(400));
+    scrollTo(scroller, 7000);
+    scrollTo(scroller, 100);
+    expect(wrapperIds(el)).toHaveLength(300);
+    act(() => {
+      jumpButton(el).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const ids = wrapperIds(el);
+    expect(ids).toHaveLength(150);
+    expect(ids[149]).toBe("a399");
+    expect(el.textContent).not.toContain("jump to latest");
+    act(() => root.unmount());
+  });
+
+  it("a find jump below the window widens it and centres the row", () => {
+    const items = rows(400);
+    const { el, root } = renderWindow(items);
+    act(() => {
+      root.render(
+        <TranscriptView items={items} find={{ ids: ["a10"], activeId: "a10", nonce: 1 }} />,
+      );
+    });
+    const ids = wrapperIds(el);
+    // 10 - 20 clamps to 0: the whole transcript is rendered.
+    expect(ids[0]).toBe("a0");
+    expect(ids).toContain("a10");
+    expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: "center" });
+    expect(el.textContent).toContain("jump to latest");
+    act(() => root.unmount());
+  });
+
+  it("requestTranscriptReveal reveals for the addressed tab only", async () => {
+    const { el, root } = renderWindow(rows(400), "tab-x");
+    await act(async () => {
+      requestTranscriptReveal("tab-x", "a40");
+    });
+    const ids = wrapperIds(el);
+    // 40 - 20: the window now starts at a20 with context above the target.
+    expect(ids[0]).toBe("a20");
+    expect(ids).toContain("a40");
+    expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: "center" });
+
+    // An unmounted tab id is a no-op: nothing changes for this transcript.
+    const before = ids.length;
+    await act(async () => {
+      requestTranscriptReveal("unmounted-tab", "a40");
+    });
+    expect(wrapperIds(el)).toHaveLength(before);
+    act(() => root.unmount());
+  });
+
+  it("a wholesale shorter list while reading clamps the frozen start to the new tail", () => {
+    const { el, root, scroller } = renderWindow(rows(400));
+    scrollTo(scroller, 7000);
+    act(() => {
+      earlierButton(el).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(wrapperIds(el)[0]).toBe("a100");
+
+    // Reload after a rewind: 200 items, frozen at 100 → clamps to 50.
+    act(() => {
+      root.render(<TranscriptView items={rows(200)} />);
+    });
+    const ids = wrapperIds(el);
+    expect(ids).toHaveLength(150);
+    expect(ids[0]).toBe("a50");
+    expect(ids[149]).toBe("a199");
+    act(() => root.unmount());
   });
 });

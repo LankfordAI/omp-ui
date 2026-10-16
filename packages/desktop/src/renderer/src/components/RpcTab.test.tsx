@@ -10,6 +10,22 @@ import type { ModelCatalogSnapshot } from "@omp-ui/core/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
+
+// Parent-re-render probe for the memo contract (issue #867), the repo's
+// #187 pattern: every TranscriptView render records the tab it was mounted for.
+const transcriptRenders = vi.hoisted((): string[] => []);
+vi.mock("./TranscriptView", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./TranscriptView")>();
+  return {
+    ...actual,
+    TranscriptView: function TranscriptViewProbe(
+      props: Parameters<typeof actual.TranscriptView>[0],
+    ) {
+      transcriptRenders.push(props.tabId ?? "");
+      return <actual.TranscriptView {...props} />;
+    },
+  };
+});
 // jsdom has neither layout nor ResizeObserver. The stub records callbacks so a
 // test can deliver the resize a browser would.
 const resizeCallbacks = new Set<ResizeObserverCallback>();
@@ -708,5 +724,35 @@ describe("RpcTab floating composer (issue #395)", () => {
     const { column, float } = measure();
     expect(float.className).not.toContain("absolute");
     expect(column.style.getPropertyValue("--transcript-bottom-inset")).toBe("");
+  });
+});
+
+describe("memo-isolated tab body (issue #867)", () => {
+  it("an App re-render with unchanged props never reaches a hidden tab's transcript", () => {
+    seed(null);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const probeRoot = createRoot(host);
+    act(() => {
+      probeRoot.render(
+        <div data-n={0}>
+          <RpcTab tabId={TAB} active={false} />
+        </div>,
+      );
+    });
+    const mounted = transcriptRenders.length;
+    expect(mounted).toBeGreaterThan(0);
+
+    // The parent re-renders with fresh content; the tab's props are the same
+    // primitives, so memo stops there — no work reaches the transcript.
+    act(() => {
+      probeRoot.render(
+        <div data-n={1}>
+          <RpcTab tabId={TAB} active={false} />
+        </div>,
+      );
+    });
+    expect(transcriptRenders).toHaveLength(mounted);
+    act(() => probeRoot.unmount());
   });
 });

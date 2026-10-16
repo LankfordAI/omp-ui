@@ -270,6 +270,7 @@ export const en = {
   "transcript.document.label": "attached documents",
   "transcript.document.alt": "{name} — read at {path}",
   "transcript.view.jumpToLatest": "jump to latest",
+  "transcript.view.showEarlier": "show {count} earlier",
   "transcript.empty.title": "Nothing yet",
   "transcript.empty.hint": "Send a prompt to start the session.",
   "transcript.usage.cache": "cache",

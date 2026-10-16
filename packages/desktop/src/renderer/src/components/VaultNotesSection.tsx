@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useT } from "../lib/i18n";
 import type { RenderItem } from "../lib/transcript";
+import { requestTranscriptReveal } from "../lib/transcript-reveal";
 import { touchedVaultNotes } from "../lib/vault-notes";
 import { useStore } from "../store";
 import { OpenInObsidianButton } from "./OpenInObsidianButton";
@@ -35,10 +36,9 @@ export function VaultNotesSection({ tabId, onJump }: { tabId: string; onJump?: (
                 className="min-w-0 flex-1 truncate text-left text-xs text-ink hover:underline hover:decoration-dotted hover:underline-offset-2"
                 onClick={() => {
                   onJump?.();
-                  // Centres the row the way the find bar does; a no-op when the transcript is not mounted.
-                  document
-                    .querySelector(`[data-tab-id="${CSS.escape(tabId)}"] [data-item-id="${CSS.escape(note.itemId)}"]`)
-                    ?.scrollIntoView({ block: "center" });
+                  // The transcript owns its window (issue #867): it widens
+                  // it, then centres the row. No-op when it is not mounted.
+                  requestTranscriptReveal(tabId, note.itemId);
                 }}
               >
                 {note.title}

@@ -24,6 +24,13 @@ import type {
   ShellItem,
   UserItem,
 } from "../lib/transcript";
+import { onTranscriptReveal } from "../lib/transcript-reveal";
+import {
+  LOAD_OLDER_TRIGGER_PX,
+  TRANSCRIPT_REVEAL_CONTEXT,
+  TRANSCRIPT_WINDOW_STEP,
+  windowStart,
+} from "../lib/transcript-window";
 import { findOwner, findRecord, sessionCwd, useStore } from "../store";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown, linkify, OpenExternalLink } from "./Markdown";
@@ -856,6 +863,20 @@ export function TranscriptView({
   const insetRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
   const followingRef = useRef(true);
+  // Bounded tail window (issue #867, ADR-0057): `frozenStart` null means
+  // follow mode — the window is the newest TRANSCRIPT_WINDOW_ROWS items and
+  // appends drop the oldest rendered rows. Reading freezes the start so
+  // content never shifts under the reader; "load older" moves it back only.
+  const [frozenStart, setFrozenStart] = useState<number | null>(null);
+  const start = windowStart(items.length, frozenStart);
+  const startRef = useRef(start);
+  startRef.current = start;
+  const visible = useMemo(() => (start === 0 ? items : items.slice(start)), [items, start]);
+  /** Distance from the bottom captured by loadOlder, restored after its commit. */
+  const olderAnchorRef = useRef<number | null>(null);
+  const [reveal, setReveal] = useState<{ id: string; seq: number } | null>(null);
+  const revealSeqRef = useRef(0);
+  const handledRevealRef = useRef(0);
   // Whether the centred column leaves enough side slack for speaker labels
   // to hang in the gutters (issue #392). The ref guards renders on resize.
   const [hanging, setHanging] = useState(false);
@@ -867,6 +888,20 @@ export function TranscriptView({
   function updateFollowing(value: boolean) {
     followingRef.current = value;
     setFollowing(value);
+    if (value) setFrozenStart(null);
+    else setFrozenStart((current) => current ?? startRef.current);
+  }
+
+  /** Widens the window by one step above the oldest rendered row, holding the
+   *  viewport still through `olderAnchorRef` (issue #867). */
+  function loadOlder() {
+    const el = scrollRef.current;
+    if (!el || startRef.current === 0 || olderAnchorRef.current !== null) return;
+    olderAnchorRef.current = el.scrollHeight - el.scrollTop;
+    updateFollowing(false);
+    // React applies the queued updaters in order, so this plain value wins
+    // over the freeze updater just queued by updateFollowing(false).
+    setFrozenStart(Math.max(0, startRef.current - TRANSCRIPT_WINDOW_STEP));
   }
 
   function pinToBottom() {
@@ -881,7 +916,9 @@ export function TranscriptView({
     lastScrollTopRef.current = el.scrollTop;
   }
 
-  const runs = useMemo(() => buildRuns(items), [items]);
+  // Runs are built from the bounded tail window only (issue #867); the DOM
+  // cost is the window's, never the tab's whole history.
+  const runs = useMemo(() => buildRuns(visible), [visible]);
   // The rewind correlation's positional key (issue #680): each user item's
   // index among user items. The map is rebuilt with the items, but the value
   // handed to each row is a stable primitive, so a stream tick leaves every
@@ -913,6 +950,19 @@ export function TranscriptView({
     if (!following) return;
     pinToBottom();
   }, [items.length, tailLength, following]);
+
+  // Load older keeps the viewport still: the rows added above push content
+  // down by exactly the growth, so restore the captured distance from the
+  // bottom. Writing `lastScrollTopRef` makes the scroll echo read as “not
+  // upward”, so the restore never triggers another load or a follow change.
+  useLayoutEffect(() => {
+    const saved = olderAnchorRef.current;
+    const el = scrollRef.current;
+    if (saved === null || !el) return;
+    olderAnchorRef.current = null;
+    el.scrollTop = el.scrollHeight - saved;
+    lastScrollTopRef.current = el.scrollTop;
+  }, [start]);
 
   // Re-pin on layout changes that bypass `items`: tool-card expansion,
   // markdown/image re-layout, window resize. When not following the callback
@@ -968,41 +1018,57 @@ export function TranscriptView({
     return map;
   }, [find?.ids, find?.activeId, find?.nonce]);
 
-  // Jump to the active match. Keyed on the nonce (a ref guard keeps unrelated
-  // re-renders no-ops); a nonce bump is the only trigger.
+  // In-session find (issue #270): a nonce bump is the only trigger; it now
+  // posts a reveal request instead of touching the DOM directly, so the jump
+  // can widen the tail window first (issue #867).
   const lastFindNonceRef = useRef<number | null>(null);
   useEffect(() => {
     if (find === null) return;
-    const nonce = find.nonce;
-    if (lastFindNonceRef.current === nonce) return;
-    lastFindNonceRef.current = nonce;
+    if (lastFindNonceRef.current === find.nonce) return;
+    lastFindNonceRef.current = find.nonce;
+    setReveal({ id: find.activeId, seq: ++revealSeqRef.current });
+  }, [find?.nonce]);
 
+  // Reveal requests from outside the transcript (Vault notes, issue #767)
+  // arrive on the bus for this tab; the subagent view has no tabId and so no
+  // subscription, exactly as before.
+  useEffect(() => {
+    if (tabId === undefined) return;
+    return onTranscriptReveal(tabId, (id) => setReveal({ id, seq: ++revealSeqRef.current }));
+  }, [tabId]);
+
+  // One reveal path: widen the window when the target is above it, then
+  // centre the target. Follow-mode contract (issue #7) unchanged.
+  useLayoutEffect(() => {
+    if (reveal === null || handledRevealRef.current === reveal.seq) return;
     const scrollEl = scrollRef.current;
     if (!scrollEl) return;
-
-    // A collapsed marker run renders only its first item: if the active id's
-    // wrapper is missing, walk backwards to the nearest rendered row.
-    const activeIndex = items.findIndex((item) => item.id === find.activeId);
-    const start = activeIndex === -1 ? items.length - 1 : activeIndex;
+    const index = items.findIndex((item) => item.id === reveal.id);
+    if (index !== -1 && index < start) {
+      updateFollowing(false);
+      setFrozenStart(Math.max(0, index - TRANSCRIPT_REVEAL_CONTEXT));
+      return; // re-runs once `start` covers the target
+    }
+    handledRevealRef.current = reveal.seq;
+    // A collapsed marker run renders only its first item: walk back to the
+    // nearest rendered row, never above the window.
+    const from = index === -1 ? items.length - 1 : index;
     let target: Element | null = null;
-    for (let i = start; i >= 0; i -= 1) {
+    for (let i = from; i >= start; i -= 1) {
       const id = items[i]?.id;
       if (!id) continue;
       target = scrollEl.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
       if (target !== null) break;
     }
     if (target === null) return;
-
     // Follow-mode contract (issue #7): a target that is not the last row
     // means the user is now reading mid-transcript — exit follow mode before
     // scrolling so the "jump to latest" pill appears. The last row leaves
     // the mode untouched.
     const rows = scrollEl.querySelectorAll("[data-item-id]");
-    if (rows.length > 0 && rows[rows.length - 1] !== target) {
-      updateFollowing(false);
-    }
+    if (rows.length > 0 && rows[rows.length - 1] !== target) updateFollowing(false);
     target.scrollIntoView({ block: "center" });
-  }, [find?.nonce]);
+  }, [reveal, start, items]);
 
   return (
     <div className="ambient relative min-h-0 flex-1 bg-surface">
@@ -1050,6 +1116,8 @@ export function TranscriptView({
             updateFollowing(false); // deliberate scroll away from the tail
           }
           // Downward scroll not yet at the bottom: leave the mode unchanged.
+          // Reading near the top pages older items in (issue #867).
+          if (!followingRef.current && el.scrollTop <= LOAD_OLDER_TRIGGER_PX) loadOlder();
         }}
         className="transcript-scroll h-full overflow-y-auto px-4 py-4 [overflow-anchor:none]"
       >
@@ -1065,6 +1133,18 @@ export function TranscriptView({
         >
           {items.length === 0 && (
             <Empty title={t("transcript.empty.title")} hint={t("transcript.empty.hint")} />
+          )}
+
+          {/* Head pager for the tail window (issue #867): the keyboard and
+              short-content path when the scroll trigger cannot fire. */}
+          {start > 0 && (
+            <button
+              type="button"
+              onClick={loadOlder}
+              className="self-center rounded-full border border-line px-3 py-1 text-[11px] text-ink-mid transition-colors hover:text-ink"
+            >
+              {t("transcript.view.showEarlier", { count: start })}
+            </button>
           )}
 
           {runs.map((run, runIndex) => (

@@ -246,6 +246,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.document.label": "첨부된 문서",
   "transcript.document.alt": "{name} — {path}에서 읽기",
   "transcript.view.jumpToLatest": "최신으로 이동",
+  "transcript.view.showEarlier": "이전 {count}개 보기",
   "transcript.empty.title": "아직 내용 없음",
   "transcript.empty.hint": "프롬프트를 보내 세션을 시작하세요.",
   "transcript.usage.cache": "cache",
