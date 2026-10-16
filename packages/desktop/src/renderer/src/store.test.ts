@@ -243,13 +243,14 @@ describe("deriveSidebarSessionState", () => {
       startTime: 1,
       endTime: null,
       agentId: null,
+      ownerId: null,
       pids: [1],
       exitCode: null,
       outputTail: "",
       outputTruncated: false,
     };
     const snapshot = (running: AsyncJob[]): AsyncJobsSnapshot => ({
-      version: 1,
+      version: 2,
       processKey: "p",
       revision: 1,
       available: true,
@@ -258,6 +259,8 @@ describe("deriveSidebarSessionState", () => {
       canCancel: true,
       running,
       recent: [],
+      rootId: null,
+      agents: [],
       result: null,
     });
     expect(

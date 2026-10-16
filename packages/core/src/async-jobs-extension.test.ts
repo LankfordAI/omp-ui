@@ -26,6 +26,7 @@ afterEach(() => {
 
 /** The fake root's job surface, all optional — absence is the degradation case. */
 interface FakeJobApi {
+  getAsyncJobTree?: (options: { recentLimit: number }) => unknown;
   getAsyncJobSnapshot?: (options: { recentLimit: number }) => unknown;
   inspectAsyncJob?: (id: string) => unknown;
   cancelAsyncJob?: (id: string) => unknown;
@@ -245,6 +246,76 @@ describe("writeAsyncJobsExtension", () => {
     await harness.arm();
     expect(harness.latest().available).toBe(false);
     expect(harness.latest().unavailable).toContain("no background-job API");
+  });
+
+  it("prefers getAsyncJobTree over the owner-scoped snapshot when both exist", async () => {
+    const calls = { tree: 0, flat: 0 };
+    const harness = executableExtension({
+      getAsyncJobTree: () => {
+        calls.tree += 1;
+        return {
+          running: [rawJob(), rawJob({ id: "bg_5", ownerId: "a-1" })],
+          recent: [],
+          rootId: "root",
+          agents: [{ id: "a-1", parentId: "root" }],
+        };
+      },
+      getAsyncJobSnapshot: () => {
+        calls.flat += 1;
+        return { running: [], recent: [], delivery: null };
+      },
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    const snapshot = harness.latest();
+    expect(calls).toEqual({ tree: 1, flat: 0 });
+    expect(snapshot.rootId).toBe("root");
+    expect(snapshot.agents).toEqual([{ id: "a-1", parentId: "root" }]);
+    expect(snapshot.running.map((job) => job.ownerId)).toEqual([null, "a-1"]);
+  });
+
+  it("keeps the flat shape when the tree publishes no agents", async () => {
+    const harness = executableExtension({
+      getAsyncJobTree: () => ({ running: [rawJob()], recent: [], rootId: null, agents: [] }),
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    const snapshot = harness.latest();
+    expect(snapshot.available).toBe(true);
+    expect(snapshot.rootId).toBeNull();
+    expect(snapshot.agents).toEqual([]);
+  });
+
+  it("names getAsyncJobTree when only the tree method throws", async () => {
+    const harness = executableExtension({
+      getAsyncJobTree: () => {
+        throw new Error("boom");
+      },
+      getAsyncJobSnapshot: () => ({ running: [rawJob()], recent: [], delivery: null }),
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    expect(harness.latest().available).toBe(false);
+    expect(harness.latest().unavailable).toContain("getAsyncJobTree failed");
+  });
+
+  it("drops malformed tree agents but keeps the well-formed rows", async () => {
+    const harness = executableExtension({
+      getAsyncJobTree: () => ({
+        running: [rawJob()],
+        recent: [],
+        rootId: "root",
+        agents: [{ id: "", parentId: null }, { id: "a-1" }, 7, { id: "a-2", parentId: null }],
+      }),
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    // The empty id and the bare number drop; a missing parentId reads null —
+    // the bridge cleans toward the parser's shape, which then validates it.
+    expect(harness.latest().agents).toEqual([
+      { id: "a-1", parentId: null },
+      { id: "a-2", parentId: null },
+    ]);
   });
 
   it("before any prompt the snapshot reports no bound session", async () => {

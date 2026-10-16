@@ -1632,6 +1632,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
     startTime: 1,
     endTime: null,
     agentId: null,
+    ownerId: null,
     pids: [],
     exitCode: null,
     outputTail: "",
@@ -1657,7 +1658,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
 
   it("renders no chip at count zero", () => {
     seedJobs({
-      version: 1, processKey: "p", revision: 1, available: true, unavailable: null,
+      version: 2, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
       canInspect: true, canCancel: true, running: [], recent: [], result: null,
     });
     const host = renderWide();
@@ -1672,7 +1673,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
           ...tab,
           subagents: [{ id: "agent-1", name: "worker", status: "working" }],
           asyncJobs: {
-            version: 1, processKey: "p", revision: 1, available: true, unavailable: null,
+            version: 2, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
             canInspect: true, canCancel: true, result: null, recent: [],
             running: [
               job({ id: "bg_1" }),
@@ -1691,7 +1692,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
 
   it("clicking opens the inspector on the Jobs pane", () => {
     seedJobs({
-      version: 1, processKey: "p", revision: 1, available: true, unavailable: null,
+      version: 2, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
       canInspect: true, canCancel: true, recent: [], result: null,
       running: [job()],
     });
@@ -1709,7 +1710,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
     // to a live tab, so clear the leak.
     useStore.setState({ hibernated: {} });
     seedJobs({
-      version: 1, processKey: "p", revision: 1, available: true, unavailable: null,
+      version: 2, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
       canInspect: true, canCancel: true, recent: [], result: null,
       running: [job()],
     });
@@ -1719,7 +1720,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
     ).toBe(t("hud.status.rpcStatus", { status: t("hud.status.running") }));
     act(() => root!.unmount());
     seedJobs({
-      version: 1, processKey: "p", revision: 1, available: true, unavailable: null,
+      version: 2, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
       canInspect: true, canCancel: true,
       running: [],
       recent: [job({ status: "completed", exitCode: 0 })],
