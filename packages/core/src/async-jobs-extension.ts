@@ -10,6 +10,7 @@ import {
   ASYNC_JOBS_POLL_IDLE_MS,
   ASYNC_JOBS_RECENT_LIMIT,
   ASYNC_JOBS_SHORT_TAIL_CHARS,
+  ASYNC_JOBS_SNAPSHOT_VERSION,
   ASYNC_JOBS_STATUS_BYTE_LIMIT,
   ASYNC_JOBS_STATUS_KEY,
 } from "./async-jobs";
@@ -26,6 +27,7 @@ import {
  * omp's rpc surface carries no background-job state (issue #835): no rpc
  * frame lists jobs and `get_state` only reports `hasPendingAsyncWork`. The
  * public methods on the live `AgentSession` do —
+ * `getAsyncJobTree({ recentLimit })` (omp 18.11+, preferred),
  * `getAsyncJobSnapshot({ recentLimit })`, `inspectAsyncJob(id)`, and
  * `cancelAsyncJob(id)` are what omp's own `/jobs` and the TUI jobs sheet use.
  * This generated extension patches `AgentSession.prototype.prompt`, binds the
@@ -72,6 +74,7 @@ const TAIL_CHARS = ${ASYNC_JOBS_OUTPUT_TAIL_CHARS};
 const SHORT_TAIL_CHARS = ${ASYNC_JOBS_SHORT_TAIL_CHARS};
 const LABEL_LIMIT = ${ASYNC_JOBS_LABEL_CHAR_LIMIT};
 const COMMAND_LIMIT = ${ASYNC_JOBS_COMMAND_CHAR_LIMIT};
+const SNAPSHOT_VERSION = ${ASYNC_JOBS_SNAPSHOT_VERSION};
 const ANSI = /\\u001b\\[[0-?]*[ -\\/]*[@-~]/g;
 const CONTROL = /[\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f]/g;
 
@@ -86,6 +89,7 @@ interface StatusUi {
 }
 
 interface JobsSession {
+  getAsyncJobTree?: unknown;
   getAsyncJobSnapshot?: unknown;
   inspectAsyncJob?: unknown;
   cancelAsyncJob?: unknown;
@@ -110,9 +114,15 @@ interface CollectedJob {
   startTime: number;
   endTime: number | null;
   agentId: string | null;
+  ownerId: string | null;
   pids: number[];
   exitCode: number | null;
   output: string;
+}
+
+interface CollectedAgent {
+  id: string;
+  parentId: string | null;
 }
 
 interface Collected {
@@ -122,6 +132,10 @@ interface Collected {
   canCancel: boolean;
   running: CollectedJob[];
   recent: CollectedJob[];
+  /** getAsyncJobTree's rootId; null on the flat snapshot path. */
+  rootId: string | null;
+  /** getAsyncJobTree's agent roster; empty on the flat snapshot path. */
+  agents: CollectedAgent[];
 }
 
 interface KillRequest {
@@ -228,7 +242,7 @@ export default function (pi: ExtensionApi) {
   }
 
   function unavailable(reason: string): Collected {
-    return { available: false, unavailable: reason, canInspect: false, canCancel: false, running: [], recent: [] };
+    return { available: false, unavailable: reason, canInspect: false, canCancel: false, running: [], recent: [], rootId: null, agents: [] };
   }
 
   function collectJob(raw: unknown, root: JobsSession, canInspect: boolean): CollectedJob | null {
@@ -256,6 +270,7 @@ export default function (pi: ExtensionApi) {
     const command = clean(str(pick("command")) || str(job.command));
     const cwd = str(pick("cwd"));
     const agentId = str(job.agentId);
+    const ownerId = str(job.ownerId);
     return {
       id,
       type,
@@ -267,6 +282,7 @@ export default function (pi: ExtensionApi) {
       cwd: cwd === "" ? null : cwd,
       endTime: finite(job.endTime),
       agentId: agentId === "" ? null : agentId,
+      ownerId: ownerId === "" ? null : ownerId,
       exitCode: finite(pick("exitCode")),
       output: clean(str(pick("output"))),
     };
@@ -276,22 +292,25 @@ export default function (pi: ExtensionApi) {
     if (hookBroken !== null) return unavailable(hookBroken);
     const root = rootSession;
     if (root === null) return unavailable("no omp session has prompted yet");
-    if (typeof root.getAsyncJobSnapshot !== "function") {
+    // The tree (omp 18.11+) is the whole job manager, subagent jobs included;
+    // the owner-scoped snapshot only sees the session's own jobs (#868).
+    const hasTree = typeof root.getAsyncJobTree === "function";
+    if (!hasTree && typeof root.getAsyncJobSnapshot !== "function") {
       return unavailable("this omp build has no background-job API");
     }
     const canInspect = typeof root.inspectAsyncJob === "function";
     const canCancel = typeof root.cancelAsyncJob === "function";
+    const source = hasTree ? "getAsyncJobTree" : "getAsyncJobSnapshot";
     let raw: unknown;
     try {
-      raw = (root.getAsyncJobSnapshot as (options: { recentLimit: number }) => unknown).call(root, {
-        recentLimit: RECENT_LIMIT,
-      });
+      const method = (hasTree ? root.getAsyncJobTree : root.getAsyncJobSnapshot) as (options: { recentLimit: number }) => unknown;
+      raw = method.call(root, { recentLimit: RECENT_LIMIT });
     } catch (err) {
-      return unavailable("getAsyncJobSnapshot failed: " + String(err));
+      return unavailable(source + " failed: " + String(err));
     }
     if (raw === null || raw === undefined) return unavailable("background jobs are unavailable in this session");
     const record = asRecord(raw);
-    if (record === null) return unavailable("getAsyncJobSnapshot returned no object");
+    if (record === null) return unavailable(source + " returned no object");
     const read = (list: unknown): CollectedJob[] => {
       const jobs: CollectedJob[] = [];
       if (!Array.isArray(list)) return jobs;
@@ -301,7 +320,19 @@ export default function (pi: ExtensionApi) {
       }
       return jobs;
     };
-    return { available: true, unavailable: null, canInspect, canCancel, running: read(record.running), recent: read(record.recent) };
+    const agents: CollectedAgent[] = [];
+    if (hasTree && Array.isArray(record.agents)) {
+      for (const item of record.agents) {
+        const agent = asRecord(item);
+        if (agent === null) continue;
+        const id = str(agent.id);
+        if (id === "") continue;
+        const parentId = agent.parentId;
+        agents.push({ id, parentId: typeof parentId === "string" ? parentId : null });
+      }
+    }
+    const rootId = hasTree && typeof record.rootId === "string" ? record.rootId : null;
+    return { available: true, unavailable: null, canInspect, canCancel, running: read(record.running), recent: read(record.recent), rootId, agents };
   }
 
   function shape(job: CollectedJob, tailChars: number): Record<string, unknown> {
@@ -316,6 +347,7 @@ export default function (pi: ExtensionApi) {
       startTime: job.startTime,
       endTime: job.endTime,
       agentId: job.agentId,
+      ownerId: job.ownerId,
       pids: job.pids,
       exitCode: job.exitCode,
       outputTail: truncated ? job.output.slice(job.output.length - tailChars) : job.output,
@@ -331,6 +363,8 @@ export default function (pi: ExtensionApi) {
       canCancel: c.canCancel,
       running: c.running.map((job) => shape(job, tailChars)),
       recent: c.recent.map((job) => shape(job, tailChars)),
+      rootId: c.rootId,
+      agents: c.agents,
     };
   }
 
@@ -342,7 +376,7 @@ export default function (pi: ExtensionApi) {
     if (!force && digest === lastDigest) return;
     markActive();
     const envelope = (b: Record<string, unknown>): string =>
-      JSON.stringify(Object.assign({ version: 1, processKey, revision: revision + 1 }, b, { result }));
+      JSON.stringify(Object.assign({ version: SNAPSHOT_VERSION, processKey, revision: revision + 1 }, b, { result }));
     // An impossible payload degrades rung by rung, never into half a job.
     let json = envelope(full);
     if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, SHORT_TAIL_CHARS));

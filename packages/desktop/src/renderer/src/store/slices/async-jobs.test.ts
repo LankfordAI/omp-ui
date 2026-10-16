@@ -13,7 +13,7 @@ const runtime = () => h.useStore.getState().rpc[h.TAB];
 
 function snapshot(overrides: Partial<AsyncJobsSnapshot> = {}): AsyncJobsSnapshot {
   return {
-    version: 1,
+    version: 2,
     processKey: "omp-ui-proc-1",
     revision: 1,
     available: true,
@@ -22,6 +22,8 @@ function snapshot(overrides: Partial<AsyncJobsSnapshot> = {}): AsyncJobsSnapshot
     canCancel: true,
     running: [],
     recent: [],
+    rootId: null,
+    agents: [],
     result: null,
     ...overrides,
   };

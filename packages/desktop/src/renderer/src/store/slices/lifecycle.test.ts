@@ -1500,6 +1500,39 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
       rows: 24,
     });
   });
+
+  // Issue #872: the dead-PTY Restore button rides resumeDead's opts; the
+  // renderer stamps `restore` on the request for PTY records only.
+  it("resumeDead with restore stamps the flag for a pty record", async () => {
+    h.backendState = projectState([{ ...rec(h.TAB, "dormant"), mode: "pty" as const }]);
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: h.TAB });
+    h.useStore.setState({ state: h.backendState });
+
+    await h.useStore.getState().resumeDead(h.TAB, { restore: true });
+
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "resume",
+      resumeTabId: h.TAB,
+      cols: 80,
+      rows: 24,
+      restore: true,
+    });
+  });
+
+  it("resumeDead with restore stays a plain resume for an rpc-ui record", async () => {
+    h.backendState = projectState([rec(h.TAB, "dormant")]);
+    h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: h.TAB });
+    h.useStore.setState({ state: h.backendState });
+
+    await h.useStore.getState().resumeDead(h.TAB, { restore: true });
+
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "resume",
+      resumeTabId: h.TAB,
+      cols: 80,
+      rows: 24,
+    });
+  });
 });
 
 describe("hiding or deleting a project's remembered focus moves or drops it (issue #99)", () => {

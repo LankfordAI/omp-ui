@@ -970,7 +970,12 @@ export class SessionManager {
       cwd: record.worktree?.path ?? record.projectCwd,
       lineageDir: absLineageDir,
       ompPath,
-      resumeSessionId: record.sessionId ?? undefined,
+      // #872: a restore request relaunches with --restore so the interrupted
+      // turn continues; without a materialized session id there is nothing to
+      // restore, and omp's own flag rules reject it under --mode.
+      ...(req.origin === "resume" && req.restore && record.sessionId !== null
+        ? { restoreSessionId: record.sessionId }
+        : { resumeSessionId: record.sessionId ?? undefined }),
       appendSystemPromptFile: appendSystemPromptFile ?? undefined,
       model: gateSelector(this.gate) ?? undefined,
       ...(autoThinking ? { thinking: "auto" } : {}),

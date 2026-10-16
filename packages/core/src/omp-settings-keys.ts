@@ -177,6 +177,8 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       "compaction.thresholdPercent",
       "compaction.thresholdTokens",
       "compaction.reserveTokens",
+      // omp 18.11 (issue #871): pre-walks the context before the first turn.
+      "prewalk.enabled",
     ],
   },
   {
@@ -206,6 +208,15 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     // renders no section — readOmpSettings' per-key rule already covers it.
     title: "Python",
     keys: [PYTHON_INTERPRETER_KEY, "python.kernelMode"],
+  },
+  {
+    // Per-call LSP request/diagnostic timeout. `lsp.requestTimeout` is an
+    // omp 18.11.2 key; an older binary that doesn't publish it renders no
+    // section — readOmpSettings' per-key rule already covers it (issue #871).
+    title: "Language server",
+    description:
+      "Per-call timeout for language-server requests and diagnostics.",
+    keys: ["lsp.requestTimeout"],
   },
   GIT_SETTING_GROUP,
 ];

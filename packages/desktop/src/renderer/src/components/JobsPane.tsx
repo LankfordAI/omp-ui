@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type { AsyncJob } from "@omp-ui/core/async-jobs";
+import { buildAsyncJobRows, type AsyncJob, type AsyncJobRow } from "@omp-ui/core/async-jobs";
 import { AGENT_TONE } from "../lib/agent-tone";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
@@ -64,12 +64,18 @@ export function JobsPane({ tabId }: { tabId: string }) {
   }
   // Task jobs open the subagent view when the drill-down knows their agent.
   const known = new Set([...(subagents ?? []).map((agent) => agent.id), ...Object.keys(buffers ?? {})]);
-  const row = (job: AsyncJob) => {
+  // omp's own /jobs tree layout (#868): each section nests its subagent jobs
+  // under the task that spawned them; an older bridge's empty roster renders
+  // today's flat order inside each section.
+  const runningRows = buildAsyncJobRows(snapshot.running, [], snapshot.agents, snapshot.rootId);
+  const recentRows = buildAsyncJobRows(snapshot.recent, [], snapshot.agents, snapshot.rootId);
+  const renderRow = ({ job, depth }: AsyncJobRow) => {
     const agentId = job.agentId;
     return (
       <JobRow
         key={job.id}
         job={job}
+        depth={depth}
         now={now}
         canInspect={snapshot.canInspect}
         canCancel={snapshot.canCancel}
@@ -110,7 +116,7 @@ export function JobsPane({ tabId }: { tabId: string }) {
         {snapshot.running.length === 0 ? (
           <Empty title={t("rail.jobs.emptyTitle")} hint={t("rail.jobs.emptyHint")} />
         ) : (
-          <ul className="space-y-1">{snapshot.running.map(row)}</ul>
+          <ul className="space-y-1">{runningRows.map(renderRow)}</ul>
         )}
         {!snapshot.canCancel && snapshot.running.length > 0 && (
           <p className="mt-1 text-[10px] text-ink-faint">{t("rail.jobs.noCancel")}</p>
@@ -123,7 +129,7 @@ export function JobsPane({ tabId }: { tabId: string }) {
       </Section>
       {snapshot.recent.length > 0 && (
         <Section title={t("rail.jobs.recentTitle", { count: snapshot.recent.length })}>
-          <ul className="space-y-1">{snapshot.recent.map(row)}</ul>
+          <ul className="space-y-1">{recentRows.map(renderRow)}</ul>
         </Section>
       )}
     </>
@@ -141,6 +147,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function JobRow({
   job,
+  depth,
   now,
   canInspect,
   canCancel,
@@ -149,6 +156,7 @@ function JobRow({
   onKill,
 }: {
   job: AsyncJob;
+  depth: number;
   now: number;
   canInspect: boolean;
   canCancel: boolean;
@@ -160,7 +168,7 @@ function JobRow({
   const [open, setOpen] = useState(false);
   const running = job.status === "running";
   return (
-    <li className="animate-slide-in">
+    <li className="animate-slide-in" style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
       <div className={cn("w-full rounded-md border border-line bg-raised px-2 py-1.5", !running && "opacity-70")}>
         <div className="flex items-center gap-1.5">
           <button

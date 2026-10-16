@@ -1013,7 +1013,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   hideTab(tabId: string): void;
   terminate(tabId: string): Promise<void>;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;
-  resumeDead(tabId: string): Promise<void>;
+  /** Relaunch a dead tab. `restore` relaunches the PTY with omp --restore so
+   *  the interrupted turn continues (#872); ignored for rpc-ui tabs. */
+  resumeDead(tabId: string, opts?: { restore?: boolean }): Promise<void>;
   /** Relaunch a dead tab forcing `model` (issue #774's recovery resume). */
   resumeWithModel(tabId: string, model: string): Promise<void>;
   deleteSession(tabId: string): Promise<void>;

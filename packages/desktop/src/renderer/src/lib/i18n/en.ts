@@ -1315,6 +1315,8 @@ export const en = {
   "terminal.tab.exited": "agent exited",
   "terminal.tab.exitedCode": "(code {code})",
   "terminal.tab.resume": "resume session",
+  "terminal.tab.restore": "restore session",
+  "terminal.tab.restoreHint": "continue the interrupted turn and its subagents, not just the transcript",
   "terminal.note.attached": "attached {n} image",
   "terminal.note.attachedPlural": "attached {n} images",
   "terminal.note.attachedDocument": "attached {n} document",

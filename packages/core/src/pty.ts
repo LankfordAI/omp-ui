@@ -61,6 +61,14 @@ export function spawnOmp(opts: {
   lineageDir: string;
   ompPath: string;
   resumeSessionId?: string;
+  /**
+   * omp `--restore` (#872): resume like --resume, then continue the session's
+   * interrupted turn and its subagents. The binary refuses it alongside
+   * --print/--mode, --continue, --fork, imports, --goal and --no-session, so
+   * callers pass exactly one of restoreSessionId/resumeSessionId — restore
+   * wins when both are set.
+   */
+  restoreSessionId?: string;
   /** Carryover-context artifact for `--append-system-prompt` (#824);
    *  symmetric with RpcClient — no PTY caller sets it in v1. */
   appendSystemPromptFile?: string;
@@ -85,7 +93,8 @@ export function spawnOmp(opts: {
   configOverlays?: string[];
 }): PtyHandle {
   const args = ["--cwd", opts.cwd, "--session-dir", opts.lineageDir];
-  if (opts.resumeSessionId) args.push(`--resume=${opts.resumeSessionId}`);
+  if (opts.restoreSessionId) args.push(`--restore=${opts.restoreSessionId}`);
+  else if (opts.resumeSessionId) args.push(`--resume=${opts.resumeSessionId}`);
   if (opts.appendSystemPromptFile) args.push("--append-system-prompt", opts.appendSystemPromptFile);
   if (opts.model) args.push("--model", opts.model);
   if (opts.thinking) args.push("--thinking", opts.thinking);

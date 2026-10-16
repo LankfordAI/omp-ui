@@ -475,6 +475,63 @@ describe("service tier replay (issue #719)", () => {
   });
 });
 
+// Issue #872: a resume request flagged `restore` relaunches the PTY with
+// omp --restore; every other shape stays a plain --resume.
+describe("restore-on-relaunch (issue #872)", () => {
+  const SESSION_ID = "019ffc67-522c-7000-95a3-01eca0266c03";
+  /** prepareResumeRecord refuses a record whose transcript file is gone. */
+  const seedTranscript = (sessionsRoot: string): void => {
+    fs.mkdirSync(path.join(sessionsRoot, LINEAGE), { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsRoot, LINEAGE, `2026-08-13T00-00-00-000Z_${SESSION_ID}.jsonl`),
+      `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: "/proj" })}\n`,
+    );
+  };
+
+  it("swaps --resume for restoreSessionId on a pty resume with a session id", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "pty" });
+    seedTranscript(sessionsRoot);
+    registry.updateSession(TAB, { sessionId: SESSION_ID });
+
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24, restore: true });
+
+    expect(spawnCalls.at(-1)).toMatchObject({ id: TAB, restoreSessionId: SESSION_ID });
+    expect(spawnCalls.at(-1)?.resumeSessionId).toBeUndefined();
+  });
+
+  it("falls back to plain resume when the record has no session id", async () => {
+    const { manager } = setup({ mode: "pty" });
+
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24, restore: true });
+
+    expect(spawnCalls.at(-1)?.restoreSessionId).toBeUndefined();
+    expect(spawnCalls.at(-1)?.resumeSessionId).toBeUndefined();
+  });
+
+  it("ignores the flag on an rpc-ui resume — the binary rejects --restore with --mode", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    seedTranscript(sessionsRoot);
+    registry.updateSession(TAB, { sessionId: SESSION_ID });
+
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24, restore: true });
+
+    const opts = RpcClientMock.mock.calls.at(-1)![0];
+    expect(opts.resumeSessionId).toBe(SESSION_ID);
+    expect(opts).not.toHaveProperty("restoreSessionId");
+  });
+
+  it("keeps the plain resume argv without the flag", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "pty" });
+    seedTranscript(sessionsRoot);
+    registry.updateSession(TAB, { sessionId: SESSION_ID });
+
+    await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+
+    expect(spawnCalls.at(-1)).toMatchObject({ resumeSessionId: SESSION_ID });
+    expect(spawnCalls.at(-1)?.restoreSessionId).toBeUndefined();
+  });
+});
+
 describe("MCP runtime status bridge", () => {
   it.each([
     ["ordinary", false],

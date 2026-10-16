@@ -26,6 +26,10 @@ import {
  * running with its command; a kill prompt rides the hidden slash command
  * WITHOUT streamingBehavior while the turn streams; the result comes back on
  * the snapshot correlated by requestId; and the job leaves `running`.
+ * Issue #868 adds the tree proof: on this binary the bridge prefers
+ * getAsyncJobTree, whose rootId carries the session's own agent id (the flat
+ * path publishes null) — while a childless session still publishes an empty
+ * roster, so the pane layout stays flat.
  */
 
 const ompPath = resolveOmpBinary();
@@ -279,7 +283,12 @@ describe.skipIf(ompPath === null)("async-jobs bridge live (real omp)", () => {
       expect(first.available, `bridge unavailable: ${first.unavailable}`).toBe(true);
       expect(first.canCancel, "cancelAsyncJob missing on this binary").toBe(true);
       const processKey = first.processKey;
-
+      // #868: a non-null rootId can only come from getAsyncJobTree — the
+      // owner-scoped snapshot path publishes rootId null. The empty roster is
+      // omp's own answer for a session that spawned no subagents: its jobs
+      // are owned by the root itself, and mP excludes the root node.
+      expect(first.rootId, "expected the tree path on a binary with getAsyncJobTree").toBeTypeOf("string");
+      expect(first.agents).toEqual([]);
       // 2. A prompt whose completion starts an async bash job; the provider
       // holds the post-tool completion so the turn stays streaming.
       const jobFrom = scope.frames.length;

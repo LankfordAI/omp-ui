@@ -66,6 +66,26 @@ function compactionEntry(
   };
 }
 
+// omp 18.11.0's remote-compaction fallback: empty firstKeptEntryId plus the
+// providerReplayThroughEntryId marker omp replays from *after*.
+function replayFallbackCompaction(
+  id: string,
+  parentId: string | null,
+  providerReplayThroughEntryId?: unknown,
+): Record<string, unknown> {
+  return {
+    type: "compaction",
+    id,
+    parentId,
+    timestamp: "2026-09-28T00:00:00.000Z",
+    summary: "remote-compaction fallback",
+    firstKeptEntryId: "",
+    ...(providerReplayThroughEntryId === undefined
+      ? {}
+      : { providerReplayThroughEntryId }),
+  };
+}
+
 function userItem(text: string, images?: { data: string; mimeType: string }[]): RenderItem {
   return {
     kind: "user",
@@ -144,6 +164,78 @@ describe("visiblePromptEntries", () => {
       { entryId: "e1", text: "first", images: [] },
       { entryId: "e2", text: "second", images: [] },
       { entryId: "e3", text: "current", images: [] },
+    ]);
+  });
+
+  it("cuts at providerReplayThroughEntryId when firstKeptEntryId is empty", () => {
+    const entries = [
+      userEntry("e1", null, "two prompts back"),
+      userEntry("e2", "e1", "one prompt back"),
+      replayFallbackCompaction("c", "e2", "e2"),
+      userEntry("e3", "c", "after the replay point"),
+      userEntry("e4", "e3", "current"),
+    ];
+    // omp replays from after e2, so e1 and e2 are no longer in the model context.
+    expect(visiblePromptEntries(entries, "e4")).toEqual([
+      { entryId: "e3", text: "after the replay point", images: [] },
+      { entryId: "e4", text: "current", images: [] },
+    ]);
+  });
+
+  it("leaves the path uncut for a pre-18.11 compaction without the field", () => {
+    const entries = [
+      userEntry("e1", null, "first"),
+      {
+        // An old session file: neither marker exists on the compaction entry.
+        type: "compaction",
+        id: "c",
+        parentId: "e1",
+        timestamp: "2026-09-28T00:00:00.000Z",
+        summary: "legacy compaction",
+      },
+      userEntry("e2", "c", "current"),
+    ];
+    expect(visiblePromptEntries(entries, "e2")).toEqual([
+      { entryId: "e1", text: "first", images: [] },
+      { entryId: "e2", text: "current", images: [] },
+    ]);
+  });
+
+  it("keeps the full path when the empty marker's replay id is dangling or absent", () => {
+    const entries = [
+      userEntry("e1", null, "first"),
+      replayFallbackCompaction("c", "e1", "gone"),
+      userEntry("e2", "c", "current"),
+    ];
+    expect(visiblePromptEntries(entries, "e2")).toEqual([
+      { entryId: "e1", text: "first", images: [] },
+      { entryId: "e2", text: "current", images: [] },
+    ]);
+    const noMarker = [
+      userEntry("e1", null, "first"),
+      replayFallbackCompaction("c", "e1"),
+      userEntry("e2", "c", "current"),
+    ];
+    expect(visiblePromptEntries(noMarker, "e2")).toEqual([
+      { entryId: "e1", text: "first", images: [] },
+      { entryId: "e2", text: "current", images: [] },
+    ]);
+  });
+
+  it("prefers a non-empty firstKeptEntryId when both markers are present", () => {
+    const entries = [
+      userEntry("e1", null, "before the kept entry"),
+      userEntry("e2", "e1", "between the markers"),
+      userEntry("e3", "e2", "kept"),
+      {
+        ...replayFallbackCompaction("c", "e3", "e2"),
+        firstKeptEntryId: "e3",
+      },
+      userEntry("e4", "c", "current"),
+    ];
+    expect(visiblePromptEntries(entries, "e4")).toEqual([
+      { entryId: "e3", text: "kept", images: [] },
+      { entryId: "e4", text: "current", images: [] },
     ]);
   });
 

@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   asyncJobsArmMessage,
   asyncJobsKillMessage,
+  ASYNC_JOBS_SNAPSHOT_VERSION,
+  buildAsyncJobRows,
   parseAsyncJobsSnapshot,
+  type AsyncJob,
+  type AsyncJobAgent,
   type AsyncJobsSnapshot,
 } from "./async-jobs";
 
@@ -17,6 +21,7 @@ function job(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     startTime: 1_761_000_000_000,
     endTime: null,
     agentId: null,
+    ownerId: null,
     pids: [4242],
     exitCode: null,
     outputTail: "",
@@ -27,7 +32,7 @@ function job(overrides: Record<string, unknown> = {}): Record<string, unknown> {
 
 function snapshot(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    version: 1,
+    version: ASYNC_JOBS_SNAPSHOT_VERSION,
     processKey: "omp-ui-mc0abcd-xyz",
     revision: 3,
     available: true,
@@ -45,6 +50,8 @@ function snapshot(overrides: Record<string, unknown> = {}): Record<string, unkno
         outputTail: "done",
       }),
     ],
+    rootId: null,
+    agents: [],
     result: null,
     ...overrides,
   };
@@ -52,6 +59,12 @@ function snapshot(overrides: Record<string, unknown> = {}): Record<string, unkno
 
 function publish(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify(snapshot(overrides));
+}
+
+/** The pre-#868 envelope shape: version 1, no tree keys at all. */
+function snapshotV1(): Record<string, unknown> {
+  const { rootId: _rootId, agents: _agents, ...flat } = snapshot();
+  return { ...flat, version: 1 };
 }
 
 describe("parseAsyncJobsSnapshot", () => {
@@ -64,6 +77,33 @@ describe("parseAsyncJobsSnapshot", () => {
     expect(parsed as AsyncJobsSnapshot).toEqual(JSON.parse(text));
   });
 
+  it("maps a legacy v1 envelope to a flat v2 snapshot", () => {
+    const parsed = parseAsyncJobsSnapshot(JSON.stringify(snapshotV1()));
+    expect(parsed).not.toBeNull();
+    expect(parsed!.version).toBe(ASYNC_JOBS_SNAPSHOT_VERSION);
+    expect(parsed!.rootId).toBeNull();
+    expect(parsed!.agents).toEqual([]);
+    expect(parsed!.running).toHaveLength(1);
+  });
+
+  it("reads ownerId, treating an absent key (omp's undefined) as null", () => {
+    const bare = job();
+    delete bare.ownerId;
+    const parsed = parseAsyncJobsSnapshot(publish({ running: [bare, job({ id: "bg_9", ownerId: "agent-1" })] }));
+    expect(parsed!.running.map((entry) => entry.ownerId)).toEqual([null, "agent-1"]);
+  });
+
+  it("parses the agent roster with its parent edges", () => {
+    const parsed = parseAsyncJobsSnapshot(
+      publish({ rootId: "root", agents: [{ id: "a-1", parentId: "root" }, { id: "a-2", parentId: null }] }),
+    );
+    expect(parsed!.rootId).toBe("root");
+    expect(parsed!.agents).toEqual([
+      { id: "a-1", parentId: "root" },
+      { id: "a-2", parentId: null },
+    ]);
+  });
+
   it.each([
     ["an unknown status", publish({ running: [job({ status: "paused" })] })],
     ["an empty id", publish({ running: [job({ id: "" })] })],
@@ -71,10 +111,129 @@ describe("parseAsyncJobsSnapshot", () => {
     ["revision 0", publish({ revision: 0 })],
     ["a missing canCancel", publish({ canCancel: undefined })],
     ["a result without requestId", publish({ result: { ok: true, cancelled: [], text: "x" } })],
+    ["an ownerId of the wrong type", publish({ running: [job({ ownerId: 7 })] })],
+    ["agents that is not an array", publish({ agents: { id: "a" } })],
+    ["an agent without a parentId key", publish({ agents: [{ id: "a-1" }] })],
+    ["an agent with a numeric parentId", publish({ agents: [{ id: "a-1", parentId: 2 }] })],
+    ["an agent with an empty id", publish({ agents: [{ id: "", parentId: null }] })],
+    ["a v1 hybrid carrying v2 tree keys", JSON.stringify({ ...snapshot(), version: 1 })],
+    ["version 3", publish({ version: 3 })],
     ["invalid JSON", "{not json"],
     ["undefined", undefined as unknown as string],
   ])("rejects %s", (_name, text) => {
     expect(parseAsyncJobsSnapshot(text)).toBeNull();
+  });
+});
+
+/** Layout tests read id/status/startTime/agentId/ownerId only. */
+function rowJob(id: string, overrides: Partial<AsyncJob> = {}): AsyncJob {
+  return {
+    id,
+    type: "bash",
+    status: "running",
+    label: "",
+    command: null,
+    cwd: null,
+    startTime: 1_761_000_000_000,
+    endTime: null,
+    agentId: null,
+    ownerId: null,
+    pids: [],
+    exitCode: null,
+    outputTail: "",
+    outputTruncated: false,
+    ...overrides,
+  };
+}
+
+function agent(id: string, parentId: string | null): AsyncJobAgent {
+  return { id, parentId };
+}
+
+describe("buildAsyncJobRows", () => {
+  it("nests a subagent's job under its task job", () => {
+    const task = rowJob("t1", { type: "task", agentId: "a-1" });
+    const child = rowJob("bg_7", { ownerId: "a-1" });
+    expect(buildAsyncJobRows([task, child], [], [agent("a-1", "root")], "root")).toEqual([
+      { job: task, depth: 0 },
+      { job: child, depth: 1 },
+    ]);
+  });
+
+  it("renders an empty roster flat in omp order (the v1 shape)", () => {
+    const a = rowJob("r1");
+    const b = rowJob("f1", { status: "completed" });
+    expect(buildAsyncJobRows([a], [b], [], null)).toEqual([
+      { job: a, depth: 0 },
+      { job: b, depth: 0 },
+    ]);
+  });
+
+  it("features running jobs and prefers newer non-running features", () => {
+    const olderDone = rowJob("t-old", { type: "task", agentId: "a-1", status: "completed", startTime: 5 });
+    const newerRunning = rowJob("t-new", { type: "task", agentId: "a-1", status: "running", startTime: 9 });
+    const child = rowJob("bg_1", { ownerId: "a-1" });
+    const rows = buildAsyncJobRows([olderDone, newerRunning, child], [], [agent("a-1", "root")], "root");
+    // The node features the running job; the evicted-style older sibling hangs top-level.
+    expect(rows).toEqual([
+      { job: newerRunning, depth: 0 },
+      { job: child, depth: 1 },
+      { job: olderDone, depth: 0 },
+    ]);
+  });
+
+  it("sorts siblings branchiest-first, then running, then oldest start", () => {
+    // Branchiest-first: a-big owns a child node, so it sorts before the
+    // smaller leaf branch even though it started later. (mP leaves the top
+    // list in wire order, so the sort is asserted at depth 1.)
+    const small = rowJob("t-small", { type: "task", agentId: "a-small", startTime: 1 });
+    const bigParent = rowJob("t-big", { type: "task", agentId: "a-big", startTime: 50 });
+    const deepLeaf = rowJob("bg-leaf", { ownerId: "a-deep" });
+    const midBranch = rowJob("t-mid", { type: "task", agentId: "a-deep", ownerId: "a-big", startTime: 60 });
+    // a-older is running and started before a-deep's subtree, but its branch
+    // is smaller: size must outrank the running/startTime keys.
+    const olderLeaf = rowJob("t-older", { type: "task", agentId: "a-older", ownerId: "a-big", startTime: 51 });
+    const rows = buildAsyncJobRows(
+      [small, bigParent, deepLeaf, midBranch, olderLeaf],
+      [],
+      [agent("a-big", "root"), agent("a-small", "root"), agent("a-deep", "a-big"), agent("a-older", "a-big")],
+      "root",
+    );
+    expect(rows.map((entry) => [entry.job.id, entry.depth])).toEqual([
+      // Top list keeps mP's insertion order (roster nodes first); the sort
+      // fires on a-big's children: a-deep's branch (size 1) before the
+      // running-but-leaf a-older.
+      ["t-big", 0],
+      ["t-mid", 1],
+      ["bg-leaf", 2],
+      ["t-older", 1],
+      ["t-small", 0],
+    ]);
+  });
+
+  it("hangs jobs with unknown owners at depth 0", () => {
+    const ghost = rowJob("bg_3", { ownerId: "gone" });
+    expect(buildAsyncJobRows([ghost], [], [agent("a-1", "root")], "root")).toEqual([
+      { job: ghost, depth: 0 },
+    ]);
+  });
+
+  it("falls back to the flat list when the agent roster cycles", () => {
+    const a = rowJob("t1", { type: "task", agentId: "x" });
+    const b = rowJob("bg_2", { ownerId: "y" });
+    expect(buildAsyncJobRows([a], [b], [agent("x", "y"), agent("y", "x")], "root")).toEqual([
+      { job: a, depth: 0 },
+      { job: b, depth: 0 },
+    ]);
+  });
+
+  it("passes depth through an agent node whose task job was evicted", () => {
+    const child = rowJob("bg_9", { ownerId: "a-1" });
+    // No featured job on a-1's node: omp prints the bare agent row; the pane
+    // has no agent rows, so its children render at the parent's depth.
+    expect(buildAsyncJobRows([child], [], [agent("a-1", "root")], "root")).toEqual([
+      { job: child, depth: 0 },
+    ]);
   });
 });
 

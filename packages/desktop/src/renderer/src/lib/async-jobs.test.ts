@@ -5,7 +5,7 @@ import type { SubagentInfo } from "./rpc-types";
 
 function snapshot(overrides: Partial<AsyncJobsSnapshot> = {}): AsyncJobsSnapshot {
   return {
-    version: 1,
+    version: 2,
     processKey: "p",
     revision: 1,
     available: true,
@@ -14,6 +14,8 @@ function snapshot(overrides: Partial<AsyncJobsSnapshot> = {}): AsyncJobsSnapshot
     canCancel: true,
     running: [],
     recent: [],
+    rootId: null,
+    agents: [],
     result: null,
     ...overrides,
   };
@@ -30,6 +32,7 @@ function job(overrides: Partial<AsyncJobsSnapshot["running"][number]> = {}) {
     startTime: 0,
     endTime: null,
     agentId: null,
+    ownerId: null,
     pids: [],
     exitCode: null,
     outputTail: "",
