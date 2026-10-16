@@ -4,9 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Switching to a long-running native session no longer stalls the window: the transcript renders its newest entries and loads earlier ones as you scroll up (#867).
-- Session HUD spend now covers the whole session: a generated session-spend bridge totals the root journal and every subagent transcript, so the `$` and `tok` figures survive compaction and include background subagents instead of dropping when the context is rewritten (#866).
-- Choosing an audio device in Settings now fails visibly when the system keeps a different device as its default, instead of showing the choice as applied while capture uses another mic (#865).
+Nothing since [v0.23.5](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.5). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
