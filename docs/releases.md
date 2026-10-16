@@ -4,15 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Starting a native session no longer waits on child boot: a pre-booted warm rpc-ui pool hands an already-negotiated client to the new tab at spawn, cutting median session-start latency from about 210 ms to about 11 ms.
-- Native transcript renders raw `pre.mermaid` diagram blocks in assistant prose and surfaces failed diagram renders instead of dropping them (#878).
-- GFM pipe tables now interrupt a paragraph or start a list item, honor delimiter-row alignments (`:--`, `:-:`, `--:`), align ragged rows, and nest inside list items and blockquotes (#873, #874, #875, #876).
-- Plan mode now re-delivers its instruction after a compaction, branch, or session switch, so a plan authored in a compacted planning turn still reaches review (#877).
-- A dead PTY tab offers Restore on its banner, relaunching the interrupted session with `omp --restore` (#872).
-- The Jobs pane nests subagent jobs under the task that spawned them, mirroring omp 18.11's async job tree (#868).
-- Rewind after a remote compaction cuts at the provider replay boundary instead of correlating against the wrong entry (#869).
-- The omp settings page now exposes `prewalk.enabled` and `lsp.requestTimeout` (#871).
-- The provider key catalog gained the twelve env-authenticated providers omp 18.11 supports (#870).
+Nothing since [v0.23.6](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.6). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
