@@ -2,8 +2,9 @@
 // providers page, exactly like omp-settings-keys.ts. Node-only logic (reading,
 // decrypting, and resolving the values) lives in provider-keys.ts.
 //
-// The list is transcribed from omp's own `--help` environment table (v18.1.0),
-// which is the authority on which variable name authenticates which provider.
+// The list is transcribed from omp's own `--help` environment table (re-verified
+// against v18.11.1), which is the authority on which variable name authenticates
+// which provider.
 // Only credentials a user can paste as a single opaque string are here:
 // AWS_PROFILE, GOOGLE_CLOUD_PROJECT, and GOOGLE_APPLICATION_CREDENTIALS are a
 // profile name, a project id, and a file path, so a "paste your key" field
@@ -43,7 +44,9 @@ export const PROVIDER_KEY_SPECS: readonly ProviderKeySpec[] = [
     group: "models",
     env: "ANTHROPIC_API_KEY",
     // omp documents the OAuth token as taking precedence over the API key.
-    alsoRead: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"],
+    // The ANTHROPIC_SEARCH_* pair overrides web search only (isolating it from
+    // the main key); not providers, so they ride here as read-alongside vars.
+    alsoRead: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_SEARCH_API_KEY", "ANTHROPIC_SEARCH_BASE_URL"],
     hint: "console.anthropic.com",
   },
   { id: "openai", label: "OpenAI", group: "models", env: "OPENAI_API_KEY", hint: "platform.openai.com" },
@@ -62,11 +65,32 @@ export const PROVIDER_KEY_SPECS: readonly ProviderKeySpec[] = [
   { id: "vercel-ai-gateway", label: "Vercel AI Gateway", group: "models", env: "AI_GATEWAY_API_KEY" },
   { id: "wafer", label: "Wafer Serverless", group: "models", env: "WAFER_SERVERLESS_API_KEY" },
   { id: "umans", label: "Umans AI", group: "models", env: "UMANS_AI_CODING_PLAN_API_KEY" },
+  { id: "cline", label: "ClinePass", group: "models", env: "CLINE_API_KEY" },
+  { id: "command-code", label: "Command Code", group: "models", env: "COMMAND_CODE_API_KEY" },
+  { id: "charm-hyper", label: "Charm Hyper", group: "models", env: "CHARM_HYPER_API_KEY" },
+  { id: "stepfun", label: "StepFun", group: "models", env: "STEPFUN_API_KEY" },
+  { id: "helmcode", label: "Helmcode (EU)", group: "models", env: "HELMCODE_API_KEY" },
+  {
+    id: "singularityapi-dev",
+    label: "SingularityAPI",
+    group: "models",
+    env: "SINGULARITYAPI_DEV_API_KEY",
+  },
+  {
+    id: "singularityapi-tech",
+    label: "SingularityAPI DeepSeek",
+    group: "models",
+    env: "SINGULARITYAPI_TECH_API_KEY",
+  },
+  { id: "yolo-auto", label: "Yolo-Auto", group: "models", env: "YOLO_AUTO_API_KEY" },
+  { id: "abliteration", label: "Abliteration", group: "models", env: "ABLITERATION_API_KEY" },
+  { id: "typesafe", label: "TypeSafe Jev", group: "models", env: "TYPESAFE_API_KEY" },
   { id: "exa", label: "Exa", group: "search", env: "EXA_API_KEY" },
   { id: "brave", label: "Brave", group: "search", env: "BRAVE_API_KEY" },
   { id: "tavily", label: "Tavily", group: "search", env: "TAVILY_API_KEY" },
   { id: "perplexity", label: "Perplexity", group: "search", env: "PERPLEXITY_API_KEY" },
   { id: "firecrawl", label: "Firecrawl", group: "search", env: "FIRECRAWL_API_KEY" },
+  { id: "tinyfish", label: "TinyFish", group: "search", env: "TINYFISH_API_KEY" },
 ];
 
 /** Every variable name this feature reads, in spec order (primary then alternates). */
