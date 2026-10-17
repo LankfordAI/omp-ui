@@ -13,8 +13,10 @@
  * message. A declined generation is no longer lost: the dispatch
  * outcome is judged at later turn ends against the record's title (the
  * ground truth, never engine output strings) and an untitled record
- * re-dispatches — three attempts with a 15 s floor — so one per-model
- * decline doesn't leave the session `New session` forever (issue #791).
+ * re-dispatches — four attempts with a 15 s floor — so one per-model
+ * decline doesn't leave the session `New session` forever (issue #791). A
+ * ladder that exhausts with the record still untitled appends a give-up
+ * notice pointing at the modelRoles title chain (issue #859).
  * What stays here is the omp-ui gates that decide whether a dispatch is
  * worth spending.
  *

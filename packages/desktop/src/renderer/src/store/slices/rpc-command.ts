@@ -12,6 +12,7 @@ import type {
 } from "@omp-ui/core/capabilities";
 import { backend } from "../../backend";
 import { formatDuration } from "../../lib/duration";
+import { t } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { arrField } from "../../lib/fields";
 import { randomId } from "../../lib/random-id";
@@ -640,8 +641,8 @@ function carriedFailedModel(
   return failed === undefined ? {} : { failedModel: failed };
 }
 
-/** Auto-title retries per renderer lifetime of the tab (issue #791). */
-const MAX_RENAME_ATTEMPTS = 3;
+/** Auto-title retries per renderer lifetime of the tab (issues #791, #859). */
+const MAX_RENAME_ATTEMPTS = 4;
 /** A second dispatch waits for a later turn end while a generation may still
  *  be in flight; a turn end inside this floor leaves the attempt parked. */
 const RENAME_RETRY_FLOOR_MS = 15_000;
@@ -934,8 +935,10 @@ export function createRpcCommandSlice(
   // at later turn ends against the title ground truth — the record's title,
   // hydrated through the watcher — never against engine output strings. A
   // titled record clears the attempt; an untitled one re-dispatches after
-  // the floor until MAX_RENAME_ATTEMPTS, then stops, with omp's per-attempt
-  // decline notice in the transcript as the visible surface.
+  // the floor until MAX_RENAME_ATTEMPTS, then stops. omp's per-attempt
+  // decline notice is the visible surface while the ladder runs; an
+  // exhausted untitled ladder appends its own give-up notice pointing at
+  // the modelRoles chain (issue #859).
   const dispatchTitle = (tabId: string, record: SessionSummary | undefined): void => {
     // A plan-seeded implementation session's title comes from the plan,
     // which the record already names (the sidebar's Implements note reads
@@ -1019,6 +1022,14 @@ export function createRpcCommandSlice(
     }
     if (attempt.n >= MAX_RENAME_ATTEMPTS) {
       m.patchRpc(tabId, { titleAttempt: null });
+      // The ladder spent itself with the record still untitled: omp's
+      // per-attempt decline notice points at typing a name, never at the
+      // misconfigured chain — say the give-up out loud and name the lever
+      // (issue #859).
+      m.appendItem(
+        tabId,
+        noticeItem(t("session.notice.titleGaveUp", { n: attempt.n }), "warn"),
+      );
       return;
     }
     if (Date.now() - attempt.at < RENAME_RETRY_FLOOR_MS) return;
