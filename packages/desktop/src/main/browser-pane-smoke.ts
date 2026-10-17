@@ -1,5 +1,6 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, get as httpGet, type Server } from "node:http";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { app, BrowserWindow, clipboard, nativeImage } from "electron";
@@ -311,6 +312,7 @@ class SmokeCdpClient {
     { resolve: (v: unknown) => void; reject: (e: Error) => void }
   >();
   private closing = false;
+  private readonly eventListeners = new Set<(method: string, params: unknown) => void>();
 
   private constructor(
     private readonly ws: WebSocket,
@@ -318,7 +320,13 @@ class SmokeCdpClient {
   ) {
     ws.on("message", (data) => {
       const msg: unknown = JSON.parse(String(data));
-      if (!isObject(msg) || typeof msg.id !== "number") return;
+      if (!isObject(msg)) return;
+      if (typeof msg.id !== "number") {
+        if (typeof msg.method === "string") {
+          for (const listener of [...this.eventListeners]) listener(msg.method, msg.params ?? {});
+        }
+        return;
+      }
       const waiter = this.pending.get(msg.id);
       if (waiter === undefined) return;
       this.pending.delete(msg.id);
@@ -338,6 +346,12 @@ class SmokeCdpClient {
       ws.once("open", () => resolvePromise(new SmokeCdpClient(ws, performance.now())));
       ws.once("error", reject);
     });
+  }
+
+  /** Observes CDP events on this socket; returns the unsubscribe. */
+  onEvent(listener: (method: string, params: unknown) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
   }
 
   call(method: string, params: object = {}, sessionId?: string): Promise<unknown> {
@@ -1003,6 +1017,85 @@ async function runInputTest(reader: PageReader): Promise<void> {
   );
 }
 
+// ---------------------------------------------------------------- file chooser (#880)
+
+/**
+ * #880's live regression: a page-initiated file chooser on the never-shown
+ * pane window exports a roleless surface through zxdg_exporter_v2, Mutter
+ * rejects the export, and Chromium CHECK-fails — the whole app dies with a
+ * SIGTRAP. This box (GNOME Wayland) is where it reproduced. The step drives
+ * the exact puppeteer flow: arm interception on the client's own session, a
+ * trusted click that opens `<input type=file>`, then upload through
+ * DOM.setFileInputFiles. With the host's root-session guard in place the run
+ * survives even after the client disarms; reaching the final record means no
+ * native dialog was ever opened.
+ */
+async function runFileChooserStep(reader: PageReader): Promise<void> {
+  const dir = join(tmpdir(), `browser-pane-smoke-fc-${process.pid}`);
+  mkdirSync(dir, { recursive: true });
+  const uploadPath = join(dir, "upload.txt");
+  writeFileSync(uploadPath, "omp-ui #880\n");
+  try {
+    await reader.eval(
+      '(() => { let f = document.getElementById("fc-input"); if (f === null) { f = document.createElement("input"); f.type = "file"; f.id = "fc-input"; f.style.cssText = "position:absolute;left:20px;top:20px;z-index:2147483647"; document.body.appendChild(f); } f.onchange = () => { window.__fcFiles = f.files.length; }; return true; })()',
+    );
+    await reader.client.call("Page.enable", {}, reader.sessionId);
+    await reader.client.call("Page.setInterceptFileChooserDialog", { enabled: true }, reader.sessionId);
+    const opened: string[] = [];
+    const off = reader.client.onEvent((method, params) => {
+      if (method !== "Page.fileChooserOpened") return;
+      opened.push(isObject(params) && typeof params.mode === "string" ? params.mode : "?");
+    });
+    try {
+      const at = await center(reader, "#fc-input");
+      await clickAt(Math.round(at.x), Math.round(at.y));
+      let waitMs = 0;
+      while (opened.length === 0 && waitMs < 2_000) {
+        await sleep(100);
+        waitMs += 100;
+      }
+      const openedEvent = opened.length > 0;
+      let uploaded = 0;
+      if (openedEvent) {
+        // The upload path the browser-pane MCP tool depends on. CDP wants a
+        // node handle, so resolve the input to an objectId like puppeteer does.
+        const evalReply = await reader.client.call(
+          "Runtime.evaluate",
+          { expression: "document.getElementById('fc-input')", awaitPromise: true },
+          reader.sessionId,
+        );
+        const remote = isObject(evalReply) && isObject(evalReply.result) ? evalReply.result : null;
+        const objectId = remote !== null && typeof remote.objectId === "string" ? remote.objectId : null;
+        if (objectId === null) throw new Error("no objectId for #fc-input");
+        await reader.client.call("DOM.setFileInputFiles", { files: [uploadPath], objectId }, reader.sessionId);
+        await sleep(250);
+        uploaded = await reader.eval<number>("window.__fcFiles ?? 0");
+      }
+      // Disarm exactly like puppeteer does at close; the host's root-session
+      // guard must carry on without this client's help.
+      await reader.client.call("Page.setInterceptFileChooserDialog", { enabled: false }, reader.sessionId);
+      await sleep(250);
+      // The fatal condition itself: with every known interceptor disarmed, a
+      // fresh trusted click is precisely what killed the packaged app. Only
+      // the host's guard stands between this click and the SIGTRAP, so
+      // reaching the record below IS the crash proof.
+      const atSecond = await center(reader, "#fc-input");
+      await clickAt(Math.round(atSecond.x), Math.round(atSecond.y));
+      await sleep(750);
+      recordStep(
+        "file-chooser-guarded",
+        openedEvent && uploaded === 1,
+        { openedMode: opened[0] ?? null, waitedMs: waitMs, uploaded, survivedPostDisarmClick: true },
+        null,
+      );
+    } finally {
+      off();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // ---------------------------------------------------------------- summary / exit
 
 interface ClientRow {
@@ -1185,6 +1278,7 @@ async function main(): Promise<void> {
   try {
     dprReported = await reader.eval<number>("devicePixelRatio");
     if (flags.inputTest) await runInputTest(reader);
+    await runFileChooserStep(reader);
   } catch (err) {
     recordStep("self-test", false, { error: err instanceof Error ? err.message : String(err) }, null);
   }

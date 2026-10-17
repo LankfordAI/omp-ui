@@ -191,6 +191,14 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
       } catch (err) {
         if (wc.debugger.isAttached()) throw err;
         wc.debugger.attach("1.3");
+        // #880: a page-initiated file chooser on this never-shown window exports
+        // a roleless surface through zxdg_exporter_v2; Mutter rejects the export
+        // and Chromium CHECK-fails (SIGTRAP). A fresh root session defaults to
+        // native dialogs, so re-arm CDP interception before anything can click.
+        await wc.debugger.sendCommand("Page.enable", {}).catch(() => undefined);
+        await wc.debugger
+          .sendCommand("Page.setInterceptFileChooserDialog", { enabled: true })
+          .catch(() => undefined);
         await wc.debugger.sendCommand(method, params);
       }
     };

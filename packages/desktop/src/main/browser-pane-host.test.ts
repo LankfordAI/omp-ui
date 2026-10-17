@@ -24,7 +24,7 @@ interface FakePane {
   setUrl(url: string): void;
 }
 
-function fakePane(opts: CreatePaneOptions, autoCommit = true): FakePane {
+function fakePane(opts: CreatePaneOptions, autoCommit = true, guardFails = false): FakePane {
   const handlers = new Map<PaneEvent, Set<(...args: unknown[]) => void>>();
   const debuggerEvents = new EventEmitter();
   let captureSession = 0;
@@ -66,6 +66,7 @@ function fakePane(opts: CreatePaneOptions, autoCommit = true): FakePane {
       detach: vi.fn(),
       isAttached: () => true,
       sendCommand: vi.fn(async (method: string) => {
+        if (guardFails && method === "Page.enable") throw new Error("target closed");
         if (method === "Target.getTargetInfo") return { targetInfo: { type: "page", targetId: "page" } };
         if (method === "Target.attachToTarget") return { sessionId: `capture-${++captureSession}` };
         return {};
@@ -126,7 +127,7 @@ interface Harness {
 type ClockDeps = Pick<BrowserPaneHostDeps, "targetScaleFactor" | "clockEnabled" | "clockText" | "stampImage" | "onDesktopMedia">;
 
 function harness(
-  opts: { paneFails?: boolean; listenerFails?: boolean; autoCommit?: boolean; now?: () => number; clock?: ClockDeps } = {},
+  opts: { paneFails?: boolean; listenerFails?: boolean; autoCommit?: boolean; guardFails?: boolean; now?: () => number; clock?: ClockDeps } = {},
 ): Harness {
   const sent: Harness["sent"] = [];
   const panes: FakePane[] = [];
@@ -136,7 +137,7 @@ function harness(
   const clearPartition = vi.fn<(partition: string) => Promise<void>>(async () => {});
   const createPane = vi.fn<CreatePane>(async (paneOpts) => {
     if (opts.paneFails === true) throw new Error("no gpu");
-    const fake = fakePane(paneOpts, opts.autoCommit);
+    const fake = fakePane(paneOpts, opts.autoCommit, opts.guardFails);
     panes.push(fake);
     return fake.pane;
   });
@@ -1185,6 +1186,40 @@ describe("BrowserPaneHost desktop media", () => {
       expect(fake.pane.setContentSize).not.toHaveBeenCalled();
       expect(media).not.toHaveBeenCalled();
     }
+    h.host.disposeAll();
+  });
+});
+describe("BrowserPaneHost file-chooser guard (#880)", () => {
+  it("arms CDP file-chooser interception on the root session at page creation", async () => {
+    const h = harness();
+    await h.host.ensureEndpoint("t1");
+    await h.host.ensure("t1");
+    await flush();
+    const sendCommand = vi.mocked(h.panes[0]!.pane.debugger.sendCommand);
+    // A page-initiated chooser on the never-shown pane window crashes the app
+    // under Wayland (roleless zxdg_exporter_v2 export -> Chromium CHECK). The
+    // guard arms on the root debugger session, Page.enable before the arm —
+    // the arm alone does not take (probed on Electron 43.2.0) — and before any
+    // command that could act on the page.
+    const methods = sendCommand.mock.calls.map((call) => call[0]);
+    const enable = methods.indexOf("Page.enable");
+    const arm = methods.indexOf("Page.setInterceptFileChooserDialog");
+    expect(enable).toBe(0);
+    expect(sendCommand.mock.calls[enable]![1]).toEqual({});
+    expect(arm).toBeGreaterThan(enable);
+    expect(sendCommand.mock.calls[arm]![1]).toEqual({ enabled: true });
+    expect(h.warnings.filter((w) => w.includes("file-chooser guard"))).toHaveLength(0);
+    h.host.disposeAll();
+  });
+
+  it("warns when the file-chooser guard fails to install", async () => {
+    const h = harness({ guardFails: true });
+    await h.host.ensureEndpoint("t1");
+    const pane = await h.host.ensure("t1");
+    expect(pane).not.toBeNull();
+    // The guard chain is fire-and-forget; the rejection lands a few ticks later.
+    await flush();
+    expect(h.warnings.filter((w) => w.includes("file-chooser guard failed to install"))).toHaveLength(1);
     h.host.disposeAll();
   });
 });

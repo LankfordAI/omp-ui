@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.23.6](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.6). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- The browser pane no longer crashes the app under Wayland when a page opens a native file chooser: the host intercepts choosers over CDP on the pane's debugger session, so the never-shown pane window can never export the roleless surface Mutter rejects ([#880](https://github.com/LankfordAI/omp-ui/issues/880)).
 
 ## Choose a download
 
