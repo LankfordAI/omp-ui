@@ -9,6 +9,7 @@ vi.mock("../../lib/platform", () => ({
 }));
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { NoticeItem } from "../../lib/transcript";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { rpcTabState } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
@@ -1180,7 +1181,9 @@ describe("auto-titling dispatch (issue #788)", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
   });
 
-  it("stops after attempt 3 and clears the attempt", async () => {
+  it("stops after the final attempt, clears the attempt, and appends the give-up notice", async () => {
+    // issue #859: an exhausted untitled ladder must say so and point at
+    // the modelRoles title chain, not stop silently.
     h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
@@ -1190,7 +1193,7 @@ describe("auto-titling dispatch (issue #788)", () => {
         ...h.useStore.getState().rpc,
         [h.TAB]: {
           ...h.useStore.getState().rpc[h.TAB]!,
-          titleAttempt: { at: Date.now() - 20_000, n: 3 },
+          titleAttempt: { at: Date.now() - 20_000, n: 4 },
         },
       },
     });
@@ -1198,6 +1201,68 @@ describe("auto-titling dispatch (issue #788)", () => {
     await h.flushMicrotasks();
     expect(renames()).toHaveLength(0);
     expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
+    const notices = h.useStore
+      .getState()
+      .rpc[h.TAB]!.items.filter((i): i is NoticeItem => i.kind === "notice" && i.level === "warn");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.text).toContain("auto-title gave up after 4 attempts");
+    expect(notices[0]!.text).toContain("Model roles");
+  });
+
+  it("notices the give-up exactly once — later turn ends stay silent", async () => {
+    // The cleared attempt stops the reducer from pushing the rename effect,
+    // so no second notice and no further dispatch can fire (issue #859).
+    h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    h.useStore.setState({
+      rpc: {
+        ...h.useStore.getState().rpc,
+        [h.TAB]: {
+          ...h.useStore.getState().rpc[h.TAB]!,
+          titleAttempt: { at: Date.now() - 20_000, n: 4 },
+        },
+      },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+    expect(
+      h.useStore
+        .getState()
+        .rpc[h.TAB]!.items.filter((i) => i.kind === "notice" && i.level === "warn"),
+    ).toHaveLength(1);
+  });
+
+  it("never notices the give-up when the record titled by exhaustion time", async () => {
+    // A title hydrated late (watcher) clears the attempt silently: the
+    // titled branch runs before the exhaustion branch (issue #859).
+    h.useStore.getState().setInitialPrompt(h.TAB, "Refactor the auth module");
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    const titled = structuredClone(h.backendState);
+    titled.projects[0]!.sessions[0]!.title = "Auth module refactor";
+    h.backendState = titled;
+    h.useStore.setState({
+      state: titled,
+      rpc: {
+        ...h.useStore.getState().rpc,
+        [h.TAB]: {
+          ...h.useStore.getState().rpc[h.TAB]!,
+          titleAttempt: { at: Date.now() - 20_000, n: 4 },
+        },
+      },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
+    expect(
+      h.useStore.getState().rpc[h.TAB]!.items.filter((i) => i.kind === "notice"),
+    ).toHaveLength(0);
   });
 
   it("clears the attempt once the record's title lands", async () => {
