@@ -4,8 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- The browser pane no longer crashes the app under Wayland when a page opens a native file chooser: the host intercepts choosers over CDP on the pane's debugger session, so the never-shown pane window can never export the roleless surface Mutter rejects ([#880](https://github.com/LankfordAI/omp-ui/issues/880)).
-- Auto-title no longer ends in silence when every title-chain model declines: an exhausted retry ladder appends a give-up notice that names the lever — the *Model roles* settings (tiny / commit / smol) — instead of leaving only the bare `/rename` hint ([#859](https://github.com/LankfordAI/omp-ui/issues/859)).
+Nothing since [v0.23.7](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.7). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
