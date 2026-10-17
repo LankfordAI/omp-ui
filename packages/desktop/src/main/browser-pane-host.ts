@@ -714,6 +714,20 @@ export class BrowserPaneHost {
       }),
     );
     pane.debugger.attach("1.3");
+    // #880: a page-initiated file picker on this never-shown window exports a
+    // roleless surface through zxdg_exporter_v2 under Wayland; Mutter rejects
+    // the export and Chromium CHECK-fails (SIGTRAP, whole app). Intercepting
+    // at CDP keeps the native dialog closed for every input path. Page.enable
+    // first: the arm alone does not take (probed on 43.2.0).
+    void pane.debugger
+      .sendCommand("Page.enable", {})
+      .then(() => pane.debugger.sendCommand("Page.setInterceptFileChooserDialog", { enabled: true }))
+      .catch((err: unknown) => {
+        if (this.entries.get(tabId) !== entry || entry.pane !== pane) return;
+        this.warn(
+          `[browser-pane] ${tabId}: file-chooser guard failed to install: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
     // A new page is a new debugger session: Chromium's "last sent" emulation state is empty.
     entry.lastOverride = null;
     entry.capture = createBrowserPaneCapture(pane.debugger, {
