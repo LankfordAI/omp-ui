@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.23.7](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.7). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Subagents that inherit the session model now follow a model changed after launch — including the model staged for a plan's implementation session — instead of the model the session booted with ([#881](https://github.com/LankfordAI/omp-ui/issues/881)).
 
 ## Choose a download
 

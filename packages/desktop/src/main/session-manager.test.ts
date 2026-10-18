@@ -1391,6 +1391,65 @@ describe("session tool control (issue #379)", () => {
     await pending;
     await expect(fork).rejects.toThrow("no transcript to branch yet");
   });
+
+  describe("model overlay follows the live model (#881)", () => {
+    const overlayText = (sessionsRoot: string): string =>
+      fs.readFileSync(Core.modelOverlayPath(path.join(sessionsRoot, LINEAGE)), "utf8");
+
+    it("rewrites the overlay in place without a relaunch", async () => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      registry.setSessionModel(TAB, "boot/model", null);
+      await resumeRpc(manager);
+      expect(overlayText(sessionsRoot)).toBe('modelRoles:\n  default: "boot/model"\n');
+      const launches = rpcInstances.length;
+
+      registry.setSessionModel(TAB, "next/model", "high");
+      manager.syncModelOverlay(TAB);
+      await flush();
+      expect(overlayText(sessionsRoot)).toBe('modelRoles:\n  default: "next/model:high"\n');
+      expect(rpcInstances.length).toBe(launches);
+    });
+
+    it("keeps the spawn gate's pin", async () => {
+      const { manager, registry, sessionsRoot } = setup({
+        mode: "rpc-ui",
+        spawnGate: parseSpawnGate({ OMP_UI_TEST_MODEL: "gate/model:low" }),
+      });
+      await resumeRpc(manager);
+
+      registry.setSessionModel(TAB, "next/model", "high");
+      manager.syncModelOverlay(TAB);
+      await flush();
+      expect(overlayText(sessionsRoot)).toBe('modelRoles:\n  default: "gate/model:low"\n');
+    });
+
+    it("queues behind an in-flight lifecycle mutation", async () => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances.at(-1)!;
+      publish(rpc, roster());
+
+      const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
+      await flush();
+      const [prompt] = mutationPrompts(rpc);
+      registry.setSessionModel(TAB, "next/model", null);
+      manager.syncModelOverlay(TAB);
+      await flush();
+      expect(overlayText(sessionsRoot)).toBe("{}\n");
+
+      publish(
+        rpc,
+        roster({
+          revision: 4,
+          tools: { status: "available", items: [toolRow("read", false), toolRow("write", true)] },
+          toolMutation: mutationRecord(prompt!.request, "applied"),
+        }),
+      );
+      await pending;
+      await flush();
+      expect(overlayText(sessionsRoot)).toBe('modelRoles:\n  default: "next/model"\n');
+    });
+  });
 });
 
 describe("default compaction method (issue #268)", () => {
@@ -1792,7 +1851,9 @@ describe("test-run spawn gate (issue #371)", () => {
       | undefined;
     // An advisor-only gate leaves the main model to the record, unchanged.
     expect(options?.model).toBeUndefined();
-    expect(overlayNamed(options?.configOverlays, "omp-ui-model.yml")).toBeUndefined();
+    // The gate pins no main model, but the path is still passed (#881).
+    const modelOverlay = overlayNamed(options?.configOverlays, "omp-ui-model.yml");
+    expect(fs.readFileSync(modelOverlay!, "utf8")).toBe("{}\n");
     const overlay = overlayNamed(options?.configOverlays, "omp-ui-advisor.yml");
     expect(fs.readFileSync(overlay!, "utf8")).toBe(
       'advisor:\n  enabled: true\nmodelRoles:\n  advisor: "gate/advisor:low"\n',

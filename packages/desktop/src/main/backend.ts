@@ -814,7 +814,9 @@ export class MainBackend {
           await this.broadcast();
         },
         [CH.setSessionModel]: (tabId: string, model: string | null, thinkingLevel: string | null) => {
-          this.registry.setSessionModel(tabId, model, thinkingLevel);
+          if (this.registry.setSessionModel(tabId, model, thinkingLevel)) {
+            this.sessions.syncModelOverlay(tabId);
+          }
           void this.broadcast();
         },
         [CH.setSessionAutoTitled]: (tabId: string, autoTitled: boolean) => {

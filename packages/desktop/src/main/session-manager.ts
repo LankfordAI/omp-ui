@@ -120,6 +120,7 @@ import {
   writeReviewRosterForSpawn,
   writeRpcExtensions,
   writeRpcOverlays,
+  writeSessionModelOverlay,
   writeSessionOverlays,
   type SubagentSpawnConfig,
 } from "./spawn-config";
@@ -944,6 +945,32 @@ export class SessionManager {
         }
       }
       await this.deps.broadcast();
+    });
+  }
+
+  /**
+   * session:setModel's overlay half (#881). omp resolves subagent "*" entries
+   * through `modelRoles.default`, re-read from this overlay before every
+   * subagent spawn — and `set_model` never persists the role — so the file must
+   * follow the session's current model or inheriting subagents keep the boot
+   * model. Queued like setSessionSubagentModels so a spawn writing overlays
+   * from an older record snapshot cannot land after it; the record is re-read
+   * inside the op. A lineage dir that does not exist yet keeps the choice in
+   * the record for its first spawn. A process booted with `--model` (gate,
+   * #774 recovery pick) holds the role in omp's overrides layer, which shadows
+   * this file until its next launch.
+   */
+  syncModelOverlay(tabId: string): void {
+    void this.enqueueOp(tabId, "relaunch", async () => {
+      const record = this.deps.registry.sessions.find((session) => session.tabId === tabId);
+      if (record === undefined) return;
+      const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
+      if (!fs.existsSync(absLineageDir)) return;
+      try {
+        writeSessionModelOverlay(record, absLineageDir, this.gate);
+      } catch (err) {
+        console.warn("[model] could not rewrite the default-model overlay:", err);
+      }
     });
   }
 
