@@ -332,10 +332,14 @@ export function Composer({
   /** The exact slash draft a dismissal applies to — `dismissedFor` compares against it. */
   const paletteKey = text.startsWith("/") ? text.slice(1) : null;
   const paletteOpen = !unavailable && completion !== null && paletteKey !== dismissedFor;
-  // The mention palette is suppressed on slash-command lines: a leading `/`
-  // means the draft is a command, never a prompt, and commands take no files.
-  // The two palettes are mutually exclusive by that construction.
-  const atQuery = isSlash ? null : detectAtQuery(text, caret);
+  // The mention palette also serves slash drafts: omp's file-mentions
+  // extractor runs on the raw text of anything that reaches the prompt
+  // path — unadvertised slash lines verbatim, and arguments a command
+  // re-injects as a prompt (e.g. /goal set) — so an @-word in a command
+  // argument resolves just like one in prose. It still never triggers
+  // inside the command word itself: detectAtQuery requires the `@` to
+  // lead its word, and `/@x` has no boundary before it.
+  const atQuery = detectAtQuery(text, caret);
   const mentionKey = atQuery === null ? null : `${atQuery.start}:${atQuery.query}`;
   const mentionOpen = !unavailable && mentionKey !== null && mentionKey !== mentionDismissedFor;
   // omp's ghost-text word completion (issue #715): prose at the end of the

@@ -2902,3 +2902,86 @@ describe("ghost completion (issue #715)", () => {
     expect(predict).not.toHaveBeenCalled();
   });
 });
+describe("@-mentions on slash drafts", () => {
+  beforeEach(() => {
+    useStore.setState({ runSlashCommand });
+  });
+
+  /** The mounted palette rows as `/command sub` labels (the #382 suite's helper). */
+  function slashRows(): string[] {
+    return [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .map((button) => button.getAttribute("aria-label") ?? "")
+      .filter((label) => label.startsWith("/"))
+      .map((label) => label.split(": ")[0]!);
+  }
+
+  /** The mention palette's file rows: path buttons carrying no aria-label
+   *  (every slash row is labelled `/command sub: …`, so it filters out). */
+  function mentionRows(): string[] {
+    return [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .filter((button) => button.getAttribute("aria-label") === null)
+      .map((button) => button.textContent?.trim() ?? "")
+      .filter((text) => text.includes("/"));
+  }
+
+  /** A ready session, a seeded file listing, and the draft typed; resolves once the listing lands. */
+  async function seedSlashMention(draft: string): Promise<HTMLTextAreaElement> {
+    backendMock.listProjectFiles.mockResolvedValueOnce({ files: ["src/feature.ts"], truncated: false });
+    seed("ready");
+    renderComposer();
+    const box = typeDraft(draft);
+    await act(async () => {});
+    return box;
+  }
+
+  it("opens the mention palette on an @-word inside a slash argument (#889)", async () => {
+    await seedSlashMention("/goal set @featu");
+    expect(mentionRows()).toEqual(["src/feature.ts"]);
+    // The argument matches no subcommand name, so slash-completion steps
+    // aside entirely — the mention palette owns the draft.
+    expect(slashRows()).toEqual([]);
+  });
+
+  it("Tab picks the mention into the command line", async () => {
+    const box = await seedSlashMention("/goal set @featu");
+    const tab = press(box, "Tab");
+    expect(tab.defaultPrevented).toBe(true);
+    // insertMention swaps the @-word for `@path` plus one trailing space.
+    expect(box.value).toBe("/goal set @src/feature.ts ");
+  });
+
+  it("Enter runs the finished command line verbatim and clears the draft", async () => {
+    const box = await seedSlashMention("/goal set @featu");
+    press(box, "Tab");
+    expect(box.value).toBe("/goal set @src/feature.ts ");
+    press(box, "Enter");
+    await act(async () => {});
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/goal set @src/feature.ts");
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(box.value).toBe("");
+  });
+
+  it("leaves command-word completion untouched", async () => {
+    seed("ready");
+    renderComposer();
+    typeDraft("/goa");
+    expect(slashRows()).toContain("/goal");
+    // No `@` at all: the mention palette never opens, hence never lists.
+    expect(backendMock.listProjectFiles).not.toHaveBeenCalled();
+    expect(mentionRows()).toEqual([]);
+  });
+
+  it("never triggers inside the command word", async () => {
+    seed("ready");
+    renderComposer();
+    typeDraft("/@x");
+    // detectAtQuery requires the `@` to lead its word; `/@x` has no boundary
+    // before it, so no mention palette mounts — and it never lists files.
+    expect(backendMock.listProjectFiles).not.toHaveBeenCalled();
+    expect(mentionRows()).toEqual([]);
+    // The slash palette mounts but offers nothing: no command name fuzzy-
+    // matches "@x", so it renders its empty state with zero rows.
+    expect(slashRows()).toEqual([]);
+    expect(document.body.textContent).toContain(t("composer.slash.noMatch"));
+  });
+});
