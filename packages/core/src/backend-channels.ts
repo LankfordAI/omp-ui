@@ -831,7 +831,9 @@ export const BACKEND_CHANNELS = {
   },
   /**
    * Records the main model and thinking level for both this session and the
-   * next session in its project. Null values defer to omp's config.
+   * next session in its project, and rewrites the session's default-model
+   * overlay so inheriting subagents follow it (#881). Null values defer to
+   * omp's config.
    */
   setSessionModel: {
     channel: "session:setModel",

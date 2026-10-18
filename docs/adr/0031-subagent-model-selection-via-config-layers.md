@@ -28,7 +28,7 @@ All facts below were measured against the shipped binary, not inferred:
 - **`"*"` means "the parent session's model".** It is omp's
   `DEFAULT_MODEL_ROLE_ALIAS`; used as an entry value it resolved to the
   parent's `--model`, not to `modelRoles.default`. It is the literal spelling
-  of "inherit the base model".
+  of "inherit the base model" (boot-time only; see the amendment).
 - **There is no wildcard key.** `{"*": <model>}` left `sonic` on the parent
   model; `{"sonic": <model>}` moved it. The umbrella therefore expands to
   agent names at spawn, which is what the roster is for.
@@ -92,3 +92,26 @@ All facts below were measured against the shipped binary, not inferred:
   a record renders as a read-only JSON span on the omp page, so the page
   carries a dedicated "Subagent models" section with per-agent rows — the same
   reason the web-search keys live outside the groups.
+
+## Amendment — "*" follows the default role (#881, omp 18.11.3)
+
+- **`"*"` resolves through the `default` model role**, not the parent's live
+  model: omp maps the alias to `default` and expands it via
+  `settings.getModelRole("default")`. The v18.2.4 bullet above held only
+  because the measurement never changed the model mid-session — at boot the
+  role and the `--model`/overlay pin are the same value.
+- **`set_model` does not persist the role.** RPC `set_model` calls
+  `AgentSession.setModel` without `persist`, so an in-session model change
+  (composer chip, thinking level, a plan's staged implementation model) left
+  every `"*"` subagent on the boot model.
+- **omp-ui keeps the role equal to the session's current model.** Every
+  `session:setModel` change rewrites the session's `omp-ui-model.yml` in place
+  (queued on the tab's op queue); subagent preflight re-reads it, so no
+  relaunch is needed. Every spawn writes and passes that overlay — as `{}`
+  when nothing is pinned — because omp reloads `--config` overlays strictly
+  and throws on a missing file: the path a live process holds must never
+  disappear and must already exist for a later rewrite to reach it.
+- **A `--model` boot shadows the file for that process.** `--model` puts the
+  role in omp's overrides layer, which beats `configOverlay`; under the
+  dev/test spawn gate or the #774 recovery pick, subagents keep the boot
+  model until the next launch.

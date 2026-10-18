@@ -23,45 +23,46 @@ describe("writeDefaultModelOverlay", () => {
       level: "high",
     });
     expect(file).toBe(modelOverlayPath(dir));
-    expect(fs.readFileSync(file!, "utf8")).toBe(
+    expect(fs.readFileSync(file, "utf8")).toBe(
       'modelRoles:\n  default: "openrouter/anthropic/claude-opus-5:high"\n',
     );
   });
 
   it("writes a bare model id without a level suffix", () => {
     const dir = tmpDir();
-    const file = writeDefaultModelOverlay(dir, { model: "openrouter/openai/gpt-5.6" })!;
+    const file = writeDefaultModelOverlay(dir, { model: "openrouter/openai/gpt-5.6" });
     expect(fs.readFileSync(file, "utf8")).toBe('modelRoles:\n  default: "openrouter/openai/gpt-5.6"\n');
   });
 
-  it("returns null (no overlay) for a null role, leaving omp's config to decide", () => {
+  it("writes an empty mapping for a null role, leaving omp's config to decide", () => {
     const dir = tmpDir();
-    expect(writeDefaultModelOverlay(dir, null)).toBeNull();
-    expect(fs.existsSync(modelOverlayPath(dir))).toBe(false);
+    const file = writeDefaultModelOverlay(dir, null);
+    expect(file).toBe(modelOverlayPath(dir));
+    expect(fs.readFileSync(file, "utf8")).toBe("{}\n");
   });
 
-  it("removes a stale overlay when the remembered model is cleared", () => {
+  it("keeps the file present when the model is cleared, for omp's strict reload (#881)", () => {
     const dir = tmpDir();
-    const file = writeDefaultModelOverlay(dir, { model: "a/b" })!;
-    expect(writeDefaultModelOverlay(dir, null)).toBeNull();
-    expect(fs.existsSync(file)).toBe(false);
+    const file = writeDefaultModelOverlay(dir, { model: "a/b" });
+    expect(writeDefaultModelOverlay(dir, null)).toBe(file);
+    expect(fs.readFileSync(file, "utf8")).toBe("{}\n");
   });
 
   it("creates the lineage dir so --config cannot fail on a missing file", () => {
     const dir = path.join(tmpDir(), "not-yet");
-    const file = writeDefaultModelOverlay(dir, { model: "a/b" })!;
+    const file = writeDefaultModelOverlay(dir, { model: "a/b" });
     expect(fs.existsSync(file)).toBe(true);
   });
 
   it("quotes a selector with metacharacters", () => {
     const dir = tmpDir();
-    const file = writeDefaultModelOverlay(dir, { model: 'a/b"c' })!;
+    const file = writeDefaultModelOverlay(dir, { model: 'a/b"c' });
     expect(fs.readFileSync(file, "utf8")).toBe('modelRoles:\n  default: "a/b\\"c"\n');
   });
 
   it("writes defaultThinkingLevel alongside a suffix-free selector under auto", () => {
     const dir = tmpDir();
-    const file = writeDefaultModelOverlay(dir, { model: "vllm/Qwen3.8-Flash-Next" }, true)!;
+    const file = writeDefaultModelOverlay(dir, { model: "vllm/Qwen3.8-Flash-Next" }, true);
     expect(fs.readFileSync(file, "utf8")).toBe(
       'modelRoles:\n  default: "vllm/Qwen3.8-Flash-Next"\ndefaultThinkingLevel: "auto"\n',
     );
@@ -69,14 +70,7 @@ describe("writeDefaultModelOverlay", () => {
 
   it("auto + null role writes a settings-only overlay", () => {
     const dir = tmpDir();
-    const file = writeDefaultModelOverlay(dir, null, true)!;
+    const file = writeDefaultModelOverlay(dir, null, true);
     expect(fs.readFileSync(file, "utf8")).toBe('defaultThinkingLevel: "auto"\n');
-  });
-
-  it("auto with no model clears when auto is later turned off", () => {
-    const dir = tmpDir();
-    const file = writeDefaultModelOverlay(dir, null, true)!;
-    expect(writeDefaultModelOverlay(dir, null, false)).toBeNull();
-    expect(fs.existsSync(file)).toBe(false);
   });
 });

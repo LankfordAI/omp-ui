@@ -51,24 +51,16 @@ export interface SubagentSpawnConfig {
   roster: readonly string[];
 }
 
-/** Rewrites spawn overlays from the session record (and any dev/test gate pin) on every launch. */
-export function writeSessionOverlays(
+/**
+ * The session's default-model overlay (#881): the gate's pin, else the
+ * record's model/thinking tuple. Shared by every spawn and by the in-place
+ * rewrite on a live model change, so both emit the same file.
+ */
+export function writeSessionModelOverlay(
   record: OwnedSessionRecord,
   absLineageDir: string,
   gate: SpawnGate = NO_GATE,
-  subagents: SubagentSpawnConfig = { inheritByDefault: false, roster: [] },
-): string[] {
-  const overlays: string[] = [];
-  // The gate's advisor model wins over the record's; the enabled flag stays the
-  // record's, so an advisor test under the gate still tests the advisor.
-  const advisorRole =
-    gate.advisorModel ?? (record.advisorModel === null ? null : parseModelRole(record.advisorModel));
-  try {
-    const overlay = writeAdvisorOverlay(absLineageDir, advisorRole, record.advisor);
-    if (overlay !== null) overlays.push(overlay);
-  } catch (err) {
-    console.warn("[advisor] could not write the overlay:", err);
-  }
+): string {
   // The gate pins every launch, resume included; otherwise the record's own pin,
   // unchanged. A gated level comes from the selector alone — a run that wants the
   // record's thinking level asks omp for it, so record.thinkingLevel is not consulted.
@@ -87,13 +79,31 @@ export function writeSessionOverlays(
             : `${record.model}:${record.thinkingLevel}`,
         ));
   const role = auto && pinnedRole !== null ? { model: pinnedRole.model } : pinnedRole;
-  if (role !== null || auto) {
-    try {
-      const overlay = writeDefaultModelOverlay(absLineageDir, role, auto);
-      if (overlay !== null) overlays.push(overlay);
-    } catch (err) {
-      console.warn("[model] could not write the default-model overlay:", err);
-    }
+  return writeDefaultModelOverlay(absLineageDir, role, auto);
+}
+
+/** Rewrites spawn overlays from the session record (and any dev/test gate pin) on every launch. */
+export function writeSessionOverlays(
+  record: OwnedSessionRecord,
+  absLineageDir: string,
+  gate: SpawnGate = NO_GATE,
+  subagents: SubagentSpawnConfig = { inheritByDefault: false, roster: [] },
+): string[] {
+  const overlays: string[] = [];
+  // The gate's advisor model wins over the record's; the enabled flag stays the
+  // record's, so an advisor test under the gate still tests the advisor.
+  const advisorRole =
+    gate.advisorModel ?? (record.advisorModel === null ? null : parseModelRole(record.advisorModel));
+  try {
+    const overlay = writeAdvisorOverlay(absLineageDir, advisorRole, record.advisor);
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[advisor] could not write the overlay:", err);
+  }
+  try {
+    overlays.push(writeSessionModelOverlay(record, absLineageDir, gate));
+  } catch (err) {
+    console.warn("[model] could not write the default-model overlay:", err);
   }
   // The gate needs no subagent case: a gated main model reaches subagents for
   // free through the "*" entries the umbrella and explicit choices resolve to.

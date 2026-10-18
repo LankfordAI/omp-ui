@@ -1113,9 +1113,12 @@ export class Registry {
     });
   }
 
-  /** Records the main model choice for this session and the next one in its project. */
-  setSessionModel(tabId: string, model: string | null, thinkingLevel: string | null): void {
-    this.#transaction((draft) => {
+  /**
+   * Records the main model choice for this session and the next one in its
+   * project. Returns true when the record or the project's last-used tuple changed.
+   */
+  setSessionModel(tabId: string, model: string | null, thinkingLevel: string | null): boolean {
+    return this.#transaction((draft) => {
       const record = draft.sessions.find((session) => session.tabId === tabId);
       if (!record) return false;
       const project = draft.projects.find((candidate) => candidate.path === record.projectCwd);
