@@ -4,9 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Subagents that inherit the session model now follow a model changed after launch — including the model staged for a plan's implementation session — instead of the model the session booted with ([#881](https://github.com/LankfordAI/omp-ui/issues/881)).
-- The `@` file-mention picker now works inside slash-command drafts: a command argument that omp re-injects as a prompt (e.g. `/goal set … @file`) resolves its mentions like prose, with the slash and mention palettes still mutually exclusive ([#889](https://github.com/LankfordAI/omp-ui/issues/889)).
-- A Remote browser client no longer drops to the Welcome page when a camera picker or screen lock kills its WebSockets: the socket redials with backoff, re-pairs the frame socket, and resyncs open tabs and composer drafts in place ([#890](https://github.com/LankfordAI/omp-ui/issues/890)).
+Nothing since [v0.23.8](https://github.com/LankfordAI/omp-ui/releases/tag/v0.23.8). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
