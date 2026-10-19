@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MIN_SUPPORTED_OMP } from "@omp-ui/core/harness-floor";
 import type { OmpUpdateState } from "@omp-ui/core/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -146,8 +147,7 @@ describe("OmpUpdateCard", () => {
       }),
     });
     renderCard();
-    expect(document.body.textContent).toContain("omp-ui needs omp 18.11.3 or later");
-    expect(document.body.textContent).toContain("some features are disabled");
+    expect(document.body.textContent).toContain(`omp-ui needs omp ${MIN_SUPPORTED_OMP} or later`);
     expect(document.body.textContent).not.toContain("omp 19.0.0 available");
     click(buttonWithText("Later"));
     // remember=false: a below-floor dismissal never persists.

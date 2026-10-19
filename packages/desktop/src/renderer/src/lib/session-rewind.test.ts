@@ -327,7 +327,7 @@ describe("correlatePromptEntry", () => {
 });
 
 function assistant(id: string, text: string): RenderItem {
-  return { kind: "assistant", id, text, thinking: "", streaming: false };
+  return { kind: "assistant", id, text, thinking: "", narration: "", streaming: false };
 }
 
 describe("entryUserPrompt", () => {

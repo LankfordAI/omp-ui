@@ -2376,7 +2376,7 @@ describe("carryover context seed (issue #824)", () => {
       status: "ready",
       items: [
         { kind: "user", id: "u1", text: "hello there" },
-        { kind: "assistant", id: "a1", text: "hi", thinking: "", streaming: false },
+        { kind: "assistant", id: "a1", text: "hi", thinking: "", narration: "", streaming: false },
       ],
     });
 

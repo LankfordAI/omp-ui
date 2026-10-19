@@ -13,6 +13,7 @@ import { formatDuration } from "../lib/duration";
 import { formatCost, tokenCount } from "../lib/format";
 import { splitInterviewDraft } from "../lib/interview-draft";
 import { localeTag, useT } from "../lib/i18n";
+import { supportsNarration } from "../lib/narration";
 import { useTranscriptScale } from "../lib/text-scale";
 import type {
   AssistantItem,
@@ -137,13 +138,23 @@ function ThinkingPane({ text, live }: { text: string; live: boolean }) {
   );
 }
 
-function AssistantBlock({ item }: { item: AssistantItem }) {
+function AssistantBlock({ item, tabId }: { item: AssistantItem; tabId?: string }) {
   const t = useT();
+  // omp 18.12+ tags between-tool narration (issue #884): it reads as reply
+  // prose and leaves the thinking pane. On older or unknown harnesses the
+  // flag may exist on a binary that never meant it, so it stays folded in.
+  const gated = useStore((s) =>
+    tabId !== undefined && supportsNarration(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
+  );
+  const shownThinking = gated
+    ? item.thinking
+    : [item.thinking, item.narration].filter(Boolean).join("\n");
   // Reasoning is the only visible progress before the first token of prose.
   const working = item.streaming && item.text === "";
   const caret = item.streaming ? (
     <span className="animate-caret ml-px inline-block align-baseline font-mono text-signal">▍</span>
   ) : undefined;
+  const markdownSource = [gated ? item.narration : "", item.text].filter(Boolean).join("\n\n");
 
   return (
     // `data-markdown-source` carries the turn's raw markdown so the selection
@@ -153,9 +164,9 @@ function AssistantBlock({ item }: { item: AssistantItem }) {
     // deliberately do not.
     <div
       className="animate-rise space-y-1.5"
-      data-markdown-source={item.text !== "" ? item.text : undefined}
+      data-markdown-source={markdownSource !== "" ? markdownSource : undefined}
     >
-      {item.thinking !== "" && (
+      {shownThinking !== "" && (
         <Disclosure
           // Remount on the working→answering flip so the pane auto-opens while
           // there is nothing else to watch, then folds once prose arrives —
@@ -165,8 +176,11 @@ function AssistantBlock({ item }: { item: AssistantItem }) {
           className="rounded-md border border-line-soft bg-sunken px-2 py-1"
           summary={<Label className="text-copper">{t("transcript.assistant.thinking")}</Label>}
         >
-          <ThinkingPane text={item.thinking} live={working} />
+          <ThinkingPane text={shownThinking} live={working} />
         </Disclosure>
+      )}
+      {gated && item.narration !== "" && (
+        <Markdown text={item.narration} className="text-ink" />
       )}
       {(item.text !== "" || caret) && (
         <Markdown text={item.text} className="text-ink" trailing={caret} />
@@ -798,7 +812,7 @@ const TranscriptRow = memo(function TranscriptRow({
     case "user":
       return <UserBubble item={item} first={first} tabId={tabId} position={userPosition} />;
     case "assistant":
-      return <AssistantBlock item={item} />;
+      return <AssistantBlock item={item} tabId={tabId} />;
     case "tool":
       // The four vault write tools get their own card (issue #767); reads, search and list stay generic.
       return VAULT_WRITE_TOOLS.some((name) => name === item.name) ? (
@@ -935,7 +949,7 @@ export function TranscriptView({
   const last = items.at(-1);
   const tailLength =
     last?.kind === "assistant"
-      ? last.text.length + last.thinking.length
+      ? last.text.length + last.thinking.length + last.narration.length
       : last?.kind === "tool"
         ? (last.partialText?.length ?? 0) + (last.resultText?.length ?? 0)
         : 0;

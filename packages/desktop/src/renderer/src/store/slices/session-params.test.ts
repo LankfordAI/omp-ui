@@ -2310,6 +2310,7 @@ describe("re-titling (issues #433, #788)", () => {
       id: "a1",
       text: "the target collapses under the sheet",
       thinking: "",
+      narration: "",
       streaming: false,
     },
   ];

@@ -117,10 +117,10 @@ const state = backendState({
 });
 
 const MAIN_ITEMS = [
-  { kind: "assistant" as const, id: "a1", text: "main transcript", thinking: "", streaming: false },
+  { kind: "assistant" as const, id: "a1", text: "main transcript", thinking: "", narration: "", streaming: false },
 ];
 const SUB_ITEMS = [
-  { kind: "assistant" as const, id: "s1", text: "sub transcript", thinking: "", streaming: false },
+  { kind: "assistant" as const, id: "s1", text: "sub transcript", thinking: "", narration: "", streaming: false },
 ];
 
 function seed(selectedSubagent: string | null): void {

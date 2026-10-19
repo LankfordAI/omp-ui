@@ -18,6 +18,7 @@ import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 import { useStore } from "../store";
 import { TranscriptView, type FindState } from "./TranscriptView";
 import { guidedGoalPrompt } from "@omp-ui/core/goal";
+import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -62,7 +63,7 @@ vi.mock("../backend", () => ({
 const originalOpenCapabilitiesViewer = useStore.getState().openCapabilitiesViewer;
 
 function assistant(id: string, text: string): RenderItem {
-  return { kind: "assistant", id, text, thinking: "", streaming: false };
+  return { kind: "assistant", id, text, thinking: "", narration: "", streaming: false };
 }
 
 function render(items: RenderItem[], tabId?: string): { el: HTMLDivElement; root: Root } {
@@ -275,6 +276,7 @@ describe("UsageStrip", () => {
       id: "a1",
       text: "done",
       thinking: "",
+      narration: "",
       streaming: false,
       model: "openai/gpt-5.6-sol",
       usage: { input: 3, output: 268, cacheRead: 0, cacheWrite: 0, total: 271, cost: 0 },
@@ -298,6 +300,7 @@ describe("UsageStrip", () => {
       id: "a1",
       text: "done",
       thinking: "",
+      narration: "",
       streaming: false,
       model: "auto",
       provider: "openrouter",
@@ -348,6 +351,7 @@ describe("UsageStrip", () => {
       id: "a1",
       text: "done",
       thinking: "",
+      narration: "",
       streaming: false,
       model: "anthropic/claude-sonnet-4.5",
       provider: "anthropic",
@@ -377,6 +381,7 @@ describe("UsageStrip", () => {
       id: "a1",
       text: "done",
       thinking: "",
+      narration: "",
       streaming: false,
       model: "anthropic/claude-sonnet-4.5",
       usage: { input: 63_600, output: 1513, cacheRead: 0, cacheWrite: 0, total: 65_113, cost: 0 },
@@ -411,6 +416,7 @@ describe("UsageStrip", () => {
       id: "a1",
       text: "done",
       thinking: "",
+      narration: "",
       streaming: false,
       model: "local/qwen3-8b",
       usage: { input: 120, output: 42, cacheRead: 0, cacheWrite: 0, total: 162, cost: 0 },
@@ -429,6 +435,7 @@ describe("UsageStrip", () => {
       id: "a2",
       text: "",
       thinking: "",
+      narration: "",
       streaming: false,
       model: "local/qwen3-8b",
       usage: { input: 120, output: 0, cacheRead: 0, cacheWrite: 0, total: 120, cost: 0 },
@@ -453,6 +460,7 @@ describe("UsageStrip", () => {
       id: "a1",
       text: "done",
       thinking: "",
+      narration: "",
       streaming: false,
       model: "anthropic/claude-sonnet-4.5",
       usage: { input: 120, output: 300, cacheRead: 0, cacheWrite: 0, total: 420, cost: 0 },
@@ -472,6 +480,7 @@ describe("UsageStrip", () => {
       id: "a2",
       text: "done",
       thinking: "",
+      narration: "",
       streaming: false,
       model: "anthropic/claude-sonnet-4.5",
       usage: { input: 120, output: 1513, cacheRead: 0, cacheWrite: 0, total: 1633, cost: 0 },
@@ -1468,4 +1477,88 @@ describe("bounded tail window (issue #867)", () => {
     expect(ids[149]).toBe("a199");
     act(() => root.unmount());
   });
+});
+
+describe("between-tool narration (issue #884)", () => {
+  const TAB = "tab-narration";
+
+  /** A capability snapshot with only the version gate material for this view. */
+  function cap(ompVersion: string | null): CapabilitySnapshot {
+    return {
+      version: 1,
+      processKey: "p",
+      sessionId: null,
+      revision: 1,
+      updatedAt: 0,
+      ompVersion,
+      skillCommandsEnabled: null,
+      skills: { status: "unavailable", reason: "missing-api" },
+      tools: { status: "unavailable", reason: "missing-api" },
+      magicKeywords: { status: "unavailable", reason: "missing-api" },
+      toolControl: "unsupported",
+      toolMutation: null,
+    };
+  }
+
+  function seedVersion(ompVersion: string | null): void {
+    useStore.setState({ rpc: { [TAB]: { ...rpcTabState(), capabilities: cap(ompVersion) } } });
+  }
+
+  const narrated: RenderItem = {
+    kind: "assistant",
+    id: "a1",
+    text: "the answer",
+    thinking: "quiet reasoning",
+    narration: "checking the tests now",
+    streaming: false,
+  };
+
+  function thinkingToggle(el: HTMLDivElement): HTMLButtonElement {
+    const button = Array.from(el.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("thinking"),
+    );
+    if (!button) throw new Error("thinking disclosure not found");
+    return button;
+  }
+
+  beforeEach(() => {
+    useStore.setState({ rpc: {} });
+  });
+
+  it("renders narration as prose above the answer on a gated tab and keeps it out of the pane", () => {
+    seedVersion("18.12.0");
+    const { el, root } = render([narrated], TAB);
+    // The folded disclosure cannot hold it: visible-without-opening is prose.
+    expect(el.textContent).toContain("checking the tests now");
+    expect(el.textContent).toContain("the answer");
+    expect(el.querySelector("[data-markdown-source]")?.getAttribute("data-markdown-source")).toBe(
+      "checking the tests now\n\nthe answer",
+    );
+
+    act(() => {
+      thinkingToggle(el).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const pane = el.querySelector("pre");
+    expect(pane?.textContent).toBe("quiet reasoning");
+    act(() => root.unmount());
+  });
+
+  for (const ompVersion of ["18.11.3", null] as const) {
+    it(`folds narration into the thinking pane on ${ompVersion ?? "unknown"} omp`, () => {
+      seedVersion(ompVersion);
+      const { el, root } = render([narrated], TAB);
+      // Still harness thinking until proven otherwise: never loose prose.
+      expect(el.textContent).not.toContain("checking the tests now");
+      expect(el.querySelector("[data-markdown-source]")?.getAttribute("data-markdown-source")).toBe(
+        "the answer",
+      );
+
+      act(() => {
+        thinkingToggle(el).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      const pane = el.querySelector("pre");
+      expect(pane?.textContent).toBe("quiet reasoning\nchecking the tests now");
+      act(() => root.unmount());
+    });
+  }
 });

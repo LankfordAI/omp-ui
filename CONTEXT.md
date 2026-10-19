@@ -128,6 +128,11 @@ file stays the source of truth, and an unknown event type adds nothing rather
 than breaking the transcript.
 _Avoid_: message, bubble, row
 
+**Narration**:
+The model's between-tool prose: omp 18.12 marks it on thinking blocks, and
+omp-ui presents it as reply text in the transcript.
+_Avoid_: treating it as thinking output
+
 **Shell command**:
 A composer draft prefixed `!`, dispatched as OMP's concurrent `bash` RPC and
 recorded in the session without a model turn; its output is visible to the

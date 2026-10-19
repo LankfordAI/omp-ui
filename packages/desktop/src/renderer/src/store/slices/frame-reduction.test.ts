@@ -7118,6 +7118,7 @@ describe("live stream-stall indicator (issue #228)", () => {
                 id: "a-late",
                 text: "",
                 thinking: "",
+                narration: "",
                 streaming: true,
               },
             ],

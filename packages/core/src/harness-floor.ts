@@ -7,4 +7,4 @@
  * the barrel's Node-only update machinery; omp-update re-exports it, so
  * `@omp-ui/core` stays a valid path for main-process callers.
  */
-export const MIN_SUPPORTED_OMP = "18.11.3";
+export const MIN_SUPPORTED_OMP = "18.12.0";
