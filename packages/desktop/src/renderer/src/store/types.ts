@@ -881,6 +881,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** Sidebar host filter (issue #507): "all" | "local" | a joined instance id. */
   hostScope: string;
   init(): Promise<void>;
+  /** Re-paired browser socket (issue #890): reconcile state and re-boot live rpc tabs without a reload. */
+  resyncAfterReconnect(): Promise<void>;
   openProjectPicker(instanceId?: string | null): void;
   closeProjectPicker(): void;
   openSidebarGroupDialog(request: SidebarGroupDialogRequest): void;

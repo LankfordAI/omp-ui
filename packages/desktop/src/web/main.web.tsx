@@ -56,12 +56,17 @@ function renderConnectFailure(message: string): void {
 }
 
 /**
- * Fixed strip shown while the socket is down, plus a probe that reloads once the server answers
- * again. A reload rather than an in-place resync is deliberate: bootRpcTab already refetches
- * transcript history from omp, so a reload is a correct and complete resync with no synthetic
- * frames to invent.
+ * Fixed strip shown while the reliable socket is down. Recovery is status-driven:
+ * the backend redials with backoff (issue #890) and reports re-pairing through
+ * `onStatus(true)`, at which point `onResync` refetches authoritative state and
+ * re-boots live transcripts in place — no reload, so composer drafts survive. The
+ * healthz probe remains only to catch the revoked-credential case the socket never
+ * announced (a hidden upgrade failure), and to keep offering the login page.
  */
-function mountReconnectBanner(onStatus: (cb: (up: boolean) => void) => void): void {
+function mountReconnectBanner(
+  onStatus: (cb: (up: boolean) => void) => void,
+  onResync: () => Promise<void>,
+): void {
   const host = document.getElementById("remote-banner");
   if (!host) return;
   const strip = document.createElement("div");
@@ -75,9 +80,11 @@ function mountReconnectBanner(onStatus: (cb: (up: boolean) => void) => void): vo
   let probe: number | undefined;
   onStatus((up) => {
     if (up) {
-      strip.style.display = "none";
       clearInterval(probe);
       probe = undefined;
+      void onResync().then(() => {
+        strip.style.display = "none";
+      });
       return;
     }
     strip.textContent = webCopy().reconnecting;
@@ -86,12 +93,10 @@ function mountReconnectBanner(onStatus: (cb: (up: boolean) => void) => void): vo
     probe = window.setInterval(() => {
       void fetch("./healthz", { credentials: "same-origin" })
         .then((res) => {
-          if (res.ok) {
-            location.reload();
-            return;
-          }
           // The server is up but no longer accepts this credential — the password changed
           // or the token was regenerated. Offer the login page instead of waiting forever.
+          // A healthy probe needs no action here: the backend's own redial reports
+          // recovery through onStatus, and reload stays out of the picture entirely.
           if (res.status === 401) {
             strip.textContent = webCopy().sessionEnded;
             strip.style.cursor = "pointer";
@@ -124,7 +129,13 @@ async function boot(): Promise<void> {
   window.ompBackend = connection.backend;
   // Only now is it safe to pull in the renderer: this import is what calls createRoot.
   await import("../renderer/src/main");
-  mountReconnectBanner(connection.onStatus);
+  mountReconnectBanner(connection.onStatus, async () => {
+    // Dynamic import is load-order-bearing: a top-level renderer import would
+    // evaluate before window.ompBackend exists (see boot()'s ordering comment).
+    const { useStore } = await import("../renderer/src/store");
+    await useStore.getState().resyncAfterReconnect();
+  });
 }
+
 
 void boot();

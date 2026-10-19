@@ -31,6 +31,8 @@ Inline Markdown note titles in native replies also copy a portable link in a bro
 
 The HTTP and WebSocket server is embedded in the Electron main process. It starts at desktop launch when remote access was left enabled and stops when the desktop app quits. Closing a browser only removes that view. When the server is running, changing the bind address, port, password, or token restarts it without stopping live sessions. Disabling remote access stops the server, and enabling it starts the server.
 
+A browser view survives being backgrounded — a phone locking or opening the camera/file picker kills its WebSockets, and the page reconnects on its own within seconds, keeping its open tabs and composer draft. Terminal output produced while the link was dead is not replayed; the terminal repaints with the next bytes.
+
 ## Authentication
 
 ### Password sign-in

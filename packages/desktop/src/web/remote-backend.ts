@@ -27,7 +27,7 @@ type Listener = (...args: unknown[]) => void | Promise<void>;
 
 export interface RemoteConnection {
   backend: OmpBackend;
-  /** Reports reliable-connection loss; frame-only reconnects leave the backend usable. */
+  /** Reports reliable-connection transitions after the first pairing: false on every drop, true once both sockets are re-paired. */
   onStatus(cb: (up: boolean) => void): void;
 }
 
@@ -43,62 +43,48 @@ function socketUrl(path: string, key?: string): string {
 
 export function connectRemoteBackend(): Promise<RemoteConnection> {
   return new Promise<RemoteConnection>((resolve, reject) => {
-    const ws = new WebSocket(socketUrl(REMOTE_WS_PATH));
-    ws.binaryType = "arraybuffer";
-
     const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
     const listeners = new Map<string, Listener[]>();
     const statusCbs: Array<(up: boolean) => void> = [];
     let nextId = 1;
-    let opened = false;
+    // `settled` latches the one-time promise resolution; `up` is the current
+    // reliable-connection truth so re-pairing fires exactly one status(true).
+    let settled = false;
+    let up = false;
+    // Terminal only for a bad credential (or a failed first dial): revoked-close
+    // codes and healthz 401 stop redialing; everything else retries (issue #890).
     let stopped = false;
+    let socket: WebSocket | null = null;
     let frameKey: string | null = null;
     let frames: WebSocket | null = null;
+    let openTimer: number | undefined;
     let retry: number | undefined;
     let frameTimer: number | undefined;
+    let dialTimer: number | undefined;
     let retryDelay = REMOTE_FRAME_RETRY_INITIAL_MS;
+    let dialDelay = REMOTE_FRAME_RETRY_INITIAL_MS;
     let health: AbortController | null = null;
-
-    const down = (): void => {
-      if (stopped) return;
-      stopped = true;
-      clearTimeout(timer);
-      clearTimeout(retry);
-      clearTimeout(frameTimer);
-      health?.abort();
-      health = null;
-      const socket = frames;
-      frames = null;
-      socket?.close();
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
-      for (const [, entry] of pending) entry.reject(new Error("remote connection lost"));
-      pending.clear();
-      if (!opened) {
-        reject(new Error("could not reach omp-ui — check the token and that remote access is enabled"));
-      }
-      for (const cb of statusCbs) cb(false);
-    };
-
-    const timer = window.setTimeout(down, REMOTE_CONNECT_TIMEOUT_MS);
 
     const dispatch = (channel: string, args: unknown[]): void | Promise<void> =>
       dispatchRemoteListeners(listeners.get(channel) ?? [], (cb) => cb(...args));
 
     const request = <Args extends unknown[], Result>(channel: string, args: Args): Promise<Result> =>
       new Promise<Result>((res, rej) => {
-        if (stopped || ws.readyState !== WebSocket.OPEN) {
+        const live = socket;
+        if (stopped || live === null || live.readyState !== WebSocket.OPEN) {
           rej(new Error("remote connection lost"));
           return;
         }
         const id = nextId++;
         // Like IPC, requests have no arbitrary timeout; close settles every outstanding call.
         pending.set(id, { resolve: (value) => res(value as Result), reject: rej });
-        ws.send(JSON.stringify(makeClientRequestFrame(id, channel, args)));
+        live.send(JSON.stringify(makeClientRequestFrame(id, channel, args)));
       });
 
     const notify = <Args extends unknown[]>(channel: string, args: Args): void => {
-      if (stopped || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify(makeClientNotifyFrame(channel, args)));
+      const live = socket;
+      if (stopped || live === null || live.readyState !== WebSocket.OPEN) return;
+      live.send(JSON.stringify(makeClientNotifyFrame(channel, args)));
     };
 
     const on = <Args extends unknown[]>(channel: string, cb: (...args: Args) => void): void => {
@@ -111,16 +97,95 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
     const backend = makeBackendClient({ request, notify, on });
 
     const ready = (): void => {
-      if (opened || stopped || ws.readyState !== WebSocket.OPEN || frames?.readyState !== WebSocket.OPEN) return;
-      opened = true;
-      clearTimeout(timer);
-      resolve({
-        backend,
-        onStatus(cb) {
-          statusCbs.push(cb);
-          if (stopped) cb(false);
-        },
-      });
+      if (
+        stopped ||
+        socket?.readyState !== WebSocket.OPEN ||
+        frames?.readyState !== WebSocket.OPEN
+      ) {
+        return;
+      }
+      clearTimeout(openTimer);
+      openTimer = undefined;
+      if (!settled) {
+        settled = true;
+        up = true;
+        resolve({
+          backend,
+          onStatus(cb) {
+            statusCbs.push(cb);
+            if (stopped) cb(false);
+          },
+        });
+        return;
+      }
+      // A redial re-paired both sockets: report recovery without touching the
+      // pending-request machinery, and let the next drop wait its own turn.
+      if (!up) {
+        up = true;
+        dialDelay = REMOTE_FRAME_RETRY_INITIAL_MS;
+        for (const cb of statusCbs) cb(true);
+      }
+    };
+
+    const stop = (): void => {
+      if (stopped) return;
+      stopped = true;
+      clearTimeout(openTimer);
+      clearTimeout(retry);
+      clearTimeout(frameTimer);
+      clearTimeout(dialTimer);
+      health?.abort();
+      health = null;
+      const departed = frames;
+      frames = null;
+      departed?.close();
+      const s = socket;
+      if (s !== null && (s.readyState === WebSocket.OPEN || s.readyState === WebSocket.CONNECTING)) {
+        s.close();
+      }
+      frameKey = null;
+      for (const [, entry] of pending) entry.reject(new Error("remote connection lost"));
+      pending.clear();
+      if (!settled) {
+        reject(new Error("could not reach omp-ui — check the token and that remote access is enabled"));
+        return;
+      }
+      if (up) {
+        up = false;
+        for (const cb of statusCbs) cb(false);
+      }
+    };
+
+    /** Reliable loss after the first pairing: tear the pair down, then redial with backoff. */
+    const drop = (): void => {
+      if (stopped || dialTimer !== undefined) return;
+      // Arm the redial first: closing a socket can re-enter through its own
+      // close handler, and the armed timer makes that re-entry a no-op.
+      dialTimer = window.setTimeout(() => {
+        dialTimer = undefined;
+        if (!stopped) dial();
+      }, dialDelay);
+      dialDelay = nextFrameRetryDelay(dialDelay);
+      const s = socket;
+      if (s !== null && (s.readyState === WebSocket.OPEN || s.readyState === WebSocket.CONNECTING)) {
+        s.close();
+      }
+      const departed = frames;
+      frames = null;
+      departed?.close();
+      clearTimeout(retry);
+      clearTimeout(frameTimer);
+      retry = undefined;
+      frameTimer = undefined;
+      // The server mints a fresh pairing key per reliable connection; take the next one.
+      frameKey = null;
+      retryDelay = REMOTE_FRAME_RETRY_INITIAL_MS;
+      for (const [, entry] of pending) entry.reject(new Error("remote connection lost"));
+      pending.clear();
+      if (up) {
+        up = false;
+        for (const cb of statusCbs) cb(false);
+      }
     };
 
     const checkCredential = (): void => {
@@ -138,7 +203,7 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
       // to distinguish revocation from transient frame-only network failure.
       void fetch(url, { credentials: "same-origin", cache: "no-store", signal: controller.signal })
         .then((res) => {
-          if (!stopped && health === controller && res.status === 401) down();
+          if (!stopped && health === controller && res.status === 401) stop();
         })
         .catch(() => {
           // The independent reconnect keeps retrying while the reliable stream is alive.
@@ -150,7 +215,8 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
     };
 
     const scheduleFrames = (): void => {
-      if (stopped || ws.readyState !== WebSocket.OPEN || retry !== undefined) return;
+      const live = socket;
+      if (stopped || live === null || live.readyState !== WebSocket.OPEN || retry !== undefined) return;
       retry = window.setTimeout(() => {
         retry = undefined;
         connectFrames();
@@ -159,85 +225,126 @@ export function connectRemoteBackend(): Promise<RemoteConnection> {
     };
 
     const connectFrames = (): void => {
-      if (stopped || ws.readyState !== WebSocket.OPEN || frameKey === null || frames !== null) return;
-      const socket = new WebSocket(socketUrl(REMOTE_FRAME_WS_PATH, frameKey));
-      frames = socket;
-      socket.binaryType = "arraybuffer";
+      const live = socket;
+      if (stopped || live === null || live.readyState !== WebSocket.OPEN || frameKey === null || frames !== null) {
+        return;
+      }
+      const s = new WebSocket(socketUrl(REMOTE_FRAME_WS_PATH, frameKey));
+      frames = s;
+      s.binaryType = "arraybuffer";
       frameTimer = window.setTimeout(
-        () => socket.close(),
+        () => s.close(),
         REMOTE_CONNECT_TIMEOUT_MS,
       );
-      socket.addEventListener("open", () => {
-        if (stopped || frames !== socket) {
-          socket.close();
+      s.addEventListener("open", () => {
+        if (stopped || frames !== s) {
+          s.close();
           return;
         }
         clearTimeout(frameTimer);
+        frameTimer = undefined;
         health?.abort();
         health = null;
         retryDelay = REMOTE_FRAME_RETRY_INITIAL_MS;
         ready();
       });
-      socket.addEventListener("message", (ev: MessageEvent) => {
-        if (stopped || frames !== socket || !(ev.data instanceof ArrayBuffer)) return;
+      s.addEventListener("message", (ev: MessageEvent) => {
+        if (stopped || frames !== s || !(ev.data instanceof ArrayBuffer)) return;
         const decoded = decodeFrameDelivery(new Uint8Array(ev.data));
         if (decoded === null) return;
         void Promise.resolve(dispatch(decoded.channel, [decoded.tabId, decoded.payload])).then(() => {
-          if (!stopped && frames === socket && ws.readyState === WebSocket.OPEN && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify(makeFrameAck(decoded.id)));
+          const reliable = socket;
+          if (
+            !stopped && frames === s &&
+            reliable !== null && reliable.readyState === WebSocket.OPEN &&
+            s.readyState === WebSocket.OPEN
+          ) {
+            s.send(JSON.stringify(makeFrameAck(decoded.id)));
           }
         });
       });
-      socket.addEventListener("error", () => {
-        if (!stopped && frames === socket) checkCredential();
+      s.addEventListener("error", () => {
+        if (!stopped && frames === s) checkCredential();
       });
-      socket.addEventListener("close", (ev: CloseEvent) => {
-        if (frames !== socket) return;
+      s.addEventListener("close", (ev: CloseEvent) => {
+        if (frames !== s) return;
         clearTimeout(frameTimer);
+        frameTimer = undefined;
         frames = null;
         if (isCredentialClose(ev.code)) {
-          down();
+          stop();
           return;
         }
         scheduleFrames();
       });
     };
 
-    ws.addEventListener("message", (ev: MessageEvent) => {
-      if (stopped) return;
-      if (ev.data instanceof ArrayBuffer) {
-        const decoded = decodeBinaryEvent(new Uint8Array(ev.data));
-        if (decoded) void dispatch(decoded.channel, [decoded.tabId, decoded.payload]);
-        return;
+    const dial = (): void => {
+      const s = new WebSocket(socketUrl(REMOTE_WS_PATH));
+      s.binaryType = "arraybuffer";
+      socket = s;
+      if (!settled) {
+        // Before the first pairing the whole attempt is bounded (issue #37 semantics):
+        // one failure rejects the boot with no retries, keeping the failure screen honest.
+        clearTimeout(openTimer);
+        openTimer = window.setTimeout(stop, REMOTE_CONNECT_TIMEOUT_MS);
       }
-      let frame: unknown;
-      try {
-        frame = JSON.parse(String(ev.data));
-      } catch {
-        return;
-      }
-      const parsed = parseServerFrame(frame);
-      if (parsed === null) return;
-      if (parsed.t === "frames") {
-        if (frameKey === null) {
+      s.addEventListener("message", (ev: MessageEvent) => {
+        if (stopped || socket !== s) return;
+        if (ev.data instanceof ArrayBuffer) {
+          const decoded = decodeBinaryEvent(new Uint8Array(ev.data));
+          if (decoded) void dispatch(decoded.channel, [decoded.tabId, decoded.payload]);
+          return;
+        }
+        let frame: unknown;
+        try {
+          frame = JSON.parse(String(ev.data));
+        } catch {
+          return;
+        }
+        const parsed = parseServerFrame(frame);
+        if (parsed === null) return;
+        if (parsed.t === "frames") {
+          // A fresh key on every authenticated connection — never latch the first one.
           frameKey = parsed.key;
           connectFrames();
+          return;
         }
-        return;
-      }
-      if (parsed.t === "ev") {
-        void dispatch(parsed.ch, parsed.args);
-        return;
-      }
-      const entry = pending.get(parsed.id);
-      if (!entry) return;
-      pending.delete(parsed.id);
-      if (parsed.ok === true) entry.resolve(parsed.value);
-      else entry.reject(new Error(parsed.message));
-    });
+        if (parsed.t === "ev") {
+          void dispatch(parsed.ch, parsed.args);
+          return;
+        }
+        const entry = pending.get(parsed.id);
+        if (!entry) return;
+        pending.delete(parsed.id);
+        if (parsed.ok === true) entry.resolve(parsed.value);
+        else entry.reject(new Error(parsed.message));
+      });
+      s.addEventListener("open", () => {
+        if (socket !== s) return;
+        ready();
+      });
+      s.addEventListener("close", (ev: CloseEvent) => {
+        if (socket !== s) return;
+        // Pre-pairing failure or a revoked credential: stop for good. Anything
+        // else after pairing is survivable — redial with backoff (issue #890).
+        if (!settled || isCredentialClose(ev.code)) {
+          stop();
+          return;
+        }
+        drop();
+      });
+      s.addEventListener("error", () => {
+        if (socket !== s) return;
+        if (!settled) {
+          stop();
+          return;
+        }
+        checkCredential();
+        drop();
+      });
+    };
 
-    ws.addEventListener("open", ready);
-    ws.addEventListener("close", down);
-    ws.addEventListener("error", down);
+    dial();
   });
 }

@@ -69,6 +69,20 @@ npm run build:web --workspace @omp-ui/desktop
 
 After the build completes, reload the same connection URL. The server checks bundle availability on each authenticated static request, so no remote-access restart is needed. Remote access uses plain HTTP; read the exposure and sign-in guidance before enabling a LAN bind in [Remote access](remote-access.md).
 
+## A remote view says "Reconnecting" after a phone locks or opens the camera
+
+### Cause
+
+Opening the system camera or file picker, or locking the phone, backgrounds the browser tab. Mobile browsers commonly suspend or discard the tab, which drops its two WebSockets. This is expected platform behavior, not a server fault.
+
+### Expected behavior
+
+The strip shows **Reconnecting** for a few seconds while the page redials both connections. When they re-pair, the view recovers on its own: open tabs return, the composer keeps its draft (including a photo you just took), and transcripts refill from the host. A terminal tab shows its last painted frame until new output arrives — bytes missed while the link was down are not replayed. The view only offers **sign in again** when the credential was actually revoked (the password changed or the token was regenerated) — never for a camera round-trip or a screen lock.
+
+### Fix
+
+None needed: keep the strip visible and wait a few seconds. If it stays up after you return to the network, reload the connection URL once; the page restores its own open tabs on a browser client.
+
 ## A dismissed update card does not return
 
 ### Cause

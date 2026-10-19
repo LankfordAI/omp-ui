@@ -52,6 +52,12 @@ export interface RemoteServerOptions {
   webRoot: string;
   /** Password credential; null = password auth disabled (token-only). */
   password?: { salt: string; hash: string } | null;
+  /**
+   * WebSocket keepalive ping cadence (issue #890). A socket that misses one
+   * pong gets `terminate()`d at the next tick, releasing its FramePair when a
+   * phone silently wanders off Wi-Fi. 0 disables. Tests shrink it.
+   */
+  keepAliveIntervalMs?: number;
 }
 
 export interface RemoteServerHandle {
@@ -73,6 +79,8 @@ const COOKIE_MAX_AGE = 31_536_000;
 const CLOSE_DRAIN_MS = 250;
 /** POST /login body ceiling; a real form is a few dozen bytes. */
 const MAX_LOGIN_BODY = 8192;
+/** Default WebSocket keepalive cadence; a missed pong costs the socket (issue #890). */
+const REMOTE_KEEP_ALIVE_MS = 30_000;
 
 interface PendingFrame {
   id: number;
@@ -383,6 +391,31 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   let nextFrameId = 0;
   let closing = false;
 
+  // --- Keepalive (issue #890) ---
+  // Phones that background the tab stop answering pongs; without this their
+  // half-open sockets keep FramePairs (and upstream pane capture) alive forever.
+  // Browsers answer pongs automatically, so a healthy client needs no change.
+  const keepAliveIntervalMs = opts.keepAliveIntervalMs ?? REMOTE_KEEP_ALIVE_MS;
+  const aliveSockets = new WeakMap<WebSocket, boolean>();
+  const markAlive = (ws: WebSocket): void => {
+    aliveSockets.set(ws, true);
+    ws.on("pong", () => aliveSockets.set(ws, true));
+  };
+  const keepAliveTimer =
+    keepAliveIntervalMs > 0
+      ? setInterval(() => {
+          for (const ws of [...wss.clients, ...frameWss.clients]) {
+            if (aliveSockets.get(ws) === true) {
+              aliveSockets.set(ws, false);
+              ws.ping();
+            } else {
+              ws.terminate();
+            }
+          }
+        }, keepAliveIntervalMs)
+      : undefined;
+  keepAliveTimer?.unref();
+
   const flushFrame = (pair: FramePair): void => {
     if (pair.inFlight !== null || pair.frames?.readyState !== WebSocket.OPEN) return;
     const next = pair.pending.entries().next();
@@ -396,6 +429,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
 
   const attachFrames = (pair: FramePair, ws: WebSocket): void => {
     pair.frames = ws;
+    markAlive(ws);
     ws.on("error", () => {});
     ws.on("message", (raw: Buffer, isBinary: boolean) => {
       if (isBinary || pair.frames !== ws) return;
@@ -473,6 +507,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   });
 
   wss.on("connection", (ws: WebSocket) => {
+    markAlive(ws);
     const key = randomBytes(32).toString("hex");
     const pair: FramePair = {
       reliable: ws,
@@ -619,6 +654,7 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
         port: bound,
         close: async () => {
           closing = true;
+          clearInterval(keepAliveTimer);
           unsink();
           // A graceful 1001 first so a live browser client sees "going away" and starts its
           // reconnect probe rather than a bare socket reset.

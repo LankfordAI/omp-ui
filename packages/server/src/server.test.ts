@@ -559,6 +559,76 @@ describe("startRemoteServer websocket", () => {
   });
 
 });
+describe("startRemoteServer keepalive (issue #890)", () => {
+  // Real timers: the keepalive is a setInterval on the platform clock, so these
+  // cases run against real time (fake timers would never let sockets exchange
+  // ping/pong frames). Awaits are on real socket events; setTimeout only guards
+  // regressions from hanging. Executor form (not Promise.withResolvers): the
+  // node tsconfig lib is ES2022.
+  const withGuard = <T>(promise: Promise<T>, ms: number, message: string): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), ms);
+      timer.unref();
+      promise.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error as Error);
+        },
+      );
+    });
+
+  it("terminates a reliable client that never answers the second ping", async () => {
+    const { base } = await serve({ keepAliveIntervalMs: 30 });
+    // `autoPong: false` (ws >= 8.14, verified in node_modules/ws) stops the
+    // client library from answering server pings, simulating a half-open phone
+    // socket that still holds TCP open.
+    const ws = new WebSocket(`${base.replace("http://", "ws://")}${REMOTE_WS_PATH}?t=${TOKEN}`, {
+      autoPong: false,
+    });
+    sockets.push(ws);
+    await new Promise<void>((resolve, reject) => {
+      ws.once("open", () => resolve());
+      ws.once("error", reject);
+    });
+
+    // First tick marks alive and pings (no pong ever comes back), second tick
+    // terminates: await the close event inside a 2s guard.
+    const closed = new Promise<number>((resolve) => ws.once("close", (code) => resolve(code)));
+    expect(await withGuard(closed, 2_000, "keepalive never terminated the silent client")).toBe(1006);
+    expect(ws.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  it("keeps a pinging client and its frame socket open across intervals and keeps answering requests", async () => {
+    const { base } = await serve({ keepAliveIntervalMs: 30 });
+    const ws = await connect(base, TOKEN);
+    const frames = await connectFrames(base, frameKeys.get(ws)!);
+
+    // The ws client answers every server ping automatically; wait for four
+    // real keepalive pings (>=4 intervals) to land instead of a guessed sleep.
+    const fourPings = withGuard(
+      new Promise<void>((resolve) => {
+        let seen = 0;
+        ws.on("ping", () => {
+          seen += 1;
+          if (seen >= 4) resolve();
+        });
+      }),
+      2_000,
+      "keepalive pings never reached the healthy client",
+    );
+    await fourPings;
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    expect(frames.ws.readyState).toBe(WebSocket.OPEN);
+
+    const reply = nextJson(ws);
+    ws.send(JSON.stringify({ t: "req", id: 1, ch: CH.getState, args: [] }));
+    expect(await reply).toEqual({ t: "res", id: 1, ok: true, value: { ok: 1 } });
+  });
+});
 
 describe("startRemoteServer event fan-out", () => {
   it("mirrors one host event to every connected client", async () => {

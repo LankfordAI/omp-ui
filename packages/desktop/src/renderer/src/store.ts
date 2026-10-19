@@ -521,6 +521,28 @@ export const useStore = create<UiStore>()((set, get, api) => {
         set({ gettingStartedOpen: true });
       }
     },
+    // Re-paired after a dropped browser socket (issue #890): reconcile the tab
+    // list against the host and re-boot every live rpc-ui transcript — the same
+    // full-history refetch (get_messages) a reload used to achieve, without
+    // unmounting anything. PTY tabs need nothing: their xterm buffers are intact
+    // in the live page and onPtyData resumes on the shared backend's listeners.
+    async resyncAfterReconnect() {
+      let state: BackendState;
+      try {
+        state = await backend.getState();
+      } catch {
+        // A socket that died again mid-resync: the next status(true) re-runs this.
+        return;
+      }
+      applyAuthoritativeState(state);
+      for (const tab of get().tabs) {
+        if (tab.hidden) continue;
+        const record = findRecord(state, tab.tabId);
+        if (record !== undefined && record.live === "live" && record.mode === "rpc-ui") {
+          void get().bootRpcTab(tab.tabId);
+        }
+      }
+    },
     bootRpcTab: rpcCommandSlice.bootRpcTab,
     refreshAvailableModels: rpcCommandSlice.refreshAvailableModels,
     refreshCapabilities: rpcCommandSlice.refreshCapabilities,

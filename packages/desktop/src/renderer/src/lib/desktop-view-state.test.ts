@@ -7,6 +7,8 @@ import {
   parseDesktopView,
   projectDesktopView,
   saveDesktopView,
+  sessionViewStorage,
+  shouldRestoreBrowserView,
   shouldRestoreDesktopView,
   desktopViewStorage,
 } from "./desktop-view-state";
@@ -260,6 +262,9 @@ describe("desktop view state", () => {
   });
 
   it("desktopViewStorage returns null when localStorage is unavailable", () => {
+    // jsdom's built-in does not survive a bare `delete` for later tests, so
+    // stash the real object and restore it as a value afterwards.
+    const original = window.localStorage;
     Object.defineProperty(window, "localStorage", {
       configurable: true,
       get() {
@@ -269,7 +274,63 @@ describe("desktop view state", () => {
     try {
       expect(desktopViewStorage()).toBeNull();
     } finally {
-      delete (window as unknown as Record<string, unknown>).localStorage;
+      Object.defineProperty(window, "localStorage", {
+        configurable: true,
+        writable: true,
+        value: original,
+      });
     }
+  });
+});
+
+describe("browser view state (issue #890)", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  const snapshot = (): DesktopViewStateV1 =>
+    projectDesktopView(
+      { tabs: [{ tabId: "t", hidden: false }], exited: {}, activeTabId: "t", focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 },
+      "1.0.0",
+    );
+
+  it("sessionViewStorage returns non-null in jsdom and round-trips through it", () => {
+    const storage = sessionViewStorage();
+    expect(storage).not.toBeNull();
+    expect(saveDesktopView(storage!, snapshot())).toBe(true);
+    expect(loadDesktopView(storage!)).toEqual(snapshot());
+    // The per-tab store is separate from the cross-tab one.
+    expect(window.localStorage.getItem(DESKTOP_VIEW_STORAGE_KEY)).toBeNull();
+  });
+
+  it("sessionViewStorage returns null when sessionStorage is unavailable", () => {
+    // jsdom's built-in does not survive a bare `delete` for later tests, so
+    // stash the real object and restore it as a value afterwards.
+    const original = window.sessionStorage;
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new Error("storage denied");
+      },
+    });
+    try {
+      expect(sessionViewStorage()).toBeNull();
+    } finally {
+      Object.defineProperty(window, "sessionStorage", {
+        configurable: true,
+        writable: true,
+        value: original,
+      });
+    }
+  });
+
+  it("shouldRestoreBrowserView ignores the version gate entirely", () => {
+    expect(shouldRestoreBrowserView(null)).toBe(false);
+    expect(shouldRestoreBrowserView({ ...snapshot(), tabIds: [] })).toBe(false);
+    // A snapshot whose appVersion MATCHES the running build still restores —
+    // the desktop gate's same-version refusal is exactly what a browser reload
+    // must not inherit.
+    expect(shouldRestoreBrowserView({ ...snapshot(), appVersion: "9.9.9", tabIds: ["t"] })).toBe(true);
+    expect(shouldRestoreBrowserView({ ...snapshot(), appVersion: null, tabIds: ["t"] })).toBe(true);
   });
 });

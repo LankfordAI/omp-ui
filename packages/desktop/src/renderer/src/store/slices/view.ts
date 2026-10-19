@@ -14,9 +14,12 @@ import {
   loadDesktopView,
   projectDesktopView,
   saveDesktopView,
+  sessionViewStorage,
+  shouldRestoreBrowserView,
   shouldRestoreDesktopView,
   type DesktopViewStateV1,
 } from "../../lib/desktop-view-state";
+import { IS_ELECTRON } from "../../lib/platform";
 import {
   BROWSER_PANE_DEFAULT_WIDTH,
   clampPanelWidth,
@@ -239,21 +242,31 @@ export async function restoreSavedTabs(
 
 /** Restores the saved view after initialization's combined backend commit. */
 export async function restoreDesktopView(api: StoreApi<UiStore>): Promise<void> {
-  const storage = desktopViewStorage();
+  // Platform split (issue #890): a browser client keeps its tab list in per-tab
+  // sessionStorage and restores without the desktop version gate; Electron keeps
+  // localStorage plus the #99 gate untouched.
+  const storage = IS_ELECTRON ? desktopViewStorage() : sessionViewStorage();
   if (storage === null) return;
   const saved = loadDesktopView(storage);
+  // Panel widths are cross-tab preferences: a browser client still takes them from
+  // the localStorage blob when one exists, falling back to its own snapshot.
+  const widthStorage = IS_ELECTRON ? null : desktopViewStorage();
+  const widths = widthStorage === null ? saved : (loadDesktopView(widthStorage) ?? saved);
   const currentVersion = api.getState().appUpdate.currentVersion;
-  if (saved !== null) {
+  if (widths !== null) {
     api.setState({
-      sidebarWidth: saved.sidebarWidth,
-      inspectorWidth: saved.inspectorWidth,
-      browserPaneWidth: saved.browserPaneWidth,
+      sidebarWidth: widths.sidebarWidth,
+      inspectorWidth: widths.inspectorWidth,
+      browserPaneWidth: widths.browserPaneWidth,
     });
   }
-  if (shouldRestoreDesktopView(saved, currentVersion)) {
+  const restore = IS_ELECTRON
+    ? shouldRestoreDesktopView(saved, currentVersion)
+    : shouldRestoreBrowserView(saved);
+  if (restore && saved !== null) {
     api.setState({ restoringTabs: true });
     try {
-      await restoreSavedTabs(api.getState, api.setState, saved!);
+      await restoreSavedTabs(api.getState, api.setState, saved);
     } finally {
       api.setState({ restoringTabs: false });
     }
@@ -284,7 +297,7 @@ export function installDesktopViewPersistence(api: StoreApi<UiStore>): void {
       return;
     }
     const version = state.appUpdate.currentVersion;
-    const storage = desktopViewStorage();
+    const storage = IS_ELECTRON ? desktopViewStorage() : sessionViewStorage();
     if (storage === null || version === null) return;
     saveDesktopView(storage, projectDesktopView(state, version));
   });
