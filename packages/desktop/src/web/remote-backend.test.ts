@@ -125,6 +125,8 @@ describe("remote backend paired readiness", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     await failure;
     expect(reliable.readyState).toBe(Socket.CLOSED);
+    // Pre-pairing failure is terminal: the boot screen never sees a retry.
+    await vi.advanceTimersByTimeAsync(30_000);
     expect(Socket.instances).toHaveLength(1);
   });
 
@@ -226,11 +228,36 @@ describe("independent browser frame reconnect", () => {
     expect(replacement.sent).toEqual([{ t: "ack", id: 22 }]);
     expect(status).not.toHaveBeenCalled();
     expect(reliable.readyState).toBe(Socket.OPEN);
+  });
+
+  it("tears the pair down on reliable close and starts a backoff redial", async () => {
+    const { backend, reliable, frames, onStatus } = await join();
+    const status = vi.fn();
+    onStatus(status);
+    const held = Promise.withResolvers<void>();
+    backend.onBrowserPaneFrame(() => held.promise);
+    frames.message(delivery(21).buffer);
+    frames.end();
+    await vi.advanceTimersByTimeAsync(500);
+    const replacement = Socket.instances[2]!;
+    replacement.open();
+    held.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frames.sent).toEqual([]);
+    replacement.message(delivery(22).buffer);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(replacement.sent).toEqual([{ t: "ack", id: 22 }]);
     reliable.end();
     expect(replacement.readyState).toBe(Socket.CLOSED);
     expect(status.mock.calls).toEqual([[false]]);
-    await vi.advanceTimersByTimeAsync(10_000);
+    // The drop arms a fresh reliable redial at the base delay, never a bare frame socket.
+    await vi.advanceTimersByTimeAsync(499);
     expect(Socket.instances).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(Socket.instances).toHaveLength(4);
+    const redial = Socket.instances[3]!;
+    expect(new URL(redial.url).pathname).toBe(REMOTE_WS_PATH);
+    expect(redial.readyState).toBe(Socket.CONNECTING);
   });
 
   it("caps reconnect backoff while a transient frame failure leaves reliable calls usable", async () => {
@@ -250,10 +277,18 @@ describe("independent browser frame reconnect", () => {
     const state = backend.getState();
     reliable.message(JSON.stringify(makeServerResponseOk(1, { projects: [] })));
     await expect(state).resolves.toEqual({ projects: [] });
+    // A reliable close still tears the whole pair down; the dead frame socket
+    // never ACKs late. The redial then starts from the base delay again.
     reliable.end();
     expect(latest.readyState).toBe(Socket.CLOSED);
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(499);
     expect(Socket.instances).toHaveLength(8);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(Socket.instances).toHaveLength(9);
+    const redial = Socket.instances[8]!;
+    expect(new URL(redial.url).pathname).toBe(REMOTE_WS_PATH);
+    // The fresh dial sits CONNECTING with no live frames stream: calls reject fast.
+    await expect(backend.getState()).rejects.toThrow("remote connection lost");
   });
 
   it("uses the authenticated health probe to stop a revoked frame upgrade", async () => {
@@ -327,6 +362,74 @@ describe("independent browser frame reconnect", () => {
     held.resolve();
     await vi.advanceTimersByTimeAsync(20_000);
     expect(frames.sent).toEqual([]);
+    // Issue #890: the reliable close tears the pair down but redials with backoff;
+    // only the fresh reliable dial appears, and the dead frame socket never ACKs late.
+    expect(Socket.instances).toHaveLength(3);
+    const redial = Socket.instances[2]!;
+    expect(new URL(redial.url).pathname).toBe(REMOTE_WS_PATH);
+  });
+});
+
+describe("reliable reconnect across socket loss (issue #890)", () => {
+  it("redials after a reliable drop and re-pairs on the fresh key", async () => {
+    const { backend, reliable, onStatus } = await join();
+    const saw: boolean[][] = [];
+    onStatus((up) => saw.push([up]));
+    const lost = backend.getState();
+    const rejected = expect(lost).rejects.toThrow("remote connection lost");
+    reliable.end(1006);
+    await vi.advanceTimersByTimeAsync(0);
+    await rejected;
+    expect(saw).toEqual([[false]]);
+    await vi.advanceTimersByTimeAsync(500);
+    const redial = Socket.instances[2]!;
+    expect(new URL(redial.url).pathname).toBe(REMOTE_WS_PATH);
+    redial.open();
+    const key2 = "c".repeat(64);
+    redial.message(JSON.stringify(makeServerFrameStream(key2)));
+    const refetched = Socket.instances[3]!;
+    expect(new URL(refetched.url).pathname).toBe(REMOTE_FRAME_WS_PATH);
+    expect(new URL(refetched.url).searchParams.get(REMOTE_FRAME_KEY_PARAM)).toBe(key2);
+    refetched.open();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(saw).toEqual([[false], [true]]);
+    const state = backend.getState();
+    // The first request (id 1) died with the drop; this one takes the next id.
+    redial.message(JSON.stringify(makeServerResponseOk(2, { projects: [] })));
+    await expect(state).resolves.toEqual({ projects: [] });
+  });
+
+  it("never redials after a revoked close", async () => {
+    const { backend, reliable, onStatus } = await join();
+    const saw: boolean[][] = [];
+    onStatus((up) => saw.push([up]));
+    reliable.end(REMOTE_CLOSE_REVOKED);
+    expect(saw).toEqual([[false]]);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(Socket.instances).toHaveLength(2);
+    await expect(backend.getState()).rejects.toThrow("remote connection lost");
+  });
+
+  it("redials after a reliable error while the health probe answers non-401", async () => {
+    const { reliable, onStatus } = await join();
+    vi.mocked(fetch).mockResolvedValue({ status: 200 } as Response);
+    const saw: boolean[][] = [];
+    onStatus((up) => saw.push([up]));
+    reliable.dispatchEvent(new Event("error"));
+    // The probe distinguishes transient failure from revocation; 200 keeps retrying.
+    expect(reliable.readyState).toBe(Socket.CLOSED);
+    expect(saw).toEqual([[false]]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const redial = Socket.instances[2]!;
+    expect(new URL(redial.url).pathname).toBe(REMOTE_WS_PATH);
+    redial.open();
+    const key2 = "d".repeat(64);
+    redial.message(JSON.stringify(makeServerFrameStream(key2)));
+    const refetched = Socket.instances[3]!;
+    expect(new URL(refetched.url).searchParams.get(REMOTE_FRAME_KEY_PARAM)).toBe(key2);
+    refetched.open();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(saw).toEqual([[false], [true]]);
   });
 });

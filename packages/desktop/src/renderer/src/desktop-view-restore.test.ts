@@ -3,6 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppUpdateState, BackendState, OmpUpdateState, RemoteState } from "@omp-ui/core/types";
 import { DESKTOP_VIEW_STORAGE_KEY, type DesktopViewStateV1 } from "./lib/desktop-view-state";
 import { backendState as makeBackendState, rpcTabState, tabInfo } from "./test/fixtures";
+// The whole desktop suite below asserts the Electron path (localStorage + the
+// #99 version gate); jsdom's UA reports IS_ELECTRON false, so pin it via the
+// getter mock pattern from store.test.ts. The browser describe at the bottom
+// flips it per test (issue #890).
+const platformMocks = vi.hoisted(() => ({ electron: true }));
+vi.mock("./lib/platform", () => ({
+  get IS_ELECTRON() {
+    return platformMocks.electron;
+  },
+  IS_MAC: false,
+  IS_WINDOWS: false,
+}));
 
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
 
@@ -229,6 +241,8 @@ const readSnapshot = (): DesktopViewStateV1 =>
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
+  window.sessionStorage.clear();
+  platformMocks.electron = true;
   appUpdate = { ...idleAppUpdate, currentVersion: "1.1.0" };
   mockBackend.spawnSession.mockImplementation(
     async (req: { resumeTabId: string }) => ({ tabId: req.resumeTabId }),
@@ -449,5 +463,89 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     await store.useStore.getState().resumeDead("pty-1");
 
     expect(readSnapshot().tabIds).toEqual(["pty-1"]);
+  });
+});
+
+/** The same seed written to the per-tab store a browser client reads and writes. */
+const seedSession = (): void =>
+  window.sessionStorage.setItem(DESKTOP_VIEW_STORAGE_KEY, SEED_JSON);
+const readSession = (): DesktopViewStateV1 | null => {
+  const raw = window.sessionStorage.getItem(DESKTOP_VIEW_STORAGE_KEY);
+  return raw === null ? null : (JSON.parse(raw) as DesktopViewStateV1);
+};
+
+describe("browser view restore without the version gate (issue #890)", () => {
+  beforeEach(() => {
+    platformMocks.electron = false;
+  });
+
+  it("a same-version reload restores tabs from sessionStorage", async () => {
+    seedSession();
+    const store = await freshStore();
+    // Same version as the snapshot: the desktop gate would keep Welcome. The
+    // browser path must restore anyway.
+    appUpdate = { ...idleAppUpdate, currentVersion: "1.0.0" };
+
+    await store.useStore.getState().init();
+
+    const seen = mockBackend.spawnSession.mock.calls.map((c) => c[0]!.resumeTabId);
+    expect(seen).toEqual(["pty-1", "rpc-1"]);
+    expect(store.useStore.getState().tabs.map((t) => t.tabId)).toEqual(["pty-1", "rpc-1"]);
+    expect(store.useStore.getState().activeTabId).toBe("rpc-1");
+    // Fresh projection goes to sessionStorage — the per-tab store only.
+    expect(readSession()).toMatchObject({ appVersion: "1.0.0", tabIds: ["pty-1", "rpc-1"] });
+    expect(window.localStorage.getItem(DESKTOP_VIEW_STORAGE_KEY)).toBeNull();
+  });
+
+  it("an empty sessionStorage snapshot stays on Welcome", async () => {
+    window.sessionStorage.setItem(
+      DESKTOP_VIEW_STORAGE_KEY,
+      JSON.stringify({ ...SEED_SNAPSHOT, tabIds: [], activeTabId: null }),
+    );
+    const store = await freshStore();
+    await store.useStore.getState().init();
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(store.useStore.getState().tabs).toEqual([]);
+  });
+
+  it("widths come from the localStorage blob while tabs come from sessionStorage", async () => {
+    seedSession();
+    window.localStorage.setItem(
+      DESKTOP_VIEW_STORAGE_KEY,
+      JSON.stringify({ ...SEED_SNAPSHOT, sidebarWidth: 300, inspectorWidth: 260, browserPaneWidth: 600 }),
+    );
+    const store = await freshStore();
+    await store.useStore.getState().init();
+    const st = store.useStore.getState();
+    expect(st.sidebarWidth).toBe(300);
+    expect(st.inspectorWidth).toBe(260);
+    expect(st.browserPaneWidth).toBe(600);
+    // The tab list still comes from the per-tab snapshot, not the width blob.
+    expect(st.tabs.map((t) => t.tabId)).toEqual(["pty-1", "rpc-1"]);
+    // And a live view write lands in sessionStorage, never clobbering the blob's tabs.
+    expect(readSession()).toMatchObject({ tabIds: ["pty-1", "rpc-1"] });
+    expect(JSON.parse(window.localStorage.getItem(DESKTOP_VIEW_STORAGE_KEY)!).tabIds).toEqual(
+      SEED_SNAPSHOT.tabIds,
+    );
+  });
+
+  it("skips a record whose live state is missing", async () => {
+    seedSession();
+    const store = await freshStore();
+    await store.useStore.getState().init();
+    const seen = mockBackend.spawnSession.mock.calls.map((c) => c[0]!.resumeTabId);
+    expect(seen).not.toContain("missing-1");
+    expect(seen).not.toContain("deleted-1");
+  });
+
+  it("a stale localStorage blob is never read for tabs", async () => {
+    // A phone that once ran the desktop-gated path leaves a matching-version
+    // blob with tabs; the browser client must ignore it entirely.
+    window.localStorage.setItem(DESKTOP_VIEW_STORAGE_KEY, SEED_JSON);
+    appUpdate = { ...idleAppUpdate, currentVersion: "1.0.0" };
+    const store = await freshStore();
+    await store.useStore.getState().init();
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(store.useStore.getState().tabs).toEqual([]);
   });
 });

@@ -185,6 +185,17 @@ export function shouldRestoreDesktopView(
 }
 
 /**
+ * The browser-client predicate (issue #890). A page reload in a browser view
+ * carries no "relaunch intent" for the desktop version gate to encode: its
+ * sessions are live in the shared backend regardless, so restore whenever this
+ * tab's own snapshot names tabs. `sessionStorage` already scopes the restore to
+ * reloads of the same tab. No version gate.
+ */
+export function shouldRestoreBrowserView(saved: DesktopViewStateV1 | null): boolean {
+  return saved !== null && saved.tabIds.length > 0;
+}
+
+/**
  * The shape a caller records its live view in before snapshotting.
  * `tabs` lists every tab (visible or hidden); `hidden` tabs are omitted from
  * the snapshot because the user closed them and they must stay dormant.
@@ -241,6 +252,27 @@ export function desktopViewStorage(): ViewStorage | null {
   try {
     if (typeof window === "undefined") return null;
     const store = window.localStorage;
+    if (!store) return null;
+    return {
+      getItem: (key: string) => store.getItem(key),
+      setItem: (key: string, value: string) => store.setItem(key, value),
+      removeItem: store.removeItem ? (key: string) => store.removeItem(key) : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A `ViewStorage` adapter for `window.sessionStorage` — the browser client's
+ * per-tab snapshot store (issue #890). Survives a page reload, dies with the
+ * tab, so a freshly-opened phone tab never resurrects a stale view. Same
+ * defensive body as `desktopViewStorage`: `null` on any unavailability.
+ */
+export function sessionViewStorage(): ViewStorage | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const store = window.sessionStorage;
     if (!store) return null;
     return {
       getItem: (key: string) => store.getItem(key),
