@@ -6,6 +6,7 @@ import { NATIVE_LIVE_MIN_OMP } from "./live-voice";
 import { NATIVE_BTW_MIN_OMP } from "./native-btw";
 import { NATIVE_FORK_MIN_OMP } from "./session-fork";
 import { NARRATION_MIN_OMP } from "./narration";
+import { PLAN_TIERS_MIN_OMP } from "./plan-tiers";
 import { SEANCE_MIN_OMP } from "./seance";
 import { PROMOTE_QUEUED_MIN_OMP, RESTORE_QUEUE_MIN_OMP } from "./queue-chip";
 
@@ -23,6 +24,7 @@ describe("MIN_SUPPORTED_OMP harness floor", () => {
     ["RESTORE_QUEUE_MIN_OMP", RESTORE_QUEUE_MIN_OMP],
     ["SEANCE_MIN_OMP", SEANCE_MIN_OMP],
     ["NARRATION_MIN_OMP", NARRATION_MIN_OMP],
+    ["PLAN_TIERS_MIN_OMP", PLAN_TIERS_MIN_OMP],
   ] as const)("is at or above %s", (_name, gate) => {
     expect(compareVersions(MIN_SUPPORTED_OMP, gate)).toBeGreaterThanOrEqual(0);
   });

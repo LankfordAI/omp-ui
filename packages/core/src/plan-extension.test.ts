@@ -61,6 +61,16 @@ describe("writePlanExtension", () => {
     expect(source).toContain("setPlanProposalHandler");
   });
 
+  it("probes omp's role cycle and rides the tiers on the review request", () => {
+    const source = fs.readFileSync(writePlanExtension(tempLineage()), "utf8");
+    // The native tier report is interactive-only; the extension must compute
+    // the cycle itself (v18.10.4 method + settings-backed order) and forward
+    // it through the sentinel payload, or the review shows no tiers at all.
+    expect(source).toContain("getRoleModelCycle");
+    expect(source).toContain("cfgCycleOrder");
+    expect(source).toContain("tiers");
+  });
+
   it("arms the read-only guard by wrapping getPlanModeState, not by setting plan state", () => {
     const source = fs.readFileSync(writePlanExtension(tempLineage()), "utf8");
     // omp's write guard reads the public getPlanModeState, but its per-turn

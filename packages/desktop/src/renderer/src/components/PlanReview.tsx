@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { parseModelRole } from "@omp-ui/core/model-role";
-import { isHtmlPlanPath } from "@omp-ui/core/plan";
+import { isHtmlPlanPath, type PlanReviewTier } from "@omp-ui/core/plan";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
 import { useT, type MessageKey } from "../lib/i18n";
@@ -15,6 +15,7 @@ import { usePreparedPlanDocument } from "../lib/use-prepared-plan-document";
 import { shortModelLabel } from "../lib/format";
 import { projectKey } from "../lib/project-key";
 import { NATIVE_LIVE_MIN_OMP, supportsNativeLive } from "../lib/live-voice";
+import { supportsPlanTiers, tierModelInfo } from "../lib/plan-tiers";
 import { useCompactShell } from "../lib/responsive";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findInstance, findOwner, findRecord, useStore } from "../store";
@@ -97,6 +98,7 @@ function KeywordLabel({ keyword }: { keyword: StagedKeyword }) {
 function DispatchSummary({
   contextLabel,
   model,
+  tierRole,
   ultrathink,
   orchestrate,
   workflowz,
@@ -106,6 +108,8 @@ function DispatchSummary({
 }: {
   contextLabel: string;
   model: ModelInfo | null;
+  /** The role of the active execution tier (issue #886), suffixed after the model. */
+  tierRole?: string | null;
   ultrathink: boolean;
   orchestrate: boolean;
   workflowz: boolean;
@@ -120,6 +124,7 @@ function DispatchSummary({
       <p className="mt-0.5 truncate text-[11px] text-ink-dim">
         {contextLabel}
         {model !== null && <>{" · "}{model.name || model.id}</>}
+        {tierRole != null && <>{" · "}{tierRole}</>}
         {ultrathink && " · ultrathink"}
         {orchestrate && " · orchestrate"}
         {workflowz && " · workflowz"}
@@ -286,6 +291,8 @@ export function PlanReview({
   const sourceWorktree = sessionRecord?.worktree ?? null;
 
   const {
+    seededModel,
+    seededThinking,
     stagedModel,
     setStagedModel,
     stagedThinking,
@@ -394,6 +401,35 @@ export function PlanReview({
 
   if (!review || deferred) return null;
   const { request } = review;
+  // Execution tiers (issue #886): omp reports preset model roles alongside a
+  // proposal, but only when it has at least two valid rows and the harness is
+  // new enough to know them. The chips are presets over the staged model —
+  // clicking one stages that tier's model (and its pinned thinking level),
+  // clicking the active chip restores the seed values this review opened
+  // with. Active-ness is derived from the staged selection, so a manual
+  // model-picker change de-activates the chips by itself; no new state.
+  const tierRows = request.tiers;
+  const tiers =
+    supportsPlanTiers(capabilities?.ompVersion ?? null) && tierRows !== undefined && tierRows.length >= 2
+      ? tierRows
+      : null;
+  const activeTier =
+    tiers === null || stagedModel === null
+      ? null
+      : tiers.find(
+          (tier) => tier.provider === stagedModel.provider && tier.model === stagedModel.id,
+        ) ?? null;
+  const pickTier = (tier: PlanReviewTier): void => {
+    if (activeTier === tier) {
+      setStagedModel(seededModel);
+      setStagedThinking(seededThinking);
+      return;
+    }
+    setStagedModel(tierModelInfo(tier, availableModels));
+    // A tier without a pinned level leaves the staged selector untouched:
+    // omp's auto drift must survive the preset.
+    if (tier.thinkingLevel !== undefined) setStagedThinking(tier.thinkingLevel);
+  };
   const reusingWorktree =
     sourceWorktree !== null &&
     worktreeSel !== null &&
@@ -1201,12 +1237,42 @@ export function PlanReview({
             <DispatchSummary
               contextLabel={contextLabel}
               model={stagedModel}
+              tierRole={activeTier?.role ?? null}
               ultrathink={ultrathink}
               orchestrate={orchestrate}
               workflowz={workflowz}
               goal={goal}
               branch={dispatchBranch}
             />
+            {tiers !== null && (
+              // Beside the execute button, not replacing it: presets only.
+              // The compact shell skips this row — its staged summary already
+              // carries the model, and there is no room for a third control.
+              <div className="plan-review-tiers flex min-w-0 items-center gap-1.5" title={t("plan.review.tierHint")}>
+                <Label className="shrink-0">{t("plan.review.tier")}</Label>
+                {tiers.map((tier) => {
+                  const modelInfo = tierModelInfo(tier, availableModels);
+                  const active = activeTier === tier;
+                  return (
+                    <button
+                      key={`${tier.role}:${tier.provider}/${tier.model}`}
+                      type="button"
+                      aria-pressed={active}
+                      title={t("plan.review.tierHint")}
+                      onClick={() => pickTier(tier)}
+                      className={cn(
+                        "shrink-0 rounded-md border px-2 py-1 font-mono text-[10px] transition-colors",
+                        active
+                          ? "border-iris-dim bg-iris-wash text-iris"
+                          : "border-line text-ink-mid hover:border-line-strong hover:text-ink",
+                      )}
+                    >
+                      {tier.role} · {modelInfo.name || modelInfo.id}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div className="flex shrink-0 items-center gap-2">
               <Button title={t("plan.review.notNowTitle")} variant="ghost" onClick={dismiss}>{t("plan.review.notNow")}</Button>
               <Button onClick={() => void refine()}>{t("plan.review.refine")}</Button>

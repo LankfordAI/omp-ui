@@ -81,6 +81,17 @@ export interface PlanStatus {
   unavailable?: string;
 }
 
+/** One execution tier: a configured omp model role resolved to a model. */
+export interface PlanReviewTier {
+  /** Matched against omp's role cycle by name. */
+  role: string;
+  provider: string;
+  /** Model id within the provider. */
+  model: string;
+  /** Only when the role's selector pins one (provider/model:high). */
+  thinkingLevel?: string;
+}
+
 /** Payload encoded after {@link PLAN_REVIEW_SENTINEL} on the approval select. */
 export interface PlanReviewRequest {
   title: string;
@@ -103,6 +114,13 @@ export interface PlanReviewRequest {
   sourceHash?: string;
   /** Re-presented through the `review` verb (ADR-0033); answers no agent tool call. */
   represented?: true;
+  /**
+   * omp's execution-tier list (the model-role cycle), computed by the plan
+   * extension because the native report only exists in interactive mode.
+   * Absent when the harness reports fewer than two tiers (older omp, or a
+   * singleton role cycle) — the review then renders exactly as today.
+   */
+  tiers?: PlanReviewTier[];
 }
 
 /** Parses the JSON published on {@link PLAN_STATUS_KEY}; null when malformed. */
@@ -119,6 +137,32 @@ export function parsePlanStatus(text: string | undefined): PlanStatus | null {
 }
 
 /**
+ * Clean tier rows off a sentinel payload; undefined when the field is absent,
+ * smaller than a cycle (fewer than two rows), or carries any malformed row —
+ * a half-validated cycle is worse than none, so the WHOLE field degrades to
+ * absent, like the sourceHash hex check below.
+ */
+function parseTiers(value: unknown): PlanReviewTier[] | undefined {
+  if (!Array.isArray(value) || value.length < 2) return undefined;
+  const tiers: PlanReviewTier[] = [];
+  for (const row of value) {
+    if (row === null || typeof row !== "object" || Array.isArray(row)) return undefined;
+    const r = row as Record<string, unknown>;
+    if (typeof r.role !== "string" || typeof r.provider !== "string" || typeof r.model !== "string") {
+      return undefined;
+    }
+    if (r.thinkingLevel !== undefined && typeof r.thinkingLevel !== "string") return undefined;
+    tiers.push({
+      role: r.role,
+      provider: r.provider,
+      model: r.model,
+      ...(typeof r.thinkingLevel === "string" ? { thinkingLevel: r.thinkingLevel } : {}),
+    });
+  }
+  return tiers;
+}
+
+/**
  * Reads a plan-review request off an `extension_ui_request` title, or null when
  * the title is not one. Keeps the sentinel parsing in one place, shared by the
  * renderer's frame router and its tests.
@@ -131,6 +175,7 @@ export function parsePlanReviewTitle(title: string | undefined): PlanReviewReque
   // A review with no plan file is not reviewable — fall through to the generic
   // dialog rather than opening an empty pane.
   if (!planFilePath) return null;
+  const tiers = parseTiers(record.tiers);
   return {
     title: typeof record.title === "string" ? record.title : planFilePath,
     planFilePath,
@@ -139,6 +184,7 @@ export function parsePlanReviewTitle(title: string | undefined): PlanReviewReque
       ? { sourceHash: record.sourceHash }
       : {}),
     ...(record.represented === true ? { represented: true as const } : {}),
+    ...(tiers ? { tiers } : {}),
   };
 }
 

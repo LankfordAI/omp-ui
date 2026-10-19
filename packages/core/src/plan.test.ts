@@ -119,6 +119,40 @@ describe("parsePlanReviewTitle", () => {
       planAbsPath: null,
     });
   });
+
+  it("passes well-formed tiers through, cleaned to the contract keys", () => {
+    const title =
+      PLAN_REVIEW_SENTINEL +
+      JSON.stringify({
+        title: "t",
+        planFilePath: "local://p.md",
+        tiers: [
+          { role: "smol", provider: "anthropic", model: "haiku", extra: "junk" },
+          { role: "slow", provider: "openai", model: "gpt", thinkingLevel: "high" },
+        ],
+      });
+    expect(parsePlanReviewTitle(title)?.tiers).toEqual([
+      { role: "smol", provider: "anthropic", model: "haiku" },
+      { role: "slow", provider: "openai", model: "gpt", thinkingLevel: "high" },
+    ]);
+  });
+
+  it("drops the whole tier list on any malformed row — a half-cycle is worse than none", () => {
+    const title = (tiers: unknown) =>
+      PLAN_REVIEW_SENTINEL + JSON.stringify({ title: "t", planFilePath: "local://p.md", tiers });
+    expect(parsePlanReviewTitle(title([{ role: "smol", provider: "a", model: "x" }, { role: "slow", provider: "o" }]))?.tiers).toBeUndefined();
+    expect(parsePlanReviewTitle(title([{ role: 7, provider: "a", model: "x" }, { role: "slow", provider: "o", model: "y" }]))?.tiers).toBeUndefined();
+    expect(parsePlanReviewTitle(title([{ role: "smol", provider: "a", model: "x", thinkingLevel: 9 }, { role: "slow", provider: "o", model: "y" }]))?.tiers).toBeUndefined();
+    expect(parsePlanReviewTitle(title("nope"))?.tiers).toBeUndefined();
+  });
+
+  it("drops a tier list too small to be a cycle, and keeps absence absent", () => {
+    const title = (tiers: unknown) =>
+      PLAN_REVIEW_SENTINEL + JSON.stringify({ title: "t", planFilePath: "local://p.md", tiers });
+    expect(parsePlanReviewTitle(title([{ role: "smol", provider: "a", model: "x" }]))?.tiers).toBeUndefined();
+    expect(parsePlanReviewTitle(title([]))?.tiers).toBeUndefined();
+    expect("tiers" in (parsePlanReviewTitle(title(undefined)) ?? {})).toBe(false);
+  });
 });
 
 describe("isPlanArtifactPath", () => {
