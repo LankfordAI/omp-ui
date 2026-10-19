@@ -2919,3 +2919,124 @@ describe("Settings General audio device row (issue #857)", () => {
     expect(backendMock.readAudioDevices).not.toHaveBeenCalled();
   });
 });
+
+describe("Settings omp Sharpshooter and status line rows (issue #887)", () => {
+  function seedOmp(entries: OmpSettingsSnapshot["entries"]): void {
+    backendMock.readOmpSettings.mockResolvedValue({ ...emptyOmpSettings, entries });
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  /** Unmounts the previous render so one test can observe two snapshots. */
+  async function remount(entries: OmpSettingsSnapshot["entries"]): Promise<void> {
+    if (root !== null) {
+      act(() => root!.unmount());
+      root = null;
+      document.body.replaceChildren();
+    }
+    seedOmp(entries);
+    await renderSettings();
+  }
+
+  const sharpsEntry = (): OmpSettingsSnapshot["entries"][number] => ({
+    key: "sharpshooter.minPromptLength",
+    type: "number" as const,
+    description: "",
+    value: 16,
+    globalValue: 16,
+    options: null,
+    layer: "global" as const,
+  });
+
+  // The section's merge base is the global layer, so fixtures carry the
+  // record in globalValue (value mirrors it, as a real snapshot would when
+  // no project layer overrides the key).
+  const statusLineEntry = (
+    record: Record<string, unknown>,
+  ): OmpSettingsSnapshot["entries"][number] => ({
+    key: "statusLine.segmentOptions",
+    type: "record" as const,
+    description: "",
+    value: record,
+    globalValue: record,
+    options: null,
+    layer: "global" as const,
+  });
+
+  const showProfileSwitch = (): HTMLElement =>
+    document.querySelector<HTMLElement>(
+      '[role="switch"][aria-label="statusLine.segmentOptions"]',
+    )!;
+
+  it("renders the Sharpshooter row and commits a typed minimum prompt length", async () => {
+    seedOmp([sharpsEntry()]);
+    await renderSettings();
+
+    expect(document.body.textContent).toContain("Sharpshooter");
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="sharpshooter.minPromptLength"]',
+    );
+    expect(input).not.toBeNull();
+    expect(input!.value).toBe("16");
+
+    // Number rows commit on Enter through CommitField, like the speed rows.
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, "24");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "sharpshooter.minPromptLength",
+      24,
+    );
+  });
+
+  it("omits both sections on an omp that predates the keys", async () => {
+    seedOmp([]);
+    await renderSettings();
+    expect(document.body.textContent).not.toContain("Sharpshooter");
+    expect(document.body.textContent).not.toContain("Status line");
+    expect(
+      document.querySelector('input[aria-label="sharpshooter.minPromptLength"]'),
+    ).toBeNull();
+    expect(backendMock.writeOmpSetting).not.toHaveBeenCalled();
+  });
+
+  it("reflects omp's show-profile default: on unless pi.showProfile is false", async () => {
+    await remount([statusLineEntry({})]);
+    expect(document.body.textContent).toContain("Status line");
+    expect(document.body.textContent).toContain("Show profile name");
+    // Absent record and absent pi block both mean "shown" in omp.
+    expect(showProfileSwitch().getAttribute("aria-checked")).toBe("true");
+
+    await remount([statusLineEntry({ pi: { showProfile: false } })]);
+    expect(showProfileSwitch().getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("merges the flag write so sibling segments survive (issue #887)", async () => {
+    seedOmp([statusLineEntry({ pi: { showProfile: false }, git: { dirty: true } })]);
+    await renderSettings();
+    expect(showProfileSwitch().getAttribute("aria-checked")).toBe("false");
+
+    await act(async () => {
+      click(showProfileSwitch());
+    });
+    // A raw record write REPLACES the config key, so the section must
+    // spread-merge; git.dirty is the sibling that a naive write would drop.
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("statusLine.segmentOptions", {
+      pi: { showProfile: true },
+      git: { dirty: true },
+    });
+  });
+});

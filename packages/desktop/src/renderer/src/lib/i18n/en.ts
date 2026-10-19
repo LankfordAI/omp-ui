@@ -1263,6 +1263,11 @@ export const en = {
   // LiveVoiceSection.tsx (#813)
   "settings.omp.liveVoicePlay": "play a {voice} sample",
   "settings.omp.liveVoiceStop": "stop the {voice} sample",
+  // StatusLineSection.tsx (#887)
+  "settings.omp.statusLine": "Status line",
+  "settings.omp.statusLineHint":
+    "Options for the agent's status line, which PTY tabs render inside their terminal.",
+  "settings.omp.statusLineShowProfile": "Show profile name",
   "update.app.restartNow": "Restart now",
   "update.app.restartKicker": "Live sessions",
   "update.app.restartTitle": "Restart omp-ui now?",

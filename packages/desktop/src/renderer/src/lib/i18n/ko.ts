@@ -1132,6 +1132,11 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.rows.unset": "unset",
   "settings.omp.liveVoicePlay": "{voice} 샘플 재생",
   "settings.omp.liveVoiceStop": "{voice} 샘플 중지",
+  // StatusLineSection.tsx (#887)
+  "settings.omp.statusLine": "상태 줄",
+  "settings.omp.statusLineHint":
+    "PTY 탭이 터미널 안에 렌더링하는 에이전트 상태 줄의 옵션입니다.",
+  "settings.omp.statusLineShowProfile": "프로필 이름 표시",
 
   "update.app.restartNow": "지금 재시작",
   "update.app.restartKicker": "라이브 세션",

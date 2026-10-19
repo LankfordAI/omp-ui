@@ -12,6 +12,7 @@ import {
   OMP_SUBAGENT_MODELS_KEY,
   SPEECH_SPEED_SETTING_KEY,
   TTS_LOCAL_SPEED_SETTING_KEY,
+  STATUS_LINE_SEGMENT_OPTIONS_KEY,
 } from "@omp-ui/core/omp-settings-keys";
 import { ModelRolesSection } from "./ModelRolesSection";
 import { SubagentModelsSection } from "./SubagentModelsSection";
@@ -19,6 +20,7 @@ import { SubagentConcurrencySection } from "./SubagentConcurrencySection";
 import { ApprovalModeSection } from "./ApprovalModeSection";
 import { ContextFilesSection } from "./ContextFilesSection";
 import { LiveVoiceSection } from "./LiveVoiceSection";
+import { StatusLineSection } from "./StatusLineSection";
 import { useT } from "../../lib/i18n";
 
 export function OmpPage({
@@ -158,6 +160,12 @@ export function OmpPage({
         entry={byKey.get(LIVE_VOICE_SETTING_KEY)}
         speechSpeedEntry={byKey.get(SPEECH_SPEED_SETTING_KEY)}
         localSpeedEntry={byKey.get(TTS_LOCAL_SPEED_SETTING_KEY)}
+        pendingKey={pendingKey}
+        commit={commit}
+      />
+
+      <StatusLineSection
+        entry={byKey.get(STATUS_LINE_SEGMENT_OPTIONS_KEY)}
         pendingKey={pendingKey}
         commit={commit}
       />

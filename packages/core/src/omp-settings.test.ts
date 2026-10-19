@@ -446,6 +446,47 @@ describe("readOmpSettings", () => {
       layer: "default",
     });
   });
+
+  it("emits sharpshooter.minPromptLength and statusLine.segmentOptions when published (#887)", async () => {
+    const prompt = entry(16, "number", "Minimum prompt length for extraction");
+    const segments = entry({}, "record", "Status line segment options");
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
+        {
+          global: {
+            "sharpshooter.minPromptLength": prompt,
+            "statusLine.segmentOptions": segments,
+          },
+          pristine: {
+            "sharpshooter.minPromptLength": prompt,
+            "statusLine.segmentOptions": segments,
+          },
+        },
+        null,
+      ),
+    );
+    expect(snapshot.error).toBeNull();
+    expect(
+      snapshot.entries.find((e) => e.key === "sharpshooter.minPromptLength"),
+    ).toMatchObject({ type: "number", value: 16, options: null });
+    expect(
+      snapshot.entries.find((e) => e.key === "statusLine.segmentOptions"),
+    ).toMatchObject({ type: "record", value: {}, options: null });
+  });
+
+  it("emits nothing for the #887 keys on an omp that predates them", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner({ global: {}, pristine: {} }, null),
+    );
+    expect(
+      snapshot.entries.some((e) => e.key === "sharpshooter.minPromptLength"),
+    ).toBe(false);
+    expect(
+      snapshot.entries.some((e) => e.key === "statusLine.segmentOptions"),
+    ).toBe(false);
+  });
 });
 
 describe("OpenRouter variant", () => {
@@ -652,6 +693,51 @@ describe("writeOmpSetting", () => {
       "blocker",
       "--json",
     ]);
+  });
+
+  it("admits sharpshooter.minPromptLength and statusLine.segmentOptions to the write boundary (#887)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "sharpshooter.minPromptLength", value: 16 },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      "sharpshooter.minPromptLength",
+      "16",
+      "--json",
+    ]);
+    await writeOmpSetting(
+      {
+        ompPath: OMP,
+        key: "statusLine.segmentOptions",
+        value: { pi: { showProfile: false } },
+      },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      "statusLine.segmentOptions",
+      '{"pi":{"showProfile":false}}',
+      "--json",
+    ]);
+    // The widened allowlist must still fail closed on strangers.
+    const run = fakeRunner({ global: {}, pristine: {} }, null);
+    await expect(
+      writeOmpSetting(
+        { ompPath: OMP, key: "statusLine.someFutureKey", value: true },
+        run,
+      ),
+    ).rejects.toThrow(/refusing to write unlisted omp setting/);
+    expect(run.calls).toBe(0);
   });
 
   it("refuses a missing binary without invoking the runner", async () => {
