@@ -7,7 +7,7 @@ import { LIMITS_COMMAND } from "@omp-ui/core/limits";
 import { sessionSpendArmMessage } from "@omp-ui/core/session-spend";
 import { isHtmlPlanPath, planMessage } from "@omp-ui/core/plan";
 import { parseExperimentProposalTitle } from "@omp-ui/core/autoresearch";
-import { parseApprovalPrompt } from "@omp-ui/core/approval";
+import { APPROVAL_ALLOW, APPROVAL_DENY, parseApprovalPrompt } from "@omp-ui/core/approval";
 import {
   goalOwnsSession as coreGoalOwnsSession,
   guidedGoalPrompt,
@@ -429,17 +429,23 @@ export function createSessionParamsSlice(
     m.patchRpc(tabId, { approvalPrompt: { prompt, frame } });
   };
 
-  /** Answers the held approval. Exit-guarded like the experiment proposal. */
-  const answerApprovalPrompt: SessionParamsSlice["answerApprovalPrompt"] = (tabId, verdict) => {
+  /** Answers the held approval with a semantic choice, mapped to the frame's
+   *  wire label ("session" echoes the prompt's verbatim sessionLabel). Exit-guarded
+   *  like the experiment proposal; false when none is held or when "session" is
+   *  asked of a two-option prompt (no label to grant). */
+  const answerApprovalPrompt: SessionParamsSlice["answerApprovalPrompt"] = (tabId, choice) => {
     const held = get().rpc[tabId]?.approvalPrompt;
     if (!held) return false;
+    const value =
+      choice === "once" ? APPROVAL_ALLOW : choice === "deny" ? APPROVAL_DENY : held.prompt.sessionLabel;
+    if (value === null) return false; // two-option prompt: nothing to grant
     // The agent is blocked on this reply — clear only after sending. An exited
     // process has nothing to release; the card was still worth showing.
     if (get().exited[tabId] === undefined)
       backend.rpcSend(tabId, {
         type: "extension_ui_response",
         id: strField(held.frame, "id"),
-        value: verdict,
+        value,
       });
     m.patchRpc(tabId, { approvalPrompt: null });
     return true;

@@ -7,11 +7,12 @@ import { Button, Chip, Label } from "./ui";
 /**
  * The approval card (issue #681, ADR-0038): the dedicated answer surface for
  * omp's tool-approval select — an `Allow tool: <name>` frame whose options are
- * exactly Approve/Deny, routed here by the frame reducer instead of the
- * generic dialog queue. The agent is *blocked* on the reply: the runner
- * compares only against `"Approve"`, and a dropped dialog must read as a
- * refusal, never a silent approval — Escape and Deny both answer `"Deny"`,
- * which lands the clean "denied by user" transcript path.
+ * Approve/Deny, or on omp ≥ 18.11.3 Approve / Approve <subject> for this
+ * session / Deny (issue #883), routed here by the frame reducer instead of the
+ * generic dialog queue. The agent is *blocked* on the reply: omp maps the
+ * answered label (once/session/deny) and a non-matching reply is a denial —
+ * a dropped dialog must read as refusal, never a silent approval. Escape and
+ * Deny both answer "deny", which lands the clean "denied by user" transcript path.
  *
  * Non-modal by design, mounted in the floating dialog stack above the
  * composer: the transcript keeps streaming around it while the single tool
@@ -38,7 +39,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        answerApprovalPrompt(tabId, "Deny");
+        answerApprovalPrompt(tabId, "deny");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -46,6 +47,9 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   }, [prompt, tabId, answerApprovalPrompt]);
 
   if (prompt === null) return null;
+  // Frame text deliberately not i18n'd: it names omp's grant subject and
+  // must match what the harness composed.
+  const sessionLabel = prompt.sessionLabel;
   return (
     <div
       role="dialog"
@@ -90,10 +94,15 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
         )}
       </div>
       <div className="flex items-center justify-end gap-2 px-4 pb-3 pt-3">
-        <Button variant="ghost" onClick={() => answerApprovalPrompt(tabId, "Deny")}>
+        <Button variant="ghost" onClick={() => answerApprovalPrompt(tabId, "deny")}>
           {t("dialog.approval.deny")}
         </Button>
-        <Button variant="solid" tone="signal" onClick={() => answerApprovalPrompt(tabId, "Approve")}>
+        {sessionLabel !== null && (
+          <Button variant="ghost" onClick={() => answerApprovalPrompt(tabId, "session")}>
+            {sessionLabel}
+          </Button>
+        )}
+        <Button variant="solid" tone="signal" onClick={() => answerApprovalPrompt(tabId, "once")}>
           {t("dialog.approval.allow")}
         </Button>
       </div>

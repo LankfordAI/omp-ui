@@ -89,3 +89,21 @@ only — the session mode never reaches them.
   layers and stores nothing of its own.
 - ADR-0028 (broadcast + proxy) — the new session channel rides the tab-routed
   proxy set; project channels stay host-local like the concurrency pair.
+
+## Amendment (2026-10, issue #883)
+
+omp 18.11.3 grew the rpc approval select to three options:
+`["Approve", "Approve <policy key> for this session", "Deny"]`. omp's runner
+maps the answered label to once/session/deny and grants the session-wide
+allowance only when the reply equals its own composed label exactly — a
+reconstruction or a bare `"session"` string is a silent deny.
+
+omp-ui's recognizer (`packages/core/src/approval.ts`) accepts both option
+shapes structurally, with no version fingerprinting: the three-option frame is
+itself proof of a session-capable harness, and an older omp never emits one.
+There is deliberately **no `MIN_SUPPORTED_OMP` bump and no version gate
+constant** — registering an 18.11.3 gate in `harness-floor.test.ts` would
+force the floor from 18.8.8 to 18.11.3, deleting the two-option case that is
+live under the current floor. The card answers "session" by echoing the
+frame's verbatim middle label (`ApprovalPrompt.sessionLabel`), never a
+rebuilt string.

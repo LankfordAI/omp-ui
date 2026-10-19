@@ -79,7 +79,7 @@ import type {
 import type { LiveReplayState, LiveReplayTarget } from "./slices/live-audio";
 import type { RailTab } from "../lib/panel-layout";
 import type { AutoresearchSnapshot, ExperimentProposal } from "@omp-ui/core/autoresearch";
-import type { ApprovalPrompt } from "@omp-ui/core/approval";
+import type { ApprovalChoice, ApprovalPrompt } from "@omp-ui/core/approval";
 import type { CompactionThresholdSettings } from "@omp-ui/core/compaction-threshold";
 import type {
   PlanExecutionContext,
@@ -1214,8 +1214,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   abortRetry(tabId: string): Promise<void>;
   /** Holds an approval frame on its tab, split out of the generic queue (issue #681). */
   acceptApprovalPrompt(tabId: string, prompt: ApprovalPrompt, frame: unknown): void;
-  /** Answers the pending approval (skipping the send when the process exited) and clears it. False when none is held. */
-  answerApprovalPrompt(tabId: string, verdict: "Approve" | "Deny"): boolean;
+  /** Answers the held approval (skipping the send when the process exited) and clears it.
+   *  False when none is held, or when "session" is asked of a two-option prompt. */
+  answerApprovalPrompt(tabId: string, choice: ApprovalChoice): boolean;
   /**
    * Compacts the context. Resolves `acked` only when omp acknowledged the
    * compaction (#336), `pending` when it is still running past the response
