@@ -597,13 +597,16 @@ _Avoid_: plan lint, plan validation prompt, renderer check
 **Approval card**:
 The transcript card that answers one of omp's tool-approval prompts — an
 `extension_ui_request` whose title begins `Allow tool: ` and whose options are
-exactly Approve and Deny (issue #681, ADR-0038). The frame router splits it
-out of the generic extension dialog queue so the card renders its tool name,
-origin, policy reason, and argument details directly; the main process keeps
-counting the frame as an ordinary blocking dialog, so awaiting-answer, the
-stall guard, and remote hydration behave unchanged. Answering sends exactly
-`"Approve"` or `"Deny"` — omp's runner compares only against `"Approve"`, and
-no session-wide "always allow" verb exists over rpc. Closing the card or
+Approve and Deny or, on omp ≥ 18.11.3, Approve / `Approve <subject> for this
+session` / Deny (issue #681, ADR-0038 amended for issue #883). The frame
+router splits it out of the generic extension dialog queue so the card renders
+its tool name, origin, policy reason, and argument details directly; the main
+process keeps counting the frame as an ordinary blocking dialog, so
+awaiting-answer, the stall guard, and remote hydration behave unchanged.
+Answering sends the chosen option label verbatim — `"Approve"`, `"Deny"`, or,
+on the three-option shape, the frame's own session label: omp's runner maps
+the answered label to once, deny, or a session-wide allowance that lands only
+when the reply equals its composed label exactly. Closing the card or
 pressing Escape answers Deny: a dropped dialog is a refusal, never a silent
 approval.
 _Avoid_: approval dialog, permission prompt, tool gate card

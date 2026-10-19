@@ -965,6 +965,19 @@ describe("handleRpcFrame routing", () => {
     expect(tab.extensionQueue).toHaveLength(1);
   });
 
+  it("routes the three-option approval shape keeping its session label (issue #883)", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "a3",
+      method: "select",
+      title: "Allow tool: Bash",
+      options: ["Approve", "Approve Bash for this session", "Deny"],
+    });
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.approvalPrompt!.prompt.sessionLabel).toBe("Approve Bash for this session");
+    expect(tab.extensionQueue).toHaveLength(0);
+  });
+
   it("holds the oldest approval while parallel calls stack (issue #681)", () => {
     const store = h.useStore.getState();
     store.handleRpcFrame(h.TAB, {
@@ -984,7 +997,7 @@ describe("handleRpcFrame routing", () => {
     // The older frame stays answerable; the second is already counted by main
     // and reconciles in once the first is answered.
     expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toMatchObject({ frame: { id: "a1" } });
-    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "Approve")).toBe(true);
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "once")).toBe(true);
     expect(h.sent.pop()!.cmd).toMatchObject({
       type: "extension_ui_response",
       id: "a1",

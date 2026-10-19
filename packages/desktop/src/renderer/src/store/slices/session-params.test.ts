@@ -2524,14 +2524,25 @@ describe("reconcilePendingDialogs (issue #555)", () => {
 
   // Approvals (issue #681): main counts the select as a plain blocking dialog
   // while the renderer splits it into approvalPrompt — same id-based compare.
-  const approvalDialog = (id: string, tool = "Bash"): Record<string, unknown> => ({
+  const approvalDialog = (
+    id: string,
+    tool = "Bash",
+    options: string[] = ["Approve", "Deny"],
+  ): Record<string, unknown> => ({
     type: "extension_ui_request",
     id,
     method: "select",
     title: `Allow tool: ${tool}\nls -la`,
-    options: ["Approve", "Deny"],
+    options,
   });
-  const emptyPrompt = { toolName: "Bash", origin: null, reason: null, details: [], providerSafety: [] };
+  const emptyPrompt = {
+    toolName: "Bash",
+    origin: null,
+    reason: null,
+    details: [],
+    providerSafety: [],
+    sessionLabel: null,
+  };
 
   it("hydrates a held approval and keeps it out of the queue, idempotently", () => {
     const q = dialog("q1");
@@ -2556,13 +2567,20 @@ describe("reconcilePendingDialogs (issue #555)", () => {
   });
 
   it("reconciles the next stacked approval once a sibling answers the held one", () => {
-    const state = stateWithDialogs([approvalDialog("a2", "Edit")]);
-    const held = { prompt: emptyPrompt, frame: approvalDialog("a1") };
+    const state = stateWithDialogs([
+      approvalDialog("a2", "Edit", ["Approve", "Approve Edit for this session", "Deny"]),
+    ]);
+    // Each frame carries its own session subject; the promoted one must not
+    // inherit the answered frame's label (issue #883 edge case).
+    const held = {
+      prompt: { ...emptyPrompt, sessionLabel: "Approve Bash for this session" },
+      frame: approvalDialog("a1", "Bash", ["Approve", "Approve Bash for this session", "Deny"]),
+    };
     h.useStore.setState({ state, rpc: { [h.TAB]: rpcTabState({ approvalPrompt: held }) } });
     h.useStore.getState().reconcilePendingDialogs(state);
     expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toMatchObject({
       frame: { id: "a2" },
-      prompt: { toolName: "Edit" },
+      prompt: { toolName: "Edit", sessionLabel: "Approve Edit for this session" },
     });
   });
 
@@ -2571,20 +2589,44 @@ describe("reconcilePendingDialogs (issue #555)", () => {
     h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: rpcTabState() } });
     h.useStore.getState().acceptApprovalPrompt(h.TAB, emptyPrompt, frame);
 
-    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "Deny")).toBe(true);
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "deny")).toBe(true);
     expect(h.sent.at(-1)).toMatchObject({
       tabId: h.TAB,
       cmd: { type: "extension_ui_response", id: "a1", value: "Deny" },
     });
     expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toBeNull();
     // Nothing held: the card's second click is a no-op.
-    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "Approve")).toBe(false);
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "once")).toBe(false);
 
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ approvalPrompt: { prompt: emptyPrompt, frame } }) }, exited: { [h.TAB]: 1 } });
     const before = h.sent.length;
-    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "Approve")).toBe(true);
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "once")).toBe(true);
     expect(h.sent.length).toBe(before); // the process is gone; nothing to release
     expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toBeNull();
+  });
+
+  it("answers session with the held prompt's verbatim label (issue #883)", () => {
+    const frame = approvalDialog("a1", "Bash", ["Approve", "Approve Bash for this session", "Deny"]);
+    const prompt = { ...emptyPrompt, sessionLabel: "Approve Bash for this session" };
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().acceptApprovalPrompt(h.TAB, prompt, frame);
+
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "session")).toBe(true);
+    expect(h.sent.at(-1)).toMatchObject({
+      tabId: h.TAB,
+      cmd: { type: "extension_ui_response", id: "a1", value: "Approve Bash for this session" },
+    });
+    expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toBeNull();
+  });
+
+  it("refuses a session answer on the two-option shape without touching the hold", () => {
+    const frame = approvalDialog("a1");
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: rpcTabState({ approvalPrompt: { prompt: emptyPrompt, frame } }) } });
+    const before = h.sent.length;
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, "session")).toBe(false);
+    // The null guard precedes the send AND the clear — the hold stays answerable.
+    expect(h.sent.length).toBe(before);
+    expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).not.toBeNull();
   });
 });
 

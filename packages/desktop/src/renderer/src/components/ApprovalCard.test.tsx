@@ -26,6 +26,7 @@ const PROMPT: ApprovalPrompt = {
   reason: "policy: shells need a person",
   details: ["ls -la /etc"],
   providerSafety: ["injection scan: passed"],
+  sessionLabel: null,
 };
 
 let root: Root | null = null;
@@ -94,6 +95,25 @@ describe("ApprovalCard (issue #681)", () => {
     render(PROMPT);
     act(() => button("Deny").click());
     expect(rpcSend.mock.calls.at(-1)![1]).toMatchObject({ value: "Deny" });
+  });
+
+  it("offers the session option and answers with its verbatim label (issue #883)", () => {
+    render({ ...PROMPT, sessionLabel: "Approve Bash for this session" });
+    act(() => button("Approve Bash for this session").click());
+    expect(rpcSend).toHaveBeenCalledWith(TAB, {
+      type: "extension_ui_response",
+      id: "a1",
+      value: "Approve Bash for this session",
+    });
+    expect(useStore.getState().rpc[TAB]!.approvalPrompt).toBeNull();
+  });
+
+  it("shows no session button on the two-option shape", () => {
+    render(PROMPT);
+    const texts = [...document.querySelectorAll("button")].map((b) => b.textContent);
+    expect(texts).toContain("Allow");
+    expect(texts).toContain("Deny");
+    expect(texts.some((t) => t?.includes("for this session"))).toBe(false);
   });
 
   it("maps Escape to Deny — a dropped dialog is a refusal, never silence", () => {

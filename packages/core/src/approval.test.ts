@@ -11,6 +11,7 @@ describe("parseApprovalPrompt", () => {
       reason: null,
       details: [],
       providerSafety: [],
+      sessionLabel: null,
     });
   });
 
@@ -32,6 +33,7 @@ describe("parseApprovalPrompt", () => {
       reason: "policy: edits need a person",
       details: ["--- a/src/x.ts", "+++ b/src/x.ts", "@@ -1 +1 @@"],
       providerSafety: [],
+      sessionLabel: null,
     });
   });
 
@@ -67,10 +69,49 @@ describe("parseApprovalPrompt", () => {
     expect(parseApprovalPrompt("Allow tool: Bash", options)?.toolName).toBe("Bash");
   });
 
-  it("rejects a grown option list — the card is omp's protocol or nothing", () => {
+  it("accepts the 18.11.3 three-option shape, keeping the label verbatim", () => {
+    const prompt = parseApprovalPrompt("Allow tool: Bash\nls -la", [
+      "Approve",
+      "Approve Bash(git *) for this session",
+      "Deny",
+    ]);
+    expect(prompt).toMatchObject({
+      toolName: "Bash",
+      sessionLabel: "Approve Bash(git *) for this session",
+    });
+  });
+
+  it("accepts an object-form middle option through the label normalizer", () => {
+    const prompt = parseApprovalPrompt("Allow tool: Bash", [
+      "Approve",
+      { label: "Approve X for this session" },
+      "Deny",
+    ]);
+    expect(prompt?.sessionLabel).toBe("Approve X for this session");
+  });
+
+  it("rejects grown or forged option lists — the card is omp's protocol or nothing", () => {
     expect(parseApprovalPrompt("Allow tool: Bash", ["Approve", "Deny", "Always"])).toBeNull();
     expect(parseApprovalPrompt("Allow tool: Bash", ["Deny", "Approve"])).toBeNull();
     expect(parseApprovalPrompt("Allow tool: Bash", ["Approve"])).toBeNull();
+    // Middle session label at the wrong index: last option must be Deny.
+    expect(
+      parseApprovalPrompt("Allow tool: Bash", [
+        "Approve",
+        "Deny",
+        "Approve Bash for this session",
+      ]),
+    ).toBeNull();
+    // Non-matching middle wording.
+    expect(parseApprovalPrompt("Allow tool: Bash", ["Approve", "Always", "Deny"])).toBeNull();
+    // The regex needs a subject between the spaces.
+    expect(
+      parseApprovalPrompt("Allow tool: Bash", [
+        "Approve",
+        "Approve for this session",
+        "Deny",
+      ]),
+    ).toBeNull();
   });
 
   it("rejects frames without options and titles without the prefix", () => {
