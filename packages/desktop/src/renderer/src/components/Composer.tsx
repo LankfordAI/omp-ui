@@ -116,6 +116,7 @@ export function Composer({
       },
       { ...UI_GUIDED_GOAL_COMMAND, description: t("composer.slash.guidedGoal") },
       { ...UI_BTW_COMMAND, description: t("composer.slash.btw") },
+      { ...UI_SEANCE_COMMAND, description: t("composer.slash.seance") },
       {
         ...UI_VIBE_COMMAND,
         description: t("composer.slash.vibe"),
@@ -1455,6 +1456,19 @@ const UI_BTW_COMMAND: SlashCommandInfo = {
   description: "ask a side question without touching the transcript",
   source: "omp-ui",
   input: { hint: "<question>" },
+};
+
+/**
+ * omp's `/seance` is TUI-only (its entry defines `handleTui` only — there is
+ * no rpc verb) and absent from `get_available_commands`, so the palette would
+ * never show it; the store intercepts the line in native tabs and opens the
+ * Seance consult dialog there (issue #885).
+ */
+const UI_SEANCE_COMMAND: SlashCommandInfo = {
+  name: "seance",
+  description: "consult a saved session without resuming it",
+  source: "omp-ui",
+  input: { hint: "[session id|path] [--model selector]" },
 };
 
 /**

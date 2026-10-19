@@ -85,6 +85,7 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:deletePreview",
   "session:delete",
   "session:fork",
+  "session:transcriptPath",
   "session:setAdvisor",
   "session:setApprovalMode",
   "session:setModel",

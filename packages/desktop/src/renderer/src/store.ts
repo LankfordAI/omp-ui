@@ -35,6 +35,7 @@ import {
 import { createLifecycleSlice } from "./store/slices/lifecycle";
 import { createPlanExecutionSlice } from "./store/slices/plan-execution";
 import { createRpcCommandSlice } from "./store/slices/rpc-command";
+import { createSeanceSlice } from "./store/slices/seance";
 import { createSessionParamsSlice } from "./store/slices/session-params";
 import { createSideQuestionsSlice } from "./store/slices/side-questions";
 import { createSettingsSlice } from "./store/slices/settings";
@@ -97,6 +98,7 @@ export {
   COMPACTION_USAGE_RETRY_MS,
   COMPACTION_USAGE_MAX_ATTEMPTS,
 } from "./store/slices/frame-reduction";
+export { resolveSeanceSource } from "./store/slices/seance";
 export {
   COMPACT_SETTLE_DEADLINE_MS,
   RPC_COMMAND_TIMEOUT_MS,
@@ -184,6 +186,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const collab = createCollabSlice(set, get);
   const sideQuestions = createSideQuestionsSlice(get, m);
   const subagentControl = createSubagentControlSlice(get, m);
+  const seance = createSeanceSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });
   const asyncJobs = createAsyncJobsSlice(get, m);
   const liveAudio = createLiveAudioSlice(get, set);
   /**
@@ -402,6 +405,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...collab,
     ...sideQuestions,
     ...subagentControl,
+    ...seance,
     ...asyncJobs,
     ...liveAudio,
     state: null,

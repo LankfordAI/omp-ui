@@ -1124,3 +1124,48 @@ describe("Voice recordings section (issue #810)", () => {
     expect(busy?.disabled).toBe(true);
   });
 });
+describe("Seance rail pane (issue #885)", () => {
+  // The pane's only capability read is the version gate; same shape as the
+  // Side questions helper above, kept local to this block's scope.
+  const cap = (ompVersion: string | null) => ({
+    version: 1 as const,
+    processKey: "p",
+    sessionId: null,
+    revision: 1,
+    updatedAt: 0,
+    ompVersion,
+    skillCommandsEnabled: null,
+    skills: { status: "unavailable" as const, reason: "missing-api" as const },
+    tools: { status: "unavailable" as const, reason: "missing-api" as const },
+    magicKeywords: { status: "unavailable" as const, reason: "missing-api" as const },
+    toolControl: "unsupported" as const,
+    toolMutation: null,
+  });
+
+  it("opens its own pane from the eighth icon", () => {
+    useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.11.3") }) } });
+    renderRail();
+    act(() => railTab("seance")!.click());
+    expect(button("seance")?.getAttribute("aria-pressed")).toBe("true");
+    expect(document.body.textContent).toContain(t("rail.seance.emptyTitle"));
+  });
+
+  it("badges live consults only — running and pending count, completed does not", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          capabilities: cap("18.11.3"),
+          subagents: [
+            { id: "s-1", agent: "seance", label: "a", status: "running" },
+            { id: "s-2", agent: "seance", label: "b", status: "pending" },
+            { id: "s-3", agent: "seance", label: "c", status: "completed" },
+            // A regular task agent never rides the seance badge.
+            { id: "t-1", agent: "task", name: "worker", status: "running" },
+          ],
+        }),
+      },
+    });
+    renderRail();
+    expect(railTab("seance")?.title).toBe("seance (2)");
+  });
+});

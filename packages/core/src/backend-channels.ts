@@ -796,6 +796,18 @@ export const BACKEND_CHANNELS = {
     ...request<[tabId: string], { tabId: string }>([str()]),
   },
   /**
+   * Absolute path of the session's transcript file, or null when it never
+   * materialized (lazy write) or its files are gone. Resolved on every call
+   * — omp gc relocates and gzips cold sessions, so cached paths dangle
+   * (ADR-0003). A gzipped archived transcript is returned unchanged: omp's
+   * session store reads it. Backs the Seance consult source picker (issue
+   * #885); the renderer never sees the sessions root itself.
+   */
+  sessionTranscriptPath: {
+    channel: "session:transcriptPath",
+    ...request<[tabId: string], string | null>([str()]),
+  },
+  /**
    * Re-pins a session's advisor state. omp binds both the enable flag and the
    * `advisor` role at process start, so a live session is respawned with
    * `--resume`; a dormant one just records the choice for its next launch.

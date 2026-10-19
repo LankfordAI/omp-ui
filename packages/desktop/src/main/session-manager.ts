@@ -2246,6 +2246,26 @@ export class SessionManager {
     await this.deps.broadcast();
   }
 
+  /**
+   * Absolute path of the session's transcript file, or null when it never
+   * materialized (lazy write) or its files are gone (issue #885). Re-resolved
+   * on every call — omp gc relocates cold sessions into gzipped archives
+   * (ADR-0003), so cached paths dangle. A gzipped archived transcript is
+   * returned unchanged: omp's own session store reads `.jsonl.gz`. Read-only;
+   * nothing here wakes, moves, or touches the source.
+   */
+  async transcriptPath(tabId: string): Promise<string | null> {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record || record.sessionId === null) return null;
+    const loc = await resolveSessionLocation(
+      this.deps.getSessionsRoot(),
+      this.deps.getArchiveRoot(),
+      record.lineageDir,
+      record.sessionId,
+    );
+    return loc.where === "missing" ? null : loc.filePath;
+  }
+
   async forkSession(tabId: string): Promise<{ tabId: string }> {
     return this.enqueueOp(tabId, "fork", async () => {
     const source = this.deps.registry.sessions.find((s) => s.tabId === tabId);

@@ -146,7 +146,7 @@ describe("OmpUpdateCard", () => {
       }),
     });
     renderCard();
-    expect(document.body.textContent).toContain("omp-ui needs omp 18.8.8 or later");
+    expect(document.body.textContent).toContain("omp-ui needs omp 18.11.3 or later");
     expect(document.body.textContent).toContain("some features are disabled");
     expect(document.body.textContent).not.toContain("omp 19.0.0 available");
     click(buttonWithText("Later"));

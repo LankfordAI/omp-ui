@@ -836,6 +836,7 @@ export class MainBackend {
         [CH.deleteSession]: (tabId: string, cascade: boolean) =>
           this.sessions.deleteSession(tabId, cascade),
         [CH.forkSession]: (tabId: string) => this.sessions.forkSession(tabId),
+        [CH.sessionTranscriptPath]: (tabId: string) => this.sessions.transcriptPath(tabId),
         [CH.convertToWorktree]: (
           tabId: string,
           branch: string,

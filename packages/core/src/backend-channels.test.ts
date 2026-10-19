@@ -247,6 +247,7 @@ const VALID_ARGS = {
   showPathInFolder: ["/tmp/file"],
   signOutProviderOAuth: ["openai-codex", 11],
   spawnSession: [spawnRequest],
+  sessionTranscriptPath: ["tab-1"],
   setSessionToolEnabled: ["tab-1", "proc-1", "sess-1", "web search", true],
   startProviderOAuth: ["openai-codex"],
   statsOverview: [7],
