@@ -5,6 +5,7 @@ import { parseTitleCard } from "@omp-ui/core/title-card";
 import { useT, type MessageKey } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
+import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
 import { Button, Dot, IconButton, IconGrip, IconLock, IconSpeaker, type Tone } from "./ui";
 import type { LivePhase } from "@omp-ui/core/live-voice";
 
@@ -153,6 +154,25 @@ function IconPlan() {
   );
 }
 
+/** A small ghost — the row's Seance consult action (issue #885). */
+function IconSeance() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 13.5V7a4 4 0 018 0v6.5l-1.3-1-1.3 1-1.4-1-1.4 1-1.3-1z" />
+      <path d="M6.4 7.2v.8M9.6 7.2v.8" />
+    </svg>
+  );
+}
+
 /**
  * Plan-handoff view of one sidebar row, derived by the sidebar arrangement
  * (issue #238). Exactly one of `source`/`orphanSource` is set on an
@@ -204,6 +224,11 @@ export function SessionRow({
   const exited = useStore((st) => st.exited[s.tabId]);
   const sidebarState = useStore((st) => deriveSidebarSessionState(s, st.rpc[s.tabId]));
   const activeTabId = useStore((st) => st.activeTabId);
+  const consultFromRow = useStore((st) => st.consultFromRow);
+  // Seance consult (issue #885): the floor rides the installed binary's
+  // version, the same source SessionHud gates anonymize on — a dormant row
+  // can be consulted from any project, so no per-tab ompVersion exists here.
+  const seanceAvailable = useStore((st) => supportsSeance(st.ompUpdate.installedVersion));
 
   // Live voice output (issue #807) plus the park/resume badges (#811): a
   // running live session speaks even when its tab is not visible, and the
@@ -425,6 +450,23 @@ export function SessionRow({
           >
             {t("sidebar.session.resume")}
           </Button>
+        ) : null}
+        {/* Seance consult (issue #885): a read-only question about this saved
+            session. Never on a live row — a running session is consulted via
+            the /seance line, not by resurrecting its transcript behind it. */}
+        {!missing && s.live !== "live" && s.sessionId !== null ? (
+          <IconButton
+            label={
+              seanceAvailable
+                ? t("sidebar.session.seance")
+                : t("sidebar.session.seanceNeedsOmp", { version: SEANCE_MIN_OMP })
+            }
+            disabled={!seanceAvailable}
+            onClick={() => void consultFromRow(s.tabId)}
+            className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
+          >
+            <IconSeance />
+          </IconButton>
         ) : null}
         <IconButton
           label={

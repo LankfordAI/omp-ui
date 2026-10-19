@@ -27,6 +27,7 @@ import { AGENT_TONE } from "../lib/agent-tone";
 import { compactNum, exactNum, formatCost, relativeTime, shortBase } from "../lib/format";
 import { TodoPanel } from "./TodoPanel";
 import { SideQuestionsPane } from "./SideQuestionsPane";
+import { SeancePane } from "./SeancePane";
 import { SubagentModelsControl } from "./SubagentModelsControl";
 import { SubagentControls, useSubagentControlNotice } from "./SubagentControls";
 import { Section } from "./RailSection";
@@ -121,6 +122,13 @@ function TabIcon({ tab }: { tab: RailTab }) {
         <>
           <path d="M2.8 3.2h10.4a1 1 0 0 1 1 1v5.6a1 1 0 0 1-1 1H8.2l-3 2.4v-2.4H2.8a1 1 0 0 1-1-1V4.2a1 1 0 0 1 1-1z" {...ICON_STROKE} />
           <path d="M6.6 6.2c0-.9.7-1.5 1.5-1.5s1.4.6 1.4 1.3c0 .9-1.4 1.1-1.4 2M8.1 9.4v.1" {...ICON_STROKE} />
+        </>
+      )}
+      {tab === "seance" && (
+        <>
+          {/* A ghost — omp's own /seance glyph: dome head, wavy hem, two eyes. */}
+          <path d="M3.6 12.4V7a4.4 4.4 0 0 1 8.8 0v5.4l-1.5-1.3-1.4 1.3-1.5-1.3-1.4 1.3-1.5-1.3z" {...ICON_STROKE} />
+          <path d="M6.4 6.9v.1M9.6 6.9v.1" {...ICON_STROKE} />
         </>
       )}
     </svg>
@@ -1057,7 +1065,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
 
 /* -------------------------------------------------------------- the rail */
 
-const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.jobs" | "rail.tabs.session" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" }[] = [
+const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.jobs" | "rail.tabs.session" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" | "rail.tabs.seance" }[] = [
   { id: "todos", labelKey: "rail.tabs.todos" },
   { id: "agents", labelKey: "rail.tabs.agents" },
   { id: "jobs", labelKey: "rail.tabs.jobs" },
@@ -1065,6 +1073,7 @@ const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "r
   { id: "plans", labelKey: "rail.tabs.plans" },
   { id: "diffs", labelKey: "rail.tabs.diffs" },
   { id: "btw", labelKey: "rail.tabs.btw" },
+  { id: "seance", labelKey: "rail.tabs.seance" },
 ];
 
 export function inspectorBadges(
@@ -1084,6 +1093,11 @@ export function inspectorBadges(
     diffs: 0,
     // Answered topics: what the user can read back.
     btw: (runtime?.sideQuestions?.topics ?? []).filter((topic) => topic.status === "complete").length,
+    // Live consults only: a settled consultant is history, not an event worth
+    // lighting the strip for (issue #885).
+    seance: (runtime?.subagents ?? []).filter(
+      (agent) => agent.agent === "seance" && (agent.status === "running" || agent.status === "pending"),
+    ).length,
   };
 }
 
@@ -1171,13 +1185,14 @@ export function InspectorRail({ tabId }: { tabId: string }) {
       {tab === "plans" && <PlansPane tabId={tabId} />}
       {tab === "diffs" && <DiffsPane tabId={tabId} />}
       {tab === "btw" && <SideQuestionsPane tabId={tabId} />}
+      {tab === "seance" && <SeancePane tabId={tabId} />}
     </>
   );
 
   if (compact) {
     return (
       <Sheet open={surface === "inspector"} placement="right" label={t("rail.chrome.inspector")} onClose={closeCompactSurface}>
-        <div className="sticky top-0 z-10 grid grid-cols-7 border-b border-line bg-sunken">
+        <div className="sticky top-0 z-10 grid grid-cols-8 border-b border-line bg-sunken">
           {TABS.map(({ id, labelKey }) => {
             const label = t(labelKey);
             return (

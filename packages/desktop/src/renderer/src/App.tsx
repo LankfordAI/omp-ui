@@ -15,6 +15,7 @@ import { CapabilitiesViewer } from "./components/CapabilitiesViewer";
 import { SessionTreeViewer } from "./components/SessionTreeViewer";
 import { NewExperimentDialog } from "./components/NewExperimentDialog";
 import { NewWorktreeSessionDialog } from "./components/NewWorktreeSessionDialog";
+import { SeanceConsultDialog } from "./components/SeanceConsultDialog";
 import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
 import { Lab } from "./components/lab/Lab";
 import { Stats } from "./components/stats/Stats";
@@ -295,6 +296,7 @@ export default function App() {
   const lab = useStore((s) => s.lab);
   const stats = useStore((s) => s.stats);
   const experimentDialog = useStore((s) => s.experimentDialog);
+  const seanceDialog = useStore((s) => s.seanceDialog);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
   const settingsPage = useStore((s) => s.settingsPage);
   const openSettings = useStore((s) => s.openSettings);
@@ -588,6 +590,7 @@ export default function App() {
           proposalTabId={experimentDialog.proposalTabId ?? null}
         />
       )}
+      {seanceDialog !== null && <SeanceConsultDialog />}
       {finishWorktreeTab !== null && (
         <FinishWorktreeDialog key={finishWorktreeTab} tabId={finishWorktreeTab} />
       )}

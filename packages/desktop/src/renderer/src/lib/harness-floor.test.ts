@@ -5,6 +5,7 @@ import { ANONYMIZE_MIN_OMP } from "./anonymize";
 import { NATIVE_LIVE_MIN_OMP } from "./live-voice";
 import { NATIVE_BTW_MIN_OMP } from "./native-btw";
 import { NATIVE_FORK_MIN_OMP } from "./session-fork";
+import { SEANCE_MIN_OMP } from "./seance";
 import { PROMOTE_QUEUED_MIN_OMP, RESTORE_QUEUE_MIN_OMP } from "./queue-chip";
 
 // The §1 invariant: MIN_SUPPORTED_OMP is the maximum of every shipped feature
@@ -19,6 +20,7 @@ describe("MIN_SUPPORTED_OMP harness floor", () => {
     ["NATIVE_FORK_MIN_OMP", NATIVE_FORK_MIN_OMP],
     ["PROMOTE_QUEUED_MIN_OMP", PROMOTE_QUEUED_MIN_OMP],
     ["RESTORE_QUEUE_MIN_OMP", RESTORE_QUEUE_MIN_OMP],
+    ["SEANCE_MIN_OMP", SEANCE_MIN_OMP],
   ] as const)("is at or above %s", (_name, gate) => {
     expect(compareVersions(MIN_SUPPORTED_OMP, gate)).toBeGreaterThanOrEqual(0);
   });

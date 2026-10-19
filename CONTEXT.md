@@ -155,8 +155,8 @@ on chrome destroys the property that a glance answers "is it working?".
 _Avoid_: primary colour, brand colour, green
 
 **Inspector rail**:
-The right-hand icon strip in an rpc-ui tab, with seven panes behind it —
-Todos, Agents, Jobs, Session, Plans, Diffs, Side questions. The strip is the permanent posture:
+The right-hand icon strip in an rpc-ui tab, with eight panes behind it —
+Todos, Agents, Jobs, Session, Plans, Diffs, Side questions, Seance. The strip is the permanent posture:
 pressing an icon opens just that one pane beside it, re-pressing the active
 icon (or the pane's close control) dismisses it, and badge counts live on
 the strip icons. Remembers its selected pane per tab.
@@ -169,6 +169,18 @@ entering the main transcript or any later turn. A native tab shows them in the
 an answered topic, history kept in the session's own `btw-history/` files so it
 survives hibernation); a terminal tab's TUI keeps OMP's own `/btw`.
 _Avoid_: side chat, tangent, btw thread
+
+**Seance consult**:
+A read-only consultation of a dormant **Session** through OMP's bundled `seance`
+task agent: a consultant reads the saved transcript and answers a question
+without the consulted session ever being resumed, woken, or branched. A native
+tab launches one with `/seance` (or the sidebar row's consult action) and shows
+consultants in the **Inspector rail**'s _Seance_ pane — follow-ups steer the
+running consultant while it lives; a settled one is re-asked, fresh. A **plan-mode**
+tab cannot host the consultant — OMP hides the seance spawn while planning — so the
+launch moves to a fresh build-mode session in the source's project. The
+consulting transcript is OMP's own subagent hub record, never an omp-ui copy.
+_Avoid_: ghost session, séance thread, resume-by-reading
 
 **Project actions sheet**:
 The bottom sheet a compact-shell project header's ⋯ button opens: the

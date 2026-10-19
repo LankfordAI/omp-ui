@@ -321,6 +321,18 @@ const localCommands: readonly LocalCommand[] = [
       return get().runSideQuestionCommand(tabId, line);
     },
   },
+  {
+    // omp's /seance is TUI-only (handleTui, no rpc verb): over rpc the line
+    // would reach the model as literal prompt text. A native tab opens the
+    // Seance consult dialog instead (issue #885); a terminal tab's TUI keeps
+    // omp's own selector flow.
+    match: /^\/seance(?:\s[\s\S]*)?$/,
+    run(tabId, get, line) {
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
+      if (tab?.mode !== "rpc-ui") return false;
+      return get().runSeanceLine(tabId, line);
+    },
+  },
   // omp-ui's autoresearch surfaces (ADR-0030, #567): `start` is the New
   // experiment dialog (its own agent interview with text), `lab` the Lab.
   // Bare `/autoresearch`, `off`, `clear`, and anything else stay omp's own

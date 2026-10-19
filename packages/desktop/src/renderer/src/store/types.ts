@@ -764,6 +764,50 @@ export interface StatsSlice {
 }
 
 /**
+ * The Seance consult dialog's opener context (issue #885): where the consult
+ * launches from and what the composer line prefilled. `sourceTabId` marks an
+ * in-place consult — the invoking live tab hosts the consultant; without it,
+ * submitting spawns a fresh consult session in `projectCwd`.
+ */
+export interface SeanceDialogInit {
+  projectCwd: string;
+  instanceId: string | null;
+  sourceTabId?: string;
+  prefill?: { source?: string; model?: string };
+}
+
+/** One Seance consult launch: which session hosts it and what it consults. */
+export interface SeanceConsultTarget {
+  projectCwd: string;
+  instanceId: string | null;
+  /** Given = the consult runs in this existing live tab instead of spawning. */
+  tabId?: string;
+  /** Absolute transcript path (or verbatim selector) of the consulted session. */
+  sourceSession: string;
+  /** Human label for the kickoff's subject line. */
+  sourceLabel: string;
+  /** Read privacy of the consulted source (issue #852): a spawned consult session inherits it. */
+  private?: boolean;
+}
+
+export interface SeanceSlice {
+  seanceDialog: SeanceDialogInit | null;
+  openSeanceDialog(init: SeanceDialogInit): void;
+  closeSeanceDialog(): void;
+  /**
+   * Launches one consult: in `target.tabId` when given (readiness-gated),
+   * else spawns a fresh rpc-ui session in the source's project and prompts
+   * it after settle. The kickoff composes the single `task` call with
+   * `agent: "seance"` — omp's only seance entry point over rpc.
+   */
+  launchSeanceConsult(target: SeanceConsultTarget, question: string, model?: string | null): Promise<void>;
+  /** One composer `/seance` line in a native tab (issue #885): opens the dialog pre-filled and focuses the Seance pane. */
+  runSeanceLine(tabId: string, line: string): Promise<void>;
+  /** The sidebar row's ghost action: resolves the source transcript path, then opens the dialog defaulted to that row. */
+  consultFromRow(sourceTabId: string): Promise<void>;
+}
+
+/**
  * One tab's live-share posture (issue #686): `off` = no host this tab (omp
  * exposes none or `/collab stop` ran), `sharing` carries the registry row's
  * state. Native tabs cannot host at all — omp's command lives in the TUI —
@@ -783,7 +827,7 @@ export interface LiveVoiceBadge {
   pending: boolean;
 }
 
-export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice {
+export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, SeanceSlice {
   state: BackendState | null;
   tabs: TabInfo[];
   activeTabId: string | null;
