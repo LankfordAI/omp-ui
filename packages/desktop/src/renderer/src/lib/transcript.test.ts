@@ -1314,7 +1314,7 @@ describe("preExchange", () => {
 
   const exchangeItems: [string, RenderItem][] = [
     ["user", { kind: "user", id: "u1", text: "hello" }],
-    ["assistant", { kind: "assistant", id: "a1", text: "hi", thinking: "", streaming: false }],
+    ["assistant", { kind: "assistant", id: "a1", text: "hi", thinking: "", narration: "", streaming: false }],
     ["tool", { kind: "tool", id: "t1", toolCallId: "c1", name: "read", args: {}, status: "done" }],
     ["plan", { kind: "plan", id: "p1", title: "Ship it", planFilePath: "PLAN.md", planAbsPath: null, text: null, status: "pending" }],
     ["advisory", { kind: "advisory", id: "ad1", notes: [] }],
@@ -1329,7 +1329,7 @@ describe("preExchange", () => {
 
 describe("itemSearchText", () => {
   it("includes the assistant's thinking beside its text", () => {
-    const item: RenderItem = { kind: "assistant", id: "a1", text: "Ship it", thinking: "hmm, let me check", streaming: false };
+    const item: RenderItem = { kind: "assistant", id: "a1", text: "Ship it", thinking: "hmm, let me check", narration: "", streaming: false };
 
     const text = itemSearchText(item);
     expect(text).toContain("Ship it");
@@ -1379,7 +1379,7 @@ describe("itemSearchText", () => {
 describe("findMatches", () => {
   const items: RenderItem[] = [
     { kind: "user", id: "u1", text: "Ship the FIND bar" },
-    { kind: "assistant", id: "a1", text: "Find is Find, the bar is small", thinking: "", streaming: false },
+    { kind: "assistant", id: "a1", text: "Find is Find, the bar is small", thinking: "", narration: "", streaming: false },
     { kind: "user", id: "u2", text: "unrelated" },
     { kind: "user", id: "u3", text: "then ship find" },
   ];
@@ -1672,5 +1672,91 @@ describe("delta-mode streaming (issue #718)", () => {
     expect(assistant(items)).toMatchObject({ text: "exact", streaming: false });
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it("splits message_end-only content into thinking and narration (issue #884)", () => {
+    const items = reduceEvent([], {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "narrate", narration: true },
+          { type: "thinking", thinking: "plan" },
+          { type: "text", text: "done" },
+        ],
+      },
+    });
+    expect(assistant(items)).toMatchObject({ thinking: "plan", narration: "narrate", streaming: false });
+  });
+
+  it("clears leaked narration from the thinking pane on reconcile without a false warn", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    // Narration streams as plain thinking_delta, contaminating item.thinking.
+    items = reduceEvent(items, delta("thinking_delta", { delta: "plan" }));
+    items = reduceEvent(items, delta("thinking_delta", { delta: "narrate" }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "narrate", narration: true },
+          { type: "thinking", thinking: "plan" },
+        ],
+      },
+    });
+    expect(assistant(items)).toMatchObject({ thinking: "plan", narration: "narrate", streaming: false });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("empties the thinking pane on a pure-narration turn", () => {
+    let items = reduceEvent([], {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(items, delta("thinking_delta", { delta: "running the tests now" }));
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "thinking", thinking: "running the tests now", narration: true }],
+      },
+    });
+    expect(assistant(items)).toMatchObject({ thinking: "", narration: "running the tests now" });
+  });
+
+  it("keeps non-boolean and missing narration flags in the thinking pane, joining narration with blank lines", () => {
+    const items = reduceEvent([], {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "a", narration: "yes" },
+          { type: "thinking", thinking: "b" },
+          { type: "thinking", thinking: "c", narration: true },
+          { type: "thinking", thinking: "d", narration: true },
+        ],
+      },
+    });
+    expect(assistant(items)).toMatchObject({ thinking: "a\nb", narration: "c\n\nd" });
+  });
+
+  it("historyToItems splits a narrated replay row identically (issue #884)", () => {
+    const items = historyToItems([
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "narrate", narration: true },
+          { type: "thinking", thinking: "plan" },
+          { type: "text", text: "done" },
+        ],
+      },
+    ]);
+    expect(assistant(items)).toMatchObject({ thinking: "plan", narration: "narrate", streaming: false });
   });
 });

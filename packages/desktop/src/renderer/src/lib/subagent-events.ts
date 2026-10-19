@@ -84,6 +84,7 @@ export function reduceSubagentFrame(
           id: `subagent-${++counter}`,
           text,
           thinking: "",
+          narration: "",
           streaming: false,
         },
       ];

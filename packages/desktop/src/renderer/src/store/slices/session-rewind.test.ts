@@ -12,9 +12,9 @@ describe("rewind to a prompt (issue #680)", () => {
         [h.TAB]: rpcTabState({
           items: [
             { kind: "user", id: "u1", text: "first prompt" },
-            { kind: "assistant", id: "a1", text: "answer one", thinking: "", streaming: false },
+            { kind: "assistant", id: "a1", text: "answer one", thinking: "", narration: "", streaming: false },
             { kind: "user", id: "u2", text: "second prompt" },
-            { kind: "assistant", id: "a2", text: "answer two", thinking: "", streaming: false },
+            { kind: "assistant", id: "a2", text: "answer two", thinking: "", narration: "", streaming: false },
           ],
         }),
       },

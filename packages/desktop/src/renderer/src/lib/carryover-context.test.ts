@@ -9,6 +9,7 @@ const assistant = (id: string, text: string): RenderItem => ({
   id,
   text,
   thinking: "",
+  narration: "",
   streaming: false,
 });
 
@@ -48,7 +49,7 @@ describe("composeCarryoverContext", () => {
     expect(
       composeCarryoverContext([
         user("u1", "   "),
-        { kind: "assistant", id: "a1", text: "", thinking: "pondering", streaming: true },
+        { kind: "assistant", id: "a1", text: "", thinking: "pondering", narration: "", streaming: true },
       ]),
     ).toBeNull();
   });

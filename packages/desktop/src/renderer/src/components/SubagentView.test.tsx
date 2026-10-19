@@ -34,6 +34,7 @@ const ITEMS: RenderItem[] = [
     id: "a1",
     text: "hello from worker",
     thinking: "",
+    narration: "",
     streaming: false,
     model: "m1",
     usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15, cost: 0.001 },

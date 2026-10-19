@@ -33,6 +33,8 @@ export interface AssistantItem {
   id: string;
   text: string;
   thinking: string;
+  /** Thinking blocks omp marked as between-tool narration, presented as reply text (issue #884). */
+  narration: string;
   streaming: boolean;
   /** message_end only — absent while streaming. */
   usage?: {
@@ -436,11 +438,16 @@ export function userContentFromContent(
   };
 }
 
-function thinkingFromContent(content: unknown): string {
-  return contentBlocks(content)
-    .filter((b) => b.type === "thinking" && typeof b.thinking === "string")
-    .map((b) => b.thinking as string)
-    .join("\n");
+/** Splits thinking blocks into pane text and omp-tagged narration (issue #884); narration joins double-newline. */
+function thinkingSplitFromContent(content: unknown): { thinking: string; narration: string } {
+  const thinking: string[] = [];
+  const narration: string[] = [];
+  for (const b of contentBlocks(content)) {
+    if (b.type !== "thinking" || typeof b.thinking !== "string") continue;
+    if (b.narration === true) narration.push(b.thinking);
+    else thinking.push(b.thinking);
+  }
+  return { thinking: thinking.join("\n"), narration: narration.join("\n\n") };
 }
 
 /**
@@ -698,7 +705,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       if (role === "assistant") {
         return [
           ...items,
-          { kind: "assistant", id: `assistant-${++counter}`, text: "", thinking: "", streaming: true },
+          { kind: "assistant", id: `assistant-${++counter}`, text: "", thinking: "", narration: "", streaming: true },
         ];
       }
       return items;
@@ -719,6 +726,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
               id: `assistant-${++counter}`,
               text: delta,
               thinking: "",
+              narration: "",
               streaming: true,
             },
           ];
@@ -760,18 +768,25 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         const content = message !== null && "content" in message ? message.content : undefined;
         if (content !== undefined) {
           const text = textFromContent(content);
-          const thinking = thinkingFromContent(content);
+          // Narration streams as plain thinking_delta, so the streamed
+          // item.thinking is contaminated — authoritative narration clears it.
+          const { thinking, narration } = thinkingSplitFromContent(content);
           if (text !== "" && text !== item.text) settled = { ...settled, text };
-          if (thinking !== "" && thinking !== item.thinking) settled = { ...settled, thinking };
+          if (narration === "") {
+            if (thinking !== "" && thinking !== item.thinking) settled = { ...settled, thinking };
+          } else {
+            settled = { ...settled, thinking, narration };
+          }
           // One-off read: the node tsconfig (which type-checks this file via
           // a live test) lacks vite/client's ImportMeta typing; the renderer
           // build always defines it.
           const devBuild = (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true;
+          const streamedThinking = thinking + narration;
           if (
             devBuild &&
             ((text !== "" && text.replace(/\n/g, "") !== item.text.replace(/\n/g, "")) ||
-              (thinking !== "" &&
-                thinking.replace(/\n/g, "") !== item.thinking.replace(/\n/g, "")))
+              (streamedThinking !== "" &&
+                streamedThinking.replace(/\n/g, "") !== item.thinking.replace(/\n/g, "")))
           ) {
             console.warn(
               "[transcript] message_end content disagrees with the streamed deltas — " +
@@ -789,7 +804,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
             kind: "assistant",
             id: `assistant-${++counter}`,
             text: textFromContent(message.content),
-            thinking: thinkingFromContent(message.content),
+            ...thinkingSplitFromContent(message.content),
             streaming: false,
             ...meta,
           },
@@ -1028,11 +1043,13 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
       continue;
     }
     if (role === "assistant") {
+      const { thinking, narration } = thinkingSplitFromContent(raw.content);
       items.push({
         kind: "assistant",
         id: `assistant-${++counter}`,
         text: textFromContent(raw.content),
-        thinking: thinkingFromContent(raw.content),
+        thinking,
+        narration,
         streaming: false,
         ...assistantMeta(raw),
       });

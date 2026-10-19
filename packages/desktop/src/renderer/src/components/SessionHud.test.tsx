@@ -1178,7 +1178,7 @@ describe("retitle affordance (issue #433)", () => {
           ...useStore.getState().rpc[TAB],
           items: [
             { kind: "user", id: "u1", text: "the login button is broken" },
-            { kind: "assistant", id: "a1", text: "the sheet collapses", thinking: "", streaming: false },
+            { kind: "assistant", id: "a1", text: "the sheet collapses", thinking: "", narration: "", streaming: false },
           ],
         },
       },
