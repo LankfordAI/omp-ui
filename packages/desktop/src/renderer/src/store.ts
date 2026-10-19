@@ -544,6 +544,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       }
     },
     bootRpcTab: rpcCommandSlice.bootRpcTab,
+    flagBootStall: rpcCommandSlice.flagBootStall,
     refreshAvailableModels: rpcCommandSlice.refreshAvailableModels,
     refreshCapabilities: rpcCommandSlice.refreshCapabilities,
     setSessionToolEnabled: rpcCommandSlice.setSessionToolEnabled,

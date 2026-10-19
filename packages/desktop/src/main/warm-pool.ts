@@ -54,10 +54,15 @@ const MAX_BUILD_FAILURES = 2;
  * The semantic identity of a fresh rpc-ui boot. Deliberately NOT byte-argv:
  * a fresh spawn's model pin rides an overlay file, not argv, so the argv that
  * actually differs between plans is `--advisor` and `--thinking auto` only;
- * `ompPath` catches a binary swap under a live slot. Every remaining writer
- * input (model, advisorModel, compaction method, roster, settings) is guarded
- * by the dir-hash re-check at adoption — a changed input misses once, cold-
- * boots correctly, and refills against the new state.
+ * `ompPath` catches a binary swap under a live slot. The advisor-model pin is
+ * in the key even though it too rides an overlay file: the pin lives inside
+ * the lineage dir, so a slot built for one pin can NEVER be adopted by a
+ * spawn carrying another (the dir-hash re-check would always miss) — planning
+ * against it avoids a guaranteed adoption miss on every alternating
+ * pinned/unpinned spawn (#892). Every remaining writer input (model,
+ * compaction method, roster, settings) is guarded by the dir-hash re-check at
+ * adoption — a changed input misses once, cold-boots correctly, and refills
+ * against the new state.
  */
 export function warmPlanKey(input: {
   ompPath: string;
@@ -65,6 +70,9 @@ export function warmPlanKey(input: {
   advisor: boolean;
   /** The record's thinking seed: the only `--thinking` boot input a fresh spawn has. */
   thinking: string | null;
+  /** The record's advisor-model pin: it rides an overlay file in the dir, so a
+   * slot built for one pin is never adoptable by a spawn with another (#892). */
+  advisorModel: string | null;
   experimentsEnabled: boolean;
 }): string {
   return JSON.stringify([
@@ -72,6 +80,7 @@ export function warmPlanKey(input: {
     input.projectCwd,
     input.advisor,
     input.thinking,
+    input.advisorModel,
     input.experimentsEnabled,
   ]);
 }
@@ -101,6 +110,26 @@ export function hashLineageTree(root: string): string {
   };
   walk("");
   return h.digest("hex");
+}
+
+/** SIGKILL ceiling for a pool-owned child: SIGTERM-ignoring children must not
+ * park forever holding stdio fds (#892 — the 5-hour orphan). */
+const KILL_ESCALATION_MS = 5_000;
+
+/** Kill, and SIGKILL five seconds later unless the exit edge lands first.
+ * `RpcClient.kill` is SIGTERM-only with no escalation, and `onDeath` fires on
+ * the real exit edge regardless of arm state; a second `kill(sig)` still
+ * reaches the proc even after `#dead`. */
+export function killWarmClient(client: RpcClient): void {
+  let reaped = false;
+  client.onDeath(() => {
+    reaped = true;
+  });
+  client.kill();
+  const timer = setTimeout(() => {
+    if (!reaped) client.kill("SIGKILL");
+  }, KILL_ESCALATION_MS);
+  timer.unref();
 }
 
 /**
@@ -190,7 +219,7 @@ export class WarmRpcPool {
     ) {
       this.#slot = slot;
     } else {
-      slot.client.kill();
+      killWarmClient(slot.client);
     }
   }
 
@@ -213,9 +242,9 @@ export class WarmRpcPool {
 
   dispose(): void {
     this.#disposed = true;
-    this.#slot?.client.kill();
+    if (this.#slot !== null) killWarmClient(this.#slot.client);
     this.#slot = null;
-    this.#buildingClient?.kill();
+    if (this.#buildingClient !== null) killWarmClient(this.#buildingClient);
     this.#buildingClient = null;
   }
 
@@ -276,7 +305,7 @@ export class WarmRpcPool {
         void ready.then(resolve);
       });
       if (this.#disposed) {
-        booted.kill();
+        killWarmClient(booted);
         return;
       }
       this.#slot = {
@@ -292,7 +321,7 @@ export class WarmRpcPool {
       });
     } catch (err) {
       this.#failures += 1;
-      client?.kill();
+      if (client !== null) killWarmClient(client);
       console.warn(`[warm-pool] build failed (${this.#failures}):`, err);
     } finally {
       this.#buildingClient = null;

@@ -1502,6 +1502,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "worktree.field.newBaseHint": "{from}에서 {name}을(를) 만들고, 워크트리 브랜치를 그곳에서 분리합니다",
   "tab.failure.copy": "복사",
   "tab.failure.retryBoot": "boot 재시도",
+  "tab.failure.bootStalled": "세션 프로세스가 준비 완료를 보고하지 않았습니다. 아직 시작 중일 수 있습니다 — 앱 logs 폴더의 breadcrumbs.log를 확인하세요.",
   "tab.failure.refresh": "상태 새로고침",
   "tab.failure.dismiss": "닫기",
   "tab.failure.chooseModel": "모델 선택…",

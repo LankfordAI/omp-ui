@@ -49,6 +49,7 @@ import type {
 export type RpcCommandSlice = Pick<
   UiStore,
   | "bootRpcTab"
+  | "flagBootStall"
   | "refreshAvailableModels"
   | "refreshCapabilities"
   | "rpcCommand"
@@ -884,6 +885,43 @@ export function createRpcCommandSlice(
     }
   };
 
+  /**
+   * Boot-stall watchdog (#892): the renderer gave up waiting for any frame
+   * from a tab still latched in "starting" and stamps the failure the
+   * skeleton was hiding. Only the component timer calls this; a ready/error
+   * frame that raced in first owns the tab and the patch is skipped.
+   */
+  const flagBootStall = (tabId: string): void => {
+    // The watchdog fires only while the skeleton is still up — "starting" or
+    // no slot yet (the component renders the skeleton either way); a
+    // ready/error frame that raced in first owns the tab.
+    const stalled = get().rpc[tabId];
+    if (stalled !== undefined && stalled.status !== "starting") return;
+    // Frames can precede landTab, so the runtime slot may not exist yet —
+    // same ensure pattern bootRpcTab uses.
+    if (!get().rpc[tabId]) {
+      set((s) => ({
+        rpc: {
+          ...s.rpc,
+          [tabId]: freshRpcTabState(get().state?.advisorAutoReply ?? true, null),
+        },
+      }));
+    }
+    const liveState = findRecord(get().state, tabId)?.live;
+    m.patchRpc(tabId, {
+      status: "error",
+      failure: {
+        message: t("tab.failure.bootStalled"),
+        kind: "boot",
+        fatal: true,
+        sessionStatus: "error",
+        ...(liveState !== undefined ? { liveState } : {}),
+        ...carriedFailedModel(get(), tabId),
+        recovery: "Retry boot once the process answers, or resume the session from the tree.",
+      },
+    });
+  };
+
   const rpcCommand = (
     tabId: string,
     cmd: SessionCommand,
@@ -1283,6 +1321,7 @@ export function createRpcCommandSlice(
   };
 
   return {
+    flagBootStall,
     bootRpcTab,
     refreshAvailableModels,
     refreshCapabilities,

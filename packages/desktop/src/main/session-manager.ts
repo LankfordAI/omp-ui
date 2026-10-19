@@ -134,6 +134,7 @@ import { WorktreeOps } from "./worktree-ops";
 import {
   WarmRpcPool,
   hashLineageTree,
+  killWarmClient,
   sanitizeWarmTemplate,
   warmPlanKey,
   type WarmSlot,
@@ -216,6 +217,8 @@ export interface SessionManagerDependencies {
    * remains the only client construction site in the process.
    */
   warmRpc?: boolean;
+  /** Force-enables the warm pool in tests; production never sets it. */
+  forceWarmPool?: boolean;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -270,7 +273,8 @@ export class SessionManager {
       gate: () => this.gate,
       subagentSpawnConfig: () => this.subagentSpawnConfig(),
       enabled: () =>
-        deps.warmRpc !== false && !process.env.VITEST && process.env.NODE_ENV !== "test",
+        deps.warmRpc !== false &&
+        (deps.forceWarmPool === true || (!process.env.VITEST && process.env.NODE_ENV !== "test")),
     });
     this.worktreeOps = new WorktreeOps({
       registry: deps.registry,
@@ -706,10 +710,22 @@ export class SessionManager {
           projectCwd: req.projectCwd,
           advisor: req.advisor,
           thinking: thinkingSeed,
+          advisorModel: req.advisorModel ?? null,
           experimentsEnabled: this.deps.registry.getSetting("experimentsEnabled"),
         });
         const slot = eligible ? this.warmPool.reserve(planKey) : null;
-        warmHandoff = slot === null ? null : { slot, planKey };
+        if (
+          slot !== null &&
+          this.deps.registry.sessions.some((s) => s.lineageDir === slot.dirName)
+        ) {
+          // A reserved slot's dir is about to become this record's lineageDir.
+          // Never hand out a dir another row still owns: give the slot back
+          // and mint fresh (#892 — an adopted-dir collision desyncs registry
+          // identity from disk).
+          this.warmPool.release(slot);
+        } else {
+          warmHandoff = slot === null ? null : { slot, planKey };
+        }
         record = this.deps.registry.addSession({
           tabId: freshTabId,
           sessionId: null,
@@ -793,6 +809,7 @@ export class SessionManager {
             projectCwd: req.projectCwd,
             advisor: req.advisor,
             thinking: record.thinkingLevel,
+            advisorModel: record.advisorModel,
             experimentsEnabled: this.deps.registry.getSetting("experimentsEnabled"),
           }),
           ompPath,
@@ -1323,8 +1340,10 @@ export class SessionManager {
         modelOverride === undefined
       ) {
         adopted = slot;
+        this.deps.breadcrumb?.record("warm-adopt", { tabId: record.tabId });
       } else {
-        slot.client.kill();
+        killWarmClient(slot.client);
+        this.deps.breadcrumb?.record("warm-miss", { tabId: record.tabId });
       }
     }
     const rpc =

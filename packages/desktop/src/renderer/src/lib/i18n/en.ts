@@ -1670,6 +1670,7 @@ export const en = {
   "tab.failure.dismiss": "Dismiss",
   "tab.failure.chooseModel": "choose a model…",
   "tab.failure.modelCatalogFailed": "the model probe failed: {error}",
+  "tab.failure.bootStalled": "The session process never reported ready. It may still be starting — check breadcrumbs.log in the app's logs folder.",
   "tab.exited.titleHibernated": "Hibernated",
   "tab.exited.titleExited": "Agent exited",
   "tab.exited.idleChip": "idle — process stopped to free memory",

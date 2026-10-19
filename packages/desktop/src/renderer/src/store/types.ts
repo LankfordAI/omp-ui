@@ -1053,6 +1053,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   renameWorktreeSessionBranch(tabId: string, newName: string): Promise<boolean>;
   cancelDeleteSession(): void;
   bootRpcTab(tabId: string): Promise<void>;
+  /**
+   * Boot-stall watchdog (#892): stamps a boot failure on a tab still stuck in
+   * "starting" after the renderer's deadline; no-op once a frame owns it.
+   */
+  flagBootStall(tabId: string): void;
   /** Re-runs get_available_models on a live tab (issue #368: new subscription accounts). */
   refreshAvailableModels(tabId: string): Promise<void>;
   /** Reads the live session's capability roster through the backend getter. */
