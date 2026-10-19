@@ -541,6 +541,16 @@ function lastStreamingAssistant(items: RenderItem[]): number {
   return -1;
 }
 
+/** Newest content-bearing item: markers, notices, and irc lines are ambient
+ *  chrome and do not break the tail an advisor card left behind (issue #882). */
+function lastContentItem(items: RenderItem[]): RenderItem | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const kind = items[i]!.kind;
+    if (kind !== "marker" && kind !== "notice" && kind !== "irc") return items[i]!;
+  }
+  return null;
+}
+
 function appendAdvisory(items: RenderItem[], message: Record<string, unknown>): RenderItem[] {
   const notes = notesFromDetails(message.details);
   if (notes.length === 0) return items;
@@ -872,8 +882,15 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       return replaceAt(items, idx, { ...item, ...patch });
     }
 
-    case "agent_start":
+    case "agent_start": {
+      // A fresh turn whose newest content is an advisor card is omp's
+      // post-answer wake (advisor.continueSeverity, issue #882): say so —
+      // a run that resumes itself with no explanation reads as a bug.
+      if (lastContentItem(items)?.kind === "advisory") {
+        return [...items, markerItem("advisor continued the run", "copper")];
+      }
       return [...items, markerItem("agent started", "neutral")];
+    }
     case "agent_end": {
       // The terminal assistant message of the turn carries the end reason: an
       // error end aborts running cards, a user interrupt or a clean end cancels.
