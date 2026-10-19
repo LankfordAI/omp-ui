@@ -95,9 +95,41 @@ codesign --verify --strict --verbose=2 "$pty"
 # Gatekeeper assessment and stapling only hold for notarized artifacts; a
 # signed-only build (Apple Notary Service outage — issue #124) is still
 # verified for signature integrity, identity, and team.
+# `stapler validate` performs its own online ticket-delivery lookup against
+# Apple's CloudKit endpoint; a transient network drop there (NSURLErrorDomain
+# Code=-1005, "The validate action failed! Error 68.") must not kill the lane
+# after notarization was already Accepted and both staples reported worked
+# (#879). Same schedule as the #856 staple retry in notarize-macos.sh; every
+# post-acceptance validation failure is treated as transient — a permanently
+# broken staple just exhausts the schedule. The constants are env-overridable
+# for testing; CI leaves them unset, so the default schedule applies.
+max_attempts="${VERIFY_MAX_ATTEMPTS:-4}"
+read -r -a delays <<<"${VERIFY_RETRY_DELAYS:-60 300 900}" # seconds before attempts 2, 3 and 4
+
+validate_with_retry() {
+  local attempt=1 status delay
+  while (( attempt <= max_attempts )); do
+    printf '\n=== Validate attempt %s/%s: %s ===\n' "$attempt" "$max_attempts" "$*"
+    status=0
+    "$@" >&2 || status=$?
+    if (( status == 0 )); then
+      return 0
+    fi
+    if (( attempt >= max_attempts )); then
+      printf '\nValidation still failing after %s attempts — giving up: %s\n' \
+        "$max_attempts" "$*" >&2
+      exit 1
+    fi
+    delay="${delays[$((attempt - 1))]}"
+    printf 'Transient validation failure (exit %s) — retrying in %ss...\n' "$status" "$delay"
+    sleep "$delay"
+    attempt=$((attempt + 1))
+  done
+}
+
 if [[ "$mode" == "full" ]]; then
   spctl --assess --type execute --verbose=4 "$app"
-  xcrun stapler validate "$app"
+  validate_with_retry xcrun stapler validate "$app"
 else
   printf 'signed-only mode: skipping spctl assessment and stapler validation\n'
 fi
