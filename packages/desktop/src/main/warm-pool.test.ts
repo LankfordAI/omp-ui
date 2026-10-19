@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcClient } from "@omp-ui/core";
 import { Registry } from "@omp-ui/core";
 import { ownedSessionRecord } from "./test/fixtures";
@@ -10,6 +10,7 @@ import type { SubagentSpawnConfig } from "./spawn-config";
 import {
   WarmRpcPool,
   hashLineageTree,
+  killWarmClient,
   sanitizeWarmTemplate,
   warmPlanKey,
   type WarmSlot,
@@ -18,19 +19,23 @@ import {
 const NO_CONFIG: SubagentSpawnConfig = { inheritByDefault: false, roster: [] };
 
 // ---------------------------------------------------------------------------
-// Fake slot clients: pool semantics only touch armed/dead/kill.
+// Fake slot clients: pool semantics only touch armed/dead/kill/onDeath.
+// A well-behaved child answers the first kill with its exit edge, which
+// disarms killWarmClient's SIGKILL escalation.
 // ---------------------------------------------------------------------------
 
 interface FakeClient {
   readonly client: RpcClient;
   kills(): number;
+  signals(): (NodeJS.Signals | undefined)[];
   setArmed(): void;
   setDead(): void;
 }
 
-function fakeClient(): FakeClient {
-  let kills = 0;
+function fakeClient(opts: { exitsOnKill?: boolean } = {}): FakeClient {
+  const signals: (NodeJS.Signals | undefined)[] = [];
   const state = { armed: false, dead: false };
+  const watchers: ((code: number | null) => void)[] = [];
   const client = {
     get armed() {
       return state.armed;
@@ -38,14 +43,19 @@ function fakeClient(): FakeClient {
     get dead() {
       return state.dead;
     },
-    kill: () => {
-      kills += 1;
+    kill: (signal?: NodeJS.Signals) => {
+      signals.push(signal);
       state.dead = true;
+      if (opts.exitsOnKill !== false) for (const cb of watchers.splice(0)) cb(0);
+    },
+    onDeath: (cb: (code: number | null) => void) => {
+      watchers.push(cb);
     },
   } as unknown as RpcClient;
   return {
     client,
-    kills: () => kills,
+    kills: () => signals.length,
+    signals: () => signals.slice(),
     setArmed: () => {
       state.armed = true;
     },
@@ -197,6 +207,37 @@ describe("WarmRpcPool lifecycle", () => {
 });
 
 // ---------------------------------------------------------------------------
+// killWarmClient
+// ---------------------------------------------------------------------------
+
+describe("killWarmClient", () => {
+  it("escalates to SIGKILL when the child never exits", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const c = fakeClient({ exitsOnKill: false });
+      killWarmClient(c.client);
+      expect(c.signals()).toEqual([undefined]); // SIGTERM first
+      vi.advanceTimersByTime(5_000);
+      expect(c.signals()).toEqual([undefined, "SIGKILL"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never escalates when the exit edge lands first", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const c = fakeClient(); // well-behaved: kill delivers the exit edge
+      killWarmClient(c.client);
+      vi.advanceTimersByTime(60_000);
+      expect(c.signals()).toEqual([undefined]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // warmPlanKey
 // ---------------------------------------------------------------------------
 
@@ -206,6 +247,7 @@ describe("warmPlanKey", () => {
     projectCwd: "/repo",
     advisor: false,
     thinking: null as string | null,
+    advisorModel: null as string | null,
     experimentsEnabled: false,
   };
 
@@ -220,9 +262,17 @@ describe("warmPlanKey", () => {
       warmPlanKey({ ...base, projectCwd: "/other" }),
       warmPlanKey({ ...base, advisor: true }),
       warmPlanKey({ ...base, thinking: "auto" }),
+      warmPlanKey({ ...base, advisorModel: "gpt" }),
       warmPlanKey({ ...base, experimentsEnabled: true }),
     ]);
-    expect(keys.size).toBe(6);
+    expect(keys.size).toBe(7);
+  });
+
+  it("separates a pinned plan from an unpinned one (#892)", () => {
+    expect(warmPlanKey({ ...base, advisorModel: "gpt" })).not.toBe(warmPlanKey(base));
+    expect(warmPlanKey({ ...base, advisorModel: "gpt" })).toBe(
+      warmPlanKey({ ...base, advisorModel: "gpt" }),
+    );
   });
 });
 

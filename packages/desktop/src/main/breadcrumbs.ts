@@ -18,6 +18,8 @@ export type BreadcrumbKind =
   | "session-terminate"
   | "session-hibernate"
   | "session-mode"
+  | "warm-adopt"
+  | "warm-miss"
   | "update-stage"
   | "remote-enable"
   | "remote-token-regenerate"

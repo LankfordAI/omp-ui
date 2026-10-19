@@ -31,6 +31,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
     findObsidianList: vi.fn(),
     writeMcpStatusExtension: vi.fn(core.writeMcpStatusExtension),
     writeCapabilitiesExtension: vi.fn(core.writeCapabilitiesExtension),
+    mintLineageDirName: vi.fn(core.mintLineageDirName),
     RpcClient: vi.fn(),
   };
 });
@@ -48,6 +49,7 @@ const findObsidianListMock = vi.mocked(Core.findObsidianList);
 const writeMcpStatusExtensionMock = vi.mocked(Core.writeMcpStatusExtension);
 const writeCapabilitiesExtensionMock = vi.mocked(Core.writeCapabilitiesExtension);
 const RpcClientMock = vi.mocked(Core.RpcClient);
+const mintLineageDirNameMock = vi.mocked(Core.mintLineageDirName);
 const execFileP = promisify(execFile);
 const spawnCalls: Array<Record<string, unknown>> = [];
 
@@ -67,6 +69,9 @@ const fakeShells: FakePty[] = [];
 const rpcInstances: {
   kill: Mock;
   send: Mock;
+  arm: Mock;
+  readonly armed: boolean;
+  readonly dead: boolean;
   exit: (code: number) => void;
   inputFrame: (frame: unknown) => void;
   frame: (frame: unknown) => void;
@@ -223,7 +228,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity> } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -329,7 +334,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
   // `restart` rebuilds the manager against the SAME registry: the gate
   // boundary test needs a gated run followed by an ungated one (issue #372).
   return {
-    manager: new SessionManager({ ...deps, spawnGate: opts.spawnGate, planVerify: opts.planVerify }),
+    manager: new SessionManager({ ...deps, spawnGate: opts.spawnGate, planVerify: opts.planVerify, forceWarmPool: opts.warm === true }),
     registry,
     broadcast,
     sent,
@@ -361,6 +366,7 @@ beforeEach(() => {
   writeMcpStatusExtensionMock.mockClear();
   writeCapabilitiesExtensionMock.mockClear();
   resolveSessionLocationMock.mockClear();
+  mintLineageDirNameMock.mockClear();
   spawnOmpMock.mockReset();
   spawnOmpMock.mockImplementation((opts) => {
     const fake = fakeHandle(nextPtyDiesOn);
@@ -394,11 +400,31 @@ beforeEach(() => {
   RpcClientMock.mockReset();
   RpcClientMock.mockImplementation(function (
     this: unknown,
-    opts: { onExit: (code: number | null) => void; onFrame: (frame: unknown) => void; onInputFrame?: (frame: unknown) => void; onError: (msg: string) => void },
+    opts: { onExit: (code: number | null) => void; onFrame: (frame: unknown) => void; onInputFrame?: (frame: unknown) => void; onError: (msg: string) => void; deferArm?: boolean; onBootReady?: () => void },
   ) {
+    const deathWatchers: ((code: number | null) => void)[] = [];
+    let armedFlag = opts.deferArm !== true;
+    let deadFlag = false;
     const instance = {
-      kill: vi.fn(),
+      kill: vi.fn(() => {
+        // The real proc answers SIGTERM with its exit edge, which also runs
+        // the onDeath watchers (killWarmClient's reap detection).
+        deadFlag = true;
+        for (const cb of deathWatchers.splice(0)) cb(0);
+      }),
       send: vi.fn(),
+      arm: vi.fn(() => {
+        armedFlag = true;
+      }),
+      onDeath: (cb: (code: number | null) => void) => {
+        deathWatchers.push(cb);
+      },
+      get armed() {
+        return armedFlag;
+      },
+      get dead() {
+        return deadFlag;
+      },
       exit: (code: number) => opts.onExit(code),
       // The real client fires onInputFrame for EVERY inbound frame before
       // delivering it, so `frame` drives both seams; `inputFrame` exercises
@@ -412,6 +438,9 @@ beforeEach(() => {
       // onError with the stderr tail (issue #774).
       error: (msg: string) => opts.onError(msg),
     };
+    // A deferred warm boot answers `ready` once its writes settle; the pool's
+    // #build parks on exactly this callback.
+    if (opts.deferArm === true) queueMicrotask(() => opts.onBootReady?.());
     rpcInstances.push(instance);
     return instance;
   } as unknown as typeof Core.RpcClient);
@@ -7571,5 +7600,156 @@ describe("carryover context seed (issue #824)", () => {
         fs.existsSync(path.join(sessionsRoot, dir, CARRYOVER_FILE)) ? [dir] : [],
       );
     expect(written).toEqual([]);
+  });
+});
+
+describe("warm-pool adoption hardening (issue #892)", () => {
+  // The pool is inert under vitest by default; `warm: true` opts a harness
+  // into forceWarmPool so these drive the REAL WarmRpcPool against the fake
+  // RpcClient (deferArm children answer `ready` on a microtask).
+  const settle = (): Promise<void> => new Promise<void>((resolve) => setImmediate(resolve));
+
+  it("refuses a reserved slot whose lineageDir a live row already owns", async () => {
+    const projectCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-warm-dir-"));
+    try {
+      const { manager, registry } = setup({ mode: "rpc-ui", warm: true, project: projectCwd });
+      const addSession = vi.spyOn(registry, "addSession");
+      // Record one mints DIR_A; the refill template is scripted to the SAME
+      // dir, so the parked slot collides with a live row — the #892 state.
+      const DIR_A = "omp-ui--warm--00000000-0000-4000-8000-00000000000a";
+      mintLineageDirNameMock.mockReturnValueOnce(DIR_A).mockReturnValueOnce(DIR_A);
+      await manager.spawn({
+        origin: "new",
+        projectCwd,
+        mode: "rpc-ui",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        worktree: null,
+      });
+      await settle(); // let the pool's #build park its slot
+      const slotClient = rpcInstances.at(-1)!;
+      expect(slotClient.arm).not.toHaveBeenCalled(); // still parked, never armed
+
+      await manager.spawn({
+        origin: "new",
+        projectCwd,
+        mode: "rpc-ui",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        worktree: null,
+      });
+      const secondDir = addSession.mock.calls.at(-1)![0].lineageDir;
+      expect(secondDir).not.toBe(DIR_A); // minted fresh, never adopted the collision
+      const dirs = registry.sessions.map((session) => session.lineageDir);
+      expect(new Set(dirs).size).toBe(dirs.length); // registry identity matches disk
+      expect(slotClient.kill).not.toHaveBeenCalled(); // released back, not killed
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
+
+  it("plans slots by advisor pin: a foreign pin reserves nothing; the matching pin adopts", async () => {
+    const projectCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-warm-pin-"));
+    try {
+      const { manager, registry, crumbs } = setup({
+        mode: "rpc-ui",
+        warm: true,
+        project: projectCwd,
+      });
+      await manager.spawn({
+        origin: "new",
+        projectCwd,
+        mode: "rpc-ui",
+        advisor: false,
+        advisorModel: "pin-x",
+        cols: 80,
+        rows: 24,
+        worktree: null,
+      });
+      await settle();
+      const slotClient = rpcInstances.at(-1)!; // the pool's deferred child (pin-x plan)
+      const slotDir = mintLineageDirNameMock.mock.results.at(-1)!.value as string;
+
+      await manager.spawn({
+        origin: "new",
+        projectCwd,
+        mode: "rpc-ui",
+        advisor: false,
+        advisorModel: "pin-y",
+        cols: 80,
+        rows: 24,
+        worktree: null,
+      });
+      const yTab = registry.sessions.at(-1)!.tabId;
+      // Foreign pin: no reservation ever happened — fresh mint, slot untouched.
+      expect(registry.sessions.find((session) => session.tabId === yTab)!.lineageDir).not.toBe(
+        slotDir,
+      );
+      expect(crumbs.filter((crumb) => crumb.kind.startsWith("warm"))).toEqual([]);
+      expect(slotClient.kill).not.toHaveBeenCalled();
+
+      const { tabId: xTab } = await manager.spawn({
+        origin: "new",
+        projectCwd,
+        mode: "rpc-ui",
+        advisor: false,
+        advisorModel: "pin-x",
+        cols: 80,
+        rows: 24,
+        worktree: null,
+      });
+      // Same pin: reserved, dir hash re-checked clean, adopted.
+      expect(crumbs.some((crumb) => crumb.kind === "warm-adopt" && crumb.tabId === xTab)).toBe(
+        true,
+      );
+      expect(registry.sessions.find((session) => session.tabId === xTab)!.lineageDir).toBe(slotDir);
+      expect(slotClient.arm).toHaveBeenCalled();
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
+
+  it("records warm-miss and kills the slot when the re-hashed dir no longer matches", async () => {
+    const projectCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-warm-miss-"));
+    try {
+      const { manager, registry, crumbs } = setup({
+        mode: "rpc-ui",
+        warm: true,
+        project: projectCwd,
+      });
+      await manager.spawn({
+        origin: "new",
+        projectCwd,
+        mode: "rpc-ui",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        worktree: null,
+      });
+      await settle();
+      const slotClient = rpcInstances.at(-1)!;
+      // A plan-key-blind input changes the dir bytes: the parked child's
+      // overlay set no longer describes this spawn.
+      registry.setSetting("defaultCompactionMethod", "soft");
+      const { tabId: missTab } = await manager.spawn({
+        origin: "new",
+        projectCwd,
+        mode: "rpc-ui",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        worktree: null,
+      });
+      expect(crumbs.some((crumb) => crumb.kind === "warm-miss" && crumb.tabId === missTab)).toBe(
+        true,
+      );
+      // killWarmClient's SIGTERM; the fake child reaps on it, so no escalation.
+      expect(slotClient.kill).toHaveBeenCalledTimes(1);
+      expect(slotClient.arm).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
   });
 });

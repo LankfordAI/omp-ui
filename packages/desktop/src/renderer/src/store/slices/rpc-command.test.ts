@@ -632,6 +632,53 @@ describe("bootRpcTab", () => {
   });
 });
 
+describe("flagBootStall boot-stall watchdog (issue #892)", () => {
+  it("stamps a fatal boot failure on a tab still stuck in starting", () => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: { [h.TAB]: rpcTabState({ status: "starting" }) },
+    });
+
+    h.useStore.getState().flagBootStall(h.TAB);
+
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.status).toBe("error");
+    expect(tab.failure).toMatchObject({
+      kind: "boot",
+      fatal: true,
+      sessionStatus: "error",
+      liveState: "live",
+    });
+    expect(tab.failure?.message).toContain("never reported ready");
+    expect(tab.failure?.recovery).toContain("Retry boot");
+  });
+
+  it("leaves a tab a ready frame already owns untouched", () => {
+    h.backendState = h.stateWithRecord("sess-1");
+    const ready = rpcTabState({ status: "ready" });
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: ready } });
+
+    h.useStore.getState().flagBootStall(h.TAB);
+
+    expect(h.useStore.getState().rpc[h.TAB]).toBe(ready);
+  });
+
+  it("creates the runtime slot when frames raced ahead of landTab", () => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({ state: h.backendState });
+    // The harness resets `rpc` per test: no slot exists at all here.
+    expect(h.useStore.getState().rpc[h.TAB]).toBeUndefined();
+
+    h.useStore.getState().flagBootStall(h.TAB);
+
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.status).toBe("error");
+    expect(tab.failure?.kind).toBe("boot");
+    expect(tab.failure?.fatal).toBe(true);
+  });
+});
+
 describe("rpcCommand / handleRpcFrame correlation", () => {
   beforeEach(() => {
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });

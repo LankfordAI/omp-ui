@@ -504,6 +504,63 @@ describe("RpcTab exit overlay", () => {
   });
 });
 
+describe("RpcTab boot-stall watchdog (issue #892)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function seedStarting(): void {
+    seed(null);
+    useStore.setState((current) => ({
+      rpc: {
+        ...current.rpc,
+        [TAB]: { ...current.rpc[TAB]!, status: "starting" as const, items: [] },
+      },
+    }));
+  }
+
+  it("swaps the skeleton for a boot failure when no frame ever lands", () => {
+    vi.useFakeTimers();
+    seedStarting();
+    renderTab();
+    expect(document.body.textContent ?? "").not.toContain("never reported ready");
+
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("The session process never reported ready.");
+    expect(text).toContain("Retry boot");
+    // The store owns the verdict: the tab is latched errored, not restarting.
+    expect(useStore.getState().rpc[TAB]!.status).toBe("error");
+  });
+
+  it("never surfaces the panel when a ready frame lands first", () => {
+    vi.useFakeTimers();
+    seedStarting();
+    renderTab();
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    act(() => {
+      useStore.setState((current) => ({
+        rpc: {
+          ...current.rpc,
+          [TAB]: { ...current.rpc[TAB]!, status: "ready" as const, items: MAIN_ITEMS },
+        },
+      }));
+    });
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    expect(document.body.textContent ?? "").not.toContain("never reported ready");
+    expect(useStore.getState().rpc[TAB]!.status).toBe("ready");
+  });
+});
+
 describe("RpcTab model recovery picker (issue #774)", () => {
   const restoreFailure: RpcFailure = {
     message: "omp exited with code 1; stderr: Could not restore model x/y",

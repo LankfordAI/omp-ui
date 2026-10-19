@@ -195,6 +195,9 @@ function ModelRecoveryPicker({ tabId, failedModel }: { tabId: string; failedMode
   );
 }
 
+/** A tab wedged in "starting" with no frame at all is dead, not slow (#892). */
+const BOOT_STALL_MS = 60_000;
+
 /**
  * Memoized on purpose (issue #867): a hidden tab must not pay for `App`
  * re-renders it has no props in — the props are primitives, so an `App`
@@ -204,6 +207,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
   const t = useT();
   const rpc = useStore((s) => s.rpc[tabId]);
   const bootRpcTab = useStore((s) => s.bootRpcTab);
+  const flagBootStall = useStore((s) => s.flagBootStall);
   const refreshState = useStore((s) => s.refreshState);
   const exitCode = useStore((s) => s.exited[tabId]);
   // Hibernated framing: the exit was ours (idle window), not a crash — same
@@ -249,6 +253,15 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
   useEffect(() => {
     if (status === "starting") setPrompted(false);
   }, [status]);
+
+  // Boot-stall watchdog: a tab still showing the skeleton past the deadline
+  // has heard nothing from its process — surface the failure instead of
+  // spinning forever (issue #892).
+  useEffect(() => {
+    if (status !== "starting") return;
+    const timer = window.setTimeout(() => flagBootStall(tabId), BOOT_STALL_MS);
+    return () => window.clearTimeout(timer);
+  }, [tabId, status, flagBootStall]);
 
   // Boot shares the hero geometry: the composer is centered from the first
   // skeleton frame, so nothing moves when the session turns ready.
