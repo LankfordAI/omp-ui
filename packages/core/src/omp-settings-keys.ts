@@ -166,6 +166,9 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       "advisor.immuneTurns",
       "advisor.reviewInterval",
       "advisor.maxNotesPerUpdate",
+      // omp 18.12.1 (issue #882): minimum severity of a post-answer note that
+      // wakes the agent; lower severities stay parked as a transcript card.
+      "advisor.continueSeverity",
     ],
   },
   {

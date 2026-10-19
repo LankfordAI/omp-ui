@@ -636,6 +636,24 @@ describe("writeOmpSetting", () => {
     expect(seen).toEqual(["config", "set", BASH_GIT_GUARD_KEY, "false", "--json"]);
   });
 
+  it("admits advisor.continueSeverity to the write boundary (#882)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "advisor.continueSeverity", value: "blocker" },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      "advisor.continueSeverity",
+      "blocker",
+      "--json",
+    ]);
+  });
+
   it("refuses a missing binary without invoking the runner", async () => {
     const run = fakeRunner({ global: {}, pristine: {} }, null);
     await expect(

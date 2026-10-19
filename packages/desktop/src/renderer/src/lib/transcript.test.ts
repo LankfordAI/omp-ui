@@ -785,6 +785,48 @@ describe("reduceEvent advisory cards", () => {
     expect(isAdvisorMessage({ role: "assistant" })).toBe(false);
     expect(isAdvisorMessage({ role: "custom", customType: "other" })).toBe(false);
   });
+
+  it("attributes a fresh turn after a parked card to the advisor (#882)", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "message_start", message: advisorMessage });
+    items = reduceEvent(items, { type: "agent_start" });
+    expect(items.at(-1)).toMatchObject({
+      kind: "marker",
+      label: "advisor continued the run",
+      tone: "copper",
+    });
+  });
+
+  it("skips ambient marker chrome when looking for the advisor tail (#882)", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "message_start", message: advisorMessage });
+    items = reduceEvent(items, { type: "agent_end" });
+    const markersBefore = items.filter((i) => i.kind === "marker").length;
+    expect(markersBefore).toBeGreaterThan(0);
+    items = reduceEvent(items, { type: "agent_start" });
+    expect(items.at(-1)).toMatchObject({
+      kind: "marker",
+      label: "advisor continued the run",
+      tone: "copper",
+    });
+  });
+
+  it("keeps a prompted resume plain when the user echo precedes agent_start (#882)", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "message_start", message: advisorMessage });
+    items = reduceEvent(items, { type: "agent_end" });
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "user", content: [{ type: "text", text: "go on" }] },
+    });
+    items = reduceEvent(items, { type: "agent_start" });
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent started" });
+  });
+
+  it("keeps a bare agent_start as the generic marker (#882)", () => {
+    const items = reduceEvent([], { type: "agent_start" });
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent started" });
+  });
 });
 
 describe("reduceEvent markers, notice, irc, unknowns", () => {
