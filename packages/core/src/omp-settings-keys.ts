@@ -155,6 +155,31 @@ export const GIT_SETTING_GROUP: OmpSettingGroup = {
 /** The exact-interpreter override; "" means "let omp discover one" (issue #671). */
 export const PYTHON_INTERPRETER_KEY = "python.interpreter";
 
+/**
+ * Sharpshooter decision extraction (omp 18.12.0, issue #887). The shortest
+ * prompt an exchange must reach before Sharpshooter extracts decisions from
+ * it; lower fires more eagerly. A plain number row in the generic group loop.
+ */
+export const SHARPSHOOTER_SETTING_GROUP: OmpSettingGroup = {
+  title: "Sharpshooter",
+  description:
+    "Shortest prompt length Sharpshooter extracts session decisions from; lower fires more eagerly.",
+  keys: ["sharpshooter.minPromptLength"],
+};
+
+/**
+ * The status line's per-segment options record (omp 18.11.3 / 18.12.0, issue
+ * #887). Allowlisted but NOT in OMP_SETTING_GROUPS: it is a record whose
+ * nested `pi.showProfile` flag the omp page edits by spread-merge — a raw
+ * record write is REPLACE-not-merge (verified), so the generic JSON row
+ * would clobber sibling segment options. StatusLineSection renders it.
+ */
+export const STATUS_LINE_SEGMENT_OPTIONS_KEY = "statusLine.segmentOptions";
+export const STATUS_LINE_SETTING_GROUP: OmpSettingGroup = {
+  title: "Status line",
+  keys: [STATUS_LINE_SEGMENT_OPTIONS_KEY],
+};
+
 /** The omp settings the settings surface exposes, grouped for the omp page. */
 export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
   {
@@ -184,6 +209,7 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       "prewalk.enabled",
     ],
   },
+  SHARPSHOOTER_SETTING_GROUP,
   {
     title: "Providers",
     description:
@@ -231,6 +257,7 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...SHARE_SETTING_GROUP.keys,
   ...APPROVAL_SETTING_GROUP.keys,
   ...LIVE_VOICE_SETTING_GROUP.keys,
+  ...STATUS_LINE_SETTING_GROUP.keys,
   ...COMPACTION_MODEL_THRESHOLD_SETTING_GROUP.keys,
   ...CONTEXT_FILES_SETTING_GROUP.keys,
 ];
