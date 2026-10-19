@@ -205,6 +205,62 @@ describe("PlanPreflightController", () => {
     });
   });
 
+  it("execution tiers authored by the extension survive the title rebuild (#886)", async () => {
+    const h = harness();
+    const text = "<!doctype html><p>ship it</p>";
+    const abs = artifact(h, "ship-plan.html", text);
+    const tiers = [
+      { role: "implementer", provider: "litellm", model: "Qwen3.8-Flash-Next", thinkingLevel: "low" },
+      { role: "advisor", provider: "anthropic", model: "claude-opus-4-1" },
+    ];
+    const frame = {
+      type: "extension_ui_request",
+      id: "t1",
+      method: "select",
+      title: `${PLAN_REVIEW_SENTINEL}${JSON.stringify({
+        title: "the plan",
+        planFilePath: "local://ship-plan.html",
+        planAbsPath: abs,
+        tiers,
+      })}`,
+    } as RpcFrame;
+
+    expect(h.controller.claimFrame(TAB, frame, entry())).toBe(true);
+    await vi.waitFor(() => expect(h.delivered).toHaveLength(1));
+
+    // The rebuild must not silently drop the model-role cycle — the review UI
+    // cannot offer tier picking if main's re-publish lost the authored rows.
+    const delivered = h.delivered[0]!.frame as Record<string, unknown>;
+    const title = (delivered.title as string).slice(PLAN_REVIEW_SENTINEL.length);
+    expect(JSON.parse(title)).toEqual({
+      title: "the plan",
+      planFilePath: "local://ship-plan.html",
+      planAbsPath: abs,
+      sourceHash: hashOf(text),
+      tiers,
+    });
+  });
+
+  it("a tier-less request round-trips without a stray tiers key", async () => {
+    const h = harness();
+    const text = "<!doctype html><p>ship it</p>";
+    const abs = artifact(h, "ship-plan.html", text);
+
+    expect(h.controller.claimFrame(TAB, htmlFrame("t2", "local://ship-plan.html", abs), entry())).toBe(true);
+    await vi.waitFor(() => expect(h.delivered).toHaveLength(1));
+
+    const delivered = h.delivered[0]!.frame as Record<string, unknown>;
+    const title = (delivered.title as string).slice(PLAN_REVIEW_SENTINEL.length);
+    const parsed = JSON.parse(title) as Record<string, unknown>;
+    expect("tiers" in parsed).toBe(false);
+    expect(parsed).toEqual({
+      title: "the plan",
+      planFilePath: "local://ship-plan.html",
+      planAbsPath: abs,
+      sourceHash: hashOf(text),
+    });
+  });
+
   it("a replacing generation aborts the old verification and stale completions die", async () => {
     const h = harness();
     const abs = artifact(h);

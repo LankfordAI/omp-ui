@@ -337,6 +337,18 @@ interface PlanSession {
     msg: { customType: string; content: string; display: boolean; attribution: string },
     opts: { deliverAs: "steer" | "nextTurn"; triggerTurn: boolean },
   ) => Promise<unknown>;
+  /**
+   * omp's model-role cycle resolution (v18.10.4+). Absent on an older omp, in
+   * which case the review carries no execution tiers.
+   */
+  getRoleModelCycle?: (roleOrder: readonly string[]) => {
+    models: Array<{
+      role: string;
+      model: { provider: string; id: string };
+      thinkingLevel?: string;
+      explicitThinkingLevel?: boolean;
+    }>;
+  } | undefined;
 }
 
 interface ToolResult {
@@ -352,7 +364,7 @@ interface PlanUi {
 }
 
 interface PlanExtensionApi {
-  pi?: { AgentSession?: { prototype?: Record<string, unknown> } };
+  pi?: { AgentSession?: { prototype?: Record<string, unknown> }; settings?: unknown };
   registerCommand: (
     name: string,
     options: {
@@ -362,6 +374,54 @@ interface PlanExtensionApi {
   ) => void;
   /** omp's session-event bus; absent on an omp that fires no events. */
   on?: (event: string, handler: (...args: unknown[]) => void) => void;
+}
+
+/** omp's default role-cycle order (model-settings.ts:33); the fallback when the settings module is unreadable. */
+const DEFAULT_CYCLE_ORDER = ["smol", "default", "slow"];
+
+/** One execution tier as it travels on the review request; mirrors core's PlanReviewTier. */
+interface PlanTier {
+  role: string;
+  provider: string;
+  model: string;
+  thinkingLevel?: string;
+}
+
+/**
+ * omp's execution tiers — its model-role cycle resolved to models, computed
+ * here because the native report only exists in interactive mode and this
+ * session runs rpc-ui. Undefined whenever any part of it is unreachable (an
+ * older omp without the method, an unreadable settings module, a singleton
+ * cycle): the review then carries no tiers and renders exactly as before.
+ */
+async function computeTiers(active: PlanSession, settings: unknown): Promise<PlanTier[] | undefined> {
+  if (typeof active.getRoleModelCycle !== "function") return undefined;
+  let roleOrder: readonly string[] = DEFAULT_CYCLE_ORDER;
+  try {
+    // Dynamic on purpose: a static import of a subpath an older omp lacks
+    // would kill extension load entirely (ADR-0036; the literal specifier
+    // resolves through omp's bundled-module shim).
+    // @ts-expect-error -- literal specifier resolved by omp's extension loader (ADR-0036)
+    const mod = await import("@oh-my-pi/pi-coding-agent/config/model-settings");
+    const cycleOrder = (mod as Record<string, unknown>).cfgCycleOrder as
+      | { get?: (settings: unknown) => readonly string[] | undefined }
+      | undefined;
+    roleOrder = cycleOrder?.get?.(settings) ?? DEFAULT_CYCLE_ORDER;
+  } catch {
+    /* Older or renamed modules: the default order still matches the slider */
+  }
+  try {
+    const cycle = active.getRoleModelCycle(roleOrder);
+    if (!cycle || cycle.models.length < 2) return undefined;
+    return cycle.models.map(e => ({
+      role: e.role,
+      provider: e.model.provider,
+      model: e.model.id,
+      ...(e.explicitThinkingLevel && e.thinkingLevel ? { thinkingLevel: e.thinkingLevel } : {}),
+    }));
+  } catch {
+    return undefined;
+  }
 }
 
 export default function (pi: PlanExtensionApi) {
@@ -979,11 +1039,15 @@ export default function (pi: PlanExtensionApi) {
       }
     }
 
+    // The tier list rides the request because omp's native report exists only
+    // in interactive mode; an unreachable cycle simply omits it.
+    const tiers = await computeTiers(active, pi.pi?.settings);
     const request = {
       title: details.title ?? title,
       planFilePath,
       planAbsPath: absolutePlanPath(planFilePath),
       ...(represent ? { represented: true } : {}),
+      ...(tiers ? { tiers } : {}),
     };
 
     let answer: string | undefined;

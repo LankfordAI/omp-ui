@@ -671,6 +671,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "plan.review.thinking": "thinking",
   "plan.review.thinkingTitle": "구현에 사용할 세션의 thinking 수준",
   "plan.review.thinkFallback": "think —",
+  "plan.review.tier": "실행 티어",
+  "plan.review.tierHint": "구현을 실행할 모델 역할을 선택하세요. 다시 클릭하면 해제됩니다.",
   "plan.review.advisor": "어드바이저",
   "plan.review.advisorHint": "변경하면 실행 시 같은 세션의 구현을 재시작합니다.",
   "plan.review.advisorSwitch": "구현용 어드바이저",

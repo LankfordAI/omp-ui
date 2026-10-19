@@ -720,6 +720,8 @@ export const en = {
   "plan.review.thinking": "thinking",
   "plan.review.thinkingTitle": "the session's thinking level for the implementation",
   "plan.review.thinkFallback": "think —",
+  "plan.review.tier": "Execution tier",
+  "plan.review.tierHint": "Pick which model role runs the implementation. Click again to clear.",
   "plan.review.advisor": "Advisor",
   "plan.review.advisorHint": "A change restarts a same-session implementation at execute time.",
   "plan.review.advisorSwitch": "advisor for the implementation",

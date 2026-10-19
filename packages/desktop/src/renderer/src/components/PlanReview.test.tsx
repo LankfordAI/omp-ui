@@ -2531,6 +2531,187 @@ describe("PlanReview auto thinking staging", () => {
   });
 });
 
+describe("PlanReview execution tier chips (issue #886)", () => {
+  const MODEL_A = { id: "a", name: "Model A", provider: "p" };
+  const MODEL_B = {
+    id: "b",
+    name: "Model B",
+    provider: "p",
+    thinking: { efforts: ["low", "xhigh"] },
+  };
+  const TIERS = [
+    { role: "fast", provider: "p", model: "a" },
+    { role: "thorough", provider: "p", model: "b", thinkingLevel: "xhigh" },
+  ];
+  const caps = (ompVersion: string | null) => ({
+    version: 1 as const,
+    processKey: "p",
+    sessionId: null,
+    revision: 1,
+    updatedAt: 0,
+    ompVersion,
+    skillCommandsEnabled: null,
+    skills: { status: "unavailable" as const, reason: "missing-api" as const },
+    tools: { status: "unavailable" as const, reason: "missing-api" as const },
+    magicKeywords: { status: "unavailable" as const, reason: "missing-api" as const },
+    toolControl: "unsupported" as const,
+    toolMutation: null,
+  });
+  /** The gate on the standard seed, with tiers + version + catalog overridable. */
+  function seedTiers(options: {
+    tiers?: typeof TIERS | null;
+    ompVersion?: string | null;
+    sessionPatch?: Record<string, unknown>;
+  }): void {
+    const { tiers = TIERS, ompVersion = "18.10.4", sessionPatch = {} } = options;
+    useStore.setState((s) => ({
+      rpc: {
+        [TAB]: tabState({
+          model: MODEL_A,
+          availableModels: [MODEL_A, MODEL_B],
+          capabilities: caps(ompVersion),
+          planReview: {
+            request: {
+              title: "Fix the login race",
+              planFilePath: "local://fix-login-race-plan.md",
+              planAbsPath: "/x/fix-login-race-plan.md",
+              ...(tiers === null ? {} : { tiers }),
+            },
+            frame: { id: "p1" },
+          },
+          session: { ...s.rpc[TAB]!.session, ...sessionPatch },
+        }),
+      },
+    }));
+  }
+  const tierRow = (): Element | null => document.body.querySelector(".plan-review-tiers");
+  const tierChip = (text: string): HTMLButtonElement => {
+    const found = [...(tierRow()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
+      (candidate) => candidate.textContent === text,
+    );
+    expect(found).toBeDefined();
+    return found!;
+  };
+
+  it("shows one chip per tier when the version gate opens and two tiers arrive", () => {
+    seedTiers({});
+    render();
+    expect(document.body.textContent).toContain("Execution tier");
+    expect(tierChip("fast · Model A")).toBeDefined();
+    expect(tierChip("thorough · Model B")).toBeDefined();
+    // Presets, never mandatory: the plain two-button footer stays untouched.
+    expect(buttonByText("execute in this session")).toBeDefined();
+    expect(tierChip("fast · Model A").getAttribute("title")).toBe(
+      "Pick which model role runs the implementation. Click again to clear.",
+    );
+  });
+
+  it.each([
+    ["one tier", { tiers: [TIERS[0]!] }],
+    ["no tiers", { tiers: null }],
+    ["an old harness", { ompVersion: "18.10.3" }],
+  ] as const)("hides the chips with %s", (_label, options) => {
+    seedTiers(options as Parameters<typeof seedTiers>[0]);
+    render();
+    expect(tierRow()).toBeNull();
+    expect(document.body.textContent).not.toContain("Execution tier");
+    // Today's footer is exactly what it was.
+    expect(buttonByText("execute in this session")).toBeDefined();
+  });
+
+  it("skips the chips in the compact shell even when the gates pass", async () => {
+    setCompact(true);
+    seedTiers({});
+    render();
+    await act(async () => buttonByText("execute…").click());
+    expect(tierRow()).toBeNull();
+    expect(document.body.textContent).not.toContain("Execution tier");
+  });
+
+  it("a chip click stages the tier's model and pinned level into the options bag", async () => {
+    seedTiers({});
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ executePlan: executePlanSpy });
+    try {
+      render();
+      await act(async () => tierChip("thorough · Model B").click());
+      // The summary names the active role after the model.
+      expect(document.body.textContent).toContain("Model B · thorough");
+      await act(async () => {
+        executeButton().click();
+        await Promise.resolve();
+      });
+      expect(executePlanSpy).toHaveBeenCalledWith(
+        TAB,
+        "existing",
+        expect.objectContaining({ model: MODEL_B, thinkingLevel: "xhigh" }),
+      );
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
+  });
+
+  it("clicking the active chip restores the seed model and level", async () => {
+    seedTiers({ sessionPatch: { thinkingLevel: "medium", thinkingConfigured: "medium" } });
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ executePlan: executePlanSpy });
+    try {
+      render();
+      await act(async () => tierChip("thorough · Model B").click());
+      expect(tierChip("thorough · Model B").getAttribute("aria-pressed")).toBe("true");
+      // Clicking the active chip clears: the seed this review opened with lands.
+      await act(async () => tierChip("thorough · Model B").click());
+      expect(tierChip("thorough · Model B").getAttribute("aria-pressed")).toBe("false");
+      await act(async () => {
+        executeButton().click();
+        await Promise.resolve();
+      });
+      expect(executePlanSpy).toHaveBeenCalledWith(
+        TAB,
+        "existing",
+        expect.objectContaining({ model: MODEL_A, thinkingLevel: "medium" }),
+      );
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
+  });
+
+  it("a tier without a pinned level leaves the staged thinking selector untouched", async () => {
+    // The seed model is B, so thorough opens active and fast is the preset.
+    seedTiers({});
+    useStore.setState((s) => ({
+      rpc: {
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          model: MODEL_B,
+          session: { ...s.rpc[TAB]!.session, thinkingLevel: "medium", thinkingConfigured: "medium" },
+        },
+      },
+    }));
+    const realExecutePlan = useStore.getState().executePlan;
+    const executePlanSpy = vi.fn();
+    useStore.setState({ executePlan: executePlanSpy });
+    try {
+      render();
+      await act(async () => tierChip("fast · Model A").click());
+      await act(async () => {
+        executeButton().click();
+        await Promise.resolve();
+      });
+      // Fast carries no thinkingLevel: medium stays staged; only the model moves.
+      expect(executePlanSpy).toHaveBeenCalledWith(
+        TAB,
+        "existing",
+        expect.objectContaining({ model: MODEL_A, thinkingLevel: "medium" }),
+      );
+    } finally {
+      useStore.setState({ executePlan: realExecutePlan });
+    }
+  });
+});
+
 describe("PlanReview live voice tray", () => {
   const actions = {
     explainPlanVoice: useStore.getState().explainPlanVoice,
