@@ -1,4 +1,4 @@
-import type { DragEvent as ReactDragEvent } from "react";
+import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
 import { relativeTime } from "../lib/format";
 import type { PlanImplementationSource, SessionSummary } from "@omp-ui/core/types";
 import { parseTitleCard } from "@omp-ui/core/title-card";
@@ -200,6 +200,7 @@ export function SessionRow({
   onDragOver,
   onDrop,
   onDragEnd,
+  onContextMenu,
 }: {
   s: SessionSummary;
   onActivate?: () => void;
@@ -215,6 +216,8 @@ export function SessionRow({
   onDragOver?: (e: ReactDragEvent<HTMLElement>) => void;
   onDrop?: (e: ReactDragEvent<HTMLElement>) => void;
   onDragEnd?: () => void;
+  /** Right-click (or keyboard menu) on the row; Sidebar owns the portal. */
+  onContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void;
 }) {
   const t = useT();
   const openSession = useStore((st) => st.openSession);
@@ -275,9 +278,10 @@ export function SessionRow({
     <div
       draggable={canReorder}
       onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onContextMenu={onContextMenu}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      onDragEnd={onDragEnd}
       className={cn(
         "group/row animate-slide-in relative flex items-center rounded-md",
         "transition-colors duration-150",

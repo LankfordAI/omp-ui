@@ -18,6 +18,9 @@ import type {
   DiagnosticsExportRequest,
   DiagnosticsExportResult,
   AnonymizeSessionResult,
+  AuthCarryResult,
+  IngestFinishResult,
+  PackStartResult,
   DiagnosticsPreview,
   DirBrowseResult,
   GlassChrome,
@@ -1593,6 +1596,96 @@ export const BACKEND_CHANNELS = {
   },
   /** The app-wide subscription sign-in flow's phase changes. */
   onProviderOAuthState: { channel: "provider-oauth:state", ...event<[state: ProviderOAuthState]>() },
+  /**
+   * Begin a session bundle migration (issue #888): shells out to the owning
+   * host's omp `session pack` into a 0600 staging dir. Refuses live sessions
+   * (omp refuses to pack a transcript another process writes) and rows with no
+   * transcript; unarchives an archived one first. Proxied: works toward or
+   * from a joined instance.
+   */
+  packStart: {
+    channel: "session:pack-start",
+    ...request<[tabId: string], PackStartResult>([str()]),
+  },
+  /** Base64 of raw bytes `index*CHUNK .. min(size, (index+1)*CHUNK)` of the
+   * staged pack; empty string past the end. Proxied. */
+  packChunk: {
+    channel: "session:pack-chunk",
+    ...request<[packId: string, index: number], string>([str(), num()]),
+  },
+  /** Abandon a pack: shred the staged bundle and remove its dir. Proxied. */
+  packAbort: {
+    channel: "session:pack-abort",
+    ...request<[packId: string], void>([str()]),
+  },
+  /** Open an ingest transfer on this host: returns the transferId whose
+   * append-writer backs `session:ingest-push`. Proxied. */
+  ingestStart: {
+    channel: "session:ingest-start",
+    ...request<[], string>([]),
+  },
+  /** Append one base64 chunk to an ingest transfer (arrival order is the
+   * chunk order; one pusher per transfer). Proxied. */
+  ingestPush: {
+    channel: "session:ingest-push",
+    ...request<[transferId: string, chunkBase64: string], void>([str(), str()]),
+  },
+  /** Close the bundle, run `omp session unpack --cwd`, relocate the placed
+   * transcript into a minted ADR-0003 lineage dir, register the row as owned,
+   * and shred the temp bundle. Returns the new row's tabId. Proxied. */
+  ingestFinish: {
+    channel: "session:ingest-finish",
+    ...request<[transferId: string, projectCwd: string], IngestFinishResult>([str(), str()]),
+  },
+  /** Mark a migrated-away source copy stale via `omp session moved --to`, so
+   * its next resume forks instead of continuing a diverged transcript. Local
+   * main only (the acting app's own rows). */
+  markSessionMoved: {
+    channel: "session:mark-moved",
+    ...request<[tabId: string, toLabel: string], AuthCarryResult>([str(), str()]),
+  },
+  /** Carry every stored credential FROM this host TO a joined instance:
+   * export → proxy `auth:import-bundle` → shred. Credential bytes transit
+   * main-to-main only (ADR-0028). Local main only. */
+  authCarryToInstance: {
+    channel: "auth:carry-to-instance",
+    ...request<[instanceId: string], AuthCarryResult>([str()]),
+  },
+  /** Carry every stored credential FROM a joined instance to this host.
+   * Local main only; the bundle rides the proxy response, handled in main. */
+  authCarryFromInstance: {
+    channel: "auth:carry-from-instance",
+    ...request<[instanceId: string], AuthCarryResult>([str()]),
+  },
+  /** Host-local bundle verb: export via `omp auth export` into a 0600 temp,
+   * return base64, shred. Proxied — only ever called from another main. */
+  authExportBundle: {
+    channel: "auth:export-bundle",
+    ...request<[], string>([]),
+  },
+  /** Host-local bundle verb: write the base64 to a 0600 temp, `omp auth
+   * import` (merge-imports, so carries are additive), shred. Proxied. */
+  authImportBundle: {
+    channel: "auth:import-bundle",
+    ...request<[bundleBase64: string], AuthCarryResult>([str()]),
+  },
+  /** Native save dialog, then export the credential bundle to the chosen path
+   * (0600). Cancel reports "cancelled". Local main only; the saved file is
+   * the user's own secret copy. */
+  authSaveBundle: {
+    channel: "auth:save-bundle",
+    ...request<[], AuthCarryResult>([]),
+  },
+  /** Native open dialog for a bundle file; path or null on cancel. Local only. */
+  authPickBundleFile: {
+    channel: "auth:pick-bundle-file",
+    ...request<[], string | null>([]),
+  },
+  /** `omp auth import <path>` directly — the user's own file stays as left. */
+  authImportFile: {
+    channel: "auth:import-file",
+    ...request<[filePath: string], AuthCarryResult>([str()]),
+  },
 } as const;
 export type BackendChannelSpec = typeof BACKEND_CHANNELS;
 export type BackendMethodName = keyof BackendChannelSpec;

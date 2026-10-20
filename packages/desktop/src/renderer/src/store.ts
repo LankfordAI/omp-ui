@@ -33,6 +33,7 @@ import {
   installLiveReplayGuards,
 } from "./store/slices/live-audio";
 import { createLifecycleSlice } from "./store/slices/lifecycle";
+import { createMigrateSlice } from "./store/slices/migrate";
 import { createPlanExecutionSlice } from "./store/slices/plan-execution";
 import { createRpcCommandSlice } from "./store/slices/rpc-command";
 import { createSeanceSlice } from "./store/slices/seance";
@@ -185,6 +186,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const stats = createStatsSlice(set, get);
   const collab = createCollabSlice(set, get);
   const sideQuestions = createSideQuestionsSlice(get, m);
+  const migrate = createMigrateSlice(set, get);
   const subagentControl = createSubagentControlSlice(get, m);
   const seance = createSeanceSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });
   const asyncJobs = createAsyncJobsSlice(get, m);
@@ -404,6 +406,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...stats,
     ...collab,
     ...sideQuestions,
+    ...migrate,
     ...subagentControl,
     ...seance,
     ...asyncJobs,

@@ -462,6 +462,17 @@ export type LifecycleConfirmationChoice =
       tabId: string;
       entryId: string;
       laterTurns: number;
+    }
+  | {
+      /** Carry every stored credential to or from another host, or write/read
+       *  a bundle file (issue #888). Mandatory gate before any credential
+       *  touches disk: the body spells out that the bundle is plaintext.
+       *  `targetLabel` names the peer for display (nickname or chosen path);
+       *  `instanceId` carries it only for the two instance-to-instance arms. */
+      kind: "carry-auth";
+      action: "to-instance" | "from-instance" | "save-file" | "import-file";
+      targetLabel: string;
+      instanceId?: string;
     };
 
 export type LifecycleConfirmation = {
@@ -863,6 +874,21 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   errorNotices: ErrorNotice[];
   reportError(error: unknown): void;
   dismissError(id: string): void;
+  /** App-global successes awaiting acknowledgment, oldest first (issue #888):
+   *  flows with no live transcript to receive a per-tab notice (a migrated-in
+   *  row) report here; renders as a calm dialog beside the error queue. */
+  infoNotices: ErrorNotice[];
+  reportNotice(message: string): void;
+  dismissNotice(id: string): void;
+  /** #888: per-tab in-flight migration, renderer-local progress only. */
+  migrating: Record<string, "packing" | "transferring" | "finishing">;
+  /** Percent forwarded (0-100) per in-flight migration tabId (issue #888);
+   *  cleared with `migrating`. */
+  migrationProgress: Record<string, number>;
+  /** Streams the tab's transcript bundle to `targetInstanceId` (null = this
+   *  machine) at `targetCwd`, then marks the source moved. Chunk-forwarding
+   *  lives here so neither side ever holds the full bundle. */
+  migrateSession(tabId: string, targetInstanceId: string | null, targetCwd: string): Promise<void>;
   /** Per-tab live-share state (issue #686); absent = off. */
   collab: Record<string, CollabTabView>;
   /** The tab whose Share-live dialog is open (issue #686); null = closed. */
@@ -895,6 +921,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   shareConfirmTab: string | null;
   worktreeDialogProject: string | null;
   worktreeDialogInstanceId: string | null;
+  /** The row whose Migrate session dialog is open (issue #888); null = closed. */
+  migrateDialog: { tabId: string } | null;
+  openMigrateDialog(tabId: string): void;
+  closeMigrateDialog(): void;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
   finishWorktreeTab: string | null;
   /** The session tree navigator (issue #680, Phase 2): the pinned live tab

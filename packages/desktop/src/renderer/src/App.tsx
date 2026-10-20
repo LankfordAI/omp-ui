@@ -15,6 +15,7 @@ import { CapabilitiesViewer } from "./components/CapabilitiesViewer";
 import { SessionTreeViewer } from "./components/SessionTreeViewer";
 import { NewExperimentDialog } from "./components/NewExperimentDialog";
 import { NewWorktreeSessionDialog } from "./components/NewWorktreeSessionDialog";
+import { MigrateSessionDialog } from "./components/MigrateSessionDialog";
 import { SeanceConsultDialog } from "./components/SeanceConsultDialog";
 import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
 import { Lab } from "./components/lab/Lab";
@@ -290,6 +291,7 @@ export default function App() {
   const state = useStore((s) => s.state);
   const worktreeDialogProject = useStore((s) => s.worktreeDialogProject);
   const worktreeDialogInstanceId = useStore((s) => s.worktreeDialogInstanceId);
+  const migrateDialog = useStore((s) => s.migrateDialog);
   const newSession = useStore((s) => s.newSession);
   const reportError = useStore((s) => s.reportError);
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
@@ -581,6 +583,9 @@ export default function App() {
       )}
       {worktreeDialogProject !== null && (
         <NewWorktreeSessionDialog projectCwd={worktreeDialogProject} instanceId={worktreeDialogInstanceId} />
+      )}
+      {migrateDialog !== null && (
+        <MigrateSessionDialog key={migrateDialog.tabId} tabId={migrateDialog.tabId} />
       )}
       {experimentDialog !== null && experimentsEnabled && (
         <NewExperimentDialog

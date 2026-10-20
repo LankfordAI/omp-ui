@@ -30,6 +30,7 @@ import { Button, Chip, Dot, Empty, Label, Panel, Switch } from "../ui";
 import { FIELD, Row, layerBadge } from "./rows";
 import { t, useT } from "../../lib/i18n";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
+import { CarryAuthDialog } from "./CarryAuthDialog";
 
 type ProviderKeysLoad =
   | { status: "loading" }
@@ -1083,14 +1084,26 @@ export function ProvidersFooter({ anyLive }: FooterContext) {
   // Load-bearing: keys bind at process start, and a GUI launch inherits none
   // of the user's shell exports — the two facts that make this page exist.
   const t = useT();
+  // Issue #888: the same page that explains where credentials live is the
+  // natural place to move them between machines.
+  const [carrying, setCarrying] = useState(false);
   return (
-    <p>
-      {t("settings.providers.footerIntro")}
-      {anyLive && t("settings.providers.footerRestart")}
-      {t("settings.providers.footerEnvPrefix")}
-      <span className="font-mono">.env</span>
-      {t("settings.providers.footerEnvSuffix")}
-      {t("settings.providers.oauthFooter")}
-    </p>
+    <>
+      <p>
+        {t("settings.providers.footerIntro")}
+        {anyLive && t("settings.providers.footerRestart")}
+        {t("settings.providers.footerEnvPrefix")}
+        <span className="font-mono">.env</span>
+        {t("settings.providers.footerEnvSuffix")}
+        {t("settings.providers.oauthFooter")}
+      </p>
+      <p className="mt-1">
+        <Button size="xs" variant="ghost" onClick={() => setCarrying(true)}>
+          {t("settings.providers.carryAuth.button")}
+        </Button>
+        <span className="ml-2">{t("settings.providers.carryAuth.hint")}</span>
+      </p>
+      {carrying && <CarryAuthDialog onClose={() => setCarrying(false)} />}
+    </>
   );
 }

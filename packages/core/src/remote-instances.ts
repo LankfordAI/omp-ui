@@ -181,6 +181,13 @@ const PROJECT_PROXY_CHANNELS: readonly string[] = [
  * Every channel the main-process proxy forwards to a joined instance. Anything
  * else — settings, window, host-local opens, updates, remote access, providers,
  * diagnostics, the instance's own remote-instance channels — is refused.
+ *
+ * The #888 bundle-transfer channels are proxied by design: session pack/
+ * ingest chunks and the two auth bundle verbs run on whichever host owns the
+ * files, addressed with `backendFor(instanceId)`. Auth orchestration
+ * (`auth:carry-*`, save/pick/import-file) and `session:mark-moved` stay off
+ * this list — they run only in the acting app's main. None of these is
+ * tab-scoped or project-scoped, so they join the union directly.
  */
 export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   ...TAB_ROUTED_REQUESTS,
@@ -195,6 +202,18 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   // Cross-session stats follow the owning instance (#668): the stats DB is
   // that host's own ~/.omp/stats.db, read by that instance's core.
   "stats:overview",
+  // Session migration (#888): the pack legs run on the source host, the
+  // ingest legs on the target; every chunk frame is base64 under the socket's
+  // MAX_PAYLOAD. Transcript bytes may ride the renderer (already visible
+  // there); credential bundles transit main-to-main only.
+  "session:pack-start",
+  "session:pack-chunk",
+  "session:pack-abort",
+  "session:ingest-start",
+  "session:ingest-push",
+  "session:ingest-finish",
+  "auth:export-bundle",
+  "auth:import-bundle",
 ]);
 
 /** Events a joined instance emits that are mirrored to local sinks unchanged. */
