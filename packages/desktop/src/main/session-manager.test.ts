@@ -7089,16 +7089,19 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
     vi.waitFor(() => expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({ id })));
 
   it.each([
-    ["new", false],
-    ["new", true],
-    ["resume", false],
-    ["resume", true],
-  ] as const)("registers the scheme and registry-selected tools on %s with vaults=%s", async (origin, hasVaults) => {
+    ["new", false, false],
+    ["new", true, false],
+    ["resume", false, false],
+    ["resume", true, false],
+    ["new", true, true],
+    ["resume", false, true],
+  ] as const)("registers the scheme and registry-selected tools on %s with vaults=%s fleet=%s", async (origin, hasVaults, fleet) => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     registry.setSetting("vaultRegistry", {
       vaults: hasVaults ? [{ name: "Notes", path: "/notes", homeFolder: "omp-ui/", allowWritesOutsideHome: false }] : [],
       defaultWriteVault: hasVaults ? "Notes" : null,
     });
+    registry.setSetting("fleetAgentDispatch", fleet);
     await manager.spawn(origin === "resume"
       ? { origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 }
       : { origin: "new", projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24, worktree: null, planMode: false });
@@ -7112,21 +7115,24 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
     expect(registration).toMatchObject({ type: "set_host_tools", id: "omp-ui-host-tools-1" });
     expect(commands?.filter((command) => command.type === "set_host_tools")).toHaveLength(1);
     const tools = Array.isArray(registration?.tools) ? registration.tools : [];
-    expect(tools.map((tool) => Core.isObject(tool) ? tool.name : null)).toEqual(hasVaults ? [
+    expect(tools.map((tool) => Core.isObject(tool) ? tool.name : null)).toEqual([
       "omp-ui_notify",
-      "omp-ui_vault_search",
-      "omp-ui_vault_read",
-      "omp-ui_vault_list",
-      "omp-ui_vault_create",
-      "omp-ui_vault_append",
-      "omp-ui_vault_edit",
-      "omp-ui_vault_link",
-    ] : ["omp-ui_notify"]);
-    if (hasVaults) {
-      for (const tool of tools.slice(1)) {
-        expect(tool).toMatchObject({ loadMode: "essential" });
-        expect(tool).not.toMatchObject({ hidden: true });
-      }
+      ...(hasVaults
+        ? [
+            "omp-ui_vault_search",
+            "omp-ui_vault_read",
+            "omp-ui_vault_list",
+            "omp-ui_vault_create",
+            "omp-ui_vault_append",
+            "omp-ui_vault_edit",
+            "omp-ui_vault_link",
+          ]
+        : []),
+      ...(fleet ? ["omp-ui_fleet_machines", "omp-ui_fleet_dispatch", "omp-ui_fleet_status"] : []),
+    ]);
+    for (const tool of tools.slice(1)) {
+      expect(tool).toMatchObject({ loadMode: "essential" });
+      expect(tool).not.toMatchObject({ hidden: true });
     }
   });
 
@@ -8111,5 +8117,159 @@ describe("chat sessions (issue #894)", () => {
       expect(manager.isLive("orphan-ask")).toBe(true);
       expect(askArm(commandsOf())).toEqual([]);
     });
+  });
+});
+
+describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
+  type Cmd = { type: string; id?: string; name?: string; message?: string; tools?: unknown };
+  const settle = (): Promise<void> => new Promise<void>((resolve) => setImmediate(resolve));
+  const DISPATCH = "dispatch-0001";
+  const PROMPT = "Fix the flaky retry test\n\nThen run the suite.";
+  const commandsOf = (): Cmd[] => (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Cmd[];
+  const fleetSpawn = (
+    manager: SessionManager,
+    opts: { dispatchId?: string; projectCwd?: string; kind?: "user" | "agent" } = {},
+  ): Promise<{ tabId: string }> =>
+    manager.spawn({
+      origin: "new",
+      projectCwd: opts.projectCwd ?? "/proj",
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+      fleet: {
+        dispatchId: opts.dispatchId ?? DISPATCH,
+        batchId: null,
+        title: "Fix the flake",
+        prompt: PROMPT,
+        requestedBy: {
+          instanceId: "inst-a",
+          label: "host-a",
+          kind: opts.kind ?? "user",
+          sourceTabId: opts.kind === "agent" ? "src-tab" : null,
+        },
+      },
+    });
+  const recordOf = (registry: Core.Registry, tabId: string): Core.OwnedSessionRecord =>
+    registry.sessions.find((s) => s.tabId === tabId)!;
+  const promptsFor = (commands: Cmd[]): Cmd[] =>
+    commands.filter((c) => c.type === "prompt" && c.id === Core.fleetPromptCommandId(DISPATCH));
+
+  it("delivers the title then the prompt as the last two initial commands, after set_host_tools", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    const { tabId } = await fleetSpawn(manager);
+
+    const record = recordOf(registry, tabId);
+    expect(record.fleet).toMatchObject({ dispatchId: DISPATCH, batchId: null, requestedBy: { kind: "user", label: "host-a" } });
+    expect(record.cachedTitle).toBe("Fix the flake");
+    expect(record.autoTitled).toBe(false);
+    expect(Core.readFleetPrompt(path.join(sessionsRoot, record.lineageDir))).toBe(PROMPT);
+    const commands = commandsOf();
+    expect(commands.slice(-2)).toEqual([
+      { type: "set_session_name", id: `omp-ui-fleet-title-${DISPATCH}`, name: "Fix the flake" },
+      { type: "prompt", id: Core.fleetPromptCommandId(DISPATCH), message: PROMPT },
+    ]);
+    const registration = commands.findIndex((c) => c.type === "set_host_tools");
+    expect(registration).toBeGreaterThan(-1);
+    expect(registration).toBeLessThan(commands.length - 2);
+  });
+
+  it("a success response consumes the staged prompt, and a resume sends no prompt", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    const { tabId } = await fleetSpawn(manager);
+    const lineage = path.join(sessionsRoot, recordOf(registry, tabId).lineageDir);
+    const rpc = rpcInstances.at(-1)!;
+    rpc.frame({ type: "response", id: Core.fleetPromptCommandId(DISPATCH), command: "prompt", success: true });
+    expect(Core.readFleetPrompt(lineage)).toBeNull();
+
+    rpc.exit(0);
+    await settle();
+    await manager.spawn({ origin: "resume", resumeTabId: tabId, cols: 80, rows: 24 });
+
+    expect(RpcClientMock).toHaveBeenCalledTimes(2);
+    expect(promptsFor(commandsOf())).toEqual([]);
+    expect(commandsOf().some((c) => c.type === "set_session_name")).toBe(false);
+  });
+
+  it("a failure response keeps the staged prompt, and a resume of the materialized session re-sends it without the title", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { tabId } = await fleetSpawn(manager);
+      const record = recordOf(registry, tabId);
+      const lineage = path.join(sessionsRoot, record.lineageDir);
+      const rpc = rpcInstances.at(-1)!;
+      rpc.frame({ type: "response", id: Core.fleetPromptCommandId(DISPATCH), command: "prompt", success: false, error: "busy" });
+      expect(Core.readFleetPrompt(lineage)).toBe(PROMPT);
+      expect(warn).toHaveBeenCalledWith("[fleet] dispatched prompt rejected:", tabId);
+
+      rpc.exit(0);
+      await settle();
+      // omp materialized the session before the crash: the header owns the title now.
+      fs.writeFileSync(
+        path.join(lineage, "2026-10-20T00-00-00-000Z_fleet-sid.jsonl"),
+        `${JSON.stringify({ type: "session", id: "fleet-sid", cwd: record.projectCwd })}\n`,
+      );
+      registry.updateSession(tabId, { sessionId: "fleet-sid" });
+      await manager.spawn({ origin: "resume", resumeTabId: tabId, cols: 80, rows: 24 });
+
+      const commands = commandsOf();
+      expect(promptsFor(commands)).toEqual([{ type: "prompt", id: Core.fleetPromptCommandId(DISPATCH), message: PROMPT }]);
+      expect(commands.at(-1)).toMatchObject({ id: Core.fleetPromptCommandId(DISPATCH) });
+      expect(commands.some((c) => c.type === "set_session_name")).toBe(false);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("a second spawn with the same dispatchId, concurrent or later, returns the same tab and starts one process", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const [first, concurrent] = await Promise.all([fleetSpawn(manager), fleetSpawn(manager)]);
+    const later = await fleetSpawn(manager);
+
+    expect(concurrent.tabId).toBe(first.tabId);
+    expect(later.tabId).toBe(first.tabId);
+    expect(RpcClientMock).toHaveBeenCalledTimes(1);
+    expect(registry.sessions.filter((s) => s.fleet?.dispatchId === DISPATCH)).toHaveLength(1);
+  });
+
+  it("never adopts a parked warm child", async () => {
+    const projectCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-warm-fleet-"));
+    try {
+      const { manager, registry, crumbs } = setup({ mode: "rpc-ui", warm: true, project: projectCwd });
+      await manager.spawn({ origin: "new", projectCwd, mode: "rpc-ui", advisor: false, cols: 80, rows: 24, worktree: null });
+      await settle(); // the pool parks a slot for this exact plan key
+      const slotClient = rpcInstances.at(-1)!;
+      const slotDir = mintLineageDirNameMock.mock.results.at(-1)!.value as string;
+
+      const { tabId } = await fleetSpawn(manager, { projectCwd });
+
+      expect(recordOf(registry, tabId).lineageDir).not.toBe(slotDir);
+      expect(crumbs.some((crumb) => crumb.kind === "warm-adopt")).toBe(false);
+      expect(slotClient.arm).not.toHaveBeenCalled();
+      expect(slotClient.kill).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["setting off, user-dispatched", false, "user", false],
+    ["setting on, user-dispatched", true, "user", true],
+    ["setting on, agent-dispatched", true, "agent", false],
+    ["setting on, not dispatched", true, null, true],
+  ] as const)("registers the fleet tools only when allowed (%s)", async (_label, setting, kind, expected) => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", setting);
+    if (kind === null) await resume(manager);
+    else await fleetSpawn(manager, { kind });
+
+    const registration = commandsOf().find((c) => c.type === "set_host_tools");
+    const names = (Array.isArray(registration?.tools) ? registration.tools : []).map((tool: unknown) =>
+      Core.isObject(tool) ? tool.name : null,
+    );
+    expect(names).toEqual(expected ? ["omp-ui_notify", ...Core.FLEET_TOOLS] : ["omp-ui_notify"]);
   });
 });

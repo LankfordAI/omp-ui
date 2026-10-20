@@ -1,5 +1,8 @@
 import * as path from "node:path";
 import {
+  fleetMachineName,
+  fleetToolDispatchRequest,
+  formatFleetMachines,
   HOST_NOTIFY_TOOL_NAME,
   HOST_URI_SCHEME,
   hostToolErrorResult,
@@ -12,6 +15,7 @@ import {
   parseHostToolCancel,
   parseHostUriCancel,
   parseHostUriRequest,
+  parseFleetToolArguments,
   parseHostUrl,
   parseDayParam,
   parsePlanReviewTitle,
@@ -30,6 +34,9 @@ import {
   vaultRead,
   vaultSearch,
   VAULT_WRITE_TOOLS,
+  type FleetDispatchRequest,
+  type FleetDispatchResult,
+  type FleetMachine,
   type ObsidianListEntry,
   type RootGuard,
   type VaultAction,
@@ -72,6 +79,14 @@ export interface VaultBridgeDeps {
   mainLog(line: string): void;
 }
 
+/** The tab-side fleet answerers (issue #899, ADR-0061); SessionManager maps them onto the FleetDispatcher. */
+export interface FleetBridgeDeps {
+  machines(): Promise<FleetMachine[]>;
+  /** Dispatches on behalf of the agent in `tabId`; the caller bounds it inside the answer watchdog. */
+  dispatch(tabId: string, req: FleetDispatchRequest): Promise<FleetDispatchResult>;
+  status(sel: { batchId: string } | { dispatchId: string }): Promise<string>;
+}
+
 export interface HostBridgeDeps {
   /** Confined read of one plan artifact under the tab's lineage root. */
   readPlanFile: (root: string, absPath: string) => Promise<ConfinedPlanRead>;
@@ -87,6 +102,8 @@ export interface HostBridgeDeps {
   vault?: VaultBridgeDeps;
   /** Owned-session records behind omp-ui://sessions; absent means the index is off. */
   sessions?: SessionsResourceDeps;
+  /** The fleet tools' answerers; absent means the fleet tools answer as unavailable. */
+  fleet?: FleetBridgeDeps;
 }
 
 interface PendingHostAnswer {
@@ -299,6 +316,10 @@ export class HostBridge {
       await this.answerVault(tabId, call, action, send);
       return;
     }
+    if (call.toolName.startsWith("omp-ui_fleet_")) {
+      await this.answerFleet(tabId, call, send);
+      return;
+    }
     if (call.toolName !== HOST_NOTIFY_TOOL_NAME) {
       this.answer(call.id, hostToolErrorResult(call.id, `unknown host tool "${call.toolName}"`), send);
       return;
@@ -320,6 +341,70 @@ export class HostBridge {
       return;
     }
     this.answer(call.id, hostToolTextResult(call.id, text), send);
+  }
+
+  private async answerFleet(
+    tabId: string,
+    call: { id: string; toolName: string; args: unknown },
+    send: (frame: RpcFrame) => void,
+  ): Promise<void> {
+    const pending = this.pending.get(call.id);
+    const retained = (): boolean => pending !== undefined && this.pending.get(call.id) === pending;
+    const reply = (frame: RpcFrame): void => {
+      if (retained()) this.answer(call.id, frame, send);
+    };
+    const deps = this.deps.fleet;
+    if (deps === undefined) {
+      reply(hostToolErrorResult(call.id, "fleet tools are not available"));
+      return;
+    }
+    const parsed = parseFleetToolArguments(call.toolName, call.args);
+    if (!parsed.ok) {
+      reply(hostToolErrorResult(call.id, parsed.reason));
+      return;
+    }
+    try {
+      if (parsed.tool === "machines") {
+        const machines = await deps.machines();
+        reply(hostToolTextResult(call.id, formatFleetMachines(machines)));
+        return;
+      }
+      if (parsed.tool === "status") {
+        const text = await deps.status(parsed.selector);
+        reply(hostToolTextResult(call.id, text));
+        return;
+      }
+      const machines = await deps.machines();
+      if (!retained()) return;
+      const translated = fleetToolDispatchRequest(parsed.args, machines);
+      if (!translated.ok) {
+        reply(hostToolErrorResult(call.id, translated.reason));
+        return;
+      }
+      const result = await deps.dispatch(tabId, translated.request);
+      // Ids and statuses only — the prompt never reaches the log.
+      this.deps.log(
+        `omp-ui_fleet_dispatch from ${tabId}: ${result.outcomes.map((o) => `${o.machineKey}=${o.status}`).join(", ") || "no targets"}`,
+      );
+      const lines = result.outcomes.map((o) => {
+        const machine = machines.find((m) => m.key === o.machineKey);
+        const name = machine === undefined ? o.machineKey : fleetMachineName(machine);
+        const detail = o.status === "started" ? `tab ${o.tabId}` : o.message;
+        return `- ${name}: ${o.status} (${detail}); dispatchId ${o.dispatchId}`;
+      });
+      const poll =
+        result.batchId !== null
+          ? `Poll omp-ui_fleet_status with batchId ${result.batchId}; do not dispatch again.`
+          : "Poll omp-ui_fleet_status with the dispatchId; do not dispatch again.";
+      reply(
+        hostToolTextResult(
+          call.id,
+          [`Batch: ${result.batchId ?? "none (single dispatch)"}`, ...lines, "", poll].join("\n"),
+        ),
+      );
+    } catch (error) {
+      reply(hostToolErrorResult(call.id, `omp-ui could not complete the fleet call (${error instanceof Error ? error.message : String(error)})`));
+    }
   }
 
   private async answerVault(

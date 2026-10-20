@@ -9,7 +9,8 @@ import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
 import { Button, Dot, IconButton, IconGrip, IconLock, IconSpeaker, type Tone } from "./ui";
 import type { LivePhase } from "@omp-ui/core/live-voice";
 
-const SESSION_FACE: Record<
+/** One session state's sidebar face; the Fleet view's dispatch rows reuse it (issue #899). */
+export const SESSION_FACE: Record<
   SidebarSessionState,
   { tone: Tone; pulse: boolean; labelKey: MessageKey; titleKey: MessageKey; textClass: string }
 > = {

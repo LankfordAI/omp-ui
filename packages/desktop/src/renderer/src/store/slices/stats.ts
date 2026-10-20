@@ -8,7 +8,7 @@ import type { StatsSlice } from "../types";
 
 export function createStatsSlice(set: SetState, get: GetState): StatsSlice {
   const openStats: StatsSlice["openStats"] = (rangeDays = null) => {
-    set({ stats: { rangeDays } });
+    set({ stats: { rangeDays }, fleet: null });
   };
   const setStatsRange: StatsSlice["setStatsRange"] = (rangeDays) => {
     const stats = get().stats;

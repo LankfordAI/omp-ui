@@ -4,6 +4,7 @@ export {
   ICON_STROKE,
   IconClose,
   IconFlask,
+  IconFleet,
   IconGrip,
   IconGroup,
   IconLock,

@@ -12,6 +12,7 @@ import type { RegistrySettings } from "./registry";
 import type { ReviewDocument } from "./review-config";
 import type { SessionExperiment } from "./experiment-types";
 import type { VaultAction } from "./vault-shared";
+import type { FleetPendingDispatch, FleetProvenance, FleetSpawnSpec } from "./fleet";
 export type {
   CheckoutExperiments,
   ExperimentDetail,
@@ -440,6 +441,10 @@ export interface OwnedSessionRecord {
   /** Set on an Ask chat (#895): the session whose summary is pinned as hidden
    *  context. Null otherwise. Post-dates schema-1: absent normalizes to null. */
   askSource: AskSource | null;
+  /** Set on a session started by a Fleet dispatch (issue #899, ADR-0061):
+   *  who dispatched it, when, and its dispatch/batch ids. Null otherwise.
+   *  Post-dates schema-1: absent normalizes to null. */
+  fleet: FleetProvenance | null;
   /** True while the session's title is one omp-ui generated via `/rename`
    *  (issue #804). omp records generator titles with source "user", so this
    *  marker — not the header — is what distinguishes an auto-title from a
@@ -621,6 +626,9 @@ export interface BackendState extends BackendBroadcastSettings {
   spawnGate: SpawnGateState;
   /** Joined remote instances and their registries (issue #416); never persisted here, never carries a credential. */
   remoteInstances: RemoteInstanceSummary[];
+  /** Fleet dispatches whose outcome this app could not learn (issue #899):
+   *  in memory only, cleared once a session carrying the dispatchId appears. */
+  fleetPending: FleetPendingDispatch[];
 }
 
 /**
@@ -739,6 +747,7 @@ export interface NewPtySpawnRequest extends NewSpawnRequestBase {
   mode: "pty";
   planMode?: never;
   chat?: never;
+  fleet?: never;
 }
 
 export interface NewRpcSpawnRequest extends NewSpawnRequestBase {
@@ -746,6 +755,9 @@ export interface NewRpcSpawnRequest extends NewSpawnRequestBase {
   /** Omitted fresh sessions follow the configured default agent mode. */
   planMode?: boolean;
   chat?: never;
+  /** A Fleet dispatch (issue #899, ADR-0061): the owner records the
+   *  provenance, stages the prompt, and delivers it as the first turn. */
+  fleet?: FleetSpawnSpec;
 }
 
 interface ResumeSpawnRequestBase {
@@ -773,6 +785,7 @@ interface ResumeSpawnRequestBase {
   planImplementationSource?: never;
   experiment?: never;
   askSource?: never;
+  fleet?: never;
 }
 
 export type ResumeSpawnRequest = ResumeSpawnRequestBase &
@@ -799,6 +812,7 @@ export interface NewChatSpawnRequest {
   planMode?: never;
   planImplementationSource?: never;
   experiment?: never;
+  fleet?: never;
 }
 
 export type SpawnRequest =

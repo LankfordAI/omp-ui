@@ -5,10 +5,9 @@
  * credential store lives in remote-instance-store.ts.
  */
 
-export const REMOTE_INSTANCE_NICKNAME_MAX = 32;
+import { CONTROL_CHARS } from "./fleet";
 
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
+export const REMOTE_INSTANCE_NICKNAME_MAX = 32;
 
 /** Trims, enforces 1–32 code points and no control characters. Rejects with a user-facing message. */
 export function validateNickname(raw: string): string {
@@ -114,6 +113,9 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "collab:share",
   "collab:stop",
   "collab:link",
+  // A dispatched session's summary is rendered by its owner (issue #899);
+  // the fleet status tool reads it through the join.
+  "fleet:sessionSummary",
 ]);
 
 /** Notify channels whose first argument is the owning tabId. */
@@ -202,6 +204,10 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   // Cross-session stats follow the owning instance (#668): the stats DB is
   // that host's own ~/.omp/stats.db, read by that instance's core.
   "stats:overview",
+  // Fleet placement reads each member's resources and projects (issue #899).
+  // Only the report crosses: fleet:dispatch / fleet:machines orchestrate in
+  // the acting app's main and never reach a joined instance.
+  "fleet:hostReport",
   // Session migration (#888): the pack legs run on the source host, the
   // ingest legs on the target; every chunk frame is base64 under the socket's
   // MAX_PAYLOAD. Transcript bytes may ride the renderer (already visible

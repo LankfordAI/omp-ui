@@ -1,3 +1,11 @@
+import type {
+  FleetDispatchRequest,
+  FleetDispatchResult,
+  FleetMachine,
+  FleetPendingDispatch,
+  FleetTargetPick,
+  PlacementPreference,
+} from "@omp-ui/core/fleet";
 import type { MagicKeyword } from "@omp-ui/core/magic-keywords";
 import type { SessionCommand } from "@omp-ui/core/session-command";
 import type { ProjectSettingsSectionId } from "../components/ProjectSettings";
@@ -775,6 +783,48 @@ export interface StatsSlice {
 }
 
 /**
+ * The Fleet main-pane surface (CONTEXT.md "Fleet", issue #899): the last
+ * machine read. `null` on the store means the surface is closed; any tab
+ * activation through `focusOn` closes it, like the Stats view.
+ */
+export interface FleetView {
+  /** null until the first `fleet:machines` read lands. */
+  machines: FleetMachine[] | null;
+  loading: boolean;
+  /** The last read's failure; shown in the view, never as an error notice (it polls). */
+  error: string | null;
+}
+
+/** What a Retry re-sends for one unknown-outcome dispatch: the request and its one target. */
+export interface FleetRetryEntry {
+  req: FleetDispatchRequest;
+  pick: FleetTargetPick;
+}
+
+export interface FleetSlice {
+  fleet: FleetView | null;
+  fleetDispatchOpen: boolean;
+  /**
+   * In-memory only, by dispatchId: the request behind each unknown outcome
+   * this renderer dispatched. A reload forgets the prompt, so a pending row
+   * without an entry offers Dismiss only.
+   */
+  fleetLastRequests: Record<string, FleetRetryEntry>;
+  openFleet(): void;
+  closeFleet(): void;
+  refreshFleet(): Promise<void>;
+  openFleetDispatch(): void;
+  closeFleetDispatch(): void;
+  /** Null when the dispatcher rejected the whole request (reported as an error notice). */
+  dispatchFleet(req: FleetDispatchRequest): Promise<FleetDispatchResult | null>;
+  setFleetPlacement(machineKey: string, pref: PlacementPreference): Promise<void>;
+  setFleetAgentDispatch(on: boolean): Promise<void>;
+  /** Re-sends one unknown outcome to its one machine, reusing both ids (the owner dedupes). */
+  retryFleetDispatch(pending: FleetPendingDispatch): Promise<void>;
+  dismissFleetDispatch(dispatchId: string): Promise<void>;
+}
+
+/**
  * The Seance consult dialog's opener context (issue #885): where the consult
  * launches from and what the composer line prefilled. `sourceTabId` marks an
  * in-place consult — the invoking live tab hosts the consultant; without it,
@@ -840,7 +890,7 @@ export interface LiveVoiceBadge {
   pending: boolean;
 }
 
-export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, SeanceSlice {
+export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, SeanceSlice {
   state: BackendState | null;
   tabs: TabInfo[];
   activeTabId: string | null;

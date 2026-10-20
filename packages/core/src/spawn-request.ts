@@ -5,6 +5,7 @@ import type {
   SpawnRequest,
   SpawnWorktree,
 } from "./types";
+import { parseFleetSpawnSpec, type FleetSpawnSpec } from "./fleet";
 
 type ObjectValue = Record<string, unknown>;
 function hasOwn(value: ObjectValue, key: string): boolean {
@@ -174,6 +175,7 @@ const NEW_KEYS = [
   "experiment",
   "planMode",
   "private",
+  "fleet",
 ] as const;
 
 const CHAT_KEYS = ["origin", "chat", "mode", "advisor", "advisorModel", "cols", "rows", "private", "askSource"] as const;
@@ -285,6 +287,15 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
       ? null
       : parseSessionExperiment(value.experiment)
     : undefined;
+  let fleet: FleetSpawnSpec | undefined;
+  if (hasOwn(value, "fleet")) {
+    fleet = parseFleetSpawnSpec(value.fleet);
+    if (mode !== "rpc-ui") throw new Error("spawn request.fleet requires rpc-ui");
+    if (hasOwn(value, "planImplementationSource")) {
+      throw new Error("spawn request.fleet cannot carry planImplementationSource");
+    }
+    if (hasOwn(value, "experiment")) throw new Error("spawn request.fleet cannot carry experiment");
+  }
   const common = {
     origin: "new" as const,
     projectCwd: requiredString(value, "projectCwd"),
@@ -299,5 +310,10 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
   };
   return mode === "pty"
     ? { ...common, mode }
-    : { ...common, mode, ...(planMode === undefined ? {} : { planMode }) };
+    : {
+        ...common,
+        mode,
+        ...(planMode === undefined ? {} : { planMode }),
+        ...(fleet === undefined ? {} : { fleet }),
+      };
 }

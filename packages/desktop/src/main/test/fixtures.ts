@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type {
   AgentMode,
   OwnedSessionRecord,
+  PlacementPreference,
   PlanFormat,
   GlassChrome,
   ProjectRecord,
@@ -59,6 +60,8 @@ interface RegistrySettings {
   remotePasswordHash: string;
   remotePasswordSalt: string;
   instanceId: string;
+  fleetPlacement: Record<string, PlacementPreference>;
+  fleetAgentDispatch: boolean;
 }
 
 interface RegistrySeed {
@@ -83,7 +86,7 @@ export function ownedSessionRecord(
     lineageDir: "omp-ui--proj--11111111-2222-3333-4444-555555555555",
     projectCwd: "/proj",
     worktree: null,
-    planImplementationSource: null, experiment: null,
+    planImplementationSource: null, experiment: null, fleet: null,
     launchedAt: "2026-07-29T10:00:00.000Z",
     mode: "rpc-ui",
     compactionMethod: null,
@@ -158,6 +161,8 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     remotePasswordHash: "",
     remotePasswordSalt: "",
     instanceId: "",
+    fleetPlacement: {},
+    fleetAgentDispatch: false,
     ...patch.settings,
   };
   settings.modelFavorites = [...settings.modelFavorites];

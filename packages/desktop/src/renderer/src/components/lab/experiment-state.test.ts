@@ -48,6 +48,7 @@ function summary(patch: Partial<SessionSummary> = {}): SessionSummary {
     worktree: null,
     planImplementationSource: null,
     experiment: null,
+    fleet: null,
     launchedAt: "2026-09-01T00:00:00.000Z",
     mode: "rpc-ui",
     model: null,

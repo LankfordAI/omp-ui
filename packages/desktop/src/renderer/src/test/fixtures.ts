@@ -46,6 +46,9 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     dismissedOmpUpdateVersion: null,
     spawnGate: { model: null, advisorModel: null },
     remoteInstances: [],
+    fleetPending: [],
+    fleetPlacement: {},
+    fleetAgentDispatch: false,
     ...patch,
   };
 }
@@ -111,6 +114,7 @@ export function remoteOwnedState(tabId: string, instanceId: string): BackendStat
                 worktree: null,
                 planImplementationSource: null,
                 experiment: null,
+                fleet: null,
                 agentMode: "build",
                 compactionMethod: null,
                 approvalMode: null,

@@ -79,3 +79,17 @@ describe("knowledge vault channels (issue #764)", () => {
     expect(REMOTE_PROXY_CHANNELS.has("vault:names")).toBe(true);
   });
 });
+
+describe("fleet channels (issue #899)", () => {
+  it("proxies only the host report and the tab-routed session summary", () => {
+    expect(REMOTE_PROXY_CHANNELS.has("fleet:hostReport")).toBe(true);
+    expect(REMOTE_PROXY_CHANNELS.has("fleet:sessionSummary")).toBe(true);
+    expect(TAB_ROUTED_REQUESTS.has("fleet:sessionSummary")).toBe(true);
+  });
+
+  it("never proxies fleet orchestration to a joined instance", () => {
+    for (const channel of ["fleet:dispatch", "fleet:machines", "fleet:dismissPending"]) {
+      expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(false);
+    }
+  });
+});

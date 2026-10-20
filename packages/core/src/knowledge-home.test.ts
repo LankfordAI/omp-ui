@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GitRunner } from "./branches";
 import type { GitOptions } from "./git";
-import { ghConfigDir, ghLogins, resolveKnowledgeHome, resolveVaultProject, VAULT_FOLDER_MAX, vaultFolderSegment, vaultProjectIdentity } from "./knowledge-home";
+import { ghConfigDir, ghLogins, resolveKnowledgeHome, resolveRepositoryKey, resolveVaultProject, VAULT_FOLDER_MAX, vaultFolderSegment, vaultProjectIdentity } from "./knowledge-home";
 import type { KnowledgeHome, VaultProjectIdentity, VaultRegistry } from "./types";
 
 const tmpDirs: string[] = [];
@@ -266,6 +266,24 @@ describe("vaultProjectIdentity", () => {
 
   it("blanks the plain legacy name when it is the owner folder itself", () => {
     expect(vaultProjectIdentity("Acme", ["Acme", "tools"]).legacy?.plain).toBe("");
+  });
+});
+
+describe("resolveRepositoryKey (issue #899)", () => {
+  it("maps the ssh and https remotes of one repository to the same lowercased key", async () => {
+    const ssh = repoGit({ origin: "git@github.com:LankfordAI/omp-ui.git\n" });
+    const https = repoGit({ origin: "https://github.com/lankfordai/OMP-UI\n" });
+    await expect(resolveRepositoryKey("/repo", { runGit: ssh.runGit })).resolves.toBe("github.com/lankfordai/omp-ui");
+    await expect(resolveRepositoryKey("/elsewhere", { runGit: https.runGit })).resolves.toBe("github.com/lankfordai/omp-ui");
+  });
+
+  it("is null for a checkout with no remote", async () => {
+    await expect(resolveRepositoryKey("/repo", { runGit: repoGit({}).runGit })).resolves.toBeNull();
+  });
+
+  it("is null outside a git repository", async () => {
+    const git = fakeGit({ "rev-parse --show-toplevel": new Error("not a git repository") });
+    await expect(resolveRepositoryKey("/plain", { runGit: git.runGit })).resolves.toBeNull();
   });
 });
 

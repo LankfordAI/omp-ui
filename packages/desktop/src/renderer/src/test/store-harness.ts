@@ -498,7 +498,7 @@ function stateWithRecord(
             launchedAt: "t",
             mode: "rpc-ui",
             worktree,
-            planImplementationSource: null, experiment: null,
+            planImplementationSource: null, experiment: null, fleet: null,
             agentMode: "build",
             compactionMethod: null,
             approvalMode: null,
@@ -602,6 +602,9 @@ beforeEach(() => {
     providerOAuth: idleProviderOAuth,
     lab: null,
     stats: null,
+    fleet: null,
+    fleetDispatchOpen: false,
+    fleetLastRequests: {},
     experimentDialog: null,
     experiments: {},
   });

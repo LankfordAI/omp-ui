@@ -86,6 +86,15 @@ import {
   detectVaults,
   findObsidianList,
   knowledgeVaultDiagnostics,
+  FLEET_LABEL_MAX,
+  LOCAL_MACHINE_KEY,
+  git,
+  renderSessionSummary,
+  resolveRepositoryKey,
+  sampleHostResources,
+  type FleetDispatchRequest,
+  type FleetHostReport,
+  type HostResources,
   type BrowserPaneInputEvent,
   type BrowserPaneNavigate,
   TITLE_MODEL_ROLES,
@@ -140,6 +149,7 @@ import { RemoteServerManager } from "./remote-server";
 import { RemoteInstanceManager } from "./remote-instance-manager";
 import { routeByTab } from "./remote-route";
 import { SessionManager } from "./session-manager";
+import { FleetDispatcher } from "./fleet-dispatcher";
 import { PlanVerifier } from "./plan-verifier";
 import { ClockStamper } from "./clock-stamper";
 import { readConfinedPlanFile } from "./plan-file";
@@ -183,6 +193,15 @@ export class MainBackend {
   private readonly remote: RemoteServerManager;
   /** Joined remote instances (issue #416): their sockets, credentials, and merged registries. */
   private readonly remoteInstances: RemoteInstanceManager;
+  /** Fleet dispatch, dispatching side (issue #899, ADR-0061). */
+  private readonly fleet: FleetDispatcher;
+  /** fleet:hostReport caches: one shared resource sample per 5 s, repository
+   *  keys per path for 60 s, head commits per path for 15 s. */
+  private fleetResources: { at: number; value: Promise<HostResources> } | null = null;
+  private readonly fleetRepositoryKeys = new Map<string, { at: number; value: Promise<string | null> }>();
+  private readonly fleetHeadCommits = new Map<string, { at: number; value: Promise<string | null> }>();
+  /** `os.hostname()` cut to FLEET_LABEL_MAX code points: the requester and host-report label. */
+  private readonly fleetLabel = [...os.hostname()].slice(0, FLEET_LABEL_MAX).join("") || "omp-ui";
   /** Per-project gitdir watchers (#498): churn answers with branch:changed. */
   private readonly headWatchers: HeadWatcherHub;
   private readonly projectOpener = new ProjectOpener();
@@ -329,6 +348,8 @@ export class MainBackend {
         // The host notify tool posts through the same notifier, bypassing the
         // attention pipeline's delay and suppression (#688).
         hostNotify: (tabId, title, message) => this.notifier.notifyNow(tabId, title, message),
+        // Lazy: the dispatcher is constructed after remoteInstances, below.
+        fleet: () => this.fleet,
         browserPane: {
           // Cache the app window's real page dpr; screen.scaleFactor lies on Wayland
           // fractional scaling (reports 1 while the page renders at 1.5) (#557).
@@ -449,6 +470,35 @@ export class MainBackend {
       localVersion: this.appVersion,
       send: (ch, args) => this.send(ch, ...args),
       sendToRenderers: (ch, args) => this.sendToRenderers(ch, args),
+      broadcast: () => this.broadcast(),
+    });
+    this.fleet = new FleetDispatcher({
+      localReport: () => this.fleetHostReport(),
+      spawnLocal: (req) => this.sessions.spawn(req),
+      remotes: () => this.remoteInstances.summaries(),
+      request: (id, channel, args) => this.remoteInstances.request(id, channel, args),
+      preferences: () => this.registry.getSetting("fleetPlacement"),
+      requesterBase: () => ({ instanceId: this.registry.getSetting("instanceId"), label: this.fleetLabel }),
+      knownDispatchIds: () => {
+        const ids = new Set<string>();
+        for (const s of this.registry.sessions) if (s.fleet !== null) ids.add(s.fleet.dispatchId);
+        for (const remote of this.remoteInstances.summaries()) {
+          for (const group of remote.projects) {
+            for (const s of group.sessions) if (s.fleet != null) ids.add(s.fleet.dispatchId);
+          }
+        }
+        return ids;
+      },
+      fleetSessions: async () => {
+        const local = (await this.buildState()).projects.flatMap((g) =>
+          g.sessions.map((summary) => ({ machineKey: LOCAL_MACHINE_KEY, nickname: null, summary })),
+        );
+        const remote = this.remoteInstances.summaries().flatMap((r) =>
+          r.projects.flatMap((g) => g.sessions.map((summary) => ({ machineKey: r.id, nickname: r.nickname, summary }))),
+        );
+        return [...local, ...remote];
+      },
+      localSummary: (tabId) => this.fleetSessionSummary(tabId),
       broadcast: () => this.broadcast(),
     });
     // Every registered project gets one gitdir watch (#498): a terminal
@@ -1163,11 +1213,30 @@ export class MainBackend {
         [CH.addRemoteInstance]: (input: RemoteInstanceInput) => this.remoteInstances.add(input),
         [CH.updateRemoteInstance]: (id: string, patch: RemoteInstancePatch) =>
           this.remoteInstances.update(id, patch),
-        [CH.removeRemoteInstance]: (id: string) => this.remoteInstances.remove(id),
+        [CH.removeRemoteInstance]: async (id: string) => {
+          await this.remoteInstances.remove(id);
+          // A forgotten member's placement preference goes with it.
+          const placement = this.registry.getSetting("fleetPlacement");
+          if (Object.hasOwn(placement, id)) {
+            const { [id]: _removed, ...rest } = placement;
+            this.registry.setSetting("fleetPlacement", rest);
+            await this.broadcast();
+          }
+        },
         [CH.reconnectRemoteInstance]: (id: string) => this.remoteInstances.reconnect(id),
         [CH.refreshRemoteInstanceState]: (id: string) => this.remoteInstances.refresh(id),
         [CH.remoteInstanceRequest]: (instanceId: string, channel: string, args: unknown[]) =>
           this.remoteInstances.request(instanceId, channel, args),
+        // Fleet dispatch (issue #899, ADR-0061): only hostReport and
+        // sessionSummary cross the proxy; the rest orchestrate in this main.
+        [CH.fleetHostReport]: () => this.fleetHostReport(),
+        [CH.fleetSessionSummary]: (tabId: string) => this.fleetSessionSummary(tabId),
+        [CH.fleetMachines]: () => this.fleet.machines(),
+        [CH.fleetDispatch]: (req: FleetDispatchRequest) => this.fleet.dispatch(req, { kind: "user" }),
+        [CH.fleetDismissPending]: async (dispatchId: string) => {
+          this.fleet.dismissPending(dispatchId);
+          await this.broadcast();
+        },
         [CH.previewDiagnosticsBundle]: async () =>
           previewDiagnosticsBundle(
             await this.diagnosticsOptions({ includeTranscripts: false, destinationPath: null }),
@@ -1633,6 +1702,8 @@ export class MainBackend {
           worktree: null,
           planImplementationSource: null,
           experiment: null,
+          // A migrated session is not a dispatch, wherever it was dispatched from.
+          fleet: null,
           launchedAt: now,
           mode: this.registry.getSetting("defaultMode"),
           agentMode: "build",
@@ -1845,6 +1916,92 @@ export class MainBackend {
     };
   }
 
+  /** One time-boxed shared promise per key: concurrent reports share one probe. */
+  private fleetCached<T>(
+    cache: Map<string, { at: number; value: Promise<T> }>,
+    key: string,
+    ttlMs: number,
+    load: () => Promise<T>,
+  ): Promise<T> {
+    const now = Date.now();
+    const hit = cache.get(key);
+    if (hit !== undefined && now - hit.at < ttlMs) return hit.value;
+    const value = load();
+    cache.set(key, { at: now, value });
+    return value;
+  }
+
+  /**
+   * This host as a fleet member (issue #899): resources, load, and every
+   * registered project (never chats) with the repository key placement
+   * matches on and the spawn defaults the owner would apply itself.
+   */
+  private async fleetHostReport(): Promise<FleetHostReport> {
+    const now = Date.now();
+    if (this.fleetResources === null || now - this.fleetResources.at >= 5_000) {
+      const value = sampleHostResources();
+      const entry = { at: now, value };
+      this.fleetResources = entry;
+      // A failed sample is not cached: the next report samples again.
+      value.catch(() => {
+        if (this.fleetResources === entry) this.fleetResources = null;
+      });
+    }
+    const records = this.registry.sessions;
+    const [resources, projects] = await Promise.all([
+      this.fleetResources.value,
+      Promise.all(
+        this.registry.projects.map(async (project) => {
+          const [repositoryKey, headCommit] = await Promise.all([
+            this.fleetCached(this.fleetRepositoryKeys, project.path, 60_000, () =>
+              resolveRepositoryKey(project.path),
+            ),
+            this.fleetCached(this.fleetHeadCommits, project.path, 15_000, () =>
+              git(project.path, ["rev-parse", "HEAD"], { timeoutMs: 5_000 }).then(
+                (out) => out.trim() || null,
+                () => null,
+              ),
+            ),
+          ]);
+          // The renderer's spawn chain (lifecycle.ts resolveSpawnParams):
+          // the boolean defaultAdvisor setting always answers, so omp's own
+          // default only seeds the model.
+          const pinnedModel = project.defaultAdvisorModel ?? project.lastAdvisorModel;
+          return {
+            path: project.path,
+            name: project.name,
+            repositoryKey,
+            headCommit,
+            providerReady: this.sessions.modelProviderReady(project.path),
+            advisor: project.lastAdvisor ?? this.registry.getSetting("defaultAdvisor"),
+            advisorModel: pinnedModel ?? this.advisorDefaults(project.path).model,
+          };
+        }),
+      ),
+    ]);
+    return {
+      instanceId: this.registry.getSetting("instanceId"),
+      label: this.fleetLabel,
+      version: this.appVersion,
+      platform: process.platform,
+      arch: process.arch,
+      ...resources,
+      liveSessions: records.filter((s) => this.sessions.isLive(s.tabId)).length,
+      runningTurns: records.filter((s) => this.sessions.isTurnRunning(s.tabId)).length,
+      sampledAt: now,
+      projects,
+    };
+  }
+
+  /** The owner-rendered summary the fleet status tool reads (issue #899). */
+  private fleetSessionSummary(tabId: string): Promise<string> {
+    const record = this.registry.sessions.find((s) => s.tabId === tabId);
+    if (record === undefined) return Promise.reject(new Error("session not found"));
+    return renderSessionSummary(record, this.registry.projects, (dir, sid) =>
+      resolveSessionLocation(this.sessionsRoot, this.archiveRoot, dir, sid),
+    );
+  }
+
   /**
    * Suggests a branch name for a plan with omp's own small model. Null on
    * every failure path — the renderer pre-fills its slug-derived name, so
@@ -1943,6 +2100,9 @@ export class MainBackend {
       // broadcast, for the desktop window and remote clients alike.
       spawnGate: this.spawnGateState,
       remoteInstances: this.remoteInstances.summaries(),
+      fleetPlacement: this.registry.getSetting("fleetPlacement"),
+      fleetAgentDispatch: this.registry.getSetting("fleetAgentDispatch"),
+      fleetPending: this.fleet.pending(),
     };
   }
 

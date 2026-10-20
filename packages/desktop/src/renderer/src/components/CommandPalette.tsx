@@ -109,6 +109,8 @@ export function CommandPalette() {
   const openLab = useStore((s) => s.openLab);
   const openExperimentDialog = useStore((s) => s.openExperimentDialog);
   const openStats = useStore((s) => s.openStats);
+  const openFleet = useStore((s) => s.openFleet);
+  const openFleetDispatch = useStore((s) => s.openFleetDispatch);
   const t = useT();
   const localeId = currentLocaleId();
 
@@ -212,6 +214,23 @@ export function CommandPalette() {
       name: t("palette.action.stats"),
       desc: t("palette.action.statsDesc"),
       run: () => openStats(),
+    });
+    out.push({
+      id: "app:fleet",
+      group: t("palette.group.app"),
+      name: t("palette.action.fleet"),
+      desc: t("palette.action.fleetDesc"),
+      run: () => openFleet(),
+    });
+    out.push({
+      id: "app:fleetDispatch",
+      group: t("palette.group.app"),
+      name: t("palette.action.fleetDispatch"),
+      desc: t("palette.action.fleetDispatchDesc"),
+      run: () => {
+        openFleet();
+        openFleetDispatch();
+      },
     });
 
     const tab = activeTabId === null ? undefined : tabs.find((t) => t.tabId === activeTabId);
@@ -369,7 +388,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openFleetDispatch, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

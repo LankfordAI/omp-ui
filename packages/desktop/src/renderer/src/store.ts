@@ -27,6 +27,7 @@ import { createBrowserPaneSlice } from "./store/slices/browser-pane";
 import { createCollabSlice } from "./store/slices/collab";
 import { createFrameReductionSlice } from "./store/slices/frame-reduction";
 import { createStatsSlice } from "./store/slices/stats";
+import { createFleetSlice } from "./store/slices/fleet";
 import { createLabSlice } from "./store/slices/lab";
 import {
   createLiveAudioSlice,
@@ -185,6 +186,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const browserPane = createBrowserPaneSlice(set, get, m);
   const lab = createLabSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });
   const stats = createStatsSlice(set, get);
+  const fleet = createFleetSlice(set, get);
   const collab = createCollabSlice(set, get);
   const sideQuestions = createSideQuestionsSlice(get, m);
   const migrate = createMigrateSlice(set, get);
@@ -407,6 +409,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...browserPane,
     ...lab,
     ...stats,
+    ...fleet,
     ...collab,
     ...sideQuestions,
     ...migrate,

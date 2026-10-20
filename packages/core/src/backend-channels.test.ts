@@ -291,6 +291,21 @@ const VALID_ARGS = {
   setVaultNoteVoice: ["assistant"],
   openVault: ["Vault", null],
   vaultNames: [],
+  fleetHostReport: [],
+  fleetSessionSummary: ["tab-1"],
+  fleetMachines: [],
+  fleetDispatch: [
+    {
+      targets: { kind: "auto", reference: { machineKey: "local", projectCwd: "/project" }, count: 2 },
+      prompt: "Fix the login bug.",
+      title: null,
+      workspace: "worktree",
+      planMode: false,
+    },
+  ],
+  fleetDismissPending: ["dispatch-1"],
+  setFleetPlacement: ["local", "less"],
+  setFleetAgentDispatch: [true],
 } satisfies { [Method in InboundMethod]: MethodArgs<Method> };
 
 function recordingTransport() {
@@ -439,6 +454,22 @@ describe("transport dispatch", () => {
     [CH.setProjectKnowledgeHome, ["/project", { home: "docs", vault: "" }], "argument 1.vault"],
     [CH.setProjectKnowledgeHome, ["/project", { home: "repo" }], "argument 1.home"],
     [CH.setProjectKnowledgeHome, ["/project", { home: "docs", extra: 1 }], "argument 1.extra"],
+    [
+      CH.fleetDispatch,
+      [
+        {
+          targets: { kind: "auto", reference: { machineKey: "local", projectCwd: "/project" }, count: 2 },
+          prompt: "Fix it.",
+          title: null,
+          workspace: "checkout",
+          planMode: false,
+        },
+      ],
+      "argument 0",
+    ],
+    [CH.fleetDispatch, [{ targets: { kind: "explicit", picks: [] }, prompt: "x", title: null, workspace: "worktree", planMode: false }], "argument 0"],
+    [CH.setFleetPlacement, ["local", "always"], "argument 1"],
+    [CH.setFleetPlacement, ["k".repeat(65), "prefer"], "argument 0"],
   ] as const)("rejects malformed request arguments before the handler", async (channel, args, path) => {
     const { table, calls } = recordingTable();
     await expect(dispatchRequest(table, channel, [...args])).rejects.toThrow(path);

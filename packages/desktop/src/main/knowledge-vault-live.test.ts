@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  FLEET_TOOLS,
   hostToolsDefinition,
   parseVaultDetails,
   resolveOmpBinary,
@@ -74,7 +75,7 @@ function todayRecord(projectCwd: string): OwnedSessionRecord {
     lineageDir: "omp-ui--proj--11111111-2222-3333-4444-555555555555",
     projectCwd,
     worktree: null,
-    planImplementationSource: null, experiment: null,
+    planImplementationSource: null, experiment: null, fleet: null,
     launchedAt: now,
     mode: "rpc-ui",
     compactionMethod: null,
@@ -96,7 +97,7 @@ function todayRecord(projectCwd: string): OwnedSessionRecord {
   };
 }
 
-function spawnScope(): Scope {
+function spawnScope(tools: { vault: boolean; fleet: boolean } = { vault: true, fleet: false }): Scope {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-vault-live-"));
   const project = path.join(base, "proj");
   const lineage = path.join(base, "lin");
@@ -169,7 +170,7 @@ function spawnScope(): Scope {
     ompPath: ompPath!,
     configOverlays: [],
     // The shipped registration with a vault registered (session-manager.ts).
-    initialCommands: [setHostUriSchemesCommand(), setHostToolsCommand({ vault: true })],
+    initialCommands: [setHostUriSchemesCommand(), setHostToolsCommand(tools)],
     onInputFrame: (frame) => {
       // The same seam SessionManager wires: route before delivery.
       bridge.route("live", frame, (answer) => {
@@ -220,8 +221,21 @@ describe.skipIf(ompPath === null)("vault tools register on the real runtime", ()
     );
     expect(toolsResponse).toMatchObject({ success: true });
     expect((toolsResponse.data as { toolNames?: unknown } | undefined)?.toolNames).toEqual(
-      hostToolsDefinition({ vault: true }).map((t) => t.name),
+      hostToolsDefinition({ vault: true, fleet: false }).map((t) => t.name),
     );
+  }, 60_000);
+
+  it("omp accepts the three fleet tools after the vault tools (issue #899)", async () => {
+    scope = spawnScope({ vault: true, fleet: true });
+    const toolsResponse = await waitFor(
+      () => scope!.frames.find((f) => f.type === "response" && f.id === "omp-ui-host-tools-1"),
+      25_000,
+      "the set_host_tools response",
+    );
+    expect(toolsResponse).toMatchObject({ success: true });
+    const names = (toolsResponse.data as { toolNames?: unknown } | undefined)?.toolNames;
+    expect(names).toEqual(hostToolsDefinition({ vault: true, fleet: true }).map((t) => t.name));
+    expect(names).toEqual(expect.arrayContaining([...FLEET_TOOLS]));
   }, 60_000);
 });
 

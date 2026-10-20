@@ -68,7 +68,7 @@ function liveSession(tabId: string): SessionSummary {
     launchedAt: "t",
     mode: "rpc-ui",
     worktree: null,
-    planImplementationSource: null, experiment: null,
+    planImplementationSource: null, experiment: null, fleet: null,
     agentMode: "build",
     compactionMethod: null,
     approvalMode: null,

@@ -6,7 +6,7 @@ import { cn } from "../../lib/cn";
 import { useT } from "../../lib/i18n";
 import { remoteInstanceStatusKey, remoteInstanceStatusTone } from "../../lib/remote-instance-status";
 import { useStore } from "../../store";
-import { Button, Chip, ChoiceCapsule, Dot, Empty, Label, Panel } from "../ui";
+import { Button, Chip, ChoiceCapsule, Dot, Empty, Label, Panel, Switch } from "../ui";
 import { CommitField, FIELD, Row, SecretField } from "./rows";
 
 /**
@@ -314,6 +314,8 @@ function AddForm() {
 export function RemoteInstancesPage() {
   const t = useT();
   const instances = useStore((s) => s.state?.remoteInstances ?? null);
+  const fleetAgentDispatch = useStore((s) => s.state?.fleetAgentDispatch === true);
+  const setFleetAgentDispatch = useStore((s) => s.setFleetAgentDispatch);
 
   return (
     <div className="space-y-3 px-4 py-3">
@@ -328,6 +330,16 @@ export function RemoteInstancesPage() {
           ))}
         </div>
       )}
+      <Row
+        title={t("settings.remoteinstances.fleetAgentTitle")}
+        hint={t("settings.remoteinstances.fleetAgentHint")}
+      >
+        <Switch
+          on={fleetAgentDispatch}
+          onChange={(next) => void setFleetAgentDispatch(next)}
+          label={t("settings.remoteinstances.fleetAgentTitle")}
+        />
+      </Row>
       <div>
         <Label>{t("remoteinstances.action.add")}</Label>
         <AddForm />

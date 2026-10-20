@@ -50,6 +50,35 @@ When the connection drops — the remote quits, the network fails, or its embedd
 
 On rejoin, every open remote tab reloads its state from the remote: native tabs re-hydrate their transcript and terminal tabs redraw at their current size. A tab whose session no longer exists on the remote is removed. **Reconnect**, on the group header or the settings page, retries immediately from any status.
 
+## Fleet
+
+The fleet is this app plus every joined instance, seen as places new work can start ([ADR-0061](adr/0061-fleet-dispatch-rides-the-spawn-request.md)). Like the sidebar, it is one level deep: an instance's own joins are never part of this app's fleet. Open the **Fleet** view from the sidebar button beside the host picker or from the command palette. It lists each machine — **This computer** first, then each instance by nickname — with its status, omp-ui version, CPU and free memory, live sessions and running turns, and its placement preference. Both apps need an omp-ui version that has Fleet: an instance running an older one is listed as unsupported, with a note to update omp-ui on it, and is never chosen for work.
+
+### Dispatch work
+
+**Dispatch** opens a form that starts fresh native sessions with a prompt you write, on one machine or several at once:
+
+- **Project** — a project registered on a ready machine. Machines are matched by repository (the checkout's `host/owner/repo` web remote), never by path, so the same repository at different paths on two machines counts as the same work. A project with no web remote can only run on its own machine.
+- **Run on** — **Auto** with a number of copies (1 to 8, one per machine), or **Choose machines**, ticking machines that have the same repository and setting copies per machine.
+- **Workspace** — **New worktree** (the default; each copy gets its own branch) or **Project checkout**, available only for a single copy per machine.
+- **Mode** — Build (the default) or Plan.
+- **Title** (optional) — empty uses the prompt's first line.
+- **Prompt** — required.
+
+When the chosen machines are on different commits, the form says so; each worktree starts from its own machine's checkout, and the dispatch is not blocked. Every dispatched session is a native session in that machine's sidebar, owned and run by that machine exactly like one you started there yourself; nothing moves or copies afterwards. The machine that owns the session sends the prompt itself, so once it has accepted the dispatch, closing this app or losing the connection does not lose the prompt. The session HUD shows *Dispatched from \<computer\>*, marked *agent* when an agent dispatched it, and the Fleet view groups the dispatches made together, newest first, with **Open** and **Stop** on each.
+
+### Placement preferences
+
+Each machine has a placement preference: **Prefer**, **Normal** (the default), **Less often**, or **Manual only**. Auto placement scores each machine that has the repository and a ready model provider by its preference weight × its CPU cores × its idle CPU share × its free-memory share, and picks the best distinct machines. A machine whose report is older than 15 seconds, whose CPU is at 95% or above, or whose free memory is 5% or less is skipped, and **Manual only** is never chosen automatically while staying available under **Choose machines**. A preference is a weight, not a share of the work. If fewer machines qualify than copies asked for, nothing starts and omp-ui says how many machines can take the work. Preferences are kept on this app; removing an instance forgets its preference.
+
+### Unknown outcomes
+
+If the connection to an instance drops while it is answering a dispatch, or it does not answer in time, this app cannot know whether the session started. That dispatch is listed under **Unresolved** as *outcome unknown* until a session with that dispatch appears in the instance's sidebar group after it reconnects, or until you dismiss it. omp-ui never retries on its own. **Retry** sends the same dispatch again; it is safe because the instance recognizes the dispatch and returns the session it already started instead of starting a second one. After this app restarts, the prompt is no longer held, so an unresolved row offers only **Dismiss**.
+
+### Let agents dispatch fleet work
+
+**Settings > Remote instances > Let agents dispatch fleet work** (off by default) gives agents three tools: list the fleet's machines, dispatch work, and check on a dispatch's sessions — their state and, once one stops working, its summary. The tools reach only sessions started or resumed after the setting is on, and every call runs at omp's `exec` host-tool approval tier, so your omp approval mode decides whether it asks first. A session an agent dispatched never gets the tools, so dispatched work cannot dispatch further. A session that a joined instance owns uses that instance's own setting and fleet: its tools list and dispatch from the instance's point of view, not this app's.
+
 ## Credentials, storage, and revocation
 
 omp-ui stores the credential the sign-in derived — a password-derived credential or the access token — never the password itself. The credential is encrypted through the operating system credential store and written to `remote-instances.json` beside `registry.json`, readable only by your user. It never reaches a renderer, and the diagnostic bundle never reads the file. If the operating system has no secure credential store, omp-ui refuses to join rather than write the credential insecurely.

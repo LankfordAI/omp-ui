@@ -1054,6 +1054,8 @@ export function SessionHud({ tabId }: { tabId: string }) {
   // of every project-scoped action this HUD fires (new session, capabilities).
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const instance = useStore((s) => (instanceId === null ? undefined : findInstance(s.state, instanceId)));
+  // Fleet provenance (issue #899): who dispatched this session, as a quiet chip.
+  const fleetFrom = useStore((s) => findRecord(s.state, tabId)?.fleet?.requestedBy ?? null);
   const compactSession = useStore((s) => s.compactSession);
   const setAutoCompaction = useStore((s) => s.setAutoCompaction);
   const exportHtml = useStore((s) => s.exportHtml);
@@ -1258,6 +1260,13 @@ export function SessionHud({ tabId }: { tabId: string }) {
       {instance.nickname}
     </Chip>
   );
+  const fleetChip = fleetFrom !== null && (
+    <Chip mono className={compact ? undefined : "shrink-0 [app-region:no-drag]"}>
+      {t(fleetFrom.kind === "agent" ? "fleet.hud.dispatchedFromAgent" : "fleet.hud.dispatchedFrom", {
+        label: fleetFrom.label,
+      })}
+    </Chip>
+  );
 
 
   const refresh = () => {
@@ -1276,6 +1285,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
           <LivenessBadge compacting={session?.isCompacting === true || compacting} stallMs={streamStallMs} face={resolvedFace} label={label} short />
           {instanceChip}
+          {fleetChip}
           {agentModeChip}
           {goalChip}
           {vibeChip}
@@ -1359,6 +1369,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       />
 
       {instanceChip}
+      {fleetChip}
       {agentModeChip}
       {goalChip}
       {vibeChip}

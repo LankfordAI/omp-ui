@@ -89,6 +89,12 @@ Each joined instance is a panel showing its nickname, URL, status, the remote's 
 - **Edit** changes the nickname, the URL, or the credential inline. A nickname change applies without reconnecting; a URL or credential change signs in again and reconnects.
 - **Remove** asks for confirmation, then forgets the connection and its credential and drops the group and its tabs from this app. The remote's sessions keep running.
 
+The page also holds one setting:
+
+| Setting | What it changes | When it takes effect |
+| --- | --- | --- |
+| Let agents dispatch fleet work | Adds three fleet tools to native sessions on this app — list the fleet's machines, dispatch work to them, and check a dispatch's sessions — each call running at omp's `exec` host-tool approval tier. Off by default. A session an agent dispatched never gets the tools, and a session a joined instance owns follows that instance's own setting. See [Fleet](remote-instances.md#fleet). | Sessions started or resumed after the change. Live sessions keep the tools they started with. |
+
 Statuses:
 
 | Status | Meaning |

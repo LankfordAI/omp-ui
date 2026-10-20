@@ -124,6 +124,7 @@ function sessionSummary(): SessionSummary {
     worktree: null,
     planImplementationSource: null,
     experiment: null,
+    fleet: null,
     launchedAt: "t",
     mode: "rpc-ui",
     compactionMethod: null,

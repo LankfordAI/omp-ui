@@ -50,6 +50,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     private: false,
     chat: false,
     askSource: null,
+    fleet: null,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",

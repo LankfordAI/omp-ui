@@ -18,6 +18,7 @@ export {
   type GitRunner,
   type ParsedBranchStatus,
 } from "./branches";
+export { git } from "./git";
 export { parseRemoteWebUrl, pullRequestUrl } from "./pr-url";
 export {
   addWorktree,
@@ -58,6 +59,8 @@ export * from "./vault-registry";
 export * from "./knowledge-home";
 export * from "./knowledge-vault-extension";
 export * from "./ask-context";
+export * from "./fleet";
+export * from "./fleet-host";
 export * from "./sessions-resource";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";

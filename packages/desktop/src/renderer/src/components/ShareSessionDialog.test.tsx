@@ -74,6 +74,7 @@ beforeEach(() => {
               worktree: null,
               planImplementationSource: null,
               experiment: null,
+              fleet: null,
               agentMode: "build",
               compactionMethod: null,
               approvalMode: null,

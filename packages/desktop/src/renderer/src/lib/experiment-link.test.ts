@@ -45,6 +45,7 @@ function session(patch: Partial<SessionSummary> & Pick<SessionSummary, "tabId">)
     worktree: null,
     planImplementationSource: null,
     experiment: null,
+    fleet: null,
     launchedAt: "2026-01-01T00:00:00.000Z",
     mode: "rpc-ui",
     agentMode: "build",
