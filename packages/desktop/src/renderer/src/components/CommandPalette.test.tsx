@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { backendState, tabInfo } from "../test/fixtures";
+import { backendState, remoteInstance, tabInfo } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -125,6 +125,7 @@ const CWD_RECORD = {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
   cachedTitle: "T",
   cachedModified: "t",
   title: "T",
@@ -263,5 +264,61 @@ describe("CommandPalette share action (issue #679)", () => {
   it("offers no share row for a terminal tab — its TUI owns /share", () => {
     renderWithTab("pty");
     expect(document.body.textContent).not.toContain("Share session");
+  });
+});
+
+describe("CommandPalette ask action (issue #895)", () => {
+  const project = {
+    project: {
+      path: "/p",
+      name: "P",
+      addedAt: "t",
+      lastModel: null,
+      lastThinkingLevel: null,
+      lastAdvisor: null,
+      lastAdvisorModel: null,
+      defaultModel: null,
+      defaultAdvisorModel: null,
+      browserClock: false,
+      reviewRoster: null,
+      knowledgeHome: null,
+    },
+    sessions: [CWD_RECORD],
+  };
+  function renderWithOwner(instanceId: string | null): void {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    useStore.setState({
+      projectPickerOpen: false,
+      state: backendState(
+        instanceId === null
+          ? { projects: [project] }
+          : { projects: [], remoteInstances: [remoteInstance({ id: instanceId, projects: [project] })] },
+      ),
+      tabs: [tabInfo({ tabId: "tab-1", mode: "rpc-ui", instanceId })],
+      activeTabId: "tab-1",
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<CommandPalette />));
+    act(() => openPalette());
+  }
+
+  it("asks about the active local session", () => {
+    const askAboutSession = vi.fn(async () => {});
+    useStore.setState({ askAboutSession });
+    renderWithOwner(null);
+    expect(document.body.textContent).toContain("T — a new chat with its summary pinned");
+    typeQuery("Ask about this session");
+    pressPalette("Enter");
+    expect(askAboutSession).toHaveBeenCalledWith("tab-1");
+  });
+
+  it("offers no ask row for a session owned by another instance", () => {
+    renderWithOwner("inst-1");
+    expect(document.body.textContent).not.toContain("Ask about this session");
   });
 });

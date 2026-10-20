@@ -64,6 +64,7 @@ function record(patch: Partial<SessionSummary> = {}): SessionSummary {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
     cachedTitle: "Running task",
     cachedModified: "t",
     title: "Running task",

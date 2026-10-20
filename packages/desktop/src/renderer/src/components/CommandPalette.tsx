@@ -6,7 +6,7 @@ import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey, useHotkeys } from "../lib/hotkeys";
 import { currentLocaleId, useT } from "../lib/i18n";
-import { findRecord, isChatTab, sessionCwd, useStore } from "../store";
+import { findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
 import { Chip, Dot, IconSearch, Label, Modal, type Tone } from "./ui";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
 
@@ -95,6 +95,7 @@ export function CommandPalette() {
   const terminate = useStore((s) => s.terminate);
   const switchMode = useStore((s) => s.switchMode);
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
+  const askAboutSession = useStore((s) => s.askAboutSession);
   const toggleBrowserPane = useStore((s) => s.toggleBrowserPane);
   const shareSession = useStore((s) => s.shareSession);
   const anonymizeSession = useStore((s) => s.anonymizeSession);
@@ -265,6 +266,19 @@ export function CommandPalette() {
           },
         );
       }
+      // Ask about this session (issue #895): a fresh local Chat with this
+      // session's summary pinned — chats are host-local, so local sources
+      // only, and only once a saved transcript exists to summarize.
+      const owner = findOwner(state, tab.tabId);
+      if (owner?.instanceId === null && owner.record.sessionId !== null && owner.record.live !== "missing") {
+        out.push({
+          id: "session:ask",
+          group: t("palette.group.session"),
+          name: t("palette.action.ask"),
+          desc: t("palette.action.askDesc", { title }),
+          run: () => void askAboutSession(tab.tabId),
+        });
+      }
       // Share anonymized (issue #834): main reads the session file from disk,
       // so both tab modes qualify — only the binary's version gates the row.
       out.push({
@@ -355,7 +369,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

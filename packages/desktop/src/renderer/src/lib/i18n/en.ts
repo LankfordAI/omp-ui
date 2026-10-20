@@ -226,6 +226,10 @@ export const en = {
     "The new session did not start within 30 s. It may still be starting — check breadcrumbs.log in the app's logs folder.",
   "session.error.chatMissing":
     "The new chat started but its record never arrived; reopen it from the Chat list.",
+  // Ask about this session (issue #895).
+  "ask.chatTitle": "Ask: {title}",
+  "ask.error.noTranscript": "this session has no saved transcript to ask about yet",
+  "ask.error.remote": "sessions on another instance can't be asked about here; chats are host-local",
   "chat.planUnavailable": "Plan mode isn't available in a chat.",
 
   // TranscriptView.tsx / SessionTreeViewer.tsx — rewind affordances (issue #680)
@@ -1407,6 +1411,8 @@ export const en = {
   "palette.action.switchModeDesc": "{title} — restarts the process",
   "palette.action.retitle": "Regenerate session title",
   "palette.action.retitleDesc": "{title} — re-titled from the transcript",
+  "palette.action.ask": "Ask about this session",
+  "palette.action.askDesc": "{title} — a new chat with its summary pinned",
   "palette.action.capabilities": "View capabilities",
   "palette.action.capabilitiesDesc": "global MCP servers, skills, and tools settings",
   "palette.action.capabilitiesSession": "Capabilities for this session",
@@ -2780,6 +2786,7 @@ export const en = {
   "stats.error.foreign": "could not read the stats database: {error}",
   // Session migration and credential carry (issue #888).
   "sidebar.session.migrate": "Migrate…",
+  "sidebar.session.ask": "Ask about this session",
   "dialog.migrate.kicker": "Carry session",
   "dialog.migrate.title": "Migrate “{title}”",
   "dialog.migrate.targetLabel": "Send to",

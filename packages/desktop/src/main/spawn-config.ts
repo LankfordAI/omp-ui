@@ -27,6 +27,7 @@ import {
   writeGoalContinuationOverlay,
   writeDefaultModelOverlay,
   writeKnowledgeVaultExtension,
+  writeAskContextExtension,
   writeMcpStatusExtension,
   writeGitGuardOverlay,
   writeVibeExtension,
@@ -344,6 +345,7 @@ export const RPC_BRIDGE_IDS = [
   "tree",
   "review",
   "knowledgeVault",
+  "askContext",
   "privateGuard",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
@@ -363,6 +365,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   tree: writeTreeExtension,
   review: writeReviewExtension,
   knowledgeVault: writeKnowledgeVaultExtension,
+  askContext: writeAskContextExtension,
   privateGuard: writePrivateGuardExtension,
 };
 
@@ -385,6 +388,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "tree", logId: "tree", warning: "tree", enabled: () => true },
   { id: "review", logId: "review", warning: "code-review", enabled: (enabled) => enabled },
   { id: "knowledgeVault", logId: "vault", warning: "knowledge-vault", enabled: () => true },
+  { id: "askContext", logId: "ask", warning: "ask-context", enabled: () => true },
   { id: "privateGuard", logId: "private", warning: "private-guard", enabled: () => true },
 ];
 export interface RpcExtensionWriteResult {

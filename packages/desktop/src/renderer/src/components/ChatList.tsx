@@ -1,3 +1,4 @@
+import type { MouseEvent as ReactMouseEvent } from "react";
 import type { SessionSummary } from "@omp-ui/core/types";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
@@ -25,8 +26,23 @@ export function filterChats(chats: readonly SessionSummary[], query: string): Se
   return chats.filter((chat) => chat.title.toLowerCase().includes(q));
 }
 
+/** Opens a session row's context menu with the items it can accept (#888 Migrate, #895 Ask). */
+export type OpenSessionMenu = (
+  tabId: string,
+  event: ReactMouseEvent<HTMLElement>,
+  items: { migrate: boolean; ask: boolean },
+) => void;
+
 /** The sidebar's Chat mode: project-free sessions, host-local and ungrouped (issue #894). */
-export function ChatList({ query, onActivate }: { query: string; onActivate: () => void }) {
+export function ChatList({
+  query,
+  onActivate,
+  openSessionMenu,
+}: {
+  query: string;
+  onActivate: () => void;
+  openSessionMenu: OpenSessionMenu;
+}) {
   const t = useT();
   const state = useStore((st) => st.state);
   const newChat = useStore((st) => st.newChat);
@@ -59,7 +75,19 @@ export function ChatList({ query, onActivate }: { query: string; onActivate: () 
       ) : shown.length === 0 ? (
         <Empty title={t("sidebar.chats.noMatches", { query: query.trim() })} />
       ) : (
-        shown.map((chat) => <SessionRow key={chat.tabId} s={chat} onActivate={onActivate} />)
+        shown.map((chat) => (
+          <SessionRow
+            key={chat.tabId}
+            s={chat}
+            onActivate={onActivate}
+            onContextMenu={(event) => {
+              // Chats are host-local and never migrate; Ask is the only item,
+              // and it needs a saved transcript to summarize.
+              if (chat.sessionId === null || chat.live === "missing") return;
+              openSessionMenu(chat.tabId, event, { migrate: false, ask: true });
+            }}
+          />
+        ))
       )}
     </div>
   );

@@ -1369,6 +1369,7 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
     cachedTitle: null,
     cachedModified: null,
     title: "New session",
@@ -1558,6 +1559,7 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
     cachedTitle: null,
     cachedModified: null,
     title: "New session",
@@ -2341,6 +2343,7 @@ describe("carryover context seed (issue #824)", () => {
     autoTitled: false,
     private: false,
     chat: false,
+    askSource: null,
     cachedTitle: null,
     cachedModified: null,
     title: "New session",
@@ -2501,5 +2504,61 @@ describe("newChat (issue #894)", () => {
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({ origin: "new", chat: true, private: true }),
     );
+  });
+});
+
+describe("askAboutSession (issue #895)", () => {
+  const CHAT_DIR = "/data/chats/chat-1";
+  /** A source record titled "Fix the parser" (local unless instanceId) plus the chat the spawn lands. */
+  const seed = (source: { sessionId?: string | null; instanceId?: string } = {}): void => {
+    const base = h.stateWithRecord("sess-1");
+    const sourceRec = {
+      ...base.projects[0]!.sessions[0]!,
+      title: "Fix the parser",
+      sessionId: source.sessionId === undefined ? "sess-1" : source.sessionId,
+    };
+    const project = { ...base.projects[0]!, sessions: [sourceRec] };
+    const chat = { ...sourceRec, tabId: "fresh", projectCwd: CHAT_DIR, chat: true };
+    const state =
+      source.instanceId === undefined
+        ? { ...base, projects: [project] }
+        : makeBackendState({ remoteInstances: [remoteInstance({ id: source.instanceId, projects: [project] })] });
+    h.backendState = { ...base, projects: [], chats: [chat] };
+    h.useStore.setState({ state, tabs: [], activeTabId: null });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: "fresh" });
+  };
+
+  it("spawns a chat carrying the source tab and an Ask title", async () => {
+    seed();
+    const tabId = h.useStore.getState().state!.projects[0]!.sessions[0]!.tabId;
+    await h.useStore.getState().askAboutSession(tabId);
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        origin: "new",
+        chat: true,
+        askSource: { tabId, title: "Ask: Fix the parser" },
+      }),
+    );
+    expect(h.useStore.getState().activeTabId).toBe("fresh");
+  });
+
+  it("reports and does not spawn when the source has no saved transcript", async () => {
+    seed({ sessionId: null });
+    const tabId = h.useStore.getState().state!.projects[0]!.sessions[0]!.tabId;
+    await h.useStore.getState().askAboutSession(tabId);
+
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.errorMessages()).toEqual([en["ask.error.noTranscript"]]);
+  });
+
+  it("reports and does not spawn for a session owned by another instance", async () => {
+    seed({ instanceId: "inst-1" });
+    const tabId = h.useStore.getState().state!.remoteInstances[0]!.projects[0]!.sessions[0]!.tabId;
+    await h.useStore.getState().askAboutSession(tabId);
+
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.errorMessages()).toEqual([en["ask.error.remote"]]);
   });
 });

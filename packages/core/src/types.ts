@@ -319,6 +319,12 @@ export interface PlanImplementationSource {
   planFilePath: string;
 }
 
+/** The session an Ask chat was started about (issue #895). */
+export interface AskSource {
+  tabId: string;
+  sessionId: string;
+}
+
 /** One plan-handoff descendant in a delete preview (issue #309). */
 export interface PlanHandoffDescendant {
   tabId: string;
@@ -431,6 +437,9 @@ export interface OwnedSessionRecord {
    *  scratch dir under omp-ui's app-data chats root (ADR-0059). projectCwd is
    *  that scratch dir. Post-dates schema-1: absent normalizes to false. */
   chat: boolean;
+  /** Set on an Ask chat (#895): the session whose summary is pinned as hidden
+   *  context. Null otherwise. Post-dates schema-1: absent normalizes to null. */
+  askSource: AskSource | null;
   /** True while the session's title is one omp-ui generated via `/rename`
    *  (issue #804). omp records generator titles with source "user", so this
    *  marker — not the header — is what distinguishes an auto-title from a
@@ -723,6 +732,7 @@ interface NewSpawnRequestBase {
    *  project state. The flag lives on the record from here on — resume
    *  requests carry no key for it. */
   private?: boolean;
+  askSource?: never;
 }
 
 export interface NewPtySpawnRequest extends NewSpawnRequestBase {
@@ -762,6 +772,7 @@ interface ResumeSpawnRequestBase {
   worktree?: never;
   planImplementationSource?: never;
   experiment?: never;
+  askSource?: never;
 }
 
 export type ResumeSpawnRequest = ResumeSpawnRequestBase &
@@ -781,6 +792,8 @@ export interface NewChatSpawnRequest {
   cols: number;
   rows: number;
   private?: boolean;
+  /** Start an Ask chat about this local session; main resolves and validates it. */
+  askSource?: { tabId: string; title: string };
   projectCwd?: never;
   worktree?: never;
   planMode?: never;

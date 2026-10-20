@@ -98,6 +98,7 @@ export function ownedSessionRecord(
     autoTitled: false,
     private: false,
     chat: false,
+    askSource: null,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",

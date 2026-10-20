@@ -59,6 +59,7 @@ function session(patch: Partial<SessionSummary> & Pick<SessionSummary, "tabId">)
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
     cachedTitle: null,
     cachedModified: null,
     title: "t",

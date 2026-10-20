@@ -131,6 +131,7 @@ const state = backendState({
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
           cachedTitle: "Owned session",
           cachedModified: "2026-08-03T00:00:00.000Z",
           title: "Owned session",
@@ -161,6 +162,7 @@ const state = backendState({
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
           cachedTitle: "Second owned session",
           cachedModified: "2026-08-03T01:00:00.000Z",
           title: "Second owned session",
@@ -366,6 +368,7 @@ describe("Sidebar chat mode (issue #894)", () => {
     ...state.projects[0]!.sessions[0]!,
     tabId: `chat-${id}`,
     chat: true,
+    askSource: null,
     title,
     cachedTitle: title,
   });
@@ -424,6 +427,81 @@ describe("Sidebar chat mode (issue #894)", () => {
     });
     expect(rowTitles().some((t) => t.startsWith("Draft release post"))).toBe(true);
     expect(rowTitles().some((t) => t.startsWith("Brainstorm names"))).toBe(false);
+  });
+});
+
+describe("Sidebar Ask about this session menu (issue #895)", () => {
+  const originalAsk = useStore.getState().askAboutSession;
+  const originalOmpUpdate = useStore.getState().ompUpdate;
+  const askAboutSession = vi.fn(async () => {});
+  const withFirst = (patch: Partial<SessionSummary>): typeof state => ({
+    ...state,
+    projects: [
+      {
+        ...state.projects[0]!,
+        sessions: [{ ...state.projects[0]!.sessions[0]!, ...patch }, state.projects[0]!.sessions[1]!],
+      },
+    ],
+  });
+  const row = (titlePrefix: string): HTMLButtonElement => {
+    const found = [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")].find((b) =>
+      b.title.startsWith(titlePrefix),
+    );
+    if (found === undefined) throw new Error(`row not found: ${titlePrefix}`);
+    return found;
+  };
+  const itemLabels = (): string[] => openMenuItems().map((item) => item.textContent ?? "");
+
+  beforeEach(() => {
+    askAboutSession.mockClear();
+    useStore.setState({
+      askAboutSession,
+      ompUpdate: { ...originalOmpUpdate, installedVersion: "99.0.0" },
+    });
+  });
+  afterEach(() => {
+    useStore.setState({ askAboutSession: originalAsk, ompUpdate: originalOmpUpdate });
+  });
+
+  it("offers Ask first on a dormant local row and asks about that session", () => {
+    useStore.setState({ state: withFirst({ live: "dormant" }) });
+    renderSidebar();
+    openContextMenu(row("Owned session"));
+    expect(itemLabels()).toEqual(["Ask about this session", "Migrate…"]);
+    act(() => openMenuItems()[0]!.click());
+    expect(askAboutSession).toHaveBeenCalledWith("tab-1");
+    expect(openMenuItems()).toEqual([]);
+  });
+
+  it("offers Ask but not Migrate on a live local row", () => {
+    renderSidebar();
+    openContextMenu(row("Owned session"));
+    expect(itemLabels()).toEqual(["Ask about this session"]);
+  });
+
+  it("opens no menu on a row with no saved transcript", () => {
+    useStore.setState({ state: withFirst({ sessionId: null, live: "dormant" }) });
+    renderSidebar();
+    const event = openContextMenu(row("Owned session"));
+    expect(event.defaultPrevented).toBe(false);
+    expect(openMenuItems()).toEqual([]);
+  });
+
+  it("offers Ask on a chat row in Chat mode", () => {
+    const chat: SessionSummary = {
+      ...state.projects[0]!.sessions[0]!,
+      tabId: "chat-c1",
+      chat: true,
+      title: "Brainstorm names",
+      cachedTitle: "Brainstorm names",
+    };
+    useStore.setState({ state: { ...state, chats: [chat] } });
+    act(() => setSidebarMode("chat"));
+    renderSidebar();
+    openContextMenu(row("Brainstorm names"));
+    expect(itemLabels()).toEqual(["Ask about this session"]);
+    act(() => openMenuItems()[0]!.click());
+    expect(askAboutSession).toHaveBeenCalledWith("chat-c1");
   });
 });
 
@@ -1169,6 +1247,7 @@ describe("project name display", () => {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
             cachedTitle: `Session ${i + 1}`,
             cachedModified: "2026-08-03T00:00:00.000Z",
             title: `Session ${i + 1}`,
@@ -1292,6 +1371,7 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
     cachedTitle: title,
     cachedModified: "2026-08-03T00:00:00.000Z",
     title,
@@ -1611,6 +1691,7 @@ describe("Sidebar session drag-and-drop (issue #274)", () => {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
     cachedTitle: title,
     cachedModified: "2026-08-20T00:00:00.000Z",
     title,
@@ -1775,6 +1856,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
             cachedTitle: "Tree Impl", cachedModified: "2026-08-20T00:00:00.000Z", title: "Tree Impl",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1785,6 +1867,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
             cachedTitle: "Tree Root", cachedModified: "2026-08-20T01:00:00.000Z", title: "Tree Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1795,6 +1878,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
             cachedTitle: "Mid Root", cachedModified: "2026-08-20T02:00:00.000Z", title: "Mid Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1805,6 +1889,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
             cachedTitle: "Last Root", cachedModified: "2026-08-20T03:00:00.000Z", title: "Last Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1893,6 +1978,7 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
                 cachedTitle: "Only", cachedModified: "2026-08-20T00:00:00.000Z", title: "Only",
                 status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
               },
@@ -1945,6 +2031,7 @@ describe("Sidebar plan handoffs (issue #238)", () => {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
     cachedTitle: title,
     cachedModified: "2026-08-03T00:00:00.000Z",
     title,

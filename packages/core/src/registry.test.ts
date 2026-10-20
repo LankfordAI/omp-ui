@@ -39,6 +39,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     autoTitled: false,
     private: false,
     chat: false,
+    askSource: null,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",
@@ -1940,6 +1941,32 @@ describe("chat records (issue #894)", () => {
     fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy, bad] }));
     const reg = Registry.load(file);
     expect(reg.sessions.map((s) => [s.tabId, s.chat])).toEqual([["legacy", false]]);
+  });
+});
+
+describe("Ask chat source (issue #895)", () => {
+  const askSource = { tabId: "source-tab", sessionId: "019faeab-cc7b-7000-8bfc-67242a2869d8" };
+
+  it("loads a legacy record without askSource as null", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord() };
+    delete legacy.askSource;
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }));
+    expect(Registry.load(file).sessions).toEqual([{ ...sessionRecord(), askSource: null }]);
+  });
+
+  it("drops only a record whose askSource is malformed", () => {
+    const file = tmpFile();
+    const good = sessionRecord({ tabId: "ask", chat: true, askSource });
+    const bad = { ...sessionRecord({ tabId: "bad" }), askSource: { tabId: "" } };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [good, bad] }));
+    expect(Registry.load(file).sessions.map((s) => [s.tabId, s.askSource])).toEqual([["ask", askSource]]);
+  });
+
+  it("persists askSource across a reload", () => {
+    const file = tmpFile();
+    Registry.load(file).addSession(sessionRecord({ chat: true, askSource }));
+    expect(Registry.load(file).sessions[0]!.askSource).toEqual(askSource);
   });
 });
 

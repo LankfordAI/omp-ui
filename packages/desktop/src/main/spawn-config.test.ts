@@ -45,6 +45,7 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     tree: () => write("tree"),
     review: () => write("review"),
     knowledgeVault: () => write("knowledgeVault"),
+    askContext: () => write("askContext"),
     privateGuard: () => write("privateGuard"),
   };
 }
@@ -70,6 +71,7 @@ describe("writeRpcExtensions", () => {
         "/tree.ts",
         "/review.ts",
         "/knowledgeVault.ts",
+        "/askContext.ts",
         "/privateGuard.ts",
       ],
       loaded: {
@@ -86,6 +88,7 @@ describe("writeRpcExtensions", () => {
         tree: true,
         review: true,
         knowledgeVault: true,
+        askContext: true,
         privateGuard: true,
       },
     });

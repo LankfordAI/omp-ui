@@ -192,5 +192,32 @@ describe("parseSpawnRequest", () => {
     ] as const)("rejects a chat with %s", (_label, raw) => {
       expect(() => parseSpawnRequest(raw)).toThrow(/spawn request/);
     });
+
+    describe("Ask chats (issue #895)", () => {
+      const askSource = { tabId: "tab-source", title: "Ask: Fix the login bug" };
+
+      it("round-trips the askSource exactly", () => {
+        const parsed = parseSpawnRequest({ ...chatRaw, private: true, askSource });
+        expect(parsed).toStrictEqual({ ...chatRaw, private: true, askSource });
+      });
+
+      it.each([
+        ["an empty title", { ...chatRaw, askSource: { ...askSource, title: "" } }],
+        ["an empty source tab", { ...chatRaw, askSource: { ...askSource, tabId: "" } }],
+        ["a missing title", { ...chatRaw, askSource: { tabId: askSource.tabId } }],
+        ["a non-object askSource", { ...chatRaw, askSource: "tab-source" }],
+        ["a null askSource", { ...chatRaw, askSource: null }],
+        ["an extra askSource key", { ...chatRaw, askSource: { ...askSource, sessionId: "sid" } }],
+      ] as const)("rejects %s", (_label, raw) => {
+        expect(() => parseSpawnRequest(raw)).toThrow(/spawn request\.askSource/);
+      });
+
+      it.each([
+        ["a project request", { ...newRpcRequest, askSource }],
+        ["a resume request", { ...resumeRequest, askSource }],
+      ] as const)("rejects an askSource on %s", (_label, raw) => {
+        expect(() => parseSpawnRequest(raw)).toThrow(/spawn request contains unknown field askSource/);
+      });
+    });
   });
 });

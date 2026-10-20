@@ -124,6 +124,7 @@ export function remoteOwnedState(tabId: string, instanceId: string): BackendStat
                 autoTitled: false,
                 private: false,
                 chat: false,
+                askSource: null,
                 cachedTitle: "Remote session",
                 cachedModified: "t",
                 title: "Remote session",

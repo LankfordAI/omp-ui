@@ -79,6 +79,7 @@ const state = backendState({
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
           cachedTitle: "Mobile session",
           cachedModified: "t",
           title: "Mobile session",

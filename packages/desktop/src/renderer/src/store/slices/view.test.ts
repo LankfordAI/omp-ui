@@ -42,6 +42,7 @@ function summary(
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
     cachedTitle: null,
     cachedModified: null,
     title,
