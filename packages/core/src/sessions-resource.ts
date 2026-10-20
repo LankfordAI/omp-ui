@@ -117,20 +117,36 @@ export function renderDayIndex(
     return `# Sessions on ${day}\n\nNo omp-ui sessions were active on ${day}.\n`;
   }
 
+  // Every chat row shares one group under a key no real path can take.
+  const CHATS_KEY = "\u0000chats";
   const byCwd = new Map<string, DayRow[]>();
   for (const row of lineages.values()) {
-    const rows = byCwd.get(row.record.projectCwd);
-    if (rows === undefined) byCwd.set(row.record.projectCwd, [row]);
+    const key = row.record.chat ? CHATS_KEY : row.record.projectCwd;
+    const rows = byCwd.get(key);
+    if (rows === undefined) byCwd.set(key, [row]);
     else rows.push(row);
   }
   const groups = [...byCwd.entries()].map(([cwd, rows]) => {
     rows.sort((a, b) => b.at.getTime() - a.at.getTime());
-    return { name: projectName(cwd, projects), rows, newest: (rows[0] as DayRow).at.getTime() };
+    const chats = cwd === CHATS_KEY;
+    return {
+      name: chats ? "Chats" : projectName(cwd, projects),
+      chats,
+      rows,
+      newest: (rows[0] as DayRow).at.getTime(),
+    };
   });
   groups.sort((a, b) => b.newest - a.newest || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
   const total = lineages.size;
-  let text = `# Sessions on ${day}\n\n${plural(total, "session")} across ${plural(groups.length, "project")}.\n`;
+  const projectCount = groups.filter((g) => !g.chats).length;
+  const hasChats = groups.some((g) => g.chats);
+  const where = !hasChats
+    ? plural(projectCount, "project")
+    : projectCount === 0
+      ? "chats"
+      : `${plural(projectCount, "project")} and chats`;
+  let text = `# Sessions on ${day}\n\n${plural(total, "session")} across ${where}.\n`;
   const tail = (k: number): string =>
     `\n… ${k} more ${k === 1 ? "session" : "sessions"}; narrow the day or the query.\n`;
   let shown = 0;
@@ -190,7 +206,11 @@ export async function renderSessionSummary(
   locate: SessionsResourceDeps["locate"],
 ): Promise<string> {
   const at = modifiedAt(record);
-  const segments = [titleOf(record), projectName(record.projectCwd, projects), modeWord(record)];
+  const segments = [
+    titleOf(record),
+    record.chat ? "Chat" : projectName(record.projectCwd, projects),
+    modeWord(record),
+  ];
   if (record.worktree !== null) segments.push(record.worktree.branch);
   if (at !== null) segments.push(`${localDay(at)} ${localTime(at)}`);
   const text = await readLastAssistantText(record, locate);

@@ -91,6 +91,7 @@ const session: SessionSummary = {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
   cachedTitle: "Remote session",
   cachedModified: "t",
   title: "Remote session",

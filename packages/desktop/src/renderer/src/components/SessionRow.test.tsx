@@ -58,6 +58,7 @@ function summary(patch: Partial<SessionSummary> = {}): SessionSummary {
     proposedPlans: [],
     autoTitled: false,
     private: false,
+    chat: false,
     cachedTitle: "Dormant session",
     cachedModified: "2026-10-01T00:00:00.000Z",
     title: "Dormant session",

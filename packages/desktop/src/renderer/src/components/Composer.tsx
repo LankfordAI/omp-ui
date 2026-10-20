@@ -27,7 +27,7 @@ import type { DocumentRef } from "../lib/document-context";
 import { queueChipCount, queueChipView } from "../lib/queue-chip";
 import { modelFastTier, type PromptRoute, type SlashCommandInfo } from "../lib/rpc-types";
 import { slashCompletion } from "../lib/slash-completion";
-import { findInstance, findOwner, sessionCwd, useStore } from "../store";
+import { findInstance, findOwner, isChatTab, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { useWordGhost } from "../lib/use-word-ghost";
@@ -94,6 +94,8 @@ export function Composer({
   const activeTurnKeywords = useStore((s) => s.rpc[tabId]?.activeTurnKeywords ?? NO_KEYWORDS);
   const commands = useStore((s) => s.rpc[tabId]?.commands ?? NO_COMMANDS);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
+  // A chat has no plan mode and no project for autoresearch to key on (#894).
+  const chat = useStore((s) => isChatTab(s.state, tabId));
   // UI_PLAN_COMMAND is the palette's one canonical plan entry: omp's own
   // `plan` is TUI-only (ADR-0007) and the extension's `omp-ui-plan` is the
   // driver the intercept rewrites to, so both are filtered out.
@@ -104,7 +106,7 @@ export function Composer({
     const uiEntries: SlashCommandInfo[] = [
       // omp-ui's own entries get their palette copy from the catalog (issue #363).
       { ...UI_NEW_COMMAND, description: t("composer.slash.new") },
-      { ...UI_PLAN_COMMAND, description: t("composer.slash.plan") },
+      ...(chat ? [] : [{ ...UI_PLAN_COMMAND, description: t("composer.slash.plan") }]),
       {
         ...UI_GOAL_COMMAND,
         description: t("composer.slash.goal"),
@@ -126,7 +128,7 @@ export function Composer({
           description: t(sub.key),
         })),
       },
-      ...(experimentsEnabled
+      ...(experimentsEnabled && !chat
         ? [
             {
               ...UI_AUTORESEARCH_COMMAND,
@@ -157,7 +159,7 @@ export function Composer({
           !owned.has(c.name),
       ),
     ];
-  }, [commands, experimentsEnabled, localeId, t]);
+  }, [chat, commands, experimentsEnabled, localeId, t]);
   const queued = useStore((s) => {
     const session = s.rpc[tabId]?.session;
     return session ? queueChipCount(session) : 0;
@@ -1183,21 +1185,26 @@ export function Composer({
 
             <AdvisorControl tabId={tabId} disabled={unavailable} />
 
-            <BuildPlanControl
-              tabId={tabId}
-              disabled={unavailable}
-              onSelected={() => box.current?.focus({ preventScroll: true })}
-            />
+            {/* A chat is Build-only and has no repo: no mode control, no branch chip (#894). */}
+            {!chat && (
+              <BuildPlanControl
+                tabId={tabId}
+                disabled={unavailable}
+                onSelected={() => box.current?.focus({ preventScroll: true })}
+              />
+            )}
 
-            <BranchChip
-              projectCwd={cwd}
-              instanceId={instanceId}
-              workspace={offerWorkspace ? workspace : undefined}
-              onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
-              workspaceDisabled={unavailable || converting}
-              onCreateWorktree={offerWorkspace ? createWorktreeNow : undefined}
-              finishTabId={finishTabId}
-            />
+            {!chat && (
+              <BranchChip
+                projectCwd={cwd}
+                instanceId={instanceId}
+                workspace={offerWorkspace ? workspace : undefined}
+                onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
+                workspaceDisabled={unavailable || converting}
+                onCreateWorktree={offerWorkspace ? createWorktreeNow : undefined}
+                finishTabId={finishTabId}
+              />
+            )}
 
             <AttachmentButton disabled={unavailable} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
             {/* One voice affordance (issue #805): the live capsule takes the

@@ -799,6 +799,8 @@ export interface SeanceConsultTarget {
   sourceLabel: string;
   /** Read privacy of the consulted source (issue #852): a spawned consult session inherits it. */
   private?: boolean;
+  /** The consulted source is a Chat: a spawned consult lands in a fresh chat. */
+  chat?: boolean;
 }
 
 export interface SeanceSlice {
@@ -1058,6 +1060,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
      *  write-quiet against the memory system. Never a default. */
     opts?: { private?: boolean },
   ): Promise<void>;
+  /** Spawns a fresh Chat (local only) and lands its tab; resolves its tabId, or null when it never landed. */
+  newChat(opts?: { private?: boolean }): Promise<string | null>;
   /**
    * Creates a worktree session; throws on failure (the dialog renders the
    * message inline) — unlike newSession, which reports to the error notices.

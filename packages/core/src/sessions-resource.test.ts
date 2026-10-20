@@ -48,6 +48,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     proposedPlans: [],
     autoTitled: false,
     private: false,
+    chat: false,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",
@@ -188,6 +189,37 @@ describe("renderDayIndex", () => {
         "",
       ].join("\n"),
     );
+  });
+
+  describe("chats (issue #894)", () => {
+    const chat = (n: number, hour: number) =>
+      sessionRecord({
+        lineageDir: `chat-${n}`,
+        sessionId: `c-${n}`,
+        projectCwd: `/home/u/.omp-ui/chats/chat-${n}`,
+        chat: true,
+        mode: "rpc-ui",
+        cachedTitle: `Chat ${n}`,
+        cachedModified: localIso(2026, 9, 6, hour, 0),
+      });
+
+    it("folds every chat under one Chats heading beside projects", () => {
+      const records = [
+        chat(1, 9),
+        chat(2, 11),
+        sessionRecord({ lineageDir: "p", sessionId: "p-1", cachedTitle: "Proj", cachedModified: localIso(2026, 9, 6, 10, 0) }),
+      ];
+      const text = renderDayIndex(records, [projectRecord("/abs/proj", "Project")], "2026-10-06");
+      expect(text).toContain("3 sessions across 1 project and chats.");
+      expect(text.match(/^## Chats$/gm)).toHaveLength(1);
+      expect(text).toContain("omp-ui://sessions/c-1/summary");
+      expect(text).toContain("omp-ui://sessions/c-2/summary");
+    });
+
+    it("summarises a chats-only day as across chats", () => {
+      const text = renderDayIndex([chat(1, 9), chat(2, 11)], [], "2026-10-06");
+      expect(text).toContain("2 sessions across chats.");
+    });
   });
 
   it("caps the index at a row boundary with a count of the rest", () => {
@@ -351,5 +383,11 @@ describe("renderSessionSummary", () => {
     ],
   ])("answers the unavailable line for %s", async (_label, locate) => {
     expect(await renderSessionSummary(record, projects, locate)).toBe(`${heading}${UNAVAILABLE}\n`);
+  });
+
+  it("names a chat's heading segment Chat (issue #894)", async () => {
+    const chatRecord = { ...record, chat: true, projectCwd: "/home/u/.omp-ui/chats/chat-x" };
+    const text = await renderSessionSummary(chatRecord, projects, async () => ({ where: "missing" }));
+    expect(text.startsWith("# Title · Chat · native · ")).toBe(true);
   });
 });

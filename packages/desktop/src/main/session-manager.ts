@@ -13,6 +13,11 @@ import {
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
   deleteSessionFiles,
+  chatDirPath,
+  chatKnowledgeHome,
+  CHAT_VAULT_PROJECT_NAME,
+  createChatDir,
+  removeChatDir,
   eventFilterEchoIsDelta,
   EVENT_FILTER_COMMAND_ID,
   isObject,
@@ -83,6 +88,7 @@ import {
   type ApprovalMode,
   type ServiceTier,
   type SessionWorktree,
+  type ProjectSpawnRequest,
   type SpawnRequest,
   type WorktreeReleaseOptions,
   type WorktreeReleaseResult,
@@ -177,6 +183,8 @@ export interface SessionManagerDependencies {
   getSessionsRoot: () => string;
   getArchiveRoot: () => string;
   getWorktreesRoot: () => string;
+  /** Where chat scratch dirs live (ADR-0059). */
+  getChatsRoot: () => string;
   send: (channel: string, ...args: unknown[]) => void;
   broadcast: () => Promise<void>;
   attention?: Attention;
@@ -365,6 +373,14 @@ export class SessionManager {
         context: (tabId) => {
           const record = deps.registry.sessions.find((session) => session.tabId === tabId);
           if (record === undefined) return null;
+          if (record.chat) {
+            return {
+              projectName: CHAT_VAULT_PROJECT_NAME,
+              project: plainVaultProject(CHAT_VAULT_PROJECT_NAME),
+              pinnedVault: null,
+              lineage: record.lineageDir.slice(-36),
+            };
+          }
           const project = deps.registry.projects.find((candidate) => candidate.path === record.projectCwd);
           return {
             projectName: project?.name ?? null,
@@ -569,7 +585,7 @@ export class SessionManager {
     );
   }
 
-  private validateSpawnSemantics(req: SpawnRequest): void {
+  private validateSpawnSemantics(req: ProjectSpawnRequest): void {
     if (req.origin === "resume") return;
 
     const snapshot = req.planImplementationSource ?? null;
@@ -629,10 +645,32 @@ export class SessionManager {
     // detail — never prompt text.
     this.deps.breadcrumb?.record("spawn-attempt", {
       detail:
-        req.origin === "new"
-          ? `origin=new mode=${req.mode} project=${req.projectCwd}`
-          : `origin=resume mode=${req.mode ?? "unset"} tab=${req.resumeTabId}`,
+        req.origin === "resume"
+          ? `origin=resume mode=${req.mode ?? "unset"} tab=${req.resumeTabId}`
+          : req.chat === true
+            ? "origin=new mode=rpc-ui chat"
+            : `origin=new mode=${req.mode} project=${req.projectCwd}`,
     });
+    // A chat dispatches before validateSpawnSemantics, which dereferences
+    // req.worktree: main mints its scratch cwd here (ADR-0059), and the dir
+    // itself is created only after the record exists.
+    if (req.origin === "new" && req.chat === true) {
+      return this.spawnInner(
+        {
+          origin: "new",
+          mode: "rpc-ui",
+          projectCwd: chatDirPath(this.deps.getChatsRoot()),
+          advisor: req.advisor,
+          ...(req.advisorModel === undefined ? {} : { advisorModel: req.advisorModel }),
+          cols: req.cols,
+          rows: req.rows,
+          worktree: null,
+          planMode: false,
+          ...(req.private === true ? { private: true } : {}),
+        },
+        true,
+      );
+    }
     this.validateSpawnSemantics(req);
     if (req.origin === "new") return this.spawnInner(req);
     const tabId = req.resumeTabId;
@@ -642,7 +680,7 @@ export class SessionManager {
     return this.enqueueOp(tabId, "spawn", () => this.spawnInner(req));
   }
 
-  private async spawnInner(req: SpawnRequest): Promise<{ tabId: string }> {
+  private async spawnInner(req: ProjectSpawnRequest, chat = false): Promise<{ tabId: string }> {
     const ompPath = this.requireOmpPath();
     if (
       req.origin === "new" &&
@@ -667,6 +705,11 @@ export class SessionManager {
         if (this.live.has(req.resumeTabId)) return { tabId: req.resumeTabId };
         const existing = this.deps.registry.sessions.find((s) => s.tabId === req.resumeTabId);
         if (!existing) throw new Error(`unknown session tab ${req.resumeTabId}`);
+        // A chat whose scratch dir the user deleted gets it back before omp
+        // boots in it; a non-canonical path (hand-edited registry) throws.
+        if (existing.chat && !fs.existsSync(existing.projectCwd)) {
+          createChatDir(this.deps.getChatsRoot(), existing.projectCwd);
+        }
         projectCwd = existing.projectCwd;
         record = await prepareResumeRecord(existing, {
           sessionsRoot: this.deps.getSessionsRoot(),
@@ -682,7 +725,7 @@ export class SessionManager {
         );
         const worktree = preparedWorktree.worktree;
         mintedWorktree = preparedWorktree.minted;
-        const project = this.deps.registry.projects.find((p) => p.path === req.projectCwd);
+        const project = chat ? undefined : this.deps.registry.projects.find((p) => p.path === req.projectCwd);
         // The warm-child reservation (perf issue #908): decide BEFORE the
         // record is minted, because an adopted session uses the pool's dir
         // as its own lineage dir — omp stages session files against
@@ -696,7 +739,9 @@ export class SessionManager {
           req.planImplementationSource == null &&
           req.experiment == null &&
           gateSelector(this.gate) === null &&
-          this.gate.advisorModel === null;
+          this.gate.advisorModel === null &&
+          // The plan key includes projectCwd, and a chat cwd is never reused.
+          !chat;
         // The app-level auto-thinking flag wins over last-used memory (the
         // mint below uses the same seed): with it on, every fresh session
         // starts on omp's automatic selector; with it off, the remembered
@@ -704,7 +749,9 @@ export class SessionManager {
         // matches the record's boot argv exactly.
         const thinkingSeed = this.deps.registry.getSetting("defaultAutoThinking")
           ? "auto"
-          : (project?.lastThinkingLevel ?? null);
+          : chat
+            ? this.deps.registry.getSetting("chatLastThinkingLevel")
+            : (project?.lastThinkingLevel ?? null);
         const planKey = warmPlanKey({
           ompPath,
           projectCwd: req.projectCwd,
@@ -744,7 +791,9 @@ export class SessionManager {
             req.mode === "rpc-ui" ? this.deps.registry.getSetting("defaultCompactionMethod") : null,
           approvalMode: null,
           serviceTier: null,
-          model: project?.defaultModel ?? project?.lastModel ?? null,
+          model: chat
+            ? this.deps.registry.getSetting("chatLastModel")
+            : (project?.defaultModel ?? project?.lastModel ?? null),
           thinkingLevel: thinkingSeed,
           advisor: req.advisor,
           advisorModel: req.advisorModel ?? null,
@@ -752,10 +801,12 @@ export class SessionManager {
           proposedPlans: [],
           autoTitled: false,
           private: req.private === true,
+          chat,
           cachedTitle: null,
           cachedModified: null,
         });
         this.deps.registry.setSessionAdvisor(record.tabId, record.advisor, record.advisorModel);
+        if (chat) createChatDir(this.deps.getChatsRoot(), record.projectCwd);
       }
 
       const mode = req.origin === "resume" ? (req.mode ?? record.mode) : req.mode;
@@ -789,11 +840,13 @@ export class SessionManager {
               record.sessionId === null ? req.carryoverContext?.trim() || null : null,
             )
           : null;
-      const planMode =
-        req.planMode ??
-        (fresh
-          ? this.deps.registry.getSetting("defaultAgentMode") === "plan"
-          : record.agentMode === "plan");
+      // A chat is Build-only on every launch, resume included.
+      const planMode = record.chat
+        ? false
+        : (req.planMode ??
+          (fresh
+            ? this.deps.registry.getSetting("defaultAgentMode") === "plan"
+            : record.agentMode === "plan"));
       const result =
         mode === "rpc-ui"
           ? await this.spawnRpc(record, planMode, ompPath, req.origin === "resume" ? req.model : undefined, carryoverFile, warmHandoff)
@@ -802,7 +855,7 @@ export class SessionManager {
       // on a hash miss); only an exception path can leave it live for the
       // rollback tail to release.
       warmHandoff = null;
-      if (fresh && mode === "rpc-ui") {
+      if (fresh && mode === "rpc-ui" && !record.chat) {
         this.warmPool.scheduleRefill({
           planKey: warmPlanKey({
             ompPath,
@@ -878,6 +931,16 @@ export class SessionManager {
               );
             } catch (error) {
               fail("remove spawned lineage files", error);
+            }
+            if (
+              freshRecord.chat &&
+              !this.deps.registry.sessions.some((s) => s.projectCwd === freshRecord.projectCwd)
+            ) {
+              try {
+                await removeChatDir(this.deps.getChatsRoot(), freshRecord.projectCwd);
+              } catch (error) {
+                fail("remove spawned chat dir", error);
+              }
             }
           }
           if (
@@ -1117,10 +1180,13 @@ export class SessionManager {
       const resolveProject = this.deps.vaultProject ?? resolveVaultProject;
       this.vaultProjects.set(
         record.projectCwd,
-        await resolveProject(
-          folderProject?.name ?? path.basename(record.projectCwd),
-          record.projectCwd,
-        ),
+        // Every chat files under one "Chats" folder (issue #894).
+        record.chat
+          ? plainVaultProject(CHAT_VAULT_PROJECT_NAME)
+          : await resolveProject(
+              folderProject?.name ?? path.basename(record.projectCwd),
+              record.projectCwd,
+            ),
       );
     }
     // The Knowledge home's hidden guidance (#766, #768, ADR-0048), sent once per
@@ -1128,7 +1194,9 @@ export class SessionManager {
     // message has nothing to say: there is no write part and no day part, so no git runs.
     if (!record.private && bridgeLoaded.knowledgeVault && vaults.vaults.length > 0) {
       const homeProject = this.deps.registry.projects.find((project) => project.path === record.projectCwd);
-      const resolved = await resolveKnowledgeHome(homeProject?.knowledgeHome ?? null, record.projectCwd, vaults);
+      const resolved = record.chat
+        ? chatKnowledgeHome(vaults)
+        : await resolveKnowledgeHome(homeProject?.knowledgeHome ?? null, record.projectCwd, vaults);
       const guidance = knowledgeVaultGuidance({
         write:
           resolved.kind === "vault" || resolved.kind === "both"
@@ -2243,6 +2311,12 @@ export class SessionManager {
       throw err;
     }
     this.deps.registry.removeSession(tabId);
+    if (record.chat && !this.deps.registry.sessions.some((s) => s.projectCwd === record.projectCwd)) {
+      // A branch shares the scratch dir; only the last record takes it along.
+      await removeChatDir(this.deps.getChatsRoot(), record.projectCwd).catch((err: unknown) =>
+        console.warn("[sessions] chat dir cleanup failed; the boot sweep retries:", err),
+      );
+    }
     await this.deps.broadcast();
   }
 
@@ -2319,6 +2393,8 @@ export class SessionManager {
       cachedModified: new Date().toISOString(),
       autoTitled: source.autoTitled,
       private: source.private,
+      // A branch of a chat is a chat sharing its scratch dir.
+      chat: source.chat,
     });
     await this.deps.broadcast();
       return { tabId: fork.tabId };
@@ -2336,6 +2412,7 @@ export class SessionManager {
     return this.enqueueOp(tabId, "relaunch", async () => {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
       if (!record || record.mode === mode) return;
+      if (record.chat && mode === "pty") throw new Error("a chat runs in native mode only");
       this.deps.breadcrumb?.record("session-mode", { tabId, mode });
       this.killShell(tabId);
       if (mode === "pty") this.browserPanes.dispose(tabId);

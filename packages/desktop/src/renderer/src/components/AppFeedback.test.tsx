@@ -63,6 +63,7 @@ function record(patch: Partial<SessionSummary> = {}): SessionSummary {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
     cachedTitle: "Running task",
     cachedModified: "t",
     title: "Running task",

@@ -32,7 +32,9 @@ import { SessionRow } from "./SessionRow";
 import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconGrip, IconGroup, IconPencil, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
+import { ChatList, SkeletonRows, filterChats } from "./ChatList";
+import { setSidebarMode, useSidebarMode } from "../lib/sidebar-mode";
+import { Button, Chevron, ChoiceCapsule, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconGrip, IconGroup, IconPencil, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -81,22 +83,6 @@ function IconEllipsis() {
       <circle cx="8" cy="8" r="1.1" />
       <circle cx="12.5" cy="8" r="1.1" />
     </svg>
-  );
-}
-
-/* -------------------------------------------------------------- primitives */
-
-/** Three pulsing bars — the honest "we have not heard from the backend yet". */
-function SkeletonRows() {
-  return (
-    <div className="space-y-2 px-3 py-3">
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="animate-pulse space-y-1.5" style={{ animationDelay: `${i * 120}ms` }}>
-          <div className="h-2.5 rounded bg-line-soft" style={{ width: `${72 - i * 14}%` }} />
-          <div className="h-2 w-1/3 rounded bg-line-soft" />
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -1240,6 +1226,7 @@ export function Sidebar() {
   const compact = useCompactShell();
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
+  const mode = useSidebarMode();
 
   // Desktop collapse memory lives in the store: the toggle moved to App's
   // title bar (issue #60), and the compact sheet ignores it as before.
@@ -1525,6 +1512,17 @@ export function Sidebar() {
         <>
           {/* -------- filter -------- */}
           <div className="shrink-0 border-b border-line px-3 py-2.5">
+            <ChoiceCapsule
+              label={t("sidebar.mode.label")}
+              value={mode}
+              options={[
+                { value: "work", label: t("sidebar.mode.work") },
+                { value: "chat", label: t("sidebar.mode.chat") },
+              ]}
+              onChange={setSidebarMode}
+              className="mb-1.5 flex w-full"
+              optionClassName="flex-1 justify-center"
+            />
             <div className="flex items-center gap-1.5">
               <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-line bg-raised px-2 focus-within:border-line-strong">
                 <span className="shrink-0 text-ink-faint">
@@ -1545,7 +1543,7 @@ export function Sidebar() {
                 {filtering && (
                   <>
                     <span className="shrink-0 font-mono text-[10px] text-ink-dim tabular-nums">
-                      {matchCount}
+                      {mode === "chat" ? filterChats(state?.chats ?? [], query).length : matchCount}
                     </span>
                     <IconButton label={t("sidebar.filter.clear")} onClick={() => setQuery("")} className="size-5">
                       <IconClose className="size-3.5" />
@@ -1553,6 +1551,7 @@ export function Sidebar() {
                   </>
                 )}
               </div>
+              {mode === "work" && (
               <IconButton
                 label={t("sidebar.group.create")}
                 onClick={() => openSidebarGroupDialog({ kind: "create" })}
@@ -1560,13 +1559,14 @@ export function Sidebar() {
               >
                 <IconGroup />
               </IconButton>
-              {compact && (
+              )}
+              {mode === "work" && compact && (
                 <IconButton label={t("sidebar.project.add")} onClick={() => { openProjectPicker(); closeCompactSurface(); }} className="size-9 rounded-md border border-line">
                   <IconPlus />
                 </IconButton>
               )}
             </div>
-            {hostChoices.length > 0 && (
+            {mode === "work" && hostChoices.length > 0 && (
               <div className="mt-1.5">
                 <HostScopePicker
                   instances={hostChoices}
@@ -1579,6 +1579,10 @@ export function Sidebar() {
 
           {/* -------- project list -------- */}
           <div className="min-h-0 flex-1 overflow-y-auto">
+            {mode === "chat" ? (
+              <ChatList query={query} onActivate={closeCompactSurface} />
+            ) : (
+            <>
             {groups === null && <SkeletonRows />}
             {showLocalSections && (
               <>
@@ -1683,6 +1687,8 @@ export function Sidebar() {
                   onAnnounce={setReorderNote}
                 />
               ))}
+            </>
+            )}
           </div>
         </>
       )}

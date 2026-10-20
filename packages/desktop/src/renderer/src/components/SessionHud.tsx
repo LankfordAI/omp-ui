@@ -18,7 +18,7 @@ import { deltaLabel } from "./lab/experiment-state";
 import { projectKey } from "../lib/project-key";
 import type { ContextUsage, SubagentInfo, UsageLimit } from "../lib/rpc-types";
 import { backgroundWorkInFlight, runningJobCount } from "../lib/async-jobs";
-import { findInstance, findOwner, findRecord, sessionCwd, useStore } from "../store";
+import { findInstance, findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
 import { useDismissal } from "../lib/use-dismissal";
 import { ConsoleToggle } from "./ConsoleDrawer";
@@ -1064,6 +1064,8 @@ export function SessionHud({ tabId }: { tabId: string }) {
   // version — the same source the store action gates on.
   const anonAvailable = useStore((s) => supportsAnonymize(s.ompUpdate.installedVersion));
   const newSession = useStore((s) => s.newSession);
+  const newChat = useStore((s) => s.newChat);
+  const chat = useStore((s) => isChatTab(s.state, tabId));
   const refreshState = useStore((s) => s.refreshState);
   const refreshStats = useStore((s) => s.refreshStats);
   const refreshAdvisorStats = useStore((s) => s.refreshAdvisorStats);
@@ -1165,7 +1167,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const notices = Object.entries(extensionStatus ?? {}).filter(([, text]) => text.trim() !== "");
   const activeAgentMode = plan == null ? null : plan.enabled ? "plan" : "build";
   const exceptionalAgentMode =
-    activeAgentMode !== null && activeAgentMode !== defaultAgentMode ? activeAgentMode : null;
+    !chat && activeAgentMode !== null && activeAgentMode !== defaultAgentMode ? activeAgentMode : null;
   // `available:true` is emitted for both on and off sessions (off reports
   // configured:false), so the record flag alone was the gate — and it can be
   // stale after an advisor-toggle relaunch. The extension's `configured` is
@@ -1302,7 +1304,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 {quotaEvent != null && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{quotaChip}</div>}
                 {usageLimitChip && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{usageLimitChip}</div>}
                 {limitsCluster && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{limitsCluster}</div>}
-                {showAdvisor && (advisorStats.advisors.length > 0 || advisorStats.configWarnings.length > 0) && <AdvisorRosterView tabId={tabId} instanceId={instanceId} cwd={cwd} onEdit={projectCwd ? () => openProjectSettingsForRoster(projectCwd, instanceId, "advisors") : undefined} />}
+                {showAdvisor && (advisorStats.advisors.length > 0 || advisorStats.configWarnings.length > 0) && <AdvisorRosterView tabId={tabId} instanceId={instanceId} cwd={cwd} onEdit={projectCwd && !chat ? () => openProjectSettingsForRoster(projectCwd, instanceId, "advisors") : undefined} />}
                 {showAdvisor && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.advisorTotal")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={t("hud.advisor.totalUsage", { tokens: exactNum(advisorStats.totalTokens), cost: formatCost(advisorStats.cost) })}>{t("hud.advisor.compactTotal", { tokens: compactNum(advisorStats.totalTokens), spend: advisorStats.subscription && advisorStats.cost === 0 ? t("hud.advisor.subscriptionShort") : formatCost(advisorStats.cost) })}</span></div>}
                 {notices.length > 0 && <div className="flex flex-wrap gap-1.5">{notices.map(([key, text]) => <Chip key={key} mono title={key}>{text}</Chip>)}</div>}
               </div>
@@ -1310,7 +1312,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
             <div>
               <Label>{t("hud.actions.heading")}</Label>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />
+                {!chat && <BuildPlanControl tabId={tabId} layout="sheet" className={sheetAction} />}
                 <Button tone="copper" disabled={session?.isCompacting === true || compacting} onClick={() => void compactSession(tabId)} className={sheetAction}><IconCompact />{t("hud.actions.compact")}</Button>
                 <Button onClick={() => void exportHtml(tabId)} className={sheetAction}><IconExport />{t("hud.actions.export")}</Button>
                 <Button title={t("hud.actions.shareTitle")} onClick={() => void shareSession(tabId)} className={sheetAction}><IconShare />{t("hud.actions.share")}</Button>
@@ -1325,7 +1327,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 {treeAvailable && (
                   <Button title={t("hud.actions.treeTitle")} onClick={() => openSessionTreeView(tabId)} className={sheetAction}><IconSessionTree />{t("hud.actions.tree")}</Button>
                 )}
-                <Button disabled={projectCwd === undefined} onClick={() => { if (projectCwd !== undefined) void newSession(projectCwd, undefined, instanceId); }} className={sheetAction}><IconNew />{t("hud.actions.new")}</Button>
+                <Button disabled={!chat && projectCwd === undefined} onClick={() => { if (chat) void newChat(); else if (projectCwd !== undefined) void newSession(projectCwd, undefined, instanceId); }} className={sheetAction}><IconNew />{t("hud.actions.new")}</Button>
                 <Button onClick={refresh} className={sheetAction}><IconRefresh />{t("hud.actions.refresh")}</Button>
                 <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-3"><span className="text-xs">{t("hud.actions.autoCompact")}</span><Switch on={session?.autoCompactionEnabled ?? false} label={t("hud.actions.autoCompact")} onChange={(next) => void setAutoCompaction(tabId, next)} /></div>
               </div>
@@ -1414,7 +1416,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           tabId={tabId}
           instanceId={instanceId}
           cwd={cwd}
-          projectCwd={projectCwd ?? null}
+          projectCwd={chat ? null : projectCwd ?? null}
         />
       )}
 
@@ -1490,9 +1492,10 @@ export function SessionHud({ tabId }: { tabId: string }) {
             new live session tab in this project, not an in-tab reset (#82). */}
         <IconButton
           label={t("hud.actions.newTitle")}
-          disabled={projectCwd === undefined}
+          disabled={!chat && projectCwd === undefined}
           onClick={() => {
-            if (projectCwd !== undefined) void newSession(projectCwd, undefined, instanceId);
+            if (chat) void newChat();
+            else if (projectCwd !== undefined) void newSession(projectCwd, undefined, instanceId);
           }}
         >
           <IconNew />

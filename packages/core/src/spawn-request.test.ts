@@ -172,4 +172,25 @@ describe("parseSpawnRequest", () => {
       /spawn request\.private must be a boolean/,
     );
   });
+
+  describe("chat requests (issue #894)", () => {
+    const chatRaw = { origin: "new", chat: true, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 };
+
+    it("parses a minimal chat request to the exact NewChatSpawnRequest", () => {
+      const parsed = parseSpawnRequest(chatRaw);
+      expect(parsed).toStrictEqual({ origin: "new", chat: true, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+    });
+
+    it.each([
+      ["chat: false", { ...chatRaw, chat: false }],
+      ["pty mode", { ...chatRaw, mode: "pty" }],
+      ["a project cwd", { ...chatRaw, projectCwd: "/project" }],
+      ["a worktree", { ...chatRaw, worktree: null }],
+      ["plan mode", { ...chatRaw, planMode: false }],
+      ["a plan source", { ...chatRaw, planImplementationSource: null }],
+      ["an experiment", { ...chatRaw, experiment: null }],
+    ] as const)("rejects a chat with %s", (_label, raw) => {
+      expect(() => parseSpawnRequest(raw)).toThrow(/spawn request/);
+    });
+  });
 });

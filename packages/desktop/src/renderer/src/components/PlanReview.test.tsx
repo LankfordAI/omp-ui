@@ -205,6 +205,7 @@ function sessionRecord(tabId: string, title: string) {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+    chat: false,
     cachedTitle: title,
     cachedModified: "t",
     title,

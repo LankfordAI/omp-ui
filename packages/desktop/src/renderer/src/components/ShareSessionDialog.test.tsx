@@ -86,6 +86,7 @@ beforeEach(() => {
               proposedPlans: [],
               autoTitled: false,
               private: false,
+              chat: false,
               cachedTitle: null,
               cachedModified: null,
               title: "T",

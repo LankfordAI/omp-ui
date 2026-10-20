@@ -176,6 +176,8 @@ const NEW_KEYS = [
   "private",
 ] as const;
 
+const CHAT_KEYS = ["origin", "chat", "mode", "advisor", "advisorModel", "cols", "rows", "private"] as const;
+
 const RESUME_KEYS = [
   "origin",
   "resumeTabId",
@@ -231,6 +233,24 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
       ...common,
       ...(mode === undefined ? {} : { mode }),
       ...(planMode === undefined ? {} : { planMode }),
+    };
+  }
+
+  if (hasOwn(value, "chat")) {
+    if (value.chat !== true) throw new Error("spawn request.chat must be true when present");
+    rejectUnknownKeys(value, CHAT_KEYS, "spawn request");
+    if (value.mode !== "rpc-ui") throw new Error("spawn request.mode must be rpc-ui for a chat");
+    const advisorModel = optionalNullableString(value, "advisorModel");
+    const priv = optionalBoolean(value, "private");
+    return {
+      origin: "new",
+      chat: true,
+      mode: "rpc-ui",
+      advisor: requiredBoolean(value, "advisor"),
+      cols,
+      rows,
+      ...(advisorModel === undefined ? {} : { advisorModel }),
+      ...(priv === undefined ? {} : { private: priv }),
     };
   }
 

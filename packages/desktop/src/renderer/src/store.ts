@@ -87,6 +87,7 @@ export {
   findInstance,
   findOwner,
   findRecord,
+  isChatTab,
   runningSessionTitleOnCheckout,
   sessionCwd,
   viewedClientId,
@@ -257,6 +258,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     for (const group of next.projects) {
       for (const session of group.sessions) localTabIds.add(session.tabId);
     }
+    for (const chat of next.chats) localTabIds.add(chat.tabId);
     const rejoined = new Set<string>();
     for (const inst of next.remoteInstances) {
       if (inst.status !== "joined") continue;
@@ -305,6 +307,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const reconcileBridgeAvailability = (next: BackendState): void => {
     const summaries = [
       ...next.projects.flatMap((group) => group.sessions),
+      ...next.chats,
       ...next.remoteInstances
         .filter((instance) => instance.status === "joined")
         .flatMap((instance) => instance.projects.flatMap((group) => group.sessions)),

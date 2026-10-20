@@ -503,6 +503,7 @@ function sessionRecords(now: Date): OwnedSessionRecord[] {
     proposedPlans: [],
     autoTitled: false,
     private: false,
+    chat: false,
     cachedTitle: "Untitled",
     cachedModified: at(0),
     agentMode: "build",

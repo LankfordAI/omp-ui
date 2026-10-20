@@ -76,6 +76,7 @@ worktree: null,
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
           cachedTitle: "Inspect",
           cachedModified: "t",
           title: "Inspect",
@@ -274,6 +275,22 @@ describe("desktop InspectorRail", () => {
     expect(button("collapse inspector")).toBeNull();
     expect(document.body.textContent).not.toContain("worker");
     expect(button("agents")).not.toBeNull();
+  });
+
+  it("a chat tab hides Plans and Diffs and falls back from a remembered diffs pane", () => {
+    useStore.setState({ state });
+    renderRail();
+    act(() => railTab("diffs")!.click());
+    act(() => root!.unmount());
+    root = null;
+    const projectRecord = state.projects[0]!.sessions[0]!;
+    useStore.setState({ state: backendState({ chats: [{ ...projectRecord, chat: true }] }) });
+    renderRail();
+
+    expect(button("plans")).toBeNull();
+    expect(button("diffs")).toBeNull();
+    expect(button("todos")?.getAttribute("aria-pressed")).toBe("true");
+    expect(document.body.textContent).toContain("First task");
   });
 
   it("an interrupted plan offers re-present and dismiss and counts on the badge (ADR-0033)", async () => {

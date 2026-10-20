@@ -38,6 +38,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     proposedPlans: [],
     autoTitled: false,
     private: false,
+    chat: false,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",
@@ -107,6 +108,8 @@ describe("SETTINGS", () => {
       "vaultNoteVoice",
       "ompUpdateCheckOnLaunch",
       "ompAutoUpgrade",
+      "chatLastModel",
+      "chatLastThinkingLevel",
       "remoteEnabled",
       "remoteBind",
       "remotePort",
@@ -1888,6 +1891,55 @@ describe("private session flag (issue #852)", () => {
     const reg = Registry.load(file);
     reg.addSession(sessionRecord({ private: true }));
     expect(Registry.load(file).sessions[0]).toMatchObject({ tabId: "tab-1", private: true });
+  });
+});
+
+describe("chat records (issue #894)", () => {
+  const chatDir = "/home/u/.omp-ui/chats/chat-0b9f7c1e-3d4a-4e5f-8a6b-7c8d9e0f1a2b";
+
+  it("removeProject keeps a chat record even when its projectCwd matches", () => {
+    const reg = Registry.load(tmpFile());
+    reg.addProject(chatDir);
+    reg.addSession(sessionRecord({ tabId: "chat-1", projectCwd: chatDir, chat: true }));
+    reg.addSession(sessionRecord({ tabId: "proj-1", projectCwd: chatDir }));
+    reg.removeProject(chatDir);
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["chat-1"]);
+  });
+
+  it("inserts a new chat ahead of existing chats without reordering project sessions", () => {
+    const reg = Registry.load(tmpFile());
+    reg.addSession(sessionRecord({ tabId: "p-1" }));
+    reg.addSession(sessionRecord({ tabId: "c-1", projectCwd: `${chatDir}-1`, chat: true }));
+    reg.addSession(sessionRecord({ tabId: "p-2" }));
+    const before = reg.sessions.filter((s) => !s.chat).map((s) => s.tabId);
+    reg.addSession(sessionRecord({ tabId: "c-2", projectCwd: `${chatDir}-2`, chat: true }));
+    expect(reg.sessions.filter((s) => s.chat).map((s) => s.tabId)).toEqual(["c-2", "c-1"]);
+    expect(reg.sessions.filter((s) => !s.chat).map((s) => s.tabId)).toEqual(before);
+  });
+
+  it("setSessionModel on a chat writes chatLast* and never a project's lastModel", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addProject("/abs/proj");
+    reg.addProject(chatDir);
+    reg.addSession(sessionRecord({ tabId: "chat-1", projectCwd: chatDir, chat: true }));
+    reg.setSessionModel("chat-1", "provider/chat-model", "low");
+
+    const reloaded = Registry.load(file);
+    expect(reloaded.getSetting("chatLastModel")).toBe("provider/chat-model");
+    expect(reloaded.getSetting("chatLastThinkingLevel")).toBe("low");
+    for (const project of reloaded.projects) expect(project.lastModel ?? null).toBeNull();
+    expect(reloaded.sessions[0]).toMatchObject({ model: "provider/chat-model", thinkingLevel: "low" });
+  });
+
+  it("loads a legacy record without chat as false and drops only a non-boolean chat", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord({ tabId: "legacy" }) };
+    delete legacy.chat;
+    const bad = { ...sessionRecord({ tabId: "bad" }), chat: "yes" };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy, bad] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions.map((s) => [s.tabId, s.chat])).toEqual([["legacy", false]]);
   });
 });
 

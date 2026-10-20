@@ -40,6 +40,7 @@ import {
   writeSubagentModelOverlay,
   writePrivateGuardExtension,
   writePrivateOverlay,
+  writeChatOverlay,
   writeVaultOverlay,
   writeWorktreeOverlay,
 } from "@omp-ui/core";
@@ -161,6 +162,15 @@ export function writeSessionOverlays(
     if (overlay !== null) overlays.push(overlay);
   } catch (err) {
     console.warn("[private] could not write the overlay:", err);
+  }
+  // A Chat shares omp's global memory bank: a scratch cwd per chat would
+  // otherwise mint an empty project bank each time (ADR-0059). Derived from
+  // the record every launch.
+  try {
+    const overlay = writeChatOverlay(absLineageDir, record.chat);
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[chat] could not write the overlay:", err);
   }
   return overlays;
 }

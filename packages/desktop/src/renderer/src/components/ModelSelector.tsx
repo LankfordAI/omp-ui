@@ -55,12 +55,13 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
   // A remote session's pin lives in its instance's registry (issue #416).
   const projectPin = useStore((s) => {
     const owner = findOwner(s.state, tabId);
-    if (owner === undefined) return undefined;
+    if (owner === undefined || owner.record.chat) return undefined;
     const groups = owner.instanceId === null ? s.state?.projects : findInstance(s.state, owner.instanceId)?.projects;
     const group = groups?.find((g) => g.project.path === owner.record.projectCwd);
     return group === undefined ? null : (group.project.defaultModel ?? null);
   });
   const projectCwd = useStore((s) => findOwner(s.state, tabId)?.record.projectCwd ?? null);
+  const chat = useStore((s) => findOwner(s.state, tabId)?.record.chat === true);
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   // The owning instance's nickname (issue #440): remote no-catalog copy names
   // the host where credentials must be configured. Falls back to the id if
@@ -141,7 +142,7 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
           }}
           projectPin={projectPin}
           onPinChange={
-            projectCwd === null
+            projectCwd === null || chat
               ? undefined
               : (selector) => void setProjectDefaultModel(projectCwd, selector, instanceId)
           }

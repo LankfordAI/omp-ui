@@ -205,6 +205,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "session.error.navigateFailed": "세션을 해당 항목으로 이동하지 못했습니다.",
   "session.error.spawnTimedOut":
     "새 세션이 30초 안에 시작되지 않았습니다. 아직 시작 중일 수 있습니다 — 앱 logs 폴더의 breadcrumbs.log를 확인하세요.",
+  "session.error.chatMissing":
+    "새 채팅이 시작됐지만 기록이 도착하지 않았습니다. 채팅 목록에서 다시 여세요.",
+  "chat.planUnavailable": "채팅에서는 계획 모드를 사용할 수 없습니다.",
 
   // TranscriptView.tsx / SessionTreeViewer.tsx — 되돌리기 작업 (이슈 #680)
   "transcript.rewind.here": "여기로 되돌리기",
@@ -1254,6 +1257,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "palette.group.projects": "프로젝트",
   "palette.group.session": "세션",
   "palette.group.app": "앱",
+  "palette.group.chats": "채팅",
+  "palette.action.newChat": "새 채팅",
+  "palette.action.newPrivateChat": "새 비공개 채팅",
+  "palette.chat.desc": "채팅",
   "palette.action.newSession": "{name}에서 새 세션",
   "palette.action.addProject": "프로젝트 추가…",
   "palette.action.addProjectDesc": "추적할 디렉터리 선택",
@@ -1958,6 +1965,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "seance.dialog.launch": "문의",
   "seance.dialog.cancel": "취소",
   "seance.dialog.noTranscript": "이 세션에는 문의할 저장된 트랜스크립트가 아직 없습니다",
+  "seance.dialog.chatsGroup": "채팅",
   "seance.dialog.defaultQuestion":
     "이 세션이 무엇을 결정하고 왜 그랬는지, 남은 미해결 질문은 무엇인지, 잘못되었던 점은 무엇인지 트랜스크립트 근거와 함께 요약하세요.",
   "seance.dialog.neverStarted":
@@ -2267,6 +2275,16 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.filter.placeholder": "세션 필터링…",
   "sidebar.filter.label": "세션 필터링",
   "sidebar.filter.clear": "필터 지우기",
+
+  "sidebar.mode.label": "사이드바 목록",
+  "sidebar.mode.work": "작업",
+  "sidebar.mode.chat": "채팅",
+  "sidebar.chats.heading": "채팅",
+  "sidebar.chats.new": "새 채팅",
+  "sidebar.chats.newPrivate": "새 비공개 채팅",
+  "sidebar.chats.empty": "아직 채팅이 없습니다",
+  "sidebar.chats.emptyHint": "채팅은 프로젝트 없는 세션으로, 계획·브레인스토밍·글쓰기에 씁니다.",
+  "sidebar.chats.noMatches": "“{query}”와 일치하는 채팅이 없습니다",
 
   "sidebar.hosts.filter": "호스트 필터링",
   "sidebar.hosts.all": "모든 호스트",

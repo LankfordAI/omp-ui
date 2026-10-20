@@ -37,7 +37,7 @@ import { IS_ELECTRON, IS_MAC, IS_WINDOWS } from "./lib/platform";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
 import { useAppViewport, useCompactShell } from "./lib/responsive";
 import { tabTitle } from "./lib/tab-title";
-import { findInstance, findOwner, findRecord, useStore } from "./store";
+import { findInstance, findOwner, findRecord, isChatTab, useStore } from "./store";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers. */
 const HINTS: [combo: string, what: MessageKey][] = [
@@ -149,7 +149,9 @@ function TitleBar() {
   const toggleSidebarCollapsed = useStore((s) => s.toggleSidebarCollapsed);
   const openProjectPicker = useStore((s) => s.openProjectPicker);
   const newSession = useStore((s) => s.newSession);
+  const newChat = useStore((s) => s.newChat);
   const activeTab = tabs.find((t) => t.tabId === activeTabId);
+  const activeChat = useStore((s) => activeTab !== undefined && isChatTab(s.state, activeTab.tabId));
   // Same rule as the mod+shift+n hotkey below: the active tab's project only —
   // with nowhere to spawn, the button disables rather than choose implicitly.
   // A remote tab spawns on its own instance (issue #416).
@@ -171,7 +173,8 @@ function TitleBar() {
           label={t("app.titlebar.newSession")}
           disabled={newSessionProject === undefined}
           onClick={() => {
-            if (activeTab !== undefined) void newSession(activeTab.projectCwd, undefined, activeTab.instanceId);
+            if (activeChat) void newChat();
+            else if (activeTab !== undefined) void newSession(activeTab.projectCwd, undefined, activeTab.instanceId);
           }}
         >
           <IconPlus />
@@ -293,6 +296,7 @@ export default function App() {
   const worktreeDialogInstanceId = useStore((s) => s.worktreeDialogInstanceId);
   const migrateDialog = useStore((s) => s.migrateDialog);
   const newSession = useStore((s) => s.newSession);
+  const newChat = useStore((s) => s.newChat);
   const reportError = useStore((s) => s.reportError);
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
   const lab = useStore((s) => s.lab);
@@ -364,7 +368,8 @@ export default function App() {
     "mod+shift+n": (e) => {
       e.preventDefault();
       const tab = tabs.find((t) => t.tabId === activeTabId);
-      if (tab !== undefined) void newSession(tab.projectCwd, undefined, tab.instanceId);
+      if (tab !== undefined && isChatTab(useStore.getState().state, tab.tabId)) void newChat();
+      else if (tab !== undefined) void newSession(tab.projectCwd, undefined, tab.instanceId);
       else reportError(t("app.spawn.noCurrentSession"));
     },
     // The keyboard twin of the composer's Build / Plan selector: the same
@@ -376,6 +381,7 @@ export default function App() {
       e.preventDefault();
       const tab = tabs.find((t) => t.tabId === activeTabId);
       if (tab?.mode !== "rpc-ui") return;
+      if (isChatTab(useStore.getState().state, tab.tabId)) return;
       const plan = useStore.getState().rpc[tab.tabId]?.plan;
       if (plan?.unavailable !== undefined) return;
       void setPlanMode(tab.tabId, !(plan?.enabled ?? false));

@@ -93,6 +93,7 @@ export type LifecycleSlice = Pick<
   | "vaultNames"
   | "toggleFavorite"
   | "newSession"
+  | "newChat"
   | "newWorktreeSession"
   | "convertSessionToWorktree"
   | "openSession"
@@ -1066,6 +1067,50 @@ export function createLifecycleSlice(
     }
   };
 
+  const newChat = async (opts: { private?: boolean } = {}): Promise<string | null> => {
+    const request: SpawnRequest = {
+      origin: "new",
+      chat: true,
+      mode: "rpc-ui",
+      advisor: get().state?.defaultAdvisor ?? false,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+      ...(opts.private === true ? { private: true } : {}),
+    };
+    let landed: string | null = null;
+    // Main mints the scratch cwd (ADR-0059), so the tab takes it from a fresh
+    // getState — the branchSession pattern. No refreshBranches: not a repo.
+    const landing = backendFor(null).spawnSession(request).then(async ({ tabId }) => {
+      const state = await backendFor(null).getState();
+      const rec = findRecord(state, tabId);
+      if (rec === undefined) {
+        set({ state });
+        throw new Error(t("session.error.chatMissing"));
+      }
+      landed = tabId;
+      set((s) => ({
+        state,
+        tabs: [...s.tabs, { tabId, mode: "rpc-ui", projectCwd: rec.projectCwd, hidden: false, instanceId: null }],
+        ...focusOn(s, tabId, projectKey(null, rec.projectCwd)),
+        exited: dropExited(s.exited, tabId),
+      }));
+    });
+    // Late landing after the timeout still mounts once; its late failure is already reported.
+    landing.catch(() => {});
+    try {
+      await Promise.race([
+        landing,
+        new Promise<never>((_, reject) =>
+          window.setTimeout(() => reject(new Error(t("session.error.spawnTimedOut"))), SPAWN_SETTLE_MS),
+        ),
+      ]);
+    } catch (err) {
+      if (landed === null) get().reportError(err);
+    }
+    return landed;
+  };
+
   const newWorktreeSession = async (
     projectCwd: string,
     spec:
@@ -1698,6 +1743,7 @@ export function createLifecycleSlice(
     vaultNames,
     toggleFavorite,
     newSession,
+    newChat,
     newWorktreeSession,
     convertSessionToWorktree,
     openSession,

@@ -1222,6 +1222,7 @@ describe("rewind affordances (issue #680)", () => {
       proposedPlans: [],
       autoTitled: false,
       private: false,
+      chat: false,
       cachedTitle: null,
       cachedModified: null,
       title: "t",

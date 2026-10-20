@@ -40,6 +40,7 @@ function group(path: string, tabId: string, title: string): ProjectGroup {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
         cachedTitle: title,
         cachedModified: "2026-08-03T00:00:00.000Z",
         title,

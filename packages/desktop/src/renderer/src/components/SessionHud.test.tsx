@@ -78,6 +78,7 @@ const state = backendState({
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
           cachedTitle: "Mobile session",
           cachedModified: "t",
           title: "Mobile session",

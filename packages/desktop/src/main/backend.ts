@@ -49,6 +49,8 @@ import {
   detectPackageFormat,
   isWithin,
   sweepOrphanWorktrees,
+  sweepOrphanChatDirs,
+  isInChatsRoot,
   listProjectFiles,
   resolveFileMentions,
   resolveMcpServers,
@@ -200,6 +202,8 @@ export class MainBackend {
   private readonly providerOAuth: ProviderOAuth;
   /** Where worktree checkouts live; defaults beside the registry. */
   private readonly worktreesRoot: string;
+  /** Where chat scratch dirs live (ADR-0059); defaults beside the registry. */
+  private readonly chatsRoot: string;
   /** The parsed dev/test gate; one value feeds every spawn and the state projection. */
   private readonly spawnGate: SpawnGate;
   /** Precomputed wire projection of `spawnGate`; identical on every broadcast. */
@@ -241,6 +245,8 @@ export class MainBackend {
       remoteInstancesFile?: string;
       /** Where worktree checkouts live; defaults beside the registry. */
       worktreesRoot?: string;
+      /** Where chat scratch dirs live; defaults beside the registry. */
+      chatsRoot?: string;
       /** Dev/test model pins forced on every spawn this instance makes. */
       spawnGate?: SpawnGate;
       /** Process owner override for focused main-process tests. */
@@ -280,6 +286,7 @@ export class MainBackend {
     });
     this.worktreesRoot =
       opts.worktreesRoot ?? path.join(path.dirname(registryFile), "worktrees");
+    this.chatsRoot = opts.chatsRoot ?? path.join(path.dirname(registryFile), "chats");
     // OS notifications for background sessions (issue #271). The icon path
     // mirrors index.ts's BrowserWindow icon: one main bundle, so __dirname is
     // out/main in dev and packaged alike.
@@ -310,6 +317,7 @@ export class MainBackend {
         getSessionsRoot: () => this.sessionsRoot,
         getArchiveRoot: () => this.archiveRoot,
         getWorktreesRoot: () => this.worktreesRoot,
+        getChatsRoot: () => this.chatsRoot,
         send: (channel, ...args) => this.send(channel, ...args),
         broadcast: () => this.broadcast(),
         attention: this.notifier,
@@ -481,6 +489,13 @@ export class MainBackend {
         }
       })
       .catch((err) => console.warn("[backend] worktree sweep failed:", err));
+    void sweepOrphanChatDirs(this.chatsRoot, (abs) =>
+      this.registry.sessions.some((s) => s.chat && path.resolve(s.projectCwd) === abs),
+    )
+      .then((removed) => {
+        if (removed.length > 0) console.log(`[backend] swept ${removed.length} orphan chat dir(s)`);
+      })
+      .catch((err) => console.warn("[backend] chat sweep failed:", err));
   }
 
   /** Read the window's real page devicePixelRatio; screen.scaleFactor lies under Wayland fractional scaling (#557). */
@@ -659,6 +674,9 @@ export class MainBackend {
         [CH.getState]: () => this.buildState(),
         [CH.addProject]: async (raw: string) => {
           const resolved = await resolveProjectPath(raw);
+          if (isInChatsRoot(this.chatsRoot, resolved)) {
+            throw new Error("omp-ui's chats folder can't be registered as a project");
+          }
           const record = this.registry.addProject(resolved);
           void this.headWatchers.start(resolved);
           await this.broadcast();
@@ -1633,6 +1651,8 @@ export class MainBackend {
           cachedModified: now,
           autoTitled: false,
           private: false,
+          // A migrated session always lands in a project.
+          chat: false,
         });
         await this.broadcast();
         return { ok: true, tabId: added.tabId };
@@ -1852,7 +1872,12 @@ export class MainBackend {
     // Group records by project in one pass; the old per-project filter was
     // O(projects × sessions).
     const byProject = new Map<string, OwnedSessionRecord[]>();
+    const chatRecords: OwnedSessionRecord[] = [];
     for (const record of this.registry.sessions) {
+      if (record.chat) {
+        chatRecords.push(record);
+        continue;
+      }
       const group = byProject.get(record.projectCwd);
       if (group) group.push(record);
       else byProject.set(record.projectCwd, [record]);
@@ -1867,12 +1892,15 @@ export class MainBackend {
       );
       groups.push({ project, sessions });
     }
+    // Chats never join a project group (ADR-0059); registry order is newest first.
+    const chats = await Promise.all(chatRecords.map((record) => this.summarize(record)));
     // The registry arrays are the sidebar orders (issues #115, #274): projects
     // append via `addProject` and reorder via `moveProject`; sessions insert
     // at their project's top via `addSession` and reorder via `moveSession`.
     // Nothing re-sorts here — otherwise a drag would be silently undone.
     return {
       projects: groups,
+      chats,
       sidebarGroups: [...this.registry.sidebarGroups],
       defaultMode: this.registry.getSetting("defaultMode"),
       planFormat: this.registry.getSetting("planFormat"),

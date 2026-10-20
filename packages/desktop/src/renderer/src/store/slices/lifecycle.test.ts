@@ -1368,6 +1368,7 @@ describe("focusedTabByProject tracks every tab-activation path (issue #99)", () 
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
     cachedTitle: null,
     cachedModified: null,
     title: "New session",
@@ -1556,6 +1557,7 @@ describe("hiding or deleting a project's remembered focus moves or drops it (iss
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
     cachedTitle: null,
     cachedModified: null,
     title: "New session",
@@ -2338,6 +2340,7 @@ describe("carryover context seed (issue #824)", () => {
     proposedPlans: [],
     autoTitled: false,
     private: false,
+    chat: false,
     cachedTitle: null,
     cachedModified: null,
     title: "New session",
@@ -2457,5 +2460,46 @@ describe("carryover context seed (issue #824)", () => {
 
     const request = h.mockBackend.spawnSession.mock.calls[0]![0];
     expect(request).not.toHaveProperty("carryoverContext");
+  });
+});
+
+describe("newChat (issue #894)", () => {
+  const CHAT_DIR = "/data/chats/chat-1";
+  /** A chat record the post-spawn getState returns under `chats`. */
+  const seed = (): void => {
+    const base = h.stateWithRecord("sess-1");
+    const record = { ...base.projects[0]!.sessions[0]!, tabId: "fresh", projectCwd: CHAT_DIR, chat: true };
+    h.backendState = { ...base, projects: [], chats: [record], defaultAdvisor: true };
+    h.useStore.setState({ state: makeBackendState({ defaultAdvisor: true }), tabs: [], activeTabId: null });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: "fresh" });
+  };
+
+  it("spawns a project-free rpc-ui chat and lands its tab in the scratch dir", async () => {
+    seed();
+    const tabId = await h.useStore.getState().newChat();
+    await h.flushMicrotasks();
+
+    expect(tabId).toBe("fresh");
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
+      origin: "new",
+      chat: true,
+      mode: "rpc-ui",
+      advisor: true,
+      advisorModel: null,
+      cols: 80,
+      rows: 24,
+    });
+    const st = h.useStore.getState();
+    expect(st.tabs.find((t) => t.tabId === "fresh")?.projectCwd).toBe(CHAT_DIR);
+    expect(st.activeTabId).toBe("fresh");
+    expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
+  });
+
+  it("carries private when asked", async () => {
+    seed();
+    await h.useStore.getState().newChat({ private: true });
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: "new", chat: true, private: true }),
+    );
   });
 });

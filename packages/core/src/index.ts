@@ -92,6 +92,15 @@ export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
 export { gitGuardOverlayPath, writeGitGuardOverlay } from "./git-guard-overlay";
 export { privateOverlayPath, writePrivateOverlay } from "./private-overlay";
 export {
+  CHAT_DIR_RE,
+  chatDirPath,
+  createChatDir,
+  isInChatsRoot,
+  removeChatDir,
+  sweepOrphanChatDirs,
+} from "./chat";
+export { chatOverlayPath, writeChatOverlay } from "./chat-overlay";
+export {
   PRIVATE_DISABLED_TOOLS,
   privateGuardArmMessage,
   privateGuardExtensionPath,

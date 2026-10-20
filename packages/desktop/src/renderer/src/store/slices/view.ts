@@ -201,6 +201,11 @@ export function pruneFocus(
     }
   };
   collect(null, state.projects);
+  // Chats are local and ungrouped: each keys its own scratch-dir "project".
+  for (const chat of state.chats) {
+    projects.add(projectKey(null, chat.projectCwd));
+    tabIds.add(chat.tabId);
+  }
   for (const instance of state.remoteInstances) collect(instance.id, instance.projects);
   const next: Record<string, string> = {};
   let changed = false;
@@ -626,6 +631,9 @@ function ownerIndex(state: BackendState): ReadonlyMap<string, SessionOwner> {
       if (!index.has(record.tabId)) index.set(record.tabId, { instanceId: null, record });
     }
   }
+  for (const record of state.chats) {
+    if (!index.has(record.tabId)) index.set(record.tabId, { instanceId: null, record });
+  }
   for (const instance of state.remoteInstances) {
     for (const project of instance.projects) {
       for (const record of project.sessions) {
@@ -639,12 +647,17 @@ function ownerIndex(state: BackendState): ReadonlyMap<string, SessionOwner> {
   return index;
 }
 
-/** The session record for a tab: local projects first, then every joined instance's. */
+/** The session record for a tab: local projects and chats first, then every joined instance's. */
 export function findRecord(
   state: BackendState | null,
   tabId: string,
 ): SessionSummary | undefined {
   return state === null ? undefined : ownerIndex(state).get(tabId)?.record;
+}
+
+/** True when the tab's record is a Chat (CONTEXT.md). */
+export function isChatTab(state: BackendState | null, tabId: string): boolean {
+  return findRecord(state, tabId)?.chat === true;
 }
 
 /**

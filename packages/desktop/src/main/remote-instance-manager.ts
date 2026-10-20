@@ -268,6 +268,17 @@ export class RemoteInstanceManager {
     if (!REMOTE_PROXY_CHANNELS.has(channel)) {
       return Promise.reject(new Error(`channel ${channel} is not proxied`));
     }
+    // Chats are host-local (ADR-0059): a joining instance never creates one here.
+    const first = args[0];
+    if (
+      channel === "session:spawn" &&
+      typeof first === "object" &&
+      first !== null &&
+      "chat" in first &&
+      first.chat === true
+    ) {
+      return Promise.reject(new Error("chats are host-local; start one on that instance"));
+    }
     return entry.client.request(channel, args);
   }
 

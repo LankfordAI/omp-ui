@@ -194,6 +194,7 @@ const session = (
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
   cachedTitle: null,
   cachedModified: "2026-08-03T00:00:00.000Z",
   title: tabId,

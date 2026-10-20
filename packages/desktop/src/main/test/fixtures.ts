@@ -50,6 +50,8 @@ interface RegistrySettings {
   vaultNoteVoice: "user" | "assistant";
   ompUpdateCheckOnLaunch: boolean;
   ompAutoUpgrade: boolean;
+  chatLastModel: string | null;
+  chatLastThinkingLevel: string | null;
   remoteEnabled: boolean;
   remoteBind: RemoteBind;
   remotePort: number;
@@ -95,6 +97,7 @@ export function ownedSessionRecord(
     proposedPlans: [],
     autoTitled: false,
     private: false,
+    chat: false,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",
@@ -145,6 +148,8 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     vaultNoteVoice: "user",
     ompUpdateCheckOnLaunch: true,
     ompAutoUpgrade: true,
+    chatLastModel: null,
+    chatLastThinkingLevel: null,
     remoteEnabled: false,
     remoteBind: "localhost",
     remotePort: 4677,

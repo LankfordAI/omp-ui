@@ -6,7 +6,7 @@ import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey, useHotkeys } from "../lib/hotkeys";
 import { currentLocaleId, useT } from "../lib/i18n";
-import { findRecord, sessionCwd, useStore } from "../store";
+import { findRecord, isChatTab, sessionCwd, useStore } from "../store";
 import { Chip, Dot, IconSearch, Label, Modal, type Tone } from "./ui";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
 
@@ -88,6 +88,7 @@ export function CommandPalette() {
   const activeTabId = useStore((s) => s.activeTabId);
   const openSession = useStore((s) => s.openSession);
   const newSession = useStore((s) => s.newSession);
+  const newChat = useStore((s) => s.newChat);
   const openProjectPicker = useStore((s) => s.openProjectPicker);
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const openSessionTreeView = useStore((s) => s.openSessionTreeView);
@@ -130,6 +131,17 @@ export function CommandPalette() {
         });
       }
     }
+    for (const s of state?.chats ?? []) {
+      if (s.live === "missing") continue;
+      out.push({
+        id: `session:${s.tabId}`,
+        group: t("palette.group.sessions"),
+        name: s.title,
+        desc: t("palette.chat.desc"),
+        dot: LIVE_TONE[s.live],
+        run: () => void openSession(s.tabId),
+      });
+    }
 
     for (const group of state?.projects ?? []) {
       out.push({
@@ -160,6 +172,20 @@ export function CommandPalette() {
       desc: t("palette.action.addProjectDesc"),
       run: () => openProjectPicker(),
     });
+    out.push(
+      {
+        id: "chat:new",
+        group: t("palette.group.chats"),
+        name: t("palette.action.newChat"),
+        run: () => void newChat(),
+      },
+      {
+        id: "chat:new-private",
+        group: t("palette.group.chats"),
+        name: t("palette.action.newPrivateChat"),
+        run: () => void newChat({ private: true }),
+      },
+    );
     // The catalog viewer is scope-global: same content from any context, no
     // session required (issue #383) — the HUD button and this action always
     // open it unpinned.
@@ -191,22 +217,23 @@ export function CommandPalette() {
     if (tab) {
       const title = findRecord(state, tab.tabId)?.title ?? t("palette.action.sessionFallback");
       const other = tab.mode === "pty" ? "rpc-ui" : "pty";
-      out.push(
-        {
-          id: "session:terminate",
-          group: t("palette.group.session"),
-          name: t("palette.action.terminate"),
-          desc: t("palette.action.terminateDesc", { title }),
-          run: () => void terminate(tab.tabId),
-        },
-        {
+      out.push({
+        id: "session:terminate",
+        group: t("palette.group.session"),
+        name: t("palette.action.terminate"),
+        desc: t("palette.action.terminateDesc", { title }),
+        run: () => void terminate(tab.tabId),
+      });
+      // A chat runs in native mode only — no terminal twin to switch to.
+      if (!isChatTab(state, tab.tabId)) {
+        out.push({
           id: "session:mode",
           group: t("palette.group.session"),
           name: t("palette.action.switchMode", { mode: other === "pty" ? "terminal" : "native" }),
           desc: t("palette.action.switchModeDesc", { title }),
           run: () => void switchMode(tab.tabId, other),
-        },
-      );
+        });
+      }
       // Re-titling is native-only (issue #433): terminal tabs are titled by
       // omp's own TUI generator and have no prompt channel to write through.
       if (tab.mode === "rpc-ui") {
@@ -328,7 +355,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

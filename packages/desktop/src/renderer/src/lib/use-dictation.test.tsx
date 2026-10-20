@@ -130,6 +130,7 @@ function mount(voiceInputEnabled: boolean, ownerId: string | null = null): void 
         proposedPlans: [],
         autoTitled: false,
         private: false,
+        chat: false,
         cachedTitle: null,
         cachedModified: null,
         title: "Voice",

@@ -15,7 +15,7 @@ whole lineage dir from the active and archive roots. omp writes the file lazily,
 on the first turn: a session restarted before its transcript materialized has
 nothing to resume, so the restart seeds the successor with the renderer's
 retained messages instead (issue #824) — prose only, never tool output.
-_Avoid_: conversation, chat, thread
+_Avoid_: conversation, thread, chat (a **Chat** is the project-free subtype, never a synonym for session)
 
 **Live session**:
 An owned session with a running `omp` process owned by the omp-ui instance
@@ -62,7 +62,7 @@ _Avoid_: window, pane
 A working directory the user has explicitly registered in the sidebar, stored
 in omp-ui's own config. Owned sessions attach to the project they were
 launched in. A project with zero sessions is valid (fresh repo, nothing run
-yet).
+yet). A **Chat** is the one owned session with no project.
 _Avoid_: repo, folder, workspace
 
 **Sidebar group**:
@@ -80,7 +80,8 @@ sessions the sidebar tracks. Sessions from terminal `omp` use are invisible
 to omp-ui, even under registered projects. Its sidebar position is explicit:
 the registry's persisted session order (issue #274); activity refreshes
 titles and statuses in place, new owned sessions enter at their project's
-top, and reordering is a user action (drag or keyboard), never a side effect
+top (a chat enters at the top of the chat list), and reordering is a user
+action (drag or keyboard), never a side effect
 of running.
 _Avoid_: tracked session, managed session
 
@@ -96,6 +97,20 @@ of a project's last-used spawn state; a branch of a private session is
 private.
 _Avoid_: incognito, anonymous, ephemeral (the transcript persists normally),
 quiet session
+
+**Chat**:
+An owned session with no **Project**: a native session omp-ui launches in a
+fresh scratch directory under its app-data chats root, for conversation not tied
+to a repo. The record keeps that directory as its working directory plus an
+explicit chat marker; no project record exists and the chats root can never be
+registered. Chats list in the sidebar's Chat mode (the Work/Chat toggle filters
+the list only; chat tabs share the tab strip), run in Build mode only, share
+omp's global memory bank, seed from the last model a chat used, and hibernate
+as one group — at most the freshest chat stays warm. A branch of a chat is a
+chat sharing its directory; deleting the last record that uses a directory
+deletes the directory. Chats are host-local: joined remote instances never see
+them (ADR-0059).
+_Avoid_: thread, conversation, scratch session, desk
 
 **Lineage**:
 The sequence of sessions one spawned `omp` process produces: the initial

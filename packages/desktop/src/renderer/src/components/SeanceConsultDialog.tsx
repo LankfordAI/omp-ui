@@ -83,6 +83,7 @@ export function SeanceConsultDialog() {
         rows: group.sessions,
       });
     }
+    owners.push({ key: "chats", name: t("seance.dialog.chatsGroup"), path: "", rows: state.chats });
     for (const instance of state.remoteInstances) {
       if (instance.status !== "joined") continue;
       for (const group of instance.projects) {
@@ -110,7 +111,7 @@ export function SeanceConsultDialog() {
         };
       })
       .filter((group) => group.rows.length > 0);
-  }, [state, query]);
+  }, [state, query, t]);
 
   // The init's project group feeds the model catalog: a live session's
   // availableModels is all the model list that exists (the NewExperimentDialog

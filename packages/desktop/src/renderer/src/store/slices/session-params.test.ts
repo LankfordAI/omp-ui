@@ -8,7 +8,7 @@ import {
   type LiveSnapshot,
 } from "@omp-ui/core/live-voice";
 import { emptySessionRuntime } from "../../lib/rpc-types";
-import { remoteOwnedState, rpcTabState, tabInfo } from "../../test/fixtures";
+import { backendState, remoteOwnedState, rpcTabState, tabInfo } from "../../test/fixtures";
 import type { RenderItem } from "../../lib/transcript";
 import { h } from "../../test/store-harness";
 import { createMachinery, peekTabRuntime, resetTabRuntimesForTests } from "./shared";
@@ -269,6 +269,42 @@ describe("prompting, slash commands, and session ops", () => {
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
     await settleAll();
     await promise;
+  });
+
+  it("runSlashCommand /new in a chat tab starts another chat", async () => {
+    const record = h.stateWithRecord(null).projects[0]!.sessions[0]!;
+    const newChat = vi.fn(async () => "fresh-chat");
+    h.useStore.setState({
+      state: backendState({ chats: [{ ...record, chat: true }] }),
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: record.projectCwd, hidden: false })],
+      newChat,
+    });
+
+    await h.useStore.getState().runSlashCommand(h.TAB, "/new");
+
+    expect(newChat).toHaveBeenCalledOnce();
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.sent).toEqual([]);
+  });
+
+  it("runSlashCommand /plan in a chat tab warns and never reaches omp", async () => {
+    const record = h.stateWithRecord(null).projects[0]!.sessions[0]!;
+    const appendNotice = vi.fn();
+    h.useStore.setState({
+      state: backendState({ chats: [{ ...record, chat: true }] }),
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: record.projectCwd, hidden: false })],
+      rpc: { [h.TAB]: rpcTabState() },
+      appendNotice,
+    });
+
+    for (const line of ["/plan", "/plan off"]) {
+      await h.useStore.getState().runSlashCommand(h.TAB, line);
+    }
+
+    expect(appendNotice).toHaveBeenCalledTimes(2);
+    expect(appendNotice).toHaveBeenCalledWith(h.TAB, expect.any(String), "warn");
+    expect(h.sent).toEqual([]);
+    expect(h.useStore.getState().rpc[h.TAB]!.plan).toEqual(rpcTabState().plan);
   });
 
   it("runSlashCommand /plan toggles plan mode on instead of prompting omp", async () => {

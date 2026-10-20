@@ -246,6 +246,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
   const surface = useStore((s) => s.compactSurface);
   const closeBrowserPane = useStore((s) => s.closeBrowserPane);
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
+  const chat = useStore((s) => findRecord(s.state, tabId)?.chat === true);
   /** Latched on the first local prompt: the hero docks now, not a round-trip later. */
   const [prompted, setPrompted] = useState(false);
   // A reboot (resume, advisor relaunch, lineage switch) passes through
@@ -511,7 +512,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                     </div>
                   ) : centered ? (
                     hero ? (
-                      <HeroGreeting projectCwd={projectCwd} />
+                      <HeroGreeting projectCwd={chat ? undefined : projectCwd} />
                     ) : (
                       <TranscriptSkeleton centered />
                     )

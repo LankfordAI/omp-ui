@@ -243,6 +243,33 @@ describe("launchSeanceConsult (issue #885)", () => {
     );
   });
 
+  it("a chat source spawns a chat consult, prompted once ready", async () => {
+    setup("rpc-ui");
+    const base = h.backendState;
+    const record = { ...base.projects[0]!.sessions[0]!, projectCwd: "/data/chats/chat-1", chat: true };
+    h.backendState = { ...base, projects: [], chats: [record] };
+    h.useStore.setState({ state: h.backendState });
+    // Main mints the consult chat; the post-spawn getState lists it too.
+    h.backendState = { ...h.backendState, chats: [record, { ...record, tabId: FRESH, sessionId: null }] };
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: FRESH });
+    const launch = h.useStore.getState().consultFromRow(h.TAB);
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledTimes(1);
+    const req = h.mockBackend.spawnSession.mock.calls[0]![0] as Record<string, unknown>;
+    expect(req).toMatchObject({ origin: "new", chat: true, mode: "rpc-ui" });
+    expect("projectCwd" in req).toBe(false);
+    expect(h.sent.filter(({ tabId }) => tabId === FRESH)).toEqual([]);
+
+    h.useStore.setState({ rpc: { ...h.useStore.getState().rpc, [FRESH]: rpcTabState() } });
+    await h.flushMicrotasks();
+    const consult = h.sent.filter(({ tabId }) => tabId === FRESH);
+    expect(consult).toHaveLength(1);
+    expect(String(consult[0]!.cmd.message)).toContain('agent: "seance"');
+    answerSent();
+    await launch;
+  });
+
   it("no saved transcript: an error notice, no spawn", async () => {
     setup("rpc-ui");
     h.mockBackend.sessionTranscriptPath.mockResolvedValueOnce(null);

@@ -299,6 +299,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     getSessionsRoot: () => sessionsRoot,
     getArchiveRoot: () => archiveRoot,
     getWorktreesRoot: () => path.join(base, "worktrees"),
+    getChatsRoot: () => path.join(base, "chats"),
     send: (channel, ...args) => sent.push({ channel, args }),
     broadcast,
     attention: opts.attention,
@@ -6497,6 +6498,88 @@ describe("hibernation (issue #246)", () => {
     }
   });
 
+  describe("chats as one recency group (issue #894)", () => {
+    const chatsRoot = (): string => path.join(base, "chats");
+    const addChat = (registry: Core.Registry, tabId: string, cachedModified: string): void => {
+      registry.addSession(
+        ownedSessionRecord({
+          tabId,
+          lineageDir: `omp-ui--chat--${tabId}`,
+          projectCwd: Core.chatDirPath(chatsRoot()),
+          chat: true,
+          cachedModified,
+        }),
+      );
+    };
+    const resumeTab = (manager: SessionManager, tabId: string): Promise<{ tabId: string }> =>
+      manager.spawn({ origin: "resume", resumeTabId: tabId, cols: 80, rows: 24 });
+
+    it("hibernates the older of two idle chats and keeps the newest warm", async () => {
+      vi.useFakeTimers();
+      try {
+        const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+        addChat(registry, "chat-old", "2026-07-29T11:00:00.000Z");
+        addChat(registry, "chat-new", "2026-07-29T12:00:00.000Z");
+        await resumeTab(manager, "chat-old");
+        await resumeTab(manager, "chat-new");
+        const [oldRpc, newRpc] = [rpcInstances[0]!, rpcInstances[1]!];
+        oldRpc.kill.mockImplementation(() => oldRpc.exit(0));
+        newRpc.kill.mockImplementation(() => newRpc.exit(0));
+
+        oldRpc.frame({ type: "agent_end" });
+        newRpc.frame({ type: "agent_end" });
+        await vi.advanceTimersByTimeAsync(WINDOW);
+        cleanProbe(oldRpc);
+        await flush();
+
+        expect(oldRpc.kill).toHaveBeenCalledTimes(1);
+        expect(sent.some((s) => s.channel === CH.onSessionHibernated && s.args[0] === "chat-old")).toBe(true);
+        expect(newRpc.send).not.toHaveBeenCalled();
+        expect(manager.isLive("chat-new")).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("a more recently active chat does not shield the project's last session", async () => {
+      vi.useFakeTimers();
+      try {
+        const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+        // TAB (launchedAt 10:00) is /proj's only session; the newer chat is
+        // in the chats group, so TAB stays the project's last active session.
+        addChat(registry, "chat-newest", "2026-07-29T13:00:00.000Z");
+        await resume(manager);
+        const projectRpc = rpcInstances[0]!;
+        projectRpc.frame({ type: "agent_end" });
+        await vi.advanceTimersByTimeAsync(WINDOW * 2);
+        // A newer chat is not a sibling of TAB: TAB stays warm.
+        expect(projectRpc.send).not.toHaveBeenCalled();
+        expect(manager.isLive(TAB)).toBe(true);
+        expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("a lone chat stays warm beside more recently active project sessions", async () => {
+      vi.useFakeTimers();
+      try {
+        const { manager, sent, registry } = setup({ mode: "rpc-ui" });
+        addChat(registry, "chat-lone", "2026-07-29T09:00:00.000Z");
+        addNewerSibling(registry);
+        await resumeTab(manager, "chat-lone");
+        const chatRpc = rpcInstances[0]!;
+        chatRpc.frame({ type: "agent_end" });
+        await vi.advanceTimersByTimeAsync(WINDOW * 2);
+        expect(chatRpc.send).not.toHaveBeenCalled();
+        expect(manager.isLive("chat-lone")).toBe(true);
+        expect(sent.some((s) => s.channel === CH.onSessionHibernated)).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it("hibernates on the next window after a newer session appears (issue #304)", async () => {
     vi.useFakeTimers();
     try {
@@ -7751,5 +7834,124 @@ describe("warm-pool adoption hardening (issue #892)", () => {
     } finally {
       fs.rmSync(projectCwd, { recursive: true, force: true });
     }
+  });
+});
+
+describe("chat sessions (issue #894)", () => {
+  const settle = (): Promise<void> => new Promise<void>((resolve) => setImmediate(resolve));
+  const chatsRoot = (): string => path.join(base, "chats");
+  const spawnChat = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({ origin: "new", chat: true, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+  const recordOf = (registry: Core.Registry, tabId: string): Core.OwnedSessionRecord =>
+    registry.sessions.find((s) => s.tabId === tabId)!;
+  const seedTranscript = (sessionsRoot: string, record: Core.OwnedSessionRecord): void => {
+    const dir = path.join(sessionsRoot, record.lineageDir);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "2026-08-13T00-00-00-000Z_chat-src.jsonl"),
+      `${JSON.stringify({ type: "session", id: "chat-src", cwd: record.projectCwd })}\n`,
+    );
+  };
+
+  it("mints a canonical scratch dir, records chat:true there, and launches in Build", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const { tabId } = await spawnChat(manager);
+
+    const record = recordOf(registry, tabId);
+    expect(record.chat).toBe(true);
+    expect(path.dirname(record.projectCwd)).toBe(chatsRoot());
+    expect(path.basename(record.projectCwd)).toMatch(Core.CHAT_DIR_RE);
+    expect(fs.statSync(record.projectCwd).isDirectory()).toBe(true);
+    // The harness defaults to defaultAgentMode "plan"; a chat ignores it.
+    const messages = armMessages(RpcClientMock.mock.calls.at(-1)?.[0].initialCommands);
+    expect(messages).toContainEqual(Core.planMessage(false, "html"));
+    expect(messages).not.toContainEqual(Core.planMessage(true, "html"));
+  });
+
+  it("makes no warm reservation and schedules no refill", async () => {
+    const { manager, crumbs } = setup({ mode: "rpc-ui", warm: true });
+    await spawnChat(manager);
+    await settle();
+    await spawnChat(manager);
+    await settle();
+    // Two chat children and nothing else: no parked pool slot was built.
+    expect(rpcInstances).toHaveLength(2);
+    expect(crumbs.filter((crumb) => crumb.kind.startsWith("warm"))).toEqual([]);
+  });
+
+  it("seeds the model from chatLastModel, not any project", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("chatLastModel", "p/chat-model");
+    registry.setSetting("chatLastThinkingLevel", "low");
+    const { tabId } = await spawnChat(manager);
+    expect(recordOf(registry, tabId)).toMatchObject({ model: "p/chat-model", thinkingLevel: "low" });
+  });
+
+  it("deleting a chat removes its scratch dir", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const { tabId } = await spawnChat(manager);
+    const dir = recordOf(registry, tabId).projectCwd;
+    const rpc = rpcInstances.at(-1)!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+
+    await manager.deleteSession(tabId, false);
+
+    expect(registry.sessions.some((s) => s.tabId === tabId)).toBe(false);
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  it("a branch shares the dir: deleting the source keeps it, deleting the branch removes it", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    const { tabId } = await spawnChat(manager);
+    const source = recordOf(registry, tabId);
+    const rpc = rpcInstances.at(-1)!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    seedTranscript(sessionsRoot, source);
+
+    const { tabId: branchTabId } = await manager.forkSession(tabId);
+    expect(recordOf(registry, branchTabId)).toMatchObject({ chat: true, projectCwd: source.projectCwd });
+
+    await manager.deleteSession(tabId, false);
+    expect(fs.existsSync(source.projectCwd)).toBe(true);
+
+    await manager.deleteSession(branchTabId, false);
+    expect(fs.existsSync(source.projectCwd)).toBe(false);
+  });
+
+  it("resuming a chat whose dir was removed recreates it", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const dir = Core.chatDirPath(chatsRoot());
+    registry.addSession(
+      ownedSessionRecord({ tabId: "chat-gone", lineageDir: "omp-ui--chat--gone", projectCwd: dir, chat: true }),
+    );
+    expect(fs.existsSync(dir)).toBe(false);
+
+    await manager.spawn({ origin: "resume", resumeTabId: "chat-gone", cols: 80, rows: 24 });
+
+    expect(fs.statSync(dir).isDirectory()).toBe(true);
+    expect(manager.isLive("chat-gone")).toBe(true);
+  });
+
+  it("refuses to switch a chat to the terminal", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    const { tabId } = await spawnChat(manager);
+    await expect(manager.switchMode(tabId, "pty")).rejects.toThrow(/native mode only/);
+    expect(spawnShellMock).not.toHaveBeenCalled();
+  });
+
+  it("a failing chat spawn removes both the record and the dir", async () => {
+    const { manager, registry, broadcast } = setup({ mode: "rpc-ui" });
+    const failure = new Error("state publication failed");
+    broadcast.mockImplementationOnce(async () => {
+      // The rollback reaps the child: answer its SIGTERM with the exit edge.
+      const rpc = rpcInstances.at(-1)!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+      throw failure;
+    });
+
+    await expect(spawnChat(manager)).rejects.toBe(failure);
+
+    expect(registry.sessions.some((s) => s.chat)).toBe(false);
+    expect(fs.readdirSync(chatsRoot())).toEqual([]);
   });
 });

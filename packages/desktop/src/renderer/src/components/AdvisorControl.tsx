@@ -54,7 +54,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
   // The project's advisor pin (issue #257): undefined when the tab has no
   // registered project, null when the project simply has no pin yet.
   const projectAdvisorPin = useStore((s) => {
-    if (projectCwd === undefined) return undefined;
+    if (projectCwd === undefined || record?.chat === true) return undefined;
     const groups = instanceId === null ? s.state?.projects : findInstance(s.state, instanceId)?.projects;
     const group = groups?.find((g) => g.project.path === projectCwd);
     return group === undefined ? null : (group.project.defaultAdvisorModel ?? null);
@@ -322,7 +322,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
           }}
           projectPin={projectAdvisorPin}
           onPinChange={
-            projectCwd === undefined
+            projectCwd === undefined || record?.chat === true
               ? undefined
               : (selector) => void setProjectDefaultAdvisorModel(projectCwd, selector, instanceId)
           }
