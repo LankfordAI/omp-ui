@@ -34,28 +34,9 @@ import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
 import { ChatList, SkeletonRows, filterChats, type OpenSessionMenu } from "./ChatList";
 import { setSidebarMode, useSidebarMode } from "../lib/sidebar-mode";
-import { Button, Chevron, ChoiceCapsule, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconGrip, IconGroup, IconPencil, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
+import { Button, Chevron, ChoiceCapsule, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconGrip, IconGroup, IconPencil, IconPlus, IconRefresh, IconSearch, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
-
-function IconSearch() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="7" cy="7" r="4" />
-      <path d="M10.2 10.2 13 13" />
-    </svg>
-  );
-}
-
 
 function IconGear() {
   return (
@@ -1025,6 +1006,12 @@ function CollapsedRail({
 const HOST_MENU_ROW =
   "block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none";
 
+/** Sidebar Work/Chat pill on the recessed track (SessionHud's Segmented idiom). */
+const MODE_PILL = {
+  selectedClassName: "bg-raised text-ink edge-lit hover:bg-raised",
+  unselectedClassName: "text-ink-dim hover:text-ink-mid",
+} as const;
+
 /**
  * The sidebar host filter (issue #507): with instances joined, scope the
  * list to one host — or to this computer — as a display choice only. Hidden
@@ -1121,7 +1108,12 @@ function HostScopePicker({
         aria-label={t("sidebar.hosts.filter")}
         title={scopeLabel}
         onClick={toggle}
-        className="flex w-full items-center gap-1.5 rounded-md border border-line bg-raised px-2 py-1 text-left"
+        className={cn(
+          "flex h-6 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs text-ink-mid",
+          "transition-colors duration-150 hover:bg-hover hover:text-ink",
+          "focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none",
+          open && "bg-hover text-ink",
+        )}
       >
         {chosen !== undefined && (
           <Dot
@@ -1130,9 +1122,9 @@ function HostScopePicker({
             title={t(remoteInstanceStatusKey(chosen.status))}
           />
         )}
-        <span className="min-w-0 flex-1 truncate text-xs text-ink">{scopeLabel}</span>
+        <span className="min-w-0 flex-1 truncate">{scopeLabel}</span>
         {hiddenProblem && <Dot tone="rose" />}
-        <Chevron open={open} className="size-2.5 shrink-0 text-ink-dim" />
+        <Chevron open={false} className={cn("size-2.5 text-ink-dim", open ? "-rotate-90" : "rotate-90")} />
       </button>
       {open &&
         createPortal(
@@ -1525,16 +1517,22 @@ export function Sidebar() {
               label={t("sidebar.mode.label")}
               value={mode}
               options={[
-                { value: "work", label: t("sidebar.mode.work") },
-                { value: "chat", label: t("sidebar.mode.chat") },
+                { value: "work", label: t("sidebar.mode.work"), ...MODE_PILL },
+                { value: "chat", label: t("sidebar.mode.chat"), ...MODE_PILL },
               ]}
               onChange={setSidebarMode}
-              className="mb-1.5 flex w-full"
-              optionClassName="flex-1 justify-center"
+              className={cn("mb-2 flex w-full gap-0.5 divide-x-0 bg-void p-0.5", compact ? "h-9" : "h-7")}
+              optionClassName="flex-1 justify-center rounded-[4px] text-xs font-medium first:rounded-[4px] last:rounded-[4px]"
             />
             <div className="flex items-center gap-1.5">
-              <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-line bg-raised px-2 focus-within:border-line-strong">
-                <span className="shrink-0 text-ink-faint">
+              <div
+                className={cn(
+                  "flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-transparent bg-raised px-2",
+                  "transition-colors duration-150 focus-within:border-line-strong",
+                  compact ? "h-9" : "h-7",
+                )}
+              >
+                <span className="shrink-0 text-ink-dim">
                   <IconSearch />
                 </span>
                 <input
@@ -1544,10 +1542,7 @@ export function Sidebar() {
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder={t("sidebar.filter.placeholder")}
                   aria-label={t("sidebar.filter.label")}
-                  className={cn(
-                    "min-w-0 flex-1 bg-transparent py-1.5 text-xs text-ink",
-                    "placeholder:font-mono placeholder:text-ink-faint focus:outline-none",
-                  )}
+                  className="min-w-0 flex-1 bg-transparent text-xs text-ink placeholder:text-ink-dim focus:outline-none"
                 />
                 {filtering && (
                   <>
@@ -1561,13 +1556,13 @@ export function Sidebar() {
                 )}
               </div>
               {mode === "work" && (
-              <IconButton
-                label={t("sidebar.group.create")}
-                onClick={() => openSidebarGroupDialog({ kind: "create" })}
-                className={compact ? "size-9 rounded-md border border-line" : undefined}
-              >
-                <IconGroup />
-              </IconButton>
+                <IconButton
+                  label={t("sidebar.group.create")}
+                  onClick={() => openSidebarGroupDialog({ kind: "create" })}
+                  className={compact ? "size-9 rounded-md border border-line" : "size-7"}
+                >
+                  <IconGroup />
+                </IconButton>
               )}
               {mode === "work" && compact && (
                 <IconButton label={t("sidebar.project.add")} onClick={() => { openProjectPicker(); closeCompactSurface(); }} className="size-9 rounded-md border border-line">
@@ -1576,7 +1571,7 @@ export function Sidebar() {
               )}
             </div>
             {mode === "work" && hostChoices.length > 0 && (
-              <div className="mt-1.5">
+              <div className="mt-1">
                 <HostScopePicker
                   instances={hostChoices}
                   scope={effectiveScope}
