@@ -14,6 +14,9 @@ import type { OmpConfigRunner } from "./omp-settings";
  * fake `config list` runner and a temp filesystem: no omp process, no network,
  * no HOME of the developer — the `mcp-config.ts` testing discipline, applied
  * to the skills/tools half of the viewer.
+ *
+ * Project cwds carry a sentinel `.git` so omp's walk-up stops at the fixture
+ * even when `os.tmpdir()` lives under the real home (issue #891).
  */
 
 const dirs: string[] = [];
@@ -22,6 +25,15 @@ function tmp(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   dirs.push(dir);
   return dir;
+}
+
+/**
+ * Fence a fixture project cwd: `walkUpToRoot` stops at the nearest `.git`
+ * directory, so with TMPDIR under the developer's real HOME the sentinel keeps
+ * the climb from scanning the developer's real skill roots (issue #891).
+ */
+function gitFence(cwdDir: string): void {
+  fs.mkdirSync(path.join(cwdDir, ".git"), { recursive: true });
 }
 
 interface Maps {
@@ -119,6 +131,7 @@ function fixture(): { home: string; agent: string; cwd: string; env: NodeJS.Proc
   const home = tmp("omp-ui-cat-home-");
   const agent = tmp("omp-ui-cat-agent-");
   const cwd = tmp("omp-ui-cat-cwd-");
+  gitFence(cwd);
   fs.mkdirSync(path.join(home, ".claude", "skills"), { recursive: true });
   return { home, agent, cwd, env: { PI_CODING_AGENT_DIR: agent } };
 }
@@ -456,6 +469,7 @@ describe("setScopedCapability", () => {
 
   it("writes project scopes into .omp/config.yml, never through omp", async () => {
     const cwd = tmp("omp-ui-cat-proj-");
+    gitFence(cwd);
     fs.mkdirSync(path.join(cwd, ".omp"));
     const file = path.join(cwd, ".omp", "config.yml");
     fs.writeFileSync(file, "# mine\nbash:\n  enabled: true\n");
@@ -472,6 +486,7 @@ describe("setScopedCapability", () => {
 
   it("read-modify-writes the project ignore list from the project file", async () => {
     const cwd = tmp("omp-ui-cat-proj-");
+    gitFence(cwd);
     fs.mkdirSync(path.join(cwd, ".omp"));
     const file = path.join(cwd, ".omp", "config.yml");
     fs.writeFileSync(file, "skills:\n  ignoredSkills:\n    - one\n");
@@ -488,6 +503,7 @@ describe("setScopedCapability", () => {
 
   it("refuses a project file whose grammar it cannot see, file untouched", async () => {
     const cwd = tmp("omp-ui-cat-proj-");
+    gitFence(cwd);
     fs.mkdirSync(path.join(cwd, ".omp"));
     const file = path.join(cwd, ".omp", "config.yml");
     fs.writeFileSync(file, "skills: {ignoredSkills: []}\n");
