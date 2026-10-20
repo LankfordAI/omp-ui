@@ -4,8 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Chats: project-free native sessions in a fresh scratch folder, listed under a new Work/Chat sidebar toggle (#894).
-- Ask about this session: start a chat seeded with another session's summary from its sidebar row or the command palette (#895).
+Nothing since [v0.25.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.25.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
