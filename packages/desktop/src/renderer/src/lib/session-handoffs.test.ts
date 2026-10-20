@@ -45,6 +45,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
     cachedTitle: null,
     cachedModified: null,
     title: `Session ${tabId}`,

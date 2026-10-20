@@ -7954,4 +7954,162 @@ describe("chat sessions (issue #894)", () => {
     expect(registry.sessions.some((s) => s.chat)).toBe(false);
     expect(fs.readdirSync(chatsRoot())).toEqual([]);
   });
+
+  describe("ask chats (issue #895)", () => {
+    const SOURCE_SID = "01990000-aaaa-7bbb-8ccc-dddddddddddd";
+    const askChat = (
+      manager: SessionManager,
+      askSource: { tabId: string; title: string },
+    ): Promise<{ tabId: string }> =>
+      manager.spawn({ origin: "new", chat: true, mode: "rpc-ui", advisor: false, cols: 80, rows: 24, askSource });
+    /** A dormant project session with one landed assistant reply on disk. */
+    const seedSource = (
+      registry: Core.Registry,
+      sessionsRoot: string,
+      patch: Partial<Core.OwnedSessionRecord> = {},
+    ): Core.OwnedSessionRecord => {
+      const record = registry.addSession(
+        ownedSessionRecord({
+          tabId: "ask-src",
+          sessionId: SOURCE_SID,
+          lineageDir: "omp-ui--proj--ask-src",
+          projectCwd: "/proj",
+          mode: "rpc-ui",
+          cachedTitle: "Source work",
+          ...patch,
+        }),
+      );
+      const dir = path.join(sessionsRoot, record.lineageDir);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, `2026-10-20T00-00-00-000Z_${SOURCE_SID}.jsonl`),
+        [
+          JSON.stringify({ type: "session", id: SOURCE_SID, cwd: "/proj" }),
+          JSON.stringify({
+            type: "message",
+            message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Landed: MARKER-PELICAN" }] },
+          }),
+        ].join("\n") + "\n",
+      );
+      return record;
+    };
+    type Cmd = { type: string; name?: string; message?: string };
+    const commandsOf = (): Cmd[] => (RpcClientMock.mock.calls.at(-1)?.[0].initialCommands ?? []) as Cmd[];
+    const askArm = (commands: Cmd[]): Cmd[] =>
+      commands.filter((c) => c.type === "prompt" && c.message?.startsWith(`/${Core.ASK_CONTEXT_COMMAND} set `));
+
+    it("records the source and title, stages the pinned summary, and arms title plus context", async () => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      seedSource(registry, sessionsRoot);
+      const { tabId } = await askChat(manager, { tabId: "ask-src", title: "  Ask: Source work  " });
+
+      const record = recordOf(registry, tabId);
+      expect(record).toMatchObject({
+        chat: true,
+        private: false,
+        askSource: { tabId: "ask-src", sessionId: SOURCE_SID },
+        cachedTitle: "Ask: Source work",
+      });
+      const staged = Core.readAskContext(path.join(sessionsRoot, record.lineageDir));
+      expect(staged).toContain("MARKER-PELICAN");
+      expect(staged).toContain(`session id ${SOURCE_SID}`);
+      expect(staged).toContain(`sourceSession "${path.join(sessionsRoot, "omp-ui--proj--ask-src")}`);
+
+      const commands = commandsOf();
+      expect(commands).toContainEqual(expect.objectContaining({ type: "set_session_name", name: "Ask: Source work" }));
+      expect(askArm(commands).map((c) => c.message)).toEqual([Core.askContextArmMessage(staged!)]);
+    });
+
+    it("is private when the source is private", async () => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      seedSource(registry, sessionsRoot, { private: true });
+      const { tabId } = await askChat(manager, { tabId: "ask-src", title: "Ask: Source work" });
+      expect(recordOf(registry, tabId).private).toBe(true);
+    });
+
+    it("a materialized Ask chat re-arms the context on resume but never re-sends the title", async () => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      seedSource(registry, sessionsRoot);
+      const { tabId } = await askChat(manager, { tabId: "ask-src", title: "Ask: Source work" });
+      // The child exits on its own; the chat goes dormant.
+      rpcInstances.at(-1)!.exit(0);
+      await settle();
+      expect(manager.isLive(tabId)).toBe(false);
+      // omp materialized the chat: its transcript now holds the pinned message.
+      seedTranscript(sessionsRoot, recordOf(registry, tabId));
+      registry.updateSession(tabId, { sessionId: "chat-src" });
+
+      await manager.spawn({ origin: "resume", resumeTabId: tabId, cols: 80, rows: 24 });
+
+      const commands = commandsOf();
+      expect(commands.some((c) => c.type === "set_session_name")).toBe(false);
+      expect(askArm(commands)).toHaveLength(1);
+      expect(askArm(commands)[0]!.message).toContain("MARKER-PELICAN");
+    });
+
+    it.each([
+      ["an unknown source", (): void => {}, "nope"],
+      [
+        "a never-materialized source",
+        (registry: Core.Registry): void => {
+          registry.addSession(ownedSessionRecord({ tabId: "fresh-src", sessionId: null, lineageDir: "omp-ui--proj--fresh" }));
+        },
+        "fresh-src",
+      ],
+    ])("refuses %s and writes no record and no chat dir", async (_label, seed, sourceTabId) => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      seed(registry);
+      const before = registry.sessions.length;
+
+      await expect(askChat(manager, { tabId: sourceTabId, title: "Ask: X" })).rejects.toThrow(
+        "this session has no saved transcript to ask about yet",
+      );
+
+      expect(registry.sessions).toHaveLength(before);
+      expect(fs.existsSync(chatsRoot()) ? fs.readdirSync(chatsRoot()) : []).toEqual([]);
+      expect(rpcInstances).toHaveLength(0);
+    });
+
+    it("a branch keeps the pin and its spawn re-renders the artifact into the new lineage dir", async () => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      seedSource(registry, sessionsRoot);
+      const { tabId } = await askChat(manager, { tabId: "ask-src", title: "Ask: Source work" });
+      const chat = recordOf(registry, tabId);
+      const rpc = rpcInstances.at(-1)!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+      seedTranscript(sessionsRoot, chat);
+
+      const { tabId: branchTabId } = await manager.forkSession(tabId);
+      const branch = recordOf(registry, branchTabId);
+      expect(branch.askSource).toEqual({ tabId: "ask-src", sessionId: SOURCE_SID });
+      const branchDir = path.join(sessionsRoot, branch.lineageDir);
+      expect(Core.readAskContext(branchDir)).toBeNull();
+
+      await manager.spawn({ origin: "resume", resumeTabId: branchTabId, cols: 80, rows: 24 });
+
+      expect(Core.readAskContext(branchDir)).toContain("MARKER-PELICAN");
+      expect(askArm(commandsOf())).toHaveLength(1);
+    });
+
+    it("a resume whose source was deleted and whose artifact is gone still launches, unarmed", async () => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      registry.addSession(
+        ownedSessionRecord({
+          tabId: "orphan-ask",
+          sessionId: "chat-src",
+          lineageDir: "omp-ui--chat--orphan",
+          projectCwd: Core.chatDirPath(chatsRoot()),
+          mode: "rpc-ui",
+          chat: true,
+          askSource: { tabId: "deleted-src", sessionId: SOURCE_SID },
+        }),
+      );
+      seedTranscript(sessionsRoot, recordOf(registry, "orphan-ask"));
+
+      await manager.spawn({ origin: "resume", resumeTabId: "orphan-ask", cols: 80, rows: 24 });
+
+      expect(manager.isLive("orphan-ask")).toBe(true);
+      expect(askArm(commandsOf())).toEqual([]);
+    });
+  });
 });

@@ -139,6 +139,7 @@ const summary: SessionSummary = {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
   cachedTitle: null,
   cachedModified: null,
   title: "Finish me",

@@ -195,6 +195,7 @@ const session = (
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
   cachedTitle: null,
   cachedModified: "2026-08-03T00:00:00.000Z",
   title: tabId,

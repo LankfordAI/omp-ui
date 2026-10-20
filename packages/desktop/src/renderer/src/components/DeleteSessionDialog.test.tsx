@@ -165,6 +165,7 @@ const summary = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
   cachedTitle: null,
   cachedModified: null,
   title: "Production repair",

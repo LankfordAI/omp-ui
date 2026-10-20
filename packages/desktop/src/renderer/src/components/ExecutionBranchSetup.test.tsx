@@ -162,6 +162,7 @@ function sessionRecord(tabId: string, title: string) {
  autoTitled: false,
  private: false,
     chat: false,
+    askSource: null,
     cachedTitle: title,
     cachedModified: "t",
     title,

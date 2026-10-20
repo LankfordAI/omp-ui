@@ -1653,6 +1653,7 @@ export class MainBackend {
           private: false,
           // A migrated session always lands in a project.
           chat: false,
+          askSource: null,
         });
         await this.broadcast();
         return { ok: true, tabId: added.tabId };

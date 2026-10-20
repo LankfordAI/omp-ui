@@ -248,6 +248,7 @@ const liveState = backendState({
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
           cachedTitle: "T",
           cachedModified: "t",
           title: "T",

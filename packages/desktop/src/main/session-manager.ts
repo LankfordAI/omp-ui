@@ -9,6 +9,11 @@ import {
   browserPaneSetMessage,
   browserClockText,
   capabilityToolMutationMessage,
+  askContextArmMessage,
+  askContextText,
+  readAskContext,
+  renderSessionSummary,
+  stageAskContext,
   stageCarryoverContext,
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
@@ -74,6 +79,7 @@ import {
   type ImageAttachment,
   type DocumentAttachment,
   type OwnedSessionRecord,
+  type AskSource,
   type ObsidianListEntry,
   type RpcFrame,
   type ResumeSpawnRequest,
@@ -655,6 +661,10 @@ export class SessionManager {
     // req.worktree: main mints its scratch cwd here (ADR-0059), and the dir
     // itself is created only after the record exists.
     if (req.origin === "new" && req.chat === true) {
+      // An Ask chat (#895, ADR-0060): resolve the source and compose its
+      // pinned text before any record exists, so a refusal writes nothing.
+      // The summary is a read-only disk read; the source is never woken.
+      const ask = req.askSource === undefined ? null : await this.resolveAsk(req.askSource);
       return this.spawnInner(
         {
           origin: "new",
@@ -666,9 +676,10 @@ export class SessionManager {
           rows: req.rows,
           worktree: null,
           planMode: false,
-          ...(req.private === true ? { private: true } : {}),
+          ...(req.private === true || ask?.sourcePrivate === true ? { private: true } : {}),
         },
         true,
+        ask,
       );
     }
     this.validateSpawnSemantics(req);
@@ -680,7 +691,62 @@ export class SessionManager {
     return this.enqueueOp(tabId, "spawn", () => this.spawnInner(req));
   }
 
-  private async spawnInner(req: ProjectSpawnRequest, chat = false): Promise<{ tabId: string }> {
+  /**
+   * The Ask chat's source and pinned text (#895). Throws when the source has
+   * no saved transcript; an archived source is read in memory, never unarchived.
+   */
+  private async resolveAsk(
+    askSource: { tabId: string; title: string },
+  ): Promise<{ source: AskSource; title: string; text: string; sourcePrivate: boolean }> {
+    const source = this.deps.registry.sessions.find((s) => s.tabId === askSource.tabId);
+    const text = source === undefined ? null : await this.renderAskContext(source);
+    if (source === undefined || source.sessionId === null || text === null) {
+      throw new Error("this session has no saved transcript to ask about yet");
+    }
+    return {
+      source: { tabId: source.tabId, sessionId: source.sessionId },
+      title: askSource.title.trim().slice(0, 200),
+      text,
+      sourcePrivate: source.private,
+    };
+  }
+
+  /** The pinned text for an Ask chat about `source`; null when it has no transcript on disk. */
+  private async renderAskContext(source: OwnedSessionRecord): Promise<string | null> {
+    if (source.sessionId === null) return null;
+    const locate = (dir: string, sid: string | null) =>
+      resolveSessionLocation(this.deps.getSessionsRoot(), this.deps.getArchiveRoot(), dir, sid);
+    const loc = await locate(source.lineageDir, source.sessionId);
+    if (loc.where === "missing") return null;
+    const summary = await renderSessionSummary(source, this.deps.registry.projects, locate);
+    return askContextText({ sessionId: source.sessionId, summary, transcriptPath: loc.filePath });
+  }
+
+  /**
+   * The text a launching Ask chat arms: the staged artifact, else a fresh
+   * render from a still-present source (a branch's new lineage dir has no
+   * artifact), else null — the transcript already carries the message.
+   * Never throws: a deleted source must never block a resume.
+   */
+  private async askContextFor(record: OwnedSessionRecord, absLineageDir: string): Promise<string | null> {
+    try {
+      const staged = readAskContext(absLineageDir);
+      if (staged !== null) return staged;
+      const source = this.deps.registry.sessions.find((s) => s.tabId === record.askSource?.tabId);
+      const text = source === undefined ? null : await this.renderAskContext(source);
+      if (text !== null) stageAskContext(absLineageDir, text);
+      return text;
+    } catch (err) {
+      console.warn("[ask] could not resolve the pinned ask context:", err);
+      return null;
+    }
+  }
+
+  private async spawnInner(
+    req: ProjectSpawnRequest,
+    chat = false,
+    ask: { source: AskSource; title: string; text: string } | null = null,
+  ): Promise<{ tabId: string }> {
     const ompPath = this.requireOmpPath();
     if (
       req.origin === "new" &&
@@ -802,11 +868,14 @@ export class SessionManager {
           autoTitled: false,
           private: req.private === true,
           chat,
-          cachedTitle: null,
+          askSource: ask?.source ?? null,
+          cachedTitle: ask?.title ?? null,
           cachedModified: null,
         });
         this.deps.registry.setSessionAdvisor(record.tabId, record.advisor, record.advisorModel);
         if (chat) createChatDir(this.deps.getChatsRoot(), record.projectCwd);
+        // Dies with the lineage dir on a rollback (deleteSessionFiles).
+        if (ask) stageAskContext(path.join(this.deps.getSessionsRoot(), record.lineageDir), ask.text);
       }
 
       const mode = req.origin === "resume" ? (req.mode ?? record.mode) : req.mode;
@@ -1211,6 +1280,27 @@ export class SessionManager {
           type: "prompt",
           id: `omp-ui-initial-knowledge-vault-${randomUUID()}`,
           message: knowledgeVaultArmMessage(guidance),
+        });
+      }
+    }
+    // The Ask chat's pinned context (#895, ADR-0060). The title goes to omp's
+    // header only while unmaterialized: after that the header owns it and a
+    // user rename wins. The bridge dedupes the arm against the transcript.
+    if (record.askSource !== null) {
+      const askTitle = record.cachedTitle?.trim();
+      if (record.sessionId === null && askTitle) {
+        initialCommands.push({
+          type: "set_session_name",
+          id: `omp-ui-initial-ask-title-${randomUUID()}`,
+          name: askTitle,
+        });
+      }
+      const text = bridgeLoaded.askContext ? await this.askContextFor(record, absLineageDir) : null;
+      if (text !== null) {
+        initialCommands.push({
+          type: "prompt",
+          id: `omp-ui-initial-ask-context-${randomUUID()}`,
+          message: askContextArmMessage(text),
         });
       }
     }
@@ -2395,6 +2485,9 @@ export class SessionManager {
       private: source.private,
       // A branch of a chat is a chat sharing its scratch dir.
       chat: source.chat,
+      // A branch of an Ask chat keeps its pin; the spawn re-renders the
+      // artifact into the fork's fresh lineage dir.
+      askSource: source.askSource,
     });
     await this.deps.broadcast();
       return { tabId: fork.tabId };

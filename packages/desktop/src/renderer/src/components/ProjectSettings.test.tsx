@@ -81,6 +81,7 @@ function liveSession(tabId: string): SessionSummary {
  autoTitled: false,
  private: false,
  chat: false,
+ askSource: null,
     cachedTitle: "T",
     cachedModified: "t",
     title: "T",

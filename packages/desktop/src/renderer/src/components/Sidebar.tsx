@@ -32,7 +32,7 @@ import { SessionRow } from "./SessionRow";
 import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
-import { ChatList, SkeletonRows, filterChats } from "./ChatList";
+import { ChatList, SkeletonRows, filterChats, type OpenSessionMenu } from "./ChatList";
 import { setSidebarMode, useSidebarMode } from "../lib/sidebar-mode";
 import { Button, Chevron, ChoiceCapsule, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconGrip, IconGroup, IconPencil, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
@@ -122,10 +122,10 @@ interface TerminalMenuRequest {
   y: number;
   trigger: HTMLElement;
 }
-type OpenSessionMenu = (tabId: string, event: ReactMouseEvent<HTMLElement>) => void;
-
 interface SessionMenuRequest {
   tabId: string;
+  migrate: boolean;
+  ask: boolean;
   x: number;
   y: number;
   trigger: HTMLElement;
@@ -546,17 +546,23 @@ function ProjectSection({
                 }}
                 onDragEnd={row.onDragEnd}
                 onContextMenu={(event) => {
-                  // Migrate is the only item; a row that could never accept
-                  // it never opens an empty menu (issue #888). omp refuses to
-                  // pack a transcript another process writes, and a row with
-                  // no transcript yet has nothing to carry. The version floor
-                  // is knowable only for this host's binary; a remote source
-                  // answers version skew verbatim at pack time (ADR-0028).
+                  // A row opens the menu only with an item it can accept; it
+                  // never opens an empty one (issue #888). Migrate: omp
+                  // refuses to pack a transcript another process writes, and
+                  // a row with no transcript yet has nothing to carry. The
+                  // version floor is knowable only for this host's binary; a
+                  // remote source answers version skew verbatim at pack time
+                  // (ADR-0028). Ask (#895): chats are host-local, so only
+                  // local rows with a saved transcript.
                   if (disabled) return;
                   const s = entry.session;
-                  if (s.sessionId === null || s.live === "live") return;
-                  if (instanceId === null && !supportsSessionMigrate(ompInstalledVersion)) return;
-                  openSessionMenu(s.tabId, event);
+                  const migrate =
+                    s.sessionId !== null &&
+                    s.live !== "live" &&
+                    (instanceId !== null || supportsSessionMigrate(ompInstalledVersion));
+                  const ask = instanceId === null && s.sessionId !== null && s.live !== "missing";
+                  if (!migrate && !ask) return;
+                  openSessionMenu(s.tabId, event, { migrate, ask });
                 }}
               />
             </div>
@@ -1220,6 +1226,7 @@ export function Sidebar() {
   const newSession = useStore((st) => st.newSession);
   const openWorktreeDialog = useStore((st) => st.openWorktreeDialog);
   const openMigrateDialog = useStore((st) => st.openMigrateDialog);
+  const askAboutSession = useStore((st) => st.askAboutSession);
   const moveProject = useStore((st) => st.moveProject);
   const moveSidebarGroup = useStore((st) => st.moveSidebarGroup);
   const openSidebarGroupDialog = useStore((st) => st.openSidebarGroupDialog);
@@ -1317,9 +1324,9 @@ export function Sidebar() {
   const sessionMenuRef = useRef<HTMLDivElement>(null);
   const sessionMenuItemRef = useRef<HTMLButtonElement>(null);
 
-  // Issue #888: the per-row Migrate menu, same portal/dismissal shape as the
-  // project's new-session options menu.
-  const openSessionMenu: OpenSessionMenu = (tabId, event) => {
+  // Issue #888/#895: the per-row Migrate/Ask menu, same portal/dismissal
+  // shape as the project's new-session options menu.
+  const openSessionMenu: OpenSessionMenu = (tabId, event, { migrate, ask }) => {
     event.preventDefault();
     const currentTarget = event.currentTarget;
     if (!(currentTarget instanceof HTMLElement)) return;
@@ -1327,6 +1334,8 @@ export function Sidebar() {
     const rect = currentTarget.getBoundingClientRect();
     setSessionMenu({
       tabId,
+      migrate,
+      ask,
       x: keyboardPosition ? rect.left : event.clientX,
       y: keyboardPosition ? rect.bottom : event.clientY,
       trigger: currentTarget,
@@ -1580,7 +1589,7 @@ export function Sidebar() {
           {/* -------- project list -------- */}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {mode === "chat" ? (
-              <ChatList query={query} onActivate={closeCompactSurface} />
+              <ChatList query={query} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} />
             ) : (
             <>
             {groups === null && <SkeletonRows />}
@@ -1765,19 +1774,37 @@ export function Sidebar() {
                 sessionMenu.y > window.innerHeight / 2 && "-translate-y-full",
               )}
             >
-              <button
-                ref={sessionMenuItemRef}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  const { tabId } = sessionMenu;
-                  setSessionMenu(null);
-                  openMigrateDialog(tabId);
-                }}
-                className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
-              >
-                {t("sidebar.session.migrate")}
-              </button>
+              {sessionMenu.ask && (
+                <button
+                  ref={sessionMenuItemRef}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const { tabId } = sessionMenu;
+                    setSessionMenu(null);
+                    void askAboutSession(tabId);
+                    closeCompactSurface();
+                  }}
+                  className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
+                >
+                  {t("sidebar.session.ask")}
+                </button>
+              )}
+              {sessionMenu.migrate && (
+                <button
+                  ref={sessionMenu.ask ? undefined : sessionMenuItemRef}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const { tabId } = sessionMenu;
+                    setSessionMenu(null);
+                    openMigrateDialog(tabId);
+                  }}
+                  className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
+                >
+                  {t("sidebar.session.migrate")}
+                </button>
+              )}
             </Panel>
           </div>,
           document.body,

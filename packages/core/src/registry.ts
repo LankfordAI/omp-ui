@@ -11,6 +11,7 @@ import { isKnowledgeHome } from "./vault-shared";
 import type {
   AgentMode,
   ApprovalMode,
+  AskSource,
   GlassChrome,
   KnowledgeHome,
   OwnedSessionRecord,
@@ -512,6 +513,20 @@ function isPlanImplementationSource(value: unknown): value is PlanImplementation
   );
 }
 
+/** Ask-chat provenance (#895): both ids present and non-empty, or the record drops. */
+function isAskSource(value: unknown): value is AskSource {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "tabId" in value &&
+    typeof value.tabId === "string" &&
+    value.tabId !== "" &&
+    "sessionId" in value &&
+    typeof value.sessionId === "string" &&
+    value.sessionId !== ""
+  );
+}
+
 /**
  * Experiment provenance (issue #559). Complete or dropped: `launchedBranch`
  * must be PRESENT (null = detached / not a repo), since a missing key would
@@ -603,6 +618,9 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // chat (issue #894) post-dates the first schema-1 records like private;
     // absent loads as false, a present non-boolean drops the record.
     optional(value, "chat", (v) => typeof v === "boolean") &&
+    // askSource (issue #895) post-dates schema-1; absent loads as null, a
+    // present value must name both the source tab and its session id.
+    optNullable(value, "askSource", isAskSource) &&
     // subagentModels post-dates the advisor picker records too; absent loads
     // as null, which is also the umbrella-applies state (ADR-0031).
     optNullable(value, "subagentModels", isSubagentModelMap) &&
@@ -657,6 +675,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       autoTitled: s.autoTitled === true,
       private: s.private === true,
       chat: s.chat === true,
+      askSource: s.askSource ?? null,
       model: s.model ?? null,
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,

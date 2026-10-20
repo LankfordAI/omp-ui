@@ -94,6 +94,7 @@ export type LifecycleSlice = Pick<
   | "toggleFavorite"
   | "newSession"
   | "newChat"
+  | "askAboutSession"
   | "newWorktreeSession"
   | "convertSessionToWorktree"
   | "openSession"
@@ -1067,7 +1068,9 @@ export function createLifecycleSlice(
     }
   };
 
-  const newChat = async (opts: { private?: boolean } = {}): Promise<string | null> => {
+  const newChat = async (
+    opts: { private?: boolean; askSource?: { tabId: string; title: string } } = {},
+  ): Promise<string | null> => {
     const request: SpawnRequest = {
       origin: "new",
       chat: true,
@@ -1077,6 +1080,7 @@ export function createLifecycleSlice(
       cols: 80,
       rows: 24,
       ...(opts.private === true ? { private: true } : {}),
+      ...(opts.askSource === undefined ? {} : { askSource: opts.askSource }),
     };
     let landed: string | null = null;
     // Main mints the scratch cwd (ADR-0059), so the tab takes it from a fresh
@@ -1109,6 +1113,22 @@ export function createLifecycleSlice(
       if (landed === null) get().reportError(err);
     }
     return landed;
+  };
+
+  // Privacy and the pinned summary are decided in main from the source record.
+  const askAboutSession = async (sourceTabId: string): Promise<void> => {
+    const owner = findOwner(get().state, sourceTabId);
+    if (owner === undefined || owner.instanceId !== null) {
+      get().reportError(new Error(t("ask.error.remote")));
+      return;
+    }
+    if (owner.record.sessionId === null || owner.record.live === "missing") {
+      get().reportError(new Error(t("ask.error.noTranscript")));
+      return;
+    }
+    await get().newChat({
+      askSource: { tabId: sourceTabId, title: t("ask.chatTitle", { title: owner.record.title }) },
+    });
   };
 
   const newWorktreeSession = async (
@@ -1744,6 +1764,7 @@ export function createLifecycleSlice(
     toggleFavorite,
     newSession,
     newChat,
+    askAboutSession,
     newWorktreeSession,
     convertSessionToWorktree,
     openSession,
