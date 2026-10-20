@@ -36,6 +36,12 @@ On a desktop-sized window, a project header exposes open, project-settings, new-
 
 You must terminate a project's live sessions before removing the project. Removal deletes the project registration and all of its session records, then attempts to force-remove the recorded omp-ui worktree checkouts. Uncommitted changes in a removed checkout are lost, but its branch and commits survive. Removal does not delete transcripts, artifacts, or files in the registered project. A failed worktree cleanup does not stop record removal.
 
+### Chats
+
+A **chat** is a native session with no project, for conversation not tied to a repo. omp-ui runs each chat in a fresh scratch folder under its app-data directory. The sidebar's **Work**/**Chat** toggle switches the list between your projects and your chats; it filters the list only, and chat tabs share the tab strip with every other tab. In Chat mode, the `+` button starts a chat and the lock `+` starts a private chat; the command palette offers **New chat** and **New private chat** from anywhere.
+
+A chat tab hides what only makes sense in a repository: the branch and worktree chips, the **Diffs** and **Plans** panes, and the Build/Plan control. A chat always runs in Build mode; `/plan` shows a notice instead of switching. Memory a chat writes goes to omp's global memory bank rather than a project's. Branching and deleting work like any session; deleting the last chat that uses a scratch folder deletes the folder. Chats are local to this computer: joined remote instances do not see them.
+
 ### Start, resume, and stop sessions
 
 Use a project's plus button, the title-bar plus button, the command palette, `/new` in the native composer, or `Mod+Shift+N` to start a session in the app's Default session mode. The title-bar button and shortcut require a focused tab because they use that tab's project. `/new` opens a new live session in a new tab; it does not reset the current tab in place.

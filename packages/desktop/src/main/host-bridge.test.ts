@@ -247,6 +247,8 @@ describe("HostBridge omp-ui://sessions", () => {
       proposedPlans: [],
       autoTitled: false,
       private: false,
+      chat: false,
+      askSource: null,
       cachedTitle: "Ship the day index",
       cachedModified: new Date(2026, 9, 6, 10, 30).toISOString(),
       agentMode: "build",

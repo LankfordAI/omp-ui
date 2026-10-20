@@ -1156,12 +1156,15 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   const displayedInspectorWidth = previewWidth ?? resolvedWidths.inspectorWidth;
   const record = useStore((s) => findRecord(s.state, tabId));
   const badges = inspectorBadges(runtime, record);
+  const chat = record?.chat === true;
+  const visibleTabs = chat ? TABS.filter(({ id }) => id !== "plans" && id !== "diffs") : TABS;
+  const shownTab = visibleTabs.some(({ id }) => id === tab) ? tab : "todos";
   const close = (): void => {
     setOpen(false);
   };
   const select = (next: RailTab): void => {
     // Re-pressing the active icon dismisses the pane back to the strip.
-    if (!compact && next === tab && open) {
+    if (!compact && next === shownTab && open) {
       close();
       return;
     }
@@ -1173,44 +1176,44 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   };
   const pane = (
     <>
-      {tab === "todos" && <TodoPanel tabId={tabId} />}
-      {tab === "agents" && (
+      {shownTab === "todos" && <TodoPanel tabId={tabId} />}
+      {shownTab === "agents" && (
         <>
           <AgentsPane tabId={tabId} />
           <VibeRoster tabId={tabId} />
         </>
       )}
-      {tab === "session" && <SessionPane tabId={tabId} onJump={compact ? closeCompactSurface : undefined} />}
-      {tab === "jobs" && <JobsPane tabId={tabId} />}
-      {tab === "plans" && <PlansPane tabId={tabId} />}
-      {tab === "diffs" && <DiffsPane tabId={tabId} />}
-      {tab === "btw" && <SideQuestionsPane tabId={tabId} />}
-      {tab === "seance" && <SeancePane tabId={tabId} />}
+      {shownTab === "session" && <SessionPane tabId={tabId} onJump={compact ? closeCompactSurface : undefined} />}
+      {shownTab === "jobs" && <JobsPane tabId={tabId} />}
+      {shownTab === "plans" && <PlansPane tabId={tabId} />}
+      {shownTab === "diffs" && <DiffsPane tabId={tabId} />}
+      {shownTab === "btw" && <SideQuestionsPane tabId={tabId} />}
+      {shownTab === "seance" && <SeancePane tabId={tabId} />}
     </>
   );
 
   if (compact) {
     return (
       <Sheet open={surface === "inspector"} placement="right" label={t("rail.chrome.inspector")} onClose={closeCompactSurface}>
-        <div className="sticky top-0 z-10 grid grid-cols-8 border-b border-line bg-sunken">
-          {TABS.map(({ id, labelKey }) => {
+        <div className={cn("sticky top-0 z-10 grid border-b border-line bg-sunken", chat ? "grid-cols-6" : "grid-cols-8")}>
+          {visibleTabs.map(({ id, labelKey }) => {
             const label = t(labelKey);
             return (
             <button
               key={id}
               type="button"
               title={label}
-              aria-pressed={id === tab}
+              aria-pressed={id === shownTab}
               onClick={() => select(id)}
               className={cn(
                 "relative flex min-h-12 flex-col items-center justify-center gap-0.5 text-[10px] transition-colors",
-                id === tab ? "bg-raised text-ink" : "text-ink-dim",
+                id === shownTab ? "bg-raised text-ink" : "text-ink-dim",
               )}
             >
               <TabIcon tab={id} />
               <span>{label}</span>
               {badges[id] > 0 && <span className="absolute right-1.5 top-1 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-[9px] leading-3.5 text-copper">{badges[id] > 99 ? "99+" : badges[id]}</span>}
-              {id === tab && <span aria-hidden className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ink" />}
+              {id === shownTab && <span aria-hidden className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ink" />}
             </button>
             );
           })}
@@ -1246,7 +1249,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
             onDraggingChange={setResizing}
           />
           <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2.5">
-            <Label className="min-w-0 flex-1 truncate">{t(TABS.find(({ id }) => id === tab)!.labelKey)}</Label>
+            <Label className="min-w-0 flex-1 truncate">{t(TABS.find(({ id }) => id === shownTab)!.labelKey)}</Label>
             <IconButton label={t("rail.chrome.collapse")} onClick={close}>
               <IconCollapse />
             </IconButton>
@@ -1255,10 +1258,10 @@ export function InspectorRail({ tabId }: { tabId: string }) {
         </div>
       )}
       <div className="flex w-10 shrink-0 flex-col items-center gap-1 border-l border-line py-2">
-        {TABS.map(({ id, labelKey }) => {
+        {visibleTabs.map(({ id, labelKey }) => {
           const label = t(labelKey);
           return (
-          <button key={id} type="button" title={badges[id] > 0 ? t("rail.chrome.badgedTitle", { label, count: badges[id] }) : label} aria-label={label} aria-pressed={open && id === tab} onClick={() => select(id)} className={cn("relative grid size-7 place-items-center rounded-md transition-colors", open && id === tab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid")}>
+          <button key={id} type="button" title={badges[id] > 0 ? t("rail.chrome.badgedTitle", { label, count: badges[id] }) : label} aria-label={label} aria-pressed={open && id === shownTab} onClick={() => select(id)} className={cn("relative grid size-7 place-items-center rounded-md transition-colors", open && id === shownTab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid")}>
             <TabIcon tab={id} />
             {badges[id] > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-copper-wash px-0.5 text-center font-mono text-[9px] leading-3 text-copper">{badges[id] > 99 ? "99" : badges[id]}</span>}
           </button>

@@ -27,6 +27,7 @@ import {
   writeGoalContinuationOverlay,
   writeDefaultModelOverlay,
   writeKnowledgeVaultExtension,
+  writeAskContextExtension,
   writeMcpStatusExtension,
   writeGitGuardOverlay,
   writeVibeExtension,
@@ -40,6 +41,7 @@ import {
   writeSubagentModelOverlay,
   writePrivateGuardExtension,
   writePrivateOverlay,
+  writeChatOverlay,
   writeVaultOverlay,
   writeWorktreeOverlay,
 } from "@omp-ui/core";
@@ -161,6 +163,15 @@ export function writeSessionOverlays(
     if (overlay !== null) overlays.push(overlay);
   } catch (err) {
     console.warn("[private] could not write the overlay:", err);
+  }
+  // A Chat shares omp's global memory bank: a scratch cwd per chat would
+  // otherwise mint an empty project bank each time (ADR-0059). Derived from
+  // the record every launch.
+  try {
+    const overlay = writeChatOverlay(absLineageDir, record.chat);
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[chat] could not write the overlay:", err);
   }
   return overlays;
 }
@@ -334,6 +345,7 @@ export const RPC_BRIDGE_IDS = [
   "tree",
   "review",
   "knowledgeVault",
+  "askContext",
   "privateGuard",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
@@ -353,6 +365,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   tree: writeTreeExtension,
   review: writeReviewExtension,
   knowledgeVault: writeKnowledgeVaultExtension,
+  askContext: writeAskContextExtension,
   privateGuard: writePrivateGuardExtension,
 };
 
@@ -375,6 +388,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "tree", logId: "tree", warning: "tree", enabled: () => true },
   { id: "review", logId: "review", warning: "code-review", enabled: (enabled) => enabled },
   { id: "knowledgeVault", logId: "vault", warning: "knowledge-vault", enabled: () => true },
+  { id: "askContext", logId: "ask", warning: "ask-context", enabled: () => true },
   { id: "privateGuard", logId: "private", warning: "private-guard", enabled: () => true },
 ];
 export interface RpcExtensionWriteResult {

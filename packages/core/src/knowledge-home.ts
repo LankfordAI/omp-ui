@@ -237,3 +237,16 @@ export async function resolveKnowledgeHome(
   if (reg.vaults.length === 0 || reg.defaultWriteVault === null) return { kind: "none" };
   return { kind: "vault", vault: reg.defaultWriteVault, source: "default" };
 }
+
+/** Every chat files its vault notes under one folder (issue #894). */
+export const CHAT_VAULT_PROJECT_NAME = "Chats";
+
+/**
+ * A chat has no repo to route to docs: the default write vault, or none.
+ * resolveKnowledgeHome would see a remote-less scratch dir and route to docs,
+ * silently dropping vault write guidance.
+ */
+export function chatKnowledgeHome(reg: VaultRegistry): ResolvedKnowledgeHome {
+  if (reg.vaults.length === 0 || reg.defaultWriteVault === null) return { kind: "none" };
+  return { kind: "vault", vault: reg.defaultWriteVault, source: "default" };
+}

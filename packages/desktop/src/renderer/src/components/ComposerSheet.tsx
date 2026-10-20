@@ -1,7 +1,7 @@
 import { modelFastTier, type PromptRoute } from "../lib/rpc-types";
 import { useT } from "../lib/i18n";
 import { queueChipCount, queueChipView } from "../lib/queue-chip";
-import { findOwner, useStore } from "../store";
+import { findOwner, isChatTab, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip } from "./BranchChip";
 import { ComposerActions } from "./ComposerActions";
@@ -79,6 +79,8 @@ export function ComposerSheet({
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const abortAgent = useStore((s) => s.abortAgent);
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
+  // A chat is Build-only and has no repo (#894): no mode control, no branch row.
+  const chat = useStore((s) => isChatTab(s.state, tabId));
   const running = status === "running";
   const queueChip = queueChipView(running, queued);
 
@@ -125,16 +127,24 @@ export function ComposerSheet({
           <Label>{t("composer.sheet.session")}</Label>
           <div className="mt-2 space-y-2">
             <AdvisorControl tabId={tabId} disabled={unavailable} layout="sheet" />
-            <BuildPlanControl tabId={tabId} layout="sheet" disabled={unavailable} className="min-h-11" />
+            {!chat && <BuildPlanControl tabId={tabId} layout="sheet" disabled={unavailable} className="min-h-11" />}
             {!fastVisible && (
               <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
                 <FastModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
               </div>
             )}
-            <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
-              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t("composer.sheet.branch")}</span>
-              <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} instanceId={instanceId} />{queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>}</span>
-            </div>
+            {chat ? (
+              queueChip && (
+                <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
+                  <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>
+                </div>
+              )
+            ) : (
+              <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t("composer.sheet.branch")}</span>
+                <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} instanceId={instanceId} />{queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>}</span>
+              </div>
+            )}
             {queueChip && queueListed && (
               <div className="rounded-lg border border-line bg-void/35 p-3">
                 <QueuedMessageList tabId={tabId} disabled={unavailable} />

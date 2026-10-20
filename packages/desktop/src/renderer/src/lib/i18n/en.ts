@@ -224,6 +224,13 @@ export const en = {
   "session.error.navigateFailed": "The session could not navigate to that entry.",
   "session.error.spawnTimedOut":
     "The new session did not start within 30 s. It may still be starting — check breadcrumbs.log in the app's logs folder.",
+  "session.error.chatMissing":
+    "The new chat started but its record never arrived; reopen it from the Chat list.",
+  // Ask about this session (issue #895).
+  "ask.chatTitle": "Ask: {title}",
+  "ask.error.noTranscript": "this session has no saved transcript to ask about yet",
+  "ask.error.remote": "sessions on another instance can't be asked about here; chats are host-local",
+  "chat.planUnavailable": "Plan mode isn't available in a chat.",
 
   // TranscriptView.tsx / SessionTreeViewer.tsx — rewind affordances (issue #680)
   "transcript.rewind.here": "rewind here",
@@ -1390,6 +1397,10 @@ export const en = {
   "palette.group.projects": "Projects",
   "palette.group.session": "Session",
   "palette.group.app": "App",
+  "palette.group.chats": "Chats",
+  "palette.action.newChat": "New chat",
+  "palette.action.newPrivateChat": "New private chat",
+  "palette.chat.desc": "Chat",
   "palette.action.newSession": "New session in {name}",
   "palette.action.addProject": "Add project…",
   "palette.action.addProjectDesc": "pick a directory to track",
@@ -1400,6 +1411,8 @@ export const en = {
   "palette.action.switchModeDesc": "{title} — restarts the process",
   "palette.action.retitle": "Regenerate session title",
   "palette.action.retitleDesc": "{title} — re-titled from the transcript",
+  "palette.action.ask": "Ask about this session",
+  "palette.action.askDesc": "{title} — a new chat with its summary pinned",
   "palette.action.capabilities": "View capabilities",
   "palette.action.capabilitiesDesc": "global MCP servers, skills, and tools settings",
   "palette.action.capabilitiesSession": "Capabilities for this session",
@@ -2130,6 +2143,7 @@ export const en = {
   "seance.dialog.launch": "consult",
   "seance.dialog.cancel": "Cancel",
   "seance.dialog.noTranscript": "this session has no saved transcript to consult yet",
+  "seance.dialog.chatsGroup": "Chats",
   "seance.dialog.defaultQuestion":
     "Summarize what this session decided and why, the open questions it left, and anything that went wrong — cite transcript evidence.",
   "seance.dialog.neverStarted":
@@ -2441,6 +2455,16 @@ export const en = {
   "sidebar.filter.placeholder": "filter sessions…",
   "sidebar.filter.label": "filter sessions",
   "sidebar.filter.clear": "clear filter",
+
+  "sidebar.mode.label": "Sidebar list",
+  "sidebar.mode.work": "Work",
+  "sidebar.mode.chat": "Chat",
+  "sidebar.chats.heading": "Chats",
+  "sidebar.chats.new": "New chat",
+  "sidebar.chats.newPrivate": "New private chat",
+  "sidebar.chats.empty": "No chats yet",
+  "sidebar.chats.emptyHint": "A chat is a session with no project, for planning, brainstorming, or writing.",
+  "sidebar.chats.noMatches": "No chats match “{query}”",
 
   "sidebar.hosts.filter": "filter by host",
   "sidebar.hosts.all": "All hosts",
@@ -2762,6 +2786,7 @@ export const en = {
   "stats.error.foreign": "could not read the stats database: {error}",
   // Session migration and credential carry (issue #888).
   "sidebar.session.migrate": "Migrate…",
+  "sidebar.session.ask": "Ask about this session",
   "dialog.migrate.kicker": "Carry session",
   "dialog.migrate.title": "Migrate “{title}”",
   "dialog.migrate.targetLabel": "Send to",

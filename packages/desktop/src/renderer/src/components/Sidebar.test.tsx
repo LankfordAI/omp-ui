@@ -85,6 +85,7 @@ Object.assign(window, { ompBackend: backendMock });
 
 const { useStore } = await import("../store");
 const { Sidebar } = await import("./Sidebar");
+const { setSidebarMode } = await import("../lib/sidebar-mode");
 const originalNewSession = useStore.getState().newSession;
 const originalOpenSession = useStore.getState().openSession;
 const openSession = vi.fn(async () => {});
@@ -129,6 +130,8 @@ const state = backendState({
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
           cachedTitle: "Owned session",
           cachedModified: "2026-08-03T00:00:00.000Z",
           title: "Owned session",
@@ -158,6 +161,8 @@ const state = backendState({
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
           cachedTitle: "Second owned session",
           cachedModified: "2026-08-03T01:00:00.000Z",
           title: "Second owned session",
@@ -298,6 +303,8 @@ afterEach(() => {
     root = null;
   }
   document.body.replaceChildren();
+  act(() => setSidebarMode("work"));
+  window.localStorage.clear();
   Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
   if (originalVisualViewport === undefined) {
     Reflect.deleteProperty(window, "visualViewport");
@@ -353,6 +360,148 @@ describe("Sidebar resizing", () => {
     useStore.setState({ compactSurface: "sessions" });
     renderSidebar();
     expect(document.body.querySelector('[role="separator"]')).toBeNull();
+  });
+});
+
+describe("Sidebar chat mode (issue #894)", () => {
+  const chat = (id: string, title: string): SessionSummary => ({
+    ...state.projects[0]!.sessions[0]!,
+    tabId: `chat-${id}`,
+    chat: true,
+    askSource: null,
+    title,
+    cachedTitle: title,
+  });
+  const chatState = { ...state, chats: [chat("c1", "Brainstorm names"), chat("c2", "Draft release post")] };
+  const chatButton = (): HTMLButtonElement =>
+    [...document.body.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Sidebar list"] button')].find(
+      (b) => b.textContent === "Chat",
+    )!;
+  const rowTitles = (): string[] =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")]
+      .map((b) => b.title)
+      .filter((title) => title.includes("Brainstorm") || title.includes("Draft") || title.includes("Owned session"));
+
+  it("lists chats instead of project sections", () => {
+    useStore.setState({ state: chatState });
+    renderSidebar();
+    act(() => chatButton().click());
+    expect(document.body.textContent).not.toContain("Project One");
+    expect(rowTitles().some((t) => t.startsWith("Brainstorm names"))).toBe(true);
+    expect(rowTitles().some((t) => t.startsWith("Draft release post"))).toBe(true);
+    expect(rowTitles().some((t) => t.includes("Owned session"))).toBe(false);
+  });
+
+  it("starts plain and private chats", () => {
+    const newChat = vi.fn(async () => null);
+    useStore.setState({ state: chatState, newChat });
+    renderSidebar();
+    act(() => chatButton().click());
+    act(() => button("New chat").click());
+    expect(newChat).toHaveBeenLastCalledWith();
+    act(() => button("New private chat").click());
+    expect(newChat).toHaveBeenLastCalledWith({ private: true });
+  });
+
+  it("persists the chosen mode across a fresh render", () => {
+    useStore.setState({ state: chatState });
+    renderSidebar();
+    act(() => chatButton().click());
+    expect(window.localStorage.getItem("omp-ui.sidebarMode")).toBe("chat");
+    act(() => root!.unmount());
+    root = null;
+    renderSidebar();
+    expect(chatButton().getAttribute("aria-pressed")).toBe("true");
+    expect(document.body.textContent).not.toContain("Project One");
+  });
+
+  it("narrows chats by title through the filter", () => {
+    useStore.setState({ state: chatState });
+    renderSidebar();
+    act(() => chatButton().click());
+    const input = document.body.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, "draft");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(rowTitles().some((t) => t.startsWith("Draft release post"))).toBe(true);
+    expect(rowTitles().some((t) => t.startsWith("Brainstorm names"))).toBe(false);
+  });
+});
+
+describe("Sidebar Ask about this session menu (issue #895)", () => {
+  const originalAsk = useStore.getState().askAboutSession;
+  const originalOmpUpdate = useStore.getState().ompUpdate;
+  const askAboutSession = vi.fn(async () => {});
+  const withFirst = (patch: Partial<SessionSummary>): typeof state => ({
+    ...state,
+    projects: [
+      {
+        ...state.projects[0]!,
+        sessions: [{ ...state.projects[0]!.sessions[0]!, ...patch }, state.projects[0]!.sessions[1]!],
+      },
+    ],
+  });
+  const row = (titlePrefix: string): HTMLButtonElement => {
+    const found = [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")].find((b) =>
+      b.title.startsWith(titlePrefix),
+    );
+    if (found === undefined) throw new Error(`row not found: ${titlePrefix}`);
+    return found;
+  };
+  const itemLabels = (): string[] => openMenuItems().map((item) => item.textContent ?? "");
+
+  beforeEach(() => {
+    askAboutSession.mockClear();
+    useStore.setState({
+      askAboutSession,
+      ompUpdate: { ...originalOmpUpdate, installedVersion: "99.0.0" },
+    });
+  });
+  afterEach(() => {
+    useStore.setState({ askAboutSession: originalAsk, ompUpdate: originalOmpUpdate });
+  });
+
+  it("offers Ask first on a dormant local row and asks about that session", () => {
+    useStore.setState({ state: withFirst({ live: "dormant" }) });
+    renderSidebar();
+    openContextMenu(row("Owned session"));
+    expect(itemLabels()).toEqual(["Ask about this session", "Migrate…"]);
+    act(() => openMenuItems()[0]!.click());
+    expect(askAboutSession).toHaveBeenCalledWith("tab-1");
+    expect(openMenuItems()).toEqual([]);
+  });
+
+  it("offers Ask but not Migrate on a live local row", () => {
+    renderSidebar();
+    openContextMenu(row("Owned session"));
+    expect(itemLabels()).toEqual(["Ask about this session"]);
+  });
+
+  it("opens no menu on a row with no saved transcript", () => {
+    useStore.setState({ state: withFirst({ sessionId: null, live: "dormant" }) });
+    renderSidebar();
+    const event = openContextMenu(row("Owned session"));
+    expect(event.defaultPrevented).toBe(false);
+    expect(openMenuItems()).toEqual([]);
+  });
+
+  it("offers Ask on a chat row in Chat mode", () => {
+    const chat: SessionSummary = {
+      ...state.projects[0]!.sessions[0]!,
+      tabId: "chat-c1",
+      chat: true,
+      title: "Brainstorm names",
+      cachedTitle: "Brainstorm names",
+    };
+    useStore.setState({ state: { ...state, chats: [chat] } });
+    act(() => setSidebarMode("chat"));
+    renderSidebar();
+    openContextMenu(row("Brainstorm names"));
+    expect(itemLabels()).toEqual(["Ask about this session"]);
+    act(() => openMenuItems()[0]!.click());
+    expect(askAboutSession).toHaveBeenCalledWith("chat-c1");
   });
 });
 
@@ -1097,6 +1246,8 @@ describe("project name display", () => {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
             cachedTitle: `Session ${i + 1}`,
             cachedModified: "2026-08-03T00:00:00.000Z",
             title: `Session ${i + 1}`,
@@ -1219,6 +1370,8 @@ describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
     cachedTitle: title,
     cachedModified: "2026-08-03T00:00:00.000Z",
     title,
@@ -1537,6 +1690,8 @@ describe("Sidebar session drag-and-drop (issue #274)", () => {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
     cachedTitle: title,
     cachedModified: "2026-08-20T00:00:00.000Z",
     title,
@@ -1700,6 +1855,8 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
             cachedTitle: "Tree Impl", cachedModified: "2026-08-20T00:00:00.000Z", title: "Tree Impl",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1709,6 +1866,8 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
             cachedTitle: "Tree Root", cachedModified: "2026-08-20T01:00:00.000Z", title: "Tree Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1718,6 +1877,8 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
             cachedTitle: "Mid Root", cachedModified: "2026-08-20T02:00:00.000Z", title: "Mid Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1727,6 +1888,8 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
             cachedTitle: "Last Root", cachedModified: "2026-08-20T03:00:00.000Z", title: "Last Root",
             status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
           },
@@ -1814,6 +1977,8 @@ describe("Sidebar keyboard session reorder (issue #274)", () => {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
                 cachedTitle: "Only", cachedModified: "2026-08-20T00:00:00.000Z", title: "Only",
                 status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
               },
@@ -1865,6 +2030,8 @@ describe("Sidebar plan handoffs (issue #238)", () => {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
     cachedTitle: title,
     cachedModified: "2026-08-03T00:00:00.000Z",
     title,

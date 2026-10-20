@@ -11,6 +11,7 @@ import { isKnowledgeHome } from "./vault-shared";
 import type {
   AgentMode,
   ApprovalMode,
+  AskSource,
   GlassChrome,
   KnowledgeHome,
   OwnedSessionRecord,
@@ -118,6 +119,10 @@ export interface RegistrySettings {
   ompUpdateCheckOnLaunch: boolean;
   /** Auto-download a newer omp when the installed binary is below the harness floor. */
   ompAutoUpgrade: boolean;
+  /** Last main model a Chat selected; seeds the next chat (issue #894). */
+  chatLastModel: string | null;
+  /** Thinking level paired with chatLastModel. */
+  chatLastThinkingLevel: string | null;
   /** Embedded remote-access server: off by default (issue #37). */
   remoteEnabled: boolean;
   /** "localhost" binds 127.0.0.1; "lan" binds 0.0.0.0 and is an explicit, warned choice. */
@@ -360,6 +365,14 @@ export const SETTINGS: SettingDescriptors = {
     () => true,
     (value): value is boolean => typeof value === "boolean",
   ),
+  chatLastModel: validatedSetting<string | null>(
+    () => null,
+    (value): value is string => typeof value === "string",
+  ),
+  chatLastThinkingLevel: validatedSetting<string | null>(
+    () => null,
+    (value): value is string => typeof value === "string",
+  ),
   remoteEnabled: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
@@ -500,6 +513,20 @@ function isPlanImplementationSource(value: unknown): value is PlanImplementation
   );
 }
 
+/** Ask-chat provenance (#895): both ids present and non-empty, or the record drops. */
+function isAskSource(value: unknown): value is AskSource {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "tabId" in value &&
+    typeof value.tabId === "string" &&
+    value.tabId !== "" &&
+    "sessionId" in value &&
+    typeof value.sessionId === "string" &&
+    value.sessionId !== ""
+  );
+}
+
 /**
  * Experiment provenance (issue #559). Complete or dropped: `launchedBranch`
  * must be PRESENT (null = detached / not a repo), since a missing key would
@@ -588,6 +615,12 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // private (issue #852) post-dates the first schema-1 records like
     // advisor; absent loads as false, a present non-boolean drops the record.
     optional(value, "private", (v) => typeof v === "boolean") &&
+    // chat (issue #894) post-dates the first schema-1 records like private;
+    // absent loads as false, a present non-boolean drops the record.
+    optional(value, "chat", (v) => typeof v === "boolean") &&
+    // askSource (issue #895) post-dates schema-1; absent loads as null, a
+    // present value must name both the source tab and its session id.
+    optNullable(value, "askSource", isAskSource) &&
     // subagentModels post-dates the advisor picker records too; absent loads
     // as null, which is also the umbrella-applies state (ADR-0031).
     optNullable(value, "subagentModels", isSubagentModelMap) &&
@@ -641,6 +674,8 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       // above drops records whose present value is not a boolean.
       autoTitled: s.autoTitled === true,
       private: s.private === true,
+      chat: s.chat === true,
+      askSource: s.askSource ?? null,
       model: s.model ?? null,
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,
@@ -956,15 +991,15 @@ export class Registry {
   }
 
   /**
-   * Cascades to the project's session records and prunes it from its sidebar
-   * group; files on disk are never touched.
+   * Cascades to the project's session records — never a chat record — and
+   * prunes it from its sidebar group; files on disk are never touched.
    */
   removeProject(projectPath: string): void {
     this.#transaction((draft) => {
       const projectCount = draft.projects.length;
       const sessionCount = draft.sessions.length;
       draft.projects = draft.projects.filter((project) => project.path !== projectPath);
-      draft.sessions = draft.sessions.filter((session) => session.projectCwd !== projectPath);
+      draft.sessions = draft.sessions.filter((session) => session.chat || session.projectCwd !== projectPath);
       let grouped = false;
       for (const group of draft.sidebarGroups) {
         const before = group.projectPaths.length;
@@ -1115,21 +1150,33 @@ export class Registry {
 
   /**
    * Records the main model choice for this session and the next one in its
-   * project. Returns true when the record or the project's last-used tuple changed.
+   * project (a chat: the next chat). Returns true when the record or the
+   * last-used tuple changed.
    */
   setSessionModel(tabId: string, model: string | null, thinkingLevel: string | null): boolean {
     return this.#transaction((draft) => {
       const record = draft.sessions.find((session) => session.tabId === tabId);
       if (!record) return false;
-      const project = draft.projects.find((candidate) => candidate.path === record.projectCwd);
+      const project = record.chat
+        ? undefined
+        : draft.projects.find((candidate) => candidate.path === record.projectCwd);
+      const chatUnchanged =
+        !record.chat ||
+        (draft.settings.chatLastModel === model &&
+          draft.settings.chatLastThinkingLevel === thinkingLevel);
       if (
         record.model === model &&
         record.thinkingLevel === thinkingLevel &&
+        chatUnchanged &&
         (!project ||
           (project.lastModel === model && project.lastThinkingLevel === thinkingLevel))
       ) return false;
       record.model = model;
       record.thinkingLevel = thinkingLevel;
+      if (record.chat) {
+        draft.settings.chatLastModel = model;
+        draft.settings.chatLastThinkingLevel = thinkingLevel;
+      }
       if (project) {
         project.lastModel = model;
         project.lastThinkingLevel = thinkingLevel;
@@ -1220,11 +1267,14 @@ export class Registry {
 
   addSession(record: OwnedSessionRecord): OwnedSessionRecord {
     this.#transaction((draft) => {
-      // New sessions take the TOP of their project (#274): splice ahead of the
-      // first record of the same project; a project's first session just appends.
+      // New sessions take the TOP of their project (#274); a chat takes the
+      // top of the chats. Splice ahead of the first record of the same group;
+      // a group's first session just appends.
       // Cross-project interleaving in the array is irrelevant — grouping filters
       // per project — but within-project order is the persisted sidebar order.
-      const first = draft.sessions.findIndex((session) => session.projectCwd === record.projectCwd);
+      const first = draft.sessions.findIndex((session) =>
+        record.chat ? session.chat : !session.chat && session.projectCwd === record.projectCwd,
+      );
       const stored = structuredClone(record);
       if (first === -1) draft.sessions.push(stored);
       else draft.sessions.splice(first, 0, stored);

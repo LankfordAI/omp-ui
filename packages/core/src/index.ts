@@ -57,6 +57,7 @@ export * from "./vault-overlay";
 export * from "./vault-registry";
 export * from "./knowledge-home";
 export * from "./knowledge-vault-extension";
+export * from "./ask-context";
 export * from "./sessions-resource";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";
@@ -91,6 +92,15 @@ export { worktreeOverlayPath, writeWorktreeOverlay } from "./worktree-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
 export { gitGuardOverlayPath, writeGitGuardOverlay } from "./git-guard-overlay";
 export { privateOverlayPath, writePrivateOverlay } from "./private-overlay";
+export {
+  CHAT_DIR_RE,
+  chatDirPath,
+  createChatDir,
+  isInChatsRoot,
+  removeChatDir,
+  sweepOrphanChatDirs,
+} from "./chat";
+export { chatOverlayPath, writeChatOverlay } from "./chat-overlay";
 export {
   PRIVATE_DISABLED_TOOLS,
   privateGuardArmMessage,

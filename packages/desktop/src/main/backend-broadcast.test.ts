@@ -689,3 +689,63 @@ describe("branch:changed emission (issue #498)", () => {
     expect(branchEvents()).toEqual([["/p/a", null]]);
   });
 });
+
+describe("chats in backend state (issue #894)", () => {
+  const CHAT_DIR_NAME = "chat-0b9f7c1e-3d4a-4e5f-8a6b-7c8d9e0f1a2b";
+
+  function chatBackend(): { registryFile: string; chatsRoot: string; chatDir: string } {
+    const registryFile = path.join(base, "chat-registry.json");
+    const chatsRoot = path.join(base, "custom-chats");
+    const chatDir = path.join(chatsRoot, CHAT_DIR_NAME);
+    fs.mkdirSync(chatDir, { recursive: true });
+    seedRegistry(registryFile, {
+      projects: [
+        {
+          path: "/p/a",
+          name: "A",
+          addedAt: "2026-08-01T00:00:00.000Z",
+          lastModel: null,
+          lastThinkingLevel: null,
+          lastAdvisor: null,
+          lastAdvisorModel: null,
+          defaultModel: null,
+          defaultAdvisorModel: null,
+          browserClock: false,
+          reviewRoster: null,
+          knowledgeHome: null,
+        },
+      ],
+      sessions: [
+        ownedSessionRecord({ tabId: "tab-project", projectCwd: "/p/a" }),
+        ownedSessionRecord({
+          tabId: "tab-chat",
+          lineageDir: "omp-ui--chat--11111111-2222-3333-4444-555555555555",
+          projectCwd: chatDir,
+          chat: true,
+        }),
+      ],
+    });
+    handlers.clear();
+    new MainBackend(win as never, registryFile, { chatsRoot }).registerIpc();
+    return { registryFile, chatsRoot, chatDir };
+  }
+
+  it("publishes a chat record in chats and in no project group", async () => {
+    chatBackend();
+    const state = (await invoke(CH.getState)) as BackendState;
+    expect(state.chats.map((s) => s.tabId)).toEqual(["tab-chat"]);
+    const grouped = state.projects.flatMap((group) => group.sessions.map((s) => s.tabId));
+    expect(grouped).toContain("tab-project");
+    expect(grouped).not.toContain("tab-chat");
+  });
+
+  it("refuses to register the chats root or a chat dir as a project and writes nothing", async () => {
+    const { registryFile, chatsRoot, chatDir } = chatBackend();
+    const before = fs.readFileSync(registryFile, "utf8");
+    for (const target of [chatsRoot, chatDir]) {
+      await expect(invoke(CH.addProject, target)).rejects.toThrow(/chats folder can't be registered/);
+    }
+    expect(fs.readFileSync(registryFile, "utf8")).toBe(before);
+    expect(Registry.load(registryFile).projects.map((p) => p.path)).not.toContain(chatsRoot);
+  });
+});

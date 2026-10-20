@@ -13,6 +13,8 @@ export function tabTitle(state: BackendState | null, tabId: string): string | un
     const record = group.sessions.find((s) => s.tabId === tabId);
     if (record !== undefined) return record.title;
   }
+  const chat = state.chats.find((s) => s.tabId === tabId);
+  if (chat !== undefined) return chat.title;
   for (const instance of state.remoteInstances) {
     for (const group of instance.projects) {
       const record = group.sessions.find((s) => s.tabId === tabId);

@@ -485,6 +485,19 @@ describe("proxy and routing", () => {
     );
   });
 
+  it("never forwards a chat spawn to a joined instance (issue #894)", async () => {
+    const host = fakeHost();
+    const server = await serve(host);
+    const h = harness();
+    const instance = await join(h, server.port);
+
+    const chat: SpawnRequest = { origin: "new", chat: true, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 };
+    await expect(h.manager.request(instance.id, CH.spawnSession, [chat])).rejects.toThrow(
+      "chats are host-local",
+    );
+    expect(host.requests.filter((r) => r.ch === CH.spawnSession)).toEqual([]);
+  });
+
   it("mirrors tab events unchanged, folds state:changed, and drops app-scoped events", async () => {
     const host = fakeHost();
     const server = await serve(host);

@@ -146,6 +146,7 @@ export function sanitizeWarmTemplate(record: OwnedSessionRecord): OwnedSessionRe
     lineageDir: mintLineageDirName(record.projectCwd),
     worktree: null,
     planImplementationSource: null,
+    askSource: null,
     launchedAt: new Date().toISOString(),
     agentMode: "build",
     approvalMode: null,

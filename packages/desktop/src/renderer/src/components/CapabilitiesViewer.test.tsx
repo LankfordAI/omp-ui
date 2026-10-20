@@ -247,6 +247,8 @@ const liveState = backendState({
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
           cachedTitle: "T",
           cachedModified: "t",
           title: "T",

@@ -105,7 +105,7 @@ let root: Root | null = null;
 const state = backendState({
   projects: [{ project: { path: "/p", name: "P", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, reviewRoster: null, knowledgeHome: null }, sessions: [{
     tabId: TAB, sessionId: "s", lineageDir: "lineage", projectCwd: "/p", launchedAt: "t", mode: "rpc-ui",
-    worktree: null, planImplementationSource: null, experiment: null, agentMode: "build", compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null, proposedPlans: [], autoTitled: false, private: false, cachedTitle: "Compose", cachedModified: "t", title: "Compose", status: "complete", live: "live", pendingPlan: null, planSettle: null, streamStalled: false,
+    worktree: null, planImplementationSource: null, experiment: null, agentMode: "build", compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null, proposedPlans: [], autoTitled: false, private: false, chat: false, askSource: null, cachedTitle: "Compose", cachedModified: "t", title: "Compose", status: "complete", live: "live", pendingPlan: null, planSettle: null, streamStalled: false,
   }] }],
 });
 
@@ -1213,6 +1213,16 @@ describe("Composer BuildPlanControl", () => {
     expect(
       modeSegments().map((button) => button.textContent?.trim()),
     ).toEqual(["plan", "build"]);
+  });
+
+  it("mounts no mode control in a chat tab, which is Build-only (issue #894)", () => {
+    seed("ready");
+    useStore.setState((s) => {
+      const record = { ...s.state!.projects[0]!.sessions[0]!, chat: true };
+      return { state: { ...s.state!, projects: [], chats: [record] } };
+    });
+    renderComposer();
+    expect(document.body.querySelector('[role="group"][aria-label="session mode"]')).toBeNull();
   });
 
   it("puts a Build default first and accents alternate Plan when selected (issue #143)", () => {

@@ -88,6 +88,8 @@ function todayRecord(projectCwd: string): OwnedSessionRecord {
     proposedPlans: [],
     autoTitled: false,
     private: false,
+    chat: false,
+    askSource: null,
     cachedTitle: "Live Day Row",
     cachedModified: now,
     agentMode: "build",

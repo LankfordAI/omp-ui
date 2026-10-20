@@ -319,6 +319,12 @@ export interface PlanImplementationSource {
   planFilePath: string;
 }
 
+/** The session an Ask chat was started about (issue #895). */
+export interface AskSource {
+  tabId: string;
+  sessionId: string;
+}
+
 /** One plan-handoff descendant in a delete preview (issue #309). */
 export interface PlanHandoffDescendant {
   tabId: string;
@@ -427,6 +433,13 @@ export interface OwnedSessionRecord {
    *  private-guard bridge (learn/retain/manage_skill/memory_edit tools).
    *  Post-dates schema-1: absent normalizes to false. */
   private: boolean;
+  /** True for a Chat (CONTEXT.md): an owned session with no Project, run in a
+   *  scratch dir under omp-ui's app-data chats root (ADR-0059). projectCwd is
+   *  that scratch dir. Post-dates schema-1: absent normalizes to false. */
+  chat: boolean;
+  /** Set on an Ask chat (#895): the session whose summary is pinned as hidden
+   *  context. Null otherwise. Post-dates schema-1: absent normalizes to null. */
+  askSource: AskSource | null;
   /** True while the session's title is one omp-ui generated via `/rename`
    *  (issue #804). omp records generator titles with source "user", so this
    *  marker — not the header — is what distinguishes an auto-title from a
@@ -593,10 +606,15 @@ type BackendBroadcastSettings = Omit<
   | "instanceId"
   | "reviewRoster"
   | "reviewRosterImported"
+  | "chatLastModel"
+  | "chatLastThinkingLevel"
 >;
 
 export interface BackendState extends BackendBroadcastSettings {
   projects: ProjectGroup[];
+  /** This host's Chats (CONTEXT.md), in registry order (newest first). Never
+   *  part of `projects`, never in RemoteInstanceSummary: chats are host-local. */
+  chats: SessionSummary[];
   /** This registry's sidebar groups, in display order; [] when none. */
   sidebarGroups: SidebarGroup[];
   /** This instance's dev/test spawn selectors; not persisted, not a pin. */
@@ -714,17 +732,20 @@ interface NewSpawnRequestBase {
    *  project state. The flag lives on the record from here on — resume
    *  requests carry no key for it. */
   private?: boolean;
+  askSource?: never;
 }
 
 export interface NewPtySpawnRequest extends NewSpawnRequestBase {
   mode: "pty";
   planMode?: never;
+  chat?: never;
 }
 
 export interface NewRpcSpawnRequest extends NewSpawnRequestBase {
   mode: "rpc-ui";
   /** Omitted fresh sessions follow the configured default agent mode. */
   planMode?: boolean;
+  chat?: never;
 }
 
 interface ResumeSpawnRequestBase {
@@ -751,6 +772,7 @@ interface ResumeSpawnRequestBase {
   worktree?: never;
   planImplementationSource?: never;
   experiment?: never;
+  askSource?: never;
 }
 
 export type ResumeSpawnRequest = ResumeSpawnRequestBase &
@@ -759,7 +781,35 @@ export type ResumeSpawnRequest = ResumeSpawnRequestBase &
     | { mode?: "rpc-ui"; planMode?: boolean }
   );
 
-export type SpawnRequest = NewPtySpawnRequest | NewRpcSpawnRequest | ResumeSpawnRequest;
+/** A fresh Chat (ADR-0059): main mints the scratch cwd, so no projectCwd rides
+ *  the wire; always native, never a worktree, never plan mode. */
+export interface NewChatSpawnRequest {
+  origin: "new";
+  chat: true;
+  mode: "rpc-ui";
+  advisor: boolean;
+  advisorModel?: string | null;
+  cols: number;
+  rows: number;
+  private?: boolean;
+  /** Start an Ask chat about this local session; main resolves and validates it. */
+  askSource?: { tabId: string; title: string };
+  projectCwd?: never;
+  worktree?: never;
+  planMode?: never;
+  planImplementationSource?: never;
+  experiment?: never;
+}
+
+export type SpawnRequest =
+  | NewPtySpawnRequest
+  | NewRpcSpawnRequest
+  | NewChatSpawnRequest
+  | ResumeSpawnRequest;
+
+/** Every spawn SessionManager.spawnInner accepts: a chat is rewritten to a
+ *  NewRpcSpawnRequest carrying its minted scratch cwd before it gets there. */
+export type ProjectSpawnRequest = Exclude<SpawnRequest, NewChatSpawnRequest>;
 
 /** omp's own advisor defaults, read from its config (see core/omp-config.ts). */
 export interface AdvisorDefaults {

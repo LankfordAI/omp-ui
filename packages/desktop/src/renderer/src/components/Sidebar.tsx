@@ -32,7 +32,9 @@ import { SessionRow } from "./SessionRow";
 import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
-import { Button, Chevron, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconGrip, IconGroup, IconPencil, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
+import { ChatList, SkeletonRows, filterChats, type OpenSessionMenu } from "./ChatList";
+import { setSidebarMode, useSidebarMode } from "../lib/sidebar-mode";
+import { Button, Chevron, ChoiceCapsule, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconGrip, IconGroup, IconPencil, IconPlus, IconRefresh, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -84,22 +86,6 @@ function IconEllipsis() {
   );
 }
 
-/* -------------------------------------------------------------- primitives */
-
-/** Three pulsing bars — the honest "we have not heard from the backend yet". */
-function SkeletonRows() {
-  return (
-    <div className="space-y-2 px-3 py-3">
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="animate-pulse space-y-1.5" style={{ animationDelay: `${i * 120}ms` }}>
-          <div className="h-2.5 rounded bg-line-soft" style={{ width: `${72 - i * 14}%` }} />
-          <div className="h-2 w-1/3 rounded bg-line-soft" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /* ---------------------------------------------------------------- helpers */
 
 function liveCount(sessions: SessionSummary[]): number {
@@ -136,10 +122,10 @@ interface TerminalMenuRequest {
   y: number;
   trigger: HTMLElement;
 }
-type OpenSessionMenu = (tabId: string, event: ReactMouseEvent<HTMLElement>) => void;
-
 interface SessionMenuRequest {
   tabId: string;
+  migrate: boolean;
+  ask: boolean;
   x: number;
   y: number;
   trigger: HTMLElement;
@@ -560,17 +546,23 @@ function ProjectSection({
                 }}
                 onDragEnd={row.onDragEnd}
                 onContextMenu={(event) => {
-                  // Migrate is the only item; a row that could never accept
-                  // it never opens an empty menu (issue #888). omp refuses to
-                  // pack a transcript another process writes, and a row with
-                  // no transcript yet has nothing to carry. The version floor
-                  // is knowable only for this host's binary; a remote source
-                  // answers version skew verbatim at pack time (ADR-0028).
+                  // A row opens the menu only with an item it can accept; it
+                  // never opens an empty one (issue #888). Migrate: omp
+                  // refuses to pack a transcript another process writes, and
+                  // a row with no transcript yet has nothing to carry. The
+                  // version floor is knowable only for this host's binary; a
+                  // remote source answers version skew verbatim at pack time
+                  // (ADR-0028). Ask (#895): chats are host-local, so only
+                  // local rows with a saved transcript.
                   if (disabled) return;
                   const s = entry.session;
-                  if (s.sessionId === null || s.live === "live") return;
-                  if (instanceId === null && !supportsSessionMigrate(ompInstalledVersion)) return;
-                  openSessionMenu(s.tabId, event);
+                  const migrate =
+                    s.sessionId !== null &&
+                    s.live !== "live" &&
+                    (instanceId !== null || supportsSessionMigrate(ompInstalledVersion));
+                  const ask = instanceId === null && s.sessionId !== null && s.live !== "missing";
+                  if (!migrate && !ask) return;
+                  openSessionMenu(s.tabId, event, { migrate, ask });
                 }}
               />
             </div>
@@ -1234,12 +1226,14 @@ export function Sidebar() {
   const newSession = useStore((st) => st.newSession);
   const openWorktreeDialog = useStore((st) => st.openWorktreeDialog);
   const openMigrateDialog = useStore((st) => st.openMigrateDialog);
+  const askAboutSession = useStore((st) => st.askAboutSession);
   const moveProject = useStore((st) => st.moveProject);
   const moveSidebarGroup = useStore((st) => st.moveSidebarGroup);
   const openSidebarGroupDialog = useStore((st) => st.openSidebarGroupDialog);
   const compact = useCompactShell();
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
+  const mode = useSidebarMode();
 
   // Desktop collapse memory lives in the store: the toggle moved to App's
   // title bar (issue #60), and the compact sheet ignores it as before.
@@ -1330,9 +1324,9 @@ export function Sidebar() {
   const sessionMenuRef = useRef<HTMLDivElement>(null);
   const sessionMenuItemRef = useRef<HTMLButtonElement>(null);
 
-  // Issue #888: the per-row Migrate menu, same portal/dismissal shape as the
-  // project's new-session options menu.
-  const openSessionMenu: OpenSessionMenu = (tabId, event) => {
+  // Issue #888/#895: the per-row Migrate/Ask menu, same portal/dismissal
+  // shape as the project's new-session options menu.
+  const openSessionMenu: OpenSessionMenu = (tabId, event, { migrate, ask }) => {
     event.preventDefault();
     const currentTarget = event.currentTarget;
     if (!(currentTarget instanceof HTMLElement)) return;
@@ -1340,6 +1334,8 @@ export function Sidebar() {
     const rect = currentTarget.getBoundingClientRect();
     setSessionMenu({
       tabId,
+      migrate,
+      ask,
       x: keyboardPosition ? rect.left : event.clientX,
       y: keyboardPosition ? rect.bottom : event.clientY,
       trigger: currentTarget,
@@ -1525,6 +1521,17 @@ export function Sidebar() {
         <>
           {/* -------- filter -------- */}
           <div className="shrink-0 border-b border-line px-3 py-2.5">
+            <ChoiceCapsule
+              label={t("sidebar.mode.label")}
+              value={mode}
+              options={[
+                { value: "work", label: t("sidebar.mode.work") },
+                { value: "chat", label: t("sidebar.mode.chat") },
+              ]}
+              onChange={setSidebarMode}
+              className="mb-1.5 flex w-full"
+              optionClassName="flex-1 justify-center"
+            />
             <div className="flex items-center gap-1.5">
               <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-line bg-raised px-2 focus-within:border-line-strong">
                 <span className="shrink-0 text-ink-faint">
@@ -1545,7 +1552,7 @@ export function Sidebar() {
                 {filtering && (
                   <>
                     <span className="shrink-0 font-mono text-[10px] text-ink-dim tabular-nums">
-                      {matchCount}
+                      {mode === "chat" ? filterChats(state?.chats ?? [], query).length : matchCount}
                     </span>
                     <IconButton label={t("sidebar.filter.clear")} onClick={() => setQuery("")} className="size-5">
                       <IconClose className="size-3.5" />
@@ -1553,6 +1560,7 @@ export function Sidebar() {
                   </>
                 )}
               </div>
+              {mode === "work" && (
               <IconButton
                 label={t("sidebar.group.create")}
                 onClick={() => openSidebarGroupDialog({ kind: "create" })}
@@ -1560,13 +1568,14 @@ export function Sidebar() {
               >
                 <IconGroup />
               </IconButton>
-              {compact && (
+              )}
+              {mode === "work" && compact && (
                 <IconButton label={t("sidebar.project.add")} onClick={() => { openProjectPicker(); closeCompactSurface(); }} className="size-9 rounded-md border border-line">
                   <IconPlus />
                 </IconButton>
               )}
             </div>
-            {hostChoices.length > 0 && (
+            {mode === "work" && hostChoices.length > 0 && (
               <div className="mt-1.5">
                 <HostScopePicker
                   instances={hostChoices}
@@ -1579,6 +1588,10 @@ export function Sidebar() {
 
           {/* -------- project list -------- */}
           <div className="min-h-0 flex-1 overflow-y-auto">
+            {mode === "chat" ? (
+              <ChatList query={query} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} />
+            ) : (
+            <>
             {groups === null && <SkeletonRows />}
             {showLocalSections && (
               <>
@@ -1683,6 +1696,8 @@ export function Sidebar() {
                   onAnnounce={setReorderNote}
                 />
               ))}
+            </>
+            )}
           </div>
         </>
       )}
@@ -1759,19 +1774,37 @@ export function Sidebar() {
                 sessionMenu.y > window.innerHeight / 2 && "-translate-y-full",
               )}
             >
-              <button
-                ref={sessionMenuItemRef}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  const { tabId } = sessionMenu;
-                  setSessionMenu(null);
-                  openMigrateDialog(tabId);
-                }}
-                className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
-              >
-                {t("sidebar.session.migrate")}
-              </button>
+              {sessionMenu.ask && (
+                <button
+                  ref={sessionMenuItemRef}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const { tabId } = sessionMenu;
+                    setSessionMenu(null);
+                    void askAboutSession(tabId);
+                    closeCompactSurface();
+                  }}
+                  className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
+                >
+                  {t("sidebar.session.ask")}
+                </button>
+              )}
+              {sessionMenu.migrate && (
+                <button
+                  ref={sessionMenu.ask ? undefined : sessionMenuItemRef}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const { tabId } = sessionMenu;
+                    setSessionMenu(null);
+                    openMigrateDialog(tabId);
+                  }}
+                  className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
+                >
+                  {t("sidebar.session.migrate")}
+                </button>
+              )}
             </Panel>
           </div>,
           document.body,

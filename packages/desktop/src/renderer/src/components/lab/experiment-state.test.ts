@@ -61,6 +61,8 @@ function summary(patch: Partial<SessionSummary> = {}): SessionSummary {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
     cachedTitle: null,
     cachedModified: null,
     title: "Session",

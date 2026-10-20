@@ -92,7 +92,7 @@ import {
   type Watchers,
 } from "./shared";
 import { rpcCommandMachinery } from "./rpc-command";
-import { findOwner, findRecord, sessionCwd } from "./view";
+import { findOwner, findRecord, isChatTab, sessionCwd } from "./view";
 import type { SessionCommand } from "@omp-ui/core/session-command";
 import {
   appendLiveRecap,
@@ -258,6 +258,8 @@ const localCommands: readonly LocalCommand[] = [
     // tabs' TUI). Bare command only — "/new …" still reaches omp verbatim.
     match: /^\/new$/,
     run(tabId, get) {
+      // A chat's /new is another chat: it has no project to spawn into.
+      if (isChatTab(get().state, tabId)) return get().newChat().then(() => undefined);
       const projectCwd = get().tabs.find(
         (tab) => tab.tabId === tabId,
       )?.projectCwd;
@@ -275,6 +277,11 @@ const localCommands: readonly LocalCommand[] = [
     run(tabId, get) {
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui") return false;
+      // A chat has no plan mode; the toggle must never reach omp.
+      if (isChatTab(get().state, tabId)) {
+        get().appendNotice(tabId, t("chat.planUnavailable"), "warn");
+        return undefined;
+      }
       return get().setPlanMode(tabId, true);
     },
   },
@@ -283,6 +290,10 @@ const localCommands: readonly LocalCommand[] = [
     run(tabId, get) {
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui") return false;
+      if (isChatTab(get().state, tabId)) {
+        get().appendNotice(tabId, t("chat.planUnavailable"), "warn");
+        return undefined;
+      }
       return get().setPlanMode(tabId, false);
     },
   },

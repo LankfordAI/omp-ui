@@ -72,6 +72,8 @@ function remoteProjectGroup(): ProjectGroup {
  proposedPlans: [],
  autoTitled: false,
  private: false,
+ chat: false,
+ askSource: null,
         cachedTitle: "Remote session",
         cachedModified: "2026-09-09T00:00:00.000Z",
         title: "Remote session",

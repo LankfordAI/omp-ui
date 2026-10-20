@@ -176,6 +176,8 @@ const NEW_KEYS = [
   "private",
 ] as const;
 
+const CHAT_KEYS = ["origin", "chat", "mode", "advisor", "advisorModel", "cols", "rows", "private", "askSource"] as const;
+
 const RESUME_KEYS = [
   "origin",
   "resumeTabId",
@@ -231,6 +233,34 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
       ...common,
       ...(mode === undefined ? {} : { mode }),
       ...(planMode === undefined ? {} : { planMode }),
+    };
+  }
+
+  if (hasOwn(value, "chat")) {
+    if (value.chat !== true) throw new Error("spawn request.chat must be true when present");
+    rejectUnknownKeys(value, CHAT_KEYS, "spawn request");
+    if (value.mode !== "rpc-ui") throw new Error("spawn request.mode must be rpc-ui for a chat");
+    const advisorModel = optionalNullableString(value, "advisorModel");
+    const priv = optionalBoolean(value, "private");
+    let askSource: { tabId: string; title: string } | undefined;
+    if (hasOwn(value, "askSource")) {
+      const a = objectValue(value.askSource, "spawn request.askSource");
+      rejectUnknownKeys(a, ["tabId", "title"], "spawn request.askSource");
+      askSource = {
+        tabId: requiredString(a, "tabId", "spawn request.askSource"),
+        title: requiredString(a, "title", "spawn request.askSource"),
+      };
+    }
+    return {
+      origin: "new",
+      chat: true,
+      mode: "rpc-ui",
+      advisor: requiredBoolean(value, "advisor"),
+      cols,
+      rows,
+      ...(advisorModel === undefined ? {} : { advisorModel }),
+      ...(priv === undefined ? {} : { private: priv }),
+      ...(askSource === undefined ? {} : { askSource }),
     };
   }
 

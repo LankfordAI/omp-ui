@@ -5,6 +5,7 @@ import type { RpcTabState, TabInfo } from "../store";
 export function backendState(patch: Partial<BackendState> = {}): BackendState {
   return {
     projects: [],
+    chats: [],
     sidebarGroups: [],
     defaultMode: "rpc-ui",
     defaultAgentMode: "plan",
@@ -122,6 +123,8 @@ export function remoteOwnedState(tabId: string, instanceId: string): BackendStat
                 proposedPlans: [],
                 autoTitled: false,
                 private: false,
+                chat: false,
+                askSource: null,
                 cachedTitle: "Remote session",
                 cachedModified: "t",
                 title: "Remote session",

@@ -52,6 +52,7 @@ export async function resolveSeanceSource(
   const candidates: SessionSummary[] = [];
   if (state !== null) {
     for (const group of state.projects) candidates.push(...group.sessions);
+    candidates.push(...state.chats);
     for (const instance of state.remoteInstances) {
       if (instance.status !== "joined") continue;
       for (const group of instance.projects) candidates.push(...group.sessions);
@@ -124,30 +125,40 @@ export function createSeanceSlice(
     // A fresh consult session in the source's project — never a wake of the
     // source itself (the property seance preserves). Privacy rides the spawn:
     // consulting a write-quiet session must not make its contents memorable.
-    const { instanceId, projectCwd } = target;
-    const { advisor, advisorModel } = await deps.resolveSpawnParams(
-      projectCwd,
-      { mode: "rpc-ui" },
-      instanceId,
-    );
-    const { tabId } = await backendFor(instanceId).spawnSession({
-      origin: "new",
-      projectCwd,
-      mode: "rpc-ui",
-      advisor,
-      advisorModel,
-      cols: 80,
-      rows: 24,
-      planMode: false,
-      worktree: null,
-      ...(target.private === true ? { private: true } : {}),
-    });
-    set((s) => ({
-      tabs: [...s.tabs, { tabId, mode: "rpc-ui", projectCwd, hidden: false, instanceId }],
-      ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
-      exited: dropExited(s.exited, tabId),
-      seanceDialog: null,
-    }));
+    // A chat source has no project: its consult lands in a fresh chat.
+    let tabId: string;
+    if (target.chat === true) {
+      const landed = await get().newChat(target.private === true ? { private: true } : {});
+      set({ seanceDialog: null });
+      if (landed === null) return;
+      tabId = landed;
+    } else {
+      const { instanceId, projectCwd } = target;
+      const { advisor, advisorModel } = await deps.resolveSpawnParams(
+        projectCwd,
+        { mode: "rpc-ui" },
+        instanceId,
+      );
+      const spawned = await backendFor(instanceId).spawnSession({
+        origin: "new",
+        projectCwd,
+        mode: "rpc-ui",
+        advisor,
+        advisorModel,
+        cols: 80,
+        rows: 24,
+        planMode: false,
+        worktree: null,
+        ...(target.private === true ? { private: true } : {}),
+      });
+      tabId = spawned.tabId;
+      set((s) => ({
+        tabs: [...s.tabs, { tabId, mode: "rpc-ui", projectCwd, hidden: false, instanceId }],
+        ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
+        exited: dropExited(s.exited, tabId),
+        seanceDialog: null,
+      }));
+    }
     await m.pollUntilSettled(tabId);
     if (get().rpc[tabId]?.status !== "ready") {
       if (get().rpc[tabId]?.status !== "error" && get().exited[tabId] === undefined) {
@@ -211,6 +222,7 @@ export function createSeanceSlice(
         sourceSession: transcript,
         sourceLabel: record.title,
         private: record.private,
+        chat: record.chat,
       },
       t("seance.dialog.defaultQuestion"),
     );
