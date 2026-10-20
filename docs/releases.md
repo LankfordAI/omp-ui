@@ -4,16 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Owned sessions can now be carried across machines: pack from a laptop or a joined remote instance, transfer, and unpack on the target so the session continues there with its artifacts and worktree history; model sign-ins move along only after their own explicit confirmation ([#888](https://github.com/LankfordAI/omp-ui/issues/888)).
-- Saved sessions can be consulted in place through the bundled seance agent — pick a source session and ask it questions without resuming it, waking it, or branching its lineage ([#885](https://github.com/LankfordAI/omp-ui/issues/885)).
-- Plan review now offers omp's execution tiers and hands the chosen tier to the implementation session; older omp builds keep the plain two-button review ([#886](https://github.com/LankfordAI/omp-ui/issues/886)).
-- Between-tool narration the model intends you to read renders as reply text in the native transcript instead of hiding behind the thinking disclosure ([#884](https://github.com/LankfordAI/omp-ui/issues/884)).
-- The approval card is restored on omp 18.11.3+ three-option prompts, including the new Approve-for-this-session answer ([#883](https://github.com/LankfordAI/omp-ui/issues/883)).
-- Advisor notes now distinguish a note that woke the agent from one parked as a transcript card, and `advisor.continueSeverity` is settable on Settings → omp ([#882](https://github.com/LankfordAI/omp-ui/issues/882)).
-- `sharpshooter.minPromptLength` and the status line's profile-name toggle are settable on Settings → omp ([#887](https://github.com/LankfordAI/omp-ui/issues/887)).
-- Warm-pool session adoption is hardened against pin mismatches, directory collisions, stubborn process kills, and boot stalls ([#892](https://github.com/LankfordAI/omp-ui/issues/892)).
-- CI: `verify-macos-package.sh` now retries `stapler validate` so transient Apple ticket-lookup drops no longer kill the macOS package lane ([#879](https://github.com/LankfordAI/omp-ui/issues/879)).
-- Capability-catalog test fixtures are fenced with a sentinel `.git`, so fixture cwds can never resolve against the real repository ([#891](https://github.com/LankfordAI/omp-ui/issues/891)).
+Nothing since [v0.24.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.24.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
