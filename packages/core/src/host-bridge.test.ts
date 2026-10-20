@@ -61,12 +61,12 @@ describe("host registration definitions", () => {
         },
       }],
     });
-    expect(setHostToolsCommand({ vault: false }, "tools-custom")).toMatchObject({ id: "tools-custom" });
+    expect(setHostToolsCommand({ vault: false, fleet: false }, "tools-custom")).toMatchObject({ id: "tools-custom" });
   });
 
   it("adds exactly seven essential vault tools after notify only when enabled", () => {
-    expect(hostToolsDefinition({ vault: false }).map((tool) => tool.name)).toEqual(["omp-ui_notify"]);
-    const command = setHostToolsCommand({ vault: true }, "vault-tools") as {
+    expect(hostToolsDefinition({ vault: false, fleet: false }).map((tool) => tool.name)).toEqual(["omp-ui_notify"]);
+    const command = setHostToolsCommand({ vault: true, fleet: false }, "vault-tools") as {
       id: string;
       type: string;
       tools: RpcHostToolDefinition[];
@@ -92,8 +92,54 @@ describe("host registration definitions", () => {
     }
   });
 
+  it.each([
+    [{ vault: false, fleet: false }, ["omp-ui_notify"]],
+    [{ vault: false, fleet: true }, ["omp-ui_notify", "omp-ui_fleet_machines", "omp-ui_fleet_dispatch", "omp-ui_fleet_status"]],
+    [
+      { vault: true, fleet: false },
+      [
+        "omp-ui_notify",
+        "omp-ui_vault_search",
+        "omp-ui_vault_read",
+        "omp-ui_vault_list",
+        "omp-ui_vault_create",
+        "omp-ui_vault_append",
+        "omp-ui_vault_edit",
+        "omp-ui_vault_link",
+      ],
+    ],
+    [
+      { vault: true, fleet: true },
+      [
+        "omp-ui_notify",
+        "omp-ui_vault_search",
+        "omp-ui_vault_read",
+        "omp-ui_vault_list",
+        "omp-ui_vault_create",
+        "omp-ui_vault_append",
+        "omp-ui_vault_edit",
+        "omp-ui_vault_link",
+        "omp-ui_fleet_machines",
+        "omp-ui_fleet_dispatch",
+        "omp-ui_fleet_status",
+      ],
+    ],
+  ])("registers %j as exactly these tools in order", (opts, names) => {
+    expect(hostToolsDefinition(opts).map((tool) => tool.name)).toEqual(names);
+  });
+
+  it("advertises the fleet tools as essential strict object schemas", () => {
+    const fleet = hostToolsDefinition({ vault: false, fleet: true }).slice(1);
+    for (const tool of fleet) {
+      expect(tool.loadMode).toBe("essential");
+      expect(tool.parameters.type).toBe("object");
+      expect(tool.parameters.additionalProperties).toBe(false);
+    }
+    expect(fleet.map((tool) => tool.parameters.required ?? [])).toEqual([[], ["prompt", "project"], []]);
+  });
+
   it("advertises each tool's exact argument types, required fields and defaults", () => {
-    const actual = hostToolsDefinition({ vault: true }).slice(1).map((tool) => {
+    const actual = hostToolsDefinition({ vault: true, fleet: false }).slice(1).map((tool) => {
       const properties = tool.parameters.properties as Record<string, Record<string, unknown>>;
       return {
         name: tool.name,

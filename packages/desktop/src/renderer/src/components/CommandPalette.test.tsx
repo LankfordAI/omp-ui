@@ -112,7 +112,7 @@ const CWD_RECORD = {
   launchedAt: "t",
   mode: "rpc-ui" as const,
   worktree: null,
-  planImplementationSource: null, experiment: null,
+  planImplementationSource: null, experiment: null, fleet: null,
   agentMode: "build" as const,
   compactionMethod: null,
   approvalMode: null,

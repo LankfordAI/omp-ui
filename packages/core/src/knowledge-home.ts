@@ -32,6 +32,16 @@ interface ResolvedDeps {
   readFile: (p: string) => Promise<string>;
 }
 
+function resolveDeps(deps: KnowledgeHomeDeps): ResolvedDeps {
+  return {
+    runGit: deps.runGit ?? git,
+    env: deps.env ?? process.env,
+    platform: deps.platform ?? process.platform,
+    home: deps.home ?? os.homedir(),
+    readFile: deps.readFile ?? ((p) => readFile(p, "utf8")),
+  };
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -110,6 +120,18 @@ async function remoteIdentity(
   } catch {
     return "unknown";
   }
+}
+
+/**
+ * The fleet repository key (issue #899): `host/owner/repo` of the checkout's
+ * web remote, lowercased, so every clone of one repository on any machine
+ * yields the same key whatever its path. Null with no repo, no remote, or no
+ * single web remote. Never rejects.
+ */
+export async function resolveRepositoryKey(cwd: string, deps: KnowledgeHomeDeps = {}): Promise<string | null> {
+  const identity = await remoteIdentity(cwd, resolveDeps(deps));
+  if (typeof identity !== "object") return null;
+  return `${identity.host}/${identity.segments.join("/")}`.toLowerCase();
 }
 
 /**
@@ -197,14 +219,7 @@ export async function resolveVaultProject(
   projectCwd: string,
   deps: KnowledgeHomeDeps = {},
 ): Promise<VaultProjectIdentity> {
-  const resolved: ResolvedDeps = {
-    runGit: deps.runGit ?? git,
-    env: deps.env ?? process.env,
-    platform: deps.platform ?? process.platform,
-    home: deps.home ?? os.homedir(),
-    readFile: deps.readFile ?? ((p) => readFile(p, "utf8")),
-  };
-  const identity = await remoteIdentity(projectCwd, resolved);
+  const identity = await remoteIdentity(projectCwd, resolveDeps(deps));
   return vaultProjectIdentity(displayName, typeof identity === "object" ? identity.segments : null);
 }
 
@@ -226,14 +241,7 @@ export async function resolveKnowledgeHome(
     if (vault === null) return { kind: "none" };
     return { kind: home.home, vault, source: "set" };
   }
-  const resolved: ResolvedDeps = {
-    runGit: deps.runGit ?? git,
-    env: deps.env ?? process.env,
-    platform: deps.platform ?? process.platform,
-    home: deps.home ?? os.homedir(),
-    readFile: deps.readFile ?? ((p) => readFile(p, "utf8")),
-  };
-  if (await routesToDocs(projectCwd, resolved)) return { kind: "docs", source: "default" };
+  if (await routesToDocs(projectCwd, resolveDeps(deps))) return { kind: "docs", source: "default" };
   if (reg.vaults.length === 0 || reg.defaultWriteVault === null) return { kind: "none" };
   return { kind: "vault", vault: reg.defaultWriteVault, source: "default" };
 }

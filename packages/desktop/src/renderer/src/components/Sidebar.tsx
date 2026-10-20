@@ -34,7 +34,7 @@ import { ProjectOpenControl } from "./ProjectOpenControl";
 import { ProjectActionsSheet } from "./ProjectActionsSheet";
 import { ChatList, SkeletonRows, filterChats, type OpenSessionMenu } from "./ChatList";
 import { setSidebarMode, useSidebarMode } from "../lib/sidebar-mode";
-import { Button, Chevron, ChoiceCapsule, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconGrip, IconGroup, IconPencil, IconPlus, IconRefresh, IconSearch, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
+import { Button, Chevron, ChoiceCapsule, Chip, Dot, Empty, IconButton, IconClose, IconFlask, IconFleet, IconGrip, IconGroup, IconPencil, IconPlus, IconRefresh, IconSearch, IconTune, MiddleTruncate, Panel, ResizeHandle, Sheet } from "./ui";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -1225,6 +1225,8 @@ export function Sidebar() {
   const compact = useCompactShell();
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
+  const openFleet = useStore((st) => st.openFleet);
+  const fleetOpen = useStore((st) => st.fleet !== null);
   const mode = useSidebarMode();
 
   // Desktop collapse memory lives in the store: the toggle moved to App's
@@ -1571,12 +1573,22 @@ export function Sidebar() {
               )}
             </div>
             {mode === "work" && hostChoices.length > 0 && (
-              <div className="mt-1">
-                <HostScopePicker
-                  instances={hostChoices}
-                  scope={effectiveScope}
-                  onScope={setHostScope}
-                />
+              <div className="mt-1 flex items-center gap-1.5">
+                <div className="min-w-0 flex-1">
+                  <HostScopePicker
+                    instances={hostChoices}
+                    scope={effectiveScope}
+                    onScope={setHostScope}
+                  />
+                </div>
+                <IconButton
+                  label={t("fleet.sidebar.open")}
+                  pressed={fleetOpen}
+                  onClick={() => { openFleet(); closeCompactSurface(); }}
+                  className={compact ? "size-9 rounded-md border border-line" : undefined}
+                >
+                  <IconFleet />
+                </IconButton>
               </div>
             )}
           </div>

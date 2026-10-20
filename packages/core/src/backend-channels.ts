@@ -92,6 +92,7 @@ import type {
   BrowserPaneClearDataResult,
 } from "./browser-pane";
 import type { RpcFrame } from "./rpc/codec";
+import type { FleetDispatchRequest, FleetDispatchResult, FleetHostReport, FleetMachine, PlacementPreference } from "./fleet";
 import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
 import {
   agentModeCodec,
@@ -135,6 +136,9 @@ import {
   updateTrainCodec,
   vaultNoteVoiceCodec,
   worktreeReleaseOptionsCodec,
+  fleetDispatchRequestCodec,
+  machineKeyCodec,
+  placementPreferenceCodec,
   type ArgCodec,
   type ArgCodecs,
   subagentModelMapCodec,
@@ -482,6 +486,16 @@ export const BACKEND_CHANNELS = {
   setVaultNoteVoice: {
     channel: "settings:setVaultNoteVoice",
     ...request<[voice: VaultNoteVoice], void>([vaultNoteVoiceCodec]),
+  },
+  /** One fleet member's placement preference (issue #899); "normal" clears the key. */
+  setFleetPlacement: {
+    channel: "settings:setFleetPlacement",
+    ...request<[machineKey: string, pref: PlacementPreference], void>([machineKeyCodec, placementPreferenceCodec]),
+  },
+  /** Registers the fleet host tools on later spawns (issue #899). */
+  setFleetAgentDispatch: {
+    channel: "settings:setFleetAgentDispatch",
+    ...request<[on: boolean], void>([bool()]),
   },
   /** Clears the remembered omp-ui update dismissal so the offer can return. */
   clearDismissedAppUpdate: {
@@ -1082,6 +1096,22 @@ export const BACKEND_CHANNELS = {
     channel: "stats:overview",
     ...request<[rangeDays: number | null], StatsOverview>([nullable(num())]),
   },
+  /**
+   * Fleet dispatch (issue #899, ADR-0061). This host's resources and
+   * projects for placement; proxied, so a joiner asks each member.
+   */
+  fleetHostReport: { channel: "fleet:hostReport", ...request<[], FleetHostReport>([]) },
+  /** The owner-rendered summary of one session; tab-routed to its owner. */
+  fleetSessionSummary: { channel: "fleet:sessionSummary", ...request<[tabId: string], string>([str()]) },
+  /** This app plus every joined instance as dispatch targets. Local only. */
+  fleetMachines: { channel: "fleet:machines", ...request<[], FleetMachine[]>([]) },
+  /** Starts one dispatch (or batch) from this app. Local only. */
+  fleetDispatch: {
+    channel: "fleet:dispatch",
+    ...request<[req: FleetDispatchRequest], FleetDispatchResult>([fleetDispatchRequestCodec]),
+  },
+  /** Drops one unknown-outcome row from fleetPending. Local only. */
+  fleetDismissPending: { channel: "fleet:dismissPending", ...request<[dispatchId: string], void>([str()]) },
   /**
    * Lists resolved, redacted MCP servers and per-file errors; null projectCwd
    * lists the global (user-level) scope only.

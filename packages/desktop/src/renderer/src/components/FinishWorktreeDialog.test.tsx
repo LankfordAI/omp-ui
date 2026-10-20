@@ -126,7 +126,7 @@ const summary: SessionSummary = {
   launchedAt: "2026-01-01T00:00:00.000Z",
   mode: "pty",
   worktree: { path: "/wt/x", branch: BRANCH, base: "main" },
-  planImplementationSource: null, experiment: null,
+  planImplementationSource: null, experiment: null, fleet: null,
   agentMode: "build",
   compactionMethod: null,
   approvalMode: null,

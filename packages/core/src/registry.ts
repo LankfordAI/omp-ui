@@ -8,6 +8,7 @@ import { parseProposedPlans } from "./plan";
 import { normalizeSidebarGroupName, SIDEBAR_GROUP_NAME_MAX_LENGTH } from "./sidebar-groups";
 import { parseVaultRegistry } from "./vault-registry";
 import { isKnowledgeHome } from "./vault-shared";
+import { isFleetProvenance, parseFleetPlacement, type PlacementPreference } from "./fleet";
 import type {
   AgentMode,
   ApprovalMode,
@@ -136,6 +137,11 @@ export interface RegistrySettings {
   remotePasswordSalt: string;
   /** This app's stable identity for remote-instance joins (issue #416); "" until first minted. */
   instanceId: string;
+  /** Per-fleet-member placement preference (issue #899), keyed by machine
+   *  key ("local" or a remote instance id); absent = "normal". */
+  fleetPlacement: Record<string, PlacementPreference>;
+  /** Register the omp-ui_fleet_* host tools on new spawns (issue #899); default off. */
+  fleetAgentDispatch: boolean;
 }
 
 interface RegistryData {
@@ -402,6 +408,13 @@ export const SETTINGS: SettingDescriptors = {
     () => "",
     (value): value is string => typeof value === "string",
   ),
+  // A fresh object every parse: setSetting no-ops on Object.is equality, so
+  // writers always pass a new map too.
+  fleetPlacement: { fallback: () => ({}), parse: parseFleetPlacement },
+  fleetAgentDispatch: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
 };
 
 const SETTING_KEYS = Object.keys(SETTINGS) as SettingKey[];
@@ -621,6 +634,9 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // askSource (issue #895) post-dates schema-1; absent loads as null, a
     // present value must name both the source tab and its session id.
     optNullable(value, "askSource", isAskSource) &&
+    // fleet (issue #899) post-dates schema-1; absent loads as null, a present
+    // value must be complete provenance or the record drops.
+    optNullable(value, "fleet", isFleetProvenance) &&
     // subagentModels post-dates the advisor picker records too; absent loads
     // as null, which is also the umbrella-applies state (ADR-0031).
     optNullable(value, "subagentModels", isSubagentModelMap) &&
@@ -676,6 +692,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       private: s.private === true,
       chat: s.chat === true,
       askSource: s.askSource ?? null,
+      fleet: s.fleet ?? null,
       model: s.model ?? null,
       thinkingLevel: s.thinkingLevel ?? null,
       advisorModel: s.advisorModel ?? null,

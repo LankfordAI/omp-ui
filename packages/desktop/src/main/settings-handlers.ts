@@ -3,6 +3,7 @@ import {
   type AgentMode,
   type GlassChrome,
   type PlanFormat,
+  type PlacementPreference,
   type Registry,
   type RequestHandlers,
   type RegistrySettings,
@@ -42,7 +43,9 @@ type SettingsHandlerChannels =
   | typeof CH.setAppUpdateTrain
   | typeof CH.setOmpUpdateCheckOnLaunch
   | typeof CH.setOmpAutoUpgrade
-  | typeof CH.setVaultNoteVoice;
+  | typeof CH.setVaultNoteVoice
+  | typeof CH.setFleetPlacement
+  | typeof CH.setFleetAgentDispatch;
 
 interface SettingsHandlerDependencies {
   registry: Registry;
@@ -105,5 +108,11 @@ export function registerSettingsHandlers(
     [CH.setOmpUpdateCheckOnLaunch]: (value: boolean) => commit("ompUpdateCheckOnLaunch", value),
     [CH.setOmpAutoUpgrade]: (value: boolean) => commit("ompAutoUpgrade", value),
     [CH.setVaultNoteVoice]: (value: VaultNoteVoice) => commit("vaultNoteVoice", value),
+    // Always a new object (setSetting is an Object.is no-op); "normal" is the absent default.
+    [CH.setFleetPlacement]: (machineKey: string, pref: PlacementPreference) => {
+      const { [machineKey]: _previous, ...rest } = deps.registry.getSetting("fleetPlacement");
+      return commit("fleetPlacement", pref === "normal" ? rest : { ...rest, [machineKey]: pref });
+    },
+    [CH.setFleetAgentDispatch]: (value: boolean) => commit("fleetAgentDispatch", value),
   };
 }

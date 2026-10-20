@@ -68,12 +68,33 @@ const newExperimentRequest: SpawnRequest = {
   experiment,
 };
 
+const fleetSpec = {
+  dispatchId: "dispatch-1",
+  batchId: null,
+  title: "Fix the login bug",
+  prompt: "Fix the login bug.\nRun the tests.",
+  requestedBy: { instanceId: "instance-a", label: "laptop", kind: "user" as const, sourceTabId: null },
+};
+
+const newFleetRequest: SpawnRequest = {
+  origin: "new",
+  mode: "rpc-ui",
+  projectCwd: "/project",
+  advisor: false,
+  advisorModel: null,
+  cols: 80,
+  rows: 24,
+  worktree: { mint: { branch: "omp-ui/fleet", baseRef: null, baseBranch: null } },
+  planMode: false,
+  fleet: fleetSpec,
+};
+
 describe("parseSpawnRequest", () => {
   const nullPlanSource: SpawnRequest = {
     ...newRpcRequest,
     planImplementationSource: null, experiment: null,
   };
-  it.each([newRpcRequest, newPtyRequest, newCheckoutRequest, newProjectRequest, nullPlanSource, newExperimentRequest, resumeRequest])(
+  it.each([newRpcRequest, newPtyRequest, newCheckoutRequest, newProjectRequest, nullPlanSource, newExperimentRequest, newFleetRequest, resumeRequest])(
     "round-trips a well-shaped $origin request",
     (request) => {
       expect(parseSpawnRequest(request)).toEqual(request);
@@ -125,6 +146,13 @@ describe("parseSpawnRequest", () => {
     ["resume non-string carryover", { ...resumeRequest, carryoverContext: 42 }],
     ["resume empty carryover", { ...resumeRequest, carryoverContext: "" }],
     ["resume private (record-persisted, no resume key)", { ...resumeRequest, private: true }],
+    ["fleet on pty", { ...newPtyRequest, fleet: fleetSpec }],
+    ["fleet on resume", { ...resumeRequest, fleet: fleetSpec }],
+    ["fleet alongside planImplementationSource", { ...newRpcRequest, fleet: fleetSpec }],
+    ["fleet alongside a null planImplementationSource", { ...newFleetRequest, planImplementationSource: null }],
+    ["fleet alongside experiment", { ...newExperimentRequest, fleet: fleetSpec }],
+    ["fleet with a blank prompt", { ...newFleetRequest, fleet: { ...fleetSpec, prompt: "  " } }],
+    ["fleet with an unknown key", { ...newFleetRequest, fleet: { ...fleetSpec, extra: true } }],
   ] as const)("rejects %s", (_label, raw) => {
     expect(() => parseSpawnRequest(raw)).toThrow(/spawn request/);
   });
@@ -189,6 +217,7 @@ describe("parseSpawnRequest", () => {
       ["plan mode", { ...chatRaw, planMode: false }],
       ["a plan source", { ...chatRaw, planImplementationSource: null }],
       ["an experiment", { ...chatRaw, experiment: null }],
+      ["a fleet dispatch", { ...chatRaw, fleet: fleetSpec }],
     ] as const)("rejects a chat with %s", (_label, raw) => {
       expect(() => parseSpawnRequest(raw)).toThrow(/spawn request/);
     });

@@ -3,8 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
-import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type HostBridgeDeps, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
+import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
+import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type FleetBridgeDeps, type HostBridgeDeps, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
 import type { ConfinedPlanRead } from "./plan-file";
 
 const PLAN_ABS = "/sessions/lineage/plan-abc-plan.md";
@@ -233,7 +233,7 @@ describe("HostBridge omp-ui://sessions", () => {
       lineageDir: "omp-ui--proj--11111111-2222-3333-4444-555555555555",
       projectCwd: "/abs/proj",
       worktree: null,
-      planImplementationSource: null, experiment: null,
+      planImplementationSource: null, experiment: null, fleet: null,
       launchedAt: new Date(2026, 9, 6, 9).toISOString(),
       mode: "rpc-ui",
       compactionMethod: null,
@@ -438,6 +438,165 @@ function fixtureDeps(): HostBridgeDeps {
     log: () => {},
   };
 }
+
+describe("HostBridge fleet tools (issue #899)", () => {
+  const PROJECT = "/work/repo";
+  const REPO_KEY = "github.com/acme/repo";
+  const machine = (key: string, nickname: string | null): FleetMachine => ({
+    key,
+    nickname,
+    status: "ready",
+    error: null,
+    preference: "normal",
+    receivedAt: 1,
+    report: {
+      instanceId: `inst-${key}`,
+      label: key,
+      version: "1.0.0",
+      platform: "linux",
+      arch: "x64",
+      cpuCount: 8,
+      cpuUtilization: 0.25,
+      totalMemoryBytes: 100,
+      availableMemoryBytes: 50,
+      liveSessions: 1,
+      runningTurns: 0,
+      sampledAt: 1,
+      projects: [
+        { path: key === LOCAL_MACHINE_KEY ? PROJECT : `/remote/${key}/repo`, name: "repo", repositoryKey: REPO_KEY, headCommit: null, providerReady: true, advisor: false, advisorModel: null },
+      ],
+    },
+  });
+  const MACHINES = [machine(LOCAL_MACHINE_KEY, null), machine("remote-b", "studio")];
+  const fleetBridge = (fleet: Partial<FleetBridgeDeps>): { bridge: HostBridge; sent: RpcFrame[]; logs: string[] } => {
+    const sent: RpcFrame[] = [];
+    const logs: string[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      log: (line) => logs.push(line),
+      fleet: {
+        machines: async () => MACHINES,
+        dispatch: async () => ({ batchId: null, outcomes: [] }),
+        status: async () => "no sessions",
+        ...fleet,
+      },
+    });
+    return { bridge, sent, logs };
+  };
+
+  it("answers machines, dispatch, and status through the deps", async () => {
+    const dispatched: Array<{ tabId: string; req: FleetDispatchRequest }> = [];
+    const statusSelectors: unknown[] = [];
+    const { bridge, sent, logs } = fleetBridge({
+      dispatch: async (tabId, req) => {
+        dispatched.push({ tabId, req });
+        return {
+          batchId: "batch-1",
+          outcomes: [
+            { dispatchId: "d-1", machineKey: LOCAL_MACHINE_KEY, projectCwd: PROJECT, status: "started", tabId: "new-tab" },
+            { dispatchId: "d-2", machineKey: "remote-b", projectCwd: "/remote/remote-b/repo", status: "unknown", message: "remote connection lost" },
+          ],
+        };
+      },
+      status: async (sel) => {
+        statusSelectors.push(sel);
+        return "- studio: Fix the flake: working";
+      },
+    });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("m1", FLEET_TOOLS[0], {}), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("d1", FLEET_TOOLS[1], { prompt: "SECRET-PROMPT fix it", project: PROJECT, machines: ["this computer", "Studio"] }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("s1", FLEET_TOOLS[2], { batchId: "batch-1" }), send);
+    await settled();
+
+    expect(sent.map((frame) => frame.id)).toEqual(["m1", "d1", "s1"]);
+    for (const frame of sent) expect(frame).not.toHaveProperty("isError");
+    expect(resultText(sent[0]!)).toContain("- studio: ready; CPU 25%; 50% memory free");
+    expect(resultText(sent[0]!)).toContain(`${PROJECT} (${REPO_KEY})`);
+    expect(dispatched).toEqual([
+      {
+        tabId: "t1",
+        req: {
+          prompt: "SECRET-PROMPT fix it",
+          title: null,
+          workspace: "worktree",
+          planMode: false,
+          targets: {
+            kind: "explicit",
+            picks: [
+              { machineKey: LOCAL_MACHINE_KEY, projectCwd: PROJECT },
+              { machineKey: "remote-b", projectCwd: "/remote/remote-b/repo" },
+            ],
+          },
+        },
+      },
+    ]);
+    const dispatchText = resultText(sent[1]!);
+    expect(dispatchText).toContain("batch-1");
+    expect(dispatchText).toContain("- this computer: started (tab new-tab); dispatchId d-1");
+    expect(dispatchText).toContain("- studio: unknown (remote connection lost); dispatchId d-2");
+    expect(dispatchText).toContain("omp-ui_fleet_status");
+    expect(statusSelectors).toEqual([{ batchId: "batch-1" }]);
+    expect(resultText(sent[2]!)).toBe("- studio: Fix the flake: working");
+    // One line per dispatch: machine keys and statuses, never the prompt.
+    expect(logs).toEqual([`omp-ui_fleet_dispatch from t1: ${LOCAL_MACHINE_KEY}=started, remote-b=unknown`]);
+  });
+
+  it("answers strict refusals and a missing fleet as error results without dispatching", async () => {
+    const dispatch = vi.fn(async (): Promise<FleetDispatchResult> => ({ batchId: null, outcomes: [] }));
+    const { bridge, sent } = fleetBridge({ dispatch });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("a", FLEET_TOOLS[0], { extra: 1 }), send);
+    bridge.route("t1", toolCallFrame("b", FLEET_TOOLS[1], { prompt: "   ", project: PROJECT }), send);
+    bridge.route("t1", toolCallFrame("c", FLEET_TOOLS[1], { prompt: "go", project: PROJECT, machines: ["studio"], count: 2 }), send);
+    bridge.route("t1", toolCallFrame("d", FLEET_TOOLS[1], { prompt: "go", project: PROJECT, machines: ["nowhere"] }), send);
+    bridge.route("t1", toolCallFrame("e", FLEET_TOOLS[2], { batchId: "x", dispatchId: "y" }), send);
+    bridge.route("t1", toolCallFrame("f", "omp-ui_fleet_launch", {}), send);
+    const bare = new HostBridge(fixtureDeps());
+    bare.route("t1", toolCallFrame("g", FLEET_TOOLS[0], {}), send);
+    await settled();
+
+    const byId = new Map(sent.map((frame) => [frame.id, frame]));
+    expect([...byId.keys()].sort()).toEqual(["a", "b", "c", "d", "e", "f", "g"]);
+    for (const frame of sent) expect(frame).toMatchObject({ type: "host_tool_result", isError: true });
+    expect(resultText(byId.get("a")!)).toBe('unknown argument "extra"');
+    expect(resultText(byId.get("c")!)).toBe("give either machines or count, not both");
+    expect(resultText(byId.get("d")!)).toBe('no fleet machine is named "nowhere"');
+    expect(resultText(byId.get("e")!)).toBe("give exactly one of batchId or dispatchId");
+    expect(resultText(byId.get("f")!)).toContain('unknown host tool "omp-ui_fleet_launch"');
+    expect(resultText(byId.get("g")!)).toBe("fleet tools are not available");
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("a slow dispatch that honors its deadline still answers before the watchdog", async () => {
+    vi.useFakeTimers();
+    // The SessionManager mapping hands FleetDispatcher a 45 s deadline; a dep
+    // honoring it settles every target (unknown) at that bound.
+    const DEADLINE_MS = 45_000;
+    const { bridge, sent } = fleetBridge({
+      dispatch: () =>
+        new Promise<FleetDispatchResult>((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                batchId: null,
+                outcomes: [{ dispatchId: "d-1", machineKey: "remote-b", projectCwd: "/remote/remote-b/repo", status: "unknown", message: "no answer before the deadline" }],
+              }),
+            DEADLINE_MS,
+          );
+        }),
+    });
+    bridge.route("t1", toolCallFrame("d1", FLEET_TOOLS[1], { prompt: "go", project: REPO_KEY, machines: ["studio"] }), (frame) => sent.push(frame));
+    await vi.advanceTimersByTimeAsync(DEADLINE_MS);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toHaveProperty("isError");
+    expect(resultText(sent[0]!)).toContain("- studio: unknown (no answer before the deadline); dispatchId d-1");
+    await vi.advanceTimersByTimeAsync(HOST_ANSWER_WATCHDOG_MS);
+    expect(sent).toHaveLength(1);
+  });
+});
 
 const vaultFixtures: Array<{ root: string; bridge: HostBridge }> = [];
 afterEach(() => {

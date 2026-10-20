@@ -20,6 +20,8 @@ import { SeanceConsultDialog } from "./components/SeanceConsultDialog";
 import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
 import { Lab } from "./components/lab/Lab";
 import { Stats } from "./components/stats/Stats";
+import { Fleet } from "./components/fleet/Fleet";
+import { FleetDispatchDialog } from "./components/fleet/FleetDispatchDialog";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { ProjectPicker } from "./components/ProjectPicker";
@@ -301,6 +303,8 @@ export default function App() {
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
   const lab = useStore((s) => s.lab);
   const stats = useStore((s) => s.stats);
+  const fleetOpen = useStore((s) => s.fleet !== null);
+  const fleetDispatchOpen = useStore((s) => s.fleetDispatchOpen);
   const experimentDialog = useStore((s) => s.experimentDialog);
   const seanceDialog = useStore((s) => s.seanceDialog);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
@@ -477,7 +481,13 @@ export default function App() {
   // The Lab takes the main pane whole (issue #559): the tabs stay mounted
   // underneath, hidden, exactly as a background tab is.
   const compactTitle =
-    stats !== null ? t("stats.header.title") : lab !== null ? t("lab.header.title") : activeTitle ?? t("app.compact.projectsAndSessions");
+    stats !== null
+      ? t("stats.header.title")
+      : fleetOpen
+        ? t("fleet.header.title")
+        : lab !== null
+          ? t("lab.header.title")
+          : activeTitle ?? t("app.compact.projectsAndSessions");
 
   return (
     <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden backdrop-wash font-sans text-ink">
@@ -530,7 +540,7 @@ export default function App() {
              * with it and the session becomes unrecoverable in place.
              */}
             {tabs.map((t) => {
-              const shown = lab === null && stats === null && t.tabId === activeTabId && !t.hidden;
+              const shown = lab === null && stats === null && !fleetOpen && t.tabId === activeTabId && !t.hidden;
               return (
                 <div
                   key={t.tabId}
@@ -548,7 +558,8 @@ export default function App() {
             })}
             {lab !== null && experimentsEnabled && <Lab view={lab} />}
             {stats !== null && <Stats />}
-            {visibleTabs.length === 0 && (lab === null || !experimentsEnabled) && stats === null && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
+            {fleetOpen && <Fleet />}
+            {visibleTabs.length === 0 && (lab === null || !experimentsEnabled) && stats === null && !fleetOpen && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
           </div>
         </div>
       </div>
@@ -605,6 +616,7 @@ export default function App() {
       {finishWorktreeTab !== null && (
         <FinishWorktreeDialog key={finishWorktreeTab} tabId={finishWorktreeTab} />
       )}
+      {fleetDispatchOpen && <FleetDispatchDialog />}
       {/* Below the Settings/ProjectPicker portals so their overlays outrank it
           in useOverlay's stack (issue #623). */}
       {gettingStartedOpen && <GettingStarted />}

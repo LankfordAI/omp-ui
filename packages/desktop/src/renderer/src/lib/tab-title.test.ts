@@ -28,7 +28,7 @@ function group(path: string, tabId: string, title: string): ProjectGroup {
         launchedAt: "2026-08-03T00:00:00.000Z",
         mode: "rpc-ui",
         worktree: null,
-        planImplementationSource: null, experiment: null,
+        planImplementationSource: null, experiment: null, fleet: null,
         agentMode: "build",
         compactionMethod: null,
         approvalMode: null,

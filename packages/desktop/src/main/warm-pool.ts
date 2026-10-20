@@ -147,6 +147,7 @@ export function sanitizeWarmTemplate(record: OwnedSessionRecord): OwnedSessionRe
     worktree: null,
     planImplementationSource: null,
     askSource: null,
+    fleet: null,
     launchedAt: new Date().toISOString(),
     agentMode: "build",
     approvalMode: null,

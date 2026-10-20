@@ -489,7 +489,7 @@ function sessionRecords(now: Date): OwnedSessionRecord[] {
     lineageDir: LINEAGE_A,
     projectCwd: "/abs/smoke",
     worktree: null,
-    planImplementationSource: null, experiment: null,
+    planImplementationSource: null, experiment: null, fleet: null,
     launchedAt: at(0),
     mode: "rpc-ui",
     compactionMethod: null,

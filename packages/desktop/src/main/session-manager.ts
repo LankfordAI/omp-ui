@@ -15,6 +15,10 @@ import {
   renderSessionSummary,
   stageAskContext,
   stageCarryoverContext,
+  stageFleetPrompt,
+  readFleetPrompt,
+  consumeFleetPrompt,
+  fleetPromptCommandId,
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
   deleteSessionFiles,
@@ -79,6 +83,9 @@ import {
   type ImageAttachment,
   type DocumentAttachment,
   type OwnedSessionRecord,
+  type FleetDispatchRequest,
+  type FleetDispatchResult,
+  type FleetMachine,
   type AskSource,
   type ObsidianListEntry,
   type RpcFrame,
@@ -169,6 +176,23 @@ function unreachableLiveEntry(entry: never): never {
   throw new Error(`unreachable live entry kind: ${String(entry)}`);
 }
 
+/**
+ * The structural fleet seam SessionManager answers agent fleet tools through
+ * (issue #899, ADR-0061); the desktop FleetDispatcher satisfies it.
+ */
+export interface FleetDispatcherLike {
+  machines(): Promise<FleetMachine[]>;
+  dispatch(
+    req: FleetDispatchRequest,
+    who: { kind: "user" } | { kind: "agent"; sourceTabId: string },
+    opts?: { deadlineMs?: number },
+  ): Promise<FleetDispatchResult>;
+  statusText(sel: { batchId: string } | { dispatchId: string }): Promise<string>;
+}
+
+/** The agent dispatch deadline: the answer must land inside HOST_ANSWER_WATCHDOG_MS (60 s). */
+const AGENT_FLEET_DEADLINE_MS = 45_000;
+
 export interface SessionManagerDependencies {
   registry: Registry;
   registryFile: string;
@@ -233,6 +257,12 @@ export interface SessionManagerDependencies {
   warmRpc?: boolean;
   /** Force-enables the warm pool in tests; production never sets it. */
   forceWarmPool?: boolean;
+  /**
+   * The fleet dispatcher behind the agent fleet tools (issue #899); read
+   * lazily because the backend builds it after this manager. Absent = the
+   * fleet tools answer as unavailable.
+   */
+  fleet?: () => FleetDispatcherLike;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -275,6 +305,8 @@ export class SessionManager {
   private readonly gate: SpawnGate;
   /** The parked warm rpc-ui child pool (perf issue #908); inert under vitest or with deps.warmRpc false. */
   private readonly warmPool: WarmRpcPool;
+  /** In-flight fleet spawns keyed by dispatchId (ADR-0061): a retried dispatch joins the first instead of starting a second process. */
+  readonly #fleetInFlight = new Map<string, Promise<{ tabId: string }>>();
   private obsidianListPending: Promise<ObsidianListEntry[]> | null = null;
   private obsidianListCached: ObsidianListEntry[] | null = null;
   private obsidianListExpiresAt = 0;
@@ -361,6 +393,7 @@ export class SessionManager {
         if (!this.awaitingHumanAnswer(tabId)) this.stallWatchdog.humanAnswered(tabId);
       },
     });
+    const fleet = deps.fleet;
     this.hostBridge = new HostBridge({
       readPlanFile: (root, absPath) => readConfinedPlanFile(root, absPath),
       planSnapshot: (tabId, absPath) => this.planSnapshotFor(tabId, absPath),
@@ -417,6 +450,16 @@ export class SessionManager {
           resolveSessionLocation(deps.getSessionsRoot(), deps.getArchiveRoot(), lineageDir, sessionId),
         now: () => new Date(),
       },
+      ...(fleet === undefined
+        ? {}
+        : {
+            fleet: {
+              machines: () => fleet().machines(),
+              dispatch: (tabId, req) =>
+                fleet().dispatch(req, { kind: "agent", sourceTabId: tabId }, { deadlineMs: AGENT_FLEET_DEADLINE_MS }),
+              status: (sel) => fleet().statusText(sel),
+            },
+          }),
     });
     this.stallWatchdog = new StallWatchdog({
       registry: deps.registry,
@@ -683,7 +726,20 @@ export class SessionManager {
       );
     }
     this.validateSpawnSemantics(req);
-    if (req.origin === "new") return this.spawnInner(req);
+    if (req.origin === "new") {
+      const fleet = req.fleet;
+      if (fleet === undefined) return this.spawnInner(req);
+      // A dispatchId names one session (ADR-0061): a manual retry of an
+      // unknown outcome, or a concurrent duplicate, gets the first tab back
+      // instead of a second process. Decided synchronously, before any await.
+      const existing = this.deps.registry.sessions.find((s) => s.fleet?.dispatchId === fleet.dispatchId);
+      if (existing !== undefined) return { tabId: existing.tabId };
+      const inFlight = this.#fleetInFlight.get(fleet.dispatchId);
+      if (inFlight !== undefined) return inFlight;
+      const started = this.spawnInner(req).finally(() => this.#fleetInFlight.delete(fleet.dispatchId));
+      this.#fleetInFlight.set(fleet.dispatchId, started);
+      return started;
+    }
     const tabId = req.resumeTabId;
     const pending = this.pendingOp(tabId);
     if (pending?.kind === "spawn") return { tabId };
@@ -742,18 +798,22 @@ export class SessionManager {
     }
   }
 
+  /** The fresh-spawn provider gate for one project path: an API key, a provider sign-in, or a models.yml provider. */
+  modelProviderReady(projectCwd: string): boolean {
+    return (
+      this.deps.providerKeys.hasModelProvider(projectCwd) ||
+      (this.deps.hasOAuthProvider?.() ?? false) ||
+      (this.deps.hasConfiguredModelsFileProvider?.() ?? false)
+    );
+  }
+
   private async spawnInner(
     req: ProjectSpawnRequest,
     chat = false,
     ask: { source: AskSource; title: string; text: string } | null = null,
   ): Promise<{ tabId: string }> {
     const ompPath = this.requireOmpPath();
-    if (
-      req.origin === "new" &&
-      !this.deps.providerKeys.hasModelProvider(req.projectCwd) &&
-      !(this.deps.hasOAuthProvider?.() ?? false) &&
-      !(this.deps.hasConfiguredModelsFileProvider?.() ?? false)
-    ) {
+    if (req.origin === "new" && !this.modelProviderReady(req.projectCwd)) {
       throw new Error(
         "No model provider is configured. Add an API key or sign in to a provider under Settings → Providers before starting a session.",
       );
@@ -804,6 +864,8 @@ export class SessionManager {
           req.private !== true &&
           req.planImplementationSource == null &&
           req.experiment == null &&
+          // A fleet dispatch always boots cold (ADR-0061).
+          req.fleet == null &&
           gateSelector(this.gate) === null &&
           this.gate.advisorModel === null &&
           // The plan key includes projectCwd, and a chat cwd is never reused.
@@ -850,6 +912,14 @@ export class SessionManager {
               ? null
               : { ...req.planImplementationSource },
           experiment: req.experiment == null ? null : { ...req.experiment },
+          fleet: req.fleet
+            ? {
+                dispatchId: req.fleet.dispatchId,
+                batchId: req.fleet.batchId,
+                dispatchedAt: new Date().toISOString(),
+                requestedBy: { ...req.fleet.requestedBy },
+              }
+            : null,
           launchedAt: new Date().toISOString(),
           mode: req.mode,
           agentMode: "build",
@@ -869,13 +939,15 @@ export class SessionManager {
           private: req.private === true,
           chat,
           askSource: ask?.source ?? null,
-          cachedTitle: ask?.title ?? null,
+          cachedTitle: req.fleet?.title ?? ask?.title ?? null,
           cachedModified: null,
         });
         this.deps.registry.setSessionAdvisor(record.tabId, record.advisor, record.advisorModel);
         if (chat) createChatDir(this.deps.getChatsRoot(), record.projectCwd);
         // Dies with the lineage dir on a rollback (deleteSessionFiles).
         if (ask) stageAskContext(path.join(this.deps.getSessionsRoot(), record.lineageDir), ask.text);
+        // The dispatch prompt waits on disk until omp acknowledges it (ADR-0061).
+        if (req.fleet) stageFleetPrompt(path.join(this.deps.getSessionsRoot(), record.lineageDir), req.fleet.prompt);
       }
 
       const mode = req.origin === "resume" ? (req.mode ?? record.mode) : req.mode;
@@ -1341,7 +1413,12 @@ export class SessionManager {
     initialCommands.push(
       setEventFilterCommand(),
       setHostUriSchemesCommand(),
-      setHostToolsCommand({ vault: vaults.vaults.length > 0 }),
+      // Fleet tools follow the user's setting at each spawn/resume (ADR-0048);
+      // an agent-dispatched session never gets them (no recursion, ADR-0061).
+      setHostToolsCommand({
+        vault: vaults.vaults.length > 0,
+        fleet: this.deps.registry.getSetting("fleetAgentDispatch") && record.fleet?.requestedBy.kind !== "agent",
+      }),
     );
     // The issue #774 recovery pick: `--model` forces the boot but never
     // rewrites the transcript, so the same initialCommands rail restates the
@@ -1357,6 +1434,27 @@ export class SessionManager {
           provider: modelOverride.slice(0, slash),
           modelId: modelOverride.slice(slash + 1),
         });
+      }
+    }
+    // The fleet dispatch prompt (ADR-0061) rides last, after every arm and
+    // registration. The staged artifact IS the not-yet-acknowledged marker:
+    // it is unlinked only on omp's success response (onFrame below), so a
+    // crash before that re-delivers on resume even when omp had already
+    // materialized the session; an acknowledged prompt is never re-sent.
+    // The title goes to omp's header only while unmaterialized, exactly the
+    // Ask-title rule: after that the header owns it and a user rename wins.
+    if (record.fleet !== null) {
+      const text = readFleetPrompt(absLineageDir);
+      if (text !== null) {
+        const title = record.cachedTitle?.trim();
+        if (record.sessionId === null && title) {
+          initialCommands.push({
+            type: "set_session_name",
+            id: `omp-ui-fleet-title-${record.fleet.dispatchId}`,
+            name: title,
+          });
+        }
+        initialCommands.push({ type: "prompt", id: fleetPromptCommandId(record.fleet.dispatchId), message: text });
       }
     }
     const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate, this.subagentSpawnConfig());
@@ -1424,6 +1522,17 @@ export class SessionManager {
                 `mode (message_update snapshots stay full-size) — delta unsupported`,
             );
           }
+        }
+        // The dispatched prompt's ack (ADR-0061): success unlinks the staged
+        // artifact so no resume re-sends it; a rejection keeps it for the next
+        // resume. Not identity-fenced: omp accepted the prompt either way.
+        if (
+          record.fleet !== null &&
+          control?.kind === "response" &&
+          control.id === fleetPromptCommandId(record.fleet.dispatchId)
+        ) {
+          if (control.success === true) consumeFleetPrompt(absLineageDir);
+          else console.warn("[fleet] dispatched prompt rejected:", record.tabId);
         }
         if (
           control !== null &&
@@ -2460,6 +2569,8 @@ export class SessionManager {
       // The fork shares the source's checkout, so the DB row stays linked to
       // the original record; copying the provenance would make both claim it.
       experiment: null,
+      // A branch is not the dispatch: one dispatchId names one session.
+      fleet: null,
       launchedAt: new Date().toISOString(),
       mode: source.mode,
       agentMode: source.agentMode,

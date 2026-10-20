@@ -32,12 +32,19 @@ describe("Stats view slice", () => {
     expect(h.useStore.getState().stats).toBeNull();
   });
 
+  it("openStats closes the Fleet view: the main pane shows one surface", () => {
+    h.useStore.setState({ fleet: { machines: null, loading: false, error: null } });
+    h.useStore.getState().openStats();
+    expect(h.useStore.getState().fleet).toBeNull();
+  });
+
   it("focusOn closes the Stats view like the Lab", () => {
     expect(focusOn({ activeTabId: null, focusedTabByProject: {} }, h.TAB, "/p")).toEqual({
       activeTabId: h.TAB,
       focusedTabByProject: { "/p": h.TAB },
       lab: null,
       stats: null,
+      fleet: null,
     });
   });
 });

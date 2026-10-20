@@ -1,5 +1,6 @@
 import { isObject } from "./guards";
 import { parseSpawnRequest } from "./spawn-request";
+import { parseFleetDispatchRequest, type FleetDispatchRequest, type PlacementPreference } from "./fleet";
 import type { RpcFrame } from "./rpc/codec";
 import type { BrowserPaneInputEvent, BrowserPaneNavigate } from "./browser-pane";
 import type {
@@ -587,3 +588,23 @@ export const spawnRequestCodec: ArgCodec<SpawnRequest> = {
     }
   },
 };
+
+/** Fleet dispatch request (issue #899): strict keys and every limit, via the shared parser. The parser's message rides the error so the dialog can show it. */
+export const fleetDispatchRequestCodec: ArgCodec<FleetDispatchRequest> = {
+  expected: "a valid fleet dispatch request",
+  decode(value, path) {
+    try {
+      return parseFleetDispatchRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+export const placementPreferenceCodec: ArgCodec<PlacementPreference> = oneOf("prefer", "normal", "less", "manual");
+
+/** A fleet machine key: "local" or a remote instance id, 1–64 characters. */
+export const machineKeyCodec: ArgCodec<string> = codec(
+  "a machine key of 1 to 64 characters",
+  (value) => typeof value === "string" && value.length >= 1 && value.length <= 64,
+);

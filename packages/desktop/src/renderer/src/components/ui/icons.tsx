@@ -218,3 +218,15 @@ export function IconGroup({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/** Three linked machines — the Fleet view (issue #899). */
+export function IconFleet({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <rect x="5.5" y="2" width="5" height="3.5" rx="0.8" />
+      <rect x="1.5" y="10.5" width="5" height="3.5" rx="0.8" />
+      <rect x="9.5" y="10.5" width="5" height="3.5" rx="0.8" />
+      <path d="M8 5.5v2.5M4 10.5V8h8v2.5" />
+    </svg>
+  );
+}

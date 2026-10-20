@@ -40,6 +40,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     private: false,
     chat: false,
     askSource: null,
+    fleet: null,
     cachedTitle: null,
     cachedModified: null,
     agentMode: "build",
@@ -118,6 +119,8 @@ describe("SETTINGS", () => {
       "remotePasswordHash",
       "remotePasswordSalt",
       "instanceId",
+      "fleetPlacement",
+      "fleetAgentDispatch",
     ]);
   });
   it("creates fresh mutable fallbacks", () => {
@@ -308,6 +311,8 @@ describe("Registry.load", () => {
           remotePasswordHash: 123,
           remotePasswordSalt: 456,
           instanceId: 7,
+          fleetPlacement: ["prefer"],
+          fleetAgentDispatch: "yes",
         },
         projects: [],
         sessions: [],
@@ -341,6 +346,43 @@ describe("Registry.load", () => {
     expect(reg.getSetting("remotePasswordHash")).toBe("");
     expect(reg.getSetting("remotePasswordSalt")).toBe("");
     expect(reg.getSetting("instanceId")).toBe("");
+    expect(reg.getSetting("fleetPlacement")).toEqual({});
+    expect(reg.getSetting("fleetAgentDispatch")).toBe(false);
+  });
+
+  it("keeps only 1-64 character fleet placement keys with a known preference (issue #899)", () => {
+    const file = tmpFile();
+    const longKey = "k".repeat(64);
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: {
+          fleetPlacement: {
+            local: "prefer",
+            [longKey]: "manual",
+            ["k".repeat(65)]: "prefer",
+            "": "less",
+            remote: "always",
+            other: 3,
+          },
+        },
+      }),
+    );
+    expect(Registry.load(file).getSetting("fleetPlacement")).toEqual({ local: "prefer", [longKey]: "manual" });
+  });
+
+  it("round-trips the fleet settings and defaults them when absent (issue #899)", () => {
+    const fresh = Registry.load(tmpFile());
+    expect(fresh.getSetting("fleetPlacement")).toEqual({});
+    expect(fresh.getSetting("fleetAgentDispatch")).toBe(false);
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setSetting("fleetPlacement", { local: "less", "remote-1": "manual" });
+    reg.setSetting("fleetAgentDispatch", true);
+    const reloaded = Registry.load(file);
+    expect(reloaded.getSetting("fleetPlacement")).toEqual({ local: "less", "remote-1": "manual" });
+    expect(reloaded.getSetting("fleetAgentDispatch")).toBe(true);
   });
 
   it("accepts only bounded integer remote ports", () => {
@@ -797,6 +839,7 @@ describe("Registry persistence", () => {
       ["instanceId", (registry) => registry.setSetting("instanceId", "")],
       ["dismissedAppUpdateVersion", (registry) => registry.setSetting("dismissedAppUpdateVersion", null)],
       ["dismissedOmpUpdateVersion", (registry) => registry.setSetting("dismissedOmpUpdateVersion", null)],
+      ["fleetAgentDispatch", (registry) => registry.setSetting("fleetAgentDispatch", false)],
     ];
 
     for (const [name, setSameValue] of sameValueSetters) {
@@ -1967,6 +2010,38 @@ describe("Ask chat source (issue #895)", () => {
     const file = tmpFile();
     Registry.load(file).addSession(sessionRecord({ chat: true, askSource }));
     expect(Registry.load(file).sessions[0]!.askSource).toEqual(askSource);
+  });
+});
+
+describe("fleet dispatch provenance (issue #899)", () => {
+  const fleet = {
+    dispatchId: "dispatch-1",
+    batchId: "batch-1",
+    dispatchedAt: "2026-10-20T10:00:00.000Z",
+    requestedBy: { instanceId: "instance-a", label: "laptop", kind: "agent" as const, sourceTabId: "tab-src" },
+  };
+
+  it("loads a legacy record without fleet as null", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord() };
+    delete legacy.fleet;
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }));
+    expect(Registry.load(file).sessions).toEqual([{ ...sessionRecord(), fleet: null }]);
+  });
+
+  it("drops only a record whose fleet is malformed", () => {
+    const file = tmpFile();
+    const good = sessionRecord({ tabId: "dispatched", mode: "rpc-ui", fleet });
+    const bad = { ...sessionRecord({ tabId: "bad" }), fleet: { ...fleet, requestedBy: { ...fleet.requestedBy, kind: "robot" } } };
+    const extra = { ...sessionRecord({ tabId: "extra" }), fleet: { ...fleet, prompt: "never persisted" } };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [good, bad, extra] }));
+    expect(Registry.load(file).sessions.map((s) => [s.tabId, s.fleet])).toEqual([["dispatched", fleet]]);
+  });
+
+  it("persists fleet across a reload", () => {
+    const file = tmpFile();
+    Registry.load(file).addSession(sessionRecord({ mode: "rpc-ui", fleet }));
+    expect(Registry.load(file).sessions[0]!.fleet).toEqual(fleet);
   });
 });
 

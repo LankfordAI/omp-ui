@@ -1104,6 +1104,39 @@ unique among joined instances, and is how every surface labels the host.
 _Avoid_: remote server (the embedded listener this app hosts), remote host
 (the `RemoteHost` seam), peer, connection
 
+**Fleet**:
+This app plus every joined **Remote instance**, seen as places new work can
+start. A member is addressed by its machine key: `local` for this app, or the
+remote instance's id. The fleet is one level deep — it never includes the
+instances a remote has joined itself — and it is a view over joins that
+already exist, never a second connection or a service of its own.
+_Avoid_: cluster, pool, nodes, peers
+
+**Fleet dispatch**:
+Starting a fresh native owned session on one fleet member whose first prompt
+the owning instance delivers itself (ADR-0061). The session is identified by
+the `dispatchId` stamped on its record; the owner dedupes a repeated spawn
+with the same id, so a dispatch never yields two sessions. A dispatched
+session is always rpc-ui, never a chat or a terminal session, and it stays on
+the instance that started it — a dispatch never moves or copies a running
+session. A dispatch whose remote answer was lost has an unknown outcome
+until a session with its id appears; omp-ui never retries it on its own.
+_Avoid_: job (Background job names omp's async jobs), task, run
+
+**Dispatch batch**:
+The fleet dispatches one request created on several targets, sharing a
+`batchId`. A batch has no record of its own: it is derived by grouping
+sessions with the same `batchId`, and a single-target dispatch has none.
+_Avoid_: job group, fan-out job
+
+**Placement preference**:
+The per-member weight automatic placement applies — Prefer, Normal, Less
+often, or Manual only — stored per machine key in this app's registry. It
+scales a member's load-based score; it is a preference, not a traffic share,
+and Manual only removes the member from automatic placement without hiding
+it from manual choice.
+_Avoid_: priority, quota
+
 **Provider key**:
 One API credential omp-ui supplies to every omp it launches, named by the
 environment variable omp reads for it (`OPENROUTER_API_KEY`, …). Resolved from

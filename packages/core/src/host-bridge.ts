@@ -1,11 +1,13 @@
 // The host-tools / host-URI wire contract (issue #688, ADR-0043). Pure —
-// zero imports — because renderer and desktop main share it exactly like
+// no `node:` imports, only the pure fleet constants — because renderer and desktop main share it exactly like
 // browser-pane.ts: main answers host frames from the owning process, and the
 // renderer keeps only the error-result fallback. The frame parsers and result
 // builders live here so both sides speak the protocol off one definition that
 // mirrors omp's own guards (verified against omp 18.4.3): a success tool
 // result MUST carry `result.content` as an array or omp drops it as
 // malformed, and a URI scheme must match `^[a-z][a-z0-9+.-]*$`.
+
+import { FLEET_BATCH_MAX, FLEET_TOOLS } from "./fleet";
 
 /** The one scheme omp-ui registers. Not in omp's reserved built-in set. */
 export const HOST_URI_SCHEME = "omp-ui";
@@ -62,8 +64,10 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
   };
 }
 
-/** Notify is always present; registered vaults enable the seven vault tools. */
-export function hostToolsDefinition(opts: { vault: boolean } = { vault: false }): RpcHostToolDefinition[] {
+/** Notify is always present; registered vaults enable the seven vault tools; the fleet setting enables the three fleet tools. */
+export function hostToolsDefinition(
+  opts: { vault: boolean; fleet: boolean } = { vault: false, fleet: false },
+): RpcHostToolDefinition[] {
   const tools: RpcHostToolDefinition[] = [
     {
       name: HOST_NOTIFY_TOOL_NAME,
@@ -82,13 +86,17 @@ export function hostToolsDefinition(opts: { vault: boolean } = { vault: false })
       },
     },
   ];
-  if (!opts.vault) return tools;
+  if (opts.vault) tools.push(...vaultTools());
+  if (opts.fleet) tools.push(...fleetTools());
+  return tools;
+}
 
+function vaultTools(): RpcHostToolDefinition[] {
   const vault = {
     type: "string",
     description: "Registry name of the vault. Omit to use this project's vault.",
   };
-  tools.push(
+  return [
     {
       name: "omp-ui_vault_search",
       loadMode: "essential",
@@ -202,8 +210,75 @@ export function hostToolsDefinition(opts: { vault: boolean } = { vault: false })
         required: ["path", "to", "baseHash"],
       },
     },
-  );
-  return tools;
+  ];
+}
+
+/**
+ * The fleet dispatch tools (issue #899, ADR-0061). Registered only while the
+ * user turned on "Let agents dispatch fleet work" and the session was not
+ * itself agent-dispatched. A remote-owned session answers from its own
+ * host's fleet; omp's host-tool approval tier governs each call.
+ */
+function fleetTools(): RpcHostToolDefinition[] {
+  const [machines, dispatch, status] = FLEET_TOOLS;
+  return [
+    {
+      name: machines,
+      loadMode: "essential",
+      description:
+        "List the omp-ui fleet: this computer plus every joined omp-ui instance, with status, CPU and free memory, live sessions and running turns, and placement preference, followed by each ready machine's projects and repository keys. Use the names and keys with omp-ui_fleet_dispatch.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      name: dispatch,
+      loadMode: "essential",
+      description:
+        "Start new build-mode omp sessions on fleet machines, each running the given prompt unattended on the named machine, in a fresh worktree by default. Without machines, omp-ui places the work automatically on the least-loaded machines with the same repository. Returns a batch id and one line per started session. Dispatching is not idempotent: poll progress with omp-ui_fleet_status instead of dispatching again.",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "The first prompt each dispatched session runs." },
+          title: { type: "string", description: "Session title; defaults to the prompt's first line." },
+          project: {
+            type: "string",
+            description: "An absolute path of a project registered on this computer, or a repository key (host/owner/repo) from omp-ui_fleet_machines.",
+          },
+          machines: {
+            type: "array",
+            items: { type: "string" },
+            description: 'Machine nicknames, or "this computer". Omit for automatic placement.',
+          },
+          count: {
+            type: "integer",
+            minimum: 1,
+            maximum: FLEET_BATCH_MAX,
+            description: "Copies for automatic placement, one per machine. Default 1.",
+          },
+          workspace: {
+            type: "string",
+            enum: ["worktree", "checkout"],
+            description: "worktree (default) starts each session in a new git worktree; checkout uses the project checkout itself.",
+          },
+        },
+        required: ["prompt", "project"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: status,
+      loadMode: "essential",
+      description:
+        "Report on fleet sessions from one dispatch: machine, title, state (working, awaiting answer, idle, dormant), and the session summary once it is not working. Give exactly one of batchId or dispatchId from omp-ui_fleet_dispatch. Poll this instead of re-dispatching.",
+      parameters: {
+        type: "object",
+        properties: {
+          batchId: { type: "string" },
+          dispatchId: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+    },
+  ];
 }
 
 /**
@@ -227,7 +302,7 @@ export function setHostUriSchemesCommand(id = "omp-ui-host-uri-1"): object {
 }
 
 export function setHostToolsCommand(
-  opts: { vault: boolean } = { vault: false },
+  opts: { vault: boolean; fleet: boolean } = { vault: false, fleet: false },
   id = "omp-ui-host-tools-1",
 ): object {
   return { id, type: "set_host_tools", tools: hostToolsDefinition(opts) };
