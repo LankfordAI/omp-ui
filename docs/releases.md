@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Sidebar filter block decluttered: Work/Chat became a sliding-track toggle, the session filter is the single raised surface with a sans-serif placeholder, and the host-scope trigger is now a borderless ghost row with a dropdown caret (#898).
+Nothing since [v0.25.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.25.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
