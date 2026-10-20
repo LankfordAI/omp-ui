@@ -275,8 +275,12 @@ describe("auth bundle handlers (issue #888)", () => {
   it("export-bundle writes the temp at 0600, returns base64, and leaves nothing behind", async () => {
     setup();
     exportMock.mockImplementation(async (_omp, outFile) => {
-      const mode = fs.statSync(outFile).mode & 0o777;
-      expect(mode).toBe(0o600);
+      // NTFS has no POSIX bits; statSync reports 0o666 for any writable
+      // file, so the 0600 invariant is only assertable on POSIX (issue #893).
+      if (process.platform !== "win32") {
+        const mode = fs.statSync(outFile).mode & 0o777;
+        expect(mode).toBe(0o600);
+      }
       await fs.promises.writeFile(outFile, '{"creds":"secret"}', { mode: 0o600 });
       return { ok: true };
     });
@@ -315,7 +319,9 @@ describe("auth bundle handlers (issue #888)", () => {
     });
     await expect(invoke(CH.authSaveBundle)).resolves.toEqual({ ok: true, message: null });
     expect(fs.readFileSync(chosen, "utf8")).toBe('{"creds":"secret"}');
-    expect(fs.statSync(chosen).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect(fs.statSync(chosen).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("import-file runs omp auth import on the user's own file untouched", async () => {
