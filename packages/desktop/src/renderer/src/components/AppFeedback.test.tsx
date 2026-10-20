@@ -90,6 +90,7 @@ function seed(): void {
     activeTabId: TAB,
     lifecycleConfirmation: null,
     errorNotices: [],
+    infoNotices: [],
   });
 }
 
@@ -304,5 +305,68 @@ describe("error notices", () => {
     expect(useStore.getState().errorNotices).toEqual([]);
     expect(useStore.getState().lifecycleConfirmation).toBeNull();
     expect(dialog()).toBeNull();
+  });
+});
+
+describe("credential-carry gate and success notices (issue #888)", () => {
+  it("gates the carry on a plaintext warning naming the target, cancel touches nothing", async () => {
+    await render();
+    act(() => {
+      useStore.getState().stageLifecycleConfirmation({
+        kind: "carry-auth",
+        action: "to-instance",
+        targetLabel: "box-b",
+        instanceId: "i-1",
+      });
+    });
+    await settle();
+    expect(dialog()!.textContent).toContain("Carry credentials?");
+    expect(dialog()!.textContent).toContain("plaintext");
+    expect(dialog()!.textContent).toContain("box-b");
+    // Cancel is the deliberate default; nothing has been asked of main.
+    expect(document.activeElement?.textContent).toBe("Cancel");
+    await act(async () => {
+      buttonIn("Cancel").click();
+    });
+    expect(useStore.getState().lifecycleConfirmation).toBeNull();
+    expect(dialog()).toBeNull();
+  });
+
+  it("renders successes in order under the error queue and restores the hidden confirmation", async () => {
+    await act(async () => {
+      await useStore.getState().terminate(TAB);
+    });
+    await render();
+    useStore.setState({
+      errorNotices: [{ id: "e1", message: "pack blew up" }],
+      infoNotices: [
+        { id: "n1", message: "Session migrated: “a” now lives at the target" },
+        { id: "n2", message: "Sign-ins carried to box-b." },
+      ],
+    });
+    await settle();
+
+    // Errors outrank successes; successes outrank the pending decision.
+    expect(dialog()!.textContent).toContain("pack blew up");
+    await act(async () => {
+      buttonIn("Dismiss").click();
+    });
+    await settle();
+    expect(dialog()!.textContent).toContain("Session migrated");
+    await act(async () => {
+      buttonIn("Dismiss").click();
+    });
+    await settle();
+    expect(dialog()!.textContent).toContain("Sign-ins carried to box-b.");
+    await act(async () => {
+      buttonIn("Dismiss").click();
+    });
+    await settle();
+    expect(dialog()!.textContent).toContain("Stop the agent?");
+    expect(useStore.getState().infoNotices).toEqual([]);
+
+    await act(async () => {
+      buttonIn("Cancel").click();
+    });
   });
 });

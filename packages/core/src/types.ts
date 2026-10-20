@@ -1601,6 +1601,21 @@ export type AnonymizeSessionResult =
   | { ok: true; path: string; message: null }
   | { ok: false; path: null; message: string };
 
+/** One `session:pack-start` (issue #888): the staged bundle id and size, or a
+ *  refusal. `missingBlobs` counts transcript references GC already pruned —
+ *  those images will not load after unpack (warn, never block). */
+export type PackStartResult =
+  | { ok: true; packId: string; sizeBytes: number; missingBlobs: number; message: null }
+  | { ok: false; packId: null; sizeBytes: 0; missingBlobs: 0; message: string };
+
+/** One `session:ingest-finish` (issue #888): the registered target row's
+ *  tabId, or omp's / the relocation's failure message. */
+export type IngestFinishResult = { ok: true; tabId: string } | { ok: false; tabId: null; message: string };
+
+/** A credential-carry outcome (issue #888): counts/paths only — the bundle
+ *  bytes never ride in a result value (ADR-0028 credential discipline). The ok
+ *  arm's message is non-null only for reported no-ops ("cancelled"). */
+export type AuthCarryResult = { ok: true; message: string | null } | { ok: false; message: string };
 
 export type { OmpBackend } from "./backend-channels";
 

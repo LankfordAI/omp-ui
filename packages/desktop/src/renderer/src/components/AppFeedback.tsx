@@ -96,6 +96,17 @@ function lifecycleCopy(
         action: t("dialog.lifecycle.navigateAction"),
         target: null,
       };
+    case "carry-auth":
+      // The credential gate (#888): says exactly what moves and that the
+      // bundle is plaintext on the far side. save-file imports/exports a
+      // user-named file; the two instance arms name the peer.
+      return {
+        tone: "rose",
+        title: t("dialog.lifecycle.carry-auth.title"),
+        body: t("dialog.lifecycle.carry-auth.body", { target: confirmation.targetLabel }),
+        action: t("dialog.lifecycle.carry-auth.action"),
+        target: null,
+      };
   }
 }
 
@@ -103,11 +114,14 @@ export function AppFeedback(): JSX.Element | null {
   const t = useT();
   const errorNotices = useStore((s) => s.errorNotices);
   const dismissError = useStore((s) => s.dismissError);
+  const infoNotices = useStore((s) => s.infoNotices);
+  const dismissNotice = useStore((s) => s.dismissNotice);
   const confirmation = useStore((s) => s.lifecycleConfirmation);
   const confirmLifecycleAction = useStore((s) => s.confirmLifecycleAction);
   const cancelLifecycleAction = useStore((s) => s.cancelLifecycleAction);
 
   const notice = errorNotices[0] ?? null;
+  const infoNotice = infoNotices[0] ?? null;
   if (notice !== null) {
     // Keyed by id so each error lands as a fresh alertdialog: the overlay
     // hook re-traps and re-focuses instead of patching the old one in place.
@@ -137,6 +151,37 @@ export function AppFeedback(): JSX.Element | null {
           className="whitespace-pre-wrap text-sm leading-relaxed text-ink-dim [overflow-wrap:anywhere] break-words"
         >
           {notice.message}
+        </p>
+      </ConfirmDialog>
+    );
+  }
+
+  // Successes (#888) sit between errors and pending decisions: acknowledging
+  // one restores whatever waited underneath. Same keyed fresh-dialog rule.
+  if (infoNotice !== null) {
+    return (
+      <ConfirmDialog
+        key={infoNotice.id}
+        kicker={t("dialog.notice.kicker")}
+        title={t("dialog.notice.title")}
+        tone="copper"
+        onClose={() => dismissNotice(infoNotice.id)}
+        actions={
+          <Button
+            variant="solid"
+            tone="copper"
+            initialFocus
+            onClick={() => dismissNotice(infoNotice.id)}
+          >
+            {t("dialog.error.dismiss")}
+          </Button>
+        }
+      >
+        <p
+          data-selectable
+          className="whitespace-pre-wrap text-sm leading-relaxed text-ink-dim [overflow-wrap:anywhere] break-words"
+        >
+          {infoNotice.message}
         </p>
       </ConfirmDialog>
     );

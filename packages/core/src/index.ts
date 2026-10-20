@@ -368,6 +368,18 @@ export {
 } from "./omp-process";
 export * from "./collab-cli";
 export * from "./anonymize";
+export {
+  adoptIntoLineage,
+  authExport,
+  authImport,
+  markSessionMoved,
+  packSessionFile,
+  shredFile,
+  unpackSessionArchive,
+  type OmpCliResult,
+  type TransferCliDeps,
+  type TransferCliExec,
+} from "./session-transfer";
 export { withoutAppImageRuntime } from "./appimage-env";
 export {
   generateBranchNameWithOmp,

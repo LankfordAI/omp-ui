@@ -56,6 +56,12 @@ export interface ViewSlice {
   shareConfirmTab: string | null;
   worktreeDialogProject: string | null;
   worktreeDialogInstanceId: string | null;
+  /** The row whose Migrate session dialog is open (issue #888); null = closed. */
+  migrateDialog: { tabId: string } | null;
+  /** App-global successes awaiting acknowledgment, oldest first (issue #888). */
+  infoNotices: UiStore["infoNotices"];
+  reportNotice(message: string): void;
+  dismissNotice(id: string): void;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
   finishWorktreeTab: string | null;
   /** The session tree navigator (issue #680, Phase 2): the pinned live tab
@@ -102,6 +108,8 @@ export interface ViewSlice {
   cancelSharePrivacy(): void;
   openWorktreeDialog(projectCwd: string, instanceId?: string | null): void;
   closeWorktreeDialog(): void;
+  openMigrateDialog(tabId: string): void;
+  closeMigrateDialog(): void;
   openFinishWorktree(tabId: string): void;
   closeFinishWorktree(): void;
   /** Opens the tree navigator for a live tab and arms its bridge (issue #680). */
@@ -443,6 +451,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   worktreeDialogInstanceId: null,
   finishWorktreeTab: null,
   sessionTreeView: null,
+  migrateDialog: null,
   capabilitiesViewer: null,
 	projectSettings: null,
   ptyRedrawRevision: {},
@@ -468,6 +477,13 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   dismissError(id) {
     set((s) => ({ errorNotices: s.errorNotices.filter((n) => n.id !== id) }));
+  },
+  infoNotices: [],
+  reportNotice(message) {
+    set((s) => ({ infoNotices: [...s.infoNotices, { id: randomId(), message }] }));
+  },
+  dismissNotice(id) {
+    set((s) => ({ infoNotices: s.infoNotices.filter((n) => n.id !== id) }));
   },
 
   openProjectPicker(instanceId = null) {
@@ -525,6 +541,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   closeWorktreeDialog() {
     set({ worktreeDialogProject: null, worktreeDialogInstanceId: null });
+  },
+  openMigrateDialog(tabId) {
+    set({ migrateDialog: { tabId } });
+  },
+  closeMigrateDialog() {
+    set({ migrateDialog: null });
   },
   openFinishWorktree(tabId) {
     set({ finishWorktreeTab: tabId });

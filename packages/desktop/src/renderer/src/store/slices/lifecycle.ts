@@ -1302,6 +1302,30 @@ export function createLifecycleSlice(
       await backend.removeRemoteInstance(confirmation.instanceId);
       return;
     }
+    if (confirmation.kind === "carry-auth") {
+      // #888: the confirmation IS the credential gate — nothing touched disk
+      // until here. `save-file` lets main run the native save dialog (cancel
+      // reports "cancelled"); rejections ride confirmLifecycleAction's
+      // reportError. targetLabel is the display name; instance arms address
+      // the instance by id.
+      const target = confirmation.targetLabel;
+      const peerId = confirmation.instanceId ?? target;
+      const result =
+        confirmation.action === "to-instance"
+          ? await backend.authCarryToInstance(peerId)
+          : confirmation.action === "from-instance"
+            ? await backend.authCarryFromInstance(peerId)
+            : confirmation.action === "save-file"
+              ? await backend.authSaveBundle()
+              : await backend.authImportFile(target);
+      if (!result.ok) throw new Error(result.message);
+      get().reportNotice(
+        result.message === "cancelled"
+          ? t("notice.carryAuth.cancelled")
+          : t(`notice.carryAuth.${confirmation.action}`, { target }),
+      );
+      return;
+    }
     const registered = projectGroups(confirmation.instanceId)?.some(
       (group) => group.project.path === confirmation.projectPath,
     );

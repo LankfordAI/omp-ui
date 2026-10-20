@@ -61,6 +61,14 @@ import {
   RemoteInstanceStore,
   resolveOmpBinary,
   anonymizeSession,
+  adoptIntoLineage,
+  authExport,
+  authImport,
+  markSessionMoved,
+  packSessionFile,
+  shredFile,
+  unpackSessionArchive,
+  unarchiveSession,
   resolveSessionLocation,
   isSafeAgentName,
   isSafeSelector,
@@ -99,6 +107,9 @@ import {
   type DiagnosticsExportRequest,
   type DiagnosticsExportResult,
   type AnonymizeSessionResult,
+  type AuthCarryResult,
+  type IngestFinishResult,
+  type PackStartResult,
   type DiagnosticsOptions,
   type RemoteInstanceInput,
   type RemoteInstancePatch,
@@ -150,6 +161,7 @@ import { registerRemoteHandlers } from "./remote-handlers";
 import { registerVaultHandlers } from "./vault-handlers";
 import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
 import { createDesktopPaneStream } from "./browser-pane-desktop-stream";
+import { TransferState } from "./transfer-state";
 
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
@@ -172,6 +184,9 @@ export class MainBackend {
   /** Per-project gitdir watchers (#498): churn answers with branch:changed. */
   private readonly headWatchers: HeadWatcherHub;
   private readonly projectOpener = new ProjectOpener();
+  /** #888 bundle staging: pack archives in, ingest bundles out; shredded on
+   * abort, finish, or the idle sweep. */
+  private readonly transfers = new TransferState();
   /**
    * Provider credentials for every omp launch. Constructed before any spawn
    * path can run and applied immediately, so even the first session sees the
@@ -1187,6 +1202,26 @@ export class MainBackend {
             if (tmp !== null) await fs.promises.rm(tmp, { force: true });
           }
         },
+        /** Session migration (#888): every pack/ingest leg stages through
+         * TransferState (0600, shredded on abort/expiry); the CLI work is
+         * entirely omp's `session pack` / `session unpack`. */
+        [CH.packStart]: (tabId: string) => this.packStart(tabId),
+        [CH.packChunk]: (packId: string, index: number) => this.transfers.readChunk(packId, index),
+        [CH.packAbort]: (packId: string) => this.transfers.abortPack(packId),
+        [CH.ingestStart]: () => this.transfers.startIngest(),
+        [CH.ingestPush]: (transferId: string, chunkBase64: string) =>
+          this.transfers.push(transferId, chunkBase64),
+        [CH.ingestFinish]: (transferId: string, projectCwd: string) =>
+          this.ingestFinish(transferId, projectCwd),
+        [CH.markSessionMoved]: (tabId: string, toLabel: string) =>
+          this.markSessionMoved(tabId, toLabel),
+        [CH.authCarryToInstance]: (instanceId: string) => this.authCarryToInstance(instanceId),
+        [CH.authCarryFromInstance]: (instanceId: string) => this.authCarryFromInstance(instanceId),
+        [CH.authExportBundle]: () => this.authExportBundle(),
+        [CH.authImportBundle]: (bundleBase64: string) => this.authImportBundle(bundleBase64),
+        [CH.authSaveBundle]: () => this.authSaveBundle(),
+        [CH.authPickBundleFile]: () => this.authPickBundleFile(),
+        [CH.authImportFile]: (filePath: string) => this.authImportFile(filePath),
         /** Live Collab hosting is terminal-tab only (issue #686): the tracker
          * drives omp's own registry CLI and the PTY keystroke route. */
         [CH.collabList]: () => this.sessions.collabSnapshots(),
@@ -1481,6 +1516,245 @@ export class MainBackend {
       );
   }
 
+  // ---------------------------------------------------------------------
+  // Session migration + auth carry (issue #888)
+  // ---------------------------------------------------------------------
+
+  /** Stage a pack of the row's transcript. Refusals are contract values, not
+   * throws: the renderer maps them onto the dialog's error line. */
+  private async packStart(tabId: string): Promise<PackStartResult> {
+    const refusal = (message: string): PackStartResult => ({
+      ok: false,
+      packId: null,
+      sizeBytes: 0,
+      missingBlobs: 0,
+      message,
+    });
+    const record = this.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) return refusal("session not found");
+    if (!this.ompPath) return refusal("omp binary not resolved");
+    if (record.sessionId === null) return refusal("no transcript to migrate yet");
+    if (this.sessions.isLive(tabId)) {
+      return refusal("stop the session before migrating it — omp refuses to pack a transcript another process writes");
+    }
+    let loc = await resolveSessionLocation(
+      this.sessionsRoot,
+      this.archiveRoot,
+      record.lineageDir,
+      record.sessionId,
+    );
+    if (loc.where === "missing") return refusal("session file not found");
+    // The resume path lazily unarchives (spawn-config.ts); packing follows
+    // the same rule — omp rejects a .jsonl.gz input.
+    if (loc.where === "archived") {
+      try {
+        loc = { where: "active", filePath: await unarchiveSession(this.sessionsRoot, this.archiveRoot, record.lineageDir, record.sessionId) };
+      } catch (err) {
+        return refusal(err instanceof Error ? err.message : String(err));
+      }
+    }
+    const staging = await this.transfers.startPack();
+    try {
+      const packed = await packSessionFile(this.ompPath, loc.filePath, staging.file);
+      if (!packed.ok) {
+        await this.transfers.abortPack(staging.packId);
+        return refusal(packed.message);
+      }
+      const { size } = await fs.promises.stat(staging.file);
+      this.transfers.notePackSize(staging.packId, size);
+      return { ok: true, packId: staging.packId, sizeBytes: size, missingBlobs: packed.missingBlobs, message: null };
+    } catch (err) {
+      await this.transfers.abortPack(staging.packId);
+      return refusal(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** Close the staged bundle, unpack it with omp, relocate the placed
+   * transcript into a minted ADR-0003 lineage dir, register the row (fork's
+   * registration shape, session-manager.ts forkSession), and shred the temp
+   * bundle. On any failure after unpack, the renamed transcript, artifacts,
+   * and minted dir are removed — an orphan in the default session dir is a
+   * bare `omp --resume` double-open hazard. */
+  private async ingestFinish(transferId: string, projectCwd: string): Promise<IngestFinishResult> {
+    const bundleFile = await this.transfers.finishIngest(transferId).catch((err: unknown) => {
+      throw err instanceof Error ? err : new Error(String(err));
+    });
+    try {
+      if (!this.ompPath) return { ok: false, tabId: null, message: "omp binary not resolved" };
+      if (!fs.existsSync(projectCwd) || !fs.statSync(projectCwd).isDirectory()) {
+        return { ok: false, tabId: null, message: `target directory ${projectCwd} does not exist` };
+      }
+      const unpacked = await unpackSessionArchive(this.ompPath, bundleFile, projectCwd);
+      if (!unpacked.ok) return { ok: false, tabId: null, message: unpacked.message };
+      let adopted: { lineageDir: string; sessionId: string };
+      try {
+        adopted = await adoptIntoLineage(this.sessionsRoot, unpacked.sessionFile, projectCwd);
+      } catch (err) {
+        return { ok: false, tabId: null, message: err instanceof Error ? err.message : String(err) };
+      }
+      const dir = path.join(this.sessionsRoot, adopted.lineageDir);
+      try {
+        // Hydrate for the display-bearing fields; an unreadable transcript
+        // still registers (the watcher hub self-heals title/id later).
+        let cachedTitle: string | null = null;
+        try {
+          const h = await hydrateSessionFile(path.join(dir, path.basename(unpacked.sessionFile)));
+          cachedTitle = h.title?.trim() ? h.title : null;
+        } catch {
+          cachedTitle = null;
+        }
+        const project = this.registry.projects.find((p) => p.path === projectCwd);
+        const now = new Date().toISOString();
+        const added = this.registry.addSession({
+          tabId: randomUUID(),
+          sessionId: adopted.sessionId,
+          lineageDir: adopted.lineageDir,
+          projectCwd,
+          // Worktrees are host-local (ADR-0018); a dead checkout path makes
+          // prepareResumeRecord throw ("worktree checkout is gone").
+          worktree: null,
+          planImplementationSource: null,
+          experiment: null,
+          launchedAt: now,
+          mode: this.registry.getSetting("defaultMode"),
+          agentMode: "build",
+          compactionMethod: this.registry.getSetting("defaultCompactionMethod"),
+          approvalMode: null,
+          serviceTier: null,
+          model: project?.defaultModel ?? project?.lastModel ?? null,
+          thinkingLevel: this.registry.getSetting("defaultAutoThinking") ? "auto" : null,
+          advisor: false,
+          advisorModel: null,
+          subagentModels: null,
+          // The target's lineage dir carries the packed artifacts but no plan
+          // review record; nothing can be re-presented from the source host.
+          proposedPlans: [],
+          cachedTitle,
+          cachedModified: now,
+          autoTitled: false,
+          private: false,
+        });
+        await this.broadcast();
+        return { ok: true, tabId: added.tabId };
+      } catch (err) {
+        // Registration failed after the rename: sweep the minted dir so no
+        // orphan transcript waits in the sessions root.
+        await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+        return { ok: false, tabId: null, message: err instanceof Error ? err.message : String(err) };
+      }
+    } finally {
+      await shredFile(bundleFile).catch(() => undefined);
+      await fs.promises.rm(path.dirname(bundleFile), { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  /** `omp session moved <file> --to <label>` on the source row. Archived
+   * rows are refused: pack-start already unarchived what was migrated. */
+  private async markSessionMoved(tabId: string, label: string): Promise<AuthCarryResult> {
+    if (!this.ompPath) return { ok: false, message: "omp binary not resolved" };
+    const record = this.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record || record.sessionId === null) return { ok: false, message: "session not found" };
+    const loc = await resolveSessionLocation(
+      this.sessionsRoot,
+      this.archiveRoot,
+      record.lineageDir,
+      record.sessionId,
+    );
+    if (loc.where !== "active") return { ok: false, message: "no active transcript to mark" };
+    const moved = await markSessionMoved(this.ompPath, loc.filePath, label);
+    return moved.ok ? { ok: true, message: null } : { ok: false, message: moved.message };
+  }
+
+  /** Export this host's credential bundle into a 0600 temp, return it as
+   * base64, shred. The bytes are the sole return value and never enter a log
+   * line (main's logger never sees handler returns). */
+  private async authExportBundle(): Promise<string> {
+    if (!this.ompPath) throw new Error("omp binary not resolved");
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "omp-ui-auth-"));
+    await fs.promises.chmod(dir, 0o700);
+    const file = path.join(dir, "bundle.json");
+    try {
+      await fs.promises.writeFile(file, "", { mode: 0o600 });
+      const exported = await authExport(this.ompPath, file);
+      if (!exported.ok) throw new Error(exported.message);
+      return (await fs.promises.readFile(file)).toString("base64");
+    } finally {
+      await shredFile(file).catch(() => undefined);
+      await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  /** Write the base64 bundle to a 0600 temp, merge-import it, shred. */
+  private async authImportBundle(bundleBase64: string): Promise<AuthCarryResult> {
+    if (!this.ompPath) return { ok: false, message: "omp binary not resolved" };
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "omp-ui-auth-"));
+    await fs.promises.chmod(dir, 0o700);
+    const file = path.join(dir, "bundle.json");
+    try {
+      await fs.promises.writeFile(file, Buffer.from(bundleBase64, "base64"), { mode: 0o600 });
+      const imported = await authImport(this.ompPath, file);
+      return imported.ok ? { ok: true, message: null } : { ok: false, message: imported.message };
+    } finally {
+      await shredFile(file).catch(() => undefined);
+      await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  /** Orchestration lives here, in the acting app's main: the bundle travels
+   * main↔main over RemoteInstanceManager, never through a renderer. */
+  private async authCarryToInstance(instanceId: string): Promise<AuthCarryResult> {
+    try {
+      const bundleBase64 = await this.authExportBundle();
+      await this.remoteInstances.request(instanceId, "auth:import-bundle", [bundleBase64]);
+      return { ok: true, message: null };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async authCarryFromInstance(instanceId: string): Promise<AuthCarryResult> {
+    try {
+      const bundleBase64 = (await this.remoteInstances.request(instanceId, "auth:export-bundle", [])) as string;
+      return await this.authImportBundle(bundleBase64);
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /** Save dialog → export → copy at 0600 to the chosen path → shred temp.
+   * Cancel is a no-op reported as "cancelled". */
+  private async authSaveBundle(): Promise<AuthCarryResult> {
+    const result = await dialog.showSaveDialog(this.win, {
+      defaultPath: "omp-credentials.json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: true, message: "cancelled" };
+    try {
+      const bundleBase64 = await this.authExportBundle();
+      await fs.promises.writeFile(result.filePath, Buffer.from(bundleBase64, "base64"), { mode: 0o600 });
+      return { ok: true, message: null };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /** Open dialog for an import source; null = cancelled. */
+  private async authPickBundleFile(): Promise<string | null> {
+    const result = await dialog.showOpenDialog(this.win, {
+      properties: ["openFile"],
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]!;
+  }
+
+  /** Import a user-picked file directly — their file stays as they left it
+   * (no temp, no shred). */
+  private async authImportFile(filePath: string): Promise<AuthCarryResult> {
+    if (!this.ompPath) return { ok: false, message: "omp binary not resolved" };
+    const imported = await authImport(this.ompPath, filePath);
+    return imported.ok ? { ok: true, message: null } : { ok: false, message: imported.message };
+  }
+
   /** Brings the embedded remote server in line with persisted settings. Called once at launch. */
   startRemote(): Promise<void> {
     return this.remote.apply();
@@ -1504,6 +1778,7 @@ export class MainBackend {
     this.providerOAuth.dispose();
     this.planVerifier.dispose();
     this.clockStamper.dispose();
+    this.transfers.dispose();
     this.sessions.killAll();
     const headsSettled = this.headWatchers.disposeAll();
     this.remoteInstances.stop();

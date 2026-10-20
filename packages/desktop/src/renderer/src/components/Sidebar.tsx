@@ -25,6 +25,7 @@ import {
 } from "../lib/panel-layout";
 import { PAGE } from "../lib/session-window";
 import { arrangeSessionHandoffs } from "../lib/session-handoffs";
+import { supportsSessionMigrate } from "../lib/session-migrate";
 import { useListReorder, type ListReorderRow } from "../lib/use-list-reorder";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
@@ -135,6 +136,14 @@ interface TerminalMenuRequest {
   y: number;
   trigger: HTMLElement;
 }
+type OpenSessionMenu = (tabId: string, event: ReactMouseEvent<HTMLElement>) => void;
+
+interface SessionMenuRequest {
+  tabId: string;
+  x: number;
+  y: number;
+  trigger: HTMLElement;
+}
 
 /**
  * A session survives the filter when its own title (or its saved plan title)
@@ -238,6 +247,7 @@ interface ProjectSectionProps {
   compact: boolean;
   onActivate: () => void;
   openAvailability: ProjectOpenAvailability | null;
+  openSessionMenu: OpenSessionMenu;
   refreshAvailability: () => Promise<void>;
   onOpenActions?: () => void;
   /** The project row's drag/keyboard reorder wiring (issues #115/#120). */
@@ -256,6 +266,7 @@ function ProjectSection({
   projectHit,
   query,
   openTerminalMenu,
+  openSessionMenu,
   compact,
   openAvailability,
   refreshAvailability,
@@ -271,6 +282,8 @@ function ProjectSection({
   const focusedTabId = useStore((st) => st.focusedTabByProject[projectKey(instanceId, group.project.path)]);
   const openProjectSettings = useStore((st) => st.openProjectSettings);
   const openLab = useStore((st) => st.openLab);
+  // Issue #888: gate the row context menu on the local binary's floor.
+  const ompInstalledVersion = useStore((st) => st.ompUpdate.installedVersion);
   const openSidebarGroupDialog = useStore((st) => st.openSidebarGroupDialog);
   const experimentsEnabled = useStore((st) => st.state?.experimentsEnabled === true);
   const [open, setOpen] = useState(true);
@@ -546,6 +559,19 @@ function ProjectSection({
                   row.onDrop(e);
                 }}
                 onDragEnd={row.onDragEnd}
+                onContextMenu={(event) => {
+                  // Migrate is the only item; a row that could never accept
+                  // it never opens an empty menu (issue #888). omp refuses to
+                  // pack a transcript another process writes, and a row with
+                  // no transcript yet has nothing to carry. The version floor
+                  // is knowable only for this host's binary; a remote source
+                  // answers version skew verbatim at pack time (ADR-0028).
+                  if (disabled) return;
+                  const s = entry.session;
+                  if (s.sessionId === null || s.live === "live") return;
+                  if (instanceId === null && !supportsSessionMigrate(ompInstalledVersion)) return;
+                  openSessionMenu(s.tabId, event);
+                }}
               />
             </div>
             );
@@ -598,6 +624,7 @@ function RemoteInstanceSection({
   query,
   compact,
   openTerminalMenu,
+  openSessionMenu,
   onActivate,
   onOpenActions,
   refreshAvailability,
@@ -607,6 +634,7 @@ function RemoteInstanceSection({
   query: string;
   compact: boolean;
   openTerminalMenu: OpenTerminalMenu;
+  openSessionMenu: OpenSessionMenu;
   onActivate: () => void;
   onOpenActions: (path: string) => void;
   refreshAvailability: () => Promise<void>;
@@ -731,6 +759,7 @@ function RemoteInstanceSection({
               projectHit={f.projectHit}
               query={query}
               openTerminalMenu={openTerminalMenu}
+              openSessionMenu={openSessionMenu}
               compact={compact}
               openAvailability={null}
               refreshAvailability={refreshAvailability}
@@ -763,6 +792,7 @@ function SidebarGroupSection({
   query,
   compact,
   openTerminalMenu,
+  openSessionMenu,
   openAvailability,
   refreshAvailability,
   onActivate,
@@ -778,6 +808,7 @@ function SidebarGroupSection({
   query: string;
   compact: boolean;
   openTerminalMenu: OpenTerminalMenu;
+  openSessionMenu: OpenSessionMenu;
   openAvailability: ProjectOpenAvailability | null;
   refreshAvailability: () => Promise<void>;
   onActivate: () => void;
@@ -923,6 +954,7 @@ function SidebarGroupSection({
               projectHit={f.projectHit}
               query={query}
               openTerminalMenu={openTerminalMenu}
+              openSessionMenu={openSessionMenu}
               compact={compact}
               openAvailability={openAvailability}
               refreshAvailability={refreshAvailability}
@@ -1201,6 +1233,7 @@ export function Sidebar() {
   const openSettings = useStore((st) => st.openSettings);
   const newSession = useStore((st) => st.newSession);
   const openWorktreeDialog = useStore((st) => st.openWorktreeDialog);
+  const openMigrateDialog = useStore((st) => st.openMigrateDialog);
   const moveProject = useStore((st) => st.moveProject);
   const moveSidebarGroup = useStore((st) => st.moveSidebarGroup);
   const openSidebarGroupDialog = useStore((st) => st.openSidebarGroupDialog);
@@ -1223,6 +1256,9 @@ export function Sidebar() {
   const [resizing, setResizing] = useState(false);
   const [query, setQuery] = useState("");
   const [terminalMenu, setTerminalMenu] = useState<TerminalMenuRequest | null>(null);
+  // The session row's context menu (issue #888); Sidebar-local like
+  // `terminalMenu` — never in the store.
+  const [sessionMenu, setSessionMenu] = useState<SessionMenuRequest | null>(null);
   // The project whose compact actions sheet is open (issue #205), by
   // projectKey so a same-path project on a remote instance is distinct (#416).
   // Sidebar-local UI state, like `terminalMenu` — never in the store.
@@ -1288,6 +1324,40 @@ export function Sidebar() {
     onEscape: () => setTerminalMenu(null),
     restoreFocus: () => {
       const m = terminalMenu;
+      if (m !== null) m.trigger.focus();
+    },
+  });
+  const sessionMenuRef = useRef<HTMLDivElement>(null);
+  const sessionMenuItemRef = useRef<HTMLButtonElement>(null);
+
+  // Issue #888: the per-row Migrate menu, same portal/dismissal shape as the
+  // project's new-session options menu.
+  const openSessionMenu: OpenSessionMenu = (tabId, event) => {
+    event.preventDefault();
+    const currentTarget = event.currentTarget;
+    if (!(currentTarget instanceof HTMLElement)) return;
+    const keyboardPosition = event.clientX === 0 && event.clientY === 0;
+    const rect = currentTarget.getBoundingClientRect();
+    setSessionMenu({
+      tabId,
+      x: keyboardPosition ? rect.left : event.clientX,
+      y: keyboardPosition ? rect.bottom : event.clientY,
+      trigger: currentTarget,
+    });
+  };
+
+  useEffect(() => {
+    if (sessionMenu === null) return;
+    sessionMenuItemRef.current?.focus();
+  }, [sessionMenu]);
+
+  useDismissal({
+    open: sessionMenu !== null,
+    refs: sessionMenuRef,
+    onClose: () => setSessionMenu(null),
+    onEscape: () => setSessionMenu(null),
+    restoreFocus: () => {
+      const m = sessionMenu;
       if (m !== null) m.trigger.focus();
     },
   });
@@ -1560,6 +1630,7 @@ export function Sidebar() {
                       projectHit={f.projectHit}
                       query={query}
                       openTerminalMenu={openTerminalMenu}
+                      openSessionMenu={openSessionMenu}
                       compact={compact}
                       openAvailability={openAvailability}
                       refreshAvailability={refreshAvailability}
@@ -1580,6 +1651,7 @@ export function Sidebar() {
                     query={query}
                     compact={compact}
                     openTerminalMenu={openTerminalMenu}
+                    openSessionMenu={openSessionMenu}
                     openAvailability={openAvailability}
                     refreshAvailability={refreshAvailability}
                     onActivate={closeCompactSurface}
@@ -1604,6 +1676,7 @@ export function Sidebar() {
                   query={query}
                   compact={compact}
                   openTerminalMenu={openTerminalMenu}
+                  openSessionMenu={openSessionMenu}
                   onActivate={closeCompactSurface}
                   onOpenActions={(path) => setActionsFor(projectKey(instance.id, path))}
                   refreshAvailability={refreshAvailability}
@@ -1665,6 +1738,39 @@ export function Sidebar() {
                 className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
               >
                 {t("sidebar.project.newPrivate")}
+              </button>
+            </Panel>
+          </div>,
+          document.body,
+        )}
+      {sessionMenu !== null &&
+        createPortal(
+          <div
+            ref={sessionMenuRef}
+            role="menu"
+            className="fixed z-50"
+            style={{ left: sessionMenu.x, top: sessionMenu.y }}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            <Panel
+              className={cn(
+                "edge-lit animate-rise p-1",
+                sessionMenu.x > window.innerWidth / 2 && "-translate-x-full",
+                sessionMenu.y > window.innerHeight / 2 && "-translate-y-full",
+              )}
+            >
+              <button
+                ref={sessionMenuItemRef}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const { tabId } = sessionMenu;
+                  setSessionMenu(null);
+                  openMigrateDialog(tabId);
+                }}
+                className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
+              >
+                {t("sidebar.session.migrate")}
               </button>
             </Panel>
           </div>,
