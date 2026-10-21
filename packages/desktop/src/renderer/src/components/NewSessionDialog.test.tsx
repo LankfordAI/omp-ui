@@ -32,6 +32,7 @@ function machine(key: string, nickname: string | null, projects: FleetHostProjec
     grantRung: "dispatch",
     address: key === "local" ? null : "10.0.0.5",
     sshReachable: null,
+    maintenance: null,
     report: {
       instanceId: `id-${key}`,
       label: key,
@@ -50,6 +51,13 @@ function machine(key: string, nickname: string | null, projects: FleetHostProjec
       projectRoots: [],
       os: null,
       packageManagers: null,
+      ompVersion: null,
+      ompPath: null,
+      ompPinned: false,
+      ompBelowMinimum: false,
+      packageFormat: null,
+      appLatestVersion: null,
+      appUpdateStaged: false,
     },
   };
 }

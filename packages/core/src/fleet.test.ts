@@ -5,10 +5,14 @@ import {
   FLEET_EXEC_POLL_WAIT_MAX_MS,
   FLEET_PROMPT_MAX,
   FLEET_TOOLS,
+  FLEET_VERSION_PATTERN,
+  fleetAppUpdateAvailable,
   fleetMemberAddress,
   fleetOsLabel,
   fleetToolExecPollRequest,
   fleetToolExecRequest,
+  fleetToolUpdateRequest,
+  fleetVersionsLine,
   formatFleetMachines,
   LOCAL_MACHINE_KEY,
   parseFleetDetachedExecRequest,
@@ -23,6 +27,10 @@ import {
   parseFleetProviderKeysRequest,
   parseFleetSpawnSpec,
   parseFleetToolArguments,
+  parseFleetUpdateFacts,
+  parseFleetUpdateMemberRequest,
+  parseFleetUpdatePollRequest,
+  parseFleetUpdateRequest,
   placementScore,
   validateFleetCommand,
   type FleetHostReport,
@@ -55,6 +63,13 @@ function report(patch: Partial<FleetHostReport> = {}): FleetHostReport {
       { name: "flatpak", path: "/usr/bin/flatpak", onPath: true },
       { name: "brew", path: "/home/linuxbrew/.linuxbrew/bin/brew", onPath: false },
     ],
+    ompVersion: null,
+    ompPath: null,
+    ompPinned: false,
+    ompBelowMinimum: false,
+    packageFormat: null,
+    appLatestVersion: null,
+    appUpdateStaged: false,
     ...patch,
   };
 }
@@ -188,7 +203,7 @@ describe("parseFleetDispatchRequest", () => {
 describe("fleet exec ladder contracts (issue #901)", () => {
   const requester = { instanceId: "inst-a", label: "studio", kind: "agent", sourceTabId: "tab-1" } as const;
 
-  it("exposes the six agent tools in registration order", () => {
+  it("exposes the seven agent tools in registration order", () => {
     expect(FLEET_TOOLS).toEqual([
       "omp-ui_fleet_machines",
       "omp-ui_fleet_dispatch",
@@ -196,6 +211,7 @@ describe("fleet exec ladder contracts (issue #901)", () => {
       "omp-ui_fleet_exec",
       "omp-ui_fleet_project",
       "omp-ui_fleet_exec_poll",
+      "omp-ui_fleet_update",
     ]);
   });
 
@@ -282,6 +298,7 @@ describe("fleet exec ladder contracts (issue #901)", () => {
       report: report(),
       address: key === LOCAL_MACHINE_KEY ? null : "10.0.0.5",
       sshReachable: null,
+      maintenance: null,
     });
     const text = formatFleetMachines([machine(LOCAL_MACHINE_KEY, null, "full"), machine("r1", "studio", "manage"), machine("r2", "old", null)]);
     const [local, studio, old] = text.split("\n").filter((line) => line.startsWith("- "));
@@ -312,6 +329,7 @@ describe("member address and ssh line (issue #904)", () => {
     }),
     address: "10.0.0.5",
     sshReachable: true,
+    maintenance: null,
     ...patch,
   });
 
@@ -324,28 +342,33 @@ describe("member address and ssh line (issue #904)", () => {
       machine({ key: "r4", nickname: "four", address: "10.0.0.7", status: "unreachable", error: null, report: null, sshReachable: null }),
     ]).split("\n");
     expect(lines[0]).toMatch(/^- this computer: ready/);
-    expect(lines[1]).toBe("  - /srv/repos/app (no repository key)");
-    expect(lines[2]).toMatch(/^- studio: ready/);
-    expect(lines[3]).toBe("  ssh: austin@10.0.0.5 (port 22 open); platform linux x64; project roots: /srv/repos");
-    expect(lines[4]).toBe(
+    expect(lines[1]).toBe("  versions: omp-ui 0.30.0, omp not reported");
+    expect(lines[2]).toBe("  - /srv/repos/app (no repository key)");
+    expect(lines[3]).toMatch(/^- studio: ready/);
+    expect(lines[4]).toBe("  versions: omp-ui 0.30.0, omp not reported");
+    expect(lines[5]).toBe("  ssh: austin@10.0.0.5 (port 22 open); platform linux x64; project roots: /srv/repos");
+    expect(lines[6]).toBe(
       "  system: Fedora Linux 44 (Workstation Edition); package managers: dnf, flatpak, brew at /home/linuxbrew/.linuxbrew/bin/brew",
     );
-    expect(lines[5]).toBe("  - /srv/repos/app (no repository key)");
-    expect(lines[6]).toMatch(/^- two: ready/);
-    expect(lines[7]).toBe("  ssh: 10.0.0.6 (port 22 closed); platform linux x64; project roots: none declared");
-    expect(lines[8]).toBe("  system: Fedora Linux 44 (Workstation Edition); package managers: none found");
-    expect(lines[10]).toMatch(/^- three: ready/);
-    expect(lines[11]).toBe("  ssh: austin@10.0.0.8 (port 22 not checked); platform linux x64; project roots: not reported");
-    expect(lines[12]).toBe("  system: not reported; package managers: not reported");
-    expect(lines[14]).toBe("- four: unreachable; preference normal");
-    expect(lines[15]).toBe("  address: 10.0.0.7 (not connected)");
-    expect(lines).toHaveLength(16);
+    expect(lines[7]).toBe("  - /srv/repos/app (no repository key)");
+    expect(lines[8]).toMatch(/^- two: ready/);
+    expect(lines[9]).toBe("  versions: omp-ui 0.30.0, omp not reported");
+    expect(lines[10]).toBe("  ssh: 10.0.0.6 (port 22 closed); platform linux x64; project roots: none declared");
+    expect(lines[11]).toBe("  system: Fedora Linux 44 (Workstation Edition); package managers: none found");
+    expect(lines[13]).toMatch(/^- three: ready/);
+    expect(lines[14]).toBe("  versions: omp-ui 0.30.0, omp not reported");
+    expect(lines[15]).toBe("  ssh: austin@10.0.0.8 (port 22 not checked); platform linux x64; project roots: not reported");
+    expect(lines[16]).toBe("  system: not reported; package managers: not reported");
+    expect(lines[18]).toBe("- four: unreachable; preference normal");
+    expect(lines[19]).toBe("  address: 10.0.0.7 (not connected)");
+    expect(lines).toHaveLength(20);
   });
 
   it("prints the system line for a ready member without an address (no ssh line)", () => {
     const lines = formatFleetMachines([machine({ address: null, sshReachable: null }, { os: { name: "macOS", version: "15.1" } })]).split("\n");
     expect(lines).toEqual([
       expect.stringMatching(/^- studio: ready/),
+      "  versions: omp-ui 0.30.0, omp not reported",
       "  system: macOS 15.1; package managers: dnf, flatpak, brew at /home/linuxbrew/.linuxbrew/bin/brew",
       "  - /srv/repos/app (no repository key)",
     ]);
@@ -486,6 +509,7 @@ describe("detached exec and Provider key rollout contracts (issue #905)", () => 
         report: report(),
         address: "10.0.0.5",
         sshReachable: true,
+        maintenance: null,
       },
     ];
     expect(fleetToolExecRequest({ machine: "Studio", command: "make", cwd: null, timeoutMs: null, detach: true }, machines)).toEqual({
@@ -500,5 +524,261 @@ describe("detached exec and Provider key rollout contracts (issue #905)", () => 
       request: { execId: "e-1", waitMs: FLEET_EXEC_POLL_WAIT_MAX_MS, cancel: false },
     });
     expect(fleetToolExecPollRequest({ machine: "nope", execId: "e-1", cancel: false, waitMs: 5 }, machines).ok).toBe(false);
+  });
+});
+
+describe("fleet remote version update rules", () => {
+  it("accepts a plain version and a bounded prerelease, refuses everything else", () => {
+    for (const good of ["1.2.3", "0.0.0", "18.13.1-rc.1", "1.2.3-" + "a".repeat(60)]) {
+      expect(FLEET_VERSION_PATTERN.test(good), good).toBe(true);
+    }
+    for (const bad of ["", "1.2", "1.2.3.4", "v1.2.3", "1.2.3 ", "latest", "1.2.3-", "1.2.3-rc\u0007", "1.2.3-" + "a".repeat(61)]) {
+      expect(FLEET_VERSION_PATTERN.test(bad), JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("answers all-null/false for an old peer's report and keeps the valid facts of a new one", () => {
+    const blank = {
+      ompVersion: null,
+      ompPath: null,
+      ompPinned: false,
+      ompBelowMinimum: false,
+      packageFormat: null,
+      appLatestVersion: null,
+      appUpdateStaged: false,
+    };
+    expect(parseFleetUpdateFacts({})).toEqual(blank);
+    expect(parseFleetUpdateFacts(undefined)).toEqual(blank);
+    expect(parseFleetUpdateFacts(null)).toEqual(blank);
+    const fresh = {
+      ompVersion: "18.13.1",
+      ompPath: "/home/austin/.omp/bin/omp",
+      ompPinned: true,
+      ompBelowMinimum: true,
+      packageFormat: "appimage" as const,
+      appLatestVersion: "0.31.0",
+      appUpdateStaged: true,
+    };
+    expect(parseFleetUpdateFacts(fresh)).toEqual(fresh);
+  });
+
+  it("drops garbage update facts instead of trusting the peer", () => {
+    const blank = parseFleetUpdateFacts({});
+    expect(
+      parseFleetUpdateFacts({
+        ompVersion: "latest",
+        ompPath: "/bad\u0007path",
+        ompPinned: "yes",
+        ompBelowMinimum: 1,
+        packageFormat: "snap",
+        appLatestVersion: 31,
+        appUpdateStaged: "true",
+      }),
+    ).toEqual(blank);
+    expect(parseFleetUpdateFacts({ ompPath: "x".repeat(4_097) }).ompPath).toBeNull();
+    expect(parseFleetUpdateFacts({ ompVersion: "1.2.3", packageFormat: "nsis" })).toEqual({
+      ...blank,
+      ompVersion: "1.2.3",
+      packageFormat: "nsis",
+    });
+  });
+
+  it("calls the app update available only when latest outranks current", () => {
+    expect(fleetAppUpdateAvailable("0.30.0", "0.31.0")).toBe(true);
+    expect(fleetAppUpdateAvailable("0.30.0", "0.30.0")).toBe(false);
+    expect(fleetAppUpdateAvailable("0.31.0", "0.30.0")).toBe(false);
+    expect(fleetAppUpdateAvailable("0.30.0", null)).toBe(false);
+  });
+
+  it("prints the versions line with parentheticals only when a fact is true", () => {
+    expect(fleetVersionsLine(report())).toBe("versions: omp-ui 0.30.0, omp not reported");
+    expect(fleetVersionsLine(report({ ompVersion: "18.13.1" }))).toBe("versions: omp-ui 0.30.0, omp 18.13.1");
+    expect(fleetVersionsLine(report({ appLatestVersion: "0.31.0" }))).toBe(
+      "versions: omp-ui 0.30.0 (update available: 0.31.0), omp not reported",
+    );
+    expect(fleetVersionsLine(report({ appLatestVersion: "0.31.0", appUpdateStaged: true }))).toBe(
+      "versions: omp-ui 0.30.0 (update staged), omp not reported",
+    );
+    expect(fleetVersionsLine(report({ version: "0.31.0", appLatestVersion: "0.31.0" }))).toBe(
+      "versions: omp-ui 0.31.0, omp not reported",
+    );
+    expect(fleetVersionsLine(report({ ompVersion: "18.9.0", ompPinned: true, ompBelowMinimum: true }))).toBe(
+      "versions: omp-ui 0.30.0, omp 18.9.0 (below the harness floor | pinned)",
+    );
+    expect(fleetVersionsLine(report({ appLatestVersion: "0.31.0", ompPinned: true }))).toBe(
+      "versions: omp-ui 0.30.0 (update available: 0.31.0), omp not reported (pinned)",
+    );
+  });
+});
+
+describe("fleet update request parsers", () => {
+  const requester = { instanceId: "inst-a", label: "studio", kind: "agent", sourceTabId: "tab-1" } as const;
+
+  it("accepts the full local shape and defaults version and allowLiveSessions", () => {
+    expect(parseFleetUpdateRequest({ target: "app", action: "check", version: null, allowLiveSessions: true }, "req")).toEqual({
+      target: "app",
+      action: "check",
+      version: null,
+      allowLiveSessions: true,
+    });
+    expect(parseFleetUpdateRequest({ target: "omp", action: "stage" }, "req")).toEqual({
+      target: "omp",
+      action: "stage",
+      version: null,
+      allowLiveSessions: false,
+    });
+    expect(parseFleetUpdateRequest({ target: "app", action: "stage", version: "18.13.1-rc.1" }, "req").version).toBe("18.13.1-rc.1");
+  });
+
+  it.each([
+    ["an unknown key", { target: "app", action: "check", extra: 1 }],
+    ["a bad target", { target: "firmware", action: "check" }],
+    ["a bad action", { target: "app", action: "reboot" }],
+    ["omp plus apply", { target: "omp", action: "apply" }],
+    ["a version on a check", { target: "app", action: "check", version: "1.2.3" }],
+    ["a garbage version", { target: "app", action: "stage", version: "latest" }],
+    ["a non-string version", { target: "app", action: "stage", version: 3 }],
+    ["a non-boolean allowLiveSessions", { target: "app", action: "apply", allowLiveSessions: "yes" }],
+  ])("rejects %s", (_label, raw) => {
+    expect(() => parseFleetUpdateRequest(raw, "fleet update request")).toThrow();
+  });
+
+  it("names the exact rule it broke", () => {
+    expect(() => parseFleetUpdateRequest({ target: "omp", action: "apply" }, "req")).toThrow(
+      "the omp binary installs as it downloads; there is no separate apply for it",
+    );
+    expect(() => parseFleetUpdateRequest({ target: "app", action: "check", version: "1.2.3" }, "req")).toThrow(
+      "a version belongs on stage, not on a check",
+    );
+    expect(() => parseFleetUpdateRequest({ target: "app", action: "stage", version: "nope" }, "req")).toThrow(
+      "req.version must be a version like 18.13.1",
+    );
+    expect(() => parseFleetUpdateRequest("app", "req")).toThrow("req must be an object");
+  });
+
+  it("parses the member request: the requester rides beside the body", () => {
+    const raw = { requester, target: "app", action: "apply", version: null, allowLiveSessions: true };
+    expect(parseFleetUpdateMemberRequest(raw)).toEqual(raw);
+    expect(() => parseFleetUpdateMemberRequest({ ...raw, extra: 1 })).toThrow("fleet update request contains unknown field extra");
+    expect(() => parseFleetUpdateMemberRequest({ ...raw, requester: { ...requester, kind: "robot" } })).toThrow(
+      "fleet update request.requester.kind must be user or agent",
+    );
+    expect(() => parseFleetUpdateMemberRequest({ target: "app", action: "check" })).toThrow("fleet update request.requester must be an object");
+  });
+
+  it("parses the maintenance poll strictly", () => {
+    const raw = { requester, jobId: "job-1", waitMs: 25_000 };
+    expect(parseFleetUpdatePollRequest(raw)).toEqual(raw);
+    expect(() => parseFleetUpdatePollRequest({ ...raw, cancel: false })).toThrow(
+      "fleet update poll request contains unknown field cancel",
+    );
+    expect(() => parseFleetUpdatePollRequest({ ...raw, jobId: "" })).toThrow("fleet update poll request.jobId must be a non-empty id");
+    expect(() => parseFleetUpdatePollRequest({ ...raw, waitMs: "soon" })).toThrow("fleet update poll request.waitMs must be a number");
+    expect(() => parseFleetUpdatePollRequest({ ...raw, waitMs: Number.NaN })).toThrow("fleet update poll request.waitMs must be a number");
+  });
+});
+
+describe("omp-ui_fleet_update tool arguments", () => {
+  it("accepts the full shape and defaults version to null", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_update", { machine: " studio ", target: "app", action: "check" })).toEqual({
+      ok: true,
+      tool: "update",
+      args: { machine: "studio", target: "app", action: "check", version: null },
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_update", { machine: "studio", target: "omp", action: "update", version: "18.13.1" })).toEqual({
+      ok: true,
+      tool: "update",
+      args: { machine: "studio", target: "omp", action: "update", version: "18.13.1" },
+    });
+  });
+
+  it("requires machine and refuses unknown arguments", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_update", { target: "app", action: "check" })).toEqual({
+      ok: false,
+      reason: "machine must be a non-empty string",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_update", { machine: " ", target: "app", action: "check" })).toEqual({
+      ok: false,
+      reason: "machine must be a non-empty string",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_update", { machine: "studio", target: "app", action: "check", force: true })).toEqual({
+      ok: false,
+      reason: 'unknown argument "force"',
+    });
+  });
+
+  it("keeps target and action inside their enums", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_update", { machine: "studio", target: "kernel", action: "check" })).toEqual({
+      ok: false,
+      reason: "target must be omp or app",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_update", { machine: "studio", target: "app", action: "restart" })).toEqual({
+      ok: false,
+      reason: "action must be check, update, or apply",
+    });
+  });
+
+  it("refuses a version that does not look like a version", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_update", { machine: "studio", target: "app", action: "update", version: "latest" })).toEqual({
+      ok: false,
+      reason: "version must look like 18.13.1",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_update", { machine: "studio", target: "app", action: "check", version: "1.2.3" })).toEqual({
+      ok: false,
+      reason: "a version belongs on action update, not check",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_update", { machine: "studio", target: "app", action: "apply", version: "1.2.3" })).toEqual({
+      ok: false,
+      reason: "a version belongs on action update, not apply",
+    });
+  });
+
+  it("refuses to apply the omp binary", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_update", { machine: "studio", target: "omp", action: "apply" })).toEqual({
+      ok: false,
+      reason: "the omp binary installs as it downloads; use action update",
+    });
+  });
+
+  it("translates the agent action into the wire request, live sessions never allowed", () => {
+    const machines: FleetMachine[] = [
+      {
+        key: LOCAL_MACHINE_KEY,
+        nickname: null,
+        status: "ready",
+        error: null,
+        preference: "normal",
+        receivedAt: NOW,
+        grantRung: null,
+        report: report(),
+        address: null,
+        sshReachable: null,
+        maintenance: null,
+      },
+      {
+        key: "r1",
+        nickname: "studio",
+        status: "ready",
+        error: null,
+        preference: "normal",
+        receivedAt: NOW,
+        grantRung: "full",
+        report: report(),
+        address: "10.0.0.5",
+        sshReachable: true,
+        maintenance: null,
+      },
+    ];
+    expect(fleetToolUpdateRequest({ machine: "This Computer", target: "app", action: "apply", version: null }, machines)).toEqual({
+      ok: true,
+      machineKey: LOCAL_MACHINE_KEY,
+      request: { target: "app", action: "apply", version: null, allowLiveSessions: false },
+    });
+    expect(fleetToolUpdateRequest({ machine: "Studio", target: "omp", action: "update", version: "18.13.1" }, machines)).toEqual({
+      ok: true,
+      machineKey: "r1",
+      request: { target: "omp", action: "stage", version: "18.13.1", allowLiveSessions: false },
+    });
+    expect(fleetToolUpdateRequest({ machine: "nope", target: "app", action: "check", version: null }, machines).ok).toBe(false);
   });
 });

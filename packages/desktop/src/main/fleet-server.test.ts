@@ -1,9 +1,41 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FLEET_EXEC_OUTPUT_MAX, FLEET_RUNGS, Registry, type FleetRequester, type FleetRung } from "@omp-ui/core";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import {
+  FLEET_EXEC_OUTPUT_MAX,
+  FLEET_RUNGS,
+  Registry,
+  type AppUpdateState,
+  type FleetRequester,
+  type FleetRung,
+  type FleetUpdateMemberRequest,
+} from "@omp-ui/core";
 import { hashRemotePassword, passwordSessionCredential } from "@omp-ui/server";
+
+// Fleet update verbs reach core's omp machinery only inside maintenance jobs;
+// stub the network/install layer (precedent: diagnostics.test.ts) so no test
+// ever touches npm or renames a binary. Everything else stays real core.
+const updateStubs = vi.hoisted(() => ({
+  checkOmpUpdate: vi.fn(),
+  fetchLatestOmpVersion: vi.fn(),
+  downloadOmp: vi.fn(),
+  readInstalledOmpVersion: vi.fn(),
+  managedOmpPath: vi.fn(() => "/managed/omp"),
+}));
+vi.mock("@omp-ui/core", async (importOriginal) => {
+  const core = await importOriginal<typeof import("@omp-ui/core")>();
+  return {
+    ...core,
+    checkOmpUpdate: updateStubs.checkOmpUpdate,
+    fetchLatestOmpVersion: updateStubs.fetchLatestOmpVersion,
+    downloadOmp: updateStubs.downloadOmp,
+    readInstalledOmpVersion: updateStubs.readInstalledOmpVersion,
+    managedOmpPath: updateStubs.managedOmpPath,
+  };
+});
+// fleet-server pulls app-update.ts (isAutoUpdateFormat) which touches only electron's shell.
+vi.mock("electron", () => ({ shell: { openExternal: async () => {}, openPath: async () => "", showItemInFolder: () => {} } }));
 import { FleetServer, runFleetCommand } from "./fleet-server";
 
 const posix = process.platform === "win32" ? describe.skip : describe;
@@ -16,9 +48,35 @@ let broadcasts: number;
 let installProviderKey: (envName: string, value: string) => void;
 let live: FleetServer[];
 
+// Fleet update seams: every dep is a mutable holder so each test flips only
+// what it asserts; server() reads them through at call time.
+function appStateOf(over: Partial<AppUpdateState> = {}): AppUpdateState {
+  return {
+    status: "idle",
+    currentVersion: "0.31.0",
+    latestVersion: null,
+    releaseUrl: null,
+    releaseName: null,
+    format: "appimage",
+    progress: null,
+    downloadedPath: null,
+    installOnQuit: false,
+    error: null,
+    ...over,
+  };
+}
+let ompInstallPath: string | null;
+let onOmpApplied: Mock;
+let appState: AppUpdateState;
+let stageAppUpdate: Mock;
+let armAppUpdateOnQuit: Mock;
+let liveSessions: number;
+let pinned: boolean;
+
 function server(
   execGit?: ConstructorParameters<typeof FleetServer>[0]["execGit"],
   addProject?: ConstructorParameters<typeof FleetServer>[0]["addProject"],
+  commandDeps?: ConstructorParameters<typeof FleetServer>[0]["commandDeps"],
 ): FleetServer {
   const s = new FleetServer({
     registry,
@@ -33,7 +91,15 @@ function server(
         broadcasts += 1;
       }),
     installProviderKey: (envName, value) => installProviderKey(envName, value),
+    ompInstallPath: () => ompInstallPath,
+    onOmpApplied: (version) => onOmpApplied(version),
+    appUpdateState: () => appState,
+    stageAppUpdate: () => stageAppUpdate(),
+    armAppUpdateOnQuit: () => armAppUpdateOnQuit(),
+    liveSessions: () => liveSessions,
+    pinned: () => pinned,
     ...(execGit === undefined ? {} : { execGit }),
+    ...(commandDeps === undefined ? {} : { commandDeps }),
   });
   live.push(s);
   return s;
@@ -49,6 +115,25 @@ beforeEach(() => {
   broadcasts = 0;
   installProviderKey = () => {};
   live = [];
+  ompInstallPath = null;
+  onOmpApplied = vi.fn();
+  appState = appStateOf();
+  stageAppUpdate = vi.fn(async () => "staged" as const);
+  armAppUpdateOnQuit = vi.fn(() => true);
+  liveSessions = 0;
+  pinned = false;
+  updateStubs.checkOmpUpdate.mockReset().mockResolvedValue({
+    installPath: null,
+    installedVersion: null,
+    latestVersion: null,
+    updateAvailable: false,
+    belowMinimum: false,
+    error: null,
+  });
+  updateStubs.fetchLatestOmpVersion.mockReset().mockResolvedValue(null);
+  updateStubs.downloadOmp.mockReset().mockResolvedValue(undefined);
+  updateStubs.readInstalledOmpVersion.mockReset().mockResolvedValue(null);
+  updateStubs.managedOmpPath.mockReset().mockReturnValue("/managed/omp");
 });
 
 afterEach(() => {
@@ -99,14 +184,7 @@ describe("FleetServer ladder (issue #901)", () => {
 posix("FleetServer.exec", () => {
   it("refuses below the ladder without spawning and audits the refusal", async () => {
     const spawnFn = vi.fn();
-    const s = new FleetServer({
-      registry,
-      logDir: path.join(base, "logs"),
-      broadcast: () => {},
-      addProject: async () => {},
-      installProviderKey: () => {},
-      commandDeps: { spawnFn },
-    });
+    const s = server(undefined, undefined, { spawnFn });
     const outcome = await s.exec({ requester: A, command: "echo hi", cwd: null, timeoutMs: null });
     expect(outcome.status).toBe("refused");
     expect(spawnFn).not.toHaveBeenCalled();
@@ -459,5 +537,346 @@ describe("FleetServer.providerKeys (issue #905)", () => {
       detail: "installed OPENAI_API_KEY; failed ANTHROPIC_API_KEY",
     });
     expectNoValueLogged(s);
+  });
+});
+
+const B: FleetRequester = { instanceId: "inst-b", label: "lab", kind: "agent", sourceTabId: null };
+
+function updateReq(over: Partial<Omit<FleetUpdateMemberRequest, "requester">> & { requester?: FleetRequester } = {}): FleetUpdateMemberRequest {
+  return { requester: A, target: "omp", action: "check", version: null, allowLiveSessions: false, ...over };
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  const { promise, resolve } = Promise.withResolvers<T>();
+  return { promise, resolve };
+}
+
+describe("FleetServer.updateMember (fleet remote version update)", () => {
+  it("refuses below Full control with the exact ladder string and audits the verb", async () => {
+    registry.setSetting("fleetExecCeiling", "full");
+    registry.setSetting("fleetExecEnabled", true);
+    grant(A.instanceId, "manage");
+    const s = server();
+    expect(await s.updateMember(updateReq())).toEqual({
+      status: "refused",
+      reason: 'studio holds fleet access "manage" on this machine; this call needs "full"',
+    });
+    expect(s.auditEntries()).toEqual([
+      expect.objectContaining({ action: "update", dispatcherId: "inst-a", rung: "full", accepted: false, detail: "omp check" }),
+    ]);
+    expect(updateStubs.checkOmpUpdate).not.toHaveBeenCalled();
+  });
+
+  it("refuses with the master switch off even at a full grant, and on a manage ceiling", async () => {
+    openFull(A.instanceId);
+    registry.setSetting("fleetExecEnabled", false);
+    const s = server();
+    expect(await s.updateMember(updateReq({ target: "app", action: "stage" }))).toEqual({
+      status: "refused",
+      reason: "fleet exec is off on this machine (Settings → Remote instances → Fleet access)",
+    });
+    registry.setSetting("fleetExecEnabled", true);
+    registry.setSetting("fleetExecCeiling", "manage");
+    expect(await s.updateMember(updateReq({ target: "app", action: "apply" }))).toEqual({
+      status: "refused",
+      reason: 'studio holds fleet access "manage" on this machine; this call needs "full"',
+    });
+    expect(s.auditEntries().map((e) => [e.action, e.accepted, e.detail])).toEqual([
+      ["update", false, "app stage"],
+      ["update", false, "app apply"],
+    ]);
+  });
+
+  it("answers omp/check from this machine's install facts and audits versions only", async () => {
+    openFull(A.instanceId);
+    ompInstallPath = "/opt/omp/bin/omp";
+    updateStubs.checkOmpUpdate.mockResolvedValue({
+      installPath: "/opt/omp/bin/omp",
+      installedVersion: "18.12.0",
+      latestVersion: "18.13.1",
+      updateAvailable: true,
+      belowMinimum: false,
+      error: null,
+    });
+    pinned = true;
+    const s = server();
+    expect(await s.updateMember(updateReq())).toEqual({
+      status: "accepted",
+      check: {
+        target: "omp",
+        installedVersion: "18.12.0",
+        installPath: "/opt/omp/bin/omp",
+        latestVersion: "18.13.1",
+        updateAvailable: true,
+        belowMinimum: false,
+        pinned: true,
+      },
+    });
+    expect(updateStubs.checkOmpUpdate).toHaveBeenCalledWith({ installPath: "/opt/omp/bin/omp" });
+    const entry = s.auditEntries().at(-1)!;
+    expect(entry).toMatchObject({ action: "update", accepted: true, detail: "omp check 18.12.0→18.13.1" });
+    expect(JSON.stringify(s.auditEntries())).not.toContain("/opt/omp");
+  });
+
+  it("refuses omp/stage on a pinned machine without naming any path", async () => {
+    openFull(A.instanceId);
+    ompInstallPath = "/home/dev/secretpin/omp";
+    pinned = true;
+    const s = server();
+    const ack = await s.updateMember(updateReq({ action: "stage" }));
+    expect(ack).toEqual({
+      status: "refused",
+      reason: "omp is pinned by OMP_UI_OMP_PATH on this machine; install into the managed path or clear the pin",
+    });
+    const text = JSON.stringify(ack) + JSON.stringify(s.auditEntries());
+    expect(text).not.toContain("secretpin");
+    expect(updateStubs.downloadOmp).not.toHaveBeenCalled();
+    expect(s.auditEntries().at(-1)).toMatchObject({ action: "update", accepted: false, detail: "omp stage" });
+  });
+
+  it("refuses omp/stage when no release is available", async () => {
+    openFull(A.instanceId);
+    updateStubs.fetchLatestOmpVersion.mockResolvedValue(null);
+    const s = server();
+    expect(await s.updateMember(updateReq({ action: "stage" }))).toEqual({
+      status: "refused",
+      reason: "no omp release is available for this machine",
+    });
+    expect(s.auditEntries().at(-1)).toMatchObject({ action: "update", accepted: false, detail: "omp stage" });
+  });
+
+  it("starts an omp/stage job, reports progress, and applies the binary on success", async () => {
+    openFull(A.instanceId);
+    updateStubs.fetchLatestOmpVersion.mockResolvedValue("18.13.1");
+    updateStubs.readInstalledOmpVersion.mockResolvedValue("18.12.0");
+    const dl = deferred<void>();
+    let onProgress: ((percent: number | null) => void) | null = null;
+    updateStubs.downloadOmp.mockImplementation((opts: { onProgress?: (p: number | null) => void }) => {
+      onProgress = opts.onProgress ?? null;
+      return dl.promise;
+    });
+    const s = server();
+    const ack = await s.updateMember(updateReq({ action: "stage" }));
+    if (ack.status !== "accepted" || !("jobId" in ack)) throw new Error(JSON.stringify(ack));
+    expect(s.auditEntries().at(-1)).toMatchObject({
+      action: "update",
+      rung: "full",
+      accepted: true,
+      detail: `omp → 18.13.1 (job ${ack.jobId.slice(0, 8)})`,
+    });
+    expect(updateStubs.downloadOmp).toHaveBeenCalledWith(
+      expect.objectContaining({ version: "18.13.1", targetPath: "/managed/omp", shouldCommit: expect.any(Function) }),
+    );
+    onProgress!(null);
+    expect(await s.updatePoll({ requester: A, jobId: ack.jobId, waitMs: 0 })).toMatchObject({
+      status: "accepted",
+      state: "running",
+      progress: { percent: null, phase: "downloading" },
+    });
+    onProgress!(42);
+    expect(await s.updatePoll({ requester: A, jobId: ack.jobId, waitMs: 0 })).toMatchObject({
+      state: "running",
+      progress: { percent: 42, phase: "downloading" },
+    });
+    dl.resolve();
+    expect(await s.updatePoll({ requester: A, jobId: ack.jobId, waitMs: 5_000 })).toMatchObject({
+      status: "accepted",
+      state: "succeeded",
+      detail: "omp 18.12.0 → 18.13.1 at /managed/omp",
+    });
+    expect(onOmpApplied).toHaveBeenCalledWith("18.13.1");
+    expect(s.auditEntries().at(-1)).toMatchObject({ action: "update", accepted: true, detail: `omp succeeded: omp 18.12.0 → 18.13.1 at /managed/omp` });
+  });
+
+  it("installs an explicitly requested omp version without consulting npm", async () => {
+    openFull(A.instanceId);
+    updateStubs.downloadOmp.mockResolvedValue(undefined);
+    const s = server();
+    const ack = await s.updateMember(updateReq({ action: "stage", version: "18.13.1" }));
+    if (ack.status !== "accepted" || !("jobId" in ack)) throw new Error(JSON.stringify(ack));
+    expect(updateStubs.fetchLatestOmpVersion).not.toHaveBeenCalled();
+    expect(updateStubs.downloadOmp).toHaveBeenCalledWith(expect.objectContaining({ version: "18.13.1" }));
+    expect(await s.updatePoll({ requester: A, jobId: ack.jobId, waitMs: 5_000 })).toMatchObject({ state: "succeeded" });
+    expect(onOmpApplied).toHaveBeenCalledWith("18.13.1");
+  });
+
+  it("answers app/check from the updater state without any network call", async () => {
+    openFull(A.instanceId);
+    appState = appStateOf({ status: "downloaded", latestVersion: "0.32.0", installOnQuit: true, format: "rpm" });
+    liveSessions = 2;
+    const s = server();
+    expect(await s.updateMember(updateReq({ target: "app" }))).toEqual({
+      status: "accepted",
+      check: {
+        target: "app",
+        currentVersion: "0.31.0",
+        latestVersion: "0.32.0",
+        format: "rpm",
+        staged: true,
+        installOnQuit: true,
+        liveSessions: 2,
+      },
+    });
+    expect(updateStubs.checkOmpUpdate).not.toHaveBeenCalled();
+    // The cheap verb stays cheap: an accepted app check writes no audit line.
+    expect(s.auditEntries()).toEqual([]);
+  });
+
+  it("refuses app/stage when the updater is off or the format needs its package manager", async () => {
+    openFull(A.instanceId);
+    const s = server();
+    appState = appStateOf({ status: "disabled" });
+    expect(await s.updateMember(updateReq({ target: "app", action: "stage" }))).toEqual({
+      status: "refused",
+      reason: "omp-ui auto-update is off in this install (Settings → Updates)",
+    });
+    appState = appStateOf({ status: "available", latestVersion: "0.32.0", format: "deb" });
+    expect(await s.updateMember(updateReq({ target: "app", action: "stage" }))).toEqual({
+      status: "refused",
+      reason: "this machine installs omp-ui as a deb package; update it with its package manager",
+    });
+    appState = appStateOf({ status: "available", format: "unknown" });
+    expect(await s.updateMember(updateReq({ target: "app", action: "stage" }))).toEqual({
+      status: "refused",
+      reason: "omp-ui does not know how this machine's omp-ui was installed; update it manually",
+    });
+    expect(stageAppUpdate).not.toHaveBeenCalled();
+    expect(s.auditEntries().map((e) => [e.action, e.accepted, e.detail])).toEqual([
+      ["update", false, "app stage"],
+      ["update", false, "app stage"],
+      ["update", false, "app stage"],
+    ]);
+  });
+
+  it("stages an app update and fails the job on a stale check instead of pretending", async () => {
+    openFull(A.instanceId);
+    appState = appStateOf({ status: "available", latestVersion: "0.32.0" });
+    const st = deferred<"staged">();
+    stageAppUpdate.mockReturnValue(st.promise);
+    const s = server();
+    const ack = await s.updateMember(updateReq({ target: "app", action: "stage" }));
+    if (ack.status !== "accepted" || !("jobId" in ack)) throw new Error(JSON.stringify(ack));
+    expect(await s.updatePoll({ requester: A, jobId: ack.jobId, waitMs: 0 })).toMatchObject({
+      status: "accepted",
+      state: "running",
+      progress: { percent: null, phase: "staging" },
+    });
+    st.resolve("staged");
+    expect(await s.updatePoll({ requester: A, jobId: ack.jobId, waitMs: 5_000 })).toMatchObject({
+      state: "succeeded",
+      detail: "app staged 0.32.0",
+    });
+    expect(s.auditEntries().at(-1)).toMatchObject({ action: "update", accepted: true, detail: "app succeeded: app staged 0.32.0" });
+    expect(onOmpApplied).not.toHaveBeenCalled();
+
+    stageAppUpdate = vi.fn(async () => "up-to-date" as const);
+    const stale = await s.updateMember(updateReq({ target: "app", action: "stage" }));
+    if (stale.status !== "accepted" || !("jobId" in stale)) throw new Error(JSON.stringify(stale));
+    expect(await s.updatePoll({ requester: A, jobId: stale.jobId, waitMs: 5_000 })).toMatchObject({
+      state: "failed",
+      detail: "no omp-ui release is available for this machine's train",
+    });
+
+    stageAppUpdate = vi.fn(async () => "unavailable" as const);
+    const off = await s.updateMember(updateReq({ target: "app", action: "stage" }));
+    if (off.status !== "accepted" || !("jobId" in off)) throw new Error(JSON.stringify(off));
+    expect(await s.updatePoll({ requester: A, jobId: off.jobId, waitMs: 5_000 })).toMatchObject({
+      state: "failed",
+      detail: "omp-ui auto-update is off in this install (Settings → Updates)",
+    });
+
+    stageAppUpdate = vi.fn(async () => "failed" as const);
+    const bad = await s.updateMember(updateReq({ target: "app", action: "stage" }));
+    if (bad.status !== "accepted" || !("jobId" in bad)) throw new Error(JSON.stringify(bad));
+    expect(await s.updatePoll({ requester: A, jobId: bad.jobId, waitMs: 5_000 })).toMatchObject({
+      state: "failed",
+      detail: "the omp-ui update could not be staged on this machine",
+    });
+  });
+
+  it("refuses app/apply on live sessions, nothing staged, and a declined arm — then arms on-quit", async () => {
+    openFull(A.instanceId);
+    const s = server();
+    liveSessions = 3;
+    appState = appStateOf({ status: "downloaded", latestVersion: "0.32.0" });
+    expect(await s.updateMember(updateReq({ target: "app", action: "apply" }))).toEqual({
+      status: "refused",
+      reason: "3 live session(s) run on this machine; stop them or choose Install when I quit",
+    });
+    liveSessions = 0;
+    appState = appStateOf({ status: "available", latestVersion: "0.32.0" });
+    expect(await s.updateMember(updateReq({ target: "app", action: "apply" }))).toEqual({
+      status: "refused",
+      reason: "no omp-ui update is staged on this machine",
+    });
+    appState = appStateOf({ status: "downloaded", latestVersion: "0.32.0" });
+    armAppUpdateOnQuit = vi.fn(() => false);
+    expect(await s.updateMember(updateReq({ target: "app", action: "apply" }))).toEqual({
+      status: "refused",
+      reason: "this machine's updater declined to arm the install",
+    });
+    liveSessions = 1;
+    armAppUpdateOnQuit = vi.fn(() => true);
+    const ack = await s.updateMember(updateReq({ target: "app", action: "apply", allowLiveSessions: true }));
+    expect(ack).toEqual({ status: "accepted", detail: "arm-on-quit" });
+    expect(s.auditEntries().map((e) => [e.action, e.accepted, e.detail])).toEqual([
+      ["update", false, "app apply"],
+      ["update", false, "app apply"],
+      ["update", false, "app apply"],
+      ["update", true, "app apply arm-on-quit"],
+    ]);
+  });
+
+  it("polls a job only for its starter, records first sight, and never audits a poll", async () => {
+    openFull(A.instanceId);
+    openFull(B.instanceId);
+    updateStubs.downloadOmp.mockResolvedValue(undefined);
+    const s = server();
+    const ack = await s.updateMember(updateReq({ action: "stage", version: "18.13.1" }));
+    if (ack.status !== "accepted" || !("jobId" in ack)) throw new Error(JSON.stringify(ack));
+    expect(await s.updatePoll({ requester: B, jobId: ack.jobId, waitMs: 0 })).toEqual({
+      status: "refused",
+      reason: `no Fleet update job ${ack.jobId} from lab on this machine`,
+    });
+    const unknown = { instanceId: "inst-c", label: "stranger", kind: "agent" as const, sourceTabId: null };
+    expect(await s.updatePoll({ requester: unknown, jobId: ack.jobId, waitMs: 0 })).toMatchObject({ status: "refused" });
+    expect(registry.getSetting("fleetGrants")["inst-c"]).toMatchObject({ label: "stranger" });
+    expect(registry.getSetting("fleetGrants")["inst-c"].rung).toBeUndefined();
+    const before = s.auditEntries().length;
+    await s.updatePoll({ requester: A, jobId: ack.jobId, waitMs: 100 });
+    await s.updatePoll({ requester: B, jobId: ack.jobId, waitMs: 0 });
+    expect(s.auditEntries().length).toBe(before);
+  });
+
+  it("revokes a running maintenance job when the ladder drops, and never applies late", async () => {
+    openFull(A.instanceId);
+    const dl = deferred<void>();
+    updateStubs.downloadOmp.mockReturnValue(dl.promise);
+    const s = server();
+    const ack = await s.updateMember(updateReq({ action: "stage", version: "18.13.1" }));
+    if (ack.status !== "accepted" || !("jobId" in ack)) throw new Error(JSON.stringify(ack));
+    s.setGrant(A.instanceId, "manage");
+    expect(await s.updatePoll({ requester: A, jobId: ack.jobId, waitMs: 0 })).toMatchObject({ state: "revoked" });
+    dl.resolve();
+    await Promise.resolve();
+    expect(onOmpApplied).not.toHaveBeenCalled();
+    expect(s.auditEntries().at(-1)).toMatchObject({ action: "update", accepted: true, detail: "omp revoked: revoked by this machine's owner" });
+  });
+
+  it("dispose revokes a running job without calling onOmpApplied and never installs at shutdown", async () => {
+    openFull(A.instanceId);
+    const dl = deferred<void>();
+    updateStubs.downloadOmp.mockReturnValue(dl.promise);
+    const s = server();
+    const ack = await s.updateMember(updateReq({ action: "stage", version: "18.13.1" }));
+    if (ack.status !== "accepted" || !("jobId" in ack)) throw new Error(JSON.stringify(ack));
+    s.dispose();
+    dl.resolve();
+    await Promise.resolve();
+    expect(onOmpApplied).not.toHaveBeenCalled();
+    expect(s.auditEntries().at(-1)).toMatchObject({
+      action: "update",
+      detail: "omp revoked: the machine quit before the update finished",
+    });
   });
 });

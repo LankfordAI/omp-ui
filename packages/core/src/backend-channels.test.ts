@@ -351,6 +351,23 @@ const VALID_ARGS = {
     },
   ],
   fleetRolloutProviderKeys: ["member-1", ["ANTHROPIC_API_KEY"]],
+  fleetUpdateMachine: ["member-1", { target: "app", action: "check", version: null, allowLiveSessions: false }],
+  fleetUpdateMember: [
+    {
+      requester: { instanceId: "instance-1", label: "workstation", kind: "agent", sourceTabId: "tab-1" },
+      target: "omp",
+      action: "stage",
+      version: "18.13.1",
+      allowLiveSessions: false,
+    },
+  ],
+  fleetUpdatePoll: [
+    {
+      requester: { instanceId: "instance-1", label: "workstation", kind: "agent", sourceTabId: "tab-1" },
+      jobId: "job-1",
+      waitMs: 25_000,
+    },
+  ],
   setFleetExecEnabled: [true],
   setFleetExecCeiling: ["manage"],
   setFleetProjectRoots: [["/srv/repos"]],

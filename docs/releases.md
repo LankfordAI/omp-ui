@@ -6,6 +6,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 - Fleet members list their SSH target and whether port 22 answers, so an agent can provision a member over its own ssh and register the checkout; fleet-registered projects now get their repository key and branch watch immediately (#904, #906).
 - Fleet members report their OS and package managers; agents can run long installs on a Full-control member as a detached exec and poll it, and you can roll this computer's Provider keys out to a member from the Fleet view (#905).
+- Fleet members show their omp and omp-ui versions as chips, including below-the-floor and staged-update badges, and a Full-control member can update itself on request — its managed omp binary lands immediately, an omp-ui update stages and installs at the member's next quit; nothing ships through the join link (#905).
 
 ## Choose a download
 

@@ -1,10 +1,10 @@
-import fs from "node:fs";
 import {
   checkOmpUpdate as coreCheckOmpUpdate,
   compareVersions,
   downloadOmp,
   managedOmpPath,
   MIN_SUPPORTED_OMP,
+  ompPinActive,
   type DownloadFetchLike,
   type FetchLike,
   type OmpUpdateState,
@@ -36,14 +36,7 @@ export interface OmpUpdaterDeps extends UpdateControllerDeps<OmpUpdateState> {
   /** True when OMP_UI_OMP_PATH names an existing file — a dev pin outranks the
    *  managed copy (paths.ts resolveOmpBinary), so installing into the managed
    *  path would be silently ignored and must never happen automatically. */
-  pinActive?: () => boolean; // tests; default: env check below
-}
-
-/** True when OMP_UI_OMP_PATH names an existing file (paths.ts resolution
- *  precedence); mirrors resolveOmpBinary's pin check. */
-function defaultPinActive(): boolean {
-  const pinned = process.env.OMP_UI_OMP_PATH;
-  return pinned !== undefined && fs.existsSync(pinned);
+  pinActive?: () => boolean; // tests; default: core's ompPinActive env check
 }
 
 export class OmpUpdater extends UpdateController<OmpUpdateState> {
@@ -81,7 +74,7 @@ export class OmpUpdater extends UpdateController<OmpUpdateState> {
     // them a present, up-to-date omp leaves installPath/installedVersion null
     // and the Settings row falls back to its "not installed" placeholder.
     const facts = { installPath: info.installPath, installedVersion: info.installedVersion };
-    const pinned = (this.deps.pinActive ?? defaultPinActive)();
+    const pinned = (this.deps.pinActive ?? ompPinActive)();
     this.reapDismissed(info.installedVersion);
     if (info.error !== null || info.latestVersion === null) {
       // Offline/registry unreachable: quiet in the background, answered manually.

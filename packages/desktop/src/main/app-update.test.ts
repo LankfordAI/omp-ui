@@ -603,6 +603,138 @@ describe.each(["appimage", "nsis", "maczip"] as const)("AppUpdater %s path", (fo
   });
 });
 
+describe("AppUpdater.stageForRemoteRequest (fleet remote version update)", () => {
+  /** AppImage updater for the staging arm; the release feed always offers 1.2.0. */
+  async function remoteStaging(
+    autoUpdater: FakeAutoUpdater,
+    overrides: Partial<AppUpdaterDeps> = {},
+  ): Promise<MadeUpdater> {
+    return makeUpdater({
+      fetchImpl: updateFetch({ releaseBody: releaseBody("1.2.0") }),
+      autoUpdaterFactory: async () => autoUpdater,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+      exists: () => false,
+      ...overrides,
+    });
+  }
+
+  it("answers \"unavailable\" with no network when the updater is disabled", async () => {
+    const fetchImpl: FetchLike = () => {
+      throw new Error("must not touch the network");
+    };
+    const autoUpdater = makeFakeAutoUpdater();
+    const { updater } = await remoteStaging(autoUpdater, {
+      enabled: false,
+      fetchImpl,
+    });
+    expect(await updater.stageForRemoteRequest()).toBe("unavailable");
+    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it("answers \"up-to-date\" when the feed holds nothing newer", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    const { updater } = await remoteStaging(autoUpdater, {
+      fetchImpl: updateFetch({ releaseBody: releaseBody("1.0.0") }),
+    });
+    expect(await updater.stageForRemoteRequest()).toBe("up-to-date");
+    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it("answers \"unavailable\" when the feed is unreachable", async () => {
+    const { updater } = await remoteStaging(makeFakeAutoUpdater(), {
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
+    });
+    expect(await updater.stageForRemoteRequest()).toBe("unavailable");
+  });
+
+  it("answers \"unavailable\" for a manual-installer format — nothing to stage here", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    const { updater } = await remoteStaging(autoUpdater, {
+      env: {},
+      exists: (p) => p === "/usr/bin/dpkg",
+    });
+    expect(await updater.stageForRemoteRequest()).toBe("unavailable");
+    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it("resolves \"staged\" when the verified download completes, keeping the card quiet", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    // The verified package lands while the stage is still in flight, exactly
+    // like electron-updater's update-downloaded during downloadUpdate().
+    let releaseDownload: () => void = () => {};
+    const gate = new Promise<void>((res) => {
+      releaseDownload = res;
+    });
+    autoUpdater.downloadUpdate.mockImplementation(async () => {
+      await gate;
+      autoUpdater.emitDownloaded();
+      return [];
+    });
+    const { updater } = await remoteStaging(autoUpdater);
+    const staged = updater.stageForRemoteRequest();
+
+    // Quiet posture mid-stage: no visible-progress card, the stage itself
+    // carries visible:false semantics (progress events stay unpublished).
+    await vi.waitFor(() => expect(autoUpdater.downloadUpdate).toHaveBeenCalledTimes(1));
+    autoUpdater.emitProgress(42);
+    expect(statuses()).not.toContain("downloading");
+    expect(updater.state.progress).toBeNull();
+
+    releaseDownload();
+    expect(await staged).toBe("staged");
+    expect(updater.state.status).toBe("downloaded");
+    expect(updater.state.progress).toBeNull();
+  });
+
+  it("resolves \"failed\" when the verified stage errors", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    autoUpdater.downloadUpdate.mockRejectedValueOnce(new Error("blockmap mismatch"));
+    const { updater } = await remoteStaging(autoUpdater);
+    expect(await updater.stageForRemoteRequest()).toBe("failed");
+    // Quiet failure: the member's own card never shows the Fleet request's error.
+    expect(updater.state.status).toBe("idle");
+    expect(statuses()).not.toContain("error");
+  });
+
+  it("resolves \"up-to-date\" when the electron-updater feed is empty", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    autoUpdater.checkForUpdates.mockResolvedValue({ isUpdateAvailable: false });
+    const { updater } = await remoteStaging(autoUpdater);
+    expect(await updater.stageForRemoteRequest()).toBe("up-to-date");
+    expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled();
+  });
+
+  it("answers \"unavailable\" when a newer check supersedes the request mid-flight", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    let releaseFetch: (body: unknown) => void = () => {};
+    let calls = 0;
+    const fetchImpl: FetchLike = async () => {
+      calls += 1;
+      if (calls > 1) {
+        return { ok: true, status: 200, json: async () => releaseBody("1.0.0"), arrayBuffer: async () => new ArrayBuffer(0) };
+      }
+      return new Promise((res) => {
+        releaseFetch = (body) =>
+          res({ ok: true, status: 200, json: async () => body, arrayBuffer: async () => new ArrayBuffer(0) });
+      });
+    };
+    const made = await remoteStaging(autoUpdater, { fetchImpl });
+    const pending = made.updater.stageForRemoteRequest();
+    await vi.waitFor(() => expect(made.updater.state.status).toBe("checking"));
+
+    // A palette click supersedes the Fleet request before its feed even lands.
+    const interrupting = made.updater.checkNow(true);
+    expect(await pending).toBe("unavailable");
+
+    // The old generation stays silent afterwards: it must not stage anymore.
+    releaseFetch(releaseBody("1.2.0"));
+    await interrupting;
+    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+  });
+});
+
 
 describe("AppUpdater update trains (issue #493)", () => {
   const json = (body: unknown) => ({

@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FleetProviderKeysOutcome } from "@omp-ui/core/fleet";
+import type { FleetProviderKeysOutcome, FleetUpdateAck } from "@omp-ui/core/fleet";
 import type { SessionSummary } from "@omp-ui/core/types";
 import { backendState, tabInfo } from "../test/fixtures";
 
@@ -15,6 +15,9 @@ const backendMock = {
   removeProject: vi.fn(async () => {}),
   fleetRolloutProviderKeys: vi.fn(
     async (): Promise<FleetProviderKeysOutcome> => ({ status: "accepted", installed: [], failed: [] }),
+  ),
+  fleetUpdateMachine: vi.fn(
+    async (): Promise<FleetUpdateAck> => ({ status: "accepted", jobId: "job-1" }),
   ),
 };
 Object.assign(window, { ompBackend: backendMock });
@@ -490,5 +493,152 @@ describe("Provider key rollout gate (issue #905)", () => {
       "fleet exec is off on this machine",
     ]);
     expect(dialog()!.textContent).toContain("fleet exec is off on this machine");
+  });
+});
+
+describe("Fleet remote version update gates (slice H)", () => {
+  const MEMBER = {
+    id: "inst-a",
+    nickname: "studio",
+    url: "https://studio.tailnet:4677",
+    status: "joined" as const,
+    error: null,
+    version: "1.0.0",
+    projects: [],
+    modelFavorites: [],
+  };
+
+  function seedMember(url: string): void {
+    useStore.setState({ state: backendState({ remoteInstances: [{ ...MEMBER, url }] }) });
+  }
+
+  it("names member and a → b version hop, latest when null, and the live-session binary rule", async () => {
+    seedMember("https://studio.tailnet:4677");
+    await render();
+    act(() => {
+      useStore.getState().stageLifecycleConfirmation({
+        kind: "fleet-update-omp", machineKey: "inst-a", machineNickname: "studio",
+        currentVersion: "18.12.0", targetVersion: null,
+      });
+    });
+    await settle();
+    const body = dialog()!.textContent!;
+    expect(body).toContain("Update omp remotely?");
+    expect(body).toContain("sends studio a request over HTTPS");
+    expect(body).toContain("from 18.12.0 to latest");
+    // The transport note rides the join URL, like rollout's (#905).
+    expect(body).toContain("over HTTPS");
+    expect(body).toContain("keep the binary they started with until they restart");
+
+    await act(async () => {
+      buttonIn("Update omp").click();
+    });
+    await settle();
+    expect(backendMock.fleetUpdateMachine).toHaveBeenCalledWith("inst-a", {
+      target: "omp", action: "stage", version: null, allowLiveSessions: false,
+    });
+    // Quiet success: no dialog stays open and no notice replaces it.
+    expect(useStore.getState().lifecycleConfirmation).toBeNull();
+    expect(useStore.getState().infoNotices).toEqual([]);
+    expect(useStore.getState().errorNotices).toEqual([]);
+  });
+
+  it("names plain HTTP when the member joins unencrypted", async () => {
+    await render();
+    seedMember("http://studio.tailnet:4677");
+    act(() => {
+      useStore.getState().stageLifecycleConfirmation({
+        kind: "fleet-update-omp", machineKey: "inst-a", machineNickname: "studio",
+        currentVersion: null, targetVersion: "18.13.1",
+      });
+    });
+    await settle();
+    const body = dialog()!.textContent!;
+    expect(body).toContain("unencrypted HTTP");
+    // Unknown current version is spelled out; the hop still names both ends.
+    expect(body).toContain("from an unknown version to 18.13.1");
+  });
+
+  it("stages the app update naming the version and the quit-time install", async () => {
+    await render();
+    seedMember("https://studio.tailnet:4677");
+    act(() => {
+      useStore.getState().stageLifecycleConfirmation({
+        kind: "fleet-stage-app", machineKey: "inst-a", machineNickname: "studio", version: "1.4.0",
+      });
+    });
+    await settle();
+    const body = dialog()!.textContent!;
+    expect(body).toContain("Stage the omp-ui app update?");
+    expect(body).toContain("sends studio a request over HTTPS");
+    expect(body).toContain("omp-ui app update (1.4.0)");
+    expect(body).toContain("Nothing installs until the update is applied the next time that machine quits");
+
+    await act(async () => {
+      buttonIn("Stage update").click();
+    });
+    await settle();
+    expect(backendMock.fleetUpdateMachine).toHaveBeenCalledWith("inst-a", {
+      target: "app", action: "stage", version: "1.4.0", allowLiveSessions: false,
+    });
+  });
+
+  it("names the live-session count when applying and offers Install when I quit", async () => {
+    await render();
+    seedMember("https://studio.tailnet:4677");
+    act(() => {
+      useStore.getState().stageLifecycleConfirmation({
+        kind: "fleet-apply-app", machineKey: "inst-a", machineNickname: "studio", liveSessions: 3,
+      });
+    });
+    await settle();
+    const body = dialog()!.textContent!;
+    expect(body).toContain("3 live session(s) run on studio");
+    expect(body).toContain("the next time it quits");
+
+    await act(async () => {
+      buttonIn("Install when I quit").click();
+    });
+    await settle();
+    expect(backendMock.fleetUpdateMachine).toHaveBeenCalledWith("inst-a", {
+      target: "app", action: "apply", version: null, allowLiveSessions: true,
+    });
+  });
+
+  it("drops the live-session sentence and flag when nothing runs there", async () => {
+    await render();
+    seedMember("https://studio.tailnet:4677");
+    act(() => {
+      useStore.getState().stageLifecycleConfirmation({
+        kind: "fleet-apply-app", machineKey: "inst-a", machineNickname: "studio", liveSessions: 0,
+      });
+    });
+    await settle();
+    const body = dialog()!.textContent!;
+    expect(body).not.toContain("live session");
+    expect(body).toContain("arms studio to install its staged omp-ui update");
+
+    await act(async () => {
+      buttonIn("Install when I quit").click();
+    });
+    await settle();
+    expect(backendMock.fleetUpdateMachine).toHaveBeenCalledWith("inst-a", {
+      target: "app", action: "apply", version: null, allowLiveSessions: false,
+    });
+  });
+
+  it("speaks locally without a transport sentence for this computer", async () => {
+    await render();
+    act(() => {
+      useStore.getState().stageLifecycleConfirmation({
+        kind: "fleet-update-omp", machineKey: "local", machineNickname: null,
+        currentVersion: "18.12.0", targetVersion: null,
+      });
+    });
+    await settle();
+    const body = dialog()!.textContent!;
+    expect(body).toContain("This asks this computer to update its own omp binary from 18.12.0 to latest");
+    expect(body).not.toContain("HTTPS");
+    expect(body).not.toContain("unencrypted");
   });
 });

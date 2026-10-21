@@ -1167,6 +1167,21 @@ started it (ADR-0065). It is killed, and reads revoked, when that dispatcher
 loses Full control on the member; quitting omp-ui kills it.
 _Avoid_: background job, remote job, async exec
 
+**Fleet maintenance**:
+One version change a Fleet member applies to itself at a controller's request —
+its managed omp binary or its own omp-ui install (ADR-0066). The member
+downloads from its own network through its own verified updater; the controller
+sends only the instruction, and nothing ships through the join link.
+_Avoid_: remote install, push update, fleet upgrade
+
+**Maintenance job**:
+The member-side record of one in-flight Fleet maintenance, polled only by the
+dispatcher that started it; capped at 10 minutes, one running per machine, and
+never cancelled — the download is atomic, so there is nothing useful to abort
+(ADR-0066). It settles revoked, before its binary is replaced, when its starter
+loses Full control on the member.
+_Avoid_: detached exec — that is a shell command
+
 **Fleet grant**:
 The rung one dispatcher holds on this machine — Observe, Dispatch, Manage
 projects, or Full control — cumulative upward, with joining defaulting to

@@ -119,4 +119,11 @@ describe("fleet channels (issue #899)", () => {
     }
     expect(REMOTE_PROXY_CHANNELS.has("fleet:rolloutProviderKeys")).toBe(false);
   });
+
+  it("proxies the member update and poll legs, never the local orchestration", () => {
+    for (const channel of ["fleet:updateMember", "fleet:updatePoll"]) {
+      expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(true);
+    }
+    expect(REMOTE_PROXY_CHANNELS.has("fleet:updateMachine")).toBe(false);
+  });
 });

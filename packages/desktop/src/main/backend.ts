@@ -35,6 +35,9 @@ import {
   readModelCatalog,
   readBranchDiff,
   readInstalledOmpVersion,
+  ompPinActive,
+  compareVersions,
+  MIN_SUPPORTED_OMP,
   listBranches,
   mergeWorktreeBranch,
   readMemoryOverview,
@@ -104,6 +107,9 @@ import {
   type FleetRequester,
   type FleetRung,
   type FleetHostReport,
+  type FleetUpdateRequest,
+  type FleetUpdateMemberRequest,
+  type FleetUpdatePollRequest,
   type FleetHostOs,
   type FleetPackageManager,
   type HostResources,
@@ -157,7 +163,7 @@ import {
 import { mintRemoteToken } from "@omp-ui/server";
 import { HeadWatcherHub } from "./git-head-watchers";
 import { OmpUpdater } from "./omp-update";
-import { AppUpdater } from "./app-update";
+import { AppUpdater, isAutoUpdateFormat } from "./app-update";
 import { RemoteServerManager } from "./remote-server";
 import { RemoteInstanceManager } from "./remote-instance-manager";
 import { routeByTab } from "./remote-route";
@@ -218,6 +224,9 @@ export class MainBackend {
   /** The member's OS, probed once per process; package managers cached 60 s (issue #905). */
   private fleetOs: Promise<FleetHostOs> | null = null;
   private fleetPackageManagers: { at: number; value: Promise<FleetPackageManager[]> } | null = null;
+  /** The managed omp binary's version (fleet remote version update): one
+   *  child spawn per 60 s, not one per report. */
+  private fleetOmpVersion: { at: number; value: Promise<string | null> } | null = null;
   private readonly fleetRepositoryKeys = new Map<string, { at: number; value: Promise<string | null> }>();
   private readonly fleetHeadCommits = new Map<string, { at: number; value: Promise<string | null> }>();
   /** `os.hostname()` cut to FLEET_LABEL_MAX code points: the requester and host-report label. */
@@ -541,6 +550,19 @@ export class MainBackend {
         await this.addProjectPath(dir);
       },
       installProviderKey: (envName, value) => this.providerKeys.setKey(envName, value),
+      // Fleet remote version update: the member self-updates through this
+      // machine's own updaters — Fleet never reimplements staging or applies.
+      ompInstallPath: () => this.ompPath,
+      onOmpApplied: () => this.refreshOmpPath(),
+      appUpdateState: () => this.appUpdater.state,
+      stageAppUpdate: () => this.appUpdater.stageForRemoteRequest(),
+      armAppUpdateOnQuit: () => {
+        if (this.appUpdater.state.status !== "downloaded" || !isAutoUpdateFormat(this.appUpdater.state.format)) return false;
+        this.appUpdater.setInstallOnQuit(true);
+        return true;
+      },
+      liveSessions: () => this.sessions.liveCount,
+      pinned: () => ompPinActive(),
     });
     // Every registered project gets one gitdir watch (#498): a terminal
     // checkout, a commit, a branch made or deleted outside this app moves the
@@ -1289,6 +1311,12 @@ export class MainBackend {
         [CH.fleetProviderKeys]: (req: FleetProviderKeysRequest) => this.fleetServer.providerKeys(req),
         [CH.fleetRolloutProviderKeys]: (machineKey: string, envNames: string[]) =>
           this.fleet.rolloutProviderKeys(machineKey, envNames),
+        // Fleet remote version update: member/poll arrive through the proxy;
+        // the local-machine request orchestrates in this main like dispatch.
+        [CH.fleetUpdateMember]: (req: FleetUpdateMemberRequest) => this.fleetServer.updateMember(req),
+        [CH.fleetUpdatePoll]: (req: FleetUpdatePollRequest) => this.fleetServer.updatePoll(req),
+        [CH.fleetUpdateMachine]: (machineKey: string, req: FleetUpdateRequest) =>
+          this.fleet.updateMachine(machineKey, req),
         [CH.fleetAudit]: () => this.fleetServer.auditEntries(),
         [CH.fleetGrantSet]: async (dispatcherId: string, rung: FleetRung | null) => {
           this.fleetServer.setGrant(dispatcherId, rung);
@@ -2050,11 +2078,25 @@ export class MainBackend {
         if (this.fleetPackageManagers === entry) this.fleetPackageManagers = null;
       });
     }
+    if (this.fleetOmpVersion === null || now - this.fleetOmpVersion.at >= 60_000) {
+      // No binary means nothing to spawn; never let the version probe reject
+      // the whole report.
+      const value =
+        this.ompPath === null ? Promise.resolve<string | null>(null) : readInstalledOmpVersion(this.ompPath);
+      const entry = { at: now, value };
+      this.fleetOmpVersion = entry;
+      // Same as the package-manager probe: a failed read is retried next report.
+      value.catch(() => {
+        if (this.fleetOmpVersion === entry) this.fleetOmpVersion = null;
+      });
+    }
     const records = this.registry.sessions;
-    const [resources, hostOs, packageManagers, projects] = await Promise.all([
+    const [resources, hostOs, packageManagers, ompVersion, projects] = await Promise.all([
       this.fleetResources.value,
       this.fleetOs,
       this.fleetPackageManagers.value,
+      // A failed probe answers null here; the entry above already scheduled its retry.
+      this.fleetOmpVersion.value.catch(() => null),
       Promise.all(
         this.registry.projects.map(async (project) => {
           const [repositoryKey, headCommit] = await Promise.all([
@@ -2099,6 +2141,15 @@ export class MainBackend {
       projectRoots: this.registry.getSetting("fleetProjectRoots"),
       os: hostOs,
       packageManagers,
+      // Fleet remote version update (issue #905): the two binaries' facts —
+      // the managed omp and this app's own staged/available update.
+      ompVersion,
+      ompPath: this.ompPath,
+      ompPinned: ompPinActive(),
+      ompBelowMinimum: ompVersion !== null && compareVersions(ompVersion, MIN_SUPPORTED_OMP) < 0,
+      packageFormat: detectPackageFormat(),
+      appLatestVersion: this.appUpdater.state.latestVersion,
+      appUpdateStaged: this.appUpdater.state.status === "downloaded",
     };
   }
 

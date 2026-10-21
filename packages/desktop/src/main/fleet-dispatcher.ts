@@ -20,27 +20,18 @@ import {
   fleetToolExecPollRequest,
   fleetToolExecRequest,
   fleetToolMachineKey,
+  fleetToolUpdateRequest,
   mintBranchName,
   parseFleetDispatchRequest,
   parseFleetHostOs,
   parseFleetPackageManagers,
+  parseFleetUpdateFacts,
   validateFleetTitle,
   worktreeBranchPrefix,
+  type FleetAgentUpdateAnswer,
   type FleetDispatchOutcome,
   type FleetDispatchRequest,
   type FleetDispatchResult,
-  type FleetHostProject,
-  type FleetHostReport,
-  type FleetMachine,
-  type FleetPendingDispatch,
-  type NewRpcSpawnRequest,
-  type PlacementCandidate,
-  type PlacementPreference,
-  type FleetToolExecArgs,
-  type FleetToolExecPollArgs,
-  type FleetToolProjectArgs,
-  type RemoteInstanceSummary,
-  type SessionSummary,
   type FleetDetachedExecRequest,
   type FleetDetachedExecStartOutcome,
   type FleetExecOutcome,
@@ -49,6 +40,11 @@ import {
   type FleetExecRequest,
   type FleetGrantRaiseOutcome,
   type FleetGrantRaiseRequest,
+  type FleetHostProject,
+  type FleetHostReport,
+  type FleetMachine,
+  type FleetMaintenanceRecord,
+  type FleetPendingDispatch,
   type FleetProjectManageOutcome,
   type FleetProjectManageRequest,
   type FleetProviderKeyEntry,
@@ -56,6 +52,20 @@ import {
   type FleetProviderKeysRequest,
   type FleetRequester,
   type FleetRung,
+  type FleetToolExecArgs,
+  type FleetToolExecPollArgs,
+  type FleetToolProjectArgs,
+  type FleetToolUpdateArgs,
+  type FleetUpdateAck,
+  type FleetUpdateMemberRequest,
+  type FleetUpdatePollOutcome,
+  type FleetUpdatePollRequest,
+  type FleetUpdateRequest,
+  type NewRpcSpawnRequest,
+  type PlacementCandidate,
+  type PlacementPreference,
+  type RemoteInstanceSummary,
+  type SessionSummary,
 } from "@omp-ui/core";
 
 /** A joined member's report must arrive inside this window, or the member reads as an error. */
@@ -66,6 +76,8 @@ const GRANT_PROBE_TIMEOUT_MS = 4_000;
 const SUMMARY_TIMEOUT_MS = 5_000;
 /** Exec/project/grant calls race this bound: inside the 60 s host-answer watchdog. */
 const MEMBER_CALL_DEADLINE_MS = 45_000;
+/** One maintenance poll races this bound beside the slower host-report wait, so a wedged member never stretches machines() past report time + 40 s. */
+const MAINTENANCE_POLL_DEADLINE_MS = 40_000;
 /**
  * The user-path ceiling for one spawn answer (issue #907): a wedged remote
  * session:spawn must settle as "unknown" — pending row plus retry — instead
@@ -140,6 +152,30 @@ function detachedExecUpdate<Outcome extends { status: string }>(outcome: Outcome
   return outcome;
 }
 
+/** Fleet update verbs all refuse this computer: its own Settings → Updates owns it. */
+const UPDATE_LOCAL_REFUSAL = "this computer updates itself from Settings → Updates";
+
+/** A member that predates the fleet update channels answers them with "unknown channel". */
+function fleetUpdateSkew<Ack extends { status: string }>(ack: Ack, name: string): Ack {
+  if (ack.status === "refused" && "reason" in ack && typeof ack.reason === "string" && ack.reason.includes("unknown channel")) {
+    return { ...ack, reason: `${name} runs an omp-ui without fleet updates; update omp-ui there` };
+  }
+  return ack;
+}
+
+/** The last-job map's key: one poll pointer per machine and target. */
+function updateJobKey(machineKey: string, target: "omp" | "app"): string {
+  return `${machineKey}|${target}`;
+}
+
+/** The member's update ack becomes the agent's answer; refusals ride the answer, never an error. */
+function agentAnswerOf(ack: FleetUpdateAck): FleetAgentUpdateAnswer {
+  if (ack.status === "refused") return { kind: "refused", reason: ack.reason };
+  if ("check" in ack) return { kind: "check", check: ack.check };
+  if ("jobId" in ack) return { kind: "started", jobId: ack.jobId };
+  return { kind: "applied", detail: ack.detail };
+}
+
 export class FleetDispatcher {
   readonly #deps: FleetDispatcherDeps;
   readonly #now: () => number;
@@ -148,6 +184,12 @@ export class FleetDispatcher {
   readonly #pending = new Map<string, FleetPendingDispatch>();
   /** Cached port-22 probes by member address (issue #904). */
   readonly #sshProbes = new Map<string, { at: number; value: Promise<boolean> }>();
+  /** The last Fleet maintenance this dispatcher started on each member (fleet remote version update), keyed by machineKey: the chip this machine shows. */
+  readonly #maintenance = new Map<string, FleetMaintenanceRecord>();
+  /** Finished jobs whose settling machines() poll already carried them; dropped after one more poll shows them. */
+  readonly #settledShowing = new Set<string>();
+  /** Job ids the update tool started per machine|target, so "poll again with the same arguments" never double-starts. */
+  readonly #updateJobs = new Map<string, string>();
 
   constructor(deps: FleetDispatcherDeps) {
     this.#deps = deps;
@@ -170,6 +212,7 @@ export class FleetDispatcher {
         grantRung: null,
         address: null,
         sshReachable: null,
+        maintenance: null,
       }),
       (err: unknown): FleetMachine => ({
         key: LOCAL_MACHINE_KEY,
@@ -182,12 +225,17 @@ export class FleetDispatcher {
         grantRung: null,
         address: null,
         sshReachable: null,
+        maintenance: null,
       }),
     );
-    const remotes = this.#deps
-      .remotes()
-      .filter((remote) => remote.status !== "self")
-      .map((remote) => this.#remoteMachine(remote, preferences[remote.id] ?? "normal"));
+    const others = this.#deps.remotes().filter((remote) => remote.status !== "self");
+    // A member that deregistered has no row left to poll from and nothing to
+    // answer with: drop its entry here (a transiently unjoined member keeps
+    // it — the job may still be running there, and the chip returns with it).
+    for (const key of [...this.#maintenance.keys()]) {
+      if (!others.some((remote) => remote.id === key)) this.#dropMaintenance(key);
+    }
+    const remotes = others.map((remote) => this.#remoteMachine(remote, preferences[remote.id] ?? "normal"));
     return Promise.all([local, ...remotes]);
   }
 
@@ -203,11 +251,15 @@ export class FleetDispatcher {
       grantRung: null,
       address: fleetMemberAddress(remote.url),
       sshReachable: null,
+      maintenance: null,
     };
     if (remote.status !== "joined") return machine;
-    // The port probe runs beside the report request, so a filtered port never
-    // stretches machines() past the slower of the two bounds.
+    // The port probe and the maintenance poll run beside the report request,
+    // so neither stretches machines() past the slower of their bounds. Only a
+    // member with a recorded job is polled; this computer never rides here.
     const ssh = machine.address === null ? Promise.resolve(null) : this.#sshReachable(machine.address);
+    const maintenance =
+      this.#maintenance.get(remote.id) === undefined ? Promise.resolve(null) : this.#maintenancePoll(remote.id);
     try {
       const report = await within(
         this.#deps.request(remote.id, CH.fleetHostReport, []) as Promise<FleetHostReport>,
@@ -219,30 +271,45 @@ export class FleetDispatcher {
           status: "error",
           error: `no host report within ${HOST_REPORT_TIMEOUT_MS / 1000} s`,
           sshReachable: await ssh,
+          maintenance: await maintenance,
         };
       }
-      const [grantRung, sshReachable] = await Promise.all([this.#probeRung(remote.id), ssh]);
+      const [grantRung, sshReachable, maintenanceRecord] = await Promise.all([
+        this.#probeRung(remote.id),
+        ssh,
+        maintenance,
+      ]);
       // A member that predates #904 sends neither user nor projectRoots; one
-      // that predates #905 sends neither os nor packageManagers.
+      // that predates #905 sends neither os nor packageManagers; one that
+      // predates the fleet update channels sends none of the version facts.
       const normalized: FleetHostReport = {
         ...report,
         user: typeof report.user === "string" && report.user !== "" ? report.user : null,
         projectRoots: Array.isArray(report.projectRoots) ? report.projectRoots : null,
         os: parseFleetHostOs(report.os),
         packageManagers: parseFleetPackageManagers(report.packageManagers),
+        ...parseFleetUpdateFacts(report),
       };
-      return { ...machine, status: "ready", error: null, report: normalized, receivedAt: this.#now(), grantRung, sshReachable };
+      return {
+        ...machine,
+        status: "ready",
+        error: null,
+        report: normalized,
+        receivedAt: this.#now(),
+        grantRung,
+        sshReachable,
+        maintenance: maintenanceRecord,
+      };
     } catch (err) {
       const message = messageOf(err);
+      const sshReachable = await ssh;
+      // A member we cannot reach at all keeps no live chip: the poll answer
+      // (or its loss) drops the entry silently, job still on the member.
+      await maintenance;
       if (message.includes("unknown channel")) {
-        return {
-          ...machine,
-          status: "unsupported",
-          error: "update omp-ui on this instance to use Fleet",
-          sshReachable: await ssh,
-        };
+        return { ...machine, status: "unsupported", error: "update omp-ui on this instance to use Fleet", sshReachable };
       }
-      return { ...machine, status: "error", error: message, sshReachable: await ssh };
+      return { ...machine, status: "error", error: message, sshReachable };
     }
   }
 
@@ -589,6 +656,151 @@ export class FleetDispatcher {
         reason: message.includes("unknown channel") ? `${name} runs an omp-ui without Provider key rollout; update omp-ui there` : message,
       };
     }
+  }
+
+  /**
+   * Fleet remote version update to member `machineKey`, user-initiated: the
+   * member runs the maintenance on itself and this side only records the job
+   * it started, so `machines()` can show one chip. This computer is refused —
+   * its own Settings → Updates owns it. Refusals ride the ack, never an error.
+   */
+  async updateMachine(
+    machineKey: string,
+    req: FleetUpdateRequest,
+    who: { kind: "user" } | { kind: "agent"; sourceTabId: string } = { kind: "user" },
+  ): Promise<FleetUpdateAck> {
+    if (machineKey === LOCAL_MACHINE_KEY) return { status: "refused", reason: UPDATE_LOCAL_REFUSAL };
+    const remote = this.#deps.remotes().find((r) => r.id === machineKey && r.status !== "self");
+    if (remote === undefined) return { status: "refused", reason: "no joined fleet instance has that id" };
+    const name = fleetMachineName(remote);
+    if (remote.status !== "joined") return { status: "refused", reason: `${name} is not joined` };
+    const memberReq: FleetUpdateMemberRequest = {
+      ...req,
+      requester: this.requester(who.kind, who.kind === "agent" ? who.sourceTabId : null),
+    };
+    let ack: FleetUpdateAck;
+    try {
+      const answer = await within(
+        this.#deps.request(machineKey, CH.fleetUpdateMember, [memberReq]) as Promise<FleetUpdateAck>,
+        MEMBER_CALL_DEADLINE_MS,
+      );
+      if (answer === TIMED_OUT) return { status: "refused", reason: `no answer from ${name} within ${MEMBER_CALL_DEADLINE_MS / 1000} s` };
+      ack = answer;
+    } catch (err) {
+      const message = messageOf(err);
+      return {
+        status: "refused",
+        reason: message.includes("unknown channel") ? `${name} runs an omp-ui without fleet updates; update omp-ui there` : message,
+      };
+    }
+    if (ack.status === "accepted" && "jobId" in ack) {
+      this.#maintenance.set(machineKey, {
+        jobId: ack.jobId,
+        target: req.target,
+        state: "running",
+        progress: null,
+        detail: null,
+        at: this.#now(),
+      });
+      this.#settledShowing.delete(machineKey);
+      this.#updateJobs.set(updateJobKey(machineKey, req.target), ack.jobId);
+    }
+    return fleetUpdateSkew(ack, name);
+  }
+
+  /**
+   * `omp-ui_fleet_update` (fleet remote version update): check, start, or
+   * poll one member's maintenance. A repeat call with the arguments that
+   * started a still-running job polls that job instead of starting another;
+   * the member holds the ladder, and refusals ride the answer.
+   */
+  async update(tabId: string, args: FleetToolUpdateArgs): Promise<FleetAgentUpdateAnswer> {
+    const machines = await this.machines();
+    const translated = fleetToolUpdateRequest(args, machines);
+    if (!translated.ok) return { kind: "refused", reason: translated.reason };
+    if (translated.machineKey === LOCAL_MACHINE_KEY) return { kind: "refused", reason: UPDATE_LOCAL_REFUSAL };
+    const machineKey = translated.machineKey;
+    const name = fleetMachineName(machines.find((m) => m.key === machineKey) ?? { nickname: machineKey });
+    const jobKey = updateJobKey(machineKey, args.target);
+    const lastJobId = this.#updateJobs.get(jobKey);
+    if (lastJobId !== undefined && args.action !== "apply") {
+      const polled = await this.#memberCall<FleetUpdatePollOutcome>(
+        machineKey,
+        CH.fleetUpdatePoll,
+        [{ requester: this.requester("agent", tabId), jobId: lastJobId, waitMs: 0 }],
+        name,
+      );
+      if (polled.status === "refused") {
+        // A member that never answered stays a refusal — a second doomed
+        // call would not answer either. Any other refusal means the job is
+        // gone (member restarted, id aged out): clear the pointer and the
+        // action below proceeds fresh.
+        const reason = fleetUpdateSkew(polled, name).reason;
+        if (/^no answer from /.test(reason)) return { kind: "refused", reason };
+        this.#updateJobs.delete(jobKey);
+      } else if (polled.state === "running") {
+        return { kind: "poll", state: polled.state, progress: polled.progress, detail: polled.detail };
+      } else {
+        // The job this call would have started already settled: answer the
+        // finish (the host bridge renders the final detail) and drop the pointer.
+        this.#updateJobs.delete(jobKey);
+        return { kind: "poll", state: polled.state, progress: polled.progress, detail: polled.detail };
+      }
+    }
+    // The translator already mapped the tool's "update" to the wire's "stage";
+    // the member audits the agent's tab through the claimed identity.
+    return agentAnswerOf(await this.updateMachine(machineKey, translated.request, { kind: "agent", sourceTabId: tabId }));
+  }
+
+  /** Forget one member's chip and its survival flag; the member's own job is untouched. */
+  #dropMaintenance(machineKey: string): void {
+    this.#maintenance.delete(machineKey);
+    this.#settledShowing.delete(machineKey);
+  }
+
+  /**
+   * One immediate poll of the recorded job while building a machine row;
+   * null when no chip should show. A refusal, timeout, or lost member drops
+   * the entry silently — the job itself stays on the member's registry.
+   */
+  async #maintenancePoll(machineKey: string): Promise<FleetMaintenanceRecord | null> {
+    const entry = this.#maintenance.get(machineKey);
+    if (entry === undefined) return null;
+    const req: FleetUpdatePollRequest = { requester: this.requester("user", null), jobId: entry.jobId, waitMs: 0 };
+    let answer: FleetUpdatePollOutcome | typeof TIMED_OUT;
+    try {
+      answer = await within(
+        this.#deps.request(machineKey, CH.fleetUpdatePoll, [req]) as Promise<FleetUpdatePollOutcome>,
+        MAINTENANCE_POLL_DEADLINE_MS,
+      );
+    } catch {
+      answer = TIMED_OUT;
+    }
+    if (answer === TIMED_OUT || answer.status !== "accepted") {
+      this.#dropMaintenance(machineKey);
+      return null;
+    }
+    const record: FleetMaintenanceRecord = {
+      jobId: answer.jobId,
+      target: entry.target,
+      state: answer.state,
+      progress: answer.progress?.percent ?? null,
+      detail: answer.detail,
+      at: this.#now(),
+    };
+    const shownOnce = this.#settledShowing.has(machineKey);
+    if (record.state === "running") {
+      this.#maintenance.set(machineKey, record);
+      this.#settledShowing.delete(machineKey);
+      return record;
+    }
+    // A settled job rides exactly one more machines() poll — enough for the
+    // view to catch succeeded/failed/revoked after the transition poll showed
+    // it once — and then drops here. The job itself stays on the member.
+    this.#maintenance.set(machineKey, record);
+    this.#settledShowing.add(machineKey);
+    if (shownOnce) this.#dropMaintenance(machineKey);
+    return record;
   }
 
   /** One member call inside the agent deadline; every failure reads as a refusal. */

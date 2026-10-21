@@ -486,6 +486,35 @@ export type LifecycleConfirmationChoice =
       instanceId?: string;
     }
   | {
+      /** Fleet remote version update — the omp-binary arm. The mandatory gate
+       *  names the member and the version hop (`targetVersion` null = latest);
+       *  live sessions on the member keep the binary they started with. The
+       *  body spells out the join transport exactly like rollout-keys does. */
+      kind: "fleet-update-omp";
+      machineKey: string;
+      machineNickname: string | null;
+      currentVersion: string | null;
+      targetVersion: string | null;
+    }
+  | {
+      /** Fleet remote version update — stage the app package. Nothing installs
+       *  until the apply arm runs at the member's next quit. */
+      kind: "fleet-stage-app";
+      machineKey: string;
+      machineNickname: string | null;
+      version: string | null;
+    }
+  | {
+      /** Fleet remote version update — apply the staged package at the member's
+       *  next quit (never a restart from a fleet request). `liveSessions` is the
+       *  count the body names; accepting with any live sessions IS the user's
+       *  "Install when I quit" choice, so the request carries them through. */
+      kind: "fleet-apply-app";
+      machineKey: string;
+      machineNickname: string | null;
+      liveSessions: number;
+    }
+  | {
       /** Provider key rollout to one fleet member (issue #905). Mandatory gate: the body
        *  names the count, the member, and whether the join transport is encrypted. Values
        *  never reach the renderer; main reads them at confirm time. */

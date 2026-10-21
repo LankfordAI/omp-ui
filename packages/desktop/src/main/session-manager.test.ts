@@ -7137,6 +7137,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
             "omp-ui_fleet_exec",
             "omp-ui_fleet_project",
             "omp-ui_fleet_exec_poll",
+            "omp-ui_fleet_update",
           ]
         : []),
     ]);

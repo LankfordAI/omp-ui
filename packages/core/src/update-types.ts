@@ -14,14 +14,10 @@ export interface OmpUpdateInfo {
   error: UpdateFailure | null;
 }
 
-export type AppPackageFormat =
-  | "appimage"
-  | "nsis"
-  | "maczip"
-  | "deb"
-  | "rpm"
-  | "flatpak"
-  | "unknown";
+/** Every package format `detectPackageFormat` can answer; the type derives from this tuple so the two cannot drift. */
+export const APP_PACKAGE_FORMATS = ["appimage", "nsis", "maczip", "deb", "rpm", "flatpak", "unknown"] as const;
+
+export type AppPackageFormat = (typeof APP_PACKAGE_FORMATS)[number];
 
 export type AppUpdateStatus =
   | "disabled"

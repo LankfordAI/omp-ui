@@ -14,6 +14,7 @@ import type {
   WorktreeReleaseResult,
   WorktreeSyncResult,
 } from "@omp-ui/core/types";
+import { LOCAL_MACHINE_KEY } from "@omp-ui/core/fleet";
 import { backend, backendFor } from "../../backend";
 import {
   composeImplementationPrompt,
@@ -1397,6 +1398,17 @@ export function createLifecycleSlice(
   };
 
   /**
+   * The Fleet version-update gates' existence re-check: a member forgotten
+   * meanwhile has nothing to receive the request. Members ride the joined
+   * remote instances exactly like rollout-keys, or the open Fleet view's
+   * machine list; the local sentinel is this app itself and cannot vanish.
+   */
+  const fleetUpdateMemberStillThere = (machineKey: string): boolean =>
+    machineKey === LOCAL_MACHINE_KEY ||
+    findInstance(get().state, machineKey) !== undefined ||
+    (get().fleet?.machines ?? []).some((m) => m.key === machineKey);
+
+  /**
    * The accepted effect behind `confirmLifecycleAction`. Targets are
    * re-checked against current backend state — never the record captured at
    * staging — so a vanished or already-changed subject dismisses harmlessly.
@@ -1515,6 +1527,41 @@ export function createLifecycleSlice(
           ),
         );
       }
+      return;
+    }
+    if (
+      confirmation.kind === "fleet-update-omp" ||
+      confirmation.kind === "fleet-stage-app" ||
+      confirmation.kind === "fleet-apply-app"
+    ) {
+      // The Fleet remote version update gates: one fleet:updateMachine call per
+      // arm, exactly one. The existence re-check mirrors rollout-keys — a member
+      // forgotten meanwhile has nothing to receive the request. A refusal rides
+      // the same toast/card path (reportError in confirmLifecycleAction); an
+      // accepted job/check/detail is quiet by design: the Fleet view's machine
+      // row already carries `maintenance`, and refreshFleet re-reads it — like
+      // setFleetPlacement's chip — so no notice dialog interrupts the app.
+      if (!fleetUpdateMemberStillThere(confirmation.machineKey)) return;
+      const result = await backend.fleetUpdateMachine(confirmation.machineKey, {
+        target: confirmation.kind === "fleet-update-omp" ? "omp" : "app",
+        action:
+          confirmation.kind === "fleet-update-omp"
+            ? "stage"
+            : confirmation.kind === "fleet-stage-app"
+              ? "stage"
+              : "apply",
+        version:
+          confirmation.kind === "fleet-update-omp"
+            ? confirmation.targetVersion
+            : confirmation.kind === "fleet-stage-app"
+              ? confirmation.version
+              : null,
+        // Accepting the apply gate with live sessions running IS the user's
+        // "Install when I quit" choice (the body said so): carry them through.
+        allowLiveSessions: confirmation.kind === "fleet-apply-app" && confirmation.liveSessions > 0,
+      });
+      if (result.status === "refused") throw new Error(result.reason);
+      void get().refreshFleet();
       return;
     }
     const registered = projectGroups(confirmation.instanceId)?.some(

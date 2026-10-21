@@ -33,6 +33,9 @@ import { openExternal } from "./system-open";
 // failures. Other package formats still wait for an explicit Download click.
 
 
+/** What a Fleet remote staging request (Fleet → member) settles to once the
+ *  machine state does: staged, nothing newer, not stageable here, or failed. */
+export type AppUpdateRemoteStageResult = "staged" | "up-to-date" | "unavailable" | "failed";
 /** Auto-updatable through electron-updater: AppImage, NSIS, macOS ZIP feed. */
 export type AutoUpdateFormat = "appimage" | "nsis" | "maczip";
 
@@ -179,6 +182,15 @@ export type AppUpdateEvent =
   | { t: "asset-downloaded"; path: string }
   | { t: "train-changed" }
   | { t: "dismiss" };
+
+/** Events that settle an in-flight stage, mapped to the remote-request answer
+ *  each one earns at the publish() choke point (fleet remote version update). */
+const REMOTE_STAGE_SETTLEMENTS: Partial<Record<AppUpdateEvent["t"], AppUpdateRemoteStageResult>> = {
+  "stage-complete": "staged",
+  "stage-empty": "up-to-date",
+  "stage-failed": "failed",
+  "apply-failed": "failed",
+};
 
 /**
  * The pure transition table. Each case returns the full next snapshot; the
@@ -384,6 +396,15 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
   /** Monotonic checkNow token: a newer check (or a train switch)
    *  supersedes every older in-flight check, which then goes silent. */
   private checkGen = 0;
+  /** Pending Fleet remote-staging requests (fleet remote version update),
+   *  each tagged with the checkNow generation that drives it: the publish()
+   *  choke point settles a waiter when a stage completes, empties, or fails;
+   *  stageForRemoteRequest answers superseded checks and stage-less outcomes
+   *  directly. Resolvers are idempotent — first answer wins. */
+  private readonly remoteStageWaiters = new Set<{
+    gen: number;
+    resolve: (result: AppUpdateRemoteStageResult) => void;
+  }>();
 
   constructor(private readonly deps: AppUpdaterDeps) {
     super(
@@ -421,6 +442,29 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
   private publish(event: AppUpdateEvent): void {
     this.machine = deriveAppUpdateState(this.machine, event);
     this.set(this.machine.state);
+    // Fleet remote staging (fleet remote version update): the settling event
+    // of the CURRENT generation answers every waiter whose check drove it —
+    // a superseded request is answered "unavailable" by its own caller, per
+    // the checkGen contract. The three stage events clear `stage` in the
+    // table by construction; apply-failed only fires outside an in-flight
+    // stage (the restart arm), where the snapshot is already stage-null.
+    const settled = REMOTE_STAGE_SETTLEMENTS[event.t];
+    if (event.t === "check-begin") {
+      // A newer check supersedes pending remote requests the moment it
+      // begins: they can never settle their own stage anymore.
+      for (const waiter of [...this.remoteStageWaiters]) {
+        if (waiter.gen === this.checkGen) continue;
+        this.remoteStageWaiters.delete(waiter);
+        waiter.resolve("unavailable");
+      }
+      return;
+    }
+    if (settled === undefined || this.machine.stage !== null) return;
+    for (const waiter of [...this.remoteStageWaiters]) {
+      if (waiter.gen !== this.checkGen) continue;
+      this.remoteStageWaiters.delete(waiter);
+      waiter.resolve(settled);
+    }
   }
 
   /**
@@ -429,6 +473,71 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
    * check swallows: up-to-date, unreachable, disabled.
    */
   async checkNow(manual: boolean): Promise<AppUpdateState> {
+    return this.runCheck(manual, manual);
+  }
+
+  /**
+   * Fleet remote staging (fleet remote version update): the same feed/train/
+   * sha512-blockmap-verified check a manual one runs — a Fleet request is an
+   * operator asking, so dismissal never suppresses it — but the in-flight
+   * stage publishes quietly: exactly the background-check posture, where
+   * stage-enter carries visible:false and only the verified download would
+   * ever surface. Resolves once the machine state settles:
+   * - "staged": electron-updater verified and stored the update (the quit
+   *   handler then owns when it applies; nothing here restarts).
+   * - "up-to-date": the feed holds nothing newer than the running build.
+   * - "unavailable": disabled updater, unreachable feed, a manual-installer
+   *   format this machine cannot stage itself, or a newer check superseded
+   *   this one (the checkGen latch) — which says nothing about staging.
+   * - "failed": the verified stage errored.
+   */
+  async stageForRemoteRequest(): Promise<AppUpdateRemoteStageResult> {
+    if (!this.enabled) return "unavailable";
+    // runCheck's prologue (generation bump, check-begin) is synchronous, so
+    // registering the waiter right after the call cannot miss an event.
+    const checking = this.runCheck(true, false);
+    const gen = this.checkGen;
+    const { promise: settling, resolve: settle } =
+      Promise.withResolvers<AppUpdateRemoteStageResult>();
+    const waiter = { gen, resolve: settle };
+    this.remoteStageWaiters.add(waiter);
+    // Race, not sequential awaits: a superseded request is answered the
+    // moment the newer check begins, while OUR check may stay parked on the
+    // feed fetch until long after it stops mattering.
+    const outcome = await Promise.race([
+      settling.then((result) => ({ kind: "settled" as const, result })),
+      checking.then((state) => ({ kind: "returned" as const, state })),
+    ]);
+    if (outcome.kind === "settled") return outcome.result;
+    if (gen !== this.checkGen) {
+      this.remoteStageWaiters.delete(waiter);
+      return "unavailable";
+    }
+    // A quiet stage is still in flight — a reentrant join onto one that
+    // began before this request, which our check deliberately did not
+    // reveal. Its settle event carries the answer (publish() answers every
+    // waiter of the current generation).
+    if (this.machine.stage !== null) return settling;
+    this.remoteStageWaiters.delete(waiter);
+    switch (outcome.state.status) {
+      case "up-to-date":
+        return "up-to-date";
+      case "downloaded":
+        return "staged";
+      case "error":
+        return outcome.state.error?.kind === "unreachable" ? "unavailable" : "failed";
+      default:
+        // "idle" / "disabled" / "available" (deb/rpm/flatpak waits for an
+        // explicit Download click): this machine cannot stage anything itself.
+        return "unavailable";
+    }
+  }
+
+  /** checkNow's body with the card-posture flag split out: `manual` decides
+   *  what the check REPORTS (disabled/unreachable/up-to-date, dismissal
+   *  bypass); `stageVisible` alone decides whether an in-flight stage shows
+   *  progress and failures on the member's own card. */
+  private async runCheck(manual: boolean, stageVisible: boolean): Promise<AppUpdateState> {
     const gen = ++this.checkGen;
     if (!this.enabled) {
       if (manual) this.publish({ t: "disabled" });
@@ -458,7 +567,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     }
     const format = detectPackageFormat(this.deps.env, this.deps.exists, this.deps.platform);
     if (isAutoUpdateFormat(format)) {
-      await this.stageAutoUpdate(release, format, manual, train, gen);
+      await this.stageAutoUpdate(release, format, stageVisible, train, gen);
       return this.state;
     }
     this.publish({ t: "available", release, format: train === "nightly" ? "unknown" : format });

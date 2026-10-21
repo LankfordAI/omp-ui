@@ -83,6 +83,7 @@ import {
   type ImageAttachment,
   type DocumentAttachment,
   type OwnedSessionRecord,
+  type FleetAgentUpdateAnswer,
   type FleetDispatchRequest,
   type FleetDispatchResult,
   type FleetDetachedExecStartOutcome,
@@ -93,6 +94,7 @@ import {
   type FleetToolExecArgs,
   type FleetToolExecPollArgs,
   type FleetToolProjectArgs,
+  type FleetToolUpdateArgs,
   type AskSource,
   type ObsidianListEntry,
   type RpcFrame,
@@ -199,6 +201,8 @@ export interface FleetDispatcherLike {
   projectManage(tabId: string, args: FleetToolProjectArgs): Promise<FleetProjectManageOutcome>;
   execDetach(tabId: string, args: FleetToolExecArgs): Promise<FleetDetachedExecStartOutcome>;
   execPoll(tabId: string, args: FleetToolExecPollArgs): Promise<FleetExecPollOutcome>;
+  /** Fleet maintenance on a member (fleet remote version update); refusals ride the answer. */
+  update(tabId: string, args: FleetToolUpdateArgs): Promise<FleetAgentUpdateAnswer>;
 }
 
 /** The agent dispatch deadline: the answer must land inside HOST_ANSWER_WATCHDOG_MS (60 s). */
@@ -475,6 +479,8 @@ export class SessionManager {
               // #905: detached exec start and poll, bounded the same way.
               execDetach: (tabId, args) => fleet().execDetach(tabId, args),
               execPoll: (tabId, args) => fleet().execPoll(tabId, args),
+              // Fleet remote version update: the dispatcher answers polls for jobs it started; refusals ride the answer.
+              update: (tabId, args) => fleet().update(tabId, args),
             },
           }),
     });
