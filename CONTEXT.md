@@ -1168,6 +1168,14 @@ it remotely re-presents the join credential; the node enforces every rung
 check (ADR-0062).
 _Avoid_: permission flag, ACL, execEnabled
 
+**Member address**:
+The host a fleet member is reached at — the hostname of the URL this app
+joined it at — paired with the member's own login user as the SSH target an
+agent's own ssh uses to provision it. omp-ui reports it and checks whether
+port 22 answers; it never opens an SSH connection or holds an SSH key
+(ADR-0064).
+_Avoid_: node IP, ssh host, member endpoint
+
 **Placement preference**:
 The per-member weight automatic placement applies — Prefer, Normal, Less
 often, or Manual only — stored per machine key in this app's registry. It

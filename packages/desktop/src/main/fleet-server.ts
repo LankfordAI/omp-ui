@@ -198,6 +198,8 @@ export interface FleetServerDeps {
   registry: Registry;
   logDir: string;
   broadcast: () => void;
+  /** The backend's shared registration path (project:add's body, issue #904); rejects with a user-facing reason. */
+  addProject: (dir: string) => Promise<void>;
   /** Test seams. */
   commandDeps?: FleetCommandDeps;
   execGit?: (file: string, args: string[], opts: { cwd: string; timeout: number }) => Promise<{ stdout: Buffer }>;
@@ -314,8 +316,11 @@ export class FleetServer {
       }
       return { status: "refused", reason: `git clone failed: ${message.split("\n")[0]}` };
     }
-    this.#deps.registry.addProject(dest);
-    this.#deps.broadcast();
+    try {
+      await this.#deps.addProject(dest);
+    } catch (err) {
+      return { status: "refused", reason: `cloned to ${dest} but registration failed: ${messageOf(err)}` };
+    }
     return { status: "accepted", path: dest, headCommit: await this.#headCommit(dest) };
   }
 
@@ -337,8 +342,11 @@ export class FleetServer {
     });
     if (!underRoot) return { status: "refused", reason: `${real} is not under a declared project root` };
     if (!fs.existsSync(path.join(real, ".git"))) return { status: "refused", reason: `${real} is not a git checkout (no .git)` };
-    this.#deps.registry.addProject(real);
-    this.#deps.broadcast();
+    try {
+      await this.#deps.addProject(real);
+    } catch (err) {
+      return { status: "refused", reason: `registration failed: ${messageOf(err)}` };
+    }
     return { status: "accepted", path: real, headCommit: await this.#headCommit(real) };
   }
 

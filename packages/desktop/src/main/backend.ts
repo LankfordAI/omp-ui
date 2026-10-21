@@ -139,6 +139,7 @@ import {
   type SessionSummary,
   type PlanReviewVerdict,
   type ProjectGroup,
+  type ProjectRecord,
   type ProjectOpenTarget,
   type ProjectScalarResult,
   type ProjectSubagentModelsResult,
@@ -156,6 +157,7 @@ import { routeByTab } from "./remote-route";
 import { SessionManager } from "./session-manager";
 import { FleetDispatcher } from "./fleet-dispatcher";
 import { FleetServer } from "./fleet-server";
+import { probeSshPort } from "./ssh-probe";
 import { PlanVerifier } from "./plan-verifier";
 import { ClockStamper } from "./clock-stamper";
 import { readConfinedPlanFile } from "./plan-file";
@@ -210,6 +212,14 @@ export class MainBackend {
   private readonly fleetHeadCommits = new Map<string, { at: number; value: Promise<string | null> }>();
   /** `os.hostname()` cut to FLEET_LABEL_MAX code points: the requester and host-report label. */
   private readonly fleetLabel = [...os.hostname()].slice(0, FLEET_LABEL_MAX).join("") || "omp-ui";
+  /** The member's login user for the fleet ssh line (issue #904); os.userInfo throws when the uid has no passwd entry. */
+  private readonly fleetUser: string | null = (() => {
+    try {
+      return os.userInfo().username || null;
+    } catch {
+      return null;
+    }
+  })();
   /** Per-project gitdir watchers (#498): churn answers with branch:changed. */
   private readonly headWatchers: HeadWatcherHub;
   private readonly projectOpener = new ProjectOpener();
@@ -508,6 +518,7 @@ export class MainBackend {
       },
       localSummary: (tabId) => this.fleetSessionSummary(tabId),
       broadcast: () => this.broadcast(),
+      probeSsh: (host) => probeSshPort(host),
     });
     // The node half of the fleet ladder (issue #901): the owner answers for
     // its own machine, so it shares the registry and log dir with everything else.
@@ -515,6 +526,9 @@ export class MainBackend {
       registry: this.registry,
       logDir: this.logDir,
       broadcast: () => void this.broadcast(),
+      addProject: async (dir) => {
+        await this.addProjectPath(dir);
+      },
     });
     // Every registered project gets one gitdir watch (#498): a terminal
     // checkout, a commit, a branch made or deleted outside this app moves the
@@ -737,33 +751,7 @@ export class MainBackend {
     const table = {
       request: {
         [CH.getState]: () => this.buildState(),
-        [CH.addProject]: async (raw: string) => {
-          const resolved = await resolveProjectPath(raw);
-          if (isInChatsRoot(this.chatsRoot, resolved)) {
-            throw new Error("omp-ui's chats folder can't be registered as a project");
-          }
-          const record = this.registry.addProject(resolved);
-          void this.headWatchers.start(resolved);
-          // Repository key (issue #903, ADR-0063): resolved off the add path —
-          // a git probe must never fail or delay the add itself. One extra
-          // broadcast when a key actually lands; a non-git folder resolves
-          // null and stays silent, and a failed probe leaves the key null for
-          // the startup backfill to retry.
-          void (async () => {
-            try {
-              const key = await this.fleetCached(this.fleetRepositoryKeys, resolved, 60_000, () =>
-                resolveRepositoryKey(resolved),
-              );
-              if (key === null || key === record.repositoryKey) return;
-              this.registry.setProjectRepositoryKey(resolved, key);
-              void this.broadcast();
-            } catch {
-              // Swallowed by design: the add already succeeded.
-            }
-          })();
-          await this.broadcast();
-          return record;
-        },
+        [CH.addProject]: async (raw: string) => this.addProjectPath(await resolveProjectPath(raw)),
         [CH.browseDirectories]: (partialPath: string) => browseDirectories(partialPath),
         [CH.removeProject]: async (projectPath: string) => {
           if (this.sessions.hasLiveInProject(projectPath)) {
@@ -2074,7 +2062,41 @@ export class MainBackend {
       runningTurns: records.filter((s) => this.sessions.isTurnRunning(s.tabId)).length,
       sampledAt: now,
       projects,
+      user: this.fleetUser,
+      projectRoots: this.registry.getSetting("fleetProjectRoots"),
     };
+  }
+
+  /**
+   * The one registration path (issue #904): the user's project:add and the
+   * fleet's rung-3 clone/register both land here, so every registered project
+   * gets its head watcher and repository key the same way.
+   */
+  private async addProjectPath(resolved: string): Promise<ProjectRecord> {
+    if (isInChatsRoot(this.chatsRoot, resolved)) {
+      throw new Error("omp-ui's chats folder can't be registered as a project");
+    }
+    const record = this.registry.addProject(resolved);
+    void this.headWatchers.start(resolved);
+    // Repository key (issue #903, ADR-0063): resolved off the add path —
+    // a git probe must never fail or delay the add itself. One extra
+    // broadcast when a key actually lands; a non-git folder resolves
+    // null and stays silent, and a failed probe leaves the key null for
+    // the startup backfill to retry.
+    void (async () => {
+      try {
+        const key = await this.fleetCached(this.fleetRepositoryKeys, resolved, 60_000, () =>
+          resolveRepositoryKey(resolved),
+        );
+        if (key === null || key === record.repositoryKey) return;
+        this.registry.setProjectRepositoryKey(resolved, key);
+        void this.broadcast();
+      } catch {
+        // Swallowed by design: the add already succeeded.
+      }
+    })();
+    await this.broadcast();
+    return record;
   }
 
   /** The owner-rendered summary the fleet status tool reads (issue #899). */

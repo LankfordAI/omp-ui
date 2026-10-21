@@ -450,6 +450,8 @@ describe("HostBridge fleet tools (issue #899)", () => {
     preference: "normal",
     receivedAt: 1,
     grantRung,
+    address: key === LOCAL_MACHINE_KEY ? null : "10.0.0.5",
+    sshReachable: null,
     report: {
       instanceId: `inst-${key}`,
       label: key,
@@ -466,6 +468,8 @@ describe("HostBridge fleet tools (issue #899)", () => {
       projects: [
         { path: key === LOCAL_MACHINE_KEY ? PROJECT : `/remote/${key}/repo`, name: "repo", repositoryKey: REPO_KEY, headCommit: null, providerReady: true, advisor: false, advisorModel: null },
       ],
+      user: null,
+      projectRoots: [],
     },
   });
   const MACHINES = [machine(LOCAL_MACHINE_KEY, null), machine("remote-b", "studio", "full")];

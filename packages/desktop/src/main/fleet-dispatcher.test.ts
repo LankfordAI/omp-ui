@@ -40,6 +40,8 @@ function report(projects: FleetHostProject[], patch: Partial<FleetHostReport> = 
     runningTurns: 0,
     sampledAt: NOW,
     projects,
+    user: "austin",
+    projectRoots: [],
     ...patch,
   };
 }
@@ -99,6 +101,7 @@ function harness(opts: {
     broadcast: async () => {
       h.broadcasts += 1;
     },
+    probeSsh: async () => true,
     now: () => NOW,
     uuid: () => `id-${++ids}`,
   };
@@ -296,6 +299,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
       fleetSessions: async () => [],
       localSummary: async () => "",
       broadcast: async () => {},
+      probeSsh: async () => true,
       now: () => NOW,
       uuid: () => "u",
     });
@@ -396,5 +400,35 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
     const h = ladder(async () => ({ ok: true, rung: "manage" }), [remote("r1", { status: "unreachable" })]);
     expect(await h.dispatcher.requestGrant("r1", "manage", "s3cret")).toEqual({ ok: false, reason: expect.stringContaining("not joined") });
     expect(h.sent(CH.fleetGrantRaise)).toEqual([]);
+  });
+});
+
+describe("FleetDispatcher member address (issue #904)", () => {
+  it("probes each joined member's join host once per window and never this computer or an unjoined member", async () => {
+    const { user: _user, projectRoots: _roots, ...older } = report([]);
+    const probeSsh = vi.fn<(host: string) => Promise<boolean>>(async () => false);
+    const dispatcher = new FleetDispatcher({
+      localReport: async () => report([project()]),
+      spawnLocal: async () => ({ tabId: "t" }),
+      remotes: () => [remote("r1", { url: "http://[fd00::7]:4677" }), remote("r2", { status: "unreachable" })],
+      request: async (_id, channel) => (channel === CH.fleetHostReport ? older : null),
+      preferences: () => ({}),
+      requesterBase: () => ({ instanceId: "dispatcher", label: "desk" }),
+      knownDispatchIds: () => new Set(),
+      fleetSessions: async () => [],
+      localSummary: async () => "",
+      broadcast: async () => {},
+      probeSsh,
+      now: () => NOW,
+      uuid: () => "u",
+    });
+    await dispatcher.machines();
+    const machines = await dispatcher.machines();
+    expect(probeSsh.mock.calls).toEqual([["fd00::7"]]);
+    const r1 = machines.find((m) => m.key === "r1")!;
+    expect(r1).toMatchObject({ status: "ready", address: "fd00::7", sshReachable: false });
+    expect(r1.report).toMatchObject({ user: null, projectRoots: null });
+    expect(machines.find((m) => m.key === "r2")).toMatchObject({ address: "r2", sshReachable: null });
+    expect(machines.find((m) => m.key === LOCAL_MACHINE_KEY)).toMatchObject({ address: null, sshReachable: null });
   });
 });

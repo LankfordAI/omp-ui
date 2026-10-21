@@ -91,6 +91,26 @@ function MachineRow({ machine }: { machine: FleetMachine }) {
             {t("fleet.machine.access", { rung: t(RUNG_LABEL[machine.grantRung]) })}
           </Chip>
         )}
+        {/* #904: where an agent's own ssh reaches this member, and whether port 22 answered. */}
+        {machine.address !== null && (
+          <span data-ssh-reachable={String(machine.sshReachable)} className="min-w-0">
+            <Chip
+              mono
+              truncate
+              tone={machine.sshReachable === true ? "signal" : machine.sshReachable === false ? "rose" : "neutral"}
+              title={t(
+                machine.sshReachable === true
+                  ? "fleet.machine.sshOpen"
+                  : machine.sshReachable === false
+                    ? "fleet.machine.sshClosed"
+                    : "fleet.machine.sshUnknown",
+                { address: machine.address },
+              )}
+            >
+              {t("fleet.machine.ssh", { target: report?.user ? `${report.user}@${machine.address}` : machine.address })}
+            </Chip>
+          </span>
+        )}
       </span>
       <span className="min-w-0 flex-1 truncate text-ink-mid">
         {machine.status === "unsupported" ? (

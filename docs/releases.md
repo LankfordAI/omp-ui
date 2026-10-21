@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.25.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.25.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Fleet members list their SSH target and whether port 22 answers, so an agent can provision a member over its own ssh and register the checkout; fleet-registered projects now get their repository key and branch watch immediately (#904, #906).
 
 ## Choose a download
 

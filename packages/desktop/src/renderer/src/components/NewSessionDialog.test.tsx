@@ -30,6 +30,8 @@ function machine(key: string, nickname: string | null, projects: FleetHostProjec
     preference: "normal",
     receivedAt: 1,
     grantRung: "dispatch",
+    address: key === "local" ? null : "10.0.0.5",
+    sshReachable: null,
     report: {
       instanceId: `id-${key}`,
       label: key,
@@ -44,6 +46,8 @@ function machine(key: string, nickname: string | null, projects: FleetHostProjec
       runningTurns: 0,
       sampledAt: 1,
       projects,
+      user: null,
+      projectRoots: [],
     },
   };
 }

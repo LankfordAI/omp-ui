@@ -226,7 +226,7 @@ function fleetTools(): RpcHostToolDefinition[] {
       name: machines,
       loadMode: "essential",
       description:
-        "List the omp-ui fleet: this computer plus every joined omp-ui instance, with status, CPU and free memory, live sessions and running turns, and placement preference, followed by each ready machine's projects and repository keys. Use the names and keys with omp-ui_fleet_dispatch.",
+        "List the omp-ui fleet: this computer plus every joined omp-ui instance, with status, CPU and free memory, live sessions and running turns, placement preference, and your access rung on each member. Each member also gets an ssh line: the user@address to reach it with your own ssh (the address is the host this app joined it at; omp-ui holds no SSH keys), whether its port 22 answered, its platform, and the project roots it accepts checkouts under. Then each ready machine's projects and repository keys. Use the names and keys with omp-ui_fleet_dispatch.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
     {
@@ -307,7 +307,7 @@ function fleetTools(): RpcHostToolDefinition[] {
       name: project,
       loadMode: "essential",
       description:
-        "Manage projects on a fleet member within its declared roots (issue #901): verb clone clones an https repository URL into a root, verb register adds an existing checkout under one. Needs the manage rung on that member; refusals come back as text with the reason.",
+        "Manage projects on a fleet member within its declared roots (issue #901): verb clone clones an https repository URL into a root, verb register adds an existing checkout under one. Needs the manage rung on that member; refusals come back as text with the reason. To provision a member with a repository https clone cannot reach (private, SSH-only remote) or that needs setup: ssh -o BatchMode=yes to the user@address omp-ui_fleet_machines lists, git clone into one of its project roots, run the repository's own setup inside the clone (npm install, python -m venv, ...; a Windows member's ssh shell is cmd or PowerShell), then call register with that checkout's absolute path exactly as the root is listed.",
       parameters: {
         type: "object",
         properties: {

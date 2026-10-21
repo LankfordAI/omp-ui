@@ -2687,6 +2687,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   // Fleet exec 사다리 (이슈 #901)
   "fleet.section.activity": "활동",
   "fleet.machine.access": "접근 권한: {rung}",
+  "fleet.machine.ssh": "ssh {target}",
+  "fleet.machine.sshOpen": "{address}의 SSH 포트 22가 응답합니다",
+  "fleet.machine.sshClosed": "{address}의 SSH 포트 22가 응답하지 않습니다",
+  "fleet.machine.sshUnknown": "SSH 확인 안 됨: {address}에 연결되지 않음",
   "fleet.rung.observe": "관찰",
   "fleet.rung.dispatch": "디스패치",
   "fleet.rung.manage": "프로젝트 관리",

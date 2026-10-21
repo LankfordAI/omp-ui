@@ -14,13 +14,22 @@ let base: string;
 let registry: Registry;
 let broadcasts: number;
 
-function server(execGit?: ConstructorParameters<typeof FleetServer>[0]["execGit"]): FleetServer {
+function server(
+  execGit?: ConstructorParameters<typeof FleetServer>[0]["execGit"],
+  addProject?: ConstructorParameters<typeof FleetServer>[0]["addProject"],
+): FleetServer {
   return new FleetServer({
     registry,
     logDir: path.join(base, "logs"),
     broadcast: () => {
       broadcasts += 1;
     },
+    addProject:
+      addProject ??
+      (async (dir) => {
+        registry.addProject(dir);
+        broadcasts += 1;
+      }),
     ...(execGit === undefined ? {} : { execGit }),
   });
 }
@@ -82,7 +91,13 @@ describe("FleetServer ladder (issue #901)", () => {
 posix("FleetServer.exec", () => {
   it("refuses below the ladder without spawning and audits the refusal", async () => {
     const spawnFn = vi.fn();
-    const s = new FleetServer({ registry, logDir: path.join(base, "logs"), broadcast: () => {}, commandDeps: { spawnFn } });
+    const s = new FleetServer({
+      registry,
+      logDir: path.join(base, "logs"),
+      broadcast: () => {},
+      addProject: async () => {},
+      commandDeps: { spawnFn },
+    });
     const outcome = await s.exec({ requester: A, command: "echo hi", cwd: null, timeoutMs: null });
     expect(outcome.status).toBe("refused");
     expect(spawnFn).not.toHaveBeenCalled();
@@ -301,5 +316,21 @@ describe("FleetServer.projectManage", () => {
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
     }
+  });
+
+  it("refuses register when the shared add path rejects, after the checks pass", async () => {
+    const root = path.join(base, "root");
+    const checkout = path.join(root, "app");
+    fs.mkdirSync(path.join(checkout, ".git"), { recursive: true });
+    registry.setSetting("fleetProjectRoots", [root]);
+    const rejecting = async (): Promise<void> => {
+      throw new Error("omp-ui's chats folder can't be registered as a project");
+    };
+    const s = server(execGit, rejecting);
+    expect(await s.projectManage({ requester: A, verb: "register", path: checkout })).toEqual({
+      status: "refused",
+      reason: "registration failed: omp-ui's chats folder can't be registered as a project",
+    });
+    expect(s.auditEntries().at(-1)).toMatchObject({ action: "manage", accepted: false });
   });
 });
