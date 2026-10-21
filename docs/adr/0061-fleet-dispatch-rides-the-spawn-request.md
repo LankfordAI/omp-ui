@@ -104,7 +104,9 @@ delivery.**
   default), applied at the session's next spawn or resume. Every call runs at
   omp's `exec` host-tool approval tier; omp-ui adds no confirmation channel of
   its own. A remote-owned session's tools answer from that host's own fleet,
-  because the host that owns the session answers its host calls.
+  because the host that owns the session answers its host calls. A later
+  amendment (#901) added `omp-ui_fleet_exec` and `omp-ui_fleet_project` under
+  this same gate, five tools in all; see ADR-0062.
 - **No recursion.** A session an agent dispatched (`requestedBy.kind:
   "agent"`) never gets the fleet tools, so a dispatched agent cannot dispatch
   further.

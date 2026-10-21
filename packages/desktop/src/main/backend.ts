@@ -93,6 +93,11 @@ import {
   resolveRepositoryKey,
   sampleHostResources,
   type FleetDispatchRequest,
+  type FleetExecRequest,
+  type FleetGrantRaiseRequest,
+  type FleetProjectManageRequest,
+  type FleetRequester,
+  type FleetRung,
   type FleetHostReport,
   type HostResources,
   type BrowserPaneInputEvent,
@@ -150,6 +155,7 @@ import { RemoteInstanceManager } from "./remote-instance-manager";
 import { routeByTab } from "./remote-route";
 import { SessionManager } from "./session-manager";
 import { FleetDispatcher } from "./fleet-dispatcher";
+import { FleetServer } from "./fleet-server";
 import { PlanVerifier } from "./plan-verifier";
 import { ClockStamper } from "./clock-stamper";
 import { readConfinedPlanFile } from "./plan-file";
@@ -195,6 +201,8 @@ export class MainBackend {
   private readonly remoteInstances: RemoteInstanceManager;
   /** Fleet dispatch, dispatching side (issue #899, ADR-0061). */
   private readonly fleet: FleetDispatcher;
+  /** Fleet exec ladder, node side (issue #901, ADR-0062): this machine's ceiling. */
+  private readonly fleetServer: FleetServer;
   /** fleet:hostReport caches: one shared resource sample per 5 s, repository
    *  keys per path for 60 s, head commits per path for 15 s. */
   private fleetResources: { at: number; value: Promise<HostResources> } | null = null;
@@ -500,6 +508,13 @@ export class MainBackend {
       },
       localSummary: (tabId) => this.fleetSessionSummary(tabId),
       broadcast: () => this.broadcast(),
+    });
+    // The node half of the fleet ladder (issue #901): the owner answers for
+    // its own machine, so it shares the registry and log dir with everything else.
+    this.fleetServer = new FleetServer({
+      registry: this.registry,
+      logDir: this.logDir,
+      broadcast: () => void this.broadcast(),
     });
     // Every registered project gets one gitdir watch (#498): a terminal
     // checkout, a commit, a branch made or deleted outside this app moves the
@@ -925,7 +940,17 @@ export class MainBackend {
         },
         [CH.setSessionSubagentModels]: (tabId: string, map: SubagentModelMap | null) =>
           this.sessions.setSessionSubagentModels(tabId, map),
-        [CH.spawnSession]: (req: SpawnRequest) => this.sessions.spawn(req),
+        [CH.spawnSession]: (req: SpawnRequest) => {
+          // Rung-2 gate (issue #901): a fleet-provenanced spawn arriving from
+          // another instance needs dispatch access here. Local dispatches call
+          // sessions.spawn directly and never pass through this gate.
+          const provenance = req.fleet;
+          if (provenance !== undefined && provenance.requestedBy.instanceId !== this.registry.getSetting("instanceId")) {
+            const gate = this.fleetServer.check(provenance.requestedBy, "dispatch");
+            if (!gate.ok) throw new Error(`fleet access refused — ${gate.reason}`);
+          }
+          return this.sessions.spawn(req);
+        },
         [CH.terminateSession]: (tabId: string) => this.sessions.terminate(tabId),
         [CH.hibernatePlanSource]: (sourceTabId: string, implementationTabId: string) =>
           this.sessions.hibernatePlanSource(sourceTabId, implementationTabId),
@@ -1250,6 +1275,21 @@ export class MainBackend {
         [CH.fleetSessionSummary]: (tabId: string) => this.fleetSessionSummary(tabId),
         [CH.fleetMachines]: () => this.fleet.machines(),
         [CH.fleetDispatch]: (req: FleetDispatchRequest) => this.fleet.dispatch(req, { kind: "user" }),
+        // Fleet exec ladder (issue #901, ADR-0062): these arrive through the
+        // proxy as well; every rung decision lands inside FleetServer.
+        [CH.fleetExec]: (req: FleetExecRequest) => this.fleetServer.exec(req),
+        [CH.fleetProjectManage]: (req: FleetProjectManageRequest) => this.fleetServer.projectManage(req),
+        [CH.fleetGrantRung]: (req: FleetRequester) => this.fleetServer.grantRung(req),
+        [CH.fleetGrantRaise]: (req: FleetGrantRaiseRequest) => this.fleetServer.grantRaise(req),
+        [CH.fleetAudit]: () => this.fleetServer.auditEntries(),
+        [CH.fleetGrantSet]: async (dispatcherId: string, rung: FleetRung | null) => {
+          this.fleetServer.setGrant(dispatcherId, rung);
+          await this.broadcast();
+        },
+        // The manager-side ceremony (issue #901): proxies the freshly typed
+        // secret to the member's own fleet:grantRaise; never reads the stored one.
+        [CH.fleetGrantRequest]: (machineKey: string, rung: FleetRung, secret: string) =>
+          this.fleet.requestGrant(machineKey, rung, secret),
         [CH.fleetDismissPending]: async (dispatchId: string) => {
           this.fleet.dismissPending(dispatchId);
           await this.broadcast();
@@ -2146,6 +2186,10 @@ export class MainBackend {
       remoteInstances: this.remoteInstances.summaries(),
       fleetPlacement: this.registry.getSetting("fleetPlacement"),
       fleetAgentDispatch: this.registry.getSetting("fleetAgentDispatch"),
+      fleetExecEnabled: this.registry.getSetting("fleetExecEnabled"),
+      fleetExecCeiling: this.registry.getSetting("fleetExecCeiling"),
+      fleetGrants: this.registry.getSetting("fleetGrants"),
+      fleetProjectRoots: this.registry.getSetting("fleetProjectRoots"),
       fleetPending: this.fleet.pending(),
     };
   }

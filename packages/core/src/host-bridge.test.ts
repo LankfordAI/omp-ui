@@ -94,7 +94,10 @@ describe("host registration definitions", () => {
 
   it.each([
     [{ vault: false, fleet: false }, ["omp-ui_notify"]],
-    [{ vault: false, fleet: true }, ["omp-ui_notify", "omp-ui_fleet_machines", "omp-ui_fleet_dispatch", "omp-ui_fleet_status"]],
+    [
+      { vault: false, fleet: true },
+      ["omp-ui_notify", "omp-ui_fleet_machines", "omp-ui_fleet_dispatch", "omp-ui_fleet_status", "omp-ui_fleet_exec", "omp-ui_fleet_project"],
+    ],
     [
       { vault: true, fleet: false },
       [
@@ -122,6 +125,8 @@ describe("host registration definitions", () => {
         "omp-ui_fleet_machines",
         "omp-ui_fleet_dispatch",
         "omp-ui_fleet_status",
+        "omp-ui_fleet_exec",
+        "omp-ui_fleet_project",
       ],
     ],
   ])("registers %j as exactly these tools in order", (opts, names) => {
@@ -135,7 +140,7 @@ describe("host registration definitions", () => {
       expect(tool.parameters.type).toBe("object");
       expect(tool.parameters.additionalProperties).toBe(false);
     }
-    expect(fleet.map((tool) => tool.parameters.required ?? [])).toEqual([[], ["prompt", "project"], []]);
+    expect(fleet.map((tool) => tool.parameters.required ?? [])).toEqual([[], ["prompt", "project"], [], ["machine", "command"], ["machine", "verb"]]);
   });
 
   it("advertises each tool's exact argument types, required fields and defaults", () => {

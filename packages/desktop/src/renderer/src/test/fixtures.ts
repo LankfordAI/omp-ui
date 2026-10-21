@@ -49,6 +49,10 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     fleetPending: [],
     fleetPlacement: {},
     fleetAgentDispatch: false,
+    fleetExecEnabled: false,
+    fleetExecCeiling: "dispatch",
+    fleetGrants: {},
+    fleetProjectRoots: [],
     ...patch,
   };
 }

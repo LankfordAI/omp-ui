@@ -26,13 +26,80 @@ export const FLEET_REPORT_MAX_SKEW_MS = 5_000;
 export const FLEET_DERIVED_TITLE_MAX = 80;
 const FLEET_ID_MAX = 128;
 
+// Bounded-execution limits (issue #901, ADR-0062). Owner caps sit below the
+// manager's 45 s agent bound, which sits below the 60 s host-answer watchdog.
+export const FLEET_EXEC_OUTPUT_MAX = 65_536; // bytes per stream
+export const FLEET_EXEC_TIMEOUT_MS = 30_000; // owner cap; caller may only shorten
+export const FLEET_EXEC_TIMEOUT_MIN_MS = 100;
+export const FLEET_COMMAND_MAX = 8_000; // UTF-16 units, single command string
+export const FLEET_CLONE_TIMEOUT_MS = 45_000; // fits the 60 s host-answer watchdog
+
 /** C0 and C1 control characters; names, titles, and labels refuse them. */
 // eslint-disable-next-line no-control-regex
 export const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
 
-/** The three agent-facing host tools (§6), in registration order. */
-export const FLEET_TOOLS = ["omp-ui_fleet_machines", "omp-ui_fleet_dispatch", "omp-ui_fleet_status"] as const;
+/** The five agent-facing host tools (§6, issue #901), in registration order. */
+export const FLEET_TOOLS = [
+  "omp-ui_fleet_machines",
+  "omp-ui_fleet_dispatch",
+  "omp-ui_fleet_status",
+  "omp-ui_fleet_exec",
+  "omp-ui_fleet_project",
+] as const;
 export type FleetToolName = (typeof FLEET_TOOLS)[number];
+
+// ── Grant ladder (issue #901, ADR-0062 as amended) ──────────────────────────
+
+/** Cumulative access rungs, lowest first. Enforcement lives on the node. */
+export const FLEET_RUNGS = ["observe", "dispatch", "manage", "full"] as const;
+export type FleetRung = (typeof FLEET_RUNGS)[number];
+
+/** 1..4 ladder depth; compare rungs through ranks. */
+export function fleetRungRank(r: FleetRung): 1 | 2 | 3 | 4 {
+  return (FLEET_RUNGS.indexOf(r) + 1) as 1 | 2 | 3 | 4;
+}
+
+export function fleetRungAtLeast(held: FleetRung, need: FleetRung): boolean {
+  return fleetRungRank(held) >= fleetRungRank(need);
+}
+
+/** min(grant ?? "dispatch", ceiling) — the amendment's cumulative default. */
+export function fleetEffectiveRung(grant: FleetGrantRecord | undefined, ceiling: FleetRung): FleetRung {
+  const held = grant?.rung ?? "dispatch";
+  return fleetRungRank(held) <= fleetRungRank(ceiling) ? held : ceiling;
+}
+
+/**
+ * One dispatcher's grant on this node, keyed by its CLAIMED instanceId. A
+ * record without `rung` is the lazy first-sight entry: it names the
+ * dispatcher for the Fleet-access UI while leaving the default rung in force.
+ */
+export interface FleetGrantRecord {
+  rung?: FleetRung;
+  label: string;
+  updatedAt: string;
+}
+
+/** Registry-safe grant map: keys are ids (≤ 128 chars), values shape-checked; anything else drops the entry. */
+export function parseFleetGrants(value: unknown): Record<string, FleetGrantRecord> {
+  const out: Record<string, FleetGrantRecord> = {};
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [key, raw] of Object.entries(value as ObjectValue)) {
+    if (key === "" || key.length > FLEET_ID_MAX || CONTROL_CHARS.test(key)) continue;
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const g = raw as ObjectValue;
+    if (Object.keys(g).some((k) => !["rung", "label", "updatedAt"].includes(k))) continue;
+    if (g.rung !== undefined && !FLEET_RUNGS.includes(g.rung as FleetRung)) continue;
+    if (typeof g.label !== "string" || CONTROL_CHARS.test(g.label)) continue;
+    if (typeof g.updatedAt !== "string" || g.updatedAt === "") continue;
+    out[key] = {
+      ...(g.rung === undefined ? {} : { rung: g.rung as FleetRung }),
+      label: [...g.label].slice(0, FLEET_LABEL_MAX).join(""),
+      updatedAt: g.updatedAt,
+    };
+  }
+  return out;
+}
 
 export interface FleetRequester {
   /** The dispatching app's registry instanceId. */
@@ -108,6 +175,12 @@ export interface FleetMachine {
   report: FleetHostReport | null;
   /** Dispatcher clock when the report arrived. */
   receivedAt: number | null;
+  /**
+   * This dispatcher's effective rung on that member (issue #901); null when
+   * the probe failed or the peer predates the grant channel. Never set for
+   * LOCAL_MACHINE_KEY: this computer needs no grants.
+   */
+  grantRung: FleetRung | null;
 }
 
 export interface FleetTargetPick {
@@ -253,7 +326,8 @@ export function deriveFleetTitle(prompt: string): string {
   return [...clean].slice(0, FLEET_DERIVED_TITLE_MAX).join("").trim();
 }
 
-function parseRequester(value: unknown, label: string): FleetRequester {
+/** Strict decode of the claimed requester identity (shared by codecs and parsers). */
+export function parseFleetRequester(value: unknown, label = "requester"): FleetRequester {
   const r = objectValue(value, label);
   rejectUnknownKeys(r, ["instanceId", "label", "kind", "sourceTabId"], label);
   const name = r.label;
@@ -279,7 +353,7 @@ export function parseFleetSpawnSpec(value: unknown): FleetSpawnSpec {
     batchId: nullableId(spec.batchId, `${label}.batchId`),
     title: validateFleetTitle(spec.title, `${label}.title`),
     prompt: validateFleetPrompt(spec.prompt, `${label}.prompt`),
-    requestedBy: parseRequester(spec.requestedBy, `${label}.requestedBy`),
+    requestedBy: parseFleetRequester(spec.requestedBy, `${label}.requestedBy`),
   };
 }
 
@@ -389,6 +463,138 @@ export function parseFleetDispatchRequest(value: unknown): FleetDispatchRequest 
   };
 }
 
+// ── Fleet exec & project manage (issue #901, ADR-0062) ─────────────────────
+
+/** One bounded command on the owner's shell. `requester` is the CLAIMED identity. */
+export interface FleetExecRequest {
+  requester: FleetRequester;
+  command: string;
+  /** Null runs in the node user's home directory. */
+  cwd: string | null;
+  /** Null uses FLEET_EXEC_TIMEOUT_MS; the owner clamps into [min, cap]. */
+  timeoutMs: number | null;
+}
+
+/** Refusals are answers, not transport errors: the reason rides the result. */
+export type FleetExecOutcome =
+  | {
+      status: "accepted";
+      exitCode: number | null;
+      stdout: string;
+      stderr: string;
+      truncated: boolean;
+      timedOut: boolean;
+    }
+  | { status: "refused"; reason: string };
+
+/** Rung-3 verbs, fixed surface: clone/register within host-declared roots. */
+export type FleetProjectManageRequest =
+  | { requester: FleetRequester; verb: "clone"; repositoryUrl: string }
+  | { requester: FleetRequester; verb: "register"; path: string };
+
+export type FleetProjectManageOutcome =
+  | { status: "accepted"; path: string; headCommit: string | null }
+  | { status: "refused"; reason: string };
+
+/** A grant raise re-presents the node's join credential on the node. */
+export interface FleetGrantRaiseRequest {
+  requester: FleetRequester;
+  targetRung: FleetRung;
+  /** The node's join token or password; never logged, never stored. */
+  credential: string;
+}
+
+export type FleetGrantRaiseOutcome = { ok: true; rung: FleetRung } | { ok: false; reason: string };
+
+/** One accepted-or-refused fleet action on the node (its audit ring entry). */
+export interface FleetAuditEntry {
+  at: string;
+  dispatcherId: string;
+  dispatcherLabel: string;
+  /** The agent's tab on the dispatcher when the call came from a tool. */
+  sourceTabId: string | null;
+  action: "exec" | "manage" | "grant-raise" | "grant-set";
+  /** The rung used (actions) or the literal marker for grant bookkeeping. */
+  rung: FleetRung | "raise" | "set";
+  accepted: boolean;
+  /** Command text or verb/path, truncated at record time. */
+  detail: string;
+  exitCode: number | null;
+}
+
+/** The command rule: non-blank, capped, no control characters but newline (LF/CRLF) and tab. */
+export function validateFleetCommand(value: unknown, label = "command"): string {
+  if (typeof value !== "string" || value.trim() === "") throw new Error(`${label} must not be blank`);
+  if (value.length > FLEET_COMMAND_MAX) throw new Error(`${label} exceeds ${FLEET_COMMAND_MAX} characters`);
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(value)) {
+    throw new Error(`${label} must not contain control characters other than newline and tab`);
+  }
+  return value;
+}
+
+/** A path argument: non-empty, no control characters, generous cap. */
+function pathArg(value: unknown, label: string): string {
+  if (typeof value !== "string" || value === "" || value.length > 4_096 || CONTROL_CHARS.test(value)) {
+    throw new Error(`${label} must be a non-empty path`);
+  }
+  return value;
+}
+
+/** Strict parse of a fleet exec request (codec + node entry check). Messages are user-facing. */
+export function parseFleetExecRequest(value: unknown): FleetExecRequest {
+  const label = "exec request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "command", "cwd", "timeoutMs"], label);
+  const cwd = req.cwd === null || req.cwd === undefined ? null : pathArg(req.cwd, `${label}.cwd`);
+  let timeoutMs: number | null = null;
+  if (req.timeoutMs !== null && req.timeoutMs !== undefined) {
+    if (typeof req.timeoutMs !== "number" || !Number.isFinite(req.timeoutMs)) {
+      throw new Error(`${label}.timeoutMs must be a number or null`);
+    }
+    timeoutMs = req.timeoutMs;
+  }
+  return {
+    requester: parseFleetRequester(req.requester, `${label}.requester`),
+    command: validateFleetCommand(req.command),
+    cwd,
+    timeoutMs,
+  };
+}
+
+/** Strict parse of a rung-3 project-manage request. Exactly one verb-matched field. */
+export function parseFleetProjectManageRequest(value: unknown): FleetProjectManageRequest {
+  const label = "project manage request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "verb", "repositoryUrl", "path"], label);
+  const requester = parseFleetRequester(req.requester, `${label}.requester`);
+  if (req.verb === "clone") {
+    rejectUnknownKeys(req, ["requester", "verb", "repositoryUrl"], label);
+    if (typeof req.repositoryUrl !== "string" || req.repositoryUrl.trim() === "") {
+      throw new Error(`${label}.repositoryUrl must be a non-empty https URL`);
+    }
+    return { requester, verb: "clone", repositoryUrl: req.repositoryUrl.trim() };
+  }
+  if (req.verb === "register") {
+    rejectUnknownKeys(req, ["requester", "verb", "path"], label);
+    return { requester, verb: "register", path: pathArg(req.path, `${label}.path`) };
+  }
+  throw new Error(`${label}.verb must be clone or register`);
+}
+
+/** Registry-safe project roots: absolute directories only; anything else drops the entry. */
+export function parseFleetProjectRoots(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (root): root is string =>
+      typeof root === "string" &&
+      root.length > 1 &&
+      root.length <= 4_096 &&
+      !CONTROL_CHARS.test(root) &&
+      (root.startsWith("/") || /^[A-Za-z]:[\\/]/.test(root) || root.startsWith("\\\\")),
+  );
+}
+
 // ── Agent tools ─────────────────────────────────────────────────────────────
 
 export interface FleetToolDispatchArgs {
@@ -400,10 +606,26 @@ export interface FleetToolDispatchArgs {
   workspace: "worktree" | "checkout";
 }
 
+export interface FleetToolExecArgs {
+  machine: string;
+  command: string;
+  cwd: string | null;
+  timeoutMs: number | null;
+}
+
+export interface FleetToolProjectArgs {
+  machine: string;
+  verb: "clone" | "register";
+  repositoryUrl: string | null;
+  path: string | null;
+}
+
 export type FleetToolArguments =
   | { ok: true; tool: "machines" }
   | { ok: true; tool: "dispatch"; args: FleetToolDispatchArgs }
   | { ok: true; tool: "status"; selector: { batchId: string } | { dispatchId: string } }
+  | { ok: true; tool: "exec"; args: FleetToolExecArgs }
+  | { ok: true; tool: "project"; args: FleetToolProjectArgs }
   | { ok: false; reason: string };
 
 function refuse(reason: string): { ok: false; reason: string } {
@@ -429,6 +651,48 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     const value = hasBatch ? a.batchId : a.dispatchId;
     if (typeof value !== "string" || value.trim() === "") return refuse(`${hasBatch ? "batchId" : "dispatchId"} must be a non-empty string`);
     return { ok: true, tool: "status", selector: hasBatch ? { batchId: value.trim() } : { dispatchId: value.trim() } };
+  }
+  if (name === "omp-ui_fleet_exec") {
+    const extra = unknownKey(["machine", "command", "cwd", "timeoutMs"]);
+    if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
+    if (typeof a.machine !== "string" || a.machine.trim() === "") return refuse("machine must be a non-empty string");
+    let command: string;
+    try {
+      command = validateFleetCommand(a.command);
+    } catch (error) {
+      return refuse((error as Error).message);
+    }
+    let cwd: string | null = null;
+    if (a.cwd !== undefined) {
+      if (typeof a.cwd !== "string" || a.cwd === "") return refuse("cwd must be a non-empty string");
+      cwd = a.cwd;
+    }
+    let timeoutMs: number | null = null;
+    if (a.timeoutMs !== undefined) {
+      if (typeof a.timeoutMs !== "number" || !Number.isInteger(a.timeoutMs)) return refuse("timeoutMs must be a whole number");
+      // The owner clamps into [FLEET_EXEC_TIMEOUT_MIN_MS, FLEET_EXEC_TIMEOUT_MS];
+      // the tool only refuses absurd values the model could not mean.
+      if (a.timeoutMs <= 0 || !Number.isFinite(a.timeoutMs)) return refuse("timeoutMs must be positive");
+      timeoutMs = a.timeoutMs;
+    }
+    return { ok: true, tool: "exec", args: { machine: a.machine.trim(), command, cwd, timeoutMs } };
+  }
+  if (name === "omp-ui_fleet_project") {
+    const extra = unknownKey(["machine", "verb", "repositoryUrl", "path"]);
+    if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
+    if (typeof a.machine !== "string" || a.machine.trim() === "") return refuse("machine must be a non-empty string");
+    if (a.verb !== "clone" && a.verb !== "register") return refuse("verb must be clone or register");
+    const hasUrl = a.repositoryUrl !== undefined;
+    const hasPath = a.path !== undefined;
+    if (hasUrl === hasPath) return refuse("give exactly one of repositoryUrl or path, matching the verb");
+    if (a.verb === "clone") {
+      if (!hasUrl) return refuse("clone needs repositoryUrl");
+      if (typeof a.repositoryUrl !== "string" || a.repositoryUrl.trim() === "") return refuse("repositoryUrl must be a non-empty string");
+      return { ok: true, tool: "project", args: { machine: a.machine.trim(), verb: "clone", repositoryUrl: a.repositoryUrl.trim(), path: null } };
+    }
+    if (!hasPath) return refuse("register needs path");
+    if (typeof a.path !== "string" || a.path === "") return refuse("path must be a non-empty string");
+    return { ok: true, tool: "project", args: { machine: a.machine.trim(), verb: "register", repositoryUrl: null, path: a.path } };
   }
   if (name !== "omp-ui_fleet_dispatch") return refuse(`unknown host tool "${name}"`);
   const extra = unknownKey(["prompt", "title", "project", "machines", "count", "workspace"]);
@@ -543,6 +807,32 @@ export function fleetToolDispatchRequest(
   return { ok: true, request: { ...base, targets: { kind: "explicit", picks } } };
 }
 
+/**
+ * Translate omp-ui_fleet_exec / omp-ui_fleet_project `machine` into a machine
+ * key: "this computer" resolves to LOCAL_MACHINE_KEY, otherwise the nickname
+ * match (case-insensitive). A refusal lists the known names.
+ */
+export function fleetToolMachineKey(name: string, machines: readonly FleetMachine[]): { ok: true; machineKey: string } | { ok: false; reason: string } {
+  const wanted = name.toLowerCase();
+  const machine =
+    wanted === THIS_COMPUTER
+      ? machines.find((m) => m.key === LOCAL_MACHINE_KEY)
+      : machines.find((m) => m.nickname !== null && m.nickname.toLowerCase() === wanted);
+  if (machine !== undefined) return { ok: true, machineKey: machine.key };
+  const known = [THIS_COMPUTER, ...machines.filter((m) => m.nickname !== null).map((m) => m.nickname!)].join(", ");
+  return refuse(`no fleet machine is named "${name}" (known: ${known})`);
+}
+
+/** Translate omp-ui_fleet_exec arguments into a request; the owner holds the ladder. */
+export function fleetToolExecRequest(
+  args: FleetToolExecArgs,
+  machines: readonly FleetMachine[],
+): { ok: true; machineKey: string; request: Omit<FleetExecRequest, "requester"> } | { ok: false; reason: string } {
+  const resolved = fleetToolMachineKey(args.machine, machines);
+  if (!resolved.ok) return resolved;
+  return { ok: true, machineKey: resolved.machineKey, request: { command: args.command, cwd: args.cwd, timeoutMs: args.timeoutMs } };
+}
+
 /** The omp-ui_fleet_machines answer: one line per machine, then each ready project. */
 export function formatFleetMachines(machines: readonly FleetMachine[]): string {
   if (machines.length === 0) return "No fleet machines.";
@@ -559,8 +849,11 @@ export function formatFleetMachines(machines: readonly FleetMachine[]): string {
       report.totalMemoryBytes > 0
         ? `${Math.round((report.availableMemoryBytes / report.totalMemoryBytes) * 100)}% memory free`
         : "memory unknown";
+    // The rung this dispatcher holds on that member (issue #901); never for
+    // this computer, which carries no grants.
+    const access = m.key !== LOCAL_MACHINE_KEY && m.grantRung !== null ? `; access ${m.grantRung}` : "";
     lines.push(
-      `- ${name}: ready; ${cpu}; ${memory}; ${report.liveSessions} live sessions, ${report.runningTurns} running turns; preference ${m.preference}`,
+      `- ${name}: ready; ${cpu}; ${memory}; ${report.liveSessions} live sessions, ${report.runningTurns} running turns; preference ${m.preference}${access}`,
     );
     for (const p of report.projects) {
       if (!p.providerReady) continue;

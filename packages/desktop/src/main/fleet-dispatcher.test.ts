@@ -277,3 +277,124 @@ describe("FleetDispatcher", () => {
     expect(spawnsTo(h, "r1")[0]!.fleet).toMatchObject({ dispatchId: "d-original", batchId: "b-original" });
   });
 });
+
+describe("FleetDispatcher fleet ladder (issue #901)", () => {
+  /** One joined member r1 ("box-r1"), answering whatever `answer` returns per channel. */
+  function ladder(answer: (channel: string, args: unknown[]) => Promise<unknown>, remotes = [remote("r1")]) {
+    const request = vi.fn(async (_id: string, channel: string, args: unknown[]) => {
+      if (channel === CH.fleetHostReport) return report([project({ path: "/srv/app" })]);
+      return answer(channel, args);
+    });
+    const dispatcher = new FleetDispatcher({
+      localReport: async () => report([project()]),
+      spawnLocal: async () => ({ tabId: "t" }),
+      remotes: () => remotes,
+      request,
+      preferences: () => ({}),
+      requesterBase: () => ({ instanceId: "dispatcher", label: "desk" }),
+      knownDispatchIds: () => new Set(),
+      fleetSessions: async () => [],
+      localSummary: async () => "",
+      broadcast: async () => {},
+      now: () => NOW,
+      uuid: () => "u",
+    });
+    const sent = (channel: string) => request.mock.calls.filter(([, ch]) => ch === channel).map(([id, , args]) => ({ id, args }));
+    return { dispatcher, request, sent };
+  }
+
+  it("reports each ready member's rung and null for this computer and silent members", async () => {
+    const answering = ladder(async (channel) => (channel === CH.fleetGrantRung ? { rung: "full", ceiling: "full", execEnabled: true } : null));
+    const machines = await answering.dispatcher.machines();
+    expect(machines.find((m) => m.key === LOCAL_MACHINE_KEY)?.grantRung).toBeNull();
+    expect(machines.find((m) => m.key === "r1")?.grantRung).toBe("full");
+    expect(answering.sent(CH.fleetGrantRung)).toEqual([
+      { id: "r1", args: [{ instanceId: "dispatcher", label: "desk", kind: "user", sourceTabId: null }] },
+    ]);
+
+    // An older peer answers the probe with unknown channel: still ready, rung unknown.
+    const older = ladder(async () => {
+      throw new Error("unknown channel fleet:grantRung");
+    });
+    expect((await older.dispatcher.machines()).find((m) => m.key === "r1")).toMatchObject({ status: "ready", grantRung: null });
+  });
+
+  it("refuses exec on this computer without contacting anyone", async () => {
+    const h = ladder(async () => ({ status: "accepted" }));
+    for (const machine of ["this computer", "This Computer"]) {
+      expect(await h.dispatcher.exec("tab-1", { machine, command: "uname -a", cwd: null, timeoutMs: null })).toEqual({
+        status: "refused",
+        reason: "exec runs only on fleet members; use your own tools on this computer",
+      });
+    }
+    expect(h.sent(CH.fleetExec)).toEqual([]);
+  });
+
+  it("sends exec to the member by nickname with the agent's claimed identity and returns its outcome", async () => {
+    const outcome = { status: "accepted", exitCode: 0, stdout: "Linux\n", stderr: "", truncated: false, timedOut: false };
+    const h = ladder(async (channel) => (channel === CH.fleetExec ? outcome : null));
+    expect(await h.dispatcher.exec("tab-1", { machine: "BOX-R1", command: "uname", cwd: "/srv", timeoutMs: 500 })).toEqual(outcome);
+    expect(h.sent(CH.fleetExec)).toEqual([
+      {
+        id: "r1",
+        args: [
+          expect.objectContaining({
+            command: "uname",
+            cwd: "/srv",
+            timeoutMs: 500,
+            requester: { instanceId: "dispatcher", label: "desk", kind: "agent", sourceTabId: "tab-1" },
+          }),
+        ],
+      },
+    ]);
+  });
+
+  it("refuses an unknown machine and passes the member's refusal through as an outcome", async () => {
+    const h = ladder(async (channel) => (channel === CH.fleetExec ? { status: "refused", reason: "fleet exec is off on this machine" } : null));
+    const unknown = await h.dispatcher.exec("tab-1", { machine: "nowhere", command: "true", cwd: null, timeoutMs: null });
+    expect(unknown).toEqual({ status: "refused", reason: expect.stringContaining("box-r1") });
+    expect(await h.dispatcher.exec("tab-1", { machine: "box-r1", command: "true", cwd: null, timeoutMs: null })).toEqual({
+      status: "refused",
+      reason: "fleet exec is off on this machine",
+    });
+  });
+
+  it("turns a silent member into a refusal after the 45 s bound", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = ladder((channel) => (channel === CH.fleetExec ? new Promise(() => {}) : Promise.resolve(null)));
+      const pending = h.dispatcher.exec("tab-1", { machine: "box-r1", command: "sleep 99", cwd: null, timeoutMs: null });
+      await vi.advanceTimersByTimeAsync(45_000);
+      expect(await pending).toEqual({ status: "refused", reason: "no answer from box-r1 within 45 s" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("forwards project verbs and refuses them on this computer", async () => {
+    const h = ladder(async (channel) => (channel === CH.fleetProjectManage ? { status: "accepted", path: "/srv/repos/app", headCommit: null } : null));
+    expect(await h.dispatcher.projectManage("tab-1", { machine: "this computer", verb: "register", repositoryUrl: null, path: "/x" })).toMatchObject({ status: "refused" });
+    expect(await h.dispatcher.projectManage("tab-1", { machine: "box-r1", verb: "clone", repositoryUrl: "https://github.com/acme/app", path: null })).toMatchObject({
+      status: "accepted",
+    });
+    expect(h.sent(CH.fleetProjectManage)).toEqual([
+      { id: "r1", args: [expect.objectContaining({ verb: "clone", repositoryUrl: "https://github.com/acme/app" })] },
+    ]);
+  });
+
+  it("sends the freshly typed secret in one grant raise, and nothing for an unknown member", async () => {
+    const h = ladder(async (channel) => (channel === CH.fleetGrantRaise ? { ok: true, rung: "manage" } : null));
+    expect(await h.dispatcher.requestGrant("ghost", "manage", "s3cret")).toEqual({ ok: false, reason: expect.any(String) });
+    expect(h.sent(CH.fleetGrantRaise)).toEqual([]);
+    expect(await h.dispatcher.requestGrant("r1", "manage", "s3cret")).toEqual({ ok: true, rung: "manage" });
+    expect(h.sent(CH.fleetGrantRaise)).toEqual([
+      { id: "r1", args: [{ requester: { instanceId: "dispatcher", label: "desk", kind: "user", sourceTabId: null }, targetRung: "manage", credential: "s3cret" }] },
+    ]);
+  });
+
+  it("refuses a grant request to a member that is not joined", async () => {
+    const h = ladder(async () => ({ ok: true, rung: "manage" }), [remote("r1", { status: "unreachable" })]);
+    expect(await h.dispatcher.requestGrant("r1", "manage", "s3cret")).toEqual({ ok: false, reason: expect.stringContaining("not joined") });
+    expect(h.sent(CH.fleetGrantRaise)).toEqual([]);
+  });
+});

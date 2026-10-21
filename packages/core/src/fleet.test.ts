@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
   choosePlacement,
+  FLEET_COMMAND_MAX,
   FLEET_PROMPT_MAX,
+  FLEET_TOOLS,
+  formatFleetMachines,
+  LOCAL_MACHINE_KEY,
   parseFleetDispatchRequest,
+  parseFleetExecRequest,
+  parseFleetGrants,
+  parseFleetProjectManageRequest,
+  parseFleetProjectRoots,
   parseFleetSpawnSpec,
+  parseFleetToolArguments,
   placementScore,
+  validateFleetCommand,
   type FleetHostReport,
+  type FleetMachine,
   type PlacementCandidate,
 } from "./fleet";
 
@@ -153,5 +164,102 @@ describe("parseFleetDispatchRequest", () => {
     ],
   ])("rejects %s", (_label, raw) => {
     expect(() => parseFleetDispatchRequest(raw)).toThrow();
+  });
+});
+
+describe("fleet exec ladder contracts (issue #901)", () => {
+  const requester = { instanceId: "inst-a", label: "studio", kind: "agent", sourceTabId: "tab-1" } as const;
+
+  it("exposes the five agent tools in registration order", () => {
+    expect(FLEET_TOOLS).toEqual(["omp-ui_fleet_machines", "omp-ui_fleet_dispatch", "omp-ui_fleet_status", "omp-ui_fleet_exec", "omp-ui_fleet_project"]);
+  });
+
+  it("allows newline (LF or CRLF) and tab in a command but no other control character", () => {
+    expect(validateFleetCommand("ls\n\tpwd")).toBe("ls\n\tpwd");
+    expect(validateFleetCommand("dir\r\nver")).toBe("dir\r\nver");
+    for (const bad of ["", "   ", "echo \u0000", "printf \u001b[2J", "a\u007fb", "x".repeat(FLEET_COMMAND_MAX + 1)]) {
+      expect(() => validateFleetCommand(bad), JSON.stringify(bad)).toThrow();
+    }
+  });
+
+  it("parses an exec request strictly: no extra keys, no env, numeric timeout", () => {
+    expect(parseFleetExecRequest({ requester, command: "uname", cwd: null, timeoutMs: 500 })).toEqual({ requester, command: "uname", cwd: null, timeoutMs: 500 });
+    expect(() => parseFleetExecRequest({ requester, command: "uname", env: { PATH: "/tmp" } })).toThrow();
+    expect(() => parseFleetExecRequest({ requester, command: "uname", timeoutMs: "5" })).toThrow();
+    expect(() => parseFleetExecRequest({ requester, command: "uname", cwd: "" })).toThrow();
+    expect(() => parseFleetExecRequest({ command: "uname" })).toThrow();
+  });
+
+  it("parses project manage with exactly the verb-matched field", () => {
+    expect(parseFleetProjectManageRequest({ requester, verb: "clone", repositoryUrl: " https://github.com/acme/app " })).toEqual({
+      requester,
+      verb: "clone",
+      repositoryUrl: "https://github.com/acme/app",
+    });
+    expect(parseFleetProjectManageRequest({ requester, verb: "register", path: "/srv/app" })).toEqual({ requester, verb: "register", path: "/srv/app" });
+    expect(() => parseFleetProjectManageRequest({ requester, verb: "clone", path: "/srv/app" })).toThrow();
+    expect(() => parseFleetProjectManageRequest({ requester, verb: "register", repositoryUrl: "https://x/y", path: "/srv/app" })).toThrow();
+    expect(() => parseFleetProjectManageRequest({ requester, verb: "delete", path: "/srv/app" })).toThrow();
+  });
+
+  it("keeps only well-formed grant records, a missing rung included", () => {
+    const grants = parseFleetGrants({
+      good: { rung: "manage", label: "studio", updatedAt: "t" },
+      named: { label: "laptop", updatedAt: "t" },
+      badRung: { rung: "root", label: "x", updatedAt: "t" },
+      extraKey: { rung: "full", label: "x", updatedAt: "t", credential: "secret" },
+      noLabel: { rung: "full", updatedAt: "t" },
+      scalar: "full",
+      ["k".repeat(200)]: { rung: "full", label: "x", updatedAt: "t" },
+    });
+    expect(grants).toEqual({ good: { rung: "manage", label: "studio", updatedAt: "t" }, named: { label: "laptop", updatedAt: "t" } });
+    expect(parseFleetGrants([1, 2])).toEqual({});
+  });
+
+  it("keeps only absolute project roots", () => {
+    expect(parseFleetProjectRoots(["/srv/repos", "C:\\repos", "D:/code", "\\\\nas\\share", "relative/dir", "/", "", 3, "/bad\u0000root"])).toEqual([
+      "/srv/repos",
+      "C:\\repos",
+      "D:/code",
+      "\\\\nas\\share",
+    ]);
+    expect(parseFleetProjectRoots("not an array")).toEqual([]);
+  });
+
+  it("parses the exec and project tool arguments with plain refusals", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_exec", { machine: " studio ", command: "uname", timeoutMs: 500 })).toEqual({
+      ok: true,
+      tool: "exec",
+      args: { machine: "studio", command: "uname", cwd: null, timeoutMs: 500 },
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_exec", { machine: "studio", command: "ls", env: {} })).toEqual({ ok: false, reason: 'unknown argument "env"' });
+    expect(parseFleetToolArguments("omp-ui_fleet_exec", { machine: "studio", command: "ls", timeoutMs: 0 })).toEqual({ ok: false, reason: "timeoutMs must be positive" });
+    expect(parseFleetToolArguments("omp-ui_fleet_project", { machine: "studio", verb: "clone", path: "/x" })).toEqual({
+      ok: false,
+      reason: "clone needs repositoryUrl",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_project", { machine: "studio", verb: "register", path: "/srv/app" })).toEqual({
+      ok: true,
+      tool: "project",
+      args: { machine: "studio", verb: "register", repositoryUrl: null, path: "/srv/app" },
+    });
+  });
+
+  it("reports a member's rung in the machines answer, never this computer's", () => {
+    const machine = (key: string, nickname: string | null, grantRung: FleetMachine["grantRung"]): FleetMachine => ({
+      key,
+      nickname,
+      status: "ready",
+      error: null,
+      preference: "normal",
+      receivedAt: NOW,
+      grantRung,
+      report: report(),
+    });
+    const text = formatFleetMachines([machine(LOCAL_MACHINE_KEY, null, "full"), machine("r1", "studio", "manage"), machine("r2", "old", null)]);
+    const [local, studio, old] = text.split("\n");
+    expect(local).not.toContain("access");
+    expect(studio).toMatch(/; access manage$/);
+    expect(old).not.toContain("access");
   });
 });

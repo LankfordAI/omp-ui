@@ -10,6 +10,7 @@ import { backendState } from "../../test/fixtures";
 
 const backendMock = {
   fleetMachines: vi.fn(async () => []),
+  fleetAudit: vi.fn(async () => []),
   fleetDispatch: vi.fn(),
   fleetDismissPending: vi.fn(async () => {}),
 };
@@ -119,7 +120,7 @@ const buttons = (scope: Element, text: string): HTMLButtonElement[] =>
 describe("Fleet view", () => {
   it("groups dispatched sessions by batch and offers Retry only for requests this renderer still holds", () => {
     useStore.setState({
-      fleet: { machines: [], loading: false, error: null },
+      fleet: { machines: [], audit: null, loading: false, error: null },
       fleetLastRequests: {
         "d-live": {
           req: { targets: { kind: "auto", reference: { machineKey: "local", projectCwd: "/p" }, count: 1 }, prompt: "go", title: null, workspace: "worktree", planMode: false },

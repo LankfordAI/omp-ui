@@ -205,9 +205,18 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   // that host's own ~/.omp/stats.db, read by that instance's core.
   "stats:overview",
   // Fleet placement reads each member's resources and projects (issue #899).
-  // Only the report crosses: fleet:dispatch / fleet:machines orchestrate in
-  // the acting app's main and never reach a joined instance.
+  // fleet:dispatch / fleet:machines orchestrate in the acting app's main and
+  // never reach a joined instance.
   "fleet:hostReport",
+  // Fleet exec ladder (issue #901, ADR-0062): the bounded command channel, the
+  // rung-3 project verbs, the rung probe, and the raise ceremony are proxied —
+  // every enforcement decision lands in the OWNER's handler, never here. The
+  // local orchestration (fleet:machines / fleet:dispatch / fleet:grantSet /
+  // fleet:audit, the settings channels) stays off this list.
+  "fleet:exec",
+  "fleet:projectManage",
+  "fleet:grantRung",
+  "fleet:grantRaise",
   // Session migration (#888): the pack legs run on the source host, the
   // ingest legs on the target; every chunk frame is base64 under the socket's
   // MAX_PAYLOAD. Transcript bytes may ride the renderer (already visible

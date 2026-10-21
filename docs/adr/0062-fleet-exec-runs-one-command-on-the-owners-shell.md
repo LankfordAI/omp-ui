@@ -1,6 +1,6 @@
 # Fleet exec runs one bounded command on the owner's shell; both sides consent
 
-> **Status:** Proposed, 2026-10-20.
+> **Status:** Accepted, 2026-10-21 ([#901](https://github.com/LankfordAI/omp-ui/issues/901)).
 
 ADR-0061 gave the **Fleet** one write primitive: a **Fleet dispatch** boots a
 whole build-mode session inside a registered project. There is no way to ask
@@ -49,46 +49,73 @@ Facts that shape the design:
 
 ## Decision
 
-**Add one proxied request channel, `fleet:exec`, and one host tool,
-`omp-ui_fleet_exec`: the dispatching app sends `{ machineKey, command, cwd?,
+**Add one bounded command channel, `fleet:exec`, enforced node-side through
+a grant ladder: the dispatching app sends `{ machineKey, command, cwd?,
 timeoutMs? }`; the owning instance runs it as its own user and answers with
 `{ exitCode, stdout, stderr, truncated }`. Both sides must have consent
 turned on; the owner's check is enforced on the inbound handler.**
 
-- **Channel.** `fleet:exec` joins `REMOTE_PROXY_CHANNELS` as an
-  instance-scoped request (like `fleet:hostReport`), never tab- or
-  project-routed. The owner's handler runs the command with the host's
-  platform shell (`pwsh` on Windows, `/bin/sh -c` otherwise) in a fresh
-  process — no PTY, no stdin, no streaming.
-- **Owner-side consent is the hard gate.** A per-instance *Allow remote exec*
-  setting (off by default, joined-instance registry, same store as placement
-  preference) plus a host-local *Enable fleet exec server* master switch
-  (also off by default). An owner with either off answers `refused` with a
-  reason string; a compromised or mistaken dispatcher cannot execute on an
-  unwilling member. This is the difference from dispatch, where the receiving
-  side always accepts a well-formed spawn.
-- **Caller-side consent rides ADR-0061's gate.** `omp-ui_fleet_exec` is
+- **Channels.** `fleet:exec`, `fleet:projectManage`, `fleet:grantRung`, and
+  `fleet:grantRaise` join `REMOTE_PROXY_CHANNELS` as instance-scoped
+  requests (like `fleet:hostReport`), never tab- or project-routed; local
+  orchestration (`fleet:machines`, `fleet:dispatch`, node-local grant
+  edits, audit reads) stays off the socket. The owner's handler runs the
+  command with the host's platform shell (`pwsh` on Windows, `/bin/sh -c`
+  otherwise) in a fresh process — no PTY, no stdin, no streaming.
+- **The owner's consent is a grant ladder, not a boolean.** Each dispatcher
+  holds one **Fleet grant** rung on each node — `observe` < `dispatch` <
+  `manage projects` < `full` — cumulative upward, enforced node-side keyed on
+  the claimed dispatcher instanceId every fleet request carries. Join grants
+  rung 2 (dispatch) exactly as before: no grant record means `dispatch`, so
+  existing pairs keep working bit-identically. Rung 3 (`fleet:projectManage`,
+  fixed verbs `clone` into a declared `fleetProjectRoots` root or `register`
+  an existing checkout under one) needs an explicit grant. Rung 4
+  (`fleet:exec`) additionally requires the host master switch
+  `fleetExecEnabled` (default off) and a host ceiling
+  `fleetExecCeiling` (default `dispatch`) that caps whatever any dispatcher
+  may hold; effective rung = `min(grant ?? dispatch, ceiling)`. A compromised
+  or mistaken dispatcher cannot execute — or even manage projects — on an
+  unwilling member.
+- **Raising a grant re-presents the join credential.** A remote raise
+  (`fleet:grantRaise`) only succeeds when the dispatcher re-supplies this
+  node's token/password; lowering needs no ceremony, and raising locally is
+  free (Settings → Remote instances → Fleet access). Grants bind to the
+  *claimed* instanceId — intent bookkeeping under the shared join token, not
+  adversarial authentication; only a holder of the node's credential reaches
+  the socket at all. Per-peer named credentials are the recorded remedy and
+  explicitly deferred.
+- **Caller-side consent rides ADR-0061's gate.** `omp-ui_fleet_exec` and
+  `omp-ui_fleet_project` join §61's three tools into one five-tool set,
   registered only while *Let agents dispatch fleet work* is on and the
-  session was not itself agent-dispatched (no recursion, §61), and every call
-  runs at omp's `exec` approval tier — the user approves each invocation the
-  same way they approve any other host tool.
-- **Bounds are the owner's, not the caller's.** Output caps (stdout/stderr
-  each truncated past a fixed byte budget, `truncated: true` set), a fixed
-  timeout after which the owner kills the process tree and answers with the
-  partial output and `timedOut: true`, and a single command string — no
-  argument-array smuggling, no environment overrides, no privilege hints.
-  The caller's `timeoutMs` may only shorten the cap.
-- **Audit on the owner.** Each accepted or refused exec appends one registry
-  line — timestamp, dispatching instance nickname, owning tabId, command
-  text, exit code — readable from the fleet UI, so every member can answer
-  "what ran here while I was away."
+  session was not itself agent-dispatched (no recursion, §61), and every
+  call runs at omp's `exec` approval tier — the user approves each
+  invocation the same way they approve any other host tool.
+- **Bounds are the owner's, not the caller's.** 65,536 bytes per stream
+  (stdout/stderr each truncated past the cap, `truncated: true` set), a
+  30 s timeout after which the owner kills the process tree and answers
+  with the partial output and `timedOut: true`, and a single command
+  string — no argument-array smuggling, no environment overrides, no
+  privilege hints. The caller's `timeoutMs` may only shorten the cap. A
+  clone gets 45 s, inside the manager's 45 s member-call bound, inside the
+  60 s host-answer watchdog. Exec on this computer is refused — "use your
+  own tools there" — the ladder gates members reached over the socket.
+- **Audit on the owner.** Each accepted or refused exec, project-manage, or
+  grant-raise appends one audit line — timestamp, action, dispatching
+  instance label, outcome with the rung used, detail truncated to a fixed
+  budget — into an in-memory ring plus `fleet-audit.log`, readable from the
+  fleet UI, so every member can answer "what ran here while I was away."
 
 ## Consequences
 
-- The join credential becomes RCE-equivalent *for members that opted in*: a
-  holder of an opted-in instance's credential can run anything its owner user
-  can. The two default-off switches plus per-call approval tier are the whole
-  mitigation; document them next to the token-rotation UI.
+- The join credential becomes RCE-equivalent *on members whose owner opened
+  the ladder all the way*: a holder of an instance's join credential can run
+  anything its owner user can once `fleetExecEnabled` is on, the ceiling is
+  `full`, and that dispatcher holds a `full` grant. The mitigations are the
+  two default-off owner switches (master switch off; ceiling at `dispatch`),
+  the re-presentation ceremony on every remote raise, the manager-side *Let
+  agents dispatch fleet work* gate plus omp's fixed `exec` approval tier,
+  no-recursion, and the owner's audit log; document them next to the
+  token-rotation UI.
 - Members reachable only through the fleet become answerable: no
   authorized_keys, WinRM trusted-hosts, or firewall surgery — the omp-ui
   join *is* the admin channel, which is exactly the point of membership.
@@ -97,15 +124,19 @@ turned on; the owner's check is enforced on the inbound handler.**
 - Windows members gain a first-class management surface: command text runs
   through `pwsh`, so fleet docs must say so rather than implying POSIX
   semantics.
-- Refusals are answers, not errors: `machines` output should stay the way to
-  discover which members can be execed (its report gains an `execEnabled`
-  flag) so agents do not retry refused members.
+- Refusals are answers, not errors: `fleet:machines` output carries each
+  member's effective rung (`; access full`, omitted for This computer) so
+  agents see what a member will accept before trying, every owner audit
+  line records the rung used, and a refused exec returns the reason as
+  tool text rather than a retry-baiting error.
 
 ## Amends / relates
 
-- ADR-0028 (remote instances joined by the main-process proxy) — adds
-  `fleet:exec` to the proxied allowlist, instance-scoped like the two fleet
-  read channels already there.
+- ADR-0028 (remote instances joined by the main-process proxy) — adds the
+  four fleet ladder channels to the proxied allowlist, instance-scoped like
+  the read channels already there. ADR-0028's user-initiated remote-tab
+  proxies (`shell:spawn`, `pty:*`, …) are untouched: the ladder gates the
+  fleet channels only.
 - ADR-0061 (fleet dispatch) — same registration gate and no-recursion rule;
   exec differs in that the *owner* can refuse, because it executes rather
   than hosts a session.

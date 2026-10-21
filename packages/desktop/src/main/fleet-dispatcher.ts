@@ -8,6 +8,7 @@
 import { randomUUID } from "node:crypto";
 import {
   CH,
+  FLEET_RUNGS,
   LOCAL_MACHINE_KEY,
   PLACEMENT_WEIGHT,
   choosePlacement,
@@ -15,6 +16,8 @@ import {
   eligibleMachineCount,
   fleetMachineName,
   fleetSessionState,
+  fleetToolExecRequest,
+  fleetToolMachineKey,
   mintBranchName,
   parseFleetDispatchRequest,
   validateFleetTitle,
@@ -29,14 +32,28 @@ import {
   type NewRpcSpawnRequest,
   type PlacementCandidate,
   type PlacementPreference,
+  type FleetToolExecArgs,
+  type FleetToolProjectArgs,
   type RemoteInstanceSummary,
   type SessionSummary,
+  type FleetExecOutcome,
+  type FleetExecRequest,
+  type FleetGrantRaiseOutcome,
+  type FleetGrantRaiseRequest,
+  type FleetProjectManageOutcome,
+  type FleetProjectManageRequest,
+  type FleetRequester,
+  type FleetRung,
 } from "@omp-ui/core";
 
 /** A joined member's report must arrive inside this window, or the member reads as an error. */
 const HOST_REPORT_TIMEOUT_MS = 4_000;
+/** The rung probe races this window; an older or slow peer reads grantRung null. */
+const GRANT_PROBE_TIMEOUT_MS = 4_000;
 /** Each status summary races this window; a slow owner reads "summary unavailable". */
 const SUMMARY_TIMEOUT_MS = 5_000;
+/** Exec/project/grant calls race this bound: inside the 60 s host-answer watchdog. */
+const MEMBER_CALL_DEADLINE_MS = 45_000;
 const TIMED_OUT = Symbol("timed out");
 
 export interface FleetDispatcherDeps {
@@ -108,6 +125,7 @@ export class FleetDispatcher {
         preference: preferences[LOCAL_MACHINE_KEY] ?? "normal",
         report,
         receivedAt: this.#now(),
+        grantRung: null,
       }),
       (err: unknown): FleetMachine => ({
         key: LOCAL_MACHINE_KEY,
@@ -117,6 +135,7 @@ export class FleetDispatcher {
         preference: preferences[LOCAL_MACHINE_KEY] ?? "normal",
         report: null,
         receivedAt: null,
+        grantRung: null,
       }),
     );
     const remotes = this.#deps
@@ -135,6 +154,7 @@ export class FleetDispatcher {
       preference,
       report: null,
       receivedAt: null,
+      grantRung: null,
     };
     if (remote.status !== "joined") return machine;
     try {
@@ -145,13 +165,34 @@ export class FleetDispatcher {
       if (report === TIMED_OUT) {
         return { ...machine, status: "error", error: `no host report within ${HOST_REPORT_TIMEOUT_MS / 1000} s` };
       }
-      return { ...machine, status: "ready", error: null, report, receivedAt: this.#now() };
+      const grantRung = await this.#probeRung(remote.id);
+      return { ...machine, status: "ready", error: null, report, receivedAt: this.#now(), grantRung };
     } catch (err) {
       const message = messageOf(err);
       if (message.includes("unknown channel")) {
         return { ...machine, status: "unsupported", error: "update omp-ui on this instance to use Fleet" };
       }
       return { ...machine, status: "error", error: message };
+    }
+  }
+
+  /** The claimed identity every fleet channel carries (issue #901). */
+  requester(kind: FleetRequester["kind"], sourceTabId: string | null): FleetRequester {
+    return { ...this.#deps.requesterBase(), kind, sourceTabId };
+  }
+
+  /** This dispatcher's rung on a member (issue #901); null for older/silent peers. */
+  async #probeRung(machineKey: string): Promise<FleetRung | null> {
+    try {
+      const answer = await within(
+        this.#deps.request(machineKey, CH.fleetGrantRung, [this.requester("user", null)]),
+        GRANT_PROBE_TIMEOUT_MS,
+      );
+      if (answer === TIMED_OUT || answer === null || typeof answer !== "object" || !("rung" in answer)) return null;
+      const rung = answer.rung;
+      return typeof rung === "string" && (FLEET_RUNGS as readonly string[]).includes(rung) ? (rung as FleetRung) : null;
+    } catch {
+      return null;
     }
   }
 
@@ -339,5 +380,69 @@ export class FleetDispatcher {
       );
     }
     return lines.join("\n");
+  }
+
+  /**
+   * `omp-ui_fleet_exec` (issue #901): one bounded command on a member. This
+   * computer is refused — the agent has its own tools there. The owner holds
+   * the ladder; refusals ride the outcome, never an error.
+   */
+  async exec(tabId: string, args: FleetToolExecArgs): Promise<FleetExecOutcome> {
+    const machines = await this.machines();
+    const translated = fleetToolExecRequest(args, machines);
+    if (!translated.ok) return { status: "refused", reason: translated.reason };
+    if (translated.machineKey === LOCAL_MACHINE_KEY) {
+      return { status: "refused", reason: "exec runs only on fleet members; use your own tools on this computer" };
+    }
+    const name = fleetMachineName(machines.find((m) => m.key === translated.machineKey) ?? { nickname: translated.machineKey });
+    const requester = this.requester("agent", tabId);
+    const req: FleetExecRequest = { ...translated.request, requester };
+    return this.#memberCall(translated.machineKey, CH.fleetExec, [req], name);
+  }
+
+  /** `omp-ui_fleet_project` (issue #901): rung-3 clone/register on a member. */
+  async projectManage(tabId: string, args: FleetToolProjectArgs): Promise<FleetProjectManageOutcome> {
+    const machines = await this.machines();
+    const resolved = fleetToolMachineKey(args.machine, machines);
+    if (!resolved.ok) return { status: "refused", reason: resolved.reason };
+    if (resolved.machineKey === LOCAL_MACHINE_KEY) {
+      return { status: "refused", reason: "project manage runs on fleet members; use your own tools on this computer" };
+    }
+    const name = fleetMachineName(machines.find((m) => m.key === resolved.machineKey) ?? { nickname: resolved.machineKey });
+    const requester = this.requester("agent", tabId);
+    const req: FleetProjectManageRequest =
+      args.verb === "clone"
+        ? { requester, verb: "clone", repositoryUrl: args.repositoryUrl ?? "" }
+        : { requester, verb: "register", path: args.path ?? "" };
+    return this.#memberCall(resolved.machineKey, CH.fleetProjectManage, [req], name);
+  }
+
+  /**
+   * The grant-raise ceremony (issue #901) against member `machineKey`: the
+   * freshly typed secret only — the stored encrypted credential is never read.
+   */
+  async requestGrant(machineKey: string, rung: FleetRung, secret: string): Promise<FleetGrantRaiseOutcome> {
+    const remote = this.#deps.remotes().find((r) => r.id === machineKey && r.status !== "self");
+    if (remote === undefined) return { ok: false, reason: "no joined fleet instance has that id" };
+    if (remote.status !== "joined") return { ok: false, reason: `${fleetMachineName(remote)} is not joined` };
+    const req: FleetGrantRaiseRequest = { requester: this.requester("user", null), targetRung: rung, credential: secret };
+    try {
+      const answer = await within(this.#deps.request(machineKey, CH.fleetGrantRaise, [req]), MEMBER_CALL_DEADLINE_MS);
+      if (answer === TIMED_OUT) return { ok: false, reason: `no answer from ${fleetMachineName(remote)} within ${MEMBER_CALL_DEADLINE_MS / 1000} s` };
+      return answer as FleetGrantRaiseOutcome;
+    } catch (err) {
+      return { ok: false, reason: messageOf(err) };
+    }
+  }
+
+  /** One member call inside the agent deadline; every failure reads as a refusal. */
+  async #memberCall<Outcome>(machineKey: string, channel: string, args: unknown[], name: string): Promise<Outcome | { status: "refused"; reason: string }> {
+    try {
+      const answer = await within(this.#deps.request(machineKey, channel, args), MEMBER_CALL_DEADLINE_MS);
+      if (answer === TIMED_OUT) return { status: "refused", reason: `no answer from ${name} within ${MEMBER_CALL_DEADLINE_MS / 1000} s` };
+      return answer as Outcome;
+    } catch (err) {
+      return { status: "refused", reason: messageOf(err) };
+    }
   }
 }

@@ -1,9 +1,11 @@
 import {
   CH,
+  parseFleetProjectRoots,
   type AgentMode,
   type GlassChrome,
   type PlanFormat,
   type PlacementPreference,
+  type FleetRung,
   type Registry,
   type RequestHandlers,
   type RegistrySettings,
@@ -45,7 +47,10 @@ type SettingsHandlerChannels =
   | typeof CH.setOmpAutoUpgrade
   | typeof CH.setVaultNoteVoice
   | typeof CH.setFleetPlacement
-  | typeof CH.setFleetAgentDispatch;
+  | typeof CH.setFleetAgentDispatch
+  | typeof CH.setFleetExecEnabled
+  | typeof CH.setFleetExecCeiling
+  | typeof CH.setFleetProjectRoots;
 
 interface SettingsHandlerDependencies {
   registry: Registry;
@@ -114,5 +119,10 @@ export function registerSettingsHandlers(
       return commit("fleetPlacement", pref === "normal" ? rest : { ...rest, [machineKey]: pref });
     },
     [CH.setFleetAgentDispatch]: (value: boolean) => commit("fleetAgentDispatch", value),
+    // The ladder is re-read per request, so flipping exec off lands instantly.
+    [CH.setFleetExecEnabled]: (value: boolean) => commit("fleetExecEnabled", value),
+    [CH.setFleetExecCeiling]: (value: FleetRung) => commit("fleetExecCeiling", value),
+    // The parser is the sanitizer: non-absolute or control-char rows drop.
+    [CH.setFleetProjectRoots]: (roots: string[]) => commit("fleetProjectRoots", parseFleetProjectRoots(roots)),
   };
 }

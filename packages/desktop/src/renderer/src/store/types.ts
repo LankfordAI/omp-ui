@@ -1,8 +1,11 @@
 import type {
+  FleetAuditEntry,
   FleetDispatchRequest,
   FleetDispatchResult,
+  FleetGrantRaiseOutcome,
   FleetMachine,
   FleetPendingDispatch,
+  FleetRung,
   FleetTargetPick,
   PlacementPreference,
 } from "@omp-ui/core/fleet";
@@ -793,6 +796,8 @@ export interface FleetView {
   loading: boolean;
   /** The last read's failure; shown in the view, never as an error notice (it polls). */
   error: string | null;
+  /** This machine's own fleet audit ring (#901); null until the first read. */
+  audit: FleetAuditEntry[] | null;
 }
 
 /** What a Retry re-sends for one unknown-outcome dispatch: the request and its one target. */
@@ -816,6 +821,16 @@ export interface FleetSlice {
   dispatchFleet(req: FleetDispatchRequest): Promise<FleetDispatchResult | null>;
   setFleetPlacement(machineKey: string, pref: PlacementPreference): Promise<void>;
   setFleetAgentDispatch(on: boolean): Promise<void>;
+  /** The exec master switch (issue #901). */
+  setFleetExecEnabled(on: boolean): Promise<void>;
+  /** What any dispatcher may at most hold on this machine (issue #901). */
+  setFleetExecCeiling(rung: FleetRung): Promise<void>;
+  /** The declared clone/register roots (issue #901), whole-list set. */
+  setFleetProjectRoots(roots: string[]): Promise<void>;
+  /** Node-local grant edit; null resets the rung to the join default (issue #901). */
+  setFleetGrant(dispatcherId: string, rung: FleetRung | null): Promise<void>;
+  /** The member's re-presentation ceremony; the outcome renders in the panel (issue #901). */
+  requestFleetGrant(machineKey: string, rung: FleetRung, secret: string): Promise<FleetGrantRaiseOutcome>;
   /** Re-sends one unknown outcome to its one machine, reusing both ids (the owner dedupes). */
   retryFleetDispatch(pending: FleetPendingDispatch): Promise<void>;
   dismissFleetDispatch(dispatchId: string): Promise<void>;
