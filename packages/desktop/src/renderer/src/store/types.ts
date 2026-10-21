@@ -1142,6 +1142,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * message inline) — unlike newSession, which reports to the error notices.
    * The spec mints a new branch or checks out an existing local one
    * (issue #390); it lands verbatim in the spawn request's worktree field.
+   * Returns null when the spawn never answers within SPAWN_SETTLE_MS (the
+   * timeout is already reported; issue #907) — a spawn that lands later
+   * still mounts its tab.
    */
   newWorktreeSession(
     projectCwd: string,
@@ -1149,7 +1152,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
       | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
       | { checkout: { branch: string } },
     instanceId?: string | null,
-  ): Promise<string>;
+  ): Promise<string | null>;
   /**
    * One launcher action (the New session dialog): spawns a session — in a
    * worktree checkout when asked, otherwise plainly, optionally in plan

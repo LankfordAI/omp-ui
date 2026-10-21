@@ -263,6 +263,32 @@ describe("FleetDispatcher", () => {
     }
   });
 
+  it("bounds a user dispatch whose remote spawn never answers (issue #907)", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness({
+        local: report([project()]),
+        remotes: {
+          slow: { report: async () => report([project({ path: "/srv/app" })]), spawn: () => new Promise(() => {}) },
+        },
+      });
+      const pending = h.dispatcher.dispatch(explicit([{ machineKey: "slow", projectCwd: "/srv/app" }]), { kind: "user" });
+      await vi.advanceTimersByTimeAsync(90_000);
+      const result = await pending;
+
+      expect(result.outcomes).toEqual([
+        expect.objectContaining({
+          machineKey: "slow",
+          status: "unknown",
+          message: "no answer within 90 s; the session may still start",
+        }),
+      ]);
+      expect(h.dispatcher.pending().map((p) => p.machineKey)).toEqual(["slow"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a retry re-sends with both the original dispatchId and batchId", async () => {
     const h = harness({
       local: report([project()]),
