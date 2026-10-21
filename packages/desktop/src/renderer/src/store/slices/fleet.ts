@@ -18,8 +18,8 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
     reading = true;
     set((s) => (s.fleet === null ? s : { fleet: { ...s.fleet, loading: true } }));
     try {
-      const machines = await backend.fleetMachines();
-      set((s) => (s.fleet === null ? s : { fleet: { machines, loading: false, error: null } }));
+      const [machines, audit] = await Promise.all([backend.fleetMachines(), backend.fleetAudit()]);
+      set((s) => (s.fleet === null ? s : { fleet: { machines, audit, loading: false, error: null } }));
     } catch (err) {
       const error = displayMessage(err);
       set((s) => (s.fleet === null ? s : { fleet: { ...s.fleet, loading: false, error } }));
@@ -32,8 +32,7 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
     const s = get();
     // closeLab, not a bare `lab: null`: it also stops the Lab's refresh timer.
     if (s.lab !== null) s.closeLab();
-    if (s.fleet === null) set({ fleet: { machines: null, loading: false, error: null }, stats: null });
-    else set({ stats: null });
+    if (s.fleet === null) set({ fleet: { machines: null, audit: null, loading: false, error: null }, stats: null });
     void refreshFleet();
   };
 
@@ -86,6 +85,46 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
       } catch (err) {
         get().reportError(err);
       }
+    },
+
+    async setFleetExecEnabled(on) {
+      try {
+        await backend.setFleetExecEnabled(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
+    async setFleetExecCeiling(rung) {
+      try {
+        await backend.setFleetExecCeiling(rung);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
+    async setFleetProjectRoots(roots) {
+      try {
+        await backend.setFleetProjectRoots(roots);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
+    async setFleetGrant(dispatcherId, rung) {
+      try {
+        await backend.fleetGrantSet(dispatcherId, rung);
+      } catch (err) {
+        get().reportError(err);
+      }
+      // The rung rides the machine list: re-read so the chip settles.
+      void refreshFleet();
+    },
+
+    // The ceremony's outcome renders in the panel, so it returns instead of
+    // raising: a wrong secret is an explanation, not an error notice.
+    requestFleetGrant(machineKey, rung, secret) {
+      return backend.fleetGrantRequest(machineKey, rung, secret);
     },
 
     async retryFleetDispatch(pending) {

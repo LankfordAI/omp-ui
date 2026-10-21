@@ -1153,6 +1153,21 @@ The fleet dispatches one request created on several targets, sharing a
 sessions with the same `batchId`, and a single-target dispatch has none.
 _Avoid_: job group, fan-out job
 
+**Fleet exec**:
+One bounded command a fleet member runs on its own shell at a dispatcher's
+request, gated by that member's grant ladder and answered with exit code plus
+capped stdout/stderr (ADR-0062). It is not a terminal: no PTY, no stdin, no
+streaming, and this app refuses to exec on itself — its own tools serve that.
+_Avoid_: remote shell, rsh, ssh-through-fleet
+
+**Fleet grant**:
+The rung one dispatcher holds on this machine — Observe, Dispatch, Manage
+projects, or Full control — cumulative upward, with joining defaulting to
+Dispatch and a host ceiling capping whatever any dispatcher may hold. Raising
+it remotely re-presents the join credential; the node enforces every rung
+check (ADR-0062).
+_Avoid_: permission flag, ACL, execEnabled
+
 **Placement preference**:
 The per-member weight automatic placement applies — Prefer, Normal, Less
 often, or Manual only — stored per machine key in this app's registry. It

@@ -2,9 +2,11 @@ import { useEffect, useMemo, type ReactNode } from "react";
 import type { SessionSummary } from "@omp-ui/core/types";
 import {
   PLACEMENT_PREFERENCES,
+  type FleetAuditEntry,
   type FleetMachine,
   type FleetMachineStatus,
   type FleetPendingDispatch,
+  type FleetRung,
   type PlacementPreference,
 } from "@omp-ui/core/fleet";
 import { useT, type MessageKey } from "../../lib/i18n";
@@ -35,6 +37,20 @@ const PREFERENCE_LABEL: Record<PlacementPreference, MessageKey> = {
   normal: "fleet.preference.normal",
   less: "fleet.preference.less",
   manual: "fleet.preference.manual",
+};
+
+const RUNG_LABEL: Record<FleetRung, MessageKey> = {
+  observe: "fleet.rung.observe",
+  dispatch: "fleet.rung.dispatch",
+  manage: "fleet.rung.manage",
+  full: "fleet.rung.full",
+};
+
+const AUDIT_ACTION_LABEL: Record<FleetAuditEntry["action"], MessageKey> = {
+  exec: "fleet.audit.exec",
+  manage: "fleet.audit.manage",
+  "grant-raise": "fleet.audit.grantRaise",
+  "grant-set": "fleet.audit.grantSet",
 };
 
 /** One dispatched session wherever it lives: this app's registry or a joined instance's. */
@@ -69,6 +85,12 @@ function MachineRow({ machine }: { machine: FleetMachine }) {
         <Dot tone={face.tone} title={t(face.labelKey)} />
         <span className="truncate text-xs text-ink">{name}</span>
         {report !== null && <Chip mono>{t("fleet.machine.version", { version: report.version })}</Chip>}
+        {/* #901: what this member will accept from us; null for this computer and older peers. */}
+        {machine.grantRung !== null && (
+          <Chip tone={machine.grantRung === "full" ? "copper" : "neutral"}>
+            {t("fleet.machine.access", { rung: t(RUNG_LABEL[machine.grantRung]) })}
+          </Chip>
+        )}
       </span>
       <span className="min-w-0 flex-1 truncate text-ink-mid">
         {machine.status === "unsupported" ? (
@@ -272,6 +294,44 @@ function DispatchesSection() {
   );
 }
 
+/* --------------------------------------------------------------- audit */
+
+/**
+ * This machine's own fleet audit ring (#901, ADR-0062): what ran here and
+ * who asked, newest first. The node writes the durable lines; this list is
+ * the live mirror over `fleet:audit`.
+ */
+function AuditSection() {
+  const t = useT();
+  const audit = useStore((s) => s.fleet?.audit ?? null);
+  if (audit === null || audit.length === 0) return null;
+  const rows = [...audit].reverse();
+  return (
+    <Section title={t("fleet.section.activity")}>
+      <ul className="divide-y divide-line-soft">
+        {rows.map((entry, index) => (
+          <li
+            key={`${entry.at}-${index}`}
+            className="flex flex-wrap items-baseline gap-x-2 py-1 text-[11px]"
+            data-audit-index={index}
+          >
+            <span className={`shrink-0 font-medium ${entry.accepted ? "text-ink-mid" : "text-rose"}`}>
+              {t(AUDIT_ACTION_LABEL[entry.action])}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-ink-faint" title={entry.detail}>
+              {t("fleet.audit.line", { dispatcher: entry.dispatcherLabel, detail: entry.detail })}
+            </span>
+            <span className="shrink-0 font-mono tabular-nums text-ink-dim">
+              {new Date(entry.at).toLocaleTimeString()}
+              {entry.exitCode !== null && ` · exit ${entry.exitCode}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
 /* --------------------------------------------------------------- surface */
 
 export function Fleet() {
@@ -306,6 +366,7 @@ export function Fleet() {
       <MachinesSection />
       <UnresolvedSection />
       <DispatchesSection />
+      <AuditSection />
     </div>
   );
 }

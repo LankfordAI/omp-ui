@@ -8,7 +8,16 @@ import { parseProposedPlans } from "./plan";
 import { normalizeSidebarGroupName, SIDEBAR_GROUP_NAME_MAX_LENGTH } from "./sidebar-groups";
 import { parseVaultRegistry } from "./vault-registry";
 import { isKnowledgeHome } from "./vault-shared";
-import { isFleetProvenance, parseFleetPlacement, type PlacementPreference } from "./fleet";
+import {
+  isFleetProvenance,
+  parseFleetGrants,
+  parseFleetPlacement,
+  parseFleetProjectRoots,
+  FLEET_RUNGS,
+  type FleetGrantRecord,
+  type FleetRung,
+  type PlacementPreference,
+} from "./fleet";
 import type {
   AgentMode,
   ApprovalMode,
@@ -142,6 +151,14 @@ export interface RegistrySettings {
   fleetPlacement: Record<string, PlacementPreference>;
   /** Register the omp-ui_fleet_* host tools on new spawns (issue #899); default off. */
   fleetAgentDispatch: boolean;
+  /** Host master switch for fleet exec, rung 4 (issue #901, ADR-0062); default off. */
+  fleetExecEnabled: boolean;
+  /** What any dispatcher may at most hold on this machine (issue #901); default "dispatch". */
+  fleetExecCeiling: FleetRung;
+  /** Per-dispatcher grants (issue #901), keyed by the CLAIMED dispatcher instanceId. */
+  fleetGrants: Record<string, FleetGrantRecord>;
+  /** Absolute directories rung-3 fleet verbs may write into (issue #901); default []. */
+  fleetProjectRoots: string[];
 }
 
 interface RegistryData {
@@ -415,6 +432,17 @@ export const SETTINGS: SettingDescriptors = {
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
+  fleetExecEnabled: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  fleetExecCeiling: validatedSetting(
+    () => "dispatch" as FleetRung,
+    (value): value is FleetRung => typeof value === "string" && (FLEET_RUNGS as readonly string[]).includes(value),
+  ),
+  // Fresh object every parse: setSetting no-ops on Object.is equality.
+  fleetGrants: { fallback: () => ({}), parse: parseFleetGrants },
+  fleetProjectRoots: { fallback: () => [], parse: parseFleetProjectRoots },
 };
 
 const SETTING_KEYS = Object.keys(SETTINGS) as SettingKey[];

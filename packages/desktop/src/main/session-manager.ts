@@ -85,7 +85,11 @@ import {
   type OwnedSessionRecord,
   type FleetDispatchRequest,
   type FleetDispatchResult,
+  type FleetExecOutcome,
   type FleetMachine,
+  type FleetProjectManageOutcome,
+  type FleetToolExecArgs,
+  type FleetToolProjectArgs,
   type AskSource,
   type ObsidianListEntry,
   type RpcFrame,
@@ -178,7 +182,7 @@ function unreachableLiveEntry(entry: never): never {
 
 /**
  * The structural fleet seam SessionManager answers agent fleet tools through
- * (issue #899, ADR-0061); the desktop FleetDispatcher satisfies it.
+ * (issues #899 + #901, ADR-0061/0062); the desktop FleetDispatcher satisfies it.
  */
 export interface FleetDispatcherLike {
   machines(): Promise<FleetMachine[]>;
@@ -188,6 +192,8 @@ export interface FleetDispatcherLike {
     opts?: { deadlineMs?: number },
   ): Promise<FleetDispatchResult>;
   statusText(sel: { batchId: string } | { dispatchId: string }): Promise<string>;
+  exec(tabId: string, args: FleetToolExecArgs): Promise<FleetExecOutcome>;
+  projectManage(tabId: string, args: FleetToolProjectArgs): Promise<FleetProjectManageOutcome>;
 }
 
 /** The agent dispatch deadline: the answer must land inside HOST_ANSWER_WATCHDOG_MS (60 s). */
@@ -458,6 +464,9 @@ export class SessionManager {
               dispatch: (tabId, req) =>
                 fleet().dispatch(req, { kind: "agent", sourceTabId: tabId }, { deadlineMs: AGENT_FLEET_DEADLINE_MS }),
               status: (sel) => fleet().statusText(sel),
+              // #901: the dispatcher bounds exec/project inside the watchdog itself.
+              exec: (tabId, args) => fleet().exec(tabId, args),
+              projectManage: (tabId, args) => fleet().projectManage(tabId, args),
             },
           }),
     });
@@ -1413,8 +1422,10 @@ export class SessionManager {
     initialCommands.push(
       setEventFilterCommand(),
       setHostUriSchemesCommand(),
-      // Fleet tools follow the user's setting at each spawn/resume (ADR-0048);
-      // an agent-dispatched session never gets them (no recursion, ADR-0061).
+      // The five fleet tools (machines/dispatch/status/exec/project) follow the
+      // user's setting at each spawn/resume (ADR-0048); an agent-dispatched
+      // session never gets them (no recursion, ADR-0061). exec/project inherit
+      // this gate plus each owner node's grant ladder (#901, ADR-0062).
       setHostToolsCommand({
         vault: vaults.vaults.length > 0,
         fleet: this.deps.registry.getSetting("fleetAgentDispatch") && record.fleet?.requestedBy.kind !== "agent",

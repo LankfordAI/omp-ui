@@ -29,6 +29,7 @@ function machine(key: string, nickname: string | null, projects: FleetHostProjec
     error: null,
     preference: "normal",
     receivedAt: 1,
+    grantRung: "dispatch",
     report: {
       instanceId: `id-${key}`,
       label: key,

@@ -2867,6 +2867,18 @@ export const en = {
   "fleet.dispatches.stateCount": "{count} {state}",
   "fleet.dispatches.open": "Open",
   "fleet.dispatches.stop": "Stop",
+  // Fleet exec ladder (issue #901)
+  "fleet.section.activity": "Activity",
+  "fleet.machine.access": "access {rung}",
+  "fleet.rung.observe": "Observe",
+  "fleet.rung.dispatch": "Dispatch",
+  "fleet.rung.manage": "Manage projects",
+  "fleet.rung.full": "Full control",
+  "fleet.audit.exec": "exec",
+  "fleet.audit.manage": "manage",
+  "fleet.audit.grantRaise": "grant raise",
+  "fleet.audit.grantSet": "grant set",
+  "fleet.audit.line": "{dispatcher} · {detail}",
   // dialog.newsession.* — one New session dialog for here and fleet dispatch
   "dialog.newsession.kicker": "New session",
   "dialog.newsession.title": "Start work",
@@ -2916,4 +2928,32 @@ export const en = {
   "settings.remoteinstances.fleetAgentTitle": "Let agents dispatch fleet work",
   "settings.remoteinstances.fleetAgentHint":
     "Adds fleet tools to sessions started after this is on. Agent-dispatched sessions never get them.",
+  // Fleet access ladder (issue #901, ADR-0062)
+  "settings.remoteinstances.fleetAccessTitle": "Fleet access",
+  "settings.remoteinstances.execTitle": "Allow fleet exec",
+  "settings.remoteinstances.execHint":
+    "Lets a dispatcher run one bounded command on this machine's shell. Off by default; also needs the ceiling and a grant.",
+  "settings.remoteinstances.ceilingTitle": "Fleet exec ceiling",
+  "settings.remoteinstances.ceilingHint":
+    "The highest rung any dispatcher can hold here, whatever its grant says.",
+  "settings.remoteinstances.rootsTitle": "Fleet project roots",
+  "settings.remoteinstances.rootsHint":
+    "Absolute folders the fleet may clone into or register checkouts from. With none declared, project management is refused.",
+  "settings.remoteinstances.roots.empty": "No roots declared — clone and register are refused.",
+  "settings.remoteinstances.roots.add": "Add",
+  "settings.remoteinstances.roots.remove": "Remove",
+  "settings.remoteinstances.grantTitle": "Dispatchers on this computer",
+  "settings.remoteinstances.grant.empty": "No fleet dispatcher has reached this computer yet.",
+  "settings.remoteinstances.grant.cap": "Access for {machine}",
+  "settings.remoteinstances.grant.defaulted": "Join default: {rung}",
+  "settings.remoteinstances.grant.stored": "Granted {rung}",
+  "settings.remoteinstances.grant.capped": "Granted {rung}; the ceiling holds it at {effective}",
+  "settings.remoteinstances.grant.reset": "Reset",
+  "settings.remoteinstances.grant.request": "Request access",
+  "settings.remoteinstances.grant.ceremony":
+    "Ask {machine} for more access. Re-type its password or access token — {machine} checks it, and its own ceiling, before granting.",
+  "settings.remoteinstances.grant.raise": "Ask",
+  "settings.remoteinstances.grant.raising": "Asking…",
+  "settings.remoteinstances.grant.granted": "Granted {rung}.",
+  "settings.remoteinstances.grant.refused": "Refused: {reason}",
 } as const;

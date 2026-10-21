@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
+import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
 import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type FleetBridgeDeps, type HostBridgeDeps, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
 import type { ConfinedPlanRead } from "./plan-file";
 
@@ -442,13 +442,14 @@ function fixtureDeps(): HostBridgeDeps {
 describe("HostBridge fleet tools (issue #899)", () => {
   const PROJECT = "/work/repo";
   const REPO_KEY = "github.com/acme/repo";
-  const machine = (key: string, nickname: string | null): FleetMachine => ({
+  const machine = (key: string, nickname: string | null, grantRung: FleetRung = "dispatch"): FleetMachine => ({
     key,
     nickname,
     status: "ready",
     error: null,
     preference: "normal",
     receivedAt: 1,
+    grantRung,
     report: {
       instanceId: `inst-${key}`,
       label: key,
@@ -467,7 +468,7 @@ describe("HostBridge fleet tools (issue #899)", () => {
       ],
     },
   });
-  const MACHINES = [machine(LOCAL_MACHINE_KEY, null), machine("remote-b", "studio")];
+  const MACHINES = [machine(LOCAL_MACHINE_KEY, null), machine("remote-b", "studio", "full")];
   const fleetBridge = (fleet: Partial<FleetBridgeDeps>): { bridge: HostBridge; sent: RpcFrame[]; logs: string[] } => {
     const sent: RpcFrame[] = [];
     const logs: string[] = [];
@@ -478,6 +479,8 @@ describe("HostBridge fleet tools (issue #899)", () => {
         machines: async () => MACHINES,
         dispatch: async () => ({ batchId: null, outcomes: [] }),
         status: async () => "no sessions",
+        exec: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+        projectManage: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         ...fleet,
       },
     });
@@ -595,6 +598,70 @@ describe("HostBridge fleet tools (issue #899)", () => {
     expect(resultText(sent[0]!)).toContain("- studio: unknown (no answer before the deadline); dispatchId d-1");
     await vi.advanceTimersByTimeAsync(HOST_ANSWER_WATCHDOG_MS);
     expect(sent).toHaveLength(1);
+  });
+
+  it("answers exec as text: exit code, output, truncation marker, and refusals that are not errors (issue #901)", async () => {
+    const execs: Array<{ tabId: string; args: unknown }> = [];
+    const outcomes = [
+      { status: "accepted", exitCode: 2, stdout: "Linux box\n", stderr: "warn\n", truncated: true, timedOut: false },
+      { status: "accepted", exitCode: null, stdout: "partial", stderr: "", truncated: false, timedOut: true },
+      { status: "refused", reason: 'studio holds fleet access "dispatch" on this machine; this call needs "full"' },
+    ] as const;
+    let next = 0;
+    const { bridge, sent, logs } = fleetBridge({
+      exec: async (tabId, args) => {
+        execs.push({ tabId, args });
+        return outcomes[next++]!;
+      },
+    });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("x1", FLEET_TOOLS[3], { machine: "studio", command: "SECRET-CMD uname -a", timeoutMs: 500 }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("x2", FLEET_TOOLS[3], { machine: "studio", command: "sleep 99" }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("x3", FLEET_TOOLS[3], { machine: "studio", command: "id" }), send);
+    await settled();
+
+    expect(execs[0]).toEqual({ tabId: "t1", args: expect.objectContaining({ machine: "studio", command: "SECRET-CMD uname -a", timeoutMs: 500 }) });
+    for (const frame of sent) expect(frame).not.toHaveProperty("isError");
+    expect(resultText(sent[0]!)).toBe("exit 2\n\nLinux box\n\n\nstderr:\nwarn\n\n\n[truncated]");
+    expect(resultText(sent[1]!)).toBe("timed out\n\npartial");
+    expect(resultText(sent[2]!)).toBe('refused — studio holds fleet access "dispatch" on this machine; this call needs "full"');
+    // The command text belongs to the owner's audit log, never this one.
+    expect(logs.join("\n")).not.toContain("SECRET-CMD");
+    expect(logs[0]).toBe("omp-ui_fleet_exec from t1: studio exit=2");
+  });
+
+  it("refuses malformed exec and project arguments without calling the deps (issue #901)", async () => {
+    const exec = vi.fn();
+    const projectManage = vi.fn();
+    const { bridge, sent } = fleetBridge({ exec, projectManage });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("a", FLEET_TOOLS[3], { machine: "studio" }), send);
+    bridge.route("t1", toolCallFrame("b", FLEET_TOOLS[3], { machine: "studio", command: "ls", env: { X: "1" } }), send);
+    bridge.route("t1", toolCallFrame("c", FLEET_TOOLS[4], { machine: "studio", verb: "delete" }), send);
+    await settled();
+    expect(sent).toHaveLength(3);
+    for (const frame of sent) expect(frame).toMatchObject({ type: "host_tool_result", isError: true });
+    expect(exec).not.toHaveBeenCalled();
+    expect(projectManage).not.toHaveBeenCalled();
+  });
+
+  it("answers project accept and refusal as text (issue #901)", async () => {
+    const results = [
+      { status: "accepted", path: "/srv/repos/app", headCommit: "abc123" },
+      { status: "refused", reason: "no project roots are declared on this machine" },
+    ] as const;
+    let next = 0;
+    const { bridge, sent } = fleetBridge({ projectManage: async () => results[next++]! });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("p1", FLEET_TOOLS[4], { machine: "studio", verb: "clone", repositoryUrl: "https://github.com/acme/app" }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("p2", FLEET_TOOLS[4], { machine: "studio", verb: "register", path: "/srv/repos/app" }), send);
+    await settled();
+    for (const frame of sent) expect(frame).not.toHaveProperty("isError");
+    expect(resultText(sent[0]!)).toBe("clone accepted: /srv/repos/app (HEAD abc123)");
+    expect(resultText(sent[1]!)).toBe("refused — no project roots are declared on this machine");
   });
 });
 

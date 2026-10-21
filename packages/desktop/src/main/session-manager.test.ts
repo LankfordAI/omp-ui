@@ -7129,7 +7129,15 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
             "omp-ui_vault_link",
           ]
         : []),
-      ...(fleet ? ["omp-ui_fleet_machines", "omp-ui_fleet_dispatch", "omp-ui_fleet_status"] : []),
+      ...(fleet
+        ? [
+            "omp-ui_fleet_machines",
+            "omp-ui_fleet_dispatch",
+            "omp-ui_fleet_status",
+            "omp-ui_fleet_exec",
+            "omp-ui_fleet_project",
+          ]
+        : []),
     ]);
     for (const tool of tools.slice(1)) {
       expect(tool).toMatchObject({ loadMode: "essential" });

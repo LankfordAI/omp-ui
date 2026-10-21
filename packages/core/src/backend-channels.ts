@@ -92,7 +92,22 @@ import type {
   BrowserPaneClearDataResult,
 } from "./browser-pane";
 import type { RpcFrame } from "./rpc/codec";
-import type { FleetDispatchRequest, FleetDispatchResult, FleetHostReport, FleetMachine, PlacementPreference } from "./fleet";
+import type {
+  FleetAuditEntry,
+  FleetDispatchRequest,
+  FleetDispatchResult,
+  FleetExecOutcome,
+  FleetExecRequest,
+  FleetGrantRaiseOutcome,
+  FleetGrantRaiseRequest,
+  FleetHostReport,
+  FleetMachine,
+  FleetProjectManageOutcome,
+  FleetProjectManageRequest,
+  FleetRequester,
+  FleetRung,
+  PlacementPreference,
+} from "./fleet";
 import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
 import {
   agentModeCodec,
@@ -137,6 +152,11 @@ import {
   vaultNoteVoiceCodec,
   worktreeReleaseOptionsCodec,
   fleetDispatchRequestCodec,
+  fleetExecRequestCodec,
+  fleetProjectManageCodec,
+  fleetGrantRaiseCodec,
+  fleetRequesterCodec,
+  fleetRungCodec,
   machineKeyCodec,
   placementPreferenceCodec,
   type ArgCodec,
@@ -496,6 +516,21 @@ export const BACKEND_CHANNELS = {
   setFleetAgentDispatch: {
     channel: "settings:setFleetAgentDispatch",
     ...request<[on: boolean], void>([bool()]),
+  },
+  /** Host master switch for fleet exec, rung 4 (issue #901, ADR-0062); default off. */
+  setFleetExecEnabled: {
+    channel: "settings:setFleetExecEnabled",
+    ...request<[on: boolean], void>([bool()]),
+  },
+  /** What any dispatcher may at most hold on this machine (issue #901). */
+  setFleetExecCeiling: {
+    channel: "settings:setFleetExecCeiling",
+    ...request<[rung: FleetRung], void>([fleetRungCodec]),
+  },
+  /** The absolute roots fleet clone/register may touch (issue #901), whole-list set. */
+  setFleetProjectRoots: {
+    channel: "settings:setFleetProjectRoots",
+    ...request<[roots: string[]], void>([arrayOf(str())]),
   },
   /** Clears the remembered omp-ui update dismissal so the offer can return. */
   clearDismissedAppUpdate: {
@@ -1112,6 +1147,47 @@ export const BACKEND_CHANNELS = {
   },
   /** Drops one unknown-outcome row from fleetPending. Local only. */
   fleetDismissPending: { channel: "fleet:dismissPending", ...request<[dispatchId: string], void>([str()]) },
+  /**
+   * One bounded command on the owner's shell (issue #901, ADR-0062). Proxied;
+   * the OWNER refuses when its ladder says so — refusals are answers, not errors.
+   */
+  fleetExec: {
+    channel: "fleet:exec",
+    ...request<[req: FleetExecRequest], FleetExecOutcome>([fleetExecRequestCodec]),
+  },
+  /** Clone/register within the owner's declared project roots (rung 3). Proxied. */
+  fleetProjectManage: {
+    channel: "fleet:projectManage",
+    ...request<[req: FleetProjectManageRequest], FleetProjectManageOutcome>([fleetProjectManageCodec]),
+  },
+  /** The dispatcher's effective rung on the owner. Proxied, observe-floor. */
+  fleetGrantRung: {
+    channel: "fleet:grantRung",
+    ...request<[req: FleetRequester], { rung: FleetRung; ceiling: FleetRung; execEnabled: boolean }>([
+      fleetRequesterCodec,
+    ]),
+  },
+  /** Re-presented-credential grant raise. Proxied. */
+  fleetGrantRaise: {
+    channel: "fleet:grantRaise",
+    ...request<[req: FleetGrantRaiseRequest], FleetGrantRaiseOutcome>([fleetGrantRaiseCodec]),
+  },
+  /** Node-local grant edit on this machine's ladder (Fleet-access UI). Local only; null resets the rung to the join default and keeps the named row. */
+  fleetGrantSet: {
+    channel: "fleet:grantSet",
+    ...request<[dispatcherId: string, rung: FleetRung | null], void>([str(), nullable(fleetRungCodec)]),
+  },
+  /** Manager-side ceremony against member `machineKey` (its own remote-instance id). Local only. */
+  fleetGrantRequest: {
+    channel: "fleet:grantRequest",
+    ...request<[machineKey: string, rung: FleetRung, secret: string], FleetGrantRaiseOutcome>([
+      str(),
+      fleetRungCodec,
+      str(),
+    ]),
+  },
+  /** This machine's fleet audit ring, newest last. Local only. */
+  fleetAudit: { channel: "fleet:audit", ...request<[], FleetAuditEntry[]>([]) },
   /**
    * Lists resolved, redacted MCP servers and per-file errors; null projectCwd
    * lists the global (user-level) scope only.

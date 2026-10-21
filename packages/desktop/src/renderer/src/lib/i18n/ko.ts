@@ -2684,6 +2684,18 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "fleet.dispatches.stateCount": "{state} {count}",
   "fleet.dispatches.open": "열기",
   "fleet.dispatches.stop": "중지",
+  // Fleet exec 사다리 (이슈 #901)
+  "fleet.section.activity": "활동",
+  "fleet.machine.access": "접근 권한: {rung}",
+  "fleet.rung.observe": "관찰",
+  "fleet.rung.dispatch": "디스패치",
+  "fleet.rung.manage": "프로젝트 관리",
+  "fleet.rung.full": "완전 제어",
+  "fleet.audit.exec": "exec",
+  "fleet.audit.manage": "manage",
+  "fleet.audit.grantRaise": "권한 상향",
+  "fleet.audit.grantSet": "권한 설정",
+  "fleet.audit.line": "{dispatcher} · {detail}",
   // dialog.newsession.* — 로컬/플릿 공용 새 세션 다이얼로그
   "dialog.newsession.kicker": "새 세션",
   "dialog.newsession.title": "작업 시작",
@@ -2733,4 +2745,32 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.remoteinstances.fleetAgentTitle": "에이전트의 플릿 작업 디스패치 허용",
   "settings.remoteinstances.fleetAgentHint":
     "이 설정을 켠 뒤 시작한 세션에 플릿 도구를 추가합니다. 에이전트가 디스패치한 세션에는 추가되지 않습니다.",
+  // Fleet 접근 사다리 (이슈 #901)
+  "settings.remoteinstances.fleetAccessTitle": "플릿 접근",
+  "settings.remoteinstances.execTitle": "플릿 exec 허용",
+  "settings.remoteinstances.execHint":
+    "디스패치가 이 컴퓨터의 셸에서 제한된 명령 하나를 실행하도록 허용합니다. 기본값은 꺼짐이며, 상한과 권한 부여도 필요합니다.",
+  "settings.remoteinstances.ceilingTitle": "플릿 exec 상한",
+  "settings.remoteinstances.ceilingHint":
+    "권한이 어떻게 설정되든 이 컴퓨터에서 어떤 디스패치도 가질 수 있는 최고 단계입니다.",
+  "settings.remoteinstances.rootsTitle": "플릿 프로젝트 루트",
+  "settings.remoteinstances.rootsHint":
+    "플릿이 클론하거나 체크아웃을 등록할 수 있는 절대 경로 폴더입니다. 하나도 선언하지 않으면 프로젝트 관리가 거부됩니다.",
+  "settings.remoteinstances.roots.empty": "루트가 없습니다 — 클론 및 등록이 거부됩니다.",
+  "settings.remoteinstances.roots.add": "추가",
+  "settings.remoteinstances.roots.remove": "삭제",
+  "settings.remoteinstances.grantTitle": "이 컴퓨터의 디스패처",
+  "settings.remoteinstances.grant.empty": "아직 이 컴퓨터에 접근한 플릿 디스패처가 없습니다.",
+  "settings.remoteinstances.grant.cap": "{machine}의 접근 권한",
+  "settings.remoteinstances.grant.defaulted": "참여 기본값: {rung}",
+  "settings.remoteinstances.grant.stored": "{rung} 부여됨",
+  "settings.remoteinstances.grant.capped": "{rung} 부여됨, 상한에 따라 {effective}(으)로 제한됨",
+  "settings.remoteinstances.grant.reset": "초기화",
+  "settings.remoteinstances.grant.request": "접근 권한 요청",
+  "settings.remoteinstances.grant.ceremony":
+    "{machine}에 더 높은 접근 권한을 요청합니다. 비밀번호 또는 액세스 토큰을 다시 입력하세요 — {machine}이(가) 이를 확인하고 자체 상한을 적용한 뒤 부여합니다.",
+  "settings.remoteinstances.grant.raise": "요청",
+  "settings.remoteinstances.grant.raising": "확인 중…",
+  "settings.remoteinstances.grant.granted": "{rung}이(가) 부여되었습니다.",
+  "settings.remoteinstances.grant.refused": "거부됨: {reason}",
 };

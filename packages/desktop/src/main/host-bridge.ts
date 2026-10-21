@@ -36,6 +36,10 @@ import {
   VAULT_WRITE_TOOLS,
   type FleetDispatchRequest,
   type FleetDispatchResult,
+  type FleetExecOutcome,
+  type FleetProjectManageOutcome,
+  type FleetToolExecArgs,
+  type FleetToolProjectArgs,
   type FleetMachine,
   type ObsidianListEntry,
   type RootGuard,
@@ -79,12 +83,16 @@ export interface VaultBridgeDeps {
   mainLog(line: string): void;
 }
 
-/** The tab-side fleet answerers (issue #899, ADR-0061); SessionManager maps them onto the FleetDispatcher. */
+/** The tab-side fleet answerers (issues #899 + #901, ADR-0061/0062); SessionManager maps them onto the FleetDispatcher. */
 export interface FleetBridgeDeps {
   machines(): Promise<FleetMachine[]>;
   /** Dispatches on behalf of the agent in `tabId`; the caller bounds it inside the answer watchdog. */
   dispatch(tabId: string, req: FleetDispatchRequest): Promise<FleetDispatchResult>;
   status(sel: { batchId: string } | { dispatchId: string }): Promise<string>;
+  /** One bounded command on a member (issue #901); refusals ride the outcome. */
+  exec(tabId: string, args: FleetToolExecArgs): Promise<FleetExecOutcome>;
+  /** Rung-3 clone/register on a member (issue #901). */
+  projectManage(tabId: string, args: FleetToolProjectArgs): Promise<FleetProjectManageOutcome>;
 }
 
 export interface HostBridgeDeps {
@@ -372,6 +380,37 @@ export class HostBridge {
       if (parsed.tool === "status") {
         const text = await deps.status(parsed.selector);
         reply(hostToolTextResult(call.id, text));
+        return;
+      }
+      if (parsed.tool === "exec") {
+        const outcome = await deps.exec(tabId, parsed.args);
+        // The command text rides the owner's audit log; here only the machine,
+        // status, and exit code.
+        this.deps.log(
+          `omp-ui_fleet_exec from ${tabId}: ${parsed.args.machine} ${outcome.status === "accepted" ? `exit=${outcome.exitCode ?? "null"}${outcome.timedOut ? " timed-out" : ""}` : `refused (${outcome.reason})`}`,
+        );
+        if (outcome.status === "refused") {
+          // A refusal is an answer, not an error frame.
+          reply(hostToolTextResult(call.id, `refused — ${outcome.reason}`));
+          return;
+        }
+        const body: string[] = [outcome.timedOut ? "timed out" : `exit ${outcome.exitCode ?? "null"}`];
+        if (outcome.stdout !== "") body.push("", outcome.stdout);
+        if (outcome.stderr !== "") body.push("", `stderr:\n${outcome.stderr}`);
+        if (outcome.truncated) body.push("", "[truncated]");
+        reply(hostToolTextResult(call.id, body.join("\n")));
+        return;
+      }
+      if (parsed.tool === "project") {
+        const outcome = await deps.projectManage(tabId, parsed.args);
+        this.deps.log(
+          `omp-ui_fleet_project from ${tabId}: ${parsed.args.machine} ${parsed.args.verb} ${outcome.status}${outcome.status === "refused" ? ` (${outcome.reason})` : ""}`,
+        );
+        if (outcome.status === "refused") {
+          reply(hostToolTextResult(call.id, `refused — ${outcome.reason}`));
+          return;
+        }
+        reply(hostToolTextResult(call.id, `${parsed.args.verb} accepted: ${outcome.path}${outcome.headCommit === null ? "" : ` (HEAD ${outcome.headCommit})`}`));
         return;
       }
       const machines = await deps.machines();

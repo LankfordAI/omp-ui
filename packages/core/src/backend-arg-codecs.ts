@@ -1,6 +1,19 @@
 import { isObject } from "./guards";
 import { parseSpawnRequest } from "./spawn-request";
-import { parseFleetDispatchRequest, type FleetDispatchRequest, type PlacementPreference } from "./fleet";
+import {
+  parseFleetDispatchRequest,
+  parseFleetExecRequest,
+  parseFleetProjectManageRequest,
+  parseFleetRequester,
+  FLEET_RUNGS,
+  type FleetDispatchRequest,
+  type FleetExecRequest,
+  type FleetProjectManageRequest,
+  type FleetGrantRaiseRequest,
+  type FleetRequester,
+  type FleetRung,
+  type PlacementPreference,
+} from "./fleet";
 import type { RpcFrame } from "./rpc/codec";
 import type { BrowserPaneInputEvent, BrowserPaneNavigate } from "./browser-pane";
 import type {
@@ -602,6 +615,59 @@ export const fleetDispatchRequestCodec: ArgCodec<FleetDispatchRequest> = {
 };
 
 export const placementPreferenceCodec: ArgCodec<PlacementPreference> = oneOf("prefer", "normal", "less", "manual");
+
+/** One rung of the fleet grant ladder (issue #901). */
+export const fleetRungCodec: ArgCodec<FleetRung> = oneOf(...FLEET_RUNGS);
+
+/** The claimed requester identity, strictly decoded (same grammar as every parser). */
+export const fleetRequesterCodec: ArgCodec<FleetRequester> = {
+  expected: "a fleet requester",
+  decode(value, path) {
+    try {
+      return parseFleetRequester(value);
+    } catch {
+      return fail(path, this.expected);
+    }
+  },
+};
+
+/** Fleet exec (issue #901): strict keys and every limit, via the shared parser. */
+export const fleetExecRequestCodec: ArgCodec<FleetExecRequest> = {
+  expected: "a valid fleet exec request",
+  decode(value, path) {
+    try {
+      return parseFleetExecRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Fleet project manage (rung 3): clone/register verbs via the shared parser. */
+export const fleetProjectManageCodec: ArgCodec<FleetProjectManageRequest> = {
+  expected: "a valid fleet project manage request",
+  decode(value, path) {
+    try {
+      return parseFleetProjectManageRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** A grant raise carrying the re-presented join credential; never logged. */
+export const fleetGrantRaiseCodec: ArgCodec<FleetGrantRaiseRequest> = {
+  expected: "a valid fleet grant raise",
+  decode(value, path) {
+    const fields = record().decode(value, path);
+    exactKeys(fields, ["requester", "targetRung", "credential"], path);
+    return {
+      requester: fleetRequesterCodec.decode(fields["requester"], `${path}.requester`),
+      targetRung: fleetRungCodec.decode(fields["targetRung"], `${path}.targetRung`),
+      credential: shortStr(4_096).decode(fields["credential"], `${path}.credential`),
+    };
+  },
+};
 
 /** A fleet machine key: "local" or a remote instance id, 1–64 characters. */
 export const machineKeyCodec: ArgCodec<string> = codec(

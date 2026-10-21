@@ -7,7 +7,7 @@
 // result MUST carry `result.content` as an array or omp drops it as
 // malformed, and a URI scheme must match `^[a-z][a-z0-9+.-]*$`.
 
-import { FLEET_BATCH_MAX, FLEET_TOOLS } from "./fleet";
+import { FLEET_BATCH_MAX, FLEET_COMMAND_MAX, FLEET_TOOLS } from "./fleet";
 
 /** The one scheme omp-ui registers. Not in omp's reserved built-in set. */
 export const HOST_URI_SCHEME = "omp-ui";
@@ -220,7 +220,7 @@ function vaultTools(): RpcHostToolDefinition[] {
  * host's fleet; omp's host-tool approval tier governs each call.
  */
 function fleetTools(): RpcHostToolDefinition[] {
-  const [machines, dispatch, status] = FLEET_TOOLS;
+  const [machines, dispatch, status, exec, project] = FLEET_TOOLS;
   return [
     {
       name: machines,
@@ -275,6 +275,48 @@ function fleetTools(): RpcHostToolDefinition[] {
           batchId: { type: "string" },
           dispatchId: { type: "string" },
         },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: exec,
+      loadMode: "essential",
+      description:
+        "Run one bounded command on a fleet member's shell (issue #901). The owning machine decides: each member grants you an access rung, and anything above it comes back refused with the reason — omp-ui_fleet_machines shows your rung per member. Output is byte-capped per stream and the run is time-boxed; this computer is refused (use your own tools there). Raise access through the member's Settings → Remote instances → Fleet access, never here.",
+      parameters: {
+        type: "object",
+        properties: {
+          machine: { type: "string", description: 'Machine nickname from omp-ui_fleet_machines; "this computer" is refused.' },
+          command: {
+            type: "string",
+            description: `One shell command string (max ${FLEET_COMMAND_MAX} characters). The member runs it in its own shell.`,
+          },
+          cwd: { type: "string", description: "Working directory on the member; defaults to its user's home." },
+          timeoutMs: {
+            type: "integer",
+            minimum: 100,
+            maximum: 30_000,
+            description: "Shorten the member's 30 s cap; cannot extend it.",
+          },
+        },
+        required: ["machine", "command"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: project,
+      loadMode: "essential",
+      description:
+        "Manage projects on a fleet member within its declared roots (issue #901): verb clone clones an https repository URL into a root, verb register adds an existing checkout under one. Needs the manage rung on that member; refusals come back as text with the reason.",
+      parameters: {
+        type: "object",
+        properties: {
+          machine: { type: "string" },
+          verb: { type: "string", enum: ["clone", "register"] },
+          repositoryUrl: { type: "string", description: "clone only: https URL, no credentials." },
+          path: { type: "string", description: "register only: absolute checkout path under a declared root." },
+        },
+        required: ["machine", "verb"],
         additionalProperties: false,
       },
     },

@@ -121,6 +121,10 @@ describe("SETTINGS", () => {
       "instanceId",
       "fleetPlacement",
       "fleetAgentDispatch",
+      "fleetExecEnabled",
+      "fleetExecCeiling",
+      "fleetGrants",
+      "fleetProjectRoots",
     ]);
   });
   it("creates fresh mutable fallbacks", () => {
@@ -383,6 +387,32 @@ describe("Registry.load", () => {
     const reloaded = Registry.load(file);
     expect(reloaded.getSetting("fleetPlacement")).toEqual({ local: "less", "remote-1": "manual" });
     expect(reloaded.getSetting("fleetAgentDispatch")).toBe(true);
+  });
+
+  it("falls back to the locked-down ladder on malformed values and round-trips good ones (issue #901)", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: { fleetExecEnabled: "yes", fleetExecCeiling: "root", fleetGrants: [], fleetProjectRoots: "/srv" },
+      }),
+    );
+    const broken = Registry.load(file);
+    expect(broken.getSetting("fleetExecEnabled")).toBe(false);
+    expect(broken.getSetting("fleetExecCeiling")).toBe("dispatch");
+    expect(broken.getSetting("fleetGrants")).toEqual({});
+    expect(broken.getSetting("fleetProjectRoots")).toEqual([]);
+
+    broken.setSetting("fleetExecEnabled", true);
+    broken.setSetting("fleetExecCeiling", "full");
+    broken.setSetting("fleetGrants", { "inst-a": { rung: "full", label: "studio", updatedAt: "t" } });
+    broken.setSetting("fleetProjectRoots", ["/srv/repos"]);
+    const reloaded = Registry.load(file);
+    expect(reloaded.getSetting("fleetExecEnabled")).toBe(true);
+    expect(reloaded.getSetting("fleetExecCeiling")).toBe("full");
+    expect(reloaded.getSetting("fleetGrants")).toEqual({ "inst-a": { rung: "full", label: "studio", updatedAt: "t" } });
+    expect(reloaded.getSetting("fleetProjectRoots")).toEqual(["/srv/repos"]);
   });
 
   it("accepts only bounded integer remote ports", () => {

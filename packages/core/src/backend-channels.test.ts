@@ -306,6 +306,31 @@ const VALID_ARGS = {
   fleetDismissPending: ["dispatch-1"],
   setFleetPlacement: ["local", "less"],
   setFleetAgentDispatch: [true],
+  fleetExec: [
+    {
+      requester: { instanceId: "instance-1", label: "workstation", kind: "agent", sourceTabId: "tab-1" },
+      command: "git status",
+      cwd: null,
+      timeoutMs: null,
+    },
+  ],
+  fleetProjectManage: [
+    { requester: { instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null }, verb: "clone", repositoryUrl: "https://github.com/owner/repo.git" },
+  ],
+  fleetGrantRung: [{ instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null }],
+  fleetGrantRaise: [
+    {
+      requester: { instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null },
+      targetRung: "full",
+      credential: "token-value",
+    },
+  ],
+  fleetGrantSet: ["dispatcher-1", "manage"],
+  fleetGrantRequest: ["member-1", "manage", "secret"],
+  fleetAudit: [],
+  setFleetExecEnabled: [true],
+  setFleetExecCeiling: ["manage"],
+  setFleetProjectRoots: [["/srv/repos"]],
 } satisfies { [Method in InboundMethod]: MethodArgs<Method> };
 
 function recordingTransport() {

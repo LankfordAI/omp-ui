@@ -3,6 +3,8 @@ import * as path from "node:path";
 import type {
   AgentMode,
   OwnedSessionRecord,
+  FleetGrantRecord,
+  FleetRung,
   PlacementPreference,
   PlanFormat,
   GlassChrome,
@@ -62,6 +64,10 @@ interface RegistrySettings {
   instanceId: string;
   fleetPlacement: Record<string, PlacementPreference>;
   fleetAgentDispatch: boolean;
+  fleetExecEnabled: boolean;
+  fleetExecCeiling: FleetRung;
+  fleetGrants: Record<string, FleetGrantRecord>;
+  fleetProjectRoots: string[];
 }
 
 interface RegistrySeed {
@@ -163,6 +169,10 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     instanceId: "",
     fleetPlacement: {},
     fleetAgentDispatch: false,
+    fleetExecEnabled: false,
+    fleetExecCeiling: "dispatch",
+    fleetGrants: {},
+    fleetProjectRoots: [],
     ...patch.settings,
   };
   settings.modelFavorites = [...settings.modelFavorites];

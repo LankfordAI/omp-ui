@@ -92,4 +92,24 @@ describe("fleet channels (issue #899)", () => {
       expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(false);
     }
   });
+
+  it("proxies the ladder's owner-enforced channels (issue #901)", () => {
+    for (const channel of ["fleet:exec", "fleet:projectManage", "fleet:grantRung", "fleet:grantRaise"]) {
+      expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(true);
+    }
+  });
+
+  it("never proxies grant edits, the audit, the manager ceremony, or ladder settings (issue #901)", () => {
+    // A joined manager reaching these would set its own grant without the ceremony.
+    for (const channel of [
+      "fleet:grantSet",
+      "fleet:grantRequest",
+      "fleet:audit",
+      "settings:setFleetExecEnabled",
+      "settings:setFleetExecCeiling",
+      "settings:setFleetProjectRoots",
+    ]) {
+      expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(false);
+    }
+  });
 });
