@@ -368,6 +368,16 @@ function ProjectSection({
   const live = liveCount(allSessions);
   // A folded checkout's display name: its nickname, or this app's own machine.
   const machineOf = (b: CheckoutBlock): string => b.nickname ?? t("dialog.newsession.machineLocal");
+  // Unified node (issue #903): one node spans machines, so the header names
+  // the repository instead of this machine's directory — the last two
+  // segments of the `host/owner/repo` web-remote key. A key too short to
+  // split keeps the project name (defensive; the key is free-form).
+  const repoName = (() => {
+    if (!merged || project.repositoryKey === null) return null;
+    const parts = project.repositoryKey.split("/");
+    return parts.length >= 2 ? parts.slice(-2).join("/") : null;
+  })();
+  const headerName = repoName ?? project.name;
 
   // Unified view (issue #903): which checkout each row came from, so
   // chips and machine labels follow the session's owner; a divider
@@ -435,7 +445,7 @@ function ProjectSection({
             type="button"
             aria-expanded={open}
             onClick={() => setOpen(!open)}
-            title={project.path}
+            title={merged ? (project.repositoryKey ?? project.path) : project.path}
             className={cn("mt-px flex min-w-0 flex-1 items-start text-left", compact && "gap-1.5")}
           >
             {/* Joins the hover-reveal family: zero width at rest so the name runs
@@ -455,7 +465,7 @@ function ProjectSection({
               // collapse button's title still carries it for long-press.
               <span className="flex min-w-0 flex-1 items-center gap-1.5">
                 <MiddleTruncate
-                  text={project.name}
+                  text={headerName}
                   className="min-w-0 flex-1 font-display text-xs font-semibold text-ink"
                 />
                 <Chip mono title={t("sidebar.project.sessions", { n: allSessions.length })}>
@@ -471,7 +481,7 @@ function ProjectSection({
             ) : (
               <span className="min-w-0 flex-1">
                 <MiddleTruncate
-                  text={project.name}
+                  text={headerName}
                   className="font-display text-xs font-semibold text-ink"
                 />
                 <span className="mt-0.5 flex items-center gap-1.5">
@@ -663,6 +673,38 @@ function ProjectSection({
               </Fragment>
             );
           })}
+          {/* Unified view (issue #903): every folded checkout owns an
+              always-present sub-row, even with zero sessions — the fold must
+              be visible without waiting for a session divider to interleave.
+              blocks[0] is this machine's anchor; today's header is its row. */}
+          {merged &&
+            blocks !== null &&
+            blocks.slice(1).map((b) => (
+              <div
+                key={`${String(b.instanceId)}:${b.group.project.path}`}
+                title={t("sidebar.hosts.machineLabel", {
+                  machine: machineOf(b),
+                  path: b.group.project.path,
+                })}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 pb-0.5 pt-1 text-[10px] text-ink-faint",
+                  b.disabled && "opacity-60",
+                )}
+              >
+                <span className="shrink-0 font-mono">{machineOf(b)}</span>
+                <MiddleTruncate text={b.group.project.path} className="min-w-0 flex-1 font-mono" />
+                <IconButton
+                  label={t("sidebar.unified.newSessionOn", { machine: machineOf(b) })}
+                  disabled={b.disabled}
+                  onClick={() => {
+                    void newSession(b.group.project.path, undefined, b.instanceId);
+                    onActivate();
+                  }}
+                >
+                  <IconPlus className="size-3.5" />
+                </IconButton>
+              </div>
+            ))}
           {total === 0 && (
             <p className="px-3 py-1 text-[11px] text-ink-faint italic">{t("sidebar.project.noSessions")}</p>
           )}

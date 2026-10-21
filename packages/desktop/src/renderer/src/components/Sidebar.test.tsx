@@ -2806,13 +2806,17 @@ describe("Sidebar title cards (issue #838)", () => {
 
 describe("Sidebar unified project view (issue #903)", () => {
   const repoKey = "github.com/acme/app";
+  const repoDisplay = "acme/app";
   const remotePath = "/worktrees/app";
 
   /** Local Project One keyed on `localKey`; box-a joined with its own
-   *  checkout of the same repository (one session) at `remotePath`. */
+   *  checkout of the same repository at `remotePath` (`remoteSessions`
+   *  overrides that checkout's session list, e.g. `[]` for a machine with
+   *  no sessions yet). */
   const keyedState = (
     patchInstance: Partial<RemoteInstanceSummary> = {},
     localKey: string | null = repoKey,
+    remoteSessions: SessionSummary[] | null = null,
   ) => {
     const local = state.projects[0]!;
     return backendState({
@@ -2826,16 +2830,17 @@ describe("Sidebar unified project view (issue #903)", () => {
           projects: [
             {
               project: { ...local.project, path: remotePath, repositoryKey: repoKey },
-              sessions: [
-                {
-                  ...local.sessions[0]!,
-                  tabId: "remote-tab-1",
-                  sessionId: "remote-sid",
-                  projectCwd: remotePath,
-                  title: "Remote session",
-                  cachedTitle: "Remote session",
-                },
-              ],
+              sessions:
+                remoteSessions ?? [
+                  {
+                    ...local.sessions[0]!,
+                    tabId: "remote-tab-1",
+                    sessionId: "remote-sid",
+                    projectCwd: remotePath,
+                    title: "Remote session",
+                    cachedTitle: "Remote session",
+                  },
+                ],
             },
           ],
         }),
@@ -2843,10 +2848,11 @@ describe("Sidebar unified project view (issue #903)", () => {
     });
   };
 
-  /** The expanded Project One node (its toggle carries the path as title). */
+  /** The expanded Project One node: its toggle titles with the project path
+   *  while split, with the repository key once the node is unified. */
   function localSection(): HTMLElement {
     const toggle = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find(
-      (b) => b.title === projectPath,
+      (b) => b.title === projectPath || b.title === repoKey,
     );
     if (toggle === undefined) throw new Error("Project One toggle not found");
     return toggle.closest("section")!;
@@ -2938,5 +2944,38 @@ describe("Sidebar unified project view (issue #903)", () => {
     expect(remoteSection("inst-a").textContent).toContain("Remote session");
     expect(document.body.querySelector('[title="on box-a"]')).toBeNull();
     expect(document.body.textContent).not.toContain("box-a checkout");
+  });
+
+  it("names the unified node by repository, not this machine's directory", () => {
+    useStore.setState({ state: keyedState() });
+    renderSidebar();
+    const toggle = localSection().querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    // The header titles with the repository key and shows `owner/repo`.
+    expect(toggle.title).toBe(repoKey);
+    expect(toggle.textContent).toContain(repoDisplay);
+    expect(toggle.textContent).not.toContain("Project One");
+  });
+
+  it("keeps the project name header for a keyless anchor", () => {
+    useStore.setState({ state: keyedState({}, null) });
+    renderSidebar();
+    const toggle = localSection().querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    expect(toggle.title).toBe(projectPath);
+    expect(toggle.textContent).toContain("Project One");
+  });
+
+  it("renders a machine-labeled checkout row even with zero sessions", () => {
+    useStore.setState({ state: keyedState({}, repoKey, []) });
+    renderSidebar();
+    const section = localSection();
+    // The fold is visible without any remote session to interleave a divider:
+    // one strip per folded checkout, machine + path + its own "+".
+    const strip = section.querySelector<HTMLElement>(`[title="box-a — ${remotePath}"]`);
+    expect(strip).not.toBeNull();
+    expect(strip!.textContent).toContain("box-a");
+    const plus = button("new session on box-a");
+    expect(plus.disabled).toBe(false);
+    act(() => plus.click());
+    expect(newSession).toHaveBeenCalledWith(remotePath, undefined, "inst-a");
   });
 });
