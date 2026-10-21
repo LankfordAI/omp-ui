@@ -83,6 +83,20 @@ The strip shows **Reconnecting** for a few seconds while the page redials both c
 
 None needed: keep the strip visible and wait a few seconds. If it stays up after you return to the network, reload the connection URL once; the page restores its own open tabs on a browser client.
 
+## A session started on a joined remote host never leaves the boot skeleton
+
+### Cause
+
+The new tab paints the boot skeleton and the composer shows the restarting placeholder, with no error banner. The spawn ran on the remote host, and that host's omp-ui owns the warm session pool: a host older than v0.24.0 can lose a fresh session's `ready` frame when two spawns land seconds apart in one project (issue #892). Starting one session on the host itself rarely hits that window, which is why it works there.
+
+### Check
+
+On the remote host, open Settings → Updates (or About) and read the omp-ui version. The host needs v0.24.0 or newer. The app stages a downloaded update but applies it only on restart, so a host that is never restarted keeps running the old build.
+
+### Fix
+
+On the remote host, update omp-ui and restart it into the staged version (**Restart now**, or relaunch the app). From v0.24.0 a stalled boot also surfaces a fatal banner after 60 seconds instead of spinning forever, and a spawn that never answers settles as a pending row with a retry instead of holding the dialog (issue #907).
+
 ## A dismissed update card does not return
 
 ### Cause

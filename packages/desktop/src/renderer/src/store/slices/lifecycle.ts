@@ -1142,7 +1142,7 @@ export function createLifecycleSlice(
       | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
       | { checkout: { branch: string } },
     instanceId: string | null = null,
-  ): Promise<string> => {
+  ): Promise<string | null> => {
     const { mode, advisor, advisorModel } =
       await resolveSpawnParams(projectCwd, undefined, instanceId);
     const request: SpawnRequest =
@@ -1167,19 +1167,48 @@ export function createLifecycleSlice(
             rows: 24,
             worktree: spec,
           };
-    const { tabId } = await backendFor(instanceId).spawnSession(request);
-    // Issue #405: the create operation may have just minted a base branch.
-    // Surface it in the lists without a network round trip (mirrors the
-    // branches slice's createBranch).
-    if ("mint" in spec && spec.mint.baseBranch !== null) {
-      void get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
+    let landed = false;
+    let spawnedId: string | null = null;
+    const landTab = ({ tabId }: { tabId: string }): void => {
+      spawnedId = tabId;
+      if (landed) return;
+      landed = true;
+      // Issue #405: the create operation may have just minted a base branch.
+      // Surface it in the lists without a network round trip (mirrors the
+      // branches slice's createBranch).
+      if ("mint" in spec && spec.mint.baseBranch !== null) {
+        void get().refreshBranches(projectCwd, { fetchUpstream: false }, instanceId);
+      }
+      set((s) => ({
+        tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false, instanceId }],
+        ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
+        exited: dropExited(s.exited, tabId),
+      }));
+    };
+    const pending = backendFor(instanceId).spawnSession(request);
+    // Late landing (issue #907): a spawn that outlives the settle window —
+    // a wedged remote instance, a host on a slow git op — still mounts its
+    // tab exactly once through the shared `landed` flag, and a late
+    // rejection is swallowed because the timeout notice already reported
+    // the stall. A fast rejection still throws: the worktree contract is
+    // throw-on-failure so the dialog renders git's stderr inline.
+    pending.then(landTab, () => {});
+    let timedOut = false;
+    try {
+      await Promise.race([
+        pending.then(landTab),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => {
+            timedOut = true;
+            reject(new Error(t("session.error.spawnTimedOut")));
+          }, SPAWN_SETTLE_MS);
+        }),
+      ]);
+    } catch (err) {
+      if (!timedOut) throw err;
+      if (!landed) get().reportError(err);
     }
-    set((s) => ({
-      tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false, instanceId }],
-      ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
-      exited: dropExited(s.exited, tabId),
-    }));
-    return tabId;
+    return spawnedId;
   };
 
   /**

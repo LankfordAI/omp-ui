@@ -55,6 +55,17 @@ const GRANT_PROBE_TIMEOUT_MS = 4_000;
 const SUMMARY_TIMEOUT_MS = 5_000;
 /** Exec/project/grant calls race this bound: inside the 60 s host-answer watchdog. */
 const MEMBER_CALL_DEADLINE_MS = 45_000;
+/**
+ * The user-path ceiling for one spawn answer (issue #907): a wedged remote
+ * session:spawn must settle as "unknown" — pending row plus retry — instead
+ * of holding the New session dialog forever. A legit spawn settles in
+ * milliseconds; the worst legit case rides the git worktree ceiling
+ * (ADD_TIMEOUT_MS = 60 s, packages/core/src/worktree.ts) plus relay and
+ * boot writes, so 90 s leaves ~30 s of margin. The agent path keeps its own
+ * tighter bound (AGENT_FLEET_DEADLINE_MS, 45 s, inside the 60 s host-answer
+ * watchdog).
+ */
+const USER_FLEET_DEADLINE_MS = 90_000;
 const TIMED_OUT = Symbol("timed out");
 /** One TCP probe per host per window (issue #904): the Fleet view polls every 5 s and every tool call reads machines(). */
 const SSH_PROBE_TTL_MS = 15_000;
@@ -287,14 +298,20 @@ export class FleetDispatcher {
         const work = local
           ? this.#deps.spawnLocal(spawn)
           : (this.#deps.request(target.machineKey, CH.spawnSession, [spawn]) as Promise<{ tabId: string }>);
+        // Every dispatch is bounded (issue #907): the caller's deadline wins,
+        // the user path defaults to USER_FLEET_DEADLINE_MS. A wedged answer
+        // settles as "unknown" below instead of hanging the New session
+        // dialog; a local spawn rides the same bound, but its worst legit
+        // case (~65 s on the git ceiling) stays under the default.
+        const deadlineMs = opts.deadlineMs ?? USER_FLEET_DEADLINE_MS;
         let unknown: string;
         try {
-          const answer = opts.deadlineMs === undefined ? await work : await within(work, opts.deadlineMs);
+          const answer = await within(work, deadlineMs);
           if (answer !== TIMED_OUT) {
             this.#pending.delete(dispatchId);
             return { ...base, status: "started", tabId: answer.tabId };
           }
-          unknown = `no answer within ${Math.round(opts.deadlineMs! / 1000)} s; the session may still start`;
+          unknown = `no answer within ${Math.round(deadlineMs / 1000)} s; the session may still start`;
         } catch (err) {
           const message = messageOf(err);
           if (local || !message.includes("remote connection lost")) return { ...base, status: "failed", message };

@@ -1326,6 +1326,70 @@ describe("newSession bounds a stalled spawn and lands late tabs once (issue #789
   });
 });
 
+describe("newWorktreeSession bounds a stalled spawn and lands late tabs once (issue #907)", () => {
+  /** A registered project with a preseeded advisor default (no config read).
+   *  Seeded like the #225 block, plus a listBranches reset first so this
+   *  block stays order-independent (the #789 seed comment explains the
+   *  cross-block leak). No baseBranch: no branch refresh may fire. */
+  const seed = (): void => {
+    h.mockBackend.listBranches.mockReset();
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+  };
+  const SPEC = { mint: { branch: "omp-ui/deadbeef", baseRef: "main", baseBranch: null } };
+
+  it("reports a spawn that never settles within 30 s and resolves null", async () => {
+    vi.useFakeTimers();
+    try {
+      seed();
+      h.mockBackend.spawnSession.mockReturnValue(new Promise(() => {}));
+      const landing = h.useStore.getState().newWorktreeSession("/p", SPEC);
+      await vi.advanceTimersByTimeAsync(30_000);
+      // Unlike a fast rejection, the settle timeout is a notice + null: the
+      // dialog stays usable and the caller learns the launch never landed.
+      expect(await landing).toBeNull();
+      expect(h.errorMessages()).toEqual([en["session.error.spawnTimedOut"]]);
+      expect(h.useStore.getState().tabs).toEqual([]);
+      expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lands a tab that settles after the timeout exactly once", async () => {
+    vi.useFakeTimers();
+    try {
+      seed();
+      const settle = h.deferred<{ tabId: string }>();
+      h.mockBackend.spawnSession.mockReturnValue(settle.promise);
+      const landing = h.useStore.getState().newWorktreeSession("/p", SPEC);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await landing).toBeNull();
+      expect(h.errorMessages()).toEqual([en["session.error.spawnTimedOut"]]);
+      settle.resolve({ tabId: "wt-late" });
+      await h.flushMicrotasks();
+      const st = h.useStore.getState();
+      expect(st.tabs.map((tab) => tab.tabId)).toEqual(["wt-late"]);
+      expect(st.activeTabId).toBe("wt-late");
+      expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the throw contract for a fast rejection", async () => {
+    seed();
+    h.mockBackend.spawnSession.mockRejectedValueOnce(new Error("branch already exists"));
+
+    await expect(h.useStore.getState().newWorktreeSession("/p", SPEC)).rejects.toThrow("branch already exists");
+    expect(h.errorMessages()).toEqual([]);
+    expect(h.useStore.getState().tabs).toEqual([]);
+  });
+});
+
 describe("launchSession (issue #900)", () => {
   const FRESH = "fresh";
   /** A registered project, no mounted tabs, and a spawn that always lands on FRESH. */
