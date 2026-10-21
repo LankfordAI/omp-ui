@@ -57,6 +57,8 @@ interface SettingsHandlerDependencies {
   broadcast: () => Promise<void>;
   supportedCompactionMethods: () => Promise<string[]>;
   onAppUpdateTrainChanged: () => Promise<void>;
+  /** Exec switch or ceiling moved: revoke detached execs that lost Full control (issue #905). */
+  onFleetLadderChanged: () => void;
 }
 
 export function registerSettingsHandlers(
@@ -119,9 +121,19 @@ export function registerSettingsHandlers(
       return commit("fleetPlacement", pref === "normal" ? rest : { ...rest, [machineKey]: pref });
     },
     [CH.setFleetAgentDispatch]: (value: boolean) => commit("fleetAgentDispatch", value),
-    // The ladder is re-read per request, so flipping exec off lands instantly.
-    [CH.setFleetExecEnabled]: (value: boolean) => commit("fleetExecEnabled", value),
-    [CH.setFleetExecCeiling]: (value: FleetRung) => commit("fleetExecCeiling", value),
+    // The ladder is re-read per request, so flipping exec off lands instantly;
+    // running detached execs are re-checked before the broadcast, so a slow or
+    // failing state build cannot leave a revoked one running (issue #905).
+    [CH.setFleetExecEnabled]: async (value: boolean) => {
+      deps.registry.setSetting("fleetExecEnabled", value);
+      deps.onFleetLadderChanged();
+      await deps.broadcast();
+    },
+    [CH.setFleetExecCeiling]: async (value: FleetRung) => {
+      deps.registry.setSetting("fleetExecCeiling", value);
+      deps.onFleetLadderChanged();
+      await deps.broadcast();
+    },
     // The parser is the sanitizer: non-absolute or control-char rows drop.
     [CH.setFleetProjectRoots]: (roots: string[]) => commit("fleetProjectRoots", parseFleetProjectRoots(roots)),
   };

@@ -112,4 +112,11 @@ describe("fleet channels (issue #899)", () => {
       expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(false);
     }
   });
+
+  it("proxies detached exec and the member's Provider key leg, never the local rollout (issue #905)", () => {
+    for (const channel of ["fleet:execDetach", "fleet:execPoll", "fleet:providerKeys"]) {
+      expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(true);
+    }
+    expect(REMOTE_PROXY_CHANNELS.has("fleet:rolloutProviderKeys")).toBe(false);
+  });
 });

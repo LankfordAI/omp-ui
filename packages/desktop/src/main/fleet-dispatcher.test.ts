@@ -42,6 +42,8 @@ function report(projects: FleetHostProject[], patch: Partial<FleetHostReport> = 
     projects,
     user: "austin",
     projectRoots: [],
+    os: { name: "Fedora Linux 44 (Workstation Edition)", version: "44" },
+    packageManagers: [{ name: "dnf", path: "/usr/bin/dnf", onPath: true }],
     ...patch,
   };
 }
@@ -102,6 +104,7 @@ function harness(opts: {
       h.broadcasts += 1;
     },
     probeSsh: async () => true,
+    providerKeyValue: () => null,
     now: () => NOW,
     uuid: () => `id-${++ids}`,
   };
@@ -309,7 +312,11 @@ describe("FleetDispatcher", () => {
 
 describe("FleetDispatcher fleet ladder (issue #901)", () => {
   /** One joined member r1 ("box-r1"), answering whatever `answer` returns per channel. */
-  function ladder(answer: (channel: string, args: unknown[]) => Promise<unknown>, remotes = [remote("r1")]) {
+  function ladder(
+    answer: (channel: string, args: unknown[]) => Promise<unknown>,
+    remotes = [remote("r1")],
+    providerKeyValue: (envName: string) => string | null = () => null,
+  ) {
     const request = vi.fn(async (_id: string, channel: string, args: unknown[]) => {
       if (channel === CH.fleetHostReport) return report([project({ path: "/srv/app" })]);
       return answer(channel, args);
@@ -326,6 +333,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
       localSummary: async () => "",
       broadcast: async () => {},
       probeSsh: async () => true,
+      providerKeyValue,
       now: () => NOW,
       uuid: () => "u",
     });
@@ -352,7 +360,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
   it("refuses exec on this computer without contacting anyone", async () => {
     const h = ladder(async () => ({ status: "accepted" }));
     for (const machine of ["this computer", "This Computer"]) {
-      expect(await h.dispatcher.exec("tab-1", { machine, command: "uname -a", cwd: null, timeoutMs: null })).toEqual({
+      expect(await h.dispatcher.exec("tab-1", { machine, command: "uname -a", cwd: null, timeoutMs: null, detach: false })).toEqual({
         status: "refused",
         reason: "exec runs only on fleet members; use your own tools on this computer",
       });
@@ -363,7 +371,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
   it("sends exec to the member by nickname with the agent's claimed identity and returns its outcome", async () => {
     const outcome = { status: "accepted", exitCode: 0, stdout: "Linux\n", stderr: "", truncated: false, timedOut: false };
     const h = ladder(async (channel) => (channel === CH.fleetExec ? outcome : null));
-    expect(await h.dispatcher.exec("tab-1", { machine: "BOX-R1", command: "uname", cwd: "/srv", timeoutMs: 500 })).toEqual(outcome);
+    expect(await h.dispatcher.exec("tab-1", { machine: "BOX-R1", command: "uname", cwd: "/srv", timeoutMs: 500, detach: false })).toEqual(outcome);
     expect(h.sent(CH.fleetExec)).toEqual([
       {
         id: "r1",
@@ -381,9 +389,9 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
 
   it("refuses an unknown machine and passes the member's refusal through as an outcome", async () => {
     const h = ladder(async (channel) => (channel === CH.fleetExec ? { status: "refused", reason: "fleet exec is off on this machine" } : null));
-    const unknown = await h.dispatcher.exec("tab-1", { machine: "nowhere", command: "true", cwd: null, timeoutMs: null });
+    const unknown = await h.dispatcher.exec("tab-1", { machine: "nowhere", command: "true", cwd: null, timeoutMs: null, detach: false });
     expect(unknown).toEqual({ status: "refused", reason: expect.stringContaining("box-r1") });
-    expect(await h.dispatcher.exec("tab-1", { machine: "box-r1", command: "true", cwd: null, timeoutMs: null })).toEqual({
+    expect(await h.dispatcher.exec("tab-1", { machine: "box-r1", command: "true", cwd: null, timeoutMs: null, detach: false })).toEqual({
       status: "refused",
       reason: "fleet exec is off on this machine",
     });
@@ -393,7 +401,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
     vi.useFakeTimers();
     try {
       const h = ladder((channel) => (channel === CH.fleetExec ? new Promise(() => {}) : Promise.resolve(null)));
-      const pending = h.dispatcher.exec("tab-1", { machine: "box-r1", command: "sleep 99", cwd: null, timeoutMs: null });
+      const pending = h.dispatcher.exec("tab-1", { machine: "box-r1", command: "sleep 99", cwd: null, timeoutMs: null, detach: false });
       await vi.advanceTimersByTimeAsync(45_000);
       expect(await pending).toEqual({ status: "refused", reason: "no answer from box-r1 within 45 s" });
     } finally {
@@ -427,11 +435,147 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
     expect(await h.dispatcher.requestGrant("r1", "manage", "s3cret")).toEqual({ ok: false, reason: expect.stringContaining("not joined") });
     expect(h.sent(CH.fleetGrantRaise)).toEqual([]);
   });
+
+  const execArgs = { machine: "box-r1", command: "dnf -y install ripgrep", cwd: null, timeoutMs: null, detach: true };
+
+  it("starts a detached exec on fleet:execDetach with the agent's identity and refuses this computer", async () => {
+    const h = ladder(async (channel) => (channel === CH.fleetExecDetach ? { status: "accepted", execId: "e-1" } : null));
+    expect(await h.dispatcher.execDetach("tab-1", { ...execArgs, machine: "this computer" })).toEqual({
+      status: "refused",
+      reason: "exec runs only on fleet members; use your own tools on this computer",
+    });
+    expect(await h.dispatcher.execDetach("tab-1", execArgs)).toEqual({ status: "accepted", execId: "e-1" });
+    expect(h.sent(CH.fleetExecDetach)).toEqual([
+      {
+        id: "r1",
+        args: [
+          {
+            command: "dnf -y install ripgrep",
+            cwd: null,
+            timeoutMs: null,
+            requester: { instanceId: "dispatcher", label: "desk", kind: "agent", sourceTabId: "tab-1" },
+          },
+        ],
+      },
+    ]);
+    expect(h.sent(CH.fleetExec)).toEqual([]);
+  });
+
+  it("polls on fleet:execPoll with the 25 s default wait and refuses this computer", async () => {
+    const answer = { status: "accepted", execId: "e-1", state: "running", exitCode: null, stdout: "", stderr: "", truncated: false, elapsedMs: 1_000 };
+    const h = ladder(async (channel) => (channel === CH.fleetExecPoll ? answer : null));
+    expect(await h.dispatcher.execPoll("tab-1", { machine: "this computer", execId: "e-1", cancel: false, waitMs: null })).toMatchObject({
+      status: "refused",
+    });
+    expect(await h.dispatcher.execPoll("tab-1", { machine: "box-r1", execId: "e-1", cancel: true, waitMs: null })).toEqual(answer);
+    expect(h.sent(CH.fleetExecPoll)).toEqual([
+      {
+        id: "r1",
+        args: [
+          {
+            execId: "e-1",
+            waitMs: 25_000,
+            cancel: true,
+            requester: { instanceId: "dispatcher", label: "desk", kind: "agent", sourceTabId: "tab-1" },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("maps an older member's unknown channel on detach and poll to update text", async () => {
+    const h = ladder(async (channel) => {
+      throw new Error(`unknown channel ${channel}`);
+    });
+    const update = { status: "refused", reason: "box-r1 runs an omp-ui without detached exec; update omp-ui there" };
+    expect(await h.dispatcher.execDetach("tab-1", execArgs)).toEqual(update);
+    expect(await h.dispatcher.execPoll("tab-1", { machine: "box-r1", execId: "e-1", cancel: false, waitMs: 0 })).toEqual(update);
+  });
+
+  it("refuses a Provider key rollout to this computer, an unknown member, and an unjoined one without sending", async () => {
+    const h = ladder(async () => ({ status: "accepted", installed: [], failed: [] }), [remote("r1"), remote("r2", { status: "unreachable" })], () => "sk-x");
+    expect(await h.dispatcher.rolloutProviderKeys(LOCAL_MACHINE_KEY, ["OPENAI_API_KEY"])).toEqual({
+      status: "refused",
+      reason: "Provider keys already live on this computer",
+    });
+    expect(await h.dispatcher.rolloutProviderKeys("ghost", ["OPENAI_API_KEY"])).toEqual({ status: "refused", reason: "no joined fleet instance has that id" });
+    expect(await h.dispatcher.rolloutProviderKeys("r2", ["OPENAI_API_KEY"])).toEqual({ status: "refused", reason: "box-r2 is not joined" });
+    expect(h.sent(CH.fleetProviderKeys)).toEqual([]);
+  });
+
+  it("sends only resolved key values once each and reports unset or unknown keys as local failures", async () => {
+    const values: Record<string, string> = { OPENAI_API_KEY: "sk-openai-secret", ANTHROPIC_API_KEY: "sk-ant-secret" };
+    const h = ladder(
+      async (channel) => (channel === CH.fleetProviderKeys ? { status: "accepted", installed: ["OPENAI_API_KEY"], failed: [{ envName: "ANTHROPIC_API_KEY", reason: "no keyring" }] } : null),
+      [remote("r1")],
+      (envName) => {
+        if (envName === "NOT_A_PROVIDER") throw new Error(`unknown provider variable: ${envName}`);
+        return values[envName] ?? null;
+      },
+    );
+    const outcome = await h.dispatcher.rolloutProviderKeys("r1", ["OPENAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NOT_A_PROVIDER"]);
+    expect(outcome).toEqual({
+      status: "accepted",
+      installed: ["OPENAI_API_KEY"],
+      failed: [
+        { envName: "GEMINI_API_KEY", reason: "not set on this computer" },
+        { envName: "NOT_A_PROVIDER", reason: "unknown provider variable: NOT_A_PROVIDER" },
+        { envName: "ANTHROPIC_API_KEY", reason: "no keyring" },
+      ],
+    });
+    expect(h.sent(CH.fleetProviderKeys)).toEqual([
+      {
+        id: "r1",
+        args: [
+          {
+            requester: { instanceId: "dispatcher", label: "desk", kind: "user", sourceTabId: null },
+            keys: [
+              { envName: "OPENAI_API_KEY", value: "sk-openai-secret" },
+              { envName: "ANTHROPIC_API_KEY", value: "sk-ant-secret" },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("refuses a rollout when no chosen key is set here, and maps an older member's unknown channel to update text", async () => {
+    const unset = ladder(async () => ({ status: "accepted", installed: [], failed: [] }));
+    expect(await unset.dispatcher.rolloutProviderKeys("r1", ["OPENAI_API_KEY"])).toEqual({
+      status: "refused",
+      reason: "none of the chosen keys is set on this computer",
+    });
+    expect(unset.sent(CH.fleetProviderKeys)).toEqual([]);
+
+    const older = ladder(
+      async (channel) => {
+        if (channel === CH.fleetProviderKeys) throw new Error("unknown channel fleet:providerKeys");
+        return null;
+      },
+      [remote("r1")],
+      () => "sk-openai-secret",
+    );
+    const outcome = await older.dispatcher.rolloutProviderKeys("r1", ["OPENAI_API_KEY"]);
+    expect(outcome).toEqual({ status: "refused", reason: "box-r1 runs an omp-ui without Provider key rollout; update omp-ui there" });
+    expect(JSON.stringify(outcome)).not.toContain("sk-openai-secret");
+  });
+
+  it("turns a silent member into a rollout refusal after the 45 s bound", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = ladder((channel) => (channel === CH.fleetProviderKeys ? new Promise(() => {}) : Promise.resolve(null)), [remote("r1")], () => "sk-x");
+      const pending = h.dispatcher.rolloutProviderKeys("r1", ["OPENAI_API_KEY"]);
+      await vi.advanceTimersByTimeAsync(45_000);
+      expect(await pending).toEqual({ status: "refused", reason: "no answer from box-r1 within 45 s" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("FleetDispatcher member address (issue #904)", () => {
   it("probes each joined member's join host once per window and never this computer or an unjoined member", async () => {
-    const { user: _user, projectRoots: _roots, ...older } = report([]);
+    const { user: _user, projectRoots: _roots, os: _os, packageManagers: _managers, ...older } = report([]);
     const probeSsh = vi.fn<(host: string) => Promise<boolean>>(async () => false);
     const dispatcher = new FleetDispatcher({
       localReport: async () => report([project()]),
@@ -445,6 +589,7 @@ describe("FleetDispatcher member address (issue #904)", () => {
       localSummary: async () => "",
       broadcast: async () => {},
       probeSsh,
+      providerKeyValue: () => null,
       now: () => NOW,
       uuid: () => "u",
     });
@@ -453,7 +598,7 @@ describe("FleetDispatcher member address (issue #904)", () => {
     expect(probeSsh.mock.calls).toEqual([["fd00::7"]]);
     const r1 = machines.find((m) => m.key === "r1")!;
     expect(r1).toMatchObject({ status: "ready", address: "fd00::7", sshReachable: false });
-    expect(r1.report).toMatchObject({ user: null, projectRoots: null });
+    expect(r1.report).toMatchObject({ user: null, projectRoots: null, os: null, packageManagers: null });
     expect(machines.find((m) => m.key === "r2")).toMatchObject({ address: "r2", sshReachable: null });
     expect(machines.find((m) => m.key === LOCAL_MACHINE_KEY)).toMatchObject({ address: null, sshReachable: null });
   });

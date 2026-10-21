@@ -36,9 +36,12 @@ import {
   VAULT_WRITE_TOOLS,
   type FleetDispatchRequest,
   type FleetDispatchResult,
+  type FleetDetachedExecStartOutcome,
   type FleetExecOutcome,
+  type FleetExecPollOutcome,
   type FleetProjectManageOutcome,
   type FleetToolExecArgs,
+  type FleetToolExecPollArgs,
   type FleetToolProjectArgs,
   type FleetMachine,
   type ObsidianListEntry,
@@ -83,7 +86,7 @@ export interface VaultBridgeDeps {
   mainLog(line: string): void;
 }
 
-/** The tab-side fleet answerers (issues #899 + #901, ADR-0061/0062); SessionManager maps them onto the FleetDispatcher. */
+/** The tab-side fleet answerers (issues #899, #901, #905; ADR-0061/0062/0065); SessionManager maps them onto the FleetDispatcher. */
 export interface FleetBridgeDeps {
   machines(): Promise<FleetMachine[]>;
   /** Dispatches on behalf of the agent in `tabId`; the caller bounds it inside the answer watchdog. */
@@ -93,6 +96,10 @@ export interface FleetBridgeDeps {
   exec(tabId: string, args: FleetToolExecArgs): Promise<FleetExecOutcome>;
   /** Rung-3 clone/register on a member (issue #901). */
   projectManage(tabId: string, args: FleetToolProjectArgs): Promise<FleetProjectManageOutcome>;
+  /** Starts a detached exec on a member (issue #905); refusals ride the outcome. */
+  execDetach(tabId: string, args: FleetToolExecArgs): Promise<FleetDetachedExecStartOutcome>;
+  /** Polls, or cancels, one detached exec this app started (issue #905). */
+  execPoll(tabId: string, args: FleetToolExecPollArgs): Promise<FleetExecPollOutcome>;
 }
 
 export interface HostBridgeDeps {
@@ -380,6 +387,54 @@ export class HostBridge {
       if (parsed.tool === "status") {
         const text = await deps.status(parsed.selector);
         reply(hostToolTextResult(call.id, text));
+        return;
+      }
+      if (parsed.tool === "exec" && parsed.args.detach) {
+        const outcome = await deps.execDetach(tabId, parsed.args);
+        const machine = parsed.args.machine;
+        // Never the command: it rides the owner's audit log.
+        this.deps.log(
+          `omp-ui_fleet_exec (detached) from ${tabId}: ${machine} ${outcome.status === "accepted" ? `execId=${outcome.execId}` : `refused (${outcome.reason})`}`,
+        );
+        if (outcome.status === "refused") {
+          reply(hostToolTextResult(call.id, `refused — ${outcome.reason}`));
+          return;
+        }
+        reply(
+          hostToolTextResult(
+            call.id,
+            `detached exec started on ${machine}: execId ${outcome.execId}. Poll omp-ui_fleet_exec_poll with machine "${machine}" and execId "${outcome.execId}"; each poll waits up to 25 s. Do not start the command again.`,
+          ),
+        );
+        return;
+      }
+      if (parsed.tool === "execPoll") {
+        const outcome = await deps.execPoll(tabId, parsed.args);
+        this.deps.log(
+          `omp-ui_fleet_exec_poll from ${tabId}: ${parsed.args.machine} ${parsed.args.execId} ${outcome.status === "accepted" ? outcome.state : `refused (${outcome.reason})`}`,
+        );
+        if (outcome.status === "refused") {
+          reply(hostToolTextResult(call.id, `refused — ${outcome.reason}`));
+          return;
+        }
+        const s = Math.round(outcome.elapsedMs / 1000);
+        const head =
+          outcome.state === "running"
+            ? `running (${s} s)`
+            : outcome.state === "exited"
+              ? `exit ${outcome.exitCode ?? "null"} after ${s} s`
+              : outcome.state === "timed-out"
+                ? `timed out after ${s} s`
+                : outcome.state === "cancelled"
+                  ? `cancelled after ${s} s`
+                  : `revoked by the member's owner after ${s} s`;
+        const body: string[] = [head];
+        if (outcome.stdout !== "") body.push("", outcome.stdout);
+        if (outcome.stderr !== "") body.push("", `stderr:\n${outcome.stderr}`);
+        if (outcome.truncated) {
+          body.push("", outcome.state === "running" ? "[earlier output not shown]" : "[truncated: earlier output dropped]");
+        }
+        reply(hostToolTextResult(call.id, body.join("\n")));
         return;
       }
       if (parsed.tool === "exec") {

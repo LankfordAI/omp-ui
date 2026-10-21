@@ -85,10 +85,13 @@ import {
   type OwnedSessionRecord,
   type FleetDispatchRequest,
   type FleetDispatchResult,
+  type FleetDetachedExecStartOutcome,
   type FleetExecOutcome,
+  type FleetExecPollOutcome,
   type FleetMachine,
   type FleetProjectManageOutcome,
   type FleetToolExecArgs,
+  type FleetToolExecPollArgs,
   type FleetToolProjectArgs,
   type AskSource,
   type ObsidianListEntry,
@@ -194,6 +197,8 @@ export interface FleetDispatcherLike {
   statusText(sel: { batchId: string } | { dispatchId: string }): Promise<string>;
   exec(tabId: string, args: FleetToolExecArgs): Promise<FleetExecOutcome>;
   projectManage(tabId: string, args: FleetToolProjectArgs): Promise<FleetProjectManageOutcome>;
+  execDetach(tabId: string, args: FleetToolExecArgs): Promise<FleetDetachedExecStartOutcome>;
+  execPoll(tabId: string, args: FleetToolExecPollArgs): Promise<FleetExecPollOutcome>;
 }
 
 /** The agent dispatch deadline: the answer must land inside HOST_ANSWER_WATCHDOG_MS (60 s). */
@@ -467,6 +472,9 @@ export class SessionManager {
               // #901: the dispatcher bounds exec/project inside the watchdog itself.
               exec: (tabId, args) => fleet().exec(tabId, args),
               projectManage: (tabId, args) => fleet().projectManage(tabId, args),
+              // #905: detached exec start and poll, bounded the same way.
+              execDetach: (tabId, args) => fleet().execDetach(tabId, args),
+              execPoll: (tabId, args) => fleet().execPoll(tabId, args),
             },
           }),
     });

@@ -7,7 +7,7 @@
 // result MUST carry `result.content` as an array or omp drops it as
 // malformed, and a URI scheme must match `^[a-z][a-z0-9+.-]*$`.
 
-import { FLEET_BATCH_MAX, FLEET_COMMAND_MAX, FLEET_TOOLS } from "./fleet";
+import { FLEET_BATCH_MAX, FLEET_COMMAND_MAX, FLEET_DETACHED_EXEC_TIMEOUT_MS, FLEET_EXEC_POLL_WAIT_MAX_MS, FLEET_TOOLS } from "./fleet";
 
 /** The one scheme omp-ui registers. Not in omp's reserved built-in set. */
 export const HOST_URI_SCHEME = "omp-ui";
@@ -220,13 +220,13 @@ function vaultTools(): RpcHostToolDefinition[] {
  * host's fleet; omp's host-tool approval tier governs each call.
  */
 function fleetTools(): RpcHostToolDefinition[] {
-  const [machines, dispatch, status, exec, project] = FLEET_TOOLS;
+  const [machines, dispatch, status, exec, project, execPoll] = FLEET_TOOLS;
   return [
     {
       name: machines,
       loadMode: "essential",
       description:
-        "List the omp-ui fleet: this computer plus every joined omp-ui instance, with status, CPU and free memory, live sessions and running turns, placement preference, and your access rung on each member. Each member also gets an ssh line: the user@address to reach it with your own ssh (the address is the host this app joined it at; omp-ui holds no SSH keys), whether its port 22 answered, its platform, and the project roots it accepts checkouts under. Then each ready machine's projects and repository keys. Use the names and keys with omp-ui_fleet_dispatch.",
+        "List the omp-ui fleet: this computer plus every joined omp-ui instance, with status, CPU and free memory, live sessions and running turns, placement preference, and your access rung on each member. Each member also gets an ssh line (the user@address to reach it with your own ssh, where the address is the host this app joined it at and omp-ui holds no SSH keys; whether its port 22 answered; its platform; the project roots it accepts checkouts under) and a system line: its OS and the package managers found on it, with a manager not on the member's PATH listed with its absolute path. Then each ready machine's projects and repository keys. Use the names and keys with omp-ui_fleet_dispatch.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
     {
@@ -282,7 +282,7 @@ function fleetTools(): RpcHostToolDefinition[] {
       name: exec,
       loadMode: "essential",
       description:
-        "Run one bounded command on a fleet member's shell (issue #901). The owning machine decides: each member grants you an access rung, and anything above it comes back refused with the reason — omp-ui_fleet_machines shows your rung per member. Output is byte-capped per stream and the run is time-boxed; this computer is refused (use your own tools there). Raise access through the member's Settings → Remote instances → Fleet access, never here.",
+        "Run one command on a fleet member's shell (issues #901, #905). The owning machine decides: each member grants you an access rung, and anything above it comes back refused with the reason; omp-ui_fleet_machines shows your rung, OS, and package managers per member. By default the call waits up to 30 s and answers with the exit code and output. Set detach true for anything longer (package installs, toolchain or virtualenv setup): the member starts it detached under a 30 min cap and answers with an execId to poll with omp-ui_fleet_exec_poll. There is no stdin, so nothing may prompt. Use non-interactive flags (dnf -y, apt-get -y, zypper -n, pacman --noconfirm, brew with NONINTERACTIVE=1, winget --accept-source-agreements --accept-package-agreements --disable-interactivity, choco -y) and sudo -n where root is needed. sudo -n fails at once unless the member allows passwordless sudo; omp-ui never handles passwords. Linux and macOS members run /bin/sh -c; Windows members run PowerShell. Output is byte-capped per stream; this computer is refused (use your own tools there). Raise access through the member's Settings → Remote instances → Fleet access, never here.",
       parameters: {
         type: "object",
         properties: {
@@ -295,8 +295,12 @@ function fleetTools(): RpcHostToolDefinition[] {
           timeoutMs: {
             type: "integer",
             minimum: 100,
-            maximum: 30_000,
-            description: "Shorten the member's 30 s cap; cannot extend it.",
+            maximum: FLEET_DETACHED_EXEC_TIMEOUT_MS,
+            description: "Shorten the member's cap (30 s, or 30 min with detach); cannot extend it.",
+          },
+          detach: {
+            type: "boolean",
+            description: "Start a detached exec (30 min cap) and answer with an execId instead of waiting.",
           },
         },
         required: ["machine", "command"],
@@ -317,6 +321,28 @@ function fleetTools(): RpcHostToolDefinition[] {
           path: { type: "string", description: "register only: absolute checkout path under a declared root." },
         },
         required: ["machine", "verb"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: execPoll,
+      loadMode: "essential",
+      description:
+        "Check on, or cancel, one detached exec you started with omp-ui_fleet_exec detach true (issue #905). Waits up to waitMs for it to finish, then answers with its state (running, exited, timed out, cancelled, revoked), exit code, and output: the last 4 KiB per stream while running, up to 64 KiB once finished. While it runs, poll again; never start the same command twice. revoked means the member's owner withdrew your access and the process was killed.",
+      parameters: {
+        type: "object",
+        properties: {
+          machine: { type: "string" },
+          execId: { type: "string" },
+          cancel: { type: "boolean", description: "Kill the process and its whole tree." },
+          waitMs: {
+            type: "integer",
+            minimum: 0,
+            maximum: FLEET_EXEC_POLL_WAIT_MAX_MS,
+            description: "How long to wait for it to finish; default 25000.",
+          },
+        },
+        required: ["machine", "execId"],
         additionalProperties: false,
       },
     },

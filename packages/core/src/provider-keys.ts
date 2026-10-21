@@ -341,6 +341,16 @@ export class ProviderKeys {
     else env[envName] = fallback;
   }
 
+  /**
+   * The value omp-ui injects for envName (stored, then environment, then login
+   * shell), or null. Never a project dotenv value. Provider key rollout
+   * (issue #905) reads it in main; it never reaches a renderer.
+   */
+  rolloutValue(envName: string): string | null {
+    if (!knownEnvName(envName)) throw new Error(`unknown provider variable: ${envName}`);
+    return this.stored.get(envName) ?? this.baseEnv[envName] ?? this.shellKeys[envName] ?? null;
+  }
+
   /** Where a variable's effective value comes from, in injection order. */
   private sourceOf(envName: string, dotenv: Record<string, string>): ProviderKeySource {
     if (this.stored.has(envName)) return "stored";

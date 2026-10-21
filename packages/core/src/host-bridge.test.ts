@@ -96,7 +96,15 @@ describe("host registration definitions", () => {
     [{ vault: false, fleet: false }, ["omp-ui_notify"]],
     [
       { vault: false, fleet: true },
-      ["omp-ui_notify", "omp-ui_fleet_machines", "omp-ui_fleet_dispatch", "omp-ui_fleet_status", "omp-ui_fleet_exec", "omp-ui_fleet_project"],
+      [
+        "omp-ui_notify",
+        "omp-ui_fleet_machines",
+        "omp-ui_fleet_dispatch",
+        "omp-ui_fleet_status",
+        "omp-ui_fleet_exec",
+        "omp-ui_fleet_project",
+        "omp-ui_fleet_exec_poll",
+      ],
     ],
     [
       { vault: true, fleet: false },
@@ -127,6 +135,7 @@ describe("host registration definitions", () => {
         "omp-ui_fleet_status",
         "omp-ui_fleet_exec",
         "omp-ui_fleet_project",
+        "omp-ui_fleet_exec_poll",
       ],
     ],
   ])("registers %j as exactly these tools in order", (opts, names) => {
@@ -140,7 +149,25 @@ describe("host registration definitions", () => {
       expect(tool.parameters.type).toBe("object");
       expect(tool.parameters.additionalProperties).toBe(false);
     }
-    expect(fleet.map((tool) => tool.parameters.required ?? [])).toEqual([[], ["prompt", "project"], [], ["machine", "command"], ["machine", "verb"]]);
+    expect(fleet).toHaveLength(6);
+    expect(fleet.map((tool) => tool.parameters.required ?? [])).toEqual([
+      [],
+      ["prompt", "project"],
+      [],
+      ["machine", "command"],
+      ["machine", "verb"],
+      ["machine", "execId"],
+    ]);
+    const exec = fleet[3]!.parameters.properties as Record<string, Record<string, unknown>>;
+    expect(exec.detach).toMatchObject({ type: "boolean" });
+    expect(exec.timeoutMs).toMatchObject({ type: "integer", minimum: 100, maximum: 30 * 60_000 });
+    const poll = fleet[5]!.parameters.properties as Record<string, Record<string, unknown>>;
+    expect(poll).toMatchObject({
+      machine: { type: "string" },
+      execId: { type: "string" },
+      cancel: { type: "boolean" },
+      waitMs: { type: "integer", minimum: 0, maximum: 25_000 },
+    });
   });
 
   it("advertises each tool's exact argument types, required fields and defaults", () => {

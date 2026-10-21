@@ -1,10 +1,13 @@
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { SessionSummary } from "@omp-ui/core/types";
 import {
+  fleetOsLabel,
+  LOCAL_MACHINE_KEY,
   PLACEMENT_PREFERENCES,
   type FleetAuditEntry,
   type FleetMachine,
   type FleetMachineStatus,
+  type FleetPackageManager,
   type FleetPendingDispatch,
   type FleetRung,
   type PlacementPreference,
@@ -14,6 +17,7 @@ import { startVisibleInterval } from "../../lib/visible-interval";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../../store";
 import { SESSION_FACE } from "../SessionRow";
 import { Button, ChoiceCapsule, Chip, Dot, IconButton, IconClose, IconRefresh, Label, type Tone } from "../ui";
+import { ProviderKeyRolloutDialog } from "./ProviderKeyRolloutDialog";
 
 /**
  * The Fleet view (CONTEXT.md "Fleet", issue #899): this app and every joined
@@ -51,6 +55,8 @@ const AUDIT_ACTION_LABEL: Record<FleetAuditEntry["action"], MessageKey> = {
   manage: "fleet.audit.manage",
   "grant-raise": "fleet.audit.grantRaise",
   "grant-set": "fleet.audit.grantSet",
+  "exec-detached": "fleet.audit.execDetached",
+  keys: "fleet.audit.keys",
 };
 
 /** One dispatched session wherever it lives: this app's registry or a joined instance's. */
@@ -73,7 +79,19 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 /* ------------------------------------------------------------- machines */
 
-function MachineRow({ machine }: { machine: FleetMachine }) {
+/** The OS chip's hover text (#905): each manager by name, off-PATH ones with their absolute path. */
+function packageManagersTitle(
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+  managers: FleetPackageManager[] | null,
+): string {
+  if (managers === null) return t("fleet.machine.packageManagersUnknown");
+  if (managers.length === 0) return t("fleet.machine.packageManagersNone");
+  return t("fleet.machine.packageManagers", {
+    list: managers.map((m) => (m.onPath ? m.name : `${m.name} (${m.path})`)).join(", "),
+  });
+}
+
+function MachineRow({ machine, onRollout }: { machine: FleetMachine; onRollout: (machine: FleetMachine) => void }) {
   const t = useT();
   const setFleetPlacement = useStore((s) => s.setFleetPlacement);
   const name = machine.nickname ?? t("fleet.machine.thisComputer");
@@ -111,6 +129,14 @@ function MachineRow({ machine }: { machine: FleetMachine }) {
             </Chip>
           </span>
         )}
+        {/* #905: the member's OS; hover names the package managers found on it. */}
+        {report !== null && report.os !== null && (
+          <span data-machine-os className="min-w-0">
+            <Chip truncate title={packageManagersTitle(t, report.packageManagers)}>
+              {fleetOsLabel(report.os)}
+            </Chip>
+          </span>
+        )}
       </span>
       <span className="min-w-0 flex-1 truncate text-ink-mid">
         {machine.status === "unsupported" ? (
@@ -134,6 +160,18 @@ function MachineRow({ machine }: { machine: FleetMachine }) {
           </>
         )}
       </span>
+      {machine.key !== LOCAL_MACHINE_KEY && machine.status === "ready" && (
+        // #905: Provider key rollout; the member refuses anything below Full control.
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={machine.grantRung !== "full"}
+          title={machine.grantRung !== "full" ? t("fleet.machine.rolloutKeysNeedsFull") : undefined}
+          onClick={() => onRollout(machine)}
+        >
+          {t("fleet.machine.rolloutKeys")}
+        </Button>
+      )}
       <ChoiceCapsule
         label={t("fleet.machine.preference", { machine: name })}
         value={machine.preference}
@@ -148,6 +186,7 @@ function MachineRow({ machine }: { machine: FleetMachine }) {
 function MachinesSection() {
   const t = useT();
   const view = useStore((s) => s.fleet);
+  const [rollout, setRollout] = useState<FleetMachine | null>(null);
   if (view === null) return null;
   return (
     <Section title={t("fleet.section.machines")}>
@@ -159,10 +198,11 @@ function MachinesSection() {
       ) : (
         <ul className="divide-y divide-line-soft">
           {view.machines.map((machine) => (
-            <MachineRow key={machine.key} machine={machine} />
+            <MachineRow key={machine.key} machine={machine} onRollout={setRollout} />
           ))}
         </ul>
       )}
+      {rollout !== null && <ProviderKeyRolloutDialog machine={rollout} onClose={() => setRollout(null)} />}
     </Section>
   );
 }

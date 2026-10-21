@@ -2,17 +2,25 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { FleetPendingDispatch, FleetProvenance } from "@omp-ui/core/fleet";
-import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
+import type { FleetHostReport, FleetMachine, FleetPendingDispatch, FleetProvenance } from "@omp-ui/core/fleet";
+import type { ProjectGroup, ProviderKeysSnapshot, ProviderKeyStatus, SessionSummary } from "@omp-ui/core/types";
 import { backendState } from "../../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 const backendMock = {
-  fleetMachines: vi.fn(async () => []),
+  fleetMachines: vi.fn(async (): Promise<FleetMachine[]> => []),
   fleetAudit: vi.fn(async () => []),
   fleetDispatch: vi.fn(),
   fleetDismissPending: vi.fn(async () => {}),
+  readProviderKeys: vi.fn(
+    async (): Promise<ProviderKeysSnapshot> => ({
+      providers: [],
+      encryptionAvailable: true,
+      backend: "test",
+      configFileProviders: [],
+    }),
+  ),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports: store.ts → ./backend reads window.ompBackend at module load.
@@ -107,6 +115,106 @@ function pending(dispatchId: string, title: string): FleetPendingDispatch {
   };
 }
 
+function report(patch: Partial<FleetHostReport> = {}): FleetHostReport {
+  return {
+    instanceId: "inst",
+    label: "host",
+    version: "1.0.0",
+    platform: "linux",
+    arch: "x64",
+    cpuCount: 8,
+    cpuUtilization: 0.25,
+    totalMemoryBytes: 16,
+    availableMemoryBytes: 8,
+    liveSessions: 0,
+    runningTurns: 0,
+    sampledAt: 0,
+    projects: [],
+    user: null,
+    projectRoots: null,
+    os: null,
+    packageManagers: null,
+    ...patch,
+  };
+}
+
+function machine(patch: Partial<FleetMachine> & { key: string }): FleetMachine {
+  return {
+    nickname: null,
+    status: "ready",
+    error: null,
+    preference: "normal",
+    report: report(),
+    receivedAt: 0,
+    grantRung: null,
+    address: null,
+    sshReachable: null,
+    ...patch,
+  };
+}
+
+function keyRow(patch: Partial<ProviderKeyStatus> & { activeEnv: string }): ProviderKeyStatus {
+  return {
+    id: patch.activeEnv.toLowerCase(),
+    label: patch.activeEnv,
+    group: "models",
+    env: patch.activeEnv,
+    source: "stored",
+    masked: "••••abcd",
+    hint: null,
+    shadowsEnvironment: false,
+    unreadableStoredEnvs: [],
+    ...patch,
+  };
+}
+
+const MACHINES: FleetMachine[] = [
+  machine({
+    key: "local",
+    report: report({
+      os: { name: "Fedora Linux 44 (Workstation Edition)", version: "44" },
+      packageManagers: [
+        { name: "dnf", path: "/usr/bin/dnf", onPath: true },
+        { name: "brew", path: "/home/linuxbrew/.linuxbrew/bin/brew", onPath: false },
+      ],
+    }),
+  }),
+  machine({
+    key: "inst-full",
+    nickname: "studio",
+    grantRung: "full",
+    report: report({ os: { name: "macOS", version: "15.1" }, packageManagers: [] }),
+  }),
+  // Predates #905: no os, no package managers.
+  machine({ key: "inst-dispatch", nickname: "box-a", grantRung: "dispatch" }),
+];
+
+function seedMachines(): void {
+  backendMock.fleetMachines.mockResolvedValue(MACHINES);
+  useStore.setState({
+    fleet: { machines: MACHINES, audit: null, loading: false, error: null },
+    fleetLastRequests: {},
+    lifecycleConfirmation: null,
+    rpc: {},
+    state: backendState({
+      remoteInstances: [
+        {
+          id: "inst-full",
+          nickname: "studio",
+          url: "https://studio.tailnet:4677",
+          status: "joined",
+          error: null,
+          version: "1.0.0",
+          projects: [],
+          modelFavorites: [],
+        },
+      ],
+    }),
+  });
+}
+
+const row = (key: string): Element => document.body.querySelector(`[data-machine-key="${key}"]`)!;
+
 function render(): void {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -156,5 +264,67 @@ describe("Fleet view", () => {
     expect(buttons(reloaded, "Dismiss")).toHaveLength(1);
     expect(reloaded.textContent).toContain("Retry unavailable after reload");
     expect(reloaded.textContent).toContain("Outcome unknown — resolves when box-a reconnects");
+  });
+
+  it("shows each machine's OS with its package managers on hover, and none for a member predating #905", () => {
+    seedMachines();
+    render();
+
+    const local = row("local").querySelector<HTMLElement>("[data-machine-os] [title]")!;
+    expect(local.textContent).toBe("Fedora Linux 44 (Workstation Edition)");
+    expect(local.title).toBe("Package managers: dnf, brew (/home/linuxbrew/.linuxbrew/bin/brew)");
+    const studio = row("inst-full").querySelector<HTMLElement>("[data-machine-os] [title]")!;
+    expect(studio.textContent).toBe("macOS 15.1");
+    expect(studio.title).toBe("No package manager found");
+    expect(row("inst-dispatch").querySelector("[data-machine-os]")).toBeNull();
+  });
+
+  it("offers Roll out keys on joined members only, enabled at Full control", () => {
+    seedMachines();
+    render();
+
+    expect(buttons(row("local"), "Roll out keys")).toHaveLength(0);
+    const [full] = buttons(row("inst-full"), "Roll out keys");
+    expect(full!.disabled).toBe(false);
+    const [dispatch] = buttons(row("inst-dispatch"), "Roll out keys");
+    expect(dispatch!.disabled).toBe(true);
+    expect(dispatch!.title).toBe("Needs Full control on this machine");
+  });
+
+  it("stages the rollout confirmation with only the checked, injectable env names", async () => {
+    seedMachines();
+    backendMock.readProviderKeys.mockResolvedValueOnce({
+      providers: [
+        keyRow({ activeEnv: "ANTHROPIC_API_KEY", source: "stored" }),
+        keyRow({ activeEnv: "OPENAI_API_KEY", source: "environment" }),
+        keyRow({ activeEnv: "GROQ_API_KEY", source: "login-shell" }),
+        keyRow({ activeEnv: "MISTRAL_API_KEY", source: "dotenv" }),
+        keyRow({ activeEnv: "XAI_API_KEY", source: "none", masked: null }),
+      ],
+      encryptionAvailable: true,
+      backend: "test",
+      configFileProviders: [],
+    });
+    render();
+
+    await act(async () => {
+      buttons(row("inst-full"), "Roll out keys")[0]!.click();
+    });
+    const dialog = document.body.querySelector('[role="alertdialog"]')!;
+    expect(dialog.textContent).toContain("Roll out Provider keys to studio");
+    const boxes = [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+    expect(boxes.map((box) => box.dataset.env)).toEqual(["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"]);
+    expect(boxes.every((box) => box.checked)).toBe(true);
+    act(() => boxes[1]!.click());
+
+    act(() => buttons(dialog, "Continue")[0]!.click());
+    expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(useStore.getState().lifecycleConfirmation).toMatchObject({
+      kind: "rollout-keys",
+      instanceId: "inst-full",
+      targetLabel: "studio",
+      envNames: ["ANTHROPIC_API_KEY", "GROQ_API_KEY"],
+      encrypted: true,
+    });
   });
 });

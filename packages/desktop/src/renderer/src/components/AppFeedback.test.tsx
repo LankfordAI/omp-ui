@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { FleetProviderKeysOutcome } from "@omp-ui/core/fleet";
 import type { SessionSummary } from "@omp-ui/core/types";
 import { backendState, tabInfo } from "../test/fixtures";
 
@@ -12,6 +13,9 @@ const backendMock = {
   terminateSession: vi.fn(async () => {}),
   switchMode: vi.fn(async () => {}),
   removeProject: vi.fn(async () => {}),
+  fleetRolloutProviderKeys: vi.fn(
+    async (): Promise<FleetProviderKeysOutcome> => ({ status: "accepted", installed: [], failed: [] }),
+  ),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Tripwire, not automation: the old dialogs were native, and a surviving
@@ -371,5 +375,120 @@ describe("credential-carry gate and success notices (issue #888)", () => {
     await act(async () => {
       buttonIn("Cancel").click();
     });
+  });
+});
+
+describe("Provider key rollout gate (issue #905)", () => {
+  const INSTANCE = {
+    id: "i-1",
+    nickname: "studio",
+    url: "http://studio.tailnet:4677",
+    status: "joined" as const,
+    error: null,
+    version: "1.0.0",
+    projects: [],
+    modelFavorites: [],
+  };
+
+  function stageRollout(encrypted: boolean): void {
+    useStore.setState({ state: backendState({ remoteInstances: [INSTANCE] }) });
+    act(() => {
+      useStore.getState().stageLifecycleConfirmation({
+        kind: "rollout-keys",
+        instanceId: "i-1",
+        targetLabel: "studio",
+        envNames: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
+        encrypted,
+      });
+    });
+  }
+
+  it("warns about plain HTTP, sends env names only, and posts the done notice", async () => {
+    backendMock.fleetRolloutProviderKeys.mockResolvedValueOnce({
+      status: "accepted",
+      installed: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
+      failed: [],
+    });
+    await render();
+    stageRollout(false);
+    await settle();
+    expect(dialog()!.textContent).toContain("Roll out Provider keys?");
+    expect(dialog()!.textContent).toContain("sends 2 Provider keys from this computer to studio");
+    expect(dialog()!.textContent).toContain("unencrypted HTTP");
+
+    await act(async () => {
+      buttonIn("Roll out keys").click();
+    });
+    await settle();
+    expect(backendMock.fleetRolloutProviderKeys).toHaveBeenCalledWith("i-1", [
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
+    ]);
+    expect(useStore.getState().lifecycleConfirmation).toBeNull();
+    expect(useStore.getState().errorNotices).toEqual([]);
+    expect(useStore.getState().infoNotices.map((n) => n.message)).toEqual([
+      "2 Provider keys stored on studio. Restart its running sessions to use them.",
+    ]);
+  });
+
+  it("names HTTPS when the join is encrypted, and reports per-key failures beside the notice", async () => {
+    backendMock.fleetRolloutProviderKeys.mockResolvedValueOnce({
+      status: "accepted",
+      installed: ["ANTHROPIC_API_KEY"],
+      failed: [{ envName: "OPENAI_API_KEY", reason: "no OS credential store" }],
+    });
+    await render();
+    stageRollout(true);
+    await settle();
+    expect(dialog()!.textContent).toContain("over HTTPS");
+
+    await act(async () => {
+      buttonIn("Roll out keys").click();
+    });
+    await settle();
+    expect(useStore.getState().infoNotices.map((n) => n.message)).toEqual([
+      "1 Provider key stored on studio. Restart its running sessions to use it.",
+    ]);
+    expect(useStore.getState().errorNotices.map((n) => n.message)).toEqual([
+      "Some keys were not stored on studio: OPENAI_API_KEY: no OS credential store",
+    ]);
+  });
+
+  it("posts only the error when no key was stored", async () => {
+    backendMock.fleetRolloutProviderKeys.mockResolvedValueOnce({
+      status: "accepted",
+      installed: [],
+      failed: [{ envName: "OPENAI_API_KEY", reason: "no OS credential store" }],
+    });
+    await render();
+    stageRollout(true);
+    await settle();
+    await act(async () => {
+      buttonIn("Roll out keys").click();
+    });
+    await settle();
+    expect(useStore.getState().infoNotices).toEqual([]);
+    expect(useStore.getState().errorNotices.map((n) => n.message)).toEqual([
+      "Some keys were not stored on studio: OPENAI_API_KEY: no OS credential store",
+    ]);
+  });
+
+  it("surfaces a refused rollout as an error notice", async () => {
+    backendMock.fleetRolloutProviderKeys.mockResolvedValueOnce({
+      status: "refused",
+      reason: "fleet exec is off on this machine",
+    });
+    await render();
+    stageRollout(true);
+    await settle();
+    await act(async () => {
+      buttonIn("Roll out keys").click();
+    });
+    await settle();
+    expect(useStore.getState().infoNotices).toEqual([]);
+    expect(useStore.getState().errorNotices.map((n) => n.message)).toEqual([
+      "fleet exec is off on this machine",
+    ]);
+    expect(dialog()!.textContent).toContain("fleet exec is off on this machine");
   });
 });

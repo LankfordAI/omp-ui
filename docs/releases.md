@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Fleet members list their SSH target and whether port 22 answers, so an agent can provision a member over its own ssh and register the checkout; fleet-registered projects now get their repository key and branch watch immediately (#904, #906).
+- Fleet members report their OS and package managers; agents can run long installs on a Full-control member as a detached exec and poll it, and you can roll this computer's Provider keys out to a member from the Fleet view (#905).
 
 ## Choose a download
 

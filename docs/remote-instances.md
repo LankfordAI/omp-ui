@@ -36,7 +36,7 @@ The knowledge vault follows the session's owner. Vault tools run only on the ins
 Nothing is copied and no second omp process starts. Closing the tab hides it; the session keeps running on the remote instance. Quitting this app disconnects from every remote instance and leaves their sessions running, exactly as closing a browser view of that app would.
 Deleting a host-owned session from a joined client removes that session's tab from every connected renderer when the host broadcasts its new state. Removing a registered project does the same for each session record removed by the cascade.
 
-Host-local actions stay on their own host. Opening a project or file in VS Code, Files, or a terminal is not offered for a remote target, file paths in a remote transcript render as plain text, and the remote's own app preferences, updates, providers, remote-access settings, and diagnostics are never reachable from this app. Providers are no exception: a remote session whose host reports no models shows a note naming the instance instead of opening this app's Providers page — provider credentials live on that host, so configure them by opening Providers on the instance itself. Remote sessions raise no desktop notifications here.
+Host-local actions stay on their own host. Opening a project or file in VS Code, Files, or a terminal is not offered for a remote target, file paths in a remote transcript render as plain text, and the remote's own app preferences, updates, providers, remote-access settings, and diagnostics are never reachable from this app. Providers are no exception: a remote session whose host reports no models shows a note naming the instance instead of opening this app's Providers page — provider credentials live on that host, so configure them by opening Providers on the instance itself, or copy this computer's keys there with [Roll out Provider keys](#roll-out-provider-keys). Remote sessions raise no desktop notifications here.
 
 The relation is directed. Joining B from A gives B no view of A, and a join never follows the remote's own joins: only the remote's own projects appear, never the instances it has joined itself. Joining this app's own connection URL is reported as *this app* and adds no group.
 
@@ -50,7 +50,7 @@ On rejoin, every open remote tab reloads its state from the remote: native tabs 
 
 ## Fleet
 
-The fleet is this app plus every joined instance, seen as places new work can start ([ADR-0061](adr/0061-fleet-dispatch-rides-the-spawn-request.md)). Like the sidebar, it is one level deep: an instance's own joins are never part of this app's fleet. Open the **Fleet** view from the sidebar button beside the host picker or from the command palette. It lists each machine — **This computer** first, then each instance by nickname — with its status, omp-ui version, CPU and free memory, live sessions and running turns, its placement preference, and its address with the SSH target and whether SSH answered. Both apps need an omp-ui version that has Fleet: an instance running an older one is listed as unsupported, with a note to update omp-ui on it, and is never chosen for work.
+The fleet is this app plus every joined instance, seen as places new work can start ([ADR-0061](adr/0061-fleet-dispatch-rides-the-spawn-request.md)). Like the sidebar, it is one level deep: an instance's own joins are never part of this app's fleet. Open the **Fleet** view from the sidebar button beside the host picker or from the command palette. It lists each machine — **This computer** first, then each instance by nickname — with its status, omp-ui version, CPU and free memory, live sessions and running turns, its placement preference, its address with the SSH target and whether SSH answered, and its operating system (hover it for the package managers found there). Both apps need an omp-ui version that has Fleet: an instance running an older one is listed as unsupported, with a note to update omp-ui on it, and is never chosen for work.
 
 ### Access rungs
 
@@ -79,11 +79,13 @@ If the connection to an instance drops while it is answering a dispatch, or it d
 
 ### Let agents dispatch fleet work
 
-**Settings > Remote instances > Let agents dispatch fleet work** (off by default) gives agents five tools: list the fleet's machines (each ready member carries its effective access rung), dispatch work, check on a dispatch's sessions — their state and, once one stops working, its summary — run one bounded command on a member ([fleet exec](#fleet-exec)), and manage projects on a member (**clone** or **register**, see [access rungs](#access-rungs)). The tools reach only sessions started or resumed after the setting is on, and every call runs at omp's `exec` host-tool approval tier, so your omp approval mode decides whether it asks first. A session an agent dispatched never gets the tools, so dispatched work cannot dispatch further. A session that a joined instance owns uses that instance's own setting and fleet: its tools list and dispatch from the instance's point of view, not this app's. Wherever the member's ladder says no, exec and project calls answer with the refusal as plain text — which rung was missing and why — instead of an error, so the agent does not retry.
+**Settings > Remote instances > Let agents dispatch fleet work** (off by default) gives agents six tools: list the fleet's machines (each ready member carries its effective access rung), dispatch work, check on a dispatch's sessions — their state and, once one stops working, its summary — run one command on a member ([fleet exec](#fleet-exec)), check on or cancel a detached exec it started (`omp-ui_fleet_exec_poll`), and manage projects on a member (**clone** or **register**, see [access rungs](#access-rungs)). The tools reach only sessions started or resumed after the setting is on, and every call runs at omp's `exec` host-tool approval tier, so your omp approval mode decides whether it asks first. A session an agent dispatched never gets the tools, so dispatched work cannot dispatch further. A session that a joined instance owns uses that instance's own setting and fleet: its tools list and dispatch from the instance's point of view, not this app's. Wherever the member's ladder says no, exec and project calls answer with the refusal as plain text — which rung was missing and why — instead of an error, so the agent does not retry.
 
 ### Fleet exec
 
 **Full control**, the fourth rung of the [access rungs](#access-rungs), lets a dispatcher ask a member to run one command on its own shell. The member picks the interpreter (`/bin/sh -c` on POSIX, PowerShell on Windows, falling back to `cmd`), waits for the command to exit, and answers with the exit code plus stdout and stderr — each capped at 65,536 bytes, a long-running command killed (with its whole process tree) after 30 seconds and answered with partial output. There is no stdin, no PTY, and no streaming; this is not a remote terminal, and a member never execs on itself — an agent's own tools serve its own machine. Nothing runs unless the member's owner opened every gate: **Settings > Remote instances > Allow fleet exec** (the master switch, off by default), a **Fleet exec ceiling** of Full control, and a full grant to that dispatcher — which re-presents the instance's credential. Every accepted or refused command, project manage, and grant raise is written to `fleet-audit.log` beside the other main-process logs and shown under **Activity** in the **Fleet** view on that machine, so each member can answer what ran there while its owner was away.
+
+A command that needs longer than 30 seconds, such as a package install or a toolchain build, runs as a **detached exec** ([#905](https://github.com/LankfordAI/omp-ui/issues/905), [ADR-0065](adr/0065-machine-upkeep-rides-detached-exec-and-member-sealed-keys.md)). The agent sets `detach` on `omp-ui_fleet_exec`; the member starts the command under the same shell and gates, answers at once with an exec id, and lets it run for up to 30 minutes (the agent may ask for less, never more). The agent then calls `omp-ui_fleet_exec_poll`, which waits up to 25 seconds for the command to finish and answers with its state, exit code, and output: the last 4 KiB of each stream while it runs, the last 64 KiB once it has finished. Earlier output is dropped and the answer says so. Only the app that started a detached exec can poll or cancel it. A member runs at most 4 detached execs at once and refuses a fifth. The member kills the process and its whole tree when the 30 minutes run out, when the agent cancels it, when omp-ui on the member quits, or when the owner withdraws access by turning **Allow fleet exec** off or lowering the ceiling or that dispatcher's grant below Full control. A withdrawn command reads *revoked*, and its final output stays pollable. Activity on the member lists each detached start, refusal, and finish; polls are not listed. If omp-ui on the member crashes rather than quits, a running detached command is left behind and runs to its own end with no cap.
 
 ### Provision a member over SSH
 
@@ -98,6 +100,42 @@ omp-ui never opens the SSH connection, stores or syncs a key, or runs setup itse
 - **A project root and the Manage projects rung.** The member declares at least one folder under **Fleet project roots** and grants this app **Manage projects** (its **Fleet exec ceiling** at least Manage projects), as [access rungs](#access-rungs) describes, and **Let agents dispatch fleet work** is on here.
 
 The reachability check is only a TCP connect to port 22 from this computer. A member whose SSH server listens on another port shows *closed*; give it a `Host` entry with that `Port` in `~/.ssh/config` so the agent's `ssh` still reaches it. A member that is not connected shows only its address.
+
+### Machine upkeep
+
+An agent can install software and set up toolchains on a member that grants this app Full control ([#905](https://github.com/LankfordAI/omp-ui/issues/905)). Each member reports its operating system and the package managers found on it. `omp-ui_fleet_machines` prints them on a `system:` line under the member's `ssh:` line:
+
+```text
+  system: Fedora Linux 44 (Workstation Edition); package managers: dnf, flatpak, brew at /home/linuxbrew/.linuxbrew/bin/brew
+```
+
+A manager that is installed but missing from the PATH omp-ui runs commands with is listed with its absolute path, so the agent can call it by that path. The Fleet view shows the operating system as a chip on the machine row, with the package managers in its tooltip. A member running an older omp-ui reports neither: the line reads *not reported* and the chip is hidden.
+
+Ask in plain words, for example *"install ripgrep on studio"* or *"create a Python 3.12 virtualenv in ~/venvs/ml on studio"*. The agent picks the package manager from the system line, writes the command, and runs anything longer than 30 seconds as a [detached exec](#fleet-exec) that it polls until it finishes. omp-ui has no install commands of its own; the agent composes each one.
+
+Commands get no stdin, so anything that prompts fails or waits until its cap. Agents use non-interactive flags: `dnf -y`, `apt-get -y`, `zypper -n`, `pacman --noconfirm`, `brew` with `NONINTERACTIVE=1`, `winget --accept-source-agreements --accept-package-agreements --disable-interactivity`, `choco -y`.
+
+Privileges are for the member's owner to set up. omp-ui never asks for, stores, or sends a password.
+
+- **Linux.** System packages need root. The agent runs `sudo -n`, which fails at once unless the member's owner has allowed passwordless sudo for the user omp-ui runs as. A `sudoers` rule limited to the package manager is enough.
+- **macOS.** Homebrew refuses to run as root, so `brew` installs as the member's login user without sudo.
+- **Windows.** `winget` installs user-scope packages without elevation. Machine-scope installers and Chocolatey need administrator rights, which a command has only when omp-ui itself runs elevated on the member.
+
+Anything interactive, such as a password prompt, an installer wizard, or a license screen, belongs on SSH: connect to the member yourself, as [Provision a member over SSH](#provision-a-member-over-ssh) describes.
+
+### Roll out Provider keys
+
+You can copy this computer's [Provider keys](settings.md#providers) to a member, so its sessions see the same models ([#905](https://github.com/LankfordAI/omp-ui/issues/905), [ADR-0065](adr/0065-machine-upkeep-rides-detached-exec-and-member-sealed-keys.md)). The member must grant this app Full control: on the member, **Allow fleet exec** on, a **Fleet exec ceiling** of Full control, and a full grant to this app.
+
+1. Open the **Fleet** view and choose **Roll out keys** on the member's row. The button stays disabled until this app's grant on that member reads Full control.
+2. The dialog lists the keys this computer has stored in-app, inherited from its environment, or captured from your login shell, each ticked. Untick any you want to keep off the member. A key set here only in a project `.env` is not offered.
+3. Choose **Continue**, read the confirmation, and choose **Roll out keys**.
+
+The member stores each key in its own OS credential store, replacing any stored key with the same name. The notice says how many keys were stored. A key the member could not store, for example on a Linux member with no keyring, is reported by name with the reason. Sessions already running on the member keep their old keys until you restart them.
+
+Keys travel over the join connection. Over an `https://` join they are encrypted in transit. Over `http://` they cross the network in plaintext, and the confirmation says so before anything is sent; prefer HTTPS or a private network, as [Trust](#trust) advises.
+
+Key values never reach a renderer, an agent, a log, or the audit line. Activity on the member shows a *Provider keys* entry naming which keys were installed or failed. Agents have no tool for this; only you can start a rollout.
 
 ## Credentials, storage, and revocation
 

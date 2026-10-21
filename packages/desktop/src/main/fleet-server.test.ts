@@ -13,12 +13,14 @@ const A: FleetRequester = { instanceId: "inst-a", label: "studio", kind: "agent"
 let base: string;
 let registry: Registry;
 let broadcasts: number;
+let installProviderKey: (envName: string, value: string) => void;
+let live: FleetServer[];
 
 function server(
   execGit?: ConstructorParameters<typeof FleetServer>[0]["execGit"],
   addProject?: ConstructorParameters<typeof FleetServer>[0]["addProject"],
 ): FleetServer {
-  return new FleetServer({
+  const s = new FleetServer({
     registry,
     logDir: path.join(base, "logs"),
     broadcast: () => {
@@ -30,8 +32,11 @@ function server(
         registry.addProject(dir);
         broadcasts += 1;
       }),
+    installProviderKey: (envName, value) => installProviderKey(envName, value),
     ...(execGit === undefined ? {} : { execGit }),
   });
+  live.push(s);
+  return s;
 }
 
 function grant(instanceId: string, rung: FleetRung): void {
@@ -42,9 +47,12 @@ beforeEach(() => {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-server-"));
   registry = Registry.load(path.join(base, "registry.json"));
   broadcasts = 0;
+  installProviderKey = () => {};
+  live = [];
 });
 
 afterEach(() => {
+  for (const s of live) s.dispose();
   fs.rmSync(base, { recursive: true, force: true });
 });
 
@@ -96,6 +104,7 @@ posix("FleetServer.exec", () => {
       logDir: path.join(base, "logs"),
       broadcast: () => {},
       addProject: async () => {},
+      installProviderKey: () => {},
       commandDeps: { spawnFn },
     });
     const outcome = await s.exec({ requester: A, command: "echo hi", cwd: null, timeoutMs: null });
@@ -332,5 +341,123 @@ describe("FleetServer.projectManage", () => {
       reason: "registration failed: omp-ui's chats folder can't be registered as a project",
     });
     expect(s.auditEntries().at(-1)).toMatchObject({ action: "manage", accepted: false });
+  });
+});
+
+function openFull(instanceId: string): void {
+  registry.setSetting("fleetExecEnabled", true);
+  registry.setSetting("fleetExecCeiling", "full");
+  grant(instanceId, "full");
+}
+
+posix("FleetServer detached exec (issue #905)", () => {
+  it("follows the ladder: refused below Full control and with the master switch off", () => {
+    registry.setSetting("fleetExecCeiling", "full");
+    grant(A.instanceId, "manage");
+    registry.setSetting("fleetExecEnabled", true);
+    const s = server();
+    expect(s.execDetach({ requester: A, command: "sleep 1", cwd: null, timeoutMs: null })).toEqual({
+      status: "refused",
+      reason: expect.stringContaining('this call needs "full"'),
+    });
+    grant(A.instanceId, "full");
+    registry.setSetting("fleetExecEnabled", false);
+    expect(s.execDetach({ requester: A, command: "sleep 2", cwd: null, timeoutMs: null })).toEqual({
+      status: "refused",
+      reason: expect.stringContaining("fleet exec is off"),
+    });
+    expect(s.auditEntries()).toEqual([
+      expect.objectContaining({ action: "exec-detached", rung: "full", accepted: false, detail: "sleep 1" }),
+      expect.objectContaining({ action: "exec-detached", rung: "full", accepted: false, detail: "sleep 2" }),
+    ]);
+  });
+
+  it("starts, audits the start and the finish, and never audits a poll", async () => {
+    openFull(A.instanceId);
+    const s = server();
+    const start = s.execDetach({ requester: A, command: "echo hi; exit 2", cwd: base, timeoutMs: null });
+    if (start.status !== "accepted") throw new Error(start.reason);
+    const id8 = start.execId.slice(0, 8);
+    expect(s.auditEntries()).toEqual([
+      expect.objectContaining({ action: "exec-detached", rung: "full", accepted: true, detail: `${id8} echo hi; exit 2`, exitCode: null }),
+    ]);
+    const outcome = await s.execPoll({ requester: A, execId: start.execId, waitMs: 5_000, cancel: false });
+    expect(outcome).toMatchObject({ status: "accepted", state: "exited", exitCode: 2, stdout: "hi\n" });
+    await s.execPoll({ requester: A, execId: start.execId, waitMs: 0, cancel: false });
+    expect(s.auditEntries().map((e) => [e.action, e.detail, e.exitCode])).toEqual([
+      ["exec-detached", `${id8} echo hi; exit 2`, null],
+      ["exec-detached", `${id8} exited`, 2],
+    ]);
+    const log = fs.readFileSync(path.join(base, "logs", "fleet-audit.log"), "utf8");
+    expect(log).toContain('"action":"exec-detached"');
+  });
+
+  it("revokes a running exec when setGrant lowers its starter below Full control", async () => {
+    openFull(A.instanceId);
+    const s = server();
+    const start = s.execDetach({ requester: A, command: "sleep 30", cwd: null, timeoutMs: null });
+    if (start.status !== "accepted") throw new Error(start.reason);
+    s.setGrant(A.instanceId, "manage");
+    expect(await s.execPoll({ requester: A, execId: start.execId, waitMs: 5_000, cancel: false })).toMatchObject({
+      status: "accepted",
+      state: "revoked",
+      exitCode: null,
+    });
+    expect(s.auditEntries().at(-1)).toMatchObject({ action: "exec-detached", accepted: true, detail: `${start.execId.slice(0, 8)} revoked` });
+  });
+});
+
+describe("FleetServer.providerKeys (issue #905)", () => {
+  const OPENAI = "sk-openai-secret-value-0001";
+  const ANTHROPIC = "sk-ant-secret-value-0002";
+  const keys = [
+    { envName: "OPENAI_API_KEY", value: OPENAI },
+    { envName: "ANTHROPIC_API_KEY", value: ANTHROPIC },
+  ];
+
+  function expectNoValueLogged(s: FleetServer): void {
+    const log = fs.readFileSync(path.join(base, "logs", "fleet-audit.log"), "utf8");
+    for (const text of [log, JSON.stringify(s.auditEntries())]) {
+      expect(text).not.toContain(OPENAI);
+      expect(text).not.toContain(ANTHROPIC);
+    }
+  }
+
+  it("refuses below Full control without installing and audits names only", () => {
+    registry.setSetting("fleetExecEnabled", true);
+    registry.setSetting("fleetExecCeiling", "full");
+    grant(A.instanceId, "manage");
+    const install = vi.fn();
+    installProviderKey = install;
+    const s = server();
+    expect(s.providerKeys({ requester: A, keys })).toEqual({ status: "refused", reason: expect.stringContaining('this call needs "full"') });
+    expect(install).not.toHaveBeenCalled();
+    expect(s.auditEntries()).toEqual([
+      expect.objectContaining({ action: "keys", rung: "full", accepted: false, detail: "OPENAI_API_KEY, ANTHROPIC_API_KEY" }),
+    ]);
+    expectNoValueLogged(s);
+  });
+
+  it("answers accepted with the failures when some installs throw, and never logs a value", () => {
+    openFull(A.instanceId);
+    const stored = new Map<string, string>();
+    installProviderKey = (envName, value) => {
+      if (envName === "ANTHROPIC_API_KEY") throw new Error("no OS credential store on this machine");
+      stored.set(envName, value);
+    };
+    const s = server();
+    expect(s.providerKeys({ requester: A, keys })).toEqual({
+      status: "accepted",
+      installed: ["OPENAI_API_KEY"],
+      failed: [{ envName: "ANTHROPIC_API_KEY", reason: "no OS credential store on this machine" }],
+    });
+    expect(stored.get("OPENAI_API_KEY")).toBe(OPENAI);
+    expect(s.auditEntries().at(-1)).toMatchObject({
+      action: "keys",
+      rung: "full",
+      accepted: false,
+      detail: "installed OPENAI_API_KEY; failed ANTHROPIC_API_KEY",
+    });
+    expectNoValueLogged(s);
   });
 });

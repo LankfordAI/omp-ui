@@ -2,16 +2,25 @@ import { describe, expect, it } from "vitest";
 import {
   choosePlacement,
   FLEET_COMMAND_MAX,
+  FLEET_EXEC_POLL_WAIT_MAX_MS,
   FLEET_PROMPT_MAX,
   FLEET_TOOLS,
   fleetMemberAddress,
+  fleetOsLabel,
+  fleetToolExecPollRequest,
+  fleetToolExecRequest,
   formatFleetMachines,
   LOCAL_MACHINE_KEY,
+  parseFleetDetachedExecRequest,
   parseFleetDispatchRequest,
+  parseFleetExecPollRequest,
   parseFleetExecRequest,
   parseFleetGrants,
+  parseFleetHostOs,
+  parseFleetPackageManagers,
   parseFleetProjectManageRequest,
   parseFleetProjectRoots,
+  parseFleetProviderKeysRequest,
   parseFleetSpawnSpec,
   parseFleetToolArguments,
   placementScore,
@@ -40,6 +49,12 @@ function report(patch: Partial<FleetHostReport> = {}): FleetHostReport {
     projects: [],
     user: "austin",
     projectRoots: [],
+    os: { name: "Fedora Linux 44 (Workstation Edition)", version: "44" },
+    packageManagers: [
+      { name: "dnf", path: "/usr/bin/dnf", onPath: true },
+      { name: "flatpak", path: "/usr/bin/flatpak", onPath: true },
+      { name: "brew", path: "/home/linuxbrew/.linuxbrew/bin/brew", onPath: false },
+    ],
     ...patch,
   };
 }
@@ -173,8 +188,15 @@ describe("parseFleetDispatchRequest", () => {
 describe("fleet exec ladder contracts (issue #901)", () => {
   const requester = { instanceId: "inst-a", label: "studio", kind: "agent", sourceTabId: "tab-1" } as const;
 
-  it("exposes the five agent tools in registration order", () => {
-    expect(FLEET_TOOLS).toEqual(["omp-ui_fleet_machines", "omp-ui_fleet_dispatch", "omp-ui_fleet_status", "omp-ui_fleet_exec", "omp-ui_fleet_project"]);
+  it("exposes the six agent tools in registration order", () => {
+    expect(FLEET_TOOLS).toEqual([
+      "omp-ui_fleet_machines",
+      "omp-ui_fleet_dispatch",
+      "omp-ui_fleet_status",
+      "omp-ui_fleet_exec",
+      "omp-ui_fleet_project",
+      "omp-ui_fleet_exec_poll",
+    ]);
   });
 
   it("allows newline (LF or CRLF) and tab in a command but no other control character", () => {
@@ -233,7 +255,7 @@ describe("fleet exec ladder contracts (issue #901)", () => {
     expect(parseFleetToolArguments("omp-ui_fleet_exec", { machine: " studio ", command: "uname", timeoutMs: 500 })).toEqual({
       ok: true,
       tool: "exec",
-      args: { machine: "studio", command: "uname", cwd: null, timeoutMs: 500 },
+      args: { machine: "studio", command: "uname", cwd: null, timeoutMs: 500, detach: false },
     });
     expect(parseFleetToolArguments("omp-ui_fleet_exec", { machine: "studio", command: "ls", env: {} })).toEqual({ ok: false, reason: 'unknown argument "env"' });
     expect(parseFleetToolArguments("omp-ui_fleet_exec", { machine: "studio", command: "ls", timeoutMs: 0 })).toEqual({ ok: false, reason: "timeoutMs must be positive" });
@@ -293,25 +315,190 @@ describe("member address and ssh line (issue #904)", () => {
     ...patch,
   });
 
-  it("prints the ssh target, probe, platform, and roots right after the member's machine line", () => {
+  it("prints the ssh and system lines right after the member's machine line", () => {
     const lines = formatFleetMachines([
       machine({ key: LOCAL_MACHINE_KEY, nickname: null, address: null, sshReachable: null }),
       machine({}, { user: "austin", projectRoots: ["/srv/repos"] }),
-      machine({ key: "r2", nickname: "two", address: "10.0.0.6", sshReachable: false }, { user: null, projectRoots: [] }),
-      machine({ key: "r3", nickname: "three", address: "10.0.0.8", sshReachable: null }, { projectRoots: null }),
+      machine({ key: "r2", nickname: "two", address: "10.0.0.6", sshReachable: false }, { user: null, projectRoots: [], packageManagers: [] }),
+      machine({ key: "r3", nickname: "three", address: "10.0.0.8", sshReachable: null }, { projectRoots: null, os: null, packageManagers: null }),
       machine({ key: "r4", nickname: "four", address: "10.0.0.7", status: "unreachable", error: null, report: null, sshReachable: null }),
     ]).split("\n");
     expect(lines[0]).toMatch(/^- this computer: ready/);
     expect(lines[1]).toBe("  - /srv/repos/app (no repository key)");
     expect(lines[2]).toMatch(/^- studio: ready/);
     expect(lines[3]).toBe("  ssh: austin@10.0.0.5 (port 22 open); platform linux x64; project roots: /srv/repos");
-    expect(lines[4]).toBe("  - /srv/repos/app (no repository key)");
-    expect(lines[5]).toMatch(/^- two: ready/);
-    expect(lines[6]).toBe("  ssh: 10.0.0.6 (port 22 closed); platform linux x64; project roots: none declared");
-    expect(lines[8]).toMatch(/^- three: ready/);
-    expect(lines[9]).toBe("  ssh: austin@10.0.0.8 (port 22 not checked); platform linux x64; project roots: not reported");
-    expect(lines[11]).toBe("- four: unreachable; preference normal");
-    expect(lines[12]).toBe("  address: 10.0.0.7 (not connected)");
-    expect(lines).toHaveLength(13);
+    expect(lines[4]).toBe(
+      "  system: Fedora Linux 44 (Workstation Edition); package managers: dnf, flatpak, brew at /home/linuxbrew/.linuxbrew/bin/brew",
+    );
+    expect(lines[5]).toBe("  - /srv/repos/app (no repository key)");
+    expect(lines[6]).toMatch(/^- two: ready/);
+    expect(lines[7]).toBe("  ssh: 10.0.0.6 (port 22 closed); platform linux x64; project roots: none declared");
+    expect(lines[8]).toBe("  system: Fedora Linux 44 (Workstation Edition); package managers: none found");
+    expect(lines[10]).toMatch(/^- three: ready/);
+    expect(lines[11]).toBe("  ssh: austin@10.0.0.8 (port 22 not checked); platform linux x64; project roots: not reported");
+    expect(lines[12]).toBe("  system: not reported; package managers: not reported");
+    expect(lines[14]).toBe("- four: unreachable; preference normal");
+    expect(lines[15]).toBe("  address: 10.0.0.7 (not connected)");
+    expect(lines).toHaveLength(16);
+  });
+
+  it("prints the system line for a ready member without an address (no ssh line)", () => {
+    const lines = formatFleetMachines([machine({ address: null, sshReachable: null }, { os: { name: "macOS", version: "15.1" } })]).split("\n");
+    expect(lines).toEqual([
+      expect.stringMatching(/^- studio: ready/),
+      "  system: macOS 15.1; package managers: dnf, flatpak, brew at /home/linuxbrew/.linuxbrew/bin/brew",
+      "  - /srv/repos/app (no repository key)",
+    ]);
+  });
+});
+
+describe("member OS and package managers (issue #905)", () => {
+  it("appends the version to the OS label only when the name lacks it", () => {
+    expect(fleetOsLabel({ name: "Fedora Linux 44 (Workstation Edition)", version: "44" })).toBe("Fedora Linux 44 (Workstation Edition)");
+    expect(fleetOsLabel({ name: "macOS", version: "15.1" })).toBe("macOS 15.1");
+    expect(fleetOsLabel({ name: "Windows 11 Pro", version: null })).toBe("Windows 11 Pro");
+  });
+
+  it("shape-checks a remote report's os", () => {
+    expect(parseFleetHostOs({ name: "macOS", version: "15.1" })).toEqual({ name: "macOS", version: "15.1" });
+    expect(parseFleetHostOs({ name: "Linux", version: null })).toEqual({ name: "Linux", version: null });
+    expect(parseFleetHostOs(undefined)).toBeNull();
+    expect(parseFleetHostOs({ name: "", version: null })).toBeNull();
+    expect(parseFleetHostOs({ name: "x".repeat(129), version: null })).toBeNull();
+    expect(parseFleetHostOs({ name: "bad\u0007name", version: null })).toBeNull();
+    expect(parseFleetHostOs({ name: "Linux", version: "1".repeat(65) })).toBeNull();
+    expect(parseFleetHostOs({ name: "Linux", version: 44 })).toBeNull();
+  });
+
+  it("drops invalid package-manager entries and keeps at most 16", () => {
+    const good = { name: "dnf", path: "/usr/bin/dnf", onPath: true };
+    expect(
+      parseFleetPackageManagers([
+        good,
+        { name: "Brew", path: "/opt/homebrew/bin/brew", onPath: false },
+        { name: "brew", path: "", onPath: false },
+        { name: "brew", path: "/bad\u0000path", onPath: false },
+        { name: "brew", path: "/opt/homebrew/bin/brew", onPath: "no" },
+        null,
+        "dnf",
+        { name: "port", path: "/opt/local/bin/port", onPath: false },
+      ]),
+    ).toEqual([good, { name: "port", path: "/opt/local/bin/port", onPath: false }]);
+    expect(parseFleetPackageManagers(Array.from({ length: 20 }, () => good))).toHaveLength(16);
+    expect(parseFleetPackageManagers({ dnf: true })).toBeNull();
+    expect(parseFleetPackageManagers(null)).toBeNull();
+  });
+});
+
+describe("detached exec and Provider key rollout contracts (issue #905)", () => {
+  const requester = { instanceId: "inst-a", label: "studio", kind: "user", sourceTabId: null } as const;
+  const SECRET = "sk-test-SECRET-value-1234";
+
+  it("parses a detached exec start with the exec request's rules", () => {
+    const req = { requester, command: "dnf -y install ripgrep", cwd: null, timeoutMs: null };
+    expect(parseFleetDetachedExecRequest(req)).toEqual(req);
+    expect(() => parseFleetDetachedExecRequest({ ...req, detach: true })).toThrow("detached exec request contains unknown field detach");
+    expect(() => parseFleetDetachedExecRequest({ ...req, command: " " })).toThrow("command must not be blank");
+  });
+
+  it("parses a poll strictly", () => {
+    const req = { requester, execId: "e-1", waitMs: 25_000, cancel: false };
+    expect(parseFleetExecPollRequest(req)).toEqual(req);
+    expect(() => parseFleetExecPollRequest({ ...req, execId: "" })).toThrow("exec poll request.execId must be a non-empty id");
+    expect(() => parseFleetExecPollRequest({ ...req, execId: "x".repeat(129) })).toThrow("execId");
+    expect(() => parseFleetExecPollRequest({ ...req, waitMs: Number.NaN })).toThrow("exec poll request.waitMs must be a number");
+    expect(() => parseFleetExecPollRequest({ ...req, cancel: "yes" })).toThrow("exec poll request.cancel must be true or false");
+  });
+
+  it("parses a Provider key rollout and never echoes a value", () => {
+    const req = { requester, keys: [{ envName: "ANTHROPIC_API_KEY", value: SECRET }] };
+    expect(parseFleetProviderKeysRequest(req)).toEqual(req);
+    const refusals = [
+      { requester, keys: [] },
+      { requester, keys: [{ envName: SECRET, value: SECRET }] },
+      { requester, keys: [{ envName: "NOT_A_PROVIDER", value: SECRET }] },
+      {
+        requester,
+        keys: [
+          { envName: "ANTHROPIC_API_KEY", value: SECRET },
+          { envName: "ANTHROPIC_API_KEY", value: SECRET },
+        ],
+      },
+      { requester, keys: [{ envName: "ANTHROPIC_API_KEY", value: "" }] },
+      { requester, keys: [{ envName: "ANTHROPIC_API_KEY", value: `${SECRET}${"x".repeat(8_192)}` }] },
+      { requester, keys: [{ envName: "ANTHROPIC_API_KEY", value: SECRET, extra: SECRET }] },
+    ];
+    const messages = refusals.map((r) => {
+      try {
+        parseFleetProviderKeysRequest(r);
+      } catch (error) {
+        return (error as Error).message;
+      }
+      throw new Error("expected a refusal");
+    });
+    for (const message of messages) expect(message).not.toContain(SECRET);
+    expect(messages[1]).toBe("provider keys request.keys[0].envName is not a known provider variable");
+    expect(messages[2]).toBe("provider keys request.keys[0].envName is not a known provider variable");
+    expect(messages[3]).toBe("provider keys request.keys[1]: ANTHROPIC_API_KEY appears more than once");
+    expect(messages[4]).toContain("the value for ANTHROPIC_API_KEY must be a non-empty string");
+  });
+
+  it("parses the detach flag and the poll tool's bounds", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_exec", { machine: "studio", command: "make", detach: true })).toEqual({
+      ok: true,
+      tool: "exec",
+      args: { machine: "studio", command: "make", cwd: null, timeoutMs: null, detach: true },
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_exec", { machine: "studio", command: "make", detach: "yes" })).toEqual({
+      ok: false,
+      reason: "detach must be true or false",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_exec_poll", { machine: " studio ", execId: " e-1 " })).toEqual({
+      ok: true,
+      tool: "execPoll",
+      args: { machine: "studio", execId: "e-1", cancel: false, waitMs: null },
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_exec_poll", { machine: "studio", execId: "e-1", cancel: true, waitMs: 0 })).toEqual({
+      ok: true,
+      tool: "execPoll",
+      args: { machine: "studio", execId: "e-1", cancel: true, waitMs: 0 },
+    });
+    const refusal = (args: unknown) => parseFleetToolArguments("omp-ui_fleet_exec_poll", args);
+    expect(refusal({ machine: "", execId: "e-1" })).toEqual({ ok: false, reason: "machine must be a non-empty string" });
+    expect(refusal({ machine: "studio", execId: " " })).toEqual({ ok: false, reason: "execId must be a non-empty string" });
+    expect(refusal({ machine: "studio", execId: "e-1", cancel: 1 })).toEqual({ ok: false, reason: "cancel must be true or false" });
+    for (const waitMs of [-1, 25_001, 1.5, "100"]) {
+      expect(refusal({ machine: "studio", execId: "e-1", waitMs })).toEqual({ ok: false, reason: "waitMs must be a whole number from 0 to 25000" });
+    }
+    expect(refusal({ machine: "studio", execId: "e-1", command: "ls" })).toEqual({ ok: false, reason: 'unknown argument "command"' });
+  });
+
+  it("translates the tool arguments into requests, the poll defaulting to the longest wait", () => {
+    const machines: FleetMachine[] = [
+      {
+        key: "r1",
+        nickname: "studio",
+        status: "ready",
+        error: null,
+        preference: "normal",
+        receivedAt: NOW,
+        grantRung: "full",
+        report: report(),
+        address: "10.0.0.5",
+        sshReachable: true,
+      },
+    ];
+    expect(fleetToolExecRequest({ machine: "Studio", command: "make", cwd: null, timeoutMs: null, detach: true }, machines)).toEqual({
+      ok: true,
+      machineKey: "r1",
+      detach: true,
+      request: { command: "make", cwd: null, timeoutMs: null },
+    });
+    expect(fleetToolExecPollRequest({ machine: "studio", execId: "e-1", cancel: false, waitMs: null }, machines)).toEqual({
+      ok: true,
+      machineKey: "r1",
+      request: { execId: "e-1", waitMs: FLEET_EXEC_POLL_WAIT_MAX_MS, cancel: false },
+    });
+    expect(fleetToolExecPollRequest({ machine: "nope", execId: "e-1", cancel: false, waitMs: 5 }, machines).ok).toBe(false);
   });
 });

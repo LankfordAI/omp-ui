@@ -1487,6 +1487,36 @@ export function createLifecycleSlice(
       );
       return;
     }
+    if (confirmation.kind === "rollout-keys") {
+      // #905: the confirmation is the Provider key rollout gate. The renderer
+      // sends env names only; main reads and sends the values main-to-main.
+      // A member forgotten meanwhile has nothing to receive them.
+      if (findInstance(get().state, confirmation.instanceId) === undefined) return;
+      const target = confirmation.targetLabel;
+      const result = await backend.fleetRolloutProviderKeys(
+        confirmation.instanceId,
+        confirmation.envNames,
+      );
+      if (result.status === "refused") throw new Error(result.reason);
+      // Nothing stored (every key failed) gets only the error, not a restart hint.
+      const installed = result.installed.length;
+      if (installed > 0) {
+        get().reportNotice(
+          t(installed === 1 ? "notice.rolloutKeys.done.one" : "notice.rolloutKeys.done", { count: installed, target }),
+        );
+      }
+      if (result.failed.length > 0) {
+        get().reportError(
+          new Error(
+            t("notice.rolloutKeys.failed", {
+              target,
+              detail: result.failed.map((f) => `${f.envName}: ${f.reason}`).join("; "),
+            }),
+          ),
+        );
+      }
+      return;
+    }
     const registered = projectGroups(confirmation.instanceId)?.some(
       (group) => group.project.path === confirmation.projectPath,
     );

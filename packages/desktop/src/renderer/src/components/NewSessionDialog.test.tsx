@@ -48,6 +48,8 @@ function machine(key: string, nickname: string | null, projects: FleetHostProjec
       projects,
       user: null,
       projectRoots: [],
+      os: null,
+      packageManagers: null,
     },
   };
 }

@@ -210,6 +210,32 @@ describe("ProviderKeys storage", () => {
     expect(credentialStoreUnavailableMessage("linux")).toContain("export the variable from your shell");
   });
 
+describe("ProviderKeys.rolloutValue", () => {
+  it("prefers stored over environment over login shell, the order omp-ui injects", async () => {
+    const env: NodeJS.ProcessEnv = { [KEY]: "sk-env-0123456789" };
+    const { keys } = make({ env, platform: "linux" });
+    await keys.captureLoginShell({
+      capture: async () => `${KEY}=sk-shell-0123456789\nANTHROPIC_API_KEY=sk-ant-shell-0123456789\n`,
+    });
+    expect(keys.rolloutValue(KEY)).toBe("sk-env-0123456789");
+    expect(keys.rolloutValue("ANTHROPIC_API_KEY")).toBe("sk-ant-shell-0123456789");
+    keys.setKey(KEY, LONG);
+    expect(keys.rolloutValue(KEY)).toBe(LONG);
+  });
+
+  it("never offers a value that lives only in a project .env", () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, ".env"), `${KEY}=${LONG}\n`);
+    const { keys } = make();
+    expect(row(keys, "openrouter", dir).source).toBe("dotenv");
+    expect(keys.rolloutValue(KEY)).toBeNull();
+  });
+
+  it("throws on a variable outside the provider catalog", () => {
+    expect(() => make().keys.rolloutValue("PATH")).toThrow(/unknown provider variable: PATH/);
+  });
+});
+
 describe("ProviderKeys unreadable stored entries", () => {
   it.each(["throws", "decrypts to blank"] as const)(
     "when the cipher %s, warns about the entry instead of pretending it is gone",

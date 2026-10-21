@@ -484,6 +484,16 @@ export type LifecycleConfirmationChoice =
       action: "to-instance" | "from-instance" | "save-file" | "import-file";
       targetLabel: string;
       instanceId?: string;
+    }
+  | {
+      /** Provider key rollout to one fleet member (issue #905). Mandatory gate: the body
+       *  names the count, the member, and whether the join transport is encrypted. Values
+       *  never reach the renderer; main reads them at confirm time. */
+      kind: "rollout-keys";
+      instanceId: string;
+      targetLabel: string;
+      envNames: string[];
+      encrypted: boolean;
     };
 
 export type LifecycleConfirmation = {
