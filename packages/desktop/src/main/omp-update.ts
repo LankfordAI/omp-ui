@@ -39,13 +39,6 @@ export interface OmpUpdaterDeps extends UpdateControllerDeps<OmpUpdateState> {
   pinActive?: () => boolean; // tests; default: core's ompPinActive env check
 }
 
-/** True when OMP_UI_OMP_PATH names an existing file (paths.ts resolution
- *  precedence); mirrors resolveOmpBinary's pin check. */
-function defaultPinActive(): boolean {
-  const pinned = process.env.OMP_UI_OMP_PATH;
-  return pinned !== undefined && fs.existsSync(pinned);
-}
-
 export class OmpUpdater extends UpdateController<OmpUpdateState> {
 
   constructor(private readonly deps: OmpUpdaterDeps) {
@@ -81,7 +74,7 @@ export class OmpUpdater extends UpdateController<OmpUpdateState> {
     // them a present, up-to-date omp leaves installPath/installedVersion null
     // and the Settings row falls back to its "not installed" placeholder.
     const facts = { installPath: info.installPath, installedVersion: info.installedVersion };
-    const pinned = (this.deps.pinActive ?? defaultPinActive)();
+    const pinned = (this.deps.pinActive ?? ompPinActive)();
     this.reapDismissed(info.installedVersion);
     if (info.error !== null || info.latestVersion === null) {
       // Offline/registry unreachable: quiet in the background, answered manually.

@@ -17,6 +17,7 @@ import {
   fleetEffectiveRung,
   fleetRungAtLeast,
   fleetRungRank,
+  type AppUpdateState,
   type FleetAuditEntry,
   type FleetDetachedExecRequest,
   type FleetDetachedExecStartOutcome,
@@ -33,11 +34,22 @@ import {
   type FleetProviderKeysRequest,
   type FleetRequester,
   type FleetRung,
+  type FleetUpdateAck,
+  type FleetUpdateMemberRequest,
+  type FleetUpdatePollOutcome,
+  type FleetUpdatePollRequest,
   Registry,
+  checkOmpUpdate as coreCheckOmpUpdate,
+  downloadOmp,
+  fetchLatestOmpVersion,
+  managedOmpPath,
+  readInstalledOmpVersion,
 } from "@omp-ui/core";
 import { passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
 import { FleetDetachedExecs } from "./fleet-detached-exec";
+import { FleetMaintenance } from "./fleet-maintenance";
 import { launchFleetShell, messageOf, resolveFleetCwd, type FleetCommandDeps, type FleetCommandSpec } from "./fleet-shell";
+import { isAutoUpdateFormat } from "./app-update";
 import { appendMainLog } from "./main-log";
 
 const AUDIT_RING_CAPACITY = 200;
@@ -106,6 +118,23 @@ export interface FleetServerDeps {
   addProject: (dir: string) => Promise<void>;
   /** ProviderKeys.setKey on this machine; throws a user-facing reason. */
   installProviderKey: (envName: string, value: string) => void;
+  /** Fleet remote version update (issue #901 fleet family): this machine's omp install.
+   *  null when no binary resolves (fresh machine); the managed path is where a
+   *  fleet-staged omp installs regardless. */
+  ompInstallPath: () => string | null;
+  /** Fires only after a fleet-staged omp install succeeded, so the backend
+   *  re-resolves the binary and restarts nothing that pinned the old one. */
+  onOmpApplied: (version: string) => void;
+  /** AppUpdater's live state — `app / check` reads it, never a new network call. */
+  appUpdateState: () => AppUpdateState;
+  /** AppUpdater staging (download-and-verify only; NEVER an install). */
+  stageAppUpdate: () => Promise<"staged" | "up-to-date" | "unavailable" | "failed">;
+  /** AppUpdater.setInstallOnQuit(true) equivalent; false when the updater declined. */
+  armAppUpdateOnQuit: () => boolean;
+  /** Sessions running on this machine right now (apply safety). */
+  liveSessions: () => number;
+  /** Core's pin rule: OMP_UI_OMP_PATH names an existing file. */
+  pinned: () => boolean;
   /** Test seams. */
   commandDeps?: FleetCommandDeps;
   execGit?: (file: string, args: string[], opts: { cwd: string; timeout: number }) => Promise<{ stdout: Buffer }>;
@@ -115,6 +144,10 @@ export class FleetServer {
   readonly #deps: FleetServerDeps;
   readonly #ring: FleetAuditEntry[] = [];
   readonly #detached: FleetDetachedExecs;
+  readonly #maintenance: FleetMaintenance;
+  /** jobId → the omp version an accepted stage was about to install; consumed
+   *  by the registry's onFinish so onOmpApplied never fires for revoked work. */
+  readonly #ompJobVersions = new Map<string, string>();
 
   constructor(deps: FleetServerDeps) {
     this.#deps = deps;
@@ -122,6 +155,18 @@ export class FleetServer {
       commandDeps: deps.commandDeps,
       onFinish: (rec) =>
         this.#audit("exec-detached", rec.requester, rec.rung, true, `${rec.execId.slice(0, 8)} ${rec.state}`, rec.exitCode),
+    });
+    this.#maintenance = new FleetMaintenance({
+      broadcast: deps.broadcast,
+      onFinish: (rec) => {
+        this.#audit("update", rec.requester, rec.rung, true, `${rec.kind} ${rec.state}${rec.detail === null ? "" : `: ${rec.detail}`}`, null);
+        // A succeeded omp install changed the binary on disk; the backend
+        // re-resolves it. Only on success — revoked/failed jobs installed
+        // nothing, and dispose() never earns a callback.
+        const version = this.#ompJobVersions.get(rec.jobId);
+        this.#ompJobVersions.delete(rec.jobId);
+        if (rec.kind === "omp" && rec.state === "succeeded" && version !== undefined) this.#deps.onOmpApplied(version);
+      },
     });
   }
 
@@ -229,19 +274,188 @@ export class FleetServer {
     return { status: "accepted", installed, failed };
   }
 
-  /** Revoke every running detached exec whose starter no longer holds Full control here. */
-  enforceDetached(): void {
-    const registry = this.#deps.registry;
-    this.#detached.revokeWhere(
-      (id) =>
-        registry.getSetting("fleetExecEnabled") &&
-        fleetRungAtLeast(fleetEffectiveRung(registry.getSetting("fleetGrants")[id], registry.getSetting("fleetExecCeiling")), "full"),
-    );
+  /**
+   * `fleet:updateMember` (Fleet remote version update): rung 4 + master switch,
+   * then the member acts on ITS OWN versions. `omp / check` reads this machine's
+   * install plus the npm registry; `omp / stage` downloads into the managed path
+   * as a maintenance job (the binary installs as it downloads — there is no
+   * separate apply). `app / check` reads the updater state without any new
+   * network call; `app / stage` downloads-and-verifies through the app's own
+   * updater; `app / apply` only arms the install-on-quit hook. Nothing here can
+   * restart the app or call quitAndInstall: apply is always deferred to the
+   * owner quitting this machine by hand.
+   */
+  async updateMember(req: FleetUpdateMemberRequest): Promise<FleetUpdateAck> {
+    const gate = this.check(req.requester, "full");
+    if (!gate.ok) {
+      this.#audit("update", req.requester, "full", false, `${req.target} ${req.action}`, null);
+      return { status: "refused", reason: gate.reason };
+    }
+    if (req.target === "omp") {
+      if (req.action === "apply") {
+        // The parser refuses this combination; the member stays defensive.
+        const reason = "the omp binary installs as it downloads; there is no separate apply for it";
+        this.#audit("update", req.requester, gate.rung, false, `omp ${req.action}`, null);
+        return { status: "refused", reason };
+      }
+      if (req.action === "check") {
+        const info = await coreCheckOmpUpdate({ installPath: this.#deps.ompInstallPath() });
+        this.#audit(
+          "update",
+          req.requester,
+          gate.rung,
+          true,
+          `omp check ${info.installedVersion ?? "none"}→${info.latestVersion ?? "none"}`,
+          null,
+        );
+        return {
+          status: "accepted",
+          check: {
+            target: "omp",
+            installedVersion: info.installedVersion,
+            installPath: info.installPath,
+            latestVersion: info.latestVersion,
+            updateAvailable: info.updateAvailable,
+            belowMinimum: info.belowMinimum,
+            pinned: this.#deps.pinned(),
+          },
+        };
+      }
+      if (this.#deps.pinned()) {
+        // A dev pin outranks the managed copy, so installing there would be
+        // silently ignored. The reason names the variable, never a path.
+        this.#audit("update", req.requester, gate.rung, false, `omp ${req.action}`, null);
+        return {
+          status: "refused",
+          reason: "omp is pinned by OMP_UI_OMP_PATH on this machine; install into the managed path or clear the pin",
+        };
+      }
+      const version = req.version ?? (await fetchLatestOmpVersion());
+      if (version === null) {
+        this.#audit("update", req.requester, gate.rung, false, `omp ${req.action}`, null);
+        return { status: "refused", reason: "no omp release is available for this machine" };
+      }
+      const installPath = this.#deps.ompInstallPath();
+      const outcome = this.#maintenance.start(req.requester, gate.rung, "omp", async (ctx) => {
+        const targetPath = managedOmpPath();
+        const from = await readInstalledOmpVersion(installPath ?? targetPath);
+        await downloadOmp({
+          version,
+          targetPath,
+          shouldCommit: ctx.shouldCommit,
+          onProgress: (percent) => ctx.report({ percent, phase: "downloading" }),
+        });
+        return { detail: `omp ${from ?? "none"} → ${version} at ${targetPath}` };
+      });
+      if (outcome.status === "refused") {
+        this.#audit("update", req.requester, gate.rung, false, `omp ${req.action}`, null);
+        return outcome;
+      }
+      this.#ompJobVersions.set(outcome.jobId, version);
+      this.#audit("update", req.requester, gate.rung, true, `omp → ${version} (job ${outcome.jobId.slice(0, 8)})`, null);
+      return { status: "accepted", jobId: outcome.jobId };
+    }
+    const st = this.#deps.appUpdateState();
+    if (req.action === "check") {
+      // No new network call, no audit line: the updater's own state is the answer.
+      return {
+        status: "accepted",
+        check: {
+          target: "app",
+          currentVersion: st.currentVersion,
+          latestVersion: st.latestVersion,
+          format: st.format,
+          staged: st.status === "downloaded",
+          installOnQuit: st.installOnQuit,
+          liveSessions: this.#deps.liveSessions(),
+        },
+      };
+    }
+    if (req.action === "stage") {
+      const disabled = "omp-ui auto-update is off in this install (Settings → Updates)";
+      if (st.status === "disabled") {
+        this.#audit("update", req.requester, gate.rung, false, `app ${req.action}`, null);
+        return { status: "refused", reason: disabled };
+      }
+      if (!isAutoUpdateFormat(st.format)) {
+        this.#audit("update", req.requester, gate.rung, false, `app ${req.action}`, null);
+        return {
+          status: "refused",
+          reason:
+            st.format === "deb" || st.format === "rpm" || st.format === "flatpak"
+              ? `this machine installs omp-ui as a ${st.format} package; update it with its package manager`
+              : "omp-ui does not know how this machine's omp-ui was installed; update it manually",
+        };
+      }
+      const outcome = this.#maintenance.start(req.requester, gate.rung, "app", async (ctx) => {
+        ctx.report({ percent: null, phase: "staging" });
+        const stagedAt = st.latestVersion ?? this.#deps.appUpdateState().latestVersion;
+        const result = await this.#deps.stageAppUpdate();
+        if (result === "staged") return { detail: `app staged ${stagedAt ?? ""}`.trim() };
+        // A stale check costs one round trip and keeps `app / check` cheap: an
+        // up-to-date train FAILS the job so the dispatcher reads the reason.
+        if (result === "up-to-date") throw new Error("no omp-ui release is available for this machine's train");
+        if (result === "unavailable") throw new Error(disabled);
+        throw new Error("the omp-ui update could not be staged on this machine");
+      });
+      if (outcome.status === "refused") {
+        this.#audit("update", req.requester, gate.rung, false, `app ${req.action}`, null);
+        return outcome;
+      }
+      this.#audit(
+        "update",
+        req.requester,
+        gate.rung,
+        true,
+        `app → ${st.latestVersion ?? "unknown"} (job ${outcome.jobId.slice(0, 8)})`,
+        null,
+      );
+      return { status: "accepted", jobId: outcome.jobId };
+    }
+    // app / apply: arm only. Re-check the ladder; this machine restarts when
+    // its owner quits it — never here.
+    const applyGate = this.check(req.requester, "full");
+    if (!applyGate.ok) {
+      this.#audit("update", req.requester, "full", false, `app ${req.action}`, null);
+      return { status: "refused", reason: applyGate.reason };
+    }
+    const live = this.#deps.liveSessions();
+    if (live > 0 && !req.allowLiveSessions) {
+      this.#audit("update", req.requester, applyGate.rung, false, `app ${req.action}`, null);
+      return { status: "refused", reason: `${live} live session(s) run on this machine; stop them or choose Install when I quit` };
+    }
+    if (this.#deps.appUpdateState().status !== "downloaded") {
+      this.#audit("update", req.requester, applyGate.rung, false, `app ${req.action}`, null);
+      return { status: "refused", reason: "no omp-ui update is staged on this machine" };
+    }
+    if (!this.#deps.armAppUpdateOnQuit()) {
+      this.#audit("update", req.requester, applyGate.rung, false, `app ${req.action}`, null);
+      return { status: "refused", reason: "this machine's updater declined to arm the install" };
+    }
+    this.#audit("update", req.requester, gate.rung, true, "app apply arm-on-quit", null);
+    return { status: "accepted", detail: "arm-on-quit" };
   }
 
-  /** Quit path: kill every running detached exec. */
+  /** `fleet:updatePoll`: no ladder check — only the dispatcher that started the job can see it. Never audited. */
+  updatePoll(req: FleetUpdatePollRequest): Promise<FleetUpdatePollOutcome> {
+    this.#recordFirstSight(req.requester);
+    return this.#maintenance.poll(req.requester, req.jobId, req.waitMs);
+  }
+
+  /** Revoke every running detached exec or maintenance job whose starter no longer holds Full control here. */
+  enforceDetached(): void {
+    const registry = this.#deps.registry;
+    const stillAllowed = (id: string) =>
+      registry.getSetting("fleetExecEnabled") &&
+      fleetRungAtLeast(fleetEffectiveRung(registry.getSetting("fleetGrants")[id], registry.getSetting("fleetExecCeiling")), "full");
+    this.#detached.revokeWhere(stillAllowed);
+    this.#maintenance.revokeWhere(stillAllowed);
+  }
+
+  /** Quit path: kill every running detached exec, revoke every maintenance job (never install on the way out). */
   dispose(): void {
     this.#detached.dispose();
+    this.#maintenance.dispose();
   }
 
   /** `fleet:projectManage`: rung 3 + declared roots; the fixed clone/register verbs. */

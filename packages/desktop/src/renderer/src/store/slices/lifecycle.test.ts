@@ -20,7 +20,7 @@ import {
 import { h } from "../../test/store-harness";
 import { en } from "../../lib/i18n/en";
 import type { LifecycleSlice } from "./lifecycle";
-import type { RpcTabState, UiStore } from "../types";
+import type { LifecycleConfirmationChoice, RpcTabState, UiStore } from "../types";
 import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolution";
 
 describe("running-input keyword process boundaries (issue #726)", () => {
@@ -2742,5 +2742,130 @@ describe("askAboutSession (issue #895)", () => {
 
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
     expect(h.errorMessages()).toEqual([en["ask.error.remote"]]);
+  });
+});
+
+describe("Fleet remote version update gates (slice H)", () => {
+  // The harness backend has no fleetUpdateMachine until this suite bolts one
+  // on: the renderer bridge only ever sees what window.ompBackend supplies.
+  const updateMachine = vi.fn(async (): Promise<unknown> => ({ status: "accepted", jobId: "job-1" }));
+  Object.assign(h.mockBackend, { fleetUpdateMachine: updateMachine });
+  const fleetSlice = () => h.useStore.getState() as UiStore & LifecycleSlice;
+
+  beforeEach(() => {
+    updateMachine.mockClear();
+    updateMachine.mockResolvedValue({ status: "accepted", jobId: "job-1" });
+    h.useStore.setState({ infoNotices: [], errorNotices: [] });
+  });
+
+  /** A joined member "studio" (id inst-a) plus a fleet machine row for it. */
+  const seedMember = (joined: boolean): void => {
+    h.useStore.setState({
+      state: makeBackendState({
+        remoteInstances: joined ? [remoteInstance({ id: "inst-a", nickname: "studio" })] : [],
+      }),
+      fleet: { machines: [{
+        key: "inst-a", nickname: "studio", status: "ready", error: null, preference: "normal",
+        report: null, receivedAt: 0, grantRung: null, address: null, sshReachable: null,
+        maintenance: null,
+      }], audit: [], loading: false, error: null },
+    });
+  };
+
+  const stage = (choice: LifecycleConfirmationChoice): void => {
+    fleetSlice().stageLifecycleConfirmation(choice);
+  };
+
+  it("updates omp on a still-joined member with exactly one stage request", async () => {
+    seedMember(true);
+    stage({
+      kind: "fleet-update-omp", machineKey: "inst-a", machineNickname: "studio",
+      currentVersion: "18.12.0", targetVersion: null,
+    });
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    await h.useStore.getState().confirmLifecycleAction(confirmation.id);
+    expect(updateMachine).toHaveBeenCalledTimes(1);
+    expect(updateMachine).toHaveBeenCalledWith("inst-a", {
+      target: "omp", action: "stage", version: null, allowLiveSessions: false,
+    });
+    // Quiet success breadcrumb: the machine list re-reads (the row's
+    // maintenance state is the record); no notice or error dialog appears.
+    expect(h.useStore.getState().infoNotices).toEqual([]);
+    expect(h.errorMessages()).toEqual([]);
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+
+  it("re-checks membership at acceptance: a forgotten member dispatches nothing", async () => {
+    seedMember(true);
+    stage({
+      kind: "fleet-update-omp", machineKey: "inst-a", machineNickname: "studio",
+      currentVersion: null, targetVersion: "18.13.1",
+    });
+    const id = h.useStore.getState().lifecycleConfirmation!.id;
+    // Forgotten from another window while the dialog sat open — and the Fleet
+    // view's machine row is gone too, exactly like rollout's re-check target.
+    h.useStore.setState({ state: makeBackendState(), fleet: null });
+
+    await h.useStore.getState().confirmLifecycleAction(id);
+    expect(updateMachine).not.toHaveBeenCalled();
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+
+  it("stages the app package with the chosen version", async () => {
+    seedMember(true);
+    stage({ kind: "fleet-stage-app", machineKey: "inst-a", machineNickname: "studio", version: "1.4.0" });
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    await h.useStore.getState().confirmLifecycleAction(confirmation.id);
+    expect(updateMachine).toHaveBeenCalledTimes(1);
+    expect(updateMachine).toHaveBeenCalledWith("inst-a", {
+      target: "app", action: "stage", version: "1.4.0", allowLiveSessions: false,
+    });
+  });
+
+  it("applies with allowLiveSessions only when live sessions were named", async () => {
+    seedMember(true);
+    stage({ kind: "fleet-apply-app", machineKey: "inst-a", machineNickname: "studio", liveSessions: 2 });
+    const confirmation = h.useStore.getState().lifecycleConfirmation!;
+    await h.useStore.getState().confirmLifecycleAction(confirmation.id);
+    expect(updateMachine).toHaveBeenCalledTimes(1);
+    // Accepting the body that named the two sessions IS "Install when I quit".
+    expect(updateMachine).toHaveBeenCalledWith("inst-a", {
+      target: "app", action: "apply", version: null, allowLiveSessions: true,
+    });
+
+    h.useStore.setState({ lifecycleConfirmation: null });
+    stage({ kind: "fleet-apply-app", machineKey: "inst-a", machineNickname: "studio", liveSessions: 0 });
+    await h.useStore.getState().confirmLifecycleAction(h.useStore.getState().lifecycleConfirmation!.id);
+    expect(updateMachine).toHaveBeenLastCalledWith("inst-a", {
+      target: "app", action: "apply", version: null, allowLiveSessions: false,
+    });
+  });
+
+  it("surfaces a refusal through the error notices like rollout does", async () => {
+    seedMember(true);
+    updateMachine.mockResolvedValueOnce({
+      status: "refused", reason: "omp is pinned by OMP_UI_OMP_PATH on this machine; install into the managed path or clear the pin",
+    });
+    stage({
+      kind: "fleet-update-omp", machineKey: "inst-a", machineNickname: "studio",
+      currentVersion: "18.12.0", targetVersion: null,
+    });
+    await h.useStore.getState().confirmLifecycleAction(h.useStore.getState().lifecycleConfirmation!.id);
+    expect(h.errorMessages()).toEqual([
+      "omp is pinned by OMP_UI_OMP_PATH on this machine; install into the managed path or clear the pin",
+    ]);
+    expect(h.useStore.getState().infoNotices).toEqual([]);
+  });
+
+  it("lets the local sentinel through without a join (it cannot be forgotten)", async () => {
+    h.useStore.setState({ state: makeBackendState(), fleet: null });
+    stage({
+      kind: "fleet-update-omp", machineKey: "local", machineNickname: null,
+      currentVersion: "18.12.0", targetVersion: null,
+    });
+    await h.useStore.getState().confirmLifecycleAction(h.useStore.getState().lifecycleConfirmation!.id);
+    expect(updateMachine).toHaveBeenCalledWith("local", {
+      target: "omp", action: "stage", version: null, allowLiveSessions: false,
+    });
   });
 });

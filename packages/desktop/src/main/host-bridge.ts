@@ -34,6 +34,7 @@ import {
   vaultRead,
   vaultSearch,
   VAULT_WRITE_TOOLS,
+  type FleetAgentUpdateAnswer,
   type FleetDispatchRequest,
   type FleetDispatchResult,
   type FleetDetachedExecStartOutcome,
@@ -43,6 +44,7 @@ import {
   type FleetToolExecArgs,
   type FleetToolExecPollArgs,
   type FleetToolProjectArgs,
+  type FleetToolUpdateArgs,
   type FleetMachine,
   type ObsidianListEntry,
   type RootGuard,
@@ -100,6 +102,8 @@ export interface FleetBridgeDeps {
   execDetach(tabId: string, args: FleetToolExecArgs): Promise<FleetDetachedExecStartOutcome>;
   /** Polls, or cancels, one detached exec this app started (issue #905). */
   execPoll(tabId: string, args: FleetToolExecPollArgs): Promise<FleetExecPollOutcome>;
+  /** Fleet maintenance on a member (fleet remote version update); refusals ride the answer. */
+  update(tabId: string, args: FleetToolUpdateArgs): Promise<FleetAgentUpdateAnswer>;
 }
 
 export interface HostBridgeDeps {
@@ -468,6 +472,16 @@ export class HostBridge {
         reply(hostToolTextResult(call.id, `${parsed.args.verb} accepted: ${outcome.path}${outcome.headCommit === null ? "" : ` (HEAD ${outcome.headCommit})`}`));
         return;
       }
+      if (parsed.tool === "update") {
+        const answer = await deps.update(tabId, parsed.args);
+        // Machine, target/action, and answer kind only — versions and refusal
+        // reasons stay out of the log; they ride the tool answer.
+        this.deps.log(
+          `omp-ui_fleet_update from ${tabId}: ${parsed.args.machine} ${parsed.args.target}/${parsed.args.action} ${answer.kind}`,
+        );
+        reply(hostToolTextResult(call.id, fleetUpdateAnswerText(parsed.args.machine, answer)));
+        return;
+      }
       const machines = await deps.machines();
       if (!retained()) return;
       const translated = fleetToolDispatchRequest(parsed.args, machines);
@@ -770,6 +784,50 @@ const SESSION_SUMMARY_RESOURCE = /^sessions\/([^/?#]+)\/summary$/;
 function planContentType(absPath: string): HostUriContentType {
   const ext = absPath.slice(absPath.lastIndexOf(".")).toLowerCase();
   return ext === ".json" ? "application/json" : "text/markdown";
+}
+
+/** Render one omp-ui_fleet_update answer (fleet remote version update, §8); pure render data from the dispatcher. */
+function fleetUpdateAnswerText(machine: string, answer: FleetAgentUpdateAnswer): string {
+  if (answer.kind === "refused") return `refused — ${answer.reason}`;
+  if (answer.kind === "started") {
+    return `maintenance job started on ${machine}: jobId ${answer.jobId}. Poll omp-ui_fleet_update with the same arguments; do not start it twice.`;
+  }
+  if (answer.kind === "applied") return answer.detail;
+  if (answer.kind === "poll") {
+    const progress = answer.progress;
+    const head =
+      answer.state === "running"
+        ? progress === null
+          ? "running"
+          : `running (${progress.percent === null ? progress.phase : `${progress.phase} ${progress.percent}%`})`
+        : answer.state === "succeeded"
+          ? `succeeded${answer.detail === null ? "" : `: ${answer.detail}`}`
+          : answer.state === "failed"
+            ? `failed${answer.detail === null ? "" : `: ${answer.detail}`}`
+            : "revoked by the member's owner";
+    return head;
+  }
+  const check = answer.check;
+  if (check.target === "omp") {
+    const lines = [
+      `omp on ${machine}:`,
+      `- installed: ${check.installedVersion ?? "unknown"}${check.installPath === null ? "" : ` at ${check.installPath}`}`,
+      `- latest: ${check.latestVersion ?? "unknown"}`,
+      `- ${check.updateAvailable ? "update available" : "up to date"}`,
+    ];
+    if (check.pinned) lines.push("- pinned by OMP_UI_OMP_PATH on that machine");
+    if (check.belowMinimum) lines.push("- below the minimum supported omp version");
+    return lines.join("\n");
+  }
+  const lines = [
+    `omp-ui on ${machine}:`,
+    `- current: ${check.currentVersion ?? "unknown"}`,
+    `- latest: ${check.latestVersion ?? "unknown"}`,
+    `- package format: ${check.format ?? "unknown"}`,
+    `- update staged: ${check.staged ? "yes" : "no"}${check.installOnQuit ? " (armed to apply at that machine's next quit)" : ""}`,
+    `- live sessions: ${check.liveSessions}`,
+  ];
+  return lines.join("\n");
 }
 
 type VaultArguments = { vault?: string } & (

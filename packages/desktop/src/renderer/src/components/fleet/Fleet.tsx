@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { SessionSummary } from "@omp-ui/core/types";
 import {
+  fleetAppUpdateAvailable,
   fleetOsLabel,
   LOCAL_MACHINE_KEY,
   PLACEMENT_PREFERENCES,
   type FleetAuditEntry,
   type FleetMachine,
   type FleetMachineStatus,
+  type FleetMaintenanceRecord,
   type FleetPackageManager,
   type FleetPendingDispatch,
   type FleetRung,
@@ -17,6 +19,7 @@ import { startVisibleInterval } from "../../lib/visible-interval";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../../store";
 import { SESSION_FACE } from "../SessionRow";
 import { Button, ChoiceCapsule, Chip, Dot, IconButton, IconClose, IconRefresh, Label, type Tone } from "../ui";
+import { FleetUpdateDialog, type FleetUpdateConfirmRequest } from "./FleetUpdateDialog";
 import { ProviderKeyRolloutDialog } from "./ProviderKeyRolloutDialog";
 
 /**
@@ -57,6 +60,7 @@ const AUDIT_ACTION_LABEL: Record<FleetAuditEntry["action"], MessageKey> = {
   "grant-set": "fleet.audit.grantSet",
   "exec-detached": "fleet.audit.execDetached",
   keys: "fleet.audit.keys",
+  update: "fleet.audit.update",
 };
 
 /** One dispatched session wherever it lives: this app's registry or a joined instance's. */
@@ -91,18 +95,114 @@ function packageManagersTitle(
   });
 }
 
-function MachineRow({ machine, onRollout }: { machine: FleetMachine; onRollout: (machine: FleetMachine) => void }) {
+/** The omp chip's hover text (ADR-0066): the managed path, plus how it was chosen. */
+function ompChipTitle(
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+  report: NonNullable<FleetMachine["report"]>,
+): string {
+  if (report.ompVersion === null && report.ompPath === null) return t("fleet.machine.ompChipNotInstalled");
+  const path = report.ompPath ?? "";
+  return report.ompPinned ? t("fleet.machine.ompChipPinned", { path }) : t("fleet.machine.ompChip", { path });
+}
+
+/**
+ * The last Fleet maintenance this controller started on the member (ADR-0066):
+ * dispatcher-side bookkeeping over the member's own job record, refreshed by
+ * the machines poll while a job runs.
+ */
+function MaintenanceChip({ record }: { record: FleetMaintenanceRecord }) {
+  const t = useT();
+  if (record.state === "running") {
+    return (
+      <span data-maintenance="running">
+        <Chip tone="copper">
+          {t("fleet.maintenance.running", {
+            target: record.target,
+            progress: record.progress === null ? "" : ` ${record.progress}%`,
+          })}
+        </Chip>
+      </span>
+    );
+  }
+  if (record.state === "succeeded") {
+    // omp details read `omp <from> → <to> at <path>`; the tail is the news.
+    const tail = record.detail?.split("\u2192 ").pop() ?? null;
+    return (
+      <span data-maintenance="succeeded">
+        <Chip tone="signal" title={record.detail ?? undefined}>
+          {record.target === "omp"
+            ? t("fleet.maintenance.succeededOmp", { detail: tail ?? "" })
+            : t("fleet.maintenance.succeededApp")}
+        </Chip>
+      </span>
+    );
+  }
+  if (record.state === "failed") {
+    return (
+      <span data-maintenance="failed">
+        <Chip tone="rose" truncate title={record.detail ?? undefined}>
+          {t("fleet.maintenance.failed", { detail: record.detail ?? "" })}
+        </Chip>
+      </span>
+    );
+  }
+  return (
+    <span data-maintenance="revoked">
+      <Chip tone="neutral" title={t("fleet.maintenance.revokedTitle")}>
+        {t("fleet.maintenance.revoked")}
+      </Chip>
+    </span>
+  );
+}
+
+function MachineRow({
+  machine,
+  onRollout,
+  onUpdate,
+}: {
+  machine: FleetMachine;
+  onRollout: (machine: FleetMachine) => void;
+  onUpdate: (machine: FleetMachine) => void;
+}) {
   const t = useT();
   const setFleetPlacement = useStore((s) => s.setFleetPlacement);
   const name = machine.nickname ?? t("fleet.machine.thisComputer");
   const face = STATUS_FACE[machine.status];
   const report = machine.report;
+  // ADR-0066: the maintenance chip reads the last job we started here, if any.
+  const maintenance = machine.maintenance;
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-[11px]" data-machine-key={machine.key}>
       <span className="flex min-w-0 items-center gap-1.5">
         <Dot tone={face.tone} title={t(face.labelKey)} />
         <span className="truncate text-xs text-ink">{name}</span>
         {report !== null && <Chip mono>{t("fleet.machine.version", { version: report.version })}</Chip>}
+        {/* ADR-0066: what each member runs, so skew is visible before dispatching to it. */}
+        {report !== null && (report.ompVersion !== null || report.ompPath === null) && (
+          <Chip mono title={ompChipTitle(t, report)}>
+            {report.ompVersion === null
+              ? t("fleet.machine.ompNotInstalled")
+              : t("fleet.machine.ompVersion", { version: report.ompVersion })}
+          </Chip>
+        )}
+        {report !== null && report.ompBelowMinimum && (
+          <Chip tone="rose" title={t("fleet.machine.belowFloorTitle")}>
+            {t("fleet.machine.belowFloor")}
+          </Chip>
+        )}
+        {report !== null &&
+          (report.appUpdateStaged ? (
+            <Chip title={t("fleet.machine.updateStagedTitle", { machine: name })}>
+              {t("fleet.machine.updateStaged")}
+            </Chip>
+          ) : (
+            fleetAppUpdateAvailable(report.version, report.appLatestVersion) && (
+              <Chip title={t("fleet.machine.updateAvailableTitle", { version: report.appLatestVersion ?? "" })}>
+                {t("fleet.machine.updateAvailable")}
+              </Chip>
+            )
+          ))}
+        {maintenance !== null && <MaintenanceChip record={maintenance} />}
         {/* #901: what this member will accept from us; null for this computer and older peers. */}
         {machine.grantRung !== null && (
           <Chip tone={machine.grantRung === "full" ? "copper" : "neutral"}>
@@ -161,16 +261,28 @@ function MachineRow({ machine, onRollout }: { machine: FleetMachine; onRollout: 
         )}
       </span>
       {machine.key !== LOCAL_MACHINE_KEY && machine.status === "ready" && (
-        // #905: Provider key rollout; the member refuses anything below Full control.
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={machine.grantRung !== "full"}
-          title={machine.grantRung !== "full" ? t("fleet.machine.rolloutKeysNeedsFull") : undefined}
-          onClick={() => onRollout(machine)}
-        >
-          {t("fleet.machine.rolloutKeys")}
-        </Button>
+        <>
+          {/* #905: Provider key rollout; the member refuses anything below Full control. */}
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={machine.grantRung !== "full"}
+            title={machine.grantRung !== "full" ? t("fleet.machine.rolloutKeysNeedsFull") : undefined}
+            onClick={() => onRollout(machine)}
+          >
+            {t("fleet.machine.rolloutKeys")}
+          </Button>
+          {/* ADR-0066: remote version maintenance rides the same Full-control gate. */}
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={machine.grantRung !== "full"}
+            title={machine.grantRung !== "full" ? t("fleet.machine.updateVersionsNeedsFull") : undefined}
+            onClick={() => onUpdate(machine)}
+          >
+            {t("fleet.machine.updateVersions")}
+          </Button>
+        </>
       )}
       <ChoiceCapsule
         label={t("fleet.machine.preference", { machine: name })}
@@ -187,6 +299,40 @@ function MachinesSection() {
   const t = useT();
   const view = useStore((s) => s.fleet);
   const [rollout, setRollout] = useState<FleetMachine | null>(null);
+  const [update, setUpdate] = useState<FleetMachine | null>(null);
+  const stageLifecycleConfirmation = useStore((s) => s.stageLifecycleConfirmation);
+  // ADR-0066: the dialog only asks; the lifecycle confirmation gate owns the
+  // run. The version hop and the live-session count the bodies name ride the
+  // machine's own report — the same row that opened the dialog.
+  const requestUpdateConfirmation = (req: FleetUpdateConfirmRequest): void => {
+    const report = view?.machines?.find((m) => m.key === req.machineKey)?.report ?? null;
+    if (req.target === "omp") {
+      stageLifecycleConfirmation({
+        kind: "fleet-update-omp",
+        machineKey: req.machineKey,
+        machineNickname: req.machineNickname,
+        currentVersion: report?.ompVersion ?? null,
+        targetVersion: req.version,
+      });
+    } else if (req.action === "stage") {
+      stageLifecycleConfirmation({
+        kind: "fleet-stage-app",
+        machineKey: req.machineKey,
+        machineNickname: req.machineNickname,
+        version: req.version,
+      });
+    } else {
+      // Accepting the gate with live sessions running is the "Install when I
+      // quit" choice itself; the count comes from the report, not the picker's
+      // checkbox, so the body and the eventual request can never disagree.
+      stageLifecycleConfirmation({
+        kind: "fleet-apply-app",
+        machineKey: req.machineKey,
+        machineNickname: req.machineNickname,
+        liveSessions: report?.liveSessions ?? 0,
+      });
+    }
+  };
   if (view === null) return null;
   return (
     <Section title={t("fleet.section.machines")}>
@@ -198,11 +344,18 @@ function MachinesSection() {
       ) : (
         <ul className="divide-y divide-line-soft">
           {view.machines.map((machine) => (
-            <MachineRow key={machine.key} machine={machine} onRollout={setRollout} />
+            <MachineRow key={machine.key} machine={machine} onRollout={setRollout} onUpdate={setUpdate} />
           ))}
         </ul>
       )}
       {rollout !== null && <ProviderKeyRolloutDialog machine={rollout} onClose={() => setRollout(null)} />}
+      {update !== null && (
+        <FleetUpdateDialog
+          machine={update}
+          onClose={() => setUpdate(null)}
+          onRequestConfirmation={requestUpdateConfirmation}
+        />
+      )}
     </Section>
   );
 }

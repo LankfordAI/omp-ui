@@ -1,4 +1,5 @@
 import type { JSX } from "react";
+import { LOCAL_MACHINE_KEY } from "@omp-ui/core/fleet";
 import { useT, type MessageKey } from "../lib/i18n";
 import type { LifecycleConfirmation } from "../store";
 import { useStore } from "../store";
@@ -20,6 +21,26 @@ const MODE_LABEL: Record<"pty" | "rpc-ui", MessageKey> = {
   pty: "dialog.lifecycle.terminal",
   "rpc-ui": "dialog.lifecycle.native",
 };
+
+/** A fleet machine's display name across the three version-update gates:
+ *  nickname, else raw key — "This computer" for the local arm (the same rule
+ *  ProviderKeyRolloutDialog applies). */
+function fleetMachineLabel(
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+  machineKey: string,
+  nickname: string | null,
+): string {
+  return machineKey === LOCAL_MACHINE_KEY ? t("fleet.machine.thisComputer") : nickname ?? machineKey;
+}
+
+/** Whether a member joins over HTTPS — the rollout gate's transport rule
+ *  (#905) reused by the version-update gates: a plain-http join URL must be
+ *  named as unencrypted in the body. */
+function fleetJoinEncrypted(machineKey: string): boolean {
+  return (
+    useStore.getState().state?.remoteInstances.find((i) => i.id === machineKey)?.url ?? ""
+  ).startsWith("https:");
+}
 
 /** Copy and tone per confirmation discriminant; copper action, rose removal. */
 function lifecycleCopy(
@@ -126,6 +147,74 @@ function lifecycleCopy(
         action: t("dialog.lifecycle.rollout-keys.action"),
         target: null,
       };
+    case "fleet-update-omp": {
+      // The omp-binary arm of the Fleet remote version update: names the member
+      // and the version hop (null target = latest). Live sessions on the member
+      // keep the binary they started with; transport spelled out like rollout's,
+      // with no transport sentence for the local arm.
+      const local = confirmation.machineKey === LOCAL_MACHINE_KEY;
+      return {
+        tone: "copper",
+        title: t("fleet.update.omp.title"),
+        body: t(
+          local
+            ? "fleet.update.omp.bodyLocal"
+            : fleetJoinEncrypted(confirmation.machineKey)
+              ? "fleet.update.omp.body"
+              : "fleet.update.omp.bodyPlain",
+          {
+            target: fleetMachineLabel(t, confirmation.machineKey, confirmation.machineNickname),
+            from: confirmation.currentVersion ?? t("fleet.update.unknownVersion"),
+            to: confirmation.targetVersion ?? t("fleet.update.latest"),
+          },
+        ),
+        action: t("fleet.update.omp.action"),
+        target: null,
+      };
+    }
+    case "fleet-stage-app": {
+      // Staging downloads the package; nothing installs until the apply arm.
+      const local = confirmation.machineKey === LOCAL_MACHINE_KEY;
+      return {
+        tone: "copper",
+        title: t("fleet.update.stage.title"),
+        body: t(
+          local
+            ? "fleet.update.stage.bodyLocal"
+            : fleetJoinEncrypted(confirmation.machineKey)
+              ? "fleet.update.stage.body"
+              : "fleet.update.stage.bodyPlain",
+          {
+            target: fleetMachineLabel(t, confirmation.machineKey, confirmation.machineNickname),
+            version: confirmation.version ?? t("fleet.update.latest"),
+          },
+        ),
+        action: t("fleet.update.stage.action"),
+        target: null,
+      };
+    }
+    case "fleet-apply-app": {
+      // The arm-on-quit gate: nothing restarts from a fleet request. With live
+      // sessions the body names the count and where they run — accepting IS the
+      // "Install when I quit" choice. {target} is the lowercase label so
+      // "this computer" reads naturally mid-sentence in both arms.
+      return {
+        tone: "copper",
+        title: t("fleet.update.apply.title"),
+        body: t(
+          confirmation.liveSessions > 0 ? "fleet.update.apply.bodyLive" : "fleet.update.apply.body",
+          {
+            target:
+              confirmation.machineKey === LOCAL_MACHINE_KEY
+                ? t("fleet.update.thisMachine")
+                : confirmation.machineNickname ?? confirmation.machineKey,
+            count: confirmation.liveSessions,
+          },
+        ),
+        action: t("fleet.update.apply.action"),
+        target: null,
+      };
+    }
   }
 }
 

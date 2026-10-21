@@ -137,12 +137,20 @@ export class FleetMaintenance {
         }
       },
     };
-    void Promise.resolve()
-      .then(run)
-      .then(
-        (result) => this.#close(job, "succeeded", result.detail),
-        (err: unknown) => this.#close(job, "failed", err instanceof Error ? err.message : String(err)),
-      );
+    // Start synchronously (the detached-exec registry starts its shell the
+    // same way): a runner's synchronous throw becomes an immediately-failed
+    // job, still accepted-with-id so the caller can poll why.
+    let running: Promise<FleetMaintenanceRunResult>;
+    try {
+      running = Promise.resolve(run(ctx));
+    } catch (err) {
+      this.#close(job, "failed", err instanceof Error ? err.message : String(err));
+      return { status: "accepted", jobId };
+    }
+    void running.then(
+      (result) => this.#close(job, "succeeded", result.detail),
+      (err: unknown) => this.#close(job, "failed", err instanceof Error ? err.message : String(err)),
+    );
     return { status: "accepted", jobId };
   }
 

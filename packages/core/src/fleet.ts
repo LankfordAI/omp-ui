@@ -6,7 +6,6 @@
  * fleet-host.ts.
  */
 import { APP_PACKAGE_FORMATS, type AppPackageFormat } from "./update-types";
-import { MIN_SUPPORTED_OMP } from "./harness-floor";
 import { compareVersions } from "./semver";
 import { PROVIDER_ENV_NAMES } from "./provider-catalog";
 import type { SessionSummary } from "./types";
@@ -258,8 +257,8 @@ export function parseFleetPackageManagers(value: unknown): FleetPackageManager[]
 
 // ── Fleet remote version update (fleet members update themselves) ─────────
 
-/** Strict semver, optional -prerelease; nothing else can ride a version field. */
-export const FLEET_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+/** Strict semver, optional bounded -prerelease; nothing else can ride a version field. */
+export const FLEET_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]{1,60})?$/;
 
 /** The normalizer's output: one report's update facts, older members all-null. */
 export type FleetUpdateFacts = Pick<
@@ -827,8 +826,8 @@ export function parseFleetUpdateMemberRequest(value: unknown): FleetUpdateMember
   const label = "fleet update request";
   const raw = objectValue(value, label);
   rejectUnknownKeys(raw, ["requester", "target", "action", "version", "allowLiveSessions"], label);
-  const body = parseFleetUpdateRequest(raw, label);
-  return { requester: parseFleetRequester(raw.requester, `${label}.requester`), ...body };
+  const { requester, ...body } = raw;
+  return { requester: parseFleetRequester(requester, `${label}.requester`), ...parseFleetUpdateRequest(body, label) };
 }
 
 /** Strict parse of the proxied maintenance poll. Messages are user-facing. */
@@ -1150,8 +1149,11 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     if (a.target === "omp" && a.action === "apply") return refuse("the omp binary installs as it downloads; use action update");
     let version: string | null = null;
     if (a.version !== undefined) {
+      if (a.action !== "update") {
+        return refuse(`a version belongs on action update, not ${a.action}`);
+      }
       if (typeof a.version !== "string" || !FLEET_VERSION_PATTERN.test(a.version)) {
-        return refuse(`version must look like 18.13.1${a.action === "check" ? "; a version belongs on action update, not check" : ""}`);
+        return refuse("version must look like 18.13.1");
       }
       version = a.version;
     }

@@ -44,6 +44,13 @@ function report(projects: FleetHostProject[], patch: Partial<FleetHostReport> = 
     projectRoots: [],
     os: { name: "Fedora Linux 44 (Workstation Edition)", version: "44" },
     packageManagers: [{ name: "dnf", path: "/usr/bin/dnf", onPath: true }],
+    ompVersion: null,
+    ompPath: null,
+    ompPinned: false,
+    ompBelowMinimum: false,
+    packageFormat: null,
+    appLatestVersion: null,
+    appUpdateStaged: false,
     ...patch,
   };
 }
@@ -601,5 +608,260 @@ describe("FleetDispatcher member address (issue #904)", () => {
     expect(r1.report).toMatchObject({ user: null, projectRoots: null, os: null, packageManagers: null });
     expect(machines.find((m) => m.key === "r2")).toMatchObject({ address: "r2", sshReachable: null });
     expect(machines.find((m) => m.key === LOCAL_MACHINE_KEY)).toMatchObject({ address: null, sshReachable: null });
+  });
+});
+
+describe("FleetDispatcher fleet maintenance (fleet remote version update)", () => {
+  const USER = { instanceId: "dispatcher", label: "desk", kind: "user", sourceTabId: null };
+  const AGENT = { instanceId: "dispatcher", label: "desk", kind: "agent", sourceTabId: "tab-1" };
+  const LOCAL_REFUSAL = "this computer updates itself from Settings → Updates";
+  const stageOmp = { target: "omp" as const, action: "stage" as const, version: null, allowLiveSessions: false };
+
+  /** One joined member r1 ("box-r1") whose host report is `hostReport`; every other channel rides `answer`. */
+  function updater(
+    answer: (channel: string, args: unknown[]) => Promise<unknown>,
+    remotes = [remote("r1")],
+    hostReport = report([project({ path: "/srv/app" })]),
+  ) {
+    const request = vi.fn(async (_id: string, channel: string, args: unknown[]) => {
+      if (channel === CH.fleetHostReport) return hostReport;
+      return answer(channel, args);
+    });
+    const dispatcher = new FleetDispatcher({
+      localReport: async () => report([project()]),
+      spawnLocal: async () => ({ tabId: "t" }),
+      remotes: () => remotes,
+      request,
+      preferences: () => ({}),
+      requesterBase: () => ({ instanceId: "dispatcher", label: "desk" }),
+      knownDispatchIds: () => new Set(),
+      fleetSessions: async () => [],
+      localSummary: async () => "",
+      broadcast: async () => {},
+      probeSsh: async () => true,
+      providerKeyValue: () => null,
+      now: () => NOW,
+      uuid: () => "u",
+    });
+    const sent = (channel: string) => request.mock.calls.filter(([, ch]) => ch === channel).map(([id, , args]) => ({ id, args }));
+    return { dispatcher, request, sent };
+  }
+
+  it("refuses an update on this computer, an unknown member, and an unjoined one without sending", async () => {
+    const h = updater(async () => ({ status: "accepted", jobId: "j1" }));
+    expect(await h.dispatcher.updateMachine(LOCAL_MACHINE_KEY, stageOmp)).toEqual({ status: "refused", reason: LOCAL_REFUSAL });
+    expect(await h.dispatcher.updateMachine("ghost", stageOmp)).toEqual({
+      status: "refused",
+      reason: "no joined fleet instance has that id",
+    });
+    const unjoined = updater(async () => ({ status: "accepted", jobId: "j1" }), [remote("r1", { status: "unreachable" })]);
+    expect(await unjoined.dispatcher.updateMachine("r1", stageOmp)).toEqual({ status: "refused", reason: "box-r1 is not joined" });
+    expect(h.sent(CH.fleetUpdateMember)).toEqual([]);
+    expect(unjoined.sent(CH.fleetUpdateMember)).toEqual([]);
+  });
+
+  it("sends the user's update to the member and records the started job for the chip", async () => {
+    const h = updater(async (channel) => (channel === CH.fleetUpdateMember ? { status: "accepted", jobId: "job-1" } : null));
+    expect(await h.dispatcher.updateMachine("r1", stageOmp)).toEqual({ status: "accepted", jobId: "job-1" });
+    expect(h.sent(CH.fleetUpdateMember)).toEqual([{ id: "r1", args: [{ ...stageOmp, requester: USER }] }]);
+  });
+
+  it("maps an older member's unknown channel to fleet-update update text", async () => {
+    const older = updater(
+      async (channel) => {
+        throw new Error(`unknown channel ${channel}`);
+      },
+      [remote("r1")],
+    );
+    expect(await older.dispatcher.updateMachine("r1", stageOmp)).toEqual({
+      status: "refused",
+      reason: "box-r1 runs an omp-ui without fleet updates; update omp-ui there",
+    });
+    expect(JSON.stringify(await older.dispatcher.updateMachine("r1", stageOmp))).not.toContain("unknown channel");
+  });
+
+  it("polls a recorded job from machines() with waitMs 0 and merges the running chip", async () => {
+    const h = updater(
+      async (channel) =>
+        channel === CH.fleetUpdateMember
+          ? { status: "accepted", jobId: "job-1" }
+          : { status: "accepted", jobId: "job-1", state: "running", progress: { percent: 40, phase: "downloading" }, detail: null, elapsedMs: 800 },
+    );
+    await h.dispatcher.updateMachine("r1", stageOmp);
+    const r1 = (await h.dispatcher.machines()).find((m) => m.key === "r1")!;
+    expect(h.sent(CH.fleetUpdatePoll)).toEqual([{ id: "r1", args: [{ requester: USER, jobId: "job-1", waitMs: 0 }] }]);
+    expect(r1.maintenance).toEqual({ jobId: "job-1", target: "omp", state: "running", progress: 40, detail: null, at: NOW });
+  });
+
+  it("shows a finished job for exactly one extra machines() poll, then stops polling it", async () => {
+    let state = "running";
+    const h = updater(
+      async (channel) =>
+        channel === CH.fleetUpdateMember
+          ? { status: "accepted", jobId: "job-1" }
+          : { status: "accepted", jobId: "job-1", state, progress: null, detail: state === "running" ? null : "omp 18.12.0 → 18.13.1", elapsedMs: 1 },
+    );
+    await h.dispatcher.updateMachine("r1", stageOmp);
+    expect((await h.dispatcher.machines()).find((m) => m.key === "r1")!.maintenance).toMatchObject({ state: "running" });
+    state = "succeeded";
+    // The poll that catches the transition shows succeeded…
+    expect((await h.dispatcher.machines()).find((m) => m.key === "r1")!.maintenance).toMatchObject({
+      state: "succeeded",
+      detail: "omp 18.12.0 → 18.13.1",
+    });
+    // …exactly one more shows it, and the chip is gone after that.
+    expect((await h.dispatcher.machines()).find((m) => m.key === "r1")!.maintenance).toMatchObject({ state: "succeeded" });
+    const settled = await h.dispatcher.machines();
+    expect(settled.find((m) => m.key === "r1")!.maintenance).toBeNull();
+    // Three polls ran (running, transition, one extra); the entry is gone,
+    // so machines() no longer touches fleet:updatePoll for r1 at all.
+    expect(h.sent(CH.fleetUpdatePoll)).toHaveLength(3);
+    // This computer never carries a chip of its own.
+    expect(settled.find((m) => m.key === LOCAL_MACHINE_KEY)!.maintenance).toBeNull();
+  });
+
+  it("drops the chip silently when the member refuses or loses the poll", async () => {
+    let fail = false;
+    const h = updater(
+      async (channel) => {
+        if (channel === CH.fleetUpdateMember) return { status: "accepted", jobId: "job-1" };
+        if (fail) throw new Error("remote connection lost");
+        return { status: "accepted", jobId: "job-1", state: "running", progress: null, detail: null, elapsedMs: 1 };
+      },
+    );
+    await h.dispatcher.updateMachine("r1", stageOmp);
+    expect((await h.dispatcher.machines()).find((m) => m.key === "r1")!.maintenance).toMatchObject({ state: "running" });
+    fail = true;
+    expect((await h.dispatcher.machines()).find((m) => m.key === "r1")!.maintenance).toBeNull();
+    // The entry is gone: no further polls, and no refusal text reaches the machine row.
+    await h.dispatcher.machines();
+    expect(h.sent(CH.fleetUpdatePoll)).toHaveLength(2);
+  });
+
+  it("drops the chip silently when the poll wedges past its 40 s bound", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = updater(
+        async (channel) => {
+          if (channel === CH.fleetUpdateMember) return { status: "accepted", jobId: "job-1" };
+          if (channel === CH.fleetUpdatePoll) return new Promise(() => {});
+          return null;
+        },
+      );
+      await h.dispatcher.updateMachine("r1", stageOmp);
+      const pending = h.dispatcher.machines();
+      // The report answers at once, but machines() waits the poll's own bound…
+      await vi.advanceTimersByTimeAsync(39_000);
+      // …and settles as no chip (never a refusal) right after it expires.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect((await pending).find((m) => m.key === "r1")!.maintenance).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("normalizes an older member report's missing update facts instead of leaking undefined", async () => {
+    const {
+      ompVersion: _ompVersion,
+      ompPath: _ompPath,
+      ompPinned: _ompPinned,
+      ompBelowMinimum: _ompBelowMinimum,
+      packageFormat: _packageFormat,
+      appLatestVersion: _appLatestVersion,
+      appUpdateStaged: _appUpdateStaged,
+      ...older
+    } = report([]);
+    const h = updater(async () => null, [remote("r1")], older as FleetHostReport);
+    const r1 = (await h.dispatcher.machines()).find((m) => m.key === "r1")!;
+    expect(r1.status).toBe("ready");
+    expect(r1.report).toMatchObject({
+      ompVersion: null,
+      ompPath: null,
+      ompPinned: false,
+      ompBelowMinimum: false,
+      packageFormat: null,
+      appLatestVersion: null,
+      appUpdateStaged: false,
+    });
+  });
+
+  it("refuses the agent's update on this computer without contacting anyone", async () => {
+    const h = updater(async () => ({ status: "accepted", jobId: "j1" }));
+    expect(await h.dispatcher.update("tab-1", { machine: "this computer", target: "omp", action: "update", version: null })).toEqual({
+      kind: "refused",
+      reason: LOCAL_REFUSAL,
+    });
+    expect(h.sent(CH.fleetUpdateMember)).toEqual([]);
+    expect(h.sent(CH.fleetUpdatePoll)).toEqual([]);
+  });
+
+  it("starts a job for the agent and answers started; a second call while running polls instead", async () => {
+    let polls = 0;
+    const h = updater(
+      async (channel) =>
+        channel === CH.fleetUpdateMember
+          ? { status: "accepted", jobId: "job-1" }
+          : { status: "accepted", jobId: "job-1", state: "running", progress: { percent: 40, phase: "downloading" }, detail: null, elapsedMs: ++polls },
+    );
+    const args = { machine: "box-r1", target: "omp" as const, action: "update" as const, version: null };
+    expect(await h.dispatcher.update("tab-1", args)).toEqual({ kind: "started", jobId: "job-1" });
+    expect(h.sent(CH.fleetUpdateMember)).toEqual([{ id: "r1", args: [{ target: "omp", action: "stage", version: null, allowLiveSessions: false, requester: AGENT }] }]);
+    // The second call with the same arguments sees the running job and polls;
+    // machines() refreshes the chip inside the same call, so two polls ride
+    // fleet:updatePoll — the member never gets a second start.
+    expect(await h.dispatcher.update("tab-1", args)).toEqual({
+      kind: "poll",
+      state: "running",
+      progress: { percent: 40, phase: "downloading" },
+      detail: null,
+    });
+    expect(h.sent(CH.fleetUpdateMember)).toHaveLength(1);
+    const agentPolls = h.sent(CH.fleetUpdatePoll);
+    expect(agentPolls).toHaveLength(2);
+    expect(agentPolls[1]).toEqual({ id: "r1", args: [{ requester: AGENT, jobId: "job-1", waitMs: 0 }] });
+  });
+
+  it("answers a finished job with its final detail and lets a later call start fresh", async () => {
+    let state = "running";
+    const h = updater(
+      async (channel) =>
+        channel === CH.fleetUpdateMember
+          ? { status: "accepted", jobId: "job-1" }
+          : { status: "accepted", jobId: "job-1", state, progress: null, detail: state === "running" ? null : "omp 18.12.0 → 18.13.1 at ~/.local/bin/omp", elapsedMs: 1 },
+    );
+    const args = { machine: "box-r1", target: "omp" as const, action: "update" as const, version: null };
+    await h.dispatcher.update("tab-1", args);
+    state = "succeeded";
+    expect(await h.dispatcher.update("tab-1", args)).toEqual({
+      kind: "poll",
+      state: "succeeded",
+      progress: null,
+      detail: "omp 18.12.0 → 18.13.1 at ~/.local/bin/omp",
+    });
+    // The pointer dropped with the finish: a later call is an ordinary start.
+    expect(await h.dispatcher.update("tab-1", args)).toEqual({ kind: "started", jobId: "job-1" });
+    expect(h.sent(CH.fleetUpdateMember)).toHaveLength(2);
+  });
+
+  it("answers a fresh check with the member's check and an app apply with its detail", async () => {
+    const check = { target: "app", currentVersion: "1.0.0", latestVersion: "1.1.0", format: "appimage", staged: false, installOnQuit: false, liveSessions: 0 };
+    const h = updater(async (channel) => (channel === CH.fleetUpdateMember ? { status: "accepted", check } : null));
+    expect(await h.dispatcher.update("tab-1", { machine: "box-r1", target: "app", action: "check", version: null })).toEqual({ kind: "check", check });
+    expect(h.sent(CH.fleetUpdateMember)).toEqual([
+      { id: "r1", args: [{ target: "app", action: "check", version: null, allowLiveSessions: false, requester: AGENT }] },
+    ]);
+    const h2 = updater(async (channel) => (channel === CH.fleetUpdateMember ? { status: "accepted", detail: "update staged; installs when I quit" } : null));
+    expect(await h2.dispatcher.update("tab-1", { machine: "box-r1", target: "app", action: "apply", version: null })).toEqual({
+      kind: "applied",
+      detail: "update staged; installs when I quit",
+    });
+  });
+
+  it("passes a member refusal through as the agent's refused answer", async () => {
+    const h = updater(async () => ({ status: "refused", reason: "omp is pinned by OMP_UI_OMP_PATH on this machine; install into the managed path or clear the pin" }));
+    expect(await h.dispatcher.update("tab-1", { machine: "box-r1", target: "omp", action: "update", version: null })).toEqual({
+      kind: "refused",
+      reason: "omp is pinned by OMP_UI_OMP_PATH on this machine; install into the managed path or clear the pin",
+    });
   });
 });

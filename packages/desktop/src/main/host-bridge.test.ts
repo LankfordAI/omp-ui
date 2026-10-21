@@ -452,6 +452,7 @@ describe("HostBridge fleet tools (issue #899)", () => {
     grantRung,
     address: key === LOCAL_MACHINE_KEY ? null : "10.0.0.5",
     sshReachable: null,
+    maintenance: null,
     report: {
       instanceId: `inst-${key}`,
       label: key,
@@ -472,6 +473,13 @@ describe("HostBridge fleet tools (issue #899)", () => {
       projectRoots: [],
       os: null,
       packageManagers: null,
+      ompVersion: null,
+      ompPath: null,
+      ompPinned: false,
+      ompBelowMinimum: false,
+      packageFormat: null,
+      appLatestVersion: null,
+      appUpdateStaged: false,
     },
   });
   const MACHINES = [machine(LOCAL_MACHINE_KEY, null), machine("remote-b", "studio", "full")];
@@ -489,6 +497,7 @@ describe("HostBridge fleet tools (issue #899)", () => {
         projectManage: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         execDetach: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         execPoll: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+        update: async () => ({ kind: "refused", reason: "not wired in this fixture" }),
         ...fleet,
       },
     });
@@ -771,6 +780,150 @@ describe("HostBridge fleet tools (issue #899)", () => {
       "cancel must be true or false",
     ]);
     expect(execPoll).not.toHaveBeenCalled();
+  });
+
+  it("renders each omp-ui_fleet_update answer kind as text and logs only machine/target/action/kind", async () => {
+    const calls: Array<{ tabId: string; args: unknown }> = [];
+    const answers = [
+      {
+        kind: "check",
+        check: {
+          target: "omp",
+          installedVersion: "18.12.0",
+          installPath: "/home/u/.local/bin/omp",
+          latestVersion: "18.13.1",
+          updateAvailable: true,
+          belowMinimum: false,
+          pinned: false,
+        },
+      },
+      {
+        kind: "check",
+        check: {
+          target: "omp",
+          installedVersion: null,
+          installPath: null,
+          latestVersion: null,
+          updateAvailable: false,
+          belowMinimum: true,
+          pinned: true,
+        },
+      },
+      {
+        kind: "check",
+        check: {
+          target: "app",
+          currentVersion: "1.4.2",
+          latestVersion: "1.4.3",
+          format: "appimage",
+          staged: false,
+          installOnQuit: false,
+          liveSessions: 2,
+        },
+      },
+      {
+        kind: "check",
+        check: {
+          target: "app",
+          currentVersion: "1.4.3",
+          latestVersion: "1.4.3",
+          format: "deb",
+          staged: true,
+          installOnQuit: true,
+          liveSessions: 0,
+        },
+      },
+      { kind: "started", jobId: "job-77" },
+      { kind: "applied", detail: "staged update armed; omp-ui applies it at its next quit" },
+      { kind: "poll", state: "running", progress: { percent: 42, phase: "downloading" }, detail: null },
+      { kind: "poll", state: "running", progress: { percent: null, phase: "verifying" }, detail: null },
+      { kind: "poll", state: "running", progress: null, detail: null },
+      { kind: "poll", state: "succeeded", progress: null, detail: "omp 18.12.0 → 18.13.1 at ~/.local/bin/omp" },
+      { kind: "poll", state: "failed", progress: null, detail: "checksum mismatch" },
+      { kind: "poll", state: "revoked", progress: null, detail: null },
+      { kind: "refused", reason: "this computer updates itself from Settings → Updates" },
+    ] as const;
+    let next = 0;
+    const { bridge, sent, logs } = fleetBridge({
+      update: async (tabId, args) => {
+        calls.push({ tabId, args });
+        return answers[next++]!;
+      },
+    });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    for (let i = 0; i < answers.length; i += 1) {
+      const a = answers[i]!;
+      const args =
+        a.kind === "poll"
+          ? { machine: "studio", target: "omp", action: "update" }
+          : a.kind === "check" && a.check.target === "app"
+            ? { machine: "studio", target: "app", action: a === answers[3] ? "apply" : "check" }
+            : a.kind === "check"
+              ? { machine: "studio", target: "omp", action: "check" }
+              : a.kind === "applied"
+                ? { machine: "studio", target: "app", action: "apply" }
+                : a.kind === "refused"
+                  ? { machine: "this computer", target: "omp", action: "check" }
+                  : { machine: "studio", target: "omp", action: "update", version: i === 4 ? "18.13.1" : undefined };
+      bridge.route("t1", toolCallFrame(`u${i}`, FLEET_TOOLS[6], args), send);
+      await settled();
+    }
+
+    expect(calls[0]).toEqual({ tabId: "t1", args: { machine: "studio", target: "omp", action: "check", version: null } });
+    expect(calls[4]).toEqual({ tabId: "t1", args: { machine: "studio", target: "omp", action: "update", version: "18.13.1" } });
+    // Refusals are answers, not error frames — every frame here is text.
+    for (const frame of sent) expect(frame).not.toHaveProperty("isError");
+    expect(sent.map(resultText)).toEqual([
+      ["omp on studio:", "- installed: 18.12.0 at /home/u/.local/bin/omp", "- latest: 18.13.1", "- update available"].join("\n"),
+      ["omp on studio:", "- installed: unknown", "- latest: unknown", "- up to date", "- pinned by OMP_UI_OMP_PATH on that machine", "- below the minimum supported omp version"].join("\n"),
+      ["omp-ui on studio:", "- current: 1.4.2", "- latest: 1.4.3", "- package format: appimage", "- update staged: no", "- live sessions: 2"].join("\n"),
+      ["omp-ui on studio:", "- current: 1.4.3", "- latest: 1.4.3", "- package format: deb", "- update staged: yes (armed to apply at that machine's next quit)", "- live sessions: 0"].join("\n"),
+      "maintenance job started on studio: jobId job-77. Poll omp-ui_fleet_update with the same arguments; do not start it twice.",
+      "staged update armed; omp-ui applies it at its next quit",
+      "running (downloading 42%)",
+      "running (verifying)",
+      "running",
+      "succeeded: omp 18.12.0 → 18.13.1 at ~/.local/bin/omp",
+      "failed: checksum mismatch",
+      "revoked by the member's owner",
+      "refused — this computer updates itself from Settings → Updates",
+    ]);
+    // The log line names machine, target/action, and answer kind only.
+    expect(logs).toEqual([
+      "omp-ui_fleet_update from t1: studio omp/check check",
+      "omp-ui_fleet_update from t1: studio omp/check check",
+      "omp-ui_fleet_update from t1: studio app/check check",
+      "omp-ui_fleet_update from t1: studio app/apply check",
+      "omp-ui_fleet_update from t1: studio omp/update started",
+      "omp-ui_fleet_update from t1: studio app/apply applied",
+      "omp-ui_fleet_update from t1: studio omp/update poll",
+      "omp-ui_fleet_update from t1: studio omp/update poll",
+      "omp-ui_fleet_update from t1: studio omp/update poll",
+      "omp-ui_fleet_update from t1: studio omp/update poll",
+      "omp-ui_fleet_update from t1: studio omp/update poll",
+      "omp-ui_fleet_update from t1: studio omp/update poll",
+      "omp-ui_fleet_update from t1: this computer omp/check refused",
+    ]);
+  });
+
+  it("refuses malformed update arguments without calling the deps", async () => {
+    const update = vi.fn();
+    const { bridge, sent } = fleetBridge({ update });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("a", FLEET_TOOLS[6], { machine: "studio", target: "omp" }), send);
+    bridge.route("t1", toolCallFrame("b", FLEET_TOOLS[6], { machine: "studio", target: "other", action: "check" }), send);
+    bridge.route("t1", toolCallFrame("c", FLEET_TOOLS[6], { machine: "studio", target: "omp", action: "apply" }), send);
+    bridge.route("t1", toolCallFrame("d", FLEET_TOOLS[6], { machine: "studio", target: "app", action: "check", version: "v1.4" }), send);
+    await settled();
+    expect(sent).toHaveLength(4);
+    for (const frame of sent) expect(frame).toMatchObject({ type: "host_tool_result", isError: true });
+    expect(sent.map(resultText)).toEqual([
+      "action must be check, update, or apply",
+      "target must be omp or app",
+      "the omp binary installs as it downloads; use action update",
+      "a version belongs on action update, not check",
+    ]);
+    expect(update).not.toHaveBeenCalled();
   });
 });
 
