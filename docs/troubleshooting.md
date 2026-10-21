@@ -113,7 +113,7 @@ Clear the sidebar filter, expand the project, and choose **show more** if it app
 
 ### Fix
 
-Register the project, then start the session from its **New session**, **New terminal session**, or **New worktree session** action. omp-ui does not import terminal-created history. Do not add records to the registry or move or edit session JSONL files to make one appear.
+Register the project, then start the session from its **New session**, **New terminal session**, or **New session…** action. omp-ui does not import terminal-created history. Do not add records to the registry or move or edit session JSONL files to make one appear.
 
 See [Projects and sessions](user-guide.md#projects-and-sessions) for the owned-session scope and sidebar controls.
 

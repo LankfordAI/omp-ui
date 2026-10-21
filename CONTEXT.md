@@ -205,10 +205,24 @@ launch moves to a fresh build-mode session in the source's project. The
 consulting transcript is OMP's own subagent hub record, never an omp-ui copy.
 _Avoid_: ghost session, séance thread, resume-by-reading
 
+**New session dialog**:
+The one form that starts work, opened from a project's actions, the command
+palette, or the **Fleet** view. It picks the project, where the session runs —
+**This computer** (this app) or the **Fleet** — the workspace (a fresh
+worktree checkout or the project checkout), Build or Plan mode, an optional
+title, and a first prompt: required for a fleet dispatch, optional on this
+app, where an empty one simply opens an idle session. Choosing the Fleet
+turns the same form into a **Fleet dispatch** — a dispatch is this dialog's
+Fleet face producing it, never a second launcher (ADR-0061). A local session
+that comes up without its first prompt sent says so; the user sends it there
+by hand.
+_Avoid_: launch modal, dispatch window, new session window, launcher dialog
+
 **Project actions sheet**:
 The bottom sheet a compact-shell project header's ⋯ button opens: the
 project's name and full path, then New session, New terminal session,
-*New worktree session, Experiments, New experiment, Project settings, Move to
+New private session, New session… (the **New session dialog**), Experiments,
+New experiment, Project settings, Move to
 group (local projects only), and Remove project. It
 replaces the cluster below 900px. The desktop open targets (VS Code, Files, Terminal) are
 deliberately absent: a compact shell is usually a phone talking to a

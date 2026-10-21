@@ -280,7 +280,7 @@ export function Fleet() {
   const loading = useStore((s) => s.fleet?.loading === true);
   const refreshFleet = useStore((s) => s.refreshFleet);
   const closeFleet = useStore((s) => s.closeFleet);
-  const openFleetDispatch = useStore((s) => s.openFleetDispatch);
+  const openNewSessionDialog = useStore((s) => s.openNewSessionDialog);
 
   useEffect(() => {
     if (!open) return;
@@ -296,7 +296,7 @@ export function Fleet() {
         <IconButton label={t("fleet.header.refresh")} disabled={loading} onClick={() => void refreshFleet()}>
           <IconRefresh />
         </IconButton>
-        <Button tone="signal" variant="solid" size="xs" onClick={openFleetDispatch}>
+        <Button tone="signal" variant="solid" size="xs" onClick={() => openNewSessionDialog({ where: "fleet" })}>
           {t("fleet.header.dispatch")}
         </Button>
         <IconButton label={t("fleet.header.close")} onClick={closeFleet}>

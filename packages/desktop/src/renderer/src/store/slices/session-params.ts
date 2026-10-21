@@ -265,7 +265,7 @@ const localCommands: readonly LocalCommand[] = [
       )?.projectCwd;
       // A composer only exists for a mounted tab; without one, keep the old path.
       if (projectCwd === undefined) return false;
-      return get().newSession(projectCwd);
+      return get().newSession(projectCwd).then(() => undefined);
     },
   },
   // omp-ui's plan toggle: omp's /plan is TUI-only, so over rpc it would

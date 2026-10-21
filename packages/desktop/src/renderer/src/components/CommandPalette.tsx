@@ -110,7 +110,7 @@ export function CommandPalette() {
   const openExperimentDialog = useStore((s) => s.openExperimentDialog);
   const openStats = useStore((s) => s.openStats);
   const openFleet = useStore((s) => s.openFleet);
-  const openFleetDispatch = useStore((s) => s.openFleetDispatch);
+  const openNewSessionDialog = useStore((s) => s.openNewSessionDialog);
   const t = useT();
   const localeId = currentLocaleId();
 
@@ -222,6 +222,7 @@ export function CommandPalette() {
       desc: t("palette.action.fleetDesc"),
       run: () => openFleet(),
     });
+    const tab = activeTabId === null ? undefined : tabs.find((t) => t.tabId === activeTabId);
     out.push({
       id: "app:fleetDispatch",
       group: t("palette.group.app"),
@@ -229,11 +230,17 @@ export function CommandPalette() {
       desc: t("palette.action.fleetDispatchDesc"),
       run: () => {
         openFleet();
-        openFleetDispatch();
+        openNewSessionDialog({ where: "fleet" });
       },
     });
+    out.push({
+      id: "app:newSession",
+      group: t("palette.group.app"),
+      name: t("palette.action.newSessionDialog"),
+      desc: t("palette.action.newSessionDialogDesc"),
+      run: () => openNewSessionDialog({ projectCwd: tab?.projectCwd ?? null, instanceId: tab?.instanceId ?? null }),
+    });
 
-    const tab = activeTabId === null ? undefined : tabs.find((t) => t.tabId === activeTabId);
     if (tab) {
       const title = findRecord(state, tab.tabId)?.title ?? t("palette.action.sessionFallback");
       const other = tab.mode === "pty" ? "rpc-ui" : "pty";
@@ -388,7 +395,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openFleetDispatch, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

@@ -14,14 +14,13 @@ import { inspectorBadges } from "./components/InspectorRail";
 import { CapabilitiesViewer } from "./components/CapabilitiesViewer";
 import { SessionTreeViewer } from "./components/SessionTreeViewer";
 import { NewExperimentDialog } from "./components/NewExperimentDialog";
-import { NewWorktreeSessionDialog } from "./components/NewWorktreeSessionDialog";
+import { NewSessionDialog } from "./components/NewSessionDialog";
 import { MigrateSessionDialog } from "./components/MigrateSessionDialog";
 import { SeanceConsultDialog } from "./components/SeanceConsultDialog";
 import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
 import { Lab } from "./components/lab/Lab";
 import { Stats } from "./components/stats/Stats";
 import { Fleet } from "./components/fleet/Fleet";
-import { FleetDispatchDialog } from "./components/fleet/FleetDispatchDialog";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { ProjectPicker } from "./components/ProjectPicker";
@@ -294,8 +293,7 @@ export default function App() {
   const projectSettings = useStore((s) => s.projectSettings);
   const closeProjectSettings = useStore((s) => s.closeProjectSettings);
   const state = useStore((s) => s.state);
-  const worktreeDialogProject = useStore((s) => s.worktreeDialogProject);
-  const worktreeDialogInstanceId = useStore((s) => s.worktreeDialogInstanceId);
+  const newSessionDialog = useStore((s) => s.newSessionDialog);
   const migrateDialog = useStore((s) => s.migrateDialog);
   const newSession = useStore((s) => s.newSession);
   const newChat = useStore((s) => s.newChat);
@@ -304,7 +302,6 @@ export default function App() {
   const lab = useStore((s) => s.lab);
   const stats = useStore((s) => s.stats);
   const fleetOpen = useStore((s) => s.fleet !== null);
-  const fleetDispatchOpen = useStore((s) => s.fleetDispatchOpen);
   const experimentDialog = useStore((s) => s.experimentDialog);
   const seanceDialog = useStore((s) => s.seanceDialog);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
@@ -598,9 +595,7 @@ export default function App() {
           onClose={closeProjectSettings}
         />
       )}
-      {worktreeDialogProject !== null && (
-        <NewWorktreeSessionDialog projectCwd={worktreeDialogProject} instanceId={worktreeDialogInstanceId} />
-      )}
+      {newSessionDialog !== null && <NewSessionDialog />}
       {migrateDialog !== null && (
         <MigrateSessionDialog key={migrateDialog.tabId} tabId={migrateDialog.tabId} />
       )}
@@ -616,7 +611,6 @@ export default function App() {
       {finishWorktreeTab !== null && (
         <FinishWorktreeDialog key={finishWorktreeTab} tabId={finishWorktreeTab} />
       )}
-      {fleetDispatchOpen && <FleetDispatchDialog />}
       {/* Below the Settings/ProjectPicker portals so their overlays outrank it
           in useOverlay's stack (issue #623). */}
       {gettingStartedOpen && <GettingStarted />}

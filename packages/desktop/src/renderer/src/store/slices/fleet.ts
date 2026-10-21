@@ -1,5 +1,5 @@
-// Fleet view domain (issue #899, ADR-0061): the Fleet surface's view state,
-// the dispatch dialog's open flag, and the in-memory requests behind unknown
+// Fleet view domain (issue #899, ADR-0061): the Fleet surface's view state
+// and the in-memory requests behind unknown
 // outcomes. Placement, spawning, and the pending list belong to main's
 // FleetDispatcher; this slice only reads machines and forwards requests. The
 // machine read is polled by the open view, so its failure lands in the view
@@ -64,13 +64,10 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
 
   return {
     fleet: null,
-    fleetDispatchOpen: false,
     fleetLastRequests: {},
     openFleet,
     closeFleet: () => set({ fleet: null }),
     refreshFleet,
-    openFleetDispatch: () => set({ fleetDispatchOpen: true }),
-    closeFleetDispatch: () => set({ fleetDispatchOpen: false }),
     dispatchFleet,
 
     async setFleetPlacement(machineKey, pref) {

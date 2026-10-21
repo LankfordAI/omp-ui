@@ -56,7 +56,7 @@ The fleet is this app plus every joined instance, seen as places new work can st
 
 ### Dispatch work
 
-**Dispatch** opens a form that starts fresh native sessions with a prompt you write, on one machine or several at once:
+**Dispatch** opens the Fleet face of the **New session dialog**, the one form that starts work here or on the fleet; on this face it starts fresh native sessions with a prompt you write, on one machine or several at once:
 
 - **Project** — a project registered on a ready machine. Machines are matched by repository (the checkout's `host/owner/repo` web remote), never by path, so the same repository at different paths on two machines counts as the same work. A project with no web remote can only run on its own machine.
 - **Run on** — **Auto** with a number of copies (1 to 8, one per machine), or **Choose machines**, ticking machines that have the same repository and setting copies per machine.
@@ -65,7 +65,7 @@ The fleet is this app plus every joined instance, seen as places new work can st
 - **Title** (optional) — empty uses the prompt's first line.
 - **Prompt** — required.
 
-When the chosen machines are on different commits, the form says so; each worktree starts from its own machine's checkout, and the dispatch is not blocked. Every dispatched session is a native session in that machine's sidebar, owned and run by that machine exactly like one you started there yourself; nothing moves or copies afterwards. The machine that owns the session sends the prompt itself, so once it has accepted the dispatch, closing this app or losing the connection does not lose the prompt. The session HUD shows *Dispatched from \<computer\>*, marked *agent* when an agent dispatched it, and the Fleet view groups the dispatches made together, newest first, with **Open** and **Stop** on each.
+The dialog's local face (**This computer**) starts a session on this app, optionally sending a first prompt — which may be left empty for an idle session — once the session is ready. When the chosen machines are on different commits, the form says so; each worktree starts from its own machine's checkout, and the dispatch is not blocked. Every dispatched session is a native session in that machine's sidebar, owned and run by that machine exactly like one you started there yourself; nothing moves or copies afterwards. The machine that owns the session sends the prompt itself, so once it has accepted the dispatch, closing this app or losing the connection does not lose the prompt. The session HUD shows *Dispatched from \<computer\>*, marked *agent* when an agent dispatched it, and the Fleet view groups the dispatches made together, newest first, with **Open** and **Stop** on each.
 
 ### Placement preferences
 

@@ -54,8 +54,17 @@ export interface ViewSlice {
   browserPaneClearDialogOpen: boolean;
   /** The tab whose first-share privacy dialog is open (issue #679); null = closed. */
   shareConfirmTab: string | null;
-  worktreeDialogProject: string | null;
-  worktreeDialogInstanceId: string | null;
+  /** The New session dialog (one launcher for local and fleet work); null = closed. */
+  newSessionDialog: {
+    /** Seed project; null opens with the first registry project. */
+    projectCwd: string | null;
+    /** Owner of that project; null = this app's registry / LOCAL_MACHINE_KEY. */
+    instanceId: string | null;
+    /** Which Where face is active at open. */
+    where: "here" | "fleet";
+    /** Workspace capsule value at open. */
+    workspace: "checkout" | "worktree";
+  } | null;
   /** The row whose Migrate session dialog is open (issue #888); null = closed. */
   migrateDialog: { tabId: string } | null;
   /** App-global successes awaiting acknowledgment, oldest first (issue #888). */
@@ -106,8 +115,13 @@ export interface ViewSlice {
   /** Records the first-share privacy flag and forwards /share for the tab (issue #679). */
   confirmSharePrivacy(tabId: string): Promise<void>;
   cancelSharePrivacy(): void;
-  openWorktreeDialog(projectCwd: string, instanceId?: string | null): void;
-  closeWorktreeDialog(): void;
+  openNewSessionDialog(seed?: {
+    projectCwd?: string | null;
+    instanceId?: string | null;
+    where?: "here" | "fleet";
+    workspace?: "checkout" | "worktree";
+  }): void;
+  closeNewSessionDialog(): void;
   openMigrateDialog(tabId: string): void;
   closeMigrateDialog(): void;
   openFinishWorktree(tabId: string): void;
@@ -453,8 +467,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   diagnosticsDialogOpen: false,
   browserPaneClearDialogOpen: false,
   shareConfirmTab: null,
-  worktreeDialogProject: null,
-  worktreeDialogInstanceId: null,
+  newSessionDialog: null,
   finishWorktreeTab: null,
   sessionTreeView: null,
   migrateDialog: null,
@@ -542,11 +555,18 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   cancelSharePrivacy() {
     set({ shareConfirmTab: null });
   },
-  openWorktreeDialog(projectCwd, instanceId = null) {
-    set({ worktreeDialogProject: projectCwd, worktreeDialogInstanceId: instanceId });
+  openNewSessionDialog(seed) {
+    set({
+      newSessionDialog: {
+        projectCwd: seed?.projectCwd ?? null,
+        instanceId: seed?.instanceId ?? null,
+        where: seed?.where ?? "here",
+        workspace: seed?.workspace ?? "worktree",
+      },
+    });
   },
-  closeWorktreeDialog() {
-    set({ worktreeDialogProject: null, worktreeDialogInstanceId: null });
+  closeNewSessionDialog() {
+    set({ newSessionDialog: null });
   },
   openMigrateDialog(tabId) {
     set({ migrateDialog: { tabId } });

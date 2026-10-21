@@ -803,7 +803,6 @@ export interface FleetRetryEntry {
 
 export interface FleetSlice {
   fleet: FleetView | null;
-  fleetDispatchOpen: boolean;
   /**
    * In-memory only, by dispatchId: the request behind each unknown outcome
    * this renderer dispatched. A reload forgets the prompt, so a pending row
@@ -813,8 +812,6 @@ export interface FleetSlice {
   openFleet(): void;
   closeFleet(): void;
   refreshFleet(): Promise<void>;
-  openFleetDispatch(): void;
-  closeFleetDispatch(): void;
   /** Null when the dispatcher rejected the whole request (reported as an error notice). */
   dispatchFleet(req: FleetDispatchRequest): Promise<FleetDispatchResult | null>;
   setFleetPlacement(machineKey: string, pref: PlacementPreference): Promise<void>;
@@ -971,8 +968,17 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   browserPaneClearDialogOpen: boolean;
   /** The tab whose first-share privacy dialog is open (issue #679); null = closed. */
   shareConfirmTab: string | null;
-  worktreeDialogProject: string | null;
-  worktreeDialogInstanceId: string | null;
+  /** The New session dialog (one launcher for local and fleet work); null = closed. */
+  newSessionDialog: {
+    /** Seed project; null opens with the first registry project. */
+    projectCwd: string | null;
+    /** Owner of that project; null = this app's registry / LOCAL_MACHINE_KEY. */
+    instanceId: string | null;
+    /** Which Where face is active at open. */
+    where: "here" | "fleet";
+    /** Workspace capsule value at open. */
+    workspace: "checkout" | "worktree";
+  } | null;
   /** The row whose Migrate session dialog is open (issue #888); null = closed. */
   migrateDialog: { tabId: string } | null;
   openMigrateDialog(tabId: string): void;
@@ -1107,9 +1113,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     modeOverride?: SessionMode,
     instanceId?: string | null,
     /** `{ private: true }` spawns a private session (issue #852): pinned
-     *  write-quiet against the memory system. Never a default. */
-    opts?: { private?: boolean },
-  ): Promise<void>;
+     *  write-quiet against the memory system. Never a default.
+     *  `{ planMode: true }` starts the fresh session in plan mode (rpc-ui
+     *  only; ignored for pty). */
+    opts?: { private?: boolean; planMode?: boolean },
+  ): Promise<string | null>;
   /** Spawns a fresh Chat (local only) and lands its tab; resolves its tabId, or null when it never landed. */
   newChat(opts?: { private?: boolean; askSource?: { tabId: string; title: string } }): Promise<string | null>;
   /** "Ask about this session" (#895): a fresh Chat with the source's summary pinned. Local sources only. */
@@ -1126,7 +1134,27 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
       | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
       | { checkout: { branch: string } },
     instanceId?: string | null,
-  ): Promise<void>;
+  ): Promise<string>;
+  /**
+   * One launcher action (the New session dialog): spawns a session — in a
+   * worktree checkout when asked, otherwise plainly, optionally in plan
+   * mode — then applies an optional title and sends an optional first
+   * prompt once the runtime reports ready. Returns the landed tab id, or
+   * null when the spawn never landed.
+   */
+  launchSession(
+    projectCwd: string,
+    opts: {
+      instanceId?: string | null;
+      prompt?: string;
+      title?: string | null;
+      planMode?: boolean;
+      worktree?:
+        | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
+        | { checkout: { branch: string } }
+        | null;
+    },
+  ): Promise<string | null>;
   /**
    * Converts an unprompted session to a worktree session (issue #225);
    * throws on failure (the composer renders the message inline) — unlike
@@ -1136,8 +1164,13 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     tabId: string,
     opts: { branch: string; baseRef: string | null; baseBranch: string | null },
   ): Promise<void>;
-  openWorktreeDialog(projectCwd: string, instanceId?: string | null): void;
-  closeWorktreeDialog(): void;
+  openNewSessionDialog(seed?: {
+    projectCwd?: string | null;
+    instanceId?: string | null;
+    where?: "here" | "fleet";
+    workspace?: "checkout" | "worktree";
+  }): void;
+  closeNewSessionDialog(): void;
   openFinishWorktree(tabId: string): void;
   closeFinishWorktree(): void;
   openSession(tabId: string): Promise<void>;

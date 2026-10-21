@@ -1216,7 +1216,7 @@ export function Sidebar() {
   const openProjectPicker = useStore((st) => st.openProjectPicker);
   const openSettings = useStore((st) => st.openSettings);
   const newSession = useStore((st) => st.newSession);
-  const openWorktreeDialog = useStore((st) => st.openWorktreeDialog);
+  const openNewSessionDialog = useStore((st) => st.openNewSessionDialog);
   const openMigrateDialog = useStore((st) => st.openMigrateDialog);
   const askAboutSession = useStore((st) => st.askAboutSession);
   const moveProject = useStore((st) => st.moveProject);
@@ -1743,11 +1743,11 @@ export function Sidebar() {
                 onClick={() => {
                   const { projectCwd, instanceId } = terminalMenu;
                   setTerminalMenu(null);
-                  openWorktreeDialog(projectCwd, instanceId);
+                  openNewSessionDialog({ projectCwd, instanceId });
                 }}
                 className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
               >
-                {t("project.actions.newWorktree")}
+                {t("project.actions.newSessionDialog")}
               </button>
               <button
                 type="button"
