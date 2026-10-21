@@ -354,8 +354,8 @@ jobs:
             *-mac-*.zip
             SHA256SUMS-macos-*.txt
           )
-          # 1 AppImage + 1 feed + 1 exe + 1 blockmap + 1 feed + 1 dmg + 1 zip + 1 sums = 9.
-          (( ${#assets[@]} == 9 )) || { printf 'expected 9 distributables, found %s\n' "${#assets[@]}" >&2; exit 1; }
+          # 1 AppImage + 1 feed + 1 exe + 1 blockmap + 1 feed + 1 dmg + 1 zip + 1 sums = 8.
+          (( ${#assets[@]} == 8 )) || { printf 'expected 8 distributables, found %s\n' "${#assets[@]}" >&2; exit 1; }
           sha256sum "${assets[@]}" > SHA256SUMS.txt
           gh release upload nightly --clobber "${assets[@]}" SHA256SUMS.txt "${GITHUB_WORKSPACE}/release-manifest/mac/latest-mac.yml"
       - name: Stage macOS arm64 bundles as 14-day run artifacts
