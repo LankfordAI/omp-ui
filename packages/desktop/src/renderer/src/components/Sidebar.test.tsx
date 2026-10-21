@@ -89,7 +89,7 @@ const { setSidebarMode } = await import("../lib/sidebar-mode");
 const originalNewSession = useStore.getState().newSession;
 const originalOpenSession = useStore.getState().openSession;
 const openSession = vi.fn(async () => {});
-const newSession = vi.fn(async () => {});
+const newSession = vi.fn(async () => null);
 
 const projectPath = "/projects/one";
 const state = backendState({
@@ -573,8 +573,8 @@ describe("Sidebar session creation", () => {
     expect(newSession).not.toHaveBeenCalled();
   });
 
-  it("opens the same menu from the chevron and reaches the worktree dialog (issue #262)", () => {
-    useStore.setState({ worktreeDialogProject: null });
+  it("opens the same menu from the chevron and reaches the New session dialog (issue #262)", () => {
+    useStore.setState({ newSessionDialog: null });
     renderSidebar();
     const chevron = button("new session options for Project One");
 
@@ -585,7 +585,7 @@ describe("Sidebar session creation", () => {
     expect(document.activeElement).toBe(item);
     const rows = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
       .map((row) => row.textContent);
-    expect(rows).toEqual(["New terminal session", "New worktree session…", "new private session"]);
+    expect(rows).toEqual(["New terminal session", "New session…", "new private session"]);
 
     // Escape dismisses and hands focus back to the chevron.
     act(() =>
@@ -594,15 +594,16 @@ describe("Sidebar session creation", () => {
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(chevron);
 
-    // The worktree row opens the new-worktree-session dialog for the project.
+    // The New session… row opens the dialog seeded with the project.
     act(() => chevron.click());
-    const worktreeRow = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-      .find((row) => row.textContent === "New worktree session…")!;
-    act(() => worktreeRow.click());
+    const dialogRow = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((row) => row.textContent === "New session…")!;
+    act(() => dialogRow.click());
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(useStore.getState().worktreeDialogProject).toBe(projectPath);
+    expect(useStore.getState().newSessionDialog?.projectCwd).toBe(projectPath);
+    expect(useStore.getState().newSessionDialog?.where).toBe("here");
     expect(newSession).not.toHaveBeenCalled();
-    useStore.setState({ worktreeDialogProject: null });
+    useStore.setState({ newSessionDialog: null });
   });
 
   it("the private row spawns with the options tuple tail (issue #852)", () => {
@@ -897,7 +898,7 @@ describe("Sidebar project open control (issue #169)", () => {
       "New session",
       "New terminal session",
       "New private session",
-      "New worktree session…",
+      "New session…",
       "Experiments",
       "New experiment…",
       "Project settings…",
@@ -944,7 +945,7 @@ describe("Sidebar project open control (issue #169)", () => {
       "New session",
       "New terminal session",
       "New private session",
-      "New worktree session…",
+      "New session…",
       "Project settings…",
       "Move to group…",
       "Remove project…",

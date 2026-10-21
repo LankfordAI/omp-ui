@@ -603,7 +603,6 @@ beforeEach(() => {
     lab: null,
     stats: null,
     fleet: null,
-    fleetDispatchOpen: false,
     fleetLastRequests: {},
     experimentDialog: null,
     experiments: {},

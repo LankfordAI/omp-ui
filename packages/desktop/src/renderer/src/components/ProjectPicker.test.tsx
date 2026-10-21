@@ -70,7 +70,7 @@ Object.assign(window, { ompBackend: backendMock });
 const { useStore } = await import("../store");
 const { ProjectPicker } = await import("./ProjectPicker");
 const originalNewSession = useStore.getState().newSession;
-const newSession = vi.fn(async () => {});
+const newSession = vi.fn(async () => null);
 const originalMatchMedia = window.matchMedia;
 
 const HOME = "/home/u";

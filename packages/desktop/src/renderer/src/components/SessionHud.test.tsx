@@ -36,7 +36,7 @@ const compactSession = vi.fn(async () => "acked" as const);
 const exportHtml = vi.fn(async () => {});
 const shareSession = vi.fn(async () => {});
 const branchSession = vi.fn(async () => {});
-const newSession = vi.fn(async () => {});
+const newSession = vi.fn(async () => null);
 const toggleConsole = vi.fn();
 let root: Root | null = null;
 

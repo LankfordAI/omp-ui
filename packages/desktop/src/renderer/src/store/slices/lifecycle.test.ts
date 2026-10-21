@@ -1138,9 +1138,10 @@ describe("newWorktreeSession (issue #225, #390)", () => {
   it("mints a branch off its base and mounts the spawned tab", async () => {
     seed();
 
-    await h.useStore.getState().newWorktreeSession("/p", {
+    const tabId = await h.useStore.getState().newWorktreeSession("/p", {
       mint: { branch: "omp-ui/deadbeef", baseRef: "main", baseBranch: null },
     });
+    expect(tabId).toBe("wt-1");
 
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith({
       origin: "new",
@@ -1188,8 +1189,9 @@ describe("newSession fetches the project's upstream listing (issue #708)", () =>
   it("fires one network refresh after a successful spawn", async () => {
     seed();
 
-    await h.useStore.getState().newSession("/p");
+    const tabId = await h.useStore.getState().newSession("/p");
     await h.flushMicrotasks();
+    expect(tabId).toBe("fresh");
 
     expect(h.mockBackend.listBranches).toHaveBeenCalledTimes(1);
     expect(h.mockBackend.listBranches).toHaveBeenCalledWith("/p", { fetchUpstream: true });
@@ -1276,7 +1278,8 @@ describe("newSession bounds a stalled spawn and lands late tabs once (issue #789
       h.mockBackend.spawnSession.mockReturnValue(new Promise(() => {}));
       const landing = h.useStore.getState().newSession("/stall");
       await vi.advanceTimersByTimeAsync(30_000);
-      await landing;
+      // The caller learns the launch never landed instead of getting a phantom id.
+      expect(await landing).toBeNull();
       expect(h.errorMessages()).toEqual([en["session.error.spawnTimedOut"]]);
       expect(h.useStore.getState().tabs).toEqual([]);
       expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
@@ -1320,6 +1323,118 @@ describe("newSession bounds a stalled spawn and lands late tabs once (issue #789
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("launchSession (issue #900)", () => {
+  const FRESH = "fresh";
+  /** A registered project, no mounted tabs, and a spawn that always lands on FRESH. */
+  const seed = (): void => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+    });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: FRESH });
+  };
+
+  /** Answers every outstanding command, returning the prompt messages. */
+  const answerSent = (): string[] => {
+    const prompts: string[] = [];
+    for (const { tabId, cmd } of h.sent.splice(0)) {
+      h.respond(tabId, cmd, {});
+      if (cmd.type === "prompt") prompts.push(String(cmd.message));
+    }
+    return prompts;
+  };
+
+  it("returns the landed tab unchanged when no prompt was asked", async () => {
+    seed();
+    const id = await h.useStore.getState().launchSession("/p", {});
+    await h.flushMicrotasks();
+
+    expect(id).toBe(FRESH);
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledTimes(1);
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: "new", projectCwd: "/p" }),
+    );
+    // Quick-launch contract: the tab alone is the whole ask — nothing reaches omp.
+    expect(h.sent).toEqual([]);
+  });
+
+  it("sends the trimmed prompt exactly once the boot reports ready", async () => {
+    seed();
+    const launched = h.useStore.getState().launchSession("/p", { prompt: "  do the thing  " });
+    await h.flushMicrotasks();
+    // Nothing goes to omp before the process reports ready.
+    expect(h.sent).toEqual([]);
+
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState() } });
+    await h.flushMicrotasks();
+    expect(answerSent()).toEqual(["do the thing"]);
+    expect(await launched).toBe(FRESH);
+    expect(h.sent).toEqual([]);
+    // A launch without a title must not sneak in a rename.
+    expect(h.mockBackend.setSessionAutoTitled).not.toHaveBeenCalled();
+  });
+
+  it("warns on the new tab and sends nothing when the boot never reaches ready", async () => {
+    vi.useFakeTimers();
+    try {
+      seed();
+      // A starting boot owns neither the failure banner nor the exit notice: it says so itself.
+      h.useStore.setState({ rpc: { [FRESH]: rpcTabState({ status: "starting" }) } });
+      const launched = h.useStore.getState().launchSession("/p", { prompt: "do the thing" });
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(await launched).toBe(FRESH);
+      expect(h.sent).toEqual([]);
+      expect(h.useStore.getState().rpc[FRESH]!.items.at(-1)).toMatchObject({
+        kind: "notice",
+        level: "warn",
+        text: en["dialog.newsession.seedNotSent"],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("applies the title before the prompt is sent", async () => {
+    seed();
+    const launched = h.useStore.getState().launchSession("/p", {
+      prompt: "do the thing",
+      title: "Nightly triage",
+    });
+    await h.flushMicrotasks();
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState() } });
+    await h.flushMicrotasks();
+
+    // renameSessionTo reaches the wire as set_session_name, and that frame
+    // must precede the prompt — the launch awaits the rename before sending.
+    expect(h.sent.map((s) => s.cmd.type)).toEqual(["set_session_name"]);
+    const rename = h.sent.shift()!;
+    expect(rename.tabId).toBe(FRESH);
+    expect(rename.cmd).toMatchObject({ type: "set_session_name", name: "Nightly triage" });
+    h.respond(rename.tabId, rename.cmd, {});
+    await h.flushMicrotasks();
+
+    expect(answerSent()).toEqual(["do the thing"]);
+    expect(await launched).toBe(FRESH);
+  });
+
+  it("sends a titleless prompt with no rename attempt at all", async () => {
+    seed();
+    const launched = h.useStore.getState().launchSession("/p", {
+      prompt: "do the thing",
+      title: "   ",
+    });
+    await h.flushMicrotasks();
+    h.useStore.setState({ rpc: { [FRESH]: rpcTabState() } });
+    await h.flushMicrotasks();
+
+    expect(answerSent()).toEqual(["do the thing"]);
+    expect(await launched).toBe(FRESH);
+    expect(h.mockBackend.setSessionAutoTitled).not.toHaveBeenCalled();
   });
 });
 

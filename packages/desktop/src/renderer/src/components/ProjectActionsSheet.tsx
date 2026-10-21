@@ -41,7 +41,7 @@ export function ProjectActionsSheet({
   const newSession = useStore((st) => st.newSession);
   const removeProject = useStore((st) => st.removeProject);
   const openProjectSettings = useStore((st) => st.openProjectSettings);
-  const openWorktreeDialog = useStore((st) => st.openWorktreeDialog);
+  const openNewSessionDialog = useStore((st) => st.openNewSessionDialog);
   const openLab = useStore((st) => st.openLab);
   const openExperimentDialog = useStore((st) => st.openExperimentDialog);
   const experimentsEnabled = useStore((st) => st.state?.experimentsEnabled === true);
@@ -92,11 +92,11 @@ export function ProjectActionsSheet({
               type="button"
               className={cn(ACTION_ROW_CLASS, "text-ink-mid")}
               onClick={() => {
-                openWorktreeDialog(project.path, instanceId);
+                openNewSessionDialog({ projectCwd: project.path, instanceId });
                 onClose();
               }}
             >
-              {t("project.actions.newWorktree")}
+              {t("project.actions.newSessionDialog")}
             </button>
             {experimentsEnabled && (
               <button

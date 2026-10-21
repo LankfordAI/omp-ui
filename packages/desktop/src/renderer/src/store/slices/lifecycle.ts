@@ -96,6 +96,7 @@ export type LifecycleSlice = Pick<
   | "newChat"
   | "askAboutSession"
   | "newWorktreeSession"
+  | "launchSession"
   | "convertSessionToWorktree"
   | "openSession"
   | "focusTab"
@@ -1002,15 +1003,17 @@ export function createLifecycleSlice(
     instanceId: string | null = null,
     // Privacy is deliberately deliberate (issue #852): only the explicit menu
     // entries pass the flag; no caller inherits it from stored state.
-    opts: { private?: boolean } = {},
-  ): Promise<void> => {
+    opts: { private?: boolean; planMode?: boolean } = {},
+  ): Promise<string | null> => {
     const { mode, advisor, advisorModel } = await resolveSpawnParams(
       projectCwd,
       { mode: modeOverride },
       instanceId,
     );
     let landed = false;
+    let spawnedId: string | null = null;
     const landTab = ({ tabId }: { tabId: string }) => {
+      spawnedId = tabId;
       if (landed) return;
       landed = true;
       set((s) => ({
@@ -1046,6 +1049,7 @@ export function createLifecycleSlice(
             rows: 24,
             worktree: null,
             ...(opts.private === true ? { private: true } : {}),
+            ...(opts.planMode === true ? { planMode: true } : {}),
           };
     const pending = backendFor(instanceId).spawnSession(request);
     // Late landing: after the timeout notice below has fired, a spawn that
@@ -1066,6 +1070,7 @@ export function createLifecycleSlice(
     } catch (err) {
       if (!landed) get().reportError(err);
     }
+    return landed ? spawnedId : null;
   };
 
   const newChat = async (
@@ -1137,7 +1142,7 @@ export function createLifecycleSlice(
       | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
       | { checkout: { branch: string } },
     instanceId: string | null = null,
-  ): Promise<void> => {
+  ): Promise<string> => {
     const { mode, advisor, advisorModel } =
       await resolveSpawnParams(projectCwd, undefined, instanceId);
     const request: SpawnRequest =
@@ -1174,6 +1179,68 @@ export function createLifecycleSlice(
       ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
       exited: dropExited(s.exited, tabId),
     }));
+    return tabId;
+  };
+
+  /**
+   * One launcher action (the New session dialog): spawns a session — in a
+   * worktree checkout when asked, otherwise plainly, optionally in plan
+   * mode — then applies an optional title and sends an optional first
+   * prompt once the runtime reports ready. Resolves to the landed tab id,
+   * or null when the spawn never landed (already reported). A worktree
+   * spawn keeps newWorktreeSession's throw-on-failure contract; a seed
+   * that cannot be sent is reported as a warn notice on the new tab, and
+   * the tab id is still returned.
+   */
+  const launchSession = async (
+    projectCwd: string,
+    opts: {
+      instanceId?: string | null;
+      prompt?: string;
+      title?: string | null;
+      planMode?: boolean;
+      worktree?:
+        | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
+        | { checkout: { branch: string } }
+        | null;
+    },
+  ): Promise<string | null> => {
+    const instanceId = opts.instanceId ?? null;
+    const tabId = opts.worktree
+      ? await newWorktreeSession(projectCwd, opts.worktree, instanceId)
+      : await newSession(projectCwd, undefined, instanceId, {
+          planMode: opts.planMode === true,
+        });
+    if (tabId === null) return null;
+    const prompt = opts.prompt?.trim() ?? "";
+    // No prompt: quick-launch behaviour — the tab alone is the whole ask.
+    if (prompt === "") return tabId;
+    await m.pollUntilSettled(tabId);
+    if (get().rpc[tabId]?.status !== "ready") {
+      // Mirrors the plan-dispatch guard (#622): an errored boot owns a
+      // failure banner and an exited one an exit notice; only a boot that
+      // never reported says so itself — on the new tab, where the user is.
+      if (
+        get().rpc[tabId]?.status !== "error" &&
+        get().exited[tabId] === undefined
+      ) {
+        m.appendItem(
+          tabId,
+          noticeItem(t("dialog.newsession.seedNotSent"), "warn"),
+        );
+      }
+      return tabId;
+    }
+    const title = opts.title?.trim() ?? "";
+    if (title !== "") await get().renameSessionTo(tabId, title);
+    const accepted = await get().sendPrompt(tabId, prompt, "prompt");
+    if (!accepted) {
+      m.appendItem(
+        tabId,
+        noticeItem(t("dialog.newsession.seedNotSent"), "warn"),
+      );
+    }
+    return tabId;
   };
 
   /**
@@ -1766,6 +1833,7 @@ export function createLifecycleSlice(
     newChat,
     askAboutSession,
     newWorktreeSession,
+    launchSession,
     convertSessionToWorktree,
     openSession,
     focusTab,
