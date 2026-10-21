@@ -92,13 +92,20 @@ import {
   renderSessionSummary,
   resolveRepositoryKey,
   sampleHostResources,
+  detectHostOs,
+  detectPackageManagers,
   type FleetDispatchRequest,
   type FleetExecRequest,
+  type FleetDetachedExecRequest,
+  type FleetExecPollRequest,
+  type FleetProviderKeysRequest,
   type FleetGrantRaiseRequest,
   type FleetProjectManageRequest,
   type FleetRequester,
   type FleetRung,
   type FleetHostReport,
+  type FleetHostOs,
+  type FleetPackageManager,
   type HostResources,
   type BrowserPaneInputEvent,
   type BrowserPaneNavigate,
@@ -208,6 +215,9 @@ export class MainBackend {
   /** fleet:hostReport caches: one shared resource sample per 5 s, repository
    *  keys per path for 60 s, head commits per path for 15 s. */
   private fleetResources: { at: number; value: Promise<HostResources> } | null = null;
+  /** The member's OS, probed once per process; package managers cached 60 s (issue #905). */
+  private fleetOs: Promise<FleetHostOs> | null = null;
+  private fleetPackageManagers: { at: number; value: Promise<FleetPackageManager[]> } | null = null;
   private readonly fleetRepositoryKeys = new Map<string, { at: number; value: Promise<string | null> }>();
   private readonly fleetHeadCommits = new Map<string, { at: number; value: Promise<string | null> }>();
   /** `os.hostname()` cut to FLEET_LABEL_MAX code points: the requester and host-report label. */
@@ -519,6 +529,7 @@ export class MainBackend {
       localSummary: (tabId) => this.fleetSessionSummary(tabId),
       broadcast: () => this.broadcast(),
       probeSsh: (host) => probeSshPort(host),
+      providerKeyValue: (envName) => this.providerKeys.rolloutValue(envName),
     });
     // The node half of the fleet ladder (issue #901): the owner answers for
     // its own machine, so it shares the registry and log dir with everything else.
@@ -529,6 +540,7 @@ export class MainBackend {
       addProject: async (dir) => {
         await this.addProjectPath(dir);
       },
+      installProviderKey: (envName, value) => this.providerKeys.setKey(envName, value),
     });
     // Every registered project gets one gitdir watch (#498): a terminal
     // checkout, a commit, a branch made or deleted outside this app moves the
@@ -876,6 +888,7 @@ export class MainBackend {
             (await readOmpCompactionMethods({ ompPath: this.ompPath, projectCwd: null }))
               .supported,
           onAppUpdateTrainChanged: () => this.appUpdater.onTrainChanged(),
+          onFleetLadderChanged: () => this.fleetServer.enforceDetached(),
         }),
         ...registerVaultHandlers({
           registry: this.registry,
@@ -1269,6 +1282,13 @@ export class MainBackend {
         [CH.fleetProjectManage]: (req: FleetProjectManageRequest) => this.fleetServer.projectManage(req),
         [CH.fleetGrantRung]: (req: FleetRequester) => this.fleetServer.grantRung(req),
         [CH.fleetGrantRaise]: (req: FleetGrantRaiseRequest) => this.fleetServer.grantRaise(req),
+        // Detached exec and Provider key rollout (issue #905): the first three
+        // cross the proxy to the owner; the rollout orchestrates in this main.
+        [CH.fleetExecDetach]: (req: FleetDetachedExecRequest) => this.fleetServer.execDetach(req),
+        [CH.fleetExecPoll]: (req: FleetExecPollRequest) => this.fleetServer.execPoll(req),
+        [CH.fleetProviderKeys]: (req: FleetProviderKeysRequest) => this.fleetServer.providerKeys(req),
+        [CH.fleetRolloutProviderKeys]: (machineKey: string, envNames: string[]) =>
+          this.fleet.rolloutProviderKeys(machineKey, envNames),
         [CH.fleetAudit]: () => this.fleetServer.auditEntries(),
         [CH.fleetGrantSet]: async (dispatcherId: string, rung: FleetRung | null) => {
           this.fleetServer.setGrant(dispatcherId, rung);
@@ -1945,6 +1965,7 @@ export class MainBackend {
     this.transfers.dispose();
     this.sessions.killAll();
     const headsSettled = this.headWatchers.disposeAll();
+    this.fleetServer.dispose();
     this.remoteInstances.stop();
     void this.remote.stop();
     return headsSettled;
@@ -2019,9 +2040,21 @@ export class MainBackend {
         if (this.fleetResources === entry) this.fleetResources = null;
       });
     }
+    this.fleetOs ??= detectHostOs();
+    if (this.fleetPackageManagers === null || now - this.fleetPackageManagers.at >= 60_000) {
+      const value = detectPackageManagers();
+      const entry = { at: now, value };
+      this.fleetPackageManagers = entry;
+      // Same as the resource sample: a failed probe is retried next report.
+      value.catch(() => {
+        if (this.fleetPackageManagers === entry) this.fleetPackageManagers = null;
+      });
+    }
     const records = this.registry.sessions;
-    const [resources, projects] = await Promise.all([
+    const [resources, hostOs, packageManagers, projects] = await Promise.all([
       this.fleetResources.value,
+      this.fleetOs,
+      this.fleetPackageManagers.value,
       Promise.all(
         this.registry.projects.map(async (project) => {
           const [repositoryKey, headCommit] = await Promise.all([
@@ -2064,6 +2097,8 @@ export class MainBackend {
       projects,
       user: this.fleetUser,
       projectRoots: this.registry.getSetting("fleetProjectRoots"),
+      os: hostOs,
+      packageManagers,
     };
   }
 

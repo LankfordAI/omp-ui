@@ -470,6 +470,8 @@ describe("HostBridge fleet tools (issue #899)", () => {
       ],
       user: null,
       projectRoots: [],
+      os: null,
+      packageManagers: null,
     },
   });
   const MACHINES = [machine(LOCAL_MACHINE_KEY, null), machine("remote-b", "studio", "full")];
@@ -485,6 +487,8 @@ describe("HostBridge fleet tools (issue #899)", () => {
         status: async () => "no sessions",
         exec: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         projectManage: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+        execDetach: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+        execPoll: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         ...fleet,
       },
     });
@@ -666,6 +670,107 @@ describe("HostBridge fleet tools (issue #899)", () => {
     for (const frame of sent) expect(frame).not.toHaveProperty("isError");
     expect(resultText(sent[0]!)).toBe("clone accepted: /srv/repos/app (HEAD abc123)");
     expect(resultText(sent[1]!)).toBe("refused — no project roots are declared on this machine");
+  });
+
+  it("answers a detached exec start with the execId and poll instructions, never logging the command (issue #905)", async () => {
+    const starts: Array<{ tabId: string; args: unknown }> = [];
+    const exec = vi.fn();
+    const outcomes = [
+      { status: "accepted", execId: "e-123" },
+      { status: "refused", reason: "4 detached execs are already running on this machine; poll or cancel one first" },
+    ] as const;
+    let next = 0;
+    const { bridge, sent, logs } = fleetBridge({
+      exec,
+      execDetach: async (tabId, args) => {
+        starts.push({ tabId, args });
+        return outcomes[next++]!;
+      },
+    });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("x1", FLEET_TOOLS[3], { machine: "studio", command: "SECRET-CMD dnf -y install rg", detach: true }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("x2", FLEET_TOOLS[3], { machine: "studio", command: "SECRET-CMD again", detach: true }), send);
+    await settled();
+
+    expect(exec).not.toHaveBeenCalled();
+    expect(starts[0]).toEqual({ tabId: "t1", args: expect.objectContaining({ machine: "studio", command: "SECRET-CMD dnf -y install rg", detach: true }) });
+    for (const frame of sent) expect(frame).not.toHaveProperty("isError");
+    expect(resultText(sent[0]!)).toBe(
+      'detached exec started on studio: execId e-123. Poll omp-ui_fleet_exec_poll with machine "studio" and execId "e-123"; each poll waits up to 25 s. Do not start the command again.',
+    );
+    expect(resultText(sent[1]!)).toBe("refused — 4 detached execs are already running on this machine; poll or cancel one first");
+    expect(logs).toEqual([
+      "omp-ui_fleet_exec (detached) from t1: studio execId=e-123",
+      "omp-ui_fleet_exec (detached) from t1: studio refused (4 detached execs are already running on this machine; poll or cancel one first)",
+    ]);
+    expect(logs.join("\n")).not.toContain("SECRET-CMD");
+  });
+
+  it("answers a poll per state with output blocks and the truncation line for running and finished (issue #905)", async () => {
+    const base = { status: "accepted", execId: "e-1", exitCode: null, stdout: "", stderr: "", truncated: false } as const;
+    const outcomes = [
+      { ...base, state: "running", elapsedMs: 12_400, stdout: "Installing...", truncated: true },
+      { ...base, state: "exited", exitCode: 0, elapsedMs: 61_600, stdout: "Complete!\n", stderr: "warn\n", truncated: true },
+      { ...base, state: "exited", elapsedMs: 500, stderr: "spawn /bin/sh ENOENT" },
+      { ...base, state: "timed-out", elapsedMs: 1_800_000 },
+      { ...base, state: "cancelled", elapsedMs: 3_000, stdout: "partial" },
+      { ...base, state: "revoked", elapsedMs: 9_000 },
+      { status: "refused", reason: "no detached exec e-9 from desk on this machine" },
+    ] as const;
+    const polls: Array<{ tabId: string; args: unknown }> = [];
+    let next = 0;
+    const { bridge, sent, logs } = fleetBridge({
+      execPoll: async (tabId, args) => {
+        polls.push({ tabId, args });
+        return outcomes[next++]!;
+      },
+    });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    for (let i = 0; i < outcomes.length; i += 1) {
+      bridge.route("t1", toolCallFrame(`p${i}`, FLEET_TOOLS[5], { machine: "studio", execId: i === 6 ? "e-9" : "e-1", ...(i === 0 ? { waitMs: 0 } : {}) }), send);
+      await settled();
+    }
+
+    expect(polls[0]).toEqual({ tabId: "t1", args: { machine: "studio", execId: "e-1", cancel: false, waitMs: 0 } });
+    expect(polls[1]).toEqual({ tabId: "t1", args: { machine: "studio", execId: "e-1", cancel: false, waitMs: null } });
+    for (const frame of sent) expect(frame).not.toHaveProperty("isError");
+    expect(sent.map(resultText)).toEqual([
+      "running (12 s)\n\nInstalling...\n\n[earlier output not shown]",
+      "exit 0 after 62 s\n\nComplete!\n\n\nstderr:\nwarn\n\n\n[truncated: earlier output dropped]",
+      "exit null after 1 s\n\nstderr:\nspawn /bin/sh ENOENT",
+      "timed out after 1800 s",
+      "cancelled after 3 s\n\npartial",
+      "revoked by the member's owner after 9 s",
+      "refused — no detached exec e-9 from desk on this machine",
+    ]);
+    expect(logs).toEqual([
+      "omp-ui_fleet_exec_poll from t1: studio e-1 running",
+      "omp-ui_fleet_exec_poll from t1: studio e-1 exited",
+      "omp-ui_fleet_exec_poll from t1: studio e-1 exited",
+      "omp-ui_fleet_exec_poll from t1: studio e-1 timed-out",
+      "omp-ui_fleet_exec_poll from t1: studio e-1 cancelled",
+      "omp-ui_fleet_exec_poll from t1: studio e-1 revoked",
+      "omp-ui_fleet_exec_poll from t1: studio e-9 refused (no detached exec e-9 from desk on this machine)",
+    ]);
+  });
+
+  it("refuses malformed poll arguments without calling the deps (issue #905)", async () => {
+    const execPoll = vi.fn();
+    const { bridge, sent } = fleetBridge({ execPoll });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("a", FLEET_TOOLS[5], { machine: "studio", execId: " " }), send);
+    bridge.route("t1", toolCallFrame("b", FLEET_TOOLS[5], { machine: "studio", execId: "e-1", waitMs: 25_001 }), send);
+    bridge.route("t1", toolCallFrame("c", FLEET_TOOLS[5], { machine: "studio", execId: "e-1", cancel: "yes" }), send);
+    await settled();
+    expect(sent).toHaveLength(3);
+    for (const frame of sent) expect(frame).toMatchObject({ type: "host_tool_result", isError: true });
+    expect(sent.map(resultText)).toEqual([
+      "execId must be a non-empty string",
+      "waitMs must be a whole number from 0 to 25000",
+      "cancel must be true or false",
+    ]);
+    expect(execPoll).not.toHaveBeenCalled();
   });
 });
 

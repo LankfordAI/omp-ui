@@ -328,6 +328,29 @@ const VALID_ARGS = {
   fleetGrantSet: ["dispatcher-1", "manage"],
   fleetGrantRequest: ["member-1", "manage", "secret"],
   fleetAudit: [],
+  fleetExecDetach: [
+    {
+      requester: { instanceId: "instance-1", label: "workstation", kind: "agent", sourceTabId: "tab-1" },
+      command: "dnf -y install ripgrep",
+      cwd: null,
+      timeoutMs: null,
+    },
+  ],
+  fleetExecPoll: [
+    {
+      requester: { instanceId: "instance-1", label: "workstation", kind: "agent", sourceTabId: "tab-1" },
+      execId: "exec-1",
+      waitMs: 25_000,
+      cancel: false,
+    },
+  ],
+  fleetProviderKeys: [
+    {
+      requester: { instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null },
+      keys: [{ envName: "ANTHROPIC_API_KEY", value: "sk-test" }],
+    },
+  ],
+  fleetRolloutProviderKeys: ["member-1", ["ANTHROPIC_API_KEY"]],
   setFleetExecEnabled: [true],
   setFleetExecCeiling: ["manage"],
   setFleetProjectRoots: [["/srv/repos"]],
@@ -495,6 +518,30 @@ describe("transport dispatch", () => {
     [CH.fleetDispatch, [{ targets: { kind: "explicit", picks: [] }, prompt: "x", title: null, workspace: "worktree", planMode: false }], "argument 0"],
     [CH.setFleetPlacement, ["local", "always"], "argument 1"],
     [CH.setFleetPlacement, ["k".repeat(65), "prefer"], "argument 0"],
+    [
+      CH.fleetProviderKeys,
+      [
+        {
+          requester: { instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null },
+          keys: [
+            { envName: "ANTHROPIC_API_KEY", value: "do-not-echo" },
+            { envName: "ANTHROPIC_API_KEY", value: "do-not-echo" },
+          ],
+        },
+      ],
+      "argument 0",
+    ],
+    [
+      CH.fleetProviderKeys,
+      [{ requester: { instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null }, keys: [{ envName: "do-not-echo", value: "do-not-echo" }] }],
+      "argument 0",
+    ],
+    [
+      CH.fleetExecPoll,
+      [{ requester: { instanceId: "instance-1", label: "workstation", kind: "agent", sourceTabId: "tab-1" }, execId: "exec-1", waitMs: "soon", cancel: false }],
+      "argument 0",
+    ],
+    [CH.fleetRolloutProviderKeys, ["member-1", "ANTHROPIC_API_KEY"], "argument 1"],
   ] as const)("rejects malformed request arguments before the handler", async (channel, args, path) => {
     const { table, calls } = recordingTable();
     await expect(dispatchRequest(table, channel, [...args])).rejects.toThrow(path);

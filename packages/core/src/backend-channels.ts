@@ -94,9 +94,13 @@ import type {
 import type { RpcFrame } from "./rpc/codec";
 import type {
   FleetAuditEntry,
+  FleetDetachedExecRequest,
+  FleetDetachedExecStartOutcome,
   FleetDispatchRequest,
   FleetDispatchResult,
   FleetExecOutcome,
+  FleetExecPollOutcome,
+  FleetExecPollRequest,
   FleetExecRequest,
   FleetGrantRaiseOutcome,
   FleetGrantRaiseRequest,
@@ -104,6 +108,8 @@ import type {
   FleetMachine,
   FleetProjectManageOutcome,
   FleetProjectManageRequest,
+  FleetProviderKeysOutcome,
+  FleetProviderKeysRequest,
   FleetRequester,
   FleetRung,
   PlacementPreference,
@@ -151,9 +157,12 @@ import {
   updateTrainCodec,
   vaultNoteVoiceCodec,
   worktreeReleaseOptionsCodec,
+  fleetDetachedExecRequestCodec,
   fleetDispatchRequestCodec,
+  fleetExecPollRequestCodec,
   fleetExecRequestCodec,
   fleetProjectManageCodec,
+  fleetProviderKeysRequestCodec,
   fleetGrantRaiseCodec,
   fleetRequesterCodec,
   fleetRungCodec,
@@ -1188,6 +1197,29 @@ export const BACKEND_CHANNELS = {
   },
   /** This machine's fleet audit ring, newest last. Local only. */
   fleetAudit: { channel: "fleet:audit", ...request<[], FleetAuditEntry[]>([]) },
+  /**
+   * Starts one detached exec on the owner (issue #905, ADR-0065): Full control,
+   * 30 min owner cap, answered at once with an execId. Proxied.
+   */
+  fleetExecDetach: {
+    channel: "fleet:execDetach",
+    ...request<[req: FleetDetachedExecRequest], FleetDetachedExecStartOutcome>([fleetDetachedExecRequestCodec]),
+  },
+  /** Polls (or cancels) one detached exec the same dispatcher started. Proxied. */
+  fleetExecPoll: {
+    channel: "fleet:execPoll",
+    ...request<[req: FleetExecPollRequest], FleetExecPollOutcome>([fleetExecPollRequestCodec]),
+  },
+  /** Provider key rollout (issue #905): the owner stores the carried values in its own keyring under Full control. Proxied, main-to-main. */
+  fleetProviderKeys: {
+    channel: "fleet:providerKeys",
+    ...request<[req: FleetProviderKeysRequest], FleetProviderKeysOutcome>([fleetProviderKeysRequestCodec]),
+  },
+  /** User-started Provider key rollout to member `machineKey`; the renderer sends env names only. Local only. */
+  fleetRolloutProviderKeys: {
+    channel: "fleet:rolloutProviderKeys",
+    ...request<[machineKey: string, envNames: string[]], FleetProviderKeysOutcome>([machineKeyCodec, arrayOf(str())]),
+  },
   /**
    * Lists resolved, redacted MCP servers and per-file errors; null projectCwd
    * lists the global (user-level) scope only.

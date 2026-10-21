@@ -1,14 +1,20 @@
 import { isObject } from "./guards";
 import { parseSpawnRequest } from "./spawn-request";
 import {
+  parseFleetDetachedExecRequest,
   parseFleetDispatchRequest,
+  parseFleetExecPollRequest,
   parseFleetExecRequest,
   parseFleetProjectManageRequest,
+  parseFleetProviderKeysRequest,
   parseFleetRequester,
   FLEET_RUNGS,
+  type FleetDetachedExecRequest,
   type FleetDispatchRequest,
+  type FleetExecPollRequest,
   type FleetExecRequest,
   type FleetProjectManageRequest,
+  type FleetProviderKeysRequest,
   type FleetGrantRaiseRequest,
   type FleetRequester,
   type FleetRung,
@@ -666,6 +672,42 @@ export const fleetGrantRaiseCodec: ArgCodec<FleetGrantRaiseRequest> = {
       targetRung: fleetRungCodec.decode(fields["targetRung"], `${path}.targetRung`),
       credential: shortStr(4_096).decode(fields["credential"], `${path}.credential`),
     };
+  },
+};
+
+/** Detached exec start (issue #905): strict keys and every limit, via the shared parser. */
+export const fleetDetachedExecRequestCodec: ArgCodec<FleetDetachedExecRequest> = {
+  expected: "a valid fleet detached exec request",
+  decode(value, path) {
+    try {
+      return parseFleetDetachedExecRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Detached exec poll (issue #905), via the shared parser. */
+export const fleetExecPollRequestCodec: ArgCodec<FleetExecPollRequest> = {
+  expected: "a valid fleet exec poll request",
+  decode(value, path) {
+    try {
+      return parseFleetExecPollRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Provider key rollout (issue #905). The parser's messages name env names or indexes only, never a value. */
+export const fleetProviderKeysRequestCodec: ArgCodec<FleetProviderKeysRequest> = {
+  expected: "a valid fleet provider keys request",
+  decode(value, path) {
+    try {
+      return parseFleetProviderKeysRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
   },
 };
 

@@ -5,6 +5,7 @@
  * `@omp-ui/core/fleet` subpath; the host sampler and the staged prompt live in
  * fleet-host.ts.
  */
+import { PROVIDER_ENV_NAMES } from "./provider-catalog";
 import type { SessionSummary } from "./types";
 
 export const LOCAL_MACHINE_KEY = "local";
@@ -33,6 +34,16 @@ export const FLEET_EXEC_TIMEOUT_MS = 30_000; // owner cap; caller may only short
 export const FLEET_EXEC_TIMEOUT_MIN_MS = 100;
 export const FLEET_COMMAND_MAX = 8_000; // UTF-16 units, single command string
 export const FLEET_CLONE_TIMEOUT_MS = 45_000; // fits the 60 s host-answer watchdog
+/** Owner cap for one detached exec (issue #905); the caller may only shorten it. */
+export const FLEET_DETACHED_EXEC_TIMEOUT_MS = 30 * 60_000;
+/** Bytes per stream a poll shows while the process still runs. */
+export const FLEET_EXEC_POLL_TAIL = 4_096;
+/** Longest a poll waits for the process to finish; inside the 45 s member-call bound. */
+export const FLEET_EXEC_POLL_WAIT_MAX_MS = 25_000;
+/** Running detached execs per member, across all dispatchers. */
+export const FLEET_DETACHED_EXECS_RUNNING_MAX = 4;
+/** Finished detached execs a member keeps for polling; the oldest finished one is evicted first. */
+export const FLEET_DETACHED_EXECS_RETAINED = 32;
 /** The SSH port the dispatcher probes for each member's reachability (issue #904). */
 export const FLEET_SSH_PORT = 22;
 
@@ -40,13 +51,14 @@ export const FLEET_SSH_PORT = 22;
 // eslint-disable-next-line no-control-regex
 export const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
 
-/** The five agent-facing host tools (§6, issue #901), in registration order. */
+/** The six agent-facing host tools (§6, issues #901, #905), in registration order. */
 export const FLEET_TOOLS = [
   "omp-ui_fleet_machines",
   "omp-ui_fleet_dispatch",
   "omp-ui_fleet_status",
   "omp-ui_fleet_exec",
   "omp-ui_fleet_project",
+  "omp-ui_fleet_exec_poll",
 ] as const;
 export type FleetToolName = (typeof FLEET_TOOLS)[number];
 
@@ -146,6 +158,22 @@ export interface FleetHostProject {
   advisorModel: string | null;
 }
 
+export interface FleetHostOs {
+  /** Human name: os-release PRETTY_NAME, "macOS", "Windows 11 Pro", ... */
+  name: string;
+  /** VERSION_ID / sw_vers productVersion / os.release(); null when unknown. */
+  version: string | null;
+}
+
+export interface FleetPackageManager {
+  /** Fixed table name: dnf, yum, apt, zypper, pacman, apk, brew, flatpak, snap, port, winget, choco, scoop. */
+  name: string;
+  /** Absolute path of the binary found. */
+  path: string;
+  /** True when found on the PATH fleet exec children inherit; false when found only at a known install location. */
+  onPath: boolean;
+}
+
 export interface FleetHostReport {
   instanceId: string;
   label: string;
@@ -166,6 +194,47 @@ export interface FleetHostReport {
   user: string | null;
   /** The member's declared fleetProjectRoots; null when the member predates #904. */
   projectRoots: string[] | null;
+  /** The member's OS (issue #905); null when the member predates #905. */
+  os: FleetHostOs | null;
+  /** Package managers found on the member, in table order (issue #905); null when the member predates #905. */
+  packageManagers: FleetPackageManager[] | null;
+}
+
+const FLEET_OS_NAME_MAX = 128;
+const FLEET_OS_VERSION_MAX = 64;
+const FLEET_PACKAGE_MANAGERS_MAX = 16;
+
+/** "Fedora Linux 44 (Workstation Edition)"; appends version only when name does not already contain it. */
+export function fleetOsLabel(os: FleetHostOs): string {
+  return os.version === null || os.version === "" || os.name.includes(os.version) ? os.name : `${os.name} ${os.version}`;
+}
+
+/** Normalizer for a remote report's `os`: shape-checked or null (name 1..128 chars, version ≤ 64, no control chars). */
+export function parseFleetHostOs(value: unknown): FleetHostOs | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const o = value as ObjectValue;
+  if (typeof o.name !== "string" || o.name.trim() === "" || o.name.length > FLEET_OS_NAME_MAX || CONTROL_CHARS.test(o.name)) {
+    return null;
+  }
+  if (o.version === null) return { name: o.name, version: null };
+  if (typeof o.version !== "string" || o.version.length > FLEET_OS_VERSION_MAX || CONTROL_CHARS.test(o.version)) return null;
+  return { name: o.name, version: o.version === "" ? null : o.version };
+}
+
+/** Normalizer for a remote report's `packageManagers`: null unless an array; invalid entries dropped; at most 16 kept. */
+export function parseFleetPackageManagers(value: unknown): FleetPackageManager[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: FleetPackageManager[] = [];
+  for (const raw of value) {
+    if (out.length >= FLEET_PACKAGE_MANAGERS_MAX) break;
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const m = raw as ObjectValue;
+    if (typeof m.name !== "string" || !/^[a-z0-9-]{1,32}$/.test(m.name)) continue;
+    if (typeof m.path !== "string" || m.path === "" || m.path.length > 4_096 || CONTROL_CHARS.test(m.path)) continue;
+    if (typeof m.onPath !== "boolean") continue;
+    out.push({ name: m.name, path: m.path, onPath: m.onPath });
+  }
+  return out;
 }
 
 export type FleetMachineStatus = "ready" | "unsupported" | "unreachable" | "error";
@@ -519,6 +588,63 @@ export interface FleetGrantRaiseRequest {
 
 export type FleetGrantRaiseOutcome = { ok: true; rung: FleetRung } | { ok: false; reason: string };
 
+// ── Detached exec (issue #905, ADR-0065) ────────────────────────────────────
+
+/** Start one command the member keeps running past the call. `requester` is the CLAIMED identity. */
+export interface FleetDetachedExecRequest {
+  requester: FleetRequester;
+  command: string;
+  cwd: string | null;
+  /** Null uses FLEET_DETACHED_EXEC_TIMEOUT_MS; the owner clamps into [FLEET_EXEC_TIMEOUT_MIN_MS, that cap]. */
+  timeoutMs: number | null;
+}
+
+export type FleetDetachedExecStartOutcome =
+  | { status: "accepted"; execId: string }
+  | { status: "refused"; reason: string };
+
+export interface FleetExecPollRequest {
+  requester: FleetRequester;
+  execId: string;
+  /** The owner clamps into [0, FLEET_EXEC_POLL_WAIT_MAX_MS]. */
+  waitMs: number;
+  /** Kill the process tree before answering. */
+  cancel: boolean;
+}
+
+export type FleetDetachedExecState = "running" | "exited" | "timed-out" | "cancelled" | "revoked";
+
+export type FleetExecPollOutcome =
+  | {
+      status: "accepted";
+      execId: string;
+      state: FleetDetachedExecState;
+      /** Null while running, on a signal kill, or on a spawn error. */
+      exitCode: number | null;
+      stdout: string;
+      stderr: string;
+      /** Earlier bytes exist that this answer does not show. */
+      truncated: boolean;
+      elapsedMs: number;
+    }
+  | { status: "refused"; reason: string };
+
+// ── Provider key rollout (issue #905, ADR-0065) ─────────────────────────────
+
+export interface FleetProviderKeyEntry {
+  envName: string;
+  value: string;
+}
+
+export interface FleetProviderKeysRequest {
+  requester: FleetRequester;
+  keys: FleetProviderKeyEntry[];
+}
+
+export type FleetProviderKeysOutcome =
+  | { status: "accepted"; installed: string[]; failed: Array<{ envName: string; reason: string }> }
+  | { status: "refused"; reason: string };
+
 /** One accepted-or-refused fleet action on the node (its audit ring entry). */
 export interface FleetAuditEntry {
   at: string;
@@ -526,7 +652,7 @@ export interface FleetAuditEntry {
   dispatcherLabel: string;
   /** The agent's tab on the dispatcher when the call came from a tool. */
   sourceTabId: string | null;
-  action: "exec" | "manage" | "grant-raise" | "grant-set";
+  action: "exec" | "exec-detached" | "manage" | "keys" | "grant-raise" | "grant-set";
   /** The rung used (actions) or the literal marker for grant bookkeeping. */
   rung: FleetRung | "raise" | "set";
   accepted: boolean;
@@ -554,9 +680,8 @@ function pathArg(value: unknown, label: string): string {
   return value;
 }
 
-/** Strict parse of a fleet exec request (codec + node entry check). Messages are user-facing. */
-export function parseFleetExecRequest(value: unknown): FleetExecRequest {
-  const label = "exec request";
+/** The requester/command/cwd/timeoutMs body both exec request parsers share. */
+function parseExecBody(value: unknown, label: string): FleetExecRequest {
   const req = objectValue(value, label);
   rejectUnknownKeys(req, ["requester", "command", "cwd", "timeoutMs"], label);
   const cwd = req.cwd === null || req.cwd === undefined ? null : pathArg(req.cwd, `${label}.cwd`);
@@ -573,6 +698,67 @@ export function parseFleetExecRequest(value: unknown): FleetExecRequest {
     cwd,
     timeoutMs,
   };
+}
+
+/** Strict parse of a fleet exec request (codec + node entry check). Messages are user-facing. */
+export function parseFleetExecRequest(value: unknown): FleetExecRequest {
+  return parseExecBody(value, "exec request");
+}
+
+/** Strict parse of a detached exec start (codec + node entry check). Messages are user-facing. */
+export function parseFleetDetachedExecRequest(value: unknown): FleetDetachedExecRequest {
+  return parseExecBody(value, "detached exec request");
+}
+
+/** Strict parse of a detached exec poll. Messages are user-facing. */
+export function parseFleetExecPollRequest(value: unknown): FleetExecPollRequest {
+  const label = "exec poll request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "execId", "waitMs", "cancel"], label);
+  if (typeof req.waitMs !== "number" || !Number.isFinite(req.waitMs)) throw new Error(`${label}.waitMs must be a number`);
+  if (typeof req.cancel !== "boolean") throw new Error(`${label}.cancel must be true or false`);
+  return {
+    requester: parseFleetRequester(req.requester, `${label}.requester`),
+    execId: idString(req.execId, `${label}.execId`),
+    waitMs: req.waitMs,
+    cancel: req.cancel,
+  };
+}
+
+const FLEET_PROVIDER_KEY_VALUE_MAX_BYTES = 8_192;
+
+/**
+ * Strict parse of a Provider key rollout. Messages name an env name or an
+ * entry index only — NEVER a value, and never an unrecognized env name (it
+ * could be a misplaced value).
+ */
+export function parseFleetProviderKeysRequest(value: unknown): FleetProviderKeysRequest {
+  const label = "provider keys request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "keys"], label);
+  const requester = parseFleetRequester(req.requester, `${label}.requester`);
+  if (!Array.isArray(req.keys) || req.keys.length < 1 || req.keys.length > PROVIDER_ENV_NAMES.length) {
+    throw new Error(`${label}.keys must list 1 to ${PROVIDER_ENV_NAMES.length} keys`);
+  }
+  const seen = new Set<string>();
+  const encoder = new TextEncoder();
+  const keys = req.keys.map((raw, i): FleetProviderKeyEntry => {
+    const at = `${label}.keys[${i}]`;
+    const entry = objectValue(raw, at);
+    rejectUnknownKeys(entry, ["envName", "value"], at);
+    const envName = entry.envName;
+    if (typeof envName !== "string" || !PROVIDER_ENV_NAMES.includes(envName)) {
+      throw new Error(`${at}.envName is not a known provider variable`);
+    }
+    if (seen.has(envName)) throw new Error(`${at}: ${envName} appears more than once`);
+    seen.add(envName);
+    const v = entry.value;
+    if (typeof v !== "string" || v === "" || encoder.encode(v).length > FLEET_PROVIDER_KEY_VALUE_MAX_BYTES) {
+      throw new Error(`${at}: the value for ${envName} must be a non-empty string of at most ${FLEET_PROVIDER_KEY_VALUE_MAX_BYTES} bytes`);
+    }
+    return { envName, value: v };
+  });
+  return { requester, keys };
 }
 
 /** Strict parse of a rung-3 project-manage request. Exactly one verb-matched field. */
@@ -624,6 +810,17 @@ export interface FleetToolExecArgs {
   command: string;
   cwd: string | null;
   timeoutMs: number | null;
+  /** True starts a detached exec (issue #905). Default false. */
+  detach: boolean;
+}
+
+export interface FleetToolExecPollArgs {
+  machine: string;
+  execId: string;
+  /** Default false. */
+  cancel: boolean;
+  /** Null waits FLEET_EXEC_POLL_WAIT_MAX_MS. */
+  waitMs: number | null;
 }
 
 export interface FleetToolProjectArgs {
@@ -639,6 +836,7 @@ export type FleetToolArguments =
   | { ok: true; tool: "status"; selector: { batchId: string } | { dispatchId: string } }
   | { ok: true; tool: "exec"; args: FleetToolExecArgs }
   | { ok: true; tool: "project"; args: FleetToolProjectArgs }
+  | { ok: true; tool: "execPoll"; args: FleetToolExecPollArgs }
   | { ok: false; reason: string };
 
 function refuse(reason: string): { ok: false; reason: string } {
@@ -666,7 +864,7 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     return { ok: true, tool: "status", selector: hasBatch ? { batchId: value.trim() } : { dispatchId: value.trim() } };
   }
   if (name === "omp-ui_fleet_exec") {
-    const extra = unknownKey(["machine", "command", "cwd", "timeoutMs"]);
+    const extra = unknownKey(["machine", "command", "cwd", "timeoutMs", "detach"]);
     if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
     if (typeof a.machine !== "string" || a.machine.trim() === "") return refuse("machine must be a non-empty string");
     let command: string;
@@ -683,12 +881,32 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     let timeoutMs: number | null = null;
     if (a.timeoutMs !== undefined) {
       if (typeof a.timeoutMs !== "number" || !Number.isInteger(a.timeoutMs)) return refuse("timeoutMs must be a whole number");
-      // The owner clamps into [FLEET_EXEC_TIMEOUT_MIN_MS, FLEET_EXEC_TIMEOUT_MS];
-      // the tool only refuses absurd values the model could not mean.
+      // The owner clamps into [FLEET_EXEC_TIMEOUT_MIN_MS, its cap] (30 s, or
+      // 30 min detached); the tool only refuses absurd values the model could not mean.
       if (a.timeoutMs <= 0 || !Number.isFinite(a.timeoutMs)) return refuse("timeoutMs must be positive");
       timeoutMs = a.timeoutMs;
     }
-    return { ok: true, tool: "exec", args: { machine: a.machine.trim(), command, cwd, timeoutMs } };
+    if (a.detach !== undefined && typeof a.detach !== "boolean") return refuse("detach must be true or false");
+    return { ok: true, tool: "exec", args: { machine: a.machine.trim(), command, cwd, timeoutMs, detach: a.detach === true } };
+  }
+  if (name === "omp-ui_fleet_exec_poll") {
+    const extra = unknownKey(["machine", "execId", "cancel", "waitMs"]);
+    if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
+    if (typeof a.machine !== "string" || a.machine.trim() === "") return refuse("machine must be a non-empty string");
+    if (typeof a.execId !== "string" || a.execId.trim() === "") return refuse("execId must be a non-empty string");
+    if (a.cancel !== undefined && typeof a.cancel !== "boolean") return refuse("cancel must be true or false");
+    let waitMs: number | null = null;
+    if (a.waitMs !== undefined) {
+      if (typeof a.waitMs !== "number" || !Number.isInteger(a.waitMs) || a.waitMs < 0 || a.waitMs > FLEET_EXEC_POLL_WAIT_MAX_MS) {
+        return refuse(`waitMs must be a whole number from 0 to ${FLEET_EXEC_POLL_WAIT_MAX_MS}`);
+      }
+      waitMs = a.waitMs;
+    }
+    return {
+      ok: true,
+      tool: "execPoll",
+      args: { machine: a.machine.trim(), execId: a.execId.trim(), cancel: a.cancel === true, waitMs },
+    };
   }
   if (name === "omp-ui_fleet_project") {
     const extra = unknownKey(["machine", "verb", "repositoryUrl", "path"]);
@@ -833,7 +1051,7 @@ export function fleetToolDispatchRequest(
 }
 
 /**
- * Translate omp-ui_fleet_exec / omp-ui_fleet_project `machine` into a machine
+ * Translate omp-ui_fleet_exec / omp-ui_fleet_exec_poll / omp-ui_fleet_project `machine` into a machine
  * key: "this computer" resolves to LOCAL_MACHINE_KEY, otherwise the nickname
  * match (case-insensitive). A refusal lists the known names.
  */
@@ -848,14 +1066,39 @@ export function fleetToolMachineKey(name: string, machines: readonly FleetMachin
   return refuse(`no fleet machine is named "${name}" (known: ${known})`);
 }
 
-/** Translate omp-ui_fleet_exec arguments into a request; the owner holds the ladder. */
+/**
+ * Translate omp-ui_fleet_exec arguments into a request; the owner holds the
+ * ladder. `detach` rides beside the request so the dispatcher picks the
+ * channel (fleet:exec or fleet:execDetach); both take the same request body.
+ */
 export function fleetToolExecRequest(
   args: FleetToolExecArgs,
   machines: readonly FleetMachine[],
-): { ok: true; machineKey: string; request: Omit<FleetExecRequest, "requester"> } | { ok: false; reason: string } {
+):
+  | { ok: true; machineKey: string; detach: boolean; request: Omit<FleetExecRequest, "requester"> }
+  | { ok: false; reason: string } {
   const resolved = fleetToolMachineKey(args.machine, machines);
   if (!resolved.ok) return resolved;
-  return { ok: true, machineKey: resolved.machineKey, request: { command: args.command, cwd: args.cwd, timeoutMs: args.timeoutMs } };
+  return {
+    ok: true,
+    machineKey: resolved.machineKey,
+    detach: args.detach,
+    request: { command: args.command, cwd: args.cwd, timeoutMs: args.timeoutMs },
+  };
+}
+
+/** Translate omp-ui_fleet_exec_poll arguments into a request; ownership of the execId is the member's gate. */
+export function fleetToolExecPollRequest(
+  args: FleetToolExecPollArgs,
+  machines: readonly FleetMachine[],
+): { ok: true; machineKey: string; request: Omit<FleetExecPollRequest, "requester"> } | { ok: false; reason: string } {
+  const resolved = fleetToolMachineKey(args.machine, machines);
+  if (!resolved.ok) return resolved;
+  return {
+    ok: true,
+    machineKey: resolved.machineKey,
+    request: { execId: args.execId, waitMs: args.waitMs ?? FLEET_EXEC_POLL_WAIT_MAX_MS, cancel: args.cancel },
+  };
 }
 
 /** The omp-ui_fleet_machines answer: one line per machine, then each ready project. */
@@ -897,6 +1140,17 @@ export function formatFleetMachines(machines: readonly FleetMachine[]): string {
             ? "none declared"
             : report.projectRoots.join(", ");
       lines.push(`  ssh: ${target} (${probe}); platform ${report.platform} ${report.arch}; project roots: ${roots}`);
+    }
+    // What the member runs and can install with (issue #905, ADR-0065).
+    if (m.key !== LOCAL_MACHINE_KEY) {
+      const system = report.os === null ? "not reported" : fleetOsLabel(report.os);
+      const managers =
+        report.packageManagers === null
+          ? "not reported"
+          : report.packageManagers.length === 0
+            ? "none found"
+            : report.packageManagers.map((pm) => (pm.onPath ? pm.name : `${pm.name} at ${pm.path}`)).join(", ");
+      lines.push(`  system: ${system}; package managers: ${managers}`);
     }
     for (const p of report.projects) {
       if (!p.providerReady) continue;

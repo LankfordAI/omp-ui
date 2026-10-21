@@ -5,11 +5,10 @@
  * CLAIMED dispatcher identity in the request. Refusals are answers: they ride
  * the outcome's `reason`, never a transport error.
  */
-import { execFile as execFileCb, spawn } from "node:child_process";
+import { execFile as execFileCb } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ChildProcess } from "node:child_process";
 import {
   FLEET_CLONE_TIMEOUT_MS,
   FLEET_EXEC_OUTPUT_MAX,
@@ -19,81 +18,30 @@ import {
   fleetRungAtLeast,
   fleetRungRank,
   type FleetAuditEntry,
+  type FleetDetachedExecRequest,
+  type FleetDetachedExecStartOutcome,
   type FleetExecOutcome,
+  type FleetExecPollOutcome,
+  type FleetExecPollRequest,
   type FleetExecRequest,
   type FleetGrantRaiseOutcome,
   type FleetGrantRaiseRequest,
   type FleetGrantRecord,
   type FleetProjectManageOutcome,
   type FleetProjectManageRequest,
+  type FleetProviderKeysOutcome,
+  type FleetProviderKeysRequest,
   type FleetRequester,
   type FleetRung,
   Registry,
 } from "@omp-ui/core";
 import { passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
+import { FleetDetachedExecs } from "./fleet-detached-exec";
+import { launchFleetShell, messageOf, resolveFleetCwd, type FleetCommandDeps, type FleetCommandSpec } from "./fleet-shell";
 import { appendMainLog } from "./main-log";
 
 const AUDIT_RING_CAPACITY = 200;
 const AUDIT_DETAIL_LIMIT = 200;
-
-export interface FleetCommandSpec {
-  command: string;
-  cwd: string | null;
-  timeoutMs: number | null;
-}
-
-export interface FleetSpawnOptions {
-  cwd: string;
-  env: NodeJS.ProcessEnv;
-  detached: boolean;
-}
-
-export interface FleetCommandDeps {
-  platform?: NodeJS.Platform;
-  homeDir?: () => string;
-  env?: NodeJS.ProcessEnv;
-  /** Test seam: the argv triple is handed to this spawner verbatim. */
-  spawnFn?: (command: string, args: string[], opts: FleetSpawnOptions) => ChildProcess;
-}
-
-interface ShellChoice {
-  file: string;
-  args: string[];
-}
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-/** The shells, fixed per platform (deterministic across members, never $SHELL). */
-function shellPlan(platform: NodeJS.Platform, command: string): ShellChoice[] {
-  if (platform === "win32") {
-    return [
-      { file: "pwsh", args: ["-NoProfile", "-NonInteractive", "-Command", command] },
-      { file: process.env["COMSPEC"] ?? "cmd.exe", args: ["/d", "/c", command] },
-    ];
-  }
-  return [{ file: "/bin/sh", args: ["-c", command] }];
-}
-
-/** Group kill on POSIX (the child leads its own group), taskkill tree on win32. */
-function killTree(child: ChildProcess, platform: NodeJS.Platform): void {
-  if (child.pid === undefined) return;
-  if (platform === "win32") {
-    try {
-      spawn("taskkill", ["/T", "/F", "/PID", String(child.pid)], { stdio: "ignore" });
-    } catch {
-      // A dead child or missing taskkill changes nothing about the outcome.
-    }
-    return;
-  }
-  try {
-    process.kill(-child.pid, "SIGKILL");
-  } catch (err) {
-    // ESRCH: the tree already exited between the timeout and the kill.
-    if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
-  }
-}
 
 /**
  * Run one bounded command: fresh child, no PTY, no stdin, byte-capped output,
@@ -101,97 +49,53 @@ function killTree(child: ChildProcess, platform: NodeJS.Platform): void {
  * caller can never override env or argv shape.
  */
 export function runFleetCommand(spec: FleetCommandSpec, deps: FleetCommandDeps = {}): Promise<FleetExecOutcome> {
-  const platform = deps.platform ?? process.platform;
-  const homeDir = deps.homeDir ?? os.homedir;
-  const env = deps.env ?? process.env;
   const timeoutMs =
     spec.timeoutMs === null
       ? FLEET_EXEC_TIMEOUT_MS
       : Math.min(FLEET_EXEC_TIMEOUT_MS, Math.max(FLEET_EXEC_TIMEOUT_MIN_MS, Math.floor(spec.timeoutMs)));
-  let cwd: string;
-  if (spec.cwd === null) {
-    cwd = homeDir();
-  } else {
-    try {
-      if (!fs.statSync(spec.cwd).isDirectory()) throw new Error("not a directory");
-    } catch {
-      return Promise.resolve({ status: "refused", reason: `cwd ${spec.cwd} is not a directory on this machine` });
+  const resolved = resolveFleetCwd(spec.cwd, deps.homeDir ?? os.homedir);
+  if (!resolved.ok) return Promise.resolve({ status: "refused", reason: resolved.reason });
+  const sinks = { stdout: { chunks: [] as Buffer[], length: 0 }, stderr: { chunks: [] as Buffer[], length: 0 } };
+  let truncated = false;
+  let timedOut = false;
+  const handle = launchFleetShell(spec.command, resolved.cwd, deps, (stream, data) => {
+    const sink = sinks[stream];
+    const room = FLEET_EXEC_OUTPUT_MAX - sink.length;
+    if (room <= 0) {
+      truncated = true;
+      return;
     }
-    cwd = spec.cwd;
-  }
-  const plan = shellPlan(platform, spec.command);
-  const spawner = deps.spawnFn ?? defaultSpawn;
-  return attempt(0);
-
-  function attempt(index: number): Promise<FleetExecOutcome> {
-    const choice = plan[index]!;
-    let child: ChildProcess;
-    try {
-      child = spawner(choice.file, choice.args, { cwd, env, detached: platform !== "win32" });
-    } catch (err) {
-      return Promise.resolve({ status: "refused", reason: `could not start the shell: ${messageOf(err)}` });
-    }
-    const { promise, resolve } = Promise.withResolvers<FleetExecOutcome>();
-    const out: Buffer[] = [];
-    const err: Buffer[] = [];
-    let outLen = 0;
-    let errLen = 0;
-    let truncated = false;
-    let timedOut = false;
-    let settled = false;
-    const absorb = (sink: Buffer[], length: () => number, grow: (n: number) => void) => (data: Buffer): void => {
-      const room = FLEET_EXEC_OUTPUT_MAX - length();
-      if (room <= 0) {
-        truncated = true;
-        return;
-      }
-      const keep = data.subarray(0, room);
-      sink.push(keep);
-      grow(keep.length);
-      if (keep.length < data.length) truncated = true;
-    };
-    child.stdout?.on("data", absorb(out, () => outLen, (n) => (outLen += n)));
-    child.stderr?.on("data", absorb(err, () => errLen, (n) => (errLen += n)));
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killTree(child, platform);
-    }, timeoutMs);
-    const finish = (exitCode: number | null, spawnError: string | null): void => {
-      if (settled) return;
-      settled = true;
+    const keep = data.subarray(0, room);
+    sink.chunks.push(keep);
+    sink.length += keep.length;
+    if (keep.length < data.length) truncated = true;
+  });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    handle.kill();
+  }, timeoutMs);
+  // A kill race: the child exits between the timeout and the signal — keep
+  // its exit code and output, timedOut stays true.
+  return handle.done.then(
+    ({ exitCode, spawnError }): FleetExecOutcome => {
       clearTimeout(timer);
       // Byte caps land before decode; a split multibyte tail decodes to one
       // replacement character — acceptable, never a crash. A spawn error keeps
       // timedOut as observed but reports no exit code.
-      resolve({
+      return {
         status: "accepted",
-        exitCode: spawnError === null ? exitCode : null,
-        stdout: Buffer.concat(out).toString("utf8"),
-        stderr: spawnError === null ? Buffer.concat(err).toString("utf8") : spawnError,
+        exitCode,
+        stdout: Buffer.concat(sinks.stdout.chunks).toString("utf8"),
+        stderr: spawnError === null ? Buffer.concat(sinks.stderr.chunks).toString("utf8") : spawnError,
         truncated,
         timedOut,
-      });
-    };
-    child.on("error", (e) => {
-      // Win32: a missing pwsh (ENOENT on spawn error) retries once on cmd.exe.
-      if ((e as NodeJS.ErrnoException).code === "ENOENT" && index + 1 < plan.length) {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(attempt(index + 1));
-        return;
-      }
-      finish(null, messageOf(e));
-    });
-    child.on("close", (code) => finish(code, null));
-    // A kill race: the child exits between the timeout and the signal — keep
-    // its exit code and output, timedOut stays true.
-    return promise;
-  }
-}
-
-function defaultSpawn(command: string, args: string[], opts: FleetSpawnOptions): ChildProcess {
-  return spawn(command, args, { cwd: opts.cwd, env: opts.env, detached: opts.detached, stdio: ["ignore", "pipe", "pipe"] });
+      };
+    },
+    (err: unknown): FleetExecOutcome => {
+      clearTimeout(timer);
+      return { status: "refused", reason: `could not start the shell: ${messageOf(err)}` };
+    },
+  );
 }
 
 export interface FleetServerDeps {
@@ -200,6 +104,8 @@ export interface FleetServerDeps {
   broadcast: () => void;
   /** The backend's shared registration path (project:add's body, issue #904); rejects with a user-facing reason. */
   addProject: (dir: string) => Promise<void>;
+  /** ProviderKeys.setKey on this machine; throws a user-facing reason. */
+  installProviderKey: (envName: string, value: string) => void;
   /** Test seams. */
   commandDeps?: FleetCommandDeps;
   execGit?: (file: string, args: string[], opts: { cwd: string; timeout: number }) => Promise<{ stdout: Buffer }>;
@@ -208,9 +114,15 @@ export interface FleetServerDeps {
 export class FleetServer {
   readonly #deps: FleetServerDeps;
   readonly #ring: FleetAuditEntry[] = [];
+  readonly #detached: FleetDetachedExecs;
 
   constructor(deps: FleetServerDeps) {
     this.#deps = deps;
+    this.#detached = new FleetDetachedExecs({
+      commandDeps: deps.commandDeps,
+      onFinish: (rec) =>
+        this.#audit("exec-detached", rec.requester, rec.rung, true, `${rec.execId.slice(0, 8)} ${rec.state}`, rec.exitCode),
+    });
   }
 
   /**
@@ -260,6 +172,76 @@ export class FleetServer {
       outcome.status === "accepted" ? outcome.exitCode : null,
     );
     return outcome;
+  }
+
+  /** `fleet:execDetach`: same ladder as exec; the member keeps the process running past the call. */
+  execDetach(req: FleetDetachedExecRequest): FleetDetachedExecStartOutcome {
+    const gate = this.check(req.requester, "full");
+    if (!gate.ok) {
+      this.#audit("exec-detached", req.requester, "full", false, req.command, null);
+      return { status: "refused", reason: gate.reason };
+    }
+    const outcome = this.#detached.start(req.requester, gate.rung, { command: req.command, cwd: req.cwd, timeoutMs: req.timeoutMs });
+    if (outcome.status === "accepted") {
+      this.#audit("exec-detached", req.requester, gate.rung, true, `${outcome.execId.slice(0, 8)} ${req.command}`, null);
+    } else {
+      this.#audit("exec-detached", req.requester, gate.rung, false, req.command, null);
+    }
+    return outcome;
+  }
+
+  /** `fleet:execPoll`: no ladder check — only the dispatcher that started the exec can see it. Never audited. */
+  execPoll(req: FleetExecPollRequest): Promise<FleetExecPollOutcome> {
+    this.#recordFirstSight(req.requester);
+    return this.#detached.poll(req.requester, req.execId, req.waitMs, req.cancel);
+  }
+
+  /**
+   * `fleet:providerKeys` (Provider key rollout): rung 4 + master switch, then
+   * each key into this machine's own credential store. The audit names env
+   * names only; a key value never reaches a log, the ring, or a reason.
+   */
+  providerKeys(req: FleetProviderKeysRequest): FleetProviderKeysOutcome {
+    const names = req.keys.map((k) => k.envName).join(", ");
+    const gate = this.check(req.requester, "full");
+    if (!gate.ok) {
+      this.#audit("keys", req.requester, "full", false, names, null);
+      return { status: "refused", reason: gate.reason };
+    }
+    const installed: string[] = [];
+    const failed: Array<{ envName: string; reason: string }> = [];
+    for (const { envName, value } of req.keys) {
+      try {
+        this.#deps.installProviderKey(envName, value);
+        installed.push(envName);
+      } catch (err) {
+        failed.push({ envName, reason: messageOf(err) });
+      }
+    }
+    this.#audit(
+      "keys",
+      req.requester,
+      gate.rung,
+      failed.length === 0,
+      `installed ${installed.join(", ") || "none"}${failed.length > 0 ? `; failed ${failed.map((f) => f.envName).join(", ")}` : ""}`,
+      null,
+    );
+    return { status: "accepted", installed, failed };
+  }
+
+  /** Revoke every running detached exec whose starter no longer holds Full control here. */
+  enforceDetached(): void {
+    const registry = this.#deps.registry;
+    this.#detached.revokeWhere(
+      (id) =>
+        registry.getSetting("fleetExecEnabled") &&
+        fleetRungAtLeast(fleetEffectiveRung(registry.getSetting("fleetGrants")[id], registry.getSetting("fleetExecCeiling")), "full"),
+    );
+  }
+
+  /** Quit path: kill every running detached exec. */
+  dispose(): void {
+    this.#detached.dispose();
   }
 
   /** `fleet:projectManage`: rung 3 + declared roots; the fixed clone/register verbs. */
@@ -392,6 +374,8 @@ export class FleetServer {
     registry.setSetting("fleetGrants", grants);
     this.#deps.broadcast();
     this.#audit("grant-raise", req.requester, "raise", true, `raised to ${req.targetRung}`, null);
+    // A "raise" may name a lower rung: a dispatcher it drops below Full loses its running detached execs.
+    this.enforceDetached();
     return { ok: true, rung: req.targetRung };
   }
 
@@ -414,6 +398,7 @@ export class FleetServer {
       rung === null ? "reset to default" : `set ${rung}`,
       null,
     );
+    this.enforceDetached();
   }
 
   #credentialMatches(credential: string): boolean {

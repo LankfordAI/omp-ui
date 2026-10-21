@@ -212,11 +212,17 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   // rung-3 project verbs, the rung probe, and the raise ceremony are proxied —
   // every enforcement decision lands in the OWNER's handler, never here. The
   // local orchestration (fleet:machines / fleet:dispatch / fleet:grantSet /
-  // fleet:audit, the settings channels) stays off this list.
+  // fleet:audit, the settings channels) stays off this list. Detached exec and
+  // Provider key rollout (issue #905, ADR-0065) join it the same way: the
+  // owner checks Full control; key values cross main-to-main only, and the
+  // local fleet:rolloutProviderKeys orchestration stays off this list.
   "fleet:exec",
   "fleet:projectManage",
   "fleet:grantRung",
   "fleet:grantRaise",
+  "fleet:execDetach",
+  "fleet:execPoll",
+  "fleet:providerKeys",
   // Session migration (#888): the pack legs run on the source host, the
   // ingest legs on the target; every chunk frame is base64 under the socket's
   // MAX_PAYLOAD. Transcript bytes may ride the renderer (already visible

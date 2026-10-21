@@ -17,10 +17,13 @@ import {
   fleetMachineName,
   fleetMemberAddress,
   fleetSessionState,
+  fleetToolExecPollRequest,
   fleetToolExecRequest,
   fleetToolMachineKey,
   mintBranchName,
   parseFleetDispatchRequest,
+  parseFleetHostOs,
+  parseFleetPackageManagers,
   validateFleetTitle,
   worktreeBranchPrefix,
   type FleetDispatchOutcome,
@@ -34,15 +37,23 @@ import {
   type PlacementCandidate,
   type PlacementPreference,
   type FleetToolExecArgs,
+  type FleetToolExecPollArgs,
   type FleetToolProjectArgs,
   type RemoteInstanceSummary,
   type SessionSummary,
+  type FleetDetachedExecRequest,
+  type FleetDetachedExecStartOutcome,
   type FleetExecOutcome,
+  type FleetExecPollOutcome,
+  type FleetExecPollRequest,
   type FleetExecRequest,
   type FleetGrantRaiseOutcome,
   type FleetGrantRaiseRequest,
   type FleetProjectManageOutcome,
   type FleetProjectManageRequest,
+  type FleetProviderKeyEntry,
+  type FleetProviderKeysOutcome,
+  type FleetProviderKeysRequest,
   type FleetRequester,
   type FleetRung,
 } from "@omp-ui/core";
@@ -89,6 +100,8 @@ export interface FleetDispatcherDeps {
   broadcast(): Promise<void>;
   /** ssh-probe.ts probeSshPort; never rejects. */
   probeSsh(host: string): Promise<boolean>;
+  /** ProviderKeys.rolloutValue on this machine (issue #905); throws on unknown names. */
+  providerKeyValue(envName: string): string | null;
   now?: () => number;
   uuid?: () => string;
 }
@@ -114,6 +127,17 @@ function within<T>(work: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> 
     timer = setTimeout(() => resolve(TIMED_OUT), ms);
   });
   return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** exec, detached exec, and poll all refuse this computer: the agent has its own tools there. */
+const EXEC_LOCAL_REFUSAL = "exec runs only on fleet members; use your own tools on this computer";
+
+/** A member that predates #905 answers the detached-exec channels with "unknown channel". */
+function detachedExecUpdate<Outcome extends { status: string }>(outcome: Outcome, name: string): Outcome {
+  if (outcome.status === "refused" && "reason" in outcome && typeof outcome.reason === "string" && outcome.reason.includes("unknown channel")) {
+    return { ...outcome, reason: `${name} runs an omp-ui without detached exec; update omp-ui there` };
+  }
+  return outcome;
 }
 
 export class FleetDispatcher {
@@ -198,11 +222,14 @@ export class FleetDispatcher {
         };
       }
       const [grantRung, sshReachable] = await Promise.all([this.#probeRung(remote.id), ssh]);
-      // A member that predates #904 sends neither field.
+      // A member that predates #904 sends neither user nor projectRoots; one
+      // that predates #905 sends neither os nor packageManagers.
       const normalized: FleetHostReport = {
         ...report,
         user: typeof report.user === "string" && report.user !== "" ? report.user : null,
         projectRoots: Array.isArray(report.projectRoots) ? report.projectRoots : null,
+        os: parseFleetHostOs(report.os),
+        packageManagers: parseFleetPackageManagers(report.packageManagers),
       };
       return { ...machine, status: "ready", error: null, report: normalized, receivedAt: this.#now(), grantRung, sshReachable };
     } catch (err) {
@@ -451,12 +478,39 @@ export class FleetDispatcher {
     const translated = fleetToolExecRequest(args, machines);
     if (!translated.ok) return { status: "refused", reason: translated.reason };
     if (translated.machineKey === LOCAL_MACHINE_KEY) {
-      return { status: "refused", reason: "exec runs only on fleet members; use your own tools on this computer" };
+      return { status: "refused", reason: EXEC_LOCAL_REFUSAL };
     }
     const name = fleetMachineName(machines.find((m) => m.key === translated.machineKey) ?? { nickname: translated.machineKey });
     const requester = this.requester("agent", tabId);
     const req: FleetExecRequest = { ...translated.request, requester };
     return this.#memberCall(translated.machineKey, CH.fleetExec, [req], name);
+  }
+
+  /**
+   * `omp-ui_fleet_exec` with detach (issue #905): the member starts the
+   * command under its own 30 min cap and answers with an execId at once.
+   */
+  async execDetach(tabId: string, args: FleetToolExecArgs): Promise<FleetDetachedExecStartOutcome> {
+    const machines = await this.machines();
+    const translated = fleetToolExecRequest(args, machines);
+    if (!translated.ok) return { status: "refused", reason: translated.reason };
+    if (translated.machineKey === LOCAL_MACHINE_KEY) return { status: "refused", reason: EXEC_LOCAL_REFUSAL };
+    const name = fleetMachineName(machines.find((m) => m.key === translated.machineKey) ?? { nickname: translated.machineKey });
+    const req: FleetDetachedExecRequest = { ...translated.request, requester: this.requester("agent", tabId) };
+    const answer = await this.#memberCall<FleetDetachedExecStartOutcome>(translated.machineKey, CH.fleetExecDetach, [req], name);
+    return detachedExecUpdate(answer, name);
+  }
+
+  /** `omp-ui_fleet_exec_poll` (issue #905): the member answers only the dispatcher that started the exec. */
+  async execPoll(tabId: string, args: FleetToolExecPollArgs): Promise<FleetExecPollOutcome> {
+    const machines = await this.machines();
+    const translated = fleetToolExecPollRequest(args, machines);
+    if (!translated.ok) return { status: "refused", reason: translated.reason };
+    if (translated.machineKey === LOCAL_MACHINE_KEY) return { status: "refused", reason: EXEC_LOCAL_REFUSAL };
+    const name = fleetMachineName(machines.find((m) => m.key === translated.machineKey) ?? { nickname: translated.machineKey });
+    const req: FleetExecPollRequest = { ...translated.request, requester: this.requester("agent", tabId) };
+    const answer = await this.#memberCall<FleetExecPollOutcome>(translated.machineKey, CH.fleetExecPoll, [req], name);
+    return detachedExecUpdate(answer, name);
   }
 
   /** `omp-ui_fleet_project` (issue #901): rung-3 clone/register on a member. */
@@ -491,6 +545,49 @@ export class FleetDispatcher {
       return answer as FleetGrantRaiseOutcome;
     } catch (err) {
       return { ok: false, reason: messageOf(err) };
+    }
+  }
+
+  /**
+   * Provider key rollout (issue #905) to member `machineKey`, user-initiated
+   * only. Values are read here, in main, and travel main-to-main; no value
+   * ever enters a refusal, failure reason, or log line.
+   */
+  async rolloutProviderKeys(machineKey: string, envNames: string[]): Promise<FleetProviderKeysOutcome> {
+    if (machineKey === LOCAL_MACHINE_KEY) return { status: "refused", reason: "Provider keys already live on this computer" };
+    const remote = this.#deps.remotes().find((r) => r.id === machineKey && r.status !== "self");
+    if (remote === undefined) return { status: "refused", reason: "no joined fleet instance has that id" };
+    const name = fleetMachineName(remote);
+    if (remote.status !== "joined") return { status: "refused", reason: `${name} is not joined` };
+    const keys: FleetProviderKeyEntry[] = [];
+    const localFailed: Array<{ envName: string; reason: string }> = [];
+    for (const envName of new Set(envNames)) {
+      let value: string | null;
+      try {
+        value = this.#deps.providerKeyValue(envName);
+      } catch (err) {
+        localFailed.push({ envName, reason: messageOf(err) });
+        continue;
+      }
+      if (value === null) localFailed.push({ envName, reason: "not set on this computer" });
+      else keys.push({ envName, value });
+    }
+    if (keys.length === 0) return { status: "refused", reason: "none of the chosen keys is set on this computer" };
+    const req: FleetProviderKeysRequest = { requester: this.requester("user", null), keys };
+    try {
+      const answer = await within(
+        this.#deps.request(machineKey, CH.fleetProviderKeys, [req]) as Promise<FleetProviderKeysOutcome>,
+        MEMBER_CALL_DEADLINE_MS,
+      );
+      if (answer === TIMED_OUT) return { status: "refused", reason: `no answer from ${name} within ${MEMBER_CALL_DEADLINE_MS / 1000} s` };
+      if (answer.status !== "accepted") return answer;
+      return { ...answer, failed: [...localFailed, ...answer.failed] };
+    } catch (err) {
+      const message = messageOf(err);
+      return {
+        status: "refused",
+        reason: message.includes("unknown channel") ? `${name} runs an omp-ui without Provider key rollout; update omp-ui there` : message,
+      };
     }
   }
 

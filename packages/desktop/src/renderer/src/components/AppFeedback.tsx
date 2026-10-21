@@ -107,6 +107,25 @@ function lifecycleCopy(
         action: t("dialog.lifecycle.carry-auth.action"),
         target: null,
       };
+    case "rollout-keys":
+      // The Provider key rollout gate (#905): the count, the member, and
+      // whether the join transport is encrypted.
+      return {
+        tone: "rose",
+        title: t("dialog.lifecycle.rollout-keys.title"),
+        body: t(
+          confirmation.envNames.length === 1
+            ? confirmation.encrypted
+              ? "dialog.lifecycle.rollout-keys.body.one"
+              : "dialog.lifecycle.rollout-keys.bodyPlain.one"
+            : confirmation.encrypted
+              ? "dialog.lifecycle.rollout-keys.body"
+              : "dialog.lifecycle.rollout-keys.bodyPlain",
+          { count: confirmation.envNames.length, target: confirmation.targetLabel },
+        ),
+        action: t("dialog.lifecycle.rollout-keys.action"),
+        target: null,
+      };
   }
 }
 

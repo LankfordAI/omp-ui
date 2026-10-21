@@ -1160,6 +1160,13 @@ capped stdout/stderr (ADR-0062). It is not a terminal: no PTY, no stdin, no
 streaming, and this app refuses to exec on itself — its own tools serve that.
 _Avoid_: remote shell, rsh, ssh-through-fleet
 
+**Detached exec**:
+A fleet exec the member starts and keeps running past the call, under a
+30-minute owner cap, answered by polling its exec id from the dispatcher that
+started it (ADR-0065). It is killed, and reads revoked, when that dispatcher
+loses Full control on the member; quitting omp-ui kills it.
+_Avoid_: background job, remote job, async exec
+
 **Fleet grant**:
 The rung one dispatcher holds on this machine — Observe, Dispatch, Manage
 projects, or Full control — cumulative upward, with joining defaulting to
@@ -1193,6 +1200,13 @@ loads itself — because a `.desktop`/AppImage launch inherits no shell exports 
 leaves omp with no catalog at all (ADR-0010). Stored keys are encrypted by the OS
 credential store; the renderer only ever sees a masked tail.
 _Avoid_: secret, token, API config, credential vault
+
+**Provider key rollout**:
+Sending chosen Provider keys from this app to one fleet member, which stores
+them in its own OS credential store. The user starts it from the Fleet view
+behind a confirmation, the member must grant Full control, and key values
+never reach a renderer or an agent (ADR-0065).
+_Avoid_: key sync, credential carry, key push
 
 **Web search order**:
 The Settings → Providers choice naming which provider OMP's native `web_search`
