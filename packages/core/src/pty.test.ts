@@ -45,21 +45,7 @@ describe("spawnOmp args", () => {
     rows: 24,
   } as const;
 
-  it("appends --append-system-prompt after --resume for a carryover seed (#824)", () => {
-    const args = spawnOmpArgs({
-      ...base,
-      resumeSessionId: "abc-123",
-      appendSystemPromptFile: "/lineage/carryover-context.md",
-    });
-    expect(args.slice(0, 2)).toEqual(["--cwd", "/proj"]);
-    expect(args.slice(4)).toEqual([
-      "--resume=abc-123",
-      "--append-system-prompt",
-      "/lineage/carryover-context.md",
-    ]);
-  });
-
-  it("leaves the argv unchanged without the seed", () => {
+  it("appends --resume after the lineage session dir", () => {
     const args = spawnOmpArgs({ ...base, resumeSessionId: "abc-123" });
     expect(args).toEqual([
       "--cwd",

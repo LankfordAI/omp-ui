@@ -28,6 +28,7 @@ import {
   writeDefaultModelOverlay,
   writeKnowledgeVaultExtension,
   writeAskContextExtension,
+  writeCarryoverContextExtension,
   writeMcpStatusExtension,
   writeGitGuardOverlay,
   writeVibeExtension,
@@ -346,6 +347,7 @@ export const RPC_BRIDGE_IDS = [
   "review",
   "knowledgeVault",
   "askContext",
+  "carryoverContext",
   "privateGuard",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
@@ -366,6 +368,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   review: writeReviewExtension,
   knowledgeVault: writeKnowledgeVaultExtension,
   askContext: writeAskContextExtension,
+  carryoverContext: writeCarryoverContextExtension,
   privateGuard: writePrivateGuardExtension,
 };
 
@@ -389,6 +392,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "review", logId: "review", warning: "code-review", enabled: (enabled) => enabled },
   { id: "knowledgeVault", logId: "vault", warning: "knowledge-vault", enabled: () => true },
   { id: "askContext", logId: "ask", warning: "ask-context", enabled: () => true },
+  { id: "carryoverContext", logId: "carryover", warning: "carryover-context", enabled: () => true },
   { id: "privateGuard", logId: "private", warning: "private-guard", enabled: () => true },
 ];
 export interface RpcExtensionWriteResult {

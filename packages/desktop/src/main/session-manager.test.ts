@@ -7619,13 +7619,16 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
   });
 });
 
-describe("carryover context seed (issue #824)", () => {
+describe("carryover context seed (issues #824, #896)", () => {
   const SEED = '<turn role="user">\nhello\n</turn>';
-  const CARRYOVER_FILE = "carryover-context.md";
   const SESSION_ID = "019ffc67-522c-7000-95a3-01eca0266c03";
+  const carryoverArms = (): Array<{ id?: unknown; message?: unknown }> =>
+    ((RpcClientMock.mock.calls.at(-1)?.[0].initialCommands ?? []) as Array<{ id?: unknown; message?: unknown }>).filter(
+      (c) => typeof c.message === "string" && c.message.startsWith(`/${Core.CARRYOVER_CONTEXT_COMMAND} set `),
+    );
 
-  it("seeds a resume whose transcript never materialized", async () => {
-    const { manager, sessionsRoot } = setup({ mode: "rpc-ui" });
+  it("arms the seed as one hidden carryover message on a resume whose transcript never materialized", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
 
     await manager.spawn({
       origin: "resume",
@@ -7635,21 +7638,23 @@ describe("carryover context seed (issue #824)", () => {
       carryoverContext: SEED,
     });
 
+    expect(carryoverArms()).toEqual([
+      expect.objectContaining({
+        id: expect.stringMatching(/^omp-ui-initial-carryover-/),
+        message: Core.carryoverContextArmMessage(SEED),
+      }),
+    ]);
     const opts = RpcClientMock.mock.calls.at(-1)![0];
-    const file = path.join(sessionsRoot, LINEAGE, CARRYOVER_FILE);
-    expect(opts.appendSystemPromptFile).toBe(file);
-    expect(fs.readFileSync(file, "utf8")).toBe(SEED);
+    expect(opts.extensions).toContainEqual(expect.stringMatching(/omp-ui-carryover-context\.ts$/));
   });
 
-  it("drops the seed and removes the stale artifact when a real resume target exists", async () => {
+  it("drops the seed when a real resume target exists", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     fs.writeFileSync(
       path.join(sessionsRoot, LINEAGE, `2026-08-13T00-00-00-000Z_${SESSION_ID}.jsonl`),
       `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: "/proj" })}\n`,
     );
     registry.updateSession(TAB, { sessionId: SESSION_ID });
-    const stale = path.join(sessionsRoot, LINEAGE, CARRYOVER_FILE);
-    fs.writeFileSync(stale, "stale seed");
 
     await manager.spawn({
       origin: "resume",
@@ -7659,47 +7664,36 @@ describe("carryover context seed (issue #824)", () => {
       carryoverContext: SEED,
     });
 
-    const opts = RpcClientMock.mock.calls.at(-1)![0];
-    expect(opts.appendSystemPromptFile).toBeUndefined();
-    expect(fs.existsSync(stale)).toBe(false);
+    expect(carryoverArms()).toEqual([]);
   });
 
   it("lands the seed from manager.restart on the null-id successor spawn", async () => {
-    const { manager, sessionsRoot } = setup({ mode: "rpc-ui" });
+    const { manager } = setup({ mode: "rpc-ui" });
     await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
-    expect(RpcClientMock.mock.calls.at(-1)![0].appendSystemPromptFile).toBeUndefined();
+    expect(carryoverArms()).toEqual([]);
     const predecessor = rpcInstances[0]!;
     predecessor.kill.mockImplementation(() => predecessor.exit(0));
 
     await manager.restart(TAB, SEED);
 
-    const opts = RpcClientMock.mock.calls.at(-1)![0];
-    const file = path.join(sessionsRoot, LINEAGE, CARRYOVER_FILE);
-    expect(opts.appendSystemPromptFile).toBe(file);
-    expect(fs.readFileSync(file, "utf8")).toBe(SEED);
+    expect(carryoverArms()).toEqual([expect.objectContaining({ message: Core.carryoverContextArmMessage(SEED) })]);
   });
 
-  it("never writes the artifact for a fresh spawn", async () => {
-    const { manager, sessionsRoot } = setup({ mode: "rpc-ui" });
+  it("drops a seed over the ceiling with a warning", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+      const predecessor = rpcInstances[0]!;
+      predecessor.kill.mockImplementation(() => predecessor.exit(0));
 
-    await manager.spawn({
-      origin: "new",
-      mode: "rpc-ui",
-      projectCwd: "/proj",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: null,
-    });
+      await manager.restart(TAB, "x".repeat(Core.CARRYOVER_CONTEXT_CHAR_MAX + 1));
 
-    const opts = RpcClientMock.mock.calls.at(-1)![0];
-    expect(opts.appendSystemPromptFile).toBeUndefined();
-    const written = fs
-      .readdirSync(sessionsRoot)
-      .flatMap((dir) =>
-        fs.existsSync(path.join(sessionsRoot, dir, CARRYOVER_FILE)) ? [dir] : [],
-      );
-    expect(written).toEqual([]);
+      expect(carryoverArms()).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("[carryover]"));
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
@@ -8233,6 +8227,26 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it("a restarted unmaterialized dispatch arms the carryover before re-delivering the prompt", async () => {
+    const SEED = '<turn role="user">\nhello\n</turn>';
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    const { tabId } = await fleetSpawn(manager);
+    expect(recordOf(registry, tabId).sessionId).toBeNull();
+    const predecessor = rpcInstances.at(-1)!;
+    predecessor.kill.mockImplementation(() => predecessor.exit(0));
+
+    await manager.restart(tabId, SEED);
+
+    const commands = commandsOf();
+    const carryover = commands.findIndex(
+      (c) => c.type === "prompt" && c.message === Core.carryoverContextArmMessage(SEED),
+    );
+    const prompt = commands.findIndex((c) => c.id === Core.fleetPromptCommandId(DISPATCH));
+    expect(carryover).toBeGreaterThan(-1);
+    expect(prompt).toBeGreaterThan(-1);
+    expect(carryover).toBeLessThan(prompt);
   });
 
   it("a second spawn with the same dispatchId, concurrent or later, returns the same tab and starts one process", async () => {
