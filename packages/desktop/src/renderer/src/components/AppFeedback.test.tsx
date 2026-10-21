@@ -40,6 +40,7 @@ const PROJECT = {
   browserClock: false,
   reviewRoster: null,
   knowledgeHome: null,
+  repositoryKey: null,
 };
 
 function record(patch: Partial<SessionSummary> = {}): SessionSummary {

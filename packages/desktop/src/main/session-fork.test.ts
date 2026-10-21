@@ -92,6 +92,7 @@ function setup(
         browserClock: false,
         reviewRoster: null,
         knowledgeHome: null,
+        repositoryKey: null,
       },
     ],
     sessions: [

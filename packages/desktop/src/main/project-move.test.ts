@@ -65,6 +65,7 @@ function setup(): { registryFile: string } {
         browserClock: false,
         reviewRoster: null,
         knowledgeHome: null,
+        repositoryKey: null,
       },
       {
         path: "/p/b",
@@ -79,6 +80,7 @@ function setup(): { registryFile: string } {
         browserClock: false,
         reviewRoster: null,
         knowledgeHome: null,
+        repositoryKey: null,
       },
       {
         path: "/p/c",
@@ -93,6 +95,7 @@ function setup(): { registryFile: string } {
         browserClock: false,
         reviewRoster: null,
         knowledgeHome: null,
+        repositoryKey: null,
       },
     ],
   });

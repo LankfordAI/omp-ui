@@ -261,6 +261,7 @@ describe("mod+shift+n with no focused session (issue #789)", () => {
               browserClock: false,
               reviewRoster: null,
               knowledgeHome: null,
+              repositoryKey: null,
             },
             sessions: [],
           },

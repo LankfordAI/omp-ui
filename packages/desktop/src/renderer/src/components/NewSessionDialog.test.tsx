@@ -47,6 +47,35 @@ function machine(key: string, nickname: string | null, projects: FleetHostProjec
   };
 }
 
+/** A registry group with the full ProjectRecord fields the dialog reads. */
+function group(path: string, name: string, repositoryKey: string | null) {
+  return {
+    project: {
+      path,
+      name,
+      addedAt: "t",
+      lastModel: null,
+      lastThinkingLevel: null,
+      lastAdvisor: null,
+      lastAdvisorModel: null,
+      defaultModel: null,
+      defaultAdvisorModel: null,
+      browserClock: false,
+      reviewRoster: null,
+      knowledgeHome: null,
+      repositoryKey,
+    },
+    sessions: [],
+  };
+}
+
+/** `github.com/acme/repo` checked out locally AND on the joined box-a (#903). */
+const dualHostState = (): BackendState =>
+  backendState({
+    projects: [group("/p", "p", "github.com/acme/repo")],
+    remoteInstances: [remoteInstance({ projects: [group("/srv/p", "repo", "github.com/acme/repo")] })],
+  });
+
 /** A healthy git repo answer for the spawn path's fire-and-forget refresh. */
 const branchFixture: BranchList = {
   repoRoot: "/p",
@@ -81,6 +110,7 @@ const localProjectState = (): BackendState =>
           browserClock: false,
           reviewRoster: null,
           knowledgeHome: null,
+          repositoryKey: null,
         },
         sessions: [],
       },
@@ -105,6 +135,12 @@ const backendMock = {
     sent.push({ tabId, cmd });
   }),
   setSessionAutoTitled: vi.fn(async () => {}),
+  // The joined instance answers the same channels through the proxy (issue #416):
+  // the here face's remote-machine spawn rides `session:spawn` here.
+  remoteInstanceRequest: vi.fn(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    async (instanceId: string, channel: string, args: unknown[]): Promise<unknown> => undefined,
+  ),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: store.ts → ./backend reads window.ompBackend
@@ -159,6 +195,29 @@ const titleInput = (): HTMLInputElement => {
   return input!;
 };
 
+const projectSelect = (): HTMLSelectElement => {
+  const select = document.body.querySelector<HTMLSelectElement>("#newsession-project");
+  expect(select).not.toBeNull();
+  return select!;
+};
+
+const machineSelect = (): HTMLSelectElement => {
+  const select = document.body.querySelector<HTMLSelectElement>("#newsession-machine");
+  expect(select).not.toBeNull();
+  return select!;
+};
+
+const optionTexts = (select: HTMLSelectElement): string[] =>
+  [...select.options].map((option) => option.textContent ?? "");
+
+async function choose(select: HTMLSelectElement, value: string): Promise<void> {
+  await act(async () => {
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await flushMicrotasks();
+  });
+}
+
 async function typeInto(field: HTMLInputElement | HTMLTextAreaElement, value: string): Promise<void> {
   const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value")!.set!;
@@ -184,6 +243,9 @@ beforeEach(() => {
   machines = [];
   sent.length = 0;
   backendMock.spawnSession.mockResolvedValue({ tabId: "launch-1" });
+  // clearAllMocks keeps implementations, so the proxy's silent default goes
+  // back explicitly for each test (wireRemote overrides it per case).
+  backendMock.remoteInstanceRequest.mockImplementation(async (): Promise<unknown> => undefined);
   backendMock.fleetDispatch.mockResolvedValue({ batchId: null, outcomes: [] });
   useStore.setState({
     state: localProjectState(),
@@ -212,8 +274,8 @@ describe("NewSessionDialog (issue #900)", () => {
   it("spawns locally with no prompt and no Where row when nothing is joined", async () => {
     await render();
     // No joined instance: the dialog is local-only, capsule and all.
-    expect(buttonByText("Fleet")).toBeUndefined();
-    expect(buttonByText("This computer")).toBeUndefined();
+    expect(buttonByText("Multiple machines")).toBeUndefined();
+    expect(buttonByText("This computer or one member")).toBeUndefined();
     expect(document.body.querySelector('[role="group"][aria-label="Where"]')).toBeNull();
 
     await click(button("Start session"));
@@ -235,9 +297,9 @@ describe("NewSessionDialog (issue #900)", () => {
     await render();
 
     // The Where row appeared; switching to the fleet face loads machines.
-    expect(buttonByText("Fleet")).toBeDefined();
-    await click(button("Fleet"));
-    expect(button("Fleet").getAttribute("aria-pressed")).toBe("true");
+    expect(buttonByText("Multiple machines")).toBeDefined();
+    await click(button("Multiple machines"));
+    expect(button("Multiple machines").getAttribute("aria-pressed")).toBe("true");
     expect(document.body.querySelector("#newsession-project")).not.toBeNull();
 
     // A reference exists, but the fleet requires a prompt.
@@ -351,7 +413,7 @@ describe("NewSessionDialog (issue #900)", () => {
       outcomes: [{ dispatchId: "d-1", machineKey: "local", projectCwd: "/p", status: "started", tabId: "s-1" }],
     });
     await render();
-    await click(button("Fleet"));
+    await click(button("Multiple machines"));
     await typeInto(promptArea(), "try the thing");
     await click(button("Start session"));
 
@@ -381,7 +443,7 @@ describe("NewSessionDialog (issue #900)", () => {
       outcomes: [{ dispatchId: "d-1", machineKey: "local", projectCwd: "/p", status: "started", tabId: "s-1" }],
     });
     await render();
-    await click(button("Fleet"));
+    await click(button("Multiple machines"));
     await click(button("Choose machines"));
     await click(
       document.body.querySelector<HTMLButtonElement>('button[aria-label="One more copy on This computer"]')!,
@@ -415,7 +477,7 @@ describe("NewSessionDialog (issue #900)", () => {
     });
     machines = [machine("local", null, [project("/p", "aaa")])];
     await render();
-    await click(button("Fleet"));
+    await click(button("Multiple machines"));
     await click(button("Choose machines"));
     expect(button("Project checkout").disabled).toBe(false);
 
@@ -431,7 +493,7 @@ describe("NewSessionDialog (issue #900)", () => {
     machines = [machine("local", null, [project("/p", "aaa")]), machine("inst-1", "box-a", [project("/remote/p", "bbb")])];
     await render();
     const notice = en["dialog.newsession.commitsDiffer"];
-    await click(button("Fleet"));
+    await click(button("Multiple machines"));
     // Auto considers every machine with the repository.
     expect(document.body.textContent).toContain(notice);
 
@@ -456,7 +518,7 @@ describe("NewSessionDialog (issue #900)", () => {
       ],
     });
     await render();
-    await click(button("Fleet"));
+    await click(button("Multiple machines"));
     await typeInto(promptArea(), "try the thing");
     await click(button("Start session"));
 
@@ -481,5 +543,130 @@ describe("NewSessionDialog (issue #900)", () => {
     await render();
     expect(document.body.textContent).toContain(en["dialog.newsession.noProjects"]);
     expect(button("Start session").disabled).toBe(true);
+  });
+});
+
+describe("NewSessionDialog unified project view (issue #903)", () => {
+  /** The joined box-a answers its proxy channels exactly like a live instance. */
+  const wireRemote = (): void => {
+    backendMock.remoteInstanceRequest.mockImplementation(
+      async (_instanceId: string, channel: string): Promise<unknown> => {
+        if (channel === "session:spawn") return { tabId: "remote-1" };
+        if (channel === "advisor:defaults") return { enabled: false, model: null };
+        if (channel === "branch:list") return branchFixture;
+        return undefined;
+      },
+    );
+  };
+
+  const remoteMachineValue = "inst-1\u0000/srv/p";
+
+  it("merges both checkouts into one project entry and defaults the machine to This computer", async () => {
+    useStore.setState({ state: dualHostState() });
+    await render();
+
+    // One repository, one option — under its repository key's optgroup.
+    const groups = [...projectSelect().querySelectorAll("optgroup")];
+    expect(groups.map((g) => g.label)).toEqual(["github.com/acme/repo"]);
+    expect(optionTexts(projectSelect())).toEqual(["p"]);
+
+    // Both hosts are selectable machines; the local checkout wins by default (Q3).
+    expect(optionTexts(machineSelect())).toEqual(["This computer", "box-a"]);
+    expect(machineSelect().selectedOptions[0]!.textContent).toBe("This computer");
+  });
+
+  it("routes a remote machine pick through the proxied spawn with the prompt riding the tab", async () => {
+    useStore.setState({ state: dualHostState() });
+    wireRemote();
+    await render();
+
+    await choose(machineSelect(), remoteMachineValue);
+    await typeInto(promptArea(), "do the thing");
+    await click(button("Start session"));
+
+    // The spawn is proxied to box-a; nothing touches the local backend or the fleet.
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+      "inst-1",
+      "session:spawn",
+      [expect.objectContaining({ origin: "new", projectCwd: "/srv/p" })],
+    );
+    expect(backendMock.spawnSession).not.toHaveBeenCalled();
+    expect(backendMock.fleetDispatch).not.toHaveBeenCalled();
+
+    // The prompt still rides the command bus once the remote boot reports ready.
+    useStore.setState({ rpc: { "remote-1": rpcTabState() } });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    const prompts = sent.filter((s) => s.cmd.type === "prompt");
+    expect(prompts.map((s) => String(s.cmd.message))).toEqual(["do the thing"]);
+    for (const entry of sent.splice(0)) respondTo(entry);
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(useStore.getState().newSessionDialog).toBeNull();
+  });
+
+  it("lands an idle remote session for a remote machine pick with an empty prompt", async () => {
+    useStore.setState({ state: dualHostState() });
+    wireRemote();
+    await render();
+
+    await choose(machineSelect(), remoteMachineValue);
+    await click(button("Start session"));
+
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(
+      "inst-1",
+      "session:spawn",
+      [expect.objectContaining({ projectCwd: "/srv/p" })],
+    );
+    // Empty prompt = the tab alone: no command bus traffic, no fleet spec.
+    expect(sent).toEqual([]);
+    expect(backendMock.rpcSend).not.toHaveBeenCalled();
+    expect(backendMock.fleetDispatch).not.toHaveBeenCalled();
+    expect(useStore.getState().newSessionDialog).toBeNull();
+  });
+
+  it("lists only the registered hosts of a keyless project in its machine select", async () => {
+    useStore.setState({
+      state: {
+        ...localProjectState(),
+        remoteInstances: [remoteInstance({ projects: [group("/srv/q", "q", null)] })],
+      },
+    });
+    await render();
+
+    // Keyless repositories never merge: each is its own entry, grouped under the no-key label.
+    const groups = [...projectSelect().querySelectorAll("optgroup")];
+    expect(groups.map((g) => g.label)).toEqual([en["dialog.newsession.noRepositoryKey"]]);
+    expect(optionTexts(projectSelect())).toEqual(["p", "q"]);
+
+    // The local keyless project registers on one host only.
+    expect(optionTexts(machineSelect())).toEqual(["This computer"]);
+
+    // The remote keyless project lists its own host — the default Q3 order has no local pair.
+    await choose(projectSelect(), "inst-1\u0000/srv/q");
+    expect(optionTexts(machineSelect())).toEqual(["box-a"]);
+    expect(machineSelect().selectedOptions[0]!.textContent).toBe("box-a");
+  });
+
+  it("never defaults to a remote machine even when seeded from one", async () => {
+    useStore.setState({
+      state: dualHostState(),
+      // The sidebar opens the dialog seeded on box-a; the repo also has a
+      // local checkout, so Q3 says the default machine stays This computer.
+      newSessionDialog: { projectCwd: "/srv/p", instanceId: "inst-1", where: "here", workspace: "checkout" },
+    });
+    await render();
+
+    expect(machineSelect().selectedOptions[0]!.textContent).toBe("This computer");
+    // The seed still owns the repository choice: its repo is the picked entry.
+    expect(projectSelect().value).toBe("github.com/acme/repo");
+
+    await click(button("Start session"));
+    expect(backendMock.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ projectCwd: "/p" }),
+    );
+    expect(backendMock.remoteInstanceRequest).not.toHaveBeenCalled();
   });
 });

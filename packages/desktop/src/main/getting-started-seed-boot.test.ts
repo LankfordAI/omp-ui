@@ -51,6 +51,7 @@ const PROJECT: ProjectRecord = {
   browserClock: false,
   reviewRoster: null,
   knowledgeHome: null,
+  repositoryKey: null,
 };
 
 let base: string;

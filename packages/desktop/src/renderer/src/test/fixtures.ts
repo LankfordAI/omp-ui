@@ -102,6 +102,7 @@ export function remoteOwnedState(tabId: string, instanceId: string): BackendStat
               browserClock: false,
               reviewRoster: null,
               knowledgeHome: null,
+              repositoryKey: null,
             },
             sessions: [
               {

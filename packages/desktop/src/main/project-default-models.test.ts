@@ -63,6 +63,7 @@ function setup(): { registryFile: string } {
         browserClock: false,
         reviewRoster: null,
         knowledgeHome: null,
+        repositoryKey: null,
       },
     ],
   });

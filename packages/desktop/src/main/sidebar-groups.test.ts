@@ -55,6 +55,7 @@ function project(projectPath: string, name: string, addedAt: string) {
     browserClock: false,
     reviewRoster: null,
     knowledgeHome: null,
+    repositoryKey: null,
   };
 }
 

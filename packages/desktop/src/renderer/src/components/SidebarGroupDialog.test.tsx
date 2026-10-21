@@ -33,6 +33,7 @@ const projectGroup = (path: string, name: string): ProjectGroup => ({
     browserClock: false,
     reviewRoster: null,
     knowledgeHome: null,
+    repositoryKey: null,
   },
   sessions: [],
 });
