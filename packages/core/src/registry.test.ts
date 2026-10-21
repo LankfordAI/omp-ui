@@ -1111,7 +1111,55 @@ describe("Registry mutations", () => {
       browserClock: false,
       reviewRoster: null,
       knowledgeHome: null,
+      repositoryKey: null,
     });
+  });
+
+  it("keeps a verbatim repositoryKey and normalizes malformed ones to null", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [
+          { path: "/proj-a", name: "a", addedAt: "t", repositoryKey: "github.com/o/r" },
+          { path: "/proj-b", name: "b", addedAt: "t" },
+          { path: "/proj-c", name: "c", addedAt: "t", repositoryKey: 42 },
+        ],
+        sessions: [],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.projects).toHaveLength(3);
+    expect(reg.projects[0]!.repositoryKey).toBe("github.com/o/r");
+    expect(reg.projects[1]!.repositoryKey).toBeNull();
+    expect(reg.projects[2]!.repositoryKey).toBeNull();
+    reg.setSetting("themeId", "normalized-repository-keys");
+    const reloaded = Registry.load(file);
+    expect(reloaded.projects[0]!.repositoryKey).toBe("github.com/o/r");
+    expect(reloaded.projects[1]!.repositoryKey).toBeNull();
+    expect(reloaded.projects[2]!.repositoryKey).toBeNull();
+  });
+
+  it("sets and clears repositoryKey, persisting across save and reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    expect(reg.addProject("/abs/proj").repositoryKey).toBeNull();
+    expect(reg.setProjectRepositoryKey("/abs/proj", "github.com/o/r")).toBeUndefined();
+    expect(reg.projects[0]!.repositoryKey).toBe("github.com/o/r");
+    expect(Registry.load(file).projects[0]!.repositoryKey).toBe("github.com/o/r");
+    // Equal value: no save — the file stays byte-identical.
+    const before = fs.readFileSync(file, "utf8");
+    reg.setProjectRepositoryKey("/abs/proj", "github.com/o/r");
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    reg.setProjectRepositoryKey("/abs/proj", null);
+    expect(reg.projects[0]!.repositoryKey).toBeNull();
+    expect(Registry.load(file).projects[0]!.repositoryKey).toBeNull();
+    // Unknown project: no throw, no write.
+    const settled = fs.readFileSync(file, "utf8");
+    reg.setProjectRepositoryKey("/nope", "github.com/o/r");
+    expect(fs.readFileSync(file, "utf8")).toBe(settled);
+    expect(reg.projects).toHaveLength(1);
   });
 
   it("initializes knowledgeHome to null on addProject and keeps it across reload", () => {
@@ -1862,6 +1910,7 @@ describe("legacy registries with absent optional fields (issue #294)", () => {
       defaultModel: null,
       defaultAdvisorModel: null,
       knowledgeHome: null,
+      repositoryKey: null,
     });
     expect(reg.sessions).toHaveLength(1);
     expect(reg.sessions[0]).toMatchObject({

@@ -56,6 +56,7 @@ const state = backendState({
         browserClock: false,
         reviewRoster: null,
         knowledgeHome: null,
+        repositoryKey: null,
       },
       sessions: [
         {

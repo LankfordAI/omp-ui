@@ -111,6 +111,7 @@ const liveSessionState = backendState({
         browserClock: false,
         reviewRoster: null,
         knowledgeHome: null,
+        repositoryKey: null,
       },
       sessions: [liveSession("tab-1")],
     },
@@ -130,6 +131,7 @@ const project: ProjectRecord = {
   browserClock: false,
   reviewRoster: null,
   knowledgeHome: null,
+  repositoryKey: null,
 };
 
 /** The joined instance owning the remote project in the routing test below. */

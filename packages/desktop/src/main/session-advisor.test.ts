@@ -95,6 +95,7 @@ function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build
         browserClock: false,
         reviewRoster: null,
         knowledgeHome: null,
+        repositoryKey: null,
       },
     ],
     sessions: [

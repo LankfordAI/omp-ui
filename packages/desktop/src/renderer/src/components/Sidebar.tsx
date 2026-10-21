@@ -112,6 +112,14 @@ interface SessionMenuRequest {
   trigger: HTMLElement;
 }
 
+/** A row survives the filter when its own title (or its saved plan title) matches. */
+function sessionMatches(s: SessionSummary, q: string): boolean {
+  return (
+    s.title.toLowerCase().includes(q) ||
+    (s.planImplementationSource?.planTitle.toLowerCase().includes(q) ?? false)
+  );
+}
+
 /**
  * A session survives the filter when its own title (or its saved plan title)
  * matches; a matching project name reveals that project's whole list. Group
@@ -124,13 +132,7 @@ function applyFilter(groups: ProjectGroup[], query: string): FilteredGroup[] {
   const out: FilteredGroup[] = [];
   for (const group of groups) {
     const projectHit = group.project.name.toLowerCase().includes(q);
-    const sessions = projectHit
-      ? group.sessions
-      : group.sessions.filter(
-          (s) =>
-            s.title.toLowerCase().includes(q) ||
-            (s.planImplementationSource?.planTitle.toLowerCase().includes(q) ?? false),
-        );
+    const sessions = projectHit ? group.sessions : group.sessions.filter((s) => sessionMatches(s, q));
     if (projectHit || sessions.length > 0) out.push({ group, sessions, projectHit });
   }
   return out;
@@ -209,6 +211,10 @@ interface ProjectSectionProps {
   disabled?: boolean;
   /** The project name matched the filter, so no tree is trimmed (issue #238). */
   projectHit: boolean;
+  /** Unified project view (issue #903): other machines' checkouts of this
+   *  repository, folded into this node's tree. Non-empty only under All hosts
+   *  scope with no active filter; remote rows then carry a machine chip. */
+  extra?: CheckoutBlock[];
   query: string;
   openTerminalMenu: OpenTerminalMenu;
   compact: boolean;
@@ -223,6 +229,52 @@ interface ProjectSectionProps {
   onAnnounce?: (text: string) => void;
 }
 
+/* ---------------------------------------------------- unified project view */
+
+/**
+ * One machine's checkout inside a unified node (issue #903, ADR-0063): the
+ * checkout's own group, the owning instance (null = this app), the owner's
+ * nickname for session-row chips, and whether its actions are inert because
+ * the instance is not joined.
+ */
+interface CheckoutBlock {
+  group: ProjectGroup;
+  instanceId: string | null;
+  /** The owning instance's nickname; null for this app's own registry. */
+  nickname: string | null;
+  disabled: boolean;
+}
+
+/**
+ * Groups joined instances' keyed projects by repository key — ADR-0061's
+ * `host/owner/repo` from the web remote — for the all-hosts lens (issue #903).
+ * A null key never merges: a checkout without a web remote stays in its own
+ * per-instance section, and path is never a match key (ADR-0063). Only
+ * repositories this app also has registered fold into the local node; every
+ * other project renders exactly as the per-host lens does today.
+ */
+function indexRemoteCheckouts(instances: RemoteInstanceSummary[] | null): Map<string, CheckoutBlock[]> {
+  const byKey = new Map<string, CheckoutBlock[]>();
+  for (const instance of instances ?? []) {
+    if (instance.status === "self") continue;
+    for (const group of instance.projects) {
+      const key = group.project.repositoryKey;
+      // A null key never merges across machines: unkeyed remote checkouts
+      // index under their own composite id and simply never fold.
+      if (key === null) continue;
+      const block: CheckoutBlock = {
+        group,
+        instanceId: instance.id,
+        nickname: instance.nickname,
+        disabled: instance.status !== "joined",
+      };
+      const list = byKey.get(key);
+      if (list === undefined) byKey.set(key, [block]);
+      else list.push(block);
+    }
+  }
+  return byKey;
+}
 /* --------------------------------------------------------- project section */
 
 function ProjectSection({
@@ -231,6 +283,7 @@ function ProjectSection({
   hostLocalActions,
   disabled = false,
   projectHit,
+  extra,
   query,
   openTerminalMenu,
   openSessionMenu,
@@ -265,6 +318,16 @@ function ProjectSection({
     setLastQuery(query);
     setVisible(PAGE);
   }
+  // Unified project view (issue #903, ADR-0063): the local checkout anchors
+  // this node; other machines' checkouts of the same repository (matched by
+  // the web-remote key, never by path) fold into the same list. Without
+  // `extra` every value below equals today's single-machine rendering.
+  const blocks: CheckoutBlock[] | null =
+    extra !== undefined && extra.length > 0
+      ? [{ group, instanceId, nickname: null, disabled }, ...extra]
+      : null;
+  const merged = blocks !== null;
+  const allSessions = blocks === null ? group.sessions : blocks.flatMap((b) => b.group.sessions);
 
   // Pagination follows this project's remembered focus, not the global active
   // tab: after another project takes global focus (or after an update restore)
@@ -272,7 +335,7 @@ function ProjectSection({
   // arrangement also widens the page so a handoff tree is never split, and
   // resolves each row's plan source (issue #238).
   const { entries, shown, remaining, total } = arrangeSessionHandoffs(
-    group.sessions,
+    allSessions,
     query,
     projectHit,
     visible,
@@ -283,7 +346,7 @@ function ProjectSection({
   // Issues #115/#120 machinery applied to session rows (#274). Trees reorder
   // as units: grips render on depth-0 rows only, and drops resolve against
   // tree roots.
-  const canReorderSessions = !compact && !disabled && query.trim() === "" && group.sessions.length > 1;
+  const canReorderSessions = !compact && !disabled && query.trim() === "" && allSessions.length > 1;
 
   // Roots in visible order — the units a session reorder moves between.
   const roots = useMemo(() => entries.filter((e) => e.depth === 0), [entries]);
@@ -302,7 +365,36 @@ function ProjectSection({
   const { project } = group;
   // Chips describe the project itself, so they count raw sessions — filtering
   // and tree retention only change which rows render below.
-  const live = liveCount(group.sessions);
+  const live = liveCount(allSessions);
+  // A folded checkout's display name: its nickname, or this app's own machine.
+  const machineOf = (b: CheckoutBlock): string => b.nickname ?? t("dialog.newsession.machineLocal");
+  // Unified node (issue #903): one node spans machines, so the header names
+  // the repository instead of this machine's directory — the last two
+  // segments of the `host/owner/repo` web-remote key. A key too short to
+  // split keeps the project name (defensive; the key is free-form).
+  const repoName = (() => {
+    if (!merged || project.repositoryKey === null) return null;
+    const parts = project.repositoryKey.split("/");
+    return parts.length >= 2 ? parts.slice(-2).join("/") : null;
+  })();
+  const headerName = repoName ?? project.name;
+
+  // Unified view (issue #903): which checkout each row came from, so
+  // chips and machine labels follow the session's owner; a divider
+  // introduces every folded checkout in the rendered page.
+  const checkouts = (() => {
+    if (!merged || blocks === null) return null;
+    const rowToBlock = new Map<string, CheckoutBlock>();
+    for (const b of blocks) for (const s of b.group.sessions) rowToBlock.set(s.tabId, b);
+    const dividerBefore: boolean[] = [];
+    let prev: CheckoutBlock | null = null;
+    for (const e of entries) {
+      const b = rowToBlock.get(e.session.tabId) ?? null;
+      dividerBefore.push(prev !== null && b !== null && b !== prev);
+      prev = b;
+    }
+    return { rowToBlock, dividerBefore };
+  })();
 
   return (
     <section
@@ -353,7 +445,7 @@ function ProjectSection({
             type="button"
             aria-expanded={open}
             onClick={() => setOpen(!open)}
-            title={project.path}
+            title={merged ? (project.repositoryKey ?? project.path) : project.path}
             className={cn("mt-px flex min-w-0 flex-1 items-start text-left", compact && "gap-1.5")}
           >
             {/* Joins the hover-reveal family: zero width at rest so the name runs
@@ -373,11 +465,11 @@ function ProjectSection({
               // collapse button's title still carries it for long-press.
               <span className="flex min-w-0 flex-1 items-center gap-1.5">
                 <MiddleTruncate
-                  text={project.name}
+                  text={headerName}
                   className="min-w-0 flex-1 font-display text-xs font-semibold text-ink"
                 />
-                <Chip mono title={t("sidebar.project.sessions", { n: group.sessions.length })}>
-                  {group.sessions.length}
+                <Chip mono title={t("sidebar.project.sessions", { n: allSessions.length })}>
+                  {allSessions.length}
                 </Chip>
                 {live > 0 && (
                   <Chip mono tone="signal" title={t("sidebar.project.live", { n: live })}>
@@ -389,15 +481,15 @@ function ProjectSection({
             ) : (
               <span className="min-w-0 flex-1">
                 <MiddleTruncate
-                  text={project.name}
+                  text={headerName}
                   className="font-display text-xs font-semibold text-ink"
                 />
                 <span className="mt-0.5 flex items-center gap-1.5">
                   <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint">
                     {project.path}
                   </span>
-                  <Chip mono title={t("sidebar.project.sessions", { n: group.sessions.length })}>
-                    {group.sessions.length}
+                  <Chip mono title={t("sidebar.project.sessions", { n: allSessions.length })}>
+                    {allSessions.length}
                   </Chip>
                   {live > 0 && (
                     <Chip mono tone="signal" title={t("sidebar.project.live", { n: live })}>
@@ -475,80 +567,144 @@ function ProjectSection({
             const isRoot = entry.depth === 0;
             const reorderable = canReorderSessions && isRoot;
             const row = sessionReorder.bindRow(entry.treeId, index);
+            // The checkout this row came from; null for the anchor's machine.
+            const block = checkouts?.rowToBlock.get(entry.session.tabId) ?? null;
             return (
-            <div
-              key={entry.session.tabId}
-              className={cn(
-                "relative",
-                entry.depth === 1 && "pl-4",
-                entry.depth >= 2 && "pl-8",
-              )}
-            >
-              {entry.depth > 0 && (
-                // Handoff connector — a stem and elbow from the plan source
-                // above into this implementation row. Neutral chrome, never
-                // the signal accent (ADR-0004, issue #238). The stroke is a
-                // 2px border-line — one step above line-soft — so the
-                // handoff reads on the sunken sidebar (issue #310).
-                <span
-                  aria-hidden
-                  data-handoff-connector
+              <Fragment key={entry.session.tabId}>
+                {checkouts !== null && checkouts.dividerBefore[index] === true && block !== null && (
+                  <div
+                    title={t("sidebar.hosts.machineLabel", {
+                      machine: machineOf(block),
+                      path: block.group.project.path,
+                    })}
+                    className="flex items-center gap-1.5 px-3 pb-0.5 pt-1 text-[10px] text-ink-faint"
+                  >
+                    <span className="min-w-0 flex-1 truncate font-mono">
+                      {t("sidebar.unified.checkout", { machine: machineOf(block) })}
+                    </span>
+                    <IconButton
+                      label={t("sidebar.unified.newSessionOn", { machine: machineOf(block) })}
+                      disabled={block.disabled}
+                      onClick={() => {
+                        void newSession(block.group.project.path, undefined, block.instanceId);
+                        onActivate();
+                      }}
+                    >
+                      <IconPlus className="size-3.5" />
+                    </IconButton>
+                  </div>
+                )}
+                <div
                   className={cn(
-                    "pointer-events-none absolute top-0 h-1/2 w-2 rounded-bl border-b-2 border-l-2 border-line",
-                    entry.depth === 1 ? "left-1.5" : "left-5.5",
+                    "relative",
+                    entry.depth === 1 && "pl-4",
+                    entry.depth >= 2 && "pl-8",
                   )}
-                />
-              )}
-              <SessionRow
-                s={entry.session}
-                onActivate={onActivate}
-                handoff={{
-                  source: entry.source,
-                  orphanSource: entry.orphanSource,
-                  hasDescendants: entry.hasDescendants,
-                }}
-                canReorder={reorderable}
-                dragging={row.dragging}
-                dropIndicator={row.dropIndicator}
-                registerGrip={reorderable ? row.registerGrip : undefined}
-                onReorder={reorderable ? row.onReorder : undefined}
-                onDragStart={row.onDragStart}
-                onDragOver={(e) => {
-                  if (sessionReorder.dragKey === null) return; // project drag: bubble to the section
-                  // Session drags only; never let a row drop bubble to the
-                  // section's project-drop handlers.
-                  e.stopPropagation();
-                  row.onDragOver(e);
-                }}
-                onDrop={(e) => {
-                  if (sessionReorder.dragKey === null) return; // project drag: bubble to the section
-                  e.stopPropagation();
-                  row.onDrop(e);
-                }}
-                onDragEnd={row.onDragEnd}
-                onContextMenu={(event) => {
-                  // A row opens the menu only with an item it can accept; it
-                  // never opens an empty one (issue #888). Migrate: omp
-                  // refuses to pack a transcript another process writes, and
-                  // a row with no transcript yet has nothing to carry. The
-                  // version floor is knowable only for this host's binary; a
-                  // remote source answers version skew verbatim at pack time
-                  // (ADR-0028). Ask (#895): chats are host-local, so only
-                  // local rows with a saved transcript.
-                  if (disabled) return;
-                  const s = entry.session;
-                  const migrate =
-                    s.sessionId !== null &&
-                    s.live !== "live" &&
-                    (instanceId !== null || supportsSessionMigrate(ompInstalledVersion));
-                  const ask = instanceId === null && s.sessionId !== null && s.live !== "missing";
-                  if (!migrate && !ask) return;
-                  openSessionMenu(s.tabId, event, { migrate, ask });
-                }}
-              />
-            </div>
+                >
+                  {entry.depth > 0 && (
+                    // Handoff connector — a stem and elbow from the plan source
+                    // above into this implementation row. Neutral chrome, never
+                    // the signal accent (ADR-0004, issue #238). The stroke is a
+                    // 2px border-line — one step above line-soft — so the
+                    // handoff reads on the sunken sidebar (issue #310).
+                    <span
+                      aria-hidden
+                      data-handoff-connector
+                      className={cn(
+                        "pointer-events-none absolute top-0 h-1/2 w-2 rounded-bl border-b-2 border-l-2 border-line",
+                        entry.depth === 1 ? "left-1.5" : "left-5.5",
+                      )}
+                    />
+                  )}
+                  <SessionRow
+                    s={entry.session}
+                    onActivate={onActivate}
+                    handoff={{
+                      source: entry.source,
+                      orphanSource: entry.orphanSource,
+                      hasDescendants: entry.hasDescendants,
+                    }}
+                    instanceNickname={block?.nickname ?? null}
+                    canReorder={reorderable}
+                    dragging={row.dragging}
+                    dropIndicator={row.dropIndicator}
+                    registerGrip={reorderable ? row.registerGrip : undefined}
+                    onReorder={reorderable ? row.onReorder : undefined}
+                    onDragStart={row.onDragStart}
+                    onDragOver={(e) => {
+                      if (sessionReorder.dragKey === null) return; // project drag: bubble to the section
+                      // Session drags only; never let a row drop bubble to the
+                      // section's project-drop handlers.
+                      e.stopPropagation();
+                      row.onDragOver(e);
+                    }}
+                    onDrop={(e) => {
+                      if (sessionReorder.dragKey === null) return; // project drag: bubble to the section
+                      e.stopPropagation();
+                      row.onDrop(e);
+                    }}
+                    onDragEnd={row.onDragEnd}
+                    onContextMenu={(event) => {
+                      // A row opens the menu only with an item it can accept; it
+                      // never opens an empty one (issue #888). Migrate: omp
+                      // refuses to pack a transcript another process writes, and
+                      // a row with no transcript yet has nothing to carry. The
+                      // version floor is knowable only for this host's binary; a
+                      // remote source answers version skew verbatim at pack time
+                      // (ADR-0028). Ask (#895): chats are host-local, so only
+                      // local rows with a saved transcript.
+                      const s = entry.session;
+                      // Unified view (issue #903): a folded row obeys its owning
+                      // block, not the anchor — a remote source answers version skew
+                      // at pack time (ADR-0028); Ask (#895) stays host-local.
+                      if (block !== null ? block.disabled : disabled) return;
+                      const rowInstanceId = block === null ? instanceId : block.instanceId;
+                      const migrate =
+                        s.sessionId !== null &&
+                        s.live !== "live" &&
+                        (rowInstanceId !== null || supportsSessionMigrate(ompInstalledVersion));
+                      const ask =
+                        rowInstanceId === null && s.sessionId !== null && s.live !== "missing";
+                      if (!migrate && !ask) return;
+                      openSessionMenu(s.tabId, event, { migrate, ask });
+                    }}
+                  />
+                </div>
+              </Fragment>
             );
           })}
+          {/* Unified view (issue #903): every folded checkout owns an
+              always-present sub-row, even with zero sessions — the fold must
+              be visible without waiting for a session divider to interleave.
+              blocks[0] is this machine's anchor; today's header is its row. */}
+          {merged &&
+            blocks !== null &&
+            blocks.slice(1).map((b) => (
+              <div
+                key={`${String(b.instanceId)}:${b.group.project.path}`}
+                title={t("sidebar.hosts.machineLabel", {
+                  machine: machineOf(b),
+                  path: b.group.project.path,
+                })}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 pb-0.5 pt-1 text-[10px] text-ink-faint",
+                  b.disabled && "opacity-60",
+                )}
+              >
+                <span className="shrink-0 font-mono">{machineOf(b)}</span>
+                <MiddleTruncate text={b.group.project.path} className="min-w-0 flex-1 font-mono" />
+                <IconButton
+                  label={t("sidebar.unified.newSessionOn", { machine: machineOf(b) })}
+                  disabled={b.disabled}
+                  onClick={() => {
+                    void newSession(b.group.project.path, undefined, b.instanceId);
+                    onActivate();
+                  }}
+                >
+                  <IconPlus className="size-3.5" />
+                </IconButton>
+              </div>
+            ))}
           {total === 0 && (
             <p className="px-3 py-1 text-[11px] text-ink-faint italic">{t("sidebar.project.noSessions")}</p>
           )}
@@ -602,6 +758,7 @@ function RemoteInstanceSection({
   onOpenActions,
   refreshAvailability,
   onAnnounce,
+  foldedKeys,
 }: {
   instance: RemoteInstanceSummary;
   query: string;
@@ -612,6 +769,9 @@ function RemoteInstanceSection({
   onOpenActions: (path: string) => void;
   refreshAvailability: () => Promise<void>;
   onAnnounce: (text: string) => void;
+  /** Repository keys (ADR-0061) whose checkouts render on the unified local
+   *  node instead of this section under All-hosts scope (issue #903). */
+  foldedKeys?: ReadonlySet<string>;
 }) {
   const t = useT();
   const openProjectPicker = useStore((st) => st.openProjectPicker);
@@ -622,9 +782,20 @@ function RemoteInstanceSection({
   const [open, setOpen] = useState(true);
   const joined = instance.status === "joined";
 
-  const filtered = useMemo(() => applyFilter(instance.projects, query), [instance.projects, query]);
+  // Unified view (issue #903): keyed checkouts render on their local node's
+  // tree under All-hosts scope; only keyless checkouts stay listed here.
+  const visibleProjects = useMemo(
+    () =>
+      foldedKeys === undefined || foldedKeys.size === 0
+        ? instance.projects
+        : instance.projects.filter(
+            (g) => g.project.repositoryKey === null || !foldedKeys.has(g.project.repositoryKey),
+          ),
+    [instance.projects, foldedKeys],
+  );
+  const filtered = useMemo(() => applyFilter(visibleProjects, query), [visibleProjects, query]);
   const filteredPaths = useMemo(() => filtered.map((f) => f.group.project.path), [filtered]);
-  const canReorder = joined && !compact && query.trim() === "" && instance.projects.length > 1;
+  const canReorder = joined && !compact && query.trim() === "" && visibleProjects.length > 1;
   const reorder = useListReorder({
     rows: filtered,
     rootOf: (f) => f.group.project.path,
@@ -771,6 +942,7 @@ function SidebarGroupSection({
   onActivate,
   onOpenActions,
   onAnnounce,
+  extraFor,
   groupReorder,
 }: {
   group: SidebarGroup;
@@ -789,6 +961,8 @@ function SidebarGroupSection({
   onAnnounce: (text: string) => void;
   /** The header's drag/keyboard wiring for reordering groups. */
   groupReorder: ListReorderRow;
+  /** Unified project view (issue #903): folded remote checkouts for a member. */
+  extraFor: (f: FilteredGroup) => CheckoutBlock[] | undefined;
 }) {
   const t = useT();
   const moveProject = useStore((st) => st.moveProject);
@@ -922,6 +1096,7 @@ function SidebarGroupSection({
             <ProjectSection
               key={path}
               group={f.group}
+              extra={extraFor(f)}
               instanceId={null}
               hostLocalActions
               projectHit={f.projectHit}
@@ -1481,6 +1656,29 @@ export function Sidebar() {
       : "all";
   // Search is global (issue #507): a filtering query overrides the host scope.
   const scoped = !filtering && effectiveScope !== "all";
+
+  // Unified project view (issue #903, ADR-0063): under All-hosts scope with no
+  // filter, joined instances' keyed checkouts fold into the local node sharing
+  // their repository key; per-host lenses and search keep the split layout.
+  const remoteCheckouts = useMemo(
+    () => (filtering || effectiveScope !== "all" ? null : indexRemoteCheckouts(remoteInstances)),
+    [filtering, effectiveScope, remoteInstances],
+  );
+  // Repository keys with a local anchor: hidden from the per-instance sections.
+  const foldedKeys = useMemo(() => {
+    const keys = new Set<string>();
+    if (remoteCheckouts === null) return keys;
+    for (const g of groups ?? []) {
+      const key = g.project.repositoryKey;
+      if (key !== null && remoteCheckouts.has(key)) keys.add(key);
+    }
+    return keys;
+  }, [groups, remoteCheckouts]);
+  const extraFor = (f: FilteredGroup): CheckoutBlock[] | undefined => {
+    if (remoteCheckouts === null) return undefined;
+    const key = f.group.project.repositoryKey;
+    return key === null ? undefined : remoteCheckouts.get(key);
+  };
   const showLocalSections = !scoped || effectiveScope === "local";
   const displayedCollapsed = compact ? false : collapsed;
   const resolvedWidths = resolveDesktopPanelWidths({
@@ -1646,6 +1844,7 @@ export function Sidebar() {
                       key={path}
                       group={f.group}
                       instanceId={null}
+                      extra={extraFor(f)}
                       hostLocalActions
                       projectHit={f.projectHit}
                       query={query}
@@ -1678,6 +1877,7 @@ export function Sidebar() {
                     onOpenActions={(path) => setActionsFor(projectKey(null, path))}
                     onAnnounce={setReorderNote}
                     groupReorder={groupReorder.bindRow(segment.group.id, index)}
+                    extraFor={extraFor}
                   />
                 ))}
               </>
@@ -1701,6 +1901,7 @@ export function Sidebar() {
                   onOpenActions={(path) => setActionsFor(projectKey(instance.id, path))}
                   refreshAvailability={refreshAvailability}
                   onAnnounce={setReorderNote}
+                  foldedKeys={foldedKeys}
                 />
               ))}
             </>

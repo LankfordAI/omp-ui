@@ -96,6 +96,7 @@ function setup(): { backend: InstanceType<typeof MainBackend>; sessionsRoot: str
         browserClock: false,
         reviewRoster: null,
         knowledgeHome: null,
+        repositoryKey: null,
       },
     ],
     sessions: [

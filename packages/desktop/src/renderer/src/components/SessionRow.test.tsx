@@ -76,7 +76,11 @@ function summary(patch: Partial<SessionSummary> = {}): SessionSummary {
 const consultFromRow = vi.fn(async () => {});
 let root: Root | null = null;
 
-function render(s: SessionSummary, installedVersion: string | null): HTMLElement {
+function render(
+  s: SessionSummary,
+  installedVersion: string | null,
+  instanceNickname?: string | null,
+): HTMLElement {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -92,7 +96,7 @@ function render(s: SessionSummary, installedVersion: string | null): HTMLElement
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  act(() => root!.render(<SessionRow s={s} />));
+  act(() => root!.render(<SessionRow s={s} instanceNickname={instanceNickname} />));
   return host;
 }
 
@@ -144,5 +148,28 @@ describe("sidebar ghost action (Seance consult, #885)", () => {
     expect(button.disabled).toBe(true);
     // Floor plan precedent: the tooltip names the version that unlocks it.
     expect(button.title).toContain("18.11.3");
+  });
+});
+
+// Unified project view (#903): rows whose session lives on a joined remote
+// instance name that machine in the meta line; local rows stay bare.
+describe("unified-view machine chip (#903)", () => {
+  const chipTitle = t("sidebar.session.machine", { machine: "workbox" });
+
+  it("names the owning machine on remote-instance rows", () => {
+    const el = render(summary(), "18.11.3", "workbox");
+    expect(el.textContent).toContain("workbox");
+    expect(el.querySelector(`span[title="${chipTitle}"]`)).not.toBeNull();
+  });
+
+  it("renders no machine text for local rows (absent, null, or empty)", () => {
+    for (const nickname of [undefined, null, ""]) {
+      const el = render(summary(), "18.11.3", nickname);
+      expect(el.textContent).not.toContain("workbox");
+      expect(el.querySelector(`span[title="${chipTitle}"]`)).toBeNull();
+      act(() => root!.unmount());
+      root = null;
+      document.body.replaceChildren();
+    }
   });
 });

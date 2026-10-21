@@ -106,6 +106,7 @@ function setup(): {
         browserClock: false,
         reviewRoster: null,
         knowledgeHome: null,
+        repositoryKey: null,
       },
     ],
     sessions: [
@@ -380,6 +381,7 @@ function setupCascade(): {
         browserClock: false,
         reviewRoster: null,
         knowledgeHome: null,
+        repositoryKey: null,
       },
     ],
     sessions: [

@@ -207,15 +207,16 @@ _Avoid_: ghost session, séance thread, resume-by-reading
 
 **New session dialog**:
 The one form that starts work, opened from a project's actions, the command
-palette, or the **Fleet** view. It picks the project, where the session runs —
-**This computer** (this app) or the **Fleet** — the workspace (a fresh
+palette, or the **Fleet** view. It picks a project and a machine — **This
+computer** (this app) or a fleet member — the workspace (a fresh
 worktree checkout or the project checkout), Build or Plan mode, an optional
 title, and a first prompt: required for a fleet dispatch, optional on this
-app, where an empty one simply opens an idle session. Choosing the Fleet
-turns the same form into a **Fleet dispatch** — a dispatch is this dialog's
-Fleet face producing it, never a second launcher (ADR-0061). A local session
-that comes up without its first prompt sent says so; the user sends it there
-by hand.
+app, where an empty one simply opens an idle session. A one-member launch is
+a plain session, never a **Fleet dispatch**; the dialog's Fleet face produces
+dispatches only for multi-target or auto runs, and a dispatch is always this
+dialog's Fleet face producing it, never a second launcher (ADR-0061). A local
+session that comes up without its first prompt sent says so; the user sends it
+there by hand.
 _Avoid_: launch modal, dispatch window, new session window, launcher dialog
 
 **Project actions sheet**:
@@ -1118,6 +1119,15 @@ unique among joined instances, and is how every surface labels the host.
 _Avoid_: remote server (the embedded listener this app hosts), remote host
 (the `RemoteHost` seam), peer, connection
 
+**Unified project view**:
+One sidebar node per repository identity across this app and every joined
+**Remote instance**: its members are the checkouts of that repository on each
+machine, matched on the `host/owner/repo` repository key (ADR-0063), never on
+path. A checkout with no web remote has no key and stays its own node on its
+own instance; unification never merges two projects it cannot name the same
+work.
+_Avoid_: merged project, cross-machine project, repo rollup
+
 **Fleet**:
 This app plus every joined **Remote instance**, seen as places new work can
 start. A member is addressed by its machine key: `local` for this app, or the
@@ -1135,7 +1145,7 @@ session is always rpc-ui, never a chat or a terminal session, and it stays on
 the instance that started it — a dispatch never moves or copies a running
 session. A dispatch whose remote answer was lost has an unknown outcome
 until a session with its id appears; omp-ui never retries it on its own.
-_Avoid_: job (Background job names omp's async jobs), task, run
+_Avoid_: job (Background job names omp's async jobs), task, run, single-machine launch
 
 **Dispatch batch**:
 The fleet dispatches one request created on several targets, sharing a

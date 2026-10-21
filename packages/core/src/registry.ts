@@ -680,6 +680,9 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       reviewRoster: isReviewDocument(p.reviewRoster) ? p.reviewRoster : null,
       // Like reviewRoster, malformed preferences do not invalidate the project.
       knowledgeHome: isKnowledgeHome(p.knowledgeHome) ? p.knowledgeHome : null,
+      // Late-added like reviewRoster/knowledgeHome (#903): absent or
+      // malformed keys normalize to null; the record always survives.
+      repositoryKey: typeof p.repositoryKey === "string" ? p.repositoryKey : null,
     }));
   const sessions = sessionsValue
     .filter(isOwnedSessionRecord)
@@ -999,6 +1002,7 @@ export class Registry {
       browserClock: false,
       reviewRoster: null,
       knowledgeHome: null,
+      repositoryKey: null,
     };
     this.#transaction((draft) => {
       draft.projects.push(record);
@@ -1278,6 +1282,20 @@ export class Registry {
         prev === null ? null : prev.vault === undefined ? { home: prev.home } : { home: prev.home, vault: prev.vault };
       if (JSON.stringify(prevNorm) === JSON.stringify(next)) return false;
       project.knowledgeHome = next;
+      return true;
+    });
+  }
+
+  /**
+   * Sets (or clears, with null) one project's fleet repository key (#903).
+   * Unknown project or an equal value: no save. Strings compare strictly;
+   * unlike the object-valued siblings there is nothing to normalize.
+   */
+  setProjectRepositoryKey(projectPath: string, key: string | null): void {
+    this.#transaction((draft) => {
+      const project = draft.projects.find((candidate) => candidate.path === projectPath);
+      if (!project || project.repositoryKey === key) return false;
+      project.repositoryKey = key;
       return true;
     });
   }

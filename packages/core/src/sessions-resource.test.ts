@@ -72,6 +72,7 @@ function projectRecord(projectPath: string, name: string): ProjectRecord {
     browserClock: false,
     reviewRoster: null,
     knowledgeHome: null,
+    repositoryKey: null,
   };
 }
 

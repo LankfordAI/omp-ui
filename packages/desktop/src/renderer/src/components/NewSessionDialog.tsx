@@ -53,6 +53,17 @@ interface HereOption {
   label: string;
   /** Full path shown as the option's tooltip. */
   title?: string;
+  /** The owning project's web-remote key (issue #903); null = no web remote. */
+  repositoryKey: string | null;
+}
+
+/** One repository on the "here" face: every registered host that has it (issue #903). */
+interface HereGroup {
+  /** The repository key, or the first pair's id when the project has none. */
+  id: string;
+  repositoryKey: string | null;
+  label: string;
+  pairs: HereOption[];
 }
 
 export function NewSessionDialog() {
@@ -112,6 +123,7 @@ export function NewSessionDialog() {
         instanceId: null,
         projectCwd: group.project.path,
         label: group.project.name,
+        repositoryKey: group.project.repositoryKey,
       });
     }
     for (const instance of joined) {
@@ -120,15 +132,61 @@ export function NewSessionDialog() {
           id: `${instance.id}\u0000${group.project.path}`,
           instanceId: instance.id,
           projectCwd: group.project.path,
-          label: `${instance.nickname} · ${group.project.name}`,
+          label: group.project.name,
           title: group.project.path,
+          repositoryKey: group.project.repositoryKey,
         });
       }
     }
     return out;
   }, [state, joined]);
 
+  /**
+   * The here face's repositories (issue #903): hereOptions merged by
+   * repository key, so one checkout of a repo on several machines is ONE
+   * project entry. Keyless projects each form their own group — matched by
+   * path across the registered hosts, since null never groups them.
+   */
+  const hereGroups = useMemo(() => {
+    const byKey = new Map<string | null, HereOption[]>();
+    for (const option of hereOptions) {
+      const list = byKey.get(option.repositoryKey);
+      if (list === undefined) byKey.set(option.repositoryKey, [option]);
+      else list.push(option);
+    }
+    const out: HereGroup[] = [];
+    for (const [key, pairs] of byKey) {
+      if (key === null) {
+        const byPath = new Map<string, HereOption[]>();
+        for (const pair of pairs) {
+          const list = byPath.get(pair.projectCwd);
+          if (list === undefined) byPath.set(pair.projectCwd, [pair]);
+          else list.push(pair);
+        }
+        for (const pathPairs of byPath.values()) {
+          out.push({ id: pathPairs[0]!.id, repositoryKey: null, label: pathPairs[0]!.label, pairs: pathPairs });
+        }
+      } else {
+        out.push({ id: key, repositoryKey: key, label: pairs[0]!.label, pairs });
+      }
+    }
+    return out;
+  }, [hereOptions]);
+
+  /** The repository-grouped shape of `hereGroups` for the project select's optgroups. */
+  const hereRepositories = useMemo(() => {
+    const groups = new Map<string | null, HereGroup[]>();
+    for (const group of hereGroups) {
+      const list = groups.get(group.repositoryKey);
+      if (list === undefined) groups.set(group.repositoryKey, [group]);
+      else list.push(group);
+    }
+    return [...groups];
+  }, [hereGroups]);
+
   const [pickedId, setPickedId] = useState<string | null>(null);
+  /** The here face's picked repository (issue #903); pairs ride `pickedId`. */
+  const [pickedRepoId, setPickedRepoId] = useState<string | null>(null);
   const focusedId = focused === null ? null : `${focused.instanceId ?? LOCAL_MACHINE_KEY}\u0000${focused.projectCwd}`;
   const reference =
     options.find((o) => o.id === pickedId) ?? options.find((o) => o.id === focusedId) ?? options[0] ?? null;
@@ -186,12 +244,42 @@ export function NewSessionDialog() {
     seed !== null && seed.projectCwd !== null
       ? `${seed.instanceId ?? LOCAL_MACHINE_KEY}\u0000${seed.projectCwd}`
       : null;
-  const selection =
+  // Q3: never silently remote — the default machine is the local checkout
+  // when the repository has one, then the seed's host, then the focused
+  // tab's host, then simply the first registered pair.
+  const seedInstance = seedId === null ? null : seed?.instanceId ?? null;
+  const defaultHerePair = (group: HereGroup): HereOption =>
+    group.pairs.find((p) => p.instanceId === null) ??
+    (seedInstance !== null ? group.pairs.find((p) => p.instanceId === seedInstance) : undefined) ??
+    (focused?.instanceId != null ? group.pairs.find((p) => p.instanceId === focused.instanceId) : undefined) ??
+    group.pairs[0]!;
+  const chainPair =
     hereOptions.find((o) => o.id === pickedId) ??
     (seedId === null ? undefined : hereOptions.find((o) => o.id === seedId)) ??
     (focusedId === null ? undefined : hereOptions.find((o) => o.id === focusedId)) ??
     hereOptions[0] ??
     null;
+  // The picked pair scopes the repository group; with nothing picked the
+  // legacy chain (seed → focused → first) decides which repository opens,
+  // and within it Q3 picks the machine — a remote seed never silently
+  // defaults to its own host when a local checkout exists.
+  const hereGroup =
+    pickedRepoId === null
+      ? hereGroups.find((g) => chainPair !== null && g.pairs.some((p) => p.id === chainPair.id)) ?? null
+      : hereGroups.find((g) => g.id === pickedRepoId) ?? null;
+  const pickedPair = pickedId === null ? null : hereOptions.find((o) => o.id === pickedId) ?? null;
+  const selection =
+    hereGroup === null
+      ? chainPair
+      : pickedPair !== null && hereGroup.pairs.some((p) => p.id === pickedPair.id)
+        ? pickedPair
+        : defaultHerePair(hereGroup);
+  const pickRepository = (id: string): void => {
+    const group = hereGroups.find((g) => g.id === id);
+    if (group === undefined) return;
+    setPickedRepoId(id);
+    setPickedId(defaultHerePair(group).id);
+  };
   const instanceId = selection?.instanceId ?? null;
   const projectCwd = selection?.projectCwd ?? "";
 
@@ -240,8 +328,10 @@ export function NewSessionDialog() {
   const targets = runOn === "auto" ? candidates : chosen;
   const commitsDiffer =
     new Set(targets.map((c) => c.project.headCommit).filter((commit) => commit !== null)).size > 1;
+  // The machine's display name, not the Where segment label: the fleet face
+  // names the local machine "This computer" in copy steppers and outcomes.
   const nameOf = (machine: Pick<FleetMachine, "nickname">): string =>
-    machine.nickname ?? t("dialog.newsession.here");
+    machine.nickname ?? t("dialog.newsession.machineLocal");
 
   const canSubmit =
     face === "fleet"
@@ -363,14 +453,40 @@ export function NewSessionDialog() {
                 </label>
                 <select
                   id="newsession-project"
+                  value={hereGroup?.id ?? ""}
+                  disabled={busy}
+                  onChange={(event) => pickRepository(event.target.value)}
+                  className={FIELD}
+                >
+                  {hereRepositories.map(([key, list]) => (
+                    <optgroup key={key ?? ""} label={key ?? t("dialog.newsession.noRepositoryKey")}>
+                      {list.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="newsession-machine" className={LABEL}>
+                  {t("dialog.newsession.machine")}
+                </label>
+                <select
+                  id="newsession-machine"
                   value={selection.id}
                   disabled={busy}
                   onChange={(event) => setPickedId(event.target.value)}
                   className={FIELD}
                 >
-                  {hereOptions.map((option) => (
+                  {(hereGroup?.pairs ?? []).map((option) => (
                     <option key={option.id} value={option.id} title={option.title}>
-                      {option.label}
+                      {option.instanceId === null
+                        ? t("dialog.newsession.machineLocal")
+                        : (joined.find((instance) => instance.id === option.instanceId)?.nickname ??
+                          option.instanceId)}
                     </option>
                   ))}
                 </select>

@@ -168,6 +168,7 @@ function stateWithSessions(sessions: "none" | "one"): BackendState {
       browserClock: false,
       reviewRoster: null,
       knowledgeHome: null,
+      repositoryKey: null,
     },
     sessions: sessions === "one" ? [sessionSummary()] : [],
   };

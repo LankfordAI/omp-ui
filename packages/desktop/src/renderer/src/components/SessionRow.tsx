@@ -192,6 +192,7 @@ export function SessionRow({
   s,
   onActivate,
   handoff,
+  instanceNickname = null,
   canReorder = false,
   dragging = false,
   dropIndicator = null,
@@ -206,6 +207,9 @@ export function SessionRow({
   s: SessionSummary;
   onActivate?: () => void;
   handoff?: SessionRowHandoff;
+  /** Unified project view (#903): non-null on rows whose session lives on a
+   *  joined remote instance; the meta line then names that machine. */
+  instanceNickname?: string | null;
   // Issues #115/#120 pattern applied to sessions (#274). Only tree-root rows
   // receive these from ProjectSection.
   canReorder?: boolean;
@@ -373,6 +377,14 @@ export function SessionRow({
             {showPersistedStatus && s.status ? ` · ${s.status}` : ""}
             {s.worktree ? (
               <span title={s.worktree.path}>{` · ⎇ ${s.worktree.branch}`}</span>
+            ) : null}
+            {/* Machine chip (#903): a bare `<Chip mono>` from ui/controls would
+             *  break this block/truncate span's ellipsis, so it mirrors the
+             *  worktree fragment's inline nested-span style instead. */}
+            {instanceNickname ? (
+              <span title={t("sidebar.session.machine", { machine: instanceNickname })}>
+                {` · ${instanceNickname}`}
+              </span>
             ) : null}
             {source !== null
               ? ` · ${t("sidebar.session.implementation")}`

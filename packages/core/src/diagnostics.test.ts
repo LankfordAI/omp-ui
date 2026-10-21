@@ -60,6 +60,7 @@ function project(override: Partial<ProjectRecord> & { path: string }): ProjectRe
     browserClock: false,
     reviewRoster: null,
     knowledgeHome: null,
+    repositoryKey: null,
     ...override,
   };
 }

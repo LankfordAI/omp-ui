@@ -133,6 +133,7 @@ const stateWith = (
           browserClock: false,
           reviewRoster: null,
           knowledgeHome: null,
+          repositoryKey: null,
         },
         sessions: [session],
       },
