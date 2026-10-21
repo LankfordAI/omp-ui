@@ -218,7 +218,7 @@ jobs:
             --dir release-assets --platform linux --version "$version" --arches x64 \
             --out-dir release-manifest/linux
           node scripts/release-artifacts.mjs \
-            --dir release-assets --platform mac --version "$version" --arches arm64,x64 \
+            --dir release-assets --platform mac --version "$version" --arches arm64 \
             --out-dir release-manifest/mac
           node scripts/release-artifacts.mjs \
             --dir release-assets --platform win --version "$version" --arches x64 \

@@ -50,14 +50,12 @@ jobs:
   package:
     strategy:
       fail-fast: false
-      # Fixed target set: the six release distributables are two DMG+ZIP
-      # pairs (docs/releases.md). Callers cannot widen or redirect it —
+      # Fixed target set: the four release distributables include one macOS
+      # DMG+ZIP pair (docs/releases.md). Callers cannot widen or redirect it —
       # the matrix and runner are literals here, never inputs (issue #628).
+      # Apple Silicon only: the Intel build was dropped (issue #908).
       matrix:
-        arch: [arm64, x64]
-    # Both architectures package on Apple Silicon: the Intel runner is about
-    # twice as slow at every step and nothing in the lane executes the app
-    # (issue #485).
+        arch: [arm64]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4

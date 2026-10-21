@@ -8,9 +8,9 @@ Install omp-ui, connect a model provider, register a project, and start your fir
 | --- | --- | --- |
 | Linux x64 | Supported | AppImage |
 | Windows x64 | Preview | Unsigned per-user NSIS installer |
-| macOS Apple Silicon and Intel | Supported | Developer ID signed and notarized DMG |
+| macOS Apple Silicon | Supported | Developer ID signed and notarized DMG |
 
-Linux AppImage and macOS DMGs are the supported releases. Windows builds are previews.
+Linux AppImage and the macOS DMG are the supported releases. Windows builds are previews.
 
 ## Install on Linux
 
@@ -92,18 +92,15 @@ The assisted installer installs for the current user without administrator eleva
 
 ## Install on macOS
 
-Choose the DMG that matches your Mac from the [latest GitHub release](https://github.com/LankfordAI/omp-ui/releases/latest):
+Download the Apple Silicon DMG, `omp-ui-<version>-mac-arm64.dmg`, from the [latest GitHub release](https://github.com/LankfordAI/omp-ui/releases/latest). Intel Macs are not supported.
 
-- Apple Silicon, including M-series processors: `omp-ui-<version>-mac-arm64.dmg`
-- Intel: `omp-ui-<version>-mac-x64.dmg`
-
-Download `SHA256SUMS.txt` beside the DMG. Verify only the asset you selected. For Apple Silicon, run:
+Download `SHA256SUMS.txt` beside the DMG and verify it:
 
 ```bash
 grep 'omp-ui-.*-mac-arm64\.dmg$' SHA256SUMS.txt | shasum -a 256 -c -
 ```
 
-For an Intel DMG, change `arm64` to `x64`. Continue only when the selected DMG reports `OK`.
+Continue only when the DMG reports `OK`.
 
 Open the DMG and drag **omp-ui** to **Applications**. Release builds are Developer ID signed and notarized, so they need no Gatekeeper override. If macOS rejects a current release build, stop. Do not remove quarantine attributes or bypass Gatekeeper.
 

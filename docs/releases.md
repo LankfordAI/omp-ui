@@ -7,10 +7,11 @@ This guide explains what users receive from a release and how maintainers publis
 - Fleet members list their SSH target and whether port 22 answers, so an agent can provision a member over its own ssh and register the checkout; fleet-registered projects now get their repository key and branch watch immediately (#904, #906).
 - Fleet members report their OS and package managers; agents can run long installs on a Full-control member as a detached exec and poll it, and you can roll this computer's Provider keys out to a member from the Fleet view (#905).
 - Fleet members show their omp and omp-ui versions as chips, including below-the-floor and staged-update badges, and a Full-control member can update itself on request — its managed omp binary lands immediately, an omp-ui update stages and installs at the member's next quit; nothing ships through the join link (#905).
+- macOS releases and nightlies ship for Apple Silicon only; the Intel (`mac-x64`) DMG and ZIP are no longer built. Existing Intel installs stay on their last build, and their update check reports that no compatible update file exists (#908).
 
 ## Choose a download
 
-A release has exactly six distributable files. Replace `<version>` with the tag version without its leading `v`.
+A release has exactly four distributable files. Replace `<version>` with the tag version without its leading `v`.
 
 | Platform | Status | File | Use |
 |---|---|---|---|
@@ -18,10 +19,8 @@ A release has exactly six distributable files. Replace `<version>` with the tag 
 | Windows x64 | Unsigned preview | `omp-ui-<version>-windows-preview-x64-setup.exe` | Per-user NSIS installer |
 | macOS Apple Silicon | Supported | `omp-ui-<version>-mac-arm64.dmg` | Install omp-ui |
 | macOS Apple Silicon | Supported | `omp-ui-<version>-mac-arm64.zip` | Squirrel.Mac update payload |
-| macOS Intel | Supported | `omp-ui-<version>-mac-x64.dmg` | Install omp-ui |
-| macOS Intel | Supported | `omp-ui-<version>-mac-x64.zip` | Squirrel.Mac update payload |
 
-The macOS packages are Developer ID signed and notarized. [Issue #124](https://github.com/LankfordAI/omp-ui/issues/124) closed with that acceptance verified — notarized tagged artifacts and a physical-Mac self-update — so macOS is a supported release platform.
+The macOS packages are Developer ID signed and notarized. [Issue #124](https://github.com/LankfordAI/omp-ui/issues/124) closed with that acceptance verified — notarized tagged artifacts and a physical-Mac self-update — so macOS is a supported release platform. Intel Macs are not supported: the Intel build was dropped in [issue #908](https://github.com/LankfordAI/omp-ui/issues/908). On an Intel Mac, electron-updater skips arm64 files, so the update check finds no ZIP it can install and reports an error; it never installs the Apple Silicon build.
 
 Linux uses AppImage as its sole first-party supported format. Community packages may exist, but the project does not support them. The policy and cutover history are recorded in [ADR-0011](adr/0011-appimage-only-linux-distribution.md).
 
@@ -35,14 +34,14 @@ The installer verifies the AppImage against `SHA256SUMS.txt`, writes it to `~/.l
 
 ## Understand the release files
 
-The six distributables ship with seven supporting files, for 13 release assets in total:
+The four distributables ship with six supporting files, for 10 release assets in total:
 
 - `latest-linux.yml` names the AppImage and supplies its SHA-512 update metadata. The AppImage blockmap is embedded, so Linux does not publish a separate blockmap file.
 - `latest.yml` names the Windows installer and supplies its SHA-512 update metadata.
 - `omp-ui-<version>-windows-preview-x64-setup.exe.blockmap` supports the NSIS differential download.
-- `latest-mac.yml` names both DMGs and both ZIPs, with their sizes and SHA-512 digests. The matching ZIP is the Squirrel.Mac update payload for each architecture.
-- `SHA256SUMS.txt` contains one SHA-256 line for each of the six distributables.
-- `SHA256SUMS-macos-arm64.txt` and `SHA256SUMS-macos-x64.txt` each cover that architecture's DMG and ZIP. The workflow creates them during platform verification, then creates the combined manifest after all platforms finish.
+- `latest-mac.yml` names the Apple Silicon DMG and ZIP, with their sizes and SHA-512 digests. The ZIP is the Squirrel.Mac update payload.
+- `SHA256SUMS.txt` contains one SHA-256 line for each of the four distributables.
+- `SHA256SUMS-macos-arm64.txt` covers the DMG and ZIP. The workflow creates it during platform verification, then creates the combined manifest after all platforms finish.
 
 The SHA-256 manifests and update metadata detect corrupt or substituted bytes. They do not establish publisher identity. macOS gets publisher identity from Developer ID signing and notarization. The Windows preview has no equivalent trusted Authenticode signature yet.
 
@@ -105,7 +104,7 @@ its `ref` input (default `main`) to one commit and refuses it unless that commit
 is reachable from `main`, `develop`, or a stable `v*` tag — a fork PR head, a
 feature branch, or the rolling `nightly` tag itself never reaches a lane (issue
 #627). The trusted tip is then packaged for Linux x64, Windows x64, and macOS
-arm64/x64 under the version `<latest-stable>-nightly.<UTC date>.<short SHA>` —
+arm64 under the version `<latest-stable>-nightly.<UTC date>.<short SHA>` —
 the base follows the latest stable release, never the tree version. The files
 are delivered two ways: as 14-day run artifacts, and on one rolling *prerelease*
 GitHub Release named `nightly`, which each run deletes and recreates at the
@@ -138,9 +137,9 @@ The jobs run in this order:
 1. `prepare` runs on a GitHub-hosted runner with no checkout. It creates the GitHub release as a **draft** if it does not exist yet, with `--verify-tag`, a title equal to the version without `v`, and empty notes. A tag missing on the remote fails here and every lane is skipped. Every other job depends only on `prepare`, so the platform lanes start together once the draft exists.
 2. `release-linux` runs on the org's self-hosted Linux pool (`[self-hosted, gfx1201]` — the runners register with labels `linux,rocm,gfx1201`); the container comes back warm between jobs, so the lane installs its dependencies fresh on every run. If a lane is pointed at a label no registered runner serves, it queues forever rather than failing (issue #631). It runs the repository typecheck and tests, runs the Electron-runtime `node-pty` smoke, stamps the version, builds the AppImage, and requires exactly one AppImage plus a `latest-linux.yml` that names it and contains SHA-512 metadata. It then uploads the AppImage and Linux metadata into the draft.
 3. `release-notes` checks out the full history, resolves the previous tag with `git describe --tags --match "v*" --abbrev=0 <tag>^` (the `v*` match keeps the rolling `nightly` tag of issue #480 out of the range math), lists the PRs merged between the two tags, groups commits by the issue or PR their subjects reference, lifts the tag's `## Unreleased` bullets into `## Highlights`, and writes the result into the draft. The summary sentence counts keyed entries plus reference-free commits (issue #784), so it matches the row count under What's Changed even when commit subjects omit issue refs. A failure of this job never blocks publishing: a published release with no notes beats a finished release stranded in draft, where the updater cannot see it.
-4. `package-macos` expands to Apple Silicon and Intel packages, both built on `macos-15` Apple Silicon runners: nothing in the lane executes the app, and the Intel runner is about twice as slow at every step. Each job installs dependencies, runs the `node-pty` smoke, stamps the version, and packages one DMG and one ZIP from the shipped `node-pty` prebuild without rebuilding it. Packaging uses the Developer ID certificate from `CSC_LINK` and `CSC_KEY_PASSWORD`. The release command disables electron-builder's built-in one-attempt notarization. A retrying `notarytool` script then submits the DMG with the Apple credentials, staples the app and DMG, and rebuilds the ZIP around the stapled app. Stapling retries transient ticket-lookup failures with the same backoff schedule (issue #856). Verification requires one thin app and `prebuilds/darwin-<arch>/pty.node` for the requested architecture, a valid Developer ID signature from `APPLE_TEAM_ID`, Gatekeeper acceptance, and a valid app staple. The validation step retries transient ticket-lookup failures with the same backoff schedule as stapling (#879). Each job then uploads its DMG, ZIP, and `SHA256SUMS-macos-<arch>.txt` directly into the draft; the macOS Preview and Nightly workflows call the same reusable workflow without a `release_tag` and receive the files as a `macos-package-<arch>` artifact instead.
+4. `package-macos` builds the Apple Silicon package on a `macos-15` runner; there is no Intel build (issue #908). The job installs dependencies, runs the `node-pty` smoke, stamps the version, and packages one DMG and one ZIP from the shipped `node-pty` prebuild without rebuilding it. Packaging uses the Developer ID certificate from `CSC_LINK` and `CSC_KEY_PASSWORD`. The release command disables electron-builder's built-in one-attempt notarization. A retrying `notarytool` script then submits the DMG with the Apple credentials, staples the app and DMG, and rebuilds the ZIP around the stapled app. Stapling retries transient ticket-lookup failures with the same backoff schedule (issue #856). Verification requires one thin app and `prebuilds/darwin-arm64/pty.node`, a valid Developer ID signature from `APPLE_TEAM_ID`, Gatekeeper acceptance, and a valid app staple. The validation step retries transient ticket-lookup failures with the same backoff schedule as stapling (#879). The job then uploads its DMG, ZIP, and `SHA256SUMS-macos-arm64.txt` directly into the draft; the macOS Preview and Nightly workflows call the same reusable workflow without a `release_tag` and receive the files as a `macos-package-arm64` artifact instead.
 5. `test-windows` runs the core and desktop Windows test suites; `ci.yml` runs on Linux only — the self-hosted runner for same-repo events, a GitHub-hosted `ubuntu-latest` runner for fork pull requests (issue #626) — so these are the project's only Windows test coverage. `release-windows` runs beside it: it installs dependencies, runs the `node-pty` smoke against the `win32-x64` prebuild, stamps the version, and packages NSIS with certificate discovery disabled. No MSVC toolchain is installed and nothing is rebuilt. Verification requires the unpacked app, x64 native modules, and ConPTY support files. The job then requires exactly one installer, its matching blockmap, and a `latest.yml` that names the installer and contains SHA-512 metadata before uploading all three. It performs no Authenticode signing; this is the unsigned preview accepted by [ADR-0015](adr/0015-unsigned-windows-nsis-preview.md).
-6. `release-manifest` depends on successful Linux, macOS, Windows, and `test-windows` jobs, and waits for `release-notes` to finish without gating on its result. It downloads exactly one AppImage, two DMGs, two ZIPs, and one Windows installer. It rejects duplicate or missing names, writes the sorted six-line `SHA256SUMS.txt`, and uploads it. It then calculates SHA-512 and size for all four macOS files, writes `latest-mac.yml`, and uploads the feed. Before publishing it warns in the run log when the draft's body is still empty.
+6. `release-manifest` depends on successful Linux, macOS, Windows, and `test-windows` jobs, and waits for `release-notes` to finish without gating on its result. It downloads exactly one AppImage, one DMG, one ZIP, and one Windows installer. It rejects duplicate or missing names, writes the sorted four-line `SHA256SUMS.txt`, and uploads it. It then calculates SHA-512 and size for both macOS files, writes `latest-mac.yml`, and uploads the feed. Before publishing it warns in the run log when the draft's body is still empty.
 7. The manifest job downloads the three published update metadata files and checks their SHA-512 fields and expected distributable names. It also requires the tag version in `latest-mac.yml`. A release is complete only after this boundary check succeeds, after which the job publishes the draft (`gh release edit <tag> --draft=false`) and verifies `isDraft` is false. Until that moment the release is invisible to `releases/latest` and the releases Atom feed, so application updates and `packaging/install.sh` resolve the last completed release rather than the one still building.
 
 Do not rename release files by hand. The updater, installer, workflow assertions, and checksum generation all depend on the names above.

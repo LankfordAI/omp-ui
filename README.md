@@ -41,10 +41,9 @@ curl -fsSL https://raw.githubusercontent.com/LankfordAI/omp-ui/main/packaging/in
 
 ### macOS
 
-Download the signed and notarized DMG for your Mac from the
-[latest release](https://github.com/LankfordAI/omp-ui/releases/latest): use
-`arm64` for Apple Silicon or `x64` for Intel. Open the DMG and drag **omp-ui**
-to **Applications**.
+Download the signed and notarized Apple Silicon (`arm64`) DMG from the
+[latest release](https://github.com/LankfordAI/omp-ui/releases/latest). Intel
+Macs are not supported. Open the DMG and drag **omp-ui** to **Applications**.
 
 ### Windows preview
 
