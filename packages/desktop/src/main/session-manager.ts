@@ -14,7 +14,8 @@ import {
   readAskContext,
   renderSessionSummary,
   stageAskContext,
-  stageCarryoverContext,
+  carryoverContextArmMessage,
+  CARRYOVER_CONTEXT_CHAR_MAX,
   stageFleetPrompt,
   readFleetPrompt,
   consumeFleetPrompt,
@@ -992,17 +993,14 @@ export class SessionManager {
           record = this.deps.registry.updateSession(record.tabId, patch) ?? record;
         }
       }
-      // The #824 carryover seed: applies only when omp has no transcript to
-      // restore (the record never materialized a session id). A real resume
-      // target — active or unarchived — already carries full history, so
-      // the seed is dropped and any stale artifact is removed; the lineage
-      // dir always mirrors this launch.
-      const carryoverFile =
-        req.origin === "resume"
-          ? stageCarryoverContext(
-              path.join(this.deps.getSessionsRoot(), record.lineageDir),
-              record.sessionId === null ? req.carryoverContext?.trim() || null : null,
-            )
+      // The #824 carryover seed: only a native resume whose record never
+      // materialized a session id carries one. A real resume target already
+      // holds full history, and a PTY has no bridge to pin it. It rides as one
+      // hidden message (#896, ADR-0060), never --append-system-prompt, which
+      // replaces the user's APPEND_SYSTEM.md.
+      const carryoverContext =
+        req.origin === "resume" && mode === "rpc-ui" && record.sessionId === null
+          ? req.carryoverContext?.trim() || null
           : null;
       // A chat is Build-only on every launch, resume included.
       const planMode = record.chat
@@ -1013,8 +1011,8 @@ export class SessionManager {
             : record.agentMode === "plan"));
       const result =
         mode === "rpc-ui"
-          ? await this.spawnRpc(record, planMode, ompPath, req.origin === "resume" ? req.model : undefined, carryoverFile, warmHandoff)
-          : await this.spawnPty(record, req, ompPath, carryoverFile);
+          ? await this.spawnRpc(record, planMode, ompPath, req.origin === "resume" ? req.model : undefined, carryoverContext, warmHandoff)
+          : await this.spawnPty(record, req, ompPath);
       // spawnRpc consumed the reservation either way (adopted, or killed it
       // on a hash miss); only an exception path can leave it live for the
       // rollback tail to release.
@@ -1222,7 +1220,6 @@ export class SessionManager {
     record: OwnedSessionRecord,
     req: SpawnRequest,
     ompPath: string,
-    appendSystemPromptFile: string | null = null,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     if (record.worktree !== null) {
@@ -1247,7 +1244,6 @@ export class SessionManager {
       ...(req.origin === "resume" && req.restore && record.sessionId !== null
         ? { restoreSessionId: record.sessionId }
         : { resumeSessionId: record.sessionId ?? undefined }),
-      appendSystemPromptFile: appendSystemPromptFile ?? undefined,
       model: gateSelector(this.gate) ?? undefined,
       ...(autoThinking ? { thinking: "auto" } : {}),
       cols: req.cols,
@@ -1272,7 +1268,7 @@ export class SessionManager {
     planMode: boolean,
     ompPath: string,
     modelOverride?: string,
-    appendSystemPromptFile: string | null = null,
+    carryoverContext: string | null = null,
     warmHandoff: { slot: WarmSlot; planKey: string } | null = null,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
@@ -1396,6 +1392,24 @@ export class SessionManager {
           type: "prompt",
           id: `omp-ui-initial-ask-context-${randomUUID()}`,
           message: askContextArmMessage(text),
+        });
+      }
+    }
+    // The #824 restart carryover (#896, ADR-0060): one hidden message queued
+    // for the first turn, after the Ask pin and before any fleet prompt that
+    // starts a turn. Delivered once; never re-sent on compaction or /new.
+    if (carryoverContext !== null && bridgeLoaded.carryoverContext) {
+      if (carryoverContext.length > CARRYOVER_CONTEXT_CHAR_MAX) {
+        // The restart channel's codec carries no length cap; the bridge would
+        // refuse the arm with a warning toast, so drop it here instead.
+        console.warn(
+          `[carryover] ${record.tabId}: dropped a ${carryoverContext.length}-character seed over the ${CARRYOVER_CONTEXT_CHAR_MAX} ceiling`,
+        );
+      } else {
+        initialCommands.push({
+          type: "prompt",
+          id: `omp-ui-initial-carryover-${randomUUID()}`,
+          message: carryoverContextArmMessage(carryoverContext),
         });
       }
     }
@@ -1610,9 +1624,9 @@ export class SessionManager {
     // Adoption gate (issue #908): the planKey already matched at `reserve`;
     // the tree hash re-checked AFTER every overlay/roster write is the
     // authority on whether the parked child's argv+dir still describe THIS
-    // spawn. A gate that flipped since reservation, a resume carryover, or a
-    // model override all force a cold boot in the same (already rewritten)
-    // dir; the parked child dies either way.
+    // spawn. A gate that flipped since reservation or a model override forces
+    // a cold boot in the same (already rewritten) dir; the parked child dies
+    // either way.
     let adopted: WarmSlot | null = null;
     if (warmHandoff !== null) {
       const slot = warmHandoff.slot;
@@ -1628,7 +1642,6 @@ export class SessionManager {
         gateSelector(this.gate) === null &&
         this.gate.advisorModel === null &&
         record.sessionId === null &&
-        appendSystemPromptFile === null &&
         modelOverride === undefined
       ) {
         adopted = slot;
@@ -1646,7 +1659,6 @@ export class SessionManager {
             lineageDir: absLineageDir,
             ompPath,
             resumeSessionId: record.sessionId ?? undefined,
-            appendSystemPromptFile: appendSystemPromptFile ?? undefined,
             // The dev/test spawn gate keeps winning over the recovery pick,
             // exactly as it wins over the record everywhere else.
             model: gateSelector(this.gate) ?? modelOverride ?? undefined,

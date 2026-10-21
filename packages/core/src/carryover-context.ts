@@ -3,18 +3,21 @@
  * own transcript never materialized (the process died before its first turn
  * flushed), the renderer's retained transcript items are the only surviving
  * memory. This module renders them into the seed text that rides into the
- * successor as `--append-system-prompt`.
+ * successor as one hidden custom message (`carryover-bridge.ts`, #896).
  *
  * Pure text by design: the renderer imports it through the
  * `@omp-ui/core/carryover-context` subpath, and every renderer-reachable core
  * module stays free of `node:` builtins.
  */
 
-/** Ceiling on the whole digest: the seed's share of a bounded system prompt. */
+/** Ceiling on the whole digest: the seed's share of the successor's first context. */
 export const CARRYOVER_CHAR_BUDGET = 16_000;
 
 /** Ceiling on one message inside the digest; longer text is truncated. */
 export const CARRYOVER_MESSAGE_CHAR_CAP = 2_000;
+
+/** Inclusive ceiling on a carryover digest main accepts and the bridge arms (#824, #896). */
+export const CARRYOVER_CONTEXT_CHAR_MAX = 65_536;
 
 export interface CarryoverMessage {
   role: "user" | "assistant";
@@ -39,7 +42,7 @@ function capMessageText(text: string): string {
  * accumulating `text.length + 40` per entry until {@link CARRYOVER_CHAR_BUDGET}
  * is exhausted, then emits the kept entries oldest-first; when anything was
  * dropped the omission line rides under the header. Empty input renders the
- * empty string — {@link stageCarryoverContext}'s "no seed" signal.
+ * empty string — the spawner's "no seed" signal.
  */
 export function renderCarryoverDigest(
   messages: readonly CarryoverMessage[],

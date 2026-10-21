@@ -14,8 +14,9 @@ Facts that shape the design:
 - omp's `--append-system-prompt` flag does not append: it **replaces** the
   user's own `APPEND_SYSTEM.md`. The omp 18.12.3 bundle resolves it as
   `const Z = u.appendSystemPrompt ?? D8()`, so any value passed silently drops
-  the user's file (filed as
-  [#896](https://github.com/LankfordAI/omp-ui/issues/896)).
+  the user's file ([#896](https://github.com/LankfordAI/omp-ui/issues/896);
+  the #824 restart carryover used the flag until #896 moved it onto this
+  mechanism).
 - A hidden `sendCustomMessage({ display: false })` reaches the model like the
   plan-mode, knowledge-vault, and browser-pane bridges' messages do. After the
   first turn it persists in the transcript as a `custom_message` entry, so a
@@ -93,6 +94,34 @@ bridge.**
 - An omp without `sendCustomMessage` warns once
   (`omp-ui ask context: this omp cannot carry the pinned context to the agent`)
   and the chat runs without the pin.
+
+## Amended by #896: the restart carryover
+
+The #824 restart carryover now rides this mechanism. A native restart whose
+transcript never materialized hands main the renderer's user/assistant digest,
+and main used to pass it as `--append-system-prompt <lineage>/carryover-context.md`.
+
+- The seed is the `omp-ui-carryover-context` bridge, built from the same
+  `hiddenContextExtensionSource` generator as the Ask bridge
+  (`packages/core/src/hidden-context-extension.ts`). It is written and loaded
+  for every rpc spawn, so warm-pool tree hashes stay identical.
+- It is armed through `initialCommands` only on a native resume whose record
+  has `sessionId: null`, after the Ask pin and before any fleet prompt.
+- It sends one `{ customType: "omp-ui:carryover-context", display: false }`
+  message, capped at 65,536 UTF-16 units (`CARRYOVER_CONTEXT_CHAR_MAX`, the
+  same ceiling the spawn-request parser enforces).
+- It re-sends on no session event. The digest is earlier conversation: a
+  compaction summarises it like any other history, and `/new` must not
+  inherit it.
+- After the successor's first turn the message persists as a
+  `custom_message`, so later `--resume` launches keep it in history. The
+  system-prompt flag lost it on every later resume.
+- PTY launches no longer carry a seed, and no `carryover-context.md` artifact
+  exists.
+
+Why not keep the flag: omp resolves `appendSystemPrompt ?? <APPEND_SYSTEM.md
+lookup>`, so any flag value replaced the user's `APPEND_SYSTEM.md`, the same
+fault the Ask chat design avoids.
 
 ## Amends / relates
 

@@ -14,7 +14,8 @@ import {
   stageAskContext,
   writeAskContextExtension,
 } from "./ask-context";
-import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { typecheckGeneratedExtension } from "./generated-extension-test-utils";
+import { bound, hiddenContextHarness, type HiddenContextEntry } from "./hidden-context-test-utils";
 
 const dirs: string[] = [];
 
@@ -39,100 +40,15 @@ function setArgs(text: string): string {
 
 // ------------------------------------------------------------------ fixtures
 
-interface Sent {
-  msg: { customType: string; content: string; display: boolean; attribution: string };
-  opts: { deliverAs: string; triggerTurn: boolean };
-}
+const PINNED_ENTRY: HiddenContextEntry = { type: "custom_message", customType: ASK_CONTEXT_CUSTOM_TYPE };
 
-/** One entry of the fake session tree; only type/customType are read. */
-type Entry = { type: string; customType?: string };
-
-interface Session {
-  isStreaming: boolean;
-  prompt(text: string): Promise<void>;
-}
-
-interface Harness {
-  AgentSession: new () => Session;
-  /** The root's current branch as omp's sessionManager.getBranch() returns it. */
-  branch: Entry[];
-  invoke(args: string): Promise<void>;
-  fire(event: string): Promise<void>;
-  sent: Sent[];
-  notices: { message: string; level: string | undefined }[];
-}
-
-const PINNED_ENTRY: Entry = { type: "custom_message", customType: ASK_CONTEXT_CUSTOM_TYPE };
-
-/** Transpiles the generated file and instantiates it against a fake omp surface. */
-function harness(opts: { canSendMessages?: boolean } = {}): Harness {
-  const file = writeAskContextExtension(tempLineage());
-  const outputText = transpileGeneratedExtension(fs.readFileSync(file, "utf8"), "cjs");
-  const loaded = { exports: {} as { default?: (api: unknown) => void } };
-  Function("module", "exports", outputText)(loaded, loaded.exports);
-  const factory = loaded.exports.default;
-  if (!factory) throw new Error("generated ask context extension has no default factory");
-
-  const sent: Sent[] = [];
-  const notices: Harness["notices"] = [];
-  const branch: Entry[] = [];
-  const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
-  let handler: ((args: string, ctx: unknown) => Promise<void>) | undefined;
-
-  class FakeAgentSession implements Session {
-    isStreaming = false;
-    sessionManager = { getBranch: (): Entry[] => branch };
-    async prompt(): Promise<void> {}
-  }
-  if (opts.canSendMessages !== false) {
-    Object.defineProperty(FakeAgentSession.prototype, "sendCustomMessage", {
-      value: async (msg: Sent["msg"], sendOpts: Sent["opts"]): Promise<void> => {
-        sent.push({ msg, opts: sendOpts });
-      },
-    });
-  }
-
-  factory({
-    pi: { AgentSession: FakeAgentSession },
-    registerCommand: (name: string, options: { handler: typeof handler }): void => {
-      expect(name).toBe(ASK_CONTEXT_COMMAND);
-      handler = options.handler;
-    },
-    on: (event: string, fn: (...args: unknown[]) => void): void => {
-      (listeners[event] ??= []).push(fn);
-    },
+function harness(o: { canSendMessages?: boolean } = {}) {
+  return hiddenContextHarness({
+    write: writeAskContextExtension,
+    command: ASK_CONTEXT_COMMAND,
+    lineageDir: tempLineage(),
+    ...o,
   });
-
-  const ctx = {
-    ui: {
-      notify: (message: string, level?: string): void => {
-        notices.push({ message, level });
-      },
-    },
-  };
-
-  return {
-    AgentSession: FakeAgentSession,
-    branch,
-    invoke: async (args) => {
-      if (!handler) throw new Error("generated extension registered no command");
-      await handler(args, ctx);
-    },
-    fire: async (event) => {
-      for (const fn of listeners[event] ?? []) fn();
-      // The event path chains deliver() without awaiting it.
-      for (let i = 0; i < 12; i++) await Promise.resolve();
-    },
-    sent,
-    notices,
-  };
-}
-
-/** Binds a root by prompting — omp dispatches the arming slash command through prompt. */
-async function bound(h: Harness): Promise<Session> {
-  const root = new h.AgentSession();
-  await root.prompt("hello");
-  return root;
 }
 
 // ------------------------------------------------------------------- tests

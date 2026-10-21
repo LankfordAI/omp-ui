@@ -55,7 +55,7 @@ interface Harness {
 }
 
 const lineageDirs: string[] = [];
-function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[]; bare?: boolean; model?: string; thinking?: string; advisor?: boolean; appendSystemPromptFile?: string } = {}): Harness {
+function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[]; bare?: boolean; model?: string; thinking?: string; advisor?: boolean } = {}): Harness {
   const fake = fakeProc();
   const frames: unknown[] = [];
   const errors: string[] = [];
@@ -69,7 +69,6 @@ function harness(opts: { resumeSessionId?: string; ompPath?: string; initialComm
     lineageDir,
     ompPath: opts.ompPath ?? "/opt/bun/bin/omp",
     resumeSessionId: opts.resumeSessionId,
-    appendSystemPromptFile: opts.appendSystemPromptFile,
     model: opts.model,
     thinking: opts.thinking,
     advisor: opts.advisor,
@@ -122,33 +121,6 @@ describe("RpcClient spawn", () => {
   it("appends --resume when a session id is given", () => {
     const h = harness({ resumeSessionId: "abc-123" });
     expect(h.spawnArgs.at(-1)).toBe("--resume=abc-123");
-  });
-
-  it("appends --append-system-prompt after --resume for a carryover seed (#824)", () => {
-    const h = harness({ resumeSessionId: "abc-123", appendSystemPromptFile: "/lineage/carryover-context.md" });
-    expect(h.spawnArgs).toEqual([
-      "--mode=rpc-ui",
-      "--cwd",
-      "/proj",
-      "--session-dir",
-      h.lineageDir,
-      "--resume=abc-123",
-      "--append-system-prompt",
-      "/lineage/carryover-context.md",
-    ]);
-  });
-
-  it("carries --append-system-prompt alone when there is no resume target", () => {
-    const h = harness({ appendSystemPromptFile: "/lineage/carryover-context.md" });
-    expect(h.spawnArgs).toEqual([
-      "--mode=rpc-ui",
-      "--cwd",
-      "/proj",
-      "--session-dir",
-      h.lineageDir,
-      "--append-system-prompt",
-      "/lineage/carryover-context.md",
-    ]);
   });
 
   it("passes a model selector with --model between --resume and --advisor", () => {

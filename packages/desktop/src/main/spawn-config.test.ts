@@ -46,6 +46,7 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     review: () => write("review"),
     knowledgeVault: () => write("knowledgeVault"),
     askContext: () => write("askContext"),
+    carryoverContext: () => write("carryoverContext"),
     privateGuard: () => write("privateGuard"),
   };
 }
@@ -72,6 +73,7 @@ describe("writeRpcExtensions", () => {
         "/review.ts",
         "/knowledgeVault.ts",
         "/askContext.ts",
+        "/carryoverContext.ts",
         "/privateGuard.ts",
       ],
       loaded: {
@@ -89,6 +91,7 @@ describe("writeRpcExtensions", () => {
         review: true,
         knowledgeVault: true,
         askContext: true,
+        carryoverContext: true,
         privateGuard: true,
       },
     });

@@ -6,6 +6,7 @@ import type {
   SpawnWorktree,
 } from "./types";
 import { parseFleetSpawnSpec, type FleetSpawnSpec } from "./fleet";
+import { CARRYOVER_CONTEXT_CHAR_MAX } from "./carryover-context";
 
 type ObjectValue = Record<string, unknown>;
 function hasOwn(value: ObjectValue, key: string): boolean {
@@ -217,8 +218,8 @@ export function parseSpawnRequest(raw: unknown): SpawnRequest {
     const advisorModel = optionalNullableString(value, "advisorModel");
     const model = optionalNonEmptyString(value, "model");
     const carryoverContext = optionalNonEmptyString(value, "carryoverContext");
-    if (carryoverContext !== undefined && carryoverContext.length > 65_536) {
-      throw new Error("spawn request.carryoverContext exceeds 65536 characters");
+    if (carryoverContext !== undefined && carryoverContext.length > CARRYOVER_CONTEXT_CHAR_MAX) {
+      throw new Error(`spawn request.carryoverContext exceeds ${CARRYOVER_CONTEXT_CHAR_MAX} characters`);
     }
     const common = {
       origin: "resume" as const,
