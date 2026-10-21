@@ -133,11 +133,11 @@ beforeEach(async () => {
 
 afterEach(async () => {
   for (const ws of openSockets.splice(0)) ws.close();
-  // killAll settles the gitdir probe addProject fired without awaiting (#498): the `git` child it
-  // spawns runs with cwd = `base`, and Windows refuses to remove a live process's cwd — POSIX
-  // unlinks it regardless, which is why only the Windows lane ever saw this (#503). killAll also
-  // fires remote.stop() without awaiting; drain the manager's chain so the next test does not race
-  // a closing listener onto its own port.
+  // killAll settles the gitdir and repository-key probes addProject fired without awaiting (#498,
+  // #903): the `git` children they spawn run with cwd = `base`, and Windows refuses to remove a live
+  // process's cwd — POSIX unlinks it regardless, which is why only the Windows lane ever saw this
+  // (#503) (#909). killAll also fires remote.stop() without awaiting; drain the manager's chain so
+  // the next test does not race a closing listener onto its own port.
   await backend.killAll();
   await invoke(CH.setRemoteEnabled, false);
   // Tail guard for the instant between the probe exiting and the handle dropping; the budget
@@ -242,7 +242,8 @@ describe("remote server lifecycle", () => {
     });
 
     // Any registry mutation broadcasts; addProject is the cheapest one that spawns no session. It
-    // does start the project's gitdir probe (#498), whose git child the afterEach must outwait (#503).
+    // does start the project's gitdir and repository-key probes (#498, #903), whose git children
+    // the afterEach must outwait (#503, #909).
     await invoke(CH.addProject, base);
     const ev = await frame;
     expect(ev.t).toBe("ev");

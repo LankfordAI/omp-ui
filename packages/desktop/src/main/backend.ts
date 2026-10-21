@@ -229,6 +229,13 @@ export class MainBackend {
   private fleetOmpVersion: { at: number; value: Promise<string | null> } | null = null;
   private readonly fleetRepositoryKeys = new Map<string, { at: number; value: Promise<string | null> }>();
   private readonly fleetHeadCommits = new Map<string, { at: number; value: Promise<string | null> }>();
+  /**
+   * Project git probes still in flight (repository key, HEAD commit) and the
+   * fire-and-forget tails that write their result to the registry. Each `git`
+   * child holds its project folder as cwd until it exits, so killAll's promise
+   * waits for them as it does for the gitdir probes (#503, #909).
+   */
+  private readonly projectProbes = new Set<Promise<unknown>>();
   /** `os.hostname()` cut to FLEET_LABEL_MAX code points: the requester and host-report label. */
   private readonly fleetLabel = [...os.hostname()].slice(0, FLEET_LABEL_MAX).join("") || "omp-ui";
   /** The member's login user for the fleet ssh line (issue #904); os.userInfo throws when the uid has no passwd entry. */
@@ -1616,7 +1623,7 @@ export class MainBackend {
     this.headWatchers.startAll(this.registry.projects.map((p) => p.path));
     // Repository keys self-heal at startup (#903), fired like the watchers:
     // registries written before the field existed carry nulls.
-    void this.backfillRepositoryKeys();
+    void this.trackProbe(this.backfillRepositoryKeys());
     return this.sessions.hydrateAll();
   }
 
@@ -1978,10 +1985,11 @@ export class MainBackend {
   }
 
   /**
-   * Releases every launch-time resource. The returned promise settles once the gitdir probes still
-   * in flight have finished: a spawned `git` holds its cwd locked until it exits, so a teardown that
-   * removes that directory cannot return before the child does (#503). Quit ignores the promise —
-   * the process is going away either way.
+   * Releases every launch-time resource. The returned promise settles once every project git probe
+   * still in flight has finished — the gitdir probes (#503) and the repository-key/HEAD probes with
+   * the registry writes that follow them (#909). A spawned `git` holds its cwd locked until it
+   * exits, so a teardown that removes that directory cannot return before the child does. Quit
+   * ignores the promise — the process is going away either way.
    */
   killAll(): Promise<void> {
     this.desktopPaneStopped = true;
@@ -1996,7 +2004,7 @@ export class MainBackend {
     this.fleetServer.dispose();
     this.remoteInstances.stop();
     void this.remote.stop();
-    return headsSettled;
+    return Promise.allSettled([headsSettled, ...this.projectProbes]).then(() => undefined);
   }
 
   /**
@@ -2037,6 +2045,16 @@ export class MainBackend {
     };
   }
 
+  /** Registers an in-flight project probe for killAll to outwait; returns it unchanged. */
+  private trackProbe<T>(probe: Promise<T>): Promise<T> {
+    this.projectProbes.add(probe);
+    const drop = (): void => {
+      this.projectProbes.delete(probe);
+    };
+    probe.then(drop, drop);
+    return probe;
+  }
+
   /** One time-boxed shared promise per key: concurrent reports share one probe. */
   private fleetCached<T>(
     cache: Map<string, { at: number; value: Promise<T> }>,
@@ -2047,7 +2065,7 @@ export class MainBackend {
     const now = Date.now();
     const hit = cache.get(key);
     if (hit !== undefined && now - hit.at < ttlMs) return hit.value;
-    const value = load();
+    const value = this.trackProbe(load());
     cache.set(key, { at: now, value });
     return value;
   }
@@ -2169,7 +2187,7 @@ export class MainBackend {
     // broadcast when a key actually lands; a non-git folder resolves
     // null and stays silent, and a failed probe leaves the key null for
     // the startup backfill to retry.
-    void (async () => {
+    void this.trackProbe((async () => {
       try {
         const key = await this.fleetCached(this.fleetRepositoryKeys, resolved, 60_000, () =>
           resolveRepositoryKey(resolved),
@@ -2180,7 +2198,7 @@ export class MainBackend {
       } catch {
         // Swallowed by design: the add already succeeded.
       }
-    })();
+    })());
     await this.broadcast();
     return record;
   }

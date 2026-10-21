@@ -28,14 +28,17 @@ vi.mock("@omp-ui/core", async (importOriginal) => ({
   spawnOmp: vi.fn(),
   watchLineageDir: vi.fn(),
   RpcClient: vi.fn(),
+  resolveRepositoryKey: vi.fn(),
+  watchGitHead: vi.fn(async () => () => {}),
 }));
 
 const { MainBackend } = await import("./backend");
 const { CH } = await import("@omp-ui/core");
-const { spawnOmp, watchLineageDir, RpcClient } = await import("@omp-ui/core");
+const { spawnOmp, watchLineageDir, RpcClient, resolveRepositoryKey } = await import("@omp-ui/core");
 const spawnOmpMock = vi.mocked(spawnOmp);
 const watchLineageDirMock = vi.mocked(watchLineageDir);
 const RpcClientMock = vi.mocked(RpcClient);
+const resolveRepositoryKeyMock = vi.mocked(resolveRepositoryKey);
 
 const LINEAGE = "omp-ui--proj--11111111-2222-3333-4444-555555555555";
 const TAB = "tab-1";
@@ -127,6 +130,14 @@ function setup(): { backend: InstanceType<typeof MainBackend> } {
 
 const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!(null, ...args);
 
+function withResolvers<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   if (base) fs.rmSync(base, { recursive: true, force: true });
   delete process.env.OMP_UI_OMP_PATH;
@@ -190,6 +201,8 @@ beforeEach(() => {
     rpcInstances.push(instance);
     return instance;
   } as unknown as typeof RpcClient);
+
+  resolveRepositoryKeyMock.mockReset().mockResolvedValue(null);
 });
 
 describe("lineage watcher teardown (issue #64)", () => {
@@ -552,5 +565,43 @@ describe("terminate escalation (issue #182)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// killAll's promise is what a teardown awaits before deleting the project folder; a git child
+// still running there locks the folder on Windows (#503, #909).
+describe("killAll outwaits repository-key probes (issue #909)", () => {
+  async function expectPendingUntil(
+    backend: InstanceType<typeof MainBackend>,
+    release: () => void,
+  ): Promise<void> {
+    let settled = false;
+    const done = backend.killAll().then(() => {
+      settled = true;
+    });
+    const idle = withResolvers<void>();
+    setImmediate(idle.resolve);
+    await idle.promise;
+    expect(settled).toBe(false);
+    release();
+    await done;
+    expect(settled).toBe(true);
+  }
+
+  it("after a project add", async () => {
+    const { backend } = setup();
+    const probe = withResolvers<string | null>();
+    resolveRepositoryKeyMock.mockReturnValueOnce(probe.promise);
+    await invoke(CH.addProject, base);
+    await expectPendingUntil(backend, () => probe.resolve(null));
+  });
+
+  it("during the startup backfill", async () => {
+    const { backend } = setup();
+    const probe = withResolvers<string | null>();
+    resolveRepositoryKeyMock.mockReturnValueOnce(probe.promise);
+    await backend.hydrateAll();
+    expect(resolveRepositoryKeyMock).toHaveBeenCalledWith("/proj");
+    await expectPendingUntil(backend, () => probe.resolve(null));
   });
 });
