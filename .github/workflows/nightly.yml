@@ -303,13 +303,21 @@ jobs:
               printf 'Changes since the previous nightly (%s):\n\n' "${prev:0:7}"
               # main's first-parent subjects are squash titles carrying (#N);
               # grep -oE catches every issue number in a subject, gh pr view
-              # drops the ones that are not PRs.
-              git log --first-parent --format='%s' "${prev}..${SHA}" \
-                | grep -oE '#[0-9]+' | tr -d '#' | sort -n | uniq | head -100 \
-                | while IFS= read -r pr; do
-                    gh pr view "$pr" --json number,title,url \
-                      --jq '"- [#\(.number)](\(.url)) — \(.title)"' || true
-                  done
+              # drops the ones that are not PRs. A range whose commits cite
+              # no issue (plain feat:/docs:/ci: commits landed on main) makes
+              # grep exit 1, and under pipefail -e that aborted the whole step
+              # (#902) — tolerate it, and list the commit subjects when there
+              # are no refs to expand.
+              refs="$(git log --first-parent --format='%s' "${prev}..${SHA}" \
+                | { grep -oE '#[0-9]+' || true; } | tr -d '#' | sort -n | uniq | awk 'NR<=100')"
+              if [ -n "$refs" ]; then
+                while IFS= read -r pr; do
+                  gh pr view "$pr" --json number,title,url \
+                    --jq '"- [#\(.number)](\(.url)) — \(.title)"' || true
+                done <<< "$refs"
+              else
+                git log --first-parent --format='- %s' "${prev}..${SHA}" | awk 'NR<=100'
+              fi
             } >> notes.md
           else
             printf 'Previous nightly revision is no longer reachable; no range to list.\n' >> notes.md
