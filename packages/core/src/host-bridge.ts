@@ -220,7 +220,7 @@ function vaultTools(): RpcHostToolDefinition[] {
  * host's fleet; omp's host-tool approval tier governs each call.
  */
 function fleetTools(): RpcHostToolDefinition[] {
-  const [machines, dispatch, status, exec, project, execPoll] = FLEET_TOOLS;
+  const [machines, dispatch, status, exec, project, execPoll, update] = FLEET_TOOLS;
   return [
     {
       name: machines,
@@ -343,6 +343,26 @@ function fleetTools(): RpcHostToolDefinition[] {
           },
         },
         required: ["machine", "execId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: update,
+      loadMode: "essential",
+      description:
+        "Update a fleet member's own omp binary or omp-ui install (fleet remote version update). Needs Full control on that member; refuses this computer, which updates itself from Settings → Updates. The member does all machine work on itself from its own network: nothing is shipped across the fleet socket. action check answers what the member runs now and what it could move to; action update installs the newest (or `version`) omp binary into the member's managed path — it takes effect for sessions started afterwards, never running ones — or stages an omp-ui update on that machine; action apply arms a staged omp-ui update so it applies at that machine's next natural quit, never by restarting it out from under its work. A refused call answers why as text. An accepted update starts a maintenance job: poll with this same tool (same arguments) — it answers the job's state, progress, and outcome. Do not start the same update twice.",
+      parameters: {
+        type: "object",
+        properties: {
+          machine: { type: "string", description: 'Machine nickname from omp-ui_fleet_machines; "this computer" is refused.' },
+          target: { type: "string", enum: ["omp", "app"], description: "Which version to move: the member's omp binary or its own omp-ui install." },
+          action: { type: "string", enum: ["check", "update", "apply"] },
+          version: {
+            type: "string",
+            description: "Optional exact omp release for action update (e.g. 18.13.1); omit for latest.",
+          },
+        },
+        required: ["machine", "target", "action"],
         additionalProperties: false,
       },
     },

@@ -215,7 +215,9 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   // fleet:audit, the settings channels) stays off this list. Detached exec and
   // Provider key rollout (issue #905, ADR-0065) join it the same way: the
   // owner checks Full control; key values cross main-to-main only, and the
-  // local fleet:rolloutProviderKeys orchestration stays off this list.
+  // local fleet:rolloutProviderKeys orchestration stays off this list. Fleet
+  // remote version update follows the same split: fleet:updateMember and
+  // fleet:updatePoll are proxied; the local fleet:updateMachine is not.
   "fleet:exec",
   "fleet:projectManage",
   "fleet:grantRung",
@@ -223,6 +225,8 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   "fleet:execDetach",
   "fleet:execPoll",
   "fleet:providerKeys",
+  "fleet:updateMember",
+  "fleet:updatePoll",
   // Session migration (#888): the pack legs run on the source host, the
   // ingest legs on the target; every chunk frame is base64 under the socket's
   // MAX_PAYLOAD. Transcript bytes may ride the renderer (already visible

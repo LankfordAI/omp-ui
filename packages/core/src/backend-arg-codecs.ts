@@ -8,6 +8,9 @@ import {
   parseFleetProjectManageRequest,
   parseFleetProviderKeysRequest,
   parseFleetRequester,
+  parseFleetUpdateMemberRequest,
+  parseFleetUpdatePollRequest,
+  parseFleetUpdateRequest,
   FLEET_RUNGS,
   type FleetDetachedExecRequest,
   type FleetDispatchRequest,
@@ -15,6 +18,9 @@ import {
   type FleetExecRequest,
   type FleetProjectManageRequest,
   type FleetProviderKeysRequest,
+  type FleetUpdateMemberRequest,
+  type FleetUpdatePollRequest,
+  type FleetUpdateRequest,
   type FleetGrantRaiseRequest,
   type FleetRequester,
   type FleetRung,
@@ -705,6 +711,42 @@ export const fleetProviderKeysRequestCodec: ArgCodec<FleetProviderKeysRequest> =
   decode(value, path) {
     try {
       return parseFleetProviderKeysRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Fleet remote version update: the local orchestration body (target/action/version). */
+export const fleetUpdateRequestCodec: ArgCodec<FleetUpdateRequest> = {
+  expected: "a valid fleet update request",
+  decode(value, path) {
+    try {
+      return parseFleetUpdateRequest(value, "fleet update request");
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Fleet remote version update, member leg (proxied), via the shared parser. */
+export const fleetUpdateMemberRequestCodec: ArgCodec<FleetUpdateMemberRequest> = {
+  expected: "a valid fleet update member request",
+  decode(value, path) {
+    try {
+      return parseFleetUpdateMemberRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Fleet maintenance poll (proxied), via the shared parser. */
+export const fleetUpdatePollRequestCodec: ArgCodec<FleetUpdatePollRequest> = {
+  expected: "a valid fleet update poll request",
+  decode(value, path) {
+    try {
+      return parseFleetUpdatePollRequest(value);
     } catch (error) {
       return fail(path, `${this.expected} (${(error as Error).message})`);
     }

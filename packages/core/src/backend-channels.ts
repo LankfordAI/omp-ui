@@ -110,6 +110,11 @@ import type {
   FleetProjectManageRequest,
   FleetProviderKeysOutcome,
   FleetProviderKeysRequest,
+  FleetUpdateAck,
+  FleetUpdateMemberRequest,
+  FleetUpdatePollOutcome,
+  FleetUpdatePollRequest,
+  FleetUpdateRequest,
   FleetRequester,
   FleetRung,
   PlacementPreference,
@@ -163,6 +168,9 @@ import {
   fleetExecRequestCodec,
   fleetProjectManageCodec,
   fleetProviderKeysRequestCodec,
+  fleetUpdateMemberRequestCodec,
+  fleetUpdatePollRequestCodec,
+  fleetUpdateRequestCodec,
   fleetGrantRaiseCodec,
   fleetRequesterCodec,
   fleetRungCodec,
@@ -1219,6 +1227,22 @@ export const BACKEND_CHANNELS = {
   fleetRolloutProviderKeys: {
     channel: "fleet:rolloutProviderKeys",
     ...request<[machineKey: string, envNames: string[]], FleetProviderKeysOutcome>([machineKeyCodec, arrayOf(str())]),
+  },
+  /** Fleet remote version update (Fleet view): this machine or a member brings its
+   *  own versions up to date. Local orchestration; never proxied. */
+  fleetUpdateMachine: {
+    channel: "fleet:updateMachine",
+    ...request<[machineKey: string, req: FleetUpdateRequest], FleetUpdateAck>([machineKeyCodec, fleetUpdateRequestCodec]),
+  },
+  /** The member leg: rung 4 + master switch, then this machine updates itself. Proxied, main-to-main. */
+  fleetUpdateMember: {
+    channel: "fleet:updateMember",
+    ...request<[req: FleetUpdateMemberRequest], FleetUpdateAck>([fleetUpdateMemberRequestCodec]),
+  },
+  /** Poll one maintenance job the same dispatcher started. Proxied; owner-only, mirrors fleet:execPoll. */
+  fleetUpdatePoll: {
+    channel: "fleet:updatePoll",
+    ...request<[req: FleetUpdatePollRequest], FleetUpdatePollOutcome>([fleetUpdatePollRequestCodec]),
   },
   /**
    * Lists resolved, redacted MCP servers and per-file errors; null projectCwd

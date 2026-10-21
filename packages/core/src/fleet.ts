@@ -5,6 +5,9 @@
  * `@omp-ui/core/fleet` subpath; the host sampler and the staged prompt live in
  * fleet-host.ts.
  */
+import { APP_PACKAGE_FORMATS, type AppPackageFormat } from "./update-types";
+import { MIN_SUPPORTED_OMP } from "./harness-floor";
+import { compareVersions } from "./semver";
 import { PROVIDER_ENV_NAMES } from "./provider-catalog";
 import type { SessionSummary } from "./types";
 
@@ -51,7 +54,7 @@ export const FLEET_SSH_PORT = 22;
 // eslint-disable-next-line no-control-regex
 export const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
 
-/** The six agent-facing host tools (§6, issues #901, #905), in registration order. */
+/** The seven agent-facing host tools (§6, issues #901, #905), in registration order. */
 export const FLEET_TOOLS = [
   "omp-ui_fleet_machines",
   "omp-ui_fleet_dispatch",
@@ -59,6 +62,7 @@ export const FLEET_TOOLS = [
   "omp-ui_fleet_exec",
   "omp-ui_fleet_project",
   "omp-ui_fleet_exec_poll",
+  "omp-ui_fleet_update",
 ] as const;
 export type FleetToolName = (typeof FLEET_TOOLS)[number];
 
@@ -198,6 +202,21 @@ export interface FleetHostReport {
   os: FleetHostOs | null;
   /** Package managers found on the member, in table order (issue #905); null when the member predates #905. */
   packageManagers: FleetPackageManager[] | null;
+  /** The member's managed omp binary version (fleet remote version update);
+   *  null when unknown or the member predates the feature. */
+  ompVersion: string | null;
+  /** The resolved omp binary path the member spawns from; null when none. */
+  ompPath: string | null;
+  /** True when OMP_UI_OMP_PATH pins the member's omp away from the managed copy. */
+  ompPinned: boolean;
+  /** True when ompVersion sits below MIN_SUPPORTED_OMP (the harness floor, #849). */
+  ompBelowMinimum: boolean;
+  /** How the member's own omp-ui install updates; null when the member predates the feature. */
+  packageFormat: AppPackageFormat | null;
+  /** The newest omp-ui release the member's own background check saw; null when none. */
+  appLatestVersion: string | null;
+  /** True when the member has verified and staged an omp-ui update, pending its quit. */
+  appUpdateStaged: boolean;
 }
 
 const FLEET_OS_NAME_MAX = 128;
@@ -237,6 +256,44 @@ export function parseFleetPackageManagers(value: unknown): FleetPackageManager[]
   return out;
 }
 
+// ── Fleet remote version update (fleet members update themselves) ─────────
+
+/** Strict semver, optional -prerelease; nothing else can ride a version field. */
+export const FLEET_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/** The normalizer's output: one report's update facts, older members all-null. */
+export type FleetUpdateFacts = Pick<
+  FleetHostReport,
+  "ompVersion" | "ompPath" | "ompPinned" | "ompBelowMinimum" | "packageFormat" | "appLatestVersion" | "appUpdateStaged"
+>;
+
+/** Normalizer for a remote report's update facts; an older member answers all-null. */
+export function parseFleetUpdateFacts(value: unknown): FleetUpdateFacts {
+  const o = (value ?? {}) as ObjectValue;
+  const version = (v: unknown): string | null =>
+    typeof v === "string" && FLEET_VERSION_PATTERN.test(v) ? v : null;
+  return {
+    ompVersion: version(o.ompVersion),
+    ompPath:
+      typeof o.ompPath === "string" && o.ompPath.length <= 4_096 && !CONTROL_CHARS.test(o.ompPath) ? o.ompPath : null,
+    ompPinned: o.ompPinned === true,
+    ompBelowMinimum: o.ompBelowMinimum === true,
+    packageFormat: APP_PACKAGE_FORMATS.includes(o.packageFormat as AppPackageFormat)
+      ? (o.packageFormat as AppPackageFormat)
+      : null,
+    appLatestVersion: version(o.appLatestVersion),
+    appUpdateStaged: o.appUpdateStaged === true,
+  };
+}
+
+/** True when the report's app version parses and `latest` is newer than it. */
+export function fleetAppUpdateAvailable(current: string, latest: string | null): boolean {
+  return latest !== null && compareVersions(latest, current) > 0;
+}
+
+/** The member-side registry's states (§6.1). No "cancelled": an atomic download has nothing to abort. */
+export type FleetMaintenanceState = "running" | "succeeded" | "failed" | "revoked";
+
 export type FleetMachineStatus = "ready" | "unsupported" | "unreachable" | "error";
 
 export interface FleetMachine {
@@ -263,6 +320,21 @@ export interface FleetMachine {
   address: string | null;
   /** Whether FLEET_SSH_PORT answered a TCP connect from this app; null when not probed (this computer, a member not joined, no address). */
   sshReachable: boolean | null;
+  /** The last Fleet maintenance this dispatcher started on that member, polled
+   *  from the member; null when none is known. Dispatcher-local bookkeeping. */
+  maintenance: FleetMaintenanceRecord | null;
+}
+
+/** One in-flight or recently settled Fleet maintenance job, as the dispatcher records it. */
+export interface FleetMaintenanceRecord {
+  jobId: string;
+  target: "omp" | "app";
+  state: FleetMaintenanceState;
+  /** 0..100 while a download runs; null when the phase has no percentage. */
+  progress: number | null;
+  detail: string | null;
+  /** Dispatcher clock when this entry was last refreshed from the member. */
+  at: number;
 }
 
 export interface FleetTargetPick {
@@ -645,6 +717,141 @@ export type FleetProviderKeysOutcome =
   | { status: "accepted"; installed: string[]; failed: Array<{ envName: string; reason: string }> }
   | { status: "refused"; reason: string };
 
+// ── Fleet remote version update (members update themselves) ───────────────
+
+/** Owner cap for one Fleet maintenance job (binary download or app staging). */
+export const FLEET_MAINTENANCE_TIMEOUT_MS = 10 * 60_000;
+/** Finished jobs a member keeps for polling, oldest evicted first. */
+export const FLEET_MAINTENANCE_RETAINED = 8;
+
+/** The renderer's local request (fleet:updateMachine): no identity yet. */
+export interface FleetUpdateRequest {
+  target: "omp" | "app";
+  action: "check" | "stage" | "apply";
+  version: string | null;
+  allowLiveSessions: boolean;
+}
+
+/** The proxied member request (fleet:updateMember): the CLAIMED identity rides. */
+export interface FleetUpdateMemberRequest extends FleetUpdateRequest {
+  requester: FleetRequester;
+}
+
+/** The proxied poll (fleet:updatePoll); ownership of the jobId is the gate. */
+export interface FleetUpdatePollRequest {
+  requester: FleetRequester;
+  jobId: string;
+  /** The owner clamps into [0, FLEET_EXEC_POLL_WAIT_MAX_MS]. */
+  waitMs: number;
+}
+
+/** `omp / check`: the member's own install facts plus the registry lookup. */
+export interface FleetOmpCheck {
+  target: "omp";
+  installedVersion: string | null;
+  installPath: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  belowMinimum: boolean;
+  pinned: boolean;
+}
+
+/** `app / check`: the member's own updater state, no new network call. */
+export interface FleetAppCheck {
+  target: "app";
+  currentVersion: string | null;
+  latestVersion: string | null;
+  format: AppPackageFormat | null;
+  staged: boolean;
+  installOnQuit: boolean;
+  liveSessions: number;
+}
+
+export type FleetUpdateCheck = FleetOmpCheck | FleetAppCheck;
+
+/** The answer to fleet:updateMember: a check result, a started job, an armed apply, or a refusal. */
+export type FleetUpdateAck =
+  | { status: "accepted"; check: FleetUpdateCheck }
+  | { status: "accepted"; jobId: string }
+  | { status: "accepted"; detail: string }
+  | { status: "refused"; reason: string };
+
+/** 0..100 while a download runs; null when the phase has no percentage. */
+export interface FleetMaintenanceProgress {
+  percent: number | null;
+  /** "checking" | "downloading" | "verifying" | "installing" | "staging". */
+  phase: string;
+}
+
+export type FleetUpdatePollOutcome =
+  | {
+      status: "accepted";
+      jobId: string;
+      state: FleetMaintenanceState;
+      progress: FleetMaintenanceProgress | null;
+      /** What changed ("omp 18.12.0 → 18.13.1 at …") or why it failed. */
+      detail: string | null;
+      elapsedMs: number;
+    }
+  | { status: "refused"; reason: string };
+
+/** Strict parse of the local update request body (shared by both parsers). */
+export function parseFleetUpdateRequest(value: unknown, label: string): FleetUpdateRequest {
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["target", "action", "version", "allowLiveSessions"], label);
+  if (req.target !== "omp" && req.target !== "app") throw new Error(`${label}.target must be omp or app`);
+  if (req.action !== "check" && req.action !== "stage" && req.action !== "apply") {
+    throw new Error(`${label}.action must be check, stage, or apply`);
+  }
+  let version: string | null = null;
+  if (req.version !== null && req.version !== undefined) {
+    if (typeof req.version !== "string" || !FLEET_VERSION_PATTERN.test(req.version)) {
+      throw new Error(`${label}.version must be a version like 18.13.1`);
+    }
+    version = req.version;
+  }
+  if (req.allowLiveSessions !== undefined && typeof req.allowLiveSessions !== "boolean") {
+    throw new Error(`${label}.allowLiveSessions must be true or false`);
+  }
+  if (req.target === "omp" && req.action === "apply") {
+    throw new Error("the omp binary installs as it downloads; there is no separate apply for it");
+  }
+  if (req.action === "check" && version !== null) {
+    throw new Error("a version belongs on stage, not on a check");
+  }
+  return { target: req.target, action: req.action, version, allowLiveSessions: req.allowLiveSessions === true };
+}
+
+/** Strict parse of the proxied member request (codec + node entry check). */
+export function parseFleetUpdateMemberRequest(value: unknown): FleetUpdateMemberRequest {
+  const label = "fleet update request";
+  const raw = objectValue(value, label);
+  rejectUnknownKeys(raw, ["requester", "target", "action", "version", "allowLiveSessions"], label);
+  const body = parseFleetUpdateRequest(raw, label);
+  return { requester: parseFleetRequester(raw.requester, `${label}.requester`), ...body };
+}
+
+/** Strict parse of the proxied maintenance poll. Messages are user-facing. */
+export function parseFleetUpdatePollRequest(value: unknown): FleetUpdatePollRequest {
+  const label = "fleet update poll request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "jobId", "waitMs"], label);
+  if (typeof req.waitMs !== "number" || !Number.isFinite(req.waitMs)) throw new Error(`${label}.waitMs must be a number`);
+  return {
+    requester: parseFleetRequester(req.requester, `${label}.requester`),
+    jobId: idString(req.jobId, `${label}.jobId`),
+    waitMs: req.waitMs,
+  };
+}
+
+/** What omp-ui_fleet_update answers through the host bridge (§8); pure render data. */
+export type FleetAgentUpdateAnswer =
+  | { kind: "check"; check: FleetUpdateCheck }
+  | { kind: "started"; jobId: string }
+  | { kind: "applied"; detail: string }
+  | { kind: "poll"; state: FleetMaintenanceState; progress: FleetMaintenanceProgress | null; detail: string | null }
+  | { kind: "refused"; reason: string };
+
 /** One accepted-or-refused fleet action on the node (its audit ring entry). */
 export interface FleetAuditEntry {
   at: string;
@@ -652,7 +859,7 @@ export interface FleetAuditEntry {
   dispatcherLabel: string;
   /** The agent's tab on the dispatcher when the call came from a tool. */
   sourceTabId: string | null;
-  action: "exec" | "exec-detached" | "manage" | "keys" | "grant-raise" | "grant-set";
+  action: "exec" | "exec-detached" | "manage" | "keys" | "update" | "grant-raise" | "grant-set";
   /** The rung used (actions) or the literal marker for grant bookkeeping. */
   rung: FleetRung | "raise" | "set";
   accepted: boolean;
@@ -830,6 +1037,14 @@ export interface FleetToolProjectArgs {
   path: string | null;
 }
 
+export interface FleetToolUpdateArgs {
+  machine: string;
+  target: "omp" | "app";
+  action: "check" | "update" | "apply";
+  /** Exact release for an omp update; null means latest. */
+  version: string | null;
+}
+
 export type FleetToolArguments =
   | { ok: true; tool: "machines" }
   | { ok: true; tool: "dispatch"; args: FleetToolDispatchArgs }
@@ -837,6 +1052,7 @@ export type FleetToolArguments =
   | { ok: true; tool: "exec"; args: FleetToolExecArgs }
   | { ok: true; tool: "project"; args: FleetToolProjectArgs }
   | { ok: true; tool: "execPoll"; args: FleetToolExecPollArgs }
+  | { ok: true; tool: "update"; args: FleetToolUpdateArgs }
   | { ok: false; reason: string };
 
 function refuse(reason: string): { ok: false; reason: string } {
@@ -924,6 +1140,22 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     if (!hasPath) return refuse("register needs path");
     if (typeof a.path !== "string" || a.path === "") return refuse("path must be a non-empty string");
     return { ok: true, tool: "project", args: { machine: a.machine.trim(), verb: "register", repositoryUrl: null, path: a.path } };
+  }
+  if (name === "omp-ui_fleet_update") {
+    const extra = unknownKey(["machine", "target", "action", "version"]);
+    if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
+    if (typeof a.machine !== "string" || a.machine.trim() === "") return refuse("machine must be a non-empty string");
+    if (a.target !== "omp" && a.target !== "app") return refuse("target must be omp or app");
+    if (a.action !== "check" && a.action !== "update" && a.action !== "apply") return refuse("action must be check, update, or apply");
+    if (a.target === "omp" && a.action === "apply") return refuse("the omp binary installs as it downloads; use action update");
+    let version: string | null = null;
+    if (a.version !== undefined) {
+      if (typeof a.version !== "string" || !FLEET_VERSION_PATTERN.test(a.version)) {
+        return refuse(`version must look like 18.13.1${a.action === "check" ? "; a version belongs on action update, not check" : ""}`);
+      }
+      version = a.version;
+    }
+    return { ok: true, tool: "update", args: { machine: a.machine.trim(), target: a.target, action: a.action, version } };
   }
   if (name !== "omp-ui_fleet_dispatch") return refuse(`unknown host tool "${name}"`);
   const extra = unknownKey(["prompt", "title", "project", "machines", "count", "workspace"]);
@@ -1101,6 +1333,43 @@ export function fleetToolExecPollRequest(
   };
 }
 
+/**
+ * Translate omp-ui_fleet_update arguments into a member request body; like
+ * exec, ownership of the started job is the member's poll gate. The tool's
+ * "update" action is the wire's "stage" for both targets (the member applies
+ * omp as it downloads and stages an app update for its own quit).
+ */
+export function fleetToolUpdateRequest(
+  args: FleetToolUpdateArgs,
+  machines: readonly FleetMachine[],
+): { ok: true; machineKey: string; request: Omit<FleetUpdateMemberRequest, "requester"> } | { ok: false; reason: string } {
+  const resolved = fleetToolMachineKey(args.machine, machines);
+  if (!resolved.ok) return resolved;
+  return {
+    ok: true,
+    machineKey: resolved.machineKey,
+    request: {
+      target: args.target,
+      action: args.action === "update" ? "stage" : args.action,
+      version: args.version,
+      allowLiveSessions: false,
+    },
+  };
+}
+
+/** The formatter's `versions:` clause: what the member runs; parenthesized update facts only when true. */
+export function fleetVersionsLine(report: FleetHostReport): string {
+  const appBits: string[] = [];
+  if (report.appUpdateStaged) appBits.push("update staged");
+  else if (fleetAppUpdateAvailable(report.version, report.appLatestVersion))
+    appBits.push(`update available: ${report.appLatestVersion}`);
+  const ompBits: string[] = [];
+  if (report.ompBelowMinimum) ompBits.push("below the harness floor");
+  if (report.ompPinned) ompBits.push("pinned");
+  const omp = report.ompVersion === null ? "omp not reported" : `omp ${report.ompVersion}`;
+  return `versions: omp-ui ${report.version}${appBits.length > 0 ? ` (${appBits.join(" | ")})` : ""}, ${omp}${ompBits.length > 0 ? ` (${ompBits.join(" | ")})` : ""}`;
+}
+
 /** The omp-ui_fleet_machines answer: one line per machine, then each ready project. */
 export function formatFleetMachines(machines: readonly FleetMachine[]): string {
   if (machines.length === 0) return "No fleet machines.";
@@ -1124,6 +1393,9 @@ export function formatFleetMachines(machines: readonly FleetMachine[]): string {
     lines.push(
       `- ${name}: ready; ${cpu}; ${memory}; ${report.liveSessions} live sessions, ${report.runningTurns} running turns; preference ${m.preference}${access}`,
     );
+    // What the member runs and can be updated to (fleet remote version update):
+    // every ready machine, this computer included.
+    lines.push(`  ${fleetVersionsLine(report)}`);
     // Where the session's own ssh reaches this member (issue #904, ADR-0064).
     if (m.key !== LOCAL_MACHINE_KEY && m.address !== null) {
       const target = report.user === null ? m.address : `${report.user}@${m.address}`;

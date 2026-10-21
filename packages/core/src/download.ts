@@ -14,6 +14,10 @@ export interface AtomicDownloadOptions {
   mode?: number;
   expectedSha256?: string;
   validateTemp?: (tempPath: string) => Promise<void>;
+  /** Checked immediately before the atomic rename; throwing abandons the temp
+   *  file and leaves the previous target untouched. The fleet maintenance
+   *  registry uses this so a revoked grant cannot land an install. */
+  shouldCommit?: () => void;
   onProgress?: (percent: number | null) => void;
 }
 
@@ -98,6 +102,7 @@ export async function downloadFileAtomically(opts: AtomicDownloadOptions): Promi
       }
     }
     await opts.validateTemp?.(tempPath);
+    opts.shouldCommit?.();
     await fs.promises.rename(tempPath, opts.targetPath);
   } finally {
     await handle?.close().catch(() => undefined);

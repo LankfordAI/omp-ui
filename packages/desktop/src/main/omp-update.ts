@@ -1,10 +1,10 @@
-import fs from "node:fs";
 import {
   checkOmpUpdate as coreCheckOmpUpdate,
   compareVersions,
   downloadOmp,
   managedOmpPath,
   MIN_SUPPORTED_OMP,
+  ompPinActive,
   type DownloadFetchLike,
   type FetchLike,
   type OmpUpdateState,
@@ -36,7 +36,7 @@ export interface OmpUpdaterDeps extends UpdateControllerDeps<OmpUpdateState> {
   /** True when OMP_UI_OMP_PATH names an existing file — a dev pin outranks the
    *  managed copy (paths.ts resolveOmpBinary), so installing into the managed
    *  path would be silently ignored and must never happen automatically. */
-  pinActive?: () => boolean; // tests; default: env check below
+  pinActive?: () => boolean; // tests; default: core's ompPinActive env check
 }
 
 /** True when OMP_UI_OMP_PATH names an existing file (paths.ts resolution

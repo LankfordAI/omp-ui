@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { downloadFileAtomically } from "./download";
 import { defaultFetch, type DownloadFetchLike, type FetchLike } from "./fetch";
@@ -16,6 +17,20 @@ export const OMP_RELEASE_BASE = `https://github.com/${OMP_GITHUB_REPO}/releases/
 
 import { MIN_SUPPORTED_OMP } from "./harness-floor";
 export { MIN_SUPPORTED_OMP };
+
+/**
+ * True when OMP_UI_OMP_PATH names an existing file (paths.ts resolution
+ * precedence): a dev pin outranks the managed copy, so installing into the
+ * managed path would be silently ignored. One rule for the local card's
+ * suppression and the fleet member's stage refusal.
+ */
+export function ompPinActive(
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (p: string) => boolean = existsSync,
+): boolean {
+  const pinned = env.OMP_UI_OMP_PATH;
+  return pinned !== undefined && exists(pinned);
+}
 
 /** Extracts `omp/<X.Y.Z>` (the shape of `omp --version`) from output. */
 export function parseOmpVersion(output: string): string | null {
@@ -96,6 +111,8 @@ export async function downloadOmp(opts: {
    */
   verifyRunner?: VersionRunner | null;
   onProgress?: (percent: number | null) => void;
+  /** Checked immediately before the atomic rename (fleet maintenance revoke). */
+  shouldCommit?: () => void;
 }): Promise<void> {
   const asset = ompAssetName();
   if (!asset) {
