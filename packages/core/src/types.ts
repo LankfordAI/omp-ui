@@ -163,6 +163,17 @@ export interface ProjectRecord {
   reviewRoster: ReviewDocument | null;
   /** Machine-local knowledge preference; absent or malformed legacy values load as null. */
   knowledgeHome: KnowledgeHome | null;
+  /**
+   * Repository identity for the Unified project view (ADR-0063): the fleet
+   * repository key (`host/owner/repo`, lowercased) of this project checkout's
+   * git remote, resolved in main via `resolveRepositoryKey`. Two checkouts on
+   * different machines with the same key are members of one sidebar node.
+   * Null when the checkout has no git metadata or no web remote — a null key
+   * NEVER merges across machines. Legacy registries without the field are
+   * normalized to null at parse time; main backfills existing registries at
+   * startup, so absence is transient.
+   */
+  repositoryKey: string | null;
 }
 
 /**

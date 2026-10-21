@@ -729,6 +729,23 @@ export class MainBackend {
           }
           const record = this.registry.addProject(resolved);
           void this.headWatchers.start(resolved);
+          // Repository key (issue #903, ADR-0063): resolved off the add path —
+          // a git probe must never fail or delay the add itself. One extra
+          // broadcast when a key actually lands; a non-git folder resolves
+          // null and stays silent, and a failed probe leaves the key null for
+          // the startup backfill to retry.
+          void (async () => {
+            try {
+              const key = await this.fleetCached(this.fleetRepositoryKeys, resolved, 60_000, () =>
+                resolveRepositoryKey(resolved),
+              );
+              if (key === null || key === record.repositoryKey) return;
+              this.registry.setProjectRepositoryKey(resolved, key);
+              void this.broadcast();
+            } catch {
+              // Swallowed by design: the add already succeeded.
+            }
+          })();
           await this.broadcast();
           return record;
         },
@@ -1521,7 +1538,34 @@ export class MainBackend {
 
   hydrateAll(): Promise<void> {
     this.headWatchers.startAll(this.registry.projects.map((p) => p.path));
+    // Repository keys self-heal at startup (#903), fired like the watchers:
+    // registries written before the field existed carry nulls.
+    void this.backfillRepositoryKeys();
     return this.sessions.hydrateAll();
+  }
+
+  /**
+   * Resolve `repositoryKey` for every project that still has null (issue #903,
+   * ADR-0063) so pre-existing registries learn their fleet repo keys without a
+   * re-add. One shared broadcast when any key lands; a failed probe skips just
+   * that project and retries next launch — the backfill is never load-bearing.
+   */
+  private async backfillRepositoryKeys(): Promise<void> {
+    let changed = false;
+    for (const project of this.registry.projects) {
+      if (project.repositoryKey !== null) continue;
+      try {
+        const key = await this.fleetCached(this.fleetRepositoryKeys, project.path, 60_000, () =>
+          resolveRepositoryKey(project.path),
+        );
+        if (key === null) continue;
+        this.registry.setProjectRepositoryKey(project.path, key);
+        changed = true;
+      } catch {
+        // Skip this project; the key stays null.
+      }
+    }
+    if (changed) void this.broadcast();
   }
 
   private providerSnapshot(projectCwd: string | null): ProviderKeysSnapshot {
