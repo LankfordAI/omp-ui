@@ -33,6 +33,8 @@ export const FLEET_EXEC_TIMEOUT_MS = 30_000; // owner cap; caller may only short
 export const FLEET_EXEC_TIMEOUT_MIN_MS = 100;
 export const FLEET_COMMAND_MAX = 8_000; // UTF-16 units, single command string
 export const FLEET_CLONE_TIMEOUT_MS = 45_000; // fits the 60 s host-answer watchdog
+/** The SSH port the dispatcher probes for each member's reachability (issue #904). */
+export const FLEET_SSH_PORT = 22;
 
 /** C0 and C1 control characters; names, titles, and labels refuse them. */
 // eslint-disable-next-line no-control-regex
@@ -160,6 +162,10 @@ export interface FleetHostReport {
   /** Owner clock; never used for freshness. */
   sampledAt: number;
   projects: FleetHostProject[];
+  /** The member's login user (`os.userInfo().username`); null when unknown or the member predates #904. */
+  user: string | null;
+  /** The member's declared fleetProjectRoots; null when the member predates #904. */
+  projectRoots: string[] | null;
 }
 
 export type FleetMachineStatus = "ready" | "unsupported" | "unreachable" | "error";
@@ -181,6 +187,13 @@ export interface FleetMachine {
    * LOCAL_MACHINE_KEY: this computer needs no grants.
    */
   grantRung: FleetRung | null;
+  /**
+   * The host this app reaches the member at: its join URL's hostname, IPv6
+   * brackets stripped (issue #904). Null for LOCAL_MACHINE_KEY.
+   */
+  address: string | null;
+  /** Whether FLEET_SSH_PORT answered a TCP connect from this app; null when not probed (this computer, a member not joined, no address). */
+  sshReachable: boolean | null;
 }
 
 export interface FleetTargetPick {
@@ -749,6 +762,18 @@ export function fleetMachineName(machine: Pick<FleetMachine, "nickname">): strin
   return machine.nickname ?? THIS_COMPUTER;
 }
 
+/** A join URL's hostname without IPv6 brackets; null when the URL does not parse or names no host. */
+export function fleetMemberAddress(url: string): string | null {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return null;
+  }
+  const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  return bare === "" ? null : bare;
+}
+
 /**
  * Translate omp-ui_fleet_dispatch arguments into a dispatch request against
  * the current machines. `project` is an absolute path registered on this app,
@@ -842,6 +867,7 @@ export function formatFleetMachines(machines: readonly FleetMachine[]): string {
     const report = m.report;
     if (m.status !== "ready" || report === null) {
       lines.push(`- ${name}: ${m.status}${m.error ? ` (${m.error})` : ""}; preference ${m.preference}`);
+      if (m.key !== LOCAL_MACHINE_KEY && m.address !== null) lines.push(`  address: ${m.address} (not connected)`);
       continue;
     }
     const cpu = report.cpuUtilization === null ? "CPU unknown" : `CPU ${Math.round(report.cpuUtilization * 100)}%`;
@@ -855,6 +881,23 @@ export function formatFleetMachines(machines: readonly FleetMachine[]): string {
     lines.push(
       `- ${name}: ready; ${cpu}; ${memory}; ${report.liveSessions} live sessions, ${report.runningTurns} running turns; preference ${m.preference}${access}`,
     );
+    // Where the session's own ssh reaches this member (issue #904, ADR-0064).
+    if (m.key !== LOCAL_MACHINE_KEY && m.address !== null) {
+      const target = report.user === null ? m.address : `${report.user}@${m.address}`;
+      const probe =
+        m.sshReachable === null
+          ? `port ${FLEET_SSH_PORT} not checked`
+          : m.sshReachable
+            ? `port ${FLEET_SSH_PORT} open`
+            : `port ${FLEET_SSH_PORT} closed`;
+      const roots =
+        report.projectRoots === null
+          ? "not reported"
+          : report.projectRoots.length === 0
+            ? "none declared"
+            : report.projectRoots.join(", ");
+      lines.push(`  ssh: ${target} (${probe}); platform ${report.platform} ${report.arch}; project roots: ${roots}`);
+    }
     for (const p of report.projects) {
       if (!p.providerReady) continue;
       lines.push(`  - ${p.path} (${p.repositoryKey ?? "no repository key"})`);

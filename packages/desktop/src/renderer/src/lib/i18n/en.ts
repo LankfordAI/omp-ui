@@ -2870,6 +2870,10 @@ export const en = {
   // Fleet exec ladder (issue #901)
   "fleet.section.activity": "Activity",
   "fleet.machine.access": "access {rung}",
+  "fleet.machine.ssh": "ssh {target}",
+  "fleet.machine.sshOpen": "SSH port 22 answers on {address}",
+  "fleet.machine.sshClosed": "SSH port 22 did not answer on {address}",
+  "fleet.machine.sshUnknown": "SSH not checked: {address} is not connected",
   "fleet.rung.observe": "Observe",
   "fleet.rung.dispatch": "Dispatch",
   "fleet.rung.manage": "Manage projects",

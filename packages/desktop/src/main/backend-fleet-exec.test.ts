@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -130,5 +131,24 @@ describe.skipIf(process.platform === "win32")("fleet exec ladder wiring (issue #
     boot();
     await invoke(CH.setFleetProjectRoots, ["/srv/repos", "relative", "C:\\code"]);
     expect((await invoke<BackendState>(CH.getState)).fleetProjectRoots).toEqual(["/srv/repos", "C:\\code"]);
+  });
+
+  // #906: a fleet register lands on the same add path as the user's project:add.
+  it("registers a fleet checkout through the shared add path, key and all", async () => {
+    boot();
+    const root = path.join(base, "roots");
+    const checkout = path.join(root, "app");
+    fs.mkdirSync(checkout, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: checkout });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/acme/app.git"], { cwd: checkout });
+    await invoke(CH.setFleetProjectRoots, [root]);
+    await invoke(CH.setFleetExecCeiling, "manage");
+    await invoke(CH.fleetGrantSet, MANAGER.instanceId, "manage");
+    expect(await invoke(CH.fleetProjectManage, { requester: MANAGER, verb: "register", path: checkout })).toMatchObject({ status: "accepted" });
+    const real = fs.realpathSync(checkout);
+    await vi.waitFor(async () => {
+      const project = (await invoke<BackendState>(CH.getState)).projects.find((g) => g.project.path === real)?.project;
+      expect(project?.repositoryKey).toBe("github.com/acme/app");
+    });
   });
 });

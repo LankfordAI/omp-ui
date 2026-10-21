@@ -15,6 +15,7 @@ import {
   deriveFleetTitle,
   eligibleMachineCount,
   fleetMachineName,
+  fleetMemberAddress,
   fleetSessionState,
   fleetToolExecRequest,
   fleetToolMachineKey,
@@ -55,6 +56,8 @@ const SUMMARY_TIMEOUT_MS = 5_000;
 /** Exec/project/grant calls race this bound: inside the 60 s host-answer watchdog. */
 const MEMBER_CALL_DEADLINE_MS = 45_000;
 const TIMED_OUT = Symbol("timed out");
+/** One TCP probe per host per window (issue #904): the Fleet view polls every 5 s and every tool call reads machines(). */
+const SSH_PROBE_TTL_MS = 15_000;
 
 export interface FleetDispatcherDeps {
   localReport(): Promise<FleetHostReport>;
@@ -73,6 +76,8 @@ export interface FleetDispatcherDeps {
   fleetSessions(): Promise<Array<{ machineKey: string; nickname: string | null; summary: SessionSummary }>>;
   localSummary(tabId: string): Promise<string>;
   broadcast(): Promise<void>;
+  /** ssh-probe.ts probeSshPort; never rejects. */
+  probeSsh(host: string): Promise<boolean>;
   now?: () => number;
   uuid?: () => string;
 }
@@ -106,6 +111,8 @@ export class FleetDispatcher {
   readonly #uuid: () => string;
   /** Unknown outcomes by dispatchId; in memory only (BackendState.fleetPending). */
   readonly #pending = new Map<string, FleetPendingDispatch>();
+  /** Cached port-22 probes by member address (issue #904). */
+  readonly #sshProbes = new Map<string, { at: number; value: Promise<boolean> }>();
 
   constructor(deps: FleetDispatcherDeps) {
     this.#deps = deps;
@@ -126,6 +133,8 @@ export class FleetDispatcher {
         report,
         receivedAt: this.#now(),
         grantRung: null,
+        address: null,
+        sshReachable: null,
       }),
       (err: unknown): FleetMachine => ({
         key: LOCAL_MACHINE_KEY,
@@ -136,6 +145,8 @@ export class FleetDispatcher {
         report: null,
         receivedAt: null,
         grantRung: null,
+        address: null,
+        sshReachable: null,
       }),
     );
     const remotes = this.#deps
@@ -155,25 +166,56 @@ export class FleetDispatcher {
       report: null,
       receivedAt: null,
       grantRung: null,
+      address: fleetMemberAddress(remote.url),
+      sshReachable: null,
     };
     if (remote.status !== "joined") return machine;
+    // The port probe runs beside the report request, so a filtered port never
+    // stretches machines() past the slower of the two bounds.
+    const ssh = machine.address === null ? Promise.resolve(null) : this.#sshReachable(machine.address);
     try {
       const report = await within(
         this.#deps.request(remote.id, CH.fleetHostReport, []) as Promise<FleetHostReport>,
         HOST_REPORT_TIMEOUT_MS,
       );
       if (report === TIMED_OUT) {
-        return { ...machine, status: "error", error: `no host report within ${HOST_REPORT_TIMEOUT_MS / 1000} s` };
+        return {
+          ...machine,
+          status: "error",
+          error: `no host report within ${HOST_REPORT_TIMEOUT_MS / 1000} s`,
+          sshReachable: await ssh,
+        };
       }
-      const grantRung = await this.#probeRung(remote.id);
-      return { ...machine, status: "ready", error: null, report, receivedAt: this.#now(), grantRung };
+      const [grantRung, sshReachable] = await Promise.all([this.#probeRung(remote.id), ssh]);
+      // A member that predates #904 sends neither field.
+      const normalized: FleetHostReport = {
+        ...report,
+        user: typeof report.user === "string" && report.user !== "" ? report.user : null,
+        projectRoots: Array.isArray(report.projectRoots) ? report.projectRoots : null,
+      };
+      return { ...machine, status: "ready", error: null, report: normalized, receivedAt: this.#now(), grantRung, sshReachable };
     } catch (err) {
       const message = messageOf(err);
       if (message.includes("unknown channel")) {
-        return { ...machine, status: "unsupported", error: "update omp-ui on this instance to use Fleet" };
+        return {
+          ...machine,
+          status: "unsupported",
+          error: "update omp-ui on this instance to use Fleet",
+          sshReachable: await ssh,
+        };
       }
-      return { ...machine, status: "error", error: message };
+      return { ...machine, status: "error", error: message, sshReachable: await ssh };
     }
+  }
+
+  /** One cached probe per host: the Fleet view polls every 5 s and every tool call reads machines(). */
+  #sshReachable(host: string): Promise<boolean> {
+    const now = this.#now();
+    const hit = this.#sshProbes.get(host);
+    if (hit !== undefined && now - hit.at < SSH_PROBE_TTL_MS) return hit.value;
+    const value = this.#deps.probeSsh(host);
+    this.#sshProbes.set(host, { at: now, value });
+    return value;
   }
 
   /** The claimed identity every fleet channel carries (issue #901). */

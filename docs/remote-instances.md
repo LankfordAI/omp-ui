@@ -50,7 +50,7 @@ On rejoin, every open remote tab reloads its state from the remote: native tabs 
 
 ## Fleet
 
-The fleet is this app plus every joined instance, seen as places new work can start ([ADR-0061](adr/0061-fleet-dispatch-rides-the-spawn-request.md)). Like the sidebar, it is one level deep: an instance's own joins are never part of this app's fleet. Open the **Fleet** view from the sidebar button beside the host picker or from the command palette. It lists each machine — **This computer** first, then each instance by nickname — with its status, omp-ui version, CPU and free memory, live sessions and running turns, and its placement preference. Both apps need an omp-ui version that has Fleet: an instance running an older one is listed as unsupported, with a note to update omp-ui on it, and is never chosen for work.
+The fleet is this app plus every joined instance, seen as places new work can start ([ADR-0061](adr/0061-fleet-dispatch-rides-the-spawn-request.md)). Like the sidebar, it is one level deep: an instance's own joins are never part of this app's fleet. Open the **Fleet** view from the sidebar button beside the host picker or from the command palette. It lists each machine — **This computer** first, then each instance by nickname — with its status, omp-ui version, CPU and free memory, live sessions and running turns, its placement preference, and its address with the SSH target and whether SSH answered. Both apps need an omp-ui version that has Fleet: an instance running an older one is listed as unsupported, with a note to update omp-ui on it, and is never chosen for work.
 
 ### Access rungs
 
@@ -84,6 +84,20 @@ If the connection to an instance drops while it is answering a dispatch, or it d
 ### Fleet exec
 
 **Full control**, the fourth rung of the [access rungs](#access-rungs), lets a dispatcher ask a member to run one command on its own shell. The member picks the interpreter (`/bin/sh -c` on POSIX, PowerShell on Windows, falling back to `cmd`), waits for the command to exit, and answers with the exit code plus stdout and stderr — each capped at 65,536 bytes, a long-running command killed (with its whole process tree) after 30 seconds and answered with partial output. There is no stdin, no PTY, and no streaming; this is not a remote terminal, and a member never execs on itself — an agent's own tools serve its own machine. Nothing runs unless the member's owner opened every gate: **Settings > Remote instances > Allow fleet exec** (the master switch, off by default), a **Fleet exec ceiling** of Full control, and a full grant to that dispatcher — which re-presents the instance's credential. Every accepted or refused command, project manage, and grant raise is written to `fleet-audit.log` beside the other main-process logs and shown under **Activity** in the **Fleet** view on that machine, so each member can answer what ran there while its owner was away.
+
+### Provision a member over SSH
+
+An agent can set a member up for a repository it has never seen — ask it something like *"provision studio with github.com/acme/app"* ([#904](https://github.com/LankfordAI/omp-ui/issues/904)). The agent reads the member's `ssh:` line from `omp-ui_fleet_machines` — the login user and address (`user@address`), whether port 22 answered, the member's platform, and its declared project roots — then connects with its own `ssh -o BatchMode=yes user@address`, runs `git clone` into one of those project roots, runs the repository's own setup there, and registers the checkout with `omp-ui_fleet_project`. The registered project shows up in the member's sidebar group with its repository key, so dispatch and placement can use it right away.
+
+omp-ui never opens the SSH connection, stores or syncs a key, or runs setup itself; it only reports the target ([ADR-0064](adr/0064-sessions-provision-members-over-their-own-ssh.md)). Before you ask, set up the member:
+
+- **Your key on the member.** This computer's SSH public key must be in the member's `~/.ssh/authorized_keys`. On Windows, an account in the Administrators group reads `C:\ProgramData\ssh\administrators_authorized_keys` instead.
+- **The member's host key on this computer.** Agents connect with `BatchMode`, which never answers a host-key prompt, so `ssh` to the member once by hand to put its host key in `known_hosts`.
+- **Git credentials on the member.** The clone runs on the member as its login user, with whatever git credentials that machine already has; nothing is forwarded from this computer.
+- **An SSH server on the member.** Linux: `sshd` running. macOS: **System Settings › General › Sharing › Remote Login**. Windows: **Settings › System › Optional features › OpenSSH Server**, then start the `sshd` service; its default shell is `cmd`.
+- **A project root and the Manage projects rung.** The member declares at least one folder under **Fleet project roots** and grants this app **Manage projects** (its **Fleet exec ceiling** at least Manage projects), as [access rungs](#access-rungs) describes, and **Let agents dispatch fleet work** is on here.
+
+The reachability check is only a TCP connect to port 22 from this computer. A member whose SSH server listens on another port shows *closed*; give it a `Host` entry with that `Port` in `~/.ssh/config` so the agent's `ssh` still reaches it. A member that is not connected shows only its address.
 
 ## Credentials, storage, and revocation
 

@@ -4,6 +4,7 @@ import {
   FLEET_COMMAND_MAX,
   FLEET_PROMPT_MAX,
   FLEET_TOOLS,
+  fleetMemberAddress,
   formatFleetMachines,
   LOCAL_MACHINE_KEY,
   parseFleetDispatchRequest,
@@ -37,6 +38,8 @@ function report(patch: Partial<FleetHostReport> = {}): FleetHostReport {
     runningTurns: 0,
     sampledAt: NOW,
     projects: [],
+    user: "austin",
+    projectRoots: [],
     ...patch,
   };
 }
@@ -255,11 +258,60 @@ describe("fleet exec ladder contracts (issue #901)", () => {
       receivedAt: NOW,
       grantRung,
       report: report(),
+      address: key === LOCAL_MACHINE_KEY ? null : "10.0.0.5",
+      sshReachable: null,
     });
     const text = formatFleetMachines([machine(LOCAL_MACHINE_KEY, null, "full"), machine("r1", "studio", "manage"), machine("r2", "old", null)]);
-    const [local, studio, old] = text.split("\n");
+    const [local, studio, old] = text.split("\n").filter((line) => line.startsWith("- "));
     expect(local).not.toContain("access");
     expect(studio).toMatch(/; access manage$/);
     expect(old).not.toContain("access");
+  });
+});
+
+describe("member address and ssh line (issue #904)", () => {
+  it("takes the join URL's hostname, IPv6 brackets stripped", () => {
+    expect(fleetMemberAddress("http://box.tailnet:4677")).toBe("box.tailnet");
+    expect(fleetMemberAddress("https://[fe80::1]:4677")).toBe("fe80::1");
+    expect(fleetMemberAddress("not a url")).toBeNull();
+  });
+
+  const machine = (patch: Partial<FleetMachine>, reportPatch: Partial<FleetHostReport> = {}): FleetMachine => ({
+    key: "r1",
+    nickname: "studio",
+    status: "ready",
+    error: null,
+    preference: "normal",
+    receivedAt: NOW,
+    grantRung: null,
+    report: report({
+      projects: [{ path: "/srv/repos/app", name: "app", repositoryKey: null, headCommit: null, providerReady: true, advisor: false, advisorModel: null }],
+      ...reportPatch,
+    }),
+    address: "10.0.0.5",
+    sshReachable: true,
+    ...patch,
+  });
+
+  it("prints the ssh target, probe, platform, and roots right after the member's machine line", () => {
+    const lines = formatFleetMachines([
+      machine({ key: LOCAL_MACHINE_KEY, nickname: null, address: null, sshReachable: null }),
+      machine({}, { user: "austin", projectRoots: ["/srv/repos"] }),
+      machine({ key: "r2", nickname: "two", address: "10.0.0.6", sshReachable: false }, { user: null, projectRoots: [] }),
+      machine({ key: "r3", nickname: "three", address: "10.0.0.8", sshReachable: null }, { projectRoots: null }),
+      machine({ key: "r4", nickname: "four", address: "10.0.0.7", status: "unreachable", error: null, report: null, sshReachable: null }),
+    ]).split("\n");
+    expect(lines[0]).toMatch(/^- this computer: ready/);
+    expect(lines[1]).toBe("  - /srv/repos/app (no repository key)");
+    expect(lines[2]).toMatch(/^- studio: ready/);
+    expect(lines[3]).toBe("  ssh: austin@10.0.0.5 (port 22 open); platform linux x64; project roots: /srv/repos");
+    expect(lines[4]).toBe("  - /srv/repos/app (no repository key)");
+    expect(lines[5]).toMatch(/^- two: ready/);
+    expect(lines[6]).toBe("  ssh: 10.0.0.6 (port 22 closed); platform linux x64; project roots: none declared");
+    expect(lines[8]).toMatch(/^- three: ready/);
+    expect(lines[9]).toBe("  ssh: austin@10.0.0.8 (port 22 not checked); platform linux x64; project roots: not reported");
+    expect(lines[11]).toBe("- four: unreachable; preference normal");
+    expect(lines[12]).toBe("  address: 10.0.0.7 (not connected)");
+    expect(lines).toHaveLength(13);
   });
 });
