@@ -2803,3 +2803,140 @@ describe("Sidebar title cards (issue #838)", () => {
     expect(line.querySelector("span")).toBeNull();
   });
 });
+
+describe("Sidebar unified project view (issue #903)", () => {
+  const repoKey = "github.com/acme/app";
+  const remotePath = "/worktrees/app";
+
+  /** Local Project One keyed on `localKey`; box-a joined with its own
+   *  checkout of the same repository (one session) at `remotePath`. */
+  const keyedState = (
+    patchInstance: Partial<RemoteInstanceSummary> = {},
+    localKey: string | null = repoKey,
+  ) => {
+    const local = state.projects[0]!;
+    return backendState({
+      projects: [{ ...local, project: { ...local.project, repositoryKey: localKey } }],
+      remoteInstances: [
+        remoteInstance({
+          id: "inst-a",
+          nickname: "box-a",
+          url: "http://box-a:4677",
+          ...patchInstance,
+          projects: [
+            {
+              project: { ...local.project, path: remotePath, repositoryKey: repoKey },
+              sessions: [
+                {
+                  ...local.sessions[0]!,
+                  tabId: "remote-tab-1",
+                  sessionId: "remote-sid",
+                  projectCwd: remotePath,
+                  title: "Remote session",
+                  cachedTitle: "Remote session",
+                },
+              ],
+            },
+          ],
+        }),
+      ],
+    });
+  };
+
+  /** The expanded Project One node (its toggle carries the path as title). */
+  function localSection(): HTMLElement {
+    const toggle = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find(
+      (b) => b.title === projectPath,
+    );
+    if (toggle === undefined) throw new Error("Project One toggle not found");
+    return toggle.closest("section")!;
+  }
+
+  function remoteSection(id: string): HTMLElement {
+    const el = document.body.querySelector<HTMLElement>(`[data-remote-instance="${id}"]`);
+    if (el === null) throw new Error(`remote section not found: ${id}`);
+    return el;
+  }
+
+  it("folds a joined checkout into the local node with machine chips", () => {
+    useStore.setState({ state: keyedState() });
+    renderSidebar();
+    const section = localSection();
+    // Both machines' rows render under one node…
+    expect(section.textContent).toContain("Owned session");
+    expect(section.textContent).toContain("Remote session");
+    // …and the folded row carries the machine chip; local rows do not.
+    const chip = section.querySelector<HTMLElement>('span[title="on box-a"]');
+    expect(chip).not.toBeNull();
+    expect(chip!.textContent).toBe(" · box-a");
+    expect(section.querySelectorAll('span[title="on box-a"]')).toHaveLength(1);
+    // A divider names the checkout and its tooltip carries the machine path.
+    const divider = section.querySelector<HTMLElement>(`[title="box-a — ${remotePath}"]`);
+    expect(divider).not.toBeNull();
+    expect(divider!.textContent).toContain("box-a checkout");
+    // The per-instance section no longer lists the folded checkout.
+    expect(remoteSection("inst-a").textContent).not.toContain("Remote session");
+  });
+
+  it("opens a session on the folded checkout through the divider action", () => {
+    useStore.setState({ state: keyedState() });
+    renderSidebar();
+    act(() => button("new session on box-a").click());
+    expect(newSession).toHaveBeenCalledWith(remotePath, undefined, "inst-a");
+  });
+
+  it("folds an unreachable instance's checkout with the action disabled", () => {
+    useStore.setState({ state: keyedState({ status: "unreachable", error: "offline" }) });
+    renderSidebar();
+    // The sessions still show — they are running over there (issue #416 rule) —
+    // but nothing on that checkout is clickable.
+    expect(localSection().textContent).toContain("Remote session");
+    expect(button("new session on box-a").disabled).toBe(true);
+  });
+
+  it("keeps the split layout under This computer scope", () => {
+    useStore.setState({ state: keyedState(), hostScope: "local" });
+    renderSidebar();
+    const section = localSection();
+    expect(section.textContent).toContain("Owned session");
+    expect(section.textContent).not.toContain("Remote session");
+    expect(document.body.querySelector('[title="on box-a"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("box-a checkout");
+    expect(document.body.querySelector("[data-remote-instance]")).toBeNull();
+  });
+
+  it("keeps the split layout under a single-instance scope", () => {
+    useStore.setState({ state: keyedState(), hostScope: "inst-a" });
+    renderSidebar();
+    const section = remoteSection("inst-a");
+    expect(section.textContent).toContain("Remote session");
+    // Per-host lens rows carry no chip: the section header already names the box.
+    expect(document.body.querySelector('[title="on box-a"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("box-a checkout");
+  });
+
+  it("renders search in the split layout even under all hosts", () => {
+    useStore.setState({ state: keyedState() });
+    renderSidebar();
+    const input = document.body.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, "session");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Matches on both hosts render in their own sections — no folding, no chips.
+    expect(localSection().textContent).toContain("Owned session");
+    expect(localSection().textContent).not.toContain("Remote session");
+    expect(remoteSection("inst-a").textContent).toContain("Remote session");
+    expect(document.body.querySelector('[title="on box-a"]')).toBeNull();
+  });
+
+  it("never merges checkouts without a repository key", () => {
+    useStore.setState({ state: keyedState({}, null) });
+    renderSidebar();
+    expect(localSection().textContent).not.toContain("Remote session");
+    expect(remoteSection("inst-a").textContent).toContain("Remote session");
+    expect(document.body.querySelector('[title="on box-a"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("box-a checkout");
+  });
+});
