@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type * as React from "react";
 import { cn } from "../../lib/cn";
 import { copyFallback } from "../../lib/clipboard";
@@ -333,6 +333,7 @@ export function Chip({
   title,
   className,
   truncate = false,
+  style,
 }: {
   children: ReactNode;
   tone?: Tone;
@@ -345,10 +346,17 @@ export function Chip({
    * pass `title` so the full value stays reachable on hover.
    */
   truncate?: boolean;
+  /**
+   * Inline paint overrides (e.g. the quick-open header chip's project
+   * identity wash). Inline styles outrank the `TONE_CHIP` classes by design;
+   * callers that need a hue compute it in `lib/`, never mix their own.
+   */
+  style?: CSSProperties;
 }) {
   return (
     <span
       title={title}
+      style={style}
       className={cn(
         "inline-flex items-center gap-1 rounded border px-1.5 py-px text-[10px] leading-4",
         truncate ? "min-w-0 max-w-full" : "shrink-0",

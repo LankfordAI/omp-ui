@@ -6,6 +6,7 @@ import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { currentLocaleId, useT } from "../lib/i18n";
 import { formatHotkey, useHotkeys, type HotkeyMap } from "../lib/hotkeys";
 import { initials } from "../lib/initials";
+import { identityWash, monogramColors } from "../lib/project-colors";
 import { useCompactShell } from "../lib/responsive";
 import { isChatTab, useStore } from "../store";
 import { Chevron, Chip, IconButton, IconSearch, Label, Modal } from "./ui";
@@ -460,7 +461,13 @@ export function ProjectQuickOpen() {
             <IconButton label={t("quickopen.page.back")} onClick={goRoot}>
               <Chevron open={false} className="rotate-180" />
             </IconButton>
-            <Chip truncate className="max-w-[12rem]">
+            {/* Project pages wash the header chip with the project's identity
+                hue; the chat page keeps the neutral chip. */}
+            <Chip
+              truncate
+              className="max-w-[12rem]"
+              style={page.kind === "project" ? identityWash(pageRow?.id ?? "") : undefined}
+            >
               {pageRow?.label ?? t("quickopen.noproject")}
             </Chip>
           </>
@@ -511,7 +518,10 @@ export function ProjectQuickOpen() {
                   {row.kind === "project" ? (
                     // The monogram box, so the row reads as the same
                     // repository the session rows name.
-                    <span className="grid size-6 shrink-0 place-items-center rounded-md border border-line bg-raised font-display text-[10px] font-semibold text-ink-mid">
+                    <span
+                      style={monogramColors(row.id)}
+                      className="grid size-6 shrink-0 place-items-center rounded-md font-display text-[10px] font-semibold"
+                    >
                       {initials(row.label)}
                     </span>
                   ) : (
