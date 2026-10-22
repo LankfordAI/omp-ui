@@ -3,14 +3,9 @@ import type {
   SessionSummary,
 } from "@omp-ui/core/types";
 import { describe, expect, it } from "vitest";
-import { PAGE } from "./session-window";
-import {
-  type ArrangedSessionHandoffs,
-  arrangeSessionHandoffs,
-} from "./session-handoffs";
+import { NO_HANDOFF, resolveSessionHandoffs } from "./session-handoffs";
 
 const PROJECT = "/project";
-const ALL = 100;
 
 function source(
   sourceTabId: string,
@@ -58,110 +53,44 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
   };
 }
 
-function ids(result: ArrangedSessionHandoffs): string[] {
-  return result.entries.map((entry) => entry.session.tabId);
-}
-
-describe("arrangeSessionHandoffs", () => {
-  it("places a source before its newer implementation", () => {
+describe("resolveSessionHandoffs", () => {
+  it("links an implementation to its same-project source wherever it sits", () => {
     const implementation = session("implementation", {
       planImplementationSource: source("plan"),
     });
+    const standalone = session("standalone");
     const plan = session("plan");
 
-    const result = arrangeSessionHandoffs([implementation, plan], "", false, ALL, null);
+    const result = resolveSessionHandoffs([implementation, standalone, plan]);
 
-    expect(ids(result)).toEqual(["plan", "implementation"]);
-    expect(result.entries).toMatchObject([
-      {
-        depth: 0,
-        source: null,
-        orphanSource: null,
-        hasDescendants: true,
-        treeId: "plan",
-      },
-      {
-        depth: 1,
-        source: { tabId: "plan" },
-        orphanSource: null,
-        hasDescendants: false,
-        treeId: "plan",
-      },
-    ]);
-    expect(result).toMatchObject({ shown: 2, remaining: 0, total: 2 });
+    expect(result.get("implementation")).toEqual({
+      source: plan,
+      orphanSource: null,
+      hasDescendants: false,
+    });
+    expect(result.get("plan")).toEqual({ source: null, orphanSource: null, hasDescendants: true });
+    expect(result.get("standalone")).toEqual(NO_HANDOFF);
   });
 
-  it("orders siblings by their own input positions", () => {
-    const newestGrandchild = session("newest-grandchild", {
-      planImplementationSource: source("older-child"),
-    });
-    const newerChild = session("newer-child", {
-      planImplementationSource: source("plan"),
-    });
-    const olderChild = session("older-child", {
-      planImplementationSource: source("plan"),
-    });
-    const plan = session("plan");
-
-    // Input order is the sidebar's positional authority (#274): the earlier
-    // child keeps its slot even though its subtree holds the newest member —
-    // running activity must not reshuffle the list.
-    const result = arrangeSessionHandoffs(
-      [newestGrandchild, newerChild, olderChild, plan],
-      "",
-      false,
-      ALL,
-      null,
-    );
-
-    expect(ids(result)).toEqual(["plan", "newer-child", "older-child", "newest-grandchild"]);
-  });
-
-  it("keeps immediate sources through a chain and caps only visual depth", () => {
+  it("keeps the immediate source through a chain", () => {
     const fourth = session("fourth", { planImplementationSource: source("grandchild") });
     const grandchild = session("grandchild", { planImplementationSource: source("child") });
     const child = session("child", { planImplementationSource: source("plan") });
     const plan = session("plan");
 
-    const result = arrangeSessionHandoffs([fourth, grandchild, child, plan], "", false, ALL, null);
+    const result = resolveSessionHandoffs([fourth, grandchild, child, plan]);
 
-    expect(ids(result)).toEqual(["plan", "child", "grandchild", "fourth"]);
-    expect(result.entries.map(({ depth, source: immediateSource }) => [
-      depth,
-      immediateSource?.tabId ?? null,
-    ])).toEqual([
-      [0, null],
-      [1, "plan"],
-      [2, "child"],
-      [2, "grandchild"],
+    expect(
+      ["plan", "child", "grandchild", "fourth"].map((id) => [
+        result.get(id)?.source?.tabId ?? null,
+        result.get(id)?.hasDescendants,
+      ]),
+    ).toEqual([
+      [null, true],
+      ["plan", true],
+      ["child", true],
+      ["grandchild", false],
     ]);
-  });
-
-  it("does not lift a tree whose implementation row sits above its root", () => {
-    // Regression for the deleted recency fold (#274): an implementation row
-    // positioned before its planning session (e.g. seeded from legacy
-    // recency order) renders nested under that root, wherever the root
-    // sits — it never drags the whole tree upward.
-    const newestImplementation = session("implementation", {
-      planImplementationSource: source("old-plan"),
-    });
-    const standalone = session("standalone");
-    const oldPlan = session("old-plan");
-
-    const result = arrangeSessionHandoffs(
-      [newestImplementation, standalone, oldPlan],
-      "",
-      false,
-      ALL,
-      null,
-    );
-
-    expect(ids(result)).toEqual(["standalone", "old-plan", "implementation"]);
-    expect(result.entries[2]).toMatchObject({
-      depth: 1,
-      source: { tabId: "old-plan" },
-      treeId: "old-plan",
-    });
   });
 
   it("leaves missing and cross-project sources orphaned with their saved metadata", () => {
@@ -175,21 +104,19 @@ describe("arrangeSessionHandoffs", () => {
       planImplementationSource: crossProjectSource,
     });
 
-    const result = arrangeSessionHandoffs(
-      [missing, crossProject, crossProjectPlan],
-      "",
-      false,
-      ALL,
-      null,
-    );
+    const result = resolveSessionHandoffs([missing, crossProject, crossProjectPlan]);
 
-    expect(ids(result)).toEqual([
-      "missing-implementation",
-      "cross-project-implementation",
-      "other-plan",
-    ]);
-    expect(result.entries[0]).toMatchObject({ source: null, orphanSource: missingSource });
-    expect(result.entries[1]).toMatchObject({ source: null, orphanSource: crossProjectSource });
+    expect(result.get("missing-implementation")).toEqual({
+      source: null,
+      orphanSource: missingSource,
+      hasDescendants: false,
+    });
+    expect(result.get("cross-project-implementation")).toEqual({
+      source: null,
+      orphanSource: crossProjectSource,
+      hasDescendants: false,
+    });
+    expect(result.get("other-plan")).toEqual(NO_HANDOFF);
   });
 
   it("keeps a source marked missing independent and exposes only its saved snapshot", () => {
@@ -197,47 +124,19 @@ describe("arrangeSessionHandoffs", () => {
     const implementation = session("implementation", {
       planImplementationSource: missingSource,
     });
-    const standalone = session("standalone");
     const missingPlan = session("missing-plan", { live: "missing" });
 
-    const result = arrangeSessionHandoffs(
-      [implementation, standalone, missingPlan],
-      "",
-      false,
-      ALL,
-      null,
-    );
+    const result = resolveSessionHandoffs([implementation, missingPlan]);
 
-    expect(ids(result)).toEqual(["implementation", "standalone", "missing-plan"]);
-    expect(result.entries).toMatchObject([
-      {
-        session: { tabId: "implementation" },
-        depth: 0,
-        source: null,
-        orphanSource: missingSource,
-        hasDescendants: false,
-        treeId: "implementation",
-      },
-      {
-        session: { tabId: "standalone" },
-        depth: 0,
-        source: null,
-        orphanSource: null,
-        hasDescendants: false,
-        treeId: "standalone",
-      },
-      {
-        session: { tabId: "missing-plan", live: "missing" },
-        depth: 0,
-        source: null,
-        orphanSource: null,
-        hasDescendants: false,
-        treeId: "missing-plan",
-      },
-    ]);
+    expect(result.get("implementation")).toEqual({
+      source: null,
+      orphanSource: missingSource,
+      hasDescendants: false,
+    });
+    expect(result.get("missing-plan")).toEqual(NO_HANDOFF);
   });
 
-  it("falls self-links and every cycle member back to independent recency rows", () => {
+  it("falls self-links and every cycle member back to their saved snapshots", () => {
     const selfSource = source("self", "Self plan");
     const sourceA = source("b", "Plan B");
     const sourceB = source("a", "Plan A");
@@ -245,97 +144,44 @@ describe("arrangeSessionHandoffs", () => {
     const a = session("a", { planImplementationSource: sourceA });
     const b = session("b", { planImplementationSource: sourceB });
 
-    const result = arrangeSessionHandoffs([self, a, b], "", false, ALL, null);
+    const result = resolveSessionHandoffs([self, a, b]);
 
-    expect(ids(result)).toEqual(["self", "a", "b"]);
-    expect(result.entries.map(({ source: immediateSource, orphanSource, treeId }) => ({
-      source: immediateSource,
-      orphanSource,
-      treeId,
-    }))).toEqual([
-      { source: null, orphanSource: selfSource, treeId: "self" },
-      { source: null, orphanSource: sourceA, treeId: "a" },
-      { source: null, orphanSource: sourceB, treeId: "b" },
-    ]);
+    expect(result.get("self")).toEqual({ source: null, orphanSource: selfSource, hasDescendants: false });
+    expect(result.get("a")).toEqual({ source: null, orphanSource: sourceA, hasDescendants: false });
+    expect(result.get("b")).toEqual({ source: null, orphanSource: sourceB, hasDescendants: false });
   });
 
-  it("searches titles and saved plan titles at whole-tree scope", () => {
-    const implementation = session("implementation", {
-      title: "Build the ordinary thing",
-      planImplementationSource: source("plan", "Celestial migration"),
+  it("treats a duplicated source tab id as unresolvable and keeps the first row's entry", () => {
+    const dupSource = source("dup", "Ambiguous plan");
+    const implementation = session("implementation", { planImplementationSource: dupSource });
+    const first = session("dup", { title: "first" });
+    const second = session("dup", {
+      title: "second",
+      planImplementationSource: source("other"),
     });
-    const plan = session("plan", { title: "An unrelated session title" });
-    const unrelated = session("unrelated", { title: "Nothing to see" });
+    const other = session("other");
 
-    const titleMatch = arrangeSessionHandoffs(
-      [implementation, plan, unrelated],
-      "ordinary",
-      false,
-      ALL,
-      null,
-    );
-    const savedPlanMatch = arrangeSessionHandoffs(
-      [implementation, plan, unrelated],
-      "celestial",
-      false,
-      ALL,
-      null,
-    );
-    const projectMatch = arrangeSessionHandoffs(
-      [implementation, plan, unrelated],
-      "no session matches this",
-      true,
-      ALL,
-      null,
-    );
+    const result = resolveSessionHandoffs([implementation, first, second, other]);
 
-    expect(ids(titleMatch)).toEqual(["plan", "implementation"]);
-    expect(ids(savedPlanMatch)).toEqual(["plan", "implementation"]);
-    expect(ids(projectMatch)).toEqual(["plan", "implementation", "unrelated"]);
-    expect(savedPlanMatch.total).toBe(2);
+    expect(result.get("implementation")).toEqual({
+      source: null,
+      orphanSource: dupSource,
+      hasDescendants: false,
+    });
+    // First occurrence wins: the second "dup" row's link to "other" never surfaces.
+    expect(result.get("dup")).toEqual(NO_HANDOFF);
+    expect(result.get("other")).toEqual({ source: null, orphanSource: null, hasDescendants: true });
   });
 
-  it("widens through the end of a focused descendant's tree", () => {
-    const youngest = session("youngest", { planImplementationSource: source("child") });
-    const child = session("child", { planImplementationSource: source("plan") });
-    const plan = session("plan");
-    const trailing = session("trailing");
-
-    const result = arrangeSessionHandoffs(
-      [youngest, child, plan, trailing],
-      "",
-      false,
-      1,
-      "child",
-    );
-
-    expect(ids(result)).toEqual(["plan", "child", "youngest"]);
-    expect(result).toMatchObject({ shown: 3, remaining: 1, total: 4 });
-  });
-
-  it("extends a PAGE boundary through the final intersected tree", () => {
-    const preceding = Array.from({ length: PAGE - 1 }, (_, index) =>
-      session(`standalone-${index}`),
-    );
-    const implementation = session("implementation", {
-      planImplementationSource: source("plan"),
+  it("ignores malformed saved metadata", () => {
+    const broken = session("broken", {
+      planImplementationSource: { sourceTabId: "plan" } as unknown as PlanImplementationSource,
     });
     const plan = session("plan");
-    const trailing = session("trailing");
 
-    const result = arrangeSessionHandoffs(
-      [...preceding, implementation, plan, trailing],
-      "",
-      false,
-      PAGE,
-      null,
-    );
+    const result = resolveSessionHandoffs([broken, plan]);
 
-    expect(ids(result)).toEqual([
-      ...preceding.map(({ tabId }) => tabId),
-      "plan",
-      "implementation",
-    ]);
-    expect(result).toMatchObject({ shown: PAGE + 1, remaining: 1, total: PAGE + 2 });
+    expect(result.get("broken")).toEqual(NO_HANDOFF);
+    expect(result.get("plan")).toEqual(NO_HANDOFF);
   });
 });

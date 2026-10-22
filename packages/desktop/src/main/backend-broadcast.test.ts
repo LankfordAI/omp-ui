@@ -238,7 +238,7 @@ describe("settings:setVaultNoteVoice (issue #793)", () => {
 describe("ordered backend broadcasts (issue #146)", () => {
   it("finishes an older state build and delivery before starting the next one", async () => {
     const firstReadStarted = deferred<void>();
-    const releaseFirstRead = deferred<{ where: "missing" }>();
+    const releaseFirstRead = deferred<{ where: "archived" }>();
     resolveSessionLocationMock.mockImplementationOnce(() => {
       firstReadStarted.resolve(undefined);
       return releaseFirstRead.promise;
@@ -247,21 +247,23 @@ describe("ordered backend broadcasts (issue #146)", () => {
     const first = invoke(CH.toggleFavorite, "model-a");
     await firstReadStarted.promise;
 
-    const second = invoke(CH.moveProject, "/p/a", null);
+    const second = invoke(CH.toggleFavorite, "model-b");
     expect(resolveSessionLocationMock).toHaveBeenCalledTimes(1);
     expect(broadcastStates()).toEqual([]);
 
-    releaseFirstRead.resolve({ where: "missing" });
+    releaseFirstRead.resolve({ where: "archived" });
     await Promise.all([first, second]);
 
-    const orders = broadcastStates().map((state) =>
-      state.projects.map((group) => group.project.path),
-    );
-    expect(orders).toEqual([
-      ["/p/a", "/p/b"],
-      ["/p/b", "/p/a"],
+    // Settings are read after the build's session reads, so both builds carry
+    // both favorites; the held first read (archived) tags the older build.
+    const delivered = broadcastStates().map((state) => [
+      state.projects[0]?.sessions[0]?.live,
+      state.modelFavorites,
     ]);
-    expect(orders.at(-1)).toEqual(["/p/b", "/p/a"]);
+    expect(delivered).toEqual([
+      ["archived", ["model-a", "model-b"]],
+      ["missing", ["model-a", "model-b"]],
+    ]);
   });
 
   it("keeps the chain usable after returning a failed build to its caller", async () => {

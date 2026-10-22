@@ -1,6 +1,6 @@
 # Unified project view keys on repository identity; a one-machine launch stays a plain session
 
-> **Status:** Accepted, 2026-10-21 ([#903](https://github.com/LankfordAI/omp-ui/issues/903)).
+> **Status:** Accepted, 2026-10-21 ([#903](https://github.com/LankfordAI/omp-ui/issues/903)). Decision (a) and the HostScopePicker sentence of (c) superseded by [ADR-0067](0067-sidebar-lists-sessions-not-projects.md).
 
 The sidebar grew two parallel stacks: this app's own projects, then one group
 per joined **Remote instance** (ADR-0028) with that instance's projects under

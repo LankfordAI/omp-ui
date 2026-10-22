@@ -22,6 +22,13 @@ Because the accents are semantic, a glance at the window answers "is it
 working?" without reading a word. That property only holds while the reservation
 holds, which is why `signal` is called out above.
 
+One hue exists outside the four accents: the *project identity colour* in
+`lib/project-colors.ts`, painted only on a project's own monogram box and its
+quick-open header chip. It encodes *which repository*, never a state — it is
+identity, not decoration, and it carries none of the four accents' meanings.
+Its generation lives in that one module; no component mixes its own project
+hue.
+
 ## Considered Options
 
 - **Ad-hoc `neutral-*` utilities per component (rejected — this was the prior

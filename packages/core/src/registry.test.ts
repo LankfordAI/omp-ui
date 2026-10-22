@@ -91,7 +91,6 @@ describe("SETTINGS", () => {
       "sttModel",
       "audioInputDevice",
       "audioOutputDevice",
-      "sessionOrderFrozen",
       "memoryDefaultsSeeded",
       "autoThinkingDefaultSeeded",
       "reviewRoster",
@@ -967,85 +966,6 @@ describe("Registry mutations", () => {
     expect(reg.sessions.map((s) => s.tabId)).toEqual(["t-b"]);
   });
 
-  it("moveProject inserts before a sibling in either direction", () => {
-    const reg = Registry.load(tmpFile());
-    reg.addProject("/abs/a");
-    reg.addProject("/abs/b");
-    reg.addProject("/abs/c");
-    // A later project before an earlier one — the `to` index is looked up
-    // after the splice, so it lands ahead of the previously-removed slot.
-    reg.moveProject("/abs/c", "/abs/a");
-    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/c", "/abs/a", "/abs/b"]);
-    // And an earlier project before a later one.
-    reg.moveProject("/abs/a", "/abs/c");
-    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/a", "/abs/c", "/abs/b"]);
-  });
-
-  it("moveProject appends when beforePath is null or no longer registered", () => {
-    const reg = Registry.load(tmpFile());
-    reg.addProject("/abs/a");
-    reg.addProject("/abs/b");
-    reg.addProject("/abs/c");
-    reg.moveProject("/abs/a", null);
-    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/b", "/abs/c", "/abs/a"]);
-    reg.moveProject("/abs/b", "/abs/gone");
-    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/c", "/abs/a", "/abs/b"]);
-  });
-
-  it("moveProject writes nothing when the project already sits before its target", () => {
-    const file = tmpFile();
-    const reg = Registry.load(file);
-    reg.addProject("/abs/a");
-    reg.addProject("/abs/b");
-    reg.addProject("/abs/c");
-    const restore = rejectAtomicReplaces(file);
-    expect(() => reg.moveProject("/abs/a", "/abs/b")).not.toThrow();
-    expect(reg.projects.map((project) => project.path)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
-    restore();
-  });
-
-  it("moveProject leaves the order alone when the target is the project itself", () => {
-    const file = tmpFile();
-    const reg = Registry.load(file);
-    for (const p of ["/abs/a", "/abs/b", "/abs/c", "/abs/d"]) reg.addProject(p);
-    // The sidebar computes `beforePath` from the row below the drop point, so
-    // dropping a project just above itself asks to move it before itself. That
-    // is the "leave it put" gesture, and it must not reorder anything. Four
-    // projects, not three: with three, appending happens to land the moved
-    // project back where it started, which hides the bug entirely.
-    reg.moveProject("/abs/c", "/abs/c");
-    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/a", "/abs/b", "/abs/c", "/abs/d"]);
-    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
-    expect(raw.projects.map((p: { path: string }) => p.path)).toEqual([
-      "/abs/a",
-      "/abs/b",
-      "/abs/c",
-      "/abs/d",
-    ]);
-  });
-
-  it("moveProject with an unknown source is a no-op and writes nothing", () => {
-    const file = tmpFile();
-    const reg = Registry.load(file);
-    reg.addProject("/abs/a");
-    reg.addProject("/abs/b");
-    reg.addProject("/abs/c");
-    reg.moveProject("/abs/zzz", "/abs/b");
-    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
-    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
-    expect(raw.projects.map((p: { path: string }) => p.path)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
-  });
-
-  it("moveProject persists the new order across a reload", () => {
-    const file = tmpFile();
-    const reg = Registry.load(file);
-    reg.addProject("/abs/a");
-    reg.addProject("/abs/b");
-    reg.addProject("/abs/c");
-    reg.moveProject("/abs/c", "/abs/a");
-    expect(Registry.load(file).projects.map((p) => p.path)).toEqual(["/abs/c", "/abs/a", "/abs/b"]);
-  });
-
   it("setSessionAdvisor records the flag and the pinned model together", () => {
     const reg = Registry.load(tmpFile());
     reg.addSession(sessionRecord());
@@ -1560,59 +1480,7 @@ describe("Registry mutations", () => {
   });
 });
 
-describe("Session sidebar order (#274)", () => {
-  it("moveSession inserts before a sibling in either direction", () => {
-    const reg = Registry.load(tmpFile());
-    for (const tabId of ["s-1", "s-2", "s-3"]) reg.addSession(sessionRecord({ tabId }));
-    // Top insertion (#274): the newest record leads.
-    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-3", "s-2", "s-1"]);
-    // One step up: before its predecessor.
-    reg.moveSession("s-1", "s-2");
-    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-3", "s-1", "s-2"]);
-    // One step down from the top: before the successor's successor.
-    reg.moveSession("s-3", "s-2");
-    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-1", "s-3", "s-2"]);
-  });
-
-  it("moveSession appends when beforeTabId is null or no longer present", () => {
-    const reg = Registry.load(tmpFile());
-    for (const tabId of ["s-1", "s-2", "s-3"]) reg.addSession(sessionRecord({ tabId }));
-    reg.moveSession("s-3", null);
-    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-2", "s-1", "s-3"]);
-    reg.moveSession("s-2", "s-gone");
-    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-1", "s-3", "s-2"]);
-  });
-
-  it("moveSession leaves the order alone when the target is the session itself", () => {
-    const file = tmpFile();
-    const reg = Registry.load(file);
-    for (const tabId of ["s-1", "s-2", "s-3", "s-4"]) reg.addSession(sessionRecord({ tabId }));
-    // Four sessions, not three: with three, appending happens to land the
-    // moved record back where it started, which hides the bug entirely.
-    reg.moveSession("s-2", "s-2");
-    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-4", "s-3", "s-2", "s-1"]);
-    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as { sessions: { tabId: string }[] };
-    expect(raw.sessions.map((s) => s.tabId)).toEqual(["s-4", "s-3", "s-2", "s-1"]);
-  });
-
-  it("moveSession with an unknown source is a no-op and writes nothing", () => {
-    const file = tmpFile();
-    const reg = Registry.load(file);
-    for (const tabId of ["s-1", "s-2"]) reg.addSession(sessionRecord({ tabId }));
-    fs.writeFileSync(file, "unchanged-marker");
-    reg.moveSession("s-zzz", "s-1");
-    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-2", "s-1"]);
-    expect(fs.readFileSync(file, "utf8")).toBe("unchanged-marker");
-  });
-
-  it("moveSession persists the new order across a reload", () => {
-    const file = tmpFile();
-    const reg = Registry.load(file);
-    for (const tabId of ["s-1", "s-2", "s-3"]) reg.addSession(sessionRecord({ tabId }));
-    reg.moveSession("s-1", "s-3");
-    expect(Registry.load(file).sessions.map((s) => s.tabId)).toEqual(["s-1", "s-3", "s-2"]);
-  });
-
+describe("Session insertion order", () => {
   it("addSession splices ahead of its project's first record in an interleaved array", () => {
     const reg = Registry.load(tmpFile());
     reg.addProject("/abs/a");
@@ -1621,67 +1489,6 @@ describe("Session sidebar order (#274)", () => {
     reg.addSession(sessionRecord({ tabId: "t-b1", projectCwd: "/abs/b" }));
     reg.addSession(sessionRecord({ tabId: "t-a2", projectCwd: "/abs/a" }));
     expect(reg.sessions.map((s) => s.tabId)).toEqual(["t-a2", "t-a1", "t-b1"]);
-  });
-
-  it("seeds the frozen order from recency once and never re-sorts again", () => {
-    const file = tmpFile();
-    // Legacy format: insertion-ordered sessions, no freeze marker.
-    fs.writeFileSync(
-      file,
-      JSON.stringify({
-        schemaVersion: 1,
-        projects: [{ path: "/abs/p", name: "p", addedAt: "t" }],
-        sessions: [
-          sessionRecord({ tabId: "old", launchedAt: "2026-01-01T00:00:00.000Z" }),
-          sessionRecord({ tabId: "new", launchedAt: "2026-02-01T00:00:00.000Z" }),
-        ],
-      }),
-    );
-
-    const reg = Registry.load(file);
-    // The upgrade is invisible: today's recency sort becomes the frozen order.
-    expect(reg.sessions.map((s) => s.tabId)).toEqual(["new", "old"]);
-    expect(reg.getSetting("sessionOrderFrozen")).toBe(true);
-    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
-      settings: { sessionOrderFrozen?: boolean };
-      sessions: { tabId: string }[];
-    };
-    expect(raw.settings.sessionOrderFrozen).toBe(true);
-    expect(raw.sessions.map((s) => s.tabId)).toEqual(["new", "old"]);
-
-    // A user drag after the upgrade survives every later load.
-    reg.moveSession("old", "new");
-    expect(Registry.load(file).sessions.map((s) => s.tabId)).toEqual(["old", "new"]);
-  });
-
-  it("seeding keeps records naming an unregistered project after the known buckets", () => {
-    const file = tmpFile();
-    fs.writeFileSync(
-      file,
-      JSON.stringify({
-        schemaVersion: 1,
-        projects: [{ path: "/abs/proj", name: "p", addedAt: "t" }],
-        sessions: [
-          sessionRecord({ tabId: "orphan", projectCwd: "/abs/elsewhere" }),
-          sessionRecord({ tabId: "owned-old", launchedAt: "2026-01-01T00:00:00.000Z" }),
-          sessionRecord({ tabId: "owned-new", launchedAt: "2026-02-01T00:00:00.000Z" }),
-        ],
-      }),
-    );
-    const reg = Registry.load(file);
-    expect(reg.sessions.map((s) => s.tabId)).toEqual(["owned-new", "owned-old", "orphan"]);
-  });
-
-  it("loading a missing or corrupt file never seeds a write", () => {
-    const missing = tmpFile();
-    const reg = Registry.load(missing);
-    expect(fs.existsSync(missing)).toBe(false);
-    expect(reg.getSetting("sessionOrderFrozen")).toBe(false);
-
-    const corrupt = tmpFile();
-    fs.writeFileSync(corrupt, "{not json");
-    Registry.load(corrupt);
-    expect(fs.existsSync(corrupt)).toBe(false);
   });
 });
 
@@ -2208,198 +2015,41 @@ describe("planHandoffDescendants (issue #309)", () => {
   });
 });
 
-describe("sidebar groups", () => {
-  /** A registry holding /abs/a, /abs/b, /abs/c in that order. */
-  function threeProjects(): { file: string; reg: Registry } {
-    const file = tmpFile();
-    const reg = Registry.load(file);
-    for (const p of ["/abs/a", "/abs/b", "/abs/c"]) reg.addProject(p);
-    return { file, reg };
-  }
-
-  const paths = (reg: Registry): string[] => reg.projects.map((p) => p.path);
-
-  it("loads a legacy registry without sidebarGroups as no groups, and its first write keeps projects", () => {
+describe("stale sidebar keys (issue #919)", () => {
+  it("loads a file carrying sidebarGroups and settings.sessionOrderFrozen intact, and the next write omits both", () => {
     const file = tmpFile();
     fs.writeFileSync(
       file,
       JSON.stringify({
         schemaVersion: 1,
-        projects: [{ path: "/abs/a", name: "a", addedAt: "t" }],
-        sessions: [],
-      }),
-    );
-    const reg = Registry.load(file);
-    expect(reg.sidebarGroups).toEqual([]);
-    reg.addProject("/abs/b");
-    const reloaded = Registry.load(file);
-    expect(paths(reloaded)).toEqual(["/abs/a", "/abs/b"]);
-    expect(reloaded.sidebarGroups).toEqual([]);
-    expect(JSON.parse(fs.readFileSync(file, "utf8")).sidebarGroups).toEqual([]);
-  });
-
-  it("parses leniently: malformed groups drop, first claim wins, unregistered paths prune", () => {
-    const file = tmpFile();
-    fs.writeFileSync(
-      file,
-      JSON.stringify({
-        schemaVersion: 1,
+        // Seeded already, so load itself writes nothing: addProject below is the next write.
+        settings: { sessionOrderFrozen: true, autoThinkingDefaultSeeded: true },
         projects: [
           { path: "/abs/a", name: "a", addedAt: "t" },
           { path: "/abs/b", name: "b", addedAt: "t" },
         ],
-        sessions: [],
-        sidebarGroups: [
-          { name: "No id", collapsed: false, projectPaths: [] },
-          { id: "g1", name: "  First  ", collapsed: true, projectPaths: ["/abs/a", "/abs/gone"] },
-          { id: "g1", name: "Duplicate id", collapsed: false, projectPaths: ["/abs/b"] },
-          { id: "g2", name: "   ", collapsed: false, projectPaths: ["/abs/b"] },
-          { id: "g3", name: "Second", collapsed: false, projectPaths: ["/abs/a", "/abs/b"] },
+        sessions: [
+          sessionRecord({ tabId: "s-1", projectCwd: "/abs/b" }),
+          sessionRecord({ tabId: "s-2", projectCwd: "/abs/a" }),
         ],
+        sidebarGroups: [{ id: "g1", name: "Team", collapsed: true, projectPaths: ["/abs/a"] }],
       }),
     );
+
     const reg = Registry.load(file);
-    expect(reg.sidebarGroups).toEqual([
-      { id: "g1", name: "First", collapsed: true, projectPaths: ["/abs/a"] },
-      { id: "g3", name: "Second", collapsed: false, projectPaths: ["/abs/b"] },
-    ]);
     expect(fs.existsSync(file)).toBe(true);
-  });
+    expect(reg.projects.map((p) => p.path)).toEqual(["/abs/a", "/abs/b"]);
+    expect(reg.sessions.map((s) => s.tabId)).toEqual(["s-1", "s-2"]);
 
-  it("treats a non-array sidebarGroups as no groups without quarantining", () => {
-    const file = tmpFile();
-    fs.writeFileSync(
-      file,
-      JSON.stringify({
-        schemaVersion: 1,
-        projects: [{ path: "/abs/a", name: "a", addedAt: "t" }],
-        sessions: [],
-        sidebarGroups: { id: "g1", name: "Team" },
-      }),
-    );
-    const reg = Registry.load(file);
-    expect(reg.sidebarGroups).toEqual([]);
-    expect(paths(reg)).toEqual(["/abs/a"]);
-    expect(fs.existsSync(file)).toBe(true);
-  });
-
-  it("createSidebarGroup normalizes the name, moves the project in and last, and persists", () => {
-    const { file, reg } = threeProjects();
-    const group = reg.createSidebarGroup("  Team   A ", "/abs/b");
-    expect(group).toMatchObject({ name: "Team A", collapsed: false, projectPaths: ["/abs/b"] });
-    expect(paths(reg)).toEqual(["/abs/a", "/abs/c", "/abs/b"]);
-    const reloaded = Registry.load(file);
-    expect(reloaded.sidebarGroups).toEqual([group]);
-    expect(paths(reloaded)).toEqual(["/abs/a", "/abs/c", "/abs/b"]);
-  });
-
-  it("createSidebarGroup rejects blank, overlong, and case-insensitive duplicate names without writing", () => {
-    const { file, reg } = threeProjects();
-    reg.createSidebarGroup("Team A", null);
-    const before = fs.readFileSync(file, "utf8");
-    expect(() => reg.createSidebarGroup("   ", null)).toThrow("Group names must be 1–64 characters.");
-    expect(() => reg.createSidebarGroup("x".repeat(65), "/abs/a")).toThrow(
-      "Group names must be 1–64 characters.",
-    );
-    expect(() => reg.createSidebarGroup("team a", "/abs/a")).toThrow(
-      "A group named “team a” already exists.",
-    );
-    expect(fs.readFileSync(file, "utf8")).toBe(before);
-    expect(reg.sidebarGroups.map((g) => g.name)).toEqual(["Team A"]);
-    expect(paths(reg)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
-  });
-
-  it("setProjectSidebarGroup moves a project exclusively between groups", () => {
-    const { file, reg } = threeProjects();
-    const a = reg.createSidebarGroup("A", "/abs/a");
-    const b = reg.createSidebarGroup("B", null);
-    reg.setProjectSidebarGroup("/abs/a", b.id);
-    expect(reg.sidebarGroups.map((g) => [g.id, g.projectPaths])).toEqual([
-      [a.id, []],
-      [b.id, ["/abs/a"]],
-    ]);
-    expect(Registry.load(file).sidebarGroups.find((g) => g.id === b.id)?.projectPaths).toEqual([
-      "/abs/a",
-    ]);
-  });
-
-  it("setProjectSidebarGroup writes nothing for the current segment or an unknown project", () => {
-    const { file, reg } = threeProjects();
-    const team = reg.createSidebarGroup("Team", "/abs/a");
-    const restore = rejectAtomicReplaces(file);
-    expect(() => reg.setProjectSidebarGroup("/abs/a", team.id)).not.toThrow();
-    expect(() => reg.setProjectSidebarGroup("/abs/b", null)).not.toThrow();
-    expect(() => reg.setProjectSidebarGroup("/abs/gone", team.id)).not.toThrow();
-    restore();
-    expect(paths(reg)).toEqual(["/abs/b", "/abs/c", "/abs/a"]);
-    expect(reg.sidebarGroups[0]?.projectPaths).toEqual(["/abs/a"]);
-  });
-
-  it("setProjectSidebarGroup throws for an unknown group", () => {
-    const { reg } = threeProjects();
-    expect(() => reg.setProjectSidebarGroup("/abs/a", "missing")).toThrow(
-      "That group no longer exists.",
-    );
-  });
-
-  it("removeSidebarGroup leaves its projects registered and ungrouped", () => {
-    const { file, reg } = threeProjects();
-    const team = reg.createSidebarGroup("Team", "/abs/a");
-    reg.removeSidebarGroup(team.id);
-    expect(reg.sidebarGroups).toEqual([]);
-    expect(paths(reg)).toEqual(["/abs/b", "/abs/c", "/abs/a"]);
-    const reloaded = Registry.load(file);
-    expect(reloaded.sidebarGroups).toEqual([]);
-    expect(paths(reloaded)).toEqual(["/abs/b", "/abs/c", "/abs/a"]);
-  });
-
-  it("removeProject prunes the path from its group", () => {
-    const { file, reg } = threeProjects();
-    reg.createSidebarGroup("Team", "/abs/a");
-    reg.setProjectSidebarGroup("/abs/b", reg.sidebarGroups[0]!.id);
-    reg.removeProject("/abs/a");
-    expect(reg.sidebarGroups[0]?.projectPaths).toEqual(["/abs/b"]);
-    expect(Registry.load(file).sidebarGroups[0]?.projectPaths).toEqual(["/abs/b"]);
-  });
-
-  it("moveSidebarGroup inserts before a sibling, appends on null, and ignores an unknown id", () => {
-    const { file, reg } = threeProjects();
-    const x = reg.createSidebarGroup("X", null);
-    const y = reg.createSidebarGroup("Y", null);
-    const z = reg.createSidebarGroup("Z", null);
-    const ids = (): string[] => reg.sidebarGroups.map((g) => g.id);
-    reg.moveSidebarGroup(z.id, x.id);
-    expect(ids()).toEqual([z.id, x.id, y.id]);
-    reg.moveSidebarGroup(z.id, null);
-    expect(ids()).toEqual([x.id, y.id, z.id]);
-    const restore = rejectAtomicReplaces(file);
-    expect(() => reg.moveSidebarGroup("missing", x.id)).not.toThrow();
-    restore();
-    expect(ids()).toEqual([x.id, y.id, z.id]);
-    expect(Registry.load(file).sidebarGroups.map((g) => g.id)).toEqual([x.id, y.id, z.id]);
-  });
-
-  it("setSidebarGroupCollapsed persists across reload and skips writing the current value", () => {
-    const { file, reg } = threeProjects();
-    const team = reg.createSidebarGroup("Team", null);
-    reg.setSidebarGroupCollapsed(team.id, true);
-    expect(Registry.load(file).sidebarGroups[0]?.collapsed).toBe(true);
-    const restore = rejectAtomicReplaces(file);
-    expect(() => reg.setSidebarGroupCollapsed(team.id, true)).not.toThrow();
-    restore();
-    expect(reg.sidebarGroups[0]?.collapsed).toBe(true);
-  });
-
-  it("renameSidebarGroup allows a case change of its own name but rejects another group's name", () => {
-    const { file, reg } = threeProjects();
-    const team = reg.createSidebarGroup("Team", null);
-    reg.createSidebarGroup("Other", null);
-    reg.renameSidebarGroup(team.id, "TEAM");
-    expect(reg.sidebarGroups[0]?.name).toBe("TEAM");
-    expect(Registry.load(file).sidebarGroups[0]?.name).toBe("TEAM");
-    expect(() => reg.renameSidebarGroup(team.id, "other")).toThrow(
-      "A group named “other” already exists.",
-    );
-    expect(reg.sidebarGroups.map((g) => g.name)).toEqual(["TEAM", "Other"]);
+    reg.addProject("/abs/c");
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      settings: Record<string, unknown>;
+      projects: { path: string }[];
+      sessions: { tabId: string }[];
+    };
+    expect(raw).not.toHaveProperty("sidebarGroups");
+    expect(raw.settings).not.toHaveProperty("sessionOrderFrozen");
+    expect(raw.projects.map((p) => p.path)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
+    expect(raw.sessions.map((s) => s.tabId)).toEqual(["s-1", "s-2"]);
   });
 });

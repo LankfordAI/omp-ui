@@ -48,7 +48,6 @@
     "./session-tree": "./src/session-tree.ts",
     "./side-questions": "./src/side-questions.ts",
     "./live-voice": "./src/live-voice.ts",
-    "./sidebar-groups": "./src/sidebar-groups.ts",
     "./title-card": "./src/title-card.ts",
     "./vault-shared": "./src/vault-shared.ts",
     "./fleet": "./src/fleet.ts"

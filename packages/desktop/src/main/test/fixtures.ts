@@ -31,7 +31,6 @@ interface RegistrySettings {
   liveWorkParking: boolean;
   liveProgressReportMinutes: number | null;
   sttModel: string | null;
-  sessionOrderFrozen: boolean;
   memoryDefaultsSeeded: boolean;
   autoThinkingDefaultSeeded: boolean;
   reviewRoster: unknown;
@@ -136,9 +135,6 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     liveWorkParking: true,
     liveProgressReportMinutes: null,
     sttModel: null,
-    // Default false so seeds without the marker exercise the one-time
-    // recency freeze exactly like pre-#274 registries do.
-    sessionOrderFrozen: false,
     memoryDefaultsSeeded: false,
     reviewRoster: null,
     reviewRosterImported: true,

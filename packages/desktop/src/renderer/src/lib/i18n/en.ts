@@ -17,7 +17,6 @@ export const en = {
 
   // App.tsx — TitleBar
   "app.titlebar.newSession": "new session — pick a project",
-  "app.titlebar.addProject": "add project",
   "app.titlebar.expandSidebar": "expand sidebar",
   "app.titlebar.collapseSidebar": "collapse sidebar",
 
@@ -26,7 +25,7 @@ export const en = {
 
   // App Welcome
   "app.welcome.hasProjectsHint":
-    "No sessions open — start one with the + button or Ctrl+Shift+N, or reopen a past session from the command palette.",
+    "No sessions open — start one with New session in the sidebar or Ctrl+Shift+N, or reopen one from Settled.",
   "app.welcome.addProject": "Add project",
   "app.welcome.openSession": "Open session…",
   "app.welcome.noProjectsHint":
@@ -49,6 +48,12 @@ export const en = {
   "quickopen.footer.select": "Select",
   "quickopen.footer.back": "Back",
   "quickopen.footer.close": "Close",
+  "quickopen.footer.actions": "Actions",
+  "quickopen.project.actions": "actions for {name}",
+  "quickopen.page.back": "back to projects",
+  "quickopen.actions.placeholder": "Search actions…",
+  "quickopen.action.newSessionOn": "New session on {machine}",
+  "quickopen.action.openIn": "Open in {target}",
 
   // App getting-started checklist (issue #623)
   "app.gettingstarted.title": "Getting started",
@@ -81,7 +86,7 @@ export const en = {
   "app.gettingstarted.downloading": "installing — {percent}%",
 
   // App compact shell nav
-  "app.compact.projectsAndSessions": "projects and sessions",
+  "app.compact.sessions": "sessions",
   "app.compact.inspector": "inspector",
 
   // ExtensionDialogHost.tsx
@@ -2305,7 +2310,6 @@ export const en = {
   "project.actions.remove": "Remove project…",
   "project.actions.lab": "Experiments",
   "project.actions.newExperiment": "New experiment…",
-  "project.actions.moveToGroup": "Move to group…",
 
   "project.picker.pathLabel": "project directory path",
   "project.picker.typePath": "Type a path",
@@ -2323,18 +2327,6 @@ export const en = {
 
   "project.open.files": "Files",
   "project.open.terminal": "Terminal",
-  "project.open.opening": "Opening…",
-  "project.open.open": "Open",
-  "project.open.openProject": "Open {name}",
-  "project.open.openProjectIn": "Open {name} in {target}",
-  "project.open.checking": "checking how {name} can be opened…",
-  "project.open.openPathIn": "open {path} in {target}",
-  "project.open.chooseAria": "Choose how to open {name}",
-  "project.open.chooseTitle": "choose how to open {name}",
-  "project.open.dismissError": "dismiss open error for {name}",
-  "project.open.filesDescription":
-    "Opens the project directory in the system file manager.",
-  "project.open.terminalDescription": "Opens a system terminal at the project root.",
 
   "project.settings.selectorProvider":
     "use provider/model-id — omp's selectors name the provider",
@@ -2409,8 +2401,6 @@ export const en = {
   "sidebar.session.implementsFrom": "Implements “{planTitle}” from {sourceTitle}",
   "sidebar.session.implementsUnavailable":
     "Implements “{planTitle}” — source unavailable",
-  "sidebar.session.reorder": "reorder {title}",
-  "sidebar.session.reorderTitle": "reorder {title} — drag, or Alt+↑ / Alt+↓",
   "sidebar.session.implementation": "implementation",
   "sidebar.session.sourceUnavailable": "source unavailable",
   "sidebar.session.planSource": "plan source",
@@ -2429,74 +2419,29 @@ export const en = {
   "sidebar.session.liveVoiceArmed": "live voice: ready — resume by viewing",
   "sidebar.session.liveVoicePending": "live voice: results waiting",
 
-  "sidebar.project.reorder": "reorder {name}",
-  "sidebar.project.reorderTitle": "reorder {name} — drag, or Alt+↑ / Alt+↓",
-  "sidebar.project.sessions": "{n} sessions",
-  "sidebar.project.live": "{n} live",
-  "sidebar.project.actions": "actions for {name}",
-  "sidebar.project.settings": "project settings for {name}",
-  "sidebar.project.moveToGroup": "move {name} to a group",
-  "sidebar.project.lab": "experiments in {name}",
-  "sidebar.project.newExperiment": "new experiment in {name}",
-  "sidebar.project.newSession": "new session",
-  "sidebar.project.newPrivate": "new private session",
-  "sidebar.project.newSessionOptions": "new session options for {name}",
-  "sidebar.project.remove": "remove project",
-  "sidebar.project.noSessions": "no sessions yet",
-  "sidebar.project.showing": "showing {shown} of {total}",
-  "sidebar.project.showLess": "show less",
-  "sidebar.project.moreSession": "{remaining} more session in {name}",
-  "sidebar.project.moreSessions": "{remaining} more sessions in {name}",
-  "sidebar.project.showMore": "show {n} more",
-  "sidebar.project.railSummary":
-    "{name} — {sessions} sessions, {live} live",
   "sidebar.project.add": "add project",
-  "sidebar.project.addButton": "Add project",
 
-  // Sidebar groups (issue #745)
-  "sidebar.group.ungrouped": "Ungrouped",
-  "sidebar.group.toggle": "Collapse or expand {name}",
-  "sidebar.group.reorder": "reorder group {name}",
-  "sidebar.group.reorderTitle": "reorder group {name} — drag, or Alt+↑ / Alt+↓",
-  "sidebar.group.rename": "rename group {name}",
-  "sidebar.group.remove": "remove group {name} (its projects stay)",
-  "sidebar.group.projects": "{n} projects",
-  "sidebar.group.empty": "Drag projects here",
-  "sidebar.group.create": "new group",
+  "sidebar.newSession": "new session — pick a project",
+  "sidebar.settled.heading": "Settled ({n})",
+  "sidebar.session.chat": "chat",
 
-  "sidebar.filter.placeholder": "filter sessions…",
+  "sidebar.filter.placeholder": "Search sessions…",
   "sidebar.filter.label": "filter sessions",
   "sidebar.filter.clear": "clear filter",
 
-  "sidebar.mode.label": "Sidebar list",
-  "sidebar.mode.work": "Work",
-  "sidebar.mode.chat": "Chat",
-  "sidebar.chats.heading": "Chats",
-  "sidebar.chats.new": "New chat",
-  "sidebar.chats.newPrivate": "New private chat",
-  "sidebar.chats.empty": "No chats yet",
-  "sidebar.chats.emptyHint": "A chat is a session with no project, for planning, brainstorming, or writing.",
-  "sidebar.chats.noMatches": "No chats match “{query}”",
 
-  "sidebar.hosts.filter": "filter by host",
-  "sidebar.hosts.all": "All hosts",
-  "sidebar.hosts.local": "This computer",
-  "sidebar.hosts.machineLabel": "{machine} — {path}",
-  "sidebar.unified.newSessionOn": "new session on {machine}",
-  "sidebar.unified.checkout": "{machine} checkout",
 
-  "sidebar.empty.noProjects": "No projects yet",
-  "sidebar.empty.noProjectsHint":
-    "Point omp-ui at a repository and every session you start there shows up here.",
   "sidebar.empty.noMatches": "Nothing matches “{query}”",
-  "sidebar.empty.noMatchesHint": "No session title or project name contains that.",
+  "sidebar.empty.noMatchesHint": "No session title, plan, project, or machine name contains that.",
+  "sidebar.empty.noLive": "No running sessions",
+  "sidebar.empty.noLiveHint": "Start one with New session or {hotkey}. Past sessions wait under Settled.",
+  "sidebar.empty.newSession": "New session",
 
   "sidebar.footer.settings": "settings",
   "sidebar.footer.live": "live",
-  "sidebar.footer.sessionsOnRecord": "sessions on record",
-  "sidebar.footer.session": "{n} session",
-  "sidebar.footer.sessions": "{n} sessions",
-  "sidebar.footer.resize": "resize project sidebar",
+  "sidebar.footer.resize": "resize sidebar",
+  "sidebar.footer.hostsAttention": "{n} unreachable",
+  "sidebar.footer.hostsAttentionTitle": "Some joined instances are unreachable — open Remote instances",
   "settings.shell.application": "Application",
   "settings.shell.title": "Settings",
   "settings.nav.general": "General",
@@ -2607,15 +2552,6 @@ export const en = {
   "dialog.diagnostics.done": "Bundle written",
   "dialog.diagnostics.retry": "Retry",
   "dialog.diagnostics.cancel": "Cancel",
-  // SidebarGroupDialog.tsx (issue #745)
-  "dialog.group.createTitle": "New group",
-  "dialog.group.renameTitle": "Rename group",
-  "dialog.group.moveTitle": "Move {name} to a group",
-  "dialog.group.name": "Group name",
-  "dialog.group.none": "No group",
-  "dialog.group.newOption": "New group…",
-  "dialog.group.cancel": "Cancel",
-  "dialog.group.save": "Save",
   "app.crash.diagnostics":
     "If this keeps happening, export a diagnostic bundle from Settings → Advanced or the command palette.",
   // Remote instances (issue #416)

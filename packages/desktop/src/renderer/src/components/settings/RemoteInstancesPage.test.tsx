@@ -162,4 +162,25 @@ describe("RemoteInstancesPage (issue #416)", () => {
     });
     expect(backendMock.removeRemoteInstance).not.toHaveBeenCalled();
   });
+
+  it("offers Refresh state only for a joined instance and refreshes that instance (#658)", async () => {
+    backendMock.refreshRemoteInstanceState.mockClear();
+    useStore.setState({
+      state: backendState({
+        remoteInstances: [
+          remoteInstance({ id: "inst-a", nickname: "box-a", status: "joined" }),
+          remoteInstance({ id: "inst-b", nickname: "box-b", status: "unreachable", error: "timed out" }),
+        ],
+      }),
+    });
+    render();
+    const refreshButtons = [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(
+      (candidate) => candidate.textContent === "Refresh state",
+    );
+    expect(refreshButtons).toHaveLength(1);
+    // The joined panel renders first; its button sits right after Reconnect.
+    expect(refreshButtons[0]!.previousElementSibling?.textContent).toBe("Reconnect");
+    await act(async () => refreshButtons[0]!.click());
+    expect(backendMock.refreshRemoteInstanceState).toHaveBeenCalledExactlyOnceWith("inst-a");
+  });
 });

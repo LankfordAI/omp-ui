@@ -58,7 +58,6 @@ import {
   installDesktopViewPersistence,
   installLiveVoiceParkResumeGuard,
   installViewedTabReporter,
-  pruneFocus,
   restoreDesktopView,
 } from "./store/slices/view";
 import type { RpcTabState, UiStore } from "./store/types";
@@ -361,7 +360,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
       for (const [sourceTabId, implementationTabId] of Object.entries(
         observedPlanHandoffs,
       )) {
-        // The launch-ordered persisted winner is stable under sidebar moves
+        // The launch-ordered persisted winner is stable under registry reorders
         // and activity broadcasts. Only a different launch re-arms a source
         // the human released; repeated snapshots must preserve that release.
         if (
@@ -381,7 +380,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
             ? { ...tab, mode: record.mode }
             : tab;
         }),
-        focusedTabByProject: pruneFocus(current.focusedTabByProject, state),
       };
     });
     for (const tabId of reboot) void get().bootRpcTab(tabId);

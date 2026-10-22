@@ -38,8 +38,7 @@ export const DESKTOP_VIEW_STORAGE_KEY = "omp-ui.desktopView.v1";
 
 /**
  * The v1 on-disk shape (version 1 of the schema). `tabIds` preserves
- * first-occurrence renderer order; `focusedTabByProject` maps each project's
- * working directory to the tab the user last had focused there.
+ * first-occurrence renderer order.
  */
 export interface DesktopViewStateV1 {
   schemaVersion: 1;
@@ -49,8 +48,6 @@ export interface DesktopViewStateV1 {
   tabIds: string[];
   /** The tab focused at snapshot time, when one exists. */
   activeTabId: string | null;
-  /** Per-project focused tab, keyed by project working directory. */
-  focusedTabByProject: Record<string, string>;
   /** Expanded project sidebar width preference in CSS pixels. */
   sidebarWidth: number;
   /** Open inspector pane width preference in CSS pixels. */
@@ -79,9 +76,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * Parse + validate a serialized snapshot. Returns `null` for missing input,
  * unparseable JSON, or any shape violation, so a hand-edited or stale blob
  * degrades to "nothing to restore" rather than an exception. `tabIds` is
- * deduplicated preserving first-occurrence order; map entries whose value is
- * not a string are dropped, never rejected. Always returns a freshly built
- * object of exactly `DesktopViewStateV1`'s shape.
+ * deduplicated preserving first-occurrence order. Unknown keys — such as the
+ * `focusedTabByProject` map older builds wrote — are ignored. Always returns a
+ * freshly built object of exactly `DesktopViewStateV1`'s shape.
  */
 export function parseDesktopView(raw: string | null): DesktopViewStateV1 | null {
   if (raw === null) return null;
@@ -109,13 +106,6 @@ export function parseDesktopView(raw: string | null): DesktopViewStateV1 | null 
   const rawActive = value.activeTabId;
   if (rawActive !== null && typeof rawActive !== "string") return null;
 
-  const rawFocus = value.focusedTabByProject;
-  if (!isPlainObject(rawFocus)) return null;
-  const focusedTabByProject: Record<string, string> = {};
-  for (const [project, tabId] of Object.entries(rawFocus)) {
-    if (typeof tabId === "string") focusedTabByProject[project] = tabId;
-  }
-
   const sidebarWidth =
     typeof value.sidebarWidth === "number" && Number.isFinite(value.sidebarWidth)
       ? clampPanelWidth("sidebar", value.sidebarWidth)
@@ -134,7 +124,6 @@ export function parseDesktopView(raw: string | null): DesktopViewStateV1 | null 
     appVersion: value.appVersion as string | null,
     tabIds,
     activeTabId: rawActive,
-    focusedTabByProject,
     sidebarWidth,
     inspectorWidth,
     browserPaneWidth,
@@ -206,7 +195,6 @@ export interface ProjectedView {
   tabs: Array<{ tabId: string; hidden: boolean }>;
   exited: Record<string, number>;
   activeTabId: string | null;
-  focusedTabByProject: Record<string, string>;
   sidebarWidth: number;
   inspectorWidth: number;
   browserPaneWidth: number;
@@ -215,7 +203,7 @@ export interface ProjectedView {
 /**
  * Build a snapshot from the live projected view. `tabIds` keeps visible tabs
  * whose process is still running, in renderer order, deduplicated to first
- * occurrence; `activeTabId` and `focusedTabByProject` are copied as-is.
+ * occurrence; `activeTabId` is copied as-is.
  */
 export function projectDesktopView(
   view: ProjectedView,
@@ -234,7 +222,6 @@ export function projectDesktopView(
     appVersion,
     tabIds,
     activeTabId: view.activeTabId,
-    focusedTabByProject: { ...view.focusedTabByProject },
     sidebarWidth: clampPanelWidth("sidebar", view.sidebarWidth),
     inspectorWidth: clampPanelWidth("inspector", view.inspectorWidth),
     browserPaneWidth: clampPanelWidth("browserPane", view.browserPaneWidth),

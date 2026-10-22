@@ -75,40 +75,11 @@ export function IconClose({ className }: { className?: string }) {
   );
 }
 
-/** Drag handle and keyboard reorder control for a project or session row (issues #115, #120, #274). */
-export function IconGrip() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className="size-3.5"
-      fill="currentColor"
-    >
-      <circle cx="5.5" cy="4" r="0.9" />
-      <circle cx="10.5" cy="4" r="0.9" />
-      <circle cx="5.5" cy="8" r="0.9" />
-      <circle cx="10.5" cy="8" r="0.9" />
-      <circle cx="5.5" cy="12" r="0.9" />
-      <circle cx="10.5" cy="12" r="0.9" />
-    </svg>
-  );
-}
-
 /** Plus — shared by every new-session and add-project affordance. */
 export function IconPlus({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
       <path d="M8 3.5v9M3.5 8h9" />
-    </svg>
-  );
-}
-
-/** Erlenmeyer flask — the Lab and every experiment affordance (issue #559). */
-export function IconFlask({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
-      <path d="M6 2h4M6.5 2v4.2L2.9 12.4A1.2 1.2 0 0 0 3.95 14.2h8.1a1.2 1.2 0 0 0 1.05-1.8L9.5 6.2V2" />
-      <path d="M4.6 10.5h6.8" />
     </svg>
   );
 }
@@ -204,17 +175,6 @@ export function IconSessionTree({ className }: { className?: string }) {
       <circle cx="12" cy="7.6" r="1.7" />
       <circle cx="12" cy="12.8" r="1.7" />
       <path d="M4 4.9v7.9h6.3M4 7.6h6.3" />
-    </svg>
-  );
-}
-
-/** Three stacked bars — sidebar groups: create, and move a project into one (issue #745). */
-export function IconGroup({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
-      <rect x="2.5" y="2.5" width="11" height="3" rx="1" />
-      <rect x="2.5" y="6.5" width="11" height="3" rx="1" />
-      <rect x="2.5" y="10.5" width="11" height="3" rx="1" />
     </svg>
   );
 }

@@ -555,12 +555,6 @@ export type SettingsPage =
 export type CompactSurface =
   "sessions" | "inspector" | "session-actions" | "composer-options" | "browser-pane";
 
-/** What the sidebar group dialog edits (issue #745); in-memory, never persisted. */
-export type SidebarGroupDialogRequest =
-  | { kind: "create" }
-  | { kind: "rename"; groupId: string }
-  | { kind: "move"; projectPath: string };
-
 export type CompactionMethodsLoad =
   | { status: "unloaded" }
   | { status: "loading" }
@@ -945,7 +939,6 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   state: BackendState | null;
   tabs: TabInfo[];
   activeTabId: string | null;
-  focusedTabByProject: Record<string, string>;
   restoringTabs: boolean;
   exited: Record<string, number>;
   shellExited: Record<string, number>;
@@ -1013,8 +1006,6 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   projectPickerOpen: boolean;
   /** The instance a picked directory registers on; null = local (issue #416). */
   projectPickerInstanceId: string | null;
-  /** The open sidebar group dialog (issue #745); null = closed. */
-  sidebarGroupDialog: SidebarGroupDialogRequest | null;
   /** True while the first-run Getting started checklist overlay is open (issue #623). */
   gettingStartedOpen: boolean;
   /** True while the diagnostic-bundle export dialog is open (issue #413). */
@@ -1069,15 +1060,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   inspectorOpen: boolean;
   /** Split browser pane width preference (issue #519). */
   browserPaneWidth: number;
-  /** Sidebar host filter (issue #507): "all" | "local" | a joined instance id. */
-  hostScope: string;
   init(): Promise<void>;
   /** Re-paired browser socket (issue #890): reconcile state and re-boot live rpc tabs without a reload. */
   resyncAfterReconnect(): Promise<void>;
   openProjectPicker(instanceId?: string | null): void;
   closeProjectPicker(): void;
-  openSidebarGroupDialog(request: SidebarGroupDialogRequest): void;
-  closeSidebarGroupDialog(): void;
   openGettingStarted(): void;
   dismissGettingStarted(): void;
   openDiagnosticsDialog(): void;
@@ -1131,27 +1118,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     documents?: DocumentAttachment[];
     text: string[];
   } | null;
-  setHostScope(scope: string): void;
   restartSession(tabId: string): Promise<boolean>;
   addProject(path: string, instanceId?: string | null): Promise<void>;
   removeProject(path: string, instanceId?: string | null): Promise<void>;
   /** Stages the confirmation that forgets a joined remote instance (issue #416). */
   confirmRemoveRemoteInstance(instanceId: string, nickname: string): void;
-  moveProject(
-    projectPath: string,
-    beforePath: string | null,
-    instanceId?: string | null,
-  ): Promise<void>;
-  /** Sidebar groups (issue #745) — always this computer's registry. Rejects with the backend's message so the dialog can show it inline. */
-  createSidebarGroup(name: string, projectPath: string | null): Promise<void>;
-  /** Rejects with the backend's message so the dialog can show it inline. */
-  renameSidebarGroup(groupId: string, name: string): Promise<void>;
-  /** This and the next three report failures through reportError and never reject. */
-  removeSidebarGroup(groupId: string): Promise<void>;
-  moveSidebarGroup(groupId: string, beforeGroupId: string | null): Promise<void>;
-  setSidebarGroupCollapsed(groupId: string, collapsed: boolean): Promise<void>;
-  setProjectSidebarGroup(projectPath: string, groupId: string | null): Promise<void>;
-  moveSession(tabId: string, beforeTabId: string | null): Promise<void>;
   setProjectDefaultModel(
     projectPath: string,
     model: string | null,

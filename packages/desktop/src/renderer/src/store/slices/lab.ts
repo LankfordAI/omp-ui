@@ -261,7 +261,7 @@ export function createLabSlice(
     });
     set((s) => ({
       tabs: [...s.tabs, { tabId, mode: "rpc-ui", projectCwd, hidden: false, instanceId }],
-      ...focusOn(s, tabId, key),
+      ...focusOn(tabId),
       exited: dropExited(s.exited, tabId),
       experimentDialog: null,
     }));
@@ -341,10 +341,9 @@ export function createLabSlice(
         get().reportError(err); // no dialog is open to render it inline — the newSession posture
         return;
       }
-      const key = projectKey(instanceId, projectCwd);
       set((s) => ({
         tabs: [...s.tabs, { tabId, mode: "rpc-ui", projectCwd, hidden: false, instanceId }],
-        ...focusOn(s, tabId, key),
+        ...focusOn(tabId),
         exited: dropExited(s.exited, tabId),
       }));
       await m.pollUntilSettled(tabId);

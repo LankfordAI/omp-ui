@@ -817,45 +817,6 @@ export class MainBackend {
           this.registry.removeProject(projectPath);
           await this.broadcast();
         },
-        // Reordering never touches process state, so unlike remove there is no
-        // live-session guard; a null `beforePath` appends (issue #115).
-        [CH.moveProject]: async (projectPath: string, beforePath: string | null) => {
-          this.registry.moveProject(projectPath, beforePath ?? null);
-          await this.broadcast();
-        },
-        // Sidebar groups (issue #745): this registry only, never proxied to
-        // joined instances, and no live-session guard (no process is touched).
-        [CH.createSidebarGroup]: async (name: string, projectPath: string | null) => {
-          const group = this.registry.createSidebarGroup(name, projectPath ?? null);
-          await this.broadcast();
-          return group;
-        },
-        [CH.renameSidebarGroup]: async (groupId: string, name: string) => {
-          this.registry.renameSidebarGroup(groupId, name);
-          await this.broadcast();
-        },
-        [CH.removeSidebarGroup]: async (groupId: string) => {
-          this.registry.removeSidebarGroup(groupId);
-          await this.broadcast();
-        },
-        [CH.moveSidebarGroup]: async (groupId: string, beforeGroupId: string | null) => {
-          this.registry.moveSidebarGroup(groupId, beforeGroupId ?? null);
-          await this.broadcast();
-        },
-        [CH.setSidebarGroupCollapsed]: async (groupId: string, collapsed: boolean) => {
-          this.registry.setSidebarGroupCollapsed(groupId, collapsed);
-          await this.broadcast();
-        },
-        [CH.setProjectSidebarGroup]: async (projectPath: string, groupId: string | null) => {
-          this.registry.setProjectSidebarGroup(projectPath, groupId ?? null);
-          await this.broadcast();
-        },
-        // Reordering never touches process state, so like moveProject there
-        // is no live-session guard (#274).
-        [CH.moveSession]: async (tabId: string, beforeTabId: string | null) => {
-          this.registry.moveSession(tabId, beforeTabId ?? null);
-          await this.broadcast();
-        },
         [CH.setProjectDefaultModel]: async (projectPath: string, model: string | null) => {
           this.registry.setProjectDefaultModel(projectPath, model?.trim() || null);
           await this.broadcast();
@@ -2262,14 +2223,10 @@ export class MainBackend {
     }
     // Chats never join a project group (ADR-0059); registry order is newest first.
     const chats = await Promise.all(chatRecords.map((record) => this.summarize(record)));
-    // The registry arrays are the sidebar orders (issues #115, #274): projects
-    // append via `addProject` and reorder via `moveProject`; sessions insert
-    // at their project's top via `addSession` and reorder via `moveSession`.
-    // Nothing re-sorts here — otherwise a drag would be silently undone.
+    // Registry order is preserved as-is; the renderer sorts the sidebar by recency.
     return {
       projects: groups,
       chats,
-      sidebarGroups: [...this.registry.sidebarGroups],
       defaultMode: this.registry.getSetting("defaultMode"),
       planFormat: this.registry.getSetting("planFormat"),
       hibernateIdleMinutes: this.registry.getSetting("hibernateIdleMinutes"),

@@ -63,7 +63,6 @@ import type {
   WatchdogRosterResult,
   WatchdogWriteRequest,
   SessionMode,
-  SidebarGroup,
   SpawnRequest,
   StatsOverview,
   SttModelSnapshot,
@@ -267,44 +266,6 @@ export const BACKEND_CHANNELS = {
   },
   removeProject: { channel: "project:remove", ...request<[path: string], void>([str()]) },
   /**
-   * Moves a registered project to sit immediately before `beforePath` in the
-   * sidebar order; a null `beforePath` (or one that is not registered) appends
-   * it to the end. The order is the persisted registry order, so the change
-   * survives a restart. An unknown `projectPath`, and a `beforePath` equal to
-   * it, are no-ops.
-   */
-  moveProject: {
-    channel: "project:move",
-    ...request<[projectPath: string, beforePath: string | null], void>([str(), nullable(str())]),
-  },
-  /** Creates a sidebar group (optionally moving a project into it); rejects with a user-facing name error. */
-  createSidebarGroup: {
-    channel: "sidebarGroup:create",
-    ...request<[name: string, projectPath: string | null], SidebarGroup>([str(), nullable(str())]),
-  },
-  /** Renames a sidebar group; rejects with a user-facing name or "no longer exists" error. */
-  renameSidebarGroup: {
-    channel: "sidebarGroup:rename",
-    ...request<[groupId: string, name: string], void>([str(), str()]),
-  },
-  /** Removes a group; its projects become ungrouped. Unknown id is a no-op. */
-  removeSidebarGroup: { channel: "sidebarGroup:remove", ...request<[groupId: string], void>([str()]) },
-  /** Moves a group before `beforeGroupId`; null (or unknown) appends. Unknown `groupId` is a no-op. */
-  moveSidebarGroup: {
-    channel: "sidebarGroup:move",
-    ...request<[groupId: string, beforeGroupId: string | null], void>([str(), nullable(str())]),
-  },
-  /** Persists a group's collapsed state. Unknown id is a no-op. */
-  setSidebarGroupCollapsed: {
-    channel: "sidebarGroup:setCollapsed",
-    ...request<[groupId: string, collapsed: boolean], void>([str(), bool()]),
-  },
-  /** Moves a project into a group (null = ungrouped); it lands last there. */
-  setProjectSidebarGroup: {
-    channel: "project:setSidebarGroup",
-    ...request<[projectPath: string, groupId: string | null], void>([str(), nullable(str())]),
-  },
-  /**
    * Pins the project's default main model (issue #257) — the `provider/id`
    * selector new sessions boot with, ahead of last-used memory. null clears
    * the pin.
@@ -382,17 +343,6 @@ export const BACKEND_CHANNELS = {
   setProjectApprovalMode: {
     channel: "project:setApprovalMode",
     ...request<[projectCwd: string, value: ApprovalMode | null], void>([str(), nullable(approvalModeCodec)]),
-  },
-  /**
-   * Moves an owned session to sit immediately before `beforeTabId` in its
-   * project's sidebar order (#274); a null or unknown `beforeTabId` appends
-   * it. The order is the persisted registry array order, so the change
-   * survives a restart. An unknown `tabId`, and a `beforeTabId` equal to
-   * `tabId`, are no-ops. Never touches process state, live or otherwise.
-   */
-  moveSession: {
-    channel: "session:move",
-    ...request<[tabId: string, beforeTabId: string | null], void>([str(), nullable(str())]),
   },
   setDefaultMode: {
     channel: "settings:setDefaultMode",

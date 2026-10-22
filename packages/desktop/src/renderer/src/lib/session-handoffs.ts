@@ -2,31 +2,25 @@ import type {
   PlanImplementationSource,
   SessionSummary,
 } from "@omp-ui/core/types";
-import { sessionWindow } from "./session-window";
 
-export interface SessionHandoffEntry {
-  session: SessionSummary;
-  /** Presentation depth only; deeper lineage remains ordered and linked. */
-  depth: number;
-  /** The immediate source session when that source can be resolved safely. */
+/** Plan-handoff view of one row (issue #238). At most one of source/orphanSource is set. */
+export interface SessionHandoff {
+  /** The planning session this row implements, when it still resolves. */
   source: SessionSummary | null;
-  /** The saved source snapshot when its session cannot be resolved safely. */
+  /** Saved dispatch metadata when the planning session cannot be resolved. */
   orphanSource: PlanImplementationSource | null;
+  /** This row dispatched at least one implementation in the same input. */
   hasDescendants: boolean;
-  /** The root tab id shared by every row in a contiguous handoff tree. */
-  treeId: string;
 }
 
-export interface ArrangedSessionHandoffs {
-  entries: SessionHandoffEntry[];
-  shown: number;
-  remaining: number;
-  total: number;
-}
+export const NO_HANDOFF: SessionHandoff = Object.freeze({
+  source: null,
+  orphanSource: null,
+  hasDescendants: false,
+});
 
 interface HandoffNode {
   session: SessionSummary;
-  index: number;
   savedSource: PlanImplementationSource | null;
   parent: HandoffNode | null;
   children: HandoffNode[];
@@ -81,33 +75,19 @@ function cycleMembers(nodes: HandoffNode[]): Set<HandoffNode> {
   return cycles;
 }
 
-function matchesTree(nodes: HandoffNode[], query: string): boolean {
-  for (const node of nodes) {
-    if (node.session.title.toLowerCase().includes(query)) return true;
-    if (node.savedSource?.planTitle.toLowerCase().includes(query)) return true;
-  }
-  return false;
-}
-
 /**
- * Arrange one project's sessions in sidebar (registry) order into handoff
- * trees. The caller's input position is the positional authority: a tree ranks
- * by its root's own index and siblings by theirs — running activity never
- * moves a tree (issue #274). A source always renders before its descendants,
- * an ordinal-independent invariant of the parent links. Filtering and
- * pagination operate on whole trees so neither can strand half of a visible
- * handoff.
+ * Resolves every row's handoff against ONE host's full session set (all of a
+ * host's projects plus, locally, its chats), never a filtered or partitioned
+ * subset: a live implementation must still resolve its settled source.
+ * Rules are unchanged from the tree arrangement: a parent resolves only when
+ * the source tabId is unique, not self, not `missing`, in the same
+ * projectCwd, and not on a cycle. First occurrence of a duplicate tabId wins.
  */
-export function arrangeSessionHandoffs(
+export function resolveSessionHandoffs(
   sessions: readonly SessionSummary[],
-  query: string,
-  projectMatchesQuery: boolean,
-  visible: number,
-  focusedTabId: string | null | undefined,
-): ArrangedSessionHandoffs {
-  const nodes: HandoffNode[] = sessions.map((session, index) => ({
+): Map<string, SessionHandoff> {
+  const nodes: HandoffNode[] = sessions.map((session) => ({
     session,
-    index,
     savedSource: savedSourceOf(session),
     parent: null,
     children: [],
@@ -144,65 +124,14 @@ export function arrangeSessionHandoffs(
   for (const node of cycleMembers(nodes)) node.parent = null;
   for (const node of nodes) node.parent?.children.push(node);
 
-  const byInputIndex = (a: HandoffNode, b: HandoffNode): number => a.index - b.index;
-  for (const node of nodes) node.children.sort(byInputIndex);
-  const roots = nodes.filter((node) => node.parent === null).sort(byInputIndex);
-
-  const normalizedQuery = query.trim().toLowerCase();
-  const allEntries: SessionHandoffEntry[] = [];
-
-  for (const root of roots) {
-    const treeNodes: HandoffNode[] = [];
-    const stack = [root];
-    while (stack.length > 0) {
-      const node = stack.pop()!;
-      treeNodes.push(node);
-      for (let i = node.children.length - 1; i >= 0; i -= 1) {
-        stack.push(node.children[i]!);
-      }
-    }
-
-    if (
-      !projectMatchesQuery &&
-      normalizedQuery.length > 0 &&
-      !matchesTree(treeNodes, normalizedQuery)
-    ) {
-      continue;
-    }
-
-    const treeId = root.session.tabId;
-    const depths = new Map<HandoffNode, number>([[root, 0]]);
-    for (const node of treeNodes) {
-      const trueDepth = depths.get(node)!;
-      for (const child of node.children) depths.set(child, trueDepth + 1);
-      allEntries.push({
-        session: node.session,
-        depth: Math.min(2, trueDepth),
-        source: node.parent?.session ?? null,
-        orphanSource: node.parent === null ? node.savedSource : null,
-        hasDescendants: node.children.length > 0,
-        treeId,
-      });
-    }
+  const out = new Map<string, SessionHandoff>();
+  for (const node of nodes) {
+    if (out.has(node.session.tabId)) continue;
+    out.set(node.session.tabId, {
+      source: node.parent?.session ?? null,
+      orphanSource: node.parent === null ? node.savedSource : null,
+      hasDescendants: node.children.length > 0,
+    });
   }
-
-  const total = allEntries.length;
-  const focusedIndex = focusedTabId
-    ? allEntries.findIndex((entry) => entry.session.tabId === focusedTabId)
-    : -1;
-  let { shown } = sessionWindow(total, visible, focusedIndex);
-
-  // sessionWindow chooses the required row count. If its last row intersects a
-  // tree, finish that contiguous tree before paginating.
-  if (shown > 0 && shown < total) {
-    const finalTreeId = allEntries[shown - 1]!.treeId;
-    while (shown < total && allEntries[shown]!.treeId === finalTreeId) shown += 1;
-  }
-
-  return {
-    entries: allEntries.slice(0, shown),
-    shown,
-    remaining: total - shown,
-    total,
-  };
+  return out;
 }

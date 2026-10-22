@@ -4,12 +4,9 @@ vi.mock("../../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => 
 import type { BackendState, ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import type { RpcTabState, TabInfo } from "../../store";
 import { backendState, remoteInstance, rpcTabState, tabInfo } from "../../test/fixtures";
-import { projectKey } from "../../lib/project-key";
 import {
   findOwner,
   findRecord,
-  forgetFocus,
-  pruneFocus,
   runningSessionTitleOnCheckout,
 } from "./view";
 
@@ -146,32 +143,5 @@ describe("remote instance groups (issue #416)", () => {
     });
     expect(findOwner(state, "local-1")?.instanceId).toBeNull();
     expect(findOwner(state, "nowhere")).toBeUndefined();
-  });
-
-  it("pruneFocus keeps a composite key while its instance and tab exist, drops it once the instance vanishes", () => {
-    const remoteKey = projectKey(INSTANCE, PROJECT);
-    const focus = { [PROJECT]: "local-1", [remoteKey]: "remote-1" };
-    expect(pruneFocus(focus, remoteState())).toBe(focus);
-
-    const gone = backendState({ projects: [group(PROJECT, summary("local-1", "Local"))] });
-    expect(pruneFocus(focus, gone)).toEqual({ [PROJECT]: "local-1" });
-  });
-
-  it("forgetFocus reassigns within the same instance, never across the path twin", () => {
-    const remoteKey = projectKey(INSTANCE, PROJECT);
-    const tabs: TabInfo[] = [
-      tabInfo({ tabId: "local-1", projectCwd: PROJECT }),
-      tabInfo({ tabId: "remote-1", projectCwd: PROJECT, instanceId: INSTANCE }),
-      tabInfo({ tabId: "remote-2", projectCwd: PROJECT, instanceId: INSTANCE }),
-    ];
-    const focus = { [PROJECT]: "local-1", [remoteKey]: "remote-2" };
-    // Hiding the remote's focused tab hands focus to its sibling on that
-    // instance; the local twin is untouched.
-    expect(forgetFocus(focus, "remote-2", tabs.filter((t) => t.tabId !== "remote-2"))).toEqual({
-      [PROJECT]: "local-1",
-      [remoteKey]: "remote-1",
-    });
-    // With no remote sibling left the composite entry goes, not the local one.
-    expect(forgetFocus(focus, "remote-2", [tabs[0]!])).toEqual({ [PROJECT]: "local-1" });
   });
 });

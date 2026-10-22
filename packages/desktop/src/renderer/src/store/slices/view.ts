@@ -28,10 +28,9 @@ import {
   type RailTab,
 } from "../../lib/panel-layout";
 import { randomId } from "../../lib/random-id";
-import { projectKey } from "../../lib/project-key";
 import { markSharePrivacySeen } from "../../lib/share-privacy";
 import type { StoreMachinery } from "./shared";
-import type { CompactSurface, ErrorNotice, SidebarGroupDialogRequest, UiStore } from "../types";
+import type { CompactSurface, ErrorNotice, UiStore } from "../types";
 import { bumpLiveVoiceGeneration, cancelLiveSwitch } from "./live-work-park";
 import { TREE_COMMAND } from "@omp-ui/core/session-tree";
 
@@ -41,12 +40,9 @@ export type { CompactSurface } from "../types";
 export interface ViewSlice {
   tabs: UiStore["tabs"];
   activeTabId: string | null;
-  focusedTabByProject: Record<string, string>;
   restoringTabs: boolean;
   projectPickerOpen: boolean;
   projectPickerInstanceId: string | null;
-  /** The open sidebar group dialog (issue #745); in-memory, not in DesktopViewStateV1. */
-  sidebarGroupDialog: SidebarGroupDialogRequest | null;
   /** True while the first-run Getting started checklist overlay is open (issue #623). */
   gettingStartedOpen: boolean;
   /** The diagnostic-bundle export dialog (issue #413). */
@@ -104,13 +100,8 @@ export interface ViewSlice {
   focusRailPane(tabId: string, pane: RailTab): void;
   /** Split browser pane width preference (issue #519); persisted beside the other two. */
   browserPaneWidth: number;
-  /** Sidebar host filter (issue #507): "all" | "local" | a joined instance id.
-   *  In-memory like sidebarCollapsed — deliberately not in DesktopViewStateV1. */
-  hostScope: string;
   openProjectPicker(instanceId?: string | null): void;
   closeProjectPicker(): void;
-  openSidebarGroupDialog(request: SidebarGroupDialogRequest): void;
-  closeSidebarGroupDialog(): void;
   openDiagnosticsDialog(): void;
   closeDiagnosticsDialog(): void;
   openGettingStarted(): void;
@@ -152,7 +143,6 @@ export interface ViewSlice {
   setInspectorWidth(width: number): void;
   setInspectorOpen(open: boolean): void;
   setBrowserPaneWidth(width: number): void;
-  setHostScope(scope: string): void;
   /**
    * Backend failures awaiting acknowledgment (issue #373): the renderer-side
    * replacement for window.alert. Arrival order is kept; nothing times out,
@@ -164,81 +154,17 @@ export interface ViewSlice {
 }
 
 /**
- * Keeps global and per-project focus in lockstep for every tab activation.
- * `key` is the tab's projectKey(instanceId, projectCwd); undefined when the
- * tab is unknown, in which case only the global focus moves. Activating a tab
- * also closes the Lab, the Stats view, and the Fleet view (issues #559,
- * #668, #899): the main pane shows one thing at a time.
+ * Moves the global focus for a tab activation. Activating a tab also closes
+ * the Lab, the Stats view, and the Fleet view (issues #559, #668, #899): the
+ * main pane shows one thing at a time.
  */
 export function focusOn(
-  state: Pick<UiStore, "activeTabId" | "focusedTabByProject">,
   tabId: string,
-  key: string | undefined,
-): Pick<UiStore, "activeTabId" | "focusedTabByProject" | "lab" | "stats" | "fleet"> {
-  return {
-    activeTabId: tabId,
-    focusedTabByProject:
-      key === undefined
-        ? state.focusedTabByProject
-        : { ...state.focusedTabByProject, [key]: tabId },
-    lab: null,
-    stats: null,
-    fleet: null,
-  };
+): Pick<UiStore, "activeTabId" | "lab" | "stats" | "fleet"> {
+  return { activeTabId: tabId, lab: null, stats: null, fleet: null };
 }
 
-/** Reassigns or forgets a project's remembered focus when a tab is hidden. */
-export function forgetFocus(
-  focusedTabByProject: Record<string, string>,
-  tabId: string,
-  tabs: UiStore["tabs"],
-): Record<string, string> {
-  const entry = Object.entries(focusedTabByProject).find(([, focused]) => focused === tabId);
-  if (entry === undefined) return focusedTabByProject;
-  const [key] = entry;
-  const remaining = tabs.filter(
-    (tab) => !tab.hidden && projectKey(tab.instanceId, tab.projectCwd) === key,
-  );
-  const next = { ...focusedTabByProject };
-  if (remaining.length > 0) next[key] = remaining[remaining.length - 1]!.tabId;
-  else delete next[key];
-  return next;
-}
-
-/**
- * Removes focus entries whose project or tab no longer exists in backend
- * state. Remote projects count under their composite key, so a vanished
- * instance drops every entry it owned (issue #416).
- */
-export function pruneFocus(
-  focusedTabByProject: Record<string, string>,
-  state: BackendState,
-): Record<string, string> {
-  const projects = new Set<string>();
-  const tabIds = new Set<string>();
-  const collect = (instanceId: string | null, groups: BackendState["projects"]): void => {
-    for (const group of groups) {
-      projects.add(projectKey(instanceId, group.project.path));
-      for (const session of group.sessions) tabIds.add(session.tabId);
-    }
-  };
-  collect(null, state.projects);
-  // Chats are local and ungrouped: each keys its own scratch-dir "project".
-  for (const chat of state.chats) {
-    projects.add(projectKey(null, chat.projectCwd));
-    tabIds.add(chat.tabId);
-  }
-  for (const instance of state.remoteInstances) collect(instance.id, instance.projects);
-  const next: Record<string, string> = {};
-  let changed = false;
-  for (const [key, tabId] of Object.entries(focusedTabByProject)) {
-    if (projects.has(key) && tabIds.has(tabId)) next[key] = tabId;
-    else changed = true;
-  }
-  return changed ? next : focusedTabByProject;
-}
-
-/** Restores resumable tabs in saved renderer order, then settles saved focus. */
+/** Restores resumable tabs in saved renderer order, then settles the active tab. */
 export async function restoreSavedTabs(
   get: StoreApi<UiStore>["getState"],
   set: StoreApi<UiStore>["setState"],
@@ -253,26 +179,11 @@ export async function restoreSavedTabs(
   }
 
   const restoredSet = new Set(restored);
-  const focusedTabByProject: Record<string, string> = {};
-  const lastRestoredByProject = new Map<string, string>();
-  for (const tabId of restored) {
-    const owner = findOwner(get().state, tabId);
-    if (owner) {
-      lastRestoredByProject.set(projectKey(owner.instanceId, owner.record.projectCwd), tabId);
-    }
-  }
-  for (const [key, tabId] of Object.entries(saved.focusedTabByProject)) {
-    if (restoredSet.has(tabId)) focusedTabByProject[key] = tabId;
-  }
-  for (const [key, tabId] of lastRestoredByProject) {
-    if (!(key in focusedTabByProject)) focusedTabByProject[key] = tabId;
-  }
-
   const activeTabId =
     saved.activeTabId !== null && restoredSet.has(saved.activeTabId)
       ? saved.activeTabId
       : (restored.at(-1) ?? null);
-  set({ focusedTabByProject, activeTabId });
+  set({ activeTabId });
 }
 
 /** Restores the saved view after initialization's combined backend commit. */
@@ -323,7 +234,6 @@ export function installDesktopViewPersistence(api: StoreApi<UiStore>): void {
       state.tabs === previous.tabs &&
       state.exited === previous.exited &&
       state.activeTabId === previous.activeTabId &&
-      state.focusedTabByProject === previous.focusedTabByProject &&
       state.appUpdate.currentVersion === previous.appUpdate.currentVersion &&
       state.sidebarWidth === previous.sidebarWidth &&
       state.inspectorWidth === previous.inspectorWidth &&
@@ -465,11 +375,9 @@ export function installLiveVoiceParkResumeGuard(
 export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, get) => ({
   tabs: [],
   activeTabId: null,
-  focusedTabByProject: {},
   restoringTabs: false,
   projectPickerOpen: false,
   projectPickerInstanceId: null,
-  sidebarGroupDialog: null,
   gettingStartedOpen: false,
   diagnosticsDialogOpen: false,
   browserPaneClearDialogOpen: false,
@@ -489,7 +397,6 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   inspectorOpen: false,
   railPaneFocus: {},
   browserPaneWidth: BROWSER_PANE_DEFAULT_WIDTH,
-  hostScope: "all",
   errorNotices: [],
   reportError(error) {
     set((s) => ({
@@ -524,12 +431,6 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   closeProjectPicker() {
     set({ projectPickerOpen: false, projectPickerInstanceId: null });
-  },
-  openSidebarGroupDialog(request) {
-    set({ sidebarGroupDialog: request });
-  },
-  closeSidebarGroupDialog() {
-    set({ sidebarGroupDialog: null });
   },
   openGettingStarted() {
     set({ gettingStartedOpen: true });
@@ -648,9 +549,6 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   setBrowserPaneWidth(width) {
     set({ browserPaneWidth: clampPanelWidth("browserPane", width) });
-  },
-  setHostScope(scope) {
-    set({ hostScope: scope });
   },
 });
 

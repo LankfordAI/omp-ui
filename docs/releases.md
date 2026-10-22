@@ -9,6 +9,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Fleet members show their omp and omp-ui versions as chips, including below-the-floor and staged-update badges, and a Full-control member can update itself on request — its managed omp binary lands immediately, an omp-ui update stages and installs at the member's next quit; nothing ships through the join link (#905).
 - macOS releases and nightlies ship for Apple Silicon only; the Intel (`mac-x64`) DMG and ZIP are no longer built. Existing Intel installs stay on their last build, and their update check reports that no compatible update file exists (#908).
 - A new native session started on a joined remote host no longer sticks on the boot skeleton with "No models are available" when the host adopts a pre-booted session: the host now announces the session before its first frame, so this app routes the boot to the right machine (#907).
+- The sidebar lists running sessions only, newest activity first, with every other session in a collapsed Settled section; one New session button opens the project quick-open, whose No project row starts a chat and whose project pages hold project settings, open targets, and remove; sidebar groups and manual reordering are gone (#919).
 
 ## Choose a download
 

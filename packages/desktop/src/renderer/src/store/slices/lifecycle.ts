@@ -44,7 +44,7 @@ import {
 } from "./shared";
 import { disposeTabRuntime } from "./rpc-command";
 import { liveVoiceGeneration } from "./live-work-park";
-import { findInstance, findOwner, findRecord, findWorktreeAt, focusOn, forgetFocus } from "./view";
+import { findInstance, findOwner, findRecord, findWorktreeAt, focusOn } from "./view";
 import type {
   DeleteConfirmation,
   LifecycleConfirmation,
@@ -79,14 +79,6 @@ export type LifecycleSlice = Pick<
   | "addProject"
   | "removeProject"
   | "confirmRemoveRemoteInstance"
-  | "moveProject"
-  | "createSidebarGroup"
-  | "renameSidebarGroup"
-  | "removeSidebarGroup"
-  | "moveSidebarGroup"
-  | "setSidebarGroupCollapsed"
-  | "setProjectSidebarGroup"
-  | "moveSession"
   | "setProjectDefaultModel"
   | "setProjectDefaultAdvisorModel"
   | "setProjectBrowserClock"
@@ -140,7 +132,7 @@ export type LifecycleSlice = Pick<
   teardownProcess(tabId: string, code: number, hibernated?: boolean): void;
   /**
    * Forgets a tab the renderer can no longer address (issue #416): its
-   * TabInfo, rpc slot, exit/hibernation marks, remembered focus, and runtime.
+   * TabInfo, rpc slot, exit/hibernation marks, and runtime.
    * The record is untouched — the owning instance keeps or already lost it.
    */
   dropTab(tabId: string): void;
@@ -292,7 +284,7 @@ export function createLifecycleSlice(
 
   /**
    * Forgets tabs in one commit: TabInfo, rpc slot, exit and hibernation
-   * marks, staged TUI handoff, remembered focus, and the renderer runtime.
+   * marks, staged TUI handoff, and the renderer runtime.
    * Active focus moves to the last visible survivor.
    */
   const dropTabs = (gone: readonly string[], reason: string): void => {
@@ -311,10 +303,6 @@ export function createLifecycleSlice(
         rpc,
         tabs,
         activeTabId,
-        focusedTabByProject: gone.reduce(
-          (focus, id) => forgetFocus(focus, id, tabs),
-          s.focusedTabByProject,
-        ),
         exited: gone.reduce((ex, id) => dropExited(ex, id), s.exited),
         liveVoice: gone.reduce((badge, id) => dropLiveVoiceBadge(badge, id), s.liveVoice),
         hibernated: gone.reduce((hb, id) => dropHibernated(hb, id), s.hibernated),
@@ -443,7 +431,7 @@ export function createLifecycleSlice(
         ...s.tabs,
         { tabId: freshId, mode, projectCwd, hidden: false, instanceId },
       ],
-      ...focusOn(s, freshId, projectKey(instanceId, projectCwd)),
+      ...focusOn(freshId),
       exited: dropExited(s.exited, freshId),
     }));
     await m.pollUntilSettled(freshId);
@@ -671,7 +659,7 @@ export function createLifecycleSlice(
         ...s.tabs,
         { tabId: freshId, mode: "rpc-ui", projectCwd: spawnProjectCwd, hidden: false, instanceId: spawnInstanceId },
       ],
-      ...focusOn(s, freshId, projectKey(spawnInstanceId, spawnProjectCwd)),
+      ...focusOn(freshId),
       exited: dropExited(s.exited, freshId),
     }));
     await m.pollUntilSettled(freshId);
@@ -918,74 +906,7 @@ export function createLifecycleSlice(
   };
 
   // No optimistic update: the `stateChanged` broadcast replaces `state`
-  // authoritatively, exactly like removeProject.
-  const moveProject = async (
-    projectPath: string,
-    beforePath: string | null,
-    instanceId: string | null = null,
-  ): Promise<void> => {
-    try {
-      await backendFor(instanceId).moveProject(projectPath, beforePath);
-    } catch (err) {
-      get().reportError(err);
-    }
-  };
-
-  // Sidebar groups (issue #745) live on this computer's registry only, so
-  // these always use the local `backend`, never `backendFor`. No optimistic
-  // update: the `stateChanged` broadcast replaces `state` authoritatively,
-  // exactly like moveProject. Create/rename reject so the dialog can show
-  // the backend's message inline.
-  const createSidebarGroup = async (name: string, projectPath: string | null): Promise<void> => {
-    await backend.createSidebarGroup(name, projectPath);
-  };
-  const renameSidebarGroup = async (groupId: string, name: string): Promise<void> => {
-    await backend.renameSidebarGroup(groupId, name);
-  };
-  const removeSidebarGroup = async (groupId: string): Promise<void> => {
-    try {
-      await backend.removeSidebarGroup(groupId);
-    } catch (err) {
-      get().reportError(err);
-    }
-  };
-  const moveSidebarGroup = async (groupId: string, beforeGroupId: string | null): Promise<void> => {
-    try {
-      await backend.moveSidebarGroup(groupId, beforeGroupId);
-    } catch (err) {
-      get().reportError(err);
-    }
-  };
-  const setSidebarGroupCollapsed = async (groupId: string, collapsed: boolean): Promise<void> => {
-    try {
-      await backend.setSidebarGroupCollapsed(groupId, collapsed);
-    } catch (err) {
-      get().reportError(err);
-    }
-  };
-  const setProjectSidebarGroup = async (projectPath: string, groupId: string | null): Promise<void> => {
-    try {
-      await backend.setProjectSidebarGroup(projectPath, groupId);
-    } catch (err) {
-      get().reportError(err);
-    }
-  };
-
-  // No optimistic update: the `stateChanged` broadcast replaces `state`
-  // authoritatively, exactly like moveProject.
-  const moveSession = async (
-    tabId: string,
-    beforeTabId: string | null,
-  ): Promise<void> => {
-    try {
-      await backend.moveSession(tabId, beforeTabId);
-    } catch (err) {
-      get().reportError(err);
-    }
-  };
-
-  // No optimistic update: the `stateChanged` broadcast replaces `state`
-  // authoritatively, exactly like moveProject. A rejected remote call is
+  // authoritatively, exactly like removeProject. A rejected remote call is
   // reported and resolved — the local registry is never touched as a fallback.
   const toggleFavorite = async (
     key: string,
@@ -1019,7 +940,7 @@ export function createLifecycleSlice(
       landed = true;
       set((s) => ({
         tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false, instanceId }],
-        ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
+        ...focusOn(tabId),
         exited: dropExited(s.exited, tabId),
       }));
       // A fresh session is the moment the user checks what the remote has
@@ -1102,7 +1023,7 @@ export function createLifecycleSlice(
       set((s) => ({
         state,
         tabs: [...s.tabs, { tabId, mode: "rpc-ui", projectCwd: rec.projectCwd, hidden: false, instanceId: null }],
-        ...focusOn(s, tabId, projectKey(null, rec.projectCwd)),
+        ...focusOn(tabId),
         exited: dropExited(s.exited, tabId),
       }));
     });
@@ -1182,7 +1103,7 @@ export function createLifecycleSlice(
       }
       set((s) => ({
         tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false, instanceId }],
-        ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
+        ...focusOn(tabId),
         exited: dropExited(s.exited, tabId),
       }));
     };
@@ -1311,7 +1232,7 @@ export function createLifecycleSlice(
         tabs: s.tabs.map((t) =>
           t.tabId === tabId ? { ...t, hidden: false } : t,
         ),
-        ...focusOn(s, tabId, projectKey(existing.instanceId, existing.projectCwd)),
+        ...focusOn(tabId),
       }));
       return;
     }
@@ -1343,7 +1264,7 @@ export function createLifecycleSlice(
             instanceId,
           },
         ],
-        ...focusOn(s, tabId, projectKey(instanceId, rec.projectCwd)),
+        ...focusOn(tabId),
         exited: dropExited(s.exited, tabId),
         hibernated: dropHibernated(s.hibernated, tabId),
       }));
@@ -1353,15 +1274,12 @@ export function createLifecycleSlice(
   };
 
   const focusTab = (tabId: string): void => {
-    set((s) => {
-      const tab = s.tabs.find((t) => t.tabId === tabId);
-      return {
-        tabs: s.tabs.map((t) =>
-          t.tabId === tabId ? { ...t, hidden: false } : t,
-        ),
-        ...focusOn(s, tabId, tab && projectKey(tab.instanceId, tab.projectCwd)),
-      };
-    });
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.tabId === tabId ? { ...t, hidden: false } : t,
+      ),
+      ...focusOn(tabId),
+    }));
   };
 
   const hideTab = (tabId: string): void => {
@@ -1375,11 +1293,7 @@ export function createLifecycleSlice(
         activeTabId =
           visible.length > 0 ? visible[visible.length - 1]!.tabId : null;
       }
-      return {
-        tabs,
-        activeTabId,
-        focusedTabByProject: forgetFocus(s.focusedTabByProject, tabId, tabs),
-      };
+      return { tabs, activeTabId };
     });
   };
 
@@ -1652,7 +1566,7 @@ export function createLifecycleSlice(
   const resumeDead = async (tabId: string, opts?: { restore?: boolean }): Promise<void> => {
     const owner = findOwner(get().state, tabId);
     if (!owner) return;
-    const { instanceId, record: rec } = owner;
+    const { record: rec } = owner;
     try {
       // Items survive teardown (teardownProcess settles and keeps them):
       // the digest rides the resume so a never-persisted transcript still
@@ -1674,7 +1588,7 @@ export function createLifecycleSlice(
         tabs: s.tabs.map((t) =>
           t.tabId === tabId ? { ...t, hidden: false } : t,
         ),
-        ...focusOn(s, tabId, projectKey(instanceId, rec.projectCwd)),
+        ...focusOn(tabId),
         exited: dropExited(s.exited, tabId),
         hibernated: dropHibernated(s.hibernated, tabId),
       }));
@@ -1692,7 +1606,7 @@ export function createLifecycleSlice(
   const resumeWithModel = async (tabId: string, model: string): Promise<void> => {
     const owner = findOwner(get().state, tabId);
     if (!owner) return;
-    const { instanceId, record: rec } = owner;
+    const { record: rec } = owner;
     try {
       // Inert in main — a #774 recovery resume always has a transcript file
       // to --resume — but the request shape stays uniform with resumeDead
@@ -1712,7 +1626,7 @@ export function createLifecycleSlice(
         tabs: s.tabs.map((t) =>
           t.tabId === tabId ? { ...t, hidden: false } : t,
         ),
-        ...focusOn(s, tabId, projectKey(instanceId, rec.projectCwd)),
+        ...focusOn(tabId),
         exited: dropExited(s.exited, tabId),
         hibernated: dropHibernated(s.hibernated, tabId),
       }));
@@ -1921,14 +1835,6 @@ export function createLifecycleSlice(
     addProject,
     removeProject,
     confirmRemoveRemoteInstance,
-    moveProject,
-    createSidebarGroup,
-    renameSidebarGroup,
-    removeSidebarGroup,
-    moveSidebarGroup,
-    setSidebarGroupCollapsed,
-    setProjectSidebarGroup,
-    moveSession,
     setProjectDefaultModel,
     setProjectDefaultAdvisorModel,
     setProjectBrowserClock,
