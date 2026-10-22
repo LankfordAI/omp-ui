@@ -48,7 +48,9 @@ Facts that shape the design:
   that just asked a question below ten idle ones, and keeping it meaningful
   needed drag and keyboard reordering plus a frozen-order migration. Rejected:
   rows are keyed by host and tab, so a re-sort moves the node instead of
-  remounting it, and hover and focus survive.
+  remounting it, and hover and focus survive. _Partly superseded by the
+  addendum: launch-stamp order was adopted; manual reordering remains
+  rejected._
 
 ## Decision
 
@@ -58,10 +60,11 @@ sessions — shares one list. Every other owned session (dormant, hibernated,
 archived, missing) sits in one collapsible **Settled** section at the bottom,
 collapsed by default; a non-empty search shows it expanded.
 
-**(b) Rows sort by recency.** The key is `cachedModified ?? launchedAt`, newest
-first. This supersedes #274's explicit order: there is no manual reorder, no
-move channel, and no frozen-order setting. Registry arrays stay
-insertion-ordered; only the hibernation tie-break reads that order.
+**(b) Rows sort by recency.** _Superseded by the open-order addendum (#921)._
+The key is `cachedModified ?? launchedAt`, newest first. This supersedes #274's
+explicit order: there is no manual reorder, no move channel, and no
+frozen-order setting. Registry arrays stay insertion-ordered; only the
+hibernation tie-break reads that order.
 
 **(c) Projects are reached only through the Project quick-open.** New session
 opens it; its root lists the projects, *No project* (a chat — this replaces the
@@ -109,3 +112,16 @@ where Reconnect and Refresh state live.
   labelled *chat*, instead of a separate Chat mode.
 - ADR-0004 (design tokens) — the New session button, Settled header, and
   footer use neutral ink and line tokens; signal stays reserved for liveness.
+
+## Addendum: rows sort by open order (#921, 2026-10-22)
+
+Decision (b) is superseded: the sidebar sorts by `launchedAt` (newest open
+first), not by `cachedModified ?? launchedAt`. A row's position is fixed when
+the session opens — work churn no longer moves rows under the pointer, and
+resuming a settled session does not float it. `launchedAt` is set once at
+creation, so this buys the stability the "Fixed launch order" option above was
+rejected for *without* its cost: no drag reordering, no keyboard moves, no
+frozen-order setting — #274's explicit order stays deleted. The hibernation
+last-active exemption keeps the activity key; only the sidebar order changed.
+The consequences "the session that changed last is on top" and "rows move as
+sessions work" are withdrawn.

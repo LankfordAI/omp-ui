@@ -15,15 +15,15 @@ export interface SidebarEntry {
 }
 
 export interface SidebarLists {
-  /** live === "live", newest activity first. */
+  /** live === "live", newest open first. */
   active: SidebarEntry[];
-  /** Every other owned session (dormant, archived, missing), newest activity first. */
+  /** Every other owned session (dormant, archived, missing), newest open first. */
   settled: SidebarEntry[];
 }
 
-/** CONTEXT.md's sidebar recency key; an unparseable stamp sorts last. */
-export function recencyOf(s: SessionSummary): number {
-  const t = Date.parse(s.cachedModified ?? s.launchedAt);
+/** Open-order key (#921): when omp-ui opened the session. An unparseable stamp sorts last. */
+function openOrderOf(s: SessionSummary): number {
+  const t = Date.parse(s.launchedAt);
   return Number.isNaN(t) ? Number.NEGATIVE_INFINITY : t;
 }
 
@@ -41,10 +41,10 @@ function matches(entry: SidebarEntry, q: string): boolean {
 /**
  * The sidebar's flat session list: every local project session and chat plus
  * every non-self remote instance's sessions, filtered by `query`, sorted newest
- * activity first (ties keep build order), and split into live and settled.
- * Handoffs resolve per host over that host's full session set, before any
- * filtering or partitioning, so a live implementation still finds its settled
- * planning session.
+ * open first by `launchedAt` (ties keep build order), and split into live and
+ * settled. Handoffs resolve per host over that host's full session set, before
+ * any filtering or partitioning, so a live implementation still finds its
+ * settled planning session.
  */
 export function buildSidebarLists(state: BackendState, query: string): SidebarLists {
   const entries: SidebarEntry[] = [];
@@ -100,8 +100,8 @@ export function buildSidebarLists(state: BackendState, query: string): SidebarLi
   // Never subtract: -Infinity - -Infinity is NaN. Array#sort is stable, so ties
   // keep build order.
   kept.sort((a, b) => {
-    const x = recencyOf(b.session);
-    const y = recencyOf(a.session);
+    const x = openOrderOf(b.session);
+    const y = openOrderOf(a.session);
     return x === y ? 0 : x > y ? 1 : -1;
   });
 

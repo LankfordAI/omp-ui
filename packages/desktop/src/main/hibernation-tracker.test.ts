@@ -33,7 +33,7 @@ function harness(): Harness {
   const registry = {
     getSetting: (key: string): number => (key === "hibernateIdleMinutes" ? 30 : 0),
     // TAB is not its project's last active session (issue #304): the sibling
-    // carries a newer cachedModified than TAB's launchedAt recency fallback.
+    // carries a newer cachedModified than TAB's `launchedAt` fallback.
     sessions: [
       {
         tabId: "tab-newer",
