@@ -3,12 +3,15 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "./lib/rpc-types";
-import { en } from "./lib/i18n/en";
 import { backendState } from "./test/fixtures";
 import type { RpcTabState } from "./store";
+import type { BackendState, SessionSummary } from "@omp-ui/core/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 Object.assign(window, { ompBackend: {} });
+// The real ProjectQuickOpen mounts in the issue #915 tests below; its palette
+// rows scroll on keyboard navigation and jsdom has no layout.
+HTMLElement.prototype.scrollIntoView = vi.fn();
 
 vi.mock("./components/Sidebar", () => ({ Sidebar: () => null }));
 vi.mock("./components/RpcTab", () => ({ RpcTab: ({ tabId }: { tabId: string }) => <div data-rpc-tab={tabId} /> }));
@@ -71,6 +74,9 @@ function seed(): void {
     sidebarCollapsed: false,
     lab: null,
     experimentDialog: null,
+    // The quick-open tests open the overlay; reset so a stale open never
+    // satisfies the next test's `not.toBeNull()` by leakage.
+    projectQuickOpen: null,
   });
 }
 
@@ -186,7 +192,7 @@ describe("desktop merged title bar (issues #59/#60)", () => {
     const header = document.body.querySelector("header")!;
     expect(header.querySelector('button[aria-label="collapse sidebar"]')).not.toBeNull();
     expect(header.querySelector('button[aria-label="add project"]')).not.toBeNull();
-    expect(header.querySelector('button[aria-label="new session in current project"]')).not.toBeNull();
+    expect(header.querySelector('button[aria-label="new session — pick a project"]')).not.toBeNull();
     // the rpc-ui HUD rides the same strip
     expect(header.querySelector('button[aria-label^="branch this session"]')).not.toBeNull();
     // no noise texture — the overlay can only paint a flat colour (#59); the
@@ -230,7 +236,7 @@ describe("update restore surface (issue #99)", () => {
   });
 });
 
-describe("mod+shift+n with no focused session (issue #789)", () => {
+describe("new-session entry points (issue #915)", () => {
   const pressModShiftN = (): void => {
     document.body.focus();
     act(() => {
@@ -240,33 +246,72 @@ describe("mod+shift+n with no focused session (issue #789)", () => {
     });
   };
 
-  it("reports instead of silently doing nothing with zero tabs", async () => {
+  // Minimal record so isChatTab can route the tab through the chat fast path.
+  const chatSummary = (): SessionSummary => ({
+    tabId: "chat",
+    sessionId: null,
+    lineageDir: "omp-ui--p--chat",
+    projectCwd: "/p",
+    worktree: null,
+    planImplementationSource: null,
+    experiment: null,
+    fleet: null,
+    launchedAt: "t",
+    mode: "rpc-ui",
+    compactionMethod: null,
+    approvalMode: null,
+    serviceTier: null,
+    model: null,
+    thinkingLevel: null,
+    advisor: false,
+    advisorModel: null,
+    subagentModels: null,
+    proposedPlans: [],
+    autoTitled: false,
+    private: false,
+    chat: true,
+    askSource: null,
+    cachedTitle: null,
+    cachedModified: null,
+    agentMode: "build",
+    title: "Brainstorm",
+    status: null,
+    live: "live",
+    pendingPlan: null,
+    planSettle: null,
+    streamStalled: false,
+  });
+
+  const projectState = (): BackendState =>
+    backendState({
+      projects: [
+        {
+          project: {
+            path: "/p",
+            name: "p",
+            addedAt: "t",
+            lastModel: null,
+            lastThinkingLevel: null,
+            lastAdvisor: null,
+            lastAdvisorModel: null,
+            defaultModel: null,
+            defaultAdvisorModel: null,
+            browserClock: false,
+            reviewRoster: null,
+            knowledgeHome: null,
+            repositoryKey: null,
+          },
+          sessions: [],
+        },
+      ],
+    });
+
+  it("opens the project quick-open with zero tabs instead of erroring", async () => {
     useStore.setState({
       tabs: [],
       activeTabId: null,
       errorNotices: [],
-      state: backendState({
-        projects: [
-          {
-            project: {
-              path: "/p",
-              name: "p",
-              addedAt: "t",
-              lastModel: null,
-              lastThinkingLevel: null,
-              lastAdvisor: null,
-              lastAdvisorModel: null,
-              defaultModel: null,
-              defaultAdvisorModel: null,
-              browserClock: false,
-              reviewRoster: null,
-              knowledgeHome: null,
-              repositoryKey: null,
-            },
-            sessions: [],
-          },
-        ],
-      }),
+      state: projectState(),
     });
     const spawnSession = vi.fn();
     (backend as unknown as Record<string, unknown>).spawnSession = spawnSession;
@@ -275,24 +320,60 @@ describe("mod+shift+n with no focused session (issue #789)", () => {
     await act(async () => {});
 
     expect(spawnSession).not.toHaveBeenCalled();
-    expect(useStore.getState().errorNotices.map((notice) => notice.message)).toEqual([
-      en["app.spawn.noCurrentSession"],
-    ]);
+    // The issue #789 noCurrentSession notice is gone: the overlay replaced the
+    // error path, so nothing lands in the notices wall.
+    expect(useStore.getState().errorNotices).toEqual([]);
+    expect(useStore.getState().projectQuickOpen).not.toBeNull();
   });
 
-  it("spawns into the focused session's project as before", async () => {
+  it("keeps the title-bar + enabled with zero tabs and opens the overlay from it", () => {
+    compact = false;
+    useStore.setState({ tabs: [], activeTabId: null, state: projectState() });
     renderApp();
-    const spawnSession = vi.fn().mockResolvedValue({ tabId: "fresh" });
+    const header = document.body.querySelector("header")!;
+    const plus = header.querySelector<HTMLButtonElement>(
+      'button[aria-label="new session — pick a project"]',
+    )!;
+    expect(plus.disabled).toBe(false);
+    act(() => plus.click());
+    expect(useStore.getState().projectQuickOpen).not.toBeNull();
+  });
+
+  it("opens the overlay for a focused project tab instead of spawning", async () => {
+    const spawnSession = vi.fn();
     (backend as unknown as Record<string, unknown>).spawnSession = spawnSession;
+    renderApp();
     pressModShiftN();
     await act(async () => {});
 
-    expect(spawnSession).toHaveBeenCalledTimes(1);
-    expect(spawnSession.mock.calls[0]?.[0]).toMatchObject({
-      origin: "new",
-      projectCwd: "/p",
-      mode: "pty",
+    expect(spawnSession).not.toHaveBeenCalled();
+    expect(useStore.getState().projectQuickOpen).not.toBeNull();
+  });
+
+  it("keeps the chat fast path: a chat tab's key spawns another chat inline", async () => {
+    // The chat record exists only so isChatTab routes to the fast path; the
+    // mocked newChat action (store-state override, not backend) proves the key
+    // calls it — seeding the real spawn machinery here would be heavy.
+    const chat: SessionSummary = { ...chatSummary(), tabId: "chat" };
+    const newChat = vi.fn(async () => "fresh-chat");
+    useStore.setState({
+      state: backendState({ chats: [chat] }),
+      tabs: [
+        { tabId: "rpc", mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null },
+        { tabId: "pty", mode: "pty", projectCwd: "/p", hidden: false, instanceId: null },
+        { tabId: "chat", mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null },
+      ],
+      activeTabId: "chat",
+      newChat,
     });
-    expect(useStore.getState().tabs.map((tab) => tab.tabId)).toContain("fresh");
+    const spawnSession = vi.fn();
+    (backend as unknown as Record<string, unknown>).spawnSession = spawnSession;
+    renderApp();
+    pressModShiftN();
+    await act(async () => {});
+
+    expect(newChat).toHaveBeenCalledOnce();
+    expect(spawnSession).not.toHaveBeenCalled();
+    expect(useStore.getState().projectQuickOpen).toBeNull();
   });
 });

@@ -1033,6 +1033,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     /** Workspace capsule value at open. */
     workspace: "checkout" | "worktree";
   } | null;
+  /** The project quick-open overlay (T3-style new-thread picker); in-memory, not persisted. */
+  projectQuickOpen: {
+    /** Seed query pre-typed at open; usually empty. */
+    query: string;
+  } | null;
   /** The row whose Migrate session dialog is open (issue #888); null = closed. */
   migrateDialog: { tabId: string } | null;
   openMigrateDialog(tabId: string): void;
@@ -1228,6 +1233,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     workspace?: "checkout" | "worktree";
   }): void;
   closeNewSessionDialog(): void;
+  openProjectQuickOpen(seed?: { query?: string }): void;
+  closeProjectQuickOpen(): void;
   openFinishWorktree(tabId: string): void;
   closeFinishWorktree(): void;
   openSession(tabId: string): Promise<void>;

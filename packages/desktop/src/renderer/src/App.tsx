@@ -16,6 +16,7 @@ import { SessionTreeViewer } from "./components/SessionTreeViewer";
 import { NewExperimentDialog } from "./components/NewExperimentDialog";
 import { NewSessionDialog } from "./components/NewSessionDialog";
 import { MigrateSessionDialog } from "./components/MigrateSessionDialog";
+import { ProjectQuickOpen } from "./components/ProjectQuickOpen";
 import { SeanceConsultDialog } from "./components/SeanceConsultDialog";
 import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
 import { Lab } from "./components/lab/Lab";
@@ -149,14 +150,10 @@ function TitleBar() {
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const toggleSidebarCollapsed = useStore((s) => s.toggleSidebarCollapsed);
   const openProjectPicker = useStore((s) => s.openProjectPicker);
-  const newSession = useStore((s) => s.newSession);
+  const openProjectQuickOpen = useStore((s) => s.openProjectQuickOpen);
   const newChat = useStore((s) => s.newChat);
   const activeTab = tabs.find((t) => t.tabId === activeTabId);
   const activeChat = useStore((s) => activeTab !== undefined && isChatTab(s.state, activeTab.tabId));
-  // Same rule as the mod+shift+n hotkey below: the active tab's project only —
-  // with nowhere to spawn, the button disables rather than choose implicitly.
-  // A remote tab spawns on its own instance (issue #416).
-  const newSessionProject = activeTab?.projectCwd;
 
   return (
     <header
@@ -172,10 +169,13 @@ function TitleBar() {
         </span>
         <IconButton
           label={t("app.titlebar.newSession")}
-          disabled={newSessionProject === undefined}
           onClick={() => {
+            // The overlay always takes the non-chat case, even with zero tabs:
+            // picking a project beats a disabled button (issue #915). The chat
+            // fast path stays — a chat tab has no project to pick, its + means
+            // "another chat".
             if (activeChat) void newChat();
-            else if (activeTab !== undefined) void newSession(activeTab.projectCwd, undefined, activeTab.instanceId);
+            else openProjectQuickOpen();
           }}
         >
           <IconPlus />
@@ -294,10 +294,10 @@ export default function App() {
   const closeProjectSettings = useStore((s) => s.closeProjectSettings);
   const state = useStore((s) => s.state);
   const newSessionDialog = useStore((s) => s.newSessionDialog);
+  const projectQuickOpen = useStore((s) => s.projectQuickOpen);
   const migrateDialog = useStore((s) => s.migrateDialog);
-  const newSession = useStore((s) => s.newSession);
   const newChat = useStore((s) => s.newChat);
-  const reportError = useStore((s) => s.reportError);
+  const openProjectQuickOpen = useStore((s) => s.openProjectQuickOpen);
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
   const lab = useStore((s) => s.lab);
   const stats = useStore((s) => s.stats);
@@ -361,17 +361,18 @@ export default function App() {
     if (s.experimentDialog !== null) s.closeExperimentDialog();
   }, [experimentsEnabled]);
 
-  // The keyboard twin of the composer's /new: a new live session in the current
-  // tab's project. No current project (nothing focused yet, or every tab hidden)
-  // means nowhere to spawn — the key says so instead of choosing a project
-  // implicitly (issue #789): a silent no-op reads as a broken key.
+  // mod+shift+n, the keyboard twin of the title-bar +: a chat tab spawns
+  // another chat inline; every other case — a project tab, or no tab at all —
+  // opens the project quick-open (issue #915). This deliberately retired the
+  // issue #789 error path (a noCurrentSession notice when nothing was
+  // focused): with no focused project the key now asks for one instead of
+  // refusing.
   useHotkeys({
     "mod+shift+n": (e) => {
       e.preventDefault();
       const tab = tabs.find((t) => t.tabId === activeTabId);
       if (tab !== undefined && isChatTab(useStore.getState().state, tab.tabId)) void newChat();
-      else if (tab !== undefined) void newSession(tab.projectCwd, undefined, tab.instanceId);
-      else reportError(t("app.spawn.noCurrentSession"));
+      else openProjectQuickOpen();
     },
     // The keyboard twin of the composer's Build / Plan selector: the same
     // in-process switch (ADR-0007), never a respawn. rpc-ui tabs only — a pty tab's TUI
@@ -596,6 +597,7 @@ export default function App() {
         />
       )}
       {newSessionDialog !== null && <NewSessionDialog />}
+      {projectQuickOpen !== null && <ProjectQuickOpen />}
       {migrateDialog !== null && (
         <MigrateSessionDialog key={migrateDialog.tabId} tabId={migrateDialog.tabId} />
       )}

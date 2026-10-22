@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import type { ProjectGroup, ProjectOpenAvailability, RemoteInstanceSummary, SessionSummary, SidebarGroup } from "@omp-ui/core/types";
 import { defaultNickname } from "@omp-ui/core/remote-instances";
 import { backend } from "../backend";
+import { initials } from "../lib/initials";
 import { projectKey } from "../lib/project-key";
 import { remoteInstanceStatusKey, remoteInstanceStatusTone } from "../lib/remote-instance-status";
 import { useDismissal } from "../lib/use-dismissal";
@@ -73,14 +74,6 @@ function liveCount(sessions: SessionSummary[]): number {
   let n = 0;
   for (const s of sessions) if (s.live === "live") n += 1;
   return n;
-}
-
-/** Two-letter monogram for the collapsed rail. */
-function initials(name: string): string {
-  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  if (words.length === 0) return "?";
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
 interface FilteredGroup {

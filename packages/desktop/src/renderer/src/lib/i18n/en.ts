@@ -16,14 +16,10 @@ export const en = {
   "common.button.copied": "copied",
 
   // App.tsx — TitleBar
-  "app.titlebar.newSession": "new session in current project",
+  "app.titlebar.newSession": "new session — pick a project",
   "app.titlebar.addProject": "add project",
   "app.titlebar.expandSidebar": "expand sidebar",
   "app.titlebar.collapseSidebar": "collapse sidebar",
-
-  // App.tsx — the mod+shift+n spawn guardrail (issue #789): no silent no-ops.
-  "app.spawn.noCurrentSession":
-    "No current session — a new session spawns into the focused session's project. Open or focus one first, or use a project's new-session button.",
 
   // App RestoringSessions
   "app.restoring.label": "Restoring sessions…",
@@ -36,11 +32,23 @@ export const en = {
   "app.welcome.noProjectsHint":
     "Track a project directory, then run omp agents against it — as a terminal or as a native session.",
   "app.welcome.hintCommandPalette": "command palette",
-  "app.welcome.hintNewSession": "new session in the current project",
+  "app.welcome.hintNewSession": "new session — pick a project",
   "app.welcome.hintMode": "switch Build / Plan mode",
   "app.welcome.hintConsole": "toggle console",
   "app.welcome.hintSearch": "search within a session",
   "app.welcome.hintTranscriptScale": "larger transcript text",
+
+  // ProjectQuickOpen — the T3-style new-thread project picker (issue #915)
+  "quickopen.search.placeholder": "Search projects…",
+  "quickopen.group.projects": "Projects",
+  "quickopen.noproject": "No project",
+  "quickopen.noproject.desc": "scratch chat, no repository",
+  "quickopen.host.local": "This computer",
+  "quickopen.add": "Add project…",
+  "quickopen.footer.navigate": "navigate",
+  "quickopen.footer.select": "Select",
+  "quickopen.footer.back": "Back",
+  "quickopen.footer.close": "Close",
 
   // App getting-started checklist (issue #623)
   "app.gettingstarted.title": "Getting started",
