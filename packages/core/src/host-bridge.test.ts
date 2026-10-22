@@ -64,7 +64,7 @@ describe("host registration definitions", () => {
     expect(setHostToolsCommand({ vault: false, fleet: false }, "tools-custom")).toMatchObject({ id: "tools-custom" });
   });
 
-  it("adds exactly seven essential vault tools after notify only when enabled", () => {
+  it("adds exactly ten essential vault tools after notify only when enabled", () => {
     expect(hostToolsDefinition({ vault: false, fleet: false }).map((tool) => tool.name)).toEqual(["omp-ui_notify"]);
     const command = setHostToolsCommand({ vault: true, fleet: false }, "vault-tools") as {
       id: string;
@@ -82,6 +82,9 @@ describe("host registration definitions", () => {
       "omp-ui_vault_append",
       "omp-ui_vault_edit",
       "omp-ui_vault_link",
+      "omp-ui_vault_rename",
+      "omp-ui_vault_delete",
+      "omp-ui_vault_refactor",
     ]);
     for (const tool of command.tools.slice(1)) {
       expect(tool.name).toMatch(/^[a-z][a-z0-9._-]*$/);
@@ -118,6 +121,9 @@ describe("host registration definitions", () => {
         "omp-ui_vault_append",
         "omp-ui_vault_edit",
         "omp-ui_vault_link",
+        "omp-ui_vault_rename",
+        "omp-ui_vault_delete",
+        "omp-ui_vault_refactor",
       ],
     ],
     [
@@ -131,6 +137,9 @@ describe("host registration definitions", () => {
         "omp-ui_vault_append",
         "omp-ui_vault_edit",
         "omp-ui_vault_link",
+        "omp-ui_vault_rename",
+        "omp-ui_vault_delete",
+        "omp-ui_vault_refactor",
         "omp-ui_fleet_machines",
         "omp-ui_fleet_dispatch",
         "omp-ui_fleet_status",
@@ -238,6 +247,44 @@ describe("host registration definitions", () => {
           path: { type: "string" },
           to: { type: "string" },
           baseHash: { type: "string" },
+          vault: { type: "string" },
+        },
+      },
+      {
+        name: "omp-ui_vault_rename",
+        required: ["path", "to", "baseHash"],
+        properties: {
+          path: { type: "string" },
+          to: { type: "string" },
+          baseHash: { type: "string" },
+          vault: { type: "string" },
+        },
+      },
+      {
+        name: "omp-ui_vault_delete",
+        required: ["path", "baseHash"],
+        properties: { path: { type: "string" }, baseHash: { type: "string" }, vault: { type: "string" } },
+      },
+      {
+        name: "omp-ui_vault_refactor",
+        required: ["into", "content", "sources"],
+        properties: {
+          into: { type: "string" },
+          content: { type: "string" },
+          baseHash: { type: "string" },
+          sources: {
+            type: "array",
+            minItems: 1,
+            maxItems: 20,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: { path: { type: "string" }, baseHash: { type: "string" } },
+              required: ["path", "baseHash"],
+            },
+          },
+          tags: { type: "array", items: { type: "string" } },
+          project: { type: "boolean", default: true },
           vault: { type: "string" },
         },
       },

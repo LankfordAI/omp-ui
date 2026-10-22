@@ -64,7 +64,7 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
   };
 }
 
-/** Notify is always present; registered vaults enable the seven vault tools; the fleet setting enables the three fleet tools. */
+/** Notify is always present; registered vaults enable the ten vault tools; the fleet setting enables the three fleet tools. */
 export function hostToolsDefinition(
   opts: { vault: boolean; fleet: boolean } = { vault: false, fleet: false },
 ): RpcHostToolDefinition[] {
@@ -208,6 +208,73 @@ function vaultTools(): RpcHostToolDefinition[] {
           vault,
         },
         required: ["path", "to", "baseHash"],
+      },
+    },
+    {
+      name: "omp-ui_vault_rename",
+      loadMode: "essential",
+      description:
+        "Move or retitle a note omp-ui created (omp-ui: true): `to` is a new vault-relative path (folders move it) or a bare title that keeps the source's folder. Full-path wikilinks in the writable scope follow; links only Obsidian can fix are reported. Never clobbers an existing note; Index notes and notes you did not create are refused. Requires the baseHash from your latest read of the note.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: { type: "string", description: "existing note; exact vault-relative path" },
+          to: { type: "string", description: "new vault-relative path (a move) or bare title (a retitle)" },
+          baseHash: { type: "string" },
+          vault,
+        },
+        required: ["path", "to", "baseHash"],
+      },
+    },
+    {
+      name: "omp-ui_vault_delete",
+      loadMode: "essential",
+      description:
+        "Remove a stale note omp-ui created, inside the write boundary. Strips its Index link lines; other inbound links are reported, never edited. Refuses Index notes and notes you did not create (rename or delete those in Obsidian). Requires the baseHash from your latest read of the note.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: { type: "string" },
+          baseHash: { type: "string" },
+          vault,
+        },
+        required: ["path", "baseHash"],
+      },
+    },
+    {
+      name: "omp-ui_vault_refactor",
+      loadMode: "essential",
+      description:
+        "Combine several notes into one cohesive document: every source (1-20) must have been read this session with its own baseHash, is merged into `content`, and is deleted after the write. `into` is an existing note path (its baseHash required, frontmatter kept) or a new Title Case title filed like omp-ui_vault_create. Links to deleted sources are rewritten or reported. To rewrite a single note without deleting anything, use omp-ui_vault_edit instead.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          into: { type: "string", description: "existing note path or new Title Case title" },
+          content: { type: "string", description: "the consolidated markdown body; no frontmatter" },
+          baseHash: { type: "string", description: "required only when into is an existing note" },
+          sources: {
+            type: "array",
+            minItems: 1,
+            maxItems: 20,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: { path: { type: "string" }, baseHash: { type: "string" } },
+              required: ["path", "baseHash"],
+            },
+          },
+          tags: { type: "array", items: { type: "string" } },
+          project: {
+            type: "boolean",
+            default: true,
+            description: "false files a new into at the home-folder root with no project",
+          },
+          vault,
+        },
+        required: ["into", "content", "sources"],
       },
     },
   ];

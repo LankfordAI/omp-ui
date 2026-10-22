@@ -7,9 +7,9 @@
 import type { KnowledgeHome } from "./types";
 
 export const DEFAULT_HOME_FOLDER = "omp-ui/";
-export const VAULT_WRITE_TOOLS = ["omp-ui_vault_create", "omp-ui_vault_append", "omp-ui_vault_edit", "omp-ui_vault_link"] as const;
-export type VaultAction = "search" | "read" | "list" | "create" | "append" | "edit" | "link";
-const VAULT_ACTIONS: readonly string[] = ["search", "read", "list", "create", "append", "edit", "link"];
+export const VAULT_WRITE_TOOLS = ["omp-ui_vault_create", "omp-ui_vault_append", "omp-ui_vault_edit", "omp-ui_vault_link", "omp-ui_vault_rename", "omp-ui_vault_delete", "omp-ui_vault_refactor"] as const;
+export type VaultAction = "search" | "read" | "list" | "create" | "append" | "edit" | "link" | "rename" | "delete" | "refactor";
+const VAULT_ACTIONS: readonly string[] = ["search", "read", "list", "create", "append", "edit", "link", "rename", "delete", "refactor"];
 
 /** A persisted preference, not a registry membership check: removed vault pins stay intact. */
 export function isKnowledgeHome(value: unknown): value is KnowledgeHome {
@@ -119,13 +119,16 @@ export interface VaultToolDetails {
   diff?: string;                   // edit and link: omp numbered-row format (section 3, item 6)
   baseHash?: string;               // read and every write: sha256 hex of the file after the call
   indexNotePath?: string;          // create inside a project folder
+  movedFrom?: string;              // rename: vault path the note moved from
+  deletedPath?: string;            // delete: vault path removed (same as path)
+  deletedSources?: string[];       // refactor: vault paths merged into path and removed
   collisions?: string[];           // create: other vault paths with the same basename
   adopted?: string[];              // create: vault paths of omp-ui notes moved in from legacy project folders
   matchedFiles?: number; returnedFiles?: number; truncated?: boolean;  // search, list
 }
 
-const STRING_FIELDS = ["title", "preview", "diff", "baseHash", "indexNotePath"] as const;
-const STRING_ARRAY_FIELDS = ["stamp", "collisions", "adopted"] as const;
+const STRING_FIELDS = ["title", "preview", "diff", "baseHash", "indexNotePath", "movedFrom", "deletedPath"] as const;
+const STRING_ARRAY_FIELDS = ["stamp", "collisions", "adopted", "deletedSources"] as const;
 const NUMBER_FIELDS = ["matchedFiles", "returnedFiles"] as const;
 
 /** Structural guard; null unless vaultName is a string and action is a VaultAction. Copies only known, correctly typed keys. */

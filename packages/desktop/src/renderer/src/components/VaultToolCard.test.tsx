@@ -156,6 +156,36 @@ describe("VaultToolCard", () => {
     expect(leaves.some((el) => el.textContent === "new")).toBe(true);
   });
 
+  it("rename, delete and refactor render their chips; a merged-into note shows its preview or diff", () => {
+    const renamed = render(tool({
+      name: "omp-ui_vault_rename",
+      vault: { vaultName: "Notes", vaultId: null, path: "omp-ui/proj/Moved.md", action: "rename", createdByOmpUi: true, title: "Moved", movedFrom: PATH },
+    }));
+    expect(renamed.textContent ?? "").toContain(t("transcript.vault.renamed"));
+
+    const deleted = render(tool({
+      name: "omp-ui_vault_delete",
+      vault: { vaultName: "Notes", vaultId: null, path: PATH, action: "delete", createdByOmpUi: true, title: "Card Lesson", deletedPath: PATH },
+    }));
+    expect(deleted.textContent ?? "").toContain(t("transcript.vault.deleted"));
+
+    const mergedNew = render(tool({
+      name: "omp-ui_vault_refactor",
+      vault: { vaultName: "Notes", vaultId: null, path: "omp-ui/proj/Whole.md", action: "refactor", createdByOmpUi: true, title: "Whole", preview: "the consolidated body", deletedSources: [PATH] },
+    }));
+    expect(mergedNew.textContent ?? "").toContain(t("transcript.vault.merged"));
+    expect(mergedNew.textContent ?? "").toContain("the consolidated body");
+
+    const diff = " 1|old\n-2|gone\n+2|whole";
+    const mergedEdit = render(tool({
+      name: "omp-ui_vault_refactor",
+      diff: parseOmpDiff(diff),
+      vault: { vaultName: "Notes", vaultId: null, path: PATH, action: "refactor", createdByOmpUi: true, title: "Card Lesson", diff, deletedSources: ["omp-ui/proj/Part.md"] },
+    }));
+    expect(mergedEdit.textContent ?? "").toContain(t("transcript.vault.merged"));
+    expect(mergedEdit.textContent ?? "").toContain("whole");
+  });
+
   it("a running write shows the args title and the running chip, without an open button", () => {
     const host = render(tool({ status: "running", args: { title: "Pending Note" } }));
     const text = host.textContent ?? "";

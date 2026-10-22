@@ -7127,6 +7127,9 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
             "omp-ui_vault_append",
             "omp-ui_vault_edit",
             "omp-ui_vault_link",
+            "omp-ui_vault_rename",
+            "omp-ui_vault_delete",
+            "omp-ui_vault_refactor",
           ]
         : []),
       ...(fleet

@@ -16,6 +16,9 @@ const TOOL_ACTION: Record<string, VaultWriteAction> = {
   "omp-ui_vault_append": "append",
   "omp-ui_vault_edit": "edit",
   "omp-ui_vault_link": "link",
+  "omp-ui_vault_rename": "rename",
+  "omp-ui_vault_delete": "delete",
+  "omp-ui_vault_refactor": "refactor",
 };
 
 const ACTION_CHIP: Record<VaultWriteAction, { key: MessageKey; tone: Tone }> = {
@@ -23,6 +26,9 @@ const ACTION_CHIP: Record<VaultWriteAction, { key: MessageKey; tone: Tone }> = {
   append: { key: "transcript.vault.appended", tone: "neutral" },
   edit: { key: "transcript.vault.edited", tone: "copper" },
   link: { key: "transcript.vault.edited", tone: "copper" },
+  rename: { key: "transcript.vault.renamed", tone: "copper" },
+  delete: { key: "transcript.vault.deleted", tone: "rose" },
+  refactor: { key: "transcript.vault.merged", tone: "signal" },
 };
 
 export function VaultActionChip({ action }: { action: VaultWriteAction }) {
@@ -77,10 +83,11 @@ export function VaultToolCard({ item, tabId }: { item: ToolItem; tabId?: string 
   const pathLine = vault !== undefined && vault.path !== null ? `${vault.vaultName} · ${vault.path}` : null;
   const stamp = done && action === "create" && (vault?.stamp?.length ?? 0) > 0 ? vault!.stamp!.join(" · ") : null;
   const preview =
-    done && (action === "create" || action === "append") && (vault?.preview?.trim() ?? "") !== ""
+    done && (action === "create" || action === "append" || action === "refactor") && (vault?.preview?.trim() ?? "") !== ""
       ? vault!.preview!
       : null;
-  const diff = done && (action === "edit" || action === "link") && (item.diff?.length ?? 0) > 0 ? item.diff! : null;
+  const diff =
+    done && (action === "edit" || action === "link" || action === "refactor") && (item.diff?.length ?? 0) > 0 ? item.diff! : null;
   const slab = !done && item.resultText ? item.resultText : null;
   const openable =
     done && vault !== undefined && vault.path !== null ? { vaultName: vault.vaultName, file: vault.path } : null;
