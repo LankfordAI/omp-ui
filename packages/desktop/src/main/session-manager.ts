@@ -1651,6 +1651,29 @@ export class SessionManager {
         this.deps.breadcrumb?.record("warm-miss", { tabId: record.tabId });
       }
     }
+    // Publish before arm (issue #907): `arm()` replays the parked `ready`
+    // synchronously, and a joined instance routes this tab's boot commands
+    // by the owner it learns from `state:changed` alone. The child stays
+    // fully deferred across this await — no live entry exists yet, so no
+    // rpc:send can reach its un-negotiated stdin.
+    if (adopted !== null) {
+      try {
+        await this.deps.broadcast();
+      } catch (err) {
+        killWarmClient(adopted.client);
+        throw err;
+      }
+      if (!this.deps.registry.sessions.some((s) => s.tabId === record.tabId)) {
+        // Deleted from the published row inside the window: nothing owns the dir.
+        killWarmClient(adopted.client);
+        throw new Error(`session ${record.tabId} was deleted while starting`);
+      }
+      if (adopted.client.dead) {
+        // The parked child died during the await (its inert sinks saw it): boot cold in the same dir.
+        this.deps.breadcrumb?.record("warm-miss", { tabId: record.tabId });
+        adopted = null;
+      }
+    }
     const rpc =
       adopted !== null
         ? adopted.client
@@ -1675,9 +1698,10 @@ export class SessionManager {
     wireRpc(entry, rpc);
     this.live.set(record.tabId, entry);
     this.watcherHub.start(record);
-    // Arm LAST: the negotiate, the real command rail, and the replay of every
-    // buffered boot frame fire synchronously inside `arm`, and each sink
-    // fences on `this.live.get(tabId) === entry` plus the wired `entry.rpc`.
+    // Arm LAST: the record is already published (above), and the negotiate,
+    // the real command rail, and the replay of every buffered boot frame fire
+    // synchronously inside `arm`; each sink fences on
+    // `this.live.get(tabId) === entry` plus the wired `entry.rpc`.
     adopted?.client.arm(sinks, initialCommands);
     await this.deps.broadcast();
     return { tabId: record.tabId };
