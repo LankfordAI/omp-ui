@@ -1,6 +1,6 @@
 # omp-ui
 
-A cross-platform desktop GUI for the `omp` coding agent: a project sidebar and
+A cross-platform desktop GUI for the `omp` coding agent: a session sidebar and
 an embedded OMP TUI (Phase 1), with optional native transcript rendering
 (Phase 2) and ACP integration (Phase 3).
 
@@ -38,8 +38,8 @@ preferences (issue #844 following #840's policy, superseding #283's). A
 live-voice handoff stops immediately instead, and a human prompt or resume
 into the source during the window cancels the stop.
 A hibernated session is dormant — transcript, artifacts, and worktree on disk,
-no process — and wakes through explicit human resume; the sidebar shows it as
-dormant and its tab offers resume. The distinction from a plain dormant session
+no process — and wakes through explicit human resume; the sidebar lists it under
+**Settled** and its tab offers resume. The distinction from a plain dormant session
 is causal: dormant lost its process because the app quit, hibernated lost it on
 purpose while idle or after a plan handoff. A failed handoff reap remains live,
 with source automation suppressed and a warning in the implementation tab.
@@ -59,31 +59,28 @@ the title.
 _Avoid_: window, pane
 
 **Project**:
-A working directory the user has explicitly registered in the sidebar, stored
-in omp-ui's own config. Owned sessions attach to the project they were
-launched in. A project with zero sessions is valid (fresh repo, nothing run
-yet). A **Chat** is the one owned session with no project.
+A working directory the user has explicitly registered — through the
+**Project quick-open**'s *Add project…* row, the command palette, or Getting
+started — stored in omp-ui's own config. Owned sessions attach to the project
+they were launched in. A project with zero sessions is valid (fresh repo,
+nothing run yet). A **Chat** is the one owned session with no project.
 _Avoid_: repo, folder, workspace
-
-**Sidebar group**:
-A user-named, collapsible sidebar section holding zero or more of this app's
-own projects. Each project sits in at most one group; membership, group order,
-and collapsed state are stored in the registry. Joined remote instances'
-projects are never grouped, and removing a group never removes its projects.
-_Avoid_: folder, workspace, team, project group (collides with the
-`ProjectGroup` project-plus-sessions type)
 
 **Owned session**:
 A session whose file lives in an omp-ui lineage dir (ADR-0003) — launched by
 omp-ui or produced in-process by such a session (`/new`, `/branch`). The only
 sessions the sidebar tracks. Sessions from terminal `omp` use are invisible
-to omp-ui, even under registered projects. Its sidebar position is explicit:
-the registry's persisted session order (issue #274); activity refreshes
-titles and statuses in place, new owned sessions enter at their project's
-top (a chat enters at the top of the chat list), and reordering is a user
-action (drag or keyboard), never a side effect
-of running.
+to omp-ui, even under registered projects. Its sidebar position is its
+recency (`cachedModified ?? launchedAt`, newest first): live sessions in the
+list, every other owned session under **Settled**. There is no manual order.
 _Avoid_: tracked session, managed session
+
+**Settled**:
+The sidebar's collapsible bottom section holding every **Owned session** with
+no process — dormant, hibernated, archived, and missing alike — newest
+activity first. Collapsed by default; the open/closed choice persists locally,
+and a non-empty sidebar search shows it expanded without changing that choice.
+_Avoid_: archive, history, inactive list
 
 **Private session**:
 An owned session pinned write-quiet against the memory system: its spawns
@@ -103,8 +100,9 @@ An owned session with no **Project**: a native session omp-ui launches in a
 fresh scratch directory under its app-data chats root, for conversation not tied
 to a repo. The record keeps that directory as its working directory plus an
 explicit chat marker; no project record exists and the chats root can never be
-registered. Chats list in the sidebar's Chat mode (the Work/Chat toggle filters
-the list only; chat tabs share the tab strip), run in Build mode only, share
+registered. Chats list in the sidebar alongside project sessions, labelled
+*chat*, and a chat starts from the **Project quick-open**'s *No project* row
+(chat tabs share the tab strip). Chats run in Build mode only, share
 omp's global memory bank, seed from the last model a chat used, and hibernate
 as one group — at most the freshest chat stays warm. A branch of a chat is a
 chat sharing its directory; deleting the last record that uses a directory
@@ -206,7 +204,8 @@ consulting transcript is OMP's own subagent hub record, never an omp-ui copy.
 _Avoid_: ghost session, séance thread, resume-by-reading
 
 **New session dialog**:
-The one form that starts work, opened from a project's actions, the command
+The one form that starts work, opened from a project page in the **Project
+quick-open**, the command
 palette, or the **Fleet** view. It picks a project and a machine — **This
 computer** (this app) or a fleet member — the workspace (a fresh
 worktree checkout or the project checkout), Build or Plan mode, an optional
@@ -219,16 +218,25 @@ session that comes up without its first prompt sent says so; the user sends it
 there by hand.
 _Avoid_: launch modal, dispatch window, new session window, launcher dialog
 
-**Project actions sheet**:
-The bottom sheet a compact-shell project header's ⋯ button opens: the
-project's name and full path, then New session, New terminal session,
-New private session, New session… (the **New session dialog**), Experiments,
-New experiment, Project settings, Move to
-group (local projects only), and Remove project. It
-replaces the cluster below 900px. The desktop open targets (VS Code, Files, Terminal) are
-deliberately absent: a compact shell is usually a phone talking to a
-remote omp-ui, where opening on the host answers a question nobody asked.
-_Avoid_: project context menu, overflow menu, kebab menu
+**Project quick-open**:
+The popup the sidebar's New session button (or `mod+shift+n`) opens to start
+work. Its root page lists one row per project — one per repository identity
+(the **Unified project view**) — plus *No project*, *Add project…*, and one
+*Register project on {nickname}* row per joined **Remote instance**. The focused
+tab's project comes first, or *No project* when a chat (or nothing) is
+focused, so a single Enter repeats "another one of these". Enter on a project
+row starts a session there; on *No project* it starts a **Chat**. → (caret at
+the end of the search) or the row's actions button drills into a page;
+Backspace on an empty search goes back. A project page holds every project
+action: New session, *New session on {machine}* for each other checkout of the
+repository, New terminal session, New private session, New session… (the **New
+session dialog**), Open in VS Code / Files / Terminal, Experiments and New
+experiment (when experiments are enabled), Project settings…, and Remove
+project…. The *No project* page offers New chat and New private chat. The
+open targets are omitted for a remote project and in the compact shell: a
+compact shell is usually a phone talking to a remote omp-ui, where opening on
+the host answers a question nobody asked.
+_Avoid_: project switcher, launcher, project menu
 
 **Subagent view**:
 The rpc-ui tab's main pane while a subagent is selected in the Agents
@@ -839,7 +847,7 @@ worktrees root, sharing the repo's object store. While the session still sits
 at its empty-transcript hero, the cut is offered directly: the composer's
 branch chip worktree section, whose create button mints the checkout on
 demand, or the first prompt does. `projectCwd` still names the
-project (sidebar grouping, parameter memory); the worktree is the
+project (the row's project label, parameter memory); the worktree is the
 session's effective working tree, so the branch diff pane, branch chip,
 @-picker, console shell and MCP manager all read it. omp resolves
 project-scope config from its cwd, so the checkout carries a `.omp` symlink
@@ -966,8 +974,8 @@ borrowed addition, so every other choice made during plan mode survives.
 _Avoid_: capabilities panel, plugin manager, tool browser
 
 **Project settings**:
-The modal the project header's settings button (desktop cluster) and the
-compact sheet's "Project settings…" row open: one dialog for the project with
+The modal the "Project settings…" row of a project page in the **Project
+quick-open** opens: one dialog for the project with
 eight sections behind a tab strip — one visible at a time, the active tab
 dialog-local and resetting to MCP servers on each open (issue #564) — the
 project's MCP servers (the same resolved list,
@@ -1108,8 +1116,9 @@ _Avoid_: preferences dialog, options window, config panel
 
 **Remote instance**:
 Another omp-ui app whose embedded server this app has joined as a client,
-saved with a nickname, its connection URL, and a credential. Its projects
-and owned sessions appear in the sidebar under the nickname; opening one
+saved with a nickname, its connection URL, and a credential. Its owned
+sessions appear in the sidebar list with the nickname on each row, and its
+projects appear in the **Project quick-open**; opening one of its sessions
 renders that host's own stream, and every action on it runs on that host's
 registry and processes — nothing is copied and no second omp process starts.
 Model choice follows the owner: a remote tab's model catalog, favorites,
@@ -1128,12 +1137,13 @@ _Avoid_: remote server (the embedded listener this app hosts), remote host
 (the `RemoteHost` seam), peer, connection
 
 **Unified project view**:
-One sidebar node per repository identity across this app and every joined
-**Remote instance**: its members are the checkouts of that repository on each
-machine, matched on the `host/owner/repo` repository key (ADR-0063), never on
-path. A checkout with no web remote has no key and stays its own node on its
-own instance; unification never merges two projects it cannot name the same
-work.
+One **Project quick-open** row per repository identity across this app and
+every joined **Remote instance**: its members are the checkouts of that
+repository on each machine, matched on the `host/owner/repo` repository key
+(ADR-0063), never on path; its project page offers New session on each other
+checkout. A checkout with no web remote has no key and stays its own row on
+its own instance; unification never merges two projects it cannot name the
+same work.
 _Avoid_: merged project, cross-machine project, repo rollup
 
 **Fleet**:
@@ -1381,7 +1391,7 @@ The main-pane surface that lists every project's **Experiments** with progress
 cards, and shows one experiment's runs, notes, and controls in a detail view.
 Deliberately not a **Tab** and not one of the **Inspector rail**'s panes:
 opening it hides the tab column, and activating any tab closes it. Reached from
-the sidebar project cluster, the command palette, the Session HUD's
+a project page in the **Project quick-open**, the command palette, the Session HUD's
 autoresearch chip, or `/autoresearch lab`.
 _Avoid_: dashboard, experiments tab, research panel
 

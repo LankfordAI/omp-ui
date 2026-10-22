@@ -1,12 +1,13 @@
-import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { relativeTime } from "../lib/format";
-import type { PlanImplementationSource, SessionSummary } from "@omp-ui/core/types";
+import type { SessionSummary } from "@omp-ui/core/types";
 import { parseTitleCard } from "@omp-ui/core/title-card";
 import { useT, type MessageKey } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
 import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
-import { Button, Dot, IconButton, IconGrip, IconLock, IconSpeaker, type Tone } from "./ui";
+import { Button, Dot, IconButton, IconLock, IconSpeaker, type Tone } from "./ui";
+import type { SessionHandoff } from "../lib/session-handoffs";
 import type { LivePhase } from "@omp-ui/core/live-voice";
 
 /** One session state's sidebar face; the Fleet view's dispatch rows reuse it (issue #899). */
@@ -174,53 +175,24 @@ function IconSeance() {
   );
 }
 
-/**
- * Plan-handoff view of one sidebar row, derived by the sidebar arrangement
- * (issue #238). Exactly one of `source`/`orphanSource` is set on an
- * implementation row; a plain row carries neither.
- */
-export interface SessionRowHandoff {
-  /** The planning session this row implements, when it still exists. */
-  source: SessionSummary | null;
-  /** Saved dispatch metadata when the planning session is gone. */
-  orphanSource: PlanImplementationSource | null;
-  /** This row dispatched at least one implementation shown beneath it. */
-  hasDescendants: boolean;
-}
-
 export function SessionRow({
   s,
   onActivate,
   handoff,
+  projectLabel,
   instanceNickname = null,
-  canReorder = false,
-  dragging = false,
-  dropIndicator = null,
-  registerGrip,
-  onReorder,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
   onContextMenu,
 }: {
   s: SessionSummary;
   onActivate?: () => void;
-  handoff?: SessionRowHandoff;
-  /** Unified project view (#903): non-null on rows whose session lives on a
-   *  joined remote instance; the meta line then names that machine. */
+  /** Plan-handoff view of this row (issue #238): its resolved source, an
+   *  orphan marker, and whether it dispatched at least one implementation. */
+  handoff?: SessionHandoff;
+  /** The row's project name, or the chat label; shown after the state label. */
+  projectLabel?: string;
+  /** Non-null on rows whose session lives on a joined remote instance; the
+   *  meta line then names that machine (#903). */
   instanceNickname?: string | null;
-  // Issues #115/#120 pattern applied to sessions (#274). Only tree-root rows
-  // receive these from ProjectSection.
-  canReorder?: boolean;
-  dragging?: boolean;
-  dropIndicator?: "before" | "after" | null;
-  registerGrip?: (el: HTMLButtonElement | null) => void;
-  onReorder?: (delta: -1 | 1) => void;
-  onDragStart?: (e: ReactDragEvent<HTMLElement>) => void;
-  onDragOver?: (e: ReactDragEvent<HTMLElement>) => void;
-  onDrop?: (e: ReactDragEvent<HTMLElement>) => void;
-  onDragEnd?: () => void;
   /** Right-click (or keyboard menu) on the row; Sidebar owns the portal. */
   onContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void;
 }) {
@@ -267,7 +239,7 @@ export function SessionRow({
   const showPersistedStatus = !(s.live === "live" && rpc);
 
   // Plan handoff (issue #238). The dispatch snapshot lives on the row's own
-  // record; the arrangement resolves it to a live source or an orphan marker.
+  // record; the resolver turns it into a live source or an orphan marker.
   // The saved local:// plan path is deliberately never rendered.
   const source = handoff?.source ?? null;
   const orphanSource = handoff?.orphanSource ?? null;
@@ -281,45 +253,13 @@ export function SessionRow({
 
   return (
     <div
-      draggable={canReorder}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
       onContextMenu={onContextMenu}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
       className={cn(
         "group/row animate-slide-in relative flex items-center rounded-md",
         "transition-colors duration-150",
         selected ? "bg-raised" : "hover:bg-raised/60",
-        canReorder && "cursor-grab active:cursor-grabbing",
-        dragging && "opacity-60",
-        // Insertion line, mirroring ProjectSection's neutral emphasis (ADR-0004).
-        dropIndicator === "before" && "border-t-2 border-line-strong",
-        dropIndicator === "after" && "border-b-2 border-line-strong",
       )}
-      data-drop-indicator={dropIndicator ?? undefined}
     >
-      {canReorder && (
-        <span className="proj-reveal proj-reveal-r mt-px shrink-0 self-center overflow-hidden max-w-0 transition-all duration-200 group-hover/row:ml-1 group-hover/row:mr-1.5 focus-within:mr-1.5 focus-within:max-w-11 pl-1">
-          <button
-            type="button"
-            ref={registerGrip}
-            aria-label={t("sidebar.session.reorder", { title: s.title })}
-            aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-            title={t("sidebar.session.reorderTitle", { title: s.title })}
-            onKeyDown={(e) => {
-              if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
-              // Ours: neither scroll the list nor wake Electron's
-              // auto-hidden menu bar.
-              e.preventDefault();
-              onReorder?.(e.key === "ArrowUp" ? -1 : 1);
-            }}
-            className="shrink-0 rounded text-ink-faint opacity-0 transition-opacity duration-200 group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none"
-          >
-            <IconGrip />
-          </button>
-        </span>
-      )}
       {selected && (
         <span
           aria-hidden
@@ -373,6 +313,7 @@ export function SessionRow({
             className="block truncate font-mono text-[10px] text-ink-faint tabular-nums"
           >
             <span className={face.textClass}>{t(face.labelKey)}</span>
+            {projectLabel ? ` · ${projectLabel}` : ""}
             {when ? ` · ${when}` : ""}
             {showPersistedStatus && s.status ? ` · ${s.status}` : ""}
             {s.worktree ? (

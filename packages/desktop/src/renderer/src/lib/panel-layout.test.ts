@@ -3,7 +3,6 @@ import {
   BROWSER_PANE_DEFAULT_WIDTH,
   BROWSER_PANE_MAX_WIDTH,
   BROWSER_PANE_MIN_WIDTH,
-  COLLAPSED_SIDEBAR_WIDTH,
   INSPECTOR_DEFAULT_WIDTH,
   INSPECTOR_MAX_WIDTH,
   INSPECTOR_MIN_WIDTH,
@@ -59,8 +58,18 @@ describe("desktop panel layout", () => {
       inspectorWidth: 480,
       sidebarCollapsed: true,
     });
-    expect(collapsed.sidebarWidth).toBe(COLLAPSED_SIDEBAR_WIDTH);
+    expect(collapsed.sidebarWidth).toBe(0);
     expect(collapsed.inspectorWidth).toBe(480);
+
+    // A collapsed sidebar adds nothing to the fixed budget: 820 − 360 fixed
+    // leaves the inspector all 460px.
+    const collapsedNarrow = resolveDesktopPanelWidths({
+      ...defaults,
+      viewportWidth: 820,
+      inspectorWidth: 480,
+      sidebarCollapsed: true,
+    });
+    expect(collapsedNarrow).toMatchObject({ sidebarWidth: 0, inspectorWidth: 460, inspectorAllowedMax: 460 });
 
     const closed = resolveDesktopPanelWidths({
       ...defaults,
@@ -141,14 +150,15 @@ describe("desktop panel layout", () => {
     // the pane, under its 360 minimum; neither chrome pane yields for it.
     expect(resolveDesktopPanelWidths({ ...defaults, viewportWidth: 1100, browserPaneOpen: true }))
       .toMatchObject({ sidebarWidth: 272, inspectorWidth: 304, browserPaneFits: false });
-    // Collapsing the sidebar and closing the inspector frees enough room.
+    // Collapsing the sidebar and closing the inspector frees enough room: the
+    // collapsed sidebar takes no width, so the pane gets 900 − 360 = 540.
     expect(resolveDesktopPanelWidths({
       ...defaults,
       viewportWidth: 900,
       browserPaneOpen: true,
       sidebarCollapsed: true,
       inspectorOpen: false,
-    })).toMatchObject({ browserPaneWidth: 484, browserPaneFits: true });
+    })).toMatchObject({ sidebarWidth: 0, browserPaneWidth: 540, browserPaneFits: true });
   });
 
   it("never reports an allowed maximum below a pane's minimum", () => {

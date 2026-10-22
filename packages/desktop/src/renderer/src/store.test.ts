@@ -1275,7 +1275,6 @@ describe("mounted tab reconciliation (issues #416 and #510)", () => {
       ],
       rpc: { [RPC]: rpcTabState({ status: "ready" }) },
       activeTabId: RPC,
-      focusedTabByProject: { [`${INSTANCE}::/p`]: RPC },
     });
     const bootRpcTab = vi.fn(async () => {});
     fresh.setState({ bootRpcTab });
@@ -1341,14 +1340,12 @@ describe("mounted tab reconciliation (issues #416 and #510)", () => {
     fresh.setState({
       tabs: [tabInfo({ tabId: newer.tabId, projectCwd: "/keep" })],
       activeTabId: newer.tabId,
-      focusedTabByProject: { "/keep": newer.tabId },
     });
     const startLiveVoice = vi.spyOn(fresh.getState(), "startLiveVoice");
     onState(localState([older, newer, source]));
     expect(fresh.getState().observedPlanHandoffs).toEqual({ [source.tabId]: newer.tabId });
     expect(fresh.getState().handedOffFor).toEqual({ [source.tabId]: newer.tabId });
     expect(fresh.getState().activeTabId).toBe(newer.tabId);
-    expect(fresh.getState().focusedTabByProject["/keep"]).toBe(newer.tabId);
     expect(startLiveVoice).not.toHaveBeenCalled();
 
     fresh.setState({ handedOffFor: {} });
@@ -1409,7 +1406,6 @@ describe("mounted tab reconciliation (issues #416 and #510)", () => {
         [LOCAL_PTY]: { line: "/mcp reauth two", key: 2, phase: "running" },
       },
       activeTabId: SURVIVOR,
-      focusedTabByProject: { "/gone": LOCAL_RPC, "/keep": SURVIVOR },
     });
 
     onState(localState([survivor]));
@@ -1424,7 +1420,6 @@ describe("mounted tab reconciliation (issues #416 and #510)", () => {
     expect(state.hibernated[LOCAL_PTY]).toBeUndefined();
     expect(state.tuiHandoff[LOCAL_RPC]).toBeUndefined();
     expect(state.tuiHandoff[LOCAL_PTY]).toBeUndefined();
-    expect(state.focusedTabByProject).toEqual({ "/keep": SURVIVOR });
     expect(bootRpcTab).not.toHaveBeenCalled();
     expect(state.ptyRedrawRevision[LOCAL_PTY]).toBeUndefined();
 
@@ -1433,7 +1428,6 @@ describe("mounted tab reconciliation (issues #416 and #510)", () => {
     state = fresh.getState();
     expect(state.tabs).toEqual([]);
     expect(state.activeTabId).toBeNull();
-    expect(state.focusedTabByProject).toEqual({});
     expect(bootRpcTab).not.toHaveBeenCalled();
   });
 
@@ -1477,7 +1471,6 @@ describe("mounted tab reconciliation (issues #416 and #510)", () => {
     expect(st.tabs).toEqual([]);
     expect(st.activeTabId).toBeNull();
     expect(st.rpc[RPC]).toBeUndefined();
-    expect(st.focusedTabByProject).toEqual({});
   });
 });
 // #498: the store listens for branch:changed and re-reads local refs for the

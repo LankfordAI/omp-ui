@@ -191,7 +191,6 @@ function seed(branch: string = BRANCH): void {
     branchActivity: { "/p": { refreshing: false, fetching: false, pulling: false, pushing: false } },
     tabs: [],
     activeTabId: null,
-    focusedTabByProject: {},
     rpc: {},
     exited: {},
     consoleOpen: {},

@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "./lib/rpc-types";
-import { backendState, tabInfo } from "./test/fixtures";
+import { backendState } from "./test/fixtures";
 import type { RpcTabState } from "./store";
 import type { BackendState, SessionSummary } from "@omp-ui/core/types";
 
@@ -13,8 +13,9 @@ Object.assign(window, { ompBackend: {} });
 // rows scroll on keyboard navigation and jsdom has no layout.
 HTMLElement.prototype.scrollIntoView = vi.fn();
 
-// The mock renders an aside so the issue #916 tests can assert the mount gate
-// (zero visible tabs → no sidebar at all) through DOM presence.
+// The mock renders an aside so the shell tests can assert the sidebar mount
+// (always present on desktop, zero tabs included — issue #919) through DOM
+// presence.
 vi.mock("./components/Sidebar", () => ({ Sidebar: () => <aside data-sidebar-mock /> }));
 vi.mock("./components/RpcTab", () => ({ RpcTab: ({ tabId }: { tabId: string }) => <div data-rpc-tab={tabId} /> }));
 vi.mock("./components/TerminalTab", () => ({ TerminalTab: ({ tabId }: { tabId: string }) => <div data-terminal-tab={tabId} /> }));
@@ -65,7 +66,6 @@ function seed(): void {
       { tabId: "pty", mode: "pty", projectCwd: "/p", hidden: false, instanceId: null },
     ],
     activeTabId: "rpc",
-    focusedTabByProject: {},
     restoringTabs: false,
     rpc: { rpc: runtime({
       todos: [{ phase: "work", tasks: [{ content: "open", status: "pending" }] }],
@@ -219,8 +219,10 @@ describe("desktop merged title bar (issues #59/#60)", () => {
     renderApp();
     const header = document.body.querySelector("header")!;
     expect(header.querySelector('button[aria-label="collapse sidebar"]')).not.toBeNull();
-    expect(header.querySelector('button[aria-label="add project"]')).not.toBeNull();
-    expect(header.querySelector('button[aria-label="new session — pick a project"]')).not.toBeNull();
+    // New session and Add project live in the sidebar header now (issue #919):
+    // an expanded sidebar leaves the strip with neither.
+    expect(header.querySelector('button[aria-label="add project"]')).toBeNull();
+    expect(header.querySelector('button[aria-label="new session — pick a project"]')).toBeNull();
     // the rpc-ui HUD rides the same strip
     expect(header.querySelector('button[aria-label^="branch this session"]')).not.toBeNull();
     // no noise texture — the overlay can only paint a flat colour (#59); the
@@ -249,6 +251,13 @@ describe("desktop merged title bar (issues #59/#60)", () => {
     act(() => (header.querySelector('button[aria-label="collapse sidebar"]') as HTMLButtonElement).click());
     expect(useStore.getState().sidebarCollapsed).toBe(true);
   });
+
+  it("keeps the sidebar toggle with zero tabs", () => {
+    useStore.setState({ tabs: [], activeTabId: null, state: projectState() });
+    renderApp();
+    const header = document.body.querySelector("header")!;
+    expect(header.querySelector('button[aria-label="collapse sidebar"]')).not.toBeNull();
+  });
 });
 
 describe("update restore surface (issue #99)", () => {
@@ -264,7 +273,7 @@ describe("update restore surface (issue #99)", () => {
   });
 });
 
-describe("new-session entry points (issue #915)", () => {
+describe("new-session entry points (issues #915/#919)", () => {
   const pressModShiftN = (): void => {
     document.body.focus();
     act(() => {
@@ -274,7 +283,7 @@ describe("new-session entry points (issue #915)", () => {
     });
   };
 
-  // Minimal record so isChatTab can route the tab through the chat fast path.
+  // Minimal record so isChatTab classifies the focused tab as a chat.
   const chatSummary = (): SessionSummary => ({
     tabId: "chat",
     sessionId: null,
@@ -330,17 +339,25 @@ describe("new-session entry points (issue #915)", () => {
     expect(useStore.getState().projectQuickOpen).not.toBeNull();
   });
 
-  it("keeps the title-bar + enabled with zero tabs and opens the overlay from it", () => {
+  it("shows the title-bar New session only while the sidebar is collapsed", () => {
     compact = false;
     useStore.setState({ tabs: [], activeTabId: null, state: projectState() });
     renderApp();
     const header = document.body.querySelector("header")!;
-    const plus = header.querySelector<HTMLButtonElement>(
-      'button[aria-label="new session — pick a project"]',
-    )!;
-    expect(plus.disabled).toBe(false);
-    act(() => plus.click());
+    const newSession = (): HTMLButtonElement | null =>
+      header.querySelector<HTMLButtonElement>('button[aria-label="new session — pick a project"]');
+    // Expanded: the sidebar header carries the one New session button.
+    expect(newSession()).toBeNull();
+
+    act(() => useStore.setState({ sidebarCollapsed: true }));
+    // Collapsed: it sits right after the toggle and opens the overlay.
+    const toggle = header.querySelector<HTMLButtonElement>('button[aria-label="expand sidebar"]')!;
+    expect(toggle.nextElementSibling).toBe(newSession());
+    act(() => newSession()!.click());
     expect(useStore.getState().projectQuickOpen).not.toBeNull();
+
+    act(() => useStore.setState({ sidebarCollapsed: false, projectQuickOpen: null }));
+    expect(newSession()).toBeNull();
   });
 
   it("opens the overlay for a focused project tab instead of spawning", async () => {
@@ -354,10 +371,9 @@ describe("new-session entry points (issue #915)", () => {
     expect(useStore.getState().projectQuickOpen).not.toBeNull();
   });
 
-  it("keeps the chat fast path: a chat tab's key spawns another chat inline", async () => {
-    // The chat record exists only so isChatTab routes to the fast path; the
-    // mocked newChat action (store-state override, not backend) proves the key
-    // calls it — seeding the real spawn machinery here would be heavy.
+  it("opens the quick-open on a chat tab instead of spawning a chat inline", async () => {
+    // The quick-open orders No project first for a focused chat, so a bare
+    // Enter there still starts another chat; the key itself never spawns.
     const chat: SessionSummary = { ...chatSummary(), tabId: "chat" };
     const newChat = vi.fn(async () => "fresh-chat");
     useStore.setState({
@@ -376,61 +392,35 @@ describe("new-session entry points (issue #915)", () => {
     pressModShiftN();
     await act(async () => {});
 
-    expect(newChat).toHaveBeenCalledOnce();
+    expect(newChat).not.toHaveBeenCalled();
     expect(spawnSession).not.toHaveBeenCalled();
-    expect(useStore.getState().projectQuickOpen).toBeNull();
+    expect(useStore.getState().projectQuickOpen).not.toBeNull();
   });
 });
 
-describe("empty shell at zero sessions (issue #916)", () => {
+describe("always-mounted sidebar (issue #919)", () => {
   beforeEach(() => {
     compact = false;
   });
 
-  it("mounts no sidebar and hides the toggle when every tab is hidden", () => {
-    useStore.setState({ state: projectState() });
-    renderApp();
-    // The default seed has two visible tabs: both surfaces exist.
-    expect(document.body.querySelector("aside")).not.toBeNull();
-    expect(
-      document.body.querySelector('button[aria-label="collapse sidebar"]'),
-    ).not.toBeNull();
-
-    act(() => {
-      useStore.setState({
-        tabs: [
-          { tabId: "rpc", mode: "rpc-ui", projectCwd: "/p", hidden: true, instanceId: null },
-          { tabId: "pty", mode: "pty", projectCwd: "/p", hidden: true, instanceId: null },
-        ],
-      });
-    });
-    expect(document.body.querySelector("aside")).toBeNull();
-    expect(document.body.querySelector('button[aria-label="collapse sidebar"]')).toBeNull();
-    expect(document.body.querySelector('button[aria-label="expand sidebar"]')).toBeNull();
-  });
-
-  it("shows Welcome with the new hint and no toggle at zero tabs", () => {
+  it("mounts the sidebar beside Welcome with zero tabs", () => {
     useStore.setState({ tabs: [], activeTabId: null, state: projectState() });
     renderApp();
-    expect(document.body.querySelector("aside")).toBeNull();
-    expect(document.body.querySelector('button[aria-label="collapse sidebar"]')).toBeNull();
-    // Welcome fills the empty canvas with the picker-first copy.
+    expect(document.body.querySelector("aside")).not.toBeNull();
+    // Welcome still fills the empty canvas.
     expect(document.body.textContent).toContain("Add project");
     expect(document.body.textContent).toContain("No sessions open");
   });
 
-  it("remounts the sidebar and its toggle when a tab appears", () => {
-    useStore.setState({ tabs: [], activeTabId: null, state: projectState() });
-    renderApp();
-    expect(document.body.querySelector("aside")).toBeNull();
-
-    act(() => {
-      const tab = tabInfo({ tabId: "t1", hidden: false });
-      useStore.setState({ tabs: [tab], activeTabId: "t1" });
+  it("keeps the sidebar mounted when every tab is hidden", () => {
+    useStore.setState({
+      state: projectState(),
+      tabs: [
+        { tabId: "rpc", mode: "rpc-ui", projectCwd: "/p", hidden: true, instanceId: null },
+        { tabId: "pty", mode: "pty", projectCwd: "/p", hidden: true, instanceId: null },
+      ],
     });
+    renderApp();
     expect(document.body.querySelector("aside")).not.toBeNull();
-    expect(
-      document.body.querySelector('button[aria-label="collapse sidebar"]'),
-    ).not.toBeNull();
   });
 });

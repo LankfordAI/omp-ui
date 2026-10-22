@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OmpUpdateState, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
 import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
+import { setSettledOpen } from "../lib/sidebar-settled";
 import type { LiveSnapshot } from "@omp-ui/core/live-voice";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -30,18 +31,8 @@ const idleOmpUpdate: OmpUpdateState = {
 const backendMock = {
   getState: vi.fn(),
   addProject: vi.fn(),
-  getProjectOpenAvailability: vi.fn<() => Promise<{ vsCode: boolean; terminal: boolean }>>(),
-  openProject: vi.fn<(path: string, target: "vscode" | "files" | "terminal") => Promise<void>>(),
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
-  moveProject: vi.fn(async () => {}),
-  moveSession: vi.fn(async () => {}),
-  createSidebarGroup: vi.fn(async () => {}),
-  renameSidebarGroup: vi.fn(async () => {}),
-  removeSidebarGroup: vi.fn(async () => {}),
-  moveSidebarGroup: vi.fn(async () => {}),
-  setSidebarGroupCollapsed: vi.fn(async () => {}),
-  setProjectSidebarGroup: vi.fn(async () => {}),
   setDefaultMode: vi.fn(),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
@@ -85,7 +76,6 @@ Object.assign(window, { ompBackend: backendMock });
 
 const { useStore } = await import("../store");
 const { Sidebar } = await import("./Sidebar");
-const { setSidebarMode } = await import("../lib/sidebar-mode");
 const originalNewSession = useStore.getState().newSession;
 const originalOpenSession = useStore.getState().openSession;
 const openSession = vi.fn(async () => {});
@@ -178,22 +168,6 @@ const state = backendState({
   ],
 });
 
-// issue #115: the DnD suite needs three reorderable projects; the same session
-// fixture is cloned per project so every row carries a real (but tiny) list.
-const dragAlpha = "/projects/alpha";
-const dragBeta = "/projects/beta";
-const dragGamma = "/projects/gamma";
-const threeProjectState = backendState({
-  projects: [dragAlpha, dragBeta, dragGamma].map((p, i) => ({
-    project: {
-      ...state.projects[0]!.project,
-      path: p,
-      name: ["Alpha", "Beta", "Gamma"][i],
-    },
-    sessions: state.projects[0]!.sessions.map((s) => ({ ...s, projectCwd: p })),
-  })),
-});
-
 let root: Root | null = null;
 const originalMatchMedia = window.matchMedia;
 const originalVisualViewport = Object.getOwnPropertyDescriptor(window, "visualViewport");
@@ -211,14 +185,6 @@ function button(label: string): HTMLButtonElement {
   return found;
 }
 
-function collapsedProjectButton(): HTMLButtonElement {
-  const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) =>
-    candidate.title.startsWith("Project One —"),
-  );
-  if (found === undefined) throw new Error("collapsed project trigger not found");
-  return found;
-}
-
 function openContextMenu(trigger: HTMLElement): MouseEvent {
   const event = new MouseEvent("contextmenu", {
     bubbles: true,
@@ -230,58 +196,17 @@ function openContextMenu(trigger: HTMLElement): MouseEvent {
   return event;
 }
 
-function terminalMenuItem(): HTMLButtonElement {
-  const items = document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
-  const item = [...items].find((el) => el.textContent === "New terminal session");
-  expect(item).not.toBeUndefined();
-  return item!;
-}
-interface Deferred<T> {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-  reject: (reason?: unknown) => void;
-}
-
-function deferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((onResolve, onReject) => {
-    resolve = onResolve;
-    reject = onReject;
-  });
-  return { promise, resolve, reject };
-}
-
-async function resolveAvailability(
-  request: Deferred<{ vsCode: boolean; terminal: boolean }>,
-  vsCode: boolean,
-  terminal = false,
-): Promise<void> {
-  await act(async () => {
-    request.resolve({ vsCode, terminal });
-    await request.promise;
-  });
-}
-
-function chooseOpen(name: string): HTMLButtonElement {
-  return button(`Choose how to open ${name}`);
-}
-
 function openMenuItems(): HTMLButtonElement[] {
   return [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
 }
 
 beforeEach(() => {
-  backendMock.getProjectOpenAvailability.mockReset();
-  backendMock.getProjectOpenAvailability.mockReturnValue(new Promise(() => {}));
-  backendMock.openProject.mockReset();
   newSession.mockClear();
   openSession.mockClear();
   useStore.setState({
     state,
     tabs: [],
     activeTabId: null,
-    focusedTabByProject: {},
     restoringTabs: false,
     exited: {},
     rpc: {},
@@ -291,7 +216,6 @@ beforeEach(() => {
     sidebarWidth: 272,
     inspectorWidth: 304,
     inspectorOpen: false,
-    hostScope: "all",
     newSession,
     openSession,
   });
@@ -304,7 +228,7 @@ afterEach(() => {
     root = null;
   }
   document.body.replaceChildren();
-  act(() => setSidebarMode("work"));
+  act(() => setSettledOpen(false));
   window.localStorage.clear();
   Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
   if (originalVisualViewport === undefined) {
@@ -316,7 +240,6 @@ afterEach(() => {
     state: null,
     tabs: [],
     activeTabId: null,
-    focusedTabByProject: {},
     restoringTabs: false,
     exited: {},
     rpc: {},
@@ -330,7 +253,7 @@ describe("Sidebar resizing", () => {
   it("previews, commits, resets, and preserves the expanded preference across collapse", () => {
     renderSidebar();
     const aside = document.body.querySelector<HTMLElement>("aside")!;
-    const handle = document.body.querySelector<HTMLElement>('[role="separator"][aria-label="resize project sidebar"]')!;
+    const handle = document.body.querySelector<HTMLElement>('[role="separator"][aria-label="resize sidebar"]')!;
     expect(aside.style.width).toBe("272px");
 
     act(() => {
@@ -346,10 +269,10 @@ describe("Sidebar resizing", () => {
     expect(useStore.getState().sidebarWidth).toBe(272);
     act(() => useStore.getState().setSidebarWidth(400));
     act(() => useStore.getState().toggleSidebarCollapsed());
-    expect(aside.className).toContain("w-14");
+    expect(document.body.querySelector("aside")).toBeNull();
     expect(useStore.getState().sidebarWidth).toBe(400);
     act(() => useStore.getState().toggleSidebarCollapsed());
-    expect(aside.style.width).toBe("400px");
+    expect(document.body.querySelector<HTMLElement>("aside")!.style.width).toBe("400px");
   });
 
   it("renders no separator in the compact project sheet", () => {
@@ -361,73 +284,6 @@ describe("Sidebar resizing", () => {
     useStore.setState({ compactSurface: "sessions" });
     renderSidebar();
     expect(document.body.querySelector('[role="separator"]')).toBeNull();
-  });
-});
-
-describe("Sidebar chat mode (issue #894)", () => {
-  const chat = (id: string, title: string): SessionSummary => ({
-    ...state.projects[0]!.sessions[0]!,
-    tabId: `chat-${id}`,
-    chat: true,
-    askSource: null,
-    title,
-    cachedTitle: title,
-  });
-  const chatState = { ...state, chats: [chat("c1", "Brainstorm names"), chat("c2", "Draft release post")] };
-  const chatButton = (): HTMLButtonElement =>
-    [...document.body.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Sidebar list"] button')].find(
-      (b) => b.textContent === "Chat",
-    )!;
-  const rowTitles = (): string[] =>
-    [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")]
-      .map((b) => b.title)
-      .filter((title) => title.includes("Brainstorm") || title.includes("Draft") || title.includes("Owned session"));
-
-  it("lists chats instead of project sections", () => {
-    useStore.setState({ state: chatState });
-    renderSidebar();
-    act(() => chatButton().click());
-    expect(document.body.textContent).not.toContain("Project One");
-    expect(rowTitles().some((t) => t.startsWith("Brainstorm names"))).toBe(true);
-    expect(rowTitles().some((t) => t.startsWith("Draft release post"))).toBe(true);
-    expect(rowTitles().some((t) => t.includes("Owned session"))).toBe(false);
-  });
-
-  it("starts plain and private chats", () => {
-    const newChat = vi.fn(async () => null);
-    useStore.setState({ state: chatState, newChat });
-    renderSidebar();
-    act(() => chatButton().click());
-    act(() => button("New chat").click());
-    expect(newChat).toHaveBeenLastCalledWith();
-    act(() => button("New private chat").click());
-    expect(newChat).toHaveBeenLastCalledWith({ private: true });
-  });
-
-  it("persists the chosen mode across a fresh render", () => {
-    useStore.setState({ state: chatState });
-    renderSidebar();
-    act(() => chatButton().click());
-    expect(window.localStorage.getItem("omp-ui.sidebarMode")).toBe("chat");
-    act(() => root!.unmount());
-    root = null;
-    renderSidebar();
-    expect(chatButton().getAttribute("aria-pressed")).toBe("true");
-    expect(document.body.textContent).not.toContain("Project One");
-  });
-
-  it("narrows chats by title through the filter", () => {
-    useStore.setState({ state: chatState });
-    renderSidebar();
-    act(() => chatButton().click());
-    const input = document.body.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]')!;
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-    act(() => {
-      setter.call(input, "draft");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(rowTitles().some((t) => t.startsWith("Draft release post"))).toBe(true);
-    expect(rowTitles().some((t) => t.startsWith("Brainstorm names"))).toBe(false);
   });
 });
 
@@ -455,6 +311,8 @@ describe("Sidebar Ask about this session menu (issue #895)", () => {
 
   beforeEach(() => {
     askAboutSession.mockClear();
+    // Dormant rows sit under Settled.
+    act(() => setSettledOpen(true));
     useStore.setState({
       askAboutSession,
       ompUpdate: { ...originalOmpUpdate, installedVersion: "99.0.0" },
@@ -488,7 +346,7 @@ describe("Sidebar Ask about this session menu (issue #895)", () => {
     expect(openMenuItems()).toEqual([]);
   });
 
-  it("offers Ask on a chat row in Chat mode", () => {
+  it("offers Ask, never Migrate, on a dormant chat row", () => {
     const chat: SessionSummary = {
       ...state.projects[0]!.sessions[0]!,
       tabId: "chat-c1",
@@ -496,8 +354,7 @@ describe("Sidebar Ask about this session menu (issue #895)", () => {
       title: "Brainstorm names",
       cachedTitle: "Brainstorm names",
     };
-    useStore.setState({ state: { ...state, chats: [chat] } });
-    act(() => setSidebarMode("chat"));
+    useStore.setState({ state: { ...state, chats: [{ ...chat, live: "dormant" }] } });
     renderSidebar();
     openContextMenu(row("Brainstorm names"));
     expect(itemLabels()).toEqual(["Ask about this session"]);
@@ -506,116 +363,172 @@ describe("Sidebar Ask about this session menu (issue #895)", () => {
   });
 });
 
-describe("Sidebar session creation", () => {
-  it("removes sidebar mode chrome and preserves plain creation in both layouts", () => {
-    renderSidebar();
-
-    expect(document.body.textContent).not.toContain("new sessions");
-    expect(document.body.querySelector('[title="new sessions open in the terminal"]')).toBeNull();
-    expect(document.body.querySelector('[title="new sessions open in the native RPC view"]')).toBeNull();
-    expect(document.body.querySelector('[title="switch to terminal mode"]')).toBeNull();
-    expect(document.body.querySelector('[title="switch to native mode"]')).toBeNull();
-
-    act(() => button("new session").click());
-    expect(newSession).toHaveBeenLastCalledWith(projectPath, undefined, null);
-
-    act(() => useStore.getState().toggleSidebarCollapsed());
-    act(() => collapsedProjectButton().click());
-    expect(newSession).toHaveBeenNthCalledWith(2, projectPath, undefined, null);
+describe("Sidebar session list", () => {
+  const SETTLED_KEY = "omp-ui.sidebarSettledOpen";
+  /** tab-1 stays live; tab-2 is dormant, so it lands under Settled. */
+  const mixedState = backendState({
+    projects: [
+      {
+        ...state.projects[0]!,
+        sessions: [state.projects[0]!.sessions[0]!, { ...state.projects[0]!.sessions[1]!, live: "dormant" }],
+      },
+    ],
+    chats: [
+      {
+        ...state.projects[0]!.sessions[0]!,
+        tabId: "chat-c1",
+        chat: true,
+        title: "Brainstorm names",
+        cachedTitle: "Brainstorm names",
+      },
+    ],
   });
+  const remotePath = "/projects/remote";
+  const withRemote = (patch: Partial<RemoteInstanceSummary>) =>
+    backendState({
+      projects: state.projects,
+      remoteInstances: [
+        remoteInstance({
+          id: "inst-a",
+          nickname: "box-a",
+          projects: [
+            {
+              project: { ...state.projects[0]!.project, path: remotePath, name: "Remote Project" },
+              sessions: [
+                {
+                  ...state.projects[0]!.sessions[0]!,
+                  tabId: "remote-tab-1",
+                  projectCwd: remotePath,
+                  title: "Remote session",
+                  cachedTitle: "Remote session",
+                  live: "dormant",
+                },
+              ],
+            },
+          ],
+          ...patch,
+        }),
+      ],
+    });
 
-  it("opens and selects the terminal action from the expanded project trigger", () => {
-    renderSidebar();
-    const trigger = button("new session");
-
-    const event = openContextMenu(trigger);
-
-    expect(event.defaultPrevented).toBe(true);
-    const item = terminalMenuItem();
-    expect(document.activeElement).toBe(item);
-
-    act(() => item.click());
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(newSession).toHaveBeenCalledWith(projectPath, "pty", null);
-  });
-
-  it("opens and selects the same terminal action from the collapsed project trigger", () => {
-    renderSidebar();
-    act(() => useStore.getState().toggleSidebarCollapsed());
-    const trigger = collapsedProjectButton();
-
-    const event = openContextMenu(trigger);
-
-    expect(event.defaultPrevented).toBe(true);
-    const item = terminalMenuItem();
-    expect(document.activeElement).toBe(item);
-
-    act(() => item.click());
-    expect(newSession).toHaveBeenCalledWith(projectPath, "pty", null);
-  });
-
-  it("restores trigger focus on Escape and dismisses outside without spawning", () => {
-    renderSidebar();
-    const trigger = button("new session");
-    trigger.focus();
-    openContextMenu(trigger);
-    expect(document.activeElement).toBe(terminalMenuItem());
-
-    act(() =>
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })),
+  const rowButton = (title: string): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")].find((b) => b.title === title);
+  const settledToggle = (): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) =>
+      b.textContent?.startsWith("Settled"),
     );
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
+  const setFilter = (value: string): void => {
+    const input = document.body.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
 
-    openContextMenu(trigger);
-    terminalMenuItem();
-    act(() => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })));
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(newSession).not.toHaveBeenCalled();
+  afterEach(() => {
+    useStore.setState({ projectQuickOpen: null, projectPickerOpen: false, settingsPage: null });
   });
 
-  it("opens the same menu from the chevron and reaches the New session dialog (issue #262)", () => {
-    useStore.setState({ newSessionDialog: null });
+  it("renders only live rows above Settled, each naming its project or chat", () => {
+    useStore.setState({ state: mixedState });
     renderSidebar();
-    const chevron = button("new session options for Project One");
-
-    // A plain left click (jsdom reports 0,0 — the keyboard-activation shape)
-    // anchors the menu to the trigger instead of the pointer.
-    act(() => chevron.click());
-    const item = terminalMenuItem();
-    expect(document.activeElement).toBe(item);
-    const rows = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-      .map((row) => row.textContent);
-    expect(rows).toEqual(["New terminal session", "New session…", "new private session"]);
-
-    // Escape dismisses and hands focus back to the chevron.
-    act(() =>
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })),
-    );
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(chevron);
-
-    // The New session… row opens the dialog seeded with the project.
-    act(() => chevron.click());
-    const dialogRow = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-      .find((row) => row.textContent === "New session…")!;
-    act(() => dialogRow.click());
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(useStore.getState().newSessionDialog?.projectCwd).toBe(projectPath);
-    expect(useStore.getState().newSessionDialog?.where).toBe("here");
-    expect(newSession).not.toHaveBeenCalled();
-    useStore.setState({ newSessionDialog: null });
+    expect(rowButton("Owned session")?.textContent).toContain("· Project One");
+    expect(rowButton("Brainstorm names")?.textContent).toContain("· chat");
+    expect(rowButton("Second owned session")).toBeUndefined();
   });
 
-  it("the private row spawns with the options tuple tail (issue #852)", () => {
+  it("collapses Settled by default with its count, and the toggle survives a fresh render", () => {
+    useStore.setState({ state: mixedState });
     renderSidebar();
-    const chevron = button("new session options for Project One");
-    act(() => chevron.click());
-    const privateRow = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-      .find((row) => row.textContent === "new private session")!;
-    act(() => privateRow.click());
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(newSession).toHaveBeenCalledWith(projectPath, undefined, null, { private: true });
+    const toggle = settledToggle()!;
+    expect(toggle.textContent).toBe("Settled (1)");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    act(() => toggle.click());
+    expect(rowButton("Second owned session")).not.toBeUndefined();
+    expect(window.localStorage.getItem(SETTLED_KEY)).toBe("1");
+
+    act(() => root!.unmount());
+    root = null;
+    renderSidebar();
+    expect(settledToggle()!.getAttribute("aria-expanded")).toBe("true");
+    expect(rowButton("Second owned session")).not.toBeUndefined();
+  });
+
+  it("opens Settled for a query matching only a settled row without changing the stored choice", () => {
+    useStore.setState({ state: mixedState });
+    renderSidebar();
+    setFilter("Second");
+    expect(rowButton("Second owned session")).not.toBeUndefined();
+    expect(rowButton("Owned session")).toBeUndefined();
+    const toggle = settledToggle()!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.disabled).toBe(true);
+    expect(window.localStorage.getItem(SETTLED_KEY)).toBeNull();
+
+    setFilter("");
+    expect(settledToggle()!.getAttribute("aria-expanded")).toBe("false");
+    expect(rowButton("Second owned session")).toBeUndefined();
+  });
+
+  it("opens the quick-open from the empty state and the header, and the picker from Add project", () => {
+    useStore.setState({
+      state: backendState({
+        projects: [
+          {
+            ...state.projects[0]!,
+            sessions: state.projects[0]!.sessions.map((s) => ({ ...s, live: "dormant" as const })),
+          },
+        ],
+      }),
+    });
+    renderSidebar();
+    expect(document.body.textContent).toContain("No running sessions");
+    const emptyAction = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "New session",
+    )!;
+    act(() => emptyAction.click());
+    expect(useStore.getState().projectQuickOpen).not.toBeNull();
+
+    act(() => useStore.getState().closeProjectQuickOpen());
+    act(() => button("new session — pick a project").click());
+    expect(useStore.getState().projectQuickOpen).not.toBeNull();
+
+    act(() => button("add project").click());
+    expect(useStore.getState().projectPickerOpen).toBe(true);
+    expect(useStore.getState().projectPickerInstanceId).toBeNull();
+  });
+
+  it("dims an unreachable remote row and opens no menu on it", () => {
+    useStore.setState({
+      state: withRemote({ status: "unreachable", error: "connection lost" }),
+      ompUpdate: { ...useStore.getState().ompUpdate, installedVersion: "99.0.0" },
+    });
+    act(() => setSettledOpen(true));
+    renderSidebar();
+    const remote = rowButton("Remote session")!;
+    expect(remote.closest(".opacity-60")).not.toBeNull();
+    expect(remote.textContent).toContain("· box-a");
+    const event = openContextMenu(remote);
+    expect(event.defaultPrevented).toBe(false);
+    expect(openMenuItems()).toEqual([]);
+  });
+
+  it("opens Remote instances from the footer's unreachable chip", () => {
+    useStore.setState({ state: withRemote({ status: "unreachable", error: "connection lost" }) });
+    renderSidebar();
+    const chip = [...document.body.querySelectorAll<HTMLButtonElement>("footer button")].find(
+      (b) => b.textContent === "1 unreachable",
+    )!;
+    act(() => chip.click());
+    expect(useStore.getState().settingsPage).toBe("remote-instances");
+  });
+
+  it("renders no aside while the desktop sidebar is collapsed", () => {
+    useStore.setState({ sidebarCollapsed: true });
+    renderSidebar();
+    expect(document.body.querySelector("aside")).toBeNull();
   });
 
   it("a private record's row carries the lock badge; an ordinary one does not (issue #852)", () => {
@@ -631,1374 +544,6 @@ describe("Sidebar session creation", () => {
     useStore.setState({ state });
     renderSidebar();
     expect(document.body.querySelector('[aria-label="private — this session writes no memories or lessons"]')).toBeNull();
-  });
-
-  it("activates the second session and exposes terminal creation on compact touch", () => {
-    Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({
-      matches: true,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    })) });
-    useStore.setState({ compactSurface: "sessions" });
-    renderSidebar();
-    const second = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.includes("Second owned session"))!;
-    act(() => second.click());
-    expect(openSession).toHaveBeenCalledWith("tab-2");
-    expect(useStore.getState().compactSurface).toBeNull();
-
-    // Terminal creation moved behind the ⋯ project actions sheet (issue #205).
-    act(() => useStore.getState().showCompactSurface("sessions"));
-    act(() => button("actions for Project One").click());
-    const sheet = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="Project One"]');
-    expect(sheet).not.toBeNull();
-    expect(sheet!.textContent).toContain(projectPath);
-    const terminal = [...sheet!.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === "New terminal session")!;
-    act(() => terminal.click());
-    expect(newSession).toHaveBeenCalledWith(projectPath, "pty", null);
-    expect(document.body.querySelector('[role="dialog"][aria-label="Project One"]')).toBeNull();
-    expect(useStore.getState().compactSurface).toBeNull();
-  });
-});
-
-describe("Sidebar project open control (issue #169)", () => {
-  function projectSection(name: string): HTMLElement {
-    const found = [...document.body.querySelectorAll<HTMLElement>("section")].find((section) =>
-      section.textContent?.includes(name),
-    );
-    if (found === undefined) throw new Error(`project section not found: ${name}`);
-    return found;
-  }
-
-  function press(target: HTMLElement, key: string): KeyboardEvent {
-    const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
-    act(() => target.dispatchEvent(event));
-    return event;
-  }
-
-  async function activateNativeButtonWithKey(
-    target: HTMLButtonElement,
-    key: "Enter" | " ",
-  ): Promise<void> {
-    const down = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
-    const up = new KeyboardEvent("keyup", { key, bubbles: true, cancelable: true });
-    await act(async () => {
-      target.dispatchEvent(down);
-      target.dispatchEvent(up);
-      // jsdom does not synthesize the browser's native keyboard click for a
-      // button. Reproduce that final native step only when the key was not
-      // canceled, preserving the contract the component relies on.
-      if (!down.defaultPrevented && !up.defaultPrevented) target.click();
-    });
-    expect(down.defaultPrevented).toBe(false);
-    expect(up.defaultPrevented).toBe(false);
-  }
-
-  function isolatedDragStart(target: HTMLElement): {
-    event: Event;
-    setData: (...args: unknown[]) => void;
-  } {
-    const event = new Event("dragstart", { bubbles: true, cancelable: true });
-    const setData = vi.fn();
-    Object.defineProperty(event, "dataTransfer", {
-      configurable: true,
-      value: { setData, effectAllowed: "" },
-    });
-    act(() => target.dispatchEvent(event));
-    return { event, setData };
-  }
-
-  it("keeps both split segments neutral and disabled while availability is unresolved", async () => {
-    const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    renderSidebar();
-
-    const primary = button("Open Project One");
-    const trigger = chooseOpen("Project One");
-    expect(primary).not.toBe(trigger);
-    expect(primary.type).toBe("button");
-    expect(trigger.type).toBe("button");
-    expect(primary.tabIndex).toBe(0);
-    expect(trigger.tabIndex).toBe(0);
-    expect(primary.textContent?.trim()).toBe("Open");
-    expect(primary.textContent).not.toContain("VS Code");
-    expect(primary.textContent).not.toContain("Files");
-    expect(primary.disabled).toBe(true);
-    expect(trigger.disabled).toBe(true);
-    await resolveAvailability(availability, false);
-    expect(primary.disabled).toBe(false);
-    expect(trigger.disabled).toBe(false);
-    primary.focus();
-    expect(document.activeElement).toBe(primary);
-    trigger.focus();
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  it("reports a local unwrapped failure, refreshes VS Code, clears pending for retry, and dismisses", async () => {
-    const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    const failedOpen = deferred<void>();
-    backendMock.getProjectOpenAvailability
-      .mockReturnValueOnce(availability.promise).mockResolvedValueOnce({ vsCode: true, terminal: false });
-    backendMock.openProject
-      .mockReturnValueOnce(failedOpen.promise)
-      .mockResolvedValueOnce(undefined);
-    useStore.setState({ state: threeProjectState });
-    renderSidebar();
-    await resolveAvailability(availability, true);
-
-    const betaPrimary = button("Open Beta in VS Code");
-    const betaTrigger = chooseOpen("Beta");
-    act(() => betaPrimary.click());
-    expect(betaPrimary.disabled).toBe(true);
-    expect(betaTrigger.disabled).toBe(true);
-    expect(button("Open Alpha in VS Code").disabled).toBe(false);
-
-    await act(async () => {
-      failedOpen.reject(
-        new Error("Error invoking remote method 'open-project': Error: VS Code executable vanished"),
-      );
-      await failedOpen.promise.catch(() => undefined);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    const betaAlert = projectSection("Beta").querySelector<HTMLElement>('[role="alert"]');
-    expect(betaAlert?.textContent).toContain("VS Code executable vanished");
-    expect(betaAlert?.textContent).not.toContain("Error invoking remote method");
-    expect(projectSection("Alpha").querySelector('[role="alert"]')).toBeNull();
-    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledTimes(2);
-    expect(betaPrimary.disabled).toBe(false);
-    expect(betaTrigger.disabled).toBe(false);
-
-    act(() => button("dismiss open error for Beta").click());
-    expect(projectSection("Beta").querySelector('[role="alert"]')).toBeNull();
-
-    await act(async () => betaPrimary.click());
-    expect(backendMock.openProject.mock.calls).toEqual([
-      [dragBeta, "vscode"],
-      [dragBeta, "vscode"],
-    ]);
-    expect(betaPrimary.disabled).toBe(false);
-    expect(betaTrigger.disabled).toBe(false);
-  });
-
-  it("supports wrapped arrow navigation, native Enter and Space activation, and focus restoration", async () => {
-    const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
-    renderSidebar();
-    await resolveAvailability(availability, true);
-
-    const trigger = chooseOpen("Project One");
-    trigger.focus();
-    act(() => trigger.click());
-    let items = openMenuItems();
-    expect(document.activeElement).toBe(items[0]);
-
-    expect(press(items[0]!, "ArrowUp").defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(items[1]);
-    expect(press(items[1]!, "ArrowDown").defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(items[0]);
-
-    press(items[0]!, "Escape");
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-
-    act(() => trigger.click());
-    items = openMenuItems();
-    expect(document.activeElement).toBe(items[0]);
-    await activateNativeButtonWithKey(items[0]!, "Enter");
-    expect(backendMock.openProject).toHaveBeenLastCalledWith(projectPath, "vscode");
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-
-    act(() => trigger.click());
-    items = openMenuItems();
-    press(items[0]!, "ArrowDown");
-    expect(document.activeElement).toBe(items[1]);
-    await activateNativeButtonWithKey(items[1]!, " ");
-    expect(backendMock.openProject).toHaveBeenLastCalledWith(projectPath, "files");
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  it("dismisses an outside pointerdown without launching", async () => {
-    const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
-    renderSidebar();
-    await resolveAvailability(availability, true);
-
-    act(() => chooseOpen("Project One").click());
-    expect(openMenuItems()).toHaveLength(2);
-    act(() =>
-      document.body.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })),
-    );
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(backendMock.openProject).not.toHaveBeenCalled();
-  });
-
-
-  it("opens project settings from the desktop project header", () => {
-    renderSidebar();
-
-    act(() => button("project settings for Project One").click());
-    // The dialog mounts in App, not in this tree — the store flag is the
-    // contract the header commits to.
-    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath, instanceId: null });
-  });
-
-  it("replaces the compact actions sheet with project settings", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({
-        matches: true,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      })),
-    });
-    useStore.setState({ compactSurface: "sessions" });
-    renderSidebar();
-
-    act(() => button("actions for Project One").click());
-    const actions = document.body.querySelector<HTMLElement>(
-      '[role="dialog"][aria-label="Project One"]',
-    )!;
-    const settings = [...actions.querySelectorAll<HTMLButtonElement>("button")].find(
-      (candidate) => candidate.textContent?.trim() === "Project settings…",
-    )!;
-    act(() => settings.click());
-
-    expect(document.body.querySelector('[role="dialog"][aria-label="Project One"]')).toBeNull();
-    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath, instanceId: null });
-  });
-  it("layers the actions sheet over the sessions sheet and isolates Escape (issue #205)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({
-        matches: true,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      })),
-    });
-    useStore.setState({ compactSurface: "sessions", state: { ...state, experimentsEnabled: true } });
-    renderSidebar();
-
-    // The compact header carries no ProjectOpenControl — one ⋯ trigger only.
-    expect(document.body.querySelector('button[aria-label="Choose how to open Project One"]')).toBeNull();
-    const trigger = button("actions for Project One");
-    trigger.focus();
-    act(() => trigger.click());
-
-    const actions = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="Project One"]');
-    expect(actions).not.toBeNull();
-    expect(actions!.textContent).toContain(projectPath);
-    const rows = [...actions!.querySelectorAll<HTMLButtonElement>("button")]
-      .map((row) => row.textContent?.trim())
-      .filter((text): text is string => text !== undefined && text !== "");
-    expect(rows).toEqual([
-      "New session",
-      "New terminal session",
-      "New private session",
-      "New session…",
-      "Experiments",
-      "New experiment…",
-      "Project settings…",
-      "Move to group…",
-      "Remove project…",
-    ]);
-    const sessionsSheet = document.body.querySelector<HTMLElement>(
-      '[role="dialog"][aria-label="projects and sessions"]',
-    );
-    expect(sessionsSheet).not.toBeNull();
-    // useOverlay acts on the top of the overlay stack only: Escape closes the
-    // actions sheet, never the sessions sheet beneath it.
-    act(() =>
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })),
-    );
-    expect(document.body.querySelector('[role="dialog"][aria-label="Project One"]')).toBeNull();
-    expect(document.body.querySelector('[role="dialog"][aria-label="projects and sessions"]')).toBe(
-      sessionsSheet,
-    );
-    expect(useStore.getState().compactSurface).toBe("sessions");
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  it("omits the experiment rows from the actions sheet while the flag is off", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({
-        matches: true,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      })),
-    });
-    useStore.setState({ compactSurface: "sessions" });
-    renderSidebar();
-
-    act(() => button("actions for Project One").click());
-    const actions = document.body.querySelector<HTMLElement>(
-      '[role="dialog"][aria-label="Project One"]',
-    )!;
-    const rows = [...actions.querySelectorAll<HTMLButtonElement>("button")]
-      .map((row) => row.textContent?.trim())
-      .filter((text): text is string => text !== undefined && text !== "");
-    expect(rows).toEqual([
-      "New session",
-      "New terminal session",
-      "New private session",
-      "New session…",
-      "Project settings…",
-      "Move to group…",
-      "Remove project…",
-    ]);
-  });
-
-  it("isolates pointer, click, and dragstart from both segments and a portaled menu item", async () => {
-    const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
-    backendMock.moveProject.mockClear();
-    backendMock.removeProject.mockClear();
-    useStore.setState({ state: threeProjectState });
-    renderSidebar();
-    await resolveAvailability(availability, true);
-
-    const section = projectSection("Alpha");
-    const disclosure = section.querySelector<HTMLButtonElement>(`button[title="${dragAlpha}"]`);
-    if (disclosure === null) throw new Error("Alpha disclosure not found");
-    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
-    const primary = button("Open Alpha in VS Code");
-    const trigger = chooseOpen("Alpha");
-
-    act(() => primary.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
-    const primaryDrag = isolatedDragStart(primary);
-    expect(primaryDrag.event.defaultPrevented).toBe(true);
-    expect(primaryDrag.setData).not.toHaveBeenCalled();
-    await act(async () => primary.click());
-
-    act(() => trigger.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
-    const triggerDrag = isolatedDragStart(trigger);
-    expect(triggerDrag.event.defaultPrevented).toBe(true);
-    expect(triggerDrag.setData).not.toHaveBeenCalled();
-    act(() => trigger.click());
-
-    const item = openMenuItems()[0]!;
-    act(() => item.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })));
-    const itemDrag = isolatedDragStart(item);
-    expect(itemDrag.event.defaultPrevented).toBe(true);
-    expect(itemDrag.setData).not.toHaveBeenCalled();
-    await act(async () => item.click());
-
-    expect(backendMock.openProject.mock.calls).toEqual([
-      [dragAlpha, "vscode"],
-      [dragAlpha, "vscode"],
-    ]);
-    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
-    expect(backendMock.moveProject).not.toHaveBeenCalled();
-    expect(newSession).not.toHaveBeenCalled();
-    expect(backendMock.removeProject).not.toHaveBeenCalled();
-  });
-
-  it("discovers once, prefers VS Code, targets the registered path, and orders the menu", async () => {
-    const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
-    renderSidebar();
-    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
-    await resolveAvailability(availability, true);
-
-    const primary = button("Open Project One in VS Code");
-    expect(primary.textContent?.trim()).toBe("Open");
-    await act(async () => primary.click());
-    expect(backendMock.openProject).toHaveBeenCalledWith(projectPath, "vscode");
-    await act(async () => chooseOpen("Project One").click());
-    expect(openMenuItems().map((item) => item.getAttribute("aria-label"))).toEqual([
-      "Open Project One in VS Code",
-      "Open Project One in Files",
-    ]);
-    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
-  });
-
-  it("offers Terminal only when the host reports one, and launches it", async () => {
-    const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
-    renderSidebar();
-    await resolveAvailability(availability, true, true);
-
-    await act(async () => chooseOpen("Project One").click());
-    expect(openMenuItems().map((item) => item.getAttribute("aria-label"))).toEqual([
-      "Open Project One in VS Code",
-      "Open Project One in Files",
-      "Open Project One in Terminal",
-    ]);
-    await act(async () => button("Open Project One in Terminal").click());
-    expect(backendMock.openProject).toHaveBeenCalledWith(projectPath, "terminal");
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-
-    // A fresh render whose host reports no terminal never offers the item.
-    act(() => root!.unmount());
-    document.body.replaceChildren();
-    const noTerminal = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(noTerminal.promise);
-    renderSidebar();
-    await resolveAvailability(noTerminal, true, false);
-    await act(async () => chooseOpen("Project One").click());
-    expect(openMenuItems().map((item) => item.getAttribute("aria-label"))).toEqual([
-      "Open Project One in VS Code",
-      "Open Project One in Files",
-    ]);
-  });
-
-  it("falls back to Files and remains available for a project with zero sessions", async () => {
-    const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
-    useStore.setState({
-      state: { ...state, projects: [{ ...state.projects[0]!, sessions: [] }] },
-    });
-    renderSidebar();
-    await resolveAvailability(availability, false);
-    expect(document.body.textContent).toContain("no sessions yet");
-    await act(async () => button("Open Project One in Files").click());
-    expect(backendMock.openProject).toHaveBeenCalledWith(projectPath, "files");
-    await act(async () => chooseOpen("Project One").click());
-    expect(openMenuItems().map((item) => item.getAttribute("aria-label"))).toEqual([
-      "Open Project One in Files",
-    ]);
-  });
-
-  it("keeps every project control bound to its header rather than the focused tab", async () => {
-    const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockResolvedValue(undefined);
-    useStore.setState({
-      state: threeProjectState,
-      activeTabId: "tab-1",
-      focusedTabByProject: { [dragAlpha]: "tab-1" },
-    });
-    renderSidebar();
-    await resolveAvailability(availability, true);
-    await act(async () => button("Open Gamma in VS Code").click());
-    expect(backendMock.openProject).toHaveBeenCalledWith(dragGamma, "vscode");
-    expect(backendMock.getProjectOpenAvailability).toHaveBeenCalledOnce();
-  });
-
-  it("prevents duplicates per project without blocking another project's request", async () => {
-    const availability = deferred<{ vsCode: boolean; terminal: boolean }>();
-    const alphaOpen = deferred<void>();
-    const betaOpen = deferred<void>();
-    backendMock.getProjectOpenAvailability.mockReturnValueOnce(availability.promise);
-    backendMock.openProject.mockReturnValueOnce(alphaOpen.promise).mockReturnValueOnce(betaOpen.promise);
-    useStore.setState({ state: threeProjectState });
-    renderSidebar();
-    await resolveAvailability(availability, true);
-    const alpha = button("Open Alpha in VS Code");
-    const beta = button("Open Beta in VS Code");
-    act(() => alpha.click());
-    expect(alpha.disabled).toBe(true);
-    act(() => alpha.click());
-    act(() => beta.click());
-    expect(beta.disabled).toBe(true);
-    expect(backendMock.openProject.mock.calls).toEqual([
-      [dragAlpha, "vscode"],
-      [dragBeta, "vscode"],
-    ]);
-    await act(async () => {
-      alphaOpen.resolve();
-      betaOpen.resolve();
-      await Promise.all([alphaOpen.promise, betaOpen.promise]);
-    });
-    expect(alpha.disabled).toBe(false);
-    expect(beta.disabled).toBe(false);
-  });
-});
-
-describe("Compact project actions sheet (issue #205)", () => {
-  function enableCompact(): void {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({
-        matches: true,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      })),
-    });
-  }
-
-  function actionsSheet(): HTMLElement | null {
-    return document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="Project One"]');
-  }
-
-  function sheetRow(label: string): HTMLButtonElement {
-    const sheet = actionsSheet();
-    if (sheet === null) throw new Error("actions sheet not open");
-    const row = [...sheet.querySelectorAll<HTMLButtonElement>("button")].find(
-      (candidate) => candidate.textContent?.trim() === label,
-    );
-    if (row === undefined) throw new Error(`sheet row not found: ${label}`);
-    return row;
-  }
-
-  it("defers remove to the DOM confirmation and follows the state broadcast", async () => {
-    backendMock.removeProject.mockReset();
-    useStore.setState({ lifecycleConfirmation: null, errorNotices: [] });
-    enableCompact();
-    useStore.setState({ compactSurface: "sessions" });
-    renderSidebar();
-
-    act(() => button("actions for Project One").click());
-    await act(async () => sheetRow("Remove project…").click());
-    // The sheet stays open with one decision pending: nothing dispatched.
-    const pending = useStore.getState().lifecycleConfirmation;
-    expect(backendMock.removeProject).not.toHaveBeenCalled();
-    expect(pending).not.toBeNull();
-    useStore.getState().cancelLifecycleAction(pending!.id);
-    expect(useStore.getState().lifecycleConfirmation).toBeNull();
-    expect(actionsSheet()).not.toBeNull();
-
-    // Accepting drives the same store action the dialog's button calls.
-    await act(async () => sheetRow("Remove project…").click());
-    await act(async () => {
-      await useStore
-        .getState()
-        .confirmLifecycleAction(useStore.getState().lifecycleConfirmation!.id);
-    });
-    expect(backendMock.removeProject).toHaveBeenCalledWith(projectPath);
-    // The broadcast drops the project; the sheet's live lookup misses and it
-    // closes itself rather than describing a project that no longer exists.
-    act(() => useStore.setState({ state: { ...state, projects: [] } }));
-    expect(actionsSheet()).toBeNull();
-  });
-
-  it("shows chips beside the name and no path row in the compact header", () => {
-    enableCompact();
-    useStore.setState({ compactSurface: "sessions" });
-    renderSidebar();
-
-    const section = [...document.body.querySelectorAll<HTMLElement>("section")].find(
-      (candidate) => candidate.textContent?.includes("Project One"),
-    );
-    if (section === undefined) throw new Error("project section not found");
-    // The path sub-line disappears on compact; the full path lives one ⋯ tap
-    // away in the sheet instead.
-    expect(section.textContent).not.toContain(projectPath);
-    expect(section.querySelector('[title="2 sessions"]')).not.toBeNull();
-
-    act(() => button("actions for Project One").click());
-    expect(actionsSheet()!.textContent).toContain(projectPath);
-  });
-
-  it("opens project settings from the sheet", async () => {
-    enableCompact();
-    useStore.setState({ compactSurface: "sessions" });
-    renderSidebar();
-
-    act(() => button("actions for Project One").click());
-    await act(async () => sheetRow("Project settings…").click());
-    expect(actionsSheet()).toBeNull();
-    expect(useStore.getState().projectSettings).toEqual({ projectCwd: projectPath, instanceId: null });
-  });
-});
-
-describe("project name display", () => {
-  function projectSection(name: string): HTMLElement {
-    const found = [...document.body.querySelectorAll<HTMLElement>("section")].find((section) =>
-      section.textContent?.includes(name),
-    );
-    if (found === undefined) throw new Error(`project section not found: ${name}`);
-    return found;
-  }
-
-  const nameState = (path: string, name: string, lives: Array<"live" | "dormant">) =>
-    backendState({
-      projects: [
-        {
-          project: {
-            path,
-            name,
-            addedAt: "2026-08-03T00:00:00.000Z",
-            lastModel: null,
-            lastThinkingLevel: null,
-            lastAdvisor: null,
-            lastAdvisorModel: null,
-            defaultModel: null,
-            defaultAdvisorModel: null,
-            browserClock: false,
-            reviewRoster: null,
-            knowledgeHome: null,
-            repositoryKey: null,
-          },
-          sessions: lives.map((live, i) => ({
-            tabId: `tab-${i + 1}`,
-            sessionId: `session-${i + 1}`,
-            lineageDir: `omp-ui--name--session-${i + 1}`,
-            projectCwd: path,
-            launchedAt: "2026-08-03T00:00:00.000Z",
-            mode: "rpc-ui" as const,
-            worktree: null,
-            planImplementationSource: null, experiment: null, fleet: null,
-            agentMode: "build" as const,
-            compactionMethod: null,
-            approvalMode: null,
-            serviceTier: null,
-            model: null,
-            thinkingLevel: null,
-            advisor: false,
-            advisorModel: null, subagentModels: null,
- proposedPlans: [],
- autoTitled: false,
- private: false,
- chat: false,
- askSource: null,
-            cachedTitle: `Session ${i + 1}`,
-            cachedModified: "2026-08-03T00:00:00.000Z",
-            title: `Session ${i + 1}`,
-            status: "complete" as const,
-            live,
-            pendingPlan: null,
-            planSettle: null,
-            streamStalled: false,
-          })),
-        },
-      ],
-    });
-
-  it("splits long project names for middle ellipsis with an sr-only full copy", () => {
-    const name = "terraform-aws-vpc-module";
-    useStore.setState({ state: nameState("/projects/terraform-aws-vpc-module", name, ["live"]) });
-    renderSidebar();
-
-    const section = projectSection(name);
-    const srOnly = [...section.querySelectorAll<HTMLElement>(".sr-only")].filter(
-      (span) => span.textContent === name,
-    );
-    expect(srOnly).toHaveLength(1);
-
-    const wrapper = srOnly[0]!.parentElement;
-    if (wrapper === null) throw new Error("sr-only copy has no parent");
-    const hidden = wrapper.querySelectorAll<HTMLElement>('[aria-hidden="true"]');
-    expect(hidden).toHaveLength(2);
-    expect(hidden[0]!.textContent! + hidden[1]!.textContent!).toBe(name);
-    expect(hidden[0]!.classList.contains("truncate")).toBe(true);
-    expect(hidden[0]!.textContent).toBe("terraform-aw");
-    expect(hidden[1]!.classList.contains("shrink-0")).toBe(true);
-    expect(hidden[1]!.textContent).toBe("s-vpc-module");
-    expect(section.textContent).not.toContain("…");
-  });
-
-  it("splits on code-point boundaries when the name contains astral characters", () => {
-    const name = "proj-🚀-x";
-    useStore.setState({ state: nameState("/projects/proj-rocket-x", name, ["live"]) });
-    renderSidebar();
-
-    const section = projectSection(name);
-    const srOnly = [...section.querySelectorAll<HTMLElement>(".sr-only")].find(
-      (span) => span.textContent === name,
-    );
-    if (srOnly === undefined) throw new Error("sr-only name copy not found");
-    const wrapper = srOnly.parentElement;
-    if (wrapper === null) throw new Error("sr-only copy has no parent");
-    const hidden = wrapper.querySelectorAll<HTMLElement>('[aria-hidden="true"]');
-    expect(hidden).toHaveLength(2);
-    expect(hidden[0]!.textContent! + hidden[1]!.textContent!).toBe(name);
-    expect(hidden[0]!.textContent).toBe("proj");
-    expect(hidden[1]!.textContent).toBe("-🚀-x");
-  });
-
-  it("keeps a space at the split seam rendered (issue #747)", () => {
-    const name = "Team Atlas";
-    useStore.setState({ state: nameState("/projects/team-atlas", name, ["live"]) });
-    renderSidebar();
-
-    const section = projectSection(name);
-    const srOnly = [...section.querySelectorAll<HTMLElement>(".sr-only")].find(
-      (span) => span.textContent === name,
-    );
-    if (srOnly === undefined) throw new Error("sr-only name copy not found");
-    const hidden = srOnly.parentElement!.querySelectorAll<HTMLElement>('[aria-hidden="true"]');
-    expect(hidden[0]!.textContent).toBe("Team ");
-    // Collapsible whitespace would drop the trailing space at the flex item's edge.
-    for (const half of hidden) expect(half.classList.contains("whitespace-pre")).toBe(true);
-  });
-
-  it("renders the count and live chips on the path row, not the name row", () => {
-    const path = "/projects/chips";
-    const name = "Chips";
-    useStore.setState({ state: nameState(path, name, ["live", "dormant"]) });
-    renderSidebar();
-
-    const section = projectSection(name);
-    const countChip = section.querySelector<HTMLElement>('[title="2 sessions"]');
-    if (countChip === null) throw new Error("count chip not found");
-    const liveChip = section.querySelector<HTMLElement>('[title="1 live"]');
-    if (liveChip === null) throw new Error("live chip not found");
-
-    const chipRow = countChip.parentElement;
-    if (chipRow === null) throw new Error("count chip has no parent row");
-    expect(chipRow.textContent).toContain(path);
-    expect(liveChip.parentElement).toBe(chipRow);
-
-    const srOnly = [...section.querySelectorAll<HTMLElement>(".sr-only")].find(
-      (span) => span.textContent === name,
-    );
-    if (srOnly === undefined) throw new Error("sr-only name copy not found");
-    const nameRow = srOnly.parentElement;
-    if (nameRow === null) throw new Error("sr-only name copy has no parent");
-    expect(nameRow.querySelector('[title$="sessions"]')).toBeNull();
-  });
-});
-
-describe("Sidebar pagination follows a project's own focus (issue #99)", () => {
-  /** `projA`/`projB` each have PAGE+1=9 sessions, one per tab id `aN` / `bN`. */
-  const projA = "/p/a";
-  const projB = "/p/b";
-  const session = (tabId: string, projectCwd: string, title: string) => ({
-    tabId,
-    sessionId: `sid-${tabId}`,
-    lineageDir: `omp-ui--${tabId}--sid-${tabId}`,
-    projectCwd,
-    launchedAt: "2026-08-03T00:00:00.000Z",
-    mode: "rpc-ui" as const,
-    worktree: null,
-    planImplementationSource: null, experiment: null, fleet: null,
-    agentMode: "build" as const,
-    compactionMethod: null,
-    approvalMode: null,
-    serviceTier: null,
-    model: null,
-    thinkingLevel: null,
-    advisor: false,
-    advisorModel: null, subagentModels: null,
- proposedPlans: [],
- autoTitled: false,
- private: false,
- chat: false,
- askSource: null,
-    cachedTitle: title,
-    cachedModified: "2026-08-03T00:00:00.000Z",
-    title,
-    status: "complete" as const,
-    live: "live" as const,
-    pendingPlan: null,
-    planSettle: null,
-    streamStalled: false,
-  });
-  const project = (path: string, name: string) => ({
-    project: { path, name, addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, reviewRoster: null, knowledgeHome: null, repositoryKey: null },
-    sessions: Array.from({ length: 9 }, (_, i) =>
-      session(`${path === projA ? "a" : "b"}-session-${i + 1}`, path, `Project ${name} session ${i + 1}`),
-    ),
-  });
-  const manySessionState = backendState({
-    projects: [project(projA, "A"), project(projB, "B")],
-  });
-
-  it("sizes each project's page by its remembered focus while selection stays global", () => {
-    useStore.setState({
-      state: manySessionState,
-      // Global focus is project A's FIRST session; each project's remembered
-      // focus is its OWN LAST session. Pagination must follow the per-project
-      // memory, so project B shows past its first page — while the selected
-      // styling (SessionRow reads the global activeTabId itself) stays on A-1.
-      activeTabId: "a-session-1",
-      focusedTabByProject: { [projA]: "a-session-9", [projB]: "b-session-9" },
-    });
-    renderSidebar();
-
-    // Project B's last session is on screen: pagination followed B's focus,
-    // not the global active tab (which lives in project A's list).
-    const bLast = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-      (candidate) => candidate.textContent?.includes("Project B session 9"),
-    );
-    if (bLast === undefined) console.error("DEBUG DOM:", document.body.innerHTML);
-    expect(bLast).not.toBeUndefined();
-    // Pagination widened past the first PAGE (8) page.
-    expect(document.body.textContent).toContain("showing 9 of 9");
-
-    // Selection styling is global: A-1 (the global activeTabId) is marked.
-    const aFirst = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-      (candidate) => candidate.textContent?.includes("Project A session 1"),
-    )!;
-    expect(aFirst.getAttribute("aria-current")).toBe("page");
-    // B-9 is visible but NOT selected, even though it is project B's focus.
-    expect(bLast!.getAttribute("aria-current")).toBeNull();
-  });
-});
-
-describe("Sidebar project drag-and-drop (issue #115)", () => {
-  /** Deterministic geometry: every section spans y 0–100, so clientY 40 = top half. */
-  const mockSectionRects = (): void => {
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
-      top: 0,
-      bottom: 100,
-      height: 100,
-      left: 0,
-      right: 200,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    } as DOMRect);
-  };
-
-  const dragEvent = (type: string, clientY: number, dataTransfer: object): MouseEvent => {
-    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY });
-    // jsdom's MouseEvent carries no dataTransfer; the component only ever uses
-    // setData/effectAllowed, so a plain fixture object suffices.
-    Object.defineProperty(event, "dataTransfer", { value: dataTransfer, configurable: true });
-    return event;
-  };
-
-  const makeDataTransfer = (): { setData: (...args: unknown[]) => void; effectAllowed: string } => ({
-    setData: vi.fn(),
-    effectAllowed: "",
-  });
-
-  function sectionFor(name: string): HTMLElement {
-    const found = [...document.querySelectorAll<HTMLElement>("section")].find((el) =>
-      el.textContent?.includes(name),
-    );
-    if (found === undefined) throw new Error(`section not found: ${name}`);
-    return found;
-  }
-
-  function headerFor(name: string): HTMLElement {
-    const found = sectionFor(name).querySelector<HTMLElement>("[draggable]");
-    if (found === null) throw new Error(`draggable header not found: ${name}`);
-    return found;
-  }
-
-  beforeEach(() => {
-    backendMock.moveProject.mockClear();
-    useStore.setState({ state: threeProjectState });
-    mockSectionRects();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("moves before a project when dropped on its top half", async () => {
-    renderSidebar();
-    const dt = makeDataTransfer();
-    await act(async () => {
-      headerFor("Alpha").dispatchEvent(dragEvent("dragstart", 0, dt));
-    });
-    await act(async () => {
-      sectionFor("Gamma").dispatchEvent(dragEvent("dragover", 40, dt));
-    });
-    expect(sectionFor("Gamma").getAttribute("data-drop-indicator")).toBe("before");
-    await act(async () => {
-      sectionFor("Gamma").dispatchEvent(dragEvent("drop", 40, dt));
-    });
-    expect(backendMock.moveProject).toHaveBeenCalledWith(dragAlpha, dragGamma);
-    expect(sectionFor("Gamma").getAttribute("data-drop-indicator")).toBeNull();
-  });
-
-  it("appends when dropped on the last project's bottom half", async () => {
-    renderSidebar();
-    const dt = makeDataTransfer();
-    await act(async () => {
-      headerFor("Beta").dispatchEvent(dragEvent("dragstart", 0, dt));
-    });
-    await act(async () => {
-      sectionFor("Gamma").dispatchEvent(dragEvent("dragover", 60, dt));
-    });
-    expect(sectionFor("Gamma").getAttribute("data-drop-indicator")).toBe("after");
-    await act(async () => {
-      sectionFor("Gamma").dispatchEvent(dragEvent("drop", 60, dt));
-    });
-    expect(backendMock.moveProject).toHaveBeenCalledWith(dragBeta, null);
-  });
-
-  it("is a no-op when dropped back onto its own row", async () => {
-    renderSidebar();
-    const dt = makeDataTransfer();
-    await act(async () => {
-      headerFor("Alpha").dispatchEvent(dragEvent("dragstart", 0, dt));
-    });
-    await act(async () => {
-      sectionFor("Alpha").dispatchEvent(dragEvent("dragover", 40, dt));
-      sectionFor("Alpha").dispatchEvent(dragEvent("drop", 40, dt));
-    });
-    expect(backendMock.moveProject).not.toHaveBeenCalled();
-    expect(sectionFor("Alpha").getAttribute("data-drop-indicator")).toBeNull();
-  });
-
-  it("is a no-op when dropped just above itself, the 'leave it put' gesture", async () => {
-    renderSidebar();
-    const dt = makeDataTransfer();
-    await act(async () => {
-      headerFor("Gamma").dispatchEvent(dragEvent("dragstart", 0, dt));
-    });
-    // Bottom half of Beta means "after Beta", which is *before Gamma* — the
-    // dragged project itself. The gesture must not reorder, and must not spend
-    // a save and a broadcast saying so.
-    await act(async () => {
-      sectionFor("Beta").dispatchEvent(dragEvent("dragover", 60, dt));
-      sectionFor("Beta").dispatchEvent(dragEvent("drop", 60, dt));
-    });
-    expect(backendMock.moveProject).not.toHaveBeenCalled();
-  });
-
-  it("offers no drag affordance while the filter hides rows", async () => {
-    renderSidebar();
-    // Project headers (3) and their reorderable tree roots (2 sessions each,
-    // issue #274) all carry the drag affordance.
-    expect(document.querySelectorAll('[draggable="true"]')).toHaveLength(9);
-    const filter = document.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]');
-    expect(filter).not.toBeNull();
-    // React reads the value off its own descriptor, so a bare `.value =` write
-    // is invisible to onChange; the native setter is what a real keystroke does.
-    const setValue = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      "value",
-    )!.set!;
-    await act(async () => {
-      setValue.call(filter!, "Alpha");
-      filter!.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    // Drops resolve against the visible rows, so a hidden neighbour would make
-    // the insertion line promise a position the reorder cannot honour.
-    // `draggable` is enumerated, not boolean: React emits draggable="false",
-    // so the attribute is still present and only its value says "off".
-    expect(document.querySelectorAll('[draggable="true"]')).toHaveLength(0);
-  });
-});
-
-describe("Sidebar keyboard project reorder (issue #120)", () => {
-  /** The broadcast the main process would send after a successful move. */
-  const orderedState = (paths: string[]) =>
-    backendState({
-      projects: paths.map((p) =>
-        threeProjectState.projects.find((group) => group.project.path === p)!,
-      ),
-    });
-  const grip = (name: string): HTMLButtonElement => button(`reorder ${name}`);
-  const note = (): string => document.body.querySelector('[role="status"]')!.textContent ?? "";
-  const press = async (el: HTMLElement, key: string): Promise<void> => {
-    await act(async () => {
-      el.dispatchEvent(new KeyboardEvent("keydown", { key, altKey: true, bubbles: true }));
-    });
-  };
-
-  beforeEach(() => {
-    backendMock.moveProject.mockClear();
-    useStore.setState({ state: threeProjectState });
-  });
-
-  it("moves a project down, then announces and refocuses once the order lands", async () => {
-    renderSidebar();
-    await press(grip("Alpha"), "ArrowDown");
-    expect(backendMock.moveProject).toHaveBeenCalledWith(dragAlpha, dragGamma);
-    // Nothing is announced until the registry's broadcast replaces `state`.
-    expect(note()).toBe("");
-
-    await act(async () => {
-      useStore.setState({ state: orderedState([dragBeta, dragAlpha, dragGamma]) });
-    });
-    expect(note()).toBe("Alpha moved to position 2 of 3");
-    expect(document.activeElement).toBe(grip("Alpha"));
-  });
-
-  it("moves the last project up by inserting it before its predecessor", async () => {
-    renderSidebar();
-    await press(grip("Gamma"), "ArrowUp");
-    expect(backendMock.moveProject).toHaveBeenCalledWith(dragGamma, dragBeta);
-  });
-
-  it("appends when the second-to-last project moves down", async () => {
-    renderSidebar();
-    await press(grip("Beta"), "ArrowDown");
-    expect(backendMock.moveProject).toHaveBeenCalledWith(dragBeta, null);
-  });
-
-  it("refuses to move past either end and says so instead", async () => {
-    renderSidebar();
-    await press(grip("Alpha"), "ArrowUp");
-    expect(backendMock.moveProject).not.toHaveBeenCalled();
-    expect(note()).toBe("Alpha is already first");
-    await press(grip("Gamma"), "ArrowDown");
-    expect(backendMock.moveProject).not.toHaveBeenCalled();
-    expect(note()).toBe("Gamma is already last");
-  });
-
-  it("ignores an unmodified arrow key so list navigation is untouched", async () => {
-    renderSidebar();
-    await act(async () => {
-      grip("Alpha").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-    });
-    expect(backendMock.moveProject).not.toHaveBeenCalled();
-  });
-
-  it("offers no project reorder handle when there is only one project", () => {
-    useStore.setState({ state: { ...threeProjectState, projects: [threeProjectState.projects[0]!] } });
-    renderSidebar();
-    // Scoped to the header: session rows own their own grips (#274), and this
-    // lone project still has two reorderable sessions.
-    expect(document.body.querySelector('button[aria-label="reorder Alpha"]')).toBeNull();
-  });
-});
-
-describe("Sidebar session drag-and-drop (issue #274)", () => {
-  /** Deterministic geometry: every element spans y 0–100, so clientY 40 = top half. */
-  const mockRects = (): void => {
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
-      top: 0,
-      bottom: 100,
-      height: 100,
-      left: 0,
-      right: 200,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    } as DOMRect);
-  };
-
-  const dragEvent = (type: string, clientY: number, dataTransfer: object): MouseEvent => {
-    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY });
-    Object.defineProperty(event, "dataTransfer", { value: dataTransfer, configurable: true });
-    return event;
-  };
-
-  const makeDataTransfer = (): { setData: (...args: unknown[]) => void; effectAllowed: string } => ({
-    setData: vi.fn(),
-    effectAllowed: "",
-  });
-
-  const treePath = "/projects/tree";
-  const plainPath = "/projects/plain";
-
-  const sess = (
-    tabId: string,
-    title: string,
-    patch: Partial<SessionSummary> = {},
-  ): SessionSummary => ({
-    tabId,
-    sessionId: null,
-    lineageDir: `omp-ui--tree--${tabId}`,
-    projectCwd: treePath,
-    launchedAt: "2026-08-20T00:00:00.000Z",
-    mode: "rpc-ui",
-    worktree: null,
-    planImplementationSource: null, experiment: null, fleet: null,
-    agentMode: "build",
-    compactionMethod: null,
-    approvalMode: null,
-    serviceTier: null,
-    model: null,
-    thinkingLevel: null,
-    advisor: false,
-    advisorModel: null, subagentModels: null,
- proposedPlans: [],
- autoTitled: false,
- private: false,
- chat: false,
- askSource: null,
-    cachedTitle: title,
-    cachedModified: "2026-08-20T00:00:00.000Z",
-    title,
-    status: null,
-    live: "dormant",
-    pendingPlan: null,
-    planSettle: null,
-    streamStalled: false,
-    ...patch,
-  });
-
-  const src = (sourceTabId: string) => ({
-    sourceTabId,
-    planTitle: `Plan from ${sourceTabId}`,
-    planFilePath: `local://${sourceTabId}-plan.html`,
-  });
-
-  // Registry (frozen) order. The implementation rows sit ABOVE their roots —
-  // exactly what the recency seed can produce — yet display nested beneath
-  // them: trees render by their root's position (#274).
-  const treeState = backendState({
-    projects: [
-      {
-        project: { path: treePath, name: "Tree", addedAt: "2026-08-19T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, reviewRoster: null, knowledgeHome: null, repositoryKey: null },
-        sessions: [
-          sess("tree-impl", "Tree Impl", { projectCwd: treePath, planImplementationSource: src("tree-root") }),
-          sess("tree-root", "Tree Root"),
-          sess("later-root", "Later Root"),
-          sess("other-impl", "Other Impl", { planImplementationSource: src("other-root") }),
-          sess("other-root", "Other Root"),
-        ],
-      },
-      {
-        project: { path: plainPath, name: "Plain", addedAt: "2026-08-18T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, reviewRoster: null, knowledgeHome: null, repositoryKey: null },
-        sessions: [sess("plain-a", "Plain A"), sess("plain-b", "Plain B")],
-      },
-    ].map((g) => ({
-      ...g,
-      sessions: g.sessions.map((s) => ({ ...s, projectCwd: g.project.path })),
-    })),
-  });
-
-  beforeEach(() => {
-    backendMock.moveSession.mockClear();
-    backendMock.moveProject.mockClear();
-    useStore.setState({ state: treeState });
-    mockRects();
-  });
-  /** The drag surface of the row whose main button carries a `title` starting with `title`. */
-  function rowFor(title: string): HTMLElement {
-    const found = [...document.querySelectorAll<HTMLElement>("[draggable]")].find((el) =>
-      el.querySelector(`button[title^="${title}"]`),
-    );
-    if (found === undefined) throw new Error(`draggable session row not found: ${title}`);
-    return found;
-  }
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("moves a root before another tree when dropped on its top half", async () => {
-    renderSidebar();
-    const dt = makeDataTransfer();
-    await act(async () => {
-      rowFor("Tree Root").dispatchEvent(dragEvent("dragstart", 0, dt));
-    });
-    await act(async () => {
-      rowFor("Later Root").dispatchEvent(dragEvent("dragover", 40, dt));
-    });
-    expect(rowFor("Later Root").getAttribute("data-drop-indicator")).toBe("before");
-    await act(async () => {
-      rowFor("Later Root").dispatchEvent(dragEvent("drop", 40, dt));
-    });
-    expect(backendMock.moveSession).toHaveBeenCalledWith("tree-root", "later-root");
-    expect(rowFor("Later Root").getAttribute("data-drop-indicator")).toBeNull();
-  });
-
-  it("resolves a drop on a child row to that child's tree root", async () => {
-    renderSidebar();
-    const dt = makeDataTransfer();
-    await act(async () => {
-      rowFor("Tree Root").dispatchEvent(dragEvent("dragstart", 0, dt));
-    });
-    await act(async () => {
-      rowFor("Other Impl").dispatchEvent(dragEvent("dragover", 40, dt));
-    });
-    // The insertion line lands on the hovered row, but the drop target is the
-    // whole tree — its root.
-    expect(rowFor("Other Impl").getAttribute("data-drop-indicator")).toBe("before");
-    await act(async () => {
-      rowFor("Other Impl").dispatchEvent(dragEvent("drop", 40, dt));
-    });
-    expect(backendMock.moveSession).toHaveBeenCalledWith("tree-root", "other-root");
-  });
-
-  it("is a no-op when dropped anywhere inside its own tree", async () => {
-    renderSidebar();
-    const dt = makeDataTransfer();
-    await act(async () => {
-      rowFor("Tree Root").dispatchEvent(dragEvent("dragstart", 0, dt));
-      rowFor("Tree Impl").dispatchEvent(dragEvent("dragover", 40, dt));
-      rowFor("Tree Impl").dispatchEvent(dragEvent("drop", 40, dt));
-    });
-    expect(backendMock.moveSession).not.toHaveBeenCalled();
-    expect(rowFor("Tree Impl").getAttribute("data-drop-indicator")).toBeNull();
-  });
-
-  it("lets a project drag pass through rows and still move the project", async () => {
-    renderSidebar();
-    const dt = makeDataTransfer();
-    // Start the project drag from Plain's header, then hover a session row of
-    // the other project.
-    const plainHeader = [...document.querySelectorAll<HTMLElement>("section")]
-      .find((el) => el.textContent?.includes("Plain"))!
-      .querySelector<HTMLElement>("[draggable]");
-    await act(async () => {
-      plainHeader!.dispatchEvent(dragEvent("dragstart", 0, dt));
-    });
-    await act(async () => {
-      rowFor("Later Root").dispatchEvent(dragEvent("dragover", 40, dt));
-    });
-    // The row must not swallow the event: the Tree SECTION shows the line.
-    const treeSection = [...document.querySelectorAll<HTMLElement>("section")].find((el) =>
-      el.textContent?.includes("Tree"),
-    )!;
-    expect(treeSection.getAttribute("data-drop-indicator")).toBe("before");
-    await act(async () => {
-      rowFor("Later Root").dispatchEvent(dragEvent("drop", 40, dt));
-    });
-    expect(backendMock.moveSession).not.toHaveBeenCalled();
-    expect(backendMock.moveProject).toHaveBeenCalledWith(plainPath, treePath);
-  });
-});
-
-describe("Sidebar keyboard session reorder (issue #274)", () => {
-  const treeStateSolo = backendState({
-    projects: [
-      {
-        project: {
-          path: "/projects/tree",
-          name: "Tree",
-          addedAt: "2026-08-19T00:00:00.000Z",
-          lastModel: null,
-          lastThinkingLevel: null,
-          lastAdvisor: null,
-          lastAdvisorModel: null,
-          defaultModel: null,
-          defaultAdvisorModel: null,
-          browserClock: false,
-          reviewRoster: null,
-          knowledgeHome: null,
-          repositoryKey: null,
-        },
-        sessions: [
-          {
-            tabId: "tree-impl",
-            sessionId: null,
-            lineageDir: "l1",
-            projectCwd: "/projects/tree",
-            planImplementationSource: { sourceTabId: "tree-root", planTitle: "P", planFilePath: "local://p.html" }, experiment: null, fleet: null,
-            launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", worktree: null, agentMode: "build" as const, compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null,
- proposedPlans: [],
- autoTitled: false,
- private: false,
- chat: false,
- askSource: null,
-            cachedTitle: "Tree Impl", cachedModified: "2026-08-20T00:00:00.000Z", title: "Tree Impl",
-            status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
-          },
-          {
-            tabId: "tree-root", sessionId: null, lineageDir: "l2", projectCwd: "/projects/tree",
-            launchedAt: "2026-08-20T01:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, fleet: null, agentMode: "build" as const, compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null,
- proposedPlans: [],
- autoTitled: false,
- private: false,
- chat: false,
- askSource: null,
-            cachedTitle: "Tree Root", cachedModified: "2026-08-20T01:00:00.000Z", title: "Tree Root",
-            status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
-          },
-          {
-            tabId: "mid-root", sessionId: null, lineageDir: "l3", projectCwd: "/projects/tree",
-            launchedAt: "2026-08-20T02:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, fleet: null, agentMode: "build" as const, compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null,
- proposedPlans: [],
- autoTitled: false,
- private: false,
- chat: false,
- askSource: null,
-            cachedTitle: "Mid Root", cachedModified: "2026-08-20T02:00:00.000Z", title: "Mid Root",
-            status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
-          },
-          {
-            tabId: "last-root", sessionId: null, lineageDir: "l4", projectCwd: "/projects/tree",
-            launchedAt: "2026-08-20T03:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, fleet: null, agentMode: "build" as const, compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null,
- proposedPlans: [],
- autoTitled: false,
- private: false,
- chat: false,
- askSource: null,
-            cachedTitle: "Last Root", cachedModified: "2026-08-20T03:00:00.000Z", title: "Last Root",
-            status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
-          },
-        ],
-      },
-    ],
-  });
-
-  const grip = (title: string): HTMLButtonElement =>
-    document.body.querySelector<HTMLButtonElement>(`button[aria-label="reorder ${title}"]`)!;
-  const note = (): string => document.body.querySelector('[role="status"]')!.textContent ?? "";
-  const press = async (el: HTMLElement, key: string): Promise<void> => {
-    await act(async () => {
-      el.dispatchEvent(new KeyboardEvent("keydown", { key, altKey: true, bubbles: true }));
-    });
-  };
-
-  beforeEach(() => {
-    backendMock.moveSession.mockClear();
-    useStore.setState({ state: treeStateSolo });
-  });
-
-
-  it("moves a root down by inserting before the successor's successor, then announces and refocuses", async () => {
-    renderSidebar();
-    await press(grip("Tree Root"), "ArrowDown");
-    expect(backendMock.moveSession).toHaveBeenCalledWith("tree-root", "last-root");
-    expect(note()).toBe("");
-
-    // The broadcast that actually moves the row: Tree Root now displays
-    // second, between Mid Root and Last Root.
-    const moved = structuredClone(treeStateSolo);
-    const sessions = moved.projects[0]!.sessions;
-    const rootIdx = sessions.findIndex((s) => s.tabId === "tree-root");
-    const [root] = sessions.splice(rootIdx, 1);
-    sessions.splice(sessions.findIndex((s) => s.tabId === "last-root"), 0, root);
-    await act(async () => {
-      useStore.setState({ state: moved });
-    });
-    expect(note()).toBe("Tree Root moved to position 2 of 3");
-    expect(document.activeElement).toBe(grip("Tree Root"));
-  });
-
-  it("moves a root up by inserting before its predecessor", async () => {
-    renderSidebar();
-    await press(grip("Last Root"), "ArrowUp");
-    expect(backendMock.moveSession).toHaveBeenCalledWith("last-root", "mid-root");
-  });
-
-  it("refuses to move past either end and says so instead", async () => {
-    renderSidebar();
-    await press(grip("Tree Root"), "ArrowUp");
-    expect(backendMock.moveSession).not.toHaveBeenCalled();
-    expect(note()).toBe("Tree Root is already first");
-    await press(grip("Last Root"), "ArrowDown");
-    expect(backendMock.moveSession).not.toHaveBeenCalled();
-    expect(note()).toBe("Last Root is already last");
-  });
-
-  it("hides grips while the filter is active", async () => {
-    renderSidebar();
-    expect(document.body.querySelectorAll('button[aria-label^="reorder "]').length).toBeGreaterThan(0);
-    const filter = document.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]');
-    const setValue = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      "value",
-    )!.set!;
-    await act(async () => {
-      setValue.call(filter!, "Tree");
-      filter!.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(document.body.querySelectorAll('button[aria-label^="reorder "]')).toHaveLength(0);
-  });
-
-  it("offers no grip in a single-session project", () => {
-    useStore.setState({
-      state: backendState({
-        projects: [
-          {
-            project: { path: "/projects/solo", name: "Solo", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, reviewRoster: null, knowledgeHome: null, repositoryKey: null },
-            sessions: [
-              {
-                tabId: "only", sessionId: null, lineageDir: "l", projectCwd: "/projects/solo",
-                launchedAt: "2026-08-20T00:00:00.000Z", mode: "rpc-ui", worktree: null, planImplementationSource: null, experiment: null, fleet: null, agentMode: "build" as const, compactionMethod: null, approvalMode: null, serviceTier: null, model: null, thinkingLevel: null, advisor: false, advisorModel: null, subagentModels: null,
- proposedPlans: [],
- autoTitled: false,
- private: false,
- chat: false,
- askSource: null,
-                cachedTitle: "Only", cachedModified: "2026-08-20T00:00:00.000Z", title: "Only",
-                status: null, live: "dormant", pendingPlan: null, planSettle: null, streamStalled: false,
-              },
-            ],
-          },
-        ],
-      }),
-    });
-    renderSidebar();
-    expect(document.body.querySelectorAll('button[aria-label^="reorder "]')).toHaveLength(0);
-  });
-
-  it("exposes no grip on depth-1 handoff rows", () => {
-    renderSidebar();
-    expect(document.body.querySelector('button[aria-label="reorder Tree Impl"]')).toBeNull();
-    expect(document.body.querySelector('button[aria-label="reorder Tree Root"]')).not.toBeNull();
   });
 });
 
@@ -2063,8 +608,8 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     repositoryKey: null,
   };
 
-  // The implementation arrives newer than its source — the sidebar must still
-  // render the planning session first. The orphan's source tab is gone.
+  // The implementation names a planning session that still resolves; the
+  // orphan's source tab is gone.
   const handoffState = backendState({
     projects: [
       {
@@ -2099,53 +644,6 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     return found;
   }
 
-  function setFilter(value: string): void {
-    const input = document.body.querySelector<HTMLInputElement>(
-      'input[aria-label="filter sessions"]',
-    );
-    if (input === null) throw new Error("filter input not found");
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-    act(() => {
-      setter.call(input, value);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-  }
-
-  it("renders the planning source above its implementation with a neutral connector", () => {
-    useStore.setState({ state: handoffState });
-    renderSidebar();
-
-    const rows = [...document.body.querySelectorAll<HTMLButtonElement>("button")].map(
-      (candidate) => candidate.textContent ?? "",
-    );
-    const sourceIndex = rows.findIndex((text) => text.includes("Plan dark mode"));
-    const childIndex = rows.findIndex((text) => text.includes("Implement dark mode"));
-    expect(sourceIndex).toBeGreaterThanOrEqual(0);
-    expect(childIndex).toBeGreaterThan(sourceIndex);
-
-    // Exactly one connector — the linked child. Orphans and plain rows stay
-    // flush left. The stem/elbow is decorative (aria-hidden) neutral chrome:
-    // a 2px stroke in border-line — one step above line-soft — never the
-    // signal accent (ADR-0004, issue #310).
-    const connectors = document.body.querySelectorAll("[data-handoff-connector]");
-    expect(connectors).toHaveLength(1);
-    const connector = connectors[0]!;
-    expect(connector.getAttribute("aria-hidden")).toBe("true");
-    const classes = connector.className.split(" ");
-    expect(classes).toContain("border-line");
-    expect(classes).not.toContain("border-line-soft");
-    // Two-pixel stroke with the geometry untouched (issue #310).
-    expect(classes).toContain("border-l-2");
-    expect(classes).toContain("border-b-2");
-    expect(classes).toContain("w-2");
-    expect(classes).toContain("h-1/2");
-    expect(classes).toContain("top-0");
-    expect(classes).toContain("left-1.5");
-    expect(connector.className).not.toContain("signal");
-    // Depth 1 indents the child's wrapper; the connector sits in the gutter.
-    expect(connector.parentElement?.className).toContain("pl-4");
-    expect(connector.parentElement?.contains(row("Implement dark mode"))).toBe(true);
-  });
 
   it("labels implementation, plan source, and orphan rows without exposing the plan path", () => {
     useStore.setState({ state: handoffState });
@@ -2191,60 +689,6 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     act(() => row("Implement dark mode").click());
     expect(openSession).toHaveBeenCalledWith("tab-impl");
   });
-
-  it("keeps the whole tree when only the implementation matches the filter", () => {
-    useStore.setState({ state: handoffState });
-    renderSidebar();
-    setFilter("Implement dark");
-
-    // The non-matching planning source survives with its matching child…
-    expect(row("Plan dark mode")).toBeDefined();
-    expect(row("Implement dark mode")).toBeDefined();
-    // …while unrelated rows are filtered out.
-    const rows = [...document.body.querySelectorAll<HTMLButtonElement>("button")].map(
-      (candidate) => candidate.textContent ?? "",
-    );
-    expect(rows.some((text) => text.includes("Plain session"))).toBe(false);
-    expect(rows.some((text) => text.includes("Orphan build"))).toBe(false);
-  });
-
-  it("extends the page past PAGE so a handoff tree is never split", () => {
-    // Seven plain rows, then a two-row tree: the default page of 8 would cut
-    // between the source (row 8) and its implementation (row 9).
-    const paginatedState = backendState({
-      projects: [
-        {
-          project: handoffProject,
-          sessions: [
-            ...Array.from({ length: 7 }, (_, i) =>
-              handoffSession(`tab-filler-${i + 1}`, `Filler session ${i + 1}`),
-            ),
-            handoffSession("tab-impl", "Implement dark mode", {
-              planImplementationSource: {
-                sourceTabId: "tab-plan",
-                planTitle: "Ship dark mode",
-                planFilePath: "local://plans/ship-dark-mode.md",
-              },
-            }),
-            handoffSession("tab-plan", "Plan dark mode"),
-          ],
-        },
-      ],
-    });
-    useStore.setState({ state: paginatedState });
-    renderSidebar();
-
-    // Both tree rows render even though the ninth row is past the page.
-    expect(row("Plan dark mode")).toBeDefined();
-    expect(row("Implement dark mode")).toBeDefined();
-    expect(document.body.textContent).toContain("showing 9 of 9");
-    // Nothing remains, so no "show more" — the page was widened, not split.
-    const showMore = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-      (candidate) =>
-        candidate.textContent?.startsWith("show ") && candidate.textContent !== "show less",
-    );
-    expect(showMore).toBeUndefined();
-  });
 });
 
 describe("Sidebar remote instances (issue #416)", () => {
@@ -2258,82 +702,15 @@ describe("Sidebar remote instances (issue #416)", () => {
       title: `Remote ${s.title}`,
     })),
   };
-  const withInstance = (patch: Partial<RemoteInstanceSummary>) =>
-    backendState({
-      projects: state.projects,
-      remoteInstances: [remoteInstance({ id: "inst-a", nickname: "box-a", projects: [remoteGroup], ...patch })],
-    });
 
-  function remoteSection(): HTMLElement {
-    const section = document.body.querySelector<HTMLElement>('[data-remote-instance="inst-a"]');
-    if (section === null) throw new Error("remote instance section not found");
-    return section;
+  /** The first remote row: the SessionRow button carrying its state dot and meta line. */
+  function remoteRow(): HTMLButtonElement {
+    const found = [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")].find(
+      (b) => b.title === "Remote Owned session",
+    );
+    if (found === undefined) throw new Error("remote row not found");
+    return found;
   }
-
-  it("renders a joined instance's group with nickname, status, and routed actions", () => {
-    useStore.setState({ state: withInstance({}) });
-    renderSidebar();
-    const section = remoteSection();
-    expect(section.textContent).toContain("box-a");
-    expect(section.textContent).toContain("Remote Project");
-    expect(section.querySelector('[title="joined"]')).not.toBeNull();
-    // Register project and Refresh state are offered while joined; Reconnect is not.
-    expect(section.querySelector('button[aria-label="Register project on box-a"]')).not.toBeNull();
-    expect(section.querySelector('button[aria-label="Reconnect"]')).toBeNull();
-
-    act(() => section.querySelector<HTMLButtonElement>('button[aria-label="Register project on box-a"]')!.click());
-    expect(useStore.getState().projectPickerOpen).toBe(true);
-    expect(useStore.getState().projectPickerInstanceId).toBe("inst-a");
-
-    // #658: the joined stale-state escape hatch — re-reads the host's state.
-    const refresh = section.querySelector<HTMLButtonElement>('button[aria-label="Refresh state"]')!;
-    expect(refresh).not.toBeNull();
-    act(() => refresh.click());
-    expect(backendMock.refreshRemoteInstanceState).toHaveBeenCalledWith("inst-a");
-
-    // New session on the remote group targets that instance.
-    act(() => section.querySelector<HTMLButtonElement>('button[aria-label="new session"]')!.click());
-    expect(newSession).toHaveBeenLastCalledWith(remotePath, undefined, "inst-a");
-
-    // Both groups count toward the footer.
-    expect(document.body.querySelector("footer")?.textContent).toContain("4 sessions");
-  });
-
-  it("dims an unreachable instance, disables its project actions, and offers Reconnect", () => {
-    useStore.setState({ state: withInstance({ status: "unreachable", error: "connection lost" }) });
-    renderSidebar();
-    const section = remoteSection();
-    expect(section.textContent).toContain("unreachable");
-    expect(section.textContent).toContain("connection lost");
-    expect(section.querySelector("section")?.className).toContain("opacity-60");
-    expect(section.querySelector('button[aria-label="Register project on box-a"]')).toBeNull();
-    expect(section.querySelector('button[aria-label="Reconnect"]')).not.toBeNull();
-    // While not joined the header shows Reconnect, not the state refresh (#658).
-    expect(section.querySelector('button[aria-label="Refresh state"]')).toBeNull();
-    const spawn = section.querySelector<HTMLButtonElement>('button[aria-label="new session"]')!;
-    expect(spawn.disabled).toBe(true);
-    expect(section.querySelector<HTMLButtonElement>('button[aria-label="remove project"]')!.disabled).toBe(true);
-    act(() => spawn.click());
-    expect(newSession).not.toHaveBeenCalled();
-  });
-
-  it("offers host-local open targets on local groups only", async () => {
-    const request = deferred<{ vsCode: boolean; terminal: boolean }>();
-    backendMock.getProjectOpenAvailability.mockReturnValue(request.promise);
-    useStore.setState({ state: withInstance({}) });
-    renderSidebar();
-    await resolveAvailability(request, true);
-    expect(document.body.querySelector('button[aria-label="Choose how to open Project One"]')).not.toBeNull();
-    expect(remoteSection().querySelector('button[aria-label="Choose how to open Remote Project"]')).toBeNull();
-  });
-
-  it("shows an empty state with a Register action for a joined instance without projects", () => {
-    useStore.setState({ state: withInstance({ projects: [] }) });
-    renderSidebar();
-    const section = remoteSection();
-    expect(section.textContent).toContain("No projects registered on box-a");
-    expect(section.querySelectorAll('button[aria-label="Register project on box-a"]').length).toBe(1);
-  });
 
   // Issue #434: this is the reported symptom stated as an assertion — the
   // client never mounted the tab, so no rpc[tabId] edge exists; only the
@@ -2354,7 +731,7 @@ describe("Sidebar remote instances (issue #416)", () => {
       }),
     });
     renderSidebar();
-    const section = remoteSection();
+    const section = remoteRow();
     expect(section.textContent).toContain("working");
     expect(section.querySelector('[title="Agent is working"]')).not.toBeNull();
   });
@@ -2378,295 +755,9 @@ describe("Sidebar remote instances (issue #416)", () => {
       }),
     });
     renderSidebar();
-    const section = remoteSection();
+    const section = remoteRow();
     expect(section.textContent).toContain("answer needed");
     expect(section.querySelector('[title="Agent is waiting for your answer"]')).not.toBeNull();
-  });
-});
-
-describe("Sidebar host scope filter (issue #507)", () => {
-  const remotePath = "/projects/remote";
-  const remoteGroup = {
-    project: { ...state.projects[0]!.project, path: remotePath, name: "Remote Project" },
-    sessions: state.projects[0]!.sessions.map((s) => ({
-      ...s,
-      tabId: `remote-${s.tabId}`,
-      projectCwd: remotePath,
-      title: `Remote ${s.title}`,
-    })),
-  };
-
-  /** Two joined hosts: box-a owns one remote project, box-b none. */
-  const withTwo = (patchB: Partial<RemoteInstanceSummary> = {}) =>
-    backendState({
-      projects: state.projects,
-      remoteInstances: [
-        remoteInstance({ id: "inst-a", nickname: "box-a", url: "http://box-a:4677", projects: [remoteGroup] }),
-        remoteInstance({ id: "inst-b", nickname: "box-b", url: "http://box-b:4677", projects: [], ...patchB }),
-      ],
-    });
-
-  function hostTrigger(): HTMLButtonElement {
-    return button("filter by host");
-  }
-
-  /** Open the picker and land on one row — the user's whole gesture. */
-  function pickHost(label: string): void {
-    act(() => hostTrigger().click());
-    const item = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((el) =>
-      el.textContent?.includes(label),
-    );
-    expect(item, `menu item not found: ${label}`).toBeDefined();
-    act(() => item!.click());
-  }
-
-  function setFilter(value: string): void {
-    const input = document.body.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]');
-    if (input === null) throw new Error("filter input not found");
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-    act(() => {
-      setter.call(input, value);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-  }
-
-  it("shows every host by default, with the trigger reading All hosts", () => {
-    useStore.setState({ state: withTwo() });
-    renderSidebar();
-    expect(document.body.textContent).toContain("Project One");
-    expect(document.body.querySelector('[data-remote-instance="inst-a"]')).not.toBeNull();
-    expect(document.body.querySelector('[data-remote-instance="inst-b"]')).not.toBeNull();
-    expect(hostTrigger().textContent).toContain("All hosts");
-  });
-
-  it("renders no host control while nothing is joined", () => {
-    renderSidebar();
-    expect(document.body.querySelector('button[aria-label="filter by host"]')).toBeNull();
-  });
-
-  it("scopes the list to the picked instance and returns focus to the trigger", () => {
-    useStore.setState({ state: withTwo() });
-    renderSidebar();
-    pickHost("box-b");
-    expect(useStore.getState().hostScope).toBe("inst-b");
-    expect(document.body.querySelector('[data-remote-instance="inst-a"]')).toBeNull();
-    expect(document.body.querySelector('[data-remote-instance="inst-b"]')).not.toBeNull();
-    expect(document.body.textContent).not.toContain("Project One");
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(hostTrigger());
-  });
-
-  it("scopes to local projects for This computer", () => {
-    useStore.setState({ state: withTwo() });
-    renderSidebar();
-    pickHost("This computer");
-    expect(useStore.getState().hostScope).toBe("local");
-    expect(document.body.querySelector("[data-remote-instance]")).toBeNull();
-    expect(document.body.textContent).toContain("Project One");
-  });
-
-  it("lets a search span every host while a scope is active", () => {
-    useStore.setState({ state: withTwo() });
-    renderSidebar();
-    pickHost("box-b");
-    setFilter("Project One");
-    expect(document.body.textContent).toContain("Project One");
-    setFilter("");
-    expect(document.body.textContent).not.toContain("Project One");
-    expect(document.body.querySelector('[data-remote-instance="inst-b"]')).not.toBeNull();
-  });
-
-  it("degrades a scope naming a removed instance back to all hosts", () => {
-    useStore.setState({ state: withTwo() });
-    renderSidebar();
-    pickHost("box-b");
-    act(() =>
-      useStore.setState({
-        state: backendState({
-          projects: state.projects,
-          remoteInstances: [
-            remoteInstance({ id: "inst-a", nickname: "box-a", url: "http://box-a:4677", projects: [remoteGroup] }),
-          ],
-        }),
-      }),
-    );
-    // Derived at render: the stored scope stands, the list does not go blank.
-    expect(useStore.getState().hostScope).toBe("inst-b");
-    expect(document.body.textContent).toContain("Project One");
-    expect(document.body.querySelector('[data-remote-instance="inst-a"]')).not.toBeNull();
-    expect(hostTrigger().textContent).toContain("All hosts");
-  });
-
-  it("dots the trigger while a hidden instance needs attention", () => {
-    useStore.setState({ state: withTwo({ status: "unreachable", error: "connection lost" }) });
-    renderSidebar();
-    // Scoped to nothing, nothing is hidden: no alert dot.
-    expect(hostTrigger().querySelector('[class~="bg-rose"]')).toBeNull();
-    pickHost("box-a");
-    const trigger = hostTrigger();
-    expect(trigger.textContent).toContain("box-a");
-    expect(trigger.querySelector('[class~="bg-rose"]')).not.toBeNull();
-  });
-
-  it("closes on Escape, restores trigger focus, and keeps the scope", () => {
-    useStore.setState({ state: withTwo() });
-    renderSidebar();
-    act(() => hostTrigger().click());
-    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
-    act(() =>
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })),
-    );
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(hostTrigger());
-    expect(useStore.getState().hostScope).toBe("all");
-  });
-});
-
-describe("Sidebar groups (issue #745)", () => {
-  const dragDelta = "/projects/delta";
-  const fourProjects = [
-    ...threeProjectState.projects,
-    {
-      ...threeProjectState.projects[0]!,
-      project: { ...threeProjectState.projects[0]!.project, path: dragDelta, name: "Delta" },
-      sessions: threeProjectState.projects[0]!.sessions.map((s) => ({ ...s, projectCwd: dragDelta })),
-    },
-  ];
-  /** Alpha ungrouped; Beta + Gamma in Team A; Delta in Team B. */
-  const groupedState = (teamBCollapsed = false) =>
-    backendState({
-      projects: fourProjects,
-      sidebarGroups: [
-        { id: "g1", name: "Team A", collapsed: false, projectPaths: [dragBeta, dragGamma] },
-        { id: "g2", name: "Team B", collapsed: teamBCollapsed, projectPaths: [dragDelta] },
-      ],
-    });
-
-  const groupSection = (id: string): HTMLElement | null =>
-    document.body.querySelector<HTMLElement>(`[data-sidebar-group="${id}"]`);
-  const groupHeader = (id: string): HTMLElement =>
-    groupSection(id)!.querySelector<HTMLElement>("[data-sidebar-group-header]")!;
-  /** Project paths of the ProjectSections nested in `container`, in order. */
-  const memberPaths = (container: HTMLElement): string[] =>
-    [...container.querySelectorAll<HTMLElement>("section")].map(
-      (section) => section.querySelector<HTMLButtonElement>("button[aria-expanded]")!.title,
-    );
-  const note = (): string => document.body.querySelector('[role="status"]')!.textContent ?? "";
-  const pressAlt = async (el: HTMLElement, key: string): Promise<void> => {
-    await act(async () => {
-      el.dispatchEvent(new KeyboardEvent("keydown", { key, altKey: true, bubbles: true }));
-    });
-  };
-  const dragEvent = (type: string, dataTransfer: object): MouseEvent => {
-    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY: 40 });
-    Object.defineProperty(event, "dataTransfer", { value: dataTransfer, configurable: true });
-    return event;
-  };
-  const setFilter = async (value: string): Promise<void> => {
-    const filter = document.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]')!;
-    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
-    await act(async () => {
-      setValue.call(filter, value);
-      filter.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-  };
-
-  beforeEach(() => {
-    backendMock.moveProject.mockClear();
-    backendMock.moveSidebarGroup.mockClear();
-    backendMock.setSidebarGroupCollapsed.mockClear();
-    backendMock.setProjectSidebarGroup.mockClear();
-  });
-
-  it("renders no group chrome while no group exists", () => {
-    useStore.setState({ state: threeProjectState });
-    renderSidebar();
-    expect(document.body.querySelector("[data-sidebar-group]")).toBeNull();
-    expect(document.body.querySelector("[data-sidebar-ungrouped]")).toBeNull();
-  });
-
-  it("renders Ungrouped first, then each group in order with exactly its members", () => {
-    useStore.setState({ state: groupedState() });
-    renderSidebar();
-    const order = [
-      ...document.body.querySelectorAll<HTMLElement>("[data-sidebar-ungrouped], [data-sidebar-group]"),
-    ].map((el) => el.getAttribute("data-sidebar-group") ?? "ungrouped");
-    expect(order).toEqual(["ungrouped", "g1", "g2"]);
-    expect(memberPaths(groupSection("g1")!)).toEqual([dragBeta, dragGamma]);
-    expect(memberPaths(groupSection("g2")!)).toEqual([dragDelta]);
-    // Alpha renders between the Ungrouped header and the first group.
-    const alphaToggle = document.body.querySelector<HTMLElement>(`button[title="${dragAlpha}"]`)!;
-    expect(alphaToggle.closest("[data-sidebar-group]")).toBeNull();
-  });
-
-  it("hides a collapsed group's members and expands it through the store", async () => {
-    useStore.setState({ state: groupedState(true) });
-    renderSidebar();
-    expect(groupSection("g2")).not.toBeNull();
-    expect(memberPaths(groupSection("g2")!)).toEqual([]);
-    const toggle = button("Collapse or expand Team B");
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    await act(async () => toggle.click());
-    expect(backendMock.setSidebarGroupCollapsed).toHaveBeenCalledWith("g2", false);
-  });
-
-  it("shows a filter match inside a collapsed group and drops groups without one", async () => {
-    useStore.setState({ state: groupedState(true) });
-    renderSidebar();
-    await setFilter("Delta");
-    expect(groupSection("g1")).toBeNull();
-    expect(memberPaths(groupSection("g2")!)).toEqual([dragDelta]);
-    // The persisted collapsed value is never written by the filter.
-    expect(backendMock.setSidebarGroupCollapsed).not.toHaveBeenCalled();
-  });
-
-  it("files a project dropped on another group's header and ignores non-project drags", async () => {
-    useStore.setState({ state: groupedState() });
-    renderSidebar();
-    const dt = {
-      setData: vi.fn(),
-      effectAllowed: "",
-      types: ["text/plain", "application/x-omp-ui-project"],
-      getData: vi.fn((type: string) => (type === "application/x-omp-ui-project" ? dragAlpha : "")),
-    };
-    const alphaHeader = document.body
-      .querySelector<HTMLElement>(`button[title="${dragAlpha}"]`)!
-      .closest<HTMLElement>("[draggable]")!;
-    await act(async () => {
-      alphaHeader.dispatchEvent(dragEvent("dragstart", dt));
-    });
-    const over = dragEvent("dragover", dt);
-    await act(async () => {
-      groupHeader("g1").dispatchEvent(over);
-    });
-    expect(over.defaultPrevented).toBe(true);
-    expect(groupHeader("g1").getAttribute("data-project-drop")).toBe("true");
-    await act(async () => {
-      groupHeader("g1").dispatchEvent(dragEvent("drop", dt));
-    });
-    expect(backendMock.setProjectSidebarGroup).toHaveBeenCalledWith(dragAlpha, "g1");
-    expect(backendMock.moveProject).not.toHaveBeenCalled();
-
-    const plain = dragEvent("dragover", { types: ["text/plain"], getData: () => dragAlpha });
-    await act(async () => {
-      groupHeader("g2").dispatchEvent(plain);
-    });
-    expect(plain.defaultPrevented).toBe(false);
-  });
-
-  it("keeps keyboard project moves inside the group", async () => {
-    useStore.setState({ state: groupedState() });
-    renderSidebar();
-    await pressAlt(button("reorder Gamma"), "ArrowDown");
-    expect(backendMock.moveProject).not.toHaveBeenCalled();
-    expect(note()).toBe("Gamma is already last");
-  });
-
-  it("moves a group with Alt+Arrow on its grip", async () => {
-    useStore.setState({ state: groupedState() });
-    renderSidebar();
-    await pressAlt(button("reorder group Team A"), "ArrowDown");
-    expect(backendMock.moveSidebarGroup).toHaveBeenCalledWith("g1", null);
   });
 });
 
@@ -2801,181 +892,5 @@ describe("Sidebar title cards (issue #838)", () => {
     const line = titleLine(rowButton("Owned session"));
     expect(line.firstChild).toBeInstanceOf(Text);
     expect(line.querySelector("span")).toBeNull();
-  });
-});
-
-describe("Sidebar unified project view (issue #903)", () => {
-  const repoKey = "github.com/acme/app";
-  const repoDisplay = "acme/app";
-  const remotePath = "/worktrees/app";
-
-  /** Local Project One keyed on `localKey`; box-a joined with its own
-   *  checkout of the same repository at `remotePath` (`remoteSessions`
-   *  overrides that checkout's session list, e.g. `[]` for a machine with
-   *  no sessions yet). */
-  const keyedState = (
-    patchInstance: Partial<RemoteInstanceSummary> = {},
-    localKey: string | null = repoKey,
-    remoteSessions: SessionSummary[] | null = null,
-  ) => {
-    const local = state.projects[0]!;
-    return backendState({
-      projects: [{ ...local, project: { ...local.project, repositoryKey: localKey } }],
-      remoteInstances: [
-        remoteInstance({
-          id: "inst-a",
-          nickname: "box-a",
-          url: "http://box-a:4677",
-          ...patchInstance,
-          projects: [
-            {
-              project: { ...local.project, path: remotePath, repositoryKey: repoKey },
-              sessions:
-                remoteSessions ?? [
-                  {
-                    ...local.sessions[0]!,
-                    tabId: "remote-tab-1",
-                    sessionId: "remote-sid",
-                    projectCwd: remotePath,
-                    title: "Remote session",
-                    cachedTitle: "Remote session",
-                  },
-                ],
-            },
-          ],
-        }),
-      ],
-    });
-  };
-
-  /** The expanded Project One node: its toggle titles with the project path
-   *  while split, with the repository key once the node is unified. */
-  function localSection(): HTMLElement {
-    const toggle = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find(
-      (b) => b.title === projectPath || b.title === repoKey,
-    );
-    if (toggle === undefined) throw new Error("Project One toggle not found");
-    return toggle.closest("section")!;
-  }
-
-  function remoteSection(id: string): HTMLElement {
-    const el = document.body.querySelector<HTMLElement>(`[data-remote-instance="${id}"]`);
-    if (el === null) throw new Error(`remote section not found: ${id}`);
-    return el;
-  }
-
-  it("folds a joined checkout into the local node with machine chips", () => {
-    useStore.setState({ state: keyedState() });
-    renderSidebar();
-    const section = localSection();
-    // Both machines' rows render under one node…
-    expect(section.textContent).toContain("Owned session");
-    expect(section.textContent).toContain("Remote session");
-    // …and the folded row carries the machine chip; local rows do not.
-    const chip = section.querySelector<HTMLElement>('span[title="on box-a"]');
-    expect(chip).not.toBeNull();
-    expect(chip!.textContent).toBe(" · box-a");
-    expect(section.querySelectorAll('span[title="on box-a"]')).toHaveLength(1);
-    // A divider names the checkout and its tooltip carries the machine path.
-    const divider = section.querySelector<HTMLElement>(`[title="box-a — ${remotePath}"]`);
-    expect(divider).not.toBeNull();
-    expect(divider!.textContent).toContain("box-a checkout");
-    // The per-instance section no longer lists the folded checkout.
-    expect(remoteSection("inst-a").textContent).not.toContain("Remote session");
-  });
-
-  it("opens a session on the folded checkout through the divider action", () => {
-    useStore.setState({ state: keyedState() });
-    renderSidebar();
-    act(() => button("new session on box-a").click());
-    expect(newSession).toHaveBeenCalledWith(remotePath, undefined, "inst-a");
-  });
-
-  it("folds an unreachable instance's checkout with the action disabled", () => {
-    useStore.setState({ state: keyedState({ status: "unreachable", error: "offline" }) });
-    renderSidebar();
-    // The sessions still show — they are running over there (issue #416 rule) —
-    // but nothing on that checkout is clickable.
-    expect(localSection().textContent).toContain("Remote session");
-    expect(button("new session on box-a").disabled).toBe(true);
-  });
-
-  it("keeps the split layout under This computer scope", () => {
-    useStore.setState({ state: keyedState(), hostScope: "local" });
-    renderSidebar();
-    const section = localSection();
-    expect(section.textContent).toContain("Owned session");
-    expect(section.textContent).not.toContain("Remote session");
-    expect(document.body.querySelector('[title="on box-a"]')).toBeNull();
-    expect(document.body.textContent).not.toContain("box-a checkout");
-    expect(document.body.querySelector("[data-remote-instance]")).toBeNull();
-  });
-
-  it("keeps the split layout under a single-instance scope", () => {
-    useStore.setState({ state: keyedState(), hostScope: "inst-a" });
-    renderSidebar();
-    const section = remoteSection("inst-a");
-    expect(section.textContent).toContain("Remote session");
-    // Per-host lens rows carry no chip: the section header already names the box.
-    expect(document.body.querySelector('[title="on box-a"]')).toBeNull();
-    expect(document.body.textContent).not.toContain("box-a checkout");
-  });
-
-  it("renders search in the split layout even under all hosts", () => {
-    useStore.setState({ state: keyedState() });
-    renderSidebar();
-    const input = document.body.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]')!;
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-    act(() => {
-      setter.call(input, "session");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    // Matches on both hosts render in their own sections — no folding, no chips.
-    expect(localSection().textContent).toContain("Owned session");
-    expect(localSection().textContent).not.toContain("Remote session");
-    expect(remoteSection("inst-a").textContent).toContain("Remote session");
-    expect(document.body.querySelector('[title="on box-a"]')).toBeNull();
-  });
-
-  it("never merges checkouts without a repository key", () => {
-    useStore.setState({ state: keyedState({}, null) });
-    renderSidebar();
-    expect(localSection().textContent).not.toContain("Remote session");
-    expect(remoteSection("inst-a").textContent).toContain("Remote session");
-    expect(document.body.querySelector('[title="on box-a"]')).toBeNull();
-    expect(document.body.textContent).not.toContain("box-a checkout");
-  });
-
-  it("names the unified node by repository, not this machine's directory", () => {
-    useStore.setState({ state: keyedState() });
-    renderSidebar();
-    const toggle = localSection().querySelector<HTMLButtonElement>("button[aria-expanded]")!;
-    // The header titles with the repository key and shows `owner/repo`.
-    expect(toggle.title).toBe(repoKey);
-    expect(toggle.textContent).toContain(repoDisplay);
-    expect(toggle.textContent).not.toContain("Project One");
-  });
-
-  it("keeps the project name header for a keyless anchor", () => {
-    useStore.setState({ state: keyedState({}, null) });
-    renderSidebar();
-    const toggle = localSection().querySelector<HTMLButtonElement>("button[aria-expanded]")!;
-    expect(toggle.title).toBe(projectPath);
-    expect(toggle.textContent).toContain("Project One");
-  });
-
-  it("renders a machine-labeled checkout row even with zero sessions", () => {
-    useStore.setState({ state: keyedState({}, repoKey, []) });
-    renderSidebar();
-    const section = localSection();
-    // The fold is visible without any remote session to interleave a divider:
-    // one strip per folded checkout, machine + path + its own "+".
-    const strip = section.querySelector<HTMLElement>(`[title="box-a — ${remotePath}"]`);
-    expect(strip).not.toBeNull();
-    expect(strip!.textContent).toContain("box-a");
-    const plus = button("new session on box-a");
-    expect(plus.disabled).toBe(false);
-    act(() => plus.click());
-    expect(newSession).toHaveBeenCalledWith(remotePath, undefined, "inst-a");
   });
 });

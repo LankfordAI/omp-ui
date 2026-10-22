@@ -119,17 +119,17 @@ See [Releases](releases.md) for the supported update paths on Linux and macOS an
 
 The sidebar lists owned sessions only: sessions launched by omp-ui and sessions produced in the same process by `/new` or `/branch`. A session launched by running `omp` in a terminal is outside that scope, even when its working directory is a registered project.
 
-A sidebar filter can also hide a matching project or session. Longer project lists show a **show more** control.
+The main list shows only running sessions. Every session with no process — dormant, hibernated, archived, or missing — sits under the collapsed **Settled** section at the bottom of the sidebar. The search box at the top can also hide a session whose title, plan, project, and machine name do not match.
 
 ### Check
 
-Clear the sidebar filter, expand the project, and choose **show more** if it appears. Confirm that the project path is registered and that omp-ui launched the session. Closing a tab only hides its view; its owned session remains in the sidebar, and selecting it resurfaces the tab.
+Clear the search box and open **Settled (N)**. Confirm that the project path is registered and that omp-ui launched the session. Closing a tab only hides its view; its owned session remains in the sidebar, and selecting it resurfaces the tab.
 
 ### Fix
 
-Register the project, then start the session from its **New session**, **New terminal session**, or **New session…** action. omp-ui does not import terminal-created history. Do not add records to the registry or move or edit session JSONL files to make one appear.
+Register the project, then start the session from the project quick-open (**New session** in the sidebar header): `Enter` on the project row, or **New terminal session** or **New session…** on its project page. omp-ui does not import terminal-created history. Do not add records to the registry or move or edit session JSONL files to make one appear.
 
-See [Projects and sessions](user-guide.md#projects-and-sessions) for the owned-session scope and sidebar controls.
+See [The session list](user-guide.md#the-session-list) for how the sidebar orders and splits sessions, and [Projects and sessions](user-guide.md#projects-and-sessions) for the owned-session scope.
 
 ## A Plan, advisor, omp, Memory, provider, or MCP change looks stale
 

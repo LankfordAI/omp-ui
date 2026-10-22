@@ -86,7 +86,7 @@ The missing-bundle notice in **Settings > Remote access** records availability o
 ## Related guides
 
 - [Settings](settings.md) covers the rest of the Settings surface.
-- [Remote instances](remote-instances.md) joins another omp-ui app's projects and sessions into this app's sidebar over the same listener and credentials.
+- [Remote instances](remote-instances.md) joins another omp-ui app's sessions into this app's sidebar list, and its projects into the project quick-open, over the same listener and credentials.
 - [User guide](user-guide.md) explains the session controls shared by desktop and browser views.
 - [Troubleshooting](troubleshooting.md) covers remote connection and authentication failures.
 - [Development](development.md) lists the repository build and validation workflows.

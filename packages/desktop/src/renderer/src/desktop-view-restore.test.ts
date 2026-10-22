@@ -80,8 +80,6 @@ const mockBackend = {
   addProject: vi.fn(),
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
-  moveProject: vi.fn(async () => {}),
-  moveSession: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(),
   setSessionModel: vi.fn(async () => {}),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
@@ -229,7 +227,6 @@ const SEED_SNAPSHOT: DesktopViewStateV1 = {
   appVersion: "1.0.0",
   tabIds: ["pty-1", "rpc-1", "missing-1", "deleted-1"],
   activeTabId: "rpc-1",
-  focusedTabByProject: { "/p/a": "pty-1", "/p/b": "rpc-1", "/p/x": "deleted-1", "/p/y": "gone-1" },
   sidebarWidth: 416,
   inspectorWidth: 256,
   browserPaneWidth: 720,
@@ -299,7 +296,6 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     const st = store.useStore.getState();
     expect(st.tabs.map((t) => t.tabId)).toEqual(["pty-1", "rpc-1"]);
     expect(st.activeTabId).toBe("rpc-1");
-    expect(st.focusedTabByProject).toEqual({ "/p/a": "pty-1", "/p/b": "rpc-1" });
     expect(st.sidebarWidth).toBe(416);
     expect(st.inspectorWidth).toBe(256);
     expect(st.browserPaneWidth).toBe(720);
@@ -338,7 +334,6 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     expect(st.tabs.map((t) => t.tabId)).toEqual(["pty-1"]);
     // Saved active (rpc-1) failed → settle on the last restored.
     expect(st.activeTabId).toBe("pty-1");
-    expect(st.focusedTabByProject).toEqual({ "/p/a": "pty-1" });
     expect(st.restoringTabs).toBe(false);
   });
 
@@ -406,24 +401,6 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
 
     store.useStore.getState().hideTab("t1");
     expect(spy).toHaveBeenCalledTimes(7);
-  });
-
-  it("onStateChanged prunes focus entries whose tab or project is gone", async () => {
-    seedSnapshot();
-    const store = await freshStore();
-    await store.useStore.getState().init();
-    expect(store.useStore.getState().focusedTabByProject).toEqual({
-      "/p/a": "pty-1",
-      "/p/b": "rpc-1",
-    });
-
-    const onChange = mockBackend.onStateChanged.mock.calls[0]?.[0] as (state: BackendState) => void;
-    // A reconciled state that drops project /p/b (and its sessions) wholesale.
-    onChange({ ...backendState, projects: [backendState.projects[0]!] });
-
-    const st = store.useStore.getState();
-    expect(st.focusedTabByProject).not.toHaveProperty("/p/b");
-    expect(st.focusedTabByProject["/p/a"]).toBe("pty-1");
   });
 
   it("an update relaunch leaves a tab whose process was gone at quit dormant", async () => {

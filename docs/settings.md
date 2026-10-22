@@ -73,7 +73,7 @@ A remote-setting change does not restart omp-ui or any omp session process. When
 
 ## Remote instances
 
-Remote instances joins other omp-ui apps that have remote access enabled, so their projects and sessions appear in this app's sidebar under a nickname. A joined instance grants this app full control of that host's sessions and files. See [Remote instances](remote-instances.md) for what crosses, what does not, and how reconnection works.
+Remote instances joins other omp-ui apps that have remote access enabled, so their sessions appear in this app's sidebar list with a nickname on each row and their projects appear in the project quick-open. A joined instance grants this app full control of that host's sessions and files. See [Remote instances](remote-instances.md) for what crosses, what does not, and how reconnection works. While any saved instance is unreachable, needs sign-in, or is incompatible, the sidebar footer shows an **N unreachable** chip that opens this page.
 
 The **Join** form takes:
 
@@ -83,11 +83,12 @@ The **Join** form takes:
 
 A rejected password, an unreachable address, a duplicate nickname, or an unparsable URL shows inline on the form and stores nothing.
 
-Each joined instance is a panel showing its nickname, URL, status, the remote's omp-ui version, and the last error, with three actions:
+Each joined instance is a panel showing its nickname, URL, status, the remote's omp-ui version, and the last error, with these actions:
 
 - **Reconnect** drops any current connection and retries immediately, from any status.
+- **Refresh state** (joined instances only) re-reads the instance's session list now, for when a sidebar row looks stale.
 - **Edit** changes the nickname, the URL, or the credential inline. A nickname change applies without reconnecting; a URL or credential change signs in again and reconnects.
-- **Remove** asks for confirmation, then forgets the connection and its credential and drops the group and its tabs from this app. The remote's sessions keep running.
+- **Remove** asks for confirmation, then forgets the connection and its credential and drops that instance's sessions and tabs from this app. The remote's sessions keep running.
 
 The page also holds one setting:
 
@@ -100,10 +101,10 @@ Statuses:
 | Status | Meaning |
 | --- | --- |
 | `connecting` | omp-ui is dialing or signing in. |
-| `joined` | Connected; the instance's projects are live in the sidebar. |
-| `unreachable` | The connection failed or dropped. Projects stay listed but dimmed, tabs stay open with input disabled, and omp-ui retries with a growing delay from 1 to 30 seconds. |
+| `joined` | Connected; the instance's sessions are live in the sidebar and its projects in the project quick-open. |
+| `unreachable` | The connection failed or dropped. Its sessions stay listed but dimmed, without a context menu, tabs stay open with input disabled, and omp-ui retries with a growing delay from 1 to 30 seconds. |
 | `sign-in required` | The remote rejected the stored credential (its password changed or its token was regenerated), or the credential could not be decrypted. omp-ui stops retrying until you **Edit** the instance and sign in again. |
-| `this app` | The URL is this app's own remote-access address. No group is added and nothing is retried. |
+| `this app` | The URL is this app's own remote-access address. Nothing is added and nothing is retried. |
 | `incompatible version` | The remote omp-ui is older than this app and cannot be joined. |
 
 omp-ui stores the credential that the sign-in derived — a password-derived credential or the access token — never the password. It is encrypted through the operating system credential store and written to `remote-instances.json` beside `registry.json`, readable only by your user; it never reaches a renderer, and the diagnostic bundle never reads it. Without a secure credential store, omp-ui refuses to join rather than store the credential insecurely.

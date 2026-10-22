@@ -42,7 +42,6 @@ describe("desktop view state", () => {
         ],
         exited: {},
         activeTabId: "c",
-        focusedTabByProject: { "/proj-1": "a" },
         sidebarWidth: 416,
         inspectorWidth: 256,
         browserPaneWidth: 720,
@@ -69,7 +68,6 @@ describe("desktop view state", () => {
         ],
         exited: {},
         activeTabId: "z",
-        focusedTabByProject: {},
         sidebarWidth: 272,
         inspectorWidth: 304,
         browserPaneWidth: 560,
@@ -80,13 +78,12 @@ describe("desktop view state", () => {
     expect(projected.tabIds).not.toContain("y");
   });
 
-  it("copies appVersion, activeTabId, and the focus map as-is", () => {
+  it("copies appVersion and activeTabId as-is", () => {
     const projected = projectDesktopView(
       {
         tabs: [{ tabId: "t", hidden: false }],
         exited: {},
         activeTabId: "t",
-        focusedTabByProject: { "/a": "t", "/b": "t" },
         sidebarWidth: 272,
         inspectorWidth: 304,
         browserPaneWidth: 560,
@@ -95,26 +92,25 @@ describe("desktop view state", () => {
     );
     expect(projected.appVersion).toBe("2.1.0");
     expect(projected.activeTabId).toBe("t");
-    expect(projected.focusedTabByProject).toEqual({ "/a": "t", "/b": "t" });
   });
 
   it("version gate: equal non-null versions do NOT restore", () => {
-    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
+    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
     expect(shouldRestoreDesktopView(saved, "1.0.0")).toBe(false);
   });
 
   it("version gate: differing non-null versions DO restore", () => {
-    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
+    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
     expect(shouldRestoreDesktopView(saved, "1.1.0")).toBe(true);
   });
 
   it("version gate: a null saved appVersion never restores", () => {
-    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: null, tabIds: [], activeTabId: null, focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
+    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: null, tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
     expect(shouldRestoreDesktopView(saved, "1.1.0")).toBe(false);
   });
 
   it("version gate: a null currentVersion never restores", () => {
-    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
+    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
     expect(shouldRestoreDesktopView(saved, null)).toBe(false);
   });
 
@@ -132,17 +128,17 @@ describe("desktop view state", () => {
   });
 
   it("rejects a non-v1 schemaVersion", () => {
-    setRaw(JSON.stringify({ schemaVersion: 2, appVersion: "1.0.0", tabIds: [], activeTabId: null, focusedTabByProject: {} }));
+    setRaw(JSON.stringify({ schemaVersion: 2, appVersion: "1.0.0", tabIds: [], activeTabId: null }));
     expect(parseDesktopView(window.localStorage.getItem(DESKTOP_VIEW_STORAGE_KEY))).toBeNull();
   });
 
   it("rejects a tabIds array containing a non-string", () => {
-    const raw = JSON.stringify({ schemaVersion: 1, appVersion: "1.0.0", tabIds: ["a", 3], activeTabId: null, focusedTabByProject: {} });
+    const raw = JSON.stringify({ schemaVersion: 1, appVersion: "1.0.0", tabIds: ["a", 3], activeTabId: null });
     expect(parseDesktopView(raw)).toBeNull();
   });
 
   it("rejects a numeric activeTabId", () => {
-    const raw = JSON.stringify({ schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: 3, focusedTabByProject: {} });
+    const raw = JSON.stringify({ schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: 3 });
     expect(parseDesktopView(raw)).toBeNull();
   });
 
@@ -150,19 +146,29 @@ describe("desktop view state", () => {
     expect(parseDesktopView("[]")).toBeNull();
   });
 
-  it("drops map entries with non-string values while valid entries survive", () => {
-    const raw = JSON.stringify({
+  it("parses a v1 snapshot that still carries the old focusedTabByProject map, restoring tabs and widths", () => {
+    // The exact shape builds before the session sidebar persisted: the map is
+    // ignored, never required, so schemaVersion stays 1 and nothing is lost.
+    const legacy = JSON.stringify({
       schemaVersion: 1,
       appVersion: "1.0.0",
-      tabIds: ["a"],
-      activeTabId: "a",
+      tabIds: ["a", "b"],
+      activeTabId: "b",
       focusedTabByProject: { "/good": "a", "/bad": 7, "/nested": { x: 1 } },
+      sidebarWidth: 300,
+      inspectorWidth: 250,
+      browserPaneWidth: 720,
     });
-    const parsed = parseDesktopView(raw);
-    expect(parsed).not.toBeNull();
-    expect(parsed!.focusedTabByProject).toEqual({ "/good": "a" });
+    expect(parseDesktopView(legacy)).toEqual({
+      schemaVersion: 1,
+      appVersion: "1.0.0",
+      tabIds: ["a", "b"],
+      activeTabId: "b",
+      sidebarWidth: 300,
+      inspectorWidth: 250,
+      browserPaneWidth: 720,
+    });
   });
-
 
   it("defaults missing or non-finite v1 widths and clamps finite widths", () => {
     const base = {
@@ -170,7 +176,6 @@ describe("desktop view state", () => {
       appVersion: "1.0.0",
       tabIds: [],
       activeTabId: null,
-      focusedTabByProject: {},
     };
     expect(parseDesktopView(JSON.stringify(base))).toMatchObject({
       sidebarWidth: 272,
@@ -198,7 +203,6 @@ describe("desktop view state", () => {
       appVersion: "1.0.0",
       tabIds: ["a"],
       activeTabId: "a",
-      focusedTabByProject: { "/p": "a" },
       sidebarWidth: 300,
       inspectorWidth: 250,
     });
@@ -207,20 +211,18 @@ describe("desktop view state", () => {
       appVersion: "1.0.0",
       tabIds: ["a"],
       activeTabId: "a",
-      focusedTabByProject: { "/p": "a" },
       sidebarWidth: 300,
       inspectorWidth: 250,
       browserPaneWidth: BROWSER_PANE_DEFAULT_WIDTH,
     });
   });
   it("deduplicates tabIds preserving first occurrence order", () => {
-    const raw = JSON.stringify({ schemaVersion: 1, appVersion: null, tabIds: ["a", "b", "a", "c", "b"], activeTabId: null, focusedTabByProject: {} });
+    const raw = JSON.stringify({ schemaVersion: 1, appVersion: null, tabIds: ["a", "b", "a", "c", "b"], activeTabId: null });
     expect(parseDesktopView(raw)).toEqual({
       schemaVersion: 1,
       appVersion: null,
       tabIds: ["a", "b", "c"],
       activeTabId: null,
-      focusedTabByProject: {},
       sidebarWidth: 272,
       inspectorWidth: 304,
       browserPaneWidth: 560,
@@ -239,7 +241,7 @@ describe("desktop view state", () => {
   });
 
   it("returns false without throwing when setItem throws", () => {
-    const snapshot = projectDesktopView({ tabs: [], exited: {}, activeTabId: null, focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 }, "1.0.0");
+    const snapshot = projectDesktopView({ tabs: [], exited: {}, activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 }, "1.0.0");
     const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("storage denied");
     });
@@ -254,7 +256,7 @@ describe("desktop view state", () => {
     const storage = desktopViewStorage();
     expect(storage).not.toBeNull();
     const snapshot = projectDesktopView(
-      { tabs: [{ tabId: "t", hidden: false }], exited: {}, activeTabId: "t", focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 },
+      { tabs: [{ tabId: "t", hidden: false }], exited: {}, activeTabId: "t", sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 },
       "1.0.0",
     );
     expect(saveDesktopView(storage!, snapshot)).toBe(true);
@@ -290,7 +292,7 @@ describe("browser view state (issue #890)", () => {
 
   const snapshot = (): DesktopViewStateV1 =>
     projectDesktopView(
-      { tabs: [{ tabId: "t", hidden: false }], exited: {}, activeTabId: "t", focusedTabByProject: {}, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 },
+      { tabs: [{ tabId: "t", hidden: false }], exited: {}, activeTabId: "t", sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 },
       "1.0.0",
     );
 
