@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import * as yaml from "js-yaml";
-import { NOTE_BYTE_CAP, SEARCH_TEXT_CAP, normalizeTitle, resolveVaultPath, scanSecrets, validateVaultRoot, vaultAppend, vaultCreate, vaultEdit, vaultLink, vaultList, vaultRead, vaultSearch, type RootGuard, type VaultCallContext } from "./knowledge-vault";
+import { NOTE_BYTE_CAP, SEARCH_TEXT_CAP, normalizeTitle, resolveVaultPath, scanSecrets, validateVaultRoot, vaultAppend, vaultCreate, vaultDelete, vaultEdit, vaultLink, vaultList, vaultRead, vaultRefactor, vaultRename, vaultSearch, type RootGuard, type VaultCallContext } from "./knowledge-vault";
 import { parseObsidianNoteUri, type ObsidianNoteTarget } from "./vault-shared";
 import type { VaultProjectIdentity } from "./types";
 
@@ -1026,6 +1026,135 @@ describe("production vault tools", () => {
       expect(fs.readdirSync(path.join(root, "omp-ui/Acme/app")).sort()).toEqual(["A.md", "New.md", "app Index.md"]);
     });
   });
+
+  const lf = "---\nomp-ui: true\n---\n";
+
+  describe("vault rename", () => {
+    it("moves a stamped note, follows in-scope path links, and reports what Obsidian must fix", async () => {
+      const rel = "omp-ui/my-project/Old.md";
+      put(rel, `${prefix}body\n`);
+      put("omp-ui/my-project/Folder/Other.md", `${lf}see [[${rel.replace(/\.md$/, "")}|Old]]\n`);
+      put("user/User.md", `handwritten prose linking [[${rel.replace(/\.md$/, "")}|the old note]]\n`);
+      const result = await vaultRename(ctx, rel, "omp-ui/Archive/Renamed", diskHash(rel));
+      expect(result.ok).toBe(true);
+      expect(result.details).toMatchObject({ action: "rename", path: "omp-ui/Archive/Renamed.md", movedFrom: rel, createdByOmpUi: true, title: "Renamed" });
+      expect(result.details.baseHash).toBe(diskHash("omp-ui/Archive/Renamed.md"));
+      expect(replyTargets(result.text)).toEqual([{ vaultName: ctx.entry.name, file: "omp-ui/Archive/Renamed.md" }]);
+      expect(result.text).toContain(`Renamed ${rel} to omp-ui/Archive/Renamed.md in vault Notes.`);
+      expect(result.text).toContain("Notes still linking it by its old name");
+      expect(result.text).toContain("- user/User.md");
+      expect(fs.existsSync(path.join(root, rel))).toBe(false);
+      expect(disk("omp-ui/Archive/Renamed.md")).toBe(`${prefix}body\n`);
+      expect(disk("omp-ui/my-project/Folder/Other.md")).toContain("[[omp-ui/Archive/Renamed|Old]]");
+      expect(disk("user/User.md")).toContain(`[[${rel.replace(/\.md$/, "")}|the old note]]`);
+    });
+    it("refuses unstamped notes, Index notes, self-renames, clobbers, stale hashes, and outside-home destinations", async () => {
+      put("omp-ui/Hand.md", "handwritten\n");
+      expect((await vaultRename(ctx, "omp-ui/Hand.md", "omp-ui/Kept", diskHash("omp-ui/Hand.md"))).text).toContain("omp-ui can only rename notes it created (omp-ui: true)");
+      put("omp-ui/my-project/my-project Index.md", `${lf}# my-project Index\n`);
+      expect((await vaultRename(ctx, "omp-ui/my-project/my-project Index.md", "Elsewhere", diskHash("omp-ui/my-project/my-project Index.md"))).text).toContain("Index notes are managed by omp-ui filing rules");
+      put("omp-ui/my-project/Same.md", `${lf}x\n`);
+      expect((await vaultRename(ctx, "omp-ui/my-project/Same.md", "same", diskHash("omp-ui/my-project/Same.md"))).text).toContain("a rename needs a different title or folder");
+      put("omp-ui/my-project/Taken.md", `${lf}x\n`);
+      put("omp-ui/my-project/Another.md", `${lf}y\n`);
+      expect((await vaultRename(ctx, "omp-ui/my-project/Another.md", "Taken", diskHash("omp-ui/my-project/Another.md"))).text).toContain("note exists: omp-ui/my-project/Taken.md");
+      put("omp-ui/my-project/Source.md", `${lf}x\n`);
+      expect((await vaultRename(ctx, "omp-ui/my-project/Source.md", "Fresh", "f".repeat(64))).text).toContain(`${"omp-ui/my-project/Source.md"} changed since you read it; read it again before renaming`);
+      expect((await vaultRename(ctx, "omp-ui/my-project/Source.md", "Archive/Fresh", diskHash("omp-ui/my-project/Source.md"))).text).toContain("is outside it");
+      expect(fs.existsSync(path.join(root, "Archive/Fresh.md"))).toBe(false);
+    });
+  });
+
+  describe("vault delete", () => {
+    it("removes a stamped note, strips its bullet links from stamped notes in scope, and reports the rest", async () => {
+      const rel = "omp-ui/my-project/Stale.md";
+      put(rel, `${lf}gone\n`);
+      put("omp-ui/my-project/my-project Index.md", `${lf}# my-project Index\n- [[${rel.replace(/\.md$/, "")}|Stale]]\n- [[omp-ui/my-project/Keep|Keep]]\n`);
+      put("omp-ui/my-project/Peer.md", `${lf}peer\n\n- [[Stale]]\nprose about [[Stale]] stays\n`);
+      put("user/User.md", `handwritten - [[Stale]] line\n`);
+      const result = await vaultDelete(ctx, rel, diskHash(rel));
+      expect(result.ok).toBe(true);
+      expect(result.details).toMatchObject({ action: "delete", path: rel, deletedPath: rel, createdByOmpUi: true });
+      expect(result.details.baseHash).toBeUndefined();
+      expect(result.text).toContain(`Deleted ${rel} from vault Notes.`);
+      expect(result.text).toContain("Notes still linking it");
+      expect(result.text).toContain("- user/User.md");
+      expect(fs.existsSync(path.join(root, rel))).toBe(false);
+      expect(disk("omp-ui/my-project/my-project Index.md")).toBe(`${lf}# my-project Index\n- [[omp-ui/my-project/Keep|Keep]]\n`);
+      expect(disk("omp-ui/my-project/Peer.md")).toBe(`${lf}peer\n\nprose about [[Stale]] stays\n`);
+      expect(disk("user/User.md")).toContain("- [[Stale]]");
+    });
+    it("reports nothing extra when no note links the deleted one", async () => {
+      put("omp-ui/Alone.md", `${lf}lonely\n`);
+      const result = await vaultDelete(ctx, "omp-ui/Alone.md", diskHash("omp-ui/Alone.md"));
+      expect(result.ok).toBe(true);
+      expect(result.text).toContain("No other note links it.");
+    });
+    it("refuses unstamped notes, Index notes, and stale hashes without touching the disk", async () => {
+      put("omp-ui/Hand.md", "handwritten\n");
+      expect((await vaultDelete(ctx, "omp-ui/Hand.md", diskHash("omp-ui/Hand.md"))).text).toContain("omp-ui can only delete notes it created (omp-ui: true)");
+      expect(fs.existsSync(path.join(root, "omp-ui/Hand.md"))).toBe(true);
+      put("omp-ui/proj/proj Index.md", `${lf}# proj Index\n`);
+      expect((await vaultDelete(ctx, "omp-ui/proj/proj Index.md", diskHash("omp-ui/proj/proj Index.md"))).text).toContain("Index notes are managed by omp-ui filing rules");
+      put("omp-ui/Stale.md", `${lf}x\n`);
+      expect((await vaultDelete(ctx, "omp-ui/Stale.md", "a".repeat(64))).text).toContain("omp-ui/Stale.md changed since you read it; read it again before deleting");
+      expect(fs.existsSync(path.join(root, "omp-ui/Stale.md"))).toBe(true);
+    });
+  });
+
+  describe("vault refactor", () => {
+    it("merges sources into a new filed note, deletes them, and rewrites their path links", async () => {
+      put("omp-ui/my-project/First.md", `${lf}first body\n`);
+      put("omp-ui/my-project/Second.md", `${lf}second body\n`);
+      put("omp-ui/my-project/Folder/Peer.md", `${lf}see [[omp-ui/my-project/First|F]] and [[omp-ui/my-project/Second]]\n`);
+      const result = await vaultRefactor(ctx, {
+        into: "Consolidated Plan",
+        content: "# Consolidated Plan\n\nboth bodies\n",
+        sources: [
+          { path: "omp-ui/my-project/First.md", baseHash: diskHash("omp-ui/my-project/First.md") },
+          { path: "omp-ui/my-project/Second.md", baseHash: diskHash("omp-ui/my-project/Second.md") },
+        ],
+      });
+      expect(result.ok).toBe(true);
+      const rel = "omp-ui/my-project/Consolidated Plan.md";
+      expect(result.details).toMatchObject({ action: "refactor", path: rel, deletedSources: ["omp-ui/my-project/First.md", "omp-ui/my-project/Second.md"], indexNotePath: "omp-ui/my-project/my-project Index.md" });
+      expect(disk(rel)).toContain("both bodies\n");
+      expect(fs.existsSync(path.join(root, "omp-ui/my-project/First.md"))).toBe(false);
+      expect(fs.existsSync(path.join(root, "omp-ui/my-project/Second.md"))).toBe(false);
+      expect(disk("omp-ui/my-project/Folder/Peer.md")).toContain("[[omp-ui/my-project/Consolidated Plan|F]]");
+      expect(result.text).toContain("Merged 2 source notes");
+    });
+    it("edits an existing into, keeps its frontmatter, and refuses when a source is stale, duplicated, or unstamped", async () => {
+      put("omp-ui/Target.md", `${prefix}old\n`);
+      put("omp-ui/Src.md", `${lf}merge me\n`);
+      const hashBefore = diskHash("omp-ui/Target.md");
+      const staleSource = await vaultRefactor(ctx, { into: "omp-ui/Target.md", content: "x", sources: [{ path: "omp-ui/Src.md", baseHash: "b".repeat(64) }] });
+      expect(staleSource.text).toContain("omp-ui/Src.md changed since you read it; read it again before merging");
+      const dup = await vaultRefactor(ctx, { into: "omp-ui/Target.md", content: "x", sources: [{ path: "omp-ui/Src.md", baseHash: diskHash("omp-ui/Src.md") }, { path: "omp-ui/Src.md", baseHash: diskHash("omp-ui/Src.md") }] });
+      expect(dup.text).toContain("each refactor source must be a distinct note; omp-ui/Src.md appears twice or is the target");
+      put("omp-ui/Hand.md", "handwritten\n");
+      const unstamped = await vaultRefactor(ctx, { into: "omp-ui/Target.md", content: "x", sources: [{ path: "omp-ui/Hand.md", baseHash: diskHash("omp-ui/Hand.md") }] });
+      expect(unstamped.text).toContain("refactor source: omp-ui can only merge notes it created");
+      expect(unstamped.details.action).toBe("refactor");
+      expect(fs.existsSync(path.join(root, "omp-ui/Src.md"))).toBe(true);
+      const merged = await vaultRefactor(ctx, { into: "omp-ui/Target.md", content: "the merged body\n", baseHash: hashBefore, sources: [{ path: "omp-ui/Src.md", baseHash: diskHash("omp-ui/Src.md") }] });
+      expect(merged.ok).toBe(true);
+      expect(merged.details).toMatchObject({ action: "refactor", path: "omp-ui/Target.md", deletedSources: ["omp-ui/Src.md"] });
+      expect(disk("omp-ui/Target.md")).toBe(`${prefix}the merged body\n`);
+      expect(fs.existsSync(path.join(root, "omp-ui/Src.md"))).toBe(false);
+    });
+    it("refuses when into lacks its token or an Index source is named", async () => {
+      put("omp-ui/proj/proj Index.md", `${lf}# proj Index\n`);
+      put("omp-ui/Src.md", `${lf}s\n`);
+      const indexSource = await vaultRefactor(ctx, { into: "New", content: "x", sources: [{ path: "omp-ui/proj/proj Index.md", baseHash: diskHash("omp-ui/proj/proj Index.md") }] });
+      expect(indexSource.text).toContain("is an Index note; Index notes are managed by omp-ui filing rules and are never deleted");
+      put("omp-ui/Dest.md", `${prefix}d\n`);
+      const noToken = await vaultRefactor(ctx, { into: "omp-ui/Dest.md", content: "x", sources: [{ path: "omp-ui/Src.md", baseHash: diskHash("omp-ui/Src.md") }] });
+      expect(noToken.text).toContain("omp-ui/Dest.md changed since you read it; read it again before editing");
+      expect(fs.existsSync(path.join(root, "omp-ui/Src.md"))).toBe(true);
+    });
+  });
+
 });
 
 describe("normalizeTitle", () => {

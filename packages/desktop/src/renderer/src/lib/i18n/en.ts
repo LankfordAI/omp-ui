@@ -355,6 +355,9 @@ export const en = {
   "transcript.vault.created": "Created",
   "transcript.vault.appended": "Appended",
   "transcript.vault.edited": "Edited",
+  "transcript.vault.renamed": "Moved",
+  "transcript.vault.deleted": "Deleted",
+  "transcript.vault.merged": "Merged",
   "transcript.vault.notCreated": "Not created by omp-ui",
   // Composer textarea placeholders
   "rpc.hero.project": "What's next in {project}?",

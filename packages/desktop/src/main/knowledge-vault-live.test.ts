@@ -22,7 +22,7 @@ import { HostBridge, type VaultBridgeDeps } from "./host-bridge";
  * the REAL `omp --mode=rpc-ui` binary (issue #769). The registration half
  * needs no model: the shipped `initialCommands` (session-manager.ts, with a
  * vault registered) ride the negotiate handshake, so the set_host_tools
- * response lands right after it and names all eight tools. The answering
+ * response lands right after it and names all eleven tools. The answering
  * half — a model that actually calls omp-ui_vault_search and reads
  * omp-ui://sessions — is gated on an API key: with none configured no
  * prompt can run, so those tests skip.
@@ -212,7 +212,7 @@ afterEach(async () => {
 });
 
 describe.skipIf(ompPath === null)("vault tools register on the real runtime", () => {
-  it("omp accepts omp-ui_notify and the seven vault tools", async () => {
+  it("omp accepts omp-ui_notify and the ten vault tools", async () => {
     scope = spawnScope();
     const toolsResponse = await waitFor(
       () => scope!.frames.find((f) => f.type === "response" && f.id === "omp-ui-host-tools-1"),

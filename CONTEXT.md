@@ -1035,6 +1035,14 @@ create is marked as such. The inspector rail's Session pane lists the Vault
 notes touched this session under "Vault notes".
 _Avoid_: page, doc, entry
 
+**Vault refactor**:
+Merging several **Vault notes** into one note with `omp-ui_vault_refactor`:
+the sources are deleted after the write, links that named them by path are
+rewritten into the merged note, and links only Obsidian can resolve are
+reported. Rename and delete of a single note are its siblings; all three act
+only on notes with a **Provenance stamp**, never on an **Index note**.
+_Avoid_: consolidation, collapse
+
 **Provenance stamp**:
 The frontmatter block omp-ui writes into every note the agent creates,
 recording omp-ui, the project, the session, and the date. It is what lets a

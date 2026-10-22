@@ -327,6 +327,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.vault.created": "생성됨",
   "transcript.vault.appended": "덧붙임",
   "transcript.vault.edited": "편집됨",
+  "transcript.vault.renamed": "이동됨",
+  "transcript.vault.deleted": "삭제됨",
+  "transcript.vault.merged": "병합됨",
   "transcript.vault.notCreated": "omp-ui가 만들지 않음",
 
   "composer.placeholder.exited": "에이전트 종료됨 — 계속하려면 재개",

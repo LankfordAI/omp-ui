@@ -1010,7 +1010,7 @@ function resultHash(frame: RpcFrame): string {
 const SOURCE = "omp-ui/Project/Source.md";
 
 describe("HostBridge knowledge vault real filesystem dispatch", () => {
-  it("dispatches all seven tools, chains returned hashes, and preserves foreign frontmatter", async () => {
+  it("dispatches all ten tools, chains returned hashes, and preserves foreign frontmatter", async () => {
     const f = vaultFixture();
     const search = await f.call("search", { query: "Useful reference" });
     expect(resultDetails(search)).toMatchObject({ action: "search", vaultName: "A", vaultId: "0123456789abcdef", matchedFiles: 1, path: null });
@@ -1033,13 +1033,32 @@ describe("HostBridge knowledge vault real filesystem dispatch", () => {
     const linked = await f.call("link", { path: SOURCE, to: "Target", baseHash: resultHash(edited) });
     expect(linked.isError).not.toBe(true);
     expect(resultDetails(linked).diff).toContain("- [[Target]]");
+    const renamed = await f.call("rename", { path: "omp-ui/Project/New Finding.md", to: "Renamed Finding", baseHash: resultHash(created) });
+    expect(renamed.isError).not.toBe(true);
+    expect(resultDetails(renamed)).toMatchObject({ action: "rename", path: "omp-ui/Project/Renamed Finding.md", movedFrom: "omp-ui/Project/New Finding.md" });
+    const deleted = await f.call("delete", { path: "omp-ui/Project/Renamed Finding.md", baseHash: resultHash(renamed) });
+    expect(deleted.isError).not.toBe(true);
+    expect(resultDetails(deleted)).toMatchObject({ action: "delete", deletedPath: "omp-ui/Project/Renamed Finding.md" });
+    expect(fs.existsSync(path.join(f.vaultRoot, "omp-ui/Project/Renamed Finding.md"))).toBe(false);
+    const partOne = await f.call("create", { title: "Part One", body: "one" });
+    const partTwo = await f.call("create", { title: "Part Two", body: "two" });
+    const merged = await f.call("refactor", {
+      into: "Whole Thing", content: "merged body\n",
+      sources: [{ path: resultDetails(partOne).path, baseHash: resultHash(partOne) }, { path: resultDetails(partTwo).path, baseHash: resultHash(partTwo) }],
+    });
+    expect(merged.isError).not.toBe(true);
+    expect(resultDetails(merged)).toMatchObject({ action: "refactor", path: "omp-ui/Project/Whole Thing.md", deletedSources: ["omp-ui/Project/Part One.md", "omp-ui/Project/Part Two.md"] });
+    expect(fs.existsSync(path.join(f.vaultRoot, "omp-ui/Project/Part One.md"))).toBe(false);
     const bytes = fs.readFileSync(path.join(f.vaultRoot, SOURCE));
     expect(bytes.toString()).toMatch(/^---\r\nowner: human\r\n---\r\n/);
     expect(resultHash(linked)).toBe(createHash("sha256").update(bytes).digest("hex"));
-    expect(f.bridge.vaultCallCounts()).toEqual({ t1: { search: 1, read: 1, list: 1, create: 1, append: 1, edit: 1, link: 1 } });
+    expect(f.bridge.vaultCallCounts()).toEqual({ t1: { search: 1, read: 1, list: 1, create: 3, append: 1, edit: 1, link: 1, rename: 1, delete: 1, refactor: 1 } });
     expect(f.logs).toEqual([
       "[vault] A create omp-ui/Project/New Finding.md", `[vault] A append ${SOURCE}`,
       `[vault] A edit ${SOURCE}`, `[vault] A link ${SOURCE}`,
+      "[vault] A rename omp-ui/Project/Renamed Finding.md", "[vault] A delete omp-ui/Project/Renamed Finding.md",
+      "[vault] A create omp-ui/Project/Part One.md", "[vault] A create omp-ui/Project/Part Two.md",
+      "[vault] A refactor omp-ui/Project/Whole Thing.md",
     ]);
   });
 
@@ -1128,6 +1147,20 @@ describe("HostBridge knowledge vault real filesystem dispatch", () => {
     ["create", { title: "x", body: "x", project: "false" }, "project"],
     ["append", { path: SOURCE, text: null }, "text"], ["edit", { path: SOURCE, content: "x", baseHash: null }, "baseHash"],
     ["edit", { path: SOURCE, content: [] }, "content"], ["link", { path: SOURCE, to: " " }, "to"],
+    ["rename", { path: " ", to: "x" }, "path"], ["rename", { path: SOURCE, to: " " }, "to"],
+    ["rename", { path: SOURCE, to: "x", baseHash: 7 }, "baseHash"],
+    ["delete", { path: " " }, "path"], ["delete", { path: SOURCE, baseHash: [] }, "baseHash"],
+    ["refactor", { content: "x", sources: [{ path: "A.md", baseHash: "h" }] }, "into"],
+    ["refactor", { into: "X", content: 3, sources: [{ path: "A.md", baseHash: "h" }] }, "content"],
+    ["refactor", { into: "X", content: "x" }, "sources"],
+    ["refactor", { into: "X", content: "x", sources: [] }, "sources"],
+    ["refactor", { into: "X", content: "x", sources: ["x"] }, "sources item"],
+    ["refactor", { into: "X", content: "x", sources: [{}] }, "sources item path"],
+    ["refactor", { into: "X", content: "x", sources: [{ path: " ", baseHash: "h" }] }, "sources item path"],
+    ["refactor", { into: "X", content: "x", sources: [{ path: "A.md", baseHash: 5 }] }, "sources item baseHash"],
+    ["refactor", { into: "X", content: "x", sources: [{ path: "A.md", baseHash: "h" }], baseHash: 5 }, "baseHash"],
+    ["refactor", { into: "X", content: "x", sources: [{ path: "A.md", baseHash: "h" }], tags: [1] }, "tags"],
+    ["refactor", { into: "X", content: "x", sources: [{ path: "A.md", baseHash: "h" }], project: 1 }, "project"],
   ] satisfies Array<[string, unknown, string]>)("checks %s arguments without mutation or logging values", async (action, args, field) => {
     const f = vaultFixture();
     const before = fs.readFileSync(path.join(f.vaultRoot, SOURCE));
@@ -1188,6 +1221,43 @@ describe("HostBridge vault authorization and safety", () => {
     const index = "omp-ui/Project/Project Index.md";
     const indexHash = createHash("sha256").update(fs.readFileSync(path.join(f.vaultRoot, index))).digest("hex");
     expect(resultText(await f.call("edit", { path: index, content: "no token", baseHash: indexHash }))).toContain(`read ${index} first`);
+  });
+
+  it("gates rename, delete, refactor sources, and a tokened into on the latest read", async () => {
+    const f = vaultFixture();
+    expect(resultText(await f.call("rename", { path: SOURCE, to: "Later" }))).toContain(`read ${SOURCE} first; omp-ui_vault_rename needs the baseHash`);
+    expect(resultText(await f.call("delete", { path: SOURCE }))).toContain(`read ${SOURCE} first; omp-ui_vault_delete needs the baseHash`);
+    const read = await f.call("read", { path: SOURCE });
+    expect(resultText(await f.call("rename", { path: SOURCE, to: "Later", baseHash: "e".repeat(64) }))).toContain(`baseHash is not from your latest read of ${SOURCE}; read it again`);
+    const first = await f.call("create", { title: "Gate One", body: "one" });
+    const second = await f.call("create", { title: "Gate Two", body: "two" });
+    fs.appendFileSync(path.join(f.vaultRoot, "omp-ui/Project/Gate Two.md"), "disk drift\n");
+    const merged = await f.call("refactor", {
+      into: "Gate Merged", content: "x\n",
+      sources: [{ path: resultDetails(first).path, baseHash: resultHash(first) }, { path: resultDetails(second).path, baseHash: resultHash(second) }],
+    });
+    expect(merged.isError).toBe(true);
+    expect(resultText(merged)).toContain("omp-ui/Project/Gate Two.md changed since you read it; read it again before merging");
+    expect(fs.existsSync(path.join(f.vaultRoot, "omp-ui/Project/Gate One.md"))).toBe(true);
+    const staleInto = await f.call("refactor", { into: resultDetails(first).path, content: "x\n", baseHash: "c".repeat(64), sources: [{ path: resultDetails(second).path, baseHash: resultHash(read) }] });
+    expect(resultText(staleInto)).toContain(`baseHash is not from your latest read of ${resultDetails(first).path}; read it again`);
+  });
+
+  it("drops tokens for paths that no longer exist after rename, delete and refactor", async () => {
+    const f = vaultFixture();
+    const created = await f.call("create", { title: "Old Name", body: "body" });
+    const renamed = await f.call("rename", { path: resultDetails(created).path, to: "New Name", baseHash: resultHash(created) });
+    expect(renamed.isError).not.toBe(true);
+    expect(resultText(await f.call("edit", { path: "omp-ui/Project/Old Name.md", content: "ghost", baseHash: resultHash(created) }))).toContain("read omp-ui/Project/Old Name.md first");
+    expect((await f.call("edit", { path: "omp-ui/Project/New Name.md", content: "fresh body\n", baseHash: resultHash(renamed) })).isError).not.toBe(true);
+    const deleted = await f.call("delete", { path: "omp-ui/Project/New Name.md", baseHash: resultHash(await f.call("read", { path: "omp-ui/Project/New Name.md" })) });
+    expect(deleted.isError).not.toBe(true);
+    expect(resultText(await f.call("rename", { path: "omp-ui/Project/New Name.md", to: "Ghost", baseHash: resultHash(renamed) }))).toContain("read omp-ui/Project/New Name.md first");
+    const part = await f.call("create", { title: "Merged Away", body: "gone soon" });
+    const merge = await f.call("refactor", { into: "Kept Whole", content: "whole\n", sources: [{ path: resultDetails(part).path, baseHash: resultHash(part) }] });
+    expect(merge.isError).not.toBe(true);
+    expect(resultText(await f.call("edit", { path: "omp-ui/Project/Merged Away.md", content: "ghost", baseHash: resultHash(part) }))).toContain("read omp-ui/Project/Merged Away.md first");
+    expect((await f.call("edit", { path: resultDetails(merge).path, content: "chained whole\n", baseHash: resultHash(merge) })).isError).not.toBe(true);
   });
 
   it.each(["../outside", "/absolute.md", "C:\\outside.md", ".hidden/Note", "Reference/../Target", "omp-ui/.hidden/Note"])("refuses unsafe explicit source %s without changing the note", async (source) => {

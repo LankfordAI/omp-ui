@@ -1,11 +1,12 @@
 import type { VaultAction } from "@omp-ui/core/vault-shared";
 import type { RenderItem } from "./transcript";
 
-/** The four vault actions that change a note; the card and the rail list only these. */
-export type VaultWriteAction = Extract<VaultAction, "create" | "append" | "edit" | "link">;
+/** The seven vault actions that change a note; the card and the rail list only these. */
+export type VaultWriteAction = Extract<VaultAction, "create" | "append" | "edit" | "link" | "rename" | "delete" | "refactor">;
 
 export function isVaultWriteAction(action: VaultAction): action is VaultWriteAction {
-  return action === "create" || action === "append" || action === "edit" || action === "link";
+  return action === "create" || action === "append" || action === "edit" || action === "link" ||
+    action === "rename" || action === "delete" || action === "refactor";
 }
 
 /** A vault-relative note path's display title: its basename without ".md". */
@@ -30,7 +31,9 @@ export interface TouchedVaultNote {
  * ("done") tool items whose details parsed and name a write action count. Keyed
  * by vault + path; the latest action wins while the row keeps its first-touch
  * position (Map.set on an existing key keeps insertion order). A create that
- * updated an Index note also touches that note as an omp-ui edit.
+ * updated an Index note also touches that note as an omp-ui edit. A rename's
+ * old path and a refactor's deleted sources leave the list; a delete keeps its
+ * row so the rail still shows what was removed (#912-#914).
  */
 export function touchedVaultNotes(items: RenderItem[]): TouchedVaultNote[] {
   const byKey = new Map<string, TouchedVaultNote>();
@@ -58,6 +61,10 @@ export function touchedVaultNotes(items: RenderItem[]): TouchedVaultNote[] {
         createdByOmpUi: true,
       });
     }
+    // The path a rename moved away from and the sources a refactor consumed
+    // no longer exist; their rows leave the rail. A delete's own path stays.
+    if (vault.movedFrom !== undefined) byKey.delete(`${vault.vaultName}\u0000${vault.movedFrom}`);
+    for (const deleted of vault.deletedSources ?? []) byKey.delete(`${vault.vaultName}\u0000${deleted}`);
   }
   return [...byKey.values()];
 }

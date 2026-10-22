@@ -28,10 +28,13 @@ import {
   validateVaultRoot,
   vaultAppend,
   vaultCreate,
+  vaultDelete,
   vaultEdit,
   vaultLink,
   vaultList,
   vaultRead,
+  vaultRefactor,
+  vaultRename,
   vaultSearch,
   VAULT_WRITE_TOOLS,
   type FleetAgentUpdateAnswer,
@@ -602,21 +605,52 @@ export class HostBridge {
         // this point consume one slot; concurrent calls cannot overbook it.
         this.vaultWrites.set(tabId, writes + 1);
       }
-      if (args.action === "edit" || args.action === "link") {
+      // `entry` is a mutable local; TS cannot carry its narrowing into a
+      // closure, so the token key prefix is captured once here.
+      const vaultKey = `${entry.name}\0`;
+      // Latest-read authorization, shared by every gated write (#757, #912-#914).
+      const gate = (rawPath: string, baseHash: string | undefined): string | null => {
+        const source = normalizeTokenPath(rawPath);
+        if (!source.ok) return source.reason;
+        const latest = tokens.get(`${vaultKey}${source.rel}`);
+        if (baseHash === undefined || latest === undefined) {
+          return `read ${source.rel} first; omp-ui_vault_${args.action} needs the baseHash from your latest omp-ui_vault_read of that path`;
+        }
+        if (baseHash !== latest) return `baseHash is not from your latest read of ${source.rel}; read it again`;
+        return null;
+      };
+      if (args.action === "edit" || args.action === "link" || args.action === "rename" || args.action === "delete") {
         const source = normalizeTokenPath(args.path);
         if (!source.ok) {
           refusal(source.reason);
           return;
         }
         rel = source.rel;
-        const latest = tokens.get(`${entry.name}\0${rel}`);
-        if (args.baseHash === undefined || latest === undefined) {
-          refusal(`read ${rel} first; omp-ui_vault_edit needs the baseHash from your latest omp-ui_vault_read of that path`);
+        const gateReason = gate(args.path, args.baseHash);
+        if (gateReason !== null) {
+          refusal(gateReason);
           return;
         }
-        if (args.baseHash !== latest) {
-          refusal(`baseHash is not from your latest read of ${rel}; read it again`);
-          return;
+      } else if (args.action === "refactor") {
+        const target = normalizeTokenPath(args.into);
+        if (target.ok) rel = target.rel;
+        // into gates when this session holds a token for it — the only
+        // on-disk-free signal that it names an existing note — or when the
+        // caller supplied a baseHash at all. A brand-new title has no token
+        // and is created instead; core re-checks the disk either way.
+        if (target.ok && (args.baseHash !== undefined || tokens.has(`${entry.name}\0${target.rel}`))) {
+          const gateReason = gate(args.into, args.baseHash);
+          if (gateReason !== null) {
+            refusal(gateReason);
+            return;
+          }
+        }
+        for (const source of args.sources) {
+          const gateReason = gate(source.path, source.baseHash);
+          if (gateReason !== null) {
+            refusal(gateReason);
+            return;
+          }
         }
       } else if ("path" in args) {
         const source = normalizeTokenPath(args.path);
@@ -630,7 +664,7 @@ export class HostBridge {
       const list = await deps.obsidianList();
       if (!retained()) return;
       obsidianId = obsidianIdFor(root.real, list);
-      const withoutProject = args.action === "create" && args.project === false;
+      const withoutProject = (args.action === "create" || args.action === "refactor") && args.project === false;
       const ctx: VaultCallContext = {
         entry, obsidianId, project: withoutProject ? null : tabContext.project,
         projectName: withoutProject ? null : tabContext.projectName, lineage: tabContext.lineage,
@@ -640,6 +674,13 @@ export class HostBridge {
       if (!retained()) return;
       const outcome = await dispatchVault(ctx, args);
       if (!retained()) return;
+      if (outcome.ok) {
+        // A renamed note's old-path token must not authorize a path that no
+        // longer exists; deleted paths lose their tokens the same way.
+        if (outcome.details.movedFrom !== undefined) tokens.delete(`${entry.name}\0${outcome.details.movedFrom}`);
+        if (outcome.details.deletedPath !== undefined) tokens.delete(`${entry.name}\0${outcome.details.deletedPath}`);
+        for (const deleted of outcome.details.deletedSources ?? []) tokens.delete(`${entry.name}\0${deleted}`);
+      }
       if (outcome.ok && outcome.details.baseHash !== undefined && outcome.details.path !== null &&
           (action === "read" || isWrite)) {
         tokens.set(`${entry.name}\0${outcome.details.path}`, outcome.details.baseHash);
@@ -838,6 +879,9 @@ type VaultArguments = { vault?: string } & (
   | { action: "append"; path: string; text: string }
   | { action: "edit"; path: string; content: string; baseHash?: string }
   | { action: "link"; path: string; to: string; baseHash?: string }
+  | { action: "rename"; path: string; to: string; baseHash?: string }
+  | { action: "delete"; path: string; baseHash?: string }
+  | { action: "refactor"; into: string; content: string; baseHash?: string; sources: Array<{ path: string; baseHash: string }>; tags?: string[]; project?: boolean }
 );
 
 function vaultAction(name: string): VaultAction | null {
@@ -849,6 +893,9 @@ function vaultAction(name: string): VaultAction | null {
     case "omp-ui_vault_append": return "append";
     case "omp-ui_vault_edit": return "edit";
     case "omp-ui_vault_link": return "link";
+    case "omp-ui_vault_rename": return "rename";
+    case "omp-ui_vault_delete": return "delete";
+    case "omp-ui_vault_refactor": return "refactor";
     default: return null;
   }
 }
@@ -901,6 +948,36 @@ function parseVaultArguments(tool: string, action: VaultAction, raw: unknown):
       ...(typeof project === "boolean" ? { project } : {}),
     } };
   }
+  if (action === "refactor") {
+    const into = raw.into;
+    const content = raw.content;
+    const sources = raw.sources;
+    const baseHash = raw.baseHash;
+    let tags: string[] | undefined;
+    const project = raw.project;
+    if (typeof into !== "string" || into.trim() === "") return fail("into", "non-empty string");
+    if (typeof content !== "string") return fail("content", "string");
+    if ("baseHash" in raw && typeof baseHash !== "string") return fail("baseHash", "string");
+    if (!Array.isArray(sources) || sources.length < 1 || sources.length > 20) return fail("sources", "array of 1 to 20 items");
+    const entries: Array<{ path: string; baseHash: string }> = [];
+    for (const item of sources) {
+      if (!isArgumentRecord(item)) return fail("sources item", "object");
+      if (typeof item.path !== "string" || item.path.trim() === "") return fail("sources item path", "non-empty string");
+      if (typeof item.baseHash !== "string") return fail("sources item baseHash", "string");
+      entries.push({ path: item.path, baseHash: item.baseHash });
+    }
+    if ("tags" in raw) {
+      if (!isStringArray(raw.tags)) return fail("tags", "string array");
+      tags = raw.tags;
+    }
+    if ("project" in raw && typeof project !== "boolean") return fail("project", "boolean");
+    return { ok: true, args: { action, ...chosen, into, content,
+      ...(typeof baseHash === "string" ? { baseHash } : {}),
+      sources: entries,
+      ...(tags === undefined ? {} : { tags }),
+      ...(typeof project === "boolean" ? { project } : {}),
+    } };
+  }
   const sourcePath = raw.path;
   if (typeof sourcePath !== "string" || sourcePath.trim() === "") return fail("path", "non-empty string");
   if (action === "read") return { ok: true, args: { action, ...chosen, path: sourcePath } };
@@ -917,6 +994,7 @@ function parseVaultArguments(tool: string, action: VaultAction, raw: unknown):
     if (typeof content !== "string") return fail("content", "string");
     return { ok: true, args: { action, ...chosen, ...hash, path: sourcePath, content } };
   }
+  if (action === "delete") return { ok: true, args: { action, ...chosen, ...hash, path: sourcePath } };
   const to = raw.to;
   if (typeof to !== "string" || to.trim() === "") return fail("to", "non-empty string");
   return { ok: true, args: { action, ...chosen, ...hash, path: sourcePath, to } };
@@ -940,9 +1018,16 @@ function dispatchVault(ctx: VaultCallContext, args: VaultArguments): Promise<Vau
     case "list": return vaultList(ctx, args.folder);
     case "create": return vaultCreate(ctx, { title: args.title, body: args.body, ...(args.tags === undefined ? {} : { tags: args.tags }) });
     case "append": return vaultAppend(ctx, args.path, args.text);
-    // The caller has already checked presence and latest-read authorization.
+    // The caller has already checked presence and latest-read authorization;
+    // core re-checks the on-disk hash before every mutation.
     case "edit": return vaultEdit(ctx, args.path, args.content, args.baseHash!);
     case "link": return vaultLink(ctx, args.path, args.to, args.baseHash!);
+    case "rename": return vaultRename(ctx, args.path, args.to, args.baseHash!);
+    case "delete": return vaultDelete(ctx, args.path, args.baseHash!);
+    case "refactor": return vaultRefactor(ctx, { into: args.into, content: args.content, sources: args.sources,
+      ...(args.baseHash === undefined ? {} : { baseHash: args.baseHash }),
+      ...(args.tags === undefined ? {} : { tags: args.tags }),
+    });
   }
 }
 

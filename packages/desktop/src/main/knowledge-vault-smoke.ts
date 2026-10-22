@@ -77,6 +77,7 @@ const summary = {
   cardArgsOk: false,
   stamped: false,
   indexLinesAdded: null as number | null,
+  maintenance: { renamed: false, linksFollowed: false, deleted: false, indexStripped: false, merged: false, unstampedRefused: false, indexDeleteRefused: false, staleSourceRefused: false },
   collision: { created: false, resultNamesCollision: false, noSuffix: false },
   volume: [] as VolumeRow[],
   day: { registryLoaded: false, rowCount: null as number | null, collapsed: false, gzTailFound: false, activeRootClean: false, userTextFound: null as boolean | null },
@@ -302,6 +303,40 @@ async function run(base: string): Promise<void> {
     tool("link", link, null);
     summary.indexLinesAdded = lineCount(indexFile) - indexBefore;
     gate("S1.indexLinesAdded", summary.indexLinesAdded === 1);
+    // Maintenance tools (#912-#914): move a note a path link follows, delete
+    // one whose Index line is stripped, merge two into one, and the refusal
+    // matrix for notes omp-ui may not touch.
+    const moverRel = "omp-ui/Smoke/Smoke Mover.md";
+    await write("create", { title: "Smoke Mover", body: "move me" });
+    await write("create", { title: "Smoke Linker", body: "see [[omp-ui/Smoke/Smoke Mover|Mover]]" });
+    const moverRead = await call("read", { path: moverRel });
+    const moved = await write("rename", { path: moverRel, to: "omp-ui/Smoke/Smoke Moved", baseHash: resultHash(moverRead.frame) });
+    summary.maintenance.renamed = answered(moved) && resultDetails(moved)?.path === "omp-ui/Smoke/Smoke Moved.md" && resultDetails(moved)?.movedFrom === moverRel;
+    summary.maintenance.linksFollowed = fs.readFileSync(path.join(vault, "omp-ui/Smoke/Smoke Linker.md"), "utf8").includes("[[omp-ui/Smoke/Smoke Moved|Mover]]");
+    const indexBeforeDelete = lineCount(indexFile);
+    const relRead = await call("read", { path: rel });
+    const gone = await write("delete", { path: rel, baseHash: resultHash(relRead.frame) });
+    summary.maintenance.deleted = answered(gone) && !fs.existsSync(path.join(vault, rel));
+    summary.maintenance.indexStripped = lineCount(indexFile) === indexBeforeDelete - 1;
+    const sourceOne = await write("create", { title: "Smoke Merge One", body: "one" });
+    const sourceTwo = await write("create", { title: "Smoke Merge Two", body: "two" });
+    const mergedInto = await write("refactor", {
+      into: "Smoke Whole Thing", content: "merged\n",
+      sources: [
+        { path: resultDetails(sourceOne)!.path, baseHash: resultHash(sourceOne) },
+        { path: resultDetails(sourceTwo)!.path, baseHash: resultHash(sourceTwo) },
+      ],
+    });
+    summary.maintenance.merged = answered(mergedInto) && resultDetails(mergedInto)?.deletedSources?.length === 2 &&
+      !fs.existsSync(path.join(vault, "omp-ui/Smoke/Smoke Merge One.md")) && fs.existsSync(path.join(vault, "omp-ui/Smoke/Smoke Whole Thing.md"));
+    fs.writeFileSync(path.join(vault, "omp-ui", "Hand.md"), "handwritten\n");
+    const handRead = await call("read", { path: "omp-ui/Hand.md" });
+    summary.maintenance.unstampedRefused = (await call("rename", { path: "omp-ui/Hand.md", to: "omp-ui/Handed", baseHash: resultHash(handRead.frame) })).frame.isError === true;
+    const indexRead = await call("read", { path: "omp-ui/Smoke/Smoke Index.md" });
+    summary.maintenance.indexDeleteRefused = (await call("delete", { path: "omp-ui/Smoke/Smoke Index.md", baseHash: resultHash(indexRead.frame) })).frame.isError === true;
+    const linkerRead = await call("read", { path: "omp-ui/Smoke/Smoke Linker.md" });
+    summary.maintenance.staleSourceRefused = (await call("refactor", { into: "Smoke Never", content: "x", sources: [{ path: "omp-ui/Smoke/Smoke Linker.md", baseHash: `${resultHash(linkerRead.frame).slice(0, -1)}0` }] })).frame.isError === true;
+    for (const [id, ok] of Object.entries(summary.maintenance)) gate(`S1.${id}`, ok);
   });
 
   await step("S2", async () => {

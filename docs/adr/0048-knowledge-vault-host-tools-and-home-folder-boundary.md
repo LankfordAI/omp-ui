@@ -14,7 +14,7 @@ Resolves issue #748 through map #749 (#750-#762). Verified against omp 18.6.1. C
 
 ## Decision
 
-1. **Seven essential host tools on HostBridge.** `omp-ui_vault_search`, `_read`, `_list`, `_create`, `_append`, `_edit`, `_link`, registered through `hostToolsDefinition` only when the Vault registry has at least one vault at spawn. Filesystem-backed; the Obsidian CLI is never required. No delete or rename tool exists (#757).
+1. **Essential host tools on HostBridge.** `omp-ui_vault_search`, `_read`, `_list`, `_create`, `_append`, `_edit`, `_link`, registered through `hostToolsDefinition` only when the Vault registry has at least one vault at spawn. Filesystem-backed; the Obsidian CLI is never required. Delete and rename were absent at acceptance (#757); see the maintenance tools amendment.
 2. **The Home folder is the write boundary.** Reads reach the whole vault minus dot-directories. Writes land inside the vault's Home folder, unless that registry row turns on "Allow writes outside the home folder", which opens append, edit and link (never create) to the whole vault. Main re-validates the root on every call, refuses the home directory, `/`, and omp-ui or omp data roots, and confines every path lexically and by realpath (#758).
 3. **Notes are stamped and indexed by the tool.** `omp-ui/<Owner>/<Repo>/<Title>.md` (plain `omp-ui/<project>/<Title>.md` without a web remote, #794), five-key Provenance stamp written only by `_create`, Index note line appended in the same call, Title Case, collisions reported and never suffixed, a leading title heading stripped (#757). A Day write-up is `omp-ui/<YYYY-MM-DD> Day Write-up.md`, stamped without `project`, indexed nowhere (#760).
 4. **Edits need a read token.** `_edit` and `_link` require the `baseHash` HostBridge recorded for that exact path at the session's latest read or write, and the file must still hash to it. An unstamped note edited inside the write area is never stamped and its card carries the copper "Not created by omp-ui" marker with a diff (#757).
@@ -49,6 +49,14 @@ This reverses #787's rule that omp-ui never renames an existing vault folder, fo
 The first project to claim a shared plain-slug folder takes all its stamped notes. Two repos named `app` that both filed into `omp-ui/app/` cannot be told apart by their notes, so whichever writes first adopts everything stamped there and the other starts empty in its own `Owner/Repo` folder. We accepted that over leaving every plain-slug note behind.
 
 Some remotes are not normalized. A Bitbucket Server repo reached over ssh and over https `/scm/` paths, or an Azure DevOps remote with its `_git` segment, can produce different keys for one repository. A renamed repository gets a new folder; its old notes stay in the old one.
+
+## Maintenance tools amendment (#912-#914)
+
+Three more essential tools join the seven, reversing Decision 1's "No delete or rename tool exists": `omp-ui_vault_rename` moves or retitles a note, `omp-ui_vault_delete` removes one, and `omp-ui_vault_refactor` merges several notes into one. The same rules bind them: the write boundary (or the declared scope), the latest-read `baseHash` token plus the on-disk hash re-check, the ownership rule — they act only on notes stamped `omp-ui: true`, and refuse Index notes outright — and the secret scan stays moot because bodies travel only through `_refactor`'s `content`, which the create-time scan already gates.
+
+`_rename` takes a `to` that is either a new vault-relative path (a move, folders created) or a bare title (a retitle in place); it never clobbers. `_delete` strips the deleted note's `- [[…]]` bullet lines from stamped notes in the writable scope; every other inbound link is reported with its path, never edited — Obsidian remains the reader that fixes links only it can resolve. `_refactor` reads 1-20 sources (each with its own token), writes the consolidated body to `into` (an existing note keeps its frontmatter and stamp; a new title files exactly like `_create` minus adoption, since merging is not filing), then deletes the sources; links to a deleted source follow it into `into` when they used the full path.
+
+Link rewriting reuses the project-identity amendment's full-path wikilink pass: rename and refactor rewrite before the move so a crash mid-operation leaves notes pointing at the old path, never at nothing. A rename or delete of a note whose links cannot all be rewritten still succeeds; the result names what remains. The token bookkeeping follows the disk: after a successful rename, delete, or refactor, HostBridge drops the tokens for paths that no longer exist, and the rail's "Vault notes" drops rows for them (a delete keeps its own row so the removal stays visible).
 
 ## Considered options
 

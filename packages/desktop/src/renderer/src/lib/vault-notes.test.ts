@@ -60,6 +60,22 @@ describe("touchedVaultNotes", () => {
     expect(rows[1]).toMatchObject({ path: indexNotePath, action: "append", itemId: "a1" });
   });
 
+  it("drops the row a rename moved and the rows a refactor merged away, but keeps a delete's row", () => {
+    const items: RenderItem[] = [
+      write("c1", details({ action: "create", path: "omp-ui/Old.md" })),
+      write("r1", details({ action: "rename", path: "omp-ui/New.md", movedFrom: "omp-ui/Old.md" })),
+      write("c2", details({ action: "create", path: "omp-ui/Part A.md" })),
+      write("c3", details({ action: "create", path: "omp-ui/Part B.md" })),
+      write("f1", details({ action: "refactor", path: "omp-ui/Whole.md", deletedSources: ["omp-ui/Part A.md", "omp-ui/Part B.md"] })),
+      write("d1", details({ action: "delete", path: "omp-ui/Gone.md", deletedPath: "omp-ui/Gone.md" })),
+    ];
+    expect(touchedVaultNotes(items).map((r) => [r.path, r.action])).toEqual([
+      ["omp-ui/New.md", "rename"],
+      ["omp-ui/Whole.md", "refactor"],
+      ["omp-ui/Gone.md", "delete"],
+    ]);
+  });
+
   it("skips unsettled, failed, read-only, non-vault, pathless and non-tool items", () => {
     const items: RenderItem[] = [
       write("r1", details({ action: "create" }), "running"),
