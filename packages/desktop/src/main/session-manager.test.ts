@@ -5609,7 +5609,12 @@ describe("hibernation (issue #246)", () => {
   });
 
   it("leaves no dangling probe timer when the probe answer arrives early", async () => {
-    vi.useFakeTimers();
+    // Pinned fake set (#910): the assertion counts EVERY pending fake timer, so
+    // only setTimeout/clearTimeout/Date are taken over — no collaborator's
+    // immediate or interval can pollute the census or fire inside the advance.
+    // (Default toFake is everything; this count is the desktop suite's only
+    // absolute vi.getTimerCount assertion.)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     try {
       const { manager, registry } = setup({ mode: "rpc-ui" });
       addNewerSibling(registry);
@@ -5627,6 +5632,11 @@ describe("hibernation (issue #246)", () => {
         success: true,
         data: { queuedMessageCount: 1, isStreaming: false, hasPendingAsyncWork: false },
       });
+      // Full drain (#910): tickAsync(0) empties the microtask queue (the
+      // probe-settle → verdict → re-arm chain) instead of guessing a hop count;
+      // vi.waitFor was rejected — it advances timers and would fire a leaked
+      // fallback, hiding the leak this asserts against.
+      await vi.advanceTimersByTimeAsync(0);
       await flush();
       expect(vi.getTimerCount()).toBe(1);
       expect(rpc.kill).not.toHaveBeenCalled();
