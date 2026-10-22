@@ -202,7 +202,9 @@ describe("parseVaultDetails", () => {
     expect(parseVaultDetails("x")).toBeNull();
     expect(parseVaultDetails({ action: "read" })).toBeNull();
     expect(parseVaultDetails({ vaultName: 1, action: "read" })).toBeNull();
-    expect(parseVaultDetails({ vaultName: "V", action: "delete" })).toBeNull();
+    // (#918): "delete" became a real VaultAction with the maintenance tools
+    // (8392c483); the unknown-action case must use a string outside the set.
+    expect(parseVaultDetails({ vaultName: "V", action: "frobnicate" })).toBeNull();
     expect(parseVaultDetails({ vaultName: "V" })).toBeNull();
   });
 
