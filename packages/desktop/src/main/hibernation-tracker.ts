@@ -221,10 +221,11 @@ export class HibernationTracker implements FrameObserver {
   /**
    * True while `tabId` is its project's most recently active owned session.
    * The last active session in each project never idle-hibernates (issue #304):
-   * recency mirrors the sidebar order — `cachedModified ?? launchedAt`, ties
-   * to the earlier registry record. Dormant and terminal sessions count; a
-   * dormant newest session already satisfies the guarantee. Every Chat counts
-   * as one group: at most the freshest chat stays warm (issue #894).
+   * the key is `cachedModified ?? launchedAt`, ties to the earlier registry
+   * record (open order governs the sidebar; this exemption tracks activity).
+   * Dormant and terminal sessions count; a dormant newest session already
+   * satisfies the guarantee. Every Chat counts as one group: at most the
+   * freshest chat stays warm (issue #894).
    */
   private isLastActiveInProject(tabId: string): boolean {
     const sessions = this.deps.registry.sessions;

@@ -89,33 +89,29 @@ describe("buildSidebarLists", () => {
     expect(ids(lists.settled)).toEqual(["dormant", "archived", "missing"]);
   });
 
-  it("orders project sessions, chats, and remote sessions together by recency", () => {
+  it("orders project sessions, chats, and remote sessions together by open order", () => {
     const state = backendState({
       projects: [
         group("/a", "alpha", [
-          session("local-old", { cachedModified: "2026-08-19T10:00:00.000Z" }),
-          // No cachedModified: falls back to launchedAt.
-          session("local-launched", {
-            cachedModified: null,
-            launchedAt: "2026-08-19T13:00:00.000Z",
+          session("local-old", { launchedAt: "2026-08-19T10:00:00.000Z" }),
+          // Activity does not reorder: newest cachedModified, oldest open.
+          session("local-stale-but-active", {
+            launchedAt: "2026-08-19T09:00:00.000Z",
+            cachedModified: "2026-08-19T23:00:00.000Z",
           }),
-          session("garbled", { cachedModified: "not a date" }),
+          session("garbled", { launchedAt: "not a date" }),
         ]),
       ],
       chats: [
-        session("chat", {
-          projectCwd: "/chats",
-          chat: true,
-          cachedModified: "2026-08-19T14:00:00.000Z",
-        }),
-        session("tie-local", { chat: true, cachedModified: "2026-08-19T11:00:00.000Z" }),
+        session("chat", { projectCwd: "/chats", chat: true, launchedAt: "2026-08-19T14:00:00.000Z" }),
+        session("tie-local", { chat: true, launchedAt: "2026-08-19T11:00:00.000Z" }),
       ],
       remoteInstances: [
         remoteInstance({
           projects: [
             group("/r", "remote", [
-              session("remote", { cachedModified: "2026-08-19T12:30:00.000Z" }),
-              session("tie-remote", { cachedModified: "2026-08-19T11:00:00.000Z" }),
+              session("remote", { launchedAt: "2026-08-19T12:30:00.000Z" }),
+              session("tie-remote", { launchedAt: "2026-08-19T11:00:00.000Z" }),
             ]),
           ],
         }),
@@ -126,12 +122,12 @@ describe("buildSidebarLists", () => {
 
     expect(ids(active)).toEqual([
       "chat",
-      "local-launched",
       "remote",
-      // Equal stamps keep build order: local chats before remote sessions.
+      // Equal opens keep build order: local chats before remote sessions.
       "tie-local",
       "tie-remote",
       "local-old",
+      "local-stale-but-active",
       "garbled",
     ]);
   });

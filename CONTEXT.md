@@ -43,9 +43,9 @@ no process — and wakes through explicit human resume; the sidebar lists it und
 is causal: dormant lost its process because the app quit, hibernated lost it on
 purpose while idle or after a plan handoff. A failed handoff reap remains live,
 with source automation suppressed and a warning in the implementation tab.
-The last-active exemption uses the sidebar recency key
-(`cachedModified ?? launchedAt`, ties to the earlier registry record) across
-all of a project's owned sessions. All idle-safety exemptions apply only to
+The last-active exemption uses its own activity key (`cachedModified ??
+launchedAt`, ties to the earlier registry record) across all of a project's
+owned sessions. All idle-safety exemptions apply only to
 idle hibernation, never to an accepted plan handoff.
 _Avoid_: suspended session, parked session, sleeping session
 
@@ -70,15 +70,15 @@ _Avoid_: repo, folder, workspace
 A session whose file lives in an omp-ui lineage dir (ADR-0003) — launched by
 omp-ui or produced in-process by such a session (`/new`, `/branch`). The only
 sessions the sidebar tracks. Sessions from terminal `omp` use are invisible
-to omp-ui, even under registered projects. Its sidebar position is its
-recency (`cachedModified ?? launchedAt`, newest first): live sessions in the
-list, every other owned session under **Settled**. There is no manual order.
+to omp-ui, even under registered projects. Its sidebar position is its open
+order (`launchedAt`, newest open first): live sessions in the list, every
+other owned session under **Settled**. There is no manual order.
 _Avoid_: tracked session, managed session
 
 **Settled**:
 The sidebar's collapsible bottom section holding every **Owned session** with
-no process — dormant, hibernated, archived, and missing alike — newest
-activity first. Collapsed by default; the open/closed choice persists locally,
+no process — dormant, hibernated, archived, and missing alike — newest open
+first. Collapsed by default; the open/closed choice persists locally,
 and a non-empty sidebar search shows it expanded without changing that choice.
 _Avoid_: archive, history, inactive list
 
