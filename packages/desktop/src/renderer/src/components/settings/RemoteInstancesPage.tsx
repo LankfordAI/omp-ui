@@ -142,6 +142,7 @@ function InstanceEditor({ instance }: { instance: RemoteInstanceSummary }) {
 function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
   const t = useT();
   const reconnectRemoteInstance = useStore((s) => s.reconnectRemoteInstance);
+  const refreshRemoteInstanceState = useStore((s) => s.refreshRemoteInstanceState);
   const confirmRemoveRemoteInstance = useStore((s) => s.confirmRemoveRemoteInstance);
   const [editing, setEditing] = useState(false);
   const [requesting, setRequesting] = useState(false);
@@ -188,9 +189,16 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
             {t("remoteinstances.action.reconnect")}
           </Button>
           {instance.status === "joined" && (
-            <Button size="xs" variant="ghost" onClick={() => setRequesting((v) => !v)}>
-              {t("settings.remoteinstances.grant.request")}
-            </Button>
+            <>
+              {/* Re-reads the member's session list (#658); this panel is its
+                  only home since the sidebar's instance group header went. */}
+              <Button size="xs" variant="ghost" onClick={() => void refreshRemoteInstanceState(instance.id)}>
+                {t("remoteinstances.action.refreshState")}
+              </Button>
+              <Button size="xs" variant="ghost" onClick={() => setRequesting((v) => !v)}>
+                {t("settings.remoteinstances.grant.request")}
+              </Button>
+            </>
           )}
           <Button size="xs" variant="ghost" onClick={() => setEditing((v) => !v)}>
             {editing ? t("remoteinstances.action.cancel") : t("remoteinstances.action.edit")}

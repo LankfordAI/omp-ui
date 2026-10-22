@@ -29,7 +29,6 @@ import { RpcTab } from "./components/RpcTab";
 import { SessionHud } from "./components/SessionHud";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
-import { SidebarGroupDialog } from "./components/SidebarGroupDialog";
 import { TerminalTab } from "./components/TerminalTab";
 import { Button, Chevron, IconButton, IconPlus } from "./components/ui";
 import { cn } from "./lib/cn";
@@ -64,27 +63,7 @@ const HINTS: [combo: string, what: MessageKey][] = [
 const OVERLAY_INSET = IS_MAC ? 0 : IS_WINDOWS ? 138 : 132;
 const TRAFFIC_LIGHT_INSET = IS_MAC ? 78 : 0;
 
-
-/** Folder-plus — add project, distinct from the adjacent new-session glyph. */
-function IconFolderPlus() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.6h5A1.5 1.5 0 0 1 14 6.1v5.4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
-      <path d="M8 7.5v3.4M6.3 9.2h3.4" />
-    </svg>
-  );
-}
-
-/** Hamburger — the compact shell's projects-and-sessions trigger. */
+/** Hamburger — the compact shell's sessions-sheet trigger. */
 function IconMenu() {
   return (
     <svg
@@ -149,15 +128,8 @@ function TitleBar() {
   const title = useStore((s) => (s.activeTabId ? (tabTitle(s.state, s.activeTabId) ?? null) : null));
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const toggleSidebarCollapsed = useStore((s) => s.toggleSidebarCollapsed);
-  const openProjectPicker = useStore((s) => s.openProjectPicker);
   const openProjectQuickOpen = useStore((s) => s.openProjectQuickOpen);
-  const newChat = useStore((s) => s.newChat);
   const activeTab = tabs.find((t) => t.tabId === activeTabId);
-  const activeChat = useStore((s) => activeTab !== undefined && isChatTab(s.state, activeTab.tabId));
-  // Issue #916: with zero visible tabs the sidebar is not mounted (see App's
-  // mount gate), so its toggle would toggle an absent surface — a dead
-  // affordance of the kind #789 rejects. Hide it with the surface.
-  const hasVisibleTabs = tabs.some((tab) => !tab.hidden);
 
   return (
     <header
@@ -172,27 +144,16 @@ function TitleBar() {
           omp<span className="text-ink-faint">-ui</span>
         </span>
         <IconButton
-          label={t("app.titlebar.newSession")}
-          onClick={() => {
-            // The overlay always takes the non-chat case, even with zero tabs:
-            // picking a project beats a disabled button (issue #915). The chat
-            // fast path stays — a chat tab has no project to pick, its + means
-            // "another chat".
-            if (activeChat) void newChat();
-            else openProjectQuickOpen();
-          }}
+          label={sidebarCollapsed ? t("app.titlebar.expandSidebar") : t("app.titlebar.collapseSidebar")}
+          onClick={toggleSidebarCollapsed}
         >
-          <IconPlus />
+          <Chevron open={false} className={cn("size-3.5", !sidebarCollapsed && "rotate-180")} />
         </IconButton>
-        <IconButton label={t("app.titlebar.addProject")} onClick={() => openProjectPicker()}>
-          <IconFolderPlus />
-        </IconButton>
-        {hasVisibleTabs && (
-          <IconButton
-            label={sidebarCollapsed ? t("app.titlebar.expandSidebar") : t("app.titlebar.collapseSidebar")}
-            onClick={toggleSidebarCollapsed}
-          >
-            <Chevron open={false} className={cn("size-3.5", !sidebarCollapsed && "rotate-180")} />
+        {/* The sidebar header owns New session; collapsed, the aside is gone,
+            so the title bar carries it — exactly one is visible at a time. */}
+        {sidebarCollapsed && (
+          <IconButton label={t("app.titlebar.newSession")} onClick={() => openProjectQuickOpen()}>
+            <IconPlus />
           </IconButton>
         )}
       </div>
@@ -287,7 +248,6 @@ export default function App() {
   const activeTabId = useStore((s) => s.activeTabId);
   const deleteConfirmation = useStore((s) => s.deleteConfirmation);
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
-  const sidebarGroupDialog = useStore((s) => s.sidebarGroupDialog);
   const diagnosticsDialogOpen = useStore((s) => s.diagnosticsDialogOpen);
   const gettingStartedOpen = useStore((s) => s.gettingStartedOpen);
   const browserPaneClearDialogOpen = useStore((s) => s.browserPaneClearDialogOpen);
@@ -302,7 +262,6 @@ export default function App() {
   const newSessionDialog = useStore((s) => s.newSessionDialog);
   const projectQuickOpen = useStore((s) => s.projectQuickOpen);
   const migrateDialog = useStore((s) => s.migrateDialog);
-  const newChat = useStore((s) => s.newChat);
   const openProjectQuickOpen = useStore((s) => s.openProjectQuickOpen);
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
   const lab = useStore((s) => s.lab);
@@ -367,18 +326,15 @@ export default function App() {
     if (s.experimentDialog !== null) s.closeExperimentDialog();
   }, [experimentsEnabled]);
 
-  // mod+shift+n, the keyboard twin of the title-bar +: a chat tab spawns
-  // another chat inline; every other case — a project tab, or no tab at all —
-  // opens the project quick-open (issue #915). This deliberately retired the
-  // issue #789 error path (a noCurrentSession notice when nothing was
-  // focused): with no focused project the key now asks for one instead of
-  // refusing.
+  // mod+shift+n, the keyboard twin of the sidebar's New session button:
+  // always the project quick-open, chat tab included (issue #919). The
+  // quick-open orders No project first when a chat (or nothing) is focused
+  // and the focused project first otherwise, so a bare Enter still repeats
+  // "another one of these".
   useHotkeys({
     "mod+shift+n": (e) => {
       e.preventDefault();
-      const tab = tabs.find((t) => t.tabId === activeTabId);
-      if (tab !== undefined && isChatTab(useStore.getState().state, tab.tabId)) void newChat();
-      else openProjectQuickOpen();
+      openProjectQuickOpen();
     },
     // The keyboard twin of the composer's Build / Plan selector: the same
     // in-process switch (ADR-0007), never a respawn. rpc-ui tabs only — a pty tab's TUI
@@ -491,7 +447,7 @@ export default function App() {
         ? t("fleet.header.title")
         : lab !== null
           ? t("lab.header.title")
-          : activeTitle ?? t("app.compact.projectsAndSessions");
+          : activeTitle ?? t("app.compact.sessions");
 
   return (
     <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden backdrop-wash font-sans text-ink">
@@ -512,7 +468,7 @@ export default function App() {
         >
           <Button variant="ghost" className="h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>
             <IconMenu />
-            <span className="sr-only">{t("app.compact.projectsAndSessions")}</span>
+            <span className="sr-only">{t("app.compact.sessions")}</span>
           </Button>
           <span className="min-w-0 flex-1 text-center">
             <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center font-display text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{compactTitle}</button>
@@ -535,10 +491,7 @@ export default function App() {
         </nav>
       )}
       <div className="flex min-h-0 flex-1 border-t border-line">
-        {/* Issue #916: zero visible sessions means an empty shell — the
-            quick-open picker is the way back in. Compact keeps the drawer
-            (already opt-in) because it also hosts settings on touch. */}
-        {(compact || visibleTabs.length > 0) && <Sidebar />}
+        <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
             {/*
@@ -582,7 +535,6 @@ export default function App() {
         <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />
       )}
       {projectPickerOpen && <ProjectPicker />}
-      {sidebarGroupDialog !== null && <SidebarGroupDialog />}
       {diagnosticsDialogOpen && <DiagnosticsExportDialog />}
       {browserPaneClearDialogOpen && <BrowserPaneClearDialog />}
       {shareConfirmTab !== null && <ShareSessionDialog tabId={shareConfirmTab} />}

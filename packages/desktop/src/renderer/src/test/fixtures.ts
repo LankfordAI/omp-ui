@@ -6,7 +6,6 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
   return {
     projects: [],
     chats: [],
-    sidebarGroups: [],
     defaultMode: "rpc-ui",
     defaultAgentMode: "plan",
     defaultCompactionMethod: null,

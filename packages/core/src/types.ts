@@ -585,19 +585,6 @@ export interface ProjectGroup {
 }
 
 /**
- * A user-named sidebar section of this app's own projects (see CONTEXT.md
- * "Sidebar group"). Membership is exclusive: a project path appears in at
- * most one group. Order of members follows the registry `projects` array.
- * Not to be confused with `ProjectGroup` (one project + its sessions).
- */
-export interface SidebarGroup {
-  id: string;
-  name: string;
-  collapsed: boolean;
-  projectPaths: string[];
-}
-
-/**
  * Instance-only spawn selectors this app instance forces at the spawn choke
  * point (docs/development.md). Serialized projection of the main-process
  * `SpawnGate`; never persisted, never a session or project pin.
@@ -610,7 +597,6 @@ export interface SpawnGateState {
 
 type BackendBroadcastSettings = Omit<
   RegistrySettings,
-  | "sessionOrderFrozen"
   | "memoryDefaultsSeeded"
   | "autoThinkingDefaultSeeded"
   | "remoteEnabled"
@@ -628,11 +614,10 @@ type BackendBroadcastSettings = Omit<
 
 export interface BackendState extends BackendBroadcastSettings {
   projects: ProjectGroup[];
-  /** This host's Chats (CONTEXT.md), in registry order (newest first). Never
-   *  part of `projects`, never in RemoteInstanceSummary: chats are host-local. */
+  /** This host's Chats (CONTEXT.md), in registry order (insertion, newest
+   *  first). Never part of `projects`, never in RemoteInstanceSummary: chats
+   *  are host-local. */
   chats: SessionSummary[];
-  /** This registry's sidebar groups, in display order; [] when none. */
-  sidebarGroups: SidebarGroup[];
   /** This instance's dev/test spawn selectors; not persisted, not a pin. */
   spawnGate: SpawnGateState;
   /** Joined remote instances and their registries (issue #416); never persisted here, never carries a credential. */

@@ -111,10 +111,10 @@ On its first launch on a fresh install, the desktop app shows a **Getting starte
 1. Open omp-ui and select the gear button to open **Settings**.
 2. Open **Updates**. Under **omp binary**, select **Check now**. If omp is missing, select **Install**. If an update is offered, select **Update now**.
 3. Open **Providers**. Confirm that at least one model provider has a credential. omp-ui may find one in the inherited environment or, on Linux and macOS, the login shell. Otherwise, select **Add key** for your provider and save its API key.
-4. Close Settings and select **Add project**. Enter or browse to the working directory you want omp to use, then select **Add project**.
-5. Start a tab from the project header:
-   - For a native transcript tab, select **New session**. A fresh install uses native as its default session mode.
-   - For an embedded OMP terminal tab, right-click the project's plus button and select **New terminal session**. In the compact layout, open the project's actions menu and select **New terminal session**.
+4. Close Settings and select **Add project** in the sidebar header. Enter or browse to the working directory you want omp to use, then select **Add project**.
+5. Select **New session** in the sidebar header to open the project quick-open, then start a tab:
+   - For a native transcript tab, highlight your project and press `Enter`. A fresh install uses native as its default session mode.
+   - For an embedded OMP terminal tab, highlight your project, press `→` to open its project page, and select **New terminal session**.
 
 Native tabs render the session transcript in omp-ui. Terminal tabs run OMP's TUI in an embedded terminal. Both create owned sessions attached to the registered project. See the [user guide](user-guide.md) for session controls and the difference between owned sessions and sessions started from an external terminal.
 

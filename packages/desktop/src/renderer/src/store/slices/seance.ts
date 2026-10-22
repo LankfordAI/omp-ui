@@ -12,7 +12,6 @@ import { seanceKickoff } from "../../lib/seance-kickoff";
 import { SEANCE_MIN_OMP, supportsSeance } from "../../lib/seance";
 import type { SessionSummary } from "@omp-ui/core/types";
 import type { SeanceSlice, UiStore } from "../types";
-import { projectKey } from "../../lib/project-key";
 import { dropExited, type GetState, type SetState, type StoreMachinery } from "./shared";
 import { findOwner, findRecord, focusOn } from "./view";
 
@@ -154,7 +153,7 @@ export function createSeanceSlice(
       tabId = spawned.tabId;
       set((s) => ({
         tabs: [...s.tabs, { tabId, mode: "rpc-ui", projectCwd, hidden: false, instanceId }],
-        ...focusOn(s, tabId, projectKey(instanceId, projectCwd)),
+        ...focusOn(tabId),
         exited: dropExited(s.exited, tabId),
         seanceDialog: null,
       }));

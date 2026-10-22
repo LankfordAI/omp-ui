@@ -8,6 +8,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Fleet members report their OS and package managers; agents can run long installs on a Full-control member as a detached exec and poll it, and you can roll this computer's Provider keys out to a member from the Fleet view (#905).
 - Fleet members show their omp and omp-ui versions as chips, including below-the-floor and staged-update badges, and a Full-control member can update itself on request — its managed omp binary lands immediately, an omp-ui update stages and installs at the member's next quit; nothing ships through the join link (#905).
 - macOS releases and nightlies ship for Apple Silicon only; the Intel (`mac-x64`) DMG and ZIP are no longer built. Existing Intel installs stay on their last build, and their update check reports that no compatible update file exists (#908).
+- The sidebar lists running sessions only, newest activity first, with every other session in a collapsed Settled section; one New session button opens the project quick-open, whose No project row starts a chat and whose project pages hold project settings, open targets, and remove; sidebar groups and manual reordering are gone (#919).
 
 ## Choose a download
 

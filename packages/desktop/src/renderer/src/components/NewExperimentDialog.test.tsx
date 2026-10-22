@@ -64,7 +64,6 @@ async function render(
         ? []
         : [{ tabId: proposalTabId, mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null }],
     activeTabId: null,
-    focusedTabByProject: {},
     rpc:
       proposalTabId === null
         ? {}

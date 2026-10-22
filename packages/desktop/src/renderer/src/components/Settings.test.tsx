@@ -92,7 +92,6 @@ const backendMock = {
   addProject: vi.fn(),
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
-  moveProject: vi.fn(async () => {}),
   setDefaultMode: vi.fn(),
   setDefaultAgentMode: vi.fn(async () => {}),
   listCompactionMethods: vi.fn(async () => ["remote", "soft"]),

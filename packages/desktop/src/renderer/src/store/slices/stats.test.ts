@@ -39,9 +39,8 @@ describe("Stats view slice", () => {
   });
 
   it("focusOn closes the Stats view like the Lab", () => {
-    expect(focusOn({ activeTabId: null, focusedTabByProject: {} }, h.TAB, "/p")).toEqual({
+    expect(focusOn(h.TAB)).toEqual({
       activeTabId: h.TAB,
-      focusedTabByProject: { "/p": h.TAB },
       lab: null,
       stats: null,
       fleet: null,

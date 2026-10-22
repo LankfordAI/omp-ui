@@ -308,7 +308,6 @@ describe("experiment proposal gate (issue #567)", () => {
       advisorDefaults: { "/p": { enabled: false, model: null } },
       tabs: [],
       activeTabId: null,
-      focusedTabByProject: {},
       rpc: {},
       experimentDialog: { projectCwd: "/p", instanceId: null },
     });
@@ -383,9 +382,8 @@ describe("experiment proposal gate (issue #567)", () => {
 
 describe("Lab view", () => {
   it("focusOn closes the Lab", () => {
-    expect(focusOn({ activeTabId: null, focusedTabByProject: {} }, h.TAB, "/p")).toEqual({
+    expect(focusOn(h.TAB)).toEqual({
       activeTabId: h.TAB,
-      focusedTabByProject: { "/p": h.TAB },
       lab: null,
       stats: null,
       fleet: null,

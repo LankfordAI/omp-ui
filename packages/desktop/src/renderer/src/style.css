@@ -537,9 +537,7 @@
   }
   /* A compact window is scanned by touch or a cramped pointer either way:
    * session lifecycle controls (stop / resume / delete) stay visible instead
-   * of hover-revealed, and rows grow to comfortable tap height. Project
-   * header actions live behind the ⋯ sheet below 900px (issue #205), so
-   * .compact-lifecycle-visible only matters in the hover:none rule below. */
+   * of hover-revealed, and rows grow to comfortable tap height. */
   .group\/row { min-height: 44px; }
   .group\/row button { opacity: 1 !important; }
   .model-palette { flex-direction: column; height: 100%; max-height: none !important; }
@@ -595,13 +593,7 @@
 }
 
 @media (hover: none) {
-  .group\/row button, .group\/att button, .compact-lifecycle-visible, .console-drawer-controls { opacity: 1 !important; }
-  /* The project header's hover reveals become permanent on touch: full width
-     and the spacing the hover variants would otherwise supply
-     (Sidebar.tsx ProjectSection). */
-  .proj-reveal { opacity: 1 !important; max-width: none !important; }
-  .proj-reveal-r { margin-right: 0.375rem !important; }
-  .proj-reveal-l { margin-left: 0.375rem !important; }
+  .group\/row button, .group\/att button, .console-drawer-controls { opacity: 1 !important; }
 }
 
 :focus-visible {

@@ -4,7 +4,6 @@ export const SIDEBAR_MAX_WIDTH = 512;
 export const INSPECTOR_DEFAULT_WIDTH = 304;
 export const INSPECTOR_MIN_WIDTH = 224;
 export const INSPECTOR_MAX_WIDTH = 480;
-export const COLLAPSED_SIDEBAR_WIDTH = 56;
 export const INSPECTOR_STRIP_WIDTH = 40;
 export const BROWSER_PANE_DEFAULT_WIDTH = 560;
 export const BROWSER_PANE_MIN_WIDTH = 360;
@@ -86,8 +85,7 @@ export function resolveDesktopPanelWidths({
   const sidebarPreference = clampPanelWidth("sidebar", sidebarWidth);
   const inspectorPreference = clampPanelWidth("inspector", inspectorWidth);
   const browserPanePreference = clampPanelWidth("browserPane", browserPaneWidth);
-  const fixed = MAIN_CONTENT_MIN_WIDTH + INSPECTOR_STRIP_WIDTH +
-    (sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : 0);
+  const fixed = MAIN_CONTENT_MIN_WIDTH + INSPECTOR_STRIP_WIDTH;
   const variableBudget = Math.max(0, viewport - fixed);
 
   // The variable set: every open/expanded pane at its preference, reduced in
@@ -153,7 +151,7 @@ export function resolveDesktopPanelWidths({
     : Math.max(BROWSER_PANE_MIN_WIDTH, Math.min(BROWSER_PANE_MAX_WIDTH, browserPaneRoom));
 
   return {
-    sidebarWidth: sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : effectiveSidebar,
+    sidebarWidth: effectiveSidebar,
     inspectorWidth: effectiveInspector,
     browserPaneWidth: effectiveBrowserPane,
     sidebarAllowedMax,

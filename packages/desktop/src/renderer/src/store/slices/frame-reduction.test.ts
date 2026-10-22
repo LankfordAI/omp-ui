@@ -2519,7 +2519,6 @@ describe("handleRpcFrame routing", () => {
       state: snapshot,
       tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" }), tabInfo({ tabId: previousId, projectCwd: "/p" })],
       activeTabId: h.TAB,
-      focusedTabByProject: { "/p": h.TAB },
       handedOffFor: {},
       observedPlanHandoffs: { [h.TAB]: previousId },
       rpc: { ...state.rpc, [previousId]: rpcTabState({ live: { phase: null, levels: null, turns: [], ended: true, error: null, connectionId: "previous-call" } }) },
@@ -2534,7 +2533,6 @@ describe("handleRpcFrame routing", () => {
     } : undefined);
     await h.flushMicrotasks();
     expect(h.useStore.getState().activeTabId).toBe(freshId);
-    expect(h.useStore.getState().focusedTabByProject["/p"]).toBe(freshId);
     h.useStore.setState((state) => ({ rpc: { ...state.rpc, [freshId]: rpcTabState({ status: "ready" }) } }));
     await h.flushMicrotasks();
     const seed = h.sent.find((entry) => entry.tabId === freshId && entry.cmd.type === "prompt")!;
@@ -2542,7 +2540,6 @@ describe("handleRpcFrame routing", () => {
     h.respond(freshId, seed.cmd, {});
     await h.flushMicrotasks();
     expect(h.useStore.getState().activeTabId).toBe(freshId);
-    expect(h.useStore.getState().focusedTabByProject["/p"]).toBe(freshId);
     expect(h.useStore.getState().handedOffFor[h.TAB]).toBe(freshId);
     expect(h.sent.some((entry) => entry.tabId === previousId && entry.cmd.type === "live_start")).toBe(false);
     expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, freshId);

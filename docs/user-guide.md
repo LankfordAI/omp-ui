@@ -4,7 +4,7 @@ This guide covers day-to-day work in omp-ui. Start with [Getting started](gettin
 
 ## Core concepts
 
-A **project** is a working directory that you register in omp-ui. Registering one adds it to the sidebar; omp-ui does not scan every directory on your computer.
+A **project** is a working directory that you register in omp-ui. Registering one adds it to the [project quick-open](#start-resume-and-stop-sessions), where new sessions start; omp-ui does not scan every directory on your computer.
 
 A **session** is an on-disk OMP transcript and its optional artifacts. A **live session** has an `omp` process owned by the running omp-ui instance. A **tab** is the renderer's view of that process. Switching tabs or hiding a tab does not stop the agent, and selecting the session in the sidebar brings its tab back.
 
@@ -21,9 +21,9 @@ Switching a live session between native and terminal mode kills its process and 
 
 ## Projects and sessions
 
-### Register and organize projects
+### Register projects
 
-Use **Add project** in the title bar or sidebar, choose a directory, and add the resolved path. The picker's leaf segment fuzzy-matches the current directory's names: non-adjacent characters match, the best matches rank first with the matched characters emphasized, and selecting a result always browses or registers that directory's real path, never the typed text. The sidebar groups owned sessions under each project. Sessions keep their position until you move them: new sessions enter at their project's top, and running activity never reshuffles the list. Drag a session row's grip, or focus it and press `Alt+Up` or `Alt+Down`, to reorder; a plan-handoff tree moves with its planning row. Filter by session title or project name, collapse a project, drag project headers to reorder them, or focus a header's grip and press `Alt+Up` or `Alt+Down`.
+Use the **Add project** button in the sidebar header, the **Add project…** row of the [project quick-open](#start-resume-and-stop-sessions), or the command palette, choose a directory, and add the resolved path. The picker's leaf segment fuzzy-matches the current directory's names: non-adjacent characters match, the best matches rank first with the matched characters emphasized, and selecting a result always browses or registers that directory's real path, never the typed text.
 
 Tab completes the path you are typing, like a shell: with no row selected, Tab on a leaf that matches exactly one directory descends into it; when several match, Tab inserts their longest common prefix and repeated Tab cycles the candidates (Shift+Tab cycles backwards). Tab on a selected row opens that row, as before. A completed or cycled name always lands on the directory's real path and casing, never on your query text.
 
@@ -32,23 +32,33 @@ matching `alpha` and `axle`, which share only `a` — Tab cycles the candidates
 immediately instead of inserting a prefix: the first Tab gives `~/alpha`, the
 next `~/axle`; it never rewrites your text to the shorter `a`.
 
-On a desktop-sized window, a project header exposes open, project-settings, new-session, and remove actions. The Open control's menu offers **VS Code** (when installed), **Files**, and **Terminal** (when a launchable system terminal is found); Terminal opens the host's terminal with its shell in the project root. All three start from the environment omp-ui was launched with, without the AppImage's own variables, so a terminal opened inside VS Code or the file manager behaves as a native one. Right-click the new-session control to choose a terminal session, a private session, or **New session…**, the [New session dialog](#start-resume-and-stop-sessions) that starts work here or on the fleet. In the compact shell, use the project's ellipsis button to open the [project actions sheet](#command-palette-and-compact-shell).
+### The session list
+
+The sidebar lists sessions, not projects. Its main list holds every live session — project sessions, chats, and sessions on joined [remote instances](remote-instances.md) — with the most recent activity on top. Each row shows the session's state, its project (or *chat*), and how long ago it last changed; a remote session's row also names its machine. Rows move as sessions work; there is no manual order. A plan-implementation session keeps its handoff label and a button that opens its planning session.
+
+Every other owned session — dormant, hibernated, archived, or missing — waits in the **Settled** section at the bottom of the sidebar, collapsed by default. Click its header to open or close it; omp-ui remembers the choice. The search box at the top filters both lists by session title, plan, project, or machine name, and shows **Settled** expanded while you type.
+
+### Project pages
+
+Every project action lives on the project's page in the project quick-open. Press **New session** in the sidebar header (or `Mod+Shift+N`), highlight a project, and press `→` with the caret at the end of the search box — or click the row's arrow button. The page lists **New session**, **New session on** each other machine holding a checkout of the same repository, **New terminal session**, **New private session**, **New session…** (the [New session dialog](#start-resume-and-stop-sessions) that starts work here or on the fleet), **Open in VS Code** (when installed), **Open in Files**, **Open in Terminal** (when a launchable system terminal is found), **Experiments** and **New experiment…** (when experiments are enabled), **Project settings…**, and **Remove project…**. Type to filter the actions, press `Backspace` on an empty search to return to the project list, or press `Escape` to close.
+
+Terminal opens the host's terminal with its shell in the project root. All three open targets start from the environment omp-ui was launched with, without the AppImage's own variables, so a terminal opened inside VS Code or the file manager behaves as a native one. They appear only for projects on this computer, and never in the [compact shell](#command-palette-and-compact-shell).
 
 You must terminate a project's live sessions before removing the project. Removal deletes the project registration and all of its session records, then attempts to force-remove the recorded omp-ui worktree checkouts. Uncommitted changes in a removed checkout are lost, but its branch and commits survive. Removal does not delete transcripts, artifacts, or files in the registered project. A failed worktree cleanup does not stop record removal.
 
 ### Chats
 
-A **chat** is a native session with no project, for conversation not tied to a repo. omp-ui runs each chat in a fresh scratch folder under its app-data directory. The sidebar's **Work**/**Chat** toggle switches the list between your projects and your chats; it filters the list only, and chat tabs share the tab strip with every other tab. In Chat mode, the `+` button starts a chat and the lock `+` starts a private chat; the command palette offers **New chat** and **New private chat** from anywhere.
+A **chat** is a native session with no project, for conversation not tied to a repo. omp-ui runs each chat in a fresh scratch folder under its app-data directory. Start one from the project quick-open's **No project** row: `Enter` starts a chat, and its page (`→`) offers **New chat** and **New private chat**. The command palette offers the same two actions from anywhere. Chats list in the sidebar alongside project sessions, labelled *chat*, and chat tabs share the tab strip with every other tab.
 
 A chat tab hides what only makes sense in a repository: the branch and worktree chips, the **Diffs** and **Plans** panes, and the Build/Plan control. A chat always runs in Build mode; `/plan` shows a notice instead of switching. Memory a chat writes goes to omp's global memory bank rather than a project's. Branching and deleting work like any session; deleting the last chat that uses a scratch folder deletes the folder. Chats are local to this computer: joined remote instances do not see them.
 
 ### Start, resume, and stop sessions
 
-Use a project's plus button, the title-bar plus button, the command palette, `/new` in the native composer, or `Mod+Shift+N` to start a session in the app's Default session mode. The title-bar button and shortcut require a focused tab because they use that tab's project. `/new` opens a new live session in a new tab; it does not reset the current tab in place.
+Press **New session** in the sidebar header, or `Mod+Shift+N`, to open the **project quick-open**. It lists your projects, **No project**, **Add project…**, and a **Register project on** row for each joined remote instance. The focused tab's project comes first — or **No project** when a chat, or nothing, is focused — so a single `Enter` starts another session like the one you are in. `Enter` starts a session in the highlighted project in the app's Default session mode, `Shift+Enter` opens the New session dialog for it, and while the search is empty `Mod+1` through `Mod+9` pick a row by position. When the sidebar is collapsed, the title bar shows the **New session** button instead. You can also start a session from a [project page](#project-pages), the command palette, or `/new` in the native composer. `/new` opens a new live session in a new tab; it does not reset the current tab in place.
 
 Choose **New terminal session** when you want OMP's TUI. Choose **New session…** — the **New session dialog**, the one form that starts work here or on the [fleet](remote-instances.md#dispatch-work) — when the work must run in a separate checkout: pick **New worktree** as its workspace, and the [worktree sessions](#worktree-sessions) section explains its persistence and deletion rules. An optional first prompt rides along; left empty here, the session simply starts idle.
 
-Select a dormant or archived owned session to resume it. omp-ui restores an archived transcript before resuming. If an agent exits, use **Resume** in the sidebar or the session's exit screen. A session marked **missing** still has a record, but omp-ui cannot find its files, so its only available action is deletion.
+Select a dormant or archived owned session under **Settled** to resume it. omp-ui restores an archived transcript before resuming. If an agent exits, use **Resume** in the sidebar or the session's exit screen. A session marked **missing** still has a record, but omp-ui cannot find its files, so its only available action is deletion.
 
 **Terminate** and **Delete** have different effects:
 
@@ -242,7 +252,7 @@ The trust model matters before the first share: a link is secret material (the r
 
 ## Worktree sessions
 
-A **worktree session** runs OMP in a dedicated git worktree on its own branch. The checkout lives under omp-ui's app-data directory and shares the project's git object store. The registered project remains its project for sidebar grouping and remembered session parameters, but the worktree is its effective working tree — including for project-scope MCP configuration, which omp-ui resolves and writes through a `.omp` link in the checkout that points at the project's own directory.
+A **worktree session** runs OMP in a dedicated git worktree on its own branch. The checkout lives under omp-ui's app-data directory and shares the project's git object store. The registered project remains its project for its sidebar row's project label and remembered session parameters, but the worktree is its effective working tree — including for project-scope MCP configuration, which omp-ui resolves and writes through a `.omp` link in the checkout that points at the project's own directory.
 
 Start one from the **New session dialog**: on its **This computer** face choose **New worktree** as the workspace, pick a branch name and base, then create the session. The base names an existing branch (or the checkout's HEAD), or the trailing *new branch…* option creates it first (issue #405): omp-ui runs `git branch <name> <start point>`, cuts the session branch from it, and records it as the base — so diffs, *sync worktree*, and finish-time merge-back target the new branch, never the trunk it was cut from. A minted session branch names the project it belongs to and states its cut point: `<project>/<base>/<hash>` — the first segment is the project's own slug, so the omp-ui checkout mints `omp-ui/main/<hash>` and a project called FeatherNote mints `feathernote/main/<hash>`. The base defaults to the checkout's active branch; only a detached HEAD or a repository with no branches yields the two-segment `<project>/<hash>`. editing the base recomposes an untouched mint while keeping its hash. A session's minted branch is never renamed on its own; auto-naming lives at merge back, where the finish dialog prefills the keep-branch *rename* field and a *new branch…* destination's name from the session (issue #428). You can also create an ordinary native session, open the branch chip before its first prompt, choose **Worktree**, and send the first prompt. The plan review's worktree-session execution context produces worktree sessions too, seeded with the approved plan. omp-ui cuts the checkout before sending; if git rejects the operation, the draft and selection remain in place with the error.
 
@@ -298,9 +308,9 @@ For provider and other app configuration, see [Settings](settings.md).
 
 Press `Mod+K` to open the command palette. Search is fuzzy across sessions, projects, and actions. Use it to focus a non-missing owned session, start a session in a named project, add a project, terminate the focused agent, switch the focused session to native or terminal mode, run **View capabilities** — MCP servers, skills, tools for the focused session's working tree — open **Session tree** for the focused native session ([rewinding and the session tree](#rewinding-and-the-session-tree)), **Share live** a terminal session ([live sharing](#share-a-terminal-session-live)), check app or OMP updates, or open Settings. `Down` and `Ctrl+N` select the next result; `Up` and `Ctrl+P` select the previous result. Selection wraps at either end. Press `Enter` to run the selected action or `Escape` to close the palette.
 
-Below 900 pixels, omp-ui uses the **compact shell**. The top-left control opens projects and sessions, the title opens the same sheet, and the top-right inspector control opens the inspector sheet for a native tab. Native session actions move into a bottom sheet. The prompt's model, effort, advisor, mode, branch, queue, and interrupt controls move into the prompt-options sheet.
+Below 900 pixels, omp-ui uses the **compact shell**. The top-left control opens the sessions sheet — the sidebar's session list, search, **Add project**, and **New session** — the title opens the same sheet, and the top-right inspector control opens the inspector sheet for a native tab. Native session actions move into a bottom sheet. The prompt's model, effort, advisor, mode, branch, queue, and interrupt controls move into the prompt-options sheet.
 
-Each compact project header has an ellipsis button that opens the **project actions sheet**. It shows the project's name and full path, followed by **New session**, **New terminal session**, **New private session**, **New session…** (opens the [New session dialog](#start-resume-and-stop-sessions)), **Project settings**, and **Remove project**. Desktop-only actions that open VS Code, the host file manager, or a system terminal do not appear in the compact shell.
+Project actions in the compact shell live on the same [project pages](#project-pages) as on the desktop. Desktop-only actions that open VS Code, the host file manager, or a system terminal do not appear there.
 
 For connecting a phone or another browser to the compact shell, see [Remote access](remote-access.md).
 
@@ -313,14 +323,13 @@ For connecting a phone or another browser to the compact shell, see [Remote acce
 | Shortcut | Action |
 | --- | --- |
 | `Mod+K` | Open the command palette. |
-| `Mod+Shift+N` | Start a session in the Default session mode in the focused tab's project. Does nothing without a focused tab. |
+| `Mod+Shift+N` | Open the project quick-open to start a session; the focused tab's project, or **No project** for a chat, comes first. |
 | `Mod+Shift+P` | Switch the focused native session between Build and Plan in-process. |
 | `Mod+J` | Show or hide the focused native session's console. |
 | `Mod+=` or `Mod+Shift+=` | Increase native transcript text size. |
 | `Mod+-` | Decrease native transcript text size. |
 | `Mod+0` | Reset native transcript text size. |
 | `Mod+,` | Open Settings. |
-| `Alt+Up` / `Alt+Down` | Move a focused project header or session row when desktop reordering is available (session rows move their whole handoff tree). |
 
 ### Composer shortcuts
 
