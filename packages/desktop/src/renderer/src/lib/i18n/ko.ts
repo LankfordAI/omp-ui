@@ -21,7 +21,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "app.titlebar.collapseSidebar": "사이드바 접기",
   "app.restoring.label": "세션 복원 중…",
   "app.welcome.hasProjectsHint":
-    "사이드바에서 세션을 선택하거나 추적 중인 프로젝트에서 새 세션을 시작하세요.",
+    "열린 세션이 없습니다 — + 버튼이나 Ctrl+Shift+N으로 새 세션을 시작하거나, 명령 팔레트에서 이전 세션을 다시 여세요.",
   "app.welcome.addProject": "프로젝트 추가",
   "app.welcome.openSession": "세션 열기…",
   "app.welcome.noProjectsHint":

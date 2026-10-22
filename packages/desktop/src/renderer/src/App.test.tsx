@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "./lib/rpc-types";
-import { backendState } from "./test/fixtures";
+import { backendState, tabInfo } from "./test/fixtures";
 import type { RpcTabState } from "./store";
 import type { BackendState, SessionSummary } from "@omp-ui/core/types";
 
@@ -13,7 +13,9 @@ Object.assign(window, { ompBackend: {} });
 // rows scroll on keyboard navigation and jsdom has no layout.
 HTMLElement.prototype.scrollIntoView = vi.fn();
 
-vi.mock("./components/Sidebar", () => ({ Sidebar: () => null }));
+// The mock renders an aside so the issue #916 tests can assert the mount gate
+// (zero visible tabs → no sidebar at all) through DOM presence.
+vi.mock("./components/Sidebar", () => ({ Sidebar: () => <aside data-sidebar-mock /> }));
 vi.mock("./components/RpcTab", () => ({ RpcTab: ({ tabId }: { tabId: string }) => <div data-rpc-tab={tabId} /> }));
 vi.mock("./components/TerminalTab", () => ({ TerminalTab: ({ tabId }: { tabId: string }) => <div data-terminal-tab={tabId} /> }));
 vi.mock("./components/CommandPalette", () => ({ CommandPalette: () => null, openPalette: vi.fn() }));
@@ -87,6 +89,32 @@ function renderApp(): void {
   root = createRoot(host);
   act(() => root!.render(<App />));
 }
+
+// One registered project, no sessions: the shell's "projects exist but none
+// are open" fixture (issues #915/#916).
+const projectState = (): BackendState =>
+  backendState({
+    projects: [
+      {
+        project: {
+          path: "/p",
+          name: "p",
+          addedAt: "t",
+          lastModel: null,
+          lastThinkingLevel: null,
+          lastAdvisor: null,
+          lastAdvisorModel: null,
+          defaultModel: null,
+          defaultAdvisorModel: null,
+          browserClock: false,
+          reviewRoster: null,
+          knowledgeHome: null,
+          repositoryKey: null,
+        },
+        sessions: [],
+      },
+    ],
+  });
 
 beforeEach(() => {
   compact = true;
@@ -282,30 +310,6 @@ describe("new-session entry points (issue #915)", () => {
     streamStalled: false,
   });
 
-  const projectState = (): BackendState =>
-    backendState({
-      projects: [
-        {
-          project: {
-            path: "/p",
-            name: "p",
-            addedAt: "t",
-            lastModel: null,
-            lastThinkingLevel: null,
-            lastAdvisor: null,
-            lastAdvisorModel: null,
-            defaultModel: null,
-            defaultAdvisorModel: null,
-            browserClock: false,
-            reviewRoster: null,
-            knowledgeHome: null,
-            repositoryKey: null,
-          },
-          sessions: [],
-        },
-      ],
-    });
-
   it("opens the project quick-open with zero tabs instead of erroring", async () => {
     useStore.setState({
       tabs: [],
@@ -375,5 +379,58 @@ describe("new-session entry points (issue #915)", () => {
     expect(newChat).toHaveBeenCalledOnce();
     expect(spawnSession).not.toHaveBeenCalled();
     expect(useStore.getState().projectQuickOpen).toBeNull();
+  });
+});
+
+describe("empty shell at zero sessions (issue #916)", () => {
+  beforeEach(() => {
+    compact = false;
+  });
+
+  it("mounts no sidebar and hides the toggle when every tab is hidden", () => {
+    useStore.setState({ state: projectState() });
+    renderApp();
+    // The default seed has two visible tabs: both surfaces exist.
+    expect(document.body.querySelector("aside")).not.toBeNull();
+    expect(
+      document.body.querySelector('button[aria-label="collapse sidebar"]'),
+    ).not.toBeNull();
+
+    act(() => {
+      useStore.setState({
+        tabs: [
+          { tabId: "rpc", mode: "rpc-ui", projectCwd: "/p", hidden: true, instanceId: null },
+          { tabId: "pty", mode: "pty", projectCwd: "/p", hidden: true, instanceId: null },
+        ],
+      });
+    });
+    expect(document.body.querySelector("aside")).toBeNull();
+    expect(document.body.querySelector('button[aria-label="collapse sidebar"]')).toBeNull();
+    expect(document.body.querySelector('button[aria-label="expand sidebar"]')).toBeNull();
+  });
+
+  it("shows Welcome with the new hint and no toggle at zero tabs", () => {
+    useStore.setState({ tabs: [], activeTabId: null, state: projectState() });
+    renderApp();
+    expect(document.body.querySelector("aside")).toBeNull();
+    expect(document.body.querySelector('button[aria-label="collapse sidebar"]')).toBeNull();
+    // Welcome fills the empty canvas with the picker-first copy.
+    expect(document.body.textContent).toContain("Add project");
+    expect(document.body.textContent).toContain("No sessions open");
+  });
+
+  it("remounts the sidebar and its toggle when a tab appears", () => {
+    useStore.setState({ tabs: [], activeTabId: null, state: projectState() });
+    renderApp();
+    expect(document.body.querySelector("aside")).toBeNull();
+
+    act(() => {
+      const tab = tabInfo({ tabId: "t1", hidden: false });
+      useStore.setState({ tabs: [tab], activeTabId: "t1" });
+    });
+    expect(document.body.querySelector("aside")).not.toBeNull();
+    expect(
+      document.body.querySelector('button[aria-label="collapse sidebar"]'),
+    ).not.toBeNull();
   });
 });

@@ -154,6 +154,10 @@ function TitleBar() {
   const newChat = useStore((s) => s.newChat);
   const activeTab = tabs.find((t) => t.tabId === activeTabId);
   const activeChat = useStore((s) => activeTab !== undefined && isChatTab(s.state, activeTab.tabId));
+  // Issue #916: with zero visible tabs the sidebar is not mounted (see App's
+  // mount gate), so its toggle would toggle an absent surface — a dead
+  // affordance of the kind #789 rejects. Hide it with the surface.
+  const hasVisibleTabs = tabs.some((tab) => !tab.hidden);
 
   return (
     <header
@@ -183,12 +187,14 @@ function TitleBar() {
         <IconButton label={t("app.titlebar.addProject")} onClick={() => openProjectPicker()}>
           <IconFolderPlus />
         </IconButton>
-        <IconButton
-          label={sidebarCollapsed ? t("app.titlebar.expandSidebar") : t("app.titlebar.collapseSidebar")}
-          onClick={toggleSidebarCollapsed}
-        >
-          <Chevron open={false} className={cn("size-3.5", !sidebarCollapsed && "rotate-180")} />
-        </IconButton>
+        {hasVisibleTabs && (
+          <IconButton
+            label={sidebarCollapsed ? t("app.titlebar.expandSidebar") : t("app.titlebar.collapseSidebar")}
+            onClick={toggleSidebarCollapsed}
+          >
+            <Chevron open={false} className={cn("size-3.5", !sidebarCollapsed && "rotate-180")} />
+          </IconButton>
+        )}
       </div>
 
       {activeTab?.mode === "rpc-ui" ? (
@@ -529,7 +535,10 @@ export default function App() {
         </nav>
       )}
       <div className="flex min-h-0 flex-1 border-t border-line">
-        <Sidebar />
+        {/* Issue #916: zero visible sessions means an empty shell — the
+            quick-open picker is the way back in. Compact keeps the drawer
+            (already opt-in) because it also hosts settings on touch. */}
+        {(compact || visibleTabs.length > 0) && <Sidebar />}
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
             {/*

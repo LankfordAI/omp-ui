@@ -26,7 +26,7 @@ export const en = {
 
   // App Welcome
   "app.welcome.hasProjectsHint":
-    "Pick a session from the sidebar, or start a new one in any tracked project.",
+    "No sessions open — start one with the + button or Ctrl+Shift+N, or reopen a past session from the command palette.",
   "app.welcome.addProject": "Add project",
   "app.welcome.openSession": "Open session…",
   "app.welcome.noProjectsHint":
