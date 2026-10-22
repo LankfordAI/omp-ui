@@ -7859,6 +7859,54 @@ describe("warm-pool adoption hardening (issue #892)", () => {
       fs.rmSync(projectCwd, { recursive: true, force: true });
     }
   });
+
+  it("publishes an adopted record before arming its replayed ready (issue #907)", async () => {
+    const projectCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-warm-order-"));
+    try {
+      const { manager, registry, broadcast, crumbs } = setup({ mode: "rpc-ui", warm: true, project: projectCwd });
+      const fresh = { origin: "new", projectCwd, mode: "rpc-ui", advisor: false, cols: 80, rows: 24, worktree: null } as const;
+      await manager.spawn(fresh);
+      await settle();
+      const slotClient = rpcInstances.at(-1)!;
+      const seen: Array<{ armed: boolean; tabIds: string[] }> = [];
+      broadcast.mockImplementation(async () => {
+        seen.push({ armed: slotClient.arm.mock.calls.length > 0, tabIds: registry.sessions.map((s) => s.tabId) });
+      });
+      const { tabId } = await manager.spawn(fresh);
+      expect(crumbs.some((c) => c.kind === "warm-adopt" && c.tabId === tabId)).toBe(true);
+      const firstWithTab = seen.find((s) => s.tabIds.includes(tabId));
+      expect(firstWithTab?.armed).toBe(false);
+      expect(slotClient.arm).toHaveBeenCalledTimes(1);
+      expect(manager.isLive(tabId)).toBe(true);
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
+
+  it("boots cold when the parked child dies while the adopted record publishes", async () => {
+    const projectCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-warm-died-"));
+    try {
+      const { manager, broadcast, crumbs } = setup({ mode: "rpc-ui", warm: true, project: projectCwd });
+      const fresh = { origin: "new", projectCwd, mode: "rpc-ui", advisor: false, cols: 80, rows: 24, worktree: null } as const;
+      await manager.spawn(fresh);
+      await settle();
+      const slotClient = rpcInstances.at(-1)!;
+      broadcast.mockImplementationOnce(async () => {
+        slotClient.kill();
+      });
+      const constructed = RpcClientMock.mock.calls.length;
+      const { tabId } = await manager.spawn(fresh);
+      expect(crumbs.filter((c) => c.tabId === tabId).map((c) => c.kind)).toEqual(
+        expect.arrayContaining(["warm-adopt", "warm-miss"]),
+      );
+      expect(slotClient.arm).not.toHaveBeenCalled();
+      const coldOpts = RpcClientMock.mock.calls[constructed]?.[0] as { deferArm?: boolean } | undefined;
+      expect(coldOpts?.deferArm).not.toBe(true);
+      expect(manager.isLive(tabId)).toBe(true);
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("chat sessions (issue #894)", () => {

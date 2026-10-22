@@ -87,15 +87,15 @@ None needed: keep the strip visible and wait a few seconds. If it stays up after
 
 ### Cause
 
-The new tab paints the boot skeleton and the composer shows the restarting placeholder, with no error banner. The spawn ran on the remote host, and that host's omp-ui owns the warm session pool: a host older than v0.24.0 can lose a fresh session's `ready` frame when two spawns land seconds apart in one project (issue #892). Starting one session on the host itself rarely hits that window, which is why it works there.
+The new tab paints the boot skeleton, the composer shows the restarting placeholder, and the model chip says no models are available on the host — then, after 60 seconds, a boot-stall banner. Before the fix for issue #907, a host that started the session from its warm session pool announced the session's first frame before it announced the session itself, so this app routed the tab's boot commands to itself and they were lost. A cold start (the first session after the host launched, or after a settings change) was unaffected, which is why the failure looked intermittent.
 
 ### Check
 
-On the remote host, open Settings → Updates (or About) and read the omp-ui version. The host needs v0.24.0 or newer. The app stages a downloaded update but applies it only on restart, so a host that is never restarted keeps running the old build.
+On the remote host, open the logs folder and read `breadcrumbs.log`: a `warm-adopt` line for the stuck tab's id confirms this cause. Then compare both apps' versions in Settings → About.
 
 ### Fix
 
-On the remote host, update omp-ui and restart it into the staged version (**Restart now**, or relaunch the app). From v0.24.0 a stalled boot also surfaces a fatal banner after 60 seconds instead of spinning forever, and a spawn that never answers settles as a pending row with a retry instead of holding the dialog (issue #907).
+Update both apps to a build that contains the fix for issue #907 and restart them into it; the host owns the ordering, so the host's version is the one that matters. A stalled tab can be recovered without restarting: close it and open the session again from the sidebar.
 
 ## A dismissed update card does not return
 
