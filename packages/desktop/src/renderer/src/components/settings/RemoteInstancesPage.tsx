@@ -117,7 +117,7 @@ function InstanceEditor({ instance }: { instance: RemoteInstanceSummary }) {
         hint={t("remoteinstances.field.secretKeep")}
         stacked
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <SecretKindCapsule value={secretKind} onChange={setSecretKind} />
           <SecretField
             value={secret}
@@ -126,7 +126,7 @@ function InstanceEditor({ instance }: { instance: RemoteInstanceSummary }) {
                 ? t("remoteinstances.field.token")
                 : t("remoteinstances.field.password")
             }
-            className="flex-1"
+            className="min-w-[8rem] flex-1 basis-40"
             onChange={setSecret}
             onSave={saveSecret}
           />
@@ -150,17 +150,26 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
     <Panel className="px-4 py-3">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <Dot
               tone={remoteInstanceStatusTone(instance.status)}
               pulse={instance.status === "connecting"}
             />
-            <p className="truncate text-xs font-medium text-ink">{instance.nickname}</p>
+            <p className="max-w-full min-w-0 truncate text-xs font-medium text-ink">
+              {instance.nickname}
+            </p>
             <span className="shrink-0 text-[11px] text-ink-dim">
               {t(remoteInstanceStatusKey(instance.status))}
             </span>
             {instance.version !== null && (
-              <Chip mono>{t("remoteinstances.page.version", { version: instance.version })}</Chip>
+              <Chip
+                mono
+                truncate
+                className="max-w-[12rem]"
+                title={t("remoteinstances.page.version", { version: instance.version })}
+              >
+                {t("remoteinstances.page.version", { version: instance.version })}
+              </Chip>
             )}
           </div>
           <p
@@ -174,7 +183,7 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
             <p className="mt-1 text-[11px] leading-relaxed text-rose">{instance.error}</p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
           <Button size="xs" onClick={() => void reconnectRemoteInstance(instance.id)}>
             {t("remoteinstances.action.reconnect")}
           </Button>
@@ -247,7 +256,7 @@ function GrantCeremony({ instance, onDone }: { instance: RemoteInstanceSummary; 
       <p className="text-[11px] leading-relaxed text-ink-faint">
         {t("settings.remoteinstances.grant.ceremony", { machine: instance.nickname })}
       </p>
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <ChoiceCapsule
           label={t("settings.remoteinstances.grant.cap", { machine: instance.nickname })}
           value={rung}
@@ -260,7 +269,7 @@ function GrantCeremony({ instance, onDone }: { instance: RemoteInstanceSummary; 
           value={secret}
           label={secretKind === "token" ? t("remoteinstances.field.token") : t("remoteinstances.field.password")}
           disabled={busy}
-          className="flex-1"
+          className="min-w-[8rem] flex-1 basis-40"
           onChange={setSecret}
           onSave={submit}
         />
@@ -299,8 +308,8 @@ function DispatcherGrantRow({ dispatcherId, record }: { dispatcherId: string; re
   const effective = FLEET_RUNGS[Math.min(FLEET_RUNGS.indexOf(held), FLEET_RUNGS.indexOf(ceiling))]!;
 
   return (
-    <div className="flex items-center gap-3 py-2" data-dispatcher-id={dispatcherId}>
-      <div className="min-w-0 flex-1">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2" data-dispatcher-id={dispatcherId}>
+      <div className="min-w-0 flex-1 basis-40">
         <p className="truncate text-xs text-ink" title={dispatcherId}>
           {name}
         </p>
