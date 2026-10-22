@@ -520,3 +520,45 @@ describe("ProjectQuickOpen pages (issue #919)", () => {
     expect(quickInput().value).toBe("alp");
   });
 });
+
+describe("ProjectQuickOpen identity colours", () => {
+  /** The drill-in header chip: the dialog's only max-w-[12rem] span. */
+  function headerChip(): HTMLElement | null {
+    return document.body.querySelector<HTMLElement>('[role="dialog"] span[class*="max-w-[12rem]"]');
+  }
+
+  /** A row's leading box: the project monogram span or the chat bar span. */
+  function leadOf(label: string): HTMLElement {
+    return rowByLabel(label)!.children[0] as HTMLElement;
+  }
+
+  it("paints each project row's monogram with an inline identity colour", () => {
+    renderQuickOpen();
+    const bravo = leadOf("bravo").style.backgroundColor;
+    const alpha = leadOf("alpha").style.backgroundColor;
+    expect(bravo).not.toBe("");
+    // Distinct seed ids hash to distinct hues, so no two projects paint alike.
+    expect(alpha).not.toBe("");
+    expect(bravo).not.toBe(alpha);
+  });
+
+  it("leaves the No project row's bar unpainted", () => {
+    renderQuickOpen();
+    expect(leadOf("No project").style.backgroundColor).toBe("");
+  });
+
+  it("washes the project page header chip and keeps the chat page chip neutral", () => {
+    renderQuickOpen();
+    drillIn();
+    const chip = headerChip();
+    expect(chip).not.toBeNull();
+    expect(chip!.style.backgroundColor).not.toBe("");
+    // Back to the root's empty-query order, then down onto No project.
+    act(() => labelled("back to projects")!.click());
+    pressQuick("ArrowDown");
+    drillIn();
+    const chatChip = headerChip();
+    expect(chatChip).not.toBeNull();
+    expect(chatChip!.style.backgroundColor).toBe("");
+  });
+});
