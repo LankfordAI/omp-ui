@@ -65,6 +65,11 @@ export interface ViewSlice {
     /** Workspace capsule value at open. */
     workspace: "checkout" | "worktree";
   } | null;
+  /** The project quick-open overlay (T3-style new-thread picker); null = closed. */
+  projectQuickOpen: {
+    /** Seed query pre-typed at open; usually empty. */
+    query: string;
+  } | null;
   /** The row whose Migrate session dialog is open (issue #888); null = closed. */
   migrateDialog: { tabId: string } | null;
   /** App-global successes awaiting acknowledgment, oldest first (issue #888). */
@@ -122,6 +127,8 @@ export interface ViewSlice {
     workspace?: "checkout" | "worktree";
   }): void;
   closeNewSessionDialog(): void;
+  openProjectQuickOpen(seed?: { query?: string }): void;
+  closeProjectQuickOpen(): void;
   openMigrateDialog(tabId: string): void;
   closeMigrateDialog(): void;
   openFinishWorktree(tabId: string): void;
@@ -468,6 +475,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   browserPaneClearDialogOpen: false,
   shareConfirmTab: null,
   newSessionDialog: null,
+  projectQuickOpen: null,
   finishWorktreeTab: null,
   sessionTreeView: null,
   migrateDialog: null,
@@ -567,6 +575,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   closeNewSessionDialog() {
     set({ newSessionDialog: null });
+  },
+  openProjectQuickOpen(seed) {
+    set({ projectQuickOpen: { query: seed?.query ?? "" } });
+  },
+  closeProjectQuickOpen() {
+    set({ projectQuickOpen: null });
   },
   openMigrateDialog(tabId) {
     set({ migrateDialog: { tabId } });

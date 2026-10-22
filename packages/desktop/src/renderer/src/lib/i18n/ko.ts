@@ -15,14 +15,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "common.button.copy": "복사",
   "common.button.copied": "복사됨",
 
-  "app.titlebar.newSession": "현재 프로젝트에서 새 세션",
+  "app.titlebar.newSession": "프로젝트 선택 후 새 세션",
   "app.titlebar.addProject": "프로젝트 추가",
   "app.titlebar.expandSidebar": "사이드바 펼치기",
   "app.titlebar.collapseSidebar": "사이드바 접기",
-
-  // App.tsx — mod+shift+n 스폰 가드 (이슈 #789): 조용한 무동작 없음.
-  "app.spawn.noCurrentSession":
-    "현재 세션이 없어 새 세션을 만들 프로젝트를 정할 수 없습니다 — 세션을 먼저 열거나 프로젝트의 새 세션 버튼을 사용하세요.",
   "app.restoring.label": "세션 복원 중…",
   "app.welcome.hasProjectsHint":
     "사이드바에서 세션을 선택하거나 추적 중인 프로젝트에서 새 세션을 시작하세요.",
@@ -31,11 +27,23 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "app.welcome.noProjectsHint":
     "프로젝트 디렉터리를 추적한 다음 터미널이나 네이티브 세션에서 omp 에이전트를 실행하세요.",
   "app.welcome.hintCommandPalette": "명령 팔레트",
-  "app.welcome.hintNewSession": "현재 프로젝트에서 새 세션",
+  "app.welcome.hintNewSession": "프로젝트 선택 후 새 세션",
   "app.welcome.hintMode": "빌드 / 플랜 모드 전환",
   "app.welcome.hintConsole": "콘솔 전환",
   "app.welcome.hintSearch": "세션 내 검색",
   "app.welcome.hintTranscriptScale": "대화록 글자 확대",
+
+  // ProjectQuickOpen — T3 스타일 새 스레드 프로젝트 피커 (이슈 #915)
+  "quickopen.search.placeholder": "프로젝트 검색…",
+  "quickopen.group.projects": "프로젝트",
+  "quickopen.noproject": "프로젝트 없음",
+  "quickopen.noproject.desc": "임시 채팅, 저장소 없음",
+  "quickopen.host.local": "이 컴퓨터",
+  "quickopen.add": "프로젝트 추가…",
+  "quickopen.footer.navigate": "이동",
+  "quickopen.footer.select": "선택",
+  "quickopen.footer.back": "뒤로",
+  "quickopen.footer.close": "닫기",
   "app.gettingstarted.title": "시작하기",
   "app.gettingstarted.subtitle": "첫 세션까지 네 단계, 그리고 Python 준비 상태 확인. 진행하면 상태가 갱신됩니다.",
   "app.gettingstarted.stepBinary": "omp 에이전트 바이너리 설치",
