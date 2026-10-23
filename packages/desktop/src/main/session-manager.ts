@@ -842,6 +842,16 @@ export class SessionManager {
         "No model provider is configured. Add an API key or sign in to a provider under Settings → Providers before starting a session.",
       );
     }
+    // A fresh session's project path must exist where the spawn lands: omp
+    // chdirs itself and dies ~200 ms after spawnRpc resolves, which leaves a
+    // record no rollback ever runs and (for an unregistered path) a row
+    // buildState() hides from every projection (#928). Refuse before minting.
+    if (req.origin === "new" && !chat && !fs.existsSync(req.projectCwd)) {
+      throw new Error(
+        `the project folder ${req.projectCwd} does not exist on this machine. ` +
+          "A session owned by another instance must be started from that instance.",
+      );
+    }
 
     const fresh = req.origin === "new";
     let freshTabId: string | undefined;

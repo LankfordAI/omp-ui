@@ -53,6 +53,10 @@ const win = {
 };
 
 let base: string;
+// The seeded/spawned project path: a REAL directory under `base`, because a
+// fresh spawn now refuses a projectCwd that does not exist on this machine
+// (#928) — the child spawn stays faked, but the guard reads the real disk.
+let PROJECT = "";
 
 interface FakePty {
   id: string;
@@ -74,6 +78,8 @@ const rpcInstances: { kill: Mock; send: Mock; exit: (code: number) => void; fram
  */
 function setup(): { backend: InstanceType<typeof MainBackend> } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-teardown-"));
+  PROJECT = path.join(base, "proj");
+  fs.mkdirSync(PROJECT);
   const agentDir = path.join(base, "agent");
   process.env.PI_CODING_AGENT_DIR = agentDir;
   delete process.env.XDG_DATA_HOME;
@@ -93,7 +99,7 @@ function setup(): { backend: InstanceType<typeof MainBackend> } {
     settings: { defaultMode: "pty" },
     projects: [
       {
-        path: "/proj",
+        path: PROJECT,
         name: "proj",
         addedAt: "2026-07-29T00:00:00.000Z",
         lastModel: null,
@@ -113,7 +119,7 @@ function setup(): { backend: InstanceType<typeof MainBackend> } {
         tabId: TAB,
         sessionId: null,
         lineageDir: LINEAGE,
-        projectCwd: "/proj",
+        projectCwd: PROJECT,
         launchedAt: "2026-07-29T16:18:42.427Z",
         mode: "pty",
         advisor: false,
@@ -241,7 +247,7 @@ describe("live session teardown (issue #64)", () => {
   const spawnPtySession = async (): Promise<string> => {
     const res = (await invoke(CH.spawnSession, {
       origin: "new",
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "pty",
       advisor: false,
       cols: 80,
@@ -351,7 +357,7 @@ describe("live session teardown (issue #64)", () => {
     await expect(
       invoke(CH.spawnSession, {
         origin: "new",
-        projectCwd: "/proj",
+        projectCwd: PROJECT,
         mode: "pty",
         advisor: false,
         cols: 80,
@@ -367,7 +373,7 @@ describe("live session teardown (issue #64)", () => {
     setup();
     await invoke(CH.spawnSession, {
       origin: "new",
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
@@ -389,7 +395,7 @@ describe("live session teardown (issue #64)", () => {
     await invoke(CH.setDefaultAgentMode, "build");
     await invoke(CH.spawnSession, {
       origin: "new",
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
@@ -410,7 +416,7 @@ describe("live session teardown (issue #64)", () => {
     setup();
     await invoke(CH.spawnSession, {
       origin: "new",
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
@@ -432,7 +438,7 @@ describe("live session teardown (issue #64)", () => {
     setup();
     const res = (await invoke(CH.spawnSession, {
       origin: "new",
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
@@ -456,7 +462,7 @@ describe("live session teardown (issue #64)", () => {
     setup();
     const res = (await invoke(CH.spawnSession, {
       origin: "new",
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
@@ -502,7 +508,7 @@ describe("terminate escalation (issue #182)", () => {
   const spawnRpcSession = async (): Promise<string> => {
     const res = (await invoke(CH.spawnSession, {
       origin: "new",
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
@@ -601,7 +607,7 @@ describe("killAll outwaits repository-key probes (issue #909)", () => {
     const probe = withResolvers<string | null>();
     resolveRepositoryKeyMock.mockReturnValueOnce(probe.promise);
     await backend.hydrateAll();
-    expect(resolveRepositoryKeyMock).toHaveBeenCalledWith("/proj");
+    expect(resolveRepositoryKeyMock).toHaveBeenCalledWith(PROJECT);
     await expectPendingUntil(backend, () => probe.resolve(null));
   });
 });

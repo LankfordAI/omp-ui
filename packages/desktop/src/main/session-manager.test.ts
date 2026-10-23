@@ -164,6 +164,10 @@ function fakePaneContents(): FakeBrowserPane {
 let nextPtyDiesOn: "default" | "SIGKILL" | "never" = "never";
 let nextFakePid = 50_000;
 let base = "";
+// The seeded/spawned project path: a REAL directory under `base`, because a
+// fresh spawn now refuses a projectCwd that does not exist on this machine
+// (#928) — the child spawn stays faked, but the guard reads the real disk.
+let PROJECT = "";
 
 function fakeHandle(diesOn: "default" | "SIGKILL" | "never"): FakePty {
   const fake: FakePty = {
@@ -238,6 +242,8 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
   restart(spawnGate?: SpawnGate): SessionManager;
 } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-manager-"));
+  PROJECT = path.join(base, "proj");
+  fs.mkdirSync(PROJECT);
   const sessionsRoot = path.join(base, "sessions");
   const archiveRoot = path.join(base, "archive", "sessions");
   fs.mkdirSync(path.join(sessionsRoot, LINEAGE), { recursive: true });
@@ -246,7 +252,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     settings: { defaultMode: "pty" },
     projects: [
       {
-        path: opts.project ?? "/proj",
+        path: opts.project ?? PROJECT,
         name: opts.projectName ?? "proj",
         addedAt: "2026-07-29T00:00:00.000Z",
         lastModel: null,
@@ -266,7 +272,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
         tabId: TAB,
         sessionId: null,
         lineageDir: LINEAGE,
-        projectCwd: opts.project ?? "/proj",
+        projectCwd: opts.project ?? PROJECT,
         mode: opts.mode ?? "pty",
       }),
     ],
@@ -519,7 +525,7 @@ describe("restore-on-relaunch (issue #872)", () => {
     fs.mkdirSync(path.join(sessionsRoot, LINEAGE), { recursive: true });
     fs.writeFileSync(
       path.join(sessionsRoot, LINEAGE, `2026-08-13T00-00-00-000Z_${SESSION_ID}.jsonl`),
-      `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: "/proj" })}\n`,
+      `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: PROJECT })}\n`,
     );
   };
 
@@ -584,7 +590,7 @@ describe("MCP runtime status bridge", () => {
           }
         : {
             origin: "new",
-            projectCwd: "/proj",
+            projectCwd: PROJECT,
             mode: "rpc-ui",
             advisor: false,
             cols: 80,
@@ -617,7 +623,7 @@ describe("MCP runtime status bridge", () => {
     registry.setSetting("experimentsEnabled", true);
     await manager.spawn({
       origin: "new",
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
@@ -638,7 +644,7 @@ describe("MCP runtime status bridge", () => {
 
   it("flushes MCP status before entering initial Plan mode", async () => {
     const { manager } = setup({ mode: "rpc-ui" });
-    await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
     mode: "rpc-ui",
     advisor: false,
     cols: 80,
@@ -663,7 +669,7 @@ describe("MCP runtime status bridge", () => {
     // its arm command must still be published (issue #374).
     writeCapabilitiesExtensionMock.mockImplementationOnce(() => "/lineage/omp-ui-capabilities.ts");
     const { manager } = setup({ mode: "rpc-ui" });
-    await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
     mode: "rpc-ui",
     advisor: false,
     cols: 80,
@@ -1491,7 +1497,7 @@ describe("default compaction method (issue #268)", () => {
   it("captures a fresh native preference and promotes it in the lineage overlay", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     registry.setSetting("defaultCompactionMethod", "soft");
-    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
     mode: "rpc-ui",
     advisor: false,
     cols: 80,
@@ -1511,7 +1517,7 @@ describe("default compaction method (issue #268)", () => {
   it("never captures or supplies the overlay for a fresh terminal session", async () => {
     const { manager, registry } = setup();
     registry.setSetting("defaultCompactionMethod", "soft");
-    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
     mode: "pty",
     advisor: false,
     cols: 80,
@@ -1526,13 +1532,13 @@ describe("default compaction method (issue #268)", () => {
 
 describe("goal continuation overlay (ADR-0046)", () => {
   const freshRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
-    manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+    manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
 
   it("follows the user's interactive continuation into rpc", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     const { tabId } = await freshRpc(manager);
     const record = registry.sessions.find((session) => session.tabId === tabId)!;
-    expect(readOmpGoalContinuationModesMock).toHaveBeenCalledWith({ ompPath: expect.any(String), projectCwd: "/proj" });
+    expect(readOmpGoalContinuationModesMock).toHaveBeenCalledWith({ ompPath: expect.any(String), projectCwd: PROJECT });
     const options = RpcClientMock.mock.calls.at(-1)?.[0] as { configOverlays?: string[] } | undefined;
     const overlay = options?.configOverlays?.find((file) => path.basename(file) === "omp-ui-goal.yml");
     expect(overlay).toBe(Core.goalOverlayPath(path.join(sessionsRoot, record.lineageDir)));
@@ -1556,14 +1562,14 @@ describe("reviewer roster snapshot (issue #738)", () => {
       instructions: "shared",
       reviewers: [{ name: "global-one", model: null, instructions: null, targets: null, enabled: true }],
     });
-    registry.setProjectReviewRoster("/proj", {
+    registry.setProjectReviewRoster(PROJECT, {
       instructions: null,
       reviewers: [
         { name: "proj-one", model: "a/b", instructions: null, targets: null, enabled: true },
         { name: "sleeper", model: null, instructions: null, targets: null, enabled: false },
       ],
     });
-    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
     const record = registry.sessions.find((session) => session.tabId === tabId)!;
     const snapshot = JSON.parse(
       fs.readFileSync(Core.reviewRosterSnapshotPath(path.join(sessionsRoot, record.lineageDir)), "utf8"),
@@ -1579,7 +1585,7 @@ describe("reviewer roster snapshot (issue #738)", () => {
   it("snapshots the default roster when no scope names one", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     registry.setSetting("experimentsEnabled", true);
-    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
     const record = registry.sessions.find((session) => session.tabId === tabId)!;
     const snapshot = JSON.parse(
       fs.readFileSync(Core.reviewRosterSnapshotPath(path.join(sessionsRoot, record.lineageDir)), "utf8"),
@@ -1592,7 +1598,7 @@ describe("reviewer roster snapshot (issue #738)", () => {
 
   it("writes no snapshot with the experiments flag off (issue #739)", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
-    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
     const record = registry.sessions.find((session) => session.tabId === tabId)!;
     const dir = path.join(sessionsRoot, record.lineageDir);
     expect(fs.existsSync(Core.reviewRosterSnapshotPath(dir))).toBe(false);
@@ -1602,7 +1608,7 @@ describe("reviewer roster snapshot (issue #738)", () => {
 
 describe("project default model pins (issue #257)", () => {
   const freshSpawn = (manager: SessionManager): Promise<{ tabId: string }> =>
-    manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
     mode: "rpc-ui",
     advisor: false,
     cols: 80,
@@ -1611,7 +1617,7 @@ describe("project default model pins (issue #257)", () => {
   it("spawns a fresh session on the pinned model, ahead of last-used memory", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     registry.setSessionModel(TAB, "last/model", null);
-    registry.setProjectDefaultModel("/proj", "pin/model");
+    registry.setProjectDefaultModel(PROJECT, "pin/model");
 
     const { tabId } = await freshSpawn(manager);
     const record = registry.sessions.find((s) => s.tabId === tabId);
@@ -1644,7 +1650,7 @@ describe("project default model pins (issue #257)", () => {
   it("combines the pinned model with the last-used thinking level", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     registry.setSessionModel(TAB, "last/model", "high");
-    registry.setProjectDefaultModel("/proj", "pin/model");
+    registry.setProjectDefaultModel(PROJECT, "pin/model");
 
     await freshSpawn(manager);
     const options = RpcClientMock.mock.calls.at(-1)?.[0] as
@@ -1658,7 +1664,7 @@ describe("project default model pins (issue #257)", () => {
 
   it("never consults the pin for a resumed session", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
-    registry.setProjectDefaultModel("/proj", "pin/model");
+    registry.setProjectDefaultModel(PROJECT, "pin/model");
 
     const { tabId } = await resume(manager);
     expect(tabId).toBe(TAB);
@@ -1675,7 +1681,7 @@ describe("default auto thinking (issue #743)", () => {
     manager.spawn({
       origin: "new",
       worktree: null,
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
@@ -1782,7 +1788,7 @@ describe("default auto thinking (issue #743)", () => {
     await manager.spawn({
       origin: "new",
       worktree: null,
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "pty",
       advisor: false,
       cols: 80,
@@ -1794,7 +1800,7 @@ describe("default auto thinking (issue #743)", () => {
     await manager.spawn({
       origin: "new",
       worktree: null,
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "pty",
       advisor: false,
       cols: 80,
@@ -1818,7 +1824,7 @@ describe("test-run spawn gate (issue #371)", () => {
     manager.spawn({
       origin: "new",
       worktree: null,
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor,
       cols: 80,
@@ -1828,7 +1834,7 @@ describe("test-run spawn gate (issue #371)", () => {
   it("pins a fresh native spawn over the project pin and the last-used model", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui", spawnGate: gated("gate/model:low") });
     registry.setSessionModel(TAB, "last/model", "high");
-    registry.setProjectDefaultModel("/proj", "pin/model");
+    registry.setProjectDefaultModel(PROJECT, "pin/model");
 
     const { tabId } = await freshSpawn(manager);
     const options = RpcClientMock.mock.calls.at(-1)?.[0] as
@@ -1844,7 +1850,7 @@ describe("test-run spawn gate (issue #371)", () => {
 
   it("pins a resumed spawn, which a project pin never reaches", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui", spawnGate: gated("gate/model:low") });
-    registry.setProjectDefaultModel("/proj", "pin/model");
+    registry.setProjectDefaultModel(PROJECT, "pin/model");
     registry.setSessionModel(TAB, "transcript/model", "high");
 
     const { tabId } = await resume(manager);
@@ -1866,7 +1872,7 @@ describe("test-run spawn gate (issue #371)", () => {
 
   it("leaves argv and overlays alone when the gate is off", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
-    registry.setProjectDefaultModel("/proj", "pin/model");
+    registry.setProjectDefaultModel(PROJECT, "pin/model");
 
     await freshSpawn(manager);
     const options = RpcClientMock.mock.calls.at(-1)?.[0] as
@@ -2070,7 +2076,7 @@ describe("session approval mode pinning (issue #681)", () => {
     );
     fs.writeFileSync(
       transcript,
-      `${JSON.stringify({ type: "session", id: "appr-src", cwd: "/proj" })}\n`,
+      `${JSON.stringify({ type: "session", id: "appr-src", cwd: PROJECT })}\n`,
     );
 
     const { tabId: forkTabId } = await manager.forkSession(TAB);
@@ -2090,7 +2096,7 @@ describe("session approval mode pinning (issue #681)", () => {
     );
     fs.writeFileSync(
       transcript,
-      `${JSON.stringify({ type: "session", id: "appr-src", cwd: "/proj" })}\n`,
+      `${JSON.stringify({ type: "session", id: "appr-src", cwd: PROJECT })}\n`,
     );
 
     const { tabId: forkTabId } = await manager.forkSession(TAB);
@@ -2117,7 +2123,7 @@ describe("plan implementation handoff persistence (issue #238)", () => {
       if (child) broadcastSources.push(child.planImplementationSource);
     });
 
-    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
     mode: "rpc-ui",
     advisor: false,
     cols: 80,
@@ -2137,7 +2143,7 @@ describe("plan implementation handoff persistence (issue #238)", () => {
     const directoriesBefore = fs.readdirSync(sessionsRoot);
 
     await expect(
-      manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+      manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
@@ -2174,7 +2180,7 @@ describe("plan implementation handoff persistence (issue #238)", () => {
     const addSession = vi.spyOn(registry, "addSession");
 
     await expect(
-      manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+      manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
@@ -2189,7 +2195,7 @@ describe("plan implementation handoff persistence (issue #238)", () => {
   it("keeps an ordinary fresh spawn unlinked", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
 
-    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
     mode: "rpc-ui",
     advisor: false,
     cols: 80,
@@ -2204,7 +2210,7 @@ describe("plan implementation handoff persistence (issue #238)", () => {
     const addSession = vi.spyOn(registry, "addSession");
 
     await expect(
-      manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+      manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
       mode: "pty",
       advisor: false,
       cols: 80,
@@ -2229,7 +2235,7 @@ describe("experiment provenance persistence (issue #559)", () => {
 
   it("persists the launch parameters on the fresh record", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
-    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
     mode: "rpc-ui",
     advisor: false,
     cols: 80,
@@ -2242,7 +2248,7 @@ describe("experiment provenance persistence (issue #559)", () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     const addSession = vi.spyOn(registry, "addSession");
     await expect(
-      manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+      manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
       mode: "pty",
       advisor: false,
       cols: 80,
@@ -2256,7 +2262,7 @@ describe("experiment provenance persistence (issue #559)", () => {
 
 describe("fresh-spawn provider gate (issue #368)", () => {
   const freshSpawn = (manager: SessionManager): Promise<{ tabId: string }> =>
-    manager.spawn({ origin: "new", worktree: null, projectCwd: "/proj",
+    manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT,
     mode: "rpc-ui",
     advisor: false,
     cols: 80,
@@ -2286,6 +2292,30 @@ describe("fresh-spawn provider gate (issue #368)", () => {
   });
 });
 
+describe("fresh-spawn project path gate (issue #928)", () => {
+  it("refuses a fresh spawn whose project path does not exist, before minting anything", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    // A unique path guaranteed absent: mint a temp root, then remove it.
+    const goneRoot = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-gone-"));
+    const gone = path.join(goneRoot, "proj");
+    fs.rmSync(goneRoot, { recursive: true, force: true });
+    const addSession = vi.spyOn(registry, "addSession");
+
+    await expect(
+      manager.spawn({ origin: "new", worktree: null, projectCwd: gone,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24, }),
+    ).rejects.toThrow(/does not exist on this machine/);
+
+    // Nothing survives the refusal: no record, no child, no tombstone row.
+    expect(addSession).not.toHaveBeenCalled();
+    expect(RpcClientMock).not.toHaveBeenCalled();
+    expect(registry.sessions.map((record) => record.projectCwd)).toEqual([PROJECT]);
+  });
+});
+
 
 describe("SessionManager live ownership", () => {
   it("reports live ownership from process registration through observed exit", async () => {
@@ -2295,13 +2325,13 @@ describe("SessionManager live ownership", () => {
 
     expect(manager.liveCount).toBe(1);
     expect(manager.isLive(TAB)).toBe(true);
-    expect(manager.hasLiveInProject("/proj")).toBe(true);
+    expect(manager.hasLiveInProject(PROJECT)).toBe(true);
     expect(manager.hasLiveInProject("/other")).toBe(false);
 
     fakePtys[0]!.exit(7);
     expect(manager.liveCount).toBe(0);
     expect(manager.isLive(TAB)).toBe(false);
-    expect(manager.hasLiveInProject("/proj")).toBe(false);
+    expect(manager.hasLiveInProject(PROJECT)).toBe(false);
   });
 
   it("deduplicates a resume while its first async preparation is in flight", async () => {
@@ -2450,7 +2480,7 @@ describe("SessionManager live ownership", () => {
     const { manager } = setup();
     await manager.hydrateAll();
     await resume(manager);
-    manager.launchShell(TAB, "/proj", 80, 24);
+    manager.launchShell(TAB, PROJECT, 80, 24);
     const session = fakePtys[0]!;
     const shell = fakeShells[0]!;
 
@@ -2501,7 +2531,7 @@ describe("lineage watcher broadcast throttle (issue #187)", () => {
         fs.writeFileSync(
           filePath,
           `${JSON.stringify({ type: "title", title })}\n` +
-            `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: "/proj" })}\n`,
+            `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: PROJECT })}\n`,
         );
         fs.utimesSync(filePath, new Date(mtimeMs), new Date(mtimeMs));
       };
@@ -5419,7 +5449,7 @@ describe("hibernation (issue #246)", () => {
       ownedSessionRecord({
         tabId: IMPLEMENTATION_TAB,
         lineageDir: "omp-ui--proj--aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-        projectCwd: "/proj",
+        projectCwd: PROJECT,
         mode: "rpc-ui",
         planImplementationSource: {
           sourceTabId: TAB,
@@ -5446,7 +5476,7 @@ describe("hibernation (issue #246)", () => {
         tabId: "tab-newer",
         sessionId: null,
         lineageDir: "omp-ui--proj--99999999-8888-7777-6666-555555555555",
-        projectCwd: "/proj",
+        projectCwd: PROJECT,
         mode: "rpc-ui",
         cachedModified: "2026-07-29T12:00:00.000Z",
         ...patch,
@@ -6973,7 +7003,7 @@ describe("session lifecycle breadcrumbs (issue #413)", () => {
     await manager.spawn({
       origin: "new",
       worktree: null,
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "pty",
       advisor: false,
       cols: 80,
@@ -6988,7 +7018,7 @@ describe("session lifecycle breadcrumbs (issue #413)", () => {
       manager.spawn({
         origin: "new",
         worktree: null,
-        projectCwd: "/proj",
+        projectCwd: PROJECT,
         mode: "rpc-ui",
         advisor: false,
         cols: 80,
@@ -7172,7 +7202,7 @@ describe("event filter negotiation (issue #718)", () => {
     const { manager } = setup({ mode: "rpc-ui" });
     await manager.spawn({
       origin: "new",
-      projectCwd: "/proj",
+      projectCwd: PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,
@@ -7264,7 +7294,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
     registry.setSetting("fleetAgentDispatch", fleet);
     await manager.spawn(origin === "resume"
       ? { origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 }
-      : { origin: "new", projectCwd: "/proj", mode: "rpc-ui", advisor: false, cols: 80, rows: 24, worktree: null, planMode: false });
+      : { origin: "new", projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24, worktree: null, planMode: false });
     const commands = RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands as
       | Array<Record<string, unknown>>
       | undefined;
@@ -7311,7 +7341,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
 
   it.each(["pty", "rpc-ui"] as const)("pins the built-in vault off on fresh and resumed %s spawns", async (mode) => {
     const { manager } = setup({ mode });
-    await manager.spawn({ origin: "new", projectCwd: "/proj", mode, advisor: false, cols: 80, rows: 24, worktree: null });
+    await manager.spawn({ origin: "new", projectCwd: PROJECT, mode, advisor: false, cols: 80, rows: 24, worktree: null });
     await resume(manager);
     const captures = mode === "rpc-ui" ? RpcClientMock.mock.calls.map(([options]) => options) : spawnCalls;
     expect(captures).toHaveLength(2);
@@ -7384,7 +7414,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
       const { manager, registry } = setup({ mode: "rpc-ui", knowledgeHome: { home: "vault" } });
       registry.setSetting("vaultRegistry", { vaults: [NOTES], defaultWriteVault: "Notes" });
       await manager.spawn({
-        origin: "new", projectCwd: "/proj", mode: "rpc-ui", advisor: false,
+        origin: "new", projectCwd: PROJECT, mode: "rpc-ui", advisor: false,
         cols: 80, rows: 24, worktree: null, planMode: false, private: true,
       });
       expect(registry.sessions.at(0)).toMatchObject({ private: true });
@@ -7417,7 +7447,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
     it("arms nothing and pins nothing for an ordinary session", async () => {
       const { manager } = setup({ mode: "rpc-ui" });
       await manager.spawn({
-        origin: "new", projectCwd: "/proj", mode: "rpc-ui", advisor: false,
+        origin: "new", projectCwd: PROJECT, mode: "rpc-ui", advisor: false,
         cols: 80, rows: 24, worktree: null, planMode: false,
       });
       const options = RpcClientMock.mock.calls.at(-1)?.[0] as {
@@ -7443,7 +7473,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
       );
       fs.writeFileSync(
         transcript,
-        `${JSON.stringify({ type: "session", id: "appr-src", cwd: "/proj" })}\n`,
+        `${JSON.stringify({ type: "session", id: "appr-src", cwd: PROJECT })}\n`,
       );
       const { tabId: forkTabId } = await manager.forkSession(TAB);
       expect(registry.sessions.find((s) => s.tabId === forkTabId)).toMatchObject({
@@ -7814,7 +7844,7 @@ describe("carryover context seed (issues #824, #896)", () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     fs.writeFileSync(
       path.join(sessionsRoot, LINEAGE, `2026-08-13T00-00-00-000Z_${SESSION_ID}.jsonl`),
-      `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: "/proj" })}\n`,
+      `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: PROJECT })}\n`,
     );
     registry.updateSession(TAB, { sessionId: SESSION_ID });
 
@@ -8194,7 +8224,7 @@ describe("chat sessions (issue #894)", () => {
           tabId: "ask-src",
           sessionId: SOURCE_SID,
           lineageDir: "omp-ui--proj--ask-src",
-          projectCwd: "/proj",
+          projectCwd: PROJECT,
           mode: "rpc-ui",
           cachedTitle: "Source work",
           ...patch,
@@ -8205,7 +8235,7 @@ describe("chat sessions (issue #894)", () => {
       fs.writeFileSync(
         path.join(dir, `2026-10-20T00-00-00-000Z_${SOURCE_SID}.jsonl`),
         [
-          JSON.stringify({ type: "session", id: SOURCE_SID, cwd: "/proj" }),
+          JSON.stringify({ type: "session", id: SOURCE_SID, cwd: PROJECT }),
           JSON.stringify({
             type: "message",
             message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Landed: MARKER-PELICAN" }] },
@@ -8347,7 +8377,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
   ): Promise<{ tabId: string }> =>
     manager.spawn({
       origin: "new",
-      projectCwd: opts.projectCwd ?? "/proj",
+      projectCwd: opts.projectCwd ?? PROJECT,
       mode: "rpc-ui",
       advisor: false,
       cols: 80,

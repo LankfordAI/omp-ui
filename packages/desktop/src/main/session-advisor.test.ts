@@ -46,6 +46,10 @@ const win = {
 };
 
 let base: string;
+// The seeded/spawned project path: a REAL directory under `base`, because a
+// fresh spawn now refuses a projectCwd that does not exist on this machine
+// (#928) — the child spawn stays faked, but the guard reads the real disk.
+let PROJECT = "";
 
 /**
  * A session exactly as `newSession` leaves it: registered, live, and **not yet
@@ -55,6 +59,8 @@ let base: string;
  */
 function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build"; agentMode?: "plan" | "build"; thinkingLevel?: string }): { sessionsRoot: string } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-adv-"));
+  PROJECT = path.join(base, "proj");
+  fs.mkdirSync(PROJECT);
   const agentDir = path.join(base, "agent");
   process.env.PI_CODING_AGENT_DIR = agentDir;
   delete process.env.XDG_DATA_HOME;
@@ -74,7 +80,7 @@ function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build
     sessionId = "019faeab-cc7b-7000-8bfc-67242a2869d8";
     fs.writeFileSync(
       path.join(activeDir, `2026-07-29T16-18-42-427Z_${sessionId}.jsonl`),
-      `${JSON.stringify({ type: "session", id: sessionId, cwd: "/proj" })}\n`,
+      `${JSON.stringify({ type: "session", id: sessionId, cwd: PROJECT })}\n`,
     );
   }
 
@@ -83,7 +89,7 @@ function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build
     settings: { defaultMode: "rpc-ui", defaultAgentMode: opts.defaultAgentMode ?? "build" },
     projects: [
       {
-        path: "/proj",
+        path: PROJECT,
         name: "proj",
         addedAt: "2026-07-29T00:00:00.000Z",
         lastModel: null,
@@ -103,7 +109,7 @@ function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build
         tabId: TAB,
         sessionId,
         lineageDir: LINEAGE,
-        projectCwd: "/proj",
+        projectCwd: PROJECT,
         launchedAt: "2026-07-29T16:18:42.427Z",
         mode: "rpc-ui",
         model: "openrouter/openai/gpt-5.6",
@@ -143,7 +149,7 @@ const resume = async (): Promise<void> => {
 const fresh = async (planMode?: boolean): Promise<void> => {
   const req: Record<string, unknown> = {
     origin: "new",
-    projectCwd: "/proj",
+    projectCwd: PROJECT,
     mode: "rpc-ui",
     advisor: true,
     cols: 80,
