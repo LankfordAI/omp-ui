@@ -287,6 +287,41 @@ describe("prompting, slash commands, and session ops", () => {
     expect(h.sent).toEqual([]);
   });
 
+  // #927: bare /new must spawn on the tab's owning instance, not the local
+  // main — the old call dropped the third argument and orphaned the session.
+  it("runSlashCommand /new on a remote tab spawns on the owning instance", async () => {
+    h.backendState = remoteOwnedState(h.TAB, "inst-1");
+    h.useStore.setState({
+      state: h.backendState,
+      tabs: [
+        tabInfo({
+          tabId: h.TAB,
+          mode: "rpc-ui",
+          projectCwd: "/remote/p",
+          instanceId: "inst-1",
+        }),
+      ],
+    });
+    h.mockBackend.remoteInstanceRequest.mockImplementation(async (_id, channel) =>
+      channel === "session:spawn" ? { tabId: "fresh-remote" } : { enabled: false, model: null },
+    );
+
+    await h.useStore.getState().runSlashCommand(h.TAB, "/new");
+
+    // Never the local main: the request must carry the instance route.
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.mockBackend.remoteInstanceRequest).toHaveBeenCalledWith(
+      "inst-1",
+      "session:spawn",
+      [expect.objectContaining({ origin: "new", projectCwd: "/remote/p", mode: "rpc-ui" })],
+    );
+    // The landed tab keeps its owner, so follow-up traffic follows it.
+    expect(
+      h.useStore.getState().tabs.find((tab) => tab.tabId === "fresh-remote")!.instanceId,
+    ).toBe("inst-1");
+    expect(h.useStore.getState().activeTabId).toBe("fresh-remote");
+  });
+
   it("runSlashCommand /plan in a chat tab warns and never reaches omp", async () => {
     const record = h.stateWithRecord(null).projects[0]!.sessions[0]!;
     const appendNotice = vi.fn();

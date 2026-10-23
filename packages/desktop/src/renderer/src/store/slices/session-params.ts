@@ -260,12 +260,14 @@ const localCommands: readonly LocalCommand[] = [
     run(tabId, get) {
       // A chat's /new is another chat: it has no project to spawn into.
       if (isChatTab(get().state, tabId)) return get().newChat().then(() => undefined);
-      const projectCwd = get().tabs.find(
-        (tab) => tab.tabId === tabId,
-      )?.projectCwd;
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       // A composer only exists for a mounted tab; without one, keep the old path.
-      if (projectCwd === undefined) return false;
-      return get().newSession(projectCwd).then(() => undefined);
+      if (tab?.projectCwd === undefined) return false;
+      // The spawn rides the tab's owning instance: a remote session gets its
+      // successor on the same machine, exactly like the HUD's New button (#927).
+      return get()
+        .newSession(tab.projectCwd, undefined, tab.instanceId)
+        .then(() => undefined);
     },
   },
   // omp-ui's plan toggle: omp's /plan is TUI-only, so over rpc it would
