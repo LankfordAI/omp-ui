@@ -2306,6 +2306,7 @@ export const en = {
   "notice.merge.syncConflicts": "the sync of {source} stopped on {count} file(s) in {path} — resolve them in the worktree, then git merge --continue, then finish again",
   "notice.merge.landed": "merged {branch} ({commits}) into {destination}",
   "notice.finish.switchSkippedBusy": "the project checkout was left on its own branch — session “{title}” is mid-turn there; the work is in {destination}",
+  "notice.finish.settleSkipped": "the session did not settle — stop it by hand when you're done",
   "project.actions.newPrivate": "New private session",
   "project.actions.newSession": "New session",
   "project.actions.newTerminal": "New terminal session",

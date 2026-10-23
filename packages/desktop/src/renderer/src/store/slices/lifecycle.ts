@@ -101,6 +101,7 @@ export type LifecycleSlice = Pick<
   | "deleteSession"
   | "confirmDeleteSession"
   | "releaseWorktreeSession"
+  | "settleFinishedSession"
   | "syncWorktreeSession"
   | "renameWorktreeSessionBranch"
   | "resolveWorktreeMerge"
@@ -1734,6 +1735,22 @@ export function createLifecycleSlice(
   };
 
   /**
+   * Settles the tab after a merged finish (issue #924): reaps on the owning
+   * machine through main's tab routing. Never throws: a rejected or false
+   * answer reports itself as a transcript notice, because the finish already
+   * succeeded and must not read as half-failed. True = settled or already
+   * dormant; false = skipped (survived reap or replaced process).
+   */
+  const settleFinishedSession = async (tabId: string): Promise<boolean> => {
+    try {
+      return await backend.settleSession(tabId);
+    } catch (err) {
+      get().reportError(err);
+      return false;
+    }
+  };
+
+  /**
    * Merges `source` into the session's worktree checkout (issue #387). The
    * relaunch-prep is the same guard as release: main serialises the merge
    * against the tab's other lifecycle ops without respawning anything.
@@ -1869,6 +1886,7 @@ export function createLifecycleSlice(
     deleteSession,
     confirmDeleteSession,
     releaseWorktreeSession,
+    settleFinishedSession,
     syncWorktreeSession,
     renameWorktreeSessionBranch,
     cancelDeleteSession,

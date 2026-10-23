@@ -234,6 +234,7 @@ const mockBackend = {
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   hibernatePlanSource: vi.fn(async () => true),
+  settleSession: vi.fn(async () => true),
   restartSession: vi.fn(),
   convertToWorktree: vi.fn(async () => {}),
   releaseWorktree: vi.fn(

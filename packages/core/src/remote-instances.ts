@@ -80,6 +80,7 @@ export interface RemoteInstanceRecord {
 export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:terminate",
   "session:hibernatePlanSource",
+  "session:settle",
   "session:switchMode",
   "session:deletePreview",
   "session:delete",

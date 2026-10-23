@@ -84,6 +84,7 @@ const backendMock = {
   createBranch: vi.fn(async () => {}),
   mergeWorktreeBranch: vi.fn(async (): Promise<MergeBackResult> => mergedResult),
   releaseWorktree: vi.fn(async (): Promise<WorktreeReleaseResult> => releaseResult),
+  settleSession: vi.fn(async (): Promise<boolean> => true),
   syncWorktree: vi.fn(async (): Promise<WorktreeSyncResult> => ({
     kind: "merged",
     source: "main",
@@ -293,6 +294,7 @@ beforeEach(() => {
   backendMock.createBranch.mockResolvedValue(undefined);
   backendMock.mergeWorktreeBranch.mockResolvedValue(mergedResult);
   backendMock.releaseWorktree.mockResolvedValue(releaseResult);
+  backendMock.settleSession.mockResolvedValue(true);
   backendMock.syncWorktree.mockResolvedValue({ kind: "merged", source: "main", files: [] });
   backendMock.renameWorktreeBranch.mockResolvedValue(undefined);
   backendMock.suggestBranchName.mockResolvedValue(null);
@@ -1236,6 +1238,113 @@ describe("FinishWorktreeDialog", () => {
         await flushMicrotasks();
       });
       expect(backendMock.pushBranch).toHaveBeenCalledWith("/p", "main");
+    });
+  });
+
+  // The returning auto-settle (#924, #923's reversal note): a finish whose
+  // outcome is a landed merge settles the session; every other path does not.
+  describe("merged finish settles the session (issue #924)", () => {
+    /** Finish with the dialog's own defaults: merge & return into `main`. */
+    const finish = async (): Promise<void> => {
+      await openDialog();
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+    };
+
+    const notices = (): Array<{ text: string; level?: string }> => {
+      const items = useStore.getState().rpc[TAB]?.items ?? [];
+      return items.filter((item) => item.kind === "notice");
+    };
+
+    it("settles once after a merged finish, before the done row renders", async () => {
+      await finish();
+
+      expect(backendMock.settleSession).toHaveBeenCalledTimes(1);
+      expect(backendMock.settleSession).toHaveBeenCalledWith(TAB);
+      // The settle rides after the release on the same run; the done row of
+      // issue #414 still renders over the settled session.
+      expect(backendMock.releaseWorktree.mock.invocationCallOrder[0]!).toBeLessThan(
+        backendMock.settleSession.mock.invocationCallOrder[0]!,
+      );
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(document.body.textContent).toContain("merged 2 commits into main");
+    });
+
+    it("settles an already-merged finish that skipped the merge", async () => {
+      backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({ alreadyMerged: true }));
+      await openDialog();
+      act(() => primaryButton().click()); // return
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
+      expect(backendMock.settleSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("never settles a keep finish, even with the work already merged earlier", async () => {
+      await openDialog();
+      await clickInput(outcomeRadios()[1]!); // keep the branch
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(backendMock.releaseWorktree).toHaveBeenCalled();
+      expect(backendMock.settleSession).not.toHaveBeenCalled();
+    });
+
+    it("never settles when the merge stopped on conflicts", async () => {
+      backendMock.mergeWorktreeBranch.mockResolvedValue({
+        kind: "conflicts",
+        destination: "main",
+        commits: 0,
+        files: ["src/a.ts"],
+        conflictsLeftIn: null,
+      });
+      await finish();
+
+      expect(backendMock.settleSession).not.toHaveBeenCalled();
+    });
+
+    it("never settles when the release failed (null)", async () => {
+      backendMock.releaseWorktree.mockRejectedValueOnce(new Error("release failed"));
+      await finish();
+
+      expect(backendMock.settleSession).not.toHaveBeenCalled();
+      // The run returns to idle as it did before; the dialog stays open.
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+    });
+
+    it("a skipped settle warns on the transcript while the done row still shows", async () => {
+      backendMock.settleSession.mockResolvedValueOnce(false);
+      await openDialog();
+      useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(document.body.textContent).toContain("merged 2 commits into main");
+      const settleNotice = notices().find((item) => item.text.includes("did not settle"));
+      expect(settleNotice).toBeDefined();
+      expect(settleNotice!.level).toBe("warn");
+    });
+
+    it("a rejected settle leaves the done row intact", async () => {
+      backendMock.settleSession.mockRejectedValueOnce(new Error("transport down"));
+      await openDialog();
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      // The finish landed; a failed settle reads as a notice, never a half-done merge.
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(document.body.textContent).toContain("merged 2 commits into main");
     });
   });
 

@@ -11,6 +11,7 @@ This guide explains what users receive from a release and how maintainers publis
 - macOS releases and nightlies ship for Apple Silicon only; the Intel (`mac-x64`) DMG and ZIP are no longer built. Existing Intel installs stay on their last build, and their update check reports that no compatible update file exists (#908).
 - A new native session started on a joined remote host no longer sticks on the boot skeleton with "No models are available" when the host adopts a pre-booted session: the host now announces the session before its first frame, so this app routes the boot to the right machine (#907).
 - The sidebar lists running sessions only, newest activity first, with every other session in a collapsed Settled section; one New session button opens the project quick-open, whose No project row starts a chat and whose project pages hold project settings, open targets, and remove; sidebar groups and manual reordering are gone (#919).
+- A finished worktree session settles itself: when the Finish dialog's run lands a merge (or finds the work already in the destination), the session's process is reaped and its row moves to Settled, resume included — a keep finish leaves the session live, and the done row's push affordance keeps working over the settled session (#924).
 
 ## Choose a download
 
