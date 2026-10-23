@@ -211,6 +211,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setSkipTerminateConfirmation(skip) {
+      try {
+        await backend.setSkipTerminateConfirmation(skip);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setExperimentsEnabled(on) {
       try {
         await backend.setExperimentsEnabled(on);

@@ -2242,6 +2242,7 @@ export class MainBackend {
       agentRoster: this.registry.getSetting("agentRoster"),
       modelFavorites: this.registry.getFavorites(),
       skipDeleteConfirmation: this.registry.getSetting("skipDeleteConfirmation"),
+      skipTerminateConfirmation: this.registry.getSetting("skipTerminateConfirmation"),
       gettingStartedSeen: this.registry.getSetting("gettingStartedSeen"),
       themeId: this.registry.getSetting("themeId"),
       fontFamilyId: this.registry.getSetting("fontFamilyId"),

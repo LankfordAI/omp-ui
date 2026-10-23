@@ -588,6 +588,8 @@ export interface SettingsSlice {
   setDefaultAutoThinking(on: boolean): Promise<void>;
   setSubagentModelInheritByDefault(on: boolean): Promise<void>;
   setSkipDeleteConfirmation(skip: boolean): Promise<void>;
+  /** Opt out of the "Stop the agent?" confirmation (issue #925). */
+  setSkipTerminateConfirmation(skip: boolean): Promise<void>;
   setExperimentsEnabled(on: boolean): Promise<void>;
   /** Shows/hides the composer mic button app-wide (issue #647). */
   setVoiceInputEnabled(on: boolean): Promise<void>;

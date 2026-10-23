@@ -1,4 +1,4 @@
-import type { JSX } from "react";
+import { useEffect, useState, type JSX } from "react";
 import { LOCAL_MACHINE_KEY } from "@omp-ui/core/fleet";
 import { useT, type MessageKey } from "../lib/i18n";
 import type { LifecycleConfirmation } from "../store";
@@ -227,6 +227,15 @@ export function AppFeedback(): JSX.Element | null {
   const confirmation = useStore((s) => s.lifecycleConfirmation);
   const confirmLifecycleAction = useStore((s) => s.confirmLifecycleAction);
   const cancelLifecycleAction = useStore((s) => s.cancelLifecycleAction);
+  // Opt-out for the terminate confirmation (issue #925). The host component
+  // stays mounted across confirmations — ConfirmDialog is keyed, this is not —
+  // so the checkbox must be cleared explicitly whenever a new decision is
+  // staged, including non-terminate kinds that never render the row.
+  const [skipTerminate, setSkipTerminate] = useState(false);
+  const setSkipTerminateConfirmation = useStore((s) => s.setSkipTerminateConfirmation);
+  useEffect(() => {
+    setSkipTerminate(false);
+  }, [confirmation?.id]);
 
   const notice = errorNotices[0] ?? null;
   const infoNotice = infoNotices[0] ?? null;
@@ -323,7 +332,14 @@ export function AppFeedback(): JSX.Element | null {
             variant="solid"
             tone={copy.tone}
             disabled={busy}
-            onClick={() => void confirmLifecycleAction(confirmation.id)}
+            onClick={() => {
+              // Persist before dispatching so a concurrent stop cannot slip
+              // past an unsaved setting; a failed persist still proceeds.
+              if (skipTerminate && confirmation.kind === "terminate") {
+                void setSkipTerminateConfirmation(true);
+              }
+              void confirmLifecycleAction(confirmation.id);
+            }}
           >
             {busy ? t("dialog.lifecycle.working") : copy.action}
           </Button>
@@ -339,6 +355,17 @@ export function AppFeedback(): JSX.Element | null {
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-dim [overflow-wrap:anywhere] break-words">
           {copy.body}
         </p>
+        {confirmation.kind === "terminate" && !busy && (
+          <label className="flex cursor-pointer items-center gap-2.5 rounded-md border border-line bg-raised px-3 py-2.5 text-xs text-ink-mid transition-colors hover:border-line-strong hover:text-ink">
+            <input
+              type="checkbox"
+              checked={skipTerminate}
+              onChange={(event) => setSkipTerminate(event.target.checked)}
+              className="size-3.5 accent-current"
+            />
+            {t("dialog.lifecycle.dontShowAgain")}
+          </label>
+        )}
       </div>
     </ConfirmDialog>
   );

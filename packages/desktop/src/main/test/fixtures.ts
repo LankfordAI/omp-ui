@@ -26,6 +26,7 @@ interface RegistrySettings {
   defaultAutoThinking: boolean;
   modelFavorites: string[];
   skipDeleteConfirmation: boolean;
+  skipTerminateConfirmation: boolean;
   experimentsEnabled: boolean;
   voiceInputEnabled: boolean;
   liveWorkParking: boolean;
@@ -133,6 +134,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     hibernateManualDefaultSeeded: true,
     modelFavorites: [],
     skipDeleteConfirmation: false,
+    skipTerminateConfirmation: false,
     experimentsEnabled: false,
     voiceInputEnabled: false,
     liveWorkParking: true,

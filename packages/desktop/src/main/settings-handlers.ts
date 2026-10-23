@@ -30,6 +30,7 @@ type SettingsHandlerChannels =
   | typeof CH.setDefaultAutoThinking
   | typeof CH.setSubagentModelInheritByDefault
   | typeof CH.setSkipDeleteConfirmation
+  | typeof CH.setSkipTerminateConfirmation
   | typeof CH.setGettingStartedSeen
   | typeof CH.setExperimentsEnabled
   | typeof CH.setVoiceInputEnabled
@@ -94,6 +95,7 @@ export function registerSettingsHandlers(
     [CH.setSubagentModelInheritByDefault]: (value: boolean) =>
       commit("subagentModelInheritByDefault", value),
     [CH.setSkipDeleteConfirmation]: (value: boolean) => commit("skipDeleteConfirmation", value),
+    [CH.setSkipTerminateConfirmation]: (value: boolean) => commit("skipTerminateConfirmation", value),
     [CH.setGettingStartedSeen]: (value: boolean) => commit("gettingStartedSeen", value),
     [CH.setExperimentsEnabled]: (value: boolean) => commit("experimentsEnabled", value),
     [CH.setVoiceInputEnabled]: (value: boolean) => commit("voiceInputEnabled", value),

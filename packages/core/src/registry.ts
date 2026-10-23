@@ -68,6 +68,8 @@ export interface RegistrySettings {
   /** Agent names from the last roster refresh (unpack + agent dirs). */
   agentRoster: string[];
   skipDeleteConfirmation: boolean;
+  /** Opt out of the "Stop the agent?" confirmation (issue #925); default off. */
+  skipTerminateConfirmation: boolean;
   /** Global feature flag for the Experiments Lab + autoresearch bridge (issue #571); default off. */
   experimentsEnabled: boolean;
   /** Global mic button in every composer (issue #647); default off. */
@@ -272,6 +274,10 @@ export const SETTINGS: SettingDescriptors = {
     };
   })(),
   skipDeleteConfirmation: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  skipTerminateConfirmation: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),

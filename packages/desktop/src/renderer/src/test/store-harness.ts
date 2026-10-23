@@ -229,6 +229,7 @@ const mockBackend = {
   setDefaultAdvisor: vi.fn(async () => {}),
   setDefaultAutoThinking: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(async () => {}),
+  setSkipTerminateConfirmation: vi.fn(async () => {}),
   setGettingStartedSeen: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),

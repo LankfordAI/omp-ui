@@ -12,6 +12,7 @@ const backendMock = {
   getState: vi.fn(async () => backendState()),
   terminateSession: vi.fn(async () => {}),
   switchMode: vi.fn(async () => {}),
+  setSkipTerminateConfirmation: vi.fn(async () => {}),
   removeProject: vi.fn(async () => {}),
   fleetRolloutProviderKeys: vi.fn(
     async (): Promise<FleetProviderKeysOutcome> => ({ status: "accepted", installed: [], failed: [] }),
@@ -233,6 +234,80 @@ describe("stop confirmation is a drivable DOM dialog", () => {
     });
     expect(useStore.getState().lifecycleConfirmation).toBeNull();
     expect(dialog()).toBeNull();
+  });
+});
+
+// The terminate dialog's opt-out row (issue #925): the checkbox persists the
+// setting before dispatching, and only on accept.
+describe("stop-confirmation opt-out checkbox (issue #925)", () => {
+  const checkboxInDialog = (): HTMLInputElement | null =>
+    dialog()?.querySelector<HTMLInputElement>('input[type="checkbox"]') ?? null;
+
+  it("offers the opt-out and persists it before dispatching the stop", async () => {
+    await render();
+    await act(async () => {
+      await useStore.getState().terminate(TAB);
+    });
+    await settle();
+    const checkbox = checkboxInDialog();
+    expect(checkbox).not.toBeNull();
+    expect(dialog()!.textContent).toContain("Do not show this warning again");
+    expect(checkbox!.checked).toBe(false);
+
+    act(() => checkbox!.click());
+    expect(checkbox!.checked).toBe(true);
+
+    await act(async () => {
+      buttonIn("Stop agent").click();
+    });
+    expect(backendMock.setSkipTerminateConfirmation).toHaveBeenCalledWith(true);
+    expect(backendMock.terminateSession).toHaveBeenCalledWith(TAB);
+    // Persist before dispatch: a concurrent stop must see the saved setting.
+    expect(backendMock.setSkipTerminateConfirmation.mock.invocationCallOrder[0]).toBeLessThan(
+      backendMock.terminateSession.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("does not persist when the dialog is cancelled with the box checked", async () => {
+    await render();
+    await act(async () => {
+      await useStore.getState().terminate(TAB);
+    });
+    await settle();
+    act(() => checkboxInDialog()!.click());
+    await act(async () => {
+      buttonIn("Cancel").click();
+    });
+    expect(backendMock.setSkipTerminateConfirmation).not.toHaveBeenCalled();
+    expect(backendMock.terminateSession).not.toHaveBeenCalled();
+  });
+
+  it("offers no checkbox on a mode-switch confirmation", async () => {
+    await render();
+    await act(async () => {
+      await useStore.getState().switchMode(TAB, "pty");
+    });
+    await settle();
+    expect(dialog()!.textContent).toContain("Switch session mode?");
+    expect(checkboxInDialog()).toBeNull();
+  });
+
+  it("resets the checkbox when a second stop is staged", async () => {
+    await render();
+    await act(async () => {
+      await useStore.getState().terminate(TAB);
+    });
+    await settle();
+    act(() => checkboxInDialog()!.click());
+    await act(async () => {
+      buttonIn("Cancel").click();
+    });
+
+    await act(async () => {
+      await useStore.getState().terminate(TAB);
+    });
+    await settle();
+    expect(checkboxInDialog()!.checked).toBe(false);
   });
 });
 
