@@ -67,10 +67,13 @@ export function parseLatestRelease(body: unknown): AppReleaseInfo | null {
   };
 }
 
-/** nightly.yml stamps `Nightly <X.Y.Z-nightly.YYYYMMDD.sha7>` as the release title
- *  (nightly.yml line 290 titles the release exactly `Nightly ${VERSION}`);
- *  anything else is not a nightly we can trust. */
-const NIGHTLY_TITLE_RE = /^Nightly (\d+\.\d+\.\d+-nightly\.\d{8}\.[0-9a-f]{7})$/;
+/** nightly.yml stamps `Nightly <X.Y.Z-nightly.YYYYMMDDTHHMMSS.sha7>` as the release
+ *  title (the publish step titles the release exactly `Nightly ${VERSION}`);
+ *  anything else is not a nightly we can trust. The optional `T<HHMMSS>` is the
+ *  #929 stamp: builds published before it shipped carry the old date-only form,
+ *  and installs out there in the wild must still be able to read the rolling
+ *  release, so both shapes parse. */
+const NIGHTLY_TITLE_RE = /^Nightly (\d+\.\d+\.\d+-nightly\.\d{8}(?:T\d{6})?\.[0-9a-f]{7})$/;
 
 /** Validated parse of GET /releases/tags/nightly (issue #493). */
 export function parseNightlyRelease(body: unknown): AppReleaseInfo | null {
@@ -108,12 +111,14 @@ export async function fetchNightlyAppRelease(
   }
 }
 
-const APP_VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d{8})\.([0-9a-f]{7}))?$/;
+const APP_VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d{8})(?:T(\d{6}))?\.([0-9a-f]{7}))?$/;
 
 /**
  * Train-aware version ordering (issue #493). Base X.Y.Z decides first. At
  * equal base, nightly ranks newer on the nightly train and bare stable ranks
- * newer on the stable train. Two nightlies order by date, then sha.
+ * newer on the stable train. Two nightlies order by stamp — date, then the
+ * `T<HHMMSS>` build time (#929), then sha as the last resort — with an
+ * old date-only stamp ranking below every same-day stamped build.
  * Unparseable versions sort lowest, mirroring compareVersions.
  */
 export function compareAppVersions(a: string, b: string, train: UpdateTrain): number {
@@ -128,7 +133,12 @@ export function compareAppVersions(a: string, b: string, train: UpdateTrain): nu
   const bNightly = B[4] !== undefined;
   if (aNightly && bNightly) {
     if (A[4] !== B[4]) return A[4]! < B[4]! ? -1 : 1;
-    if (A[5] !== B[5]) return A[5]! < B[5]! ? -1 : 1;
+    // Same day: the UTC build time orders nightlies (issue #929 — sha7 is
+    // not chronological, so hex luck used to hide newer same-day builds).
+    const aTime = A[5] ?? "000000";
+    const bTime = B[5] ?? "000000";
+    if (aTime !== bTime) return aTime < bTime ? -1 : 1;
+    if (A[6] !== B[6]) return A[6]! < B[6]! ? -1 : 1;
     return 0;
   }
   if (aNightly === bNightly) return 0;

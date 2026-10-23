@@ -108,7 +108,7 @@ its `ref` input (default `main`) to one commit and refuses it unless that commit
 is reachable from `main`, `develop`, or a stable `v*` tag — a fork PR head, a
 feature branch, or the rolling `nightly` tag itself never reaches a lane (issue
 #627). The trusted tip is then packaged for Linux x64, Windows x64, and macOS
-arm64 under the version `<latest-stable>-nightly.<UTC date>.<short SHA>` —
+arm64 under the version `<latest-stable>-nightly.<UTC date>T<UTC time>.<short SHA>` —
 the base follows the latest stable release, never the tree version. The files
 are delivered two ways: as 14-day run artifacts, and on one rolling *prerelease*
 GitHub Release named `nightly`, which each run deletes and recreates at the

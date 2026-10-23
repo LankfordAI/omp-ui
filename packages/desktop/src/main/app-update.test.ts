@@ -798,7 +798,7 @@ describe("AppUpdater update trains (issue #493)", () => {
   });
 
   it("orders same-base nightlies", async () => {
-    const currentVersion = "1.0.0-nightly.20260911.abc1234";
+    const currentVersion = "1.0.0-nightly.20260911T071530.abc1234";
     const equal = makeUpdater({
       currentVersion,
       getTrain: () => "nightly",
@@ -810,12 +810,26 @@ describe("AppUpdater update trains (issue #493)", () => {
     const newer = makeUpdater({
       currentVersion,
       getTrain: () => "nightly",
-      fetchImpl: async () => json(nightlyBody("1.0.0-nightly.20260912.0000000")),
+      fetchImpl: async () => json(nightlyBody("1.0.0-nightly.20260912T071530.0000000")),
       env: {},
       exists: () => true,
     });
     await newer.updater.checkNow(true);
     expect(newer.updater.state.status).toBe("available");
+  });
+
+  it("offers a stamped nightly over an equal-base date-only install cut the same day", async () => {
+    // Issue #929: 7a2d93b was installed, 3b31ac9 shipped later the same UTC
+    // day; sha7 luck made the check report up-to-date. The HHMMSS stamp ends it.
+    const { updater } = makeUpdater({
+      currentVersion: "1.0.0-nightly.20261023.7a2d93b",
+      getTrain: () => "nightly",
+      fetchImpl: async () => json(nightlyBody("1.0.0-nightly.20261023T143045.3b31ac9")),
+      env: {},
+      exists: () => true,
+    });
+    await updater.checkNow(true);
+    expect(updater.state.status).toBe("available");
   });
 
   it("sets the feed and downgrade policy on every train", async () => {

@@ -99,18 +99,20 @@ jobs:
           echo "trusted: $sha is reachable from $trusted_by"
           # The prerelease base is the latest STABLE release, never the tree
           # version (it lags between tags on the trunk): stamped as
-          # <stable>-nightly.<date>.<sha>, the app's update check compares equal
-          # to stable and reports "no update available".
+          # <stable>-nightly.<UTC timestamp>.<sha>, the app's update check compares equal
+          # to stable and reports "no update available". The UTC HHMMSS makes the
+          # stamp chronological inside one day (issue #929 — sha7 order is hex
+          # luck, which ranked a later same-day nightly as older).
           base="$(gh release view --json tagName --jq .tagName)" || base=""
           base="${base#v}"
           if [ -z "$base" ]; then
             base="$(gh api "repos/${GH_REPO}/contents/packages/desktop/package.json?ref=${sha}" --jq .content \
               | base64 -d | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
           fi
-          version="${base}-nightly.$(date -u +%Y%m%d).${sha:0:7}"
+          version="${base}-nightly.$(date -u +%Y%m%dT%H%M%S).${sha:0:7}"
           node -e '
             const v = process.argv[1];
-            if (!/^\d+\.\d+\.\d+-nightly\.\d{8}\.[0-9a-f]{7}$/.test(v)) {
+            if (!/^\d+\.\d+\.\d+-nightly\.\d{8}T\d{6}\.[0-9a-f]{7}$/.test(v)) {
               console.error(`refusing to stamp non-conforming nightly version ${v}`);
               process.exit(1);
             }

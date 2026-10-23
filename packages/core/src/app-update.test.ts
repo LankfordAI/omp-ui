@@ -314,7 +314,7 @@ describe("nightly app releases", () => {
   const body = {
     tag_name: "nightly",
     html_url: "https://github.com/LankfordAI/omp-ui/releases/tag/nightly",
-    name: "Nightly 1.2.3-nightly.20260911.abc1234",
+    name: "Nightly 1.2.3-nightly.20260911T071530.abc1234",
     draft: false,
     prerelease: true,
     assets: [{ name: "omp-ui-nightly.AppImage" }],
@@ -322,18 +322,23 @@ describe("nightly app releases", () => {
 
   it("takes the version from the title and keeps the rolling tag", () => {
     expect(parseNightlyRelease(body)).toMatchObject({
-      version: "1.2.3-nightly.20260911.abc1234",
+      version: "1.2.3-nightly.20260911T071530.abc1234",
       tag: "nightly",
       assets: ["omp-ui-nightly.AppImage"],
     });
   });
 
-  it("rejects drafts, non-prereleases, and malformed titles", () => {
+  it("accepts the pre-stamp date-only title, rejects anything else", () => {
+    // Installs built before #929 must still read the rolling release.
+    expect(parseNightlyRelease({ ...body, name: "Nightly 1.2.3-nightly.20260911.abc1234" })).toMatchObject({
+      version: "1.2.3-nightly.20260911.abc1234",
+    });
     expect(parseNightlyRelease({ ...body, draft: true })).toBeNull();
     expect(parseNightlyRelease({ ...body, prerelease: false })).toBeNull();
     expect(parseNightlyRelease({ ...body, name: "Nightly 1.2.3" })).toBeNull();
-    expect(parseNightlyRelease({ ...body, name: "Nightly build 1.2.3-nightly.20260911.abc1234" })).toBeNull();
-    expect(parseNightlyRelease({ ...body, name: "Nightly 1.2.3-nightly.20260911.abc1234 (re-roll)" })).toBeNull();
+    expect(parseNightlyRelease({ ...body, name: "Nightly build 1.2.3-nightly.20260911T071530.abc1234" })).toBeNull();
+    expect(parseNightlyRelease({ ...body, name: "Nightly 1.2.3-nightly.20260911T071530.abc1234 (re-roll)" })).toBeNull();
+    expect(parseNightlyRelease({ ...body, name: "Nightly 1.2.3-nightly.20260911T0715.abc1234" })).toBeNull();
   });
 
   it("fetches the fixed rolling tag endpoint", async () => {
@@ -347,18 +352,31 @@ describe("nightly app releases", () => {
 });
 
 describe("compareAppVersions", () => {
-  const old = "1.2.3-nightly.20260911.abc1234";
-  const next = "1.2.3-nightly.20260912.0000000";
+  const old = "1.2.3-nightly.20260911T071530.abc1234";
+  const next = "1.2.3-nightly.20260912T071530.0000000";
 
   it("orders base versions independently of train", () => {
     expect(compareAppVersions(old, "1.3.0", "nightly")).toBeLessThan(0);
     expect(compareAppVersions("2.0.0", next, "stable")).toBeGreaterThan(0);
   });
 
-  it("orders nightlies by date then sha", () => {
+  it("orders nightlies by date, then build time, then sha", () => {
     expect(compareAppVersions(next, old, "stable")).toBeGreaterThan(0);
-    expect(compareAppVersions("1.2.3-nightly.20260911.fffffff", old, "nightly")).toBeGreaterThan(0);
+    // Same day: the later UTC time wins even when its SHA sorts lower —
+    // hex luck used to hide the newer build (issue #929).
+    expect(compareAppVersions("1.2.3-nightly.20260911T071531.0000000", old, "nightly")).toBeGreaterThan(0);
+    // Identical timestamp (a re-roll or two refs at the same second): sha breaks the tie.
+    expect(compareAppVersions("1.2.3-nightly.20260911T071530.fffffff", old, "nightly")).toBeGreaterThan(0);
     expect(compareAppVersions(old, old, "nightly")).toBe(0);
+  });
+
+  it("ranks a date-only pre-stamp nightly below same-day stamped builds", () => {
+    const legacy = "1.2.3-nightly.20260911.7a2d93b";
+    expect(compareAppVersions(legacy, "1.2.3-nightly.20260911T000001.3b31ac9", "nightly")).toBeLessThan(0);
+    // One second apart is still enough to tell two builds apart.
+    expect(compareAppVersions("1.2.3-nightly.20260911T000001.3b31ac9", legacy, "nightly")).toBeGreaterThan(0);
+    // The older calendar day never outranks the newer one, stamp or not.
+    expect(compareAppVersions("1.2.3-nightly.20260911T235959.fffffff", "1.2.3-nightly.20260912.0000000", "nightly")).toBeLessThan(0);
   });
 
   it("sorts unparseable versions lowest", () => {
