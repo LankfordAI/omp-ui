@@ -2,7 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseModelsFileProviders, readModelsFileModelProviders } from "./models-file";
+import {
+  parseModelsFileProviderBaseUrl,
+  parseModelsFileProviders,
+  readModelsFileModelProviders,
+  readModelsFileProviderBaseUrl,
+} from "./models-file";
 
 const tmpDirs: string[] = [];
 function tmpDir(): string {
@@ -181,5 +186,44 @@ describe("readModelsFileModelProviders", () => {
     expect(result).toEqual(["litellm"]);
     expect(json).not.toContain("sk-must-not-leak");
     expect(json).not.toContain("secret-host.example.com");
+  });
+});
+
+describe("parseModelsFileProviderBaseUrl", () => {
+  const text = [
+    "providers:",
+    "  vllm:",
+    "    baseUrl: http://192.168.110.6:8000/v1",
+    "    models:",
+    "      - id: Qwen",
+    "        baseUrl: http://nested.invalid/v1",
+    "  litellm:",
+    '    apiKey: "sk-test"',
+    '    baseUrl: "http://192.168.110.6:4000/v1"',
+    "    modelOverrides:",
+    "      Qwen:",
+    "        baseUrl: http://override.invalid/v1",
+    "  openrouter:",
+    "    apiKey: sk-or",
+    "",
+  ].join("\n");
+
+  it("returns each provider's own baseUrl, never a nested one", () => {
+    expect(parseModelsFileProviderBaseUrl(text, "vllm")).toBe("http://192.168.110.6:8000/v1");
+    expect(parseModelsFileProviderBaseUrl(text, "litellm")).toBe("http://192.168.110.6:4000/v1");
+  });
+
+  it("is null for a provider with no baseUrl or no entry", () => {
+    expect(parseModelsFileProviderBaseUrl(text, "openrouter")).toBeNull();
+    expect(parseModelsFileProviderBaseUrl(text, "anthropic")).toBeNull();
+  });
+
+  it("reads the file from the agent dir, null without one", () => {
+    const withFile = agentDir(text);
+    expect(readModelsFileProviderBaseUrl("litellm", withFile.env, withFile.dir)).toBe(
+      "http://192.168.110.6:4000/v1",
+    );
+    const without = agentDir(null);
+    expect(readModelsFileProviderBaseUrl("litellm", without.env, without.dir)).toBeNull();
   });
 });

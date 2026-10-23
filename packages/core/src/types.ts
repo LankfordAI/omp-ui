@@ -515,6 +515,19 @@ export interface ProposedPlan {
   status: "pending" | "executed" | "refined" | "invalidated" | "dismissed";
 }
 
+/**
+ * A fresh session booted without its pinned model because that model's
+ * provider endpoint did not answer at spawn (#932). Prompts are refused until
+ * the user picks a model; the record keeps the pin, so the next spawn retries it.
+ */
+export interface ModelHold {
+  /** The pinned `provider/id` selector the session would have booted on. */
+  model: string;
+  provider: string;
+  /** `host:port` that did not answer, for the notice. */
+  endpoint: string;
+}
+
 export interface SessionSummary extends OwnedSessionRecord {
   title: string;
   status: SessionStatus | null;
@@ -577,6 +590,12 @@ export interface SessionSummary extends OwnedSessionRecord {
    * run data — the DB stays the record of runs.
    */
   autoresearch?: AutoresearchSnapshot;
+  /**
+   * Set while the live session is held on an unreachable pinned model (#932).
+   * Ephemeral like `goal`: never persisted. Optional so an older remote host
+   * still decodes; absent or null reads as "not held".
+   */
+  modelHold?: ModelHold | null;
 }
 
 export interface ProjectGroup {

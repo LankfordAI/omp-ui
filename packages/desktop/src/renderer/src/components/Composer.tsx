@@ -175,6 +175,8 @@ export function Composer({
   const record = owner?.record;
   const dead = record?.live !== "live";
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
+  // #932: booted without its pinned model; main refuses prompts until a pick.
+  const modelHold = useStore((s) => findOwner(s.state, tabId)?.record.modelHold ?? null);
   const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
   const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
   // Live voice gates on the omp version (issue #778): 18.5.1 added the
@@ -605,6 +607,9 @@ export function Composer({
         converting
       )
         return;
+      // #932: a held session starts no turn; the notice says why, and the
+      // draft stays. Slash and bash commands still go out.
+      if (modelHold !== null && !message.startsWith("/") && !message.startsWith("!")) return;
       // A leading "!" is omp's bash command, dispatched concurrently over
       // rpc-ui with no model turn (issue #678). Like slash, it takes no
       // images and gets no @-resolution; the draft goes out verbatim. It
@@ -734,6 +739,7 @@ export function Composer({
       workspace,
       converting,
       runWorktreeConversion,
+      modelHold,
     ],
   );
 
@@ -890,11 +896,18 @@ export function Composer({
         ? t("composer.placeholder.answer")
         : running
           ? t("composer.placeholder.running")
-          : t("composer.placeholder.idle");
+          : modelHold !== null
+            ? t("composer.placeholder.modelHold")
+            : t("composer.placeholder.idle");
 
   // An image or PDF alone is sendable: "what is this?" is in the attachment, not the text.
+  // A held session still runs slash and bash commands (/new, !ls, …); main
+  // refuses any that would start a turn.
   const canSend =
-    (trimmed !== "" || images.length > 0 || documents.length > 0) && !unavailable && !converting;
+    (trimmed !== "" || images.length > 0 || documents.length > 0) &&
+    !unavailable &&
+    !converting &&
+    (modelHold === null || isSlash || trimmed.startsWith("!"));
   const lines = text === "" ? 0 : text.split("\n").length;
 
   return (
@@ -1354,6 +1367,22 @@ export function Composer({
             <IconButton label={t("composer.error.dismissPaste")} onClick={dismissError}>
               <IconClose className="size-3" />
             </IconButton>
+          </div>
+        )}
+
+        {modelHold !== null && (
+          <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-copper">
+            <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">
+              <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
+              <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
+            </svg>
+            <span className="min-w-0 flex-1 break-words" data-selectable>
+              {t("composer.modelHold.notice", {
+                provider: modelHold.provider,
+                endpoint: modelHold.endpoint,
+                model: modelHold.model,
+              })}
+            </span>
           </div>
         )}
 

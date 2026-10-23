@@ -372,6 +372,7 @@ export const en = {
   "composer.placeholder.exited": "agent exited — resume to continue",
   "composer.placeholder.restarting": "restarting advisor…",
   "composer.placeholder.running": "steer the agent…",
+  "composer.placeholder.modelHold": "pick a model to start…   /  commands",
   "composer.placeholder.idle": "message the agent…   /  commands · @  files",
   "composer.placeholder.answer": "answer the question…   or choose an option above",
   // Attachment strip
@@ -599,6 +600,8 @@ export const en = {
   "composer.model.noModelsRemote":
     "No models are available on {nickname}. Configure provider credentials there, then restart the session.",
   "composer.model.pick": "pick a model",
+  "composer.model.held": "pick a model",
+  "composer.modelHold.notice": "{provider} ({endpoint}) is not reachable, so this session started without {model}. Pick a model to send.",
   "composer.model.afterTurn": "model changes are available after the current turn finishes",
   "composer.model.free": "free",
   "composer.model.searchFavorites": "search favorites…",

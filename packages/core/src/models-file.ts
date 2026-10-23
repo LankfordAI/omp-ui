@@ -13,8 +13,9 @@ import { getOmpAgentDir, scalar } from "./omp-config";
  * it recognises exactly the three-level `providers: <id>: <key>: value` shape
  * and degrades to "not configured" on anything else rather than throwing — a
  * misread costs a neutral gate answer, a thrown error would break spawn.
- * Nothing beyond provider ids ever leaves this module: `apiKey` values are
- * consumed only as a present/absent boolean, and `baseUrl` values not at all.
+ * `apiKey` values are consumed only as a present/absent boolean and never
+ * leave this module. A provider's `baseUrl` leaves only through
+ * `readModelsFileProviderBaseUrl`, for the spawn-time reachability probe (#932).
  */
 
 /** Providers in omp's models.yml that are configured well enough to spawn with:
@@ -34,13 +35,49 @@ export function readModelsFileModelProviders(
   return parseModelsFileProviders(text, env);
 }
 
+/** The provider's `baseUrl` in omp's models.yml, or null when it has none
+ *  (a built-in provider, or no models.yml at all). */
+export function readModelsFileProviderBaseUrl(
+  providerId: string,
+  env: NodeJS.ProcessEnv = process.env,
+  agentDir: string = getOmpAgentDir(env),
+): string | null {
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(agentDir, "models.yml"), "utf8");
+  } catch {
+    return null;
+  }
+  return parseModelsFileProviderBaseUrl(text, providerId);
+}
+
 /** Pure half: ids in file order, deduped, given the file text. Exported for tests. */
 export function parseModelsFileProviders(
   text: string,
   env: NodeJS.ProcessEnv,
 ): string[] {
+  const ids: string[] = [];
+  for (const [id, provider] of scanModelsFileProviders(text, env)) if (provider.usable) ids.push(id);
+  return ids;
+}
+
+/** Pure half of readModelsFileProviderBaseUrl. Exported for tests. */
+export function parseModelsFileProviderBaseUrl(text: string, providerId: string): string | null {
+  return scanModelsFileProviders(text, {}).get(providerId)?.baseUrl ?? null;
+}
+
+interface ScannedProvider {
+  usable: boolean;
+  /** The first non-empty `baseUrl` the provider's subtree(s) carry. */
+  baseUrl: string | null;
+}
+
+function scanModelsFileProviders(
+  text: string,
+  env: NodeJS.ProcessEnv,
+): Map<string, ScannedProvider> {
   // id → usable-so-far, in first-appearance order.
-  const providers = new Map<string, boolean>();
+  const providers = new Map<string, ScannedProvider>();
 
   const lines = text.split(/\r?\n/);
   // Indent of the open `providers:` line; null outside its block.
@@ -57,24 +94,25 @@ export function parseModelsFileProviders(
   let sawApiKey = false;
   let sawApiKeyEnv = false;
   let sawApiKeyEnvSet = false;
-  let sawBaseUrl = false;
+  let baseUrl: string | null = null;
   const flush = (): void => {
     if (currentId !== null) {
-      const previous = providers.get(currentId) ?? false;
-      providers.set(
-        currentId,
-        previous ||
+      const previous = providers.get(currentId);
+      providers.set(currentId, {
+        usable:
+          (previous?.usable ?? false) ||
           sawApiKey ||
           sawApiKeyEnvSet ||
-          (sawBaseUrl && !sawApiKey && !sawApiKeyEnv),
-      );
+          (baseUrl !== null && !sawApiKey && !sawApiKeyEnv),
+        baseUrl: previous?.baseUrl ?? baseUrl,
+      });
     }
     currentId = null;
     keyIndent = null;
     sawApiKey = false;
     sawApiKeyEnv = false;
     sawApiKeyEnvSet = false;
-    sawBaseUrl = false;
+    baseUrl = null;
   };
 
   for (const line of lines) {
@@ -134,13 +172,10 @@ export function parseModelsFileProviders(
         sawApiKeyEnv = true;
         if ((env[value] ?? "").length > 0) sawApiKeyEnvSet = true;
       } else if (key === "baseUrl" && value !== "") {
-        sawBaseUrl = true;
+        baseUrl = value;
       }
     }
   }
   flush();
-
-  const ids: string[] = [];
-  for (const [id, usable] of providers) if (usable) ids.push(id);
-  return ids;
+  return providers;
 }

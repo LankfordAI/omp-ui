@@ -1,5 +1,6 @@
 import type {
   CapabilitySnapshot,
+  ModelHold,
   OwnedSessionRecord,
   PtyHandle,
   RpcClient,
@@ -37,6 +38,10 @@ export interface RpcLiveEntry extends LiveEntryBase {
   advisorStatsBridgeLoaded: boolean;
   /** True when this spawn minted the browser pane's bridge endpoint and armed the extension (#519). */
   browserPaneArmed: boolean;
+  /** Set when this spawn booted unpinned because the pinned model's endpoint did not answer (#932); cleared by a successful set_model. */
+  modelHold: ModelHold | null;
+  /** Ids of set_model commands sent while held; a successful response to one lifts the hold. */
+  readonly modelHoldPicks: Set<string>;
 }
 
 export type LiveEntry = PtyLiveEntry | RpcLiveEntry;
@@ -81,6 +86,8 @@ export function createRpcLiveEntry(record: OwnedSessionRecord): RpcLiveEntry {
     planBridgeLoaded: false,
     advisorStatsBridgeLoaded: false,
     browserPaneArmed: false,
+    modelHold: null,
+    modelHoldPicks: new Set(),
   };
 }
 

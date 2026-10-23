@@ -20,6 +20,7 @@ export type BreadcrumbKind =
   | "session-mode"
   | "warm-adopt"
   | "warm-miss"
+  | "model-hold"
   | "update-stage"
   | "remote-enable"
   | "remote-token-regenerate"

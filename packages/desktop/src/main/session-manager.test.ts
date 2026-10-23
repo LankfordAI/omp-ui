@@ -232,7 +232,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"] } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -303,6 +303,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     providerKeys,
     hasOAuthProvider: opts.hasOAuthProvider,
     hasConfiguredModelsFileProvider: opts.hasConfiguredModelsFileProvider,
+    resolveModelHold: opts.resolveModelHold,
     getOmpPath: () => "/test/omp",
     // The collab poll never shells out in tests: every probe reads as a CLI
     // hiccup, which holds the last snapshot (issue #686).
@@ -8536,5 +8537,122 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
       Core.isObject(tool) ? tool.name : null,
     );
     expect(names).toEqual(expected ? ["omp-ui_notify", ...Core.FLEET_TOOLS] : ["omp-ui_notify"]);
+  });
+});
+
+// Issue #932: a fresh session whose pinned model's endpoint does not answer
+// boots unpinned and held until the user picks a model.
+describe("model hold on an unreachable pinned endpoint (issue #932)", () => {
+  const HOLD = { model: "litellm/Qwen", provider: "litellm", endpoint: "192.168.110.6:4000" };
+  const freshSpawn = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+  const modelOverlay = (): string => {
+    const overlays = (RpcClientMock.mock.calls.at(-1)?.[0] as { configOverlays?: string[] }).configOverlays ?? [];
+    return fs.readFileSync(overlays.find((file) => path.basename(file) === "omp-ui-model.yml")!, "utf8");
+  };
+  const responses = (sent: { channel: string; args: unknown[] }[]): unknown[] =>
+    sent
+      .filter((entry) => entry.channel === CH.onRpcFrame)
+      .map((entry) => entry.args[1])
+      .filter((frame) => (frame as { type?: unknown }).type === "response");
+
+  it("boots unpinned and held, keeping the record's model for the next spawn", async () => {
+    const probed: string[] = [];
+    const { manager, registry, crumbs } = setup({
+      mode: "rpc-ui",
+      resolveModelHold: async (model) => {
+        probed.push(model);
+        return HOLD;
+      },
+    });
+    registry.setSessionModel(TAB, "litellm/Qwen", "auto");
+
+    const { tabId } = await freshSpawn(manager);
+
+    expect(probed).toEqual(["litellm/Qwen"]);
+    expect(modelOverlay()).toBe('defaultThinkingLevel: "auto"\n');
+    expect(registry.sessions.find((s) => s.tabId === tabId)).toMatchObject({ model: "litellm/Qwen" });
+    expect(manager.modelHold(tabId)).toEqual(HOLD);
+    expect(crumbs).toContainEqual(expect.objectContaining({ kind: "model-hold", tabId, detail: "litellm" }));
+  });
+
+  it("boots pinned when the endpoint answers", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui", resolveModelHold: async () => null });
+    registry.setSessionModel(TAB, "litellm/Qwen", null);
+
+    const { tabId } = await freshSpawn(manager);
+
+    expect(modelOverlay()).toBe('modelRoles:\n  default: "litellm/Qwen"\n');
+    expect(manager.modelHold(tabId)).toBeNull();
+  });
+
+  it("never probes a materialized resume: omp restores its model from the transcript", async () => {
+    const SESSION_ID = "019ffc67-522c-7000-95a3-01eca0266c03";
+    const resolveModelHold = vi.fn(async () => HOLD);
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui", resolveModelHold });
+    registry.setSessionModel(TAB, "litellm/Qwen", null);
+    fs.writeFileSync(
+      path.join(sessionsRoot, LINEAGE, `2026-08-13T00-00-00-000Z_${SESSION_ID}.jsonl`),
+      `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: PROJECT })}\n`,
+    );
+    registry.updateSession(TAB, { sessionId: SESSION_ID });
+
+    await resume(manager);
+
+    expect(resolveModelHold).not.toHaveBeenCalled();
+    expect(manager.modelHold(TAB)).toBeNull();
+  });
+
+  it("holds a never-materialized resume, which omp boots fresh", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui", resolveModelHold: async () => HOLD });
+    registry.setSessionModel(TAB, "litellm/Qwen", null);
+
+    await resume(manager);
+
+    expect(manager.modelHold(TAB)).toEqual(HOLD);
+  });
+
+  it("refuses turn-starting commands while held but passes hidden bridge commands", async () => {
+    const { manager, registry, sent } = setup({ mode: "rpc-ui", resolveModelHold: async () => HOLD });
+    registry.setSessionModel(TAB, "litellm/Qwen", null);
+    const { tabId } = await freshSpawn(manager);
+    const client = rpcInstances.at(-1)!;
+    client.send.mockClear();
+
+    manager.rpcSend(tabId, { type: "prompt", id: "p1", message: "hello" });
+    manager.rpcSend(tabId, { type: "steer", id: "s1", message: "faster" });
+    manager.rpcSend(tabId, { type: "prompt", id: "b1", message: "/omp-ui-plan on markdown" });
+    manager.rpcSend(tabId, { type: "get_state", id: "g1" });
+
+    expect(client.send.mock.calls.map(([cmd]) => (cmd as { id: string }).id)).toEqual(["b1", "g1"]);
+    expect(responses(sent)).toEqual([
+      expect.objectContaining({ id: "p1", command: "prompt", success: false, error: expect.stringContaining("192.168.110.6:4000") }),
+      expect.objectContaining({ id: "s1", command: "steer", success: false }),
+    ]);
+  });
+
+  it("lifts the hold when a set_model sent while held succeeds, and not on a failed one", async () => {
+    const { manager, registry, broadcast } = setup({ mode: "rpc-ui", resolveModelHold: async () => HOLD });
+    registry.setSessionModel(TAB, "litellm/Qwen", null);
+    const { tabId } = await freshSpawn(manager);
+    const client = rpcInstances.at(-1)!;
+
+    manager.rpcSend(tabId, { type: "set_model", id: "m1", provider: "openrouter", modelId: "x" });
+    client.frame({ type: "response", id: "m1", success: false, error: "nope" });
+    expect(manager.modelHold(tabId)).toEqual(HOLD);
+
+    // A response to an unrelated command never lifts it.
+    client.frame({ type: "response", id: "other", success: true });
+    expect(manager.modelHold(tabId)).toEqual(HOLD);
+
+    broadcast.mockClear();
+    manager.rpcSend(tabId, { type: "set_model", id: "m2", provider: "openrouter", modelId: "x" });
+    client.frame({ type: "response", id: "m2", success: true, data: {} });
+    expect(manager.modelHold(tabId)).toBeNull();
+    expect(broadcast).toHaveBeenCalled();
+
+    client.send.mockClear();
+    manager.rpcSend(tabId, { type: "prompt", id: "p2", message: "hello" });
+    expect(client.send).toHaveBeenCalledWith(expect.objectContaining({ id: "p2" }));
   });
 });

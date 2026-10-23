@@ -44,6 +44,9 @@ const EMPTY_FAVORITES: string[] = [];
 export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: boolean }) {
   const t = useT();
   const model = useStore((s) => s.rpc[tabId]?.model ?? null);
+  // #932: a held session runs on omp's fallback, which the user never chose —
+  // the chip asks for a pick instead of naming it.
+  const held = useStore((s) => (findOwner(s.state, tabId)?.record.modelHold ?? null) !== null);
   const models = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY);
   const running = useStore((s) => s.rpc[tabId]?.status === "running");
   const setModel = useStore((s) => s.setModel);
@@ -119,14 +122,16 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
         title={
           running
             ? t("composer.model.afterTurn")
-            : model === null
+            : model === null || held
               ? t("composer.model.pick")
               : `${model.provider}/${model.id}`
         }
         onClick={() => setOpen(true)}
-        className={cn(CAPSULE_SEGMENT, "max-w-56 text-xs font-medium text-ink-mid")}
+        className={cn(CAPSULE_SEGMENT, "max-w-56 text-xs font-medium", held ? "text-copper" : "text-ink-mid")}
       >
-        <span className="min-w-0 truncate">{model === null ? t("composer.model.fallback") : model.name || model.id}</span>
+        <span className="min-w-0 truncate">
+          {held ? t("composer.model.held") : model === null ? t("composer.model.fallback") : model.name || model.id}
+        </span>
         <Chevron open={false} className="rotate-90 text-ink-faint" />
       </button>
       {open && (
@@ -134,7 +139,7 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
           variant="main"
           instanceId={instanceId}
           models={models}
-          current={model}
+          current={held ? null : model}
           onClose={() => setOpen(false)}
           onPick={(picked) => {
             setOpen(false);

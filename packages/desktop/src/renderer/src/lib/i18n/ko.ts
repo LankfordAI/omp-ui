@@ -341,6 +341,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.placeholder.exited": "에이전트 종료됨 — 계속하려면 재개",
   "composer.placeholder.restarting": "어드바이저 재시작 중…",
   "composer.placeholder.running": "에이전트에 지시…",
+  "composer.placeholder.modelHold": "시작하려면 모델을 선택하세요…   /  명령",
   "composer.placeholder.idle": "에이전트에 메시지…   /  명령 · @  파일",
   "composer.placeholder.answer": "질문에 답변…   또는 위에서 선택",
   "composer.attachment.alt": "첨부 파일 {n}",
@@ -559,6 +560,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.model.noModelsRemote":
     "{nickname}에서 사용 가능한 모델이 없습니다. 해당 호스트에서 프로바이더 자격 증명을 구성한 다음 세션을 다시 시작하세요.",
   "composer.model.pick": "모델 선택",
+  "composer.model.held": "모델 선택",
+  "composer.modelHold.notice": "{provider}({endpoint})에 연결할 수 없어 이 세션은 {model} 없이 시작되었습니다. 보내려면 모델을 선택하세요.",
   "composer.model.afterTurn": "현재 턴이 끝나면 모델을 변경할 수 있습니다",
   "composer.model.free": "무료",
   "composer.model.searchFavorites": "즐겨찾기 검색…",

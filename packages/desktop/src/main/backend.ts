@@ -43,6 +43,7 @@ import {
   readMemoryOverview,
   readStatsOverview,
   readModelsFileModelProviders,
+  resolveModelHold,
   readMergeBackStatus,
   resolveMergeDestination,
   pullBranch,
@@ -376,6 +377,7 @@ export class MainBackend {
         providerKeys: this.providerKeys,
         hasOAuthProvider: () => this.providerOAuth.hasModelAccount(),
         hasConfiguredModelsFileProvider: () => readModelsFileModelProviders().length > 0,
+        resolveModelHold: (model) => resolveModelHold(model),
         getOmpPath: () => this.ompPath,
         getSessionsRoot: () => this.sessionsRoot,
         getArchiveRoot: () => this.archiveRoot,
@@ -920,6 +922,10 @@ export class MainBackend {
           await this.broadcast();
         },
         [CH.setSessionModel]: (tabId: string, model: string | null, thinkingLevel: string | null) => {
+          // #932: while held, the renderer's state echoes report omp's fallback
+          // model; persisting one would replace the pin the next spawn retries.
+          // A real pick lifts the hold before its own write arrives.
+          if (this.sessions.modelHold(tabId) !== null) return;
           if (this.registry.setSessionModel(tabId, model, thinkingLevel)) {
             this.sessions.syncModelOverlay(tabId);
           }
@@ -2343,6 +2349,7 @@ export class MainBackend {
       ...(goal === undefined ? {} : { goal }),
       ...(autoresearch === undefined ? {} : { autoresearch }),
       ...(vibe === undefined ? {} : { vibe }),
+      modelHold: this.sessions.modelHold(record.tabId),
     };
   }
 

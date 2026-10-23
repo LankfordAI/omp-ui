@@ -83,6 +83,7 @@ import {
   type DeleteSessionResult,
   type ImageAttachment,
   type DocumentAttachment,
+  type ModelHold,
   type OwnedSessionRecord,
   type FleetAgentUpdateAnswer,
   type FleetDispatchRequest,
@@ -131,6 +132,7 @@ import {
   createPtyLiveEntry,
   createRpcLiveEntry,
   type LiveEntry,
+  type RpcLiveEntry,
   wirePtyData,
   wireRpc,
 } from "./live-entry";
@@ -208,6 +210,8 @@ export interface FleetDispatcherLike {
 
 /** The agent dispatch deadline: the answer must land inside HOST_ANSWER_WATCHDOG_MS (60 s). */
 const AGENT_FLEET_DEADLINE_MS = 45_000;
+/** Commands that start or extend a turn: refused while the model is held (#932). */
+const MODEL_HOLD_COMMANDS: ReadonlySet<string> = new Set(["prompt", "steer", "follow_up", "abort_and_prompt"]);
 
 export interface SessionManagerDependencies {
   registry: Registry;
@@ -225,6 +229,12 @@ export interface SessionManagerDependencies {
    * core's readModelsFileModelProviders.
    */
   hasConfiguredModelsFileProvider?: () => boolean;
+  /**
+   * The spawn-time reachability probe for a fresh session's pinned model
+   * (#932); the desktop backend wires it to core's resolveModelHold. Absent =
+   * never hold.
+   */
+  resolveModelHold?: (model: string) => Promise<ModelHold | null>;
   getOmpPath: () => string | null;
   getSessionsRoot: () => string;
   getArchiveRoot: () => string;
@@ -1506,7 +1516,17 @@ export class SessionManager {
         initialCommands.push({ type: "prompt", id: fleetPromptCommandId(record.fleet.dispatchId), message: text });
       }
     }
-    const configOverlays = await writeRpcOverlays(record, absLineageDir, ompPath, this.gate, this.subagentSpawnConfig());
+    // #932: an unreachable pinned endpoint boots the session unpinned and held.
+    // The overlay drops only the model; the record keeps it for the next spawn.
+    const modelHold = await this.probeModelHold(record, modelOverride);
+    entry.modelHold = modelHold;
+    const configOverlays = await writeRpcOverlays(
+      modelHold === null ? record : { ...record, model: null },
+      absLineageDir,
+      ompPath,
+      this.gate,
+      this.subagentSpawnConfig(),
+    );
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
     }
@@ -1717,8 +1737,64 @@ export class SessionManager {
     return { tabId: record.tabId };
   }
 
+  /**
+   * #932: omp blocks its boot on the pinned model's provider discovery, so a
+   * dead endpoint means no fresh session starts at all. Only a fresh, unpinned-
+   * by-anything-else, non-fleet spawn is probed: a resume restores its model
+   * from the transcript (the overlay cannot unpin it), a gate or recovery pick
+   * names its own model, and a fleet spawn's boot prompt would bypass the hold.
+   */
+  private async probeModelHold(
+    record: OwnedSessionRecord,
+    modelOverride: string | undefined,
+  ): Promise<ModelHold | null> {
+    const resolve = this.deps.resolveModelHold;
+    if (
+      resolve === undefined ||
+      record.model === null ||
+      record.sessionId !== null ||
+      record.fleet !== null ||
+      modelOverride !== undefined ||
+      gateSelector(this.gate) !== null
+    ) {
+      return null;
+    }
+    try {
+      const hold = await resolve(record.model);
+      if (hold !== null) {
+        console.warn(`[model] ${record.tabId}: ${hold.provider} at ${hold.endpoint} did not answer; booting unpinned and held`);
+        this.deps.breadcrumb?.record("model-hold", { tabId: record.tabId, detail: hold.provider });
+      }
+      return hold;
+    } catch (err) {
+      console.warn("[model] reachability probe failed; booting pinned:", err);
+      return null;
+    }
+  }
+
+  /** The live session's model hold (#932); null when not held or not live. */
+  modelHold(tabId: string): ModelHold | null {
+    const entry = this.live.get(tabId);
+    return entry?.kind === "rpc-ui" ? entry.modelHold : null;
+  }
+
   /** The observer fan-out + client broadcast tail of `onFrame` (§5.3). */
   private deliverFrame(tabId: string, frame: RpcFrame, entry: LiveEntry): void {
+    // #932: a successful pick lifts the hold before the renderer sees the
+    // response, so the pick's own record write is no longer suppressed.
+    if (entry.kind === "rpc-ui" && entry.modelHold !== null) {
+      const control = normalizeControlFrame(frame);
+      if (
+        control?.kind === "response" &&
+        typeof control.id === "string" &&
+        entry.modelHoldPicks.delete(control.id) &&
+        control.success !== false
+      ) {
+        entry.modelHold = null;
+        entry.modelHoldPicks.clear();
+        void this.deps.broadcast();
+      }
+    }
     const before = this.pendingAnswer(tabId);
     const gateBefore = this.planGates.pending(tabId);
     for (const obs of this.frameObservers) obs.onFrame(tabId, frame, entry);
@@ -2431,6 +2507,7 @@ export class SessionManager {
     if (!entry) return;
     switch (entry.kind) {
       case "rpc-ui":
+        if (entry.modelHold !== null && this.holdModelCommand(tabId, entry, cmd)) return;
         entry.rpc?.send(cmd);
         return;
       case "pty":
@@ -2438,6 +2515,30 @@ export class SessionManager {
       default:
         unreachableLiveEntry(entry);
     }
+  }
+
+  /**
+   * #932: while held, a turn-starting command would run on whatever model omp
+   * fell back to, so it is answered here with a refusal instead of reaching
+   * the child. Hidden bridge commands (`/omp-ui-*`) still pass. A `set_model`
+   * passes and is remembered: its success lifts the hold. True = consumed.
+   */
+  private holdModelCommand(tabId: string, entry: RpcLiveEntry, cmd: RpcFrame): boolean {
+    if (cmd.type === "set_model") {
+      if (typeof cmd.id === "string") entry.modelHoldPicks.add(cmd.id);
+      return false;
+    }
+    if (!MODEL_HOLD_COMMANDS.has(String(cmd.type))) return false;
+    if (typeof cmd.message === "string" && cmd.message.startsWith("/omp-ui-")) return false;
+    const hold = entry.modelHold!;
+    this.deps.send(CH.onRpcFrame, tabId, {
+      type: "response",
+      id: cmd.id,
+      command: cmd.type,
+      success: false,
+      error: `${hold.provider} (${hold.endpoint}) is not reachable, so this session started without ${hold.model}. Pick a model to send.`,
+    });
+    return true;
   }
 
   /**

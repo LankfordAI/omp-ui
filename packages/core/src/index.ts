@@ -248,6 +248,7 @@ export {
   type OmpAdvisorDefaults,
 } from "./omp-config";
 export { readModelsFileModelProviders } from "./models-file";
+export { MODEL_HOLD_PROBE_MS, resolveModelHold } from "./model-hold";
 export {
   execOmpConfigRunner,
   BASH_GIT_GUARD_KEY,
