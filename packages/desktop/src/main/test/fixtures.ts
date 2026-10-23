@@ -33,6 +33,7 @@ interface RegistrySettings {
   sttModel: string | null;
   memoryDefaultsSeeded: boolean;
   autoThinkingDefaultSeeded: boolean;
+  hibernateManualDefaultSeeded: boolean;
   reviewRoster: unknown;
   reviewRosterImported: boolean;
   gettingStartedSeen: boolean;
@@ -128,6 +129,8 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     // Default true so seeds exercise post-migration registries; tests
     // wanting the legacy shape set it false via the patch.
     autoThinkingDefaultSeeded: true,
+    // Default true so seeds exercise post-migration registries (issue #923).
+    hibernateManualDefaultSeeded: true,
     modelFavorites: [],
     skipDeleteConfirmation: false,
     experimentsEnabled: false,

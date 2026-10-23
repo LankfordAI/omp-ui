@@ -761,7 +761,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.planFormatLabel": "플랜 형식",
   "settings.general.hibernateIdle": "유휴 세션 최대 절전",
   "settings.general.hibernateIdleHint":
-    "지정한 시간 동안 조용했던 네이티브 세션의 에이전트 프로세스를 중지합니다. 현재 보고 있는 탭, 각 프로젝트에서 가장 최근에 활성화된 세션, 터미널 탭은 최대 절전되지 않습니다. 대화록은 디스크에 남으며 세션을 재개하면 계속할 수 있습니다.",
+    "기본값은 꺼짐입니다: 직접 중지할 때까지 네이티브 세션이 유지됩니다. 시간 간격을 설정하면 지정한 시간 동안 조용했던 네이티브 세션의 에이전트 프로세스가 중지됩니다. 현재 보고 있는 탭, 각 프로젝트에서 가장 최근에 활성화된 세션, 터미널 탭은 최대 절전되지 않습니다. 대화록은 디스크에 남으며 세션을 재개하면 계속할 수 있습니다.",
   "settings.general.hibernateIdleLabel": "유휴 세션 최대 절전",
   "settings.general.streamStallWatchdog": "스트림 정체 감시기",
   "settings.general.streamStallWatchdogHint":

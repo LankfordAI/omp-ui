@@ -228,7 +228,7 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -272,6 +272,10 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     ],
   });
   const registry = Core.Registry.load(registryFile);
+  // The shipped default is off (issue #923); this harness keeps the idle
+  // suite armed by pinning the legacy 30-minute window unless a test opts
+  // into another value.
+  registry.setSetting("hibernateIdleMinutes", opts.hibernateIdleMinutes ?? 30);
   const cipher: KeyCipher = {
     available: true,
     backend: "test",
@@ -5328,7 +5332,7 @@ describe("agent mode persistence (issue #263)", () => {
 });
 
 describe("hibernation (issue #246)", () => {
-  /** The default hibernateIdleMinutes is 30; the harness registry keeps it. */
+  /** The shipped default is off (issue #923); setup() pins 30 for this suite. */
   const WINDOW = 30 * 60_000;
   const PROBE_TIMEOUT = 5_000;
   /** SETTLE_WINDOW_MS in session-manager.ts. */

@@ -599,6 +599,7 @@ type BackendBroadcastSettings = Omit<
   RegistrySettings,
   | "memoryDefaultsSeeded"
   | "autoThinkingDefaultSeeded"
+  | "hibernateManualDefaultSeeded"
   | "remoteEnabled"
   | "remoteBind"
   | "remotePort"
