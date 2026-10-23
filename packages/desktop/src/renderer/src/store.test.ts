@@ -642,11 +642,22 @@ describe("hibernation (issue #246)", () => {
       h.mockBackend.onSessionHibernated.mock.calls[0]![0] as (tabId: string) => void;
     await init;
 
+    // issue #926: a settle rides the hide path, so mount the tab under test
+    // and give it focus. Seeded after init on purpose: an earlier reconcile
+    // pass would drop a tab absent from the empty snapshot.
+    fresh.setState({ tabs: [tabInfo({ tabId: h.TAB })], activeTabId: h.TAB });
+
     hibernateCb(h.TAB);
 
     // The dead gates see a plain exit (code 0); the framing is hibernated.
     expect(fresh.getState().exited[h.TAB]).toBe(0);
     expect(fresh.getState().hibernated[h.TAB]).toBe(true);
+    // Settled leaves the canvas: one commit hides the tab and drops focus
+    // to null (no visible survivor), which renders Welcome underneath.
+    expect(
+      fresh.getState().tabs.find((t) => t.tabId === h.TAB)?.hidden,
+    ).toBe(true);
+    expect(fresh.getState().activeTabId).toBeNull();
     const [item] = fresh.getState().rpc[h.TAB]!.items;
     expect(item).toMatchObject({ kind: "tool", toolCallId: "t1", status: "aborted" });
     vi.useRealTimers();

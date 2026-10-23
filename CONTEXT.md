@@ -52,10 +52,11 @@ _Avoid_: suspended session, parked session, sleeping session
 **Tab**:
 The renderer's view onto a live session's PTY — one xterm.js instance per
 live session. Tabs hide rather than close; focus/dedupe keys on the tab,
-which exists from spawn — before the session has an id or file. A tab may
-belong to a remote instance: it renders that host's stream, its
-`instanceId` names the owner, and its label carries the nickname in front of
-the title.
+which exists from spawn — before the session has an id or file. A session
+that settles hides its tab the same way, and its sidebar **Settled** row
+resurfaces it. A tab may belong to a remote instance: it renders that
+host's stream, its `instanceId` names the owner, and its label carries the
+nickname in front of the title.
 _Avoid_: window, pane
 
 **Project**:
@@ -80,6 +81,8 @@ The sidebar's collapsible bottom section holding every **Owned session** with
 no process — dormant, hibernated, archived, and missing alike — newest open
 first. Collapsed by default; the open/closed choice persists locally,
 and a non-empty sidebar search shows it expanded without changing that choice.
+A settling session hides its tab on the way in; clicking the row resurfaces
+the tab so its exit card offers resume.
 _Avoid_: archive, history, inactive list
 
 **Private session**:

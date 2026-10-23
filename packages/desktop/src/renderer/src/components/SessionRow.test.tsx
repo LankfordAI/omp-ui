@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { OmpUpdateState, SessionSummary } from "@omp-ui/core/types";
+import type { TabInfo, UiStore } from "../store";
 import { t } from "../lib/i18n";
 
 // The row only fires store actions this file replaces, so a no-op backend
@@ -80,6 +81,7 @@ function render(
   s: SessionSummary,
   installedVersion: string | null,
   instanceNickname?: string | null,
+  storePatch?: Partial<Pick<UiStore, "tabs" | "exited" | "activeTabId">>,
 ): HTMLElement {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
@@ -92,6 +94,7 @@ function render(
     liveVoice: {},
     ompUpdate: { ...idleOmpUpdate, installedVersion },
     consultFromRow,
+    ...storePatch,
   });
   const host = document.createElement("div");
   document.body.append(host);
@@ -171,5 +174,51 @@ describe("unified-view machine chip (#903)", () => {
       root = null;
       document.body.replaceChildren();
     }
+  });
+});
+
+// Issue #926: a session that dies before materializing on disk lands in
+// Settled as a missing row while its dead tab sits hidden in `tabs`. The
+// row must still un-hide that mounted tab — openSession's existing-tab
+// branch only unhides+focuses and never spawns — while the click refusal
+// stands when there is no mounted tab to resurface.
+describe("settled missing row resurfaces its hidden tab (#926)", () => {
+  const hiddenDeadTab: TabInfo = {
+    tabId: TAB,
+    mode: "rpc-ui",
+    projectCwd: "/projects/one",
+    hidden: true,
+    instanceId: null,
+  };
+
+  it("un-hides and focuses the mounted dead tab on click", async () => {
+    const el = render(summary({ live: "missing", sessionId: null }), "18.11.3", null, {
+      tabs: [hiddenDeadTab],
+      exited: { [TAB]: 143 },
+      activeTabId: null,
+    });
+    const button = el.querySelector<HTMLButtonElement>("button")!;
+    expect(button).not.toBeNull();
+    // Honest affordances: the missingHint claims an unreadable transcript,
+    // but this click resurfaces the exit card instead.
+    expect(button.title).toBe(summary().title);
+    expect(button.className).not.toContain("cursor-default");
+    await act(async () => button.click());
+    expect(useStore.getState().tabs.find((t) => t.tabId === TAB)?.hidden).toBe(false);
+    expect(useStore.getState().activeTabId).toBe(TAB);
+  });
+
+  it("stays a no-op when nothing is mounted to resurface", async () => {
+    const el = render(summary({ live: "missing", sessionId: null }), "18.11.3", null, {
+      tabs: [],
+      exited: {},
+      activeTabId: null,
+    });
+    const button = el.querySelector<HTMLButtonElement>("button")!;
+    expect(button.title).toBe(t("sidebar.session.missingHint"));
+    expect(button.className).toContain("cursor-default");
+    await act(async () => button.click());
+    expect(useStore.getState().tabs).toEqual([]);
+    expect(useStore.getState().activeTabId).toBeNull();
   });
 });
