@@ -4,7 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import { backendState } from "./test/fixtures";
-import type { RpcTabState } from "./store";
+import type { RpcTabState, UiStore } from "./store";
+import type { LifecycleSlice } from "./store/slices/lifecycle";
 import type { BackendState, SessionSummary } from "@omp-ui/core/types";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -422,5 +423,36 @@ describe("always-mounted sidebar (issue #919)", () => {
     });
     renderApp();
     expect(document.body.querySelector("aside")).not.toBeNull();
+  });
+});
+
+// issue #926: a settle (process exit, hibernation) hides its tab in one
+// commit, so the canvas falls back to Welcome instead of parking the user
+// on the exit card; the card only resurfaces via openSession.
+describe("settled sessions leave the canvas (issue #926)", () => {
+  beforeEach(() => {
+    compact = false;
+  });
+
+  it("renders Welcome with no exit card when the last visible tab settles", () => {
+    useStore.setState({
+      state: projectState(),
+      tabs: [{ tabId: "rpc", mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null }],
+      activeTabId: "rpc",
+    });
+    renderApp();
+
+    // The real settle boundary: init wires main's onPtyExit and
+    // onSessionHibernated straight onto this store action, so calling it is
+    // the same commit the dead gates fire.
+    act(() => (useStore.getState() as UiStore & LifecycleSlice).teardownProcess("rpc", 0));
+
+    expect(useStore.getState().tabs.find((t) => t.tabId === "rpc")?.hidden).toBe(true);
+    expect(useStore.getState().activeTabId).toBeNull();
+    // Welcome fills the canvas (the zero-tab contract, #919)…
+    expect(document.body.textContent).toContain("Add project");
+    expect(document.body.textContent).toContain("No sessions open");
+    // …and the exit card never reaches it.
+    expect(document.body.textContent).not.toContain("Agent exited");
   });
 });

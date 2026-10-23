@@ -48,6 +48,10 @@ describe("running-input keyword process boundaries (issue #726)", () => {
   it.each([false, true])("exit clears the effect without tool or stall changes (hibernated=%s)", (hibernated) => {
     const items = h.useStore.getState().rpc[h.TAB]!.items;
     expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p" })],
+    });
+
     lifecycle().teardownProcess(h.TAB, 0, hibernated);
     const state = h.useStore.getState();
     expect(state.rpc[h.TAB]!.activeTurnKeywords).toEqual([]);
@@ -56,6 +60,9 @@ describe("running-input keyword process boundaries (issue #726)", () => {
     expect(state.rpc[h.TAB]!.subagentControlError).toBeNull();
     expect(state.exited[h.TAB]).toBe(0);
     expect(state.hibernated[h.TAB]).toBe(hibernated ? true : undefined);
+
+    // #926: a settled session leaves the canvas — the tab hides in the same commit.
+    expect(state.tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(true);
     state.handleRpcFrame(h.TAB, {
       type: "message_start", message: { role: "user", content: "ordinary successor input" },
     });
@@ -1871,6 +1878,103 @@ describe("hiding or deleting the active tab moves focus to the last visible surv
 
     expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, false);
     expect(h.useStore.getState().activeTabId).toBe("other");
+  });
+});
+
+describe("a settling session hides its tab and releases focus (issue #926)", () => {
+  const lifecycle = () => h.useStore.getState() as UiStore & LifecycleSlice;
+
+  it("tearing down the active tab focuses the last visible survivor", () => {
+    h.useStore.setState({
+      tabs: [
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+        tabInfo({ tabId: "other", mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+      ],
+      activeTabId: h.TAB,
+    });
+
+    lifecycle().teardownProcess(h.TAB, 0);
+
+    const st = h.useStore.getState();
+    expect(st.tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(true);
+    expect(st.activeTabId).toBe("other");
+    expect(st.tabs.find((t) => t.tabId === "other")?.hidden).toBe(false);
+  });
+
+  it("tearing down the only visible tab parks focus on null and keeps the tab mounted hidden", () => {
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false })],
+      activeTabId: h.TAB,
+    });
+
+    lifecycle().teardownProcess(h.TAB, 1);
+
+    const st = h.useStore.getState();
+    expect(st.activeTabId).toBeNull();
+    expect(st.tabs.map((t) => t.tabId)).toEqual([h.TAB]);
+    expect(st.tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(true);
+  });
+
+  it("tearing down a hidden background tab leaves focus untouched and the tab hidden", () => {
+    h.useStore.setState({
+      tabs: [
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true }),
+        tabInfo({ tabId: "other", mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+      ],
+      activeTabId: "other",
+    });
+
+    lifecycle().teardownProcess(h.TAB, 3);
+
+    const st = h.useStore.getState();
+    expect(st.activeTabId).toBe("other");
+    expect(st.tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(true);
+    expect(st.exited[h.TAB]).toBe(3);
+  });
+
+  it("hibernation hides and releases focus exactly like an exit and marks the tab hibernated", () => {
+    h.useStore.setState({
+      tabs: [
+        tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+        tabInfo({ tabId: "other", mode: "rpc-ui", projectCwd: "/p", hidden: false }),
+      ],
+      activeTabId: h.TAB,
+    });
+
+    lifecycle().teardownProcess(h.TAB, 0, true);
+
+    const st = h.useStore.getState();
+    expect(st.tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(true);
+    expect(st.activeTabId).toBe("other");
+    expect(st.hibernated[h.TAB]).toBe(true);
+  });
+
+  it("settles a live spawned tab hidden and resumeDead brings it back focused with the marks cleared", async () => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      advisorDefaults: { "/p": { enabled: false, model: null } },
+      rpc: { [h.TAB]: rpcTabState({ status: "ready" }) },
+    });
+    // The suite's normal spawn path: newSession lands the spawned tab visible.
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: h.TAB });
+    expect(await h.useStore.getState().newSession("/p")).toBe(h.TAB);
+    expect(h.useStore.getState().tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(false);
+
+    lifecycle().teardownProcess(h.TAB, 0, true);
+    let st = h.useStore.getState();
+    expect(st.tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(true);
+    expect(st.activeTabId).toBeNull();
+    expect(st.exited[h.TAB]).toBe(0);
+    expect(st.hibernated[h.TAB]).toBe(true);
+
+    await h.useStore.getState().resumeDead(h.TAB);
+
+    st = h.useStore.getState();
+    expect(st.tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(false);
+    expect(st.activeTabId).toBe(h.TAB);
+    expect(st.exited[h.TAB]).toBeUndefined();
+    expect(st.hibernated[h.TAB]).toBeUndefined();
   });
 });
 
