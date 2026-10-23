@@ -817,7 +817,7 @@ export const en = {
   "settings.general.planFormatLabel": "plan format",
   "settings.general.hibernateIdle": "Hibernate idle sessions",
   "settings.general.hibernateIdleHint":
-    "Stop the agent process of a native session after it has been quiet this long. The tab you are looking at, each project's most recently active session, and terminal tabs are never hibernated. Its transcript stays on disk; resuming the session continues it.",
+    "Off by default: a native session stays live until you stop it by hand. When a window is set, the agent process of a native session quiet this long is stopped. The tab you are looking at, each project's most recently active session, and terminal tabs are never hibernated. Its transcript stays on disk; resuming the session continues it.",
   "settings.general.hibernateIdleLabel": "hibernate idle sessions",
   "settings.general.streamStallWatchdog": "Stream-stall watchdog",
   "settings.general.streamStallWatchdogHint":

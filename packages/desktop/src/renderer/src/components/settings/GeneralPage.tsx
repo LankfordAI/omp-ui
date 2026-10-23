@@ -479,7 +479,7 @@ export function GeneralPage() {
       >
         <ChoiceCapsule
           label={t("settings.general.hibernateIdleLabel")}
-          value={state?.hibernateIdleMinutes ?? 30}
+          value={state?.hibernateIdleMinutes ?? 0}
           options={hibernateIdleOptions}
           onChange={(value) => void setHibernateIdleMinutes(value)}
           optionClassName="px-2 text-[11px]"

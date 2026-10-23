@@ -44,7 +44,9 @@ export interface RegistrySettings {
   defaultCompactionMethod: string | null;
   /** How the agent authors plans for review (see core/plan-extension.ts). */
   planFormat: PlanFormat;
-  /** Idle window before an rpc-ui session's process is hibernated; 0 disables. */
+  /** Idle window before an rpc-ui session's process is hibernated; 0
+   *  disables. The shipped default is 0 (issue #923): sessions settle only
+   *  when the user stops them by hand; a window is opt-in in Settings. */
   hibernateIdleMinutes: number;
   /** Silence window before a running turn is aborted as stream-stalled (issue #248); 0 disables. */
   streamStallAbortSeconds: number;
@@ -88,6 +90,10 @@ export interface RegistrySettings {
   /** One-time migration marker: legacy registries persisted the old off
    *  default; the first load on a new build flips it to on once. */
   autoThinkingDefaultSeeded: boolean;
+  /** One-time migration marker (issue #923): legacy registries carried the
+   *  old always-on idle window; the first load on a new build forces it to
+   *  off once. Later explicit windows persist the marker and are kept. */
+  hibernateManualDefaultSeeded: boolean;
   /**
    * App-wide reviewer roster for /code-review (issue #738): null = unset, so
    * projects fall through to the default reviewer. Replaces the user-scope
@@ -206,7 +212,7 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is PlanFormat => value === "md",
   ),
   hibernateIdleMinutes: validatedSetting(
-    () => 30,
+    () => 0,
     (value): value is number =>
       typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 1440,
   ),
@@ -307,6 +313,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   autoThinkingDefaultSeeded: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  hibernateManualDefaultSeeded: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -464,13 +474,14 @@ function parseSettings(raw: object | undefined): RegistrySettings {
 }
 
 function emptyRegistry(): RegistryData {
-  // A fresh registry is born seeded: the on fallback already applies, and
-  // persisting the marker keeps a later explicit off from being re-flipped.
+  // A fresh registry is born seeded: the fallbacks already apply, and
+  // persisting the markers keeps a later explicit value from being re-flipped.
   return {
     schemaVersion: 1,
     settings: {
       ...buildSettings((key) => SETTINGS[key].fallback()),
       autoThinkingDefaultSeeded: true,
+      hibernateManualDefaultSeeded: true,
     },
     projects: [],
     sessions: [],
@@ -764,6 +775,20 @@ function seedAutoThinkingDefault(file: string, data: RegistryData): void {
 }
 
 /**
+ * One-time default flip (issue #923): legacy registries persisted the old
+ * always-on `hibernateIdleMinutes` window (the settings object is always
+ * written in full), so a bare number cannot be told apart from the old
+ * default. Force it to off once and mark the registry seeded; a window the
+ * user re-enables afterwards persists the marker and is never revisited.
+ */
+function seedHibernateManualDefault(file: string, data: RegistryData): void {
+  if (data.settings.hibernateManualDefaultSeeded) return;
+  data.settings.hibernateManualDefaultSeeded = true;
+  data.settings.hibernateIdleMinutes = 0;
+  writeRegistry(file, data);
+}
+
+/**
  * omp-ui's own state (projects + owned sessions), persisted as JSON.
  * Records are per lineage (one per spawned process); `sessionId: null` is
  * valid at every layer — a session can live minutes or forever without a file.
@@ -793,6 +818,7 @@ export class Registry {
     const data = parseRegistryData(parsed);
     if (data) {
       seedAutoThinkingDefault(file, data);
+      seedHibernateManualDefault(file, data);
       return new Registry(file, data);
     }
     // Corrupt (or unknown schemaVersion): quarantine and start empty.

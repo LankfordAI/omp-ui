@@ -93,6 +93,7 @@ describe("SETTINGS", () => {
       "audioOutputDevice",
       "memoryDefaultsSeeded",
       "autoThinkingDefaultSeeded",
+      "hibernateManualDefaultSeeded",
       "reviewRoster",
       "reviewRosterImported",
       "gettingStartedSeen",
@@ -160,8 +161,8 @@ describe("Registry.load", () => {
     expect(reg.getSetting("audioOutputDevice")).toBeNull();
     // Issue #109: HTML is the default plan review rendition.
     expect(reg.getSetting("planFormat")).toBe("html");
-    // Issue #246: idle rpc-ui sessions hibernate after a 30 min quiet window.
-    expect(reg.getSetting("hibernateIdleMinutes")).toBe(30);
+    // Issue #923: sessions settle manually by default; hibernation is opt-in.
+    expect(reg.getSetting("hibernateIdleMinutes")).toBe(0);
     // Issue #111: auto-reply defaults on.
     expect(reg.getSetting("advisorAutoReply")).toBe(true);
     // Issue #251: stall auto-continue defaults on.
@@ -326,7 +327,7 @@ describe("Registry.load", () => {
     expect(reg.getSetting("defaultMode")).toBe("rpc-ui");
     expect(reg.getSetting("defaultAgentMode")).toBe("plan");
     expect(reg.getSetting("planFormat")).toBe("html");
-    expect(reg.getSetting("hibernateIdleMinutes")).toBe(30);
+    expect(reg.getSetting("hibernateIdleMinutes")).toBe(0);
     expect(reg.getSetting("advisorAutoReply")).toBe(true);
     expect(reg.getSetting("stallAutoContinue")).toBe(true);
     expect(reg.getSetting("desktopNotifications")).toBe(true);
@@ -622,7 +623,7 @@ describe("Registry persistence", () => {
     expect(Registry.load(absent).getSetting("planFormat")).toBe("html");
   });
 
-  it("round-trips the hibernate idle window and falls back to 30 for anything unknown", () => {
+  it("round-trips the hibernate idle window and falls back to 0 for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
     reg.setSetting("hibernateIdleMinutes", 0);
@@ -638,11 +639,33 @@ describe("Registry persistence", () => {
         f,
         JSON.stringify({ schemaVersion: 1, settings: { hibernateIdleMinutes: junk } }),
       );
-      expect(Registry.load(f).getSetting("hibernateIdleMinutes")).toBe(30);
+      expect(Registry.load(f).getSetting("hibernateIdleMinutes")).toBe(0);
     }
     const absent = tmpFile();
     fs.writeFileSync(absent, JSON.stringify({ schemaVersion: 1, settings: {} }));
-    expect(Registry.load(absent).getSetting("hibernateIdleMinutes")).toBe(30);
+    expect(Registry.load(absent).getSetting("hibernateIdleMinutes")).toBe(0);
+  });
+
+  it("forces the legacy idle hibernate window to off once (issue #923)", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, settings: { hibernateIdleMinutes: 30 } }),
+    );
+    expect(Registry.load(file).getSetting("hibernateIdleMinutes")).toBe(0);
+    // The marker persisted with the flip.
+    const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      settings: Record<string, unknown>;
+    };
+    expect(onDisk.settings.hibernateManualDefaultSeeded).toBe(true);
+    expect(onDisk.settings.hibernateIdleMinutes).toBe(0);
+    // A second load writes nothing; a window re-enabled afterwards persists.
+    const bytes = fs.readFileSync(file, "utf8");
+    Registry.load(file);
+    expect(fs.readFileSync(file, "utf8")).toBe(bytes);
+    const reg = Registry.load(file);
+    reg.setSetting("hibernateIdleMinutes", 45);
+    expect(Registry.load(file).getSetting("hibernateIdleMinutes")).toBe(45);
   });
 
   it("round-trips the stall watchdog window and falls back to 180 for anything unknown", () => {
@@ -834,7 +857,7 @@ describe("Registry persistence", () => {
       ["defaultMode", (registry) => registry.setSetting("defaultMode", "rpc-ui")],
       ["defaultAgentMode", (registry) => registry.setSetting("defaultAgentMode", "plan")],
       ["planFormat", (registry) => registry.setSetting("planFormat", "html")],
-      ["hibernateIdleMinutes", (registry) => registry.setSetting("hibernateIdleMinutes", 30)],
+      ["hibernateIdleMinutes", (registry) => registry.setSetting("hibernateIdleMinutes", 0)],
       ["streamStallAbortSeconds", (registry) => registry.setSetting("streamStallAbortSeconds", 180)],
       ["advisorAutoReply", (registry) => registry.setSetting("advisorAutoReply", true)],
       ["stallAutoContinue", (registry) => registry.setSetting("stallAutoContinue", true)],
@@ -2023,7 +2046,7 @@ describe("stale sidebar keys (issue #919)", () => {
       JSON.stringify({
         schemaVersion: 1,
         // Seeded already, so load itself writes nothing: addProject below is the next write.
-        settings: { sessionOrderFrozen: true, autoThinkingDefaultSeeded: true },
+        settings: { sessionOrderFrozen: true, autoThinkingDefaultSeeded: true, hibernateManualDefaultSeeded: true },
         projects: [
           { path: "/abs/a", name: "a", addedAt: "t" },
           { path: "/abs/b", name: "b", addedAt: "t" },

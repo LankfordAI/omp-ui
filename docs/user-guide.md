@@ -189,8 +189,9 @@ goal still tracks usage but OMP starts no further turns on its own.
 While a goal is active, omp-ui keeps it to itself: an unfinished goal blocks
 entering Plan mode until you drop it, and the advisor-reply and
 stall-auto-continue prompts stand down, so nothing automatic restarts a goal you
-paused or exhausted. An active goal keeps the process awake against ordinary
-idle hibernation, because that would kill the loop doing the work. A paused or
+paused or exhausted. An active goal keeps the process awake against idle
+hibernation — when you have enabled a window in Settings — because that would
+kill the loop doing the work. A paused or
 budget-limited goal applies neither veto. An accepted plan handoff is explicit
 cancellation instead and stops remaining goal work with the planning process.
 
