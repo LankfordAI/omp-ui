@@ -355,6 +355,9 @@ export function GeneralPage() {
   const setSkipDeleteConfirmation = useStore(
     (s) => s.setSkipDeleteConfirmation,
   );
+  const setSkipTerminateConfirmation = useStore(
+    (s) => s.setSkipTerminateConfirmation,
+  );
   const setAdvisorAutoReply = useStore((s) => s.setAdvisorAutoReply);
   const setStallAutoContinue = useStore((s) => s.setStallAutoContinue);
   const setDesktopNotifications = useStore((s) => s.setDesktopNotifications);
@@ -624,6 +627,16 @@ export function GeneralPage() {
           on={state?.skipDeleteConfirmation === true}
           onChange={(next) => void setSkipDeleteConfirmation(next)}
           label={t("settings.general.skipDeleteConfirmation")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.skipTerminateConfirmation")}
+        hint={t("settings.general.skipTerminateConfirmationHint")}
+      >
+        <Switch
+          on={state?.skipTerminateConfirmation === true}
+          onChange={(next) => void setSkipTerminateConfirmation(next)}
+          label={t("settings.general.skipTerminateConfirmation")}
         />
       </Row>
       <Row

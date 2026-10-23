@@ -39,6 +39,7 @@ const backendMock = {
   removeProject: vi.fn(),
   setDefaultMode: vi.fn(),
   setSkipDeleteConfirmation: vi.fn(),
+  setSkipTerminateConfirmation: vi.fn(),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   switchMode: vi.fn(),

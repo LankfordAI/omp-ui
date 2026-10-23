@@ -1516,6 +1516,18 @@ export function createLifecycleSlice(
     // there is nothing to confirm, and no DOM dialog is staged.
     const rec = findRecord(get().state, tabId);
     if (!rec || rec.live !== "live") return;
+    if (get().state?.skipTerminateConfirmation === true) {
+      // Opt-out fast path (issue #925): same effect as the confirmed
+      // terminate arm, including its handoff rule — only a successful stop
+      // retires the handoff (see runLifecycleConfirmation above).
+      try {
+        await backend.terminateSession(tabId);
+        set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId) }));
+      } catch (err) {
+        get().reportError(err);
+      }
+      return;
+    }
     stageLifecycleConfirmation({ kind: "terminate", tabId, title: rec.title });
   };
 

@@ -105,6 +105,7 @@ const backendMock = {
   setDefaultAdvisor: vi.fn(async () => {}),
   setDefaultAutoThinking: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(),
+  setSkipTerminateConfirmation: vi.fn(),
   setExperimentsEnabled: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),

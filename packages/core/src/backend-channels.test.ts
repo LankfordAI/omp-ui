@@ -234,6 +234,7 @@ const VALID_ARGS = {
   setSessionAutoTitled: ["tab-1", true],
   setSessionServiceTier: ["tab-1", null],
   setSkipDeleteConfirmation: [true],
+  setSkipTerminateConfirmation: [true],
   setSttModel: [null],
   setAudioDevice: ["input", null],
   setStallAutoContinue: [true],

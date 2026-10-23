@@ -175,6 +175,7 @@ export const en = {
   "dialog.lifecycle.terminateTitle": "Stop the agent?",
   "dialog.lifecycle.terminateBody": "Terminate the running agent? The session stays resumable.",
   "dialog.lifecycle.terminateAction": "Stop agent",
+  "dialog.lifecycle.dontShowAgain": "Do not show this warning again",
   "dialog.lifecycle.switchTitle": "Switch session mode?",
   "dialog.lifecycle.switchBody": "Restart this session in {mode} mode? The process is killed and resumed.",
   "dialog.lifecycle.switchAction": "Restart session",
@@ -844,6 +845,9 @@ export const en = {
   "settings.general.skipDeleteConfirmation": "Skip the delete confirmation",
   "settings.general.skipDeleteConfirmationHint":
     "Deleting a session erases its whole lineage dir and every plan implementation descendant; skipping removes the warning. A delete that removes a worktree checkout still asks.",
+  "settings.general.skipTerminateConfirmation": "Skip the stop-agent confirmation",
+  "settings.general.skipTerminateConfirmationHint":
+    "Stopping an agent kills its process; the session stays resumable. Skipping stops live agents immediately.",
   "settings.general.voiceInput": "Voice input",
   "settings.general.voiceInputHint":
     "Adds a microphone button to every composer; each phrase is transcribed by the provider below when you pause and inserted into the draft, never sent.",

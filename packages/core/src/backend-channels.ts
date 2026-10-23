@@ -403,6 +403,11 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setSkipDeleteConfirmation",
     ...request<[skip: boolean], void>([bool()]),
   },
+  /** Opt out of the "Stop the agent?" confirmation; set from the dialog checkbox or Settings. */
+  setSkipTerminateConfirmation: {
+    channel: "settings:setSkipTerminateConfirmation",
+    ...request<[skip: boolean], void>([bool()]),
+  },
   /** Marks the first-run Getting started checklist dismissed. */
   setGettingStartedSeen: {
     channel: "settings:setGettingStartedSeen",

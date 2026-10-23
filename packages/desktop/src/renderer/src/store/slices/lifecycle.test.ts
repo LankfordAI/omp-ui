@@ -246,6 +246,62 @@ describe("TUI handoff staging (issue #243)", () => {
     expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual(staged);
     expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
   });
+
+  // Opt-out fast path (issue #925): with the warning skipped there is no
+  // dialog, but the liveness guard and the handoff rule must survive.
+  it("stops immediately without a dialog once warnings are skipped", async () => {
+    h.useStore.setState({
+      state: makeBackendState({
+        ...h.stateWithRecord("sess-1", "live"),
+        skipTerminateConfirmation: true,
+      }),
+      tuiHandoff: {
+        [h.TAB]: { line: "/mcp reauth linear", key: 1, phase: "running" },
+      },
+    });
+
+    await h.useStore.getState().terminate(h.TAB);
+
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+    expect(h.mockBackend.terminateSession).toHaveBeenCalledWith(h.TAB);
+    expect(h.useStore.getState().tuiHandoff[h.TAB]).toBeUndefined();
+  });
+
+  it("keeps the handoff and reports when the fast-path kill fails", async () => {
+    const staged = {
+      line: "/mcp reauth linear",
+      key: 1,
+      phase: "running" as const,
+    };
+    h.mockBackend.terminateSession.mockRejectedValueOnce(new Error("kill failed"));
+    h.useStore.setState({
+      state: makeBackendState({
+        ...h.stateWithRecord("sess-1", "live"),
+        skipTerminateConfirmation: true,
+      }),
+      tuiHandoff: { [h.TAB]: staged },
+    });
+
+    await h.useStore.getState().terminate(h.TAB);
+
+    expect(h.errorMessages()).toEqual(["kill failed"]);
+    expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual(staged);
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+
+  it("is a no-op for a dormant session even with the setting on", async () => {
+    h.useStore.setState({
+      state: makeBackendState({
+        ...h.stateWithRecord("sess-1", "dormant"),
+        skipTerminateConfirmation: true,
+      }),
+    });
+
+    await h.useStore.getState().terminate(h.TAB);
+
+    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
 });
 
 describe("lifecycle confirmation acceptance (issue #373)", () => {

@@ -21,6 +21,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     defaultAutoThinking: false,
     modelFavorites: [],
     skipDeleteConfirmation: false,
+    skipTerminateConfirmation: false,
     experimentsEnabled: false,
     voiceInputEnabled: false,
     liveWorkParking: true,

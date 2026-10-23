@@ -84,6 +84,7 @@ describe("SETTINGS", () => {
       "subagentModelInheritByDefault",
       "agentRoster",
       "skipDeleteConfirmation",
+      "skipTerminateConfirmation",
       "experimentsEnabled",
       "voiceInputEnabled",
       "liveWorkParking",
@@ -148,6 +149,7 @@ describe("Registry.load", () => {
     expect(reg.getSetting("defaultMode")).toBe("rpc-ui");
     expect(reg.getSetting("defaultAgentMode")).toBe("plan");
     expect(reg.getSetting("skipDeleteConfirmation")).toBe(false);
+    expect(reg.getSetting("skipTerminateConfirmation")).toBe(false);
     // Issue #623: a fresh registry has never seen the Getting started checklist.
     expect(reg.getSetting("gettingStartedSeen")).toBe(false);
     expect(reg.getSetting("experimentsEnabled")).toBe(false);
@@ -443,6 +445,7 @@ describe("Registry persistence", () => {
     reg.setSetting("defaultMode", "rpc-ui");
     reg.setSetting("defaultAgentMode", "build");
     reg.setSetting("skipDeleteConfirmation", true);
+    reg.setSetting("skipTerminateConfirmation", true);
     reg.setSetting("gettingStartedSeen", true);
 
     const reloaded = Registry.load(file);
@@ -453,6 +456,7 @@ describe("Registry persistence", () => {
     expect(reloaded.getSetting("defaultMode")).toBe("rpc-ui");
     expect(reloaded.getSetting("defaultAgentMode")).toBe("build");
     expect(reloaded.getSetting("skipDeleteConfirmation")).toBe(true);
+    expect(reloaded.getSetting("skipTerminateConfirmation")).toBe(true);
     expect(reloaded.getSetting("gettingStartedSeen")).toBe(true);
   });
 
@@ -864,6 +868,7 @@ describe("Registry persistence", () => {
       ["desktopNotifications", (registry) => registry.setSetting("desktopNotifications", true)],
       ["defaultAdvisor", (registry) => registry.setSetting("defaultAdvisor", false)],
       ["skipDeleteConfirmation", (registry) => registry.setSetting("skipDeleteConfirmation", false)],
+      ["skipTerminateConfirmation", (registry) => registry.setSetting("skipTerminateConfirmation", false)],
       ["gettingStartedSeen", (registry) => registry.setSetting("gettingStartedSeen", false)],
       ["experimentsEnabled", (registry) => registry.setSetting("experimentsEnabled", false)],
       ["voiceInputEnabled", (registry) => registry.setSetting("voiceInputEnabled", false)],

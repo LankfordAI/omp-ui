@@ -91,6 +91,7 @@ const mockBackend = {
   ptyPasteImage: vi.fn(),
   setDefaultMode: vi.fn(),
   setSkipDeleteConfirmation: vi.fn(async () => {}),
+  setSkipTerminateConfirmation: vi.fn(async () => {}),
   setGettingStartedSeen: vi.fn(async () => {}),
   setDesktopNotifications: vi.fn(async () => {}),
   spawnSession: vi.fn(),
