@@ -178,6 +178,7 @@ export function useFinishWorktree(tabId: string): FinishController {
   const createBranch = useStore((s) => s.createBranch);
   const mergeWorktreeBranch = useStore((s) => s.mergeWorktreeBranch);
   const releaseWorktreeSession = useStore((s) => s.releaseWorktreeSession);
+  const settleFinishedSession = useStore((s) => s.settleFinishedSession);
   const syncWorktreeSession = useStore((s) => s.syncWorktreeSession);
   const renameWorktreeSessionBranch = useStore((s) => s.renameWorktreeSessionBranch);
   const suggestBranchName = useStore((s) => s.suggestBranchName);
@@ -694,6 +695,17 @@ export function useFinishWorktree(tabId: string): FinishController {
           t("notice.finish.switchSkippedBusy", { title: busyTitle ?? "", destination: checkoutTarget }),
           "warn",
         );
+      }
+    }
+    // Merged finish settles the session (#924, #923's returning auto-settle):
+    // the thread's job is done, its work landed. Fires after any
+    // release/relaunch completed (the per-tab op chain orders them), reaps
+    // the successor, never a replacement. Push needs no process, so the done
+    // row stays live below.
+    if (outcome === "merge") {
+      const settled = await settleFinishedSession(tabId);
+      if (!settled) {
+        appendNotice(tabId, t("notice.finish.settleSkipped"), "warn");
       }
     }
     // 5. Landed, but not shared (issue #414): a merge that moved commits

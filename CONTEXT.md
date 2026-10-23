@@ -904,8 +904,12 @@ worktree, merge & close, merge & return as the sole exit
 The single dialog that settles a worktree session's destination, outcome
 and session — where the work goes, whether it lands as a merge commit or a
 kept branch, and whether the session returns to the project checkout or
-stays in its worktree. Finish settles local state only — publishing or pushing
-the destination is a separate explicit step.
+stays in its worktree. Finish settles local state only in the git sense —
+publishing or pushing the destination is a separate explicit step. In the
+session sense a merged finish does settle: a run whose outcome is a landed
+merge (already-merged included) reaps the session's process and its row moves
+to Settled, regardless of the idle-hibernation setting; a keep finish leaves
+the session live (#924).
 An existing project-checkout merge remains actionable regardless of the chosen
 future destination or outcome. Agent resolution preserves the original native
 context when usable, discloses the fresh fallback otherwise, and leaves Finish

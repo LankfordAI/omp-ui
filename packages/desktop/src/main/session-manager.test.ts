@@ -6806,6 +6806,151 @@ describe("hibernation (issue #246)", () => {
   });
 });
 
+describe("merged-finish settle (issue #924)", () => {
+  const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+
+  it("reaps a live rpc-ui session as hibernation: one kill, hibernated row, no exit event", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances[0]!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+
+    await expect(manager.settleSession(TAB)).resolves.toBe(true);
+
+    expect(rpc.kill).toHaveBeenCalledTimes(1);
+    expect(sent.filter((event) => event.channel === CH.onSessionHibernated)).toEqual([
+      { channel: CH.onSessionHibernated, args: [TAB] },
+    ]);
+    // The suppressExit discipline: a settled rpc-ui row is dormant, never an exit.
+    expect(sent.some((event) => event.channel === CH.onPtyExit)).toBe(false);
+    expect(manager.isLive(TAB)).toBe(false);
+  });
+
+  it("settles a PTY session terminate-style: signal, ordinary exit event, dormant row", async () => {
+    nextPtyDiesOn = "default";
+    const { manager, sent, crumbs } = setup();
+    await resume(manager);
+    const pty = fakePtys[0]!;
+
+    await expect(manager.settleSession(TAB)).resolves.toBe(true);
+
+    expect(pty.signals).toEqual(["default"]);
+    // Manual-terminate parity down to the breadcrumb and exit rows.
+    expect(crumbs.map((entry) => entry.kind)).toEqual([
+      "spawn-attempt",
+      "session-resume",
+      "session-terminate",
+      "session-exit",
+    ]);
+    expect(sent.some((event) => event.channel === CH.onPtyExit)).toBe(true);
+    expect(sent.some((event) => event.channel === CH.onSessionHibernated)).toBe(false);
+    expect(manager.isLive(TAB)).toBe(false);
+  });
+
+  it("an already-dormant session settles with nothing to reap", async () => {
+    const { manager, sent } = setup();
+
+    await expect(manager.settleSession(TAB)).resolves.toBe(true);
+
+    expect(fakePtys).toHaveLength(0);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("settles unconditionally: the idle-hibernation setting is never consulted", async () => {
+    const { manager } = setup({ mode: "rpc-ui", hibernateIdleMinutes: 0 });
+    await resumeRpc(manager);
+    const rpc = rpcInstances[0]!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+
+    await expect(manager.settleSession(TAB)).resolves.toBe(true);
+
+    expect(rpc.kill).toHaveBeenCalledTimes(1);
+    expect(manager.isLive(TAB)).toBe(false);
+  });
+
+  it("protects a successor: a resume that replaces the capture is never reaped", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      // The relaunch reap lingers until SIGKILL; the queued settle must
+      // never touch the successor the relaunch spawns (same discipline as
+      // hibernatePlanSource's replacement guard, issue #840).
+      rpc.kill.mockImplementation((signal) => {
+        if (signal === "SIGKILL") rpc.exit(0);
+      });
+      const restarting = manager.restart(TAB);
+      const settling = manager.settleSession(TAB);
+      await vi.advanceTimersByTimeAsync(3_000); // SIGTERM ignored; SIGKILL lands
+      await restarting;
+      const successor = rpcInstances.at(-1)!;
+
+      await expect(settling).resolves.toBe(false);
+      expect(successor.kill).not.toHaveBeenCalled();
+      expect(manager.isLive(TAB)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns false and leaves the session live when the child survives SIGKILL", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      const rpc = rpcInstances[0]!;
+      const settling = manager.settleSession(TAB);
+      await vi.advanceTimersByTimeAsync(5_000); // SIGTERM grace + SIGKILL observation
+
+      await expect(settling).resolves.toBe(false);
+      // Escalates exactly like the plan-handoff reap: SIGTERM, then SIGKILL.
+      expect(rpc.kill.mock.calls.map((call) => call[0])).toEqual([undefined, "SIGKILL"]);
+      expect(manager.isLive(TAB)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("queues behind the release's relaunch: the settle reaps the successor, never a mid-release death", async () => {
+    const { manager, registry } = setup();
+    const project = await gitProject(base);
+    registry.addProject(project);
+    const branch = "omp-ui/wt-settle";
+    const worktreePath = Core.mintWorktreePath(path.join(base, "worktrees"), project, branch);
+    nextPtyDiesOn = "default";
+    const { tabId } = await manager.spawn({
+      origin: "new",
+      projectCwd: project,
+      mode: "pty",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: { mint: { branch, baseRef: null, baseBranch: null } },
+    });
+    const predecessor = fakePtys[0]!;
+    fs.writeFileSync(path.join(worktreePath, "one.txt"), "one\n");
+    await execFileP("git", ["add", "one.txt"], { cwd: worktreePath });
+    await execFileP("git", ["commit", "-q", "-m", "one"], { cwd: worktreePath });
+    await execFileP("git", ["merge", "-q", "--no-ff", "-m", "fold", branch], { cwd: project });
+
+    // The dialog's order, one awaited step at a time: the release relaunches
+    // into the project checkout, and only then does the settle capture.
+    await manager.releaseWorktree(tabId, { keepBranch: false, mergedInto: branch });
+    expect(predecessor.signals).toEqual(["default"]); // the release's own reap
+    expect(manager.isLive(tabId)).toBe(true);
+
+    await expect(manager.settleSession(tabId)).resolves.toBe(true);
+
+    // The kill lands on the relaunched child (fakePtys[1]); the pre-release
+    // child carries only the release's signal, never a second from settle.
+    expect(fakePtys[1]!.signals).toEqual(["default"]);
+    expect(predecessor.signals).toEqual(["default"]);
+    expect(manager.isLive(tabId)).toBe(false);
+  });
+});
+
 describe("session lifecycle breadcrumbs (issue #413)", () => {
   const kinds = (crumbs: BreadcrumbEntry[]): string[] => crumbs.map((entry) => entry.kind);
 

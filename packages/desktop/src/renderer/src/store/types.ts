@@ -1225,6 +1225,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     opts: WorktreeReleaseOptions,
   ): Promise<WorktreeReleaseResult | null>;
   /**
+   * Settles the session after its merged finish lands (issue #924). True =
+   * settled or already dormant; false = skipped (survived reap or replaced
+   * process), already reported as a transcript notice. Never throws.
+   */
+  settleFinishedSession(tabId: string): Promise<boolean>;
+  /**
    * Merges `source` into a worktree session's checkout (issue #387); null
    * when main rejected — already reported to the error notices.
    */

@@ -282,7 +282,7 @@ export interface SessionManagerDependencies {
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
-type OpKind = "spawn" | "delete" | "hibernate" | "relaunch" | "tool" | "terminate" | "fork";
+type OpKind = "spawn" | "delete" | "hibernate" | "relaunch" | "settle" | "tool" | "terminate" | "fork";
 
 export class SessionManager {
   private readonly live = new Map<string, LiveEntry>();
@@ -2334,6 +2334,37 @@ export class SessionManager {
         throw new Error(`plan source ${sourceTabId} is not running an rpc-ui process`);
       }
       return this.hibernate(sourceTabId, captured);
+    });
+  }
+
+  /**
+   * Settles a session whose merged finish landed (issue #924): the worktree
+   * thread's work is in its destination, so its process has no remaining
+   * purpose. Same reap discipline as `hibernatePlanSource`: the captured
+   * process only, through the existing bounded SIGTERM→SIGKILL window, with
+   * no idle-setting or live-work guard consulted. rpc-ui entries reap as
+   * hibernation (suppressExit, clean dormant row); PTY entries take the
+   * terminate-style reap so the ordinary exit path settles the transcript.
+   */
+  settleSession(tabId: string): Promise<boolean> {
+    // Captured before the chain runs: if a resume replaces the process while
+    // this queues, the reap must never touch the successor. Absent means
+    // already dormant — nothing to reap, and that is a settled session.
+    const captured = this.live.get(tabId);
+    if (captured === undefined) return Promise.resolve(true);
+    return this.enqueueOp(tabId, "settle", async () => {
+      const current = this.live.get(tabId);
+      if (current !== captured) return current === undefined;
+      if (current.kind === "rpc-ui") return this.hibernate(tabId, current);
+      // PTY: the terminate reap verbatim minus its own enqueueOp (we already
+      // hold the chain; re-entering terminate() would deadlock on itself).
+      // Killing the companion shell first mirrors terminate(): a handoff
+      // drawer program's noise is suppressed, while the omp child's own exit
+      // event still flows exactly like a manual terminate.
+      this.killShell(tabId);
+      this.deps.breadcrumb?.record("session-terminate", { tabId });
+      await this.escalateOnTerminate(tabId, current);
+      return this.live.get(tabId) !== current;
     });
   }
 

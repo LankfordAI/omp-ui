@@ -945,6 +945,7 @@ export class MainBackend {
         [CH.terminateSession]: (tabId: string) => this.sessions.terminate(tabId),
         [CH.hibernatePlanSource]: (sourceTabId: string, implementationTabId: string) =>
           this.sessions.hibernatePlanSource(sourceTabId, implementationTabId),
+        [CH.settleSession]: (tabId: string) => this.sessions.settleSession(tabId),
         [CH.switchMode]: (tabId: string, mode: SessionMode) =>
           this.sessions.switchMode(tabId, mode),
         [CH.deleteSessionPreview]: (tabId: string) =>

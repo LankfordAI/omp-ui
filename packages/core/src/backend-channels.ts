@@ -780,6 +780,21 @@ export const BACKEND_CHANNELS = {
     channel: "session:hibernatePlanSource",
     ...request<[sourceTabId: string, implementationTabId: string], boolean>([str(), str()]),
   },
+  /**
+   * Settles a session whose work has definitively landed: the merged finish
+   * of a worktree thread (issue #924, #923's returning auto-settle
+   * condition). Reaps the captured process through the existing bounded
+   * SIGTERM→SIGKILL window, regardless of live work or the idle-hibernation
+   * setting. rpc-ui entries hibernate (suppressExit + session:hibernated,
+   * resume restores them); PTY entries take the terminate-style reap
+   * (ordinary exit event, row follows the existing exited-to-dormant path).
+   * Returns true for a stopped or already-dormant session, false for a
+   * survived reap or a replacement process; never reaps a successor.
+   */
+  settleSession: {
+    channel: "session:settle",
+    ...request<[tabId: string], boolean>([str()]),
+  },
   switchMode: {
     channel: "session:switchMode",
     ...request<[tabId: string, mode: SessionMode], void>([str(), sessionModeCodec]),

@@ -2129,6 +2129,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "notice.merge.syncConflicts": "{source} 동기화가 {path}에서 {count}개 파일 충돌로 중단되었습니다 — 워크트리에서 해결한 뒤 git merge --continue를 실행하고 다시 마무리하세요",
   "notice.merge.landed": "{branch}을(를) {destination}에 병합했습니다({commits})",
   "notice.finish.switchSkippedBusy": "프로젝트 체크아웃이 기존 브랜치에 그대로 남았습니다 — “{title}” 세션이 그곳에서 턴을 진행 중입니다. 작업은 {destination}에 있습니다",
+  "notice.finish.settleSkipped": "세션이 정렬 상태로 넘어가지 않았습니다 — 끝나면 직접 중지하세요",
   "project.actions.newPrivate": "새 비공개 세션",
   "project.actions.newSession": "새 세션",
   "project.actions.newTerminal": "새 터미널 세션",
