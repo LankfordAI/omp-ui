@@ -202,6 +202,11 @@ export function SessionRow({
   const terminate = useStore((st) => st.terminate);
   const resumeDead = useStore((st) => st.resumeDead);
   const exited = useStore((st) => st.exited[s.tabId]);
+  // Issue #926 — a settle hides the dead tab even for a record that never
+  // materialized on disk, so the missing row must still be able to un-hide
+  // it; opening a MOUNTED missing tab never spawns — openSession's
+  // existing-tab branch only unhides and focuses.
+  const tabMounted = useStore((st) => st.tabs.some((t) => t.tabId === s.tabId));
   const sidebarState = useStore((st) => deriveSidebarSessionState(s, st.rpc[s.tabId]));
   const activeTabId = useStore((st) => st.activeTabId);
   const consultFromRow = useStore((st) => st.consultFromRow);
@@ -228,6 +233,8 @@ export function SessionRow({
 
   const missing = s.live === "missing";
   const selected = s.tabId === activeTabId;
+  // A settled dead tab waiting to be resurfaced (issue #926).
+  const strandedSettle = missing && exited !== undefined && tabMounted;
   const rpc = s.mode === "rpc-ui";
   const when = relativeTime(s.cachedModified);
   const face = SESSION_FACE[sidebarState];
@@ -271,16 +278,16 @@ export function SessionRow({
         type="button"
         aria-current={selected ? "page" : undefined}
         title={
-          missing ? t("sidebar.session.missingHint") : implementsNote !== null ? `${s.title} — ${implementsNote}` : s.title
+          missing && !strandedSettle ? t("sidebar.session.missingHint") : implementsNote !== null ? `${s.title} — ${implementsNote}` : s.title
         }
         onClick={() => {
-          if (missing) return;
+          if (missing && !strandedSettle) return;
           void openSession(s.tabId);
           onActivate?.();
         }}
         className={cn(
           "flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 pl-3 text-left",
-          missing && "cursor-default",
+          missing && !strandedSettle && "cursor-default",
         )}
       >
         <Dot tone={face.tone} pulse={face.pulse} title={t(face.titleKey)} />
