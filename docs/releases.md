@@ -4,27 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Sessions now stay live until you stop them by hand: idle hibernation defaults to off, and you enable a quiet window in Settings if you want sessions to settle on their own. Existing installs are flipped to off once on the next launch; any window you re-pick there persists (#923).
-- The sidebar lists running sessions only, newest open first, with every other session in a collapsed Settled section; one New session button opens the **Project quick-open**, whose No project row starts a chat and whose project pages hold project settings, open targets, and remove; sidebar groups and manual reordering are gone (#915, #919, #921).
-- A fresh window with zero sessions opens an empty surface instead of a project list: the Sidebar is not mounted — only the monogram rail naming every project — and the **Project quick-open** is the way in (#916).
-- Each project's monogram and the **Project quick-open** header chip carry a stable identity colour derived from the project's repository key, lightness-checked against WCAG AA (#920).
-- The sidebar now shows the **Unified project view**: one node per repository across this app and every joined member, each showing all its checkouts, with the machine picker built into the **New session dialog** (#903).
-- A finished worktree session settles itself: when the Finish dialog's run lands a merge (or finds the work already in the destination), the session's process is reaped and its row moves to Settled, resume included — a keep finish leaves the session live, and the done row's push affordance keeps working over the settled session (#924).
-- When a session settles, its tab hides and focus returns home — the next visible session, or Welcome — instead of parking on the exit card; the Settled row or a notification click resurfaces it with its resume affordance, even for a session that died before its first prompt (#926).
-- The stop-the-agent confirmation can be turned off with a Do-not-show-again checkbox, restored from Settings → General; switch-mode, rewind, fork, and removal gates keep asking unconditionally (#925).
-- A fresh session whose pinned model's endpoint is unreachable now boots held instead of timing out: the spawn pre-probes the pin's endpoint, drops it for that boot only, shows a composer notice and a pick-a-model chip, gates sends to slash and bash commands, and lifts the hold when your new pick lands — the pin survives for the next spawn (#932).
-- Composer `/new` on a remote session's tab now spawns on that tab's owning instance instead of locally under the remote's path, and a fresh spawn whose project path is missing is refused up front with a readable error instead of leaving an unreachable registry row (#927, #928).
-- Restart carryover seeds the new session as a hidden message instead of `--append-system-prompt`, so your own APPEND_SYSTEM.md is no longer silently dropped on restart (#896).
-- Fleet dispatch: launch native sessions on joined members, and new-session, worktree, and fleet dispatch now share one **New session dialog** (#899, #900).
-- Fleet members list their SSH target and whether port 22 answers, so an agent can provision a member over its own ssh and register the checkout; fleet-registered projects now get their repository key and branch watch immediately (#904, #906).
-- Fleet members report their OS and package managers; agents can run long installs on a Full-control member as a detached exec and poll it, and you can roll this computer's Provider keys out to a member from the Fleet view (#905).
-- A fleet member answers one bounded command on its owner's shell — gated by the rung you granted, with capped output and timeout — and clone/register project management rides the same ladder (ADR-0062, #901).
-- Fleet members show their omp and omp-ui versions as chips, including below-the-floor and staged-update badges, and a Full-control member can update itself on request — its managed omp binary lands immediately, an omp-ui update stages and installs at the member's next quit; nothing ships through the join link (#905).
-- macOS releases and nightlies ship for Apple Silicon only; the Intel (`mac-x64`) DMG and ZIP are no longer built. Existing Intel installs stay on their last build, and their update check reports that no compatible update file exists (#908).
-- A new native session started on a joined remote host no longer sticks on the boot skeleton with "No models are available" when the host adopts a pre-booted session: the host now announces the session before its first frame, so this app routes the boot to the right machine (#907).
-- The vault tools gain maintenance: `omp-ui_vault_rename` moves or retitles an omp-ui note and rewrites its links, `omp-ui_vault_delete` removes a stale one, and `omp-ui_vault_refactor` merges several notes into one cohesive document (#912, #913, #914).
-- Nightlies: the same-day build stamp now carries a UTC time so the newest build always wins the update check, and nightly publish no longer aborts when a range's commits cite no issue ref (#902, #929).
-- Settings → Remote instances: the version chip no longer overlaps the row's action buttons (#911).
+Nothing since [v0.26.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.26.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
