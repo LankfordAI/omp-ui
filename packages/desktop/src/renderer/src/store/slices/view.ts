@@ -100,6 +100,8 @@ export interface ViewSlice {
   focusRailPane(tabId: string, pane: RailTab): void;
   /** Split browser pane width preference (issue #519); persisted beside the other two. */
   browserPaneWidth: number;
+  /** Diff viewer layout preference (issue #933); persisted beside the widths. */
+  diffViewLayout: "unified" | "split";
   openProjectPicker(instanceId?: string | null): void;
   closeProjectPicker(): void;
   openDiagnosticsDialog(): void;
@@ -143,6 +145,7 @@ export interface ViewSlice {
   setInspectorWidth(width: number): void;
   setInspectorOpen(open: boolean): void;
   setBrowserPaneWidth(width: number): void;
+  setDiffViewLayout(layout: "unified" | "split"): void;
   /**
    * Backend failures awaiting acknowledgment (issue #373): the renderer-side
    * replacement for window.alert. Arrival order is kept; nothing times out,
@@ -204,6 +207,7 @@ export async function restoreDesktopView(api: StoreApi<UiStore>): Promise<void> 
       sidebarWidth: widths.sidebarWidth,
       inspectorWidth: widths.inspectorWidth,
       browserPaneWidth: widths.browserPaneWidth,
+      diffViewLayout: widths.diffViewLayout,
     });
   }
   const restore = IS_ELECTRON
@@ -237,7 +241,8 @@ export function installDesktopViewPersistence(api: StoreApi<UiStore>): void {
       state.appUpdate.currentVersion === previous.appUpdate.currentVersion &&
       state.sidebarWidth === previous.sidebarWidth &&
       state.inspectorWidth === previous.inspectorWidth &&
-      state.browserPaneWidth === previous.browserPaneWidth
+      state.browserPaneWidth === previous.browserPaneWidth &&
+      state.diffViewLayout === previous.diffViewLayout
     ) {
       return;
     }
@@ -397,6 +402,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   inspectorOpen: false,
   railPaneFocus: {},
   browserPaneWidth: BROWSER_PANE_DEFAULT_WIDTH,
+  diffViewLayout: "unified",
   errorNotices: [],
   reportError(error) {
     set((s) => ({
@@ -549,6 +555,9 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   setBrowserPaneWidth(width) {
     set({ browserPaneWidth: clampPanelWidth("browserPane", width) });
+  },
+  setDiffViewLayout(layout) {
+    set({ diffViewLayout: layout });
   },
 });
 

@@ -1062,6 +1062,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   inspectorOpen: boolean;
   /** Split browser pane width preference (issue #519). */
   browserPaneWidth: number;
+  /** Diff viewer layout preference (issue #933); persisted beside the widths. */
+  diffViewLayout: "unified" | "split";
   init(): Promise<void>;
   /** Re-paired browser socket (issue #890): reconcile state and re-boot live rpc tabs without a reload. */
   resyncAfterReconnect(): Promise<void>;
@@ -1098,6 +1100,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   railPaneFocus: Record<string, { pane: RailTab; nonce: number }>;
   focusRailPane(tabId: string, pane: RailTab): void;
   setBrowserPaneWidth(width: number): void;
+  setDiffViewLayout(layout: "unified" | "split"): void;
   /** Opens the tab's browser pane and asks main to ensure its page exists. */
   openBrowserPane(tabId: string): void;
   closeBrowserPane(tabId: string): void;

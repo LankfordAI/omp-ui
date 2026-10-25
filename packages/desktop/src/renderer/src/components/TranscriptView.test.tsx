@@ -1565,3 +1565,75 @@ describe("between-tool narration (issue #884)", () => {
     });
   }
 });
+
+describe("exchange receipts (issue #933)", () => {
+  const TAB = "tab-receipt";
+
+  afterEach(() => {
+    useStore.setState({ rpc: {} });
+  });
+
+  function editCard(id: string, path: string): RenderItem {
+    return {
+      kind: "tool",
+      id,
+      toolCallId: `${id}-call`,
+      name: "edit",
+      args: {},
+      status: "done",
+      path,
+      op: "edit",
+      diff: [
+        { kind: "add", lineNum: 1, text: "const a = 1;" },
+        { kind: "add", lineNum: 2, text: "const b = 2;" },
+        { kind: "del", lineNum: 1, text: "const a = 0;" },
+      ],
+    };
+  }
+
+  function userMsg(id: string): RenderItem {
+    return { kind: "user", id, text: `prompt ${id}` };
+  }
+
+  it("renders the boundary receipt between runs at a user boundary", () => {
+    const { el, root } = render([userMsg("u1"), editCard("t1", "src/a.ts"), assistant("a1", "done"), userMsg("u2")]);
+    const line = el.querySelector('[data-item-id="a1:receipt"]');
+    expect(line).not.toBeNull();
+    // The anchor is the last content item of the closed exchange, and the
+    // counts roll up its diff card: +2 −1 across one file.
+    expect(line!.textContent).toContain("1 changed files");
+    expect(line!.textContent).toContain("+2");
+    expect(line!.textContent).toContain("−1");
+    expect(line!.textContent).toContain("open diff");
+    // No exchange, no line: the trailing open exchange (no tabId) stays quiet.
+    expect(el.querySelector('[data-item-id="u2:receipt"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("holds the trailing receipt back while the turn is running, shows it idle", () => {
+    const items = [userMsg("u1"), editCard("t1", "src/a.ts"), assistant("a1", "done")];
+    useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
+    const { el, root } = render(items, TAB);
+    expect(el.querySelector('[data-item-id="a1:receipt"]')).toBeNull();
+
+    act(() => {
+      useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "ready" }) } });
+    });
+    expect(el.querySelector('[data-item-id="a1:receipt"]')).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("keeps historical receipt DOM identity across a tail append (#187)", () => {
+    const items = [userMsg("u1"), editCard("t1", "src/a.ts"), assistant("a1", "done"), userMsg("u2")];
+    const { el, root } = render(items);
+    const before = el.querySelector('[data-item-id="a1:receipt"]');
+    expect(before).not.toBeNull();
+
+    // A tail append must not rebuild the settled exchange's receipt row.
+    act(() => {
+      root.render(<TranscriptView items={[...items, assistant("a2", "working")]} />);
+    });
+    expect(el.querySelector('[data-item-id="a1:receipt"]')).toBe(before);
+    act(() => root.unmount());
+  });
+});

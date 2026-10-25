@@ -1,4 +1,5 @@
 import {
+  Fragment,
   memo,
   useEffect,
   useLayoutEffect,
@@ -10,6 +11,7 @@ import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { copyFallback } from "../lib/clipboard";
 import { formatDuration } from "../lib/duration";
+import { summarizeExchanges, type ExchangeChanges } from "../lib/exchange-changes";
 import { formatCost, tokenCount } from "../lib/format";
 import { splitInterviewDraft } from "../lib/interview-draft";
 import { localeTag, useT } from "../lib/i18n";
@@ -33,6 +35,7 @@ import {
   windowStart,
 } from "../lib/transcript-window";
 import { findOwner, findRecord, sessionCwd, useStore } from "../store";
+import { openChangesViewer } from "./ChangesViewer";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Markdown, linkify, OpenExternalLink } from "./Markdown";
 import { openImageViewer } from "./ImageViewer";
@@ -118,6 +121,45 @@ function UsageStrip({ item }: { item: AssistantItem }) {
     </div>
   );
 }
+
+/**
+ * The exchange receipt (issue #933): one faint line under a settled exchange
+ * totting up every diff card it produced — UsageStrip's restraint applied to
+ * file churn. Clicking opens the whole set in the ChangesViewer, so the quiet
+ * count row is also the fast path back into the diffs.
+ */
+const ExchangeReceipt = memo(function ExchangeReceipt({
+  changes,
+  tabId,
+}: {
+  changes: ExchangeChanges;
+  /** Forwarded so the viewer's footer can jump the rail to Diffs. */
+  tabId?: string;
+}) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        openChangesViewer({
+          cards: changes.entries.map((entry) => ({
+            key: entry.itemId,
+            path: entry.path,
+            op: entry.op,
+            rows: entry.rows,
+          })),
+          tabId,
+        })
+      }
+      className="flex flex-wrap items-center gap-x-2 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-dim"
+    >
+      <span>{t("transcript.receipt.changedFiles", { files: changes.files })}</span>
+      <span className="text-signal">+{changes.added}</span>
+      <span className="text-rose">−{changes.removed}</span>
+      <span>{t("transcript.receipt.openDiff")}</span>
+    </button>
+  );
+});
 
 /** Pins to the tail while the model is still emitting reasoning. */
 function ThinkingPane({ text, live }: { text: string; live: boolean }) {
@@ -943,6 +985,39 @@ export function TranscriptView({
     for (const item of items) if (item.kind === "user") positions.set(item.id, n++);
     return positions;
   }, [items]);
+
+  // Exchange receipts (issue #933): the rollups come off the full item list,
+  // never the window slice — a receipt must not lose its oldest card when
+  // that card scrolls out of the tail window. `byUserId` re-derives the same
+  // anchor rule summarizeExchanges keys by (ambient rows skipped) so a run
+  // can find its rollup at a user boundary; the walk's ending anchor is the
+  // trailing exchange's key.
+  const exchangeChanges = useMemo(() => summarizeExchanges(items), [items]);
+  const exchangeAnchors = useMemo(() => {
+    const byUserId = new Map<string, string>();
+    let anchor: string | null = null;
+    for (const item of items) {
+      if (item.kind === "user") {
+        if (anchor !== null) byUserId.set(item.id, anchor);
+        anchor = null;
+      } else if (item.kind !== "marker" && item.kind !== "notice" && item.kind !== "irc") {
+        anchor = item.id;
+      }
+    }
+    return { byUserId, tailAnchor: anchor };
+  }, [items]);
+  // Streaming is refused, not queued — same narrow read as the rewind guard.
+  const turnActive = useStore(
+    (s) =>
+      tabId !== undefined &&
+      (s.rpc[tabId]?.status === "running" || s.rpc[tabId]?.busy === true),
+  );
+  // The trailing receipt only earns its line once the tab is idle; a live
+  // subagent view (no tabId) shows none.
+  const trailingReceipt =
+    tabId === undefined || turnActive || exchangeAnchors.tailAnchor === null
+      ? undefined
+      : exchangeChanges.get(exchangeAnchors.tailAnchor);
   const scale = useTranscriptScale();
 
   // Length alone misses streaming, which mutates the last item in place.
@@ -1161,42 +1236,65 @@ export function TranscriptView({
             </button>
           )}
 
-          {runs.map((run, runIndex) => (
-            <div
-              key={run.key}
-              className={cn("speaker-run flex flex-col", run.speaker === "meta" ? "gap-1" : "gap-1.5")}
-            >
-              {/* The assistant's hanging speaker label, mirroring the user's
-                  "you" (issue #32): with turn markers deliberately absent, this
-                  is the quiet cue that a new exchange begins. Only the run
-                  that opens the exchange gets it — assistant fragments after
-                  a tool run are the same reply, and labeling each one would
-                  rebuild the marker-noise problem the markers solved. */}
-              {run.speaker === "assistant" && opensExchange(runs, runIndex) && (
-                <Label className="speaker-label speaker-label-left">
-                  {t("transcript.speaker.assistant")}
-                </Label>
-              )}
-              {run.rows.map(({ item, count }, i) => {
-                const findClass = findClassById?.get(item.id);
-                return (
-                  <div key={item.id} data-item-id={item.id} className={findClass}>
-                    <ErrorBoundary fallback={(error) => <BrokenRow error={error} />}>
-                      <TranscriptRow
-                        item={item}
-                        count={count}
-                        first={i === 0}
-                        tabId={tabId}
-                        userPosition={
-                          item.kind === "user" ? userPositions.get(item.id) : undefined
-                        }
-                      />
-                    </ErrorBoundary>
+          {runs.map((run, runIndex) => {
+            // The exchange-ending boundary (issue #933): a receipt rides the
+            // last run before a user prompt, looked up by that exchange's
+            // anchor — the ambient-skipped walk mirrors summarizeExchanges.
+            const next = runs[runIndex + 1];
+            const boundaryAnchor =
+              next?.speaker === "user" ? exchangeAnchors.byUserId.get(next.key) : undefined;
+            const receipt =
+              boundaryAnchor === undefined ? undefined : exchangeChanges.get(boundaryAnchor);
+            return (
+              <Fragment key={run.key}>
+                <div
+                  className={cn("speaker-run flex flex-col", run.speaker === "meta" ? "gap-1" : "gap-1.5")}
+                >
+                  {/* The assistant's hanging speaker label, mirroring the user's
+                      "you" (issue #32): with turn markers deliberately absent, this
+                      is the quiet cue that a new exchange begins. Only the run
+                      that opens the exchange gets it — assistant fragments after
+                      a tool run are the same reply, and labeling each one would
+                      rebuild the marker-noise problem the markers solved. */}
+                  {run.speaker === "assistant" && opensExchange(runs, runIndex) && (
+                    <Label className="speaker-label speaker-label-left">
+                      {t("transcript.speaker.assistant")}
+                    </Label>
+                  )}
+                  {run.rows.map(({ item, count }, i) => {
+                    const findClass = findClassById?.get(item.id);
+                    return (
+                      <div key={item.id} data-item-id={item.id} className={findClass}>
+                        <ErrorBoundary fallback={(error) => <BrokenRow error={error} />}>
+                          <TranscriptRow
+                            item={item}
+                            count={count}
+                            first={i === 0}
+                            tabId={tabId}
+                            userPosition={
+                              item.kind === "user" ? userPositions.get(item.id) : undefined
+                            }
+                          />
+                        </ErrorBoundary>
+                      </div>
+                    );
+                  })}
+                </div>
+                {receipt !== undefined && (
+                  <div data-item-id={`${receipt.anchorId}:receipt`}>
+                    <ExchangeReceipt changes={receipt} tabId={tabId} />
                   </div>
-                );
-              })}
+                )}
+              </Fragment>
+            );
+          })}
+          {/* The tail line for the trailing exchange (issue #933): held back
+              until the turn settles, because its diffs are still arriving. */}
+          {trailingReceipt !== undefined && (
+            <div data-item-id={`${trailingReceipt.anchorId}:receipt`}>
+              <ExchangeReceipt changes={trailingReceipt} tabId={tabId} />
             </div>
-          ))}
+          )}
         </div>
         {/* Tail clearance for the floating composer (issue #395). RpcTab
             publishes its measured height; every other host of this view — the

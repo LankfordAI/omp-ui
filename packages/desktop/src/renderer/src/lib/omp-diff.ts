@@ -23,6 +23,14 @@ export interface DiffFile {
 const NUMBERED_ROW = /^([+\- ])(\d+)\|(.*)$/;
 const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 
+/** The first old/new line numbers of a `@@ -10,3 +11,4 @@` hunk header; null
+ *  for any other meta text (`*** End of File`, `@@ some context`). */
+export function hunkStarts(text: string): { oldStart: number; newStart: number } | null {
+  const m = HUNK_HEADER.exec(text);
+  if (!m) return null;
+  return { oldStart: Number(m[1]), newStart: Number(m[2]) };
+}
+
 /**
  * Standard unified diff → the same DiffRow[] DiffViewer renders. The file
  * preamble (`diff --git`, `index`, mode/rename lines, `---`/`+++`, `Binary

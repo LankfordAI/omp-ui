@@ -57,6 +57,12 @@ export interface DesktopViewStateV1 {
    * written before the pane existed; the parser defaults it (#528).
    */
   browserPaneWidth: number;
+  /**
+   * Diff viewer layout preference. Absent from snapshots written before the
+   * split view existed; the parser defaults it to "unified" (#933) — any
+   * absent or invalid value degrades to the default, never rejects.
+   */
+  diffViewLayout: "unified" | "split";
 }
 
 /** Minimal Storage-like surface the module reads and writes through. */
@@ -118,6 +124,7 @@ export function parseDesktopView(raw: string | null): DesktopViewStateV1 | null 
     typeof value.browserPaneWidth === "number" && Number.isFinite(value.browserPaneWidth)
       ? clampPanelWidth("browserPane", value.browserPaneWidth)
       : BROWSER_PANE_DEFAULT_WIDTH;
+  const diffViewLayout = value.diffViewLayout === "split" ? "split" : "unified";
 
   return {
     schemaVersion: 1,
@@ -127,6 +134,7 @@ export function parseDesktopView(raw: string | null): DesktopViewStateV1 | null 
     sidebarWidth,
     inspectorWidth,
     browserPaneWidth,
+    diffViewLayout,
   };
 }
 
@@ -198,6 +206,7 @@ export interface ProjectedView {
   sidebarWidth: number;
   inspectorWidth: number;
   browserPaneWidth: number;
+  diffViewLayout: "unified" | "split";
 }
 
 /**
@@ -225,6 +234,7 @@ export function projectDesktopView(
     sidebarWidth: clampPanelWidth("sidebar", view.sidebarWidth),
     inspectorWidth: clampPanelWidth("inspector", view.inspectorWidth),
     browserPaneWidth: clampPanelWidth("browserPane", view.browserPaneWidth),
+    diffViewLayout: view.diffViewLayout,
   };
 }
 

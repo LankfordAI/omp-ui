@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pairWordRanges, parseBranchDiff, parseOmpDiff, parseUnifiedDiff, rowSegments, type DiffRow } from "./omp-diff";
+import { hunkStarts, pairWordRanges, parseBranchDiff, parseOmpDiff, parseUnifiedDiff, rowSegments, type DiffRow } from "./omp-diff";
 
 describe("parseOmpDiff", () => {
   it("parses add/del/ctx numbered rows", () => {
@@ -33,6 +33,20 @@ describe("parseOmpDiff", () => {
 
   it("handles empty input", () => {
     expect(parseOmpDiff("")).toEqual([{ kind: "meta", text: "" }]);
+  });
+});
+
+describe("hunkStarts", () => {
+  it("reads the first line number of each side", () => {
+    expect(hunkStarts("@@ -10,3 +11,4 @@ function f()")).toEqual({ oldStart: 10, newStart: 11 });
+    expect(hunkStarts("@@ -1 +1 @@")).toEqual({ oldStart: 1, newStart: 1 });
+  });
+
+  it("returns null for non-hunk meta rows", () => {
+    expect(hunkStarts("@@ some context")).toBeNull();
+    expect(hunkStarts("*** End of File")).toBeNull();
+    expect(hunkStarts("\\ No newline at end of file")).toBeNull();
+    expect(hunkStarts("")).toBeNull();
   });
 });
 
