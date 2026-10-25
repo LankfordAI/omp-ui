@@ -231,6 +231,7 @@ const SEED_SNAPSHOT: DesktopViewStateV1 = {
   sidebarWidth: 416,
   inspectorWidth: 256,
   browserPaneWidth: 720,
+  diffViewLayout: "split",
 };
 const SEED_JSON = JSON.stringify(SEED_SNAPSHOT);
 const seedSnapshot = (): void =>
@@ -402,6 +403,11 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
 
     store.useStore.getState().hideTab("t1");
     expect(spy).toHaveBeenCalledTimes(7);
+
+    // The diff layout preference (issue #933) persists on its own.
+    store.useStore.getState().setDiffViewLayout("split");
+    expect(spy).toHaveBeenCalledTimes(8);
+    expect(readSnapshot().diffViewLayout).toBe("split");
   });
 
   it("an update relaunch leaves a tab whose process was gone at quit dormant", async () => {
@@ -500,6 +506,8 @@ describe("browser view restore without the version gate (issue #890)", () => {
     expect(st.sidebarWidth).toBe(300);
     expect(st.inspectorWidth).toBe(260);
     expect(st.browserPaneWidth).toBe(600);
+    // The diff layout is a cross-tab preference too (#933): same blob source.
+    expect(st.diffViewLayout).toBe("split");
     // The tab list still comes from the per-tab snapshot, not the width blob.
     expect(st.tabs.map((t) => t.tabId)).toEqual(["pty-1", "rpc-1"]);
     // And a live view write lands in sessionStorage, never clobbering the blob's tabs.

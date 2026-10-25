@@ -45,6 +45,7 @@ describe("desktop view state", () => {
         sidebarWidth: 416,
         inspectorWidth: 256,
         browserPaneWidth: 720,
+        diffViewLayout: "split",
       },
       "1.0.0",
     );
@@ -54,6 +55,7 @@ describe("desktop view state", () => {
     expect(saveDesktopView(window.localStorage, snapshot)).toBe(true);
     expect(snapshot.sidebarWidth).toBe(416);
     expect(snapshot.inspectorWidth).toBe(256);
+    expect(snapshot.diffViewLayout).toBe("split");
     expect(loadDesktopView(window.localStorage)).toEqual(snapshot);
   });
 
@@ -71,6 +73,7 @@ describe("desktop view state", () => {
         sidebarWidth: 272,
         inspectorWidth: 304,
         browserPaneWidth: 560,
+        diffViewLayout: "unified",
       },
       "1.0.0",
     );
@@ -87,6 +90,7 @@ describe("desktop view state", () => {
         sidebarWidth: 272,
         inspectorWidth: 304,
         browserPaneWidth: 560,
+        diffViewLayout: "unified",
       },
       "2.1.0",
     );
@@ -95,22 +99,22 @@ describe("desktop view state", () => {
   });
 
   it("version gate: equal non-null versions do NOT restore", () => {
-    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
+    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560, diffViewLayout: "unified" };
     expect(shouldRestoreDesktopView(saved, "1.0.0")).toBe(false);
   });
 
   it("version gate: differing non-null versions DO restore", () => {
-    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
+    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560, diffViewLayout: "unified" };
     expect(shouldRestoreDesktopView(saved, "1.1.0")).toBe(true);
   });
 
   it("version gate: a null saved appVersion never restores", () => {
-    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: null, tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
+    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: null, tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560, diffViewLayout: "unified" };
     expect(shouldRestoreDesktopView(saved, "1.1.0")).toBe(false);
   });
 
   it("version gate: a null currentVersion never restores", () => {
-    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 };
+    const saved: DesktopViewStateV1 = { schemaVersion: 1, appVersion: "1.0.0", tabIds: [], activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560, diffViewLayout: "unified" };
     expect(shouldRestoreDesktopView(saved, null)).toBe(false);
   });
 
@@ -167,6 +171,7 @@ describe("desktop view state", () => {
       sidebarWidth: 300,
       inspectorWidth: 250,
       browserPaneWidth: 720,
+      diffViewLayout: "unified",
     });
   });
 
@@ -214,8 +219,45 @@ describe("desktop view state", () => {
       sidebarWidth: 300,
       inspectorWidth: 250,
       browserPaneWidth: BROWSER_PANE_DEFAULT_WIDTH,
+      diffViewLayout: "unified",
     });
   });
+
+  it("round-trips the split diff layout through the snapshot (#933)", () => {
+    const projected = projectDesktopView(
+      { tabs: [], exited: {}, activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560, diffViewLayout: "split" },
+      "1.0.0",
+    );
+    expect(projected.diffViewLayout).toBe("split");
+    expect(saveDesktopView(window.localStorage, projected)).toBe(true);
+    expect(loadDesktopView(window.localStorage)?.diffViewLayout).toBe("split");
+  });
+
+  it("parses a v1 snapshot written before the split diff view existed as unified (#933)", () => {
+    // Absent from pre-#933 blobs: schemaVersion stays 1, nothing is lost.
+    const preSplit = JSON.stringify({
+      schemaVersion: 1,
+      appVersion: "1.0.0",
+      tabIds: ["a"],
+      activeTabId: "a",
+      sidebarWidth: 300,
+      inspectorWidth: 250,
+      browserPaneWidth: 560,
+    });
+    expect(parseDesktopView(preSplit)?.diffViewLayout).toBe("unified");
+  });
+
+  it("defaults a garbage diffViewLayout to unified without rejecting the snapshot (#933)", () => {
+    const raw = JSON.stringify({
+      schemaVersion: 1,
+      appVersion: "1.0.0",
+      tabIds: ["a"],
+      activeTabId: null,
+      diffViewLayout: "sideways",
+    });
+    expect(parseDesktopView(raw)).toMatchObject({ tabIds: ["a"], diffViewLayout: "unified" });
+  });
+
   it("deduplicates tabIds preserving first occurrence order", () => {
     const raw = JSON.stringify({ schemaVersion: 1, appVersion: null, tabIds: ["a", "b", "a", "c", "b"], activeTabId: null });
     expect(parseDesktopView(raw)).toEqual({
@@ -226,6 +268,7 @@ describe("desktop view state", () => {
       sidebarWidth: 272,
       inspectorWidth: 304,
       browserPaneWidth: 560,
+      diffViewLayout: "unified",
     });
   });
 
@@ -241,7 +284,7 @@ describe("desktop view state", () => {
   });
 
   it("returns false without throwing when setItem throws", () => {
-    const snapshot = projectDesktopView({ tabs: [], exited: {}, activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 }, "1.0.0");
+    const snapshot = projectDesktopView({ tabs: [], exited: {}, activeTabId: null, sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560, diffViewLayout: "unified" }, "1.0.0");
     const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("storage denied");
     });
@@ -256,7 +299,7 @@ describe("desktop view state", () => {
     const storage = desktopViewStorage();
     expect(storage).not.toBeNull();
     const snapshot = projectDesktopView(
-      { tabs: [{ tabId: "t", hidden: false }], exited: {}, activeTabId: "t", sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 },
+      { tabs: [{ tabId: "t", hidden: false }], exited: {}, activeTabId: "t", sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560, diffViewLayout: "unified" },
       "1.0.0",
     );
     expect(saveDesktopView(storage!, snapshot)).toBe(true);
@@ -292,7 +335,7 @@ describe("browser view state (issue #890)", () => {
 
   const snapshot = (): DesktopViewStateV1 =>
     projectDesktopView(
-      { tabs: [{ tabId: "t", hidden: false }], exited: {}, activeTabId: "t", sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 },
+      { tabs: [{ tabId: "t", hidden: false }], exited: {}, activeTabId: "t", sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560, diffViewLayout: "unified" },
       "1.0.0",
     );
 
