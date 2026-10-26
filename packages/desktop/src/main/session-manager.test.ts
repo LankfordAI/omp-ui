@@ -8374,7 +8374,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
   const commandsOf = (): Cmd[] => (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Cmd[];
   const fleetSpawn = (
     manager: SessionManager,
-    opts: { dispatchId?: string; projectCwd?: string; kind?: "user" | "agent" } = {},
+    opts: { dispatchId?: string; projectCwd?: string; kind?: "user" | "agent"; planMode?: boolean } = {},
   ): Promise<{ tabId: string }> =>
     manager.spawn({
       origin: "new",
@@ -8384,7 +8384,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
       cols: 80,
       rows: 24,
       worktree: null,
-      planMode: false,
+      planMode: opts.planMode ?? false,
       fleet: {
         dispatchId: opts.dispatchId ?? DISPATCH,
         batchId: null,
@@ -8420,6 +8420,18 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
     const registration = commands.findIndex((c) => c.type === "set_host_tools");
     expect(registration).toBeGreaterThan(-1);
     expect(registration).toBeLessThan(commands.length - 2);
+  });
+
+  it("arms Plan mode before the dispatched prompt when planMode is true", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await fleetSpawn(manager, { planMode: true });
+
+    const commands = commandsOf();
+    const planIdx = commands.findIndex((c) => c.type === "prompt" && c.message === Core.planMessage(true, "html"));
+    const fleetIdx = commands.findIndex((c) => c.id === Core.fleetPromptCommandId(DISPATCH));
+    expect(planIdx).toBeGreaterThanOrEqual(0);
+    expect(fleetIdx).toBeGreaterThanOrEqual(0);
+    expect(planIdx).toBeLessThan(fleetIdx);
   });
 
   it("a success response consumes the staged prompt, and a resume sends no prompt", async () => {

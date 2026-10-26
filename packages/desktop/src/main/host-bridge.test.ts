@@ -565,6 +565,25 @@ describe("HostBridge fleet tools (issue #899)", () => {
     expect(logs).toEqual([`omp-ui_fleet_dispatch from t1: ${LOCAL_MACHINE_KEY}=started, remote-b=unknown`]);
   });
 
+  it("forwards planMode and the checkout workspace to the dispatch dep (issue #942)", async () => {
+    const dispatched: Array<{ tabId: string; req: FleetDispatchRequest }> = [];
+    const { bridge, sent } = fleetBridge({
+      dispatch: async (tabId, req) => {
+        dispatched.push({ tabId, req });
+        return { batchId: "batch-1", outcomes: [{ dispatchId: "d-1", machineKey: LOCAL_MACHINE_KEY, projectCwd: PROJECT, status: "started", tabId: "new-tab" }] };
+      },
+    });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("d1", FLEET_TOOLS[1], { prompt: "plan it", project: PROJECT, machines: ["this computer"], workspace: "checkout", planMode: true }), send);
+    await settled();
+
+    expect(sent.map((frame) => frame.id)).toEqual(["d1"]);
+    expect(sent[0]).not.toHaveProperty("isError");
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]!.req.planMode).toBe(true);
+    expect(dispatched[0]!.req.workspace).toBe("checkout");
+  });
+
   it("answers strict refusals and a missing fleet as error results without dispatching", async () => {
     const dispatch = vi.fn(async (): Promise<FleetDispatchResult> => ({ batchId: null, outcomes: [] }));
     const { bridge, sent } = fleetBridge({ dispatch });
@@ -577,10 +596,11 @@ describe("HostBridge fleet tools (issue #899)", () => {
     bridge.route("t1", toolCallFrame("f", "omp-ui_fleet_launch", {}), send);
     const bare = new HostBridge(fixtureDeps());
     bare.route("t1", toolCallFrame("g", FLEET_TOOLS[0], {}), send);
+    bridge.route("t1", toolCallFrame("h", FLEET_TOOLS[1], { prompt: "go", project: PROJECT, machines: ["studio"], planMode: 1 }), send);
     await settled();
 
     const byId = new Map(sent.map((frame) => [frame.id, frame]));
-    expect([...byId.keys()].sort()).toEqual(["a", "b", "c", "d", "e", "f", "g"]);
+    expect([...byId.keys()].sort()).toEqual(["a", "b", "c", "d", "e", "f", "g", "h"]);
     for (const frame of sent) expect(frame).toMatchObject({ type: "host_tool_result", isError: true });
     expect(resultText(byId.get("a")!)).toBe('unknown argument "extra"');
     expect(resultText(byId.get("c")!)).toBe("give either machines or count, not both");
@@ -588,6 +608,7 @@ describe("HostBridge fleet tools (issue #899)", () => {
     expect(resultText(byId.get("e")!)).toBe("give exactly one of batchId or dispatchId");
     expect(resultText(byId.get("f")!)).toContain('unknown host tool "omp-ui_fleet_launch"');
     expect(resultText(byId.get("g")!)).toBe("fleet tools are not available");
+    expect(resultText(byId.get("h")!)).toBe("planMode must be true or false");
     expect(dispatch).not.toHaveBeenCalled();
   });
 

@@ -106,7 +106,10 @@ delivery.**
   its own. A remote-owned session's tools answer from that host's own fleet,
   because the host that owns the session answers its host calls. A later
   amendment (#901) added `omp-ui_fleet_exec` and `omp-ui_fleet_project` under
-  this same gate, five tools in all; see ADR-0062.
+  this same gate, five tools in all; see ADR-0062. *Amended (#942):
+  `omp-ui_fleet_dispatch` takes an optional `planMode`, default false, so an
+  agent can start read-only planning sessions; the owner's existing order
+  (plan arm before the fleet prompt) applies unchanged.*
 - **No recursion.** A session an agent dispatched (`requestedBy.kind:
   "agent"`) never gets the fleet tools, so a dispatched agent cannot dispatch
   further.

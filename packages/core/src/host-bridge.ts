@@ -300,7 +300,7 @@ function fleetTools(): RpcHostToolDefinition[] {
       name: dispatch,
       loadMode: "essential",
       description:
-        "Start new build-mode omp sessions on fleet machines, each running the given prompt unattended on the named machine, in a fresh worktree by default. Without machines, omp-ui places the work automatically on the least-loaded machines with the same repository. Returns a batch id and one line per started session. Dispatching is not idempotent: poll progress with omp-ui_fleet_status instead of dispatching again.",
+        "Start new omp sessions on fleet machines, this computer included, each running the given prompt unattended on the named machine, in a fresh worktree by default. Sessions start in Build mode; set planMode true to start them in read-only Plan mode, where a prompt that asks for a plan ends at a plan review the user answers (omp-ui_fleet_status then reports awaiting answer). A read-only planning session does not need its own worktree: workspace checkout is enough. Without machines, omp-ui places the work automatically on the least-loaded machines with the same repository. Returns a batch id and one line per started session. Dispatching is not idempotent: poll progress with omp-ui_fleet_status instead of dispatching again.",
       parameters: {
         type: "object",
         properties: {
@@ -325,6 +325,10 @@ function fleetTools(): RpcHostToolDefinition[] {
             type: "string",
             enum: ["worktree", "checkout"],
             description: "worktree (default) starts each session in a new git worktree; checkout uses the project checkout itself.",
+          },
+          planMode: {
+            type: "boolean",
+            description: "true starts each session in read-only Plan mode; default false (Build mode).",
           },
         },
         required: ["prompt", "project"],
