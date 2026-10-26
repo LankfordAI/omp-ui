@@ -94,7 +94,7 @@ The page also holds one setting:
 
 | Setting | What it changes | When it takes effect |
 | --- | --- | --- |
-| Let agents dispatch fleet work | Adds seven fleet tools to native sessions on this app — list the fleet's machines, dispatch work to them, check a dispatch's sessions, run one command on a member, manage projects there, check on or cancel a detached exec, and ask a member to update its own omp or omp-ui versions (`omp-ui_fleet_update`; members update themselves and the request needs Full control plus the member's fleet-exec master switch) — each call running at omp's `exec` host-tool approval tier. Off by default. A session an agent dispatched never gets the tools, and a session a joined instance owns follows that instance's own setting. See [Fleet](remote-instances.md#fleet). | Sessions started or resumed after the change. Live sessions keep the tools they started with. |
+| Let agents dispatch fleet work | Adds seven fleet tools to native sessions on this app — list the fleet's machines, dispatch work to them or to this computer's projects (optionally in Plan mode), check a dispatch's sessions, run one command on a member, manage projects there, check on or cancel a detached exec, and ask a member to update its own omp or omp-ui versions (`omp-ui_fleet_update`; members update themselves and the request needs Full control plus the member's fleet-exec master switch) — each call running at omp's `exec` host-tool approval tier. Off by default. A session an agent dispatched never gets the tools, and a session a joined instance owns follows that instance's own setting. See [Fleet](remote-instances.md#fleet). | Sessions started or resumed after the change. Live sessions keep the tools they started with. |
 
 Statuses:
 

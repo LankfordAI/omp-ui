@@ -1009,6 +1009,8 @@ export interface FleetToolDispatchArgs {
   machines: string[] | null;
   count: number | null;
   workspace: "worktree" | "checkout";
+  /** True starts each dispatched session in read-only Plan mode (#942). */
+  planMode: boolean;
 }
 
 export interface FleetToolExecArgs {
@@ -1160,7 +1162,7 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     return { ok: true, tool: "update", args: { machine: a.machine.trim(), target: a.target, action: a.action, version } };
   }
   if (name !== "omp-ui_fleet_dispatch") return refuse(`unknown host tool "${name}"`);
-  const extra = unknownKey(["prompt", "title", "project", "machines", "count", "workspace"]);
+  const extra = unknownKey(["prompt", "title", "project", "machines", "count", "workspace", "planMode"]);
   if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
   let prompt: string;
   let title: string | null = null;
@@ -1193,6 +1195,7 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
   if (a.workspace !== undefined && a.workspace !== "worktree" && a.workspace !== "checkout") {
     return refuse("workspace must be worktree or checkout");
   }
+  if (a.planMode !== undefined && typeof a.planMode !== "boolean") return refuse("planMode must be true or false");
   return {
     ok: true,
     tool: "dispatch",
@@ -1203,6 +1206,7 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
       machines,
       count,
       workspace: a.workspace === "checkout" ? "checkout" : "worktree",
+      planMode: a.planMode === true,
     },
   };
 }
@@ -1229,8 +1233,8 @@ export function fleetMemberAddress(url: string): string | null {
 /**
  * Translate omp-ui_fleet_dispatch arguments into a dispatch request against
  * the current machines. `project` is an absolute path registered on this app,
- * or a repository key; `machines` are nicknames or "this computer". Agent
- * dispatches are always build mode.
+ * or a repository key; `machines` are nicknames or "this computer".
+ * `planMode` passes through; the owner arms Plan mode before it delivers the prompt.
  */
 export function fleetToolDispatchRequest(
   args: FleetToolDispatchArgs,
@@ -1255,7 +1259,7 @@ export function fleetToolDispatchRequest(
     }
     reference = { machineKey: holder.key, projectCwd: project.path };
   }
-  const base = { prompt: args.prompt, title: args.title, workspace: args.workspace, planMode: false } as const;
+  const base = { prompt: args.prompt, title: args.title, workspace: args.workspace, planMode: args.planMode } as const;
   if (args.machines === null) {
     return { ok: true, request: { ...base, targets: { kind: "auto", reference, count: args.count ?? 1 } } };
   }

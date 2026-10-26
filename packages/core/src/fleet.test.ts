@@ -9,6 +9,7 @@ import {
   fleetAppUpdateAvailable,
   fleetMemberAddress,
   fleetOsLabel,
+  fleetToolDispatchRequest,
   fleetToolExecPollRequest,
   fleetToolExecRequest,
   fleetToolUpdateRequest,
@@ -780,5 +781,61 @@ describe("omp-ui_fleet_update tool arguments", () => {
       request: { target: "omp", action: "stage", version: "18.13.1", allowLiveSessions: false },
     });
     expect(fleetToolUpdateRequest({ machine: "nope", target: "app", action: "check", version: null }, machines).ok).toBe(false);
+  });
+});
+
+describe("dispatch tool planMode (#942)", () => {
+  const local: FleetMachine = {
+    key: LOCAL_MACHINE_KEY,
+    nickname: null,
+    status: "ready",
+    error: null,
+    preference: "normal",
+    receivedAt: NOW,
+    grantRung: null,
+    report: report({
+      projects: [
+        {
+          path: "/work/app",
+          name: "app",
+          repositoryKey: null,
+          headCommit: null,
+          providerReady: true,
+          advisor: false,
+          advisorModel: null,
+        },
+      ],
+    }),
+    address: null,
+    sshReachable: null,
+    maintenance: null,
+  };
+
+  it("defaults planMode to false when omitted", () => {
+    const parsed = parseFleetToolArguments("omp-ui_fleet_dispatch", { prompt: "p", project: "/work/app" });
+    if (!parsed.ok || parsed.tool !== "dispatch") throw new Error("expected dispatch args");
+    expect(parsed.args.planMode).toBe(false);
+  });
+
+  it("carries planMode true through to the explicit dispatch request", () => {
+    const parsed = parseFleetToolArguments("omp-ui_fleet_dispatch", {
+      prompt: "p",
+      project: "/work/app",
+      machines: ["this computer"],
+      planMode: true,
+    });
+    if (!parsed.ok || parsed.tool !== "dispatch") throw new Error("expected dispatch args");
+    expect(parsed.args.planMode).toBe(true);
+    const result = fleetToolDispatchRequest(parsed.args, [local]);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.request.planMode).toBe(true);
+    expect(result.request.targets).toEqual({ kind: "explicit", picks: [{ machineKey: LOCAL_MACHINE_KEY, projectCwd: "/work/app" }] });
+  });
+
+  it("refuses a non-boolean planMode", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_dispatch", { prompt: "p", project: "/work/app", planMode: "yes" })).toEqual({
+      ok: false,
+      reason: "planMode must be true or false",
+    });
   });
 });
