@@ -321,4 +321,49 @@ describe("Working and Snoozed sections (issue #935)", () => {
     expect(ids(lists.snoozed)).toEqual(["parked"]);
     expect(lists.active).toEqual([]);
   });
+
+  it("puts an in-turn session awaiting a human answer in active, not working (issue #944)", () => {
+    const state = backendState({
+      projects: [
+        group("/a", "alpha", [
+          session("busy", { turnRunning: true }),
+          session("asking", { turnRunning: true, awaitingHumanAnswer: true }),
+        ]),
+      ],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(ids(lists.active)).toEqual(["asking"]);
+    expect(ids(lists.working)).toEqual(["busy"]);
+  });
+
+  it("puts an in-turn session with a pending plan in active even without the answer level (older host)", () => {
+    const pendingPlan = {
+      title: "Pending plan",
+      planFilePath: "local://plan.md",
+      planAbsPath: null,
+      frameId: "pending",
+      proposedAt: "2026-10-26T10:00:00.000Z",
+    };
+    const state = backendState({
+      projects: [group("/a", "alpha", [session("plan", { turnRunning: true, pendingPlan })])],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(ids(lists.active)).toEqual(["plan"]);
+    expect(lists.working).toEqual([]);
+  });
+
+  it("keeps a snoozed session awaiting an answer in snoozed", () => {
+    const state = backendState({
+      snoozedSectionEnabled: true,
+      projects: [
+        group("/a", "alpha", [
+          session("parked", { turnRunning: true, awaitingHumanAnswer: true, snoozed: true }),
+        ]),
+      ],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(ids(lists.snoozed)).toEqual(["parked"]);
+    expect(lists.active).toEqual([]);
+    expect(lists.working).toEqual([]);
+  });
 });
