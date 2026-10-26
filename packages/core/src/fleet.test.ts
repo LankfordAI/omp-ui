@@ -34,8 +34,10 @@ import {
   parseFleetUpdateRequest,
   placementScore,
   validateFleetCommand,
+  type FleetHostProject,
   type FleetHostReport,
   type FleetMachine,
+  type FleetToolDispatchArgs,
   type PlacementCandidate,
 } from "./fleet";
 
@@ -836,6 +838,94 @@ describe("dispatch tool planMode (#942)", () => {
     expect(parseFleetToolArguments("omp-ui_fleet_dispatch", { prompt: "p", project: "/work/app", planMode: "yes" })).toEqual({
       ok: false,
       reason: "planMode must be true or false",
+    });
+  });
+});
+
+describe("dispatch tool defaults to this computer (#943)", () => {
+  const KEY = "github.com/acme/app";
+  const project = (path: string, patch: Partial<FleetHostProject> = {}): FleetHostProject => ({
+    path,
+    name: "app",
+    repositoryKey: KEY,
+    headCommit: null,
+    providerReady: true,
+    advisor: false,
+    advisorModel: null,
+    ...patch,
+  });
+  const machine = (key: string, nickname: string | null, projects: FleetHostProject[], patch: Partial<FleetMachine> = {}): FleetMachine => ({
+    key,
+    nickname,
+    status: "ready",
+    error: null,
+    preference: "normal",
+    receivedAt: NOW,
+    grantRung: key === LOCAL_MACHINE_KEY ? null : "dispatch",
+    report: report({ projects }),
+    address: key === LOCAL_MACHINE_KEY ? null : "10.0.0.5",
+    sshReachable: null,
+    maintenance: null,
+    ...patch,
+  });
+  const args = (patch: Partial<FleetToolDispatchArgs> = {}): FleetToolDispatchArgs => ({
+    prompt: "p",
+    title: null,
+    project: "/work/app",
+    machines: null,
+    count: null,
+    workspace: "worktree",
+    planMode: false,
+    ...patch,
+  });
+  const targets = (a: FleetToolDispatchArgs, machines: FleetMachine[]) => {
+    const result = fleetToolDispatchRequest(a, machines);
+    if (!result.ok) throw new Error(result.reason);
+    return result.request.targets;
+  };
+  const local = machine(LOCAL_MACHINE_KEY, null, [project("/work/app")]);
+  const studio = machine("r1", "studio", [project("/srv/app")]);
+  const HERE = { kind: "explicit", picks: [{ machineKey: LOCAL_MACHINE_KEY, projectCwd: "/work/app" }] };
+
+  it("starts one session on this computer for a local path", () => {
+    expect(targets(args(), [local, studio])).toEqual(HERE);
+  });
+
+  it("takes this computer's checkout for a repository key even when a member is listed first", () => {
+    expect(targets(args({ project: "GitHub.com/Acme/App" }), [studio, local])).toEqual(HERE);
+  });
+
+  it("places automatically when this computer has no checkout of the repository", () => {
+    expect(targets(args({ project: KEY }), [machine(LOCAL_MACHINE_KEY, null, []), studio])).toEqual({
+      kind: "auto",
+      reference: { machineKey: "r1", projectCwd: "/srv/app" },
+      count: 1,
+    });
+  });
+
+  it("places automatically when this computer's checkout has no ready model provider", () => {
+    const unready = machine(LOCAL_MACHINE_KEY, null, [project("/work/app", { providerReady: false })]);
+    expect(targets(args(), [unready, studio])).toEqual({
+      kind: "auto",
+      reference: { machineKey: LOCAL_MACHINE_KEY, projectCwd: "/work/app" },
+      count: 1,
+    });
+  });
+
+  it("places automatically when this computer is Manual only", () => {
+    const manual = machine(LOCAL_MACHINE_KEY, null, [project("/work/app")], { preference: "manual" });
+    expect(targets(args(), [manual, studio])).toEqual({
+      kind: "auto",
+      reference: { machineKey: LOCAL_MACHINE_KEY, projectCwd: "/work/app" },
+      count: 1,
+    });
+  });
+
+  it("places every copy automatically when count asks for more than one", () => {
+    expect(targets(args({ count: 2 }), [local, studio])).toEqual({
+      kind: "auto",
+      reference: { machineKey: LOCAL_MACHINE_KEY, projectCwd: "/work/app" },
+      count: 2,
     });
   });
 });
