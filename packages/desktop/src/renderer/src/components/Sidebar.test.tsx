@@ -955,6 +955,19 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(document.body.textContent).not.toContain("No running sessions");
   });
 
+  it("keeps Working (0) visible and docked directly above Settled, below Snoozed", () => {
+    useStore.setState({
+      state: stateWith([sess("parked", { snoozed: true }), sess("old", { live: "dormant" })], {
+        snoozedSectionEnabled: true,
+      }),
+    });
+    renderSidebar();
+    const headings = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].map(
+      (b) => b.textContent,
+    );
+    expect(headings).toEqual(["Snoozed (1)", "Working (0)", "Settled (1)"]);
+  });
+
   it("with the setting off, shows no Snoozed section or Snooze item and keeps a snoozed-flagged row in the main list", () => {
     useStore.setState({ state: stateWith([sess("parked", { snoozed: true })]) });
     renderSidebar();

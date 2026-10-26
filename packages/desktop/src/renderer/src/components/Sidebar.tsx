@@ -150,11 +150,15 @@ const rowKey = (entry: SidebarEntry): string => `${entry.instanceId ?? "local"}:
 
 /** One collapsible sidebar section: a heading toggle and its row list. The
  *  search forces the block open, so the toggle is inert while filtering and
- *  the stored choice stays untouched (issue #935). */
+ *  the stored choice stays untouched (issue #935). An open `grow` section
+ *  takes the free height (Snoozed, Settled); a non-growing one sizes to its
+ *  rows up to 40% of the body and scrolls inside, so Working stays docked on
+ *  the section below it (issue #937). */
 function SidebarSection({
   heading,
   entries,
   shown,
+  grow,
   disabled,
   onToggle,
   onActivate,
@@ -163,13 +167,23 @@ function SidebarSection({
   heading: string;
   entries: SidebarEntry[];
   shown: boolean;
+  grow: boolean;
   disabled: boolean;
   onToggle: () => void;
   onActivate: () => void;
   openSessionMenu: OpenSessionMenu;
 }) {
   return (
-    <div className={cn("border-t border-line", shown ? "flex min-h-0 flex-1 flex-col" : "shrink-0")}>
+    <div
+      className={cn(
+        "border-t border-line",
+        !shown
+          ? "shrink-0"
+          : grow
+            ? "flex min-h-0 flex-1 flex-col"
+            : "flex max-h-[40%] min-h-0 shrink-0 flex-col",
+      )}
+    >
       <button
         type="button"
         aria-expanded={shown}
@@ -180,8 +194,8 @@ function SidebarSection({
         <Chevron open={shown} />
         {heading}
       </button>
-      {shown && (
-        <div className="min-h-0 flex-1 space-y-px overflow-y-auto px-1.5 py-1">
+      {shown && entries.length > 0 && (
+        <div className={cn("min-h-0 space-y-px overflow-y-auto px-1.5 py-1", grow && "flex-1")}>
           {entries.map((entry) => (
             <Row key={rowKey(entry)} entry={entry} onActivate={onActivate} openSessionMenu={openSessionMenu} />
           ))}
@@ -418,34 +432,39 @@ export function Sidebar() {
                   }
                 />
               </div>
-            ) : null}
-            {lists.working.length > 0 && (
-              <SidebarSection
-                heading={t("sidebar.working.heading", { n: lists.working.length })}
-                entries={lists.working}
-                shown={workingShown}
-                disabled={filtering}
-                onToggle={() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", !workingOpen)}
-                onActivate={closeCompactSurface}
-                openSessionMenu={openSessionMenu}
-              />
+            ) : (
+              // An empty main list still owns the free height, so the headed
+              // sections below stay docked at the bottom of the sidebar (issue #937).
+              <div aria-hidden className="min-h-0 flex-1" />
             )}
             {lists.snoozed.length > 0 && (
               <SidebarSection
                 heading={t("sidebar.snoozed.heading", { n: lists.snoozed.length })}
                 entries={lists.snoozed}
                 shown={snoozedShown}
+                grow
                 disabled={filtering}
                 onToggle={() => setSidebarSectionOpen("omp-ui.sidebarSnoozedOpen", !snoozedOpen)}
                 onActivate={closeCompactSurface}
                 openSessionMenu={openSessionMenu}
               />
             )}
+            <SidebarSection
+              heading={t("sidebar.working.heading", { n: lists.working.length })}
+              entries={lists.working}
+              shown={workingShown}
+              grow={false}
+              disabled={filtering}
+              onToggle={() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", !workingOpen)}
+              onActivate={closeCompactSurface}
+              openSessionMenu={openSessionMenu}
+            />
             {lists.settled.length > 0 && (
               <SidebarSection
                 heading={t("sidebar.settled.heading", { n: lists.settled.length })}
                 entries={lists.settled}
                 shown={settledShown}
+                grow
                 disabled={filtering}
                 onToggle={() => setSettledOpen(!settledOpen)}
                 onActivate={closeCompactSurface}
