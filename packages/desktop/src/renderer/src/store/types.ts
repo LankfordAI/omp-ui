@@ -1204,6 +1204,18 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     tabId: string,
     opts: { branch: string; baseRef: string | null; baseBranch: string | null },
   ): Promise<void>;
+  /**
+   * The composer machine chip (issue #936): re-homes an unprompted native
+   * session onto another checkout of the same repository. Spawns on the
+   * target, hands the draft to the new tab's composer, then erases the empty
+   * source. Returns the new tabId, or null when the source was left untouched
+   * (spawn failed or timed out — newSession already reported it).
+   */
+  moveUnpromptedSession(
+    tabId: string,
+    target: { projectCwd: string; instanceId: string | null },
+    draft: { text: string; images: ImageAttachment[]; documents: DocumentAttachment[] },
+  ): Promise<string | null>;
   openNewSessionDialog(seed?: {
     projectCwd?: string | null;
     instanceId?: string | null;

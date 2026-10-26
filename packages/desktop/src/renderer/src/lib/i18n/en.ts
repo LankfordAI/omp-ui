@@ -52,7 +52,6 @@ export const en = {
   "quickopen.project.actions": "actions for {name}",
   "quickopen.page.back": "back to projects",
   "quickopen.actions.placeholder": "Search actions…",
-  "quickopen.action.newSessionOn": "New session on {machine}",
   "quickopen.action.openIn": "Open in {target}",
 
   // App getting-started checklist (issue #623)
@@ -465,6 +464,12 @@ export const en = {
   "composer.live.parkedHint":
     "The call is quiet while the assistant works — it speaks again when it finishes.",
   "composer.strip.converting": "cutting the worktree…",
+  "composer.machine.label": "Machine",
+  "composer.machine.title": "Run this session on another machine with the same repository",
+  "composer.machine.moving": "Moving to {machine}…",
+  "composer.machine.unreachable": "Not connected",
+  "composer.machine.droppedDocument":
+    "{name} was left behind: it is a file on the previous machine. Attach it again.",
   "composer.slash.new": "new live session in a new tab",
   "composer.slash.plan": "plan mode — read-only; a plan is drafted and reviewed on request",
   "composer.slash.goal": "goal — one objective this session works toward on its own",

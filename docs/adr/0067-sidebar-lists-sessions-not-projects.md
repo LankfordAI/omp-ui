@@ -73,6 +73,12 @@ action the header cluster and the compact actions sheet used to carry. The
 per-repository merge ADR-0063 put on a sidebar node lives in the quick-open
 row, and its page offers New session on each other checkout.
 
+**Amended 2026-10-26 (#936):** the per-checkout launch moved from the
+quick-open project page to the composer's machine chip. The page no longer
+lists New session on each other checkout; a merged row's subline names every
+machine holding the repository, and an unprompted native session is moved to
+another member from the chip.
+
 **(d) Sidebar groups and the host-scope picker are removed.** Groups, their
 registry field and channels go; with no per-host sections there is nothing for
 a scope picker to choose.

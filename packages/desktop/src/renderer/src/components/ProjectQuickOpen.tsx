@@ -7,6 +7,7 @@ import { currentLocaleId, useT } from "../lib/i18n";
 import { formatHotkey, useHotkeys, type HotkeyMap } from "../lib/hotkeys";
 import { initials } from "../lib/initials";
 import { identityWash, monogramColors } from "../lib/project-colors";
+import { checkoutEntries, groupByRepository, type CheckoutEntry } from "../lib/repository-members";
 import { useCompactShell } from "../lib/responsive";
 import { isChatTab, useStore } from "../store";
 import { Chevron, Chip, IconButton, IconSearch, Label, Modal } from "./ui";
@@ -29,14 +30,6 @@ import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from ".
 interface Pair {
   projectCwd: string;
   instanceId: string | null;
-}
-
-/** One registered project on one host, before the repository merge. */
-interface Entry extends Pair {
-  name: string;
-  /** Full path tooltip; set for remote rows only (mirrors hereOptions). */
-  title?: string;
-  repositoryKey: string | null;
 }
 
 type RowKind = "chat" | "project" | "add" | "action";
@@ -108,33 +101,6 @@ export function ProjectQuickOpen() {
     };
   }, []);
 
-  // Registry projects exactly as NewSessionDialog's hereOptions (118-142):
-  // the local registry first, then every joined instance's projects.
-  const entries = useMemo<Entry[]>(() => {
-    const out: Entry[] = [];
-    for (const group of state?.projects ?? []) {
-      out.push({
-        instanceId: null,
-        projectCwd: group.project.path,
-        name: group.project.name,
-        repositoryKey: group.project.repositoryKey,
-      });
-    }
-    const joined = (state?.remoteInstances ?? []).filter((instance) => instance.status !== "self");
-    for (const instance of joined) {
-      for (const group of instance.projects) {
-        out.push({
-          instanceId: instance.id,
-          projectCwd: group.project.path,
-          name: group.project.name,
-          title: group.project.path,
-          repositoryKey: group.project.repositoryKey,
-        });
-      }
-    }
-    return out;
-  }, [state]);
-
   const nicknames = useMemo(
     () => new Map((state?.remoteInstances ?? []).map((instance) => [instance.id, instance.nickname])),
     [state],
@@ -144,28 +110,19 @@ export function ProjectQuickOpen() {
 
   const baseRows = useMemo<QuickRow[]>(() => {
     // The repository merge (issue #903 rule, mirrored from hereGroups): one
-    // row per repositoryKey. A null key NEVER merges across machines except
-    // by identical path, so keyless entries dedupe by path alone.
-    const byKey = new Map<string | null, Entry[]>();
-    for (const entry of entries) {
-      const list = byKey.get(entry.repositoryKey);
-      if (list === undefined) byKey.set(entry.repositoryKey, [entry]);
-      else list.push(entry);
-    }
-    const groups: { key: string | null; members: Entry[] }[] = [];
-    for (const [key, members] of byKey) {
-      if (key !== null) {
-        groups.push({ key, members });
-        continue;
-      }
-      const byPath = new Map<string, Entry[]>();
-      for (const entry of members) {
-        const list = byPath.get(entry.projectCwd);
-        if (list === undefined) byPath.set(entry.projectCwd, [entry]);
-        else list.push(entry);
-      }
-      for (const list of byPath.values()) groups.push({ key: null, members: list });
-    }
+    // row per repositoryKey; lib/repository-members owns the grouping so the
+    // composer's machine chip derives the same members.
+    const groups = groupByRepository(checkoutEntries(state));
+    // A merged row's subline names every machine holding a checkout (#936):
+    // local first, then member order, each machine once (twins collapse).
+    const machineList = (members: readonly CheckoutEntry[]): string => {
+      const ids = [...new Set(members.map((m) => m.instanceId))].sort(
+        (a, b) => Number(a !== null) - Number(b !== null),
+      );
+      return ids
+        .map((id) => (id === null ? t("quickopen.host.local") : (nicknames.get(id) ?? id)))
+        .join(" · ");
+    };
 
     const focusedInstanceId = focused?.instanceId ?? null;
 
@@ -182,10 +139,12 @@ export function ProjectQuickOpen() {
         group: t("quickopen.group.projects"),
         label: target.name,
         sub:
-          target.instanceId === null
-            ? t("quickopen.host.local")
-            : `${nicknames.get(target.instanceId) ?? target.instanceId} · ${target.projectCwd}`,
-        title: target.title,
+          group.members.length === 1
+            ? target.instanceId === null
+              ? t("quickopen.host.local")
+              : `${nicknames.get(target.instanceId) ?? target.instanceId} · ${target.projectCwd}`
+            : machineList(group.members),
+        title: group.members.length === 1 ? target.title : group.members.map((m) => m.projectCwd).join("\n"),
         hits: [],
         kind: "project",
         pair: { projectCwd: target.projectCwd, instanceId: target.instanceId },
@@ -233,7 +192,7 @@ export function ProjectQuickOpen() {
       });
     }
     return out.map((row, i) => ({ ...row, index: i }));
-  }, [entries, focused, state, nicknames, t, localeId]);
+  }, [focused, state, nicknames, t, localeId]);
 
   // The page's row as of the latest broadcast (a membership change re-derives
   // it); the stored snapshot only stands in until the reset effect fires.
@@ -262,18 +221,6 @@ export function ProjectQuickOpen() {
     if (pageRow?.pair === undefined) return rows;
     const { projectCwd: p, instanceId: i } = pageRow.pair;
     action("newSession", t("project.actions.newSession"), () => void newSession(p, undefined, i));
-    // The #903 per-checkout launch: every other merged member gets its own row.
-    for (const m of pageRow.members ?? []) {
-      if (m.projectCwd === p && m.instanceId === i) continue;
-      const machine =
-        m.instanceId === null ? t("dialog.newsession.machineLocal") : (nicknames.get(m.instanceId) ?? m.instanceId);
-      action(
-        `newSessionOn:${m.instanceId ?? "local"}\u0000${m.projectCwd}`,
-        t("quickopen.action.newSessionOn", { machine }),
-        () => void newSession(m.projectCwd, undefined, m.instanceId),
-        { sub: m.projectCwd },
-      );
-    }
     action("newTerminal", t("project.actions.newTerminal"), () => void newSession(p, "pty", i));
     action("newPrivate", t("project.actions.newPrivate"), () => void newSession(p, undefined, i, { private: true }));
     action("newSessionDialog", t("project.actions.newSessionDialog"), () =>
@@ -302,7 +249,6 @@ export function ProjectQuickOpen() {
   }, [
     page.kind,
     pageRow,
-    nicknames,
     compact,
     availability,
     experimentsEnabled,

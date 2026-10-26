@@ -4,6 +4,8 @@
 import type {
   DeleteSessionPreview,
   DeleteSessionResult,
+  DocumentAttachment,
+  ImageAttachment,
   KnowledgeHome,
   PlanImplementationSource,
   SessionMode,
@@ -91,6 +93,7 @@ export type LifecycleSlice = Pick<
   | "newWorktreeSession"
   | "launchSession"
   | "convertSessionToWorktree"
+  | "moveUnpromptedSession"
   | "openSession"
   | "focusTab"
   | "hideTab"
@@ -1239,6 +1242,56 @@ export function createLifecycleSlice(
   };
 
   /**
+   * The composer machine chip (issue #936): re-homes an unprompted native
+   * session onto another checkout of the same repository. Spawns on the
+   * target, hands the draft to the new tab's composer, then erases the empty
+   * source. Returns the new tabId, or null when the source was left untouched.
+   */
+  const moveUnpromptedSession = async (
+    tabId: string,
+    target: { projectCwd: string; instanceId: string | null },
+    draft: { text: string; images: ImageAttachment[]; documents: DocumentAttachment[] },
+  ): Promise<string | null> => {
+    const owner = findOwner(get().state, tabId);
+    if (
+      owner === undefined ||
+      owner.record.mode !== "rpc-ui" ||
+      owner.record.chat ||
+      owner.record.worktree !== null ||
+      // Nothing materialized (lazy materialization): erasing loses no transcript.
+      owner.record.sessionId !== null ||
+      (owner.instanceId === target.instanceId && owner.record.projectCwd === target.projectCwd)
+    ) {
+      return null;
+    }
+    const next = await newSession(target.projectCwd, undefined, target.instanceId, {
+      private: owner.record.private,
+      planMode: owner.record.agentMode === "plan",
+    });
+    // null: newSession already reported the failure or timeout.
+    if (next === null) return null;
+    // bootRpcTab resets the slot (freshRpcTabState has no composerQueue), so
+    // a draft queued before boot would be wiped.
+    await m.pollUntilSettled(next);
+    get().queueComposerText(next, draft.text);
+    for (const image of draft.images) get().queueComposerAttachment(next, image, "");
+    for (const document of draft.documents) {
+      if (document.data !== undefined) {
+        get().queueComposerDocument(next, document, "");
+        continue;
+      }
+      // A path-only document names a file on the source machine.
+      m.appendItem(
+        next,
+        noticeItem(t("composer.machine.droppedDocument", { name: document.name }), "warn"),
+      );
+    }
+    // Re-read: a source that materialized meanwhile keeps its transcript.
+    if (findRecord(get().state, tabId)?.sessionId === null) await eraseSession(tabId);
+    return next;
+  };
+
+  /**
    * Resurfaces or resumes a session's tab. A tab-scoped resume rides the
    * local backend: main routes it to the owning instance by resumeTabId. An
    * instance that is not joined cannot resume anything, so the attempt is
@@ -1896,6 +1949,7 @@ export function createLifecycleSlice(
     newWorktreeSession,
     launchSession,
     convertSessionToWorktree,
+    moveUnpromptedSession,
     openSession,
     focusTab,
     hideTab,
