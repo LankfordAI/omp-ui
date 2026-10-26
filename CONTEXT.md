@@ -249,12 +249,14 @@ tab's project comes first, or *No project* when a chat (or nothing) is
 focused, so a single Enter repeats "another one of these". Enter on a project
 row starts a session there; on *No project* it starts a **Chat**. → (caret at
 the end of the search) or the row's actions button drills into a page;
-Backspace on an empty search goes back. A project page holds every project
-action: New session, *New session on {machine}* for each other checkout of the
-repository, New terminal session, New private session, New session… (the **New
-session dialog**), Open in VS Code / Files / Terminal, Experiments and New
-experiment (when experiments are enabled), Project settings…, and Remove
-project…. The *No project* page offers New chat and New private chat. The
+Backspace on an empty search goes back. A merged row's subline names every
+machine holding the repository, this computer first. A project page holds
+every project action: New session, New terminal session, New private session,
+New session… (the **New session dialog**), Open in VS Code / Files / Terminal,
+Experiments and New experiment (when experiments are enabled), Project
+settings…, and Remove project…. A new session starts on this computer's
+checkout when it has one; the **Machine chip** moves it to another before the
+first prompt. The *No project* page offers New chat and New private chat. The
 open targets are omitted for a remote project and in the compact shell: a
 compact shell is usually a phone talking to a remote omp-ui, where opening on
 the host answers a question nobody asked.
@@ -1166,11 +1168,23 @@ _Avoid_: remote server (the embedded listener this app hosts), remote host
 One **Project quick-open** row per repository identity across this app and
 every joined **Remote instance**: its members are the checkouts of that
 repository on each machine, matched on the `host/owner/repo` repository key
-(ADR-0063), never on path; its project page offers New session on each other
-checkout. A checkout with no web remote has no key and stays its own row on
-its own instance; unification never merges two projects it cannot name the
-same work.
+(ADR-0063), never on path; the composer's **Machine chip** moves an unprompted
+session to another member. A checkout with no web remote has no key and stays
+its own row on its own instance; unification never merges two projects it
+cannot name the same work.
 _Avoid_: merged project, cross-machine project, repo rollup
+
+**Machine chip**:
+The composer control on an unprompted native session that re-homes it onto
+another checkout of the same repository — another member of its **Unified
+project view** row. It shows only while the session has no prompt, no
+worktree, and no materialized lineage, and only when the repository has two or
+more members; a remote member that is not joined is listed but disabled.
+Picking a member starts a fresh session there, carries the draft and the
+private and plan flags across, and erases the empty source; model and advisor
+follow the target project's defaults. It is a move, not a launch: nothing
+runs on two machines, and it never goes through **Fleet dispatch**.
+_Avoid_: host picker, dispatch button
 
 **Fleet**:
 This app plus every joined **Remote instance**, seen as places new work can

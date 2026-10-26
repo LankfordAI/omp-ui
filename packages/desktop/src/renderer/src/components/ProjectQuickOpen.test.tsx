@@ -263,6 +263,14 @@ describe("ProjectQuickOpen root rows (issues #915, #919)", () => {
     expect(rowLabels()).toEqual(["bravo"]);
   });
 
+  it("a merged row's subline lists its machines, local first; a one-member remote row keeps nickname · path", () => {
+    renderQuickOpen({ remoteProjects: [projectGroup("/remote/s", "sigma", null)] });
+    // children[2] is the subline span (icon, label, subline, chord).
+    expect(rowByLabel("bravo")!.children[2]!.textContent).toBe("This computer · box-a");
+    expect(rowByLabel("bravo")!.title).toBe("/b\n/remote/r");
+    expect(rowByLabel("sigma")!.children[2]!.textContent).toBe("box-a · /remote/s");
+  });
+
   it("a bare Enter repeats the focused project and closes before the spawn resolves", () => {
     const { newSession, seenOpen } = renderQuickOpen();
     pressQuick("Enter");
@@ -410,7 +418,6 @@ describe("ProjectQuickOpen pages (issue #919)", () => {
 
   it.each<[label: string, fn: keyof Omit<Rendered, "seenOpen">, args: unknown[]]>([
     ["New session", "newSession", ["/b", undefined, null]],
-    ["New session on box-a", "newSession", ["/remote/r", undefined, "inst-1"]],
     ["New terminal session", "newSession", ["/b", "pty", null]],
     ["New private session", "newSession", ["/b", undefined, null, { private: true }]],
     ["New session…", "openNewSessionDialog", [{ projectCwd: "/b", instanceId: null }]],
@@ -483,17 +490,6 @@ describe("ProjectQuickOpen pages (issue #919)", () => {
     expect(rowLabels()).toContain("New session");
     expect(rowLabels().some((label) => label.startsWith("Open in"))).toBe(false);
     expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
-  });
-
-  it("a merged row offers one New session on {machine} per other member", () => {
-    const { newSession } = renderQuickOpen({ remoteProjects: [projectGroup("/remote/r2", "rho2", "github.com/o/r")] });
-    drillIn();
-    const others = rowButtons().filter((b) => b.children[1]?.textContent === "New session on box-a");
-    expect(others).toHaveLength(2);
-    // The subline names each checkout so same-machine twins stay distinct.
-    expect(others[1]!.textContent).toContain("/remote/r2");
-    act(() => others[1]!.click());
-    expect(newSession).toHaveBeenCalledWith("/remote/r2", undefined, "inst-1");
   });
 
   it("the No project page offers New chat and New private chat", () => {

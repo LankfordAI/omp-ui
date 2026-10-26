@@ -2972,3 +2972,126 @@ describe("Fleet remote version update gates (slice H)", () => {
     });
   });
 });
+
+describe("moveUnpromptedSession (issue #936)", () => {
+  const INSTANCE = "inst-b";
+  const FRESH = "fresh";
+  const image = { type: "image" as const, data: "AAAA", mimeType: "image/png" };
+  const pdf = { type: "document" as const, name: "spec.pdf", mimeType: "application/pdf", data: "JVBERi0=" };
+  const pathOnly = { type: "document" as const, name: "notes.pdf", mimeType: "application/pdf", path: "/p/notes.pdf" };
+  const toRemote = { projectCwd: "/p", instanceId: INSTANCE };
+  const toLocal = { projectCwd: "/q", instanceId: null };
+
+  /** A private plan-mode unprompted source tab on local /p; the same
+   *  repository is also registered locally at /q and on a joined remote. */
+  const seed = (sessionId: string | null = null): void => {
+    const base = h.stateWithRecord(sessionId, "live");
+    const group = base.projects[0]!;
+    const source = { ...group.sessions[0]!, private: true, agentMode: "plan" as const };
+    const state = makeBackendState({
+      projects: [
+        { ...group, sessions: [source] },
+        { project: { ...group.project, path: "/q", name: "q" }, sessions: [] },
+      ],
+      remoteInstances: [
+        remoteInstance({
+          id: INSTANCE,
+          nickname: "box-b",
+          projects: [{ project: group.project, sessions: [] }],
+        }),
+      ],
+    });
+    h.backendState = state;
+    h.useStore.setState({
+      state,
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p" })],
+      activeTabId: h.TAB,
+      // The fresh tab is already booted, so pollUntilSettled resolves at once.
+      rpc: { [h.TAB]: rpcTabState(), [FRESH]: rpcTabState() },
+      advisorDefaults: {
+        "/q": { enabled: false, model: null },
+        [`${INSTANCE}::/p`]: { enabled: false, model: null },
+      },
+    });
+    h.mockBackend.spawnSession.mockResolvedValue({ tabId: FRESH });
+    h.mockBackend.remoteInstanceRequest.mockImplementation(async (_id, channel) =>
+      channel === "session:spawn" ? { tabId: FRESH } : undefined,
+    );
+  };
+
+  it("respawns on the target machine with the source's privacy and plan mode, hands over the draft, and erases the source", async () => {
+    seed();
+    const next = await h.useStore
+      .getState()
+      .moveUnpromptedSession(h.TAB, toRemote, { text: "fix the login bug", images: [image], documents: [pdf] });
+
+    expect(next).toBe(FRESH);
+    // Routed to the target instance's backend, not the local one.
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.mockBackend.remoteInstanceRequest).toHaveBeenCalledWith(INSTANCE, "session:spawn", [
+      expect.objectContaining({ origin: "new", projectCwd: "/p", mode: "rpc-ui", private: true, planMode: true }),
+    ]);
+    const st = h.useStore.getState();
+    expect(st.rpc[FRESH]!.composerQueue).toEqual({
+      images: [image],
+      documents: [pdf],
+      text: ["fix the login bug"],
+    });
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, false);
+    expect(st.tabs.map((tab) => tab.tabId)).toEqual([FRESH]);
+    expect(st.tabs[0]!.instanceId).toBe(INSTANCE);
+  });
+
+  it("moves between local checkouts through the local backend", async () => {
+    seed();
+    const next = await h.useStore
+      .getState()
+      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [] });
+
+    expect(next).toBe(FRESH);
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: "new", projectCwd: "/q", private: true, planMode: true }),
+    );
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith(h.TAB, false);
+  });
+
+  it("leaves the source untouched when the spawn rejects", async () => {
+    seed();
+    h.mockBackend.spawnSession.mockRejectedValueOnce(new Error("pty spawn failed"));
+    const next = await h.useStore
+      .getState()
+      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [] });
+
+    expect(next).toBeNull();
+    expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
+    expect(h.useStore.getState().tabs.map((tab) => tab.tabId)).toEqual([h.TAB]);
+    expect(h.errorMessages()).toEqual([expect.stringContaining("pty spawn failed")]);
+  });
+
+  it("refuses a source that already materialized a session", async () => {
+    seed("sess-1");
+    const next = await h.useStore
+      .getState()
+      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [] });
+
+    expect(next).toBeNull();
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(h.mockBackend.remoteInstanceRequest).not.toHaveBeenCalled();
+    expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("drops a path-only document with a warn notice naming it on the new tab", async () => {
+    seed();
+    await h.useStore
+      .getState()
+      .moveUnpromptedSession(h.TAB, toRemote, { text: "read these", images: [], documents: [pdf, pathOnly] });
+
+    const fresh = h.useStore.getState().rpc[FRESH]!;
+    expect(fresh.composerQueue?.documents).toEqual([pdf]);
+    expect(fresh.items.at(-1)).toMatchObject({
+      kind: "notice",
+      level: "warn",
+      text: expect.stringContaining("notes.pdf"),
+    });
+  });
+});

@@ -42,6 +42,8 @@ import { FastModeControl } from "./FastModeControl";
 import { LiveVoiceControl } from "./LiveVoiceControl";
 import { LiveVoiceStrip } from "./LiveVoiceStrip";
 import { BuildPlanControl } from "./BuildPlanControl";
+import { MachineChip } from "./MachineChip";
+import type { CheckoutEntry } from "../lib/repository-members";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
 import { QueuedMessageList } from "./QueuedMessageList";
@@ -236,6 +238,7 @@ export function Composer({
   const runShellCommand = useStore((s) => s.runShellCommand);
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const convertSessionToWorktree = useStore((s) => s.convertSessionToWorktree);
+  const moveUnpromptedSession = useStore((s) => s.moveUnpromptedSession);
 
   const [text, setText] = useState("");
   /**
@@ -288,6 +291,22 @@ export function Composer({
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   /** True while the first send is converting the session to a worktree. */
   const [converting, setConverting] = useState(false);
+  /** The machine chip's target name while the session moves there (#936). */
+  const [moving, setMoving] = useState<string | null>(null);
+  // The machine chip (#936): an unprompted, project-checkout session with
+  // nothing materialized can be re-homed onto another checkout's machine.
+  const offerMachine = unprompted && !chat && !hasWorktree && record?.sessionId === null;
+
+  const moveToMember = async (member: CheckoutEntry): Promise<void> => {
+    setMoving(
+      member.instanceId === null
+        ? t("quickopen.host.local")
+        : (findInstance(useStore.getState().state, member.instanceId)?.nickname ?? member.instanceId),
+    );
+    const next = await moveUnpromptedSession(tabId, member, { text, images, documents });
+    // Success unmounts this composer with its tab; a failure keeps the draft.
+    if (next === null) setMoving(null);
+  };
 
   const handleWorkspaceChange = (
     next: WorkspaceSelection | ((prev: WorkspaceSelection) => WorkspaceSelection),
@@ -604,7 +623,8 @@ export function Composer({
       if (
         (message === "" && payload.length === 0 && documents.length === 0) ||
         unavailable ||
-        converting
+        converting ||
+        moving !== null
       )
         return;
       // #932: a held session starts no turn; the notice says why, and the
@@ -738,6 +758,7 @@ export function Composer({
       unprompted,
       workspace,
       converting,
+      moving,
       runWorktreeConversion,
       modelHold,
     ],
@@ -907,6 +928,7 @@ export function Composer({
     (trimmed !== "" || images.length > 0 || documents.length > 0) &&
     !unavailable &&
     !converting &&
+    moving === null &&
     (modelHold === null || isSlash || trimmed.startsWith("!"));
   const lines = text === "" ? 0 : text.split("\n").length;
 
@@ -1082,7 +1104,7 @@ export function Composer({
               data-composer-input
               rows={1}
               value={text}
-              disabled={unavailable}
+              disabled={unavailable || moving !== null}
               placeholder={placeholder}
               // The misspelling underline paints in the textarea layer even
               // over transparent glyphs; the mirror's identical metrics keep
@@ -1197,6 +1219,14 @@ export function Composer({
             )}
 
             <AdvisorControl tabId={tabId} disabled={unavailable} />
+
+            {offerMachine && (
+              <MachineChip
+                tabId={tabId}
+                disabled={unavailable || converting || moving !== null}
+                onPick={(member) => void moveToMember(member)}
+              />
+            )}
 
             {/* A chat is Build-only and has no repo: no mode control, no branch chip (#894). */}
             {!chat && (
@@ -1393,7 +1423,7 @@ export function Composer({
         {/* The worktree-conversion status lives here, not in the branch chip's
             popover (issue #227): the conversion runs on send, when the popover
             is closed, and its failure must stay visible with the draft intact. */}
-        {(converting || workspaceError !== null) && (
+        {(converting || moving !== null || workspaceError !== null) && (
           <div className="animate-rise mt-2 flex items-start gap-2 text-[11px]">
             {workspaceError !== null ? (
               <>
@@ -1408,6 +1438,8 @@ export function Composer({
                   <IconClose className="size-3" />
                 </IconButton>
               </>
+            ) : moving !== null ? (
+              <span className="text-ink-faint">{t("composer.machine.moving", { machine: moving })}</span>
             ) : (
               <span className="text-ink-faint">{t("composer.strip.converting")}</span>
             )}

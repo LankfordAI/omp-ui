@@ -2,10 +2,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { BranchList, ServiceTier } from "@omp-ui/core/types";
+import type { BranchList, RemoteInstanceSummary, ServiceTier } from "@omp-ui/core/types";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { MAGIC_KEYWORDS, type MagicKeyword } from "@omp-ui/core/magic-keywords";
-import { backendState, remoteOwnedState, rpcTabState } from "../test/fixtures";
+import { backendState, remoteInstance, remoteOwnedState, rpcTabState } from "../test/fixtures";
 import type { RpcTabState } from "../store";
 import { emptySessionRuntime, type SlashCommandInfo } from "../lib/rpc-types";
 import { t } from "../lib/i18n";
@@ -2993,5 +2993,77 @@ describe("@-mentions on slash drafts", () => {
     // matches "@x", so it renders its empty state with zero rows.
     expect(slashRows()).toEqual([]);
     expect(document.body.textContent).toContain(t("composer.slash.noMatch"));
+  });
+});
+
+describe("Composer machine chip (issue #936)", () => {
+  const KEY = "github.com/o/r";
+  const sharedProject = (path: string) => ({ ...state.projects[0]!.project, path, name: "R", repositoryKey: KEY });
+
+  /** /p (unprompted; sessionId null unless given) keyed into KEY, plus the given remote instances. */
+  function seedRepository(remoteInstances: RemoteInstanceSummary[], sessionId: string | null = null): void {
+    seed("ready");
+    const group = state.projects[0]!;
+    useStore.setState({
+      state: backendState({
+        projects: [{ project: { ...group.project, repositoryKey: KEY }, sessions: [{ ...group.sessions[0]!, sessionId }] }],
+        remoteInstances,
+      }),
+    });
+  }
+
+  // The chip lives in the non-compact action row; the global stub reports compact.
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  });
+
+  function renderUnprompted(): void {
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<Composer tabId={TAB} unprompted />));
+  }
+
+  const machineChip = (): HTMLButtonElement | null =>
+    document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t("composer.machine.label")}"]`);
+
+  it("renders for an unprompted session whose repository has 2+ members", () => {
+    seedRepository([remoteInstance({ projects: [{ project: sharedProject("/remote/r"), sessions: [] }] })]);
+    renderUnprompted();
+    expect(machineChip()).not.toBeNull();
+    expect(machineChip()!.textContent).toContain("This computer");
+  });
+
+  it("is absent when the repository has only this checkout", () => {
+    seedRepository([remoteInstance({ projects: [{ project: { ...sharedProject("/remote/r"), repositoryKey: "github.com/o/other" }, sessions: [] }] })]);
+    renderUnprompted();
+    expect(machineChip()).toBeNull();
+  });
+
+  it("is absent once the tab is no longer unprompted", () => {
+    seedRepository([remoteInstance({ projects: [{ project: sharedProject("/remote/r"), sessions: [] }] })]);
+    renderComposer();
+    expect(machineChip()).toBeNull();
+  });
+
+  it("is absent once the record carries a sessionId", () => {
+    seedRepository([remoteInstance({ projects: [{ project: sharedProject("/remote/r"), sessions: [] }] })], "s");
+    renderUnprompted();
+    expect(machineChip()).toBeNull();
+  });
+
+  it("lists an unjoined remote member as a disabled menu row", () => {
+    seedRepository([
+      remoteInstance({ projects: [{ project: sharedProject("/remote/r"), sessions: [] }] }),
+      remoteInstance({ id: "inst-2", nickname: "box-b", status: "unreachable", projects: [{ project: sharedProject("/remote/u"), sessions: [] }] }),
+    ]);
+    renderUnprompted();
+    act(() => machineChip()!.click());
+    const rows = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitemradio"]')];
+    expect(rows.map((row) => row.children[0]!.textContent)).toEqual(["This computer", "box-a", "box-b"]);
+    expect(rows.map((row) => row.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+    expect(rows.map((row) => row.disabled)).toEqual([false, false, true]);
+    expect(rows[2]!.title).toBe(t("composer.machine.unreachable"));
   });
 });
