@@ -90,10 +90,12 @@ _Avoid_: archive, history, inactive list
 
 **Working**:
 The sidebar's collapsible section holding every live session currently inside
-a turn (`SessionSummary.turnRunning === true`), newest open first. Always
-shown, reading Working (0) when idle, and sits directly above **Settled**. A
-terminal (pty) session never reports a turn latch, so it never leaves the main
-list for **Working**.
+a turn (`SessionSummary.turnRunning === true`) that is not blocked on the user,
+newest open first. Always shown, reading Working (0) when idle, and sits
+directly above **Settled**. A terminal (pty) session never reports a turn
+latch, so it never leaves the main list for **Working**. A session waiting on
+a plan review or a blocking dialog (`pendingPlan` / `awaitingHumanAnswer`)
+leaves **Working** for the main list until it is answered.
 _Avoid_: busy section, running section
 
 **Snoozed session**:

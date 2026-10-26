@@ -92,3 +92,15 @@ of the sidebar body and scrolls inside; it never takes free height. The main
 region (rows, an empty state, or an empty filler) owns the free height, so
 Working stays directly on Settled whatever the main list holds. Open Snoozed
 and Settled still share free height with the main region.
+
+## Addendum: sessions awaiting the user leave Working (#944, 2026-10-26)
+
+A live session with `pendingPlan !== null` or `awaitingHumanAnswer === true`
+files to the main list even while `turnRunning` is true, so a question or a
+plan review surfaces at the top instead of inside Working. Precedence is now
+Snoozed > Settled > main list (needs the user) > Working > main list. Both
+signals are host-published `SessionSummary` levels, so remote rows follow
+the same rule; snoozed still outranks it. Renderer-local waits
+(`experimentProposal`, `extensionQueue`) are not visible to
+`buildSidebarLists` and leave such a row in Working while its badge reads
+"answer needed" — documented limitation.

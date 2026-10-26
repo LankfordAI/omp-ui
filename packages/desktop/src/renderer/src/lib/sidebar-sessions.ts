@@ -15,9 +15,9 @@ export interface SidebarEntry {
 }
 
 export interface SidebarLists {
-  /** live, not in a turn, not snoozed — newest open first. */
+  /** live and either not in a turn or blocked on the user (pending plan / human answer), not snoozed — newest open first. */
   active: SidebarEntry[];
-  /** live with a running turn, not snoozed — newest open first. */
+  /** live with a running turn and not blocked on the user, not snoozed — newest open first. */
   working: SidebarEntry[];
   /** snoozed === true — newest open first. Always empty while the
    *  snoozedSectionEnabled setting is off (issue #935). */
@@ -47,8 +47,8 @@ function matches(entry: SidebarEntry, q: string): boolean {
  * The sidebar's session lists: every local project session and chat plus
  * every non-self remote instance's sessions, filtered by `query`, sorted
  * newest open first by `launchedAt` (ties keep build order), and split into
- * four sections — active (live, no running turn), working (live with a
- * running turn), snoozed (parked via the sidebar, when the
+ * four sections — active (live, no running turn or blocked on the user),
+ * working (live with a running turn, not blocked on the user), snoozed (parked via the sidebar, when the
  * snoozedSectionEnabled setting is on), and settled (not live, not
  * snoozed). Handoffs resolve per host over that host's full session set,
  * before any filtering or partitioning, so a live implementation still
@@ -131,9 +131,13 @@ export function buildSidebarLists(state: BackendState, query: string): SidebarLi
       settled.push(entry);
       continue;
     }
-    // A terminal session never reports turnRunning, so it can never land
-    // in Working; an older remote host's absent latch reads the same way.
-    if (s.turnRunning === true) working.push(entry);
+    // A session blocked on the user (plan gate or blocking dialog) belongs in
+    // the main list even mid-turn: Working is for sessions that need nothing
+    // from the user (issue #944). Both are host-published levels, so remote rows
+    // move too. A terminal session never reports turnRunning, so it can never
+    // land in Working; an older remote host's absent latch reads the same way.
+    const needsUser = s.pendingPlan !== null || s.awaitingHumanAnswer === true;
+    if (s.turnRunning === true && !needsUser) working.push(entry);
     else active.push(entry);
   }
   return { active, working, snoozed, settled };
