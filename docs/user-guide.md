@@ -36,7 +36,7 @@ next `~/axle`; it never rewrites your text to the shorter `a`.
 
 The sidebar lists sessions, not projects. Its main list holds every live session — project sessions, chats, and sessions on joined [remote instances](remote-instances.md) — with the most recent activity on top. Each row shows the session's state, its project (or *chat*), and how long ago it last changed; a remote session's row also names its machine. Rows move as sessions work; there is no manual order. A plan-implementation session keeps its handoff label and a button that opens its planning session.
 
-Every other owned session — dormant, hibernated, archived, or missing — waits in the **Settled** section at the bottom of the sidebar, collapsed by default. Click its header to open or close it; omp-ui remembers the choice. The search box at the top filters both lists by session title, plan, project, or machine name, and shows **Settled** expanded while you type.
+Every other owned session — dormant, hibernated, archived, or missing — waits in the **Settled** section at the bottom of the sidebar, collapsed by default. Directly above it, the **Working** section lists sessions in the middle of a turn; it stays visible with a count of zero when nothing is running. Click a section's header to open or close it; omp-ui remembers the choice. The search box at the top filters both lists by session title, plan, project, or machine name, and shows **Settled** expanded while you type.
 
 ### Project pages
 

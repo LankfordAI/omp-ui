@@ -82,3 +82,13 @@ filter is active, all sections render expanded and their toggles are inert.
 - ADR-0067 (sidebar lists sessions) — extends the flat list's partition; the
   open-order sort and Settled collapse rule carry over.
 - ADR-0028 (remote instances) — `session:setSnoozed` joins the tab-routed set.
+
+## Addendum: Working docks above Settled (#937, 2026-10-26)
+
+The body renders main list, Snoozed, Working, Settled — superseding the order
+in the Decision. Working always renders once the lists load, reading
+Working (0) when no session is in a turn. Open, it sizes to its rows up to 40%
+of the sidebar body and scrolls inside; it never takes free height. The main
+region (rows, an empty state, or an empty filler) owns the free height, so
+Working stays directly on Settled whatever the main list holds. Open Snoozed
+and Settled still share free height with the main region.
