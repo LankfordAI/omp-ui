@@ -94,7 +94,12 @@ delivery.**
   a ready model provider; a reference project with no repository key can only
   run on its own machine. Automatic placement picks distinct machines, best
   score first, and refuses the whole request, naming how many machines are
-  eligible, when fewer qualify than copies asked for.
+  eligible, when fewer qualify than copies asked for. *Amended (#943):
+  `omp-ui_fleet_dispatch` with no `machines` and one copy starts on this
+  computer when this computer is ready, is not Manual only, and holds the
+  project with a ready model provider; only otherwise, or for more than one
+  copy, does it use automatic placement. The New session dialog's auto runs
+  keep load-based placement.*
 - Only `fleet:hostReport` and `fleet:sessionSummary` cross the proxy;
   `fleet:machines`, `fleet:dispatch`, and the rest of the orchestration stay
   local to the dispatching app, so a dispatch never fans out from a remote.

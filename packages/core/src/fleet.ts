@@ -1234,6 +1234,9 @@ export function fleetMemberAddress(url: string): string | null {
  * Translate omp-ui_fleet_dispatch arguments into a dispatch request against
  * the current machines. `project` is an absolute path registered on this app,
  * or a repository key; `machines` are nicknames or "this computer".
+ * With no machines and one copy, this computer takes the session when it is
+ * ready, not Manual only, and holds the project with a ready model provider
+ * (#943); otherwise the request falls back to automatic placement.
  * `planMode` passes through; the owner arms Plan mode before it delivers the prompt.
  */
 export function fleetToolDispatchRequest(
@@ -1244,12 +1247,15 @@ export function fleetToolDispatchRequest(
   const local = ready.find((m) => m.key === LOCAL_MACHINE_KEY);
   let reference: FleetTargetPick;
   let repositoryKey: string | null;
+  // This computer's checkout of the project, for the #943 default.
+  let localProject: FleetHostProject | undefined;
   const byPath = args.project.startsWith("/") || args.project.startsWith("\\\\") || /^[A-Za-z]:[\\/]/.test(args.project);
   if (byPath) {
     const project = local?.report?.projects.find((p) => p.path === args.project);
     if (project === undefined) return refuse(`"${args.project}" is not a project registered on this computer`);
     reference = { machineKey: LOCAL_MACHINE_KEY, projectCwd: project.path };
     repositoryKey = project.repositoryKey;
+    localProject = project;
   } else {
     repositoryKey = args.project.toLowerCase();
     const holder = ready.find((m) => m.report!.projects.some((p) => p.repositoryKey === repositoryKey));
@@ -1258,10 +1264,18 @@ export function fleetToolDispatchRequest(
       return refuse(`no ready fleet machine has a project with repository key "${args.project}"`);
     }
     reference = { machineKey: holder.key, projectCwd: project.path };
+    localProject = local?.report?.projects.find((p) => p.repositoryKey === repositoryKey && p.providerReady);
   }
   const base = { prompt: args.prompt, title: args.title, workspace: args.workspace, planMode: args.planMode } as const;
   if (args.machines === null) {
-    return { ok: true, request: { ...base, targets: { kind: "auto", reference, count: args.count ?? 1 } } };
+    const count = args.count ?? 1;
+    if (count === 1 && local !== undefined && local.preference !== "manual" && localProject?.providerReady === true) {
+      return {
+        ok: true,
+        request: { ...base, targets: { kind: "explicit", picks: [{ machineKey: LOCAL_MACHINE_KEY, projectCwd: localProject.path }] } },
+      };
+    }
+    return { ok: true, request: { ...base, targets: { kind: "auto", reference, count } } };
   }
   const picks: FleetTargetPick[] = [];
   for (const name of args.machines) {
