@@ -360,8 +360,12 @@ function PathChip({ value }: { value: string }) {
       data-selectable
       className="flex min-w-0 items-baseline rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px]"
     >
+      {/* Dirname yields first; the basename identifies the target. A basename
+          wider than the whole chip (a jq selector suffix, a long URL query)
+          clips too (max-w-full + truncate), so the transcript never scrolls
+          sideways; `title` keeps the full value on hover (issue #934). */}
       <span className="truncate text-ink-faint">{value.slice(0, cut)}</span>
-      <span className="shrink-0 text-ink-mid">{value.slice(cut)}</span>
+      <span className="max-w-full shrink-0 truncate text-ink-mid">{value.slice(cut)}</span>
     </span>
   );
 }
