@@ -591,6 +591,8 @@ export interface SettingsSlice {
   /** Opt out of the "Stop the agent?" confirmation (issue #925). */
   setSkipTerminateConfirmation(skip: boolean): Promise<void>;
   setExperimentsEnabled(on: boolean): Promise<void>;
+  /** Sidebar Snoozed section gate (issue #935); default off. */
+  setSnoozedSectionEnabled(on: boolean): Promise<void>;
   /** Shows/hides the composer mic button app-wide (issue #647). */
   setVoiceInputEnabled(on: boolean): Promise<void>;
   /** Parks the live voice call while a delegated backend turn works (issue #815). */
@@ -1334,6 +1336,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     advisor: boolean,
     advisorModel: string | null,
   ): Promise<void>;
+  /** Parks a session in the sidebar's Snoozed section or returns it (issue #935). */
+  setSessionSnoozed(tabId: string, snoozed: boolean): Promise<void>;
   /** Pins the session's approval mode (issue #681); a live rpc session relaunches. */
   setSessionApprovalMode(tabId: string, mode: ApprovalMode | null): Promise<void>;
   setAdvisorModel(tabId: string, selector: string | null): Promise<void>;

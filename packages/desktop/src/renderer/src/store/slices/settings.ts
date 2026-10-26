@@ -226,6 +226,13 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
         get().reportError(err);
       }
     },
+    async setSnoozedSectionEnabled(on) {
+      try {
+        await backend.setSnoozedSectionEnabled(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
 
     async setVoiceInputEnabled(on) {
       try {

@@ -2,9 +2,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OmpUpdateState, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
+import type { BackendState, OmpUpdateState, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
 import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
 import { setSettledOpen } from "../lib/sidebar-settled";
+import { setSidebarSectionOpen } from "../lib/sidebar-section-open";
 import type { LiveSnapshot } from "@omp-ui/core/live-voice";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -34,6 +35,7 @@ const backendMock = {
   browseDirectories: vi.fn(),
   removeProject: vi.fn(),
   setDefaultMode: vi.fn(),
+  setSnoozedSectionEnabled: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   switchMode: vi.fn(),
@@ -45,6 +47,7 @@ const backendMock = {
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionModel: vi.fn(),
+  setSessionSnoozed: vi.fn(async () => {}),
   readPlanFile: vi.fn(),
   getBranchDiff: vi.fn(),
   ptyPasteImage: vi.fn(),
@@ -120,6 +123,7 @@ const state = backendState({
           advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ snoozed: false,
  private: false,
  chat: false,
  askSource: null,
@@ -151,6 +155,7 @@ const state = backendState({
           advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ snoozed: false,
  private: false,
  chat: false,
  askSource: null,
@@ -228,7 +233,11 @@ afterEach(() => {
     root = null;
   }
   document.body.replaceChildren();
-  act(() => setSettledOpen(false));
+  act(() => {
+    setSettledOpen(false);
+    setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", true);
+    setSidebarSectionOpen("omp-ui.sidebarSnoozedOpen", false);
+  });
   window.localStorage.clear();
   Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
   if (originalVisualViewport === undefined) {
@@ -578,6 +587,7 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ snoozed: false,
  private: false,
  chat: false,
  askSource: null,
@@ -892,5 +902,149 @@ describe("Sidebar title cards (issue #838)", () => {
     const line = titleLine(rowButton("Owned session"));
     expect(line.firstChild).toBeInstanceOf(Text);
     expect(line.querySelector("span")).toBeNull();
+  });
+});
+
+describe("Sidebar Working and Snoozed sections (issue #935)", () => {
+  const project = state.projects[0]!.project;
+  const baseSession = state.projects[0]!.sessions[0]!;
+  const sess = (tabId: string, patch: Partial<SessionSummary> = {}): SessionSummary => ({
+    ...baseSession,
+    tabId,
+    title: tabId,
+    cachedTitle: tabId,
+    ...patch,
+  });
+  const stateWith = (sessions: SessionSummary[], patch: Partial<BackendState> = {}): BackendState =>
+    backendState({ ...patch, projects: [{ project, sessions }] });
+
+  const SNOOZED_KEY = "omp-ui.sidebarSnoozedOpen";
+  const rowButton = (title: string): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")].find((b) => b.title === title);
+  const sectionToggle = (prefix: string): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) =>
+      b.textContent?.startsWith(prefix),
+    );
+  const setFilter = (value: string): void => {
+    const input = document.body.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+  const menuItemLabels = (): string[] => openMenuItems().map((b) => b.textContent ?? "");
+  const filterCount = (): string | null => {
+    const input = document.body.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]');
+    return input?.parentElement?.querySelector(".tabular-nums")?.textContent ?? null;
+  };
+
+  beforeEach(() => {
+    backendMock.setSessionSnoozed.mockClear();
+    backendMock.setSnoozedSectionEnabled.mockClear();
+  });
+
+  it("renders Working (n), open by default, and moves an in-turn live row into it", () => {
+    useStore.setState({ state: stateWith([sess("busy", { turnRunning: true })]) });
+    renderSidebar();
+    const toggle = sectionToggle("Working")!;
+    expect(toggle.textContent).toBe("Working (1)");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(rowButton("busy")).toBeDefined();
+    // The main list is empty: a live row exists, so no "No running sessions".
+    expect(document.body.textContent).not.toContain("No running sessions");
+  });
+
+  it("with the setting off, shows no Snoozed section or Snooze item and keeps a snoozed-flagged row in the main list", () => {
+    useStore.setState({ state: stateWith([sess("parked", { snoozed: true })]) });
+    renderSidebar();
+    expect(sectionToggle("Snoozed")).toBeUndefined();
+    expect(rowButton("parked")).toBeDefined();
+    openContextMenu(rowButton("parked")!);
+    const labels = menuItemLabels();
+    expect(labels).not.toContain("Snooze");
+    expect(labels).not.toContain("Unsnooze");
+  });
+
+  it("with the setting on, Snooze parks a row and a snoozed row offers Unsnooze", () => {
+    useStore.setState({
+      state: stateWith([sess("parked"), sess("done", { snoozed: true })], { snoozedSectionEnabled: true }),
+    });
+    renderSidebar();
+    openContextMenu(rowButton("parked")!);
+    expect(menuItemLabels()).toContain("Snooze");
+    act(() => {
+      openMenuItems().find((b) => b.textContent === "Snooze")!.click();
+    });
+    expect(backendMock.setSessionSnoozed).toHaveBeenCalledWith("parked", true);
+
+    expect(sectionToggle("Snoozed")!.textContent).toBe("Snoozed (1)");
+    act(() => sectionToggle("Snoozed")!.click());
+    openContextMenu(rowButton("done")!);
+    expect(menuItemLabels()).toContain("Unsnooze");
+    act(() => {
+      openMenuItems().find((b) => b.textContent === "Unsnooze")!.click();
+    });
+    expect(backendMock.setSessionSnoozed).toHaveBeenCalledWith("done", false);
+  });
+
+  it("persists the Snoozed collapse choice to its own localStorage key", () => {
+    useStore.setState({
+      state: stateWith([sess("done", { snoozed: true })], { snoozedSectionEnabled: true }),
+    });
+    renderSidebar();
+    const toggle = sectionToggle("Snoozed")!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    act(() => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(window.localStorage.getItem(SNOOZED_KEY)).toBe("1");
+    act(() => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(window.localStorage.getItem(SNOOZED_KEY)).toBe("0");
+  });
+
+  it("expands every section while filtering and sums all four lists in the count badge", () => {
+    useStore.setState({
+      state: stateWith(
+        [
+          sess("idle"),
+          sess("busy", { turnRunning: true }),
+          sess("parked", { snoozed: true }),
+          sess("old", { live: "dormant" }),
+        ],
+        { snoozedSectionEnabled: true },
+      ),
+    });
+    renderSidebar();
+    // Collapse Working (open by default); Snoozed is collapsed by default.
+    act(() => sectionToggle("Working")!.click());
+    expect(sectionToggle("Working")!.getAttribute("aria-expanded")).toBe("false");
+    expect(sectionToggle("Snoozed")!.getAttribute("aria-expanded")).toBe("false");
+
+    setFilter("project");
+
+    for (const prefix of ["Working", "Snoozed", "Settled"]) {
+      const toggle = sectionToggle(prefix)!;
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      expect(toggle.disabled).toBe(true);
+    }
+    expect(rowButton("idle")).toBeDefined();
+    expect(rowButton("busy")).toBeDefined();
+    expect(rowButton("parked")).toBeDefined();
+    expect(rowButton("old")).toBeDefined();
+    expect(filterCount()).toBe("4");
+  });
+
+  it("shows the no-live empty state when no row is live", () => {
+    useStore.setState({ state: stateWith([sess("old", { live: "dormant" })]) });
+    renderSidebar();
+    expect(document.body.textContent).toContain("No running sessions");
+  });
+
+  it("shows the no-matches empty state when a filter matches nothing", () => {
+    useStore.setState({ state: stateWith([sess("idle")]) });
+    renderSidebar();
+    setFilter("zzzz-nothing");
+    expect(document.body.textContent).toContain("Nothing matches");
   });
 });

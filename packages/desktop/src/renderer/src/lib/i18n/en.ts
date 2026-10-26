@@ -830,6 +830,9 @@ export const en = {
   "settings.general.hibernateIdleHint":
     "Off by default: a native session stays live until you stop it by hand. When a window is set, the agent process of a native session quiet this long is stopped. The tab you are looking at, each project's most recently active session, and terminal tabs are never hibernated. Its transcript stays on disk; resuming the session continues it.",
   "settings.general.hibernateIdleLabel": "hibernate idle sessions",
+  "settings.general.snoozedSection": "Snoozed section in the sidebar",
+  "settings.general.snoozedSectionHint":
+    "Group snoozed sessions under their own sidebar section. Off by default.",
   "settings.general.streamStallWatchdog": "Stream-stall watchdog",
   "settings.general.streamStallWatchdogHint":
     "Abort a running turn after this much model-stream silence. The clock runs only while a model request is in flight: local tool execution suspends it for as long as the tool runs, and tool completion, compaction, retry backoff, and human answers each restart a full window. The session stays live — stall auto-continue or any prompt resumes it.",
@@ -2441,6 +2444,8 @@ export const en = {
 
   "sidebar.newSession": "new session — pick a project",
   "sidebar.settled.heading": "Settled ({n})",
+  "sidebar.working.heading": "Working ({n})",
+  "sidebar.snoozed.heading": "Snoozed ({n})",
   "sidebar.session.chat": "chat",
 
   "sidebar.filter.placeholder": "Search sessions…",
@@ -2756,6 +2761,9 @@ export const en = {
   // Session migration and credential carry (issue #888).
   "sidebar.session.migrate": "Migrate…",
   "sidebar.session.ask": "Ask about this session",
+  "sidebar.session.snooze": "Snooze",
+  "sidebar.session.unsnooze": "Unsnooze",
+  "sidebar.session.snoozed": "snoozed",
   "dialog.migrate.kicker": "Carry session",
   "dialog.migrate.title": "Migrate “{title}”",
   "dialog.migrate.targetLabel": "Send to",

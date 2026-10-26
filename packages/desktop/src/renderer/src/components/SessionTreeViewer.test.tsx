@@ -79,6 +79,7 @@ function liveState(): void {
               subagentModels: null,
               proposedPlans: [],
               autoTitled: false,
+              snoozed: false,
               private: false,
               chat: false,
               askSource: null,

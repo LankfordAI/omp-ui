@@ -155,6 +155,7 @@ export function sanitizeWarmTemplate(record: OwnedSessionRecord): OwnedSessionRe
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    snoozed: false,
     private: false,
     cachedTitle: null,
     cachedModified: null,

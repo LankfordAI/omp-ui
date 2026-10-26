@@ -2134,6 +2134,16 @@ describe("prompting, slash commands, and session ops", () => {
     expect(h.useStore.getState().searchOpen[h.TAB]).toBe(false);
     expect(h.useStore.getState().searchOpen[`${h.TAB}-other`]).toBeUndefined();
   });
+
+  it("setSessionSnoozed parks through the backend and surfaces a rejection via reportError (issue #935)", async () => {
+    await h.useStore.getState().setSessionSnoozed(h.TAB, true);
+    expect(h.mockBackend.setSessionSnoozed).toHaveBeenCalledWith(h.TAB, true);
+
+    h.mockBackend.setSessionSnoozed.mockRejectedValueOnce(new Error("unknown channel"));
+    await h.useStore.getState().setSessionSnoozed(h.TAB, false);
+    expect(h.errorMessages()).toHaveLength(1);
+    expect(h.errorMessages()[0]).toContain("unknown channel");
+  });
 });
 
 describe("project default models (issue #257)", () => {

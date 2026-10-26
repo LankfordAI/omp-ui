@@ -306,6 +306,7 @@ describe("new-session entry points (issues #915/#919)", () => {
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    snoozed: false,
     private: false,
     chat: true,
     askSource: null,

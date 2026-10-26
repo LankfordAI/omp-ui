@@ -418,6 +418,11 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setExperimentsEnabled",
     ...request<[on: boolean], void>([bool()]),
   },
+  /** Sidebar Snoozed section and Snooze/Unsnooze action (issue #935); default off. */
+  setSnoozedSectionEnabled: {
+    channel: "settings:setSnoozedSectionEnabled",
+    ...request<[on: boolean], void>([bool()]),
+  },
   /** Shows or hides the microphone button in every composer (issue #647). */
   setVoiceInputEnabled: {
     channel: "settings:setVoiceInputEnabled",
@@ -903,6 +908,11 @@ export const BACKEND_CHANNELS = {
   setSessionAutoTitled: {
     channel: "session:setAutoTitled",
     ...request<[tabId: string, autoTitled: boolean], void>([str(), bool()]),
+  },
+  /** Parks a session in the sidebar's Snoozed section, or returns it (issue #935). */
+  setSessionSnoozed: {
+    channel: "session:setSnoozed",
+    ...request<[tabId: string, snoozed: boolean], void>([str(), bool()]),
   },
 
   /**

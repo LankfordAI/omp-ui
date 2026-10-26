@@ -124,6 +124,7 @@ export type SessionParamsSlice = Pick<
   | "abortAndPrompt"
   | "loadAdvisorDefaults"
   | "setSessionAdvisor"
+  | "setSessionSnoozed"
   | "setSessionApprovalMode"
   | "setAdvisorModel"
   | "setModel"
@@ -739,6 +740,15 @@ export function createSessionParamsSlice(
           reason,
         }),
       );
+    }
+  };
+  const setSessionSnoozed = async (tabId: string, snoozed: boolean): Promise<void> => {
+    // Tab-routed in main: a remote-owned session snoozes on its host, and an
+    // older host's unknown-channel rejection surfaces here (issue #935).
+    try {
+      await backend.setSessionSnoozed(tabId, snoozed);
+    } catch (err) {
+      get().reportError(err);
     }
   };
 
@@ -2671,6 +2681,7 @@ export function createSessionParamsSlice(
     abortAndPrompt,
     loadAdvisorDefaults,
     setSessionAdvisor,
+    setSessionSnoozed,
     setSessionApprovalMode,
     setAdvisorModel,
     setModel,

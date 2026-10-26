@@ -461,6 +461,10 @@ export interface OwnedSessionRecord {
    *  marker — not the header — is what distinguishes an auto-title from a
    *  typed name. Post-dates schema-1: absent normalizes to false. */
   autoTitled: boolean;
+  /** True parks the session in the sidebar's Snoozed section (issue #935):
+   *  pure grouping — the process keeps running and hibernation rules are
+   *  unchanged. Post-dates schema-1: absent normalizes to false. */
+  snoozed: boolean;
   cachedTitle: string | null;
   cachedModified: string | null;
 }

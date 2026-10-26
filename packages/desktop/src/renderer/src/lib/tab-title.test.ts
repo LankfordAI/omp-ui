@@ -40,6 +40,7 @@ function group(path: string, tabId: string, title: string): ProjectGroup {
         advisorModel: null, subagentModels: null,
  proposedPlans: [],
  autoTitled: false,
+ snoozed: false,
  private: false,
  chat: false,
  askSource: null,

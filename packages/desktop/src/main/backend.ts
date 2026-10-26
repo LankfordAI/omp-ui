@@ -935,6 +935,10 @@ export class MainBackend {
           this.registry.updateSession(tabId, { autoTitled });
           void this.broadcast();
         },
+        [CH.setSessionSnoozed]: (tabId: string, snoozed: boolean) => {
+          this.registry.updateSession(tabId, { snoozed });
+          void this.broadcast();
+        },
         [CH.setSessionSubagentModels]: (tabId: string, map: SubagentModelMap | null) =>
           this.sessions.setSessionSubagentModels(tabId, map),
         [CH.spawnSession]: (req: SpawnRequest) => {
@@ -1816,6 +1820,7 @@ export class MainBackend {
           cachedTitle,
           cachedModified: now,
           autoTitled: false,
+          snoozed: false,
           private: false,
           // A migrated session always lands in a project.
           chat: false,
@@ -2255,6 +2260,7 @@ export class MainBackend {
       fontFamilyId: this.registry.getSetting("fontFamilyId"),
       transcriptWidth: this.registry.getSetting("transcriptWidth"),
       experimentsEnabled: this.registry.getSetting("experimentsEnabled"),
+      snoozedSectionEnabled: this.registry.getSetting("snoozedSectionEnabled"),
       voiceInputEnabled: this.registry.getSetting("voiceInputEnabled"),
       liveWorkParking: this.registry.getSetting("liveWorkParking"),
       liveProgressReportMinutes: this.registry.getSetting("liveProgressReportMinutes"),

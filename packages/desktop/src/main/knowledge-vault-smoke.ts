@@ -537,6 +537,7 @@ function sessionRecords(now: Date): OwnedSessionRecord[] {
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    snoozed: false,
     private: false,
     chat: false,
     askSource: null,

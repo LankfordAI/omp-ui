@@ -15,9 +15,14 @@ export interface SidebarEntry {
 }
 
 export interface SidebarLists {
-  /** live === "live", newest open first. */
+  /** live, not in a turn, not snoozed — newest open first. */
   active: SidebarEntry[];
-  /** Every other owned session (dormant, archived, missing), newest open first. */
+  /** live with a running turn, not snoozed — newest open first. */
+  working: SidebarEntry[];
+  /** snoozed === true — newest open first. Always empty while the
+   *  snoozedSectionEnabled setting is off (issue #935). */
+  snoozed: SidebarEntry[];
+  /** Not live and not snoozed (dormant, archived, missing) — newest open first. */
   settled: SidebarEntry[];
 }
 
@@ -39,12 +44,15 @@ function matches(entry: SidebarEntry, q: string): boolean {
 }
 
 /**
- * The sidebar's flat session list: every local project session and chat plus
- * every non-self remote instance's sessions, filtered by `query`, sorted newest
- * open first by `launchedAt` (ties keep build order), and split into live and
- * settled. Handoffs resolve per host over that host's full session set, before
- * any filtering or partitioning, so a live implementation still finds its
- * settled planning session.
+ * The sidebar's session lists: every local project session and chat plus
+ * every non-self remote instance's sessions, filtered by `query`, sorted
+ * newest open first by `launchedAt` (ties keep build order), and split into
+ * four sections — active (live, no running turn), working (live with a
+ * running turn), snoozed (parked via the sidebar, when the
+ * snoozedSectionEnabled setting is on), and settled (not live, not
+ * snoozed). Handoffs resolve per host over that host's full session set,
+ * before any filtering or partitioning, so a live implementation still
+ * finds its settled planning session.
  */
 export function buildSidebarLists(state: BackendState, query: string): SidebarLists {
   const entries: SidebarEntry[] = [];
@@ -105,8 +113,28 @@ export function buildSidebarLists(state: BackendState, query: string): SidebarLi
     return x === y ? 0 : x > y ? 1 : -1;
   });
 
+  const snoozedSectionOn = state.snoozedSectionEnabled === true;
   const active: SidebarEntry[] = [];
+  const working: SidebarEntry[] = [];
+  const snoozed: SidebarEntry[] = [];
   const settled: SidebarEntry[] = [];
-  for (const entry of kept) (entry.session.live === "live" ? active : settled).push(entry);
-  return { active, settled };
+  for (const entry of kept) {
+    const s = entry.session;
+    // Snoozed outranks every other placement, and only exists while the
+    // setting is on; with it off, flagged sessions fall through to their
+    // natural lists and keep their persisted flag (issue #935).
+    if (snoozedSectionOn && s.snoozed === true) {
+      snoozed.push(entry);
+      continue;
+    }
+    if (s.live !== "live") {
+      settled.push(entry);
+      continue;
+    }
+    // A terminal session never reports turnRunning, so it can never land
+    // in Working; an older remote host's absent latch reads the same way.
+    if (s.turnRunning === true) working.push(entry);
+    else active.push(entry);
+  }
+  return { active, working, snoozed, settled };
 }

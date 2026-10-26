@@ -65,6 +65,7 @@ function chatRecord(tabId: string): SessionSummary {
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    snoozed: false,
     private: false,
     chat: true,
     askSource: null,

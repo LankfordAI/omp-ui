@@ -107,6 +107,7 @@ const backendMock = {
   setSkipDeleteConfirmation: vi.fn(),
   setSkipTerminateConfirmation: vi.fn(),
   setExperimentsEnabled: vi.fn(async () => {}),
+  setSnoozedSectionEnabled: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   switchMode: vi.fn(),
@@ -118,6 +119,7 @@ const backendMock = {
   setProjectDefaultModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionModel: vi.fn(),
+  setSessionSnoozed: vi.fn(async () => {}),
   readPlanFile: vi.fn(),
   getBranchDiff: vi.fn(),
   ptyPasteImage: vi.fn(),
@@ -528,6 +530,36 @@ describe("Settings General page hibernate idle sessions (issue #246)", () => {
     seedGeneral(0);
     await renderSettings();
     expect(buttonWithText("off")!.getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+describe("Settings General page snoozed section (issue #935)", () => {
+  const snoozedSwitch = (): HTMLElement =>
+    document.querySelector('[role="switch"][aria-label="Snoozed section in the sidebar"]') as HTMLElement;
+
+  const seedGeneral = (snoozedSectionEnabled: boolean): void => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState({ snoozedSectionEnabled }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  it("shows the switch off by default and persists switching it on", async () => {
+    seedGeneral(false);
+    await renderSettings();
+    expect(snoozedSwitch().getAttribute("aria-checked")).toBe("false");
+    click(snoozedSwitch());
+    expect(backendMock.setSnoozedSectionEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("reflects a persisted on setting", async () => {
+    seedGeneral(true);
+    await renderSettings();
+    expect(snoozedSwitch().getAttribute("aria-checked")).toBe("true");
   });
 });
 
