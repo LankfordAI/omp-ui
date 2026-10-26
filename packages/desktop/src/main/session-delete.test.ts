@@ -312,6 +312,30 @@ describe("session:delete", () => {
   });
 });
 
+describe("session:setSnoozed", () => {
+  it("flips the snoozed flag on the registry record and broadcasts it (issue #935)", async () => {
+    setup();
+    // readRegistry reads unvalidated JSON from disk; narrow the one field read.
+    const seeded = readRegistry().sessions[0] as { snoozed: boolean };
+    expect(seeded.snoozed).toBe(false);
+
+    await invoke(CH.setSessionSnoozed, "tab-1", true);
+    // The handler fire-and-forgets broadcast(); wait for its async send to land.
+    await vi.waitFor(() => {
+      expect(sent.some((m) => m.channel === CH.onStateChanged)).toBe(true);
+    });
+    const parked = readRegistry().sessions[0] as { snoozed: boolean };
+    expect(parked.snoozed).toBe(true);
+    const broadcast = sent.filter((m) => m.channel === CH.onStateChanged).at(-1);
+    const state = broadcast!.args[0] as { projects: { sessions: { snoozed: boolean }[] }[] };
+    expect(state.projects[0]!.sessions[0]!.snoozed).toBe(true);
+
+    await invoke(CH.setSessionSnoozed, "tab-1", false);
+    const unparked = readRegistry().sessions[0] as { snoozed: boolean };
+    expect(unparked.snoozed).toBe(false);
+  });
+});
+
 const LINEAGE_S = "omp-ui--proj--aaaaaaaa-1111-2222-3333-444444444444";
 const LINEAGE_I1 = "omp-ui--proj--bbbbbbbb-1111-2222-3333-444444444444";
 const LINEAGE_I2 = "omp-ui--proj--cccccccc-1111-2222-3333-444444444444";

@@ -246,6 +246,7 @@ describe("HostBridge omp-ui://sessions", () => {
       subagentModels: null,
       proposedPlans: [],
       autoTitled: false,
+      snoozed: false,
       private: false,
       chat: false,
       askSource: null,

@@ -30,6 +30,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    snoozed: false,
     private: false,
     chat: false,
     askSource: null,
@@ -232,5 +233,92 @@ describe("buildSidebarLists", () => {
     expect(ids(lists.active)).toEqual(["impl"]);
     expect(lists.active[0]!.handoff.source).toBe(plan);
     expect(buildSidebarLists(state, "").settled[0]!.handoff.hasDescendants).toBe(true);
+  });
+});
+
+describe("Working and Snoozed sections (issue #935)", () => {
+  it("puts a live session with a running turn in working, not active", () => {
+    const state = backendState({
+      projects: [group("/a", "alpha", [session("idle"), session("busy", { turnRunning: true })])],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(ids(lists.active)).toEqual(["idle"]);
+    expect(ids(lists.working)).toEqual(["busy"]);
+  });
+
+  it("never puts a terminal (pty) session in working", () => {
+    // A PTY raises no rpc turn latch, so it reads as not in a turn.
+    const state = backendState({
+      projects: [group("/a", "alpha", [session("pty", { mode: "pty" })])],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(ids(lists.active)).toEqual(["pty"]);
+    expect(lists.working).toEqual([]);
+  });
+
+  it("parks a snoozed live in-turn session in snoozed, outranking working", () => {
+    const state = backendState({
+      snoozedSectionEnabled: true,
+      projects: [group("/a", "alpha", [session("busy", { turnRunning: true, snoozed: true })])],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(ids(lists.snoozed)).toEqual(["busy"]);
+    expect(lists.working).toEqual([]);
+    expect(lists.active).toEqual([]);
+  });
+
+  it("parks a snoozed dormant session in snoozed, not settled", () => {
+    const state = backendState({
+      snoozedSectionEnabled: true,
+      projects: [group("/a", "alpha", [session("dormant", { live: "dormant", snoozed: true })])],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(ids(lists.snoozed)).toEqual(["dormant"]);
+    expect(lists.settled).toEqual([]);
+  });
+
+  it("distributes snoozed-flagged sessions by liveness when the setting is off", () => {
+    const state = backendState({
+      // snoozedSectionEnabled defaults to false.
+      projects: [
+        group("/a", "alpha", [
+          session("idle", { snoozed: true }),
+          session("busy", { turnRunning: true, snoozed: true }),
+          session("dormant", { live: "dormant", snoozed: true }),
+        ]),
+      ],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(lists.snoozed).toEqual([]);
+    expect(ids(lists.active)).toEqual(["idle"]);
+    expect(ids(lists.working)).toEqual(["busy"]);
+    expect(ids(lists.settled)).toEqual(["dormant"]);
+  });
+
+  it("orders working and snoozed newest open first", () => {
+    const state = backendState({
+      snoozedSectionEnabled: true,
+      projects: [
+        group("/a", "alpha", [
+          session("w-old", { turnRunning: true, launchedAt: "2026-08-19T10:00:00.000Z" }),
+          session("w-new", { turnRunning: true, launchedAt: "2026-08-19T12:00:00.000Z" }),
+          session("s-old", { snoozed: true, launchedAt: "2026-08-19T09:00:00.000Z" }),
+          session("s-new", { snoozed: true, launchedAt: "2026-08-19T11:00:00.000Z" }),
+        ]),
+      ],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(ids(lists.working)).toEqual(["w-new", "w-old"]);
+    expect(ids(lists.snoozed)).toEqual(["s-new", "s-old"]);
+  });
+
+  it("returns a query match in its snoozed section when the setting is on", () => {
+    const state = backendState({
+      snoozedSectionEnabled: true,
+      projects: [group("/a", "alpha", [session("parked", { snoozed: true, title: "Parked plan" })])],
+    });
+    const lists = buildSidebarLists(state, "parked");
+    expect(ids(lists.snoozed)).toEqual(["parked"]);
+    expect(lists.active).toEqual([]);
   });
 });

@@ -349,6 +349,7 @@ export function GeneralPage() {
   const ensureCompactionMethods = useStore((s) => s.ensureCompactionMethods);
   const setDefaultCompactionMethod = useStore((s) => s.setDefaultCompactionMethod);
   const setHibernateIdleMinutes = useStore((s) => s.setHibernateIdleMinutes);
+  const setSnoozedSectionEnabled = useStore((s) => s.setSnoozedSectionEnabled);
   const setStreamStallAbortSeconds = useStore(
     (s) => s.setStreamStallAbortSeconds,
   );
@@ -486,6 +487,16 @@ export function GeneralPage() {
           options={hibernateIdleOptions}
           onChange={(value) => void setHibernateIdleMinutes(value)}
           optionClassName="px-2 text-[11px]"
+        />
+      </Row>
+      <Row
+        title={t("settings.general.snoozedSection")}
+        hint={t("settings.general.snoozedSectionHint")}
+      >
+        <Switch
+          on={state?.snoozedSectionEnabled === true}
+          onChange={(next) => void setSnoozedSectionEnabled(next)}
+          label={t("settings.general.snoozedSection")}
         />
       </Row>
       <Row

@@ -54,6 +54,18 @@ describe("autoresearch proxy channels (issue #559)", () => {
   });
 });
 
+describe("sidebar snooze routing (issue #935)", () => {
+  it("tab-routes session snooze to the owning instance", () => {
+    expect(TAB_ROUTED_REQUESTS.has("session:setSnoozed")).toBe(true);
+    expect(REMOTE_PROXY_CHANNELS.has("session:setSnoozed")).toBe(true);
+  });
+
+  it("never proxies the snooze-section setting to a joined instance", () => {
+    // Settings stay app-local, like every other settings:* channel.
+    expect(REMOTE_PROXY_CHANNELS.has("settings:setSnoozedSectionEnabled")).toBe(false);
+  });
+});
+
 describe("knowledge vault channels (issue #764)", () => {
   // The registry and Obsidian's vault list are host-local: no vault:* channel
   // but the names-only list is proxied to a joined instance.

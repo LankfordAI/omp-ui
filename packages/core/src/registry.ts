@@ -72,6 +72,8 @@ export interface RegistrySettings {
   skipTerminateConfirmation: boolean;
   /** Global feature flag for the Experiments Lab + autoresearch bridge (issue #571); default off. */
   experimentsEnabled: boolean;
+  /** Sidebar Snoozed section and Snooze/Unsnooze action (issue #935); default off. */
+  snoozedSectionEnabled: boolean;
   /** Global mic button in every composer (issue #647); default off. */
   voiceInputEnabled: boolean;
   /** Park the live voice call while a delegated backend turn works (issue #815);
@@ -282,6 +284,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   experimentsEnabled: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  snoozedSectionEnabled: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -664,6 +670,9 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // chat (issue #894) post-dates the first schema-1 records like private;
     // absent loads as false, a present non-boolean drops the record.
     optional(value, "chat", (v) => typeof v === "boolean") &&
+    // snoozed (issue #935) post-dates schema-1 like chat; absent loads as
+    // false, a present non-boolean drops the record.
+    optional(value, "snoozed", (v) => typeof v === "boolean") &&
     // askSource (issue #895) post-dates schema-1; absent loads as null, a
     // present value must name both the source tab and its session id.
     optNullable(value, "askSource", isAskSource) &&
@@ -727,6 +736,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       autoTitled: s.autoTitled === true,
       private: s.private === true,
       chat: s.chat === true,
+      snoozed: s.snoozed === true,
       askSource: s.askSource ?? null,
       fleet: s.fleet ?? null,
       model: s.model ?? null,

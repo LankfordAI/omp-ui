@@ -33,6 +33,7 @@ type SettingsHandlerChannels =
   | typeof CH.setSkipTerminateConfirmation
   | typeof CH.setGettingStartedSeen
   | typeof CH.setExperimentsEnabled
+  | typeof CH.setSnoozedSectionEnabled
   | typeof CH.setVoiceInputEnabled
   | typeof CH.setLiveWorkParking
   | typeof CH.setLiveProgressReportMinutes
@@ -98,6 +99,7 @@ export function registerSettingsHandlers(
     [CH.setSkipTerminateConfirmation]: (value: boolean) => commit("skipTerminateConfirmation", value),
     [CH.setGettingStartedSeen]: (value: boolean) => commit("gettingStartedSeen", value),
     [CH.setExperimentsEnabled]: (value: boolean) => commit("experimentsEnabled", value),
+    [CH.setSnoozedSectionEnabled]: (value: boolean) => commit("snoozedSectionEnabled", value),
     [CH.setVoiceInputEnabled]: (value: boolean) => commit("voiceInputEnabled", value),
     [CH.setLiveWorkParking]: (value: boolean) => commit("liveWorkParking", value),
     [CH.setLiveProgressReportMinutes]: (value: number | null) =>

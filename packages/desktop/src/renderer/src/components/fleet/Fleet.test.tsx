@@ -102,6 +102,7 @@ function session(tabId: string, title: string, fleet: FleetProvenance | null): S
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    snoozed: false,
     private: false,
     chat: false,
     askSource: null,

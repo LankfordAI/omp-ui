@@ -37,6 +37,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    snoozed: false,
     private: false,
     chat: false,
     askSource: null,
@@ -86,6 +87,7 @@ describe("SETTINGS", () => {
       "skipDeleteConfirmation",
       "skipTerminateConfirmation",
       "experimentsEnabled",
+      "snoozedSectionEnabled",
       "voiceInputEnabled",
       "liveWorkParking",
       "liveProgressReportMinutes",
@@ -153,6 +155,7 @@ describe("Registry.load", () => {
     // Issue #623: a fresh registry has never seen the Getting started checklist.
     expect(reg.getSetting("gettingStartedSeen")).toBe(false);
     expect(reg.getSetting("experimentsEnabled")).toBe(false);
+    expect(reg.getSetting("snoozedSectionEnabled")).toBe(false);
     // Issue #647: the mic button is off, and the dictation model auto-resolves.
     expect(reg.getSetting("voiceInputEnabled")).toBe(false);
     // Issue #815: work-parking defaults on — the burn is the status quo.
@@ -173,6 +176,16 @@ describe("Registry.load", () => {
     expect(reg.getSetting("desktopNotifications")).toBe(true);
     // Issue #174: the advisor does not default on.
     expect(reg.getSetting("defaultAdvisor")).toBe(false);
+  });
+
+  it("parses a non-boolean snoozedSectionEnabled setting as false (issue #935)", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, projects: [], sessions: [], settings: { snoozedSectionEnabled: "yes" } }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.getSetting("snoozedSectionEnabled")).toBe(false);
   });
 
   it("recovers from a corrupt JSON file by quarantining it", () => {
@@ -871,6 +884,7 @@ describe("Registry persistence", () => {
       ["skipTerminateConfirmation", (registry) => registry.setSetting("skipTerminateConfirmation", false)],
       ["gettingStartedSeen", (registry) => registry.setSetting("gettingStartedSeen", false)],
       ["experimentsEnabled", (registry) => registry.setSetting("experimentsEnabled", false)],
+      ["snoozedSectionEnabled", (registry) => registry.setSetting("snoozedSectionEnabled", false)],
       ["voiceInputEnabled", (registry) => registry.setSetting("voiceInputEnabled", false)],
       ["liveWorkParking", (registry) => registry.setSetting("liveWorkParking", true)],
       ["liveProgressReportMinutes", (registry) => registry.setSetting("liveProgressReportMinutes", null)],
@@ -1849,6 +1863,38 @@ describe("private session flag (issue #852)", () => {
     const reg = Registry.load(file);
     reg.addSession(sessionRecord({ private: true }));
     expect(Registry.load(file).sessions[0]).toMatchObject({ tabId: "tab-1", private: true });
+  });
+});
+
+describe("snoozed sidebar flag (issue #935)", () => {
+  it("normalizes a legacy session without snoozed to false on load", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord() };
+    delete legacy.snoozed;
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]).toMatchObject({ tabId: "tab-1", snoozed: false });
+  });
+
+  it("drops a session whose present snoozed is not a boolean", () => {
+    // Same guard shape as autoTitled/private: absent loads as false, a
+    // present non-boolean is a malformed record.
+    const file = tmpFile();
+    const bad = { ...sessionRecord(), snoozed: "yes" };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [bad] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(0);
+  });
+
+  it("persists snoozed through updateSession across a reload", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord());
+    reg.updateSession("tab-1", { snoozed: true });
+    expect(Registry.load(file).sessions[0]).toMatchObject({ tabId: "tab-1", snoozed: true });
+    reg.updateSession("tab-1", { snoozed: false });
+    expect(Registry.load(file).sessions[0]).toMatchObject({ tabId: "tab-1", snoozed: false });
   });
 });
 

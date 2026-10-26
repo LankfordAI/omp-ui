@@ -774,6 +774,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.hibernateIdleHint":
     "기본값은 꺼짐입니다: 직접 중지할 때까지 네이티브 세션이 유지됩니다. 시간 간격을 설정하면 지정한 시간 동안 조용했던 네이티브 세션의 에이전트 프로세스가 중지됩니다. 현재 보고 있는 탭, 각 프로젝트에서 가장 최근에 활성화된 세션, 터미널 탭은 최대 절전되지 않습니다. 대화록은 디스크에 남으며 세션을 재개하면 계속할 수 있습니다.",
   "settings.general.hibernateIdleLabel": "유휴 세션 최대 절전",
+  "settings.general.snoozedSection": "사이드바에 보류 섹션 표시",
+  "settings.general.snoozedSectionHint":
+    "보류된 세션을 별도의 사이드바 섹션으로 묶습니다. 기본값은 꺼짐입니다.",
   "settings.general.streamStallWatchdog": "스트림 정체 감시기",
   "settings.general.streamStallWatchdogHint":
     "모델 스트림이 지정한 시간 동안 멈추면 실행 중인 턴을 중단합니다. 타이머는 모델 요청이 진행 중일 때만 작동합니다. 로컬 도구 실행 중에는 멈추고, 도구 완료, 압축, 재시도 대기, 사람의 답변마다 전체 시간이 다시 시작됩니다. 세션은 유지되며 정체 자동 계속 또는 프롬프트로 재개할 수 있습니다.",
@@ -2266,6 +2269,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
 
   "sidebar.newSession": "새 세션 — 프로젝트 선택",
   "sidebar.settled.heading": "종료됨 ({n})",
+  "sidebar.working.heading": "작업 중 ({n})",
+  "sidebar.snoozed.heading": "보류됨 ({n})",
   "sidebar.session.chat": "채팅",
 
   "sidebar.filter.placeholder": "세션 검색…",
@@ -2572,6 +2577,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   // 세션 마이그레이션 및 자격 증명 이전 (이슈 #888).
   "sidebar.session.migrate": "마이그레이션…",
   "sidebar.session.ask": "이 세션에 대해 질문",
+  "sidebar.session.snooze": "보류",
+  "sidebar.session.unsnooze": "보류 해제",
+  "sidebar.session.snoozed": "보류됨",
   "dialog.migrate.kicker": "세션 가져오기",
   "dialog.migrate.title": "“{title}” 마이그레이션",
   "dialog.migrate.targetLabel": "보낼 대상",

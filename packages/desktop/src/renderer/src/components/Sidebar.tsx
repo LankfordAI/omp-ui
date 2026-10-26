@@ -12,6 +12,7 @@ import {
 } from "../lib/panel-layout";
 import { buildSidebarLists, type SidebarEntry } from "../lib/sidebar-sessions";
 import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
+import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { supportsSessionMigrate } from "../lib/session-migrate";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
@@ -73,17 +74,19 @@ function SkeletonRows() {
   );
 }
 
-/** Opens a session row's context menu with the items it can accept (#888 Migrate, #895 Ask). */
+/** Opens a session row's context menu with the items it can accept (#888 Migrate, #895 Ask, #935 Snooze). */
 type OpenSessionMenu = (
   tabId: string,
   event: ReactMouseEvent<HTMLElement>,
-  items: { migrate: boolean; ask: boolean },
+  items: { migrate: boolean; ask: boolean; snooze: boolean; snoozed: boolean },
 ) => void;
 
 interface SessionMenuRequest {
   tabId: string;
   migrate: boolean;
   ask: boolean;
+  snooze: boolean;
+  snoozed: boolean;
   x: number;
   y: number;
   trigger: HTMLElement;
@@ -105,6 +108,7 @@ function Row({
   const t = useT();
   // Issue #888: gate the row context menu on the local binary's floor.
   const ompInstalledVersion = useStore((st) => st.ompUpdate.installedVersion);
+  const snoozedEnabled = useStore((st) => st.state?.snoozedSectionEnabled === true);
   return (
     <div className={cn(!entry.reachable && "opacity-60")}>
       <SessionRow
@@ -130,8 +134,12 @@ function Row({
             s.live !== "live" &&
             (entry.instanceId !== null || supportsSessionMigrate(ompInstalledVersion));
           const ask = entry.instanceId === null && s.sessionId !== null && s.live !== "missing";
-          if (!migrate && !ask) return;
-          openSessionMenu(s.tabId, event, { migrate, ask });
+          // Snooze (#935): every reachable row offers it while the setting
+          // is on — parking a `missing` record is legitimate.
+          const snooze = snoozedEnabled;
+          const snoozed = s.snoozed === true;
+          if (!migrate && !ask && !snooze) return;
+          openSessionMenu(s.tabId, event, { migrate, ask, snooze, snoozed });
         }}
       />
     </div>
@@ -139,6 +147,49 @@ function Row({
 }
 
 const rowKey = (entry: SidebarEntry): string => `${entry.instanceId ?? "local"}:${entry.session.tabId}`;
+
+/** One collapsible sidebar section: a heading toggle and its row list. The
+ *  search forces the block open, so the toggle is inert while filtering and
+ *  the stored choice stays untouched (issue #935). */
+function SidebarSection({
+  heading,
+  entries,
+  shown,
+  disabled,
+  onToggle,
+  onActivate,
+  openSessionMenu,
+}: {
+  heading: string;
+  entries: SidebarEntry[];
+  shown: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+  onActivate: () => void;
+  openSessionMenu: OpenSessionMenu;
+}) {
+  return (
+    <div className={cn("border-t border-line", shown ? "flex min-h-0 flex-1 flex-col" : "shrink-0")}>
+      <button
+        type="button"
+        aria-expanded={shown}
+        disabled={disabled}
+        onClick={onToggle}
+        className="flex w-full shrink-0 items-center gap-1.5 px-3 pt-2 pb-1 text-left font-mono text-[10px] uppercase text-ink-faint transition-colors duration-150 hover:text-ink-mid focus-visible:text-ink focus-visible:outline-none disabled:hover:text-ink-faint"
+      >
+        <Chevron open={shown} />
+        {heading}
+      </button>
+      {shown && (
+        <div className="min-h-0 flex-1 space-y-px overflow-y-auto px-1.5 py-1">
+          {entries.map((entry) => (
+            <Row key={rowKey(entry)} entry={entry} onActivate={onActivate} openSessionMenu={openSessionMenu} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------ sidebar */
 
@@ -150,12 +201,15 @@ export function Sidebar() {
   const openSettings = useStore((st) => st.openSettings);
   const openMigrateDialog = useStore((st) => st.openMigrateDialog);
   const askAboutSession = useStore((st) => st.askAboutSession);
+  const setSessionSnoozed = useStore((st) => st.setSessionSnoozed);
   const compact = useCompactShell();
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
   const openFleet = useStore((st) => st.openFleet);
   const fleetOpen = useStore((st) => st.fleet !== null);
   const settledOpen = useSettledOpen();
+  const workingOpen = useSidebarSectionOpen("omp-ui.sidebarWorkingOpen", true);
+  const snoozedOpen = useSidebarSectionOpen("omp-ui.sidebarSnoozedOpen", false);
 
   // Desktop collapse memory lives in the store: the toggle lives in App's
   // title bar (issue #60), and the compact sheet ignores it.
@@ -177,7 +231,7 @@ export function Sidebar() {
   const sessionMenuItemRef = useRef<HTMLButtonElement>(null);
 
   // Issue #888/#895: the per-row Migrate/Ask menu.
-  const openSessionMenu: OpenSessionMenu = (tabId, event, { migrate, ask }) => {
+  const openSessionMenu: OpenSessionMenu = (tabId, event, { migrate, ask, snooze, snoozed }) => {
     event.preventDefault();
     const currentTarget = event.currentTarget;
     if (!(currentTarget instanceof HTMLElement)) return;
@@ -187,6 +241,8 @@ export function Sidebar() {
       tabId,
       migrate,
       ask,
+      snooze,
+      snoozed,
       x: keyboardPosition ? rect.left : event.clientX,
       y: keyboardPosition ? rect.bottom : event.clientY,
       trigger: currentTarget,
@@ -211,6 +267,21 @@ export function Sidebar() {
 
   const filtering = query.trim().length > 0;
   const lists = useMemo(() => (state === null ? null : buildSidebarLists(state, query)), [state, query]);
+  // "No running sessions" fires only with no live row anywhere (active,
+  // working, or a live snoozed row); "Nothing matches" only when no row at
+  // all survives the filter. A dormant snoozed row is a row, so it counts
+  // toward anyRow even though it is not live (issue #935).
+  const liveAnywhere =
+    lists !== null &&
+    (lists.active.length > 0 ||
+      lists.working.length > 0 ||
+      lists.snoozed.some((e) => e.session.live === "live"));
+  const anyRow =
+    lists !== null &&
+    (lists.active.length > 0 ||
+      lists.working.length > 0 ||
+      lists.snoozed.length > 0 ||
+      lists.settled.length > 0);
 
   // The footer counts every live row this app can see, ignoring the search.
   const instances = state?.remoteInstances ?? [];
@@ -249,6 +320,8 @@ export function Sidebar() {
   const displayedSidebarWidth = previewWidth ?? resolvedWidths.sidebarWidth;
   const headerButton = compact ? "size-9 rounded-md border border-line" : "size-7";
   const settledShown = settledOpen || filtering;
+  const workingShown = workingOpen || filtering;
+  const snoozedShown = snoozedOpen || filtering;
 
   const sidebar = (
     <aside
@@ -284,7 +357,7 @@ export function Sidebar() {
             {filtering && (
               <>
                 <span className="shrink-0 font-mono text-[10px] text-ink-dim tabular-nums">
-                  {lists === null ? 0 : lists.active.length + lists.settled.length}
+                  {lists === null ? 0 : lists.active.length + lists.working.length + lists.snoozed.length + lists.settled.length}
                 </span>
                 <IconButton label={t("sidebar.filter.clear")} onClick={() => setQuery("")} className="size-5">
                   <IconClose className="size-3.5" />
@@ -321,7 +394,7 @@ export function Sidebar() {
                   <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} />
                 ))}
               </div>
-            ) : !filtering ? (
+            ) : !filtering && !liveAnywhere ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <Empty
                   title={t("sidebar.empty.noLive")}
@@ -333,7 +406,7 @@ export function Sidebar() {
                   }
                 />
               </div>
-            ) : lists.settled.length === 0 ? (
+            ) : filtering && !anyRow ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <Empty
                   title={t("sidebar.empty.noMatches", { query: query.trim() })}
@@ -346,28 +419,38 @@ export function Sidebar() {
                 />
               </div>
             ) : null}
+            {lists.working.length > 0 && (
+              <SidebarSection
+                heading={t("sidebar.working.heading", { n: lists.working.length })}
+                entries={lists.working}
+                shown={workingShown}
+                disabled={filtering}
+                onToggle={() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", !workingOpen)}
+                onActivate={closeCompactSurface}
+                openSessionMenu={openSessionMenu}
+              />
+            )}
+            {lists.snoozed.length > 0 && (
+              <SidebarSection
+                heading={t("sidebar.snoozed.heading", { n: lists.snoozed.length })}
+                entries={lists.snoozed}
+                shown={snoozedShown}
+                disabled={filtering}
+                onToggle={() => setSidebarSectionOpen("omp-ui.sidebarSnoozedOpen", !snoozedOpen)}
+                onActivate={closeCompactSurface}
+                openSessionMenu={openSessionMenu}
+              />
+            )}
             {lists.settled.length > 0 && (
-              <div className={cn("border-t border-line", settledShown ? "flex min-h-0 flex-1 flex-col" : "shrink-0")}>
-                {/* The search forces the block open, so the toggle is inert
-                    while filtering and the stored choice stays untouched. */}
-                <button
-                  type="button"
-                  aria-expanded={settledShown}
-                  disabled={filtering}
-                  onClick={() => setSettledOpen(!settledOpen)}
-                  className="flex w-full shrink-0 items-center gap-1.5 px-3 pt-2 pb-1 text-left font-mono text-[10px] uppercase text-ink-faint transition-colors duration-150 hover:text-ink-mid focus-visible:text-ink focus-visible:outline-none disabled:hover:text-ink-faint"
-                >
-                  <Chevron open={settledShown} />
-                  {t("sidebar.settled.heading", { n: lists.settled.length })}
-                </button>
-                {settledShown && (
-                  <div className="min-h-0 flex-1 space-y-px overflow-y-auto px-1.5 py-1">
-                    {lists.settled.map((entry) => (
-                      <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} />
-                    ))}
-                  </div>
-                )}
-              </div>
+              <SidebarSection
+                heading={t("sidebar.settled.heading", { n: lists.settled.length })}
+                entries={lists.settled}
+                shown={settledShown}
+                disabled={filtering}
+                onToggle={() => setSettledOpen(!settledOpen)}
+                onActivate={closeCompactSurface}
+                openSessionMenu={openSessionMenu}
+              />
             )}
           </>
         )}
@@ -417,6 +500,21 @@ export function Sidebar() {
                   className={MENU_ROW}
                 >
                   {t("sidebar.session.migrate")}
+                </button>
+              )}
+              {sessionMenu.snooze && (
+                <button
+                  ref={(sessionMenu.ask || sessionMenu.migrate) ? undefined : sessionMenuItemRef}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const { tabId, snoozed } = sessionMenu;
+                    setSessionMenu(null);
+                    void setSessionSnoozed(tabId, !snoozed);
+                  }}
+                  className={MENU_ROW}
+                >
+                  {t(sessionMenu.snoozed ? "sidebar.session.unsnooze" : "sidebar.session.snooze")}
                 </button>
               )}
             </Panel>

@@ -28,6 +28,7 @@ interface RegistrySettings {
   skipDeleteConfirmation: boolean;
   skipTerminateConfirmation: boolean;
   experimentsEnabled: boolean;
+  snoozedSectionEnabled: boolean;
   voiceInputEnabled: boolean;
   liveWorkParking: boolean;
   liveProgressReportMinutes: number | null;
@@ -106,6 +107,7 @@ export function ownedSessionRecord(
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    snoozed: false,
     private: false,
     chat: false,
     askSource: null,
@@ -136,6 +138,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     skipDeleteConfirmation: false,
     skipTerminateConfirmation: false,
     experimentsEnabled: false,
+    snoozedSectionEnabled: false,
     voiceInputEnabled: false,
     liveWorkParking: true,
     liveProgressReportMinutes: null,

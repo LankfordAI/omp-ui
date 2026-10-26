@@ -326,6 +326,7 @@ export function SessionRow({
             {s.worktree ? (
               <span title={s.worktree.path}>{` · ⎇ ${s.worktree.branch}`}</span>
             ) : null}
+            {s.snoozed === true ? ` · ${t("sidebar.session.snoozed")}` : ""}
             {/* Machine chip (#903): a bare `<Chip mono>` from ui/controls would
              *  break this block/truncate span's ellipsis, so it mirrors the
              *  worktree fragment's inline nested-span style instead. */}

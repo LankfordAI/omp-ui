@@ -69,6 +69,7 @@ function record(patch: Partial<SessionSummary> = {}): SessionSummary {
     subagentModels: null,
     proposedPlans: [],
     autoTitled: false,
+    snoozed: false,
     private: false,
     chat: false,
     askSource: null,

@@ -72,18 +72,37 @@ A session whose file lives in an omp-ui lineage dir (ADR-0003) — launched by
 omp-ui or produced in-process by such a session (`/new`, `/branch`). The only
 sessions the sidebar tracks. Sessions from terminal `omp` use are invisible
 to omp-ui, even under registered projects. Its sidebar position is its open
-order (`launchedAt`, newest open first): live sessions in the list, every
-other owned session under **Settled**. There is no manual order.
+order (`launchedAt`, newest open first): exactly one section per session —
+the unheaded main list (live, no running turn), **Working** (live inside a
+turn), **Snoozed** (parked via the row's context menu, only while the
+`snoozedSectionEnabled` setting is on), or **Settled** (no process, not
+snoozed). There is no manual order.
 _Avoid_: tracked session, managed session
 
 **Settled**:
 The sidebar's collapsible bottom section holding every **Owned session** with
-no process — dormant, hibernated, archived, and missing alike — newest open
+no process and not snoozed — dormant, hibernated, archived, and missing alike — newest open
 first. Collapsed by default; the open/closed choice persists locally,
 and a non-empty sidebar search shows it expanded without changing that choice.
 A settling session hides its tab on the way in; clicking the row resurfaces
 the tab so its exit card offers resume.
 _Avoid_: archive, history, inactive list
+
+**Working**:
+The sidebar's collapsible section holding every live session currently inside
+a turn (`SessionSummary.turnRunning === true`), newest open first. A terminal
+(pty) session never reports a turn latch, so it never leaves the main list
+for **Working**.
+_Avoid_: busy section, running section
+
+**Snoozed session**:
+An owned session the user parked through its sidebar row's context menu
+(*Snooze* / *Unsnooze*). The flag persists on the registry record. Snoozing is
+pure sidebar grouping — the process keeps running, idle-hibernation rules are
+unchanged, and the footer live count still includes snoozed live sessions.
+While the `snoozedSectionEnabled` setting is off, snoozed sessions render in
+their natural lists and keep their persisted flag.
+_Avoid_: parked session, hidden session, waiting session
 
 **Private session**:
 An owned session pinned write-quiet against the memory system: its spawns
