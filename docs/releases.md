@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.26.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.26.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- An agent's `omp-ui_fleet_dispatch` call that names no machine now starts its one session on this computer whenever this computer has the project and a ready model provider, so asking a **Chat** to start work in a project no longer lands it on a joined member by load; **Manual only** on this computer, or more than one copy, still places automatically (#943).
 
 ## Choose a download
 

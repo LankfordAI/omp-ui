@@ -300,7 +300,7 @@ function fleetTools(): RpcHostToolDefinition[] {
       name: dispatch,
       loadMode: "essential",
       description:
-        "Start new omp sessions on fleet machines, this computer included, each running the given prompt unattended on the named machine, in a fresh worktree by default. Sessions start in Build mode; set planMode true to start them in read-only Plan mode, where a prompt that asks for a plan ends at a plan review the user answers (omp-ui_fleet_status then reports awaiting answer). A read-only planning session does not need its own worktree: workspace checkout is enough. Without machines, omp-ui places the work automatically on the least-loaded machines with the same repository. Returns a batch id and one line per started session. Dispatching is not idempotent: poll progress with omp-ui_fleet_status instead of dispatching again.",
+        "Start new omp sessions on fleet machines, this computer included, each running the given prompt unattended on the named machine, in a fresh worktree by default. Sessions start in Build mode; set planMode true to start them in read-only Plan mode, where a prompt that asks for a plan ends at a plan review the user answers (omp-ui_fleet_status then reports awaiting answer). A read-only planning session does not need its own worktree: workspace checkout is enough. Without machines, one session starts on this computer when this computer has the project with a ready model provider; leave machines out unless the user names a machine. Otherwise, and whenever count asks for more than one copy, omp-ui places the work automatically on the least-loaded machines with the same repository. Returns a batch id and one line per started session. Dispatching is not idempotent: poll progress with omp-ui_fleet_status instead of dispatching again.",
       parameters: {
         type: "object",
         properties: {
@@ -313,13 +313,13 @@ function fleetTools(): RpcHostToolDefinition[] {
           machines: {
             type: "array",
             items: { type: "string" },
-            description: 'Machine nicknames, or "this computer". Omit for automatic placement.',
+            description: 'Machine nicknames, or "this computer". Omit to start on this computer when it has the project, else automatic placement.',
           },
           count: {
             type: "integer",
             minimum: 1,
             maximum: FLEET_BATCH_MAX,
-            description: "Copies for automatic placement, one per machine. Default 1.",
+            description: "Copies, one per machine; more than 1 always places automatically. Default 1.",
           },
           workspace: {
             type: "string",
