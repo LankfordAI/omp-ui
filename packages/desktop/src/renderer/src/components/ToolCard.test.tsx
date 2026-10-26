@@ -262,6 +262,29 @@ describe("ToolCard search args", () => {
   });
 });
 
+describe("ToolCard path chip", () => {
+  it("clips a long slash-free basename instead of widening the card (#934)", () => {
+    const base =
+      'x.json?q={a:[.A[]|select(.name|test("Credential|Password"))],b:[.B[]|select(.name|test("UserName|Password"))]}';
+    const value = `schema/${base}`;
+    const { el, root } = renderCard(
+      tool({ name: "Read", args: { path: value }, resultText: "ok" }),
+    );
+
+    const chip = [...el.querySelectorAll<HTMLElement>("span[title]")].find(
+      (s) => s.getAttribute("title") === value,
+    );
+    expect(chip).toBeDefined();
+    const [dir, basename] = [...chip!.children] as HTMLElement[];
+    expect(dir!.textContent).toBe("schema/");
+    expect(basename!.textContent).toBe(base);
+    // The basename may never exceed the chip: capped at its width and ellipsized.
+    expect(basename!.classList.contains("max-w-full")).toBe(true);
+    expect(basename!.classList.contains("truncate")).toBe(true);
+    act(() => root.unmount());
+  });
+});
+
 describe("ToolCard streaming partials", () => {
   it("a write partial highlights through the incremental hook", () => {
     const partialText = "<html><body>streaming…";
