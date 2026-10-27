@@ -248,7 +248,7 @@ afterEach(() => {
   for (const manager of harnessManagers.splice(0)) manager.killAll();
 });
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"] } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"]; readModelCatalog?: SessionManagerDependencies["readModelCatalog"] } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -320,6 +320,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     hasOAuthProvider: opts.hasOAuthProvider,
     hasConfiguredModelsFileProvider: opts.hasConfiguredModelsFileProvider,
     resolveModelHold: opts.resolveModelHold,
+    readModelCatalog: opts.readModelCatalog,
     getOmpPath: () => "/test/omp",
     // The collab poll never shells out in tests: every probe reads as a CLI
     // hiccup, which holds the last snapshot (issue #686).
@@ -8450,8 +8451,8 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
   const commandsOf = (): Cmd[] => (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Cmd[];
   const fleetSpawn = (
     manager: SessionManager,
-    opts: { dispatchId?: string; projectCwd?: string; kind?: "user" | "agent"; planMode?: boolean } = {},
-  ): Promise<{ tabId: string }> =>
+    opts: { dispatchId?: string; projectCwd?: string; kind?: "user" | "agent"; planMode?: boolean; model?: string; thinkingLevel?: string } = {},
+  ): Promise<Core.SpawnAnswer> =>
     manager.spawn({
       origin: "new",
       projectCwd: opts.projectCwd ?? PROJECT,
@@ -8472,6 +8473,8 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
           kind: opts.kind ?? "user",
           sourceTabId: opts.kind === "agent" ? "src-tab" : null,
         },
+        ...(opts.model === undefined ? {} : { model: opts.model }),
+        ...(opts.thinkingLevel === undefined ? {} : { thinkingLevel: opts.thinkingLevel }),
       },
     });
   const recordOf = (registry: Core.Registry, tabId: string): Core.OwnedSessionRecord =>
@@ -8625,6 +8628,57 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
       Core.isObject(tool) ? tool.name : null,
     );
     expect(names).toEqual(expected ? ["omp-ui_notify", ...Core.FLEET_TOOLS] : ["omp-ui_notify"]);
+  });
+
+  describe("model choice (#956)", () => {
+    const catalog = (...keys: string[]): Core.ModelCatalogSnapshot => ({
+      models: keys.map((key) => {
+        const slash = key.indexOf("/");
+        return { provider: key.slice(0, slash), id: key.slice(slash + 1), name: key };
+      }),
+      discovered: true,
+      error: null,
+    });
+
+    it("starts an agent dispatch on the first catalogued favorite and answers the choice", async () => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui", readModelCatalog: async () => catalog("a/fav") });
+      registry.toggleFavorite("a/missing");
+      registry.toggleFavorite("a/fav");
+
+      const answer = await fleetSpawn(manager, { kind: "agent" });
+
+      const record = recordOf(registry, answer.tabId);
+      expect(record.model).toBe("a/fav");
+      const overlay = Core.modelOverlayPath(path.join(sessionsRoot, record.lineageDir));
+      expect(fs.readFileSync(overlay, "utf8")).toContain('default: "a/fav');
+      expect(answer).toEqual({ tabId: answer.tabId, choice: { model: "a/fav", thinkingLevel: record.thinkingLevel } });
+    });
+
+    it("refuses an explicit model missing from the catalog before minting anything", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui", readModelCatalog: async () => catalog("a/fav") });
+      const before = registry.sessions.length;
+
+      await expect(fleetSpawn(manager, { model: "x/nope" })).rejects.toThrow(
+        "model x/nope is not in this machine's model catalog",
+      );
+
+      expect(registry.sessions.length).toBe(before);
+      expect(registry.sessions.some((s) => s.fleet?.dispatchId === DISPATCH)).toBe(false);
+      expect(RpcClientMock).not.toHaveBeenCalled();
+    });
+
+    it("keeps the project default for a user dispatch without reading the catalog", async () => {
+      const readModelCatalog = vi.fn(async () => catalog("a/fav"));
+      const { manager, registry } = setup({ mode: "rpc-ui", readModelCatalog });
+      registry.toggleFavorite("a/fav");
+      registry.setProjectDefaultModel(PROJECT, "pin/model");
+
+      const answer = await fleetSpawn(manager, { kind: "user" });
+
+      expect(recordOf(registry, answer.tabId).model).toBe("pin/model");
+      expect(answer.choice?.model).toBe("pin/model");
+      expect(readModelCatalog).not.toHaveBeenCalled();
+    });
   });
 });
 

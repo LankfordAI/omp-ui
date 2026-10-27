@@ -294,14 +294,14 @@ function fleetTools(): RpcHostToolDefinition[] {
       name: machines,
       loadMode: "essential",
       description:
-        "List the omp-ui fleet: this computer plus every joined omp-ui instance, with status, CPU and free memory, live sessions and running turns, placement preference, and your access rung on each member. Each member also gets an ssh line (the user@address to reach it with your own ssh, where the address is the host this app joined it at and omp-ui holds no SSH keys; whether its port 22 answered; its platform; the project roots it accepts checkouts under) and a system line: its OS and the package managers found on it, with a manager not on the member's PATH listed with its absolute path. Then each ready machine's projects and repository keys. Use the names and keys with omp-ui_fleet_dispatch.",
+        "List the omp-ui fleet: this computer plus every joined omp-ui instance, with status, CPU and free memory, live sessions and running turns, placement preference, and your access rung on each member. Each member also gets an ssh line (the user@address to reach it with your own ssh, where the address is the host this app joined it at and omp-ui holds no SSH keys; whether its port 22 answered; its platform; the project roots it accepts checkouts under), a system line: its OS and the package managers found on it, with a manager not on the member's PATH listed with its absolute path, and a favorites line (the models an agent dispatch tries first, in order). Then each ready machine's projects and repository keys. Use the names and keys with omp-ui_fleet_dispatch.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
     {
       name: dispatch,
       loadMode: "essential",
       description:
-        "Start new omp sessions on fleet machines, this computer included, each running the given prompt unattended on the named machine, in a fresh worktree by default. Sessions start in Build mode; set planMode true to start them in read-only Plan mode, where a prompt that asks for a plan ends at a plan review the user answers (omp-ui_fleet_status then reports awaiting answer). A read-only planning session does not need its own worktree: workspace checkout is enough. Without machines, one session starts on this computer when this computer has the project with a ready model provider; leave machines out unless the user names a machine. Otherwise, and whenever count asks for more than one copy, omp-ui places the work automatically on the least-loaded machines with the same repository. Returns a batch id and one line per started session. Dispatching is not idempotent: poll progress with omp-ui_fleet_status instead of dispatching again.",
+        "Start new omp sessions on fleet machines, this computer included, each running the given prompt unattended on the named machine, in a fresh worktree by default. Sessions start in Build mode; set planMode true to start them in read-only Plan mode, where a prompt that asks for a plan ends at a plan review the user answers (omp-ui_fleet_status then reports awaiting answer). A read-only planning session does not need its own worktree: workspace checkout is enough. Without machines, one session starts on this computer when this computer has the project with a ready model provider; leave machines out unless the user names a machine. Otherwise, and whenever count asks for more than one copy, omp-ui places the work automatically on the least-loaded machines with the same repository. Each session starts on model and thinkingLevel when given; without model it starts on that machine's first favorite it can run (omp-ui_fleet_machines lists each machine's favorites), else on its project default. The owning machine refuses a model or level it cannot run. Returns a batch id and one line per session, naming the model and thinking level it started on. Dispatching is not idempotent: poll progress with omp-ui_fleet_status instead of dispatching again.",
       parameters: {
         type: "object",
         properties: {
@@ -330,6 +330,16 @@ function fleetTools(): RpcHostToolDefinition[] {
           planMode: {
             type: "boolean",
             description: "true starts each session in read-only Plan mode; default false (Build mode).",
+          },
+          model: {
+            type: "string",
+            description:
+              "Main model as a provider/id selector from the target machine's catalog. Omit to start on that machine's first favorite it can run, else its project default.",
+          },
+          thinkingLevel: {
+            type: "string",
+            description:
+              "Main thinking level: one of the model's levels (such as low, medium, high) or auto. Omit to keep that machine's default.",
           },
         },
         required: ["prompt", "project"],

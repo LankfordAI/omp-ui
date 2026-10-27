@@ -16,6 +16,7 @@ import {
   parseHostUriCancel,
   parseHostUriRequest,
   parseFleetToolArguments,
+  fleetChoiceText,
   parseHostUrl,
   parseDayParam,
   parsePlanReviewTitle,
@@ -500,7 +501,7 @@ export class HostBridge {
       const lines = result.outcomes.map((o) => {
         const machine = machines.find((m) => m.key === o.machineKey);
         const name = machine === undefined ? o.machineKey : fleetMachineName(machine);
-        const detail = o.status === "started" ? `tab ${o.tabId}` : o.message;
+        const detail = o.status === "started" ? `tab ${o.tabId}${fleetChoiceText(o.choice)}` : o.message;
         return `- ${name}: ${o.status} (${detail}); dispatchId ${o.dispatchId}`;
       });
       const poll =

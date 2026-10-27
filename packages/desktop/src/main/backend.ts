@@ -378,6 +378,7 @@ export class MainBackend {
         hasOAuthProvider: () => this.providerOAuth.hasModelAccount(),
         hasConfiguredModelsFileProvider: () => readModelsFileModelProviders().length > 0,
         resolveModelHold: (model) => resolveModelHold(model),
+        readModelCatalog: () => readModelCatalog({ ompPath: this.ompPath }),
         getOmpPath: () => this.ompPath,
         getSessionsRoot: () => this.sessionsRoot,
         getArchiveRoot: () => this.archiveRoot,
@@ -2141,6 +2142,7 @@ export class MainBackend {
       packageFormat: detectPackageFormat(),
       appLatestVersion: this.appUpdater.state.latestVersion,
       appUpdateStaged: this.appUpdater.state.status === "downloaded",
+      modelFavorites: this.registry.getFavorites(),
     };
   }
 

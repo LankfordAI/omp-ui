@@ -12,7 +12,7 @@ import type { RegistrySettings } from "./registry";
 import type { ReviewDocument } from "./review-config";
 import type { SessionExperiment } from "./experiment-types";
 import type { VaultAction } from "./vault-shared";
-import type { FleetPendingDispatch, FleetProvenance, FleetSpawnSpec } from "./fleet";
+import type { FleetModelChoice, FleetPendingDispatch, FleetProvenance, FleetSpawnSpec } from "./fleet";
 export type {
   CheckoutExperiments,
   ExperimentDetail,
@@ -844,6 +844,12 @@ export type SpawnRequest =
 /** Every spawn SessionManager.spawnInner accepts: a chat is rewritten to a
  *  NewRpcSpawnRequest carrying its minted scratch cwd before it gets there. */
 export type ProjectSpawnRequest = Exclude<SpawnRequest, NewChatSpawnRequest>;
+
+/** What `session:spawn` answers. `choice` rides only a fleet spawn's answer (#956): the model and level its record started with. */
+export interface SpawnAnswer {
+  tabId: string;
+  choice?: FleetModelChoice;
+}
 
 /** omp's own advisor defaults, read from its config (see core/omp-config.ts). */
 export interface AdvisorDefaults {
