@@ -1631,8 +1631,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.gauge.subagents": "서브에이전트 ({count})",
   "hud.gauge.advisor": "어드바이저",
   "hud.gauge.notices": "확장 상태",
-  "hud.inspector.open": "인스펙터 열기",
-  "hud.inspector.close": "인스펙터 닫기",
   "advisor.roster.title": "어드바이저 명단",
   "advisor.roster.edit": "명단 편집…",
   "advisor.roster.off": "이 세션에서 어드바이저가 꺼져 있어 모든 항목이 비활성입니다.",

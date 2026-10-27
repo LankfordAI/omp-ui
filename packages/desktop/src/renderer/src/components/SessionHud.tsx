@@ -30,7 +30,6 @@ import { FastModeControl } from "./FastModeControl";
 import { AdvisorRosterView } from "./AdvisorRoster";
 import { ApprovalModeControl } from "./ApprovalModeControl";
 import { GoalChip } from "./GoalChip";
-import { InspectorToggle } from "./InspectorToggle";
 import { WorktreeChip } from "./WorktreeChip";
 import { Button, Chevron, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconLock, IconRefresh, IconSessionTree, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 
@@ -39,9 +38,8 @@ import { Button, Chevron, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconLo
  * called, how full is the context, and what can I do to it right now".
  *
  * On desktop the HUD renders inside App's merged title bar (issue #60): the
- * wide face is liveness, the title menu, status chips, the gauge chip and the
- * inspector toggle (#941). The compact branch below still renders in-tab
- * inside RpcTab.
+ * wide face is liveness, the title menu, status chips and the gauge chip
+ * (#941). The compact branch below still renders in-tab inside RpcTab.
  * The two micro-controls below live here rather than in `ui.tsx` (which
  * Main owns) because only the RPC chrome consumes them.
  */
@@ -1866,8 +1864,8 @@ export function SessionHud({ tabId }: { tabId: string }) {
         title={t("hud.status.rpcStatus", { status: label })}
       />
       {/* Shrinkable, clipping, still draggable (NOT no-drag, NOT flex-1): the
-          status cluster clips here, so the gauge and the inspector toggle on
-          the right are never cut off (#941). */}
+          status cluster clips here, so the gauge on the right is never cut
+          off (#941). */}
       <div className="titlebar-status flex min-w-0 shrink items-center gap-2.5 overflow-hidden">
         {/* key: an open menu closes when the HUD switches to another tab. */}
         <TitleMenu
@@ -1926,7 +1924,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
         cwd={cwd}
         rosterProjectCwd={chat ? null : projectCwd ?? null}
       />
-      <InspectorToggle tabId={tabId} className="[app-region:no-drag]" />
     </div>
   );
 }

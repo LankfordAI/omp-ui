@@ -1800,8 +1800,6 @@ export const en = {
   "hud.gauge.subagents": "subagents ({count})",
   "hud.gauge.advisor": "advisor",
   "hud.gauge.notices": "extension status",
-  "hud.inspector.open": "open inspector",
-  "hud.inspector.close": "close inspector",
   "advisor.roster.title": "Advisor roster",
   "advisor.roster.edit": "Edit roster…",
   "advisor.roster.off": "Advisor is off for this session — every entry is inactive.",

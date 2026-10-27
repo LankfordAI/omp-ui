@@ -1128,7 +1128,7 @@ export function inspectorBadges(
   };
 }
 
-/** The aggregate the closed-rail affordances show: compact nav button and title-bar toggle. */
+/** The aggregate the compact nav's inspector button shows while the sheet is closed. */
 export function inspectorBadgeTotal(runtime: RpcTabState | undefined, record: SessionSummary | undefined): number {
   const badges = inspectorBadges(runtime, record);
   return badges.todos + badges.agents + badges.jobs + badges.plans;

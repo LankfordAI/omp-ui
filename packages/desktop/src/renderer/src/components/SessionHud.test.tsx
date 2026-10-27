@@ -503,11 +503,10 @@ describe("wide Session HUD", () => {
     for (const el of controls) {
       expect(carvedOut(el), el.getAttribute("aria-label") ?? el.getAttribute("title") ?? el.textContent ?? "").toBe(true);
     }
-    // The three fixed controls of the #941 face are present and carved out.
+    // The two fixed controls of the #941 face are present and carved out.
     const required = [
       hud.querySelector<HTMLElement>('button[aria-haspopup="menu"]'),
       hud.querySelector<HTMLElement>('button[aria-label="context and spend"]'),
-      hud.querySelector<HTMLElement>('button[aria-label^="open inspector"]'),
     ];
     for (const el of required) {
       expect(el).not.toBeNull();
@@ -793,37 +792,6 @@ describe("SessionHud gauge chip (issue #941)", () => {
     keydown(document.body, "Escape");
     expect(popover()).toBeNull();
     expect(document.activeElement).toBe(chip);
-  });
-});
-
-describe("SessionHud inspector toggle (issue #941)", () => {
-  it("badges the closed toggle with the open counts and flips the global inspector", () => {
-    useStore.setState({
-      inspectorOpen: false,
-      rpc: {
-        [TAB]: {
-          ...useStore.getState().rpc[TAB]!,
-          todos: [{ phase: "work", tasks: [
-            { content: "one", status: "pending" },
-            { content: "two", status: "pending" },
-            { content: "done", status: "completed" },
-          ] }],
-        },
-      },
-    });
-    wideMedia();
-    const host = mountHud();
-    const closed = host.querySelector<HTMLButtonElement>('button[aria-label="open inspector (2)"]')!;
-    expect(closed).not.toBeNull();
-    expect(closed.parentElement!.querySelector('span[aria-hidden="true"]')?.textContent).toBe("2");
-    act(() => closed.click());
-    expect(useStore.getState().inspectorOpen).toBe(true);
-    const open = host.querySelector<HTMLButtonElement>('button[aria-label="close inspector"]')!;
-    expect(open).not.toBeNull();
-    expect(open.getAttribute("aria-pressed")).toBe("true");
-    expect(open.parentElement!.querySelector('span[aria-hidden="true"]')).toBeNull();
-    act(() => open.click());
-    expect(useStore.getState().inspectorOpen).toBe(false);
   });
 });
 

@@ -248,7 +248,7 @@ export function IconFleet({ className }: { className?: string }) {
   );
 }
 
-/** Side panel — the inspector toggle (title bar and compact nav), echoing the rail. */
+/** Side panel — the compact nav's inspector button, echoing the rail. */
 export function IconInspect({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>

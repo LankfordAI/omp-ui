@@ -12,6 +12,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 - The **Inspector rail** strip is now four labelled groups — Work, Review, Ask, Info — each opening its panes behind a tab row, with group badges that sum their members' counts; the compact sheet uses the same groups (#940).
 
+- The Session HUD no longer carries an inspector toggle; the **Inspector rail** strip's group buttons open and close the inspector, and the compact nav keeps its inspector button (#947).
+
 ## Choose a download
 
 A release has exactly four distributable files. Replace `<version>` with the tag version without its leading `v`.
