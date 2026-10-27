@@ -326,6 +326,7 @@ export const en = {
   "notice.mcpMount": "{count} MCP tools are active",
   "notice.mcpMount.one": "1 MCP tool is active",
   "notice.mcpMount.view": "View",
+  "notice.costCap.raise": "Raise the cap in Settings",
   "transcript.command.tuiHandoff": "run in omp TUI",
   "transcript.command.shareOpen": "open share link",
   "transcript.shell.stop": "stop",
@@ -1266,6 +1267,16 @@ export const en = {
   "settings.omp.subagentConcurrencyClear": "clear",
   "settings.omp.subagentConcurrencyUnsupported":
     "This project's task.maxConcurrency can't be edited here: {reason}",
+  "settings.omp.spendCaps": "Spend caps",
+  "settings.omp.spendCapsHint":
+    "USD per session, subagents included. omp warns once at the warning amount and stops sending model requests at the stop amount. Global edits go through omp config set; Project edits write the key into the project's .omp/config.yml, which wins over Global. Running sessions pick up a change at their next model request.",
+  "settings.omp.spendCapWarn": "Warn at",
+  "settings.omp.spendCapMax": "Stop at",
+  "settings.omp.spendCapClear": "clear",
+  "settings.omp.spendCapPositive": "Enter an amount above $0.",
+  "settings.omp.spendCapOrder":
+    "The warning amount is at or above the stop amount, so omp stops before it ever warns.",
+  "settings.omp.spendCapUnsupported": "This project's spend caps can't be edited here: {reason}",
   "settings.omp.contextFiles": "Context files",
   "settings.omp.contextFilesHint":
     "Extra instruction files omp loads beside the usual context file (omp 18.8.8+), resolved per project. Edits write the global layer.",
@@ -1986,6 +1997,9 @@ export const en = {
   "hud.limits.chipWait": "rate limit — waiting{delay}",
   "hud.limits.chipDelay": " for {duration}",
   "hud.limits.chipRotation": "credential switched",
+  "hud.costCap.chip": "spend cap reached",
+  "hud.costCap.raise": "Raise cap…",
+  "hud.costCap.label": "cap",
   "hud.mode.sessionMode": "session mode",
   "hud.modes.allAtOnceHint": "process all queued messages at once",
   "hud.modes.controlLabel": "queue modes and retry",

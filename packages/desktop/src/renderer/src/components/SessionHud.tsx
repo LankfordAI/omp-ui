@@ -1280,6 +1280,7 @@ function GaugeChip({
   instanceId,
   cwd,
   rosterProjectCwd,
+  costCap,
 }: {
   tabId: string;
   usage: ContextUsage | null;
@@ -1297,11 +1298,14 @@ function GaugeChip({
   cwd: string | null;
   /** The project whose advisor settings the roster edits; null = no edit. */
   rosterProjectCwd: string | null;
+  /** omp's spend-cap stop (issue #952); null when no cap stopped the session. */
+  costCap: { message: string } | null;
 }) {
   const t = useT();
   const compactSession = useStore((s) => s.compactSession);
   const setAutoCompaction = useStore((s) => s.setAutoCompaction);
   const openProjectSettings = useStore((s) => s.openProjectSettings);
+  const openSettings = useStore((s) => s.openSettings);
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -1363,7 +1367,7 @@ function GaugeChip({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={t("hud.gauge.label")}
-        title={[readout?.exact, mainSpend?.title].filter(Boolean).join("\n")}
+        title={[readout?.exact, mainSpend?.title, costCap?.message].filter(Boolean).join("\n")}
         onClick={() => setOpen(!open)}
         className={cn(
           "titlebar-gauge flex items-center gap-1.5 rounded-md border border-line px-1.5 py-0.5 font-mono text-[11px] tabular-nums transition-colors hover:bg-hover",
@@ -1374,7 +1378,11 @@ function GaugeChip({
         <span className={readout ? percentTone(readout.percent) : "text-ink-dim"}>
           {readout ? `${Math.round(readout.percent)}%` : "—"}
         </span>
-        {mainSpend && <span className="titlebar-gauge-cost text-ink-faint">{formatCost(mainSpend.cost)}</span>}
+        {mainSpend && (
+          <span className={cn("titlebar-gauge-cost", costCap ? "text-rose" : "text-ink-faint")}>
+            {formatCost(mainSpend.cost)}
+          </span>
+        )}
       </button>
       {open &&
         pos &&
@@ -1424,6 +1432,26 @@ function GaugeChip({
                       })}
                     </span>
                   </div>
+                  {costCap && (
+                    <div className={GAUGE_HEADER}>
+                      <Chip tone="rose" title={costCap.message || t("hud.costCap.chip")}>
+                        {t("hud.costCap.chip")}
+                      </Chip>
+                      {instanceId === null && (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          tone="rose"
+                          onClick={() => {
+                            setOpen(false);
+                            openSettings("omp");
+                          }}
+                        >
+                          {t("hud.costCap.raise")}
+                        </Button>
+                      )}
+                    </div>
+                  )}
                   {sessionSpend?.available && (
                     <>
                       <div className={cn(GAUGE_HEADER, "pl-2 text-ink-dim")}>
@@ -1595,6 +1623,8 @@ export function SessionHud({ tabId }: { tabId: string }) {
   // model switch (issue #831). null before the first config_update → global path.
   const model = useStore((s) => s.rpc[tabId]?.model);
   const quotaEvent = useStore((s) => s.rpc[tabId]?.quotaEvent);
+  const costCap = useStore((s) => s.rpc[tabId]?.costCap);
+  const openSettings = useStore((s) => s.openSettings);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId))) ?? null;
@@ -1631,6 +1661,15 @@ export function SessionHud({ tabId }: { tabId: string }) {
       event={quotaEvent}
       className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
     />
+  );
+  const costCapChip = costCap != null && (
+    <Chip
+      tone="rose"
+      className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
+      title={costCap.message || t("hud.costCap.chip")}
+    >
+      {t("hud.costCap.chip")}
+    </Chip>
   );
 
   // Fetch while the entry is absent: on first mount, and again whenever a
@@ -1801,12 +1840,25 @@ export function SessionHud({ tabId }: { tabId: string }) {
         <Sheet open={surface === "session-actions"} placement="bottom" label={t("hud.actions.sessionActions")} onClose={closeCompactSurface}>
           <div className="space-y-4 p-4">
             <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
-            {(usage || mainSpend || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || usageLimitChip || limitsCluster || isPrivate) && (
+            {(usage || mainSpend || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || costCap != null || usageLimitChip || limitsCluster || isPrivate) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
                 {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
                 {isPrivate && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.memory")}</Label><span className="flex items-center gap-1 text-ink-mid"><IconLock /><span title={t("session.badge.private")}>{t("hud.metrics.memoryPrivate")}</span></span></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.context")}</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
                 {mainSpend && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={mainSpend.title}>{t("hud.stats.compact", { cost: formatCost(mainSpend.cost), tokens: compactNum(mainSpend.tokens), premium: mainSpend.premium })}</span></div>}
+                {costCapChip && (
+                  <div className="flex items-center justify-between gap-3">
+                    <Label>{t("hud.costCap.label")}</Label>
+                    <span className="flex items-center gap-1.5">
+                      {costCapChip}
+                      {instanceId === null && (
+                        <Button size="xs" variant="ghost" tone="rose" onClick={() => openSettings("omp")}>
+                          {t("hud.costCap.raise")}
+                        </Button>
+                      )}
+                    </span>
+                  </div>
+                )}
                 {quotaEvent != null && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{quotaChip}</div>}
                 {usageLimitChip && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{usageLimitChip}</div>}
                 {limitsCluster && <div className="flex items-center justify-between gap-3"><Label>{t("hud.limits.label")}</Label>{limitsCluster}</div>}
@@ -1903,9 +1955,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
         {fastChip}
         {approvalChip}
         {/* Quota attention states stay in the row: the account-stage chip
-            (issue #777) and the transient rotation/wait chip (issue #673). */}
+            (issue #777), the transient rotation/wait chip (issue #673), and
+            omp's spend-cap stop (issue #952). */}
         {usageLimitChip}
         {quotaChip}
+        {costCapChip}
       </div>
       <span className="min-w-0 flex-1" />
       <GaugeChip
@@ -1923,6 +1977,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         instanceId={instanceId}
         cwd={cwd}
         rosterProjectCwd={chat ? null : projectCwd ?? null}
+        costCap={costCap ?? null}
       />
     </div>
   );

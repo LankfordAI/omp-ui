@@ -363,6 +363,15 @@ export interface RpcTabState {
    * agent_start, so the chip lives exactly through the turn that experienced it.
    */
   quotaEvent?: { at: number; kind: "rotation" | "wait"; delayMs?: number } | null;
+  /**
+   * omp's spend-cap stop (issue #952): set when a prompt_result carries
+   * `error.code: "cost_cap"`; cleared at the next agent_start (omp admitted a
+   * turn, so the cap was raised) and when the process is disposed. `message`
+   * is omp's own text ("Cost cap reached: this session spent $X of its $Y
+   * cap …"); omp-ui never recomputes it — the HUD spend total (ADR-0056) and
+   * omp's gate counter are different sums.
+   */
+  costCap?: { message: string; at: number } | null;
   /** How the roster read went; the viewer's own state machine (issue #374). */
   capabilitiesLoad:
     | "idle"

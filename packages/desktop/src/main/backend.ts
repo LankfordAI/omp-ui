@@ -85,6 +85,7 @@ import {
   setProjectConfigValue,
   seedMemoryDefaults,
   writeOmpSetting,
+  resetOmpSetting,
   collectDiagnosticsBundle,
   previewDiagnosticsBundle,
   detectVaults,
@@ -156,6 +157,8 @@ import {
   type ProjectRecord,
   type ProjectOpenTarget,
   type ProjectScalarResult,
+  type ProjectSpendCapsResult,
+  type SpendCapKey,
   type ProjectSubagentModelsResult,
   type SubagentModelMap,
   type RootGuard,
@@ -861,6 +864,22 @@ export class MainBackend {
           }
           await setProjectConfigValue(projectCwd, ["task", "maxConcurrency"], value);
         },
+        [CH.getProjectSpendCaps]: (projectCwd: string): ProjectSpendCapsResult => {
+          const read = (key: SpendCapKey): ProjectScalarResult => {
+            const layer = readProjectConfigValue(projectCwd, ["session", key]);
+            return { value: layer.shape === "value" ? layer.value : undefined, layer };
+          };
+          return { warnCost: read("warnCost"), maxCost: read("maxCost") };
+        },
+        [CH.setProjectSpendCap]: async (projectCwd: string, key: SpendCapKey, value: number | null) => {
+          // The project file bypasses omp's own validator ("expected a
+          // positive USD amount"), so refuse what omp would reject before
+          // touching the file — the maxConcurrency guard's stance.
+          if (value !== null && !(Number.isFinite(value) && value > 0)) {
+            throw new Error(`refusing invalid session.${key}: ${value}`);
+          }
+          await setProjectConfigValue(projectCwd, ["session", key], value);
+        },
         [CH.getProjectApprovalMode]: (projectCwd: string): ProjectScalarResult => {
           const layer = readProjectConfigValue(projectCwd, ["tools", "approvalMode"]);
           return { value: layer.shape === "value" ? layer.value : undefined, layer };
@@ -1090,6 +1109,7 @@ export class MainBackend {
           readOmpSettings({ ompPath: this.ompPath, projectCwd }),
         [CH.writeOmpSetting]: (key: string, value: OmpSettingValue) =>
           writeOmpSetting({ ompPath: this.ompPath, key, value }),
+        [CH.resetOmpSetting]: (key: string) => resetOmpSetting({ ompPath: this.ompPath, key }),
         [CH.checkPython]: () => checkPythonSetup({ ompPath: this.ompPath }),
         /**
          * Roster refresh (ADR-0031): bundled names via `omp agents unpack`

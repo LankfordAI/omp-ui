@@ -77,11 +77,14 @@ function scalarOut(value: string): string {
 
 function scalarOf(value: string | boolean | number): string {
   if (typeof value === "number") {
-    // Bare digits are YAML's own number form; quoting would type it as a
-    // string, and omp's number settings reject that. NaN/Infinity fail
-    // Number.isInteger, so this refuses them before any byte is written.
-    if (!Number.isInteger(value)) throw new Error(`invalid project config number: ${value}`);
-    return String(value);
+    // Plain decimal digits are YAML's own number form (spend caps are
+    // fractional USD, issue #952); quoting would type it as a string, which
+    // omp's number settings reject. NaN, Infinity and exponent forms
+    // (String(1e-7) === "1e-7", a string under YAML 1.1) fail the test before
+    // any byte is written. Integer-only keys guard in their own handler.
+    const text = String(value);
+    if (!/^-?\d+(\.\d+)?$/.test(text)) throw new Error(`invalid project config number: ${value}`);
+    return text;
   }
   return typeof value === "boolean" ? (value ? "true" : "false") : scalarOut(value);
 }

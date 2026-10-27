@@ -14,6 +14,7 @@ import type {
   OmpUpdateState,
   PlanFormat,
   ProjectScalarResult,
+  ProjectSpendCapsResult,
   ProviderKeyStatus,
   ProviderOAuthState,
   ProviderOAuthStatus,
@@ -212,6 +213,14 @@ const backendMock = {
     async (): Promise<ProjectScalarResult> => ({ value: undefined, layer: { shape: "absent" } }),
   ),
   setProjectMaxConcurrency: vi.fn(async () => {}),
+  getProjectSpendCaps: vi.fn(
+    async (): Promise<ProjectSpendCapsResult> => ({
+      warnCost: { value: undefined, layer: { shape: "absent" } },
+      maxCost: { value: undefined, layer: { shape: "absent" } },
+    }),
+  ),
+  setProjectSpendCap: vi.fn(async () => {}),
+  resetOmpSetting: vi.fn(async () => {}),
   setSessionSubagentModels: vi.fn(async () => {}),
   setSessionApprovalMode: vi.fn(async () => {}),
   getProjectApprovalMode: vi.fn(
@@ -2542,6 +2551,171 @@ describe("Settings omp Subagent concurrency section (issue #569)", () => {
     await renderSettings();
     expect(document.body.textContent).not.toContain("Subagent concurrency");
     expect(field()).toBeNull();
+  });
+});
+
+describe("Settings omp Spend caps section (issue #952)", () => {
+  const capEntry = (
+    key: "session.warnCost" | "session.maxCost",
+    patch: Partial<OmpSettingsSnapshot["entries"][number]> = {},
+  ): OmpSettingsSnapshot["entries"][number] => ({
+    key,
+    type: "number",
+    description: "",
+    value: undefined,
+    globalValue: undefined,
+    options: null,
+    layer: "default",
+    ...patch,
+  });
+
+  const absent = { value: undefined, layer: { shape: "absent" as const } };
+
+  /** Seeds the omp page with the two cap entries alone and a focused session at /project. */
+  function seedCaps(
+    entries: OmpSettingsSnapshot["entries"],
+    project: ProjectSpendCapsResult = { warnCost: absent, maxCost: absent },
+  ): void {
+    backendMock.readOmpSettings.mockResolvedValue({ ...emptyOmpSettings, entries });
+    backendMock.getProjectSpendCaps.mockResolvedValue(project);
+    const tab = tabInfo();
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [tab],
+      activeTabId: tab.tabId,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  const field = (key: string): HTMLInputElement =>
+    document.querySelector<HTMLInputElement>(`input[aria-label="${key}"]`)!;
+
+  /** The clear button sharing the field's row. */
+  const clearFor = (key: string): HTMLButtonElement =>
+    field(key).parentElement!.querySelector<HTMLButtonElement>("button")!;
+
+  const scopeButtons = (): HTMLButtonElement[] => [
+    ...document.body.querySelectorAll<HTMLButtonElement>(
+      '[role="group"][aria-label="edit scope"] button',
+    ),
+  ];
+
+  async function commitNumber(key: string, value: string): Promise<void> {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(field(key), value);
+      field(key).dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field(key).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+  }
+
+  it("renders nothing when omp publishes neither key", async () => {
+    seedCaps([]);
+    await renderSettings();
+    expect(document.body.textContent).not.toContain("Spend caps");
+    expect(field("session.maxCost")).toBeNull();
+    expect(backendMock.getProjectSpendCaps).not.toHaveBeenCalled();
+  });
+
+  it("opens on Global without a project stop amount and commits through omp config set", async () => {
+    // The project layer supplies only the warning amount: the section still opens on Global.
+    seedCaps(
+      [
+        capEntry("session.warnCost", { value: 1, layer: "project" }),
+        capEntry("session.maxCost", { value: 3, globalValue: 3, layer: "global" }),
+      ],
+      { warnCost: { value: "1", layer: { shape: "value" as const, value: "1" } }, maxCost: absent },
+    );
+    await renderSettings();
+    expect(document.body.textContent).toContain("Spend caps");
+    expect(backendMock.getProjectSpendCaps).toHaveBeenCalledWith("/project");
+    // Global's own values: the global stop amount, no global warning amount.
+    expect(field("session.maxCost").value).toBe("3");
+    expect(field("session.warnCost").value).toBe("");
+    expect(field("session.maxCost").step).toBe("0.01");
+
+    await commitNumber("session.maxCost", "2.5");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("session.maxCost", 2.5);
+    expect(backendMock.setProjectSpendCap).not.toHaveBeenCalled();
+  });
+
+  it("opens on Project when the project layer supplies the stop amount and writes the project file", async () => {
+    seedCaps(
+      [
+        capEntry("session.warnCost"),
+        capEntry("session.maxCost", { value: 1, layer: "project" }),
+      ],
+      { warnCost: absent, maxCost: { value: "1", layer: { shape: "value" as const, value: "1" } } },
+    );
+    await renderSettings();
+    // The project's own stop amount; Global has none.
+    expect(field("session.maxCost").value).toBe("1");
+
+    await commitNumber("session.maxCost", "2.5");
+    expect(backendMock.setProjectSpendCap).toHaveBeenCalledWith("/project", "maxCost", 2.5);
+    expect(backendMock.writeOmpSetting).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { scope: "Global", chip: 0, raw: "0" },
+    { scope: "Global", chip: 0, raw: "-1" },
+    { scope: "Project", chip: 1, raw: "0" },
+    { scope: "Project", chip: 1, raw: "-1" },
+  ])("refuses $raw at $scope without writing", async ({ chip, raw }) => {
+    seedCaps([capEntry("session.warnCost"), capEntry("session.maxCost")]);
+    await renderSettings();
+    click(scopeButtons()[chip]!);
+    expect(document.body.textContent).not.toContain("Enter an amount above $0.");
+
+    await commitNumber("session.maxCost", raw);
+    expect(document.body.textContent).toContain("Enter an amount above $0.");
+    expect(backendMock.writeOmpSetting).not.toHaveBeenCalled();
+    expect(backendMock.setProjectSpendCap).not.toHaveBeenCalled();
+  });
+
+  it("clears the global stop amount through omp config reset", async () => {
+    seedCaps([
+      capEntry("session.warnCost"),
+      capEntry("session.maxCost", { value: 3, globalValue: 3, layer: "global" }),
+    ]);
+    await renderSettings();
+    // Nothing to clear at the global layer for the warning amount.
+    expect(clearFor("session.warnCost").disabled).toBe(true);
+
+    const clear = clearFor("session.maxCost");
+    expect(clear.disabled).toBe(false);
+    click(clear);
+    expect(backendMock.resetOmpSetting).toHaveBeenCalledWith("session.maxCost");
+    expect(backendMock.writeOmpSetting).not.toHaveBeenCalled();
+    expect(backendMock.setProjectSpendCap).not.toHaveBeenCalled();
+  });
+
+  it("notes a warning amount at or above the stop amount", async () => {
+    seedCaps([
+      capEntry("session.warnCost", { value: 5, globalValue: 5, layer: "global" }),
+      capEntry("session.maxCost", { value: 2, globalValue: 2, layer: "global" }),
+    ]);
+    await renderSettings();
+    expect(document.body.textContent).toContain(
+      "The warning amount is at or above the stop amount",
+    );
+  });
+
+  it("omits the order note when the warning amount is below the stop amount", async () => {
+    seedCaps([
+      capEntry("session.warnCost", { value: 1, globalValue: 1, layer: "global" }),
+      capEntry("session.maxCost", { value: 2, globalValue: 2, layer: "global" }),
+    ]);
+    await renderSettings();
+    expect(document.body.textContent).not.toContain(
+      "The warning amount is at or above the stop amount",
+    );
   });
 });
 

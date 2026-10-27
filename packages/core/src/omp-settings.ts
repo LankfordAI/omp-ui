@@ -509,3 +509,26 @@ export async function writeOmpSetting(
     removeTempDirs(neutralCwd);
   }
 }
+
+/**
+ * Removes one allowlisted setting from omp's GLOBAL layer via `omp config
+ * reset <key>` (verified on 18.13.2: deletes the key; exit 0 when it is
+ * already absent). Same allowlist boundary and neutral cwd as writeOmpSetting;
+ * the runner's rejection is omp's own trimmed stderr.
+ */
+export async function resetOmpSetting(
+  { ompPath, key }: { ompPath: string | null; key: string },
+  // Both guards reject before `run` is reached, as in writeOmpSetting.
+  run: OmpConfigRunner = execOmpConfigRunner(ompPath ?? ""),
+): Promise<void> {
+  if (ompPath === null) throw new Error("omp binary not found");
+  if (!ALLOWED_KEYS.includes(key)) {
+    throw new Error(`refusing to reset unlisted omp setting: ${key}`);
+  }
+  const neutralCwd = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-cfg-"));
+  try {
+    await run(["config", "reset", key, "--json"], { cwd: neutralCwd, env: process.env });
+  } finally {
+    removeTempDirs(neutralCwd);
+  }
+}

@@ -444,6 +444,7 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
   const t = useT();
   const reportError = useStore((s) => s.reportError);
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
+  const openSettings = useStore((s) => s.openSettings);
   // A path on a remote instance's disk (issue #416) cannot be opened here:
   // `file:open` is host-local, so the notice reads as plain text there.
   const remote = useStore((s) => tabId !== undefined && findOwner(s.state, tabId)?.instanceId != null);
@@ -492,9 +493,22 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
             <span className="text-ink-dim">{t("notice.mcpMount.view")}</span>
           </button>
         ) : path === undefined ? (
-          <span className="min-w-0 break-words" data-selectable>
-            {item.text}
-          </span>
+          <>
+            <span className="min-w-0 break-words" data-selectable>
+              {item.text}
+            </span>
+            {/* The spend-cap stop (issue #952): Settings → omp edits this
+                machine's config, so a remote tab gets the text only. */}
+            {item.costCap === true && !remote && (
+              <button
+                type="button"
+                className="shrink-0 cursor-pointer underline decoration-dotted underline-offset-2 hover:text-ink"
+                onClick={() => openSettings("omp")}
+              >
+                {t("notice.costCap.raise")}
+              </button>
+            )}
+          </>
         ) : (
           <>
             <button

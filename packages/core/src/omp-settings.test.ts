@@ -9,6 +9,7 @@ import {
   readOmpGoalContinuationModes,
   readOmpSettings,
   readWebSearchProviders,
+  resetOmpSetting,
   writeOmpSetting,
   OMP_MAX_CONCURRENCY_KEY,
   OMP_MODEL_ROLES_KEY,
@@ -21,6 +22,8 @@ import {
 import {
   COMPACTION_MODEL_THRESHOLD_SETTING_GROUP,
   CONTEXT_FILES_EXTRA_KEY,
+  SESSION_MAX_COST_KEY,
+  SESSION_WARN_COST_KEY,
 } from "./omp-settings-keys";
 
 const OMP = "/x/omp";
@@ -303,6 +306,22 @@ describe("readOmpSettings", () => {
       fakeRunner({ global: {}, pristine: {} }, null),
     );
     expect(snapshot.entries.some((e) => e.key === OMP_MAX_CONCURRENCY_KEY)).toBe(false);
+  });
+
+  it("emits both spend caps as unset numbers when omp publishes them without a value (#952)", async () => {
+    // omp 18.13 lists both keys as {type:"number", description:""} when unset.
+    const unset = { type: "number", description: "" };
+    const keys = { [SESSION_WARN_COST_KEY]: unset, [SESSION_MAX_COST_KEY]: unset };
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner({ global: keys, pristine: keys }, null),
+    );
+    expect(snapshot.error).toBeNull();
+    for (const key of [SESSION_WARN_COST_KEY, SESSION_MAX_COST_KEY]) {
+      const found = snapshot.entries.find((e) => e.key === key);
+      expect(found).toMatchObject({ type: "number" });
+      expect(found?.value).toBeUndefined();
+    }
   });
 
   it("emits the allowlisted speech speed keys with omp's number schema (#836)", async () => {
@@ -884,6 +903,18 @@ describe("writeOmpSetting", () => {
     expect(seen).toEqual(["config", "set", OMP_MAX_CONCURRENCY_KEY, "8", "--json"]);
   });
 
+  it("puts a fractional spend cap in argv bare (#952)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: SESSION_MAX_COST_KEY, value: 2.5 },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", SESSION_MAX_COST_KEY, "2.5", "--json"]);
+  });
+
   it("writes the python.interpreter empty-string auto-detect sentinel verbatim", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(
@@ -905,6 +936,33 @@ describe("writeOmpSetting", () => {
         },
       ),
     ).rejects.toThrow("Invalid value: nope. Valid values: off, 1, 3, 5");
+  });
+});
+
+describe("resetOmpSetting", () => {
+  it("refuses an unlisted key without invoking the runner", async () => {
+    const run = fakeRunner({ global: {}, pristine: {} }, null);
+    await expect(
+      resetOmpSetting({ ompPath: OMP, key: "apiKeys.openai" }, run),
+    ).rejects.toThrow(/refusing to reset unlisted omp setting: apiKeys\.openai/);
+    expect(run.calls).toBe(0);
+  });
+
+  it("runs `omp config reset <key> --json`", async () => {
+    let seen: readonly string[] = [];
+    await resetOmpSetting({ ompPath: OMP, key: SESSION_MAX_COST_KEY }, async (args) => {
+      seen = args;
+      return "";
+    });
+    expect(seen).toEqual(["config", "reset", "session.maxCost", "--json"]);
+  });
+
+  it("propagates omp's stderr message unchanged", async () => {
+    await expect(
+      resetOmpSetting({ ompPath: OMP, key: SESSION_MAX_COST_KEY }, async () => {
+        throw new Error("Unknown setting: session.maxCost");
+      }),
+    ).rejects.toThrow("Unknown setting: session.maxCost");
   });
 });
 

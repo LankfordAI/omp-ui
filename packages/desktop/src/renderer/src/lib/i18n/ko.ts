@@ -300,6 +300,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "notice.mcpMount": "MCP 도구 {count}개 활성",
   "notice.mcpMount.one": "MCP 도구 1개 활성",
   "notice.mcpMount.view": "보기",
+  "notice.costCap.raise": "설정에서 한도 올리기",
   "transcript.command.tuiHandoff": "omp TUI에서 실행",
   "transcript.command.shareOpen": "공유 링크 열기",
   "transcript.shell.stop": "중지",
@@ -1141,6 +1142,15 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.omp.subagentConcurrencyClear": "지우기",
   "settings.omp.subagentConcurrencyUnsupported":
     "이 프로젝트의 task.maxConcurrency는 여기서 편집할 수 없습니다: {reason}",
+  "settings.omp.spendCaps": "지출 한도",
+  "settings.omp.spendCapsHint":
+    "세션당 USD 금액이며 서브에이전트 비용도 포함됩니다. omp는 경고 금액에서 한 번 경고하고, 중지 금액에서 모델 요청 전송을 멈춥니다. Global 편집은 omp config set을 거치고, Project 편집은 프로젝트의 .omp/config.yml에 이 키를 기록하며 Global보다 우선합니다. 실행 중인 세션은 다음 모델 요청부터 변경을 반영합니다.",
+  "settings.omp.spendCapWarn": "경고 금액",
+  "settings.omp.spendCapMax": "중지 금액",
+  "settings.omp.spendCapClear": "지우기",
+  "settings.omp.spendCapPositive": "$0보다 큰 금액을 입력하세요.",
+  "settings.omp.spendCapOrder": "경고 금액이 중지 금액 이상이라 omp가 경고하기 전에 멈춥니다.",
+  "settings.omp.spendCapUnsupported": "이 프로젝트의 지출 한도는 여기서 편집할 수 없습니다: {reason}",
   "settings.omp.contextFiles": "컨텍스트 파일",
   "settings.omp.contextFilesHint":
     "omp가 일반 컨텍스트 파일과 함께 로드하는 추가 지침 파일입니다 (omp 18.8.8+, 프로젝트별로 해석). 편집은 global 레이어에 기록됩니다.",
@@ -1811,6 +1821,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.limits.chipWait": "rate limit — 대기 중{delay}",
   "hud.limits.chipDelay": " {duration}간",
   "hud.limits.chipRotation": "credential 전환됨",
+  "hud.costCap.chip": "지출 한도 도달",
+  "hud.costCap.raise": "한도 올리기…",
+  "hud.costCap.label": "한도",
   "hud.mode.sessionMode": "세션 모드",
   "hud.modes.allAtOnceHint": "대기 중인 모든 메시지를 한 번에 처리",
   "hud.modes.controlLabel": "대기열 모드 및 재시도",

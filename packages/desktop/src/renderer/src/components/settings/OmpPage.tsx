@@ -10,6 +10,8 @@ import {
   LIVE_VOICE_SETTING_KEY,
   OMP_MAX_CONCURRENCY_KEY,
   OMP_SUBAGENT_MODELS_KEY,
+  SESSION_MAX_COST_KEY,
+  SESSION_WARN_COST_KEY,
   SPEECH_SPEED_SETTING_KEY,
   TTS_LOCAL_SPEED_SETTING_KEY,
   STATUS_LINE_SEGMENT_OPTIONS_KEY,
@@ -17,6 +19,7 @@ import {
 import { ModelRolesSection } from "./ModelRolesSection";
 import { SubagentModelsSection } from "./SubagentModelsSection";
 import { SubagentConcurrencySection } from "./SubagentConcurrencySection";
+import { SpendCapSection } from "./SpendCapSection";
 import { ApprovalModeSection } from "./ApprovalModeSection";
 import { ContextFilesSection } from "./ContextFilesSection";
 import { LiveVoiceSection } from "./LiveVoiceSection";
@@ -121,6 +124,15 @@ export function OmpPage({
           {writeError}
         </p>
       )}
+
+      <SpendCapSection
+        warnEntry={byKey.get(SESSION_WARN_COST_KEY)}
+        maxEntry={byKey.get(SESSION_MAX_COST_KEY)}
+        projectCwd={projectCwd}
+        pendingKey={pendingKey}
+        commit={commit}
+        retry={retry}
+      />
 
       {rolesEntry !== undefined && (
         <ModelRolesSection entry={rolesEntry} pendingKey={pendingKey} commit={commit} />
