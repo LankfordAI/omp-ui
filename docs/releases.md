@@ -115,6 +115,9 @@ are delivered two ways: as 14-day run artifacts, and on one rolling *prerelease*
 GitHub Release named `nightly`, which each run deletes and recreates at the
 packaged commit. The macOS lane receives its signing and notarization secrets
 by name from each caller; no workflow uses `secrets: inherit`.
+The release body lists the changes since the previous nightly: each issue or
+pull request the range's first-parent commit subjects cite, with its title, or
+the commit subjects themselves when no cited number resolves (issue #922).
 
 The `nightly` release carries the update feeds a stable release carries —
 `latest-linux.yml`, `latest.yml`, `latest-mac.yml`, and the NSIS blockmap — so

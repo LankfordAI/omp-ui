@@ -36,8 +36,10 @@ on:
 permissions:
   # The rolling-release updater needs contents: write, and a called reusable
   # cannot widen the token, so it must be granted here (issue #377). The
-  # publish job's notes step reads merged PRs too (issue #480 metadata).
+  # publish job's notes step resolves the issue and PR refs its commit
+  # subjects cite (issue #480 metadata, issue #922).
   contents: write
+  issues: read
   pull-requests: read
 
 concurrency:
@@ -303,20 +305,26 @@ jobs:
           elif [ -n "$prev" ] && git cat-file -e "${prev}^{commit}" 2>/dev/null; then
             {
               printf 'Changes since the previous nightly (%s):\n\n' "${prev:0:7}"
-              # main's first-parent subjects are squash titles carrying (#N);
-              # grep -oE catches every issue number in a subject, gh pr view
-              # drops the ones that are not PRs. A range whose commits cite
-              # no issue (plain feat:/docs:/ci: commits landed on main) makes
-              # grep exit 1, and under pipefail -e that aborted the whole step
-              # (#902) — tolerate it, and list the commit subjects when there
-              # are no refs to expand.
+              # main's first-parent subjects are squash titles carrying (#N),
+              # and N is usually an issue, not a PR: gh issue view resolves
+              # both, where gh pr view failed on every issue and left the
+              # heading with no bullets (#922). The form-template prefix is
+              # stripped as scripts/release-notes.mjs does. A range whose
+              # commits cite no issue makes grep exit 1, which under pipefail
+              # -e aborted the step (#902) — tolerate it. Whenever no ref
+              # resolves to a line (no refs, or every lookup failed), list the
+              # commit subjects instead, so the heading never stands alone.
               refs="$(git log --first-parent --format='%s' "${prev}..${SHA}" \
                 | { grep -oE '#[0-9]+' || true; } | tr -d '#' | sort -n | uniq | awk 'NR<=100')"
+              lines=""
               if [ -n "$refs" ]; then
-                while IFS= read -r pr; do
-                  gh pr view "$pr" --json number,title,url \
-                    --jq '"- [#\(.number)](\(.url)) — \(.title)"' || true
-                done <<< "$refs"
+                lines="$(while IFS= read -r ref; do
+                  gh issue view "$ref" --json number,title,url \
+                    --jq '"- [#\(.number)](\(.url)) — \(.title | sub("^\\[(Feature|Bug|Chore)\\]:\\s*"; ""; "i"))"' 2>/dev/null || true
+                done <<< "$refs")"
+              fi
+              if [ -n "$lines" ]; then
+                printf '%s\n' "$lines"
               else
                 git log --first-parent --format='- %s' "${prev}..${SHA}" | awk 'NR<=100'
               fi
