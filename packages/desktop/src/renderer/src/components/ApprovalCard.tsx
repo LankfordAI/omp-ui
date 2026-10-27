@@ -1,18 +1,22 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ApprovalPrompt } from "@omp-ui/core/approval";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
-import { Button, Chip, Label } from "./ui";
+import { Button, Chip, Label, Switch } from "./ui";
 
 /**
  * The approval card (issue #681, ADR-0038): the dedicated answer surface for
  * omp's tool-approval select — an `Allow tool: <name>` frame whose options are
  * Approve/Deny, or on omp ≥ 18.11.3 Approve / Approve <subject> for this
  * session / Deny (issue #883), routed here by the frame reducer instead of the
- * generic dialog queue. The agent is *blocked* on the reply: omp maps the
- * answered label (once/session/deny) and a non-matching reply is a denial —
- * a dropped dialog must read as refusal, never a silent approval. Escape and
- * Deny both answer "deny", which lands the clean "denied by user" transcript path.
+ * generic dialog queue. Under Ask and remember (`always-ask-cached`, issue
+ * #950) the frame also offers grant choices — remember a folder and/or a file,
+ * for this session or, with the "in every session" switch on, for every
+ * session — shown verbatim above Allow once (omp's `Approve Once`). The agent
+ * is *blocked* on the reply: omp maps the answered label exactly and a
+ * non-matching reply is a denial — a dropped dialog must read as refusal,
+ * never a silent approval. Escape and Deny both answer "deny", which lands the
+ * clean "denied by user" transcript path.
  *
  * Non-modal by design, mounted in the floating dialog stack above the
  * composer: the transcript keeps streaming around it while the single tool
@@ -23,6 +27,9 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   const held = useStore((s) => s.rpc[tabId]?.approvalPrompt ?? null);
   const answerApprovalPrompt = useStore((s) => s.answerApprovalPrompt);
   const prompt: ApprovalPrompt | null = held?.prompt ?? null;
+  // The switch belongs to one held frame: a new approval starts un-remembered
+  // without an effect, because the held frame object is stable per hold.
+  const [alwaysFrame, setAlwaysFrame] = useState<unknown>(null);
 
   useEffect(() => {
     if (prompt === null) return;
@@ -47,6 +54,8 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   }, [prompt, tabId, answerApprovalPrompt]);
 
   if (prompt === null) return null;
+  const always = alwaysFrame === held!.frame;
+  const hasGrants = prompt.grants.length > 0;
   // Frame text deliberately not i18n'd: it names omp's grant subject and
   // must match what the harness composed.
   const sessionLabel = prompt.sessionLabel;
@@ -93,6 +102,33 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
           </div>
         )}
       </div>
+      {hasGrants && (
+        <div data-approval-grants className="flex flex-wrap items-center gap-2 px-4 pt-3">
+          <Label>{t("dialog.approval.remember")}</Label>
+          {prompt.grants.map((grant) => {
+            const label = always ? grant.alwaysLabel : grant.label;
+            return (
+              <Button
+                key={grant.scope}
+                variant="outline"
+                title={label}
+                className="min-w-0 max-w-full"
+                onClick={() => answerApprovalPrompt(tabId, { grant: grant.scope, always })}
+              >
+                <span className="truncate">{label}</span>
+              </Button>
+            );
+          })}
+          <span className="ml-auto flex items-center gap-1.5 text-[11px] text-ink-mid">
+            <Switch
+              on={always}
+              onChange={(next) => setAlwaysFrame(next ? held!.frame : null)}
+              label={t("dialog.approval.rememberAlways")}
+            />
+            {t("dialog.approval.rememberAlways")}
+          </span>
+        </div>
+      )}
       <div className="flex items-center justify-end gap-2 px-4 pb-3 pt-3">
         <Button variant="ghost" onClick={() => answerApprovalPrompt(tabId, "deny")}>
           {t("dialog.approval.deny")}
@@ -103,7 +139,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
           </Button>
         )}
         <Button variant="solid" tone="signal" onClick={() => answerApprovalPrompt(tabId, "once")}>
-          {t("dialog.approval.allow")}
+          {hasGrants ? t("dialog.approval.allowOnce") : t("dialog.approval.allow")}
         </Button>
       </div>
     </div>

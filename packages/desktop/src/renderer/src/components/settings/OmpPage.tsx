@@ -145,6 +145,7 @@ export function OmpPage({
       <ApprovalModeSection
         entry={byKey.get(APPROVAL_SETTING_KEY)}
         projectCwd={projectCwd}
+        tabId={activeTabId}
         pendingKey={pendingKey}
         commit={commit}
         retry={retry}

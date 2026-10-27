@@ -111,6 +111,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.approval.reason": "사유",
   "dialog.approval.safety": "제공자 안전 검사",
   "dialog.approval.allow": "허용",
+  "dialog.approval.allowOnce": "한 번 허용",
+  "dialog.approval.remember": "기억",
+  "dialog.approval.rememberAlways": "모든 세션에서",
   "dialog.approval.deny": "거부",
 
   "dialog.delete.kicker": "되돌릴 수 없는 작업",
@@ -1147,11 +1150,17 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.omp.contextFilesRemove": "제거",
   "settings.omp.approval": "도구 승인",
   "settings.omp.approvalHint":
-    "어떤 omp 도구가 승인을 요청하는지 설정합니다. always-ask는 모든 도구, write는 변경을 수반하는 도구에만 승인을 요구하고, yolo은 요구하지 않습니다. Global 편집은 omp config set으로 이루어지고, Project 편집은 프로젝트의 .omp/config.yml에 이 키 하나만 쓰며, Project 값을 지우면 Global로 대체됩니다. 키가 없으면 omp 기본값인 yolo입니다. 변경 사항은 이후에 시작된 세션에 적용됩니다.",
+    "어떤 omp 도구가 승인을 요청하는지 설정합니다. always-ask는 쓰기나 명령 실행 도구에, always-ask-cached(묻고 기억)는 파일 읽기에도 승인을 요구하며 파일이나 폴더를 이 세션 또는 모든 세션에 대해 기억할 수 있고, write는 명령 실행 도구에만 요구하며, yolo는 요구하지 않습니다. Global 편집은 omp config set으로 이루어지고, Project 편집은 프로젝트의 .omp/config.yml에 이 키 하나만 쓰며, Project 값을 지우면 Global로 대체됩니다. 키가 없으면 omp 기본값인 yolo입니다. 변경 사항은 이후에 시작된 세션에 적용됩니다.",
   "settings.omp.approvalInherit": "상속",
   "settings.omp.approvalClear": "지우기",
   "settings.omp.approvalUnsupported":
     "이 프로젝트의 tools.approvalMode는 여기서 편집할 수 없습니다: {reason}",
+  "settings.omp.approvalCachedNeedsOmp": "always-ask-cached는 omp {version} 이상이 필요합니다.",
+  "settings.omp.approvalForget": "기억된 승인 지우기",
+  "settings.omp.approvalForgetHint":
+    "포커스된 세션에서 /forget-approvals를 실행합니다. omp는 모든 세션용으로 기억된 승인과 이 세션이 기억한 승인을 지웁니다. 실행 중인 다른 세션은 종료될 때까지 자체 승인을 유지합니다.",
+  "settings.omp.approvalForgetUnavailable": "기억된 승인을 지우려면 이 컴퓨터에서 실행 중인 세션에 포커스하세요.",
+  "settings.omp.approvalForgetSent": "전송됨 — omp의 응답은 포커스된 세션의 대화 기록에 있습니다.",
   "settings.omp.subagentRefresh": "에이전트 새로고침",
   "settings.omp.subagentRefreshing": "새로고침 중…",
   "settings.omp.subagentRosterEmpty": "발견된 에이전트 없음 — 새로고침으로 omp 에이전트 열거",
@@ -1746,6 +1755,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.approval.ptyHint": "터미널 세션은 프롬프트를 자체 터미널에 표시합니다.",
   "hud.approval.subagentHint": "서브에이전트는 세션 모드를 무시하며 — tools.approval 정책만 따릅니다.",
   "hud.approval.alwaysAskTitle": "always-ask — 모든 도구가 승인을 기다립니다",
+  "hud.approval.alwaysAskCachedTitle":
+    "always-ask-cached — 묻고 기억: 파일 읽기도 승인을 기다리며, 답변으로 파일이나 폴더를 기억할 수 있습니다",
   "hud.approval.writeTitle": "write — 변경 도구가 승인을 기다립니다",
   "hud.approval.yoloTitle": "yolo — 아무것도 승인을 기다리지 않습니다",
   "hud.approval.inheritTitle": "상속 — omp 자체 설정이 결정합니다",

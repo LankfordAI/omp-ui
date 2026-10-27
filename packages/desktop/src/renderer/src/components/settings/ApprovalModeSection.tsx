@@ -1,28 +1,40 @@
 import { useEffect, useState } from "react";
 import type { ApprovalMode, OmpSettingEntry, OmpSettingValue, ProjectScalarResult } from "@omp-ui/core/types";
+import { APPROVAL_MODES, isApprovalMode } from "@omp-ui/core/approval";
 import { APPROVAL_SETTING_KEY } from "@omp-ui/core/omp-settings-keys";
 import { backend, displayMessage } from "../../backend";
+import { findOwner, useStore } from "../../store";
+import {
+  ASK_AND_REMEMBER_MIN_OMP,
+  FORGET_APPROVALS_COMMAND,
+  supportsAskAndRemember,
+} from "../../lib/ask-and-remember";
 import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
-import { Label } from "../ui";
+import { Button, Label } from "../ui";
 import { FIELD, layerBadge } from "./rows";
 
 /**
- * The omp page's "Tool approval" section (issue #681, ADR-0038): the tier omp
- * gates its tools with, editable at the Global layer (`omp config set`) or at
- * the Project layer (one key written in place into the focused project's
+ * The omp page's "Tool approval" section (issue #681, #950, ADR-0038): the tier
+ * omp gates its tools with, editable at the Global layer (`omp config set`) or
+ * at the Project layer (one key written in place into the focused project's
  * `.omp/config.yml`, so hand-written siblings survive) — structurally the
  * Subagent concurrency pattern.
  *
- * omp publishes no `options` for this key, so the generic row would render it
- * as free text; the dedicated section renders the three tiers as a select.
- * Clearing the Project value falls back to Global (inherit = remove the key);
- * the Global layer has no delete rail, so an unset global layer shows as
- * unset — where omp resolves the absent key to its own default, yolo.
+ * The section renders the four tiers as its own select rather than the generic
+ * row, because it adds Project layering and the version gate: `always-ask-cached`
+ * (Ask and remember) needs omp ≥ 18.12.3, since an older omp resolves the unknown
+ * value to yolo. Clearing the Project value falls back to Global (inherit =
+ * remove the key); the Global layer has no delete rail, so an unset global layer
+ * shows as unset — where omp resolves the absent key to its own default, yolo.
+ *
+ * A forget row runs `/forget-approvals` in the focused session, enabled only for
+ * a live native session this computer owns whose roster advertises the builtin.
  */
 export function ApprovalModeSection({
   entry,
   projectCwd,
+  tabId,
   pendingKey,
   commit,
   retry,
@@ -30,6 +42,8 @@ export function ApprovalModeSection({
   /** The tools.approvalMode snapshot entry; undefined when omp predates the key. */
   entry: OmpSettingEntry | undefined;
   projectCwd: string | null;
+  /** The focused tab; the forget action runs in it. */
+  tabId: string | null;
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
   retry: () => void;
@@ -65,6 +79,20 @@ export function ApprovalModeSection({
       live = false;
     };
   }, [entry, projectCwd]);
+
+  const askAndRemember = useStore((s) => supportsAskAndRemember(s.ompUpdate.installedVersion));
+  const runSlashCommand = useStore((s) => s.runSlashCommand);
+  // Forget runs inside a session: only a live native session this computer
+  // owns, whose roster advertises the builtin (omp ≥ 18.12.3).
+  const forgetTab = useStore((s) => {
+    if (tabId === null || s.exited[tabId] !== undefined) return null;
+    if ((findOwner(s.state, tabId)?.instanceId ?? null) !== null) return null;
+    const advertised =
+      s.rpc[tabId]?.commands.some((c) => c.name === FORGET_APPROVALS_COMMAND) ?? false;
+    return advertised ? tabId : null;
+  });
+  const [forgetPending, setForgetPending] = useState(false);
+  const [forgetSentFor, setForgetSentFor] = useState<string | null>(null);
 
   if (entry === undefined) return null;
 
@@ -111,7 +139,7 @@ export function ApprovalModeSection({
 
   const pick = (raw: string): void => {
     if (raw === "") return;
-    const tier = raw === "always-ask" || raw === "write" || raw === "yolo" ? raw : null;
+    const tier = isApprovalMode(raw) ? raw : null;
     if (scope === "global") {
       // The global layer has no delete rail — inherit there means "no key",
       // which the unset placeholder already shows; only a tier commits.
@@ -188,10 +216,47 @@ export function ApprovalModeSection({
           {scope === "project" && (
             <option value="inherit">{t("settings.omp.approvalInherit")}</option>
           )}
-          <option value="always-ask">always-ask</option>
-          <option value="write">write</option>
-          <option value="yolo">yolo</option>
+          {APPROVAL_MODES.map((mode) => (
+            <option
+              key={mode}
+              value={mode}
+              disabled={
+                mode === "always-ask-cached" && !askAndRemember && scopedValue !== "always-ask-cached"
+              }
+            >
+              {mode}
+            </option>
+          ))}
         </select>
+      </div>
+      {!askAndRemember && (
+        <p className="text-[11px] text-ink-faint">
+          {t("settings.omp.approvalCachedNeedsOmp", { version: ASK_AND_REMEMBER_MIN_OMP })}
+        </p>
+      )}
+      <div className="flex items-center gap-3 py-1.5">
+        <Button
+          size="xs"
+          disabled={forgetTab === null || forgetPending}
+          onClick={() => {
+            if (forgetTab === null) return;
+            const target = forgetTab;
+            setForgetPending(true);
+            void runSlashCommand(target, `/${FORGET_APPROVALS_COMMAND}`).finally(() => {
+              setForgetPending(false);
+              setForgetSentFor(target);
+            });
+          }}
+        >
+          {t("settings.omp.approvalForget")}
+        </Button>
+        <span className="text-[11px] leading-snug text-ink-faint">
+          {forgetTab === null
+            ? t("settings.omp.approvalForgetUnavailable")
+            : forgetSentFor === forgetTab
+              ? t("settings.omp.approvalForgetSent")
+              : t("settings.omp.approvalForgetHint")}
+        </span>
       </div>
     </section>
   );

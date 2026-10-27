@@ -21,7 +21,7 @@ import type {
   RemoteState,
   WebSearchProviderSnapshot,
 } from "@omp-ui/core/types";
-import { backendState, tabInfo } from "../test/fixtures";
+import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 import type { SettingsPage } from "../store";
 import { applyLocale, resolveLocale, t } from "../lib/i18n";
 
@@ -2703,7 +2703,11 @@ describe("Settings omp Tool approval section (issue #681)", () => {
   });
 
   /** Seeds the omp page with the approval entry alone; `focused` drives projectCwd. */
-  function seedApproval(entry: OmpSettingsSnapshot["entries"][number], focused = true): void {
+  function seedApproval(
+    entry: OmpSettingsSnapshot["entries"][number],
+    focused = true,
+    ompUpdate: OmpUpdateState = idleOmpUpdate,
+  ): void {
     backendMock.readOmpSettings.mockResolvedValue({ ...emptyOmpSettings, entries: [entry] });
     backendMock.getProjectApprovalMode.mockResolvedValue({
       value: undefined,
@@ -2716,9 +2720,19 @@ describe("Settings omp Tool approval section (issue #681)", () => {
       tabs: focused ? [tab] : [],
       activeTabId: focused ? tab.tabId : null,
       appUpdate: appUpdateState({}),
-      ompUpdate: idleOmpUpdate,
+      ompUpdate,
+      rpc: {},
+      exited: {},
     });
   }
+
+  const cachedOption = (): HTMLOptionElement =>
+    [...select().options].find((o) => o.value === "always-ask-cached")!;
+
+  const forgetButton = (): HTMLButtonElement =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === t("settings.omp.approvalForget"),
+    )!;
 
   const select = (): HTMLSelectElement =>
     document.querySelector<HTMLSelectElement>('select[aria-label="tools.approvalMode"]')!;
@@ -2744,6 +2758,7 @@ describe("Settings omp Tool approval section (issue #681)", () => {
     click(scopeButtons()[0]!); // Global
     expect([...select().options].map((o) => o.value)).toEqual([
       "always-ask",
+      "always-ask-cached",
       "write",
       "yolo",
     ]);
@@ -2761,6 +2776,7 @@ describe("Settings omp Tool approval section (issue #681)", () => {
     expect([...select().options].map((o) => o.value)).toEqual([
       "inherit",
       "always-ask",
+      "always-ask-cached",
       "write",
       "yolo",
     ]);
@@ -2805,6 +2821,59 @@ describe("Settings omp Tool approval section (issue #681)", () => {
     await renderSettings();
     expect(document.body.textContent).not.toContain("Tool approval");
     expect(backendMock.getProjectApprovalMode).not.toHaveBeenCalled();
+  });
+
+  it("gates always-ask-cached on the installed omp version (issue #950)", async () => {
+    seedApproval(approvalEntry("yolo"));
+    await renderSettings();
+    expect(cachedOption().disabled).toBe(true);
+    expect(document.body.textContent).toContain(
+      t("settings.omp.approvalCachedNeedsOmp", { version: "18.12.3" }),
+    );
+  });
+
+  it("enables always-ask-cached at omp 18.12.3 and writes it to the project layer", async () => {
+    seedApproval(approvalEntry("yolo"), true, { ...idleOmpUpdate, installedVersion: "18.12.3" });
+    await renderSettings();
+    expect(cachedOption().disabled).toBe(false);
+    expect(document.body.textContent).not.toContain(
+      t("settings.omp.approvalCachedNeedsOmp", { version: "18.12.3" }),
+    );
+    await pick("always-ask-cached");
+    expect(backendMock.setProjectApprovalMode).toHaveBeenCalledWith("/project", "always-ask-cached");
+  });
+
+  it("disables forget when the focused session does not advertise /forget-approvals", async () => {
+    seedApproval(approvalEntry("yolo"));
+    useStore.setState({ rpc: { "tab-test": rpcTabState({ commands: [] }) } });
+    await renderSettings();
+    expect(forgetButton().disabled).toBe(true);
+    expect(document.body.textContent).toContain(t("settings.omp.approvalForgetUnavailable"));
+  });
+
+  it("runs /forget-approvals in the focused session", async () => {
+    const realRun = useStore.getState().runSlashCommand;
+    const runSlashCommand = vi.fn(async () => {});
+    seedApproval(approvalEntry("yolo"));
+    useStore.setState({
+      runSlashCommand,
+      rpc: {
+        "tab-test": rpcTabState({
+          commands: [{ name: "forget-approvals", description: "Forget remembered approvals" }],
+        }),
+      },
+    });
+    try {
+      await renderSettings();
+      expect(forgetButton().disabled).toBe(false);
+      await act(async () => {
+        forgetButton().click();
+      });
+      expect(runSlashCommand).toHaveBeenCalledWith("tab-test", "/forget-approvals");
+      expect(document.body.textContent).toContain(t("settings.omp.approvalForgetSent"));
+    } finally {
+      useStore.setState({ runSlashCommand: realRun });
+    }
   });
 });
 

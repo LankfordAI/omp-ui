@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { APPROVAL_MODES } from "./approval";
 import { approvalOverlayPath, writeApprovalOverlay } from "./approval-overlay";
 
 const dirs: string[] = [];
@@ -10,7 +11,7 @@ afterEach(() => {
 });
 
 describe("writeApprovalOverlay", () => {
-  for (const mode of ["always-ask", "write", "yolo"] as const) {
+  for (const mode of APPROVAL_MODES) {
     it(`writes the exact two-line overlay for ${mode}`, () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-approval-test-"));
       dirs.push(dir);

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeTextAtomic } from "./atomic-write";
+import { isApprovalMode } from "./approval";
 import { isReviewDocument, type ReviewDocument } from "./review-config";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseProposedPlans } from "./plan";
@@ -502,10 +503,6 @@ function emptyRegistry(): RegistryData {
 
 function isSessionMode(value: unknown): value is SessionMode {
   return value === "pty" || value === "rpc-ui";
-}
-
-function isApprovalMode(value: unknown): value is ApprovalMode {
-  return value === "always-ask" || value === "write" || value === "yolo";
 }
 
 function isServiceTier(value: unknown): value is ServiceTier {

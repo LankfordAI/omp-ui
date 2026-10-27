@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import type { ApprovalMode } from "@omp-ui/core/types";
 import { APPROVAL_SETTING_KEY } from "@omp-ui/core/omp-settings-keys";
+import { APPROVAL_MODES } from "@omp-ui/core/approval";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
+import type { MessageKey } from "../lib/i18n/types";
+import { ASK_AND_REMEMBER_MIN_OMP, supportsAskAndRemember } from "../lib/ask-and-remember";
 import { findOwner, findRecord, useStore } from "../store";
 import { Capsule, Label } from "./ui";
 
@@ -19,7 +22,13 @@ import { Capsule, Label } from "./ui";
  * its own embedded TUI; both facts are hint copy, not behavior.
  */
 
-const MODES: readonly ApprovalMode[] = ["always-ask", "write", "yolo"];
+const MODE_TITLE: Record<ApprovalMode | "inherit", MessageKey> = {
+  inherit: "hud.approval.inheritTitle",
+  "always-ask": "hud.approval.alwaysAskTitle",
+  "always-ask-cached": "hud.approval.alwaysAskCachedTitle",
+  write: "hud.approval.writeTitle",
+  yolo: "hud.approval.yoloTitle",
+};
 
 export function ApprovalModeControl({
   tabId,
@@ -35,6 +44,16 @@ export function ApprovalModeControl({
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const setSessionApprovalMode = useStore((s) => s.setSessionApprovalMode);
   const mode = record?.approvalMode ?? null;
+  // A mode change relaunches the session: a local one on this computer's
+  // installed omp, a joined-instance one on the remote, whose running
+  // version is the best proxy.
+  const askAndRemember = useStore((s) =>
+    supportsAskAndRemember(
+      instanceId === null
+        ? s.ompUpdate.installedVersion
+        : (s.rpc[tabId]?.capabilities?.ompVersion ?? null),
+    ),
+  );
 
   if (layout === "sheet") {
     return (
@@ -43,6 +62,7 @@ export function ApprovalModeControl({
         isPty={record?.mode === "pty"}
         projectCwd={record?.projectCwd ?? null}
         instanceId={instanceId}
+        askAndRemember={askAndRemember}
         className={className}
         onPick={(next) => void setSessionApprovalMode(tabId, next)}
       />
@@ -66,6 +86,7 @@ function ApprovalSheet({
   isPty,
   projectCwd,
   instanceId,
+  askAndRemember,
   className,
   onPick,
 }: {
@@ -73,6 +94,7 @@ function ApprovalSheet({
   isPty: boolean;
   projectCwd: string | null;
   instanceId: string | null;
+  askAndRemember: boolean;
   className?: string;
   onPick: (next: ApprovalMode | null) => void;
 }) {
@@ -114,25 +136,33 @@ function ApprovalSheet({
         aria-label={t("hud.approval.labelLong")}
         className="mt-1 flex items-center gap-0.5 rounded-md border border-line bg-void p-0.5"
       >
-        {[null, ...MODES].map((choice) => (
-          <button
-            type="button"
-            aria-pressed={choice === mode}
-            title={t(
-              `hud.approval.${choice === null ? "inherit" : choice === "always-ask" ? "alwaysAsk" : choice}Title`,
-            )}
-            onClick={() => onPick(choice)}
-            className={cn(
-              "min-w-0 flex-1 truncate rounded px-1.5 py-0.5 text-[10px] leading-4",
-              "transition-colors duration-150",
-              choice === mode
-                ? "bg-raised text-ink"
-                : "text-ink-dim hover:bg-hover hover:text-ink-mid",
-            )}
-          >
-            {choice === null ? t("settings.omp.approvalInherit") : choice}
-          </button>
-        ))}
+        {[null, ...APPROVAL_MODES].map((choice) => {
+          // A session already pinned to the tier keeps its button enabled.
+          const gated = choice === "always-ask-cached" && !askAndRemember && choice !== mode;
+          return (
+            <button
+              key={choice ?? "inherit"}
+              type="button"
+              aria-pressed={choice === mode}
+              disabled={gated}
+              title={
+                gated
+                  ? t("settings.omp.approvalCachedNeedsOmp", { version: ASK_AND_REMEMBER_MIN_OMP })
+                  : t(MODE_TITLE[choice ?? "inherit"])
+              }
+              onClick={() => onPick(choice)}
+              className={cn(
+                "min-w-0 flex-1 truncate rounded px-1.5 py-0.5 text-[10px] leading-4",
+                "transition-colors duration-150",
+                choice === mode
+                  ? "bg-raised text-ink"
+                  : "text-ink-dim hover:bg-hover hover:text-ink-mid disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-ink-dim",
+              )}
+            >
+              {choice === null ? t("settings.omp.approvalInherit") : choice}
+            </button>
+          );
+        })}
       </div>
       <p className="mt-1 text-[10px] leading-snug text-ink-faint">
         {t("hud.approval.relaunchHint")}

@@ -27,15 +27,46 @@ const PROMPT: ApprovalPrompt = {
   details: ["ls -la /etc"],
   providerSafety: ["injection scan: passed"],
   sessionLabel: null,
+  grants: [],
+};
+const GRANT_FRAME = {
+  type: "extension_ui_request",
+  id: "g1",
+  method: "select",
+  title: "Allow tool: Read",
+  options: [
+    "Approve Directory: /repo/src",
+    "Approve File: /repo/src/a.ts",
+    "Always Approve Directory: /repo/src",
+    "Always Approve File: /repo/src/a.ts",
+    "Approve Once",
+    "Deny",
+  ],
+};
+const GRANT_PROMPT: ApprovalPrompt = {
+  ...PROMPT,
+  toolName: "Read",
+  grants: [
+    {
+      scope: "folder",
+      label: "Approve Directory: /repo/src",
+      alwaysLabel: "Always Approve Directory: /repo/src",
+    },
+    {
+      scope: "target",
+      label: "Approve File: /repo/src/a.ts",
+      alwaysLabel: "Always Approve File: /repo/src/a.ts",
+    },
+  ],
 };
 
 let root: Root | null = null;
 
-function render(prompt: ApprovalPrompt | null): void {
+function render(prompt: ApprovalPrompt | null, frame: unknown = FRAME): void {
   useStore.setState({
     rpc: {
       [TAB]: rpcTabState({
-        approvalPrompt: prompt === null ? null : { prompt, frame: FRAME },
+        approvalPrompt: prompt === null ? null : { prompt, frame },
       }),
     },
   });
@@ -130,5 +161,69 @@ describe("ApprovalCard (issue #681)", () => {
     act(() => press(input, "Escape"));
     expect(rpcSend).not.toHaveBeenCalled();
     expect(useStore.getState().rpc[TAB]!.approvalPrompt).not.toBeNull();
+  });
+});
+
+describe("ApprovalCard grants (issue #950)", () => {
+  const alwaysSwitch = (): HTMLButtonElement =>
+    document.querySelector('[data-approval-grants] [role="switch"]') as HTMLButtonElement;
+
+  it("renders the grant labels verbatim and Allow once answers Approve Once", () => {
+    render(GRANT_PROMPT, GRANT_FRAME);
+    const row = document.querySelector("[data-approval-grants]")!;
+    expect(row.textContent).toContain("Remember");
+    expect(row.textContent).toContain("Approve Directory: /repo/src");
+    expect(row.textContent).toContain("Approve File: /repo/src/a.ts");
+    expect(alwaysSwitch().getAttribute("aria-checked")).toBe("false");
+    act(() => button("Allow once").click());
+    expect(rpcSend).toHaveBeenCalledWith(TAB, {
+      type: "extension_ui_response",
+      id: "g1",
+      value: "Approve Once",
+    });
+  });
+
+  it("shows no grant row on a grant-less prompt", () => {
+    render(PROMPT);
+    expect(document.querySelector("[data-approval-grants]")).toBeNull();
+    expect(button("Allow")).toBeTruthy();
+  });
+
+  it("clicking a grant answers its label", () => {
+    render(GRANT_PROMPT, GRANT_FRAME);
+    act(() => button("Approve File: /repo/src/a.ts").click());
+    expect(rpcSend.mock.calls.at(-1)![1]).toMatchObject({ id: "g1", value: "Approve File: /repo/src/a.ts" });
+    expect(useStore.getState().rpc[TAB]!.approvalPrompt).toBeNull();
+  });
+
+  it("the in-every-session switch relabels grants and answers the always label", () => {
+    render(GRANT_PROMPT, GRANT_FRAME);
+    act(() => alwaysSwitch().click());
+    expect(alwaysSwitch().getAttribute("aria-checked")).toBe("true");
+    const row = document.querySelector("[data-approval-grants]")!;
+    expect(row.textContent).toContain("in every session");
+    expect(row.textContent).toContain("Always Approve File: /repo/src/a.ts");
+    act(() => button("Always Approve Directory: /repo/src").click());
+    expect(rpcSend.mock.calls.at(-1)![1]).toMatchObject({
+      id: "g1",
+      value: "Always Approve Directory: /repo/src",
+    });
+  });
+
+  it("a newly held frame resets the switch", () => {
+    render(GRANT_PROMPT, GRANT_FRAME);
+    act(() => alwaysSwitch().click());
+    expect(alwaysSwitch().getAttribute("aria-checked")).toBe("true");
+    act(() =>
+      useStore.setState({
+        rpc: {
+          [TAB]: rpcTabState({
+            approvalPrompt: { prompt: GRANT_PROMPT, frame: { ...GRANT_FRAME, id: "g2" } },
+          }),
+        },
+      }),
+    );
+    expect(alwaysSwitch().getAttribute("aria-checked")).toBe("false");
+    expect(button("Approve Directory: /repo/src")).toBeTruthy();
   });
 });

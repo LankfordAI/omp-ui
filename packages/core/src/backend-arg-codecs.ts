@@ -1,4 +1,5 @@
 import { isObject } from "./guards";
+import { APPROVAL_MODES } from "./approval";
 import { parseSpawnRequest } from "./spawn-request";
 import {
   parseFleetDetachedExecRequest,
@@ -210,7 +211,7 @@ export function record(): ArgCodec<Record<string, unknown>> {
 export const sessionModeCodec: ArgCodec<SessionMode> = oneOf("pty", "rpc-ui");
 export const agentModeCodec: ArgCodec<AgentMode> = oneOf("plan", "build");
 export const planFormatCodec: ArgCodec<PlanFormat> = oneOf("html", "md");
-export const approvalModeCodec: ArgCodec<ApprovalMode> = oneOf("always-ask", "write", "yolo");
+export const approvalModeCodec: ArgCodec<ApprovalMode> = oneOf(...APPROVAL_MODES);
 export const serviceTierCodec: ArgCodec<ServiceTier> = oneOf("priority", "ultrafast");
 export const transcriptWidthCodec: ArgCodec<TranscriptWidth> = oneOf("comfortable", "wide", "full");
 export const glassChromeCodec: ArgCodec<GlassChrome> = oneOf("off", "subtle", "frosted");

@@ -978,6 +978,29 @@ describe("handleRpcFrame routing", () => {
     expect(tab.extensionQueue).toHaveLength(0);
   });
 
+  it("routes the grant-shaped Ask and remember select with its grants (issue #950)", () => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "a4",
+      method: "select",
+      title: "Allow tool: read\n/p/src/main.ts",
+      options: [
+        "Approve Directory: /p/src",
+        "Approve File",
+        "Always Approve Directory: /p/src",
+        "Always Approve File",
+        "Approve Once",
+        "Deny",
+      ],
+    });
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.approvalPrompt!.prompt.grants).toEqual([
+      { scope: "folder", label: "Approve Directory: /p/src", alwaysLabel: "Always Approve Directory: /p/src" },
+      { scope: "target", label: "Approve File", alwaysLabel: "Always Approve File" },
+    ]);
+    expect(tab.extensionQueue).toHaveLength(0);
+  });
+
   it("holds the oldest approval while parallel calls stack (issue #681)", () => {
     const store = h.useStore.getState();
     store.handleRpcFrame(h.TAB, {

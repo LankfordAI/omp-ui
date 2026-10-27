@@ -1046,6 +1046,14 @@ describe("Registry mutations", () => {
     expect(Registry.load(file).sessions[0]).toMatchObject({ approvalMode: null });
   });
 
+  it("a pinned always-ask-cached tier survives Registry.load", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord());
+    reg.setSessionApprovalMode("tab-1", "always-ask-cached");
+    expect(Registry.load(file).sessions[0]).toMatchObject({ approvalMode: "always-ask-cached" });
+  });
+
   it("setSessionServiceTier records and persists the tier across reload and clears it", () => {
     const file = tmpFile();
     const reg = Registry.load(file);

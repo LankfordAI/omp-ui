@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { compareVersions } from "@omp-ui/core/semver";
 import { MIN_SUPPORTED_OMP } from "@omp-ui/core/harness-floor";
 import { ANONYMIZE_MIN_OMP } from "./anonymize";
+import { ASK_AND_REMEMBER_MIN_OMP } from "./ask-and-remember";
 import { NATIVE_LIVE_MIN_OMP } from "./live-voice";
 import { NATIVE_BTW_MIN_OMP } from "./native-btw";
 import { NATIVE_FORK_MIN_OMP } from "./session-fork";
@@ -17,6 +18,7 @@ import { PROMOTE_QUEUED_MIN_OMP, RESTORE_QUEUE_MIN_OMP } from "./queue-chip";
 describe("MIN_SUPPORTED_OMP harness floor", () => {
   it.each([
     ["ANONYMIZE_MIN_OMP", ANONYMIZE_MIN_OMP],
+    ["ASK_AND_REMEMBER_MIN_OMP", ASK_AND_REMEMBER_MIN_OMP],
     ["NATIVE_LIVE_MIN_OMP", NATIVE_LIVE_MIN_OMP],
     ["NATIVE_BTW_MIN_OMP", NATIVE_BTW_MIN_OMP],
     ["NATIVE_FORK_MIN_OMP", NATIVE_FORK_MIN_OMP],
