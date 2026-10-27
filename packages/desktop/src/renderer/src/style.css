@@ -478,8 +478,7 @@
 /* The desktop title bar queries the HUD's actual allocation rather than the window:
  * native caption buttons and macOS traffic lights consume different widths. The
  * status cluster clips on its own (overflow-hidden, shrinkable) so the gauge chip
- * and the inspector toggle never clip; the gauge drops its cost text when narrow
- * (issues #129, #941). */
+ * never clips; the gauge drops its cost text when narrow (issues #129, #941). */
 .titlebar-hud {
   container-name: titlebar-hud;
   container-type: inline-size;

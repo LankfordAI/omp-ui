@@ -324,7 +324,7 @@ _Avoid_: timestamp overlay, watermark, system tray clock
 
 **Session HUD**:
 The status bar atop an rpc-ui tab: liveness, the session title as a menu
-button, status chips, a gauge chip, and an inspector toggle. The title menu
+button, status chips, and a gauge chip. The title menu
 holds rename and retitle, the View toggles (console, browser pane), Session
 actions (branch, session tree, new session, compact now), Share actions
 (export HTML, encrypted snapshot, redacted copy), Capabilities, queue modes and
