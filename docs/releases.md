@@ -4,8 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Merge-back's merge commit now adds a `Refs #N` line for every issue the folded commits cite without closing it, and a merge your repository's `commit-msg` hook refuses no longer leaves the project checkout mid-merge (#949).
-- The fleet dispatch tool now takes a `model` and `thinkingLevel` for each dispatched session, defaulting to the target machine's first runnable favorite, and the fleet machine listing prints each member's favorites (#956).
+Nothing since [v0.27.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.27.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
