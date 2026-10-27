@@ -391,9 +391,7 @@ export const en = {
   "composer.attachment.documentRemove": "remove document {n}",
   "composer.vision.title": "the selected model accepts text only — omp will drop these",
   "composer.vision.noVision": "model has no vision",
-  // Thinking-level capsule segment
-  "composer.thinking.level": "thinking level",
-  "composer.thinking.title": "thinking level — click to pick ({efforts})",
+  // Thinking-level selector (options pill segment and ladder)
   "composer.thinking.fallback": "think —",
   "composer.thinking.label": "thinking",
   // Auto thinking selector (omp's per-prompt classifier); the level word
@@ -402,6 +400,20 @@ export const en = {
   "composer.thinking.autoTitle": "auto — omp classifies each prompt; this turn: {level}",
   // Compact prompt-options surface
   "composer.options.title": "prompt options",
+  // Desktop options pill popover groups (issue #939)
+  "composer.options.groupModel": "model",
+  "composer.options.groupSession": "session",
+  "composer.options.groupWorkspace": "workspace",
+  "composer.options.advisorHint": "changes restart the session",
+  // Desktop composer + menu (issue #939)
+  "composer.plus.label": "attach, voice, and commands",
+  "composer.plus.attachHint": "images · pdf",
+  "composer.plus.dictate": "dictate",
+  "composer.plus.dictateHint": "hold R",
+  "composer.plus.commands": "commands",
+  "composer.plus.mention": "mention a file",
+  "composer.plus.shell": "shell command",
+  "composer.plus.emptyDraftOnly": "starts a new draft — clear the current draft first",
   "composer.model.fallback": "no model",
   // Queue chip (lib/queue-chip strings moved to the catalog at the use sites)
   "composer.queue.queued": "queued: {n}",
@@ -545,6 +557,7 @@ export const en = {
   "composer.actions.abortLabel": "stop the turn — queued messages return to the draft (esc)",
   "composer.actions.runTitle": "run this command (enter)",
   "composer.actions.sendTitle": "send (enter) · shift+enter for a newline",
+  "composer.actions.moreRoutes": "more ways to send",
   // Compact prompt-options sheet (ComposerSheet)
   "composer.sheet.modelEffort": "model & effort",
   "composer.sheet.session": "session",
