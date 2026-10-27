@@ -1,6 +1,11 @@
+import { useEffect, useRef, useState } from "react";
 import type { PromptRoute } from "../lib/rpc-types";
+import { cn } from "../lib/cn";
+import { formatHotkey } from "../lib/hotkeys";
 import { useT } from "../lib/i18n";
-import { Button, IconButton, Label } from "./ui";
+import { useDismissal } from "../lib/use-dismissal";
+import { MenuRow } from "./MenuRow";
+import { Button, Chevron, IconButton, Label } from "./ui";
 
 /**
  * The composer's running/idle send cluster, one component across all three
@@ -11,7 +16,7 @@ import { Button, IconButton, Label } from "./ui";
  */
 export type ComposerActionsLayout = "desktop" | "compact" | "sheet";
 
-/** Arrow-up send glyph for the compact primary control. */
+/** Arrow-up send glyph for the idle primary control. */
 function IconSend() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="size-4">
@@ -84,39 +89,13 @@ export function ComposerActions({
 
   return running ? (
     <>
-      <Button
-        size="xs"
-        variant="ghost"
-        disabled={!canSend}
-        title={t("composer.actions.interruptTitle")}
-        onClick={() => onSubmit("interrupt")}
-        className="min-w-0 shrink"
-      >
-        <span className="min-w-0 truncate">{t("composer.actions.interruptSend")}</span>
-      </Button>
-      <Button
-        size="xs"
-        disabled={!canSend}
-        title={t("composer.actions.queueTitle")}
-        onClick={() => onSubmit("follow_up")}
-      >
-        {t("composer.actions.queue")}
-      </Button>
-      <Button
-        size="xs"
-        tone="copper"
-        disabled={!canSend}
-        title={t("composer.actions.steerTitle")}
-        onClick={() => onSubmit("steer")}
-      >
-        {label("steer")}
-      </Button>
+      <SteerSplit steerLabel={label("steer")} canSend={canSend} onSubmit={onSubmit} />
       <IconButton
         label={t("composer.actions.abortLabel")}
         tone="rose"
         onClick={onAbort}
         // The one destructive control here: readable before hover.
-        className="text-rose-dim"
+        className="size-7 rounded-full border border-rose-dim/50 bg-rose-wash text-rose"
       >
         <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-4">
           <rect
@@ -133,13 +112,108 @@ export function ComposerActions({
     </>
   ) : (
     <Button
-      size="xs"
       variant="solid"
       disabled={!canSend}
       title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
       onClick={() => onSubmit("prompt")}
+      className="size-7 shrink-0 justify-center rounded-full p-0"
     >
-      {label("send")}
+      <IconSend />
+      <span className="sr-only">{label("send")}</span>
     </Button>
+  );
+}
+
+/**
+ * The desktop running primary (issue #939): steer, with queue and
+ * interrupt-and-send behind its chevron. Unmounts with the running branch,
+ * which drops an open menu when the turn ends.
+ */
+function SteerSplit({
+  steerLabel,
+  canSend,
+  onSubmit,
+}: {
+  steerLabel: string;
+  canSend: boolean;
+  onSubmit: (route: PromptRoute | "interrupt") => void;
+}) {
+  const t = useT();
+  const [routes, setRoutes] = useState(false);
+  const splitRoot = useRef<HTMLSpanElement | null>(null);
+  const chevron = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const close = () => setRoutes(false);
+  useDismissal({
+    open: routes,
+    refs: splitRoot,
+    onClose: close,
+    onEscape: close,
+    restoreFocus: () => chevron.current?.focus(),
+  });
+  useEffect(() => {
+    if (routes) menuRef.current?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
+  }, [routes]);
+  useEffect(() => {
+    if (!canSend) setRoutes(false);
+  }, [canSend]);
+  const pick = (route: PromptRoute | "interrupt") => {
+    setRoutes(false);
+    onSubmit(route);
+  };
+
+  return (
+    <span ref={splitRoot} className="relative flex shrink-0">
+      <Button
+        size="xs"
+        tone="copper"
+        disabled={!canSend}
+        title={t("composer.actions.steerTitle")}
+        onClick={() => onSubmit("steer")}
+        className="rounded-r-none"
+      >
+        {steerLabel}
+      </Button>
+      {/* A plain button: Button carries no aria-haspopup. Classes mirror Button size="xs" tone="copper". */}
+      <button
+        ref={chevron}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={routes}
+        aria-label={t("composer.actions.moreRoutes")}
+        title={t("composer.actions.moreRoutes")}
+        disabled={!canSend}
+        onClick={() => setRoutes((o) => !o)}
+        className={cn(
+          "inline-flex h-6 shrink-0 items-center rounded-md rounded-l-none border border-l-0 px-1 font-medium",
+          "transition-[background-color,border-color,color,filter,opacity] duration-150",
+          "border-copper-dim/50 bg-copper-wash text-copper hover:border-copper-dim",
+          "disabled:pointer-events-none disabled:border-line disabled:bg-transparent disabled:text-ink-dim",
+        )}
+      >
+        <Chevron open={false} className="rotate-90" />
+      </button>
+      {routes && (
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label={t("composer.actions.moreRoutes")}
+          className="animate-rise edge-lit absolute bottom-full right-0 z-20 mb-1 flex w-60 flex-col rounded-md border border-line-strong bg-overlay p-1"
+        >
+          <MenuRow
+            label={t("composer.actions.queue")}
+            hint={formatHotkey("mod+enter")}
+            title={t("composer.actions.queueTitle")}
+            onClick={() => pick("follow_up")}
+          />
+          <MenuRow
+            label={t("composer.actions.interruptSend")}
+            hint={formatHotkey("mod+shift+enter")}
+            title={t("composer.actions.interruptTitle")}
+            onClick={() => pick("interrupt")}
+          />
+        </div>
+      )}
+    </span>
   );
 }

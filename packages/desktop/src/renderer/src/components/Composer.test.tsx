@@ -183,6 +183,30 @@ function modeSegment(name: "build" | "plan"): HTMLButtonElement {
 }
 
 
+/** The desktop options pill trigger (issue #939). */
+function optionsTrigger(): HTMLButtonElement {
+  return document.body.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"][title="prompt options"]')!;
+}
+
+function openOptions(): void {
+  act(() => optionsTrigger().click());
+}
+
+function pillSegment(name: "mode" | "model" | "thinking" | "branch"): HTMLElement | null {
+  return optionsTrigger().querySelector<HTMLElement>(`[data-pill-segment="${name}"]`);
+}
+
+/** The desktop `+` menu trigger (issue #939). */
+function plusTrigger(): HTMLButtonElement {
+  return document.body.querySelector<HTMLButtonElement>(
+    'button[aria-haspopup="menu"][aria-label="attach, voice, and commands"]',
+  )!;
+}
+
+function openPlus(): void {
+  act(() => plusTrigger().click());
+}
+
 function choose(input: HTMLInputElement, files: File[], value: string): void {
   Object.defineProperty(input, "files", { configurable: true, value: files });
   Object.defineProperty(input, "value", { configurable: true, writable: true, value });
@@ -311,32 +335,30 @@ describe("Composer auto thinking selector", () => {
       },
     }));
   };
-  const pill = (): HTMLButtonElement => {
-    const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) =>
-        button.title.startsWith("thinking level") || button.title.startsWith("auto —"),
-    );
-    expect(found).toBeDefined();
+  const segment = (): HTMLElement => {
+    const found = pillSegment("thinking");
+    expect(found).not.toBeNull();
     return found!;
   };
-  // Rows live in the popup beside the pill inside the effort anchor.
-  const menuRows = (): HTMLButtonElement[] =>
-    [...pill().closest("span.relative")!.querySelectorAll<HTMLButtonElement>("button")].slice(1);
+  // The ladder lives in the options popover's Model group.
+  const ladder = (): HTMLButtonElement[] => [
+    ...document.body.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="thinking"] button'),
+  ];
 
   it("reads auto while the selector is configured, with the resolution in the tooltip", () => {
     asDesktop();
     seedEfforts({ thinkingLevel: "xhigh", thinkingConfigured: "auto" });
     renderComposer();
-    expect(pill().textContent).toBe("auto");
-    expect(pill().title).toContain("this turn: xhigh");
+    expect(segment().textContent).toBe("auto");
+    expect(segment().title).toContain("this turn: xhigh");
   });
 
   it("reads the concrete level while the selector is null", () => {
     asDesktop();
     seedEfforts({ thinkingLevel: "medium", thinkingConfigured: null });
     renderComposer();
-    expect(pill().textContent).toBe("medium");
-    expect(pill().title).toContain("click to pick");
+    expect(segment().textContent).toBe("medium");
+    expect(segment().title).toBe("");
   });
 
   it("offers auto above the ladder and dispatches level auto", async () => {
@@ -345,14 +367,14 @@ describe("Composer auto thinking selector", () => {
     const setThinkingLevel = vi.fn(async () => {});
     useStore.setState({ setThinkingLevel });
     renderComposer();
-    act(() => pill().click());
-    expect(menuRows().map((row) => row.textContent?.trim())).toEqual([
+    openOptions();
+    expect(ladder().map((row) => row.textContent?.trim())).toEqual([
       "auto",
       "low",
       "medium",
       "xhigh",
     ]);
-    await act(async () => menuRows()[0]!.click());
+    await act(async () => ladder()[0]!.click());
     expect(setThinkingLevel).toHaveBeenCalledWith(TAB, "auto");
   });
 
@@ -360,16 +382,16 @@ describe("Composer auto thinking selector", () => {
     asDesktop();
     seedEfforts({ thinkingLevel: "medium", thinkingConfigured: "auto" });
     renderComposer();
-    act(() => pill().click());
+    openOptions();
     const rowBy = (label: string): HTMLButtonElement =>
-      menuRows().find((row) => row.textContent?.trim() === label)!;
-    expect(rowBy("auto").classList.contains("text-iris")).toBe(true);
-    expect(rowBy("medium").classList.contains("text-iris")).toBe(false);
+      ladder().find((row) => row.textContent?.trim() === label)!;
+    expect(rowBy("auto").getAttribute("aria-pressed")).toBe("true");
+    expect(rowBy("medium").getAttribute("aria-pressed")).toBe("false");
   });
 });
 
-describe("Composer fast mode pill (issue #689)", () => {
-  // The pill row is the non-compact surface: matches: false → desktop shell.
+describe("Composer fast mode row (issue #689)", () => {
+  // The options pill is the non-compact surface: matches: false → desktop shell.
   const asDesktop = (): void => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -410,56 +432,45 @@ describe("Composer fast mode pill (issue #689)", () => {
     }));
     renderComposer();
   };
-  const pill = (): HTMLButtonElement | undefined =>
-    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent?.trim() === "fast",
-    );
+  const fastSwitch = (): HTMLButtonElement | null =>
+    document.body.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="fast mode"]');
 
   it("stays quiet on an unsupported model with no fast state", () => {
     seedFast({});
-    expect(pill()).toBeUndefined();
+    expect(fastSwitch()).toBeNull();
   });
 
-  it("joins the pill row on a family-backed model and enables on click", async () => {
+  it("joins the Model group on a family-backed model and enables on click", async () => {
     seedFast({ provider: "openai" });
-    const button = pill();
-    expect(button).toBeDefined();
-    expect(button!.getAttribute("aria-label")).toBe(t("hud.fast.offTitle"));
+    const button = fastSwitch();
+    expect(button).not.toBeNull();
+    expect(button!.title).toBe(t("hud.fast.offTitle"));
     await act(async () => button!.click());
     expect(setFastMode).toHaveBeenCalledWith(TAB, true);
   });
 
   it("reads on for a quiet provider whose session has active tier state (arm 2)", () => {
     seedFast({ fastModeActive: true });
-    expect(pill()!.getAttribute("aria-label")).toBe(t("hud.fast.onTitle"));
+    expect(fastSwitch()!.title).toBe(t("hud.fast.onTitle"));
   });
 
-  it("titles the declined pair and retries the enable on click", async () => {
+  it("states the declined pair beside the switch", () => {
     seedFast({ provider: "openai", fastModeEnabled: true, fastModeActive: false });
-    const button = pill();
-    expect(button!.getAttribute("aria-label")).toBe(t("hud.fast.declinedTitle"));
-    await act(async () => button!.click());
-    expect(setFastMode).toHaveBeenCalledWith(TAB, true);
+    const button = fastSwitch()!;
+    expect(button.title).toBe(t("hud.fast.declinedTitle"));
+    expect(button.parentElement!.textContent).toContain(t("hud.fast.declined"));
   });
 
-  it("titles an active ultrafast pill with the ultrafast serving tooltip", () => {
+  it("offers the off/priority/ultrafast choice on an ultrafast-capable model", () => {
     seedFast({
       serviceTiers: ["priority", "ultrafast"],
       serviceTier: "ultrafast",
       fastModeEnabled: true,
       fastModeActive: true,
     });
-    expect(pill()!.getAttribute("aria-label")).toBe(t("hud.fast.ultraTitle"));
-  });
-
-  it("titles a declined ultrafast pill with the declined tooltip", () => {
-    seedFast({
-      serviceTiers: ["priority", "ultrafast"],
-      serviceTier: "ultrafast",
-      fastModeEnabled: true,
-      fastModeActive: false,
-    });
-    expect(pill()!.getAttribute("aria-label")).toBe(t("hud.fast.declinedTitle"));
+    const group = document.body.querySelector<HTMLElement>('[role="group"][aria-label="fast mode"]');
+    expect(group).not.toBeNull();
+    expect(group!.querySelectorAll("button")).toHaveLength(3);
   });
 });
 
@@ -484,18 +495,20 @@ describe("Composer relaunch handoff", () => {
     const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
     const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("button")];
     const model = document.body.querySelector<HTMLButtonElement>('button[title="model-x"]')!;
-    const thinking = buttons.find((button) => button.title.startsWith("thinking level"))!;
     const advisor = buttons.find((button) => button.title.startsWith("advisor off"))!;
     const build = modeSegment("build");
     const plan = modeSegment("plan");
-    const attach = document.body.querySelector<HTMLButtonElement>('button[title="attach files"]')!;
+    const plus = plusTrigger();
     const send = buttons.find((button) => button.textContent?.trim() === "send")!;
-    expect([textarea, model, thinking, advisor, build, plan, attach, send].every((el) => el.disabled)).toBe(true);
+    const controls = [textarea, model, advisor, build, plan, plus, send];
+    expect(controls.every((el) => el.disabled)).toBe(true);
+    // The pill stays usable: the branch chip's git menu works on an unavailable session.
+    expect(optionsTrigger().disabled).toBe(false);
 
     act(() => useStore.setState((state) => ({
       rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "ready" } },
     })));
-    expect([textarea, model, thinking, advisor, build, plan, attach, send].every((el) => !el.disabled)).toBe(true);
+    expect(controls.every((el) => !el.disabled)).toBe(true);
   });
 });
 
@@ -715,7 +728,7 @@ describe("Composer attachment picker", () => {
 });
 
 describe("Composer action row overflow", () => {
-  it("compresses identity controls and keeps running actions whole", () => {
+  it("compresses the options pill and keeps running actions whole", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -744,24 +757,18 @@ describe("Composer action row overflow", () => {
     }));
     renderComposer();
 
-    const row = document.querySelector('button[title="stop the turn — queued messages return to the draft (esc)"]')!.parentElement!;
-    const byTitle = (prefix: string): HTMLButtonElement =>
-      row.querySelector<HTMLButtonElement>(`button[title^="${prefix}"]`)!;
+    const pill = optionsTrigger();
+    expect(pill.classList.contains("shrink")).toBe(true);
+    expect(pill.classList.contains("min-w-0")).toBe(true);
+    const model = pillSegment("model")!;
+    expect(model.classList.contains("truncate")).toBe(true);
+    expect(model.classList.contains("min-w-0")).toBe(true);
+    expect(pill.parentElement!.classList.contains("shrink")).toBe(true);
 
-    const modelCapsule = row.firstElementChild as HTMLElement;
-    expect(modelCapsule.classList.contains("shrink")).toBe(true);
-    expect(modelCapsule.classList.contains("shrink-0")).toBe(false);
-    expect(modelCapsule.querySelector("span.truncate")!.classList.contains("min-w-0")).toBe(true);
-    expect(byTitle("thinking level").classList.contains("shrink-0")).toBe(true);
-
-    expect(byTitle("queue this").classList.contains("shrink-0")).toBe(true);
-    expect(byTitle("inject this").classList.contains("shrink-0")).toBe(true);
-    expect(byTitle("stop the turn").classList.contains("shrink-0")).toBe(true);
-
-    const interrupt = byTitle("abort the current turn");
-    expect(interrupt.classList.contains("shrink")).toBe(true);
-    expect(interrupt.classList.contains("min-w-0")).toBe(true);
-    expect(interrupt.querySelector("span.truncate")!.classList.contains("min-w-0")).toBe(true);
+    const steer = document.querySelector<HTMLButtonElement>('button[title^="inject this"]')!;
+    expect(steer.parentElement!.classList.contains("shrink-0")).toBe(true);
+    const stop = document.querySelector<HTMLButtonElement>('button[title^="stop the turn"]')!;
+    expect(stop.classList.contains("shrink-0")).toBe(true);
   });
 });
 
@@ -1223,6 +1230,8 @@ describe("Composer BuildPlanControl", () => {
     });
     renderComposer();
     expect(document.body.querySelector('[role="group"][aria-label="session mode"]')).toBeNull();
+    expect(pillSegment("mode")).toBeNull();
+    expect(pillSegment("branch")).toBeNull();
   });
 
   it("puts a Build default first and accents alternate Plan when selected (issue #143)", () => {
@@ -1266,12 +1275,14 @@ describe("Composer BuildPlanControl", () => {
   it("selects Plan and reclaims the textarea caret", () => {
     seed("ready");
     renderComposer();
+    openOptions();
     const plan = modeSegment("plan");
     act(() => plan.focus());
     expect(document.activeElement).toBe(plan);
     act(() => plan.click());
     expect(setPlanMode).toHaveBeenCalledWith(TAB, true);
     expect(document.activeElement).toBe(document.body.querySelector("textarea"));
+    expect(optionsTrigger().getAttribute("aria-expanded")).toBe("false");
   });
 
   it("selects Plan and unselects Build when plan mode is enabled", () => {
@@ -1307,12 +1318,14 @@ describe("Composer BuildPlanControl", () => {
   it("does not transition an already-selected segment and still reclaims focus", () => {
     seed("ready");
     renderComposer();
+    openOptions();
     const build = modeSegment("build");
     act(() => build.focus());
     expect(document.activeElement).toBe(build);
     act(() => build.click());
     expect(setPlanMode).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(document.body.querySelector("textarea"));
+    expect(optionsTrigger().getAttribute("aria-expanded")).toBe("false");
   });
 
   it("disables only unavailable Plan while keeping Build selected", () => {
@@ -2372,7 +2385,9 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     act(() => root!.render(<Composer tabId={TAB} unprompted />));
   }
 
-  const chipTrigger = (): HTMLButtonElement => document.body.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+  // The + and pill triggers precede the chip in the DOM; scope to the Workspace group.
+  const chipTrigger = (): HTMLButtonElement =>
+    document.body.querySelector<HTMLButtonElement>('section[aria-label="workspace"] button[aria-expanded]')!;
 
   const buttonByText = (text: string): HTMLButtonElement =>
     [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === text)!;
@@ -3065,5 +3080,153 @@ describe("Composer machine chip (issue #936)", () => {
     expect(rows.map((row) => row.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
     expect(rows.map((row) => row.disabled)).toEqual([false, false, true]);
     expect(rows[2]!.title).toBe(t("composer.machine.unreachable"));
+  });
+});
+
+describe("Composer + menu (issue #939)", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  });
+  const row = (label: string): HTMLButtonElement =>
+    [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (item) => item.textContent?.includes(label),
+    )!;
+
+  it("starts a slash draft from an empty composer and opens the palette", () => {
+    seed("ready");
+    renderComposer();
+    openPlus();
+    act(() => row("commands").click());
+    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(textarea.value).toBe("/");
+    expect(document.activeElement).toBe(textarea);
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    const slashRows = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .map((button) => button.getAttribute("aria-label") ?? "")
+      .filter((label) => label.startsWith("/"));
+    expect(slashRows.length).toBeGreaterThan(0);
+  });
+
+  it("disables the line-start triggers on a non-empty draft", () => {
+    seed("ready");
+    renderComposer();
+    typeDraft("prose already here");
+    openPlus();
+    for (const label of ["commands", "shell command"]) {
+      expect(row(label).disabled).toBe(true);
+      expect(row(label).title).toBe(t("composer.plus.emptyDraftOnly"));
+    }
+    expect(row("mention a file").disabled).toBe(false);
+  });
+
+  it("appends an @ after a word and opens the mention palette", async () => {
+    backendMock.listProjectFiles.mockResolvedValueOnce({ files: ["src/feature.ts"], truncated: false });
+    seed("ready");
+    renderComposer();
+    const textarea = typeDraft("look at");
+    act(() => textarea.setSelectionRange(7, 7));
+    await act(async () => {});
+    openPlus();
+    act(() => row("mention a file").click());
+    await act(async () => {});
+    expect(textarea.value).toBe("look at @");
+    const mentionRows = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .filter((button) => button.getAttribute("aria-label") === null)
+      .map((button) => button.textContent?.trim() ?? "");
+    expect(mentionRows).toContain("src/feature.ts");
+  });
+
+  it("the attach row clicks the file input and closes the menu", () => {
+    seed("ready");
+    renderComposer();
+    const click = vi.spyOn(imagePicker(), "click").mockImplementation(() => {});
+    openPlus();
+    act(() => row("attach files").click());
+    expect(click).toHaveBeenCalledOnce();
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+  });
+});
+
+describe("Composer options popover (issue #939)", () => {
+  const gitBranches = {
+    repoRoot: "/p", current: "main", branches: ["main", "feature/x"], defaultBranch: "main",
+    upstreamRef: "origin/main", upstreamRemote: "origin", hasUpstream: true, ahead: 0, behind: 2,
+    mergeInProgress: false, upstreamFetchedAt: null, upstreamRefreshError: null, defaultRemote: "origin",
+  };
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  });
+  // Hand later suites back the non-git default rather than the git snapshot.
+  const nonGitListing = backendMock.listBranches.getMockImplementation()!;
+  afterEach(() => {
+    backendMock.listBranches.mockImplementation(nonGitListing);
+  });
+  const panel = (): HTMLElement =>
+    document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="prompt options"]')!;
+  const escape = (): void => {
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+  };
+
+  it("loads the branch segment without the panel ever opening", async () => {
+    backendMock.listBranches.mockResolvedValue(gitBranches);
+    seed("ready");
+    useStore.setState({ branches: {} });
+    renderComposer();
+    await act(async () => {});
+    expect(panel().hidden).toBe(true);
+    const branch = pillSegment("branch");
+    expect(branch?.textContent).toContain("⎇ main");
+    expect(branch?.textContent).toContain("↓ 2");
+  });
+
+  it("peels a nested branch menu before closing the panel on Escape", async () => {
+    backendMock.listBranches.mockResolvedValue(gitBranches);
+    seed("ready");
+    useStore.setState({ branches: { "/p": gitBranches } });
+    renderComposer();
+    openOptions();
+    const chip = document.body.querySelector<HTMLButtonElement>('section[aria-label="workspace"] button[aria-expanded]')!;
+    act(() => chip.click());
+    await act(async () => {});
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+
+    escape();
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(panel().hidden).toBe(false);
+
+    escape();
+    expect(panel().hidden).toBe(true);
+    expect(document.activeElement).toBe(optionsTrigger());
+  });
+
+  it("keeps the panel open through a pick in the portaled model palette", async () => {
+    const setModel = vi.fn(async () => {});
+    const OTHER = { id: "model-y", name: "Model Y", provider: "test", input: ["text"], contextWindow: 1000 };
+    seed("ready");
+    useStore.setState((s) => ({
+      setModel,
+      state: { ...s.state!, modelFavorites: ["test/model-y"] },
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, availableModels: [s.rpc[TAB]!.model!, OTHER] } },
+    }));
+    renderComposer();
+    openOptions();
+    await act(async () => panel().querySelector<HTMLButtonElement>('button[title="test/model-x"]')!.click());
+    const overlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
+    const palette = overlays[overlays.length - 1]!;
+    const pick = [...palette.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Model Y"),
+    )!;
+    act(() => pick.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    expect(panel().hidden).toBe(false);
+    await act(async () => pick.click());
+    expect(setModel).toHaveBeenCalledWith(TAB, OTHER);
   });
 });

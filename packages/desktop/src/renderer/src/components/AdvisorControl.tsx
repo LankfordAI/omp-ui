@@ -252,6 +252,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
               <button
                 type="button"
                 disabled={disabled}
+                aria-expanded={levelMenu}
                 title={t("composer.advisor.levelTitle", { efforts: efforts.join(", ") })}
                 onClick={() => setLevelMenu((m) => !m)}
                 className={cn(

@@ -4,6 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- The desktop composer footer collapses into a `+` menu and one **Options pill** (mode · model · thinking · branch) whose popover groups Model, Session, and Workspace; while a turn runs, steer is a split button holding queue and interrupt & send, beside a round stop (#939).
+
 - An agent's `omp-ui_fleet_dispatch` call that names no machine now starts its one session on this computer whenever this computer has the project and a ready model provider, so asking a **Chat** to start work in a project no longer lands it on a joined member by load; **Manual only** on this computer, or more than one copy, still places automatically (#943).
 
 - A **Chat** always has omp-ui's fleet tools, so asking a chat to start sessions in a project — Plan mode included — works without turning on **Let agents dispatch fleet work**; that setting now decides only for project sessions (#945).

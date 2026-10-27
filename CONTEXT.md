@@ -402,12 +402,13 @@ _Avoid_: resetting model on advisor toggle
 **Auto thinking**:
 omp's automatic thinking selector: instead of one static level, omp classifies
 each user prompt with its judge model and runs the turn at the level that
-classification resolved, clamped into the model's effort ladder. The composer
-pill and the records show the *selector* — `auto` — while it is on; the pill's
-tooltip and the Session rail's thinking row show the turn's *resolved* level
-(`auto → xhigh`). Switching the model keeps the selector. Spawning a session
-under it applies omp's `defaultThinkingLevel: "auto"` settings overlay — the
-`model:level` selector grammar has no `:auto` suffix.
+classification resolved, clamped into the model's effort ladder. The options
+pill's thinking segment and the records show the *selector* — `auto` — while
+it is on; that segment's tooltip and the Session rail's thinking row show the
+turn's *resolved* level (`auto → xhigh`). Switching the model keeps the
+selector. Spawning a session under it applies omp's
+`defaultThinkingLevel: "auto"` settings overlay — the `model:level` selector
+grammar has no `:auto` suffix.
 _Avoid_: treating the resolved level as "the" thinking level while auto is on
 
 **Fast mode**:
@@ -1374,6 +1375,14 @@ custom property the transcript reads. In flow instead of floating in the
 compact shell, at the fresh-session hero, in the subagent view, and while the
 plan review owns the column.
 _Avoid_: input bar, bottom panel, sticky composer, floating toolbar
+
+**Options pill**:
+The desktop composer footer's one settings control. It reads the session's mode · model ·
+thinking level · branch and opens a grouped popover: Model (model, thinking level, fast mode),
+Session (Build/Plan, advisor), Workspace (branch chip, machine chip). It sits beside the
+composer's `+` menu (attachments, voice, and the `/` `@` `!` draft triggers). The compact shell's
+equivalent is the prompt-options sheet.
+_Avoid_: settings button, model chip, composer toolbar
 
 **Goal**:
 An objective a *live session*'s OMP runtime keeps working toward across turns,

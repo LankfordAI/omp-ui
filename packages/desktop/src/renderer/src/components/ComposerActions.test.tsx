@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposerActions, type ComposerActionsLayout } from "./ComposerActions";
 import type { PromptRoute } from "../lib/rpc-types";
+import { formatHotkey } from "../lib/hotkeys";
 
 interface Props {
   layout?: ComposerActionsLayout;
@@ -46,7 +47,7 @@ const buttons = (): HTMLButtonElement[] =>
 const click = (button: HTMLButtonElement): void => act(() => button.click());
 
 describe("ComposerActions desktop", () => {
-  it("idle: one solid send button, click fires the prompt route", () => {
+  it("idle: one round send button, click fires the prompt route", () => {
     mount({ layout: "desktop" });
     const all = buttons();
     expect(all).toHaveLength(1);
@@ -68,36 +69,65 @@ describe("ComposerActions desktop", () => {
     expect(buttons()[0]!.disabled).toBe(true);
   });
 
-  it("running: exactly four controls, each firing its route", () => {
+  it("running: steer, a route chevron, and stop", () => {
     mount({ layout: "desktop", running: true });
-    const [interrupt, queue, steer, abort] = buttons();
-    expect(interrupt!.textContent).toBe("interrupt & send");
-    expect(queue!.textContent).toBe("queue");
+    const [steer, chevron, abort] = buttons();
+    expect(buttons()).toHaveLength(3);
     expect(steer!.textContent).toBe("steer");
+    expect(chevron!.getAttribute("aria-haspopup")).toBe("menu");
+    expect(chevron!.getAttribute("aria-expanded")).toBe("false");
     expect(abort!.title).toBe("stop the turn — queued messages return to the draft (esc)");
 
-    click(interrupt!);
-    expect(onSubmit).toHaveBeenCalledWith("interrupt");
-    click(queue!);
-    expect(onSubmit).toHaveBeenCalledWith("follow_up");
     click(steer!);
     expect(onSubmit).toHaveBeenCalledWith("steer");
     click(abort!);
     expect(onAbort).toHaveBeenCalledOnce();
-    expect(onSubmit).toHaveBeenCalledTimes(3);
+  });
+
+  it("running: the chevron menu holds queue and interrupt & send with their shortcuts", () => {
+    mount({ layout: "desktop", running: true });
+    const chevron = buttons()[1]!;
+    for (const [index, route, label, hotkey] of [
+      [0, "follow_up", "queue", "mod+enter"],
+      [1, "interrupt", "interrupt & send", "mod+shift+enter"],
+    ] as const) {
+      click(chevron);
+      expect(chevron.getAttribute("aria-expanded")).toBe("true");
+      const rows = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+      expect(rows.map((row) => row.firstElementChild?.textContent)).toEqual(["queue", "interrupt & send"]);
+      const row = rows[index]!;
+      expect(row.firstElementChild?.textContent).toBe(label);
+      expect(row.lastElementChild?.textContent).toBe(formatHotkey(hotkey));
+      click(row);
+      expect(onSubmit).toHaveBeenLastCalledWith(route);
+      expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    }
+    expect(onAbort).not.toHaveBeenCalled();
+  });
+
+  it("running: Escape closes the route menu, refocuses the chevron, and never aborts", () => {
+    mount({ layout: "desktop", running: true });
+    const chevron = buttons()[1]!;
+    click(chevron);
+    expect(document.activeElement?.getAttribute("role")).toBe("menuitem");
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(chevron);
+    expect(onAbort).not.toHaveBeenCalled();
   });
 
   it("running: a slash draft renames steer to run", () => {
     mount({ layout: "desktop", running: true, isSlash: true });
-    expect(buttons()[2]!.textContent).toBe("run");
+    expect(buttons()[0]!.textContent).toBe("run");
   });
 
-  it("running: canSend false disables the send routes but not abort", () => {
+  it("running: canSend false disables steer and its menu but not abort", () => {
     mount({ layout: "desktop", running: true, canSend: false });
-    const [interrupt, queue, steer, abort] = buttons();
-    expect(interrupt!.disabled).toBe(true);
-    expect(queue!.disabled).toBe(true);
+    const [steer, chevron, abort] = buttons();
     expect(steer!.disabled).toBe(true);
+    expect(chevron!.disabled).toBe(true);
     expect(abort!.disabled).toBe(false);
   });
 });

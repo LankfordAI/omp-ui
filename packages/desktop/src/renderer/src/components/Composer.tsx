@@ -25,29 +25,25 @@ import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
 import { composerPaintRuns } from "../lib/composer-paint";
 import type { DocumentRef } from "../lib/document-context";
 import { queueChipCount, queueChipView } from "../lib/queue-chip";
-import { modelFastTier, type PromptRoute, type SlashCommandInfo } from "../lib/rpc-types";
+import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
 import { slashCompletion } from "../lib/slash-completion";
 import { findInstance, findOwner, isChatTab, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { useWordGhost } from "../lib/use-word-ghost";
-import { AdvisorControl } from "./AdvisorControl";
-import { BranchChip } from "./BranchChip";
 import { ComposerActions } from "./ComposerActions";
+import { ComposerOptions } from "./ComposerOptions";
+import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { ComposerSheet } from "./ComposerSheet";
 import { answerPendingQuestion, freeTextTarget } from "./ExtensionDialogHost";
 import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
-import { ModelSelector } from "./ModelSelector";
-import { FastModeControl } from "./FastModeControl";
 import { LiveVoiceControl } from "./LiveVoiceControl";
 import { LiveVoiceStrip } from "./LiveVoiceStrip";
-import { BuildPlanControl } from "./BuildPlanControl";
-import { MachineChip } from "./MachineChip";
 import type { CheckoutEntry } from "../lib/repository-members";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
 import { QueuedMessageList } from "./QueuedMessageList";
-import { AttachmentButton, Button, Capsule, CAPSULE_SEGMENT, Chip, IconButton, IconClose, IconTune, Label, PerimeterGlow, PerimeterSweep } from "./ui";
+import { AttachmentButton, Button, Chevron, Chip, IconButton, IconClose, IconTune, Label, PerimeterGlow, PerimeterSweep } from "./ui";
 import { DictationControl, DictationStrip } from "./ComposerDictation";
 import { useDictation } from "../lib/use-dictation";
 import { useDictationHotkey } from "../lib/use-dictation-hotkey";
@@ -168,19 +164,12 @@ export function Composer({
   });
   // Only a runtime that reports omp's queue text gets a listable chip.
   const queueListed = useStore((s) => s.rpc[tabId]?.session.queuedMessages != null);
-  const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
-  const thinkingConfigured = useStore(
-    (s) => s.rpc[tabId]?.session.thinkingConfigured ?? null,
-  );
-  const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
   const owner = useStore((s) => findOwner(s.state, tabId));
   const record = owner?.record;
   const dead = record?.live !== "live";
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
   // #932: booted without its pinned model; main refuses prompts until a pick.
   const modelHold = useStore((s) => findOwner(s.state, tabId)?.record.modelHold ?? null);
-  const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
-  const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
   // Live voice gates on the omp version (issue #778): 18.5.1 added the
   // live_* verbs, unknown version hides the feature. It also gates on the
   // hardware (issue #816): the call runs on the session host's mic and
@@ -236,7 +225,6 @@ export function Composer({
   const abortAndPrompt = useStore((s) => s.abortAndPrompt);
   const runSlashCommand = useStore((s) => s.runSlashCommand);
   const runShellCommand = useStore((s) => s.runShellCommand);
-  const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const convertSessionToWorktree = useStore((s) => s.convertSessionToWorktree);
   const moveUnpromptedSession = useStore((s) => s.moveUnpromptedSession);
 
@@ -263,7 +251,6 @@ export function Composer({
    * afterwards so a picked mention paints resolved immediately.
    */
   const [files, setFiles] = useState<{ list: string[]; truncated: boolean } | null>(null);
-  const [effortMenu, setEffortMenu] = useState(false);
   const [queueMenu, setQueueMenu] = useState(false);
   const {
     images,
@@ -324,7 +311,6 @@ export function Composer({
   const composer = useRef<HTMLDivElement | null>(null);
   const palette = useRef<SlashPaletteHandle | null>(null);
   const mentionPalette = useRef<MentionPaletteHandle | null>(null);
-  const effortAnchor = useRef<HTMLSpanElement | null>(null);
   const queueAnchor = useRef<HTMLSpanElement | null>(null);
   const queueTrigger = useRef<HTMLButtonElement | null>(null);
   /** The highlight layer under the (transparent-text) textarea. */
@@ -534,10 +520,6 @@ export function Composer({
     };
   }, [animateKeywords]);
 
-  // A dead or relaunching tab has no stable agent to configure.
-  useEffect(() => {
-    if (unavailable) setEffortMenu(false);
-  }, [unavailable]);
   useEffect(() => {
     if (unavailable && compactSurface === "composer-options") closeCompactSurface();
   }, [unavailable, compactSurface, closeCompactSurface]);
@@ -554,11 +536,6 @@ export function Composer({
     if (lines !== "") setText((prev) => (prev === "" ? lines : `${prev}\n${lines}`));
     box.current?.focus({ preventScroll: true });
   }, [composerQueue, tabId, drainComposerQueue, addImages, addDocuments]);
-  useDismissal({
-    open: effortMenu,
-    refs: effortAnchor,
-    onClose: () => setEffortMenu(false),
-  });
   useDismissal({
     open: queueMenu,
     refs: queueAnchor,
@@ -821,6 +798,16 @@ export function Composer({
     });
     el?.setSelectionRange(caretNext, caretNext);
   }, [text, caret]);
+
+  /** The `+` menu's draft triggers (issue #939): spliced at the caret like a
+   *  dictated phrase, then the draft takes focus so the palette opens. */
+  const insertTrigger = (trigger: "/" | "@" | "!"): void => {
+    // A palette the user dismissed for an earlier draft must not stay shut for this one.
+    setDismissedFor(null);
+    setMentionDismissedFor(null);
+    insertAtCaret(trigger);
+    box.current?.focus({ preventScroll: true });
+  };
 
   /** A drained take hands the caret back to the draft. */
   const focusDraft = useCallback(() => box.current?.focus({ preventScroll: true }), []);
@@ -1142,138 +1129,33 @@ export function Composer({
 
           {!compact && (
           <div className="flex items-center gap-1.5 px-2 pb-1.5 text-[11px]">
-            <Capsule className="min-w-0 shrink">
-              <ModelSelector tabId={tabId} disabled={unavailable} />
-
-              <span ref={effortAnchor} className="relative flex">
-                <button
-                  type="button"
-                  disabled={unavailable}
-                  // Under auto the pill reads the SELECTOR, never the drifting
-                  // resolved level; the tooltip carries this turn's resolution.
-                  title={
-                    thinkingConfigured === "auto"
-                      ? t("composer.thinking.autoTitle", { level: thinkingLevel ?? "—" })
-                      : efforts.length > 0
-                        ? t("composer.thinking.title", { efforts: efforts.join(", ") })
-                        : t("composer.thinking.level")
-                  }
-                  onClick={() => {
-                    if (efforts.length > 0) setEffortMenu((m) => !m);
-                  }}
-                  className={cn(
-                    CAPSULE_SEGMENT,
-                    "shrink-0 rounded-r-[5px] font-mono text-[11px] tabular-nums text-iris",
-                  )}
-                >
-                  {thinkingConfigured === "auto"
-                    ? t("composer.thinking.auto")
-                    : thinkingLevel ?? t("composer.thinking.fallback")}
-                </button>
-                {effortMenu && (
-                  <div className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
-                    <span className="px-1.5 pb-1 pt-0.5">
-                      <Label>{t("composer.thinking.label")}</Label>
-                    </span>
-                    <button
-                      type="button"
-                      disabled={unavailable}
-                      title={t("composer.thinking.autoTitle", { level: thinkingLevel ?? "—" })}
-                      onClick={() => {
-                        setEffortMenu(false);
-                        void setThinkingLevel(tabId, "auto");
-                      }}
-                      className={cn(
-                        "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
-                        thinkingConfigured === "auto" ? "text-iris" : "text-ink-mid",
-                      )}
-                    >
-                      {t("composer.thinking.auto")}
-                    </button>
-                    {efforts.map((effort) => (
-                      <button
-                        key={effort}
-                        type="button"
-                        disabled={unavailable}
-                        onClick={() => {
-                          setEffortMenu(false);
-                          void setThinkingLevel(tabId, effort);
-                        }}
-                        className={cn(
-                          "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
-                          thinkingConfigured !== "auto" && effort === thinkingLevel
-                            ? "text-iris"
-                            : "text-ink-mid",
-                        )}
-                      >
-                        {effort}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </span>
-            </Capsule>
-
-            {(modelFastTier(currentModel) !== null || fastEnabled || fastActive) && (
-              <FastModeControl tabId={tabId} disabled={unavailable} />
-            )}
-
-            <AdvisorControl tabId={tabId} disabled={unavailable} />
-
-            {offerMachine && (
-              <MachineChip
-                tabId={tabId}
-                disabled={unavailable || converting || moving !== null}
-                onPick={(member) => void moveToMember(member)}
-              />
-            )}
-
-            {/* A chat is Build-only and has no repo: no mode control, no branch chip (#894). */}
-            {!chat && (
-              <BuildPlanControl
-                tabId={tabId}
-                disabled={unavailable}
-                onSelected={() => box.current?.focus({ preventScroll: true })}
-              />
-            )}
-
-            {!chat && (
-              <BranchChip
-                projectCwd={cwd}
-                instanceId={instanceId}
-                workspace={offerWorkspace ? workspace : undefined}
-                onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
-                workspaceDisabled={unavailable || converting}
-                onCreateWorktree={offerWorkspace ? createWorktreeNow : undefined}
-                finishTabId={finishTabId}
-              />
-            )}
-
-            <AttachmentButton disabled={unavailable} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
-            {/* One voice affordance (issue #805): the live capsule takes the
-                mic's slot on a runtime with native live voice. */}
-            {liveSupported ? (liveVoiceVisible && (
-              <LiveVoiceControl
-                tabId={tabId}
-                disabled={unavailable || voice.phase === "recording" || voice.phase === "requesting"}
-              />
-            )) : (
-              /* Disabled buttons drop pointer events, so the title rides the
-                 wrapper: reachable when the version gate drops out mid-live-session.
-                 The dictation mic rides the app's own STT (no omp dependency) and
-                 stays enabled; when it self-hides and the version gate holds live
-                 voice back, a disabled live capsule names the required omp. */
-              <span
-                title={liveActive ? t("composer.live.micInUse") : liveGateBlocked ? t("composer.live.needsNewerOmp", { version: NATIVE_LIVE_MIN_OMP }) : undefined}
-                className={cn("inline-flex", liveActive && "cursor-not-allowed")}
-              >
-                {voice.supported ? (
-                  <DictationControl disabled={unavailable || liveActive} voice={voice} />
-                ) : liveGateBlocked && liveVoiceVisible ? (
-                  <LiveVoiceControl tabId={tabId} disabled startDisabled />
-                ) : null}
-              </span>
-            )}
+            <ComposerPlusMenu
+              tabId={tabId}
+              disabled={unavailable}
+              voiceRow={liveSupported ? (liveVoiceVisible ? "live" : null) : voice.supported ? "dictate" : null}
+              dictateDisabled={unavailable || liveActive || voice.phase === "transcribing" || voice.phase === "requesting"}
+              liveStartBlocked={voice.phase === "recording" || voice.phase === "requesting"}
+              draftEmpty={text === ""}
+              onAttach={() => filePicker.current?.click()}
+              onDictate={voice.toggle}
+              onInsert={insertTrigger}
+            />
+            <ComposerOptions
+              tabId={tabId}
+              disabled={unavailable}
+              chat={chat}
+              projectCwd={cwd}
+              instanceId={instanceId}
+              workspace={offerWorkspace ? workspace : undefined}
+              onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
+              workspaceDisabled={unavailable || converting}
+              onCreateWorktree={offerWorkspace ? createWorktreeNow : undefined}
+              finishTabId={finishTabId}
+              offerMachine={offerMachine}
+              machineDisabled={unavailable || converting || moving !== null}
+              onPickMachine={(member) => void moveToMember(member)}
+              onModeSelected={() => box.current?.focus({ preventScroll: true })}
+            />
             {queueChip && !queueListed && (
               <Chip
                 mono
@@ -1301,6 +1183,7 @@ export function Composer({
                     <span className="min-w-0 truncate">
                       {running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}
                     </span>
+                    <Chevron open={false} className="rotate-90 text-copper" />
                   </Chip>
                 </button>
                 {queueMenu && (
@@ -1316,6 +1199,31 @@ export function Composer({
             {text.length > COUNTER_AT && (
               <span className="shrink-0 whitespace-nowrap font-mono tabular-nums text-ink-faint">
                 {text.length}c · {lines}l
+              </span>
+            )}
+
+            {/* One voice affordance (issue #805): the live capsule takes the
+                mic's slot on a runtime with native live voice. */}
+            {liveSupported ? (liveVoiceVisible && (
+              <LiveVoiceControl
+                tabId={tabId}
+                disabled={unavailable || voice.phase === "recording" || voice.phase === "requesting"}
+              />
+            )) : (
+              /* Disabled buttons drop pointer events, so the title rides the
+                 wrapper: reachable when the version gate drops out mid-live-session.
+                 The dictation mic rides the app's own STT (no omp dependency) and
+                 stays enabled; when it self-hides and the version gate holds live
+                 voice back, a disabled live capsule names the required omp. */
+              <span
+                title={liveActive ? t("composer.live.micInUse") : liveGateBlocked ? t("composer.live.needsNewerOmp", { version: NATIVE_LIVE_MIN_OMP }) : undefined}
+                className={cn("inline-flex", liveActive && "cursor-not-allowed")}
+              >
+                {voice.supported ? (
+                  <DictationControl disabled={unavailable || liveActive} voice={voice} />
+                ) : liveGateBlocked && liveVoiceVisible ? (
+                  <LiveVoiceControl tabId={tabId} disabled startDisabled />
+                ) : null}
               </span>
             )}
 
@@ -1586,6 +1494,5 @@ const UI_AUTORESEARCH_SUBCOMMANDS: { name: string; key: MessageKey }[] = [
 
 /** Stable empties keep the per-field selectors from firing on every store tick. */
 const NO_COMMANDS: never[] = [];
-const NO_EFFORTS: never[] = [];
 const NO_FILES: never[] = [];
 const NO_KEYWORDS: readonly MagicKeyword[] = [];
