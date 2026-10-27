@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import * as Core from "@omp-ui/core";
 import type { KeyCipher, PtyHandle } from "@omp-ui/core";
-import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { CH } from "@omp-ui/core";
 import { SessionManager, type SessionManagerDependencies } from "./session-manager";
 import { resetGoalContinuationModesCache } from "./spawn-config";
@@ -232,6 +232,22 @@ async function headSha(projectCwd: string): Promise<string> {
   return stdout.trim();
 }
 
+/**
+ * Every manager the harness builds — setup() and its restart(). Each is torn
+ * down after its test through the real quit path, so no self-re-arming chain
+ * (collab poll, stall sweep, hibernation window) outlives the test that
+ * started it and lands in a later test's fake clock (#910).
+ */
+const harnessManagers: SessionManager[] = [];
+function track(manager: SessionManager): SessionManager {
+  harnessManagers.push(manager);
+  return manager;
+}
+
+afterEach(() => {
+  for (const manager of harnessManagers.splice(0)) manager.killAll();
+});
+
 function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"] } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
@@ -347,14 +363,14 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
   // `restart` rebuilds the manager against the SAME registry: the gate
   // boundary test needs a gated run followed by an ungated one (issue #372).
   return {
-    manager: new SessionManager({ ...deps, spawnGate: opts.spawnGate, planVerify: opts.planVerify, forceWarmPool: opts.warm === true }),
+    manager: track(new SessionManager({ ...deps, spawnGate: opts.spawnGate, planVerify: opts.planVerify, forceWarmPool: opts.warm === true })),
     registry,
     broadcast,
     sent,
     crumbs,
     sessionsRoot,
     restart: (spawnGate?: SpawnGate): SessionManager =>
-      spawnGate === undefined ? new SessionManager(deps) : new SessionManager({ ...deps, spawnGate }),
+      track(spawnGate === undefined ? new SessionManager(deps) : new SessionManager({ ...deps, spawnGate })),
   };
 }
 
@@ -5645,10 +5661,10 @@ describe("hibernation (issue #246)", () => {
 
   it("leaves no dangling probe timer when the probe answer arrives early", async () => {
     // Pinned fake set (#910): the assertion counts EVERY pending fake timer, so
-    // only setTimeout/clearTimeout/Date are taken over — no collaborator's
-    // immediate or interval can pollute the census or fire inside the advance.
-    // (Default toFake is everything; this count is the desktop suite's only
-    // absolute vi.getTimerCount assertion.)
+    // only setTimeout/clearTimeout/Date are taken over. Pinning cannot keep out
+    // a foreign setTimeout arm — the harness's afterEach killAll() is what
+    // stops an earlier test's self-re-arming chain (collab poll) from landing
+    // here. This count is the desktop suite's only absolute vi.getTimerCount.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     try {
       const { manager, registry } = setup({ mode: "rpc-ui" });
