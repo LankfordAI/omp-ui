@@ -545,3 +545,23 @@ describe("generate_image captions (issue #672)", () => {
     }
   });
 });
+
+describe("ToolCard edit rejection reason (issue #953)", () => {
+  const reasonChip = (el: HTMLElement) =>
+    el.querySelector<HTMLElement>('span[title^="Why omp refused this edit"]');
+
+  it("labels a failed edit with omp's reason, humanizing an unknown kind", () => {
+    for (const [kind, label] of [["stale_tag", "stale tag"], ["future_kind", "future kind"]] as const) {
+      const { el, root } = renderCard(tool({ name: "edit", status: "error", errorKind: kind, resultText: "rejected" }));
+      expect(reasonChip(el)?.textContent).toBe(label);
+      expect(reasonChip(el)?.getAttribute("title")).toBe(`Why omp refused this edit: ${kind}`);
+      act(() => root.unmount());
+    }
+  });
+
+  it("shows no reason on a card that did not fail", () => {
+    const { el, root } = renderCard(tool({ name: "edit", status: "done", errorKind: "stale_tag", resultText: "ok" }));
+    expect(reasonChip(el)).toBeNull();
+    act(() => root.unmount());
+  });
+});

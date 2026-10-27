@@ -6,6 +6,7 @@ import {
   parseModelInfo,
   parseQueuedMessages,
   parseSessionRuntime,
+  parseSessionStats,
   parseUsageLimit,
   parseSubagents,
   type ModelInfo,
@@ -286,5 +287,23 @@ describe("parseSubagents", () => {
       subagents: [{ id: "a1", progress: { status: "idle" } }],
     });
     expect(entry.status).toBe("idle");
+  });
+});
+
+describe("parseSessionStats editRejections (issue #953)", () => {
+  it("orders failed edits by count, then kind, and drops malformed counts", () => {
+    const stats = parseSessionStats({
+      editRejections: { unseen_lines: 2, stale_tag: 5, apply: 2, bogus: "3", zero: 0, neg: -1, nan: Number.NaN },
+    });
+    expect(stats?.editRejections).toEqual([
+      { kind: "stale_tag", count: 5 },
+      { kind: "apply", count: 2 },
+      { kind: "unseen_lines", count: 2 },
+    ]);
+  });
+
+  it("reads an absent or non-record field as no failed edits", () => {
+    expect(parseSessionStats({})?.editRejections).toEqual([]);
+    expect(parseSessionStats({ editRejections: [4] })?.editRejections).toEqual([]);
   });
 });

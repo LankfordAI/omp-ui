@@ -415,8 +415,8 @@ sections read the snapshot when it is `available`, and fall back to
 `get_session_stats` otherwise. That covers an unpersisted session, the moment
 before the arm lands, and a joined remote instance on an older omp-ui. The
 bridge runs on whichever host owns the omp process, so remote sessions need no
-new IPC. `get_session_stats` still owns the rail's message counts and context
-usage.
+new IPC. `get_session_stats` still owns the rail's message counts, failed-edit
+counts (`editRejections`), and context usage.
 
 ### Experiments (autoresearch)
 

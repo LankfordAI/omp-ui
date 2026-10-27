@@ -5,7 +5,7 @@
  * missing or wrong-typed field degrades to `null` / `0` / `[]` rather than
  * throwing. A renderer must never crash because omp added or dropped a key.
  */
-import { arrField, boolField, field, numField, strField } from "./fields";
+import { arrField, boolField, field, isObj, numField, strField } from "./fields";
 
 export interface ModelInfo {
   id: string;
@@ -170,6 +170,12 @@ export interface TokenTotals {
   total: number;
 }
 
+/** One `get_session_stats.editRejections` entry: failed `edit` results with this `details.errorKind`. */
+export interface EditRejection {
+  kind: string;
+  count: number;
+}
+
 export interface SessionStats {
   userMessages: number;
   assistantMessages: number;
@@ -179,6 +185,9 @@ export interface SessionStats {
   tokens: TokenTotals;
   cost: number;
   premiumRequests: number;
+  /** omp 18.13.0+ failed edits by reason, count desc then kind; [] when omp omits the key.
+   *  Context-scoped like the message counts: compaction drops earlier rejections. */
+  editRejections: EditRejection[];
   contextUsage: ContextUsage | null;
 }
 
@@ -397,6 +406,16 @@ export function parseSessionRuntime(value: unknown, previous: SessionRuntime): S
   };
 }
 
+/** `get_session_stats.editRejections` → rows sorted as omp's `/session` prints them. */
+function parseEditRejections(value: unknown): EditRejection[] {
+  if (!isObj(value) || Array.isArray(value)) return [];
+  const rows: EditRejection[] = [];
+  for (const [kind, count] of Object.entries(value)) {
+    if (typeof count === "number" && Number.isFinite(count) && count > 0) rows.push({ kind, count });
+  }
+  return rows.sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind));
+}
+
 export function parseSessionStats(value: unknown): SessionStats | null {
   if (value === null || typeof value !== "object") return null;
   const tokens = field(value, "tokens");
@@ -416,6 +435,7 @@ export function parseSessionStats(value: unknown): SessionStats | null {
     },
     cost: numField(value, "cost") ?? 0,
     premiumRequests: numField(value, "premiumRequests") ?? 0,
+    editRejections: parseEditRejections(field(value, "editRejections")),
     contextUsage: parseContextUsage(field(value, "contextUsage")),
   };
 }

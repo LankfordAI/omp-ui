@@ -573,6 +573,17 @@ describe("reduceEvent tool executions", () => {
     });
     expect(tool(items, "t7")?.wallTimeMs).toBe(1234);
   });
+
+  it("keeps a failed edit's errorKind (issue #953)", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "e1",
+      toolName: "edit",
+      isError: true,
+      result: { content: [{ type: "text", text: "rejected" }], details: { diff: "", errorKind: "stale_tag" } },
+    });
+    expect(tool(items, "e1")).toMatchObject({ status: "error", errorKind: "stale_tag" });
+  });
 });
 
 describe("run-end tool settlement", () => {
@@ -1300,6 +1311,21 @@ describe("historyToItems", () => {
       },
     ])[0];
     expect(item).toMatchObject({ kind: "shell", shared: false });
+  });
+
+  it("restores a failed edit's errorKind on backfill (issue #953)", () => {
+    const items = historyToItems([
+      { role: "assistant", content: [{ type: "toolCall", id: "e2", name: "edit", arguments: {} }] },
+      {
+        role: "toolResult",
+        toolCallId: "e2",
+        toolName: "edit",
+        isError: true,
+        content: [{ type: "text", text: "rejected" }],
+        details: { diff: "", errorKind: "unseen_lines" },
+      },
+    ]);
+    expect(tool(items, "e2")).toMatchObject({ status: "error", errorKind: "unseen_lines" });
   });
 });
 

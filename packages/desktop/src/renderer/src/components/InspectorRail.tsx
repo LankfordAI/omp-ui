@@ -3,6 +3,7 @@ import type { LiveAudioEntry } from "@omp-ui/core/live-voice";
 import type { SpendTotals } from "@omp-ui/core/session-spend";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
+import { editErrorKindLabel } from "../lib/edit-rejections";
 import { useT } from "../lib/i18n";
 import { useCompactShell, useViewportWidth } from "../lib/responsive";
 import {
@@ -444,7 +445,7 @@ const TOKEN_ROWS: { key: keyof TokenTotals; labelKey: "rail.stats.input" | "rail
 ];
 
 /**
- * Message counts are context-scoped and come from get_session_stats; tokens
+ * Message counts and failed edits are context-scoped and come from get_session_stats; tokens
  * and spend read the whole-session bridge snapshot when it is available
  * (issue #866), else fall back to get_session_stats.
  */
@@ -491,6 +492,34 @@ function StatsTable({
               <Mono>{exactNum(stats.totalMessages)}</Mono>
             </Row>
           </dl>
+        </Section>
+      )}
+      {stats && stats.editRejections.length > 0 && (
+        <Section title={t("rail.stats.failedEdits")}>
+          <table className="w-full">
+            <tbody>
+              {stats.editRejections.map(({ kind, count }) => (
+                <tr key={kind}>
+                  <td title={kind} className="py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                    {editErrorKindLabel(kind)}
+                  </td>
+                  <td className="py-0.5 text-right font-mono text-[11px] tabular-nums text-ink-mid">
+                    {exactNum(count)}
+                  </td>
+                </tr>
+              ))}
+              {stats.editRejections.length > 1 && (
+                <tr className="border-t border-line-soft">
+                  <td className="py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                    {t("rail.stats.total")}
+                  </td>
+                  <td className="py-0.5 text-right font-mono text-[11px] tabular-nums text-ink">
+                    {exactNum(stats.editRejections.reduce((sum, row) => sum + row.count, 0))}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </Section>
       )}
       {tokens && (

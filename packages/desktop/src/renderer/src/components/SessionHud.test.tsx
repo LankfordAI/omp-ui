@@ -334,7 +334,7 @@ describe("wide Session HUD", () => {
           stats: {
             userMessages: 1, assistantMessages: 1, toolCalls: 0, toolResults: 0, totalMessages: 2,
             tokens: { input: 60_000, output: 40_000, reasoning: 0, cacheRead: 1_000_000, cacheWrite: 0, total: 1_100_000 },
-            cost: 0.0886, premiumRequests: 3, contextUsage: null,
+            cost: 0.0886, premiumRequests: 3, editRejections: [], contextUsage: null,
           },
           advisorStats: {
             available: true, configured: true, active: false, model: "root/advisor", subscription: false,
@@ -385,7 +385,7 @@ describe("wide Session HUD", () => {
           stats: {
             userMessages: 1, assistantMessages: 1, toolCalls: 0, toolResults: 0, totalMessages: 2,
             tokens: { input: 60_000, output: 40_000, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 100_000 },
-            cost: 0.0886, premiumRequests: 0, contextUsage: null,
+            cost: 0.0886, premiumRequests: 0, editRejections: [], contextUsage: null,
           },
           sessionSpend,
         },
@@ -473,7 +473,7 @@ describe("wide Session HUD", () => {
           stats: {
             userMessages: 1, assistantMessages: 1, toolCalls: 0, toolResults: 0, totalMessages: 2,
             tokens: { input: 10, output: 10, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 20 },
-            cost: 0.01, premiumRequests: 1, contextUsage: null,
+            cost: 0.01, premiumRequests: 1, editRejections: [], contextUsage: null,
           },
           advisorStats: {
             available: true, configured: true, active: false, model: null, subscription: false,
