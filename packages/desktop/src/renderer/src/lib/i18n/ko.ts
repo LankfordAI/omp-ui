@@ -2804,7 +2804,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "palette.action.fleetDispatchDesc": "하나 이상의 플릿 머신에서 새 세션 시작",
   "settings.remoteinstances.fleetAgentTitle": "에이전트의 플릿 작업 디스패치 허용",
   "settings.remoteinstances.fleetAgentHint":
-    "이 설정을 켠 뒤 시작한 세션에 플릿 도구를 추가합니다. 이 컴퓨터의 프로젝트에서 세션을 시작하는 것도 포함됩니다. 에이전트가 디스패치한 세션에는 추가되지 않습니다.",
+    "이 설정을 켠 뒤 시작한 프로젝트 세션에 플릿 도구를 추가합니다. 이 컴퓨터의 프로젝트에서 세션을 시작하는 것도 포함됩니다. 채팅에는 항상 추가되고, 에이전트가 디스패치한 세션에는 추가되지 않습니다.",
   // Fleet 접근 사다리 (이슈 #901)
   "settings.remoteinstances.fleetAccessTitle": "플릿 접근",
   "settings.remoteinstances.execTitle": "플릿 exec 허용",

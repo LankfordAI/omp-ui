@@ -1471,13 +1471,18 @@ export class SessionManager {
     initialCommands.push(
       setEventFilterCommand(),
       setHostUriSchemesCommand(),
-      // The five fleet tools (machines/dispatch/status/exec/project) follow the
-      // user's setting at each spawn/resume (ADR-0048); an agent-dispatched
-      // session never gets them (no recursion, ADR-0061). exec/project inherit
-      // this gate plus each owner node's grant ladder (#901, ADR-0062).
+      // The fleet tools (machines/dispatch/status/exec/project/exec_poll/update).
+      // A chat always carries them (#945): it has no project of its own, so
+      // starting work in projects is what it is for. Every other session
+      // follows the user's setting at each spawn/resume (ADR-0048); an
+      // agent-dispatched session never gets them (no recursion, ADR-0061; a
+      // chat is never dispatched). exec/project/update inherit this gate plus
+      // each owner node's grant ladder (#901, ADR-0062).
       setHostToolsCommand({
         vault: vaults.vaults.length > 0,
-        fleet: this.deps.registry.getSetting("fleetAgentDispatch") && record.fleet?.requestedBy.kind !== "agent",
+        fleet:
+          record.chat ||
+          (this.deps.registry.getSetting("fleetAgentDispatch") && record.fleet?.requestedBy.kind !== "agent"),
       }),
     );
     // The issue #774 recovery pick: `--model` forces the boot but never
