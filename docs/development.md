@@ -205,6 +205,7 @@ Keep these rules intact:
 - One main process owns the registry and live sessions. Never spawn a second OMP process for the same session. Closing a tab hides it; it does not stop the live session.
 - Native transcript render items are derived state. Unknown event types add nothing rather than breaking the transcript or changing the session file.
 - Search for an existing GitHub issue before filing a bug or feature request. Keep one request or defect per issue, use `CONTEXT.md` vocabulary, and do not close the issue until the change has been verified.
+- Mark every issue a commit cites as `Fixes #N` (completes it) or `Refs #N` (does not). `npm install` sets `core.hooksPath` to `.githooks`, whose `commit-msg` hook enforces this. Pushes to `main`/`develop` close `Fixes` issues and comment on any issue that lands unmarked.
 
 The full agent and contribution rules are in [`AGENTS.md`](../AGENTS.md). Review the [phase 1 PTY plan](phase-1-pty-embed.md), [phase 2 rpc-ui plan](phase-2-rpc-ui.md), [phase 3 ACP plan](phase-3-acp.md), and [ADRs](adr/) before changing a documented decision. The [session format reference](session-encoding.md) covers the on-disk JSONL format and path encoding.
 

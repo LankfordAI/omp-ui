@@ -706,12 +706,14 @@ async function foldedCommitMessages(
 /**
  * Runs the merge of `branch` into the current branch of `cwd`: one `--no-ff`
  * merge commit whose message records the session's work (issue #333) — the
- * folded commits' subjects and every closing reference they carry — never the
+ * folded commits' subjects, every closing reference they carry, and a
+ * `Refs #N` line for every other issue they cite (#949) — never the
  * worktree branch name, which is local-only scaffolding (issue #490). A
  * fast-forward would leave no trace that a worktree session landed — and
  * finishing a worktree deletes the branch — so the merge commit is the only
  * durable record. Conflicts are detected by the `--diff-filter=U` probe and
- * left exactly as git abandoned them; any other failure rethrows.
+ * left exactly as git abandoned them; any other failure aborts a merge git
+ * left staged, then rethrows.
  */
 async function mergeInto(
   cwd: string,
@@ -734,6 +736,12 @@ async function mergeInto(
     const conflicted = await readConflictedPaths(cwd);
     if (conflicted.length > 0) {
       return { kind: "conflicts", destination, commits, files: conflicted };
+    }
+    // A commit-msg hook that refuses the message stops git after it staged the
+    // merge: MERGE_HEAD stays, nothing is conflicted. Undo it so the checkout
+    // is as it was, then surface the refusal (git's stderr carries the hook's).
+    if (await hasRef(cwd, "MERGE_HEAD")) {
+      await git(cwd, ["merge", "--abort"]).catch(() => {});
     }
     throw error;
   }

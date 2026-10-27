@@ -154,9 +154,11 @@ the user made (superseded by the finish dialog addendum).
 - **The message is generated from the folded commits**: the borrowed subject
   of a single commit, or a count plus their subjects; then every GitHub
   closing reference (`Fixes #12`, `owner/repo#12`, `GH-12`) found in their
-  bodies, re-emitted as one `Fixes <ref>` line each. GitHub already scans
-  those same references in the individual commits, so this adds a readable
-  record, not new closing behavior.
+  bodies, re-emitted as one `Fixes <ref>` line each, then one `Refs #N` line
+  for every other cited issue, so the merge commit marks every citation it
+  carries (#949). GitHub already scans those same references in the
+  individual commits, so this adds a readable record, not new closing
+  behavior.
 - **Nothing is pushed.** Merge-back moves the local base branch only; the
   issues close when the user pushes it. omp-ui has no push path.
 - **Rejected: squash-merge.** It destroys the session's own commits, which

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Every "#N" a commit cites must be marked Fixes #N or Refs #N (scripts/check-commit-refs.mjs).
+check="$(dirname "$0")/../scripts/check-commit-refs.mjs"
+# A checkout from before the check existed has nothing to run.
+[ -f "$check" ] || exit 0
+if ! command -v node >/dev/null 2>&1; then
+  echo "commit-msg: node not on PATH; issue-reference check skipped" >&2
+  exit 0
+fi
+exec node "$check" "$1"

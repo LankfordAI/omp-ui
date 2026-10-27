@@ -4,12 +4,15 @@
 // its issues open. This script replays the closing semantics for any pushed
 // range: it reads the same keyword grammar as release-notes.mjs (one
 // definition of what a closer is), skips PRs and already-closed issues, and
-// leaves a comment naming the landing commit and update train.
+// leaves a comment naming the landing commit and update train. Second duty:
+// an issue the range cites ("#N") but never marks with Fixes or Refs gets a
+// one-time comment naming the landing, so a fix that forgot its keyword is
+// not silently left open.
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { parseRefs } from "./release-notes.mjs";
+import { markedRefs, parseRefs, unmarkedRefs } from "./release-notes.mjs";
 
 const TRAINS = { main: "stable", develop: "nightly" };
 
@@ -66,6 +69,35 @@ export function closeComment({ branch, landing }) {
   ].join("\n");
 }
 
+/**
+ * Issues the range cites but never marks: no commit in the range says Fixes or
+ * Refs for them. Newest citing commit wins (git log order). A merge-back
+ * commit's Refs lines mark its folded commits' bare citations.
+ */
+export function collectUnmarked(commits) {
+  const marked = new Set();
+  for (const commit of commits) for (const number of markedRefs(commit.text)) marked.add(number);
+  const found = new Map();
+  for (const commit of commits) {
+    for (const number of unmarkedRefs(commit.text)) {
+      if (!marked.has(number) && !found.has(number)) found.set(number, { number, landing: commit });
+    }
+  }
+  return [...found.values()];
+}
+
+export const unmarkedMarker = (sha) => `<!-- close-landed-issues:unmarked ${sha} -->`;
+
+export function unmarkedComment({ branch, landing }) {
+  return [
+    `Landed on \`${branch}\` as \`${landing.sha.slice(0, 8)}\`: ${landing.subject}`,
+    "",
+    "That commit cites this issue without `Fixes` or `Refs`, so it was left open. Close it if this landing completes the work.",
+    "",
+    unmarkedMarker(landing.sha),
+  ].join("\n");
+}
+
 export function commitsInRange(range) {
   // %B carries subject plus body: keywords live in either place, exactly as
   // GitHub's own parser reads them.
@@ -97,30 +129,34 @@ function parseArguments(argv) {
   return options;
 }
 
+// One read carries everything the decision needs; `has(pull_request)` covers
+// shared numbering, where a bare "#N" can name a PR whose state is merge, not
+// issue close. Returns undefined (after a warning) when the read fails.
+function readMeta(repo, number) {
+  try {
+    return JSON.parse(
+      ghApi(`repos/${repo}/issues/${number}`, "--jq", `{number,state,title,isPr:has("pull_request")}`),
+    );
+  } catch (error) {
+    console.log(`::warning::#${number} unreadable: ${error.message}`);
+    return undefined;
+  }
+}
+
 export function runCli(argv) {
   const { range, branch, repo, dryRun } = parseArguments(argv);
-  const closers = collectClosers(commitsInRange(range));
-  if (!closers.length) {
+  const commits = commitsInRange(range);
+  const closers = collectClosers(commits);
+  const unmarked = collectUnmarked(commits);
+  if (!closers.length && !unmarked.length) {
     console.log(`no closing keywords in ${range} — nothing to do`);
     return 0;
   }
   let failures = 0;
   for (const { number, landings } of closers) {
     const landing = landings[0];
-    // One read carries everything the decision needs; `has(pull_request)`
-    // covers shared numbering, where a bare "Fixes #N" can name a PR whose
-    // state is merge, not issue close.
-    let meta;
-    try {
-      meta = JSON.parse(
-        ghApi(
-          `repos/${repo}/issues/${number}`,
-          "--jq",
-          `{number,state,title,isPr:has("pull_request")}`,
-        ),
-      );
-    } catch (error) {
-      console.log(`::warning::#${number} unreadable: ${error.message}`);
+    const meta = readMeta(repo, number);
+    if (!meta) {
       failures += 1;
       continue;
     }
@@ -145,6 +181,38 @@ export function runCli(argv) {
       console.log(`closed #${number} (${meta.title}) via ${landing.sha.slice(0, 8)} on ${branch}`);
     } catch (error) {
       console.log(`::warning::#${number} close failed: ${error.message}`);
+      failures += 1;
+    }
+  }
+  for (const { number, landing } of unmarked) {
+    const meta = readMeta(repo, number);
+    if (!meta) {
+      failures += 1;
+      continue;
+    }
+    if (meta.isPr) {
+      console.log(`#${number} is a pull request — no issue to note`);
+      continue;
+    }
+    if (meta.state === "closed") {
+      console.log(`#${number} already closed — skipped`);
+      continue;
+    }
+    const sha8 = landing.sha.slice(0, 8);
+    try {
+      const bodies = ghApi(`repos/${repo}/issues/${number}/comments`, "--paginate", "--jq", ".[].body");
+      if (bodies.includes(unmarkedMarker(landing.sha))) {
+        console.log(`#${number} already noted for ${sha8} — skipped`);
+        continue;
+      }
+      if (dryRun) {
+        console.log(`DRY-RUN would note #${number} (${meta.title}) landing ${sha8} on ${branch}`);
+        continue;
+      }
+      ghApi(`repos/${repo}/issues/${number}/comments`, "-f", `body=${unmarkedComment({ branch, landing })}`);
+      console.log(`noted #${number} (${meta.title}) landing ${sha8} on ${branch}`);
+    } catch (error) {
+      console.log(`::warning::#${number} note failed: ${error.message}`);
       failures += 1;
     }
   }

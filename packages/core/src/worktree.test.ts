@@ -861,6 +861,51 @@ describe("mergeWorktreeBranch", () => {
     expect(fs.readFileSync(path.join(dir, "dirty.txt"), "utf8")).toBe("local edit\n");
     expect((await git(dir, ["rev-parse", "main"])).trim()).toBe(before);
   });
+
+  it("lands under the repo's own commit-msg hook when commits cite issues bare", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one (#5)");
+    await commitFile(wt, "two.txt", "two\n", "two\n\nRefs #6");
+    await git(dir, [
+      "config",
+      "core.hooksPath",
+      path.resolve(import.meta.dirname, "../../../.githooks"),
+    ]);
+    const result = await mergeWorktreeBranch(dir, branch, "main", {
+      scratchRoot: path.join(dir, "scratch"),
+    });
+    expect(result.kind).toBe("merged");
+    expect((await git(dir, ["log", "--format=%b", "-1", "main"])).trim()).toBe(
+      "- one (#5)\n- two\n\nRefs #5\nRefs #6",
+    );
+  });
+
+  it("aborts the staged merge when a commit-msg hook refuses it", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    // The checkout and the hooks live outside the repo so its status stays empty.
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "worktree-hook-"));
+    cleanups.push(outside);
+    const wt = path.join(outside, "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    const hooks = path.join(outside, "hooks");
+    fs.mkdirSync(hooks);
+    fs.writeFileSync(path.join(hooks, "commit-msg"), "#!/bin/sh\necho refused >&2\nexit 1\n", {
+      mode: 0o755,
+    });
+    await git(dir, ["config", "core.hooksPath", hooks]);
+    const before = (await git(dir, ["rev-parse", "main"])).trim();
+    await expect(
+      mergeWorktreeBranch(dir, branch, "main", { scratchRoot: path.join(outside, "scratch") }),
+    ).rejects.toThrow(/refused/);
+    await expect(git(dir, ["rev-parse", "-q", "--verify", "MERGE_HEAD"])).rejects.toThrow();
+    expect((await git(dir, ["rev-parse", "main"])).trim()).toBe(before);
+    expect(await git(dir, ["status", "--porcelain"])).toBe("");
+  });
 });
 
 

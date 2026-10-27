@@ -10,6 +10,11 @@ const RE = {
   token: /#([0-9]+)|(?:issues|pull)\/([0-9]+)/g,
   bare: /(^|[\s(])#([0-9]+)/g,
   prMerge: /Merge pull request #([0-9]+)/i,
+  // An issue citation: "#N" at line start or after whitespace, "(" or "[",
+  // ending at a word boundary, so "#1a2b3c" and "owner/repo#9" do not count.
+  cited: /(^|[\s([])#([0-9]+)\b/g,
+  // Inline code: a "#N" inside backticks is not a citation.
+  codeSpan: /`[^`\n]*`/g,
   conventional: /^([a-z]+)(?:\(([^)]*)\))?(!)?:\s*(.*)$/,
   refTail: /\s*\((?:(?:[A-Za-z]+\s+)?#\d+[,)?\s]*)+\)\s*$/,
   // Heading of the rendered Highlights section in a previous release body;
@@ -103,6 +108,37 @@ export function parseRefs(text) {
     }
   }
   return refs;
+}
+
+/** Numbers a message marks: any keyword list (Fixes/Closes/Resolves/Refs) or a PR merge subject. */
+export function markedRefs(text) {
+  const marked = new Set();
+  const merge = RE.prMerge.exec(text);
+  if (merge) marked.add(Number(merge[1]));
+  for (const match of text.matchAll(RE.keyword)) {
+    for (const tok of match[1].matchAll(RE.token)) marked.add(Number(tok[1] ?? tok[2]));
+  }
+  return marked;
+}
+
+/**
+ * "#N" citations no keyword marks, first-seen order. Git comment lines
+ * ("#" not followed by a digit, e.g. "# Conflicts:") and inline code spans
+ * are ignored; a line starting "#12" is a citation, not a comment.
+ */
+export function unmarkedRefs(text) {
+  const body = text
+    .split("\n")
+    .filter((line) => !/^#(?![0-9])/.test(line))
+    .join("\n")
+    .replace(RE.codeSpan, "");
+  const marked = markedRefs(body);
+  const unmarked = [];
+  for (const tok of body.matchAll(RE.cited)) {
+    const number = Number(tok[2]);
+    if (!marked.has(number) && !unmarked.includes(number)) unmarked.push(number);
+  }
+  return unmarked;
 }
 
 function conventionalType(subject) {

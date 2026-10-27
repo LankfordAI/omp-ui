@@ -4,6 +4,7 @@
   "license": "MIT",
   "workspaces": ["packages/*"],
   "scripts": {
+    "prepare": "node scripts/install-git-hooks.mjs",
     "dev": "npm run dev --workspace @omp-ui/desktop",
     "dev:headless": "npm run dev:headless --workspace @omp-ui/desktop --",
     "build": "npm run build --workspace @omp-ui/desktop",

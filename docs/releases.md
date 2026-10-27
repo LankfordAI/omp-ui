@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.27.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.27.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Merge-back's merge commit now adds a `Refs #N` line for every issue the folded commits cite without closing it, and a merge your repository's `commit-msg` hook refuses no longer leaves the project checkout mid-merge (#949).
 
 ## Choose a download
 
