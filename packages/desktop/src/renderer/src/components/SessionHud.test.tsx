@@ -22,6 +22,9 @@ Object.assign(window, {
     // the inherit default; everything else in this file drives the store.
     readOmpSettings,
     setSessionApprovalMode: vi.fn(async () => {}),
+    // The gauge popover's advisor section mounts the roster view, which reads
+    // omp's WATCHDOG.yml; left pending, the view stays in its loading state.
+    getWatchdogRoster: vi.fn(() => new Promise(() => {})),
   },
 });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
@@ -122,6 +125,7 @@ beforeEach(() => {
       }),
     },
     compactSurface: null,
+    inspectorOpen: false,
     compactionSettings: {},
     compactSession, exportHtml, shareSession, branchSession, newSession, toggleConsole,
   });
@@ -133,21 +137,74 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+const wideMedia = (): void => {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+  });
+};
+
+/** Mounts the HUD under whatever shell matchMedia currently selects. */
+const mountHud = (): HTMLElement => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  act(() => root!.render(<SessionHud tabId={TAB} />));
+  return host;
+};
+
+/** Clicks the wide face's title trigger, opening the portaled session menu. */
+const openTitleMenu = (host: HTMLElement): void => {
+  const trigger = host.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+  expect(trigger).not.toBeNull();
+  act(() => trigger!.click());
+};
+
+/** A session-menu row by trimmed text prefix: Capabilities and anonymize rows carry extra text. */
+const menuItem = (text: string): HTMLButtonElement | undefined =>
+  [...document.body.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]')].find((item) =>
+    item.textContent?.trim().startsWith(text),
+  );
+
+/** Clicks the wide face's gauge chip, opening the portaled context-and-spend popover. */
+const openGauge = (host: HTMLElement): void => {
+  const chip = host.querySelector<HTMLButtonElement>('button[aria-label="context and spend"]');
+  expect(chip).not.toBeNull();
+  act(() => chip!.click());
+};
+
+/** Opens the title menu and swaps it for the queue-modes panel. */
+const openModes = (host: HTMLElement): void => {
+  openTitleMenu(host);
+  const row = menuItem("Queue modes & retry…");
+  expect(row).toBeDefined();
+  act(() => row!.click());
+};
+
+const keydown = (el: Element, key: string): void => {
+  act(() => {
+    el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  });
+};
+
 describe("wide Session HUD", () => {
-  it("opens the queue-modes popover outside the clipped HUD container (#78)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
-    act(() => trigger.click());
+  const renderWide = (): HTMLElement => {
+    wideMedia();
+    return mountHud();
+  };
+
+  it("opens the queue-modes panel from the title menu, outside the clipped HUD container (#78)", () => {
+    const host = renderWide();
+    openModes(host);
+    // The modes panel replaces the menu at the same point.
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    const panel = document.body.querySelector('[role="dialog"][aria-label="queue modes and retry"]');
+    expect(panel).not.toBeNull();
     for (const label of ["steering", "follow-up", "interrupt", "auto-retry", "abort retry"]) {
       expect(document.body.textContent).toContain(label);
     }
     // The wide HUD root is overflow-hidden inside the h-9 title bar, so the
-    // popover must portal out of the HUD subtree or it clips to invisibility.
+    // panel must portal out of the HUD subtree or it clips to invisibility.
     const steering = [...document.body.querySelectorAll("span")].find((s) => s.textContent === "steering")!;
     expect(host.contains(steering)).toBe(false);
     // Fail closed still holds with the panel portaled: inside pointerdown
@@ -174,47 +231,40 @@ describe("wide Session HUD", () => {
     expect(document.body.textContent).not.toContain("steering");
   });
 
-  it("runs the /new spawn from the title-bar button (#82)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="new session in current project"]')!;
-    expect(trigger.disabled).toBe(false);
-    act(() => trigger.click());
+  it("runs the /new spawn from the title menu (#82)", () => {
+    const host = renderWide();
+    openTitleMenu(host);
+    const row = menuItem("New session here")!;
+    expect(row).toBeDefined();
+    expect(row.disabled).toBe(false);
+    act(() => row.click());
     expect(newSession).toHaveBeenCalledWith("/p", undefined, null);
+    // Every action row closes the menu before firing.
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
   });
 
-  it("shares from the title-bar icon strip (#679)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
-    const trigger = host.querySelector<HTMLButtonElement>(
-      'button[aria-label="publish an encrypted snapshot of this session"]',
-    )!;
-    expect(trigger.disabled).toBe(false);
-    act(() => trigger.click());
+  it("shares from the title menu (#679)", () => {
+    const host = renderWide();
+    openTitleMenu(host);
+    const row = menuItem("Publish encrypted snapshot")!;
+    expect(row).toBeDefined();
+    expect(row.disabled).toBe(false);
+    act(() => row.click());
     expect(shareSession).toHaveBeenCalledWith(TAB);
   });
 
-  it("hides the anonymize button below the omp floor and shows it above (#834)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    // Unknown installed version: no affordance.
-    act(() => root!.render(<SessionHud tabId={TAB} />));
-    expect(
-      host.querySelector('button[aria-label="write a redacted copy of this session beside the transcripts"]'),
-    ).toBeNull();
+  it("gates the redacted-copy row below the omp floor and fires it above (#834)", () => {
+    // Unknown installed version: the row is disabled and names the floor.
+    let host = renderWide();
+    openTitleMenu(host);
+    const gated = menuItem("Write redacted copy")!;
+    expect(gated).toBeDefined();
+    expect(gated.disabled).toBe(true);
+    expect(gated.textContent).toContain("update omp to");
     act(() => root!.unmount());
-    // A binary at the floor: the button appears and fires the store action.
+    root = null;
+    document.body.replaceChildren();
+    // A binary at the floor: the row enables and fires the store action.
     const anonymizeSession = vi.fn(async () => {});
     useStore.setState({
       ompUpdate: {
@@ -228,20 +278,15 @@ describe("wide Session HUD", () => {
       },
       anonymizeSession,
     });
-    root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
-    const trigger = host.querySelector<HTMLButtonElement>(
-      'button[aria-label="write a redacted copy of this session beside the transcripts"]',
-    )!;
-    act(() => trigger.click());
+    host = renderWide();
+    openTitleMenu(host);
+    const row = menuItem("Write redacted copy")!;
+    expect(row.disabled).toBe(false);
+    act(() => row.click());
     expect(anonymizeSession).toHaveBeenCalledWith(TAB);
   });
 
   it("shows a remote worktree chip with only remote-safe actions (#435)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
     const group = state.projects[0]!;
     const remoteSession = {
       ...group.sessions[0]!,
@@ -264,15 +309,15 @@ describe("wide Session HUD", () => {
         })],
       }),
     });
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const host = renderWide();
 
     const text = host.textContent!;
     expect(text).toContain("build-box");
     expect(text).toContain("⎇ omp/remote-feature");
     expect(text).toContain("Remote worktree session");
+    // The title menu leads the status row; the instance and worktree chips follow.
+    expect(text.indexOf("Remote worktree session")).toBeLessThan(text.indexOf("build-box"));
     expect(text.indexOf("build-box")).toBeLessThan(text.indexOf("⎇ omp/remote-feature"));
-    expect(text.indexOf("⎇ omp/remote-feature")).toBeLessThan(text.indexOf("Remote worktree session"));
 
     const worktreeTrigger = host.querySelector<HTMLButtonElement>('button[title="/remote/worktrees/feature"]')!;
     act(() => worktreeTrigger.click());
@@ -281,15 +326,11 @@ describe("wide Session HUD", () => {
     expect(document.body.textContent).not.toContain("Open in Files");
   });
 
-  it("co-locates the main spend with the main meter, before the advisor cluster (#107)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
+  it("gauge chip shows rounded context and spend; popover carries advisor (#107)", () => {
     useStore.setState({
       rpc: {
         [TAB]: {
-          ...useStore.getState().rpc[TAB],
+          ...useStore.getState().rpc[TAB]!,
           stats: {
             userMessages: 1, assistantMessages: 1, toolCalls: 0, toolResults: 0, totalMessages: 2,
             tokens: { input: 60_000, output: 40_000, reasoning: 0, cacheRead: 1_000_000, cacheWrite: 0, total: 1_100_000 },
@@ -302,27 +343,32 @@ describe("wide Session HUD", () => {
         },
       },
     });
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
-    const text = document.body.textContent!;
-    const mainCost = text.indexOf("$0.0886");
-    const adv = text.indexOf("adv");
-    const advisorCost = text.indexOf("$0.2730");
-    expect(mainCost).toBeGreaterThanOrEqual(0);
-    expect(mainCost).toBeLessThan(adv);
-    expect(adv).toBeLessThan(advisorCost);
-    expect(text.slice(0, adv)).toContain("1.1M tok");
-    const advisorCluster = host.querySelector<HTMLElement>(".titlebar-advisor")!;
-    expect(advisorCluster.title).toContain("parent advisor context · root/advisor");
-    expect(advisorCluster.title).toContain("session-tree advisor spend $0.2730");
-    expect(advisorCluster.title).toContain("session-tree advisor tokens 320,000");
+    const host = renderWide();
+    const chip = host.querySelector<HTMLButtonElement>('button[aria-label="context and spend"]')!;
+    expect(chip.textContent).toContain("20%");
+    expect(chip.textContent).toContain("$0.0886");
+    expect(chip.querySelector(".titlebar-gauge-cost")?.textContent).toContain("$0.0886");
+
+    openGauge(host);
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    const popover = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="context and spend"]')!;
+    expect(popover).not.toBeNull();
+    expect(host.contains(popover)).toBe(false);
+    const spend = document.body.querySelector<HTMLElement>(".gauge-spend")!;
+    expect(spend.textContent).toContain("$0.0886");
+    expect(spend.textContent).toContain("1.1M tok");
+    const advisor = document.body.querySelector<HTMLElement>(".gauge-advisor")!;
+    expect(advisor).not.toBeNull();
+    const readout = [...advisor.querySelectorAll<HTMLElement>("[title]")]
+      .find((el) => el.title.includes("parent advisor context"));
+    expect(readout?.title).toContain("parent advisor context · root/advisor");
+    expect(readout?.title).toContain("session-tree advisor spend $0.2730");
+    expect(readout?.title).toContain("session-tree advisor tokens 320,000");
+    // Main spend still reads before the advisor cluster (#107).
+    expect(spend.compareDocumentPosition(advisor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("prefers whole-session spend over the context-scoped stats, falling back when unavailable (#866)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
     const totals = (cost: number, totalTokens: number) => ({
       cost, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, totalTokens, premiumRequests: 0, requests: 1,
     });
@@ -345,34 +391,35 @@ describe("wide Session HUD", () => {
         },
       },
     });
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
-    const readout = host.querySelector<HTMLElement>(".titlebar-main-stats")!;
-    expect(readout.textContent).toContain("$0.7196");
-    expect(readout.textContent).toContain("827.4K tok");
-    expect(readout.title).toContain("main $0.1987");
-    expect(readout.title).toContain("subagents $0.5209 (2)");
+    const host = renderWide();
+    const chip = host.querySelector<HTMLButtonElement>('button[aria-label="context and spend"]')!;
+    expect(chip.textContent).toContain("$0.7196");
+
+    openGauge(host);
+    const spend = (): HTMLElement => document.body.querySelector<HTMLElement>(".gauge-spend")!;
+    const row = (label: string): HTMLElement | null | undefined =>
+      [...spend().querySelectorAll<HTMLElement>("*")].find((el) => el.textContent?.trim() === label)?.parentElement;
+    expect(spend().textContent).toContain("$0.7196");
+    expect(spend().textContent).toContain("827.4K tok");
+    expect(row("main")?.textContent).toContain("$0.1987");
+    expect(row("subagents (2)")?.textContent).toContain("$0.5209");
 
     act(() => useStore.setState({
       rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, sessionSpend: { ...sessionSpend, available: false, unavailable: "this session is not persisted" } } },
     }));
-    expect(readout.textContent).toContain("$0.0886");
-    expect(readout.title).not.toContain("subagents");
+    expect(chip.textContent).toContain("$0.0886");
+    expect(spend().textContent).toContain("$0.0886");
+    expect(spend().textContent).not.toContain("subagents");
   });
 
   it("keeps default Plan unnamed and gives exceptional Build its permission tooltip (#142)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
     useStore.setState((state) => ({
       rpc: {
         ...state.rpc,
         [TAB]: { ...state.rpc[TAB]!, plan: null },
       },
     }));
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const host = renderWide();
     expect(host.querySelector("[title^=\"Plan mode\"]")).toBeNull();
     expect(host.querySelector("[title^=\"Build mode\"]")).toBeNull();
     // #167: the wide HUD's only mode surface is the exceptional chip — the
@@ -403,13 +450,8 @@ describe("wide Session HUD", () => {
   });
 
   it("describes exceptional Plan with its path or the undrafted fallback (#143)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
     useStore.setState((s) => ({ state: { ...s.state!, defaultAgentMode: "build" } }));
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const host = renderWide();
     expect(host.querySelector(`[title="${PLAN_MODE_TOOLTIP_WITH_PATH}"]`)?.textContent).toContain("plan");
 
     act(() => useStore.setState({
@@ -424,14 +466,10 @@ describe("wide Session HUD", () => {
   });
 
   it("keeps the title bar's whitespace draggable without swallowing a control (#108)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
     useStore.setState({
       rpc: {
         [TAB]: {
-          ...useStore.getState().rpc[TAB],
+          ...useStore.getState().rpc[TAB]!,
           stats: {
             userMessages: 1, assistantMessages: 1, toolCalls: 0, toolResults: 0, totalMessages: 2,
             tokens: { input: 10, output: 10, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 20 },
@@ -444,8 +482,7 @@ describe("wide Session HUD", () => {
         },
       },
     });
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const host = renderWide();
 
     // The HUD is the widest stretch of the merged title bar, so its root is
     // the window's drag surface — a blanket no-drag here left the strip
@@ -455,18 +492,34 @@ describe("wide Session HUD", () => {
 
     // A drag region ignores all pointer events, so every control and every
     // hover tooltip must sit inside a no-drag box under that root.
-    const carvedOut = (el: HTMLElement): boolean => {
-      for (let n: HTMLElement | null = el; n; n = n.parentElement) {
+    const carvedOut = (el: Element): boolean => {
+      for (let n: Element | null = el; n; n = n.parentElement) {
         if (n.classList.contains("[app-region:no-drag]")) return true;
         if (n === hud) return false;
       }
       return false;
     };
     const controls = [...hud.querySelectorAll<HTMLElement>('button, input, [role="switch"], [title]')];
-    expect(controls.length).toBeGreaterThan(8);
     for (const el of controls) {
       expect(carvedOut(el), el.getAttribute("aria-label") ?? el.getAttribute("title") ?? el.textContent ?? "").toBe(true);
     }
+    // The three fixed controls of the #941 face are present and carved out.
+    const required = [
+      hud.querySelector<HTMLElement>('button[aria-haspopup="menu"]'),
+      hud.querySelector<HTMLElement>('button[aria-label="context and spend"]'),
+      hud.querySelector<HTMLElement>('button[aria-label^="open inspector"]'),
+    ];
+    for (const el of required) {
+      expect(el).not.toBeNull();
+      expect(controls).toContain(el);
+      expect(carvedOut(el!)).toBe(true);
+    }
+    // The status row shrinks to its content and leaves dragging to the spacer:
+    // a no-drag wrapper here would swallow the whitespace between its chips.
+    const status = hud.querySelector<HTMLElement>(".titlebar-status")!;
+    expect(status).not.toBeNull();
+    expect(status.classList.contains("flex-1")).toBe(false);
+    expect(status.classList.contains("[app-region:no-drag]")).toBe(false);
 
     // ...and the flexible spacer that supplies the drag surface must stay out
     // of every no-drag box, or there is nothing left to grab.
@@ -475,11 +528,7 @@ describe("wide Session HUD", () => {
     expect(carvedOut(spacer!)).toBe(false);
   });
 
-  it("shows the wide MCP failure badge and accessible count", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
+  it("shows the MCP failure count on the title menu's Capabilities row", () => {
     useStore.setState((state) => ({
       rpc: {
         ...state.rpc,
@@ -496,31 +545,20 @@ describe("wide Session HUD", () => {
         }),
       },
     }));
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
-
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Capabilities — 120 MCP failures"]');
-    expect(trigger?.title).toBe("Capabilities — 120 MCP failures");
-    expect(trigger?.parentElement?.textContent).toContain("99+");
+    const host = renderWide();
+    openTitleMenu(host);
+    expect(menuItem("Capabilities")?.textContent).toContain("120 failed");
   });
-  it("opens the global catalog viewer, pinning no session (issue #383)", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
 
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Capabilities"]')!.click());
+  it("opens the global catalog viewer, pinning no session (issue #383)", () => {
+    const host = renderWide();
+    openTitleMenu(host);
+    act(() => menuItem("Capabilities")!.click());
     // Not (scopeCwd, tabId): the catalog modal is scope-global from any context.
     expect(useStore.getState().capabilitiesViewer).toEqual({ scopeCwd: null, section: "mcp", instanceId: null });
   });
 
-  it("renders the button even when the record has no working tree", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
+  it("renders the Capabilities row even when the record has no working tree", () => {
     const group = state.projects[0]!;
     useStore.setState({
       state: {
@@ -532,10 +570,260 @@ describe("wide Session HUD", () => {
         ],
       },
     });
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
+    const host = renderWide();
+    openTitleMenu(host);
+    expect(menuItem("Capabilities")).toBeDefined();
+  });
+});
 
-    expect(host.querySelector('button[aria-label="Capabilities"]')).not.toBeNull();
+describe("SessionHud title menu (issue #941)", () => {
+  const renameSessionTo = vi.fn(async (): Promise<void> => {});
+  const render = (): HTMLElement => {
+    wideMedia();
+    return mountHud();
+  };
+  const typeInto = (input: HTMLInputElement, value: string): void => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+  const rowText = (item: Element): string => (item.textContent ?? "").trim().replace(/^✓\s*/, "");
+
+  it("lists the session rows in order, portaled outside the HUD", () => {
+    const host = render();
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(trigger.title).toBe("Mobile session — session menu");
+    expect(trigger.textContent).toContain("Mobile session");
+    openTitleMenu(host);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const menu = document.body.querySelector<HTMLElement>('[role="menu"][aria-label="session menu"]')!;
+    expect(menu).not.toBeNull();
+    expect(host.contains(menu)).toBe(false);
+    const expected = [
+      "Rename…",
+      "Retitle from transcript",
+      "Console",
+      "Browser pane",
+      "Branch into a new tab",
+      "Session tree",
+      "New session here",
+      "Compact now",
+      "Export HTML",
+      "Publish encrypted snapshot",
+      "Write redacted copy",
+      "Capabilities",
+      "Queue modes & retry…",
+      "Refresh state",
+    ];
+    const rows = [...menu.querySelectorAll('[role^="menuitem"]')].map(rowText);
+    expect(rows).toHaveLength(expected.length);
+    expected.forEach((label, index) => expect(rows[index]!.startsWith(label), `${rows[index]} ≠ ${label}`).toBe(true));
+    const consoleRow = menuItem("Console")!;
+    expect(consoleRow.getAttribute("role")).toBe("menuitemcheckbox");
+    expect(consoleRow.getAttribute("aria-checked")).toBe("false");
+    expect(menuItem("Browser pane")!.getAttribute("role")).toBe("menuitemcheckbox");
+    expect(menuItem("Queue modes & retry…")!.getAttribute("aria-haspopup")).toBe("dialog");
+  });
+
+  it("fires each action row with this tab and closes the menu first", () => {
+    const toggleBrowserPane = vi.fn();
+    useStore.setState({ toggleBrowserPane });
+    const host = render();
+    const fire = (label: string): void => {
+      openTitleMenu(host);
+      const row = [...document.body.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]')]
+        .find((item) => rowText(item).startsWith(label));
+      expect(row, label).toBeDefined();
+      act(() => row!.click());
+      expect(document.body.querySelector('[role="menu"]'), label).toBeNull();
+    };
+    fire("Console");
+    expect(toggleConsole).toHaveBeenCalledWith(TAB);
+    fire("Browser pane");
+    expect(toggleBrowserPane).toHaveBeenCalledWith(TAB);
+    fire("Branch into a new tab");
+    expect(branchSession).toHaveBeenCalledWith(TAB);
+    fire("Compact now");
+    expect(compactSession).toHaveBeenCalledWith(TAB);
+    fire("Export HTML");
+    expect(exportHtml).toHaveBeenCalledWith(TAB);
+  });
+
+  it("renames from the first row: the input takes focus and Enter commits the trimmed name", () => {
+    useStore.setState({ renameSessionTo });
+    const host = render();
+    openTitleMenu(host);
+    const rename = menuItem("Rename…")!;
+    expect(document.activeElement).toBe(rename);
+    act(() => rename.click());
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="session name"]')!;
+    expect(input).not.toBeNull();
+    expect(document.activeElement).toBe(input);
+    typeInto(input, "  Renamed  ");
+    keydown(input, "Enter");
+    expect(renameSessionTo).toHaveBeenCalledWith(TAB, "Renamed");
+    expect(host.querySelector('input[aria-label="session name"]')).toBeNull();
+    expect(host.querySelector('button[aria-haspopup="menu"]')).not.toBeNull();
+  });
+
+  it("abandons the rename on Escape and brings the trigger back", () => {
+    useStore.setState({ renameSessionTo });
+    const host = render();
+    openTitleMenu(host);
+    act(() => menuItem("Rename…")!.click());
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="session name"]')!;
+    typeInto(input, "Something else");
+    keydown(input, "Escape");
+    expect(renameSessionTo).not.toHaveBeenCalled();
+    expect(host.querySelector('input[aria-label="session name"]')).toBeNull();
+    expect(host.querySelector('button[aria-haspopup="menu"]')).not.toBeNull();
+  });
+
+  it("roves focus with the arrow keys, wraps, and Escape restores focus to the trigger", () => {
+    const host = render();
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+    openTitleMenu(host);
+    const menu = document.body.querySelector<HTMLElement>('[role="menu"]')!;
+    const enabled = [...menu.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]')].filter((item) => !item.disabled);
+    expect(enabled.length).toBeGreaterThan(2);
+    expect(document.activeElement).toBe(enabled[0]);
+    keydown(menu, "ArrowDown");
+    expect(document.activeElement).toBe(enabled[1]);
+    keydown(menu, "Home");
+    expect(document.activeElement).toBe(enabled[0]);
+    keydown(menu, "ArrowUp");
+    expect(document.activeElement).toBe(enabled[enabled.length - 1]);
+    keydown(menu, "ArrowDown");
+    expect(document.activeElement).toBe(enabled[0]);
+    keydown(menu, "End");
+    expect(document.activeElement).toBe(enabled[enabled.length - 1]);
+    keydown(menu, "Escape");
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closes on an outside pointerdown", () => {
+    const host = render();
+    openTitleMenu(host);
+    act(() => { document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("offers the session tree only on a live record (#680)", () => {
+    const openSessionTreeView = vi.fn();
+    useStore.setState({ openSessionTreeView });
+    let host = render();
+    openTitleMenu(host);
+    const tree = menuItem("Session tree");
+    expect(tree).toBeDefined();
+    act(() => tree!.click());
+    expect(openSessionTreeView).toHaveBeenCalledWith(TAB);
+    act(() => root!.unmount());
+    root = null;
+    document.body.replaceChildren();
+
+    const group = state.projects[0]!;
+    useStore.setState({
+      state: { ...state, projects: [{ ...group, sessions: [{ ...group.sessions[0]!, live: "dormant" }] }] },
+    });
+    host = render();
+    openTitleMenu(host);
+    expect(menuItem("Branch into a new tab")).toBeDefined();
+    expect(menuItem("Session tree")).toBeUndefined();
+  });
+});
+
+describe("SessionHud gauge chip (issue #941)", () => {
+  const render = (): HTMLElement => {
+    wideMedia();
+    return mountHud();
+  };
+  const popover = (): Element | null => document.body.querySelector('[role="dialog"][aria-label="context and spend"]');
+
+  it("toggles auto-compact from the popover and stays open (#79)", () => {
+    const setAutoCompaction = vi.fn(async (): Promise<void> => {});
+    useStore.setState({ setAutoCompaction });
+    const host = render();
+    openGauge(host);
+    const sw = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="auto-compact"]')!;
+    expect(sw).not.toBeNull();
+    expect(host.contains(sw)).toBe(false);
+    // #79: the switch renders no visible text, so it shares a group with its label.
+    expect(sw.parentElement!.textContent).toContain("auto-compact");
+    act(() => sw.click());
+    expect(setAutoCompaction).toHaveBeenCalledWith(TAB, true);
+    expect(popover()).not.toBeNull();
+  });
+
+  it("compacts from the popover", () => {
+    const host = render();
+    openGauge(host);
+    const compact = document.body.querySelector<HTMLButtonElement>('button[title="compact the conversation now"]')!;
+    expect(compact.disabled).toBe(false);
+    act(() => compact.click());
+    expect(compactSession).toHaveBeenCalledWith(TAB);
+  });
+
+  it("reads a dash without context usage", () => {
+    useStore.setState({
+      rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, session: { ...emptySessionRuntime(), contextUsage: null } } },
+    });
+    const host = render();
+    const chip = host.querySelector<HTMLButtonElement>('button[aria-label="context and spend"]')!;
+    expect(chip.textContent).toContain("—");
+    expect(chip.textContent).not.toContain("%");
+    expect(chip.querySelector(".titlebar-gauge-cost")).toBeNull();
+  });
+
+  it("dismisses on an outside pointerdown, and on Escape with focus back on the chip", () => {
+    const host = render();
+    const chip = host.querySelector<HTMLButtonElement>('button[aria-label="context and spend"]')!;
+    openGauge(host);
+    expect(popover()).not.toBeNull();
+    act(() => { document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+    expect(popover()).toBeNull();
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    openGauge(host);
+    expect(popover()).not.toBeNull();
+    keydown(document.body, "Escape");
+    expect(popover()).toBeNull();
+    expect(document.activeElement).toBe(chip);
+  });
+});
+
+describe("SessionHud inspector toggle (issue #941)", () => {
+  it("badges the closed toggle with the open counts and flips the global inspector", () => {
+    useStore.setState({
+      inspectorOpen: false,
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          todos: [{ phase: "work", tasks: [
+            { content: "one", status: "pending" },
+            { content: "two", status: "pending" },
+            { content: "done", status: "completed" },
+          ] }],
+        },
+      },
+    });
+    wideMedia();
+    const host = mountHud();
+    const closed = host.querySelector<HTMLButtonElement>('button[aria-label="open inspector (2)"]')!;
+    expect(closed).not.toBeNull();
+    expect(closed.parentElement!.querySelector('span[aria-hidden="true"]')?.textContent).toBe("2");
+    act(() => closed.click());
+    expect(useStore.getState().inspectorOpen).toBe(true);
+    const open = host.querySelector<HTMLButtonElement>('button[aria-label="close inspector"]')!;
+    expect(open).not.toBeNull();
+    expect(open.getAttribute("aria-pressed")).toBe("true");
+    expect(open.parentElement!.querySelector('span[aria-hidden="true"]')).toBeNull();
+    act(() => open.click());
+    expect(useStore.getState().inspectorOpen).toBe(false);
   });
 });
 
@@ -761,8 +1049,11 @@ describe("SessionHud stream-stall chip (issue #228)", () => {
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
     expect(host.textContent).toContain("compacting");
-    const compact = host.querySelector<HTMLButtonElement>('button[title="compact the conversation now"]')!;
+    openGauge(host);
+    const compact = document.body.querySelector<HTMLButtonElement>('button[title="compact the conversation now"]')!;
     expect(compact.disabled).toBe(true);
+    openTitleMenu(host);
+    expect(menuItem("Compact now")?.disabled).toBe(true);
   });
 });
 
@@ -817,15 +1108,16 @@ describe("SessionHud compaction threshold notch (issue #249)", () => {
     });
   };
 
-  const meter = (host: HTMLElement): HTMLElement =>
-    host.querySelector<HTMLElement>(".titlebar-context-meter")!;
+  const meter = (scope: ParentNode): HTMLElement =>
+    scope.querySelector<HTMLElement>(".titlebar-context-meter")!;
 
   it("marks the auto-compaction threshold on the context meter while auto-compact is on", () => {
     desktop();
     seed(true, { "/p": { thresholdPercent: -1, thresholdTokens: -1 } });
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
-    const bar = meter(host);
+    openGauge(host);
+    const bar = meter(document.body);
     expect(bar).not.toBeNull();
     const notch = bar.querySelector("span");
     expect(notch).not.toBeNull();
@@ -841,7 +1133,8 @@ describe("SessionHud compaction threshold notch (issue #249)", () => {
     seed(false, { "/p": { thresholdPercent: -1, thresholdTokens: -1 } });
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
-    const bar = meter(host);
+    openGauge(host);
+    const bar = meter(document.body);
     expect(bar.querySelector("span")).toBeNull();
     expect(bar.title).not.toContain("omp auto-compacts");
   });
@@ -851,11 +1144,12 @@ describe("SessionHud compaction threshold notch (issue #249)", () => {
     seed(true);
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
-    const bar = meter(host);
+    openGauge(host);
+    const bar = meter(document.body);
     expect(bar).not.toBeNull();
     expect(bar.querySelector("span")).toBeNull();
     // The meter itself is unaffected by the missing settings.
-    expect(host.textContent).toContain("20.0%");
+    expect(document.body.textContent).toContain("20.0%");
   });
 
   it("shows no notch when the settings read failed (cached null)", () => {
@@ -863,8 +1157,9 @@ describe("SessionHud compaction threshold notch (issue #249)", () => {
     seed(true, { "/p": null });
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
-    expect(meter(host).querySelector("span")).toBeNull();
-    expect(host.textContent).toContain("20.0%");
+    openGauge(host);
+    expect(meter(document.body).querySelector("span")).toBeNull();
+    expect(document.body.textContent).toContain("20.0%");
   });
 
   it("marks the compact shell's header meter too", () => {
@@ -897,7 +1192,8 @@ describe("SessionHud compaction threshold notch (issue #249)", () => {
     }));
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
-    const notch = meter(host).querySelector("span");
+    openGauge(host);
+    const notch = meter(document.body).querySelector("span");
     expect(notch).not.toBeNull();
     expect(notch!.style.left).toBe("calc(51% - 1px)");
   });
@@ -1188,38 +1484,39 @@ describe("retitle affordance (issue #433)", () => {
       },
     });
   };
-  const renderWide = (): HTMLElement => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
-    });
-    const host = document.createElement("div");
-    document.body.append(host);
-    root = createRoot(host);
-    act(() => root!.render(<SessionHud tabId={TAB} />));
-    return host;
-  };
 
-  it("reveals a retitle button that reaches the action with the tab id", () => {
+  it("retitles from the title menu with no local gate (issue #788)", () => {
+    // The engine digests the session itself and answers its own decline,
+    // so the row no longer gates on a local transcript digest or a local
+    // in-flight flag — omp's command row is the feedback.
+    const regenerateSessionTitle = vi.fn(async (): Promise<void> => {});
+    useStore.setState({ regenerateSessionTitle });
+    wideMedia();
+    const host = mountHud();
+    openTitleMenu(host);
+    const row = menuItem("Retitle from transcript")!;
+    expect(row).toBeDefined();
+    expect(row.disabled).toBe(false);
+    act(() => row.click());
+    expect(regenerateSessionTitle).toHaveBeenCalledWith(TAB);
+  });
+
+  it("reveals a retitle button in the compact session-actions sheet", () => {
     const regenerateSessionTitle = vi.fn(async (): Promise<void> => {});
     useStore.setState({ regenerateSessionTitle });
     seedExchange();
-    const host = renderWide();
-    const button = host.querySelector<HTMLButtonElement>('button[aria-label="retitle"]')!;
+    // The default beforeEach matchMedia matches: true (compact shell).
+    const host = mountHud();
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="session actions"]')!.click());
+    const button = document.body.querySelector<HTMLButtonElement>('button[aria-label="retitle"]')!;
+    expect(button).not.toBeNull();
     // Hidden until hover — and until keyboard focus, like the row controls.
     expect(button.className).toContain("opacity-0");
     expect(button.className).toContain("focus-visible:opacity-100");
     expect(button.title).toContain("regenerate the title");
+    expect(button.disabled).toBe(false);
     act(() => button.click());
     expect(regenerateSessionTitle).toHaveBeenCalledWith(TAB);
-  });
-
-  it("stays enabled with no local gate (issue #788)", () => {
-    // The engine digests the session itself and answers its own decline,
-    // so the row no longer gates on a local transcript digest or a local
-    // in-flight flag — omp's command row is the feedback.
-    const host = renderWide();
-    expect(host.querySelector<HTMLButtonElement>('button[aria-label="retitle"]')!.disabled).toBe(false);
   });
 });
 
@@ -1251,7 +1548,7 @@ describe("SessionHud provider quota readout (issue #673)", () => {
     });
   };
 
-  it("renders the rate windows and their nearest reset countdown", () => {
+  it("renders the rate windows and their reset times in the gauge popover", () => {
     seedLimits({
       available: true,
       provider: "anthropic",
@@ -1263,9 +1560,13 @@ describe("SessionHud provider quota readout (issue #673)", () => {
       fetchedAtMs: Date.now() - 60_000,
     });
     const host = renderWide();
-    const cluster = host.querySelector<HTMLElement>(".titlebar-limits")!;
+    openGauge(host);
+    const cluster = document.body.querySelector<HTMLElement>(".titlebar-limits")!;
+    expect(cluster).not.toBeNull();
+    expect(host.contains(cluster)).toBe(false);
     expect(cluster.textContent).toContain("5 hour 72%");
     expect(cluster.textContent).toContain("week");
+    expect(cluster.textContent).toContain("resets");
     expect(cluster.textContent).toContain("resets in");
     // An unknown percent still gets a row; the tooltip names it.
     expect(cluster.getAttribute("title")).toContain("usage unknown");
@@ -1283,7 +1584,8 @@ describe("SessionHud provider quota readout (issue #673)", () => {
       fetchedAtMs: 0,
     });
     const host = renderWide();
-    expect(host.querySelector(".titlebar-limits")).toBeNull();
+    openGauge(host);
+    expect(document.body.querySelector(".titlebar-limits")).toBeNull();
   });
 
   it("hides the cluster for a provider that reports no windows", () => {
@@ -1295,7 +1597,8 @@ describe("SessionHud provider quota readout (issue #673)", () => {
       fetchedAtMs: Date.now(),
     });
     const host = renderWide();
-    expect(host.querySelector(".titlebar-limits")).toBeNull();
+    openGauge(host);
+    expect(document.body.querySelector(".titlebar-limits")).toBeNull();
   });
 
   it("shows the credential-switch chip and the wait chip with its delay", () => {
@@ -1309,17 +1612,8 @@ describe("SessionHud provider quota readout (issue #673)", () => {
     expect(host2.textContent).toContain("rate limit — waiting for 1m 05s");
   });
 
-  it("keeps the new readouts inside no-drag boxes in the wide face", () => {
-    seedLimits(
-      {
-        available: true,
-        provider: "anthropic",
-        windows: [{ id: "anthropic:5h", label: "5 hour", percent: 32, resetsAtMs: Date.now() + 60_000 }],
-        bankedResets: 0,
-        fetchedAtMs: Date.now(),
-      },
-      { at: Date.now(), kind: "rotation" },
-    );
+  it("keeps the credential-switch chip inside a no-drag box in the wide face", () => {
+    seedLimits(null, { at: Date.now(), kind: "rotation" });
     const host = renderWide();
     const hud = host.firstElementChild as HTMLElement;
     const carvedOut = (el: HTMLElement): boolean => {
@@ -1329,11 +1623,10 @@ describe("SessionHud provider quota readout (issue #673)", () => {
       }
       return false;
     };
-    const cluster = host.querySelector<HTMLElement>(".titlebar-limits-cluster")!;
-    expect(carvedOut(cluster)).toBe(true);
     const chip = [...hud.querySelectorAll<HTMLElement>("span")].find(
       (s) => s.textContent === "credential switched",
     )!;
+    expect(chip).toBeDefined();
     expect(carvedOut(chip)).toBe(true);
   });
 });
@@ -1434,8 +1727,7 @@ describe("SessionHud fast mode chip (issue #677)", () => {
     useStore.setState({ setFastMode });
     seedFast(false, false);
     const host = renderWide();
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
-    act(() => trigger.click());
+    openModes(host);
     const sw = document.body.querySelector<HTMLButtonElement>(
       'button[role="switch"][aria-label="fast mode"]',
     )!;
@@ -1451,8 +1743,7 @@ describe("SessionHud fast mode chip (issue #677)", () => {
     useStore.setState({ setServiceTier });
     seedFast(false, false, { serviceTiers: ["priority", "ultrafast"], serviceTier: null });
     const host = renderWide();
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
-    act(() => trigger.click());
+    openModes(host);
     const group = document.body.querySelector('[role="group"][aria-label="fast mode"]')!;
     expect(group).not.toBeNull();
     expect(document.body.querySelector('[role="switch"][aria-label="fast mode"]')).toBeNull();
@@ -1581,8 +1872,7 @@ describe("SessionHud approval mode control (issue #681)", () => {
     useStore.setState({ setSessionApprovalMode });
     seedApproval("write");
     const host = renderWide();
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
-    act(() => trigger.click());
+    openModes(host);
     const pick = (label: string): HTMLButtonElement => {
       const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
         (b) => b.textContent === label,
@@ -1616,8 +1906,7 @@ describe("SessionHud approval mode control (issue #681)", () => {
     });
     seedApproval(null);
     const host = renderWide();
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="queue modes and retry"]')!;
-    act(() => trigger.click());
+    openModes(host);
     await act(async () => {
       await Promise.resolve();
     });

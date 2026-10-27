@@ -11,7 +11,7 @@ import { ShareLiveConfirmDialog } from "./components/ShareLiveConfirmDialog";
 import { DiagnosticsExportDialog } from "./components/DiagnosticsExportDialog";
 import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { GettingStarted } from "./components/GettingStarted";
-import { inspectorBadges } from "./components/InspectorRail";
+import { inspectorBadgeTotal } from "./components/InspectorRail";
 import { CapabilitiesViewer } from "./components/CapabilitiesViewer";
 import { SessionTreeViewer } from "./components/SessionTreeViewer";
 import { NewExperimentDialog } from "./components/NewExperimentDialog";
@@ -31,7 +31,7 @@ import { SessionHud } from "./components/SessionHud";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
-import { Button, Chevron, IconButton, IconPlus } from "./components/ui";
+import { Button, Chevron, IconButton, IconInspect, IconPlus } from "./components/ui";
 import { cn } from "./lib/cn";
 import { formatHotkey, useHotkeys } from "./lib/hotkeys";
 import { useT, type MessageKey } from "./lib/i18n";
@@ -77,25 +77,6 @@ function IconMenu() {
       strokeLinecap="round"
     >
       <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
-    </svg>
-  );
-}
-
-/** Side panel — the compact shell's inspector trigger, echoing the rail. */
-function IconInspect() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className="size-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
-      <path d="M10 2.5v11" />
     </svg>
   );
 }
@@ -281,8 +262,7 @@ export default function App() {
   const inspectorCount = useStore((s) => {
     const id = s.activeTabId;
     if (id === null || s.tabs.find((tab) => tab.tabId === id)?.mode !== "rpc-ui") return 0;
-    const badges = inspectorBadges(s.rpc[id], findRecord(s.state, id));
-    return badges.todos + badges.agents + badges.jobs + badges.plans;
+    return inspectorBadgeTotal(s.rpc[id], findRecord(s.state, id));
   });
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
@@ -476,7 +456,7 @@ export default function App() {
           </span>
           {activeTab?.mode === "rpc-ui" ? (
             <Button variant="ghost" className="relative h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("inspector")}>
-              <IconInspect />
+              <IconInspect className="size-4" />
               <span className="sr-only">{t("app.compact.inspector")}</span>
               {inspectorCount > 0 && (
                 <span aria-hidden className="absolute right-1 top-1.5 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-[9px] leading-3.5 text-copper">

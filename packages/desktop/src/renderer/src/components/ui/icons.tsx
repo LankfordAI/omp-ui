@@ -190,3 +190,13 @@ export function IconFleet({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/** Side panel — the inspector toggle (title bar and compact nav), echoing the rail. */
+export function IconInspect({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+      <path d="M10 2.5v11" />
+    </svg>
+  );
+}

@@ -319,15 +319,21 @@ carry a timestamp. Stamps change only the image, never the page.
 _Avoid_: timestamp overlay, watermark, system tray clock
 
 **Session HUD**:
-The status bar atop an rpc-ui tab: liveness, click-to-rename title, context
-meter, spend, and the session controls (compact, auto-compact, export, share,
-branch, new, refresh, queue modes). While auto-compact is enabled, the context
-carries a notch at the compaction threshold — the token count where omp
-auto-compacts. The main spend is whole-session: the main agent plus every
-subagent transcript at any depth, and it survives compaction (ADR-0056).
-Advisor spend stays in the `adv` readout. Model, thinking level, and the advisor live in the
-composer instead, next to the text they affect. With the advisor enabled, a
-second, quieter `adv` readout sits beside the main usage. Its context meter and
+The status bar atop an rpc-ui tab: liveness, the session title as a menu
+button, status chips, a gauge chip, and an inspector toggle. The title menu
+holds rename and retitle, the View toggles (console, browser pane), Session
+actions (branch, session tree, new session, compact now), Share actions
+(export HTML, encrypted snapshot, redacted copy), Capabilities, queue modes and
+retry, and refresh. The gauge chip shows context fill and whole-session spend;
+its popover holds the context meter, compact now, the auto-compact switch, the
+spend breakdown, quota windows, the advisor readout and roster, and extension
+notices. While auto-compact is enabled, the context meter carries a notch at
+the compaction threshold — the token count where omp auto-compacts. The main
+spend is whole-session: the main agent plus every subagent transcript at any
+depth, and it survives compaction (ADR-0056). Model, thinking level, and the
+advisor live in the composer instead, next to the text they affect. With the
+advisor enabled, the advisor readout sits in the gauge popover beside the main
+usage. Its context meter and
 model describe the parent advisor; its spend and token total include advisor
 activity in every spawned descendant. The parent switch is a ceiling: an
 advisor-off parent disables descendant advisors, while an advisor-on parent
@@ -416,7 +422,7 @@ room** through omp's `/collab`. omp hosts the room from inside the session's
 TUI; omp-ui opens it, reads its state from omp's local registry, and closes it.
 Terminal tabs only: the command lives in the TUI, and the RPC protocol exposes
 no collab surface, so a native session's dialog reads as unavailable. It is
-distinct from the HUD's **share** control, which uploads an encrypted static
+distinct from the HUD title menu's **Publish encrypted snapshot** item, which uploads an encrypted static
 snapshot, and from **remote access**, which reaches whole-instance omp-ui users.
 _Avoid_: live share (as a noun), collab (as a verb), mirror, broadcast
 
@@ -576,7 +582,7 @@ signal.
 _Avoid_: session name generation, summary, label, two-phase titling
 
 **Re-titling**:
-A user-requested second look at a session's title: the HUD's retitle button or
+A user-requested second look at a session's title: the HUD title menu's Retitle item or
 the palette's **Regenerate session title** runs the bare `/rename` through the
 normal command row, so the command row plus its settlement notice are the
 feedback. It replaces Auto-title's answer, never the user's own rename; it
@@ -984,7 +990,7 @@ MCP manager, contract unchanged; Skills and Tools have two sources that never
 imitate each other: with a pinned live native session they are that session's
 **roster** — the skills it loaded and every tool it registered, delivered by
 a generated `-e` extension (ADR-0008), never by a parse or a prompt — and
-without a pin (the HUD button and palette now always open it unpinned, at
+without a pin (the HUD title menu and palette now always open it unpinned, at
 global scope) they are the **capability catalog** for that scope. In the
 pinned view the Tools tab can also change one registered tool's enabled
 membership in that live session at runtime — session-local, never a config
@@ -1021,8 +1027,8 @@ Toggles write through core's mcp-config and capability modules; pins through
 setProjectDefaultModel / setProjectDefaultAdvisorModel; all take effect on
 the next session spawn. Session-scoped control keeps the capabilities
 viewer's pinned tab: the palette's "Capabilities for this session", /mcp,
-and Settings → omp; the Session HUD's Capabilities button itself opens the
-global catalog, badge and all.
+and Settings → omp; the Capabilities item in the Session HUD's title menu
+itself opens the global catalog, badge and all.
 _Avoid_: project preferences, per-project settings page, project options
 
 **Memory settings**:

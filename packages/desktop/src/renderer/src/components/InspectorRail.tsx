@@ -1101,6 +1101,12 @@ export function inspectorBadges(
   };
 }
 
+/** The aggregate the closed-rail affordances show: compact nav button and title-bar toggle. */
+export function inspectorBadgeTotal(runtime: RpcTabState | undefined, record: SessionSummary | undefined): number {
+  const badges = inspectorBadges(runtime, record);
+  return badges.todos + badges.agents + badges.jobs + badges.plans;
+}
+
 export function InspectorRail({ tabId }: { tabId: string }) {
   const t = useT();
   const [tab, setTab] = useState<RailTab>(() => selectedTab.get(tabId) ?? "todos");

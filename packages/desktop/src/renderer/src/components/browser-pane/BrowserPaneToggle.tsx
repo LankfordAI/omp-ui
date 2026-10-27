@@ -2,7 +2,7 @@ import { useT } from "../../lib/i18n";
 import { useStore } from "../../store";
 import { ICON_STROKE, IconButton } from "../ui";
 
-/** A globe: the browser pane's HUD glyph, drawn like App's IconInspect. */
+/** A globe: the browser pane's HUD glyph, drawn like ui's IconInspect. */
 function IconGlobe() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">

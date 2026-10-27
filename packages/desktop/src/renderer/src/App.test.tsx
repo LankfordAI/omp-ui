@@ -224,8 +224,9 @@ describe("desktop merged title bar (issues #59/#60)", () => {
     // an expanded sidebar leaves the strip with neither.
     expect(header.querySelector('button[aria-label="add project"]')).toBeNull();
     expect(header.querySelector('button[aria-label="new session — pick a project"]')).toBeNull();
-    // the rpc-ui HUD rides the same strip
-    expect(header.querySelector('button[aria-label^="branch this session"]')).not.toBeNull();
+    // the rpc-ui HUD rides the same strip: its title menu and inspector toggle
+    expect(header.querySelector('[aria-haspopup="menu"]')).not.toBeNull();
+    expect(header.querySelector('button[aria-label^="open inspector"]')).not.toBeNull();
     // no noise texture — the overlay can only paint a flat colour (#59); the
     // fill is the void plane token (opaque at glass Off, ADR-0026)
     expect(header.className).not.toContain("ambient");
@@ -247,7 +248,7 @@ describe("desktop merged title bar (issues #59/#60)", () => {
     renderApp();
     act(() => useStore.setState({ activeTabId: "pty" }));
     const header = document.body.querySelector("header")!;
-    expect(header.querySelector('button[aria-label="branch this session"]')).toBeNull();
+    expect(header.querySelector('button[aria-label^="open inspector"]')).toBeNull();
     expect(header.querySelector('button[aria-label="collapse sidebar"]')).not.toBeNull();
     act(() => (header.querySelector('button[aria-label="collapse sidebar"]') as HTMLButtonElement).click());
     expect(useStore.getState().sidebarCollapsed).toBe(true);
