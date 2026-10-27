@@ -202,7 +202,7 @@ an active goal as paused.
 
 ## Inspector rail
 
-The **inspector rail** is the right-hand icon strip in a native tab. It has seven panes. Selecting an icon opens one pane; selecting the active icon again closes it. The selected pane is remembered per tab, and badges show open todo, subagent, running background jobs, pending-plan, and answered side-question counts.
+The **inspector rail** is the right-hand strip in a native tab. It shows four labelled groups (Work: Todos, Agents, Jobs; Review: Plans, Diffs; Ask: Side questions, Seance; Info: Session). Selecting a group opens its pane, with a tab for each member; selecting the active group again closes it. The selected group and each group's tab are remembered per tab. A group's badge adds up its members' counts (open todos, subagents, running background jobs, pending plans, answered side questions, live Seance consults), and each member tab shows its own. Chats have no Review group.
 
 - **Todos** shows OMP's todo phases and task states for the focused session.
 - **Agents** lists live and settled subagents. Select one to open the **subagent view** in the main transcript area. That read-only view backfills the subagent's own transcript and renders its thinking, tool cards, and usage receipts. Its banner names the agent and status and returns to the main agent. While the subagent runs, the banner and its Agents-pane row carry **steer** (send it a message as its user) and **kill** (abort it; its transcript stays readable); both need omp 18.4.9 or later. There is no composer: the subagent view is not a chat surface. The main session keeps running behind the view.
@@ -212,7 +212,7 @@ The **inspector rail** is the right-hand icon strip in a native tab. It has seve
 - **Plans** shows proposed plans and the actions for a pending review.
 - **Diffs** shows every tracked and untracked working-tree change on the effective git branch. This is a branch diff, not a per-session edit history, so it can include changes made outside the focused session. For a branch off the default branch, it also shows this branch's commits since the cut point, and the header chip names the base. On the default branch itself it shows commits you have not pushed yet, measured from the branch's upstream. The pane header shows the file count and total `+`/`−` lines, with **expand all** / **collapse all**. Each file card expands to every row with line numbers, syntax highlighting, and word-level marks inside changed lines; renamed files show `renamed` and the old path, and binary files show `binary`.
 
-On compact screens, the inspector opens as a right-side sheet with the same seven panes.
+On compact screens, the inspector opens as a right-side sheet with the same four groups.
 
 ## Browser pane
 

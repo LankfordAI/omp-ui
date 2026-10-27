@@ -2017,6 +2017,11 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.chrome.resize": "인스펙터 크기 조절",
   "rail.chrome.collapse": "인스펙터 접기",
   "rail.chrome.badgedTitle": "{label} ({count})",
+  // 인스펙터 레일 그룹 (issue #940)
+  "rail.groups.work": "진행",
+  "rail.groups.review": "검토",
+  "rail.groups.ask": "질문",
+  "rail.groups.info": "정보",
 
   "diff.rail.readingTitle": "브랜치 읽는 중…",
   "diff.rail.readingHint": "워크트리 diff를 수집하는 중입니다.",
