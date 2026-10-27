@@ -2191,6 +2191,11 @@ export const en = {
   "rail.chrome.resize": "resize inspector",
   "rail.chrome.collapse": "collapse inspector",
   "rail.chrome.badgedTitle": "{label} ({count})",
+  // Inspector rail groups (issue #940): the strip's four labelled buttons.
+  "rail.groups.work": "work",
+  "rail.groups.review": "review",
+  "rail.groups.ask": "ask",
+  "rail.groups.info": "info",
 
   "diff.rail.readingTitle": "Reading branch…",
   "diff.rail.readingHint": "Gathering the working-tree diff.",

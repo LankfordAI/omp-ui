@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { LiveAudioEntry } from "@omp-ui/core/live-voice";
 import type { SpendTotals } from "@omp-ui/core/session-spend";
 import { backendFor } from "../backend";
@@ -8,6 +8,7 @@ import { useCompactShell, useViewportWidth } from "../lib/responsive";
 import {
   INSPECTOR_DEFAULT_WIDTH,
   INSPECTOR_MIN_WIDTH,
+  INSPECTOR_STRIP_WIDTH,
   resolveDesktopPanelWidths,
   type RailTab,
 } from "../lib/panel-layout";
@@ -56,18 +57,38 @@ interface BranchDiffLoad {
 
 /**
  * The right-hand instrument rail: the agent's plan, its subagents, and the
- * hard session facts. The icon strip is the permanent posture — pressing an
- * icon opens just that one pane beside it, and re-pressing the active icon
- * (or the pane's close control) dismisses it. Badge counts live on the strip
- * icons. (The console moved to the composer drawer — issue #33.)
+ * hard session facts. The strip of four labelled group buttons (Work, Review,
+ * Ask, Info) is the permanent posture — pressing a group opens its pane beside
+ * it, with a member tab row when the group has more than one pane, and
+ * re-pressing the active group (or the pane's close control) dismisses it. A
+ * group's badge is the sum of its members' counts; each member tab carries its
+ * own. (The console moved to the composer drawer — issue #33.)
  */
 
+type RailGroup = "work" | "review" | "ask" | "info";
+
+type GroupLabelKey = "rail.groups.work" | "rail.groups.review" | "rail.groups.ask" | "rail.groups.info";
+
+/** Strip order; members in pane order. */
+const GROUPS: readonly { id: RailGroup; labelKey: GroupLabelKey; members: readonly RailTab[] }[] = [
+  { id: "work", labelKey: "rail.groups.work", members: ["todos", "agents", "jobs"] },
+  { id: "review", labelKey: "rail.groups.review", members: ["plans", "diffs"] },
+  { id: "ask", labelKey: "rail.groups.ask", members: ["btw", "seance"] },
+  { id: "info", labelKey: "rail.groups.info", members: ["session"] },
+];
+
 /**
- * Rail selection is per-session and deliberately module-level: it is view
- * preference, not session state, so it must not round-trip through the store —
- * but it must also survive a tab switch and back, which component state cannot.
+ * Rail selection (group and per-group member) is per-session and deliberately
+ * module-level: it is view preference, not session state, so it must not
+ * round-trip through the store — but it must also survive a tab switch and
+ * back, which component state cannot.
  */
-const selectedTab = new Map<string, RailTab>();
+interface RailSelection {
+  group: RailGroup;
+  members: Partial<Record<RailGroup, RailTab>>;
+}
+const DEFAULT_SELECTION: RailSelection = { group: "work", members: {} };
+const selection = new Map<string, RailSelection>();
 // Open posture is shared renderer view state; selected panes remain per-tab.
 /** The last `railPaneFocus` nonce each tab's rail applied, so a request lands once. */
 const handledFocus = new Map<string, number>();
@@ -97,13 +118,6 @@ function TabIcon({ tab }: { tab: RailTab }) {
           <path d="M4.4 6.4l1.8 1.6-1.8 1.6M7.8 9.8h3.4" {...ICON_STROKE} />
         </>
       )}
-      {tab === "session" && (
-        <>
-          <path d="M2.6 4.4c0-1 2.4-1.9 5.4-1.9s5.4.9 5.4 1.9-2.4 1.9-5.4 1.9S2.6 5.4 2.6 4.4z" {...ICON_STROKE} />
-          <path d="M2.6 4.4v7.2c0 1 2.4 1.9 5.4 1.9s5.4-.9 5.4-1.9V4.4" {...ICON_STROKE} />
-          <path d="M2.6 8c0 1 2.4 1.9 5.4 1.9s5.4-.9 5.4-1.9" {...ICON_STROKE} />
-        </>
-      )}
       {tab === "plans" && (
         <>
           <path d="M3.4 5.6h9.2V12a1.3 1.3 0 0 1-1.3 1.3H4.7A1.3 1.3 0 0 1 3.4 12z" {...ICON_STROKE} />
@@ -131,6 +145,18 @@ function TabIcon({ tab }: { tab: RailTab }) {
           <path d="M6.4 6.9v.1M9.6 6.9v.1" {...ICON_STROKE} />
         </>
       )}
+    </svg>
+  );
+}
+
+function GroupIcon({ group }: { group: RailGroup }) {
+  if (group === "work") return <TabIcon tab="todos" />;
+  if (group === "review") return <TabIcon tab="plans" />;
+  if (group === "ask") return <TabIcon tab="btw" />;
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
+      <circle cx="8" cy="8" r="5.6" {...ICON_STROKE} />
+      <path d="M8 7.4v3.4M8 5.2v.1" {...ICON_STROKE} />
     </svg>
   );
 }
@@ -1065,6 +1091,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
 
 /* -------------------------------------------------------------- the rail */
 
+/** Each pane's label; order is pane order within groups. */
 const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.jobs" | "rail.tabs.session" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" | "rail.tabs.seance" }[] = [
   { id: "todos", labelKey: "rail.tabs.todos" },
   { id: "agents", labelKey: "rail.tabs.agents" },
@@ -1101,9 +1128,82 @@ export function inspectorBadges(
   };
 }
 
+/** A group's badge: the sum of its visible members' counts (strip and compact sheet). */
+function groupCount(badges: Record<RailTab, number>, members: readonly RailTab[]): number {
+  return members.reduce((sum, pane) => sum + badges[pane], 0);
+}
+
+/** The open group's member tabs: one per visible pane, each with its own count. */
+function MemberTabs({
+  groupLabel,
+  members,
+  shown,
+  badges,
+  baseId,
+  onSelect,
+}: {
+  groupLabel: string;
+  members: readonly RailTab[];
+  shown: RailTab;
+  badges: Record<RailTab, number>;
+  baseId: string;
+  onSelect: (pane: RailTab) => void;
+}) {
+  const t = useT();
+  const refs = useRef<Partial<Record<RailTab, HTMLButtonElement | null>>>({});
+  const onKeyDown = (event: KeyboardEvent): void => {
+    const index = members.indexOf(shown);
+    const target =
+      event.key === "ArrowRight" ? (index + 1) % members.length
+      : event.key === "ArrowLeft" ? (index + members.length - 1) % members.length
+      : event.key === "Home" ? 0
+      : event.key === "End" ? members.length - 1
+      : null;
+    if (target === null) return;
+    event.preventDefault();
+    const next = members[target]!;
+    onSelect(next);
+    refs.current[next]?.focus();
+  };
+  return (
+    <div role="tablist" aria-label={groupLabel} onKeyDown={onKeyDown} className="flex shrink-0 flex-wrap gap-1 border-b border-line px-2 py-1.5">
+      {members.map((pane) => {
+        const label = t(TABS.find(({ id }) => id === pane)!.labelKey);
+        const count = badges[pane];
+        const selected = pane === shown;
+        return (
+          <button
+            key={pane}
+            ref={(node) => {
+              refs.current[pane] = node;
+            }}
+            type="button"
+            role="tab"
+            id={`${baseId}-tab-${pane}`}
+            aria-selected={selected}
+            aria-controls={`${baseId}-panel`}
+            tabIndex={selected ? 0 : -1}
+            aria-label={label}
+            title={count > 0 ? t("rail.chrome.badgedTitle", { label, count }) : label}
+            onClick={() => onSelect(pane)}
+            className={cn(
+              "flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors",
+              selected ? "bg-hover text-ink" : "text-ink-mid hover:text-ink",
+            )}
+          >
+            {label}
+            {count > 0 && <span className="font-mono text-[10px] tabular-nums text-copper">{count > 99 ? "99+" : count}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function InspectorRail({ tabId }: { tabId: string }) {
   const t = useT();
-  const [tab, setTab] = useState<RailTab>(() => selectedTab.get(tabId) ?? "todos");
+  const [sel, setSel] = useState<RailSelection>(() => selection.get(tabId) ?? DEFAULT_SELECTION);
+  const baseId = useId();
   const compact = useCompactShell();
   const viewportWidth = useViewportWidth();
   const surface = useStore((s) => s.compactSurface);
@@ -1123,9 +1223,20 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   const lastTabId = useRef(tabId);
   if (lastTabId.current !== tabId) {
     lastTabId.current = tabId;
-    setTab(selectedTab.get(tabId) ?? "todos");
+    setSel(selection.get(tabId) ?? DEFAULT_SELECTION);
   }
 
+  // Write-through to the module map: reads the map, not the closure, so a
+  // focus request and a click in the same tick keep each other's memory.
+  const remember = useCallback((update: (current: RailSelection) => RailSelection): void => {
+    const next = update(selection.get(tabId) ?? DEFAULT_SELECTION);
+    selection.set(tabId, next);
+    setSel(next);
+  }, [tabId]);
+  const pickPane = useCallback((pane: RailTab): void => {
+    const group = GROUPS.find(({ members }) => members.includes(pane))!.id;
+    remember((current) => ({ group, members: { ...current.members, [group]: pane } }));
+  }, [remember]);
 
   useEffect(() => {
     setPreviewWidth(null);
@@ -1138,11 +1249,10 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   useEffect(() => {
     if (focusRequest === undefined || handledFocus.get(tabId) === focusRequest.nonce) return;
     handledFocus.set(tabId, focusRequest.nonce);
-    selectedTab.set(tabId, focusRequest.pane);
-    setTab(focusRequest.pane);
+    pickPane(focusRequest.pane);
     if (compact) showCompactSurface("inspector");
     else setOpen(true);
-  }, [focusRequest, tabId, compact, setOpen, showCompactSurface]);
+  }, [focusRequest, tabId, compact, setOpen, showCompactSurface, pickPane]);
 
   const resolvedWidths = resolveDesktopPanelWidths({
     viewportWidth,
@@ -1157,22 +1267,25 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   const record = useStore((s) => findRecord(s.state, tabId));
   const badges = inspectorBadges(runtime, record);
   const chat = record?.chat === true;
-  const visibleTabs = chat ? TABS.filter(({ id }) => id !== "plans" && id !== "diffs") : TABS;
-  const shownTab = visibleTabs.some(({ id }) => id === tab) ? tab : "todos";
+  const groups = GROUPS
+    .map((group) => ({ ...group, members: chat ? group.members.filter((p) => p !== "plans" && p !== "diffs") : group.members }))
+    .filter((group) => group.members.length > 0);
+  // groups[0] is always Work, which never empties.
+  const shownGroup = groups.find(({ id }) => id === sel.group) ?? groups[0]!;
+  const remembered = sel.members[shownGroup.id];
+  const shownTab: RailTab = remembered !== undefined && shownGroup.members.includes(remembered) ? remembered : shownGroup.members[0]!;
+  const groupLabel = t(shownGroup.labelKey);
   const close = (): void => {
     setOpen(false);
   };
-  const select = (next: RailTab): void => {
-    // Re-pressing the active icon dismisses the pane back to the strip.
-    if (!compact && next === shownTab && open) {
+  const selectGroup = (next: RailGroup): void => {
+    // Re-pressing the active group dismisses the pane back to the strip.
+    if (!compact && next === shownGroup.id && open) {
       close();
       return;
     }
-    selectedTab.set(tabId, next);
-    setTab(next);
-    if (!compact && !open) {
-      setOpen(true);
-    }
+    remember((current) => ({ ...current, group: next }));
+    if (!compact && !open) setOpen(true);
   };
   const pane = (
     <>
@@ -1191,34 +1304,46 @@ export function InspectorRail({ tabId }: { tabId: string }) {
       {shownTab === "seance" && <SeancePane tabId={tabId} />}
     </>
   );
+  const memberTabs = shownGroup.members.length > 1 ? (
+    <MemberTabs groupLabel={groupLabel} members={shownGroup.members} shown={shownTab} badges={badges} baseId={baseId} onSelect={pickPane} />
+  ) : null;
+  const panelProps = memberTabs === null
+    ? { id: `${baseId}-panel` }
+    : { id: `${baseId}-panel`, role: "tabpanel" as const, "aria-labelledby": `${baseId}-tab-${shownTab}` };
 
   if (compact) {
     return (
       <Sheet open={surface === "inspector"} placement="right" label={t("rail.chrome.inspector")} onClose={closeCompactSurface}>
-        <div className={cn("sticky top-0 z-10 grid border-b border-line bg-sunken", chat ? "grid-cols-6" : "grid-cols-8")}>
-          {visibleTabs.map(({ id, labelKey }) => {
-            const label = t(labelKey);
-            return (
-            <button
-              key={id}
-              type="button"
-              title={label}
-              aria-pressed={id === shownTab}
-              onClick={() => select(id)}
-              className={cn(
-                "relative flex min-h-12 flex-col items-center justify-center gap-0.5 text-[10px] transition-colors",
-                id === shownTab ? "bg-raised text-ink" : "text-ink-dim",
-              )}
-            >
-              <TabIcon tab={id} />
-              <span>{label}</span>
-              {badges[id] > 0 && <span className="absolute right-1.5 top-1 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-[9px] leading-3.5 text-copper">{badges[id] > 99 ? "99+" : badges[id]}</span>}
-              {id === shownTab && <span aria-hidden className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ink" />}
-            </button>
-            );
-          })}
+        <div className="sticky top-0 z-10 bg-sunken">
+          <div className={cn("grid border-b border-line", groups.length === 4 ? "grid-cols-4" : "grid-cols-3")}>
+            {groups.map(({ id, labelKey, members }) => {
+              const label = t(labelKey);
+              const count = groupCount(badges, members);
+              const active = id === shownGroup.id;
+              return (
+              <button
+                key={id}
+                type="button"
+                aria-label={label}
+                title={count > 0 ? t("rail.chrome.badgedTitle", { label, count }) : label}
+                aria-pressed={active}
+                onClick={() => selectGroup(id)}
+                className={cn(
+                  "relative flex min-h-12 flex-col items-center justify-center gap-0.5 text-[10px] transition-colors",
+                  active ? "bg-raised text-ink" : "text-ink-dim",
+                )}
+              >
+                <GroupIcon group={id} />
+                <span>{label}</span>
+                {count > 0 && <span className="absolute right-1.5 top-1 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-[9px] leading-3.5 text-copper">{count > 99 ? "99+" : count}</span>}
+                {active && <span aria-hidden className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ink" />}
+              </button>
+              );
+            })}
+          </div>
+          {memberTabs}
         </div>
-        <div>{pane}</div>
+        <div {...panelProps}>{pane}</div>
       </Sheet>
     );
   }
@@ -1249,22 +1374,37 @@ export function InspectorRail({ tabId }: { tabId: string }) {
             onDraggingChange={setResizing}
           />
           <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2.5">
-            <Label className="min-w-0 flex-1 truncate">{t(TABS.find(({ id }) => id === shownTab)!.labelKey)}</Label>
+            <Label className="min-w-0 flex-1 truncate">{groupLabel}</Label>
             <IconButton label={t("rail.chrome.collapse")} onClick={close}>
               <IconCollapse />
             </IconButton>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">{pane}</div>
+          {memberTabs}
+          <div {...panelProps} className="min-h-0 flex-1 overflow-y-auto">{pane}</div>
         </div>
       )}
-      <div className="flex w-10 shrink-0 flex-col items-center gap-1 border-l border-line py-2">
-        {visibleTabs.map(({ id, labelKey }) => {
+      <div className="flex shrink-0 flex-col items-center gap-1 border-l border-line py-2" style={{ width: INSPECTOR_STRIP_WIDTH }}>
+        {groups.map(({ id, labelKey, members }) => {
           const label = t(labelKey);
+          const count = groupCount(badges, members);
+          const active = open && id === shownGroup.id;
           return (
-          <button key={id} type="button" title={badges[id] > 0 ? t("rail.chrome.badgedTitle", { label, count: badges[id] }) : label} aria-label={label} aria-pressed={open && id === shownTab} onClick={() => select(id)} className={cn("relative grid size-7 place-items-center rounded-md transition-colors", open && id === shownTab ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid")}>
-            <TabIcon tab={id} />
-            {badges[id] > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-copper-wash px-0.5 text-center font-mono text-[9px] leading-3 text-copper">{badges[id] > 99 ? "99" : badges[id]}</span>}
-          </button>
+            <button
+              key={id}
+              type="button"
+              aria-label={label}
+              title={count > 0 ? t("rail.chrome.badgedTitle", { label, count }) : label}
+              aria-pressed={active}
+              onClick={() => selectGroup(id)}
+              className={cn(
+                "relative flex w-[52px] flex-col items-center gap-0.5 rounded-md px-0.5 py-1.5 text-[10px] leading-3 transition-colors",
+                active ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid",
+              )}
+            >
+              <GroupIcon group={id} />
+              <span className="max-w-full truncate">{label}</span>
+              {count > 0 && <span className="absolute right-0.5 top-0.5 min-w-3 rounded-full bg-copper-wash px-0.5 text-center font-mono text-[9px] leading-3 text-copper">{count > 99 ? "99" : count}</span>}
+            </button>
           );
         })}
       </div>

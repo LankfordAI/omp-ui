@@ -4,14 +4,14 @@ export const SIDEBAR_MAX_WIDTH = 512;
 export const INSPECTOR_DEFAULT_WIDTH = 304;
 export const INSPECTOR_MIN_WIDTH = 224;
 export const INSPECTOR_MAX_WIDTH = 480;
-export const INSPECTOR_STRIP_WIDTH = 40;
+export const INSPECTOR_STRIP_WIDTH = 60;
 export const BROWSER_PANE_DEFAULT_WIDTH = 560;
 export const BROWSER_PANE_MIN_WIDTH = 360;
 export const BROWSER_PANE_MAX_WIDTH = 1600;
 export const MAIN_CONTENT_MIN_WIDTH = 320;
 export const PANEL_KEYBOARD_STEP = 16;
 
-/** The inspector rail's panes; the strip shows them in this order. */
+/** The inspector rail's panes; InspectorRail groups them (Work, Review, Ask, Info). */
 export type RailTab = "todos" | "agents" | "jobs" | "session" | "plans" | "diffs" | "btw" | "seance";
 
 export type DesktopPanel = "sidebar" | "inspector" | "browserPane";
