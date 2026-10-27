@@ -348,6 +348,14 @@ autoresearch mode is on, an `autoresearch` chip sits beside the goal chip and
 opens the **Lab** on that experiment (ADR-0030).
 _Avoid_: toolbar, header, status bar
 
+**Spend cap**:
+omp's per-session cost limits (omp 18.13): `session.warnCost` warns once and
+`session.maxCost` stops model requests — subagents included — once the
+session's spend reaches it. Edited on Settings → omp → Spend caps (Global or
+Project layer); a stop shows as omp's `cost-gate` transcript notice plus a
+Session HUD chip. Not a provider limit — those are the HUD's quota chips.
+_Avoid_: budget, quota, spending limit
+
 **Advisor roster**:
 The set of advisors omp resolved from `WATCHDOG.yml` for a live session (user
 and project files, merged by name); the legacy single advisor is a one-entry

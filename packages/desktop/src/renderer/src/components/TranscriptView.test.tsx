@@ -14,7 +14,7 @@ import { requestTranscriptReveal } from "../lib/transcript-reveal";
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
 import { localeTag } from "../lib/i18n";
-import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
+import { backendState, remoteOwnedState, rpcTabState, tabInfo } from "../test/fixtures";
 import { useStore } from "../store";
 import { TranscriptView, type FindState } from "./TranscriptView";
 import { guidedGoalPrompt } from "@omp-ui/core/goal";
@@ -813,6 +813,47 @@ describe("NoticeLine mcpMount summary (issue #848)", () => {
       { kind: "notice", id: "n1", text: "", level: "info", source: "xdev", mcpMount: { count: 1 } },
     ]);
     expect(el.textContent).toContain("1 MCP tool is active");
+    act(() => root.unmount());
+  });
+});
+
+describe("NoticeLine spend-cap stop (issue #952)", () => {
+  afterEach(() => {
+    useStore.setState({ settingsPage: null, state: null });
+  });
+
+  const stop: RenderItem = {
+    kind: "notice",
+    id: "n1",
+    text: "Session spend cap reached",
+    level: "error",
+    source: "cost-gate",
+    costCap: true,
+  };
+
+  function raiseButton(el: HTMLElement): HTMLButtonElement | undefined {
+    return [...el.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "Raise the cap in Settings",
+    );
+  }
+
+  it("offers a button that opens Settings on the omp page", () => {
+    const { el, root } = render([stop]);
+    expect(el.textContent).toContain("Session spend cap reached");
+    const button = raiseButton(el);
+    expect(button).toBeDefined();
+    act(() => {
+      button!.click();
+    });
+    expect(useStore.getState().settingsPage).toBe("omp");
+    act(() => root.unmount());
+  });
+
+  it("shows the text alone on a remote-instance tab", () => {
+    useStore.setState({ state: remoteOwnedState("tab-r", "inst-1") });
+    const { el, root } = render([stop], "tab-r");
+    expect(el.textContent).toContain("Session spend cap reached");
+    expect(raiseButton(el)).toBeUndefined();
     act(() => root.unmount());
   });
 });

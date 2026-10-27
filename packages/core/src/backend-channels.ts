@@ -46,6 +46,8 @@ import type {
   ProjectOpenAvailability,
   ProjectOpenTarget,
   ProjectScalarResult,
+  ProjectSpendCapsResult,
+  SpendCapKey,
   ProjectSubagentModelsResult,
   ProviderKeysSnapshot,
   PushResult,
@@ -123,6 +125,7 @@ import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdic
 import {
   agentModeCodec,
   approvalModeCodec,
+  spendCapKeyCodec,
   serviceTierCodec,
   any,
   browserPaneInputCodec,
@@ -327,6 +330,26 @@ export const BACKEND_CHANNELS = {
   setProjectMaxConcurrency: {
     channel: "project:setMaxConcurrency",
     ...request<[projectCwd: string, value: number | null], void>([str(), nullable(num())]),
+  },
+  /**
+   * The project layer's `session.warnCost` and `session.maxCost` (issue
+   * #952), each with its raw read so an `unsupported` shape surfaces verbatim.
+   */
+  getProjectSpendCaps: {
+    channel: "project:getSpendCaps",
+    ...request<[projectCwd: string], ProjectSpendCapsResult>([str()]),
+  },
+  /**
+   * Writes one project spend cap — one key, siblings untouched. null deletes
+   * the project value so the cap falls back to global.
+   */
+  setProjectSpendCap: {
+    channel: "project:setSpendCap",
+    ...request<[projectCwd: string, key: SpendCapKey, value: number | null], void>([
+      str(),
+      spendCapKeyCodec,
+      nullable(num()),
+    ]),
   },
   /**
    * The project layer's `tools.approvalMode` (issue #681): the value plus the
@@ -582,6 +605,14 @@ export const BACKEND_CHANNELS = {
   writeOmpSetting: {
     channel: "omp-settings:write",
     ...request<[key: string, value: OmpSettingValue], void>([str(), ompSettingValueCodec]),
+  },
+  /**
+   * Removes one omp setting from the GLOBAL layer via `omp config reset`
+   * (issue #952: the Spend caps section's clear). Rejects with omp's stderr.
+   */
+  resetOmpSetting: {
+    channel: "omp-settings:reset",
+    ...request<[key: string], void>([str()]),
   },
   /**
    * omp's own readiness answer for its eval tool's Python kernel (issue #671).

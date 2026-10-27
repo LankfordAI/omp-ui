@@ -901,6 +901,15 @@ export interface ProjectScalarResult {
   layer: ProjectConfigRead;
 }
 
+/** The `session.*` spend-cap child keys omp 18.13 reads (issue #952). */
+export type SpendCapKey = "warnCost" | "maxCost";
+
+/** The project layer's own spend caps, each read like a ProjectScalarResult. */
+export interface ProjectSpendCapsResult {
+  warnCost: ProjectScalarResult;
+  maxCost: ProjectScalarResult;
+}
+
 export interface OmpSettingsSnapshot {
   /** Only the allowlisted keys omp actually knows, in OMP_SETTING_KEYS order. */
   entries: OmpSettingEntry[];

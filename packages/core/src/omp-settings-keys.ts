@@ -127,6 +127,21 @@ export const APPROVAL_SETTING_GROUP: OmpSettingGroup = {
 };
 
 /**
+ * omp's per-session spend caps (omp 18.13.0, issue #952): positive USD
+ * amounts; omp warns once at warnCost and stops sending model requests at
+ * maxCost, subagents included. Allowlisted but NOT in OMP_SETTING_GROUPS: the
+ * page's dedicated "Spend caps" section edits both keys at the Global or
+ * Project layer and can clear them — a generic row is Global-only and cannot
+ * unset a value.
+ */
+export const SESSION_WARN_COST_KEY = "session.warnCost";
+export const SESSION_MAX_COST_KEY = "session.maxCost";
+export const SPEND_CAP_SETTING_GROUP: OmpSettingGroup = {
+  title: "Spend caps",
+  keys: [SESSION_WARN_COST_KEY, SESSION_MAX_COST_KEY],
+};
+
+/**
  * omp's Codex realtime voice timbre (#802) and the two local-speech rates
  * (omp 18.8.7, issue #836). Allowlisted but NOT in OMP_SETTING_GROUPS: the
  * page's dedicated "Live voice" section renders the enum select, the sample
@@ -256,6 +271,7 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...PRIVACY_SETTING_GROUP.keys,
   ...SHARE_SETTING_GROUP.keys,
   ...APPROVAL_SETTING_GROUP.keys,
+  ...SPEND_CAP_SETTING_GROUP.keys,
   ...LIVE_VOICE_SETTING_GROUP.keys,
   ...STATUS_LINE_SETTING_GROUP.keys,
   ...COMPACTION_MODEL_THRESHOLD_SETTING_GROUP.keys,

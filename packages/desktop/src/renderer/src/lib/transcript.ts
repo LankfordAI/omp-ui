@@ -124,6 +124,13 @@ export interface NoticeItem {
    * opens the CapabilitiesViewer Tools tab instead of the wall.
    */
   mcpMount?: { count: number };
+  /**
+   * omp's spend-cap stop notice (`source: "cost-gate"`, level error; issue
+   * #952). The view adds a button opening Settings → omp, whose Spend caps
+   * section edits `session.maxCost`. omp's warning-level cost-gate notice
+   * carries no flag.
+   */
+  costCap?: true;
 }
 export interface IrcItem {
   kind: "irc";
@@ -988,12 +995,15 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       // The xdev mount notice's comma-list of tool names is the wall (issue
       // #848): collapse it to a structured count, text empty by design.
       const mcpMount = mcpMountCount(text);
+      const level = NOTICE_LEVELS[str(event.level) ?? ""];
+      const source = str(event.source);
       return [
         ...items,
         {
-          ...noticeItem(mcpMount === null ? text : "", NOTICE_LEVELS[str(event.level) ?? ""]),
-          source: str(event.source),
+          ...noticeItem(mcpMount === null ? text : "", level),
+          source,
           ...(mcpMount === null ? {} : { mcpMount }),
+          ...(source === "cost-gate" && level === "error" ? { costCap: true as const } : {}),
         },
       ];
     }

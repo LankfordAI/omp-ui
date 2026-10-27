@@ -130,7 +130,7 @@ function stallNotice(
 }
 
 /** A turn's terminal message ended in a stream stall/timeout. */
-function isStreamStallEnd(lastTurn: LastTurnMeta): boolean {
+export function isStreamStallEnd(lastTurn: LastTurnMeta): boolean {
   if (lastTurn.stopReason !== "error") return false;
   return (
     ((lastTurn.errorId ?? 0) & OMP_ERROR_FLAG_TIMEOUT) !== 0 ||
@@ -297,6 +297,7 @@ export function reduceAgentEvent(
     rpc.status = "running";
     rpc.lastTurn = undefined;
     rpc.quotaEvent = undefined;
+    rpc.costCap = undefined;
     rpc.activeTurnKeywords = [];
     runtimePatch.pendingTurnKeywords = [];
     runtimePatch.keywordInputBatchStarted = false;

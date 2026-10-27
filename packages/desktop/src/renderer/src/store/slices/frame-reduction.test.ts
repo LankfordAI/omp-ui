@@ -751,6 +751,66 @@ describe("handleRpcFrame routing", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
   });
 
+  describe("prompt_result outcome (issue #952)", () => {
+    const CAP_TEXT =
+      "Cost cap reached: this session spent $1.00 of its $0.50 cap (--max-cost / session.maxCost), so the next model request was not sent.";
+    const tab = () => h.useStore.getState().rpc[h.TAB]!;
+    const notices = () => tab().items.filter((i): i is NoticeItem => i.kind === "notice");
+    const result = (status: string, error?: Record<string, unknown>) =>
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "prompt_result",
+        id: "p1",
+        agentInvoked: true,
+        status,
+        ...(error !== undefined ? { error } : {}),
+      });
+
+    it("a cost_cap result records omp's stop text, settles ready, and adds no notice", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+      result("error", { message: CAP_TEXT, retryable: false, code: "cost_cap" });
+      expect(tab().costCap?.message).toBe(CAP_TEXT);
+      expect(tab().status).toBe("ready");
+      expect(notices()).toEqual([]);
+    });
+
+    it("the next agent_start clears the stop", () => {
+      result("error", { message: CAP_TEXT, retryable: false, code: "cost_cap" });
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+      expect(tab().costCap ?? undefined).toBeUndefined();
+    });
+
+    it("any other error outcome shows omp's message as one error notice", () => {
+      result("error", { message: "provider rejected the request", retryable: false });
+      expect(notices()).toHaveLength(1);
+      expect(notices()[0]).toMatchObject({
+        level: "error",
+        text: "provider rejected the request",
+      });
+      expect(tab().costCap ?? undefined).toBeUndefined();
+    });
+
+    it("an error outcome after a stream-stall turn adds no second notice", () => {
+      h.useStore.setState({
+        rpc: {
+          [h.TAB]: rpcTabState({
+            lastTurn: {
+              stopReason: "error",
+              errorMessage: "stream stalled while waiting for the next event",
+            },
+          }),
+        },
+      });
+      result("error", { message: "stream stalled while waiting for the next event" });
+      expect(notices()).toEqual([]);
+    });
+
+    it.each(["completed", "aborted"])("a %s outcome adds nothing and arms no stop", (status) => {
+      result(status);
+      expect(notices()).toEqual([]);
+      expect(tab().costCap ?? undefined).toBeUndefined();
+    });
+  });
+
   it("queue_update lists omp's queue without touching get_state's count (issue #714)", () => {
     h.useStore.setState({
       rpc: {

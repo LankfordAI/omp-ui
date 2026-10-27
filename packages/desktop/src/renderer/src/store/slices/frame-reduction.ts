@@ -89,6 +89,7 @@ import {
   planReviewGateKey,
 } from "./live-work-park";
 import {
+  isStreamStallEnd,
   reduceAgentEvent,
   type AgentEventEffect,
 } from "./reduce-agent-event";
@@ -897,6 +898,25 @@ export function createFrameReductionSlice(
                 ? { ...i, status: invoked === true ? "agent" : "done" }
                 : i,
             );
+          }
+          // omp ≥18.13 reports the prompt's outcome (issue #952). A spend-cap
+          // stop is already in the transcript as omp's own `cost-gate` error
+          // notice, so it only arms the HUD. Any other error outcome carries
+          // a message the transcript never shows (AssistantItem drops
+          // errorMessage) — unless the stall notice already explained it.
+          if (strField(frame, "status") === "error") {
+            const error = field(frame, "error");
+            const message = strField(error, "message");
+            const lastTurn = get().rpc[tabId]?.lastTurn;
+            if (strField(error, "code") === "cost_cap") {
+              m.patchRpc(tabId, { costCap: { message: message ?? "", at: Date.now() } });
+            } else if (
+              message !== undefined &&
+              message !== "" &&
+              !(lastTurn !== undefined && isStreamStallEnd(lastTurn))
+            ) {
+              m.appendItem(tabId, noticeItem(message, "error"));
+            }
           }
           // A prompt that ran no agent (a slash command, the boot's extension
           // arms) says nothing about a turn already in flight: stamping

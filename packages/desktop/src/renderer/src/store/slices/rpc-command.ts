@@ -555,6 +555,8 @@ export function disposeTabRuntime(
     // Spend totals belong to the dying process's bridge; the successor's
     // bridge rescans the transcripts and republishes on the boot arm (#866).
     sessionSpend: null,
+    // The stop belongs to the dying process; the successor's next prompt reports its own.
+    costCap: null,
   });
   rpcCommandMachinery.abandon(tabId, reason, m);
   m.discardTabRuntime(tabId);

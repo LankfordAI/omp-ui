@@ -236,16 +236,28 @@ describe("setProjectConfigValue — numbers", () => {
     );
   });
 
-  it("refuses a non-integer before the file changes", async () => {
+  it("writes a fractional number bare into a fresh block (#952)", async () => {
     const cwd = tmpProject();
-    const file = writeConfig(cwd, "task:\n  maxConcurrency: 8\n");
+    await setProjectConfigValue(cwd, ["session", "maxCost"], 2.5);
+    expect(read(path.join(cwd, ".omp", "config.yml"))).toBe("session:\n  maxCost: 2.5\n");
+  });
+
+  it("writes maxCost beside an existing warnCost sibling, keeping it", async () => {
+    const cwd = tmpProject();
+    const file = writeConfig(cwd, "session:\n  warnCost: 1\n");
+    await setProjectConfigValue(cwd, ["session", "maxCost"], 2.5);
+    expect(read(file)).toBe("session:\n  warnCost: 1\n  maxCost: 2.5\n");
+  });
+
+  it("refuses NaN, Infinity and exponent forms before the file changes", async () => {
+    const cwd = tmpProject();
+    const file = writeConfig(cwd, "session:\n  maxCost: 5\n");
     const before = read(file);
-    await expect(setProjectConfigValue(cwd, ["task", "maxConcurrency"], 1.5)).rejects.toThrow(
-      /invalid project config number/,
-    );
-    await expect(setProjectConfigValue(cwd, ["task", "maxConcurrency"], Number.NaN)).rejects.toThrow(
-      /invalid project config number/,
-    );
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, 1e-7]) {
+      await expect(setProjectConfigValue(cwd, ["session", "maxCost"], bad)).rejects.toThrow(
+        /invalid project config number/,
+      );
+    }
     expect(read(file)).toBe(before);
   });
 });

@@ -793,6 +793,54 @@ describe("SessionHud gauge chip (issue #941)", () => {
     expect(popover()).toBeNull();
     expect(document.activeElement).toBe(chip);
   });
+
+  describe("spend-cap stop (issue #952)", () => {
+    const MESSAGE = "Cost cap reached: this session spent $1.00 of its $0.50 cap (--max-cost / session.maxCost), so the next model request was not sent.";
+    const seedCap = (): void => {
+      useStore.setState({
+        settingsPage: null,
+        rpc: {
+          [TAB]: {
+            ...useStore.getState().rpc[TAB]!,
+            stats: {
+              userMessages: 1, assistantMessages: 1, toolCalls: 0, toolResults: 0, totalMessages: 2,
+              tokens: { input: 60_000, output: 40_000, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 100_000 },
+              cost: 1, premiumRequests: 0, editRejections: [], contextUsage: null,
+            },
+            costCap: { message: MESSAGE, at: 1 },
+          },
+        },
+      });
+    };
+    const capChip = (host: HTMLElement): HTMLElement | undefined =>
+      [...host.querySelectorAll<HTMLElement>("[title]")].find((el) => el.textContent?.trim() === "spend cap reached");
+
+    it("shows a rose chip in the wide row titled with omp's message, and tints the gauge spend", () => {
+      seedCap();
+      const host = render();
+      expect(capChip(host)?.title).toBe(MESSAGE);
+      const gauge = host.querySelector<HTMLButtonElement>('button[aria-label="context and spend"]')!;
+      expect(gauge.title).toContain(MESSAGE);
+      expect(gauge.querySelector(".titlebar-gauge-cost")?.classList.contains("text-rose")).toBe(true);
+    });
+
+    it("shows no chip without a stop", () => {
+      const host = render();
+      expect(capChip(host)).toBeUndefined();
+    });
+
+    it("raises the cap from the gauge popover: closes it and opens Settings on omp", () => {
+      seedCap();
+      const host = render();
+      openGauge(host);
+      const raise = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+        .find((b) => b.textContent?.trim() === "Raise cap…");
+      expect(raise).toBeDefined();
+      act(() => raise!.click());
+      expect(useStore.getState().settingsPage).toBe("omp");
+      expect(popover()).toBeNull();
+    });
+  });
 });
 
 describe("compact Session HUD", () => {

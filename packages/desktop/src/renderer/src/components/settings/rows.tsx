@@ -79,6 +79,7 @@ export function CommitField({
   placeholder,
   disabled,
   className,
+  step,
   onCommit,
 }: {
   current: string;
@@ -87,6 +88,8 @@ export function CommitField({
   placeholder?: string;
   disabled: boolean;
   className?: string;
+  /** The number input's `step` (e.g. "0.01" for USD amounts); browser default when omitted. */
+  step?: string;
   onCommit: (raw: string) => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
@@ -100,6 +103,7 @@ export function CommitField({
   return (
     <input
       type={kind}
+      step={step}
       value={draft ?? current}
       aria-label={label}
       placeholder={placeholder}

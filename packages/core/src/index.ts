@@ -263,6 +263,7 @@ export {
   readOmpGoalContinuationModes,
   readOmpSettings,
   readWebSearchProviders,
+  resetOmpSetting,
   WEB_SEARCH_SETTING_GROUP,
   writeOmpSetting,
   type OmpCompactionMethods,

@@ -964,6 +964,16 @@ describe("reduceEvent markers, notice, irc, unknowns", () => {
     expect(items[2]).toMatchObject({ kind: "notice", level: undefined });
   });
 
+  it("flags only omp's error-level cost-gate notice as the spend-cap stop (issue #952)", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "notice", level: "error", source: "cost-gate", message: "cap hit" });
+    items = reduceEvent(items, { type: "notice", level: "warning", source: "cost-gate", message: "near cap" });
+    items = reduceEvent(items, { type: "notice", level: "error", source: "advisor", message: "boom" });
+    expect(items[0]).toMatchObject({ kind: "notice", level: "error", source: "cost-gate", costCap: true });
+    expect(items[1]).not.toHaveProperty("costCap");
+    expect(items[2]).not.toHaveProperty("costCap");
+  });
+
   // The xdev mount notice wall (issue #848): the collapse contract and its
   // deliberately narrow pass-throughs.
   it("collapses an xdev mount notice with MCP tools to a count", () => {
