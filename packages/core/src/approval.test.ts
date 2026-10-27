@@ -277,6 +277,7 @@ describe("approvalReply", () => {
     providerSafety: [],
     sessionLabel: null,
     grants: [],
+    restrictedFolder: null,
   };
   const granted: ApprovalPrompt = {
     ...base,
