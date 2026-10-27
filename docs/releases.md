@@ -4,29 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- The desktop composer footer collapses into a `+` menu and one **Options pill** (mode · model · thinking · branch); its popover lists one row per setting — model, thinking, fast mode, mode, and advisor tagged *restarts* — over a footer holding the branch and machine chips. Thinking is an always-visible level slider with an *auto* switch, each level coloured from cool to warm, and under *auto* a dashed track marks the level the turn resolved to. While a turn runs, steer is a split button holding queue and interrupt & send, beside a round stop (#939, #946).
-
-- An agent's `omp-ui_fleet_dispatch` call that names no machine now starts its one session on this computer whenever this computer has the project and a ready model provider, so asking a **Chat** to start work in a project no longer lands it on a joined member by load; **Manual only** on this computer, or more than one copy, still places automatically (#943).
-
-- A **Chat** always has omp-ui's fleet tools, so asking a chat to start sessions in a project works without turning on **Let agents dispatch fleet work**; that setting now decides only for project sessions (#945). `omp-ui_fleet_dispatch` takes an optional `planMode` flag, so an agent can start a session in Plan mode instead of Build (#942).
-
-- The **Inspector rail** strip is now four labelled groups — Work, Review, Ask, Info — each opening its panes behind a tab row, with group badges that sum their members' counts; the compact sheet uses the same groups (#940).
-
-- The Session HUD's action cluster is gone: every session action moves into a menu opened from the session title, and context, spend, quota windows, advisor and extension notices, and compaction move into one gauge chip popover. The **Inspector rail** strip's group buttons open and close the inspector; the compact shell is unchanged (#941, #947).
-
-- The sidebar splits into sections: the main list, **Working** (sessions with a running turn, docked directly above Settled and always shown, up to 40% of the sidebar's height), and **Settled**. A session waiting on a plan review or a question leaves Working for the main list. An optional **Snoozed** section, off by default under Settings → General, parks sessions from the row menu without stopping them (#935, #937, #944).
-
-- Sidebar rows for owned sessions become three-line tiles — title and age; project, branch and machine; state, model and indicators — that quote the pending question or ready plan title while the session waits. Settled keeps a slim row, the default sidebar is wider, and the header's add-project button is gone (#938).
-
-- Pick the project once: quick-open names every machine that holds a repository, and a machine chip in the composer moves an unprompted session to that repository's checkout on another machine, carrying the draft (#936).
-
-- A settled exchange in the native transcript ends with a receipt row — files changed, lines added and removed — that opens every diff in an app-width changes overlay. Diffs collapse unmodified runs into an "N unmodified lines" rule and offer a unified or split layout, remembered across sessions (#933).
-
-- A long path-chip basename is clipped instead of widening the transcript into a horizontal scroll (#934).
-
-- A manual update check that finds a release this build cannot read now says so and offers **View release**, instead of reporting that GitHub is unreachable (#930).
-
-- The rolling `nightly` release body lists every issue the range's commits cite, with its title, and falls back to the commit subjects when none resolves, instead of printing an empty changes list (#922).
+Nothing since [v0.27.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.27.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
