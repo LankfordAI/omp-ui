@@ -1,4 +1,4 @@
-import type { AsyncJob, AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
+import { ASYNC_JOBS_SNAPSHOT_VERSION, type AsyncJob, type AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   BackendState,
@@ -248,9 +248,12 @@ describe("deriveSidebarSessionState", () => {
       exitCode: null,
       outputTail: "",
       outputTruncated: false,
+      widget: null,
+      completionPercent: null,
+      stage: null,
     };
     const snapshot = (running: AsyncJob[]): AsyncJobsSnapshot => ({
-      version: 2,
+      version: ASYNC_JOBS_SNAPSHOT_VERSION,
       processKey: "p",
       revision: 1,
       available: true,

@@ -899,6 +899,42 @@ describe("Jobs pane (issue #835)", () => {
       });
     });
   }
+  function publishJobsV3(running: Array<Record<string, unknown>>): void {
+    act(() => {
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "extension_ui_request",
+        id: "frame-jobs-v3",
+        method: "setStatus",
+        statusKey: "omp-ui:async-jobs",
+        statusText: JSON.stringify({
+          version: 3,
+          processKey: "omp-ui-proc-1",
+          revision: 1,
+          available: true,
+          unavailable: null,
+          canInspect: true,
+          canCancel: true,
+          running,
+          recent: [],
+          rootId: null,
+          agents: [],
+          result: null,
+        }),
+      });
+    });
+  }
+  function liveJob(widget: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...runningJob,
+      id: "agent-7",
+      type: "task",
+      agentId: "agent-7",
+      ownerId: null,
+      completionPercent: 42,
+      stage: "migrating schema",
+      widget: { title: "Migration", headline: null, stage: null, updatedAt: 5_000, ...widget },
+    };
+  }
   function killFrames(): Array<{ id: string; message: string }> {
     return backendMock.rpcSend.mock.calls
       .map((call) => call[1] as { id: string; type?: string; message?: string })
@@ -1034,6 +1070,45 @@ describe("Jobs pane (issue #835)", () => {
     renderRail();
     act(() => button("work")!.click());
     expect(memberTab("jobs")?.title).toBe("jobs");
+  });
+
+  it("a running job draws its widget glance, stage, and completion ring", () => {
+    publishJobsV3([
+      liveJob({
+        headline: { text: "412", label: "files", trend: null },
+        blocks: [{ kind: "spark", label: "rate", values: [1, 3, 2], min: 0, max: 4, last: "2/s", marks: [], tone: null }],
+      }),
+    ]);
+    renderRail();
+    openPane("jobs");
+    expect(document.body.textContent).toContain("files");
+    expect(document.body.textContent).toContain("412");
+    expect(document.body.textContent).toContain("migrating schema");
+    expect(document.body.querySelector('svg[aria-label="the agent\'s own completion estimate: 42%"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-job-widget-glance] svg[role="img"]')).not.toBeNull();
+  });
+
+  it("expanding a widget row draws every block", () => {
+    publishJobsV3([
+      liveJob({
+        headline: { text: "412", label: null, trend: null },
+        blocks: [
+          { kind: "bars", label: "tables", items: [{ label: "users-table", value: 3, text: "3", tone: null }], max: 4 },
+          { kind: "grid", label: "shards", items: [{ label: "s1", text: "shard-ok", tone: "success" }] },
+          { kind: "stat", items: [{ label: "rows-copied", text: "9k", trend: null }] },
+          { kind: "text", text: "copying the last table" },
+        ],
+      }),
+    ]);
+    renderRail();
+    openPane("jobs");
+    expect(document.body.querySelector("[data-job-widget]")).toBeNull();
+    act(() => document.body.querySelector<HTMLButtonElement>('button[aria-label="show details for job agent-7"]')!.click());
+    const blocks = document.body.querySelector("[data-job-widget]")?.textContent ?? "";
+    expect(blocks).toContain("users-table");
+    expect(blocks).toContain("shard-ok");
+    expect(blocks).toContain("rows-copied");
+    expect(blocks).toContain("copying the last table");
   });
 });
 

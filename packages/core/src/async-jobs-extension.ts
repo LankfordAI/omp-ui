@@ -1,6 +1,10 @@
 import * as path from "node:path";
 import {
   ASYNC_JOB_STATUSES,
+  ASYNC_JOB_WIDGET_BLOCK_LIMIT,
+  ASYNC_JOB_WIDGET_LIST_LIMIT,
+  ASYNC_JOB_WIDGET_TEXT_LIMIT,
+  ASYNC_JOB_WIDGET_TONES,
   ASYNC_JOBS_COMMAND,
   ASYNC_JOBS_COMMAND_CHAR_LIMIT,
   ASYNC_JOBS_KILL_ARG,
@@ -46,6 +50,14 @@ import {
  * `canInspect`/`canCancel` so the pane renders no affordance the build cannot
  * serve. Daemon-supervised `bash name=…` services never enter the job
  * manager and stay outside this bridge (ADR-0054).
+ *
+ * The v3 live fields (#954): a running job's widget comes from
+ * `inspectAsyncJob`'s `widget` key (omp 18.12.3+); the session's
+ * `asyncJobManager.widgets.view(job)` is the fallback, asked only when inspect
+ * has no widget key because `view()` marks the job shown. The completion
+ * estimate and stage come from `asyncJobManager.getJob(id)`'s task progress;
+ * omp fills them only from its completion probe, which only an interactive
+ * (TUI) run starts, so in rpc-ui they stay empty today.
  */
 
 /** The extension file lives beside the transcript so it dies with the lineage. */
@@ -75,6 +87,10 @@ const SHORT_TAIL_CHARS = ${ASYNC_JOBS_SHORT_TAIL_CHARS};
 const LABEL_LIMIT = ${ASYNC_JOBS_LABEL_CHAR_LIMIT};
 const COMMAND_LIMIT = ${ASYNC_JOBS_COMMAND_CHAR_LIMIT};
 const SNAPSHOT_VERSION = ${ASYNC_JOBS_SNAPSHOT_VERSION};
+const WIDGET_TONES: readonly string[] = ${JSON.stringify(ASYNC_JOB_WIDGET_TONES)};
+const WIDGET_TEXT_LIMIT = ${ASYNC_JOB_WIDGET_TEXT_LIMIT};
+const WIDGET_BLOCK_LIMIT = ${ASYNC_JOB_WIDGET_BLOCK_LIMIT};
+const WIDGET_LIST_LIMIT = ${ASYNC_JOB_WIDGET_LIST_LIMIT};
 const ANSI = /\\u001b\\[[0-?]*[ -\\/]*[@-~]/g;
 const CONTROL = /[\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f]/g;
 
@@ -93,6 +109,7 @@ interface JobsSession {
   getAsyncJobSnapshot?: unknown;
   inspectAsyncJob?: unknown;
   cancelAsyncJob?: unknown;
+  asyncJobManager?: unknown;
 }
 
 interface ExtensionApi {
@@ -118,6 +135,9 @@ interface CollectedJob {
   pids: number[];
   exitCode: number | null;
   output: string;
+  widget: Record<string, unknown> | null;
+  completionPercent: number | null;
+  stage: string | null;
 }
 
 interface CollectedAgent {
@@ -167,6 +187,202 @@ function clean(value: string): string {
 
 function clip(value: string, limit: number): string {
   return value.length > limit ? value.slice(0, limit - 1) + "\\u2026" : value;
+}
+
+/** Widget text as one display line, capped; null when not a string. */
+function line(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return clip(clean(value).replace(/\\s+/g, " ").trim(), WIDGET_TEXT_LIMIT);
+}
+
+function filled(value: unknown): string | null {
+  const text = line(value);
+  return text === null || text === "" ? null : text;
+}
+
+function tone(value: unknown): string | null {
+  return typeof value === "string" && WIDGET_TONES.indexOf(value) >= 0 ? value : null;
+}
+
+function trend(value: unknown): Record<string, unknown> | null {
+  const record = asRecord(value);
+  if (record === null) return null;
+  const text = filled(record.text);
+  const hue = tone(record.tone);
+  return text === null || hue === null ? null : { text, tone: hue };
+}
+
+/** Every member must read or the list is dropped (null); longer lists are cut. */
+function members<T>(value: unknown, read: (item: unknown) => T | null, keepLast: boolean): T[] | null {
+  if (!Array.isArray(value)) return null;
+  const items = value.length <= WIDGET_LIST_LIMIT
+    ? value
+    : keepLast ? value.slice(value.length - WIDGET_LIST_LIMIT) : value.slice(0, WIDGET_LIST_LIMIT);
+  const out: T[] = [];
+  for (const item of items) {
+    const read1 = read(item);
+    if (read1 === null) return null;
+    out.push(read1);
+  }
+  return out;
+}
+
+/** One block of omp's rendered widget view; null drops it (unknown kind, bad member). */
+function block(raw: unknown): Record<string, unknown> | null {
+  const b = asRecord(raw);
+  if (b === null) return null;
+  const label = line(b.label);
+  switch (b.kind) {
+    case "spark": {
+      const values = members(b.values, finite, true);
+      const min = finite(b.min);
+      const max = finite(b.max);
+      const last = line(b.last);
+      const marks = b.marks === undefined ? [] : members(b.marks, (item: unknown) => {
+        const m = asRecord(item);
+        if (m === null) return null;
+        const value = finite(m.value);
+        const markLabel = line(m.label);
+        return value === null || markLabel === null ? null : { value, label: markLabel, tone: tone(m.tone) ?? "muted" };
+      }, false);
+      if (label === null || values === null || values.length === 0 || min === null || max === null || max <= min || last === null || marks === null) return null;
+      // omp's per-point tips stay behind: no omp-ui surface reads them.
+      return { kind: "spark", label, values, min, max, last, marks, tone: tone(b.tone) };
+    }
+    case "bars": {
+      const items = members(b.items, (item: unknown) => {
+        const r = asRecord(item);
+        if (r === null) return null;
+        const itemLabel = line(r.label);
+        const value = finite(r.value);
+        const text = line(r.text);
+        return itemLabel === null || value === null || text === null ? null : { label: itemLabel, value, text, tone: tone(r.tone) };
+      }, false);
+      const max = finite(b.max);
+      if (label === null || items === null || items.length === 0 || max === null || max <= 0) return null;
+      return { kind: "bars", label, items, max };
+    }
+    case "meter": {
+      const value = finite(b.value);
+      const text = line(b.text);
+      if (label === null || value === null || text === null) return null;
+      return { kind: "meter", label, value: Math.min(1, Math.max(0, value)), text, tone: tone(b.tone) };
+    }
+    case "stat": {
+      const items = members(b.items, (item: unknown) => {
+        const r = asRecord(item);
+        if (r === null) return null;
+        const itemLabel = line(r.label);
+        const text = line(r.text);
+        return itemLabel === null || text === null ? null : { label: itemLabel, text, trend: trend(r.trend) };
+      }, false);
+      return items === null || items.length === 0 ? null : { kind: "stat", items };
+    }
+    case "grid": {
+      const items = members(b.items, (item: unknown) => {
+        const r = asRecord(item);
+        if (r === null) return null;
+        const itemLabel = line(r.label);
+        const text = line(r.text);
+        return itemLabel === null || text === null ? null : { label: itemLabel, text, tone: tone(r.tone) ?? "neutral" };
+      }, false);
+      if (label === null || items === null || items.length === 0) return null;
+      return { kind: "grid", label, items };
+    }
+    case "text": {
+      const text = filled(b.text);
+      return text === null ? null : { kind: "text", text };
+    }
+    default:
+      return null;
+  }
+}
+
+/** omp's widget view reduced to the v3 wire shape. Only a "live" view (a
+ *  model-authored spec) publishes: omp's own tiles and jobs sheet draw no
+ *  other state, so "authoring" and "fallback" views read as null. */
+function widget(raw: unknown): Record<string, unknown> | null {
+  const w = asRecord(raw);
+  if (w === null || w.state !== "live") return null;
+  const title = filled(w.title);
+  const updatedAt = finite(w.updatedAt);
+  if (title === null || updatedAt === null) return null;
+  const h = asRecord(w.headline);
+  const headlineText = h === null ? null : filled(h.text);
+  const headline = h === null || headlineText === null ? null : { text: headlineText, label: filled(h.label), trend: trend(h.trend) };
+  const blocks: Record<string, unknown>[] = [];
+  if (Array.isArray(w.blocks)) {
+    for (const item of w.blocks) {
+      if (blocks.length >= WIDGET_BLOCK_LIMIT) break;
+      const read = block(item);
+      if (read !== null) blocks.push(read);
+    }
+  }
+  const stage = filled(w.stage);
+  if (headline === null && blocks.length === 0 && stage === null) return null;
+  return { title, headline, stage, blocks, updatedAt };
+}
+
+interface Progress {
+  completionPercent: number | null;
+  stage: string | null;
+}
+
+const NO_PROGRESS: Progress = { completionPercent: null, stage: null };
+
+/** omp's own wait-tool read (omp/18.13.2): a task job's latestDetails.progress
+ *  entry for its agent, else the first entry, carries the subagent's completion
+ *  estimate and stage. omp fills them from its completion probe, which only an
+ *  interactive (TUI) run starts, so an rpc-ui session reads null today. */
+function progressOf(job: Record<string, unknown> | null): Progress {
+  if (job === null || job.type !== "task") return NO_PROGRESS;
+  const details = asRecord(job.latestDetails);
+  const progress = details === null ? null : details.progress;
+  if (!Array.isArray(progress)) return NO_PROGRESS;
+  const agentId = str(job.agentId) || str(job.id);
+  let entry: Record<string, unknown> | null = null;
+  for (const item of progress) {
+    const record = asRecord(item);
+    if (record === null) continue;
+    if (entry === null) entry = record;
+    if (record.id === agentId) {
+      entry = record;
+      break;
+    }
+  }
+  if (entry === null) return NO_PROGRESS;
+  const percent = finite(entry.completionPercent);
+  return {
+    completionPercent: percent === null ? null : Math.round(Math.min(100, Math.max(0, percent))),
+    stage: filled(entry.stage),
+  };
+}
+
+function jobManager(root: JobsSession): Record<string, unknown> | null {
+  try {
+    return asRecord(root.asyncJobManager);
+  } catch {
+    return null;
+  }
+}
+
+function managedJob(manager: Record<string, unknown> | null, id: string): Record<string, unknown> | null {
+  if (manager === null || typeof manager.getJob !== "function") return null;
+  try {
+    return asRecord((manager.getJob as (jobId: string) => unknown).call(manager, id));
+  } catch {
+    return null;
+  }
+}
+
+function managerWidget(manager: Record<string, unknown> | null, job: Record<string, unknown> | null): unknown {
+  const widgets = manager === null ? null : asRecord(manager.widgets);
+  if (widgets === null || job === null || typeof widgets.view !== "function") return undefined;
+  try {
+    return (widgets.view as (job: unknown) => unknown).call(widgets, job);
+  } catch {
+    return undefined;
+  }
 }
 
 export default function (pi: ExtensionApi) {
@@ -245,7 +461,7 @@ export default function (pi: ExtensionApi) {
     return { available: false, unavailable: reason, canInspect: false, canCancel: false, running: [], recent: [], rootId: null, agents: [] };
   }
 
-  function collectJob(raw: unknown, root: JobsSession, canInspect: boolean): CollectedJob | null {
+  function collectJob(raw: unknown, root: JobsSession, canInspect: boolean, manager: Record<string, unknown> | null): CollectedJob | null {
     const job = asRecord(raw);
     if (job === null) return null;
     const id = str(job.id);
@@ -267,6 +483,15 @@ export default function (pi: ExtensionApi) {
     if (Array.isArray(rawPids)) {
       for (const pid of rawPids) if (typeof pid === "number" && Number.isInteger(pid)) pids.push(pid);
     }
+    let live: Record<string, unknown> | null = null;
+    let progress = NO_PROGRESS;
+    if (status === "running") {
+      const managed = managedJob(manager, id);
+      progress = progressOf(managed);
+      // inspectAsyncJob carries the view (omp 18.12.3+); view() marks the job
+      // shown, so the manager is asked only when inspect has no widget key.
+      live = widget(detail !== null && "widget" in detail ? detail.widget : managerWidget(manager, managed));
+    }
     const command = clean(str(pick("command")) || str(job.command));
     const cwd = str(pick("cwd"));
     const agentId = str(job.agentId);
@@ -285,6 +510,9 @@ export default function (pi: ExtensionApi) {
       ownerId: ownerId === "" ? null : ownerId,
       exitCode: finite(pick("exitCode")),
       output: clean(str(pick("output"))),
+      widget: live,
+      completionPercent: progress.completionPercent,
+      stage: progress.stage,
     };
   }
 
@@ -300,6 +528,7 @@ export default function (pi: ExtensionApi) {
     }
     const canInspect = typeof root.inspectAsyncJob === "function";
     const canCancel = typeof root.cancelAsyncJob === "function";
+    const manager = jobManager(root);
     const source = hasTree ? "getAsyncJobTree" : "getAsyncJobSnapshot";
     let raw: unknown;
     try {
@@ -315,7 +544,7 @@ export default function (pi: ExtensionApi) {
       const jobs: CollectedJob[] = [];
       if (!Array.isArray(list)) return jobs;
       for (const item of list) {
-        const job = collectJob(item, root, canInspect);
+        const job = collectJob(item, root, canInspect, manager);
         if (job !== null) jobs.push(job);
       }
       return jobs;
@@ -335,7 +564,7 @@ export default function (pi: ExtensionApi) {
     return { available: true, unavailable: null, canInspect, canCancel, running: read(record.running), recent: read(record.recent), rootId, agents };
   }
 
-  function shape(job: CollectedJob, tailChars: number): Record<string, unknown> {
+  function shape(job: CollectedJob, tailChars: number, widgets: boolean): Record<string, unknown> {
     const truncated = job.output.length > tailChars;
     return {
       id: job.id,
@@ -352,17 +581,20 @@ export default function (pi: ExtensionApi) {
       exitCode: job.exitCode,
       outputTail: truncated ? job.output.slice(job.output.length - tailChars) : job.output,
       outputTruncated: truncated,
+      widget: widgets ? job.widget : null,
+      completionPercent: job.completionPercent,
+      stage: job.stage,
     };
   }
 
-  function body(c: Collected, tailChars: number): Record<string, unknown> {
+  function body(c: Collected, tailChars: number, widgets: boolean): Record<string, unknown> {
     return {
       available: c.available,
       unavailable: c.unavailable,
       canInspect: c.canInspect,
       canCancel: c.canCancel,
-      running: c.running.map((job) => shape(job, tailChars)),
-      recent: c.recent.map((job) => shape(job, tailChars)),
+      running: c.running.map((job) => shape(job, tailChars, widgets)),
+      recent: c.recent.map((job) => shape(job, tailChars, widgets)),
       rootId: c.rootId,
       agents: c.agents,
     };
@@ -371,7 +603,7 @@ export default function (pi: ExtensionApi) {
   function publish(force: boolean, result: KillResult | null): void {
     if (ui === null) return;
     const collected = collect();
-    const full = body(collected, TAIL_CHARS);
+    const full = body(collected, TAIL_CHARS, true);
     const digest = JSON.stringify(full);
     if (!force && digest === lastDigest) return;
     markActive();
@@ -379,10 +611,12 @@ export default function (pi: ExtensionApi) {
       JSON.stringify(Object.assign({ version: SNAPSHOT_VERSION, processKey, revision: revision + 1 }, b, { result }));
     // An impossible payload degrades rung by rung, never into half a job.
     let json = envelope(full);
-    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, SHORT_TAIL_CHARS));
-    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, 0));
+    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, SHORT_TAIL_CHARS, true));
+    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, 0, true));
+    // Widgets go before the job list does; the estimate and stage are a few bytes.
+    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, 0, false));
     if (utf8Length(json) > BYTE_LIMIT) {
-      json = envelope(body(unavailable("background job list exceeded " + BYTE_LIMIT + " bytes"), 0));
+      json = envelope(body(unavailable("background job list exceeded " + BYTE_LIMIT + " bytes"), 0, false));
     }
     revision += 1;
     lastDigest = digest;

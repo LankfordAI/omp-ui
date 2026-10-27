@@ -1824,6 +1824,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.jobs.label": "작업",
   "hud.jobs.running": "백그라운드 작업 {count}개 실행 중",
   "hud.jobs.openTitle": "백그라운드 작업 목록 열기",
+  "hud.jobs.glance": "{job}: {figure}",
   // 세션 HUD autoresearch 칩 (issue #559)
   "hud.autoresearch.on": "autoresearch",
   "hud.autoresearch.run": "실행 {n}",
@@ -1961,6 +1962,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.jobs.noInspect": "이 omp 빌드는 작업 세부 정보를 보고하지 않습니다 — omp를 18.4.9 이상으로 업데이트하세요.",
   "rail.jobs.noCancel": "이 omp 빌드는 백그라운드 작업을 취소할 수 없습니다 — omp를 18.4.9 이상으로 업데이트하세요.",
   "rail.jobs.noAnswer": "백그라운드 작업 브리지가 응답하지 않았습니다. 목록을 새로고침한 후 다시 시도하세요.",
+  "rail.jobs.completion": "에이전트 자체 완료 추정치: {percent}%",
 
   "rail.stats.messages": "메시지",
   "rail.stats.user": "사용자",

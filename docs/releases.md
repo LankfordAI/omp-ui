@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - **Restricted folders** on the omp settings page edit omp's `tools.restrictedFolders`: every action in a listed folder asks for approval in every approval mode, `yolo` included. The approval card names the folder a prompt comes from (#951).
+- The **Jobs** pane draws OMP's live **job widgets** for running background jobs, with a headline figure plus a sparkline or meter and every block on expand, and the HUD `jobs` chip shows the freshest headline; `async.widgets` now has a row under Settings → omp → Background jobs (#954).
 
 ## Choose a download
 

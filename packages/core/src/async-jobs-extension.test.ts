@@ -30,6 +30,8 @@ interface FakeJobApi {
   getAsyncJobSnapshot?: (options: { recentLimit: number }) => unknown;
   inspectAsyncJob?: (id: string) => unknown;
   cancelAsyncJob?: (id: string) => unknown;
+  /** omp's session-held job manager; a plain prototype value like omp's field. */
+  asyncJobManager?: unknown;
 }
 
 interface FakeRoot {
@@ -111,6 +113,19 @@ function rawJob(overrides: Record<string, unknown> = {}): Record<string, unknown
     label: "sleep 30",
     command: "sleep 30",
     startTime: 1_000,
+    ...overrides,
+  };
+}
+
+/** A valid live widget view as omp's inspectAsyncJob returns it. */
+function liveView(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    state: "live",
+    title: "Migration",
+    updatedAt: 5,
+    headline: { text: "412", label: "files", trend: { text: "+12", tone: "good" } },
+    stage: null,
+    blocks: [{ kind: "text", text: "halfway" }],
     ...overrides,
   };
 }
@@ -498,5 +513,181 @@ describe("writeAsyncJobsExtension", () => {
     output = "two";
     await vi.advanceTimersByTimeAsync(4_500);
     expect(harness.published).toHaveLength(1);
+  });
+
+  it("publishes inspectAsyncJob's live widget reduced to the wire shape", async () => {
+    const cell = "w".repeat(300);
+    const harness = executableExtension({
+      getAsyncJobSnapshot: () => ({ running: [rawJob()], recent: [], delivery: null }),
+      inspectAsyncJob: () => ({
+        output: "",
+        widget: liveView({
+          blocks: [
+            { kind: "pie", label: "slices", values: [1, 2] },
+            {
+              kind: "spark",
+              label: "\u001b[32mrate\u001b[0m",
+              values: [1, 2, 3],
+              tips: ["a", "b", "c"],
+              min: 0,
+              max: 4,
+              last: "3/s",
+            },
+            { kind: "grid", label: "cells", items: [{ label: "long", text: cell }] },
+            { kind: "meter", label: "done", value: 0.5, text: "50%" },
+            { kind: "stat", items: [{ label: "errors", text: "0" }] },
+            { kind: "text", text: "dropped by the four-block cap" },
+          ],
+        }),
+      }),
+      cancelAsyncJob: () => true,
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    // The harness keeps only snapshots parseAsyncJobsSnapshot accepts.
+    expect(harness.published).toHaveLength(1);
+    const widget = harness.latest().running[0]!.widget!;
+    expect(widget.blocks.map((b) => b.kind)).toEqual(["spark", "grid", "meter", "stat"]);
+    const spark = widget.blocks[0] as unknown as Record<string, unknown>;
+    expect(spark).not.toHaveProperty("tips");
+    expect(spark.label).toBe("rate");
+    const grid = widget.blocks[1] as unknown as { items: { text: string }[] };
+    expect(grid.items[0]!.text).toHaveLength(200);
+    expect(grid.items[0]!.text.endsWith("\u2026")).toBe(true);
+  });
+
+  it.each(["authoring", "fallback"])("an %s view publishes a null widget", async (state) => {
+    const harness = executableExtension({
+      getAsyncJobSnapshot: () => ({ running: [rawJob()], recent: [], delivery: null }),
+      inspectAsyncJob: () => ({ output: "", widget: liveView({ state }) }),
+      cancelAsyncJob: () => true,
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    expect(harness.latest().running[0]!.widget).toBeNull();
+  });
+
+  describe("reads a running task job's completion estimate and stage from the job manager", () => {
+    const managed = {
+      id: "bg_1",
+      type: "task",
+      agentId: "A",
+      latestDetails: {
+        progress: [
+          { id: "B", completionPercent: 10 },
+          { id: "A", completionPercent: 41.6, stage: "  writing\n tests " },
+        ],
+      },
+    };
+
+    async function publishWith(status: string, asyncJobManager: unknown): Promise<AsyncJobsSnapshot> {
+      const job = rawJob({ type: "task", status, ...(status === "running" ? {} : { endTime: 2_000 }) });
+      const harness = executableExtension({
+        getAsyncJobSnapshot: () => ({
+          running: status === "running" ? [job] : [],
+          recent: status === "running" ? [] : [job],
+          delivery: null,
+        }),
+        inspectAsyncJob: () => ({ output: "" }),
+        cancelAsyncJob: () => true,
+        ...(asyncJobManager === undefined ? {} : { asyncJobManager }),
+      });
+      await bindRoot(harness);
+      await harness.arm();
+      return harness.latest();
+    }
+
+    it("a running job reads its own agent's entry", async () => {
+      const job = (await publishWith("running", { getJob: () => managed })).running[0]!;
+      expect(job.completionPercent).toBe(42);
+      expect(job.stage).toBe("writing tests");
+    });
+
+    it("a finished job reads null", async () => {
+      const job = (await publishWith("completed", { getJob: () => managed })).recent[0]!;
+      expect(job.completionPercent).toBeNull();
+      expect(job.stage).toBeNull();
+    });
+
+    it("no asyncJobManager reads null", async () => {
+      const job = (await publishWith("running", undefined)).running[0]!;
+      expect(job.completionPercent).toBeNull();
+      expect(job.stage).toBeNull();
+    });
+
+    it("a throwing getJob reads null and the snapshot stays available", async () => {
+      const snapshot = await publishWith("running", {
+        getJob: () => {
+          throw new Error("boom");
+        },
+      });
+      expect(snapshot.available).toBe(true);
+      expect(snapshot.running[0]!.completionPercent).toBeNull();
+      expect(snapshot.running[0]!.stage).toBeNull();
+    });
+  });
+
+  it("asks the manager's widget view only when inspect has no widget key", async () => {
+    let views = 0;
+    let inspectHasKey = true;
+    const harness = executableExtension({
+      getAsyncJobSnapshot: () => ({ running: [rawJob()], recent: [], delivery: null }),
+      inspectAsyncJob: () => (inspectHasKey ? { output: "", widget: undefined } : { output: "" }),
+      cancelAsyncJob: () => true,
+      asyncJobManager: {
+        getJob: (id: string) => ({ id, type: "bash" }),
+        widgets: {
+          view: () => {
+            views += 1;
+            return liveView();
+          },
+        },
+      },
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    await harness.arm();
+    expect(views).toBe(0);
+    expect(harness.latest().running[0]!.widget).toBeNull();
+    inspectHasKey = false;
+    await harness.arm();
+    expect(views).toBe(1);
+    await harness.arm();
+    expect(views).toBe(2);
+    expect(harness.latest().running[0]!.widget?.title).toBe("Migration");
+  });
+
+  it("an oversized snapshot drops widgets before giving up", async () => {
+    const grid = {
+      kind: "grid",
+      label: "cells",
+      items: Array.from({ length: 48 }, (_, i) => ({ label: `c${i}`, text: "z".repeat(200) })),
+    };
+    const harness = executableExtension({
+      getAsyncJobSnapshot: () => ({
+        running: Array.from({ length: 8 }, (_, i) => rawJob({ id: `bg_${i}`, type: "task", startTime: 1_000 + i })),
+        recent: [],
+        delivery: null,
+      }),
+      inspectAsyncJob: () => ({ output: "", widget: liveView({ blocks: [grid, grid, grid, grid] }) }),
+      cancelAsyncJob: () => true,
+      asyncJobManager: {
+        getJob: (id: string) => ({
+          id,
+          type: "task",
+          agentId: "A",
+          latestDetails: { progress: [{ id: "A", completionPercent: 30 }] },
+        }),
+      },
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    const snapshot = harness.latest();
+    expect(snapshot.available).toBe(true);
+    expect(snapshot.running).toHaveLength(8);
+    for (const job of snapshot.running) {
+      expect(job.widget).toBeNull();
+      expect(job.completionPercent).toBe(30);
+    }
   });
 });

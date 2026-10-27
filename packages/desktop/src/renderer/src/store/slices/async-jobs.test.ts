@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ASYNC_JOBS_COMMAND,
   ASYNC_JOBS_STATUS_KEY,
+  ASYNC_JOBS_SNAPSHOT_VERSION,
   type AsyncJobsSnapshot,
 } from "@omp-ui/core/async-jobs";
 import { rpcTabState, tabInfo } from "../../test/fixtures";
@@ -13,7 +14,7 @@ const runtime = () => h.useStore.getState().rpc[h.TAB];
 
 function snapshot(overrides: Partial<AsyncJobsSnapshot> = {}): AsyncJobsSnapshot {
   return {
-    version: 2,
+    version: ASYNC_JOBS_SNAPSHOT_VERSION,
     processKey: "omp-ui-proc-1",
     revision: 1,
     available: true,

@@ -2000,6 +2000,7 @@ export const en = {
   "hud.jobs.label": "jobs",
   "hud.jobs.running": "{count} background job(s) running",
   "hud.jobs.openTitle": "open the background jobs list",
+  "hud.jobs.glance": "{job}: {figure}",
   // Session HUD autoresearch chip (issue #559)
   "hud.autoresearch.on": "autoresearch",
   "hud.autoresearch.run": "run {n}",
@@ -2138,6 +2139,7 @@ export const en = {
   "rail.jobs.noInspect": "This omp build reports no job details — update omp to 18.4.9 or later.",
   "rail.jobs.noCancel": "This omp build cannot cancel background jobs — update omp to 18.4.9 or later.",
   "rail.jobs.noAnswer": "The background jobs bridge did not answer; refresh the list and try again.",
+  "rail.jobs.completion": "the agent's own completion estimate: {percent}%",
 
   "rail.stats.messages": "messages",
   "rail.stats.user": "user",

@@ -59,3 +59,38 @@ owner-scoped and hides subagent jobs from a top-level session entirely.
   as `buildAsyncJobRows`): each agent node features one task job, other jobs
   hang off their owner's node, siblings sort branchiest-first. A cycle in the
   untrusted roster falls back to the flat order.
+
+## Addendum (issue #954): the v3 envelope carries live job widgets
+
+Re-verified against `omp/18.13.2`. omp 18.12.3 added live job widgets
+(`async.widgets`, default on). The `widget` model role writes one spec per
+running background job, and omp then computes every update from the job's output.
+
+- `getAsyncJobTree` still serializes jobs through the same nine-field
+  projection. `inspectAsyncJob(id)` now also returns `widget`: the widget
+  registry's rendered view `{ title, headline?, stage?, blocks, state,
+  updatedAt }`, not the model's spec.
+- Reading a view has a side effect. It marks the job as shown, and once the job
+  has run for 15 s omp may author a spec. The bridge's `inspectAsyncJob` poll has
+  done this since 18.12.3. `async.widgets: false` turns off both authoring and
+  views inside omp.
+- A running task job's `completionPercent` and `stage` live on the job
+  manager's job (`latestDetails.progress`, the entry for the job's agent). The
+  bridge reaches them through the public `AgentSession.asyncJobManager.getJob(id)`,
+  the same read omp's `wait` tool makes. omp fills them from its subagent
+  completion probe, which runs only in interactive mode. An rpc-ui session never
+  probes, so these fields stay empty in omp-ui sessions on this binary. So do
+  task-job widgets, because authoring one needs the probe's `watch`.
+
+Decision:
+
+- The envelope becomes `version: 3`. Every job carries three fields, each
+  `null` when absent: `widget` (live views only, reduced and capped by the
+  bridge), `completionPercent` (an integer from 0 to 100), and `stage`. v1 and v2
+  payloads parse with nulls. An older envelope that carries a v3 key is malformed.
+- The widget comes from `inspectAsyncJob`. The bridge asks
+  `asyncJobManager.widgets.view(job)` only when that result has no `widget` key,
+  so no poll reads a view twice. Every read is decided by method and key presence,
+  not by version.
+- The byte rungs gain one step: before it gives up, the bridge drops widgets
+  and keeps the estimate and stage.
