@@ -53,10 +53,11 @@ and the owning instance delivers it on its own `initialCommands` rail as the
 last command before the first turn. Once the owner accepts the spawn, it owns
 delivery.**
 
-- `fleet = { dispatchId, batchId, title, prompt, requestedBy }` is accepted on
-  new rpc-ui requests only; `parseSpawnRequest` refuses it on terminal, chat,
-  and resume requests and alongside plan implementation or an experiment, so
-  a dispatched session is always a native project session.
+- `fleet = { dispatchId, batchId, title, prompt, requestedBy, model?,
+  thinkingLevel? }` is accepted on new rpc-ui requests only;
+  `parseSpawnRequest` refuses it on terminal, chat, and resume requests and
+  alongside plan implementation or an experiment, so a dispatched session is
+  always a native project session.
 - The owner writes the record with `fleet: { dispatchId, batchId,
   dispatchedAt, requestedBy }` (required-with-null, the #294 convention; a
   branch or fork of a dispatched session is not the dispatch and carries
@@ -117,7 +118,16 @@ delivery.**
   (plan arm before the fleet prompt) applies unchanged.* *Amended (#945):
   every **Chat** registers the fleet tools on each spawn and resume
   regardless of the setting; the setting now governs project sessions only.
-  A chat is never dispatched, so no recursion is unaffected.*
+  A chat is never dispatched, so no recursion is unaffected.* *Amended
+  (#956): `omp-ui_fleet_dispatch` takes an optional `model` and
+  `thinkingLevel`, which ride `FleetSpawnSpec` only when requested and only to
+  members whose host report carries `modelFavorites`. The owner resolves the
+  record's model before anything is minted: a requested model must be in its
+  `omp models` catalog with a reachable endpoint; an agent dispatch with none
+  takes the first favorite that qualifies, else the project chain; a level
+  must be `auto` or one of the model's efforts. A refusal fails that copy
+  with the owner's reason, and the spawn answer's `choice` names what the
+  record started on.*
 - **No recursion.** A session an agent dispatched (`requestedBy.kind:
   "agent"`) never gets the fleet tools, so a dispatched agent cannot dispatch
   further.

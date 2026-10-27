@@ -14,6 +14,7 @@ import {
   choosePlacement,
   deriveFleetTitle,
   eligibleMachineCount,
+  fleetChoiceText,
   fleetMachineName,
   fleetMemberAddress,
   fleetSessionState,
@@ -24,6 +25,8 @@ import {
   mintBranchName,
   parseFleetDispatchRequest,
   parseFleetHostOs,
+  parseFleetModelChoice,
+  parseFleetModelFavorites,
   parseFleetPackageManagers,
   parseFleetUpdateFacts,
   validateFleetTitle,
@@ -66,6 +69,7 @@ import {
   type PlacementPreference,
   type RemoteInstanceSummary,
   type SessionSummary,
+  type SpawnAnswer,
 } from "@omp-ui/core";
 
 /** A joined member's report must arrive inside this window, or the member reads as an error. */
@@ -96,7 +100,7 @@ const SSH_PROBE_TTL_MS = 15_000;
 export interface FleetDispatcherDeps {
   localReport(): Promise<FleetHostReport>;
   /** sessions.spawn */
-  spawnLocal(req: NewRpcSpawnRequest): Promise<{ tabId: string }>;
+  spawnLocal(req: NewRpcSpawnRequest): Promise<SpawnAnswer>;
   /** remoteInstances.summaries() */
   remotes(): RemoteInstanceSummary[];
   /** remoteInstances.request */
@@ -281,7 +285,8 @@ export class FleetDispatcher {
       ]);
       // A member that predates #904 sends neither user nor projectRoots; one
       // that predates #905 sends neither os nor packageManagers; one that
-      // predates the fleet update channels sends none of the version facts.
+      // predates the fleet update channels sends none of the version facts;
+      // one that predates #956 sends no modelFavorites.
       const normalized: FleetHostReport = {
         ...report,
         user: typeof report.user === "string" && report.user !== "" ? report.user : null,
@@ -289,6 +294,7 @@ export class FleetDispatcher {
         os: parseFleetHostOs(report.os),
         packageManagers: parseFleetPackageManagers(report.packageManagers),
         ...parseFleetUpdateFacts(report),
+        modelFavorites: parseFleetModelFavorites(report.modelFavorites),
       };
       return {
         ...machine,
@@ -386,12 +392,20 @@ export class FleetDispatcher {
                   },
                 }
               : null,
-          fleet: { dispatchId, batchId, title, prompt: req.prompt, requestedBy },
+          fleet: {
+            dispatchId,
+            batchId,
+            title,
+            prompt: req.prompt,
+            requestedBy,
+            ...(req.model === undefined ? {} : { model: req.model }),
+            ...(req.thinkingLevel === undefined ? {} : { thinkingLevel: req.thinkingLevel }),
+          },
         };
         const local = target.machineKey === LOCAL_MACHINE_KEY;
         const work = local
           ? this.#deps.spawnLocal(spawn)
-          : (this.#deps.request(target.machineKey, CH.spawnSession, [spawn]) as Promise<{ tabId: string }>);
+          : (this.#deps.request(target.machineKey, CH.spawnSession, [spawn]) as Promise<SpawnAnswer>);
         // Every dispatch is bounded (issue #907): the caller's deadline wins,
         // the user path defaults to USER_FLEET_DEADLINE_MS. A wedged answer
         // settles as "unknown" below instead of hanging the New session
@@ -403,7 +417,7 @@ export class FleetDispatcher {
           const answer = await within(work, deadlineMs);
           if (answer !== TIMED_OUT) {
             this.#pending.delete(dispatchId);
-            return { ...base, status: "started", tabId: answer.tabId };
+            return { ...base, status: "started", tabId: answer.tabId, choice: parseFleetModelChoice(answer.choice) };
           }
           unknown = `no answer within ${Math.round(deadlineMs / 1000)} s; the session may still start`;
         } catch (err) {
@@ -432,6 +446,8 @@ export class FleetDispatcher {
 
   #resolveTargets(req: FleetDispatchRequest, machines: FleetMachine[]): ResolvedTarget[] {
     const byKey = new Map(machines.map((m) => [m.key, m]));
+    const wantsChoice = req.model !== undefined || req.thinkingLevel !== undefined;
+    const SKEW = (name: string) => `${name} runs an omp-ui without dispatch model selection; update omp-ui there`;
     if (req.targets.kind === "explicit") {
       return req.targets.picks.map((pick): ResolvedTarget => {
         const machine = byKey.get(pick.machineKey) ?? null;
@@ -444,6 +460,7 @@ export class FleetDispatcher {
         const project = machine.report.projects.find((p) => p.path === pick.projectCwd);
         if (project === undefined) return { ...target, failure: `${name} has no project ${pick.projectCwd}` };
         if (!project.providerReady) return { ...target, failure: `no model provider on ${name}` };
+        if (wantsChoice && machine.report.modelFavorites === null) return { ...target, failure: SKEW(name) };
         return { ...target, project };
       });
     }
@@ -466,7 +483,7 @@ export class FleetDispatcher {
       }
     }
     const candidates: PlacementCandidate[] = holders
-      .filter((h) => h.project.providerReady)
+      .filter((h) => h.project.providerReady && (!wantsChoice || h.machine.report!.modelFavorites !== null))
       .map((h) => ({
         machineKey: h.machine.key,
         projectCwd: h.project.path,
@@ -478,7 +495,7 @@ export class FleetDispatcher {
     const picked = choosePlacement(candidates, now, count);
     if (picked.length === 0) {
       throw new Error(
-        `Only ${eligibleMachineCount(candidates, now)} fleet machines can take this work now (needs: same repository, a ready model provider, CPU under 95%, more than 5% memory free). Choose machines manually.`,
+        `Only ${eligibleMachineCount(candidates, now)} fleet machines can take this work now (needs: same repository, a ready model provider${wantsChoice ? ", an omp-ui that supports model selection" : ""}, CPU under 95%, more than 5% memory free). Choose machines manually.`,
       );
     }
     return picked.map((c) => {
@@ -517,7 +534,7 @@ export class FleetDispatcher {
     const lines = await Promise.all(
       sessions.map(async ({ machineKey, nickname, summary }) => {
         const state = fleetSessionState(summary);
-        const head = `- ${fleetMachineName({ nickname })} · ${summary.title} · ${state} (dispatch ${summary.fleet!.dispatchId}, tab ${summary.tabId})`;
+        const head = `- ${fleetMachineName({ nickname })} · ${summary.title} · ${state} (dispatch ${summary.fleet!.dispatchId}, tab ${summary.tabId}${fleetChoiceText({ model: summary.model ?? null, thinkingLevel: summary.thinkingLevel ?? null })})`;
         if (state === "working") return head;
         const read =
           machineKey === LOCAL_MACHINE_KEY

@@ -84,6 +84,12 @@ import {
   type ImageAttachment,
   type DocumentAttachment,
   type ModelHold,
+  type ModelCatalogSnapshot,
+  type FleetModelChoice,
+  type FleetSpawnSpec,
+  type ProjectRecord,
+  type SpawnAnswer,
+  resolveFleetModelChoice,
   type OwnedSessionRecord,
   type FleetAgentUpdateAnswer,
   type FleetDispatchRequest,
@@ -235,6 +241,8 @@ export interface SessionManagerDependencies {
    * never hold.
    */
   resolveModelHold?: (model: string) => Promise<ModelHold | null>;
+  /** The owner's `omp models` chat catalog for fleet model choice (#956); absent = unreadable. */
+  readModelCatalog?: () => Promise<ModelCatalogSnapshot>;
   getOmpPath: () => string | null;
   getSessionsRoot: () => string;
   getArchiveRoot: () => string;
@@ -332,7 +340,9 @@ export class SessionManager {
   /** The parked warm rpc-ui child pool (perf issue #908); inert under vitest or with deps.warmRpc false. */
   private readonly warmPool: WarmRpcPool;
   /** In-flight fleet spawns keyed by dispatchId (ADR-0061): a retried dispatch joins the first instead of starting a second process. */
-  readonly #fleetInFlight = new Map<string, Promise<{ tabId: string }>>();
+  readonly #fleetInFlight = new Map<string, Promise<SpawnAnswer>>();
+  /** One `omp models` read shared by concurrent fleet spawns (#956); never cached past settle, so a new sign-in counts at the next dispatch. */
+  #catalogRead: Promise<ModelCatalogSnapshot> | null = null;
   private obsidianListPending: Promise<ObsidianListEntry[]> | null = null;
   private obsidianListCached: ObsidianListEntry[] | null = null;
   private obsidianListExpiresAt = 0;
@@ -721,7 +731,7 @@ export class SessionManager {
   }
 
 
-  async spawn(req: SpawnRequest): Promise<{ tabId: string }> {
+  async spawn(req: SpawnRequest): Promise<SpawnAnswer> {
     // Recorded before validateSpawnSemantics so even a rejected or stalled
     // attempt leaves a trace (issue #789): today only success lands a line,
     // so a hung spawn reads as if nothing was ever tried. Ids only in the
@@ -767,10 +777,16 @@ export class SessionManager {
       // unknown outcome, or a concurrent duplicate, gets the first tab back
       // instead of a second process. Decided synchronously, before any await.
       const existing = this.deps.registry.sessions.find((s) => s.fleet?.dispatchId === fleet.dispatchId);
-      if (existing !== undefined) return { tabId: existing.tabId };
+      const answer = (tabId: string): SpawnAnswer => {
+        const r = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+        return r === undefined ? { tabId } : { tabId, choice: { model: r.model, thinkingLevel: r.thinkingLevel } };
+      };
+      if (existing !== undefined) return answer(existing.tabId);
       const inFlight = this.#fleetInFlight.get(fleet.dispatchId);
       if (inFlight !== undefined) return inFlight;
-      const started = this.spawnInner(req).finally(() => this.#fleetInFlight.delete(fleet.dispatchId));
+      const started = this.spawnInner(req)
+        .then(({ tabId }) => answer(tabId))
+        .finally(() => this.#fleetInFlight.delete(fleet.dispatchId));
       this.#fleetInFlight.set(fleet.dispatchId, started);
       return started;
     }
@@ -889,13 +905,26 @@ export class SessionManager {
       } else {
         projectCwd = req.projectCwd;
         freshTabId = randomUUID();
+        const project = chat ? undefined : this.deps.registry.projects.find((p) => p.path === req.projectCwd);
+        // The app-level auto-thinking flag wins over last-used memory (the
+        // mint below uses the same seed): with it on, every fresh session
+        // starts on omp's automatic selector; with it off, the remembered
+        // level resumes as the seed. Computed here so the warm plan key
+        // matches the record's boot argv exactly.
+        const thinkingSeed = this.deps.registry.getSetting("defaultAutoThinking")
+          ? "auto"
+          : chat
+            ? this.deps.registry.getSetting("chatLastThinkingLevel")
+            : (project?.lastThinkingLevel ?? null);
+        // #956: resolve before anything is minted, so a refusal leaves no worktree
+        // or record behind (the catch rethrows when neither exists).
+        const fleetChoice = req.fleet === undefined ? null : await this.#fleetModelChoice(req.fleet, project, thinkingSeed);
         const preparedWorktree = await this.worktreeOps.prepareSpawn(
           req.projectCwd,
           req.worktree,
         );
         const worktree = preparedWorktree.worktree;
         mintedWorktree = preparedWorktree.minted;
-        const project = chat ? undefined : this.deps.registry.projects.find((p) => p.path === req.projectCwd);
         // The warm-child reservation (perf issue #908): decide BEFORE the
         // record is minted, because an adopted session uses the pool's dir
         // as its own lineage dir — omp stages session files against
@@ -914,16 +943,6 @@ export class SessionManager {
           this.gate.advisorModel === null &&
           // The plan key includes projectCwd, and a chat cwd is never reused.
           !chat;
-        // The app-level auto-thinking flag wins over last-used memory (the
-        // mint below uses the same seed): with it on, every fresh session
-        // starts on omp's automatic selector; with it off, the remembered
-        // level resumes as the seed. Computed here so the warm plan key
-        // matches the record's boot argv exactly.
-        const thinkingSeed = this.deps.registry.getSetting("defaultAutoThinking")
-          ? "auto"
-          : chat
-            ? this.deps.registry.getSetting("chatLastThinkingLevel")
-            : (project?.lastThinkingLevel ?? null);
         const planKey = warmPlanKey({
           ompPath,
           projectCwd: req.projectCwd,
@@ -973,8 +992,10 @@ export class SessionManager {
           serviceTier: null,
           model: chat
             ? this.deps.registry.getSetting("chatLastModel")
-            : (project?.defaultModel ?? project?.lastModel ?? null),
-          thinkingLevel: thinkingSeed,
+            : fleetChoice !== null
+              ? fleetChoice.model
+              : (project?.defaultModel ?? project?.lastModel ?? null),
+          thinkingLevel: fleetChoice !== null ? fleetChoice.thinkingLevel : thinkingSeed,
           advisor: req.advisor,
           advisorModel: req.advisorModel ?? null,
           subagentModels: null,
@@ -1038,7 +1059,9 @@ export class SessionManager {
       // on a hash miss); only an exception path can leave it live for the
       // rollback tail to release.
       warmHandoff = null;
-      if (fresh && mode === "rpc-ui" && !record.chat) {
+      // A fleet spawn never consumed a slot (ADR-0061), so it has nothing to
+      // refill, and its #956 model choice must not template the pool.
+      if (fresh && mode === "rpc-ui" && !record.chat && (req.origin !== "new" || req.fleet === undefined)) {
         this.warmPool.scheduleRefill({
           planKey: warmPlanKey({
             ompPath,
@@ -1743,12 +1766,57 @@ export class SessionManager {
     return { tabId: record.tabId };
   }
 
+  #readCatalog(): Promise<ModelCatalogSnapshot> {
+    const read = this.deps.readModelCatalog;
+    if (read === undefined) return Promise.resolve({ models: [], discovered: false, error: "model catalog unavailable" });
+    this.#catalogRead ??= read().finally(() => {
+      this.#catalogRead = null;
+    });
+    return this.#catalogRead;
+  }
+
+  /** The fleet spawn's record model and level (#956). Throws the owner's refusal; a user dispatch with nothing requested keeps the project chain without reading the catalog. */
+  async #fleetModelChoice(
+    spec: FleetSpawnSpec,
+    project: ProjectRecord | undefined,
+    seedLevel: string | null,
+  ): Promise<FleetModelChoice> {
+    const projectModel = project?.defaultModel ?? project?.lastModel ?? null;
+    const requestedModel = spec.model ?? null;
+    const requestedLevel = spec.thinkingLevel ?? null;
+    const favoritesFirst = spec.requestedBy.kind === "agent";
+    if (!favoritesFirst && requestedModel === null && requestedLevel === null) {
+      return { model: projectModel, thinkingLevel: seedLevel };
+    }
+    const result = await resolveFleetModelChoice({
+      requestedModel,
+      requestedLevel,
+      favoritesFirst,
+      projectModel,
+      seedLevel,
+      catalog: await this.#readCatalog(),
+      favorites: this.deps.registry.getFavorites(),
+      reachable: async (model) => {
+        const resolve = this.deps.resolveModelHold;
+        if (resolve === undefined) return true;
+        try {
+          return (await resolve(model)) === null;
+        } catch {
+          return true; // the #932 rule: a failed probe boots pinned
+        }
+      },
+    });
+    if (!result.ok) throw new Error(result.reason);
+    return result.choice;
+  }
+
   /**
    * #932: omp blocks its boot on the pinned model's provider discovery, so a
    * dead endpoint means no fresh session starts at all. Only a fresh, unpinned-
    * by-anything-else, non-fleet spawn is probed: a resume restores its model
    * from the transcript (the overlay cannot unpin it), a gate or recovery pick
    * names its own model, and a fleet spawn's boot prompt would bypass the hold.
+   * A fleet spawn's model was already checked for reachability when it was chosen (#956).
    */
   private async probeModelHold(
     record: OwnedSessionRecord,

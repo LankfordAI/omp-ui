@@ -8,7 +8,8 @@
 import { APP_PACKAGE_FORMATS, type AppPackageFormat } from "./update-types";
 import { compareVersions } from "./semver";
 import { PROVIDER_ENV_NAMES } from "./provider-catalog";
-import type { SessionSummary } from "./types";
+import { parseModelRole } from "./model-role";
+import type { CatalogModelOption, ModelCatalogSnapshot, SessionSummary } from "./types";
 
 export const LOCAL_MACHINE_KEY = "local";
 export type PlacementPreference = "prefer" | "normal" | "less" | "manual";
@@ -136,6 +137,10 @@ export interface FleetSpawnSpec {
   title: string;
   prompt: string;
   requestedBy: FleetRequester;
+  /** #956: the main model the dispatcher asked for; absent = the owner decides. */
+  model?: string;
+  /** #956: the main thinking level the dispatcher asked for; absent = the owner decides. */
+  thinkingLevel?: string;
 }
 
 /** Persisted on OwnedSessionRecord.fleet (no prompt: it is staged on disk). */
@@ -216,6 +221,9 @@ export interface FleetHostReport {
   appLatestVersion: string | null;
   /** True when the member has verified and staged an omp-ui update, pending its quit. */
   appUpdateStaged: boolean;
+  /** The member's favorite models (`provider/id`, star order): what an agent
+   *  dispatch with no model tries first (#956); null when the member predates #956. */
+  modelFavorites: string[] | null;
 }
 
 const FLEET_OS_NAME_MAX = 128;
@@ -237,6 +245,22 @@ export function parseFleetHostOs(value: unknown): FleetHostOs | null {
   if (o.version === null) return { name: o.name, version: null };
   if (typeof o.version !== "string" || o.version.length > FLEET_OS_VERSION_MAX || CONTROL_CHARS.test(o.version)) return null;
   return { name: o.name, version: o.version === "" ? null : o.version };
+}
+
+/** Normalizer for a remote report's `modelFavorites`: null unless an array; invalid or duplicate entries dropped; at most 128 kept. */
+export function parseFleetModelFavorites(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: string[] = [];
+  for (const raw of value) {
+    if (out.length >= FLEET_MODEL_FAVORITES_MAX) break;
+    try {
+      const model = validateFleetModel(raw);
+      if (!out.includes(model)) out.push(model);
+    } catch {
+      continue;
+    }
+  }
+  return out;
 }
 
 /** Normalizer for a remote report's `packageManagers`: null unless an array; invalid entries dropped; at most 16 kept. */
@@ -354,10 +378,27 @@ export interface FleetDispatchRequest {
   planMode: boolean;
   /** Retry of an unknown outcome: exactly one explicit pick; both ids are reused. */
   retryOf?: { dispatchId: string; batchId: string | null };
+  /** #956: absent = the owner decides (agent: first runnable favorite; user: project chain). */
+  model?: string;
+  thinkingLevel?: string;
+}
+
+/** The main model and level a dispatched session's record started with (#956); model null = omp's own default. */
+export interface FleetModelChoice {
+  model: string | null;
+  thinkingLevel: string | null;
 }
 
 export type FleetDispatchOutcome =
-  | { dispatchId: string; machineKey: string; projectCwd: string; status: "started"; tabId: string }
+  | {
+      dispatchId: string;
+      machineKey: string;
+      projectCwd: string;
+      status: "started";
+      tabId: string;
+      /** Null when the owner predates #956 and did not report it. */
+      choice: FleetModelChoice | null;
+    }
   | { dispatchId: string; machineKey: string; projectCwd: string; status: "failed" | "unknown"; message: string };
 
 export interface FleetDispatchResult {
@@ -471,6 +512,53 @@ export function validateFleetTitle(value: unknown, label = "title"): string {
   return title;
 }
 
+export const FLEET_MODEL_MAX = 256;
+const FLEET_MODEL_FAVORITES_MAX = 128;
+const FLEET_LEVEL_PATTERN = /^[a-z]{1,32}$/;
+
+/** A `provider/id` selector: trimmed, both halves non-empty, no whitespace or control characters. */
+export function validateFleetModel(value: unknown, label = "model"): string {
+  const model = typeof value === "string" ? value.trim() : "";
+  const slash = model.indexOf("/");
+  if (slash <= 0 || slash === model.length - 1 || model.length > FLEET_MODEL_MAX || /\s/.test(model) || CONTROL_CHARS.test(model)) {
+    throw new Error(`${label} must be a provider/id selector such as openrouter/openai/gpt-5.6-luna`);
+  }
+  return model;
+}
+
+/** A thinking-level word (`low`, `high`, …) or omp's `auto` selector. */
+export function validateFleetThinkingLevel(value: unknown, label = "thinkingLevel"): string {
+  if (typeof value !== "string" || !FLEET_LEVEL_PATTERN.test(value.trim())) {
+    throw new Error(`${label} must be a thinking level word such as low or high, or auto`);
+  }
+  return value.trim();
+}
+
+/** An owner's `SpawnAnswer.choice`, shape-checked; anything else (an older owner) is null. */
+export function parseFleetModelChoice(value: unknown): FleetModelChoice | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const c = value as ObjectValue;
+  const model =
+    c.model === null
+      ? null
+      : typeof c.model === "string" && c.model.length <= FLEET_MODEL_MAX && !CONTROL_CHARS.test(c.model)
+        ? c.model
+        : undefined;
+  const level =
+    c.thinkingLevel === null
+      ? null
+      : typeof c.thinkingLevel === "string" && FLEET_LEVEL_PATTERN.test(c.thinkingLevel)
+        ? c.thinkingLevel
+        : undefined;
+  return model === undefined || level === undefined ? null : { model, thinkingLevel: level };
+}
+
+/** The answer clause naming a session's model: "" when unreported. */
+export function fleetChoiceText(choice: FleetModelChoice | null): string {
+  if (choice === null) return "";
+  return `; model ${choice.model ?? "omp default"}, thinking ${choice.thinkingLevel ?? "model default"}`;
+}
+
 /** The title a dispatch without one gets: the prompt's first non-blank line, cut to 80 code points. */
 export function deriveFleetTitle(prompt: string): string {
   const line = prompt.split(/\r?\n/).map((l) => l.trim()).find((l) => l !== "") ?? "";
@@ -500,13 +588,17 @@ export function parseFleetRequester(value: unknown, label = "requester"): FleetR
 export function parseFleetSpawnSpec(value: unknown): FleetSpawnSpec {
   const label = "spawn request.fleet";
   const spec = objectValue(value, label);
-  rejectUnknownKeys(spec, ["dispatchId", "batchId", "title", "prompt", "requestedBy"], label);
+  rejectUnknownKeys(spec, ["dispatchId", "batchId", "title", "prompt", "requestedBy", "model", "thinkingLevel"], label);
   return {
     dispatchId: idString(spec.dispatchId, `${label}.dispatchId`),
     batchId: nullableId(spec.batchId, `${label}.batchId`),
     title: validateFleetTitle(spec.title, `${label}.title`),
     prompt: validateFleetPrompt(spec.prompt, `${label}.prompt`),
     requestedBy: parseFleetRequester(spec.requestedBy, `${label}.requestedBy`),
+    ...(spec.model === undefined ? {} : { model: validateFleetModel(spec.model, `${label}.model`) }),
+    ...(spec.thinkingLevel === undefined
+      ? {}
+      : { thinkingLevel: validateFleetThinkingLevel(spec.thinkingLevel, `${label}.thinkingLevel`) }),
   };
 }
 
@@ -551,7 +643,11 @@ function batchCount(value: unknown, label: string): number {
  */
 export function parseFleetDispatchRequest(value: unknown): FleetDispatchRequest {
   const req = objectValue(value, "dispatch request");
-  rejectUnknownKeys(req, ["targets", "prompt", "title", "workspace", "planMode", "retryOf"], "dispatch request");
+  rejectUnknownKeys(
+    req,
+    ["targets", "prompt", "title", "workspace", "planMode", "retryOf", "model", "thinkingLevel"],
+    "dispatch request",
+  );
   const t = objectValue(req.targets, "dispatch request.targets");
   let targets: FleetTargets;
   if (t.kind === "explicit") {
@@ -606,6 +702,9 @@ export function parseFleetDispatchRequest(value: unknown): FleetDispatchRequest 
       batchId: nullableId(r.batchId, "dispatch request.retryOf.batchId"),
     };
   }
+  const model = req.model === undefined ? undefined : validateFleetModel(req.model, "dispatch request.model");
+  const thinkingLevel =
+    req.thinkingLevel === undefined ? undefined : validateFleetThinkingLevel(req.thinkingLevel, "dispatch request.thinkingLevel");
   return {
     targets,
     prompt,
@@ -613,6 +712,8 @@ export function parseFleetDispatchRequest(value: unknown): FleetDispatchRequest 
     workspace,
     planMode: req.planMode,
     ...(retryOf === undefined ? {} : { retryOf }),
+    ...(model === undefined ? {} : { model }),
+    ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
   };
 }
 
@@ -1000,6 +1101,93 @@ export function parseFleetProjectRoots(value: unknown): string[] {
   );
 }
 
+// ── Model choice (#956) ─────────────────────────────────────────────────────
+
+export interface FleetModelChoiceInput {
+  requestedModel: string | null;
+  requestedLevel: string | null;
+  /** True for an agent dispatch: only that path defaults to favorites. */
+  favoritesFirst: boolean;
+  catalog: ModelCatalogSnapshot;
+  favorites: readonly string[];
+  /** The owner's project chain: defaultModel ?? lastModel ?? null. */
+  projectModel: string | null;
+  /** The owner's fresh-spawn thinking seed (session-manager thinkingSeed). */
+  seedLevel: string | null;
+  /** False when the model's models.yml endpoint does not answer. */
+  reachable(model: string): Promise<boolean>;
+}
+
+/**
+ * The owner's model and level for a fleet spawn (#956). A requested model must
+ * be in the catalog with a reachable endpoint; an agent dispatch without one
+ * takes the first catalogued, reachable favorite, else the project chain. A
+ * requested level must be `auto` or one of the model's efforts.
+ */
+export async function resolveFleetModelChoice(
+  input: FleetModelChoiceInput,
+): Promise<{ ok: true; choice: FleetModelChoice } | { ok: false; reason: string }> {
+  const { catalog } = input;
+  const rowOf = (m: string) => (catalog.discovered ? catalog.models.find((r) => `${r.provider}/${r.id}` === m) : undefined);
+  let model: string | null = null;
+  let row: CatalogModelOption | undefined;
+  let source: "requested" | "favorite" | "project" = "project";
+  if (input.requestedModel !== null) {
+    const m = input.requestedModel;
+    if (!catalog.discovered) {
+      return { ok: false, reason: `could not read the model catalog here (${catalog.error ?? "unknown error"})` };
+    }
+    row = rowOf(m);
+    if (row === undefined) {
+      const role = parseModelRole(m);
+      if (role?.level !== undefined && rowOf(role.model) !== undefined) {
+        return { ok: false, reason: `pass the level as thinkingLevel, not a :${role.level} suffix on model` };
+      }
+      return { ok: false, reason: `model ${m} is not in this machine's model catalog` };
+    }
+    if (!(await input.reachable(m))) return { ok: false, reason: `model ${m}'s provider endpoint did not answer here` };
+    model = m;
+    source = "requested";
+  } else {
+    if (input.favoritesFirst && catalog.discovered) {
+      for (const f of input.favorites) {
+        const fRow = rowOf(f);
+        if (fRow !== undefined && (await input.reachable(f))) {
+          model = f;
+          row = fRow;
+          source = "favorite";
+          break;
+        }
+      }
+    }
+    if (source === "project") {
+      model = input.projectModel;
+      row = model === null ? undefined : rowOf(model);
+    }
+  }
+  const efforts = row?.thinking?.efforts ?? [];
+  const level = input.requestedLevel;
+  if (level !== null) {
+    if (level === "auto") return { ok: true, choice: { model, thinkingLevel: level } };
+    if (model === null) {
+      return { ok: false, reason: `thinkingLevel ${level} needs a model: pass model, or star a favorite on that machine` };
+    }
+    if (row !== undefined && !efforts.includes(level)) {
+      return {
+        ok: false,
+        reason:
+          efforts.length === 0
+            ? `model ${model} has no thinking levels; omit thinkingLevel`
+            : `model ${model} has no thinking level ${level} (it offers: ${efforts.join(", ")})`,
+      };
+    }
+    return { ok: true, choice: { model, thinkingLevel: level } };
+  }
+  if (source === "project") return { ok: true, choice: { model, thinkingLevel: input.seedLevel } };
+  const seed = input.seedLevel;
+  return { ok: true, choice: { model, thinkingLevel: seed === "auto" || (seed !== null && efforts.includes(seed)) ? seed : null } };
+}
+
 // ── Agent tools ─────────────────────────────────────────────────────────────
 
 export interface FleetToolDispatchArgs {
@@ -1011,6 +1199,10 @@ export interface FleetToolDispatchArgs {
   workspace: "worktree" | "checkout";
   /** True starts each dispatched session in read-only Plan mode (#942). */
   planMode: boolean;
+  /** #956; null = the owner decides. */
+  model: string | null;
+  /** #956; null = the owner decides. */
+  thinkingLevel: string | null;
 }
 
 export interface FleetToolExecArgs {
@@ -1162,16 +1354,20 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     return { ok: true, tool: "update", args: { machine: a.machine.trim(), target: a.target, action: a.action, version } };
   }
   if (name !== "omp-ui_fleet_dispatch") return refuse(`unknown host tool "${name}"`);
-  const extra = unknownKey(["prompt", "title", "project", "machines", "count", "workspace", "planMode"]);
+  const extra = unknownKey(["prompt", "title", "project", "machines", "count", "workspace", "planMode", "model", "thinkingLevel"]);
   if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
   let prompt: string;
   let title: string | null = null;
+  let model: string | null = null;
+  let thinkingLevel: string | null = null;
   try {
     prompt = validateFleetPrompt(a.prompt);
     if (a.title !== undefined) {
       if (typeof a.title !== "string") return refuse("title must be a string");
       title = a.title.trim() === "" ? null : validateFleetTitle(a.title);
     }
+    if (a.model !== undefined) model = validateFleetModel(a.model);
+    if (a.thinkingLevel !== undefined) thinkingLevel = validateFleetThinkingLevel(a.thinkingLevel);
   } catch (error) {
     return refuse((error as Error).message);
   }
@@ -1207,6 +1403,8 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
       count,
       workspace: a.workspace === "checkout" ? "checkout" : "worktree",
       planMode: a.planMode === true,
+      model,
+      thinkingLevel,
     },
   };
 }
@@ -1238,6 +1436,7 @@ export function fleetMemberAddress(url: string): string | null {
  * ready, not Manual only, and holds the project with a ready model provider
  * (#943); otherwise the request falls back to automatic placement.
  * `planMode` passes through; the owner arms Plan mode before it delivers the prompt.
+ * `model` and `thinkingLevel` pass through when given; the owner resolves and validates them.
  */
 export function fleetToolDispatchRequest(
   args: FleetToolDispatchArgs,
@@ -1266,7 +1465,14 @@ export function fleetToolDispatchRequest(
     reference = { machineKey: holder.key, projectCwd: project.path };
     localProject = local?.report?.projects.find((p) => p.repositoryKey === repositoryKey && p.providerReady);
   }
-  const base = { prompt: args.prompt, title: args.title, workspace: args.workspace, planMode: args.planMode } as const;
+  const base = {
+    prompt: args.prompt,
+    title: args.title,
+    workspace: args.workspace,
+    planMode: args.planMode,
+    ...(args.model === null ? {} : { model: args.model }),
+    ...(args.thinkingLevel === null ? {} : { thinkingLevel: args.thinkingLevel }),
+  } as const;
   if (args.machines === null) {
     const count = args.count ?? 1;
     if (count === 1 && local !== undefined && local.preference !== "manual" && localProject?.providerReady === true) {
@@ -1416,6 +1622,9 @@ export function formatFleetMachines(machines: readonly FleetMachine[]): string {
     // What the member runs and can be updated to (fleet remote version update):
     // every ready machine, this computer included.
     lines.push(`  ${fleetVersionsLine(report)}`);
+    lines.push(
+      `  favorites: ${report.modelFavorites === null ? "not reported (update omp-ui there to choose models)" : report.modelFavorites.length === 0 ? "none starred" : report.modelFavorites.join(", ")}`,
+    );
     // Where the session's own ssh reaches this member (issue #904, ADR-0064).
     if (m.key !== LOCAL_MACHINE_KEY && m.address !== null) {
       const target = report.user === null ? m.address : `${report.user}@${m.address}`;

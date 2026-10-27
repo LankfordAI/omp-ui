@@ -178,6 +178,7 @@ function report(patch: Partial<FleetHostReport> = {}): FleetHostReport {
     packageFormat: null,
     appLatestVersion: null,
     appUpdateStaged: false,
+    modelFavorites: [],
     ...patch,
   };
 }

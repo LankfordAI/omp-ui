@@ -9,6 +9,7 @@ import {
   fleetAppUpdateAvailable,
   fleetMemberAddress,
   fleetOsLabel,
+  fleetChoiceText,
   fleetToolDispatchRequest,
   fleetToolExecPollRequest,
   fleetToolExecRequest,
@@ -22,6 +23,8 @@ import {
   parseFleetExecRequest,
   parseFleetGrants,
   parseFleetHostOs,
+  parseFleetModelChoice,
+  parseFleetModelFavorites,
   parseFleetPackageManagers,
   parseFleetProjectManageRequest,
   parseFleetProjectRoots,
@@ -33,8 +36,10 @@ import {
   parseFleetUpdatePollRequest,
   parseFleetUpdateRequest,
   placementScore,
+  resolveFleetModelChoice,
   validateFleetCommand,
   type FleetHostProject,
+  type FleetModelChoiceInput,
   type FleetHostReport,
   type FleetMachine,
   type FleetToolDispatchArgs,
@@ -73,6 +78,7 @@ function report(patch: Partial<FleetHostReport> = {}): FleetHostReport {
     packageFormat: null,
     appLatestVersion: null,
     appUpdateStaged: false,
+    modelFavorites: [],
     ...patch,
   };
 }
@@ -149,6 +155,12 @@ describe("parseFleetSpawnSpec", () => {
     expect(parseFleetSpawnSpec(spec)).toEqual(spec);
   });
 
+  it("keeps a requested model and thinking level (#956)", () => {
+    const raw = { ...spec, model: "openrouter/openai/gpt-5.6-luna", thinkingLevel: "low" };
+    expect(parseFleetSpawnSpec(raw)).toEqual(raw);
+    expect(Object.keys(parseFleetSpawnSpec(spec))).not.toContain("model");
+  });
+
   it.each([
     ["an unknown key", { ...spec, extra: 1 }],
     ["a blank prompt", { ...spec, prompt: " \n " }],
@@ -156,6 +168,10 @@ describe("parseFleetSpawnSpec", () => {
     ["a title with control characters", { ...spec, title: "Fix\u0007bug" }],
     ["a bad requester kind", { ...spec, requestedBy: { ...spec.requestedBy, kind: "robot" } }],
     ["an extra requestedBy key", { ...spec, requestedBy: { ...spec.requestedBy, prompt: "x" } }],
+    ["a model without a provider", { ...spec, model: "luna" }],
+    ["a model with whitespace", { ...spec, model: "a/b c" }],
+    ["an uppercase thinking level", { ...spec, thinkingLevel: "High" }],
+    ["a non-string thinking level", { ...spec, thinkingLevel: 3 }],
   ])("rejects %s", (_label, raw) => {
     expect(() => parseFleetSpawnSpec(raw)).toThrow(/spawn request\.fleet/);
   });
@@ -179,6 +195,21 @@ describe("parseFleetDispatchRequest", () => {
   it("accepts a retry of one explicit pick", () => {
     const raw = { ...request, retryOf: { dispatchId: "dispatch-1", batchId: null } };
     expect(parseFleetDispatchRequest(raw)).toEqual(raw);
+  });
+
+  it("accepts a model and thinking level (#956)", () => {
+    const raw = { ...request, model: "openrouter/openai/gpt-5.6-luna", thinkingLevel: "auto" };
+    expect(parseFleetDispatchRequest(raw)).toEqual(raw);
+    expect(Object.keys(parseFleetDispatchRequest(request))).not.toContain("thinkingLevel");
+  });
+
+  it("rejects a bad model or thinking level (#956)", () => {
+    expect(() => parseFleetDispatchRequest({ ...request, model: "nope" })).toThrow(
+      "dispatch request.model must be a provider/id selector such as openrouter/openai/gpt-5.6-luna",
+    );
+    expect(() => parseFleetDispatchRequest({ ...request, thinkingLevel: "High" })).toThrow(
+      "dispatch request.thinkingLevel must be a thinking level word such as low or high, or auto",
+    );
   });
 
   it.each([
@@ -346,25 +377,29 @@ describe("member address and ssh line (issue #904)", () => {
     ]).split("\n");
     expect(lines[0]).toMatch(/^- this computer: ready/);
     expect(lines[1]).toBe("  versions: omp-ui 0.30.0, omp not reported");
-    expect(lines[2]).toBe("  - /srv/repos/app (no repository key)");
-    expect(lines[3]).toMatch(/^- studio: ready/);
-    expect(lines[4]).toBe("  versions: omp-ui 0.30.0, omp not reported");
-    expect(lines[5]).toBe("  ssh: austin@10.0.0.5 (port 22 open); platform linux x64; project roots: /srv/repos");
-    expect(lines[6]).toBe(
+    expect(lines[2]).toBe("  favorites: none starred");
+    expect(lines[3]).toBe("  - /srv/repos/app (no repository key)");
+    expect(lines[4]).toMatch(/^- studio: ready/);
+    expect(lines[5]).toBe("  versions: omp-ui 0.30.0, omp not reported");
+    expect(lines[6]).toBe("  favorites: none starred");
+    expect(lines[7]).toBe("  ssh: austin@10.0.0.5 (port 22 open); platform linux x64; project roots: /srv/repos");
+    expect(lines[8]).toBe(
       "  system: Fedora Linux 44 (Workstation Edition); package managers: dnf, flatpak, brew at /home/linuxbrew/.linuxbrew/bin/brew",
     );
-    expect(lines[7]).toBe("  - /srv/repos/app (no repository key)");
-    expect(lines[8]).toMatch(/^- two: ready/);
-    expect(lines[9]).toBe("  versions: omp-ui 0.30.0, omp not reported");
-    expect(lines[10]).toBe("  ssh: 10.0.0.6 (port 22 closed); platform linux x64; project roots: none declared");
-    expect(lines[11]).toBe("  system: Fedora Linux 44 (Workstation Edition); package managers: none found");
-    expect(lines[13]).toMatch(/^- three: ready/);
-    expect(lines[14]).toBe("  versions: omp-ui 0.30.0, omp not reported");
-    expect(lines[15]).toBe("  ssh: austin@10.0.0.8 (port 22 not checked); platform linux x64; project roots: not reported");
-    expect(lines[16]).toBe("  system: not reported; package managers: not reported");
-    expect(lines[18]).toBe("- four: unreachable; preference normal");
-    expect(lines[19]).toBe("  address: 10.0.0.7 (not connected)");
-    expect(lines).toHaveLength(20);
+    expect(lines[9]).toBe("  - /srv/repos/app (no repository key)");
+    expect(lines[10]).toMatch(/^- two: ready/);
+    expect(lines[11]).toBe("  versions: omp-ui 0.30.0, omp not reported");
+    expect(lines[12]).toBe("  favorites: none starred");
+    expect(lines[13]).toBe("  ssh: 10.0.0.6 (port 22 closed); platform linux x64; project roots: none declared");
+    expect(lines[14]).toBe("  system: Fedora Linux 44 (Workstation Edition); package managers: none found");
+    expect(lines[16]).toMatch(/^- three: ready/);
+    expect(lines[17]).toBe("  versions: omp-ui 0.30.0, omp not reported");
+    expect(lines[18]).toBe("  favorites: none starred");
+    expect(lines[19]).toBe("  ssh: austin@10.0.0.8 (port 22 not checked); platform linux x64; project roots: not reported");
+    expect(lines[20]).toBe("  system: not reported; package managers: not reported");
+    expect(lines[22]).toBe("- four: unreachable; preference normal");
+    expect(lines[23]).toBe("  address: 10.0.0.7 (not connected)");
+    expect(lines).toHaveLength(24);
   });
 
   it("prints the system line for a ready member without an address (no ssh line)", () => {
@@ -372,9 +407,17 @@ describe("member address and ssh line (issue #904)", () => {
     expect(lines).toEqual([
       expect.stringMatching(/^- studio: ready/),
       "  versions: omp-ui 0.30.0, omp not reported",
+      "  favorites: none starred",
       "  system: macOS 15.1; package managers: dnf, flatpak, brew at /home/linuxbrew/.linuxbrew/bin/brew",
       "  - /srv/repos/app (no repository key)",
     ]);
+  });
+
+  it("prints starred favorites in order, or not reported for an older member (#956)", () => {
+    const starred = formatFleetMachines([machine({ address: null }, { modelFavorites: ["a/one", "b/two"] })]).split("\n");
+    expect(starred[2]).toBe("  favorites: a/one, b/two");
+    const older = formatFleetMachines([machine({ address: null }, { modelFavorites: null })]).split("\n");
+    expect(older[2]).toBe("  favorites: not reported (update omp-ui there to choose models)");
   });
 });
 
@@ -876,6 +919,8 @@ describe("dispatch tool defaults to this computer (#943)", () => {
     count: null,
     workspace: "worktree",
     planMode: false,
+    model: null,
+    thinkingLevel: null,
     ...patch,
   });
   const targets = (a: FleetToolDispatchArgs, machines: FleetMachine[]) => {
@@ -927,5 +972,224 @@ describe("dispatch tool defaults to this computer (#943)", () => {
       reference: { machineKey: LOCAL_MACHINE_KEY, projectCwd: "/work/app" },
       count: 2,
     });
+  });
+});
+
+describe("dispatch model choice (#956)", () => {
+  const LUNA = "openrouter/openai/gpt-5.6-luna";
+  const FLASH = "zai/glm-flash";
+  const PLAIN = "acme/plain";
+  const catalog = {
+    discovered: true,
+    error: null,
+    models: [
+      { provider: "openrouter", id: "openai/gpt-5.6-luna", name: "Luna", thinking: { efforts: ["low", "medium", "high", "xhigh", "max"] } },
+      { provider: "zai", id: "glm-flash", name: "GLM Flash", thinking: { efforts: ["low", "high", "max"] } },
+      { provider: "acme", id: "plain", name: "Plain" },
+    ],
+  };
+  const input = (patch: Partial<FleetModelChoiceInput> = {}): FleetModelChoiceInput => ({
+    requestedModel: null,
+    requestedLevel: null,
+    favoritesFirst: true,
+    catalog,
+    favorites: [],
+    projectModel: "proj/pinned",
+    seedLevel: "medium",
+    reachable: async () => true,
+    ...patch,
+  });
+
+  it("takes a requested model in the catalog", async () => {
+    expect(await resolveFleetModelChoice(input({ requestedModel: FLASH, seedLevel: "high" }))).toEqual({
+      ok: true,
+      choice: { model: FLASH, thinkingLevel: "high" },
+    });
+  });
+
+  it("refuses a requested model missing from the catalog", async () => {
+    expect(await resolveFleetModelChoice(input({ requestedModel: "x/missing" }))).toEqual({
+      ok: false,
+      reason: "model x/missing is not in this machine's model catalog",
+    });
+  });
+
+  it("refuses a :level suffix whose base model exists", async () => {
+    expect(await resolveFleetModelChoice(input({ requestedModel: `${LUNA}:low` }))).toEqual({
+      ok: false,
+      reason: "pass the level as thinkingLevel, not a :low suffix on model",
+    });
+  });
+
+  it("refuses a requested model when the catalog is unreadable, naming the error", async () => {
+    const unread = { models: [], discovered: false, error: "omp models timed out" };
+    expect(await resolveFleetModelChoice(input({ requestedModel: LUNA, catalog: unread }))).toEqual({
+      ok: false,
+      reason: "could not read the model catalog here (omp models timed out)",
+    });
+  });
+
+  it("refuses a requested model whose endpoint does not answer", async () => {
+    expect(await resolveFleetModelChoice(input({ requestedModel: LUNA, reachable: async () => false }))).toEqual({
+      ok: false,
+      reason: `model ${LUNA}'s provider endpoint did not answer here`,
+    });
+  });
+
+  it("an agent default skips an uncatalogued and an unreachable favorite, taking the third", async () => {
+    const probed: string[] = [];
+    const result = await resolveFleetModelChoice(
+      input({
+        favorites: ["x/missing", LUNA, FLASH, PLAIN],
+        reachable: async (m) => {
+          probed.push(m);
+          return m !== LUNA;
+        },
+      }),
+    );
+    expect(result).toEqual({ ok: true, choice: { model: FLASH, thinkingLevel: null } });
+    expect(probed).toEqual([LUNA, FLASH]);
+  });
+
+  it("a user default keeps the project chain and the seed", async () => {
+    expect(await resolveFleetModelChoice(input({ favoritesFirst: false, favorites: [LUNA] }))).toEqual({
+      ok: true,
+      choice: { model: "proj/pinned", thinkingLevel: "medium" },
+    });
+  });
+
+  it("falls back to the project chain and the seed when no favorite is runnable", async () => {
+    expect(await resolveFleetModelChoice(input({ favorites: ["x/missing", LUNA], reachable: async () => false }))).toEqual({
+      ok: true,
+      choice: { model: "proj/pinned", thinkingLevel: "medium" },
+    });
+  });
+
+  it("refuses a level the model does not offer, listing its levels", async () => {
+    expect(await resolveFleetModelChoice(input({ requestedModel: FLASH, requestedLevel: "medium" }))).toEqual({
+      ok: false,
+      reason: `model ${FLASH} has no thinking level medium (it offers: low, high, max)`,
+    });
+  });
+
+  it("refuses a level on a model with no levels", async () => {
+    expect(await resolveFleetModelChoice(input({ requestedModel: PLAIN, requestedLevel: "low" }))).toEqual({
+      ok: false,
+      reason: `model ${PLAIN} has no thinking levels; omit thinkingLevel`,
+    });
+  });
+
+  it("always accepts auto", async () => {
+    expect(await resolveFleetModelChoice(input({ requestedModel: PLAIN, requestedLevel: "auto" }))).toEqual({
+      ok: true,
+      choice: { model: PLAIN, thinkingLevel: "auto" },
+    });
+    expect(await resolveFleetModelChoice(input({ projectModel: null, requestedLevel: "auto" }))).toEqual({
+      ok: true,
+      choice: { model: null, thinkingLevel: "auto" },
+    });
+  });
+
+  it("refuses a concrete level when no model resolves", async () => {
+    expect(await resolveFleetModelChoice(input({ projectModel: null, requestedLevel: "high" }))).toEqual({
+      ok: false,
+      reason: "thinkingLevel high needs a model: pass model, or star a favorite on that machine",
+    });
+  });
+
+  it("accepts a concrete level as given on an uncatalogued project-chain model", async () => {
+    expect(await resolveFleetModelChoice(input({ requestedLevel: "turbo" }))).toEqual({
+      ok: true,
+      choice: { model: "proj/pinned", thinkingLevel: "turbo" },
+    });
+  });
+
+  it("drops a seed level the favorite does not offer", async () => {
+    expect(await resolveFleetModelChoice(input({ favorites: [PLAIN] }))).toEqual({
+      ok: true,
+      choice: { model: PLAIN, thinkingLevel: null },
+    });
+  });
+
+  it("keeps an auto seed on a favorite", async () => {
+    expect(await resolveFleetModelChoice(input({ favorites: [PLAIN], seedLevel: "auto" }))).toEqual({
+      ok: true,
+      choice: { model: PLAIN, thinkingLevel: "auto" },
+    });
+  });
+
+  describe("dispatch tool arguments", () => {
+    const base = { prompt: "p", project: "/work/app" };
+    const parse = (extra: Record<string, unknown>) => parseFleetToolArguments("omp-ui_fleet_dispatch", { ...base, ...extra });
+    const local: FleetMachine = {
+      key: LOCAL_MACHINE_KEY,
+      nickname: null,
+      status: "ready",
+      error: null,
+      preference: "normal",
+      receivedAt: NOW,
+      grantRung: null,
+      report: report({
+        projects: [{ path: "/work/app", name: "app", repositoryKey: null, headCommit: null, providerReady: true, advisor: false, advisorModel: null }],
+      }),
+      address: null,
+      sshReachable: null,
+      maintenance: null,
+    };
+
+    it("defaults model and thinkingLevel to null and leaves them off the request", () => {
+      const parsed = parse({});
+      if (!parsed.ok || parsed.tool !== "dispatch") throw new Error("expected dispatch args");
+      expect(parsed.args.model).toBeNull();
+      expect(parsed.args.thinkingLevel).toBeNull();
+      const result = fleetToolDispatchRequest(parsed.args, [local]);
+      if (!result.ok) throw new Error(result.reason);
+      expect(Object.keys(result.request)).not.toContain("model");
+      expect(Object.keys(result.request)).not.toContain("thinkingLevel");
+    });
+
+    it("passes valid values into the dispatch request", () => {
+      const parsed = parse({ model: ` ${LUNA} `, thinkingLevel: "low" });
+      if (!parsed.ok || parsed.tool !== "dispatch") throw new Error("expected dispatch args");
+      const result = fleetToolDispatchRequest(parsed.args, [local]);
+      if (!result.ok) throw new Error(result.reason);
+      expect(result.request.model).toBe(LUNA);
+      expect(result.request.thinkingLevel).toBe("low");
+    });
+
+    it("refuses bad values with the validator messages", () => {
+      expect(parse({ model: "luna" })).toEqual({
+        ok: false,
+        reason: "model must be a provider/id selector such as openrouter/openai/gpt-5.6-luna",
+      });
+      expect(parse({ thinkingLevel: "Turbo" })).toEqual({
+        ok: false,
+        reason: "thinkingLevel must be a thinking level word such as low or high, or auto",
+      });
+    });
+  });
+
+  it("parseFleetModelFavorites drops invalid and duplicate entries, caps at 128, nulls non-arrays", () => {
+    expect(parseFleetModelFavorites([LUNA, "bad", 3, LUNA, ` ${FLASH}`, "a/ b"])).toEqual([LUNA, FLASH]);
+    expect(parseFleetModelFavorites(Array.from({ length: 200 }, (_, i) => `p/m${i}`))).toHaveLength(128);
+    expect(parseFleetModelFavorites(undefined)).toBeNull();
+    expect(parseFleetModelFavorites("a/b")).toBeNull();
+    expect(parseFleetModelFavorites([])).toEqual([]);
+  });
+
+  it("parseFleetModelChoice accepts valid shapes and nulls older or garbage answers", () => {
+    expect(parseFleetModelChoice({ model: LUNA, thinkingLevel: "low" })).toEqual({ model: LUNA, thinkingLevel: "low" });
+    expect(parseFleetModelChoice({ model: null, thinkingLevel: null })).toEqual({ model: null, thinkingLevel: null });
+    expect(parseFleetModelChoice(undefined)).toBeNull();
+    expect(parseFleetModelChoice({ model: LUNA })).toBeNull();
+    expect(parseFleetModelChoice({ model: 3, thinkingLevel: null })).toBeNull();
+    expect(parseFleetModelChoice({ model: LUNA, thinkingLevel: "High" })).toBeNull();
+    expect(parseFleetModelChoice([LUNA])).toBeNull();
+  });
+
+  it("fleetChoiceText names the model and level, or nothing when unreported", () => {
+    expect(fleetChoiceText(null)).toBe("");
+    expect(fleetChoiceText({ model: LUNA, thinkingLevel: "low" })).toBe(`; model ${LUNA}, thinking low`);
+    expect(fleetChoiceText({ model: null, thinkingLevel: null })).toBe("; model omp default, thinking model default");
   });
 });

@@ -481,6 +481,7 @@ describe("HostBridge fleet tools (issue #899)", () => {
       packageFormat: null,
       appLatestVersion: null,
       appUpdateStaged: false,
+      modelFavorites: [],
     },
   });
   const MACHINES = [machine(LOCAL_MACHINE_KEY, null), machine("remote-b", "studio", "full")];
@@ -514,7 +515,14 @@ describe("HostBridge fleet tools (issue #899)", () => {
         return {
           batchId: "batch-1",
           outcomes: [
-            { dispatchId: "d-1", machineKey: LOCAL_MACHINE_KEY, projectCwd: PROJECT, status: "started", tabId: "new-tab" },
+            {
+              dispatchId: "d-1",
+              machineKey: LOCAL_MACHINE_KEY,
+              projectCwd: PROJECT,
+              status: "started",
+              tabId: "new-tab",
+              choice: { model: "openrouter/openai/gpt-5.6-luna", thinkingLevel: "low" },
+            },
             { dispatchId: "d-2", machineKey: "remote-b", projectCwd: "/remote/remote-b/repo", status: "unknown", message: "remote connection lost" },
           ],
         };
@@ -556,7 +564,7 @@ describe("HostBridge fleet tools (issue #899)", () => {
     ]);
     const dispatchText = resultText(sent[1]!);
     expect(dispatchText).toContain("batch-1");
-    expect(dispatchText).toContain("- this computer: started (tab new-tab); dispatchId d-1");
+    expect(dispatchText).toContain("- this computer: started (tab new-tab; model openrouter/openai/gpt-5.6-luna, thinking low); dispatchId d-1");
     expect(dispatchText).toContain("- studio: unknown (remote connection lost); dispatchId d-2");
     expect(dispatchText).toContain("omp-ui_fleet_status");
     expect(statusSelectors).toEqual([{ batchId: "batch-1" }]);
@@ -570,11 +578,26 @@ describe("HostBridge fleet tools (issue #899)", () => {
     const { bridge, sent } = fleetBridge({
       dispatch: async (tabId, req) => {
         dispatched.push({ tabId, req });
-        return { batchId: "batch-1", outcomes: [{ dispatchId: "d-1", machineKey: LOCAL_MACHINE_KEY, projectCwd: PROJECT, status: "started", tabId: "new-tab" }] };
+        return {
+          batchId: "batch-1",
+          outcomes: [{ dispatchId: "d-1", machineKey: LOCAL_MACHINE_KEY, projectCwd: PROJECT, status: "started", tabId: "new-tab", choice: null }],
+        };
       },
     });
     const send = (frame: RpcFrame): void => void sent.push(frame);
-    bridge.route("t1", toolCallFrame("d1", FLEET_TOOLS[1], { prompt: "plan it", project: PROJECT, machines: ["this computer"], workspace: "checkout", planMode: true }), send);
+    bridge.route(
+      "t1",
+      toolCallFrame("d1", FLEET_TOOLS[1], {
+        prompt: "plan it",
+        project: PROJECT,
+        machines: ["this computer"],
+        workspace: "checkout",
+        planMode: true,
+        model: "openrouter/openai/gpt-5.6-luna",
+        thinkingLevel: "low",
+      }),
+      send,
+    );
     await settled();
 
     expect(sent.map((frame) => frame.id)).toEqual(["d1"]);
@@ -582,6 +605,8 @@ describe("HostBridge fleet tools (issue #899)", () => {
     expect(dispatched).toHaveLength(1);
     expect(dispatched[0]!.req.planMode).toBe(true);
     expect(dispatched[0]!.req.workspace).toBe("checkout");
+    expect(dispatched[0]!.req.model).toBe("openrouter/openai/gpt-5.6-luna");
+    expect(dispatched[0]!.req.thinkingLevel).toBe("low");
   });
 
   it("answers strict refusals and a missing fleet as error results without dispatching", async () => {
@@ -597,10 +622,11 @@ describe("HostBridge fleet tools (issue #899)", () => {
     const bare = new HostBridge(fixtureDeps());
     bare.route("t1", toolCallFrame("g", FLEET_TOOLS[0], {}), send);
     bridge.route("t1", toolCallFrame("h", FLEET_TOOLS[1], { prompt: "go", project: PROJECT, machines: ["studio"], planMode: 1 }), send);
+    bridge.route("t1", toolCallFrame("i", FLEET_TOOLS[1], { prompt: "go", project: PROJECT, machines: ["studio"], thinkingLevel: "Turbo" }), send);
     await settled();
 
     const byId = new Map(sent.map((frame) => [frame.id, frame]));
-    expect([...byId.keys()].sort()).toEqual(["a", "b", "c", "d", "e", "f", "g", "h"]);
+    expect([...byId.keys()].sort()).toEqual(["a", "b", "c", "d", "e", "f", "g", "h", "i"]);
     for (const frame of sent) expect(frame).toMatchObject({ type: "host_tool_result", isError: true });
     expect(resultText(byId.get("a")!)).toBe('unknown argument "extra"');
     expect(resultText(byId.get("c")!)).toBe("give either machines or count, not both");
@@ -609,6 +635,7 @@ describe("HostBridge fleet tools (issue #899)", () => {
     expect(resultText(byId.get("f")!)).toContain('unknown host tool "omp-ui_fleet_launch"');
     expect(resultText(byId.get("g")!)).toBe("fleet tools are not available");
     expect(resultText(byId.get("h")!)).toBe("planMode must be true or false");
+    expect(resultText(byId.get("i")!)).toBe("thinkingLevel must be a thinking level word such as low or high, or auto");
     expect(dispatch).not.toHaveBeenCalled();
   });
 

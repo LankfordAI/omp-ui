@@ -58,6 +58,7 @@ function machine(key: string, nickname: string | null, projects: FleetHostProjec
       packageFormat: null,
       appLatestVersion: null,
       appUpdateStaged: false,
+      modelFavorites: [],
     },
   };
 }
@@ -427,7 +428,7 @@ describe("NewSessionDialog (issue #900)", () => {
     machines = [machine("local", null, [project("/p", "aaa")])];
     backendMock.fleetDispatch.mockResolvedValue({
       batchId: "b-1",
-      outcomes: [{ dispatchId: "d-1", machineKey: "local", projectCwd: "/p", status: "started", tabId: "s-1" }],
+      outcomes: [{ dispatchId: "d-1", machineKey: "local", projectCwd: "/p", status: "started", tabId: "s-1", choice: null }],
     });
     await render();
     await click(button("Multiple machines"));
@@ -457,7 +458,7 @@ describe("NewSessionDialog (issue #900)", () => {
     machines = [machine("local", null, [project("/p", "aaa")])];
     backendMock.fleetDispatch.mockResolvedValue({
       batchId: "b-1",
-      outcomes: [{ dispatchId: "d-1", machineKey: "local", projectCwd: "/p", status: "started", tabId: "s-1" }],
+      outcomes: [{ dispatchId: "d-1", machineKey: "local", projectCwd: "/p", status: "started", tabId: "s-1", choice: null }],
     });
     await render();
     await click(button("Multiple machines"));
@@ -530,7 +531,7 @@ describe("NewSessionDialog (issue #900)", () => {
     backendMock.fleetDispatch.mockResolvedValue({
       batchId: "b-1",
       outcomes: [
-        { dispatchId: "d-1", machineKey: "local", projectCwd: "/p", status: "started", tabId: "s-1" },
+        { dispatchId: "d-1", machineKey: "local", projectCwd: "/p", status: "started", tabId: "s-1", choice: null },
         { dispatchId: "d-2", machineKey: "inst-1", projectCwd: "/remote/p", status: "failed", message: "boom" },
       ],
     });

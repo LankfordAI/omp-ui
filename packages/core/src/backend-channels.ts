@@ -63,6 +63,7 @@ import type {
   WatchdogRosterResult,
   WatchdogWriteRequest,
   SessionMode,
+  SpawnAnswer,
   SpawnRequest,
   StatsOverview,
   SttModelSnapshot,
@@ -773,7 +774,7 @@ export const BACKEND_CHANNELS = {
   },
   spawnSession: {
     channel: "session:spawn",
-    ...request<[req: SpawnRequest], { tabId: string }>([spawnRequestCodec]),
+    ...request<[req: SpawnRequest], SpawnAnswer>([spawnRequestCodec]),
   },
   terminateSession: {
     channel: "session:terminate",

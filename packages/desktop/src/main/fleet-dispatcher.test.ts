@@ -51,6 +51,7 @@ function report(projects: FleetHostProject[], patch: Partial<FleetHostReport> = 
     packageFormat: null,
     appLatestVersion: null,
     appUpdateStaged: false,
+    modelFavorites: [],
     ...patch,
   };
 }
@@ -311,9 +312,95 @@ describe("FleetDispatcher", () => {
 
     expect(result).toEqual({
       batchId: "b-original",
-      outcomes: [{ dispatchId: "d-original", machineKey: "r1", projectCwd: "/srv/app", status: "started", tabId: "r1-tab" }],
+      outcomes: [{ dispatchId: "d-original", machineKey: "r1", projectCwd: "/srv/app", status: "started", tabId: "r1-tab", choice: null }],
     });
     expect(spawnsTo(h, "r1")[0]!.fleet).toMatchObject({ dispatchId: "d-original", batchId: "b-original" });
+  });
+
+  describe("dispatch model choice (#956)", () => {
+    it("carries model and thinkingLevel in spawn.fleet only when requested", async () => {
+      const h = harness({ local: report([project()]) });
+      const pick = { machineKey: LOCAL_MACHINE_KEY, projectCwd: "/work/app" };
+      await h.dispatcher.dispatch({ ...explicit([pick]), model: "openrouter/openai/gpt-5.6-luna", thinkingLevel: "low" }, { kind: "user" });
+      await h.dispatcher.dispatch(explicit([pick]), { kind: "user" });
+
+      const [chosen, bare] = h.spawnLocal.mock.calls.map(([spawn]) => spawn);
+      expect(chosen!.fleet).toMatchObject({ model: "openrouter/openai/gpt-5.6-luna", thinkingLevel: "low" });
+      expect(Object.keys(bare!.fleet!)).not.toContain("model");
+      expect(Object.keys(bare!.fleet!)).not.toContain("thinkingLevel");
+    });
+
+    it("fails an explicit choice on a member that predates #956 without sending it", async () => {
+      const { modelFavorites: _modelFavorites, ...older } = report([project({ path: "/srv/app" })]);
+      const h = harness({
+        local: report([project()]),
+        remotes: { r1: { report: async () => older as FleetHostReport, spawn: async () => ({ tabId: "r1-tab" }) } },
+      });
+      const result = await h.dispatcher.dispatch(
+        { ...explicit([{ machineKey: "r1", projectCwd: "/srv/app" }]), model: "openrouter/openai/gpt-5.6-luna" },
+        { kind: "user" },
+      );
+
+      expect(result.outcomes).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          message: "box-r1 runs an omp-ui without dispatch model selection; update omp-ui there",
+        }),
+      ]);
+      expect(spawnsTo(h, "r1")).toEqual([]);
+    });
+
+    it("auto placement with a model skips a member that predates #956", async () => {
+      const { modelFavorites: _modelFavorites, ...older } = report([project({ path: "/srv/app-old" })]);
+      const h = harness({
+        local: report([project()], { cpuUtilization: 0.9 }),
+        remotes: {
+          old: { report: async () => older as FleetHostReport, spawn: async () => ({ tabId: "old-tab" }) },
+          good: { report: async () => report([project({ path: "/srv/app-clone" })]), spawn: async () => ({ tabId: "good-tab" }) },
+        },
+      });
+      const req: FleetDispatchRequest = {
+        targets: { kind: "auto", reference: { machineKey: LOCAL_MACHINE_KEY, projectCwd: "/work/app" }, count: 2 },
+        prompt: "Fix it",
+        title: null,
+        workspace: "worktree",
+        planMode: false,
+        model: "openrouter/openai/gpt-5.6-luna",
+      };
+      const result = await h.dispatcher.dispatch(req, { kind: "user" });
+
+      expect(result.outcomes.map((o) => [o.machineKey, o.status])).toEqual([
+        ["good", "started"],
+        [LOCAL_MACHINE_KEY, "started"],
+      ]);
+      expect(spawnsTo(h, "old")).toEqual([]);
+      await expect(
+        h.dispatcher.dispatch({ ...req, targets: { ...req.targets, count: 3 } as FleetDispatchRequest["targets"] }, { kind: "user" }),
+      ).rejects.toThrow("a ready model provider, an omp-ui that supports model selection, CPU under 95%");
+    });
+
+    it("takes the started outcome's choice from the owner's answer, or null for a bare tabId", async () => {
+      const choice = { model: "openrouter/openai/gpt-5.6-luna", thinkingLevel: "low" };
+      const h = harness({
+        local: report([project()]),
+        remotes: {
+          r1: { report: async () => report([project({ path: "/srv/app" })]), spawn: async () => ({ tabId: "r1-tab", choice }) },
+          r2: { report: async () => report([project({ path: "/srv/app" })]), spawn: async () => ({ tabId: "r2-tab" }) },
+        },
+      });
+      const result = await h.dispatcher.dispatch(
+        explicit([
+          { machineKey: "r1", projectCwd: "/srv/app" },
+          { machineKey: "r2", projectCwd: "/srv/app" },
+        ]),
+        { kind: "user" },
+      );
+
+      expect(result.outcomes).toEqual([
+        expect.objectContaining({ machineKey: "r1", status: "started", tabId: "r1-tab", choice }),
+        expect.objectContaining({ machineKey: "r2", status: "started", tabId: "r2-tab", choice: null }),
+      ]);
+    });
   });
 });
 
@@ -769,6 +856,7 @@ describe("FleetDispatcher fleet maintenance (fleet remote version update)", () =
       packageFormat: _packageFormat,
       appLatestVersion: _appLatestVersion,
       appUpdateStaged: _appUpdateStaged,
+      modelFavorites: _modelFavorites,
       ...older
     } = report([]);
     const h = updater(async () => null, [remote("r1")], older as FleetHostReport);
@@ -782,6 +870,7 @@ describe("FleetDispatcher fleet maintenance (fleet remote version update)", () =
       packageFormat: null,
       appLatestVersion: null,
       appUpdateStaged: false,
+      modelFavorites: null,
     });
   });
 

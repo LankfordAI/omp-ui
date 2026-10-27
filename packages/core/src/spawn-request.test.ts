@@ -153,8 +153,14 @@ describe("parseSpawnRequest", () => {
     ["fleet alongside experiment", { ...newExperimentRequest, fleet: fleetSpec }],
     ["fleet with a blank prompt", { ...newFleetRequest, fleet: { ...fleetSpec, prompt: "  " } }],
     ["fleet with an unknown key", { ...newFleetRequest, fleet: { ...fleetSpec, extra: true } }],
+    ["fleet with a bad model", { ...newFleetRequest, fleet: { ...fleetSpec, model: "nope" } }],
   ] as const)("rejects %s", (_label, raw) => {
     expect(() => parseSpawnRequest(raw)).toThrow(/spawn request/);
+  });
+
+  it("keeps a fleet model and thinking level (#956)", () => {
+    const raw = { ...newFleetRequest, fleet: { ...fleetSpec, model: "openrouter/openai/gpt-5.6-luna", thinkingLevel: "low" } };
+    expect(parseSpawnRequest(raw)).toEqual(raw);
   });
 
   it("accepts the recovery-resume model override (issue #774)", () => {
