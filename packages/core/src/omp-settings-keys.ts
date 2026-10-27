@@ -247,6 +247,13 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       "Per-call timeout for language-server requests and diagnostics.",
     keys: ["lsp.requestTimeout"],
   },
+  {
+    // omp 18.12.3 (issue #954): the `widget` model role designs one live widget
+    // per running background job, which the Jobs pane and HUD jobs chip draw.
+    // Off stops omp from authoring widgets, so no further widget model calls.
+    title: "Background jobs",
+    keys: ["async.widgets"],
+  },
   GIT_SETTING_GROUP,
 ];
 export const OMP_SETTING_KEYS: readonly string[] = [

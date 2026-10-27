@@ -373,7 +373,13 @@ the `AgentSession.prototype.prompt` hook and, once armed by the hidden
 revisioned `AsyncJobsSnapshot` on `ui.setStatus("omp-ui:async-jobs")`. Detail
 fields (command, cwd, pids, exit code, output tail) come from
 `inspectAsyncJob`; when the serialized snapshot passes 256 KiB the bridge
-degrades by byte rungs — short tails, empty tails, then `available: false`.
+degrades by byte rungs — short tails, empty tails, no job widgets, then
+`available: false`. Since omp 18.12.3 the v3 snapshot also carries each
+running job's live job widget. That is the rendered view `inspectAsyncJob`
+returns, reduced to a headline, a stage, and up to four blocks. It also
+carries a task subagent's `completionPercent` and `stage`, read from the job
+manager's progress entry (issue #954). omp computes those two only in
+interactive mode, so rpc-ui sessions report them empty.
 Kill rides the same command as `/omp-ui-async-jobs kill <json>` with no
 `streamingBehavior`: omp resolves extension commands inside `prompt` before
 its streaming check, so a kill works mid-turn. The request carries the
@@ -381,7 +387,8 @@ publisher's `processKey` and the target job's `startTime` — omp reuses `bg_N`
 ids after eviction — and the outcome returns on the next snapshot's `result`,
 correlated by `requestId`. Degradation is by method presence: a missing
 `cancelAsyncJob` clears `canCancel`, and the renderer's Jobs pane and HUD
-jobs chip follow it. Task jobs already on the Agents roster are excluded from
+jobs chip follow it; the chip also shows the freshest widget's figure. Task
+jobs already on the Agents roster are excluded from
 the badge count (omp's own rule). Named `bash` services are
 daemon-supervised and never enter the job manager; they stay outside this
 seam (`omp ps`).

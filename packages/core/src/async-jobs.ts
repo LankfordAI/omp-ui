@@ -36,6 +36,73 @@ export const ASYNC_JOBS_COMMAND_CHAR_LIMIT = 1_024;
 export const ASYNC_JOB_STATUSES = ["running", "completed", "failed", "cancelled"] as const;
 export type AsyncJobStatus = (typeof ASYNC_JOB_STATUSES)[number];
 
+/** omp's job-widget tones (job-widgets/spec.ts, verified on omp/18.13.2). */
+export const ASYNC_JOB_WIDGET_TONES = [
+  "neutral",
+  "accent",
+  "info",
+  "success",
+  "warning",
+  "error",
+  "pending",
+  "muted",
+  "user",
+] as const;
+export type AsyncJobWidgetTone = (typeof ASYNC_JOB_WIDGET_TONES)[number];
+/** Per-string cap on widget text: omp's own cap for grid/text cells and stage. */
+export const ASYNC_JOB_WIDGET_TEXT_LIMIT = 200;
+/** omp allows 1–4 blocks per widget spec. */
+export const ASYNC_JOB_WIDGET_BLOCK_LIMIT = 4;
+/** Longest list one block carries: omp's 48 spark points / 48 grid cells. */
+export const ASYNC_JOB_WIDGET_LIST_LIMIT = 48;
+
+export interface AsyncJobWidgetTrend {
+  text: string;
+  tone: AsyncJobWidgetTone;
+}
+export interface AsyncJobWidgetHeadline {
+  text: string;
+  label: string | null;
+  trend: AsyncJobWidgetTrend | null;
+}
+export interface AsyncJobWidgetMark {
+  value: number;
+  label: string;
+  tone: AsyncJobWidgetTone;
+}
+export type AsyncJobWidgetBlock =
+  | {
+      kind: "spark";
+      label: string;
+      values: number[];
+      min: number;
+      max: number;
+      last: string;
+      marks: AsyncJobWidgetMark[];
+      tone: AsyncJobWidgetTone | null;
+    }
+  | {
+      kind: "bars";
+      label: string;
+      items: Array<{ label: string; value: number; text: string; tone: AsyncJobWidgetTone | null }>;
+      max: number;
+    }
+  | { kind: "meter"; label: string; value: number; text: string; tone: AsyncJobWidgetTone | null }
+  | { kind: "stat"; items: Array<{ label: string; text: string; trend: AsyncJobWidgetTrend | null }> }
+  | { kind: "grid"; label: string; items: Array<{ label: string; text: string; tone: AsyncJobWidgetTone }> }
+  | { kind: "text"; text: string };
+
+/** omp's live job widget view (omp 18.12.3+, issue #954), reduced by the
+ *  bridge: only a model-authored ("live") view ever reaches the wire. */
+export interface AsyncJobWidget {
+  title: string;
+  headline: AsyncJobWidgetHeadline | null;
+  stage: string | null;
+  blocks: AsyncJobWidgetBlock[];
+  /** Epoch ms of the view's last matched output; the HUD picks the freshest. */
+  updatedAt: number;
+}
+
 export interface AsyncJob {
   /** omp's job id: `bg_N`, a task agent id, or a caller-chosen id. */
   id: string;
@@ -60,6 +127,13 @@ export interface AsyncJob {
   /** Last ASYNC_JOBS_OUTPUT_TAIL_CHARS of captured output, control chars stripped. */
   outputTail: string;
   outputTruncated: boolean;
+  /** The running job's live widget (issue #954); null otherwise and on v1/v2 payloads. */
+  widget: AsyncJobWidget | null;
+  /** A running task subagent's own completion estimate, integer 0–100; null otherwise.
+   *  omp only computes it in interactive mode, so rpc-ui sessions read null today. */
+  completionPercent: number | null;
+  /** A running task subagent's current step in its own words; null otherwise. */
+  stage: string | null;
 }
 
 export interface AsyncJobsKillRequest {
@@ -86,10 +160,11 @@ export interface AsyncJobAgent {
   parentId: string | null;
 }
 
-/** The published envelope version (issue #868). The bridge interpolates this
- *  constant so publisher and parser can never drift; v1 payloads — written by
- *  an older omp-ui's bridge against the same session — parse to a flat v2. */
-export const ASYNC_JOBS_SNAPSHOT_VERSION = 2;
+/** The published envelope version (issues #868, #954). The bridge interpolates
+ *  this constant so publisher and parser can never drift; v1 and v2 payloads —
+ *  written by an older omp-ui's bridge against the same session — parse to v3
+ *  with null widget, completionPercent, and stage (v1 also flat: no tree). */
+export const ASYNC_JOBS_SNAPSHOT_VERSION = 3;
 
 export interface AsyncJobsSnapshot {
   version: typeof ASYNC_JOBS_SNAPSHOT_VERSION;
@@ -123,8 +198,155 @@ export function asyncJobsKillMessage(request: AsyncJobsKillRequest): string {
   return `/${ASYNC_JOBS_COMMAND} ${ASYNC_JOBS_KILL_ARG} ${JSON.stringify(request)}`;
 }
 
+type WireVersion = 1 | 2 | typeof ASYNC_JOBS_SNAPSHOT_VERSION;
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value === null || typeof value !== "object" || Array.isArray(value)
+    ? null
+    : (value as Record<string, unknown>);
+}
+function isWidgetText(value: unknown): value is string {
+  return typeof value === "string" && value.length <= ASYNC_JOB_WIDGET_TEXT_LIMIT;
+}
+function isFilledText(value: unknown): value is string {
+  return isWidgetText(value) && value !== "";
+}
+function isTone(value: unknown): value is AsyncJobWidgetTone {
+  return typeof value === "string" && (ASYNC_JOB_WIDGET_TONES as readonly string[]).includes(value);
+}
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+function readToneOrNull(value: unknown): AsyncJobWidgetTone | null | undefined {
+  if (value === null) return null;
+  return isTone(value) ? value : undefined;
+}
+function readTrend(value: unknown): AsyncJobWidgetTrend | null | undefined {
+  if (value === null) return null;
+  const record = asObject(value);
+  if (record === null) return undefined;
+  const { text, tone } = record;
+  return isFilledText(text) && isTone(tone) ? { text, tone } : undefined;
+}
+function readList<T>(value: unknown, read: (item: unknown) => T | undefined): T[] | undefined {
+  if (!Array.isArray(value) || value.length > ASYNC_JOB_WIDGET_LIST_LIMIT) return undefined;
+  const items: T[] = [];
+  for (const raw of value) {
+    const item = read(raw);
+    if (item === undefined) return undefined;
+    items.push(item);
+  }
+  return items;
+}
+function readMark(value: unknown): AsyncJobWidgetMark | undefined {
+  const record = asObject(value);
+  if (record === null) return undefined;
+  const { value: at, label, tone } = record;
+  return isFiniteNumber(at) && isWidgetText(label) && isTone(tone) ? { value: at, label, tone } : undefined;
+}
+function readBlock(value: unknown): AsyncJobWidgetBlock | undefined {
+  const record = asObject(value);
+  if (record === null) return undefined;
+  switch (record.kind) {
+    case "spark": {
+      const { label, values, min, max, last, marks, tone } = record;
+      const points = readList(values, (v) => (isFiniteNumber(v) ? v : undefined));
+      const lines = readList(marks, readMark);
+      const hue = readToneOrNull(tone);
+      if (
+        !isWidgetText(label) || points === undefined || points.length === 0 ||
+        !isFiniteNumber(min) || !isFiniteNumber(max) || max <= min ||
+        !isWidgetText(last) || lines === undefined || hue === undefined
+      ) {
+        return undefined;
+      }
+      return { kind: "spark", label, values: points, min, max, last, marks: lines, tone: hue };
+    }
+    case "bars": {
+      const { label, items, max } = record;
+      const rows = readList(items, (raw) => {
+        const item = asObject(raw);
+        if (item === null) return undefined;
+        const { label: itemLabel, value, text } = item;
+        const tone = readToneOrNull(item.tone);
+        return isWidgetText(itemLabel) && isFiniteNumber(value) && isWidgetText(text) && tone !== undefined
+          ? { label: itemLabel, value, text, tone }
+          : undefined;
+      });
+      if (!isWidgetText(label) || rows === undefined || rows.length === 0 || !isFiniteNumber(max) || max <= 0) {
+        return undefined;
+      }
+      return { kind: "bars", label, items: rows, max };
+    }
+    case "meter": {
+      const { label, value, text, tone } = record;
+      const hue = readToneOrNull(tone);
+      if (!isWidgetText(label) || !isFiniteNumber(value) || value < 0 || value > 1 || !isWidgetText(text) || hue === undefined) {
+        return undefined;
+      }
+      return { kind: "meter", label, value, text, tone: hue };
+    }
+    case "stat": {
+      const rows = readList(record.items, (raw) => {
+        const item = asObject(raw);
+        if (item === null) return undefined;
+        const { label, text } = item;
+        const trend = readTrend(item.trend);
+        return isWidgetText(label) && isWidgetText(text) && trend !== undefined ? { label, text, trend } : undefined;
+      });
+      return rows === undefined || rows.length === 0 ? undefined : { kind: "stat", items: rows };
+    }
+    case "grid": {
+      const { label, items } = record;
+      const cells = readList(items, (raw) => {
+        const item = asObject(raw);
+        if (item === null) return undefined;
+        const { label: cellLabel, text, tone } = item;
+        return isWidgetText(cellLabel) && isWidgetText(text) && isTone(tone) ? { label: cellLabel, text, tone } : undefined;
+      });
+      if (!isWidgetText(label) || cells === undefined || cells.length === 0) return undefined;
+      return { kind: "grid", label, items: cells };
+    }
+    case "text": {
+      const { text } = record;
+      return isFilledText(text) ? { kind: "text", text } : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+function readHeadline(value: unknown): AsyncJobWidgetHeadline | null | undefined {
+  if (value === null) return null;
+  const record = asObject(value);
+  if (record === null) return undefined;
+  const { text, label } = record;
+  const trend = readTrend(record.trend);
+  if (!isFilledText(text) || !(label === null || isFilledText(label)) || trend === undefined) return undefined;
+  return { text, label, trend };
+}
+function readWidget(value: unknown): AsyncJobWidget | null | undefined {
+  if (value === null) return null;
+  const record = asObject(value);
+  if (record === null) return undefined;
+  const { title, stage, blocks, updatedAt } = record;
+  const headline = readHeadline(record.headline);
+  if (!isFilledText(title) || !(stage === null || isFilledText(stage)) || !isFiniteNumber(updatedAt) || headline === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(blocks) || blocks.length > ASYNC_JOB_WIDGET_BLOCK_LIMIT) return undefined;
+  const read: AsyncJobWidgetBlock[] = [];
+  for (const raw of blocks) {
+    const block = readBlock(raw);
+    if (block === undefined) return undefined;
+    read.push(block);
+  }
+  // The bridge never publishes an empty widget; one on the wire is malformed.
+  if (headline === null && read.length === 0 && stage === null) return undefined;
+  return { title, headline, stage, blocks: read, updatedAt };
+}
+
 /** One wire job; null when any field is wrong. The wire is untrusted by definition. */
-function readJob(value: unknown): AsyncJob | null {
+function readJob(value: unknown, version: WireVersion): AsyncJob | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const { id, type, status, label, command, cwd, startTime, endTime, agentId, ownerId, pids, exitCode, outputTail, outputTruncated } =
@@ -151,6 +373,30 @@ function readJob(value: unknown): AsyncJob | null {
   if (!Array.isArray(pids) || !pids.every((pid) => Number.isInteger(pid))) return null;
   if (!(exitCode === null || (typeof exitCode === "number" && Number.isFinite(exitCode)))) return null;
   if (typeof outputTail !== "string" || typeof outputTruncated !== "boolean") return null;
+  const { widget, completionPercent, stage } = record;
+  let liveWidget: AsyncJobWidget | null = null;
+  let percent: number | null = null;
+  let step: string | null = null;
+  if (version === ASYNC_JOBS_SNAPSHOT_VERSION) {
+    // v3 states every key; null is the absent value, a missing key is malformed.
+    if (!("widget" in record) || !("completionPercent" in record) || !("stage" in record)) return null;
+    const read = readWidget(widget);
+    if (read === undefined) return null;
+    liveWidget = read;
+    if (completionPercent !== null) {
+      if (typeof completionPercent !== "number" || !Number.isInteger(completionPercent) || completionPercent < 0 || completionPercent > 100) {
+        return null;
+      }
+      percent = completionPercent;
+    }
+    if (stage !== null) {
+      if (!isFilledText(stage)) return null;
+      step = stage;
+    }
+  } else if (widget !== undefined || completionPercent !== undefined || stage !== undefined) {
+    // An older envelope carrying v3 keys is a half-written hybrid (the #868 rule).
+    return null;
+  }
   return {
     id,
     type,
@@ -167,15 +413,18 @@ function readJob(value: unknown): AsyncJob | null {
     exitCode: exitCode as number | null,
     outputTail,
     outputTruncated,
+    widget: liveWidget,
+    completionPercent: percent,
+    stage: step,
   };
 }
 
 /** One wire job list; null when the array or any member is wrong. */
-function readJobs(value: unknown): AsyncJob[] | null {
+function readJobs(value: unknown, version: WireVersion): AsyncJob[] | null {
   if (!Array.isArray(value)) return null;
   const jobs: AsyncJob[] = [];
   for (const raw of value) {
-    const job = readJob(raw);
+    const job = readJob(raw, version);
     if (job === null) return null;
     jobs.push(job);
   }
@@ -223,22 +472,24 @@ export function parseAsyncJobsSnapshot(text: string | undefined): AsyncJobsSnaps
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const record = parsed as Record<string, unknown>;
-  // v1 is a stale bridge from before the jobs tree (issue #868): legal on the
-  // wire of an older publish, mapped to a flat v2 so the pane renders today's list.
-  if (record.version !== 1 && record.version !== ASYNC_JOBS_SNAPSHOT_VERSION) return null;
+  // v1 (before the jobs tree, issue #868) and v2 (before live widgets, issue
+  // #954) are stale bridges: legal on the wire of an older publish, mapped to
+  // v3 — v1 flat, both with null live fields — so the pane renders today's list.
+  const version = record.version;
+  if (version !== 1 && version !== 2 && version !== ASYNC_JOBS_SNAPSHOT_VERSION) return null;
   const { processKey, revision, available, unavailable, canInspect, canCancel } = record;
   if (typeof processKey !== "string" || processKey === "") return null;
   if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 1) return null;
   if (typeof available !== "boolean") return null;
   if (!(unavailable === null || typeof unavailable === "string")) return null;
   if (typeof canInspect !== "boolean" || typeof canCancel !== "boolean") return null;
-  const running = readJobs(record.running);
-  const recent = readJobs(record.recent);
+  const running = readJobs(record.running, version);
+  const recent = readJobs(record.recent, version);
   const result = readResult(record.result);
   if (running === null || recent === null || result === undefined) return null;
   let rootId: string | null = null;
   let agents: AsyncJobAgent[] = [];
-  if (record.version === ASYNC_JOBS_SNAPSHOT_VERSION) {
+  if (version !== 1) {
     const rawRootId = record.rootId;
     if (!(rawRootId === null || typeof rawRootId === "string")) return null;
     const rawAgents = readAgents(record.agents);

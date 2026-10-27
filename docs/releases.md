@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.27.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.27.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- The **Jobs** pane draws OMP's live **job widgets** for running background jobs, with a headline figure plus a sparkline or meter and every block on expand, and the HUD `jobs` chip shows the freshest headline; `async.widgets` now has a row under Settings → omp → Background jobs (#954).
 
 ## Choose a download
 

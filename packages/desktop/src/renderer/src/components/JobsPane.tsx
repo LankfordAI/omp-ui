@@ -8,6 +8,7 @@ import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Section } from "./RailSection";
 import { Button, Chip, Dot, Empty, IconButton, IconRefresh } from "./ui";
+import { CompletionRing, JobWidgetBlocks, JobWidgetGlance } from "./JobWidget";
 
 /** Re-renders once a second while any job runs, so elapsed times move. */
 function useNow(active: boolean): number {
@@ -23,7 +24,9 @@ function useNow(active: boolean): number {
 /**
  * The session's omp background jobs (issue #835): running first, then the
  * finished ones omp still retains. Rows expand to command, cwd, pids and the
- * output tail; kill rides the bridge and works mid-turn.
+ * output tail; kill rides the bridge and works mid-turn. Running rows also
+ * draw omp's live job widget, a subagent's completion estimate, and its stage
+ * (#954).
  */
 export function JobsPane({ tabId }: { tabId: string }) {
   const t = useT();
@@ -167,6 +170,11 @@ function JobRow({
   const t = useT();
   const [open, setOpen] = useState(false);
   const running = job.status === "running";
+  // omp's live fields belong to a running job only (the bridge never sends
+  // them for finished ones; the gate keeps a stale view from lingering).
+  const widget = running ? job.widget : null;
+  const stage = running ? (job.stage ?? widget?.stage ?? null) : null;
+  const completion = running ? job.completionPercent : null;
   return (
     <li className="animate-slide-in" style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
       <div className={cn("w-full rounded-md border border-line bg-raised px-2 py-1.5", !running && "opacity-70")}>
@@ -203,7 +211,15 @@ function JobRow({
           <span>{job.status}</span>
           {job.exitCode !== null && <span>{t("rail.jobs.exit", { code: job.exitCode })}</span>}
           <span>{formatDuration((job.endTime ?? now) - job.startTime)}</span>
+          {completion !== null && <CompletionRing percent={completion} />}
         </div>
+        {stage !== null && (
+          <p data-job-stage className="mt-0.5 truncate pl-3 text-[10px] text-ink-mid" title={stage}>
+            {stage}
+          </p>
+        )}
+        {widget !== null && <JobWidgetGlance widget={widget} />}
+        {open && widget !== null && <JobWidgetBlocks widget={widget} />}
         {open && !canInspect && <p className="mt-1 pl-3 text-[10px] text-ink-faint">{t("rail.jobs.noInspect")}</p>}
         {open && canInspect && (
           <dl className="mt-1 space-y-1 pl-3">

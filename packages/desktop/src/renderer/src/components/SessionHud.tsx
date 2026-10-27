@@ -18,7 +18,8 @@ import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
 import { projectKey } from "../lib/project-key";
 import type { ContextUsage, SubagentInfo, UsageLimit } from "../lib/rpc-types";
-import { backgroundWorkInFlight, runningJobCount } from "../lib/async-jobs";
+import { JOB_WIDGET_TONE, backgroundWorkInFlight, freshestWidgetJob, jobWidgetFigure, runningJobCount } from "../lib/async-jobs";
+import type { AsyncJob } from "@omp-ui/core/async-jobs";
 import { findInstance, findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
 import type { SessionSpendSnapshot } from "@omp-ui/core/session-spend";
@@ -32,6 +33,7 @@ import { ApprovalModeControl } from "./ApprovalModeControl";
 import { GoalChip } from "./GoalChip";
 import { WorktreeChip } from "./WorktreeChip";
 import { Button, Chevron, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconLock, IconRefresh, IconSessionTree, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
+import { TONE_TEXT } from "./ui/tone";
 
 /**
  * The instrument's status bar: one line that answers "is it alive, what is it
@@ -279,14 +281,31 @@ function VibeChip({
   );
 }
 /**
- * Running background jobs (issue #835): the glanceable count only — the Jobs
- * pane carries the list. Copper like every other live-work chip (ADR-0004).
+ * Running background jobs (issue #835): the count plus the freshest live
+ * widget's figure (#954); the Jobs pane carries the rest. Copper like every
+ * other live-work chip (ADR-0004).
  */
-function JobsChip({ count, tabId, className }: { count: number; tabId: string; className?: string }) {
+function JobsChip({
+  count,
+  glance,
+  tabId,
+  className,
+}: {
+  count: number;
+  glance: AsyncJob | null;
+  tabId: string;
+  className?: string;
+}) {
   const t = useT();
   const setInspectorOpen = useStore((s) => s.setInspectorOpen);
   const focusRailPane = useStore((s) => s.focusRailPane);
   const title = t("hud.jobs.running", { count });
+  const figure = glance !== null && glance.widget !== null ? jobWidgetFigure(glance.widget) : null;
+  const glanceTitle =
+    glance !== null && figure !== null
+      ? t("hud.jobs.glance", { job: glance.id, figure: [figure.label, figure.text, figure.trend?.text].filter(Boolean).join(" ") })
+      : null;
+  const openTitle = t("hud.jobs.openTitle");
   return (
     <button
       type="button"
@@ -294,7 +313,7 @@ function JobsChip({ count, tabId, className }: { count: number; tabId: string; c
         setInspectorOpen(true);
         focusRailPane(tabId, "jobs");
       }}
-      title={`${title}. ${t("hud.jobs.openTitle")}`}
+      title={glanceTitle !== null ? `${title}. ${glanceTitle}. ${openTitle}` : `${title}. ${openTitle}`}
       aria-label={title}
       className={cn("shrink-0 rounded border border-transparent", className)}
     >
@@ -302,6 +321,8 @@ function JobsChip({ count, tabId, className }: { count: number; tabId: string; c
         <Dot tone="copper" />
         {t("hud.jobs.label")}
         <span className="opacity-70">{count}</span>
+        {figure !== null && <span data-jobs-glance className="max-w-[10ch] truncate">{figure.text}</span>}
+        {figure?.trend && <span className={TONE_TEXT[JOB_WIDGET_TONE[figure.trend.tone]]}>{figure.trend.text}</span>}
       </Chip>
     </button>
   );
@@ -1588,6 +1609,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const backgroundWork = useStore((s) =>
     backgroundWorkInFlight(s.rpc[tabId]?.asyncJobs ?? null),
   );
+  const jobsGlance = useStore((s) => freshestWidgetJob(s.rpc[tabId]?.asyncJobs ?? null));
   const refreshAsyncJobs = useStore((s) => s.refreshAsyncJobs);
   const refreshSessionSpend = useStore((s) => s.refreshSessionSpend);
   // The live session model (frame-owned since config_update): omp resolves
@@ -1711,7 +1733,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   );
   // The jobs chip rides the same row while any background job runs (#835).
   const jobsChip = jobsCount > 0 && (
-    <JobsChip count={jobsCount} tabId={tabId} className={compact ? undefined : "shrink-0 [app-region:no-drag]"} />
+    <JobsChip count={jobsCount} glance={jobsGlance} tabId={tabId} className={compact ? undefined : "shrink-0 [app-region:no-drag]"} />
   );
   // The autoresearch chip sits beside it while omp's mode is on (ADR-0030).
   const autoresearchChip = autoresearch?.mode === "on" && (

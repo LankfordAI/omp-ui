@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
-import { backgroundWorkInFlight, runningJobCount } from "./async-jobs";
+import { ASYNC_JOBS_SNAPSHOT_VERSION, type AsyncJob, type AsyncJobWidget, type AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
+import { backgroundWorkInFlight, freshestWidgetJob, jobWidgetFigure, runningJobCount } from "./async-jobs";
 import type { SubagentInfo } from "./rpc-types";
 
 function snapshot(overrides: Partial<AsyncJobsSnapshot> = {}): AsyncJobsSnapshot {
   return {
-    version: 2,
+    version: ASYNC_JOBS_SNAPSHOT_VERSION,
     processKey: "p",
     revision: 1,
     available: true,
@@ -21,7 +21,7 @@ function snapshot(overrides: Partial<AsyncJobsSnapshot> = {}): AsyncJobsSnapshot
   };
 }
 
-function job(overrides: Partial<AsyncJobsSnapshot["running"][number]> = {}) {
+function job(overrides: Partial<AsyncJob> = {}): AsyncJob {
   return {
     id: "bg_1",
     type: "bash",
@@ -37,6 +37,9 @@ function job(overrides: Partial<AsyncJobsSnapshot["running"][number]> = {}) {
     exitCode: null,
     outputTail: "",
     outputTruncated: false,
+    widget: null,
+    completionPercent: null,
+    stage: null,
     ...overrides,
   };
 }
@@ -111,5 +114,58 @@ describe("backgroundWorkInFlight", () => {
 
   it("reports false for an empty running list", () => {
     expect(backgroundWorkInFlight(snapshot())).toBe(false);
+  });
+});
+
+function widget(overrides: Partial<AsyncJobWidget> = {}): AsyncJobWidget {
+  return { title: "w", headline: null, stage: null, blocks: [], updatedAt: 1, ...overrides };
+}
+
+const spark = {
+  kind: "spark" as const,
+  label: "rate",
+  values: [1, 2],
+  min: 0,
+  max: 3,
+  last: "2/s",
+  marks: [],
+  tone: null,
+};
+const meter = { kind: "meter" as const, label: "done", value: 0.5, text: "50%", tone: null };
+
+describe("jobWidgetFigure", () => {
+  it("prefers the headline", () => {
+    const headline = { text: "412", label: "files", trend: null };
+    expect(jobWidgetFigure(widget({ headline, blocks: [spark, meter] }))).toBe(headline);
+  });
+
+  it("falls back to the first spark's last value, then the first meter's text", () => {
+    expect(jobWidgetFigure(widget({ blocks: [meter, spark] }))).toEqual({ text: "50%", label: "done", trend: null });
+    expect(jobWidgetFigure(widget({ blocks: [spark, meter] }))).toEqual({ text: "2/s", label: "rate", trend: null });
+  });
+
+  it("returns null when the widget has no figure", () => {
+    expect(jobWidgetFigure(widget({ stage: "s", blocks: [{ kind: "text", text: "hi" }] }))).toBeNull();
+  });
+});
+
+describe("freshestWidgetJob", () => {
+  it("picks the running job whose widget updated last", () => {
+    const fresh = job({ id: "bg_2", widget: widget({ updatedAt: 9 }) });
+    const result = freshestWidgetJob(
+      snapshot({ running: [job({ id: "bg_1", widget: widget({ updatedAt: 5 }) }), fresh, job({ id: "bg_3" })] }),
+    );
+    expect(result).toBe(fresh);
+  });
+
+  it("returns null when no running job has a widget", () => {
+    expect(freshestWidgetJob(snapshot({ running: [job()] }))).toBeNull();
+    expect(freshestWidgetJob(null)).toBeNull();
+  });
+
+  it("returns null for an unavailable snapshot", () => {
+    expect(
+      freshestWidgetJob(snapshot({ available: false, unavailable: "nope", running: [job({ widget: widget() })] })),
+    ).toBeNull();
   });
 });

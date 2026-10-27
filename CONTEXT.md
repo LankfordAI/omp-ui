@@ -1430,6 +1430,15 @@ and evicts a finished one shortly after its result is delivered. A named
 `bash` service is daemon-supervised and is not a background job.
 _Avoid_: process, service, task (the `task` tool is one job type), worker
 
+**Job widget**:
+OMP's live visualization of one running *background job* (omp 18.12.3+): a
+title, an optional headline figure, an optional stage line, and up to four
+blocks: spark, bars, meter, stat, grid, or text. OMP's `widget` model role
+writes the spec once, then OMP computes every update from the job's output.
+omp-ui draws only a live widget, in the _Jobs_ pane and on the HUD jobs chip,
+and never authors one.
+_Avoid_: chart, tile (OMP's TUI layout), progress bar
+
 **Vibe snapshot**:
 The reduced, monotonic view of one session's vibe mode that the generated
 extension publishes over the existing extension-status frame: availability plus

@@ -695,6 +695,18 @@ describe("writeOmpSetting", () => {
     ]);
   });
 
+  it("admits async.widgets to the write boundary (#954)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "async.widgets", value: false },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "async.widgets", "false", "--json"]);
+  });
+
   it("admits sharpshooter.minPromptLength and statusLine.segmentOptions to the write boundary (#887)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(
