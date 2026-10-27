@@ -44,6 +44,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#9d8cf5",
       "--color-iris-dim": "#6152a8",
       "--color-iris-wash": "#1c1830",
+      "--color-think-cool": "#6fc3e8",
+      "--color-think-warm": "#ef86c4",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)"
     },
@@ -115,6 +117,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#9c8cf0",
       "--color-iris-dim": "#61549c",
       "--color-iris-wash": "#1d1a2e",
+      "--color-think-cool": "#4fc1ff",
+      "--color-think-warm": "#e586c8",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)"
     },
@@ -186,6 +190,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#ae81ff",
       "--color-iris-dim": "#7455ab",
       "--color-iris-wash": "#241d33",
+      "--color-think-cool": "#66d9ef",
+      "--color-think-warm": "#f582c2",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)"
     },
@@ -257,6 +263,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#6c71c4",
       "--color-iris-dim": "#484c85",
       "--color-iris-wash": "#151d33",
+      "--color-think-cool": "#2aa198",
+      "--color-think-warm": "#e76fac",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)"
     },
@@ -328,6 +336,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#c678dd",
       "--color-iris-dim": "#845896",
       "--color-iris-wash": "#2a1e31",
+      "--color-think-cool": "#56b6c2",
+      "--color-think-warm": "#e682c4",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)"
     },
@@ -399,6 +409,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#bd93f9",
       "--color-iris-dim": "#7e67a7",
       "--color-iris-wash": "#2a2140",
+      "--color-think-cool": "#8be9fd",
+      "--color-think-warm": "#ff79c6",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)"
     },
@@ -470,6 +482,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#b48ead",
       "--color-iris-dim": "#7c687f",
       "--color-iris-wash": "#2d2331",
+      "--color-think-cool": "#88c0d0",
+      "--color-think-warm": "#d99cc6",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)"
     },
@@ -541,6 +555,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#d3869b",
       "--color-iris-dim": "#8b5f6b",
       "--color-iris-wash": "#2f2126",
+      "--color-think-cool": "#83a598",
+      "--color-think-warm": "#e58aac",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)"
     },
@@ -612,6 +628,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#bb9af7",
       "--color-iris-dim": "#77659f",
       "--color-iris-wash": "#262038",
+      "--color-think-cool": "#7dcfff",
+      "--color-think-warm": "#f589c6",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)"
     },
@@ -683,6 +701,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#cba6f7",
       "--color-iris-dim": "#826da3",
       "--color-iris-wash": "#292140",
+      "--color-think-cool": "#89dceb",
+      "--color-think-warm": "#f5c2e7",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
       "--color-edge-lo": "rgb(0 0 0 / 0.4)"
     },
@@ -754,6 +774,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#4a34b8",
       "--color-iris-dim": "#6f5ad0",
       "--color-iris-wash": "#eae5fb",
+      "--color-think-cool": "#0b6a8a",
+      "--color-think-warm": "#a3196d",
       "--color-edge-hi": "rgb(255 255 255 / 0.9)",
       "--color-edge-lo": "rgb(15 23 32 / 0.10)"
     },
@@ -825,6 +847,8 @@ const LEGACY_THEMES: readonly Theme[] = [
       "--color-iris": "#4f53a3",
       "--color-iris-dim": "#6c71c4",
       "--color-iris-wash": "#e0e1f2",
+      "--color-think-cool": "#1a6f8a",
+      "--color-think-warm": "#a32468",
       "--color-edge-hi": "rgb(255 255 255 / 0.9)",
       "--color-edge-lo": "rgb(15 23 32 / 0.10)"
     },
@@ -1170,6 +1194,15 @@ describe("theme contrast", () => {
             theme.tokens[`--color-${accent}-wash`],
             3,
           );
+        }
+      });
+
+      it("keeps both thinking-ramp ends visible on the surface and the popover", () => {
+        // The thinking slider paints level colours on the options popover (overlay);
+        // the pill paints them on the composer surface.
+        for (const end of ["--color-think-cool", "--color-think-warm"] as const) {
+          expectContrast(theme, `${end} on surface`, theme.tokens[end], surface, 3);
+          expectContrast(theme, `${end} on overlay`, theme.tokens[end], theme.tokens["--color-overlay"], 3);
         }
       });
 

@@ -47,6 +47,63 @@ export function IconTune({ className }: { className?: string }) {
   );
 }
 
+/** Chip — the composer options popover's model row. */
+export function IconModel({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <rect x="4" y="4" width="8" height="8" rx="1.5" />
+      <path d="M6 2v2M10 2v2M6 12v2M10 12v2M2 6h2M2 10h2M12 6h2M12 10h2" />
+    </svg>
+  );
+}
+
+/** Bulb — the composer options popover's thinking row. */
+export function IconThinking({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M6 12.5h4M6.5 14.5h3M8 1.5a4.5 4.5 0 0 0-2.6 8.2c.4.3.6.7.6 1.2V11h4v-.1c0-.5.2-.9.6-1.2A4.5 4.5 0 0 0 8 1.5z" />
+    </svg>
+  );
+}
+
+/** Bolt — the composer options popover's fast-mode row. */
+export function IconFast({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M9 1.5L3.5 9H8l-1 5.5L12.5 7H8z" />
+    </svg>
+  );
+}
+
+/** Eye — Plan mode in the composer options popover's mode row. */
+export function IconPlanMode({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" />
+      <circle cx="8" cy="8" r="2" />
+    </svg>
+  );
+}
+
+/** Hammer — Build mode in the composer options popover's mode row. */
+export function IconBuildMode({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M9 3.5l3.5 3.5M7.5 5l3.5 3.5M2.5 13.5l6-6M8 2.5l5.5 5.5-1.5 1.5L6.5 4z" />
+    </svg>
+  );
+}
+
+/** Dial — the composer options popover's advisor row. */
+export function IconAdvisor({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 5v3l2 1.5" />
+    </svg>
+  );
+}
+
 /** Circular refresh arrow. */
 export function IconRefresh({ className }: { className?: string }) {
   return (

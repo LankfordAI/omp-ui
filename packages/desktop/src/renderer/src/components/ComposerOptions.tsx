@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
 import { repositoryMembers, type CheckoutEntry } from "../lib/repository-members";
 import { modelFastTier } from "../lib/rpc-types";
+import { thinkingLevelColor } from "../lib/thinking-colors";
 import { useDismissal } from "../lib/use-dismissal";
 import { findOwner, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
@@ -12,23 +13,38 @@ import { BuildPlanControl } from "./BuildPlanControl";
 import { FastModeControl } from "./FastModeControl";
 import { MachineChip } from "./MachineChip";
 import { ModelSelector } from "./ModelSelector";
+import { ThinkingSlider } from "./ThinkingSlider";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
-import { Button, Capsule, Chevron, Label } from "./ui";
+import {
+  Chevron,
+  IconAdvisor,
+  IconBuildMode,
+  IconFast,
+  IconModel,
+  IconPlanMode,
+  IconRefresh,
+  IconThinking,
+  Switch,
+} from "./ui";
+import { TONE_CHIP } from "./ui/tone";
 
 /** Stable empty so the per-field selector doesn't fire on every store tick. */
 const NO_EFFORTS: never[] = [];
 
 /**
  * The desktop composer footer's **options pill** (issue #939): one trigger
- * reading mode · model · thinking · branch, opening a grouped popover —
- * Model (model, thinking level, fast mode), Session (Build/Plan, advisor),
- * Workspace (branch chip, machine chip). Store-aware on `tabId` like
- * ComposerSheet; the Composer passes only the state it owns.
+ * reading mode · model · thinking · branch, opening a popover of menu rows
+ * (issue #946) — model, thinking (level, auto switch, and the always-visible
+ * ThinkingSlider), fast mode; a divider; mode (Build/Plan), advisor with its
+ * *restarts* tag; and a footer strip with the branch and machine chips. The
+ * current thinking level's ramp colour paints the row icon, the value text,
+ * and the pill's thinking segment. Store-aware on `tabId` like ComposerSheet;
+ * the Composer passes only the state it owns.
  *
  * The panel is always mounted and toggled with `hidden`: BranchChip loads and
  * refreshes branch info only while mounted, and AdvisorControl loads its
  * defaults on mount, so mounting on open would leave the pill's branch
- * segment absent (no info → no Workspace group → no BranchChip) or stale.
+ * segment absent (no info → no footer → no BranchChip) or stale.
  */
 export function ComposerOptions({
   tabId,
@@ -122,6 +138,10 @@ export function ComposerOptions({
   const diverged = resolvable && info.ahead > 0 && info.behind > 0;
   const mode = planEnabled ? "plan" : "build";
   const autoTitle = t("composer.thinking.autoTitle", { level: thinkingLevel ?? "—" });
+  const auto = thinkingConfigured === "auto";
+  // The resolved level's colour, under auto too: the slider sits on it.
+  const levelColour = thinkingLevelColor(efforts.indexOf(thinkingLevel ?? ""), efforts.length);
+  const levelText = thinkingLevel ?? t("composer.thinking.fallback");
   const dot = <span aria-hidden className="text-ink-faint">·</span>;
 
   return (
@@ -156,12 +176,11 @@ export function ComposerOptions({
         {dot}
         <span
           data-pill-segment="thinking"
-          title={thinkingConfigured === "auto" ? autoTitle : undefined}
+          title={auto ? autoTitle : undefined}
           className="shrink-0 font-mono tabular-nums text-iris"
+          style={auto ? undefined : { color: levelColour }}
         >
-          {thinkingConfigured === "auto"
-            ? t("composer.thinking.auto")
-            : thinkingLevel ?? t("composer.thinking.fallback")}
+          {auto ? t("composer.thinking.auto") : levelText}
         </span>
         {branchVisible && (
           <>
@@ -186,89 +205,159 @@ export function ComposerOptions({
         hidden={!open}
         role="dialog"
         aria-label={t("composer.options.title")}
-        // No max-h/overflow: the nested chip popovers are `absolute bottom-full`
-        // children and a scrolling panel would clip them.
-        className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-3 rounded-md border border-line-strong bg-overlay p-2"
+        // No max-h/overflow clipping: the nested chip popovers are `absolute
+        // bottom-full` children and a scrolling panel would clip them.
+        className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-visible rounded-md border border-line-strong bg-overlay p-1"
       >
-        <section aria-label={t("composer.options.groupModel")} className="flex flex-col gap-1.5">
-          <Label>{t("composer.options.groupModel")}</Label>
-          <Capsule className="min-w-0 max-w-full self-start">
+        <section aria-label={t("composer.options.groupModel")} className="flex flex-col">
+          <OptionRow icon={<IconModel />} label={t("composer.options.groupModel")}>
             <ModelSelector tabId={tabId} disabled={disabled} />
-          </Capsule>
+          </OptionRow>
           {efforts.length > 0 && (
-            <div role="group" aria-label={t("composer.thinking.label")} className="flex flex-wrap gap-1">
-              {/* Under auto the effort rows un-highlight: the resolved level is not the user's choice. */}
-              <Button
-                size="xs"
-                tone="iris"
-                selected={thinkingConfigured === "auto"}
-                disabled={disabled}
-                title={autoTitle}
-                onClick={() => void setThinkingLevel(tabId, "auto")}
-                className="font-mono"
-              >
-                {t("composer.thinking.auto")}
-              </Button>
-              {efforts.map((effort) => (
-                <Button
-                  key={effort}
-                  size="xs"
-                  tone="iris"
+            <>
+              <OptionRow icon={<IconThinking />} label={t("composer.thinking.label")} iconStyle={{ color: levelColour }}>
+                {auto ? (
+                  <span title={autoTitle} className="truncate text-[11px] text-ink-mid">
+                    {t("composer.thinking.now", { level: "\u0000" })
+                      .split("\u0000")
+                      .map((part, i) =>
+                        i === 0 ? (
+                          part
+                        ) : (
+                          <span key={i}>
+                            <span
+                              className="font-mono transition-colors duration-300 motion-reduce:transition-none"
+                              style={{ color: levelColour }}
+                            >
+                              {levelText}
+                            </span>
+                            {part}
+                          </span>
+                        ),
+                      )}
+                  </span>
+                ) : (
+                  <span
+                    className="truncate font-mono transition-colors duration-300 motion-reduce:transition-none"
+                    style={{ color: levelColour }}
+                  >
+                    {levelText}
+                  </span>
+                )}
+                <Switch
+                  on={auto}
+                  label={t("composer.thinking.auto")}
+                  title={autoTitle}
                   disabled={disabled}
-                  selected={thinkingConfigured !== "auto" && effort === thinkingLevel}
-                  onClick={() => void setThinkingLevel(tabId, effort)}
-                  className="font-mono"
-                >
-                  {effort}
-                </Button>
-              ))}
-            </div>
+                  onChange={(next) =>
+                    void setThinkingLevel(
+                      tabId,
+                      next
+                        ? "auto"
+                        : thinkingLevel !== null && efforts.includes(thinkingLevel)
+                          ? thinkingLevel
+                          : efforts[efforts.length - 1]!,
+                    )
+                  }
+                />
+                <span aria-hidden className="text-[11px] text-ink">
+                  {t("composer.thinking.auto")}
+                </span>
+              </OptionRow>
+              <div className="pb-1.5 pl-[30px] pr-2">
+                <ThinkingSlider tabId={tabId} disabled={disabled} />
+              </div>
+            </>
           )}
-          {fastVisible && <FastModeControl tabId={tabId} layout="sheet" disabled={disabled} className="min-h-0" />}
+          {fastVisible && (
+            <OptionRow icon={<IconFast />}>
+              <FastModeControl tabId={tabId} layout="sheet" disabled={disabled} className="min-h-8 w-full" />
+            </OptionRow>
+          )}
         </section>
 
-        <section aria-label={t("composer.options.groupSession")} className="flex flex-col gap-1.5">
-          <Label>{t("composer.options.groupSession")}</Label>
+        <div aria-hidden className="mx-1.5 my-1 h-px bg-line" />
+
+        <section aria-label={t("composer.options.groupSession")} className="flex flex-col">
           {/* A chat is Build-only: no mode control (#894). */}
           {!chat && (
-            <BuildPlanControl
-              tabId={tabId}
-              disabled={disabled}
-              className="self-start"
-              onSelected={() => {
-                close();
-                onModeSelected();
-              }}
-            />
+            <OptionRow
+              icon={planEnabled ? <IconPlanMode /> : <IconBuildMode />}
+              label={t("composer.options.mode")}
+            >
+              <BuildPlanControl
+                tabId={tabId}
+                disabled={disabled}
+                onSelected={() => {
+                  close();
+                  onModeSelected();
+                }}
+              />
+            </OptionRow>
           )}
-          <div className="flex min-w-0 items-center gap-2">
-            <AdvisorControl tabId={tabId} disabled={disabled} />
-            <span className="shrink-0 text-[10px] text-ink-faint">{t("composer.options.advisorHint")}</span>
-          </div>
+          <OptionRow icon={<IconAdvisor />}>
+            <span className="mr-auto flex min-w-0">
+              <AdvisorControl tabId={tabId} disabled={disabled} />
+            </span>
+            <span
+              title={t("composer.options.advisorHint")}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-px text-[10px]",
+                TONE_CHIP.copper,
+              )}
+            >
+              <IconRefresh className="size-2.5" />
+              {t("composer.options.restarts")}
+            </span>
+          </OptionRow>
         </section>
 
         <section
           aria-label={t("composer.options.groupWorkspace")}
           hidden={!(branchVisible || machineVisible)}
-          className="flex flex-col gap-1.5"
+          className="-mx-1 -mb-1 mt-1 flex min-w-0 flex-wrap items-center gap-1.5 rounded-b-md border-t border-line bg-raised px-2 py-1.5"
         >
-          <Label>{t("composer.options.groupWorkspace")}</Label>
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {!chat && (
-              <BranchChip
-                projectCwd={projectCwd}
-                instanceId={instanceId}
-                workspace={workspace}
-                onWorkspaceChange={onWorkspaceChange}
-                workspaceDisabled={workspaceDisabled}
-                onCreateWorktree={onCreateWorktree}
-                finishTabId={finishTabId}
-              />
-            )}
-            {offerMachine && <MachineChip tabId={tabId} disabled={machineDisabled} onPick={onPickMachine} />}
-          </div>
+          {!chat && (
+            <BranchChip
+              projectCwd={projectCwd}
+              instanceId={instanceId}
+              workspace={workspace}
+              onWorkspaceChange={onWorkspaceChange}
+              workspaceDisabled={workspaceDisabled}
+              onCreateWorktree={onCreateWorktree}
+              finishTabId={finishTabId}
+            />
+          )}
+          {offerMachine && <MachineChip tabId={tabId} disabled={machineDisabled} onPick={onPickMachine} />}
         </section>
       </div>
     </span>
+  );
+}
+
+/** One popover menu row: icon, optional label, right-aligned controls. */
+function OptionRow({
+  icon,
+  label,
+  children,
+  iconStyle,
+}: {
+  icon: ReactNode;
+  label?: string;
+  children: ReactNode;
+  iconStyle?: CSSProperties;
+}) {
+  return (
+    <div className="flex min-h-8 min-w-0 items-center gap-2.5 rounded-[5px] px-2 text-xs text-ink">
+      <span
+        aria-hidden
+        className="shrink-0 text-ink-mid transition-colors duration-300 motion-reduce:transition-none"
+        style={iconStyle}
+      >
+        {icon}
+      </span>
+      {label !== undefined && <span className="shrink-0">{label}</span>}
+      <span className="flex min-w-0 flex-1 items-center justify-end gap-1.5">{children}</span>
+    </div>
   );
 }

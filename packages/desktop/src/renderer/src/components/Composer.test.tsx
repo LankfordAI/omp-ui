@@ -340,10 +340,12 @@ describe("Composer auto thinking selector", () => {
     expect(found).not.toBeNull();
     return found!;
   };
-  // The ladder lives in the options popover's Model group.
+  // The slider's ticks live in the options popover's model section.
   const ladder = (): HTMLButtonElement[] => [
     ...document.body.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="thinking"] button'),
   ];
+  const autoSwitch = (): HTMLButtonElement =>
+    document.body.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="auto"]')!;
 
   it("reads auto while the selector is configured, with the resolution in the tooltip", () => {
     asDesktop();
@@ -361,32 +363,64 @@ describe("Composer auto thinking selector", () => {
     expect(segment().title).toBe("");
   });
 
-  it("offers auto above the ladder and dispatches level auto", async () => {
+  it("offers every effort on the slider and an auto switch that dispatches level auto", async () => {
     asDesktop();
     seedEfforts({ thinkingLevel: "medium", thinkingConfigured: null });
     const setThinkingLevel = vi.fn(async () => {});
     useStore.setState({ setThinkingLevel });
     renderComposer();
     openOptions();
-    expect(ladder().map((row) => row.textContent?.trim())).toEqual([
-      "auto",
-      "low",
-      "medium",
-      "xhigh",
-    ]);
-    await act(async () => ladder()[0]!.click());
+    expect(ladder().map((row) => row.textContent?.trim())).toEqual(["low", "medium", "xhigh"]);
+    await act(async () => autoSwitch().click());
     expect(setThinkingLevel).toHaveBeenCalledWith(TAB, "auto");
   });
 
-  it("highlights auto and never the drifting resolved row while configured auto", () => {
+  it("checks auto, never highlights the drifting resolved row, and parks the handle on it", () => {
     asDesktop();
     seedEfforts({ thinkingLevel: "medium", thinkingConfigured: "auto" });
     renderComposer();
     openOptions();
     const rowBy = (label: string): HTMLButtonElement =>
       ladder().find((row) => row.textContent?.trim() === label)!;
-    expect(rowBy("auto").getAttribute("aria-pressed")).toBe("true");
+    expect(autoSwitch().getAttribute("aria-checked")).toBe("true");
     expect(rowBy("medium").getAttribute("aria-pressed")).toBe("false");
+    expect(document.body.querySelector("[data-thinking-thumb]")?.getAttribute("data-index")).toBe("1");
+  });
+
+  it("commits one level when a drag ends, not while it moves", async () => {
+    asDesktop();
+    seedEfforts({ thinkingLevel: "low", thinkingConfigured: null });
+    const setThinkingLevel = vi.fn(async () => {});
+    useStore.setState({ setThinkingLevel });
+    renderComposer();
+    openOptions();
+    const track = document.body.querySelector<HTMLElement>("[data-thinking-track]")!;
+    track.getBoundingClientRect = () => ({ left: 0, width: 200 }) as DOMRect;
+    track.setPointerCapture = vi.fn();
+    const fire = (type: string, clientX: number): void => {
+      // jsdom lacks PointerEvent; React reads button/pointerId/clientX off a MouseEvent too.
+      const event = new MouseEvent(type, { bubbles: true, button: 0, clientX });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      track.dispatchEvent(event);
+    };
+    await act(async () => fire("pointerdown", 0));
+    await act(async () => fire("pointermove", 100));
+    await act(async () => fire("pointermove", 200));
+    expect(setThinkingLevel).not.toHaveBeenCalled();
+    await act(async () => fire("pointerup", 200));
+    expect(setThinkingLevel).toHaveBeenCalledTimes(1);
+    expect(setThinkingLevel).toHaveBeenCalledWith(TAB, "xhigh");
+  });
+
+  it("turning auto off pins the resolved level", async () => {
+    asDesktop();
+    seedEfforts({ thinkingLevel: "medium", thinkingConfigured: "auto" });
+    const setThinkingLevel = vi.fn(async () => {});
+    useStore.setState({ setThinkingLevel });
+    renderComposer();
+    openOptions();
+    await act(async () => autoSwitch().click());
+    expect(setThinkingLevel).toHaveBeenCalledWith(TAB, "medium");
   });
 });
 
