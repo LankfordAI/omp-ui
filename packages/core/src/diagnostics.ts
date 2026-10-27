@@ -19,6 +19,7 @@ import { limitsExtensionPath } from "./limits-extension";
 import { mcpStatusExtensionPath } from "./mcp-status-extension";
 import { modelOverlayPath } from "./model-overlay";
 import { planExtensionPath } from "./plan-extension";
+import { sideCommandsExtensionPath } from "./side-commands-extension";
 import { treeExtensionPath } from "./tree-extension";
 import { buildZip } from "./zip-writer";
 import type { RegistrySettings } from "./registry";
@@ -102,7 +103,7 @@ const LOG_FILES = [
   "breadcrumbs.log.old",
 ] as const;
 
-/** The 15 generated per-session files (9 extensions + 6 overlays). */
+/** The 16 generated per-session files (10 extensions + 6 overlays). */
 const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   planExtensionPath,
   capabilitiesExtensionPath,
@@ -113,6 +114,7 @@ const GENERATED_FILE_SOURCES: ReadonlyArray<(lineageDir: string) => string> = [
   sessionSpendExtensionPath,
   browserPaneExtensionPath,
   treeExtensionPath,
+  sideCommandsExtensionPath,
   advisorOverlayPath,
   modelOverlayPath,
   compactionMethodOverlayPath,

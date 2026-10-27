@@ -60,6 +60,47 @@ describe("btw history record grammar", () => {
   });
 });
 
+describe("btw turn images (omp ≥ 18.13.0)", () => {
+  const image = { type: "image", data: "aGVsbG8=", mimeType: "image/png" };
+  const other = { type: "image", data: "d29ybGQ=", mimeType: "image/jpeg" };
+
+  it("parses images on the root turn and a follow-up and keeps them per turn", () => {
+    const full = {
+      ...record,
+      images: [image],
+      followUps: [{ ...turn }, { ...turn, images: [other] }],
+    };
+    const parsed = parseBtwRecord(JSON.stringify(full));
+    expect(parsed).toEqual(full);
+    const topic = btwTopicFromRecord(parsed!);
+    expect(topic.turns[0]?.images).toEqual([image]);
+    expect(topic.turns[1]).not.toHaveProperty("images");
+    expect(topic.turns[2]?.images).toEqual([other]);
+  });
+
+  it("projects an image with extra keys to its three fields", () => {
+    const parsed = parseBtwRecord(
+      JSON.stringify({ ...record, images: [{ ...image, name: "shot.png" }] }),
+    );
+    expect(parsed?.images).toEqual([image]);
+  });
+
+  it("rejects the record for a malformed image or non-array images", () => {
+    for (const images of [
+      [{ ...image, type: "file" }],
+      [{ ...image, data: 1 }],
+      [{ ...image, mimeType: null }],
+      [null],
+      image,
+    ]) {
+      expect(parseBtwRecord(JSON.stringify({ ...record, images }))).toBeNull();
+      expect(
+        parseBtwRecord(JSON.stringify({ ...record, followUps: [{ ...turn, images }] })),
+      ).toBeNull();
+    }
+  });
+});
+
 describe("btwTopicFromRecord", () => {
   it("titles with the root question and reads the latest turn's verdict", () => {
     const topic = btwTopicFromRecord(

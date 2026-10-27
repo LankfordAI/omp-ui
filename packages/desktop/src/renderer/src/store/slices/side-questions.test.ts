@@ -1,13 +1,22 @@
 // The native `/btw` command family in a native tab (issue #775): what the
 // composer dispatches, what the pane's verbs send, and how the command
 // responses land as snapshots. omp ≥ 18.6.3 owns the run; below the floor the
-// slice dispatches nothing.
+// slice dispatches nothing. A `side: true` file slash command (issue #955)
+// renders through the side-commands bridge and asks the same native btw.
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import {
   BTW_QUESTION_CHAR_LIMIT,
   type BtwSnapshot,
 } from "@omp-ui/core/side-questions";
+import {
+  SIDE_COMMANDS_COMMAND,
+  SIDE_COMMANDS_RENDER_ARG_PREFIX,
+  SIDE_COMMANDS_STATUS_KEY,
+  type SideCommandResult,
+  type SideCommandsSnapshot,
+} from "@omp-ui/core/side-commands";
+import type { SlashCommandInfo } from "../../lib/rpc-types";
 import { rpcTabState, tabInfo } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 
@@ -217,5 +226,179 @@ describe("terminal tabs keep omp's own /btw (issue #775)", () => {
         .map(({ cmd }) => String(cmd.message)),
     ).toEqual(["/btw hi"]);
     expect(h.useStore.getState().railPaneFocus).toEqual({});
+  });
+});
+
+const RENDER_PREFIX = `/${SIDE_COMMANDS_COMMAND} ${SIDE_COMMANDS_RENDER_ARG_PREFIX}`;
+
+function sideSnapshot(patch: Partial<SideCommandsSnapshot> = {}): SideCommandsSnapshot {
+  return {
+    version: 1,
+    processKey: "proc-1",
+    revision: 1,
+    available: true,
+    unavailable: null,
+    commands: ["sitrep"],
+    result: null,
+    ...patch,
+  };
+}
+
+const fileCommand = (name: string, source = "file"): SlashCommandInfo => ({
+  name,
+  description: "",
+  source,
+});
+
+function setupSide(
+  mode: "rpc-ui" | "pty",
+  sideCommands: SideCommandsSnapshot | null = sideSnapshot(),
+  catalog: SlashCommandInfo[] = [fileCommand("sitrep")],
+): void {
+  h.backendState = h.stateWithRecord("sess-1");
+  h.sent.length = 0;
+  h.useStore.setState({
+    state: h.backendState,
+    tabs: [tabInfo({ tabId: h.TAB, mode })],
+    rpc: {
+      [h.TAB]: rpcTabState({
+        sideCommands,
+        commands: catalog,
+        capabilities: capabilities("18.13.0"),
+      }),
+    },
+    railPaneFocus: {},
+    sideQuestionTitles: {},
+  });
+}
+
+const prompts = (): string[] =>
+  commands("prompt")
+    .map(({ message }) => message)
+    .filter((message): message is string => typeof message === "string");
+
+/** The render request the dispatcher minted into the one hidden prompt. */
+function renderRequest(): { requestId: string; name: string; args: string } {
+  const renders = prompts().filter((message) => message.startsWith(RENDER_PREFIX));
+  expect(renders).toHaveLength(1);
+  return JSON.parse(renders[0]!.slice(RENDER_PREFIX.length)) as {
+    requestId: string;
+    name: string;
+    args: string;
+  };
+}
+
+function publishSide(revision: number, result: SideCommandResult | null): void {
+  h.useStore.getState().handleRpcFrame(h.TAB, {
+    type: "extension_ui_request",
+    id: `side-${revision}`,
+    method: "setStatus",
+    statusKey: SIDE_COMMANDS_STATUS_KEY,
+    statusText: JSON.stringify(sideSnapshot({ revision, result })),
+  });
+}
+
+describe("side commands in a native tab (issue #955)", () => {
+  beforeEach(() => setupSide("rpc-ui"));
+
+  it("sends only the hidden render prompt, opens the pane, and adds no transcript row", async () => {
+    await runLine("/sitrep foo");
+    expect(prompts()).toHaveLength(1);
+    expect(renderRequest()).toMatchObject({ name: "sitrep", args: "foo" });
+    // Nothing carried the literal line to the model.
+    expect(prompts()).not.toContain("/sitrep foo");
+    expect(commands("btw")).toEqual([]);
+    expect(items()).toEqual([]);
+    expect(h.useStore.getState().railPaneFocus[h.TAB]?.pane).toBe("btw");
+  });
+
+  it("asks the rendered question through native btw and titles the topic by the typed line", async () => {
+    await runLine("/sitrep foo");
+    const { requestId } = renderRequest();
+    publishSide(2, { requestId, ok: true, question: "Give a sitrep about foo." });
+    const asked = commands("btw");
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ question: "Give a sitrep about foo." });
+    expect(asked[0]?.recordId).toBeUndefined();
+    const [btw] = h.sent.filter(({ cmd }) => cmd.type === "btw");
+    h.respond(
+      btw!.tabId,
+      btw!.cmd,
+      { record: record("t1", { question: "Give a sitrep about foo.", status: "running", answer: "" }) },
+      true,
+    );
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().sideQuestionTitles["t1"]).toBe("/sitrep foo");
+    expect(h.useStore.getState().rpc[h.TAB]?.sideQuestions?.topics.map((t) => t.id)).toEqual(["t1"]);
+  });
+
+  it("a result for an unknown requestId dispatches nothing", async () => {
+    await runLine("/sitrep foo");
+    publishSide(2, { requestId: "someone-else", ok: true, question: "Give a sitrep." });
+    expect(commands("btw")).toEqual([]);
+    expect(h.useStore.getState().rpc[h.TAB]?.sideCommands?.revision).toBe(2);
+  });
+
+  it("a not-side result shows the sideCommandGone line instead of asking", async () => {
+    await runLine("/sitrep foo");
+    const { requestId } = renderRequest();
+    publishSide(2, { requestId, ok: false, reason: "not-side", message: null });
+    expect(commands("btw")).toEqual([]);
+    expect(h.useStore.getState().rpc[h.TAB]?.sideQuestions?.busy).toMatch(
+      /^\/sitrep foo is no longer a side command/,
+    );
+  });
+
+  it("refuses locally while a side question is running, before any render", async () => {
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          sideCommands: sideSnapshot(),
+          commands: [fileCommand("sitrep")],
+          capabilities: capabilities("18.13.0"),
+          sideQuestions: snapshot({ active: { topicId: "t", question: "q", answer: "" } }),
+        }),
+      },
+    });
+    await runLine("/sitrep foo");
+    expect(prompts()).toEqual([]);
+    expect(h.useStore.getState().rpc[h.TAB]?.sideQuestions?.busy).toMatch(/still running/);
+  });
+
+  describe("lines that take the ordinary path", () => {
+    async function expectOrdinary(): Promise<void> {
+      await runLine("/sitrep foo");
+      expect(prompts()).toEqual(["/sitrep foo"]);
+      expect(items()).toContainEqual(expect.objectContaining({ kind: "command", name: "sitrep" }));
+      expect(commands("btw")).toEqual([]);
+    }
+
+    it("a file command missing from the side set", async () => {
+      setupSide("rpc-ui", sideSnapshot({ commands: [] }));
+      await expectOrdinary();
+    });
+
+    it("a name the catalog resolves to an extension command", async () => {
+      setupSide("rpc-ui", sideSnapshot(), [fileCommand("sitrep", "extension")]);
+      await expectOrdinary();
+    });
+
+    it("a terminal tab", async () => {
+      setupSide("pty");
+      await expectOrdinary();
+    });
+  });
+
+  it("available_commands_update re-arms the bridge only once it has published", () => {
+    setupSide("rpc-ui", null);
+    const update = { type: "available_commands_update", commands: [fileCommand("sitrep")] };
+    h.useStore.getState().handleRpcFrame(h.TAB, update);
+    expect(prompts()).toEqual([]);
+
+    h.useStore.setState({
+      rpc: { [h.TAB]: { ...h.useStore.getState().rpc[h.TAB]!, sideCommands: sideSnapshot() } },
+    });
+    h.useStore.getState().handleRpcFrame(h.TAB, update);
+    expect(prompts()).toEqual([`/${SIDE_COMMANDS_COMMAND}`]);
   });
 });

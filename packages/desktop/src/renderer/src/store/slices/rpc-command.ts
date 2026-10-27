@@ -539,6 +539,8 @@ export function disposeTabRuntime(
     vibe: null,
     // Likewise the side-question topics: the next process republishes its own.
     sideQuestions: null,
+    // The successor's bridge republishes its own side set.
+    sideCommands: null,
     // The live session died with the process; the successor owns its own
     // realtime state (issue #778).
     live: null,
@@ -612,6 +614,7 @@ function freshRpcTabState(
     goal: null,
     vibe: null,
     sideQuestions: null,
+    sideCommands: null,
     live: null,
     autoresearch: null,
     limits: null,
@@ -817,6 +820,9 @@ export function createRpcCommandSlice(
       // Arm the session-spend bridge (issue #866): its first scan reproduces
       // the whole-session total from the transcripts on disk.
       void get().refreshSessionSpend(tabId);
+      // Arm the side-commands bridge (issue #955): publishes the live
+      // session's side: true file commands.
+      void get().refreshSideCommands(tabId);
       // The roster is a backend read, not a command: boot takes one whether
       // or not the session ever publishes, so an open viewer is never stuck
       // on "idle" for want of a turn (issue #374).

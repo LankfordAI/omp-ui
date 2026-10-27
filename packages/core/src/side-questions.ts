@@ -11,7 +11,9 @@
 // omp's history records ride the frames as objects, so the strict grammar
 // below stays as the validation gate every record passes before it can touch a
 // snapshot. The `running` → `interrupted` normalisation omp applies when a
-// store opens remains omp's loader's job, not this file's.
+// store opens remains omp's loader's job, not this file's. omp ≥ 18.13.0
+// records carry per-turn `images`, and omp resends earlier turns' images
+// itself on a follow-up.
 
 /** Cap on one question, checked before anything is sent (never silently truncated). */
 export const BTW_QUESTION_CHAR_LIMIT = 32_000;
@@ -32,6 +34,13 @@ const TURN_STATUSES: readonly BtwTurnStatus[] = [
   "interrupted",
 ];
 
+/** One image attached to a side-question turn (omp ≥ 18.13.0). */
+export interface BtwImage {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
 /** One question/answer exchange inside a topic. */
 export interface BtwTurn {
   question: string;
@@ -39,6 +48,7 @@ export interface BtwTurn {
   status: BtwTurnStatus;
   updatedAt: number;
   error?: string;
+  images?: BtwImage[];
 }
 
 /**
@@ -86,6 +96,7 @@ export interface BtwRecordTurn {
   createdAt: number;
   updatedAt: number;
   error?: string;
+  images?: BtwImage[];
 }
 
 /** One `entry-<id>.json` file: the root turn plus its follow-ups. */
@@ -104,6 +115,7 @@ const TURN_KEYS: Record<string, true> = {
   createdAt: true,
   updatedAt: true,
   error: true,
+  images: true,
 };
 const RECORD_KEYS: Record<string, true> = {
   ...TURN_KEYS,
@@ -132,11 +144,24 @@ function readTurn(
   allowedKeys: Record<string, true>,
 ): BtwRecordTurn | null {
   for (const key of Object.keys(raw)) if (allowedKeys[key] !== true) return null;
-  const { question, answer, status, createdAt, updatedAt, error } = raw;
+  const { question, answer, status, createdAt, updatedAt, error, images } = raw;
   if (typeof question !== "string" || typeof answer !== "string") return null;
   if (!TURN_STATUSES.includes(status as BtwTurnStatus)) return null;
   if (!isTimestamp(createdAt) || !isTimestamp(updatedAt)) return null;
   if (error !== undefined && typeof error !== "string") return null;
+  let parsedImages: BtwImage[] | undefined;
+  if (images !== undefined) {
+    if (!Array.isArray(images)) return null;
+    parsedImages = [];
+    for (const value of images) {
+      const image = asRecord(value);
+      if (image === null) return null;
+      const { type, data, mimeType } = image;
+      if (type !== "image" || typeof data !== "string" || typeof mimeType !== "string")
+        return null;
+      parsedImages.push({ type: "image", data, mimeType });
+    }
+  }
   return {
     question,
     answer,
@@ -144,6 +169,7 @@ function readTurn(
     createdAt,
     updatedAt,
     ...(error !== undefined ? { error } : {}),
+    ...(parsedImages !== undefined ? { images: parsedImages } : {}),
   };
 }
 
@@ -197,12 +223,13 @@ export function btwTopicFromRecord(record: BtwRecord): BtwTopic {
   // The view turn drops the record's `createdAt`; the root plus follow-ups map
   // through the same projection so `turns` stays BtwTurn-clean.
   const turns: BtwTurn[] = [record, ...(record.followUps ?? [])].map(
-    ({ question, answer, status, updatedAt, error }) => ({
+    ({ question, answer, status, updatedAt, error, images }) => ({
       question,
       answer,
       status,
       updatedAt,
       ...(error !== undefined ? { error } : {}),
+      ...(images !== undefined ? { images } : {}),
     }),
   );
   const latest = turns[turns.length - 1] as BtwTurn;

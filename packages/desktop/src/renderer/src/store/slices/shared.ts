@@ -112,6 +112,12 @@ export interface TabRuntime {
    */
   vibeRequests: Map<string, string>;
   /**
+   * Side-command render requests this client sent, request id → typed
+   * command title (issue #955). The result rides a published snapshot; a
+   * request id not in here belongs to another client or a re-arm republish.
+   */
+  sideCommandRequests: Map<string, string>;
+  /**
    * This process answered `predict_word` with "Unknown command" — an omp
    * before 18.4.9. Ghost completion stays off until the process is replaced
    * (issue #715).
@@ -569,6 +575,7 @@ function freshTabRuntime(): TabRuntime {
     slashCommandItems: new Map(),
     capabilitiesGeneration: 0,
     vibeRequests: new Map(),
+    sideCommandRequests: new Map(),
     planReadSequence: 0,
     liveRecap: [],
     livePendingFeedback: [],

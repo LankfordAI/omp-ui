@@ -144,6 +144,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     goal: null,
     vibe: null,
     sideQuestions: null,
+    sideCommands: null,
     live: null,
     subagentControlBusy: {},
     subagentControlError: null,
@@ -1172,6 +1173,52 @@ describe("Side questions pane (issue #775)", () => {
     openPane("side questions");
     expect(document.body.textContent).toContain("no ephemeral API here");
     expect(document.body.textContent).toContain("still running");
+  });
+
+  it("titles a side command's topic with the typed command (#955)", () => {
+    useStore.setState({
+      sideQuestionTitles: { a: "/sitrep foo" },
+      rpc: {
+        [TAB]: runtime({
+          capabilities: cap("18.7.0"),
+          sideQuestions: snapshot({ topics: [topic("a", "Give a sitrep about foo", "complete", "all good")] }),
+        }),
+      },
+    });
+    renderRail();
+    openPane("side questions");
+    expect(document.body.textContent).toContain("/sitrep foo");
+    expect(document.body.textContent).not.toContain("Give a sitrep about foo");
+    act(() => useStore.setState({ sideQuestionTitles: {} }));
+  });
+
+  it("shows a turn's attached images as thumbnails (#955)", () => {
+    const base = topic("a", "what is this?", "complete", "a cat");
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          capabilities: cap("18.7.0"),
+          sideQuestions: snapshot({
+            topics: [
+              {
+                ...base,
+                turns: [{ ...base.turns[0]!, images: [{ type: "image" as const, data: "AAAA", mimeType: "image/png" }] }],
+              },
+            ],
+          }),
+        }),
+      },
+    });
+    renderRail();
+    openPane("side questions");
+    const row = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) =>
+      b.textContent?.includes("what is this?"),
+    )!;
+    act(() => row.click());
+    const img = [...document.body.querySelectorAll("img")].find((el) =>
+      el.getAttribute("src")?.startsWith("data:image/png;base64,"),
+    );
+    expect(img).toBeDefined();
   });
 
   it("selects and opens the pane when another surface asks for it", () => {

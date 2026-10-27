@@ -87,6 +87,7 @@ describe("reduceAgentEvent", () => {
     capabilitiesGeneration: 0,
     planReadSequence: 0,
     vibeRequests: new Map(),
+    sideCommandRequests: new Map(),
   });
 
   it("returns agent_start intents without mutating its inputs", () => {

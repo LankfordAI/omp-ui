@@ -42,6 +42,7 @@ import {
   writeSubagentModelOverlay,
   writePrivateGuardExtension,
   writePrivateOverlay,
+  writeSideCommandsExtension,
   writeChatOverlay,
   writeVaultOverlay,
   writeWorktreeOverlay,
@@ -349,6 +350,7 @@ export const RPC_BRIDGE_IDS = [
   "askContext",
   "carryoverContext",
   "privateGuard",
+  "sideCommands",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
 export type RpcBridgeWriters = Record<RpcBridgeId, (lineageDir: string) => string>;
@@ -370,6 +372,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   askContext: writeAskContextExtension,
   carryoverContext: writeCarryoverContextExtension,
   privateGuard: writePrivateGuardExtension,
+  sideCommands: writeSideCommandsExtension,
 };
 
 const RPC_BRIDGES: ReadonlyArray<{
@@ -394,6 +397,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "askContext", logId: "ask", warning: "ask-context", enabled: () => true },
   { id: "carryoverContext", logId: "carryover", warning: "carryover-context", enabled: () => true },
   { id: "privateGuard", logId: "private", warning: "private-guard", enabled: () => true },
+  { id: "sideCommands", logId: "side-commands", warning: "side-commands", enabled: () => true },
 ];
 export interface RpcExtensionWriteResult {
   paths: string[];

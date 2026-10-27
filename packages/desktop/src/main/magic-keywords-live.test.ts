@@ -243,6 +243,7 @@ function activeKeywordsAfter(frames: readonly Frame[]) {
     slashCommandItems: new Map(),
     capabilitiesGeneration: 0,
     vibeRequests: new Map(),
+    sideCommandRequests: new Map(),
     lastFrameAt: 0,
   };
   for (const [index, frame] of frames.entries()) {
