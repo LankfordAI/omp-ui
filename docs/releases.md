@@ -8,6 +8,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 - A **Chat** always has omp-ui's fleet tools, so asking a chat to start sessions in a project — Plan mode included — works without turning on **Let agents dispatch fleet work**; that setting now decides only for project sessions (#945).
 
+- The **Inspector rail** strip is now four labelled groups — Work, Review, Ask, Info — each opening its panes behind a tab row, with group badges that sum their members' counts; the compact sheet uses the same groups (#940).
+
 ## Choose a download
 
 A release has exactly four distributable files. Replace `<version>` with the tag version without its leading `v`.

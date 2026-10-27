@@ -6,6 +6,7 @@ import type { BackendState, OmpUpdateState, RemoteInstanceSummary, SessionSummar
 import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
 import { setSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen } from "../lib/sidebar-section-open";
+import { SIDEBAR_DEFAULT_WIDTH } from "../lib/panel-layout";
 import type { LiveSnapshot } from "@omp-ui/core/live-voice";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -275,7 +276,7 @@ describe("Sidebar resizing", () => {
     expect(useStore.getState().sidebarWidth).toBe(352);
 
     act(() => handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-    expect(useStore.getState().sidebarWidth).toBe(272);
+    expect(useStore.getState().sidebarWidth).toBe(SIDEBAR_DEFAULT_WIDTH);
     act(() => useStore.getState().setSidebarWidth(400));
     act(() => useStore.getState().toggleSidebarCollapsed());
     expect(document.body.querySelector("aside")).toBeNull();
@@ -442,9 +443,22 @@ describe("Sidebar session list", () => {
   it("renders only live rows above Settled, each naming its project or chat", () => {
     useStore.setState({ state: mixedState });
     renderSidebar();
-    expect(rowButton("Owned session")?.textContent).toContain("· Project One");
-    expect(rowButton("Brainstorm names")?.textContent).toContain("· chat");
+    expect(rowButton("Owned session")?.textContent).toContain("Project One");
+    expect(rowButton("Brainstorm names")?.textContent).toContain("chat");
     expect(rowButton("Second owned session")).toBeUndefined();
+  });
+
+  it("shows the model on a main-list tile but not on a slim Settled row (issue #938)", () => {
+    const sessions = mixedState.projects[0]!.sessions.map((s) => ({ ...s, model: "p/claude-x" }));
+    useStore.setState({
+      state: { ...mixedState, projects: [{ ...mixedState.projects[0]!, sessions }] },
+    });
+    act(() => setSettledOpen(true));
+    renderSidebar();
+    expect(rowButton("Owned session")?.textContent).toContain("claude-x");
+    const settled = rowButton("Second owned session");
+    expect(settled).toBeDefined();
+    expect(settled!.textContent).not.toContain("claude-x");
   });
 
   it("collapses Settled by default with its count, and the toggle survives a fresh render", () => {
@@ -481,7 +495,7 @@ describe("Sidebar session list", () => {
     expect(rowButton("Second owned session")).toBeUndefined();
   });
 
-  it("opens the quick-open from the empty state and the header, and the picker from Add project", () => {
+  it("opens the quick-open from the empty state and the header", () => {
     useStore.setState({
       state: backendState({
         projects: [
@@ -503,10 +517,6 @@ describe("Sidebar session list", () => {
     act(() => useStore.getState().closeProjectQuickOpen());
     act(() => button("new session — pick a project").click());
     expect(useStore.getState().projectQuickOpen).not.toBeNull();
-
-    act(() => button("add project").click());
-    expect(useStore.getState().projectPickerOpen).toBe(true);
-    expect(useStore.getState().projectPickerInstanceId).toBeNull();
   });
 
   it("dims an unreachable remote row and opens no menu on it", () => {
@@ -653,31 +663,35 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     if (found === undefined) throw new Error(`session row not found: ${title}`);
     return found;
   }
-
+  const chip = (target: HTMLElement, text: string): HTMLElement | undefined =>
+    [...target.querySelectorAll<HTMLElement>("span")].find((el) => el.textContent === text);
 
   it("labels implementation, plan source, and orphan rows without exposing the plan path", () => {
     useStore.setState({ state: handoffState });
     renderSidebar();
 
     const child = row("Implement dark mode");
-    expect(child.textContent).toContain("· implementation");
+    const implChip = chip(child, "impl");
+    expect(implChip).toBeDefined();
+    expect(implChip!.title).toBe("Implements “Ship dark mode” from Plan dark mode");
     expect(child.textContent).not.toContain("source unavailable");
     expect(child.title).toBe(
       "Implement dark mode — Implements “Ship dark mode” from Plan dark mode",
     );
 
     const source = row("Plan dark mode");
-    expect(source.textContent).toContain("· plan source");
-    expect(source.textContent).not.toContain("· implementation");
+    expect(source.textContent).toContain("plan source");
+    expect(chip(source, "impl")).toBeUndefined();
 
     const orphan = row("Orphan build");
-    expect(orphan.textContent).toContain("· implementation · source unavailable");
+    expect(chip(orphan, "impl")).toBeDefined();
+    expect(orphan.textContent).toContain("source unavailable");
     expect(orphan.title).toBe("Orphan build — Implements “Lost plan” — source unavailable");
 
     const plain = row("Plain session");
-    expect(plain.textContent).not.toContain("· implementation");
-    expect(plain.textContent).not.toContain("· plan source");
-
+    expect(chip(plain, "impl")).toBeUndefined();
+    expect(plain.textContent).not.toContain("plan source");
+    expect(plain.textContent).not.toContain("source unavailable");
     // The saved local:// artifact path is metadata, never UI.
     expect(document.body.innerHTML).not.toContain("local://");
   });
@@ -871,7 +885,7 @@ describe("Sidebar title cards (issue #838)", () => {
   };
 
   const titleLine = (button: HTMLButtonElement): HTMLElement =>
-    button.querySelector("span.min-w-0.flex-1")!.firstElementChild as HTMLElement;
+    button.querySelector<HTMLElement>("[data-session-tile-title]")!;
 
   it("a card title renders the icon, the code chip, and the bare title", () => {
     useStore.setState({
@@ -894,7 +908,7 @@ describe("Sidebar title cards (issue #838)", () => {
     expect(line.querySelector('[aria-hidden="true"]')?.textContent).toBe("📝");
     const chip = [...line.querySelectorAll("span")].find((el) => el.textContent === "PLAN");
     expect(chip?.className).toContain("font-mono");
-    expect(line.querySelector("span.min-w-0.truncate")?.textContent).toBe("Ship dark mode");
+    expect(line.lastElementChild?.textContent).toBe("Ship dark mode");
   });
 
   it("a plain title renders exactly as before — bare text, no chip", () => {

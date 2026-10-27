@@ -23,7 +23,7 @@ Switching a live session between native and terminal mode kills its process and 
 
 ### Register projects
 
-Use the **Add project** button in the sidebar header, the **Add project…** row of the [project quick-open](#start-resume-and-stop-sessions), or the command palette, choose a directory, and add the resolved path. The picker's leaf segment fuzzy-matches the current directory's names: non-adjacent characters match, the best matches rank first with the matched characters emphasized, and selecting a result always browses or registers that directory's real path, never the typed text.
+Use the **Add project…** row of the [project quick-open](#start-resume-and-stop-sessions) or the command palette, choose a directory, and add the resolved path. The picker's leaf segment fuzzy-matches the current directory's names: non-adjacent characters match, the best matches rank first with the matched characters emphasized, and selecting a result always browses or registers that directory's real path, never the typed text.
 
 Tab completes the path you are typing, like a shell: with no row selected, Tab on a leaf that matches exactly one directory descends into it; when several match, Tab inserts their longest common prefix and repeated Tab cycles the candidates (Shift+Tab cycles backwards). Tab on a selected row opens that row, as before. A completed or cycled name always lands on the directory's real path and casing, never on your query text.
 
@@ -34,7 +34,7 @@ next `~/axle`; it never rewrites your text to the shorter `a`.
 
 ### The session list
 
-The sidebar lists sessions, not projects. Its main list holds every live session — project sessions, chats, and sessions on joined [remote instances](remote-instances.md) — with the most recent activity on top. Each row shows the session's state, its project (or *chat*), and how long ago it last changed; a remote session's row also names its machine. Rows move as sessions work; there is no manual order. A plan-implementation session keeps its handoff label and a button that opens its planning session.
+The sidebar lists sessions, not projects. Its main list holds every live session — project sessions, chats, and sessions on joined [remote instances](remote-instances.md) — with the most recent activity on top. Each session is a tile. Its first line shows the title (up to two lines) and how long ago it last changed; the second names its project (or *chat*), its worktree branch, and, for a remote session, its machine. The third line shows the session's state, its model and thinking level, a *plan* chip in Plan mode, an *impl* chip on a plan implementation, and the private lock. When a session waits on you, the tile quotes the question it asks or the title of the plan ready for review. Hover a tile, or tab into it, to reveal its actions at the top-right. Rows move as sessions work; there is no manual order. A plan-implementation session also gets a button that opens its planning session. Rows in the **Settled** section stay compact: one title line and a state-first meta line.
 
 Every other owned session — dormant, hibernated, archived, or missing — waits in the **Settled** section at the bottom of the sidebar, collapsed by default. Directly above it, the **Working** section lists sessions in the middle of a turn; it stays visible with a count of zero when nothing is running. Click a section's header to open or close it; omp-ui remembers the choice. The search box at the top filters both lists by session title, plan, project, or machine name, and shows **Settled** expanded while you type.
 
@@ -202,7 +202,7 @@ an active goal as paused.
 
 ## Inspector rail
 
-The **inspector rail** is the right-hand icon strip in a native tab. It has seven panes. Selecting an icon opens one pane; selecting the active icon again closes it. The selected pane is remembered per tab, and badges show open todo, subagent, running background jobs, pending-plan, and answered side-question counts.
+The **inspector rail** is the right-hand strip in a native tab. It shows four labelled groups (Work: Todos, Agents, Jobs; Review: Plans, Diffs; Ask: Side questions, Seance; Info: Session). Selecting a group opens its pane, with a tab for each member; selecting the active group again closes it. The selected group and each group's tab are remembered per tab. A group's badge adds up its members' counts (open todos, subagents, running background jobs, pending plans, answered side questions, live Seance consults), and each member tab shows its own. Chats have no Review group.
 
 - **Todos** shows OMP's todo phases and task states for the focused session.
 - **Agents** lists live and settled subagents. Select one to open the **subagent view** in the main transcript area. That read-only view backfills the subagent's own transcript and renders its thinking, tool cards, and usage receipts. Its banner names the agent and status and returns to the main agent. While the subagent runs, the banner and its Agents-pane row carry **steer** (send it a message as its user) and **kill** (abort it; its transcript stays readable); both need omp 18.4.9 or later. There is no composer: the subagent view is not a chat surface. The main session keeps running behind the view.
@@ -212,7 +212,7 @@ The **inspector rail** is the right-hand icon strip in a native tab. It has seve
 - **Plans** shows proposed plans and the actions for a pending review.
 - **Diffs** shows every tracked and untracked working-tree change on the effective git branch. This is a branch diff, not a per-session edit history, so it can include changes made outside the focused session. For a branch off the default branch, it also shows this branch's commits since the cut point, and the header chip names the base. On the default branch itself it shows commits you have not pushed yet, measured from the branch's upstream. The pane header shows the file count and total `+`/`−` lines, with **expand all** / **collapse all**. Each file card expands to every row with line numbers, syntax highlighting, and word-level marks inside changed lines; renamed files show `renamed` and the old path, and binary files show `binary`.
 
-On compact screens, the inspector opens as a right-side sheet with the same seven panes.
+On compact screens, the inspector opens as a right-side sheet with the same four groups.
 
 ## Browser pane
 
@@ -310,7 +310,7 @@ For provider and other app configuration, see [Settings](settings.md).
 
 Press `Mod+K` to open the command palette. Search is fuzzy across sessions, projects, and actions. Use it to focus a non-missing owned session, start a session in a named project, add a project, terminate the focused agent, switch the focused session to native or terminal mode, run **View capabilities** — MCP servers, skills, tools for the focused session's working tree — open **Session tree** for the focused native session ([rewinding and the session tree](#rewinding-and-the-session-tree)), **Share live** a terminal session ([live sharing](#share-a-terminal-session-live)), check app or OMP updates, or open Settings. `Down` and `Ctrl+N` select the next result; `Up` and `Ctrl+P` select the previous result. Selection wraps at either end. Press `Enter` to run the selected action or `Escape` to close the palette.
 
-Below 900 pixels, omp-ui uses the **compact shell**. The top-left control opens the sessions sheet — the sidebar's session list, search, **Add project**, and **New session** — the title opens the same sheet, and the top-right inspector control opens the inspector sheet for a native tab. Native session actions move into a bottom sheet. The prompt's model, effort, advisor, mode, branch, queue, and interrupt controls move into the prompt-options sheet.
+Below 900 pixels, omp-ui uses the **compact shell**. The top-left control opens the sessions sheet — the sidebar's session list, search, and **New session** — the title opens the same sheet, and the top-right inspector control opens the inspector sheet for a native tab. Native session actions move into a bottom sheet. The prompt's model, effort, advisor, mode, branch, queue, and interrupt controls move into the prompt-options sheet.
 
 Project actions in the compact shell live on the same [project pages](#project-pages) as on the desktop. Desktop-only actions that open VS Code, the host file manager, or a system terminal do not appear there.
 

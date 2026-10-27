@@ -203,16 +203,24 @@ function button(label: string): HTMLButtonElement | null {
   return document.body.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 }
 
-/** A feature icon on the strip: aria-label, with any badge count in the title. */
-function railTab(label: string): HTMLButtonElement | null {
-  return (
-    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-      (b) =>
-        b.getAttribute("aria-label") === label ||
-        b.title === label ||
-        b.title.startsWith(`${label} (`),
-    ) ?? null
-  );
+const GROUP_OF: Record<string, string> = {
+  todos: "work", agents: "work", jobs: "work",
+  plans: "review", diffs: "review",
+  "side questions": "ask", seance: "ask",
+  session: "info",
+};
+
+/** A member tab in the open pane's tab row. */
+function memberTab(label: string): HTMLButtonElement | null {
+  return document.body.querySelector<HTMLButtonElement>(`[role="tab"][aria-label="${label}"]`);
+}
+
+/** Opens a member pane: its group from the strip (unless already shown), then its tab when the group has one. */
+function openPane(label: string): void {
+  const group = button(GROUP_OF[label]!)!;
+  if (group.getAttribute("aria-pressed") !== "true") act(() => group.click());
+  const tab = memberTab(label);
+  if (tab !== null && tab.getAttribute("aria-selected") !== "true") act(() => tab.click());
 }
 
 /** The session subagent-model popover, wherever it is mounted. */
@@ -250,49 +258,97 @@ afterEach(() => {
 });
 
 describe("desktop InspectorRail", () => {
-  it("stays an icon strip and opens one pane at a time from it (issues #48, #75)", () => {
+  it("shows four labelled groups and opens one pane at a time (issues #48, #75, #940)", () => {
     renderRail();
 
-    // The strip is the whole rail: feature icons with badges, no expand control.
+    // The strip is the whole rail: labelled group buttons with badges, no expand control.
     expect(button("expand inspector")).toBeNull();
-    for (const label of ["todos", "agents", "session", "plans", "diffs", "side questions"]) {
-      expect(button(label)).not.toBeNull();
+    for (const label of ["work", "review", "ask", "info"]) {
+      expect(button(label)?.textContent).toContain(label);
     }
+    expect(button("todos")).toBeNull();
     expect(button("memory")).toBeNull();
-    expect(button("todos")?.title).toBe("todos (1)");
-    expect(button("todos")?.textContent).toBe("1");
-    expect(button("agents")?.title).toBe("agents (1)");
+    // One open todo plus one subagent.
+    expect(button("work")?.title).toBe("work (2)");
 
-    // Pressing an icon opens just that pane beside the strip.
-    act(() => button("todos")!.click());
+    // Pressing a group opens its pane beside the strip, on its first member.
+    act(() => button("work")!.click());
     expect(document.body.textContent).toContain("First task");
     expect(button("collapse inspector")).not.toBeNull();
-    expect(button("todos")?.getAttribute("aria-pressed")).toBe("true");
+    expect(button("work")?.getAttribute("aria-pressed")).toBe("true");
+    const tabs = [...document.body.querySelectorAll('[role="tablist"] [role="tab"]')].map((el) => el.getAttribute("aria-label"));
+    expect(tabs).toEqual(["todos", "agents", "jobs"]);
+    expect(memberTab("todos")?.getAttribute("aria-selected")).toBe("true");
+    expect(memberTab("todos")?.title).toBe("todos (1)");
 
-    // Pressing a different icon swaps the single open pane.
-    act(() => button("agents")!.click());
+    // A member tab swaps the pane within the group.
+    act(() => memberTab("agents")!.click());
     expect(document.body.textContent).toContain("worker");
     expect(document.body.textContent).not.toContain("First task");
-    // Re-pressing the active icon dismisses the pane back to the strip alone.
-    act(() => button("agents")!.click());
+
+    // Another group swaps the open pane; returning restores the remembered member.
+    act(() => button("review")!.click());
+    expect(memberTab("plans")?.getAttribute("aria-selected")).toBe("true");
+    act(() => button("work")!.click());
+    expect(memberTab("agents")?.getAttribute("aria-selected")).toBe("true");
+
+    // Re-pressing the active group dismisses the pane back to the strip alone.
+    act(() => button("work")!.click());
     expect(button("collapse inspector")).toBeNull();
     expect(document.body.textContent).not.toContain("worker");
-    expect(button("agents")).not.toBeNull();
+    expect(button("work")).not.toBeNull();
+  });
+
+  it("Info has no tab row; its header names the group", () => {
+    renderRail();
+    act(() => button("info")!.click());
+    expect(document.body.querySelector('[role="tablist"]')).toBeNull();
+    expect(document.body.textContent).toContain(t("rail.session.title"));
+    expect(button("collapse inspector")!.parentElement!.firstElementChild?.textContent).toBe("info");
+  });
+
+  it("remembers group and member per tab across a tab switch", () => {
+    renderRail();
+    openPane("seance");
+    act(() => root!.render(<InspectorRail tabId="another-tab" />));
+    expect(button("work")?.getAttribute("aria-pressed")).toBe("true");
+    expect(memberTab("todos")?.getAttribute("aria-selected")).toBe("true");
+    act(() => root!.render(<InspectorRail tabId={TAB} />));
+    expect(button("ask")?.getAttribute("aria-pressed")).toBe("true");
+    expect(memberTab("seance")?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("arrow keys move the member selection", () => {
+    renderRail();
+    openPane("todos");
+    const press = (label: string, key: string): void =>
+      act(() => {
+        memberTab(label)!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      });
+    press("todos", "ArrowRight");
+    expect(memberTab("agents")?.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(memberTab("agents"));
+    press("agents", "End");
+    expect(memberTab("jobs")?.getAttribute("aria-selected")).toBe("true");
+    press("jobs", "ArrowRight");
+    expect(memberTab("todos")?.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(memberTab("todos"));
   });
 
   it("a chat tab hides Plans and Diffs and falls back from a remembered diffs pane", () => {
     useStore.setState({ state });
     renderRail();
-    act(() => railTab("diffs")!.click());
+    openPane("todos");
+    openPane("diffs");
     act(() => root!.unmount());
     root = null;
     const projectRecord = state.projects[0]!.sessions[0]!;
     useStore.setState({ state: backendState({ chats: [{ ...projectRecord, chat: true }] }) });
     renderRail();
 
-    expect(button("plans")).toBeNull();
-    expect(button("diffs")).toBeNull();
-    expect(button("todos")?.getAttribute("aria-pressed")).toBe("true");
+    expect(button("review")).toBeNull();
+    expect(button("work")?.getAttribute("aria-pressed")).toBe("true");
+    expect(memberTab("todos")?.getAttribute("aria-selected")).toBe("true");
     expect(document.body.textContent).toContain("First task");
   });
 
@@ -314,8 +370,9 @@ describe("desktop InspectorRail", () => {
     renderRail();
 
     // The row is pending with no gate anywhere: interrupted, badge 1.
-    expect(button("plans")?.title).toBe("plans (1)");
-    act(() => button("plans")!.click());
+    expect(button("review")?.title).toBe("review (1)");
+    openPane("plans");
+    expect(memberTab("plans")?.title).toBe("plans (1)");
     expect(document.body.textContent).toContain("interrupted");
     const represent = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
       (b) => b.textContent === "re-present",
@@ -335,9 +392,9 @@ describe("desktop InspectorRail", () => {
     );
 
     // A running turn refuses the command, so the action is disabled.
-    act(() => button("plans")!.click()); // back to the strip
+    act(() => button("review")!.click()); // back to the strip
     useStore.setState({ rpc: { [TAB]: runtime({ status: "running" }) } });
-    act(() => button("plans")!.click());
+    act(() => button("review")!.click()); // reopens on the remembered plans
     const busy = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
       (b) => b.textContent === "re-present",
     );
@@ -353,7 +410,9 @@ describe("desktop InspectorRail", () => {
       useStore.setState({ rpc: { [TAB]: unnamed }, inspectorOpen: false });
       renderRail();
       // The strip's aria-label is itself catalog text; resolve it under the lap's locale.
-      act(() => button(t("rail.tabs.todos"))!.click());
+      act(() => button(t("rail.groups.work"))!.click());
+      const todos = memberTab(t("rail.tabs.todos"))!;
+      if (todos.getAttribute("aria-selected") !== "true") act(() => todos.click());
       expect(document.body.querySelector("h3")?.textContent).toBe(t("todo.panel.phase", { n: 1 }));
       const titles = [...document.body.querySelectorAll("[title]")].map((el) => (el as HTMLElement).title);
       expect(titles).toContain(t("todo.panel.progress", { done: 0, total: 1 }));
@@ -367,7 +426,7 @@ describe("desktop InspectorRail", () => {
   it("visibly labels the session subagent-model control (#563)", () => {
     useStore.setState({ state });
     renderRail();
-    act(() => button("agents")!.click());
+    openPane("agents");
 
     // An aria label/tooltip alone is not discoverable to a sighted user: the
     // button itself must visibly say what it configures.
@@ -379,7 +438,7 @@ describe("desktop InspectorRail", () => {
   it("anchors the subagent models popover in the viewport, outside the clipping pane (#634)", () => {
     useStore.setState({ state: { ...state, agentRoster: ["scout", "task"] } });
     renderRail();
-    act(() => button("agents")!.click());
+    openPane("agents");
     const triggerRect = (left: number, right: number): DOMRect =>
       ({ top: 80, bottom: 104, height: 24, left, right, width: right - left, x: left, y: 80, toJSON: () => ({}) }) as DOMRect;
     const rects = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect");
@@ -409,7 +468,7 @@ describe("desktop InspectorRail", () => {
   it("keeps the subagent models popover open through the model palette (#634)", () => {
     useStore.setState({ state: { ...state, agentRoster: ["scout"] } });
     renderRail();
-    act(() => button("agents")!.click());
+    openPane("agents");
     act(() => button("subagent models")!.click());
     // scout's model button: the first control inside the popover.
     const row = modelsPopover()!.querySelector<HTMLButtonElement>("button")!;
@@ -440,7 +499,7 @@ describe("desktop InspectorRail", () => {
 
   it("shares committed width across close, reopen, and tab instances", () => {
     renderRail();
-    act(() => button("todos")!.click());
+    act(() => button("work")!.click());
     const pane = button("collapse inspector")!.parentElement!.parentElement as HTMLElement;
     const handle = document.body.querySelector<HTMLElement>('[role="separator"][aria-label="resize inspector"]')!;
     expect(pane.style.width).toBe("304px");
@@ -456,7 +515,7 @@ describe("desktop InspectorRail", () => {
 
     act(() => button("collapse inspector")!.click());
     expect(useStore.getState().inspectorOpen).toBe(false);
-    act(() => button("todos")!.click());
+    act(() => button("work")!.click());
     expect((button("collapse inspector")!.parentElement!.parentElement as HTMLElement).style.width).toBe("354px");
 
     act(() => root!.render(<InspectorRail tabId="another-tab" />));
@@ -479,7 +538,7 @@ describe("desktop InspectorRail", () => {
       },
     });
     renderRail();
-    act(() => railTab("agents")!.click());
+    openPane("agents");
 
     // The roster is live agents UNION retained ones; retained render dimmed
     // (the dim lives on the row container, which now holds the control strip).
@@ -515,7 +574,7 @@ describe("desktop InspectorRail", () => {
       },
     });
     renderRail();
-    act(() => railTab("agents")!.click());
+    openPane("agents");
     const kill = document.body.querySelector<HTMLButtonElement>(
       'button[aria-label="kill"]',
     )!;
@@ -554,7 +613,7 @@ describe("desktop InspectorRail", () => {
       },
     });
     renderRail();
-    act(() => railTab("agents")!.click());
+    openPane("agents");
     expect(document.body.textContent).toContain("42%");
     expect(
       document.body.querySelector(`[title="${t("rail.agents.estimateTitle")}"]`),
@@ -570,7 +629,7 @@ describe("desktop InspectorRail", () => {
       },
     });
     renderRail();
-    act(() => railTab("agents")!.click());
+    openPane("agents");
     expect(document.body.textContent).not.toContain("67%");
   });
 
@@ -583,7 +642,7 @@ describe("desktop InspectorRail", () => {
       },
     });
     renderRail();
-    act(() => railTab("agents")!.click());
+    openPane("agents");
     expect(document.body.textContent).toContain("running");
     expect(document.body.textContent).not.toContain("42%");
     expect(document.body.textContent).not.toContain("0%");
@@ -600,7 +659,7 @@ describe("desktop InspectorRail", () => {
     useStore.setState({ state });
     renderRail();
 
-    act(() => railTab("diffs")!.click());
+    openPane("diffs");
     expect(backendMock.getBranchDiff).toHaveBeenNthCalledWith(1, PROJECT, null);
 
     await act(async () => {
@@ -625,7 +684,7 @@ describe("desktop InspectorRail", () => {
     expect(document.body.textContent).toContain("refreshed.txt");
     expect(document.body.textContent).not.toContain("initial.txt");
 
-    act(() => railTab("diffs")!.click());
+    act(() => button("review")!.click());
     expect(button("collapse inspector")).toBeNull();
     expect(document.body.textContent).not.toContain("refreshed.txt");
   });
@@ -638,9 +697,7 @@ describe("desktop InspectorRail", () => {
     useStore.setState({ branchDiffRevision: { [PROJECT]: 0 } });
     renderRail();
 
-    if (railTab("diffs")?.getAttribute("aria-pressed") !== "true") {
-      act(() => railTab("diffs")!.click());
-    }
+    openPane("diffs");
     await act(async () => {});
     expect(backendMock.getBranchDiff).toHaveBeenNthCalledWith(1, PROJECT, null);
     await act(async () => {
@@ -668,7 +725,7 @@ describe("desktop InspectorRail", () => {
     useStore.setState({ state: worktreeState });
     renderRail();
 
-    act(() => railTab("diffs")!.click());
+    openPane("diffs");
     await act(async () => {});
     // The pane reads the *worktree* checkout, scoped to the recorded base.
     expect(backendMock.getBranchDiff).toHaveBeenCalledWith(WORKTREE_PATH, "main");
@@ -689,7 +746,7 @@ describe("desktop InspectorRail", () => {
     useStore.setState({ state });
     renderRail();
 
-    act(() => railTab("diffs")!.click());
+    openPane("diffs");
     await act(async () => {});
     // No recorded base: the core resolves the auto-base, so the call is plain.
     expect(backendMock.getBranchDiff).toHaveBeenCalledWith(PROJECT, null);
@@ -713,7 +770,7 @@ describe("desktop InspectorRail", () => {
     useStore.setState({ state });
     renderRail();
 
-    act(() => railTab("diffs")!.click());
+    openPane("diffs");
     await act(async () => {});
     expect(document.body.textContent).toContain("No changes on feat/x since main");
     expect(document.body.textContent).not.toContain("since HEAD");
@@ -725,7 +782,7 @@ describe("desktop InspectorRail", () => {
     backendMock.getBranchDiff.mockResolvedValueOnce(two);
     useStore.setState({ state });
     renderRail();
-    act(() => railTab("diffs")!.click());
+    openPane("diffs");
     await act(async () => {});
     expect(document.body.textContent).toContain("2 file(s)");
     const toggle = () =>
@@ -747,7 +804,11 @@ describe("desktop InspectorRail", () => {
     });
     useStore.setState({ compactSurface: "inspector", inspectorOpen: true });
     renderRail();
-    expect(document.body.querySelector('[role="dialog"][aria-label="inspector"]')).not.toBeNull();
+    const dialog = document.body.querySelector('[role="dialog"][aria-label="inspector"]');
+    expect(dialog).not.toBeNull();
+    for (const label of ["work", "review", "ask", "info"]) {
+      expect(dialog!.querySelector(`button[aria-label="${label}"]`)).not.toBeNull();
+    }
     expect(document.body.querySelector('[role="separator"]')).toBeNull();
   });
 });
@@ -829,8 +890,10 @@ describe("Jobs pane (issue #835)", () => {
   it("lists running and finished jobs, and the strip badge counts running ones", () => {
     publishJobs();
     renderRail();
-    expect(railTab("jobs")?.title).toBe("jobs (1)");
-    act(() => railTab("jobs")!.click());
+    // One open todo, one subagent, one running job.
+    expect(button("work")?.title).toBe("work (3)");
+    openPane("jobs");
+    expect(memberTab("jobs")?.title).toBe("jobs (1)");
     expect(document.body.textContent).toContain("bg_1");
     expect(document.body.textContent).toContain("bg_0");
     expect(document.body.textContent).toContain("running · 1");
@@ -840,7 +903,7 @@ describe("Jobs pane (issue #835)", () => {
   it("expanding a row shows command, cwd, pids, and the output tail", () => {
     publishJobs();
     renderRail();
-    act(() => railTab("jobs")!.click());
+    openPane("jobs");
     act(() => document.body.querySelector<HTMLButtonElement>('button[aria-label="show details for job bg_1"]')!.click());
     expect(document.body.textContent).toContain("sleep 300; echo done");
     expect(document.body.textContent).toContain("/tmp/scratch");
@@ -851,7 +914,7 @@ describe("Jobs pane (issue #835)", () => {
   it("kill sends the kill frame with the job's guard and settles on the result", async () => {
     publishJobs();
     renderRail();
-    act(() => railTab("jobs")!.click());
+    openPane("jobs");
     const kill = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
       (b) => b.textContent?.trim() === "kill",
     )!;
@@ -869,7 +932,7 @@ describe("Jobs pane (issue #835)", () => {
   it("kill all sends jobId null", async () => {
     publishJobs();
     renderRail();
-    act(() => railTab("jobs")!.click());
+    openPane("jobs");
     const killAll = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
       (b) => b.textContent?.trim() === "kill all",
     )!;
@@ -881,7 +944,7 @@ describe("Jobs pane (issue #835)", () => {
   it("kill buttons are absent when canCancel is false", () => {
     publishJobs({ canCancel: false });
     renderRail();
-    act(() => railTab("jobs")!.click());
+    openPane("jobs");
     expect(
       [...document.body.querySelectorAll<HTMLButtonElement>("button")].some(
         (b) => b.textContent?.trim() === "kill" || b.textContent?.trim() === "kill all",
@@ -892,7 +955,7 @@ describe("Jobs pane (issue #835)", () => {
   it("kill buttons are disabled while a kill is pending", async () => {
     publishJobs();
     renderRail();
-    act(() => railTab("jobs")!.click());
+    openPane("jobs");
     const kill = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
       (b) => b.textContent?.trim() === "kill",
     )!;
@@ -906,7 +969,7 @@ describe("Jobs pane (issue #835)", () => {
   it("an unavailable snapshot shows its reason", () => {
     publishJobs({ available: false, unavailable: "this omp build has no background-job API", running: [], recent: [] });
     renderRail();
-    act(() => railTab("jobs")!.click());
+    openPane("jobs");
     expect(document.body.textContent).toContain("Background jobs unavailable");
     expect(document.body.textContent).toContain("no background-job API");
   });
@@ -919,7 +982,7 @@ describe("Jobs pane (issue #835)", () => {
       running: [{ ...runningJob, id: "agent-1", type: "task", agentId: "agent-1", command: null }],
     });
     renderRail();
-    act(() => railTab("jobs")!.click());
+    openPane("jobs");
     const open = document.body.querySelector<HTMLButtonElement>('button[aria-label="open agent agent-1"]')!;
     act(() => open.click());
     expect(useStore.getState().rpc[TAB]?.selectedSubagent).toBe("agent-1");
@@ -931,7 +994,8 @@ describe("Jobs pane (issue #835)", () => {
     });
     publishJobs({ running: [{ ...runningJob, id: "agent-1", type: "task", agentId: "agent-1" }] });
     renderRail();
-    expect(railTab("jobs")?.title).toBe("jobs");
+    act(() => button("work")!.click());
+    expect(memberTab("jobs")?.title).toBe("jobs");
   });
 });
 
@@ -973,11 +1037,11 @@ describe("Side questions pane (issue #775)", () => {
 
   beforeEach(() => backendMock.rpcSend.mockReset());
 
-  it("opens only its own pane from the sixth icon and refreshes on mount", () => {
+  it("opens only its own pane from the Ask group and refreshes on mount", () => {
     useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.7.0") }) } });
     renderRail();
-    act(() => railTab("side questions")!.click());
-    expect(button("side questions")?.getAttribute("aria-pressed")).toBe("true");
+    openPane("side questions");
+    expect(memberTab("side questions")?.getAttribute("aria-selected")).toBe("true");
     expect(document.body.textContent).toContain(t("rail.btw.emptyTitle"));
     expect(document.body.textContent).not.toContain("First task");
     expect(btwCommands("get_btw_history")).toBe(1);
@@ -986,7 +1050,7 @@ describe("Side questions pane (issue #775)", () => {
   it("names the required version and dispatches nothing on an older omp", () => {
     useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.6.2") }) } });
     renderRail();
-    act(() => railTab("side questions")!.click());
+    openPane("side questions");
     // Floor plan §6: the gate reads as a requirement, not a generic refusal.
     expect(document.body.textContent).toContain(t("rail.btw.needsNewerOmp", { version: "18.6.3" }));
     expect(btwCommands("get_btw_history")).toBe(0);
@@ -1008,7 +1072,9 @@ describe("Side questions pane (issue #775)", () => {
       },
     });
     renderRail();
-    expect(railTab("side questions")?.title).toBe("side questions (1)");
+    expect(button("ask")?.title).toBe("ask (1)");
+    act(() => button("ask")!.click());
+    expect(memberTab("side questions")?.title).toBe("side questions (1)");
   });
 
   it("renders topics with status chips and expands a row into its answer", () => {
@@ -1023,7 +1089,7 @@ describe("Side questions pane (issue #775)", () => {
       },
     });
     renderRail();
-    act(() => railTab("side questions")!.click());
+    openPane("side questions");
     expect(document.body.textContent).toContain("why is the sky blue?");
     expect(document.body.textContent).toContain(t("rail.btw.statusComplete"));
     expect(document.body.textContent).toContain(t("rail.btw.statusError"));
@@ -1045,7 +1111,7 @@ describe("Side questions pane (issue #775)", () => {
       },
     });
     renderRail();
-    act(() => railTab("side questions")!.click());
+    openPane("side questions");
     expect(document.body.textContent).toContain("in flight");
     expect(document.body.textContent).toContain("partial words");
     expect(document.body.querySelector<HTMLInputElement>(`input[aria-label="${t("rail.btw.askPlaceholder")}"]`)?.disabled).toBe(true);
@@ -1066,7 +1132,7 @@ describe("Side questions pane (issue #775)", () => {
       },
     });
     renderRail();
-    act(() => railTab("side questions")!.click());
+    openPane("side questions");
     expect(document.body.textContent).toContain("no ephemeral API here");
     expect(document.body.textContent).toContain("still running");
   });
@@ -1076,7 +1142,8 @@ describe("Side questions pane (issue #775)", () => {
     expect(button("collapse inspector")).toBeNull();
     act(() => useStore.getState().focusRailPane(TAB, "btw"));
     expect(button("collapse inspector")).not.toBeNull();
-    expect(button("side questions")?.getAttribute("aria-pressed")).toBe("true");
+    expect(button("ask")?.getAttribute("aria-pressed")).toBe("true");
+    expect(memberTab("side questions")?.getAttribute("aria-selected")).toBe("true");
   });
 });
 
@@ -1162,11 +1229,11 @@ describe("Seance rail pane (issue #885)", () => {
     toolMutation: null,
   });
 
-  it("opens its own pane from the eighth icon", () => {
+  it("opens its own pane from the Ask group", () => {
     useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.11.3") }) } });
     renderRail();
-    act(() => railTab("seance")!.click());
-    expect(button("seance")?.getAttribute("aria-pressed")).toBe("true");
+    openPane("seance");
+    expect(memberTab("seance")?.getAttribute("aria-selected")).toBe("true");
     expect(document.body.textContent).toContain(t("rail.seance.emptyTitle"));
   });
 
@@ -1186,6 +1253,8 @@ describe("Seance rail pane (issue #885)", () => {
       },
     });
     renderRail();
-    expect(railTab("seance")?.title).toBe("seance (2)");
+    expect(button("ask")?.title).toBe("ask (2)");
+    act(() => button("ask")!.click());
+    expect(memberTab("seance")?.title).toBe("seance (2)");
   });
 });

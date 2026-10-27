@@ -2213,6 +2213,11 @@ export const en = {
   "rail.chrome.resize": "resize inspector",
   "rail.chrome.collapse": "collapse inspector",
   "rail.chrome.badgedTitle": "{label} ({count})",
+  // Inspector rail groups (issue #940): the strip's four labelled buttons.
+  "rail.groups.work": "work",
+  "rail.groups.review": "review",
+  "rail.groups.ask": "ask",
+  "rail.groups.info": "info",
 
   "diff.rail.readingTitle": "Reading branch…",
   "diff.rail.readingHint": "Gathering the working-tree diff.",
@@ -2449,10 +2454,13 @@ export const en = {
   "sidebar.session.implementsFrom": "Implements “{planTitle}” from {sourceTitle}",
   "sidebar.session.implementsUnavailable":
     "Implements “{planTitle}” — source unavailable",
-  "sidebar.session.implementation": "implementation",
   "sidebar.session.sourceUnavailable": "source unavailable",
   "sidebar.session.planSource": "plan source",
   "sidebar.session.machine": "on {machine}",
+  "sidebar.session.planChip": "plan",
+  "sidebar.session.implChip": "impl",
+  "sidebar.session.quoteQuestion": "question",
+  "sidebar.session.quotePlan": "plan ready",
 
   "sidebar.session.openPlanning": "open planning session",
   "sidebar.session.stopResumable": "stop the agent (session stays resumable)",
@@ -2466,8 +2474,6 @@ export const en = {
   "sidebar.session.liveVoice": "Live voice: {phase}",
   "sidebar.session.liveVoiceArmed": "live voice: ready — resume by viewing",
   "sidebar.session.liveVoicePending": "live voice: results waiting",
-
-  "sidebar.project.add": "add project",
 
   "sidebar.newSession": "new session — pick a project",
   "sidebar.settled.heading": "Settled ({n})",

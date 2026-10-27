@@ -39,25 +39,6 @@ function IconGear() {
   );
 }
 
-/** Folder-plus — add project, distinct from the adjacent new-session glyph. */
-function IconFolderPlus() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.6h5A1.5 1.5 0 0 1 14 6.1v5.4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
-      <path d="M8 7.5v3.4M6.3 9.2h3.4" />
-    </svg>
-  );
-}
-
 /* ---------------------------------------------------------------- helpers */
 
 /** Three pulsing bars — the honest "we have not heard from the backend yet". */
@@ -100,10 +81,12 @@ function Row({
   entry,
   onActivate,
   openSessionMenu,
+  slim,
 }: {
   entry: SidebarEntry;
   onActivate: () => void;
   openSessionMenu: OpenSessionMenu;
+  slim: boolean;
 }) {
   const t = useT();
   // Issue #888: gate the row context menu on the local binary's floor.
@@ -117,6 +100,7 @@ function Row({
         handoff={entry.handoff}
         projectLabel={entry.projectName ?? t("sidebar.session.chat")}
         instanceNickname={entry.nickname}
+        density={slim ? "slim" : "tile"}
         onContextMenu={(event) => {
           // A row opens the menu only with an item it can accept; it never
           // opens an empty one (issue #888). Migrate: omp refuses to pack a
@@ -163,6 +147,7 @@ function SidebarSection({
   onToggle,
   onActivate,
   openSessionMenu,
+  slim,
 }: {
   heading: string;
   entries: SidebarEntry[];
@@ -172,6 +157,8 @@ function SidebarSection({
   onToggle: () => void;
   onActivate: () => void;
   openSessionMenu: OpenSessionMenu;
+  /** Settled rows render slim; every other section renders tiles (issue #938). */
+  slim: boolean;
 }) {
   return (
     <div
@@ -195,9 +182,9 @@ function SidebarSection({
         {heading}
       </button>
       {shown && entries.length > 0 && (
-        <div className={cn("min-h-0 space-y-px overflow-y-auto px-1.5 py-1", grow && "flex-1")}>
+        <div className={cn("min-h-0 overflow-y-auto px-1.5 py-1", slim ? "space-y-px" : "space-y-1", grow && "flex-1")}>
           {entries.map((entry) => (
-            <Row key={rowKey(entry)} entry={entry} onActivate={onActivate} openSessionMenu={openSessionMenu} />
+            <Row key={rowKey(entry)} entry={entry} onActivate={onActivate} openSessionMenu={openSessionMenu} slim={slim} />
           ))}
         </div>
       )}
@@ -210,7 +197,6 @@ function SidebarSection({
 export function Sidebar() {
   const t = useT();
   const state = useStore((st) => st.state);
-  const openProjectPicker = useStore((st) => st.openProjectPicker);
   const openProjectQuickOpen = useStore((st) => st.openProjectQuickOpen);
   const openSettings = useStore((st) => st.openSettings);
   const openMigrateDialog = useStore((st) => st.openMigrateDialog);
@@ -380,13 +366,6 @@ export function Sidebar() {
             )}
           </div>
           <IconButton
-            label={t("sidebar.project.add")}
-            onClick={() => { openProjectPicker(); closeCompactSurface(); }}
-            className={headerButton}
-          >
-            <IconFolderPlus />
-          </IconButton>
-          <IconButton
             label={t("sidebar.newSession")}
             onClick={() => { openProjectQuickOpen(); closeCompactSurface(); }}
             className={headerButton}
@@ -403,9 +382,9 @@ export function Sidebar() {
         ) : (
           <>
             {lists.active.length > 0 ? (
-              <div className="min-h-0 flex-1 space-y-px overflow-y-auto px-1.5 py-1">
+              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-1.5 py-1">
                 {lists.active.map((entry) => (
-                  <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} />
+                  <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} />
                 ))}
               </div>
             ) : !filtering && !liveAnywhere ? (
@@ -447,6 +426,7 @@ export function Sidebar() {
                 onToggle={() => setSidebarSectionOpen("omp-ui.sidebarSnoozedOpen", !snoozedOpen)}
                 onActivate={closeCompactSurface}
                 openSessionMenu={openSessionMenu}
+                slim={false}
               />
             )}
             <SidebarSection
@@ -458,6 +438,7 @@ export function Sidebar() {
               onToggle={() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", !workingOpen)}
               onActivate={closeCompactSurface}
               openSessionMenu={openSessionMenu}
+              slim={false}
             />
             {lists.settled.length > 0 && (
               <SidebarSection
@@ -469,6 +450,7 @@ export function Sidebar() {
                 onToggle={() => setSettledOpen(!settledOpen)}
                 onActivate={closeCompactSurface}
                 openSessionMenu={openSessionMenu}
+                slim
               />
             )}
           </>

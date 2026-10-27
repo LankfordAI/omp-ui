@@ -12,6 +12,7 @@ import {
   type SeriesEntry,
   type SeriesState,
 } from "../lib/question-series";
+import { dialogQuestion } from "../lib/session-tile";
 import { useStore } from "../store";
 import { Button, Chip, Dot, Meter } from "./ui";
 
@@ -311,7 +312,7 @@ export function ExtensionDialogHost({
   if (!current) return null;
 
   const title = plan ? plan.base : rawTitle;
-  const displayTitle = parsePage(method === "editor" ? title.split("\n", 1)[0] : title).base;
+  const displayTitle = dialogQuestion(current) ?? t("dialog.extension.fallbackTitle");
   const message = strField(current, "message") ?? strField(current, "label") ?? "";
   const reviewEntry =
     reviewing !== null && series !== null

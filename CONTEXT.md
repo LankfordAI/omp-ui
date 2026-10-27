@@ -202,11 +202,15 @@ on chrome destroys the property that a glance answers "is it working?".
 _Avoid_: primary colour, brand colour, green
 
 **Inspector rail**:
-The right-hand icon strip in an rpc-ui tab, with eight panes behind it —
-Todos, Agents, Jobs, Session, Plans, Diffs, Side questions, Seance. The strip is the permanent posture:
-pressing an icon opens just that one pane beside it, re-pressing the active
-icon (or the pane's close control) dismisses it, and badge counts live on
-the strip icons. Remembers its selected pane per tab.
+The right-hand strip in an rpc-ui tab: four labelled group buttons — Work
+(Todos, Agents, Jobs), Review (Plans, Diffs), Ask (Side questions, Seance),
+Info (Session) — over eight panes. The strip is the permanent posture:
+pressing a group opens its pane beside it, with a tab row for the group's
+members (a single-member group has none); re-pressing the active group (or
+the pane's close control) dismisses it. A group's badge is the sum of its
+members' counts, and each member tab carries its own. Remembers the selected
+group and each group's member per tab. A chat tab drops Plans and Diffs, so
+Review is hidden there.
 _Avoid_: right sidebar, panel, drawer
 
 **Side question**:
