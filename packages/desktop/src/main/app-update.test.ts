@@ -220,6 +220,13 @@ describe("AppUpdater.checkNow", () => {
     expect(updater.state.error?.message).toBe("could not reach GitHub");
   });
 
+  it("reports a malformed stable release as unreadable with the latest page", async () => {
+    const { updater } = makeUpdater({ fetchImpl: updateFetch({ releaseBody: { nope: true } }) });
+    await updater.checkNow(true);
+    expect(updater.state.error?.kind).toBe("unreadable");
+    expect(updater.state.releaseUrl).toBe("https://github.com/LankfordAI/omp-ui/releases/latest");
+  });
+
   it("suppresses the dismissed version in the background but not manually", async () => {
     const fetchImpl = updateFetch({ releaseBody: releaseBody("1.2.0") });
     const { updater, dismissed } = makeUpdater({
@@ -761,6 +768,27 @@ describe("AppUpdater update trains (issue #493)", () => {
       status: "available",
       latestVersion: "1.0.0-nightly.20260911.abc1234",
       format: "unknown",
+    });
+  });
+
+  it("reports an unreadable nightly as unreadable with the release page, quiet in the background (issue #930)", async () => {
+    const { updater } = makeUpdater({
+      currentVersion: "1.0.0-nightly.20261023.7a2d93b",
+      getTrain: () => "nightly",
+      fetchImpl: async () =>
+        json({
+          ...nightlyBody("1.0.0-nightly.20261023T180628.c77aa15"),
+          name: "Nightly 1.0.0-nightly.20261023T180628Z.c77aa15",
+        }),
+    });
+    await updater.checkNow(false);
+    expect(updater.state.status).toBe("idle");
+    expect(statuses()).not.toContain("error");
+    await updater.checkNow(true);
+    expect(updater.state).toMatchObject({
+      status: "error",
+      error: { kind: "unreadable" },
+      releaseUrl: "https://github.com/LankfordAI/omp-ui/releases/tag/nightly",
     });
   });
 

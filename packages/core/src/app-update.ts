@@ -19,6 +19,10 @@ export const APP_NIGHTLY_RELEASE_URL =
   "https://api.github.com/repos/LankfordAI/omp-ui/releases/tags/nightly";
 export const APP_RELEASE_DOWNLOAD_BASE =
   `https://github.com/${APP_GITHUB_REPO}/releases/download`;
+/** Fixed release pages the update card hands off to when the feed's release
+ *  cannot be read (issue #930) — never a URL taken from the refused body. */
+export const APP_LATEST_RELEASE_PAGE_URL = `https://github.com/${APP_GITHUB_REPO}/releases/latest`;
+export const APP_NIGHTLY_RELEASE_PAGE_URL = `https://github.com/${APP_GITHUB_REPO}/releases/tag/nightly`;
 
 export interface AppReleaseInfo {
   /** Normalized X.Y.Z (v-prefix stripped). */
@@ -32,6 +36,14 @@ export interface AppReleaseInfo {
   /** Asset file names only. */
   assets: string[];
 }
+
+/** One release lookup: the parsed release, a feed that could not be reached
+ *  (network, timeout, non-OK HTTP, non-JSON body), or a feed that answered
+ *  with a release this build refuses to parse, plus the fixed page to open. */
+export type AppReleaseLookup =
+  | { kind: "release"; release: AppReleaseInfo }
+  | { kind: "unreachable" }
+  | { kind: "unreadable"; page: string };
 
 
 /**
@@ -96,19 +108,31 @@ export function parseNightlyRelease(body: unknown): AppReleaseInfo | null {
   return { version, tag: body.tag_name, url: body.html_url, name: body.name, assets };
 }
 
-/** Rolling nightly prerelease, or null on any network/HTTP/parse failure. */
+async function lookupRelease(
+  apiUrl: string,
+  page: string,
+  parse: (body: unknown) => AppReleaseInfo | null,
+  fetchImpl: FetchLike,
+): Promise<AppReleaseLookup> {
+  let body: unknown;
+  try {
+    const res = await fetchImpl(apiUrl, { signal: AbortSignal.timeout(10_000) });
+    // 403/429 rate limits; 404 when only prereleases exist (stable) or while
+    // nightly.yml recreates the rolling release.
+    if (!res.ok) return { kind: "unreachable" };
+    body = await res.json();
+  } catch {
+    return { kind: "unreachable" };
+  }
+  const release = parse(body);
+  return release === null ? { kind: "unreadable", page } : { kind: "release", release };
+}
+
+/** Rolling nightly prerelease lookup (issue #493). 10s timeout. */
 export async function fetchNightlyAppRelease(
   fetchImpl: FetchLike = defaultFetch,
-): Promise<AppReleaseInfo | null> {
-  try {
-    const res = await fetchImpl(APP_NIGHTLY_RELEASE_URL, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return null;
-    return parseNightlyRelease(await res.json());
-  } catch {
-    return null;
-  }
+): Promise<AppReleaseLookup> {
+  return lookupRelease(APP_NIGHTLY_RELEASE_URL, APP_NIGHTLY_RELEASE_PAGE_URL, parseNightlyRelease, fetchImpl);
 }
 
 const APP_VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d{8})(?:T(\d{6}))?\.([0-9a-f]{7}))?$/;
@@ -146,19 +170,11 @@ export function compareAppVersions(a: string, b: string, train: UpdateTrain): nu
   return aNightly === nightlyNewer ? 1 : -1;
 }
 
-/** Latest stable release, or null on any network/HTTP/parse failure. 10s timeout. */
+/** Latest stable release lookup. 10s timeout. */
 export async function fetchLatestAppRelease(
   fetchImpl: FetchLike = defaultFetch,
-): Promise<AppReleaseInfo | null> {
-  try {
-    const res = await fetchImpl(APP_LATEST_RELEASE_URL, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return null; // 403/429 rate limits, 404 when only prereleases exist
-    return parseLatestRelease(await res.json());
-  } catch {
-    return null;
-  }
+): Promise<AppReleaseLookup> {
+  return lookupRelease(APP_LATEST_RELEASE_URL, APP_LATEST_RELEASE_PAGE_URL, parseLatestRelease, fetchImpl);
 }
 
 /**

@@ -1221,6 +1221,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "update.app.upToDate": "omp-ui가 최신 상태입니다({version})",
   "update.app.disabled": "이 빌드에서는 omp-ui 업데이트 확인이 비활성화되어 있습니다",
   "update.app.checkFailed": "업데이트 확인 실패",
+  "update.app.unreadable": "이 빌드는 최신 릴리스를 읽을 수 없습니다",
   "update.app.failed": "업데이트 실패",
   "update.app.dismissLabel": "omp-ui {version} 업데이트 닫기",
   "update.card.dismiss": "닫기",

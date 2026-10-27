@@ -182,14 +182,23 @@ export function AppUpdateCard() {
         ? t("update.app.upToDate", { version: currentVersion ?? "" })
         : status === "disabled"
           ? t("update.app.disabled")
-          : error?.kind === "unreachable"
-            ? t("update.app.checkFailed")
-            : t("update.app.failed");
+          : error?.kind === "unreadable"
+            ? t("update.app.unreadable")
+            : error?.kind === "unreachable"
+              ? t("update.app.checkFailed")
+              : t("update.app.failed");
     body = (
       <div className="min-w-0">
         <p className="text-sm font-medium text-ink">{title}</p>
         {status === "error" && error !== null && (
           <p className="mt-0.5 break-words text-xs text-ink-dim">{error.message}</p>
+        )}
+        {status === "error" && error?.kind === "unreadable" && (
+          <div className="mt-3 flex items-center gap-2">
+            <Button variant="solid" onClick={() => void openAppUpdateReleaseNotes()}>
+              {t("update.app.viewRelease")}
+            </Button>
+          </div>
         )}
       </div>
     );

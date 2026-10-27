@@ -46,6 +46,7 @@ The two update sections are independent. Each has its own current version, statu
 - **Check now** runs an update check immediately. **Check on launch** changes whether the check runs on the next app launch.
 - A Linux AppImage can download and stage its update in the app. The Windows installer and macOS ZIP builds use the same staged flow. **Restart now** exits and restarts the omp-ui process into the staged version. **Install when I quit** waits for the next normal app exit.
 - If the current package cannot apply its own update, omp-ui opens the release or download and can reveal the downloaded file instead of claiming it can self-update.
+- If the update train's release on GitHub is in a format this build cannot read, a manual check says so and offers **View release**, instead of reporting GitHub unreachable. A background check stays silent.
 - Dismissing an offer hides only that version. **Re-offer** clears that dismissal and checks again.
 
 Linux AppImage and macOS are the supported desktop packages. Windows remains a preview.

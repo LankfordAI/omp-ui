@@ -141,6 +141,15 @@ export function UpdatesPage() {
                     : t("settings.updates.download")}
                 </Button>
               ))}
+            {appUpdate.status === "error" && appUpdate.error?.kind === "unreadable" && (
+              <Button
+                size="xs"
+                variant="solid"
+                onClick={() => void openAppUpdateReleaseNotes()}
+              >
+                {t("settings.updates.viewRelease")}
+              </Button>
+            )}
             {appUpdate.status === "downloaded" &&
               (appUpdate.format === "appimage" ||
               appUpdate.format === "nsis" ||

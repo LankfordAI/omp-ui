@@ -4,6 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  APP_LATEST_RELEASE_PAGE_URL,
+  APP_NIGHTLY_RELEASE_PAGE_URL,
   APP_RELEASE_DOWNLOAD_BASE,
   APP_NIGHTLY_RELEASE_URL,
   compareAppVersions,
@@ -114,27 +116,46 @@ function okFetch(body: unknown): FetchLike {
 
 describe("fetchLatestAppRelease", () => {
   it("returns the parsed release on success", async () => {
-    const info = await fetchLatestAppRelease(okFetch(RELEASE_BODY));
-    expect(info?.version).toBe("1.2.3");
-    expect(info?.tag).toBe("v1.2.3");
+    expect(await fetchLatestAppRelease(okFetch(RELEASE_BODY))).toMatchObject({
+      kind: "release",
+      release: { version: "1.2.3", tag: "v1.2.3" },
+    });
   });
 
-  it("returns null on HTTP errors (rate limit, no stable release)", async () => {
+  it("reports HTTP errors as unreachable (rate limit, no stable release)", async () => {
     expect(
       await fetchLatestAppRelease(async () => ({ ok: false, status: 403 }) as never),
-    ).toBeNull();
+    ).toEqual({ kind: "unreachable" });
     expect(
       await fetchLatestAppRelease(async () => ({ ok: false, status: 404 }) as never),
-    ).toBeNull();
+    ).toEqual({ kind: "unreachable" });
   });
 
-  it("returns null when fetch throws or the body is malformed", async () => {
+  it("reports a thrown fetch or a non-JSON body as unreachable", async () => {
     expect(
       await fetchLatestAppRelease(async () => {
         throw new Error("offline");
       }),
-    ).toBeNull();
-    expect(await fetchLatestAppRelease(okFetch({ nope: true }))).toBeNull();
+    ).toEqual({ kind: "unreachable" });
+    expect(
+      await fetchLatestAppRelease(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            json: async () => {
+              throw new SyntaxError("Unexpected token <");
+            },
+          }) as never,
+      ),
+    ).toEqual({ kind: "unreachable" });
+  });
+
+  it("reports a JSON body the parser refuses as unreadable (issue #930)", async () => {
+    expect(await fetchLatestAppRelease(okFetch({ nope: true }))).toEqual({
+      kind: "unreadable",
+      page: APP_LATEST_RELEASE_PAGE_URL,
+    });
   });
 });
 
@@ -348,6 +369,20 @@ describe("nightly app releases", () => {
       return { ok: true, status: 200, json: async () => body, arrayBuffer: async () => new ArrayBuffer(0) };
     });
     expect(url).toBe(APP_NIGHTLY_RELEASE_URL);
+  });
+
+  it("separates an unreadable title from an unreachable feed (issue #930)", async () => {
+    expect(
+      await fetchNightlyAppRelease(okFetch({ ...body, name: "Nightly 1.2.3-nightly.20260911T071530Z.abc1234" })),
+    ).toEqual({ kind: "unreadable", page: APP_NIGHTLY_RELEASE_PAGE_URL });
+    expect(
+      await fetchNightlyAppRelease(async () => {
+        throw new Error("offline");
+      }),
+    ).toEqual({ kind: "unreachable" });
+    expect(
+      await fetchNightlyAppRelease(async () => ({ ok: false, status: 404 }) as never),
+    ).toEqual({ kind: "unreachable" });
   });
 });
 

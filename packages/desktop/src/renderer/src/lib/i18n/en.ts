@@ -1357,6 +1357,7 @@ export const en = {
   "update.app.upToDate": "omp-ui is up to date ({version})",
   "update.app.disabled": "omp-ui update checks are disabled in this build",
   "update.app.checkFailed": "Update check failed",
+  "update.app.unreadable": "This build can't read the newest release",
   "update.app.failed": "Update failed",
   "update.app.dismissLabel": "dismiss omp-ui {version} update",
   "update.card.dismiss": "dismiss",

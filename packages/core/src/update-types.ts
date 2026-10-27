@@ -1,6 +1,8 @@
-/** Typed failure shared by app and omp updater state machines. */
+/** Typed failure shared by app and omp updater state machines.
+ *  `unreadable` is app-only: the feed answered with a release this build's
+ *  parser refuses (issue #930) — distinct from a feed it could not reach. */
 export interface UpdateFailure {
-  kind: "unreachable" | "failed";
+  kind: "unreachable" | "unreadable" | "failed";
   message: string;
 }
 
