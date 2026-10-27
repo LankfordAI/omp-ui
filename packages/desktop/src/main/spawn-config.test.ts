@@ -48,6 +48,7 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     askContext: () => write("askContext"),
     carryoverContext: () => write("carryoverContext"),
     privateGuard: () => write("privateGuard"),
+    sideCommands: () => write("sideCommands"),
   };
 }
 
@@ -75,6 +76,7 @@ describe("writeRpcExtensions", () => {
         "/askContext.ts",
         "/carryoverContext.ts",
         "/privateGuard.ts",
+        "/sideCommands.ts",
       ],
       loaded: {
         plan: false,
@@ -93,6 +95,7 @@ describe("writeRpcExtensions", () => {
         askContext: true,
         carryoverContext: true,
         privateGuard: true,
+        sideCommands: true,
       },
     });
     expect(warning).toHaveBeenCalledTimes(2);

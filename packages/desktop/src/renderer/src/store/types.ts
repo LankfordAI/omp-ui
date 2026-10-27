@@ -80,6 +80,7 @@ import type {
 import type { GoalState } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { BtwSnapshot } from "@omp-ui/core/side-questions";
+import type { SideCommandsSnapshot } from "@omp-ui/core/side-commands";
 import type {
   LiveAudioEntry,
   LiveAudioLoad,
@@ -323,6 +324,11 @@ export interface RpcTabState {
    * malformed publish leaves the last good snapshot standing.
    */
   sideQuestions: BtwSnapshot | null;
+  /**
+   * The session's `side: true` file commands as the side-commands bridge
+   * published them (issue #955). Null until the bridge first publishes.
+   */
+  sideCommands: SideCommandsSnapshot | null;
   /**
    * Live voice (issue #778) as omp's `live_*` frames reported it. Display
    * state only: the child process owns the realtime session, and the frames
@@ -1580,7 +1586,13 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    */
   runSideQuestionCommand(tabId: string, line: string): Promise<void>;
   /** Asks one side question, or a follow-up on `topicId`, through the bridge. */
-  askSideQuestion(tabId: string, question: string, topicId?: string): Promise<void>;
+  askSideQuestion(tabId: string, question: string, topicId?: string, title?: string): Promise<void>;
+  /** btw record id → typed side command; rpc strips omp's title (issue #955). */
+  sideQuestionTitles: Readonly<Record<string, string>>;
+  /** Renders a `side: true` file command through the bridge and asks the result as a side question (issue #955). */
+  runSideCommand(tabId: string, name: string, args: string): Promise<void>;
+  /** Arms the side-commands bridge and asks it to republish (issue #955); quiet. */
+  refreshSideCommands(tabId: string): Promise<void>;
   /** Cancels the running side question. */
   cancelSideQuestion(tabId: string): Promise<void>;
   /** Asks the bridge to re-read `btw-history/` and republish. */

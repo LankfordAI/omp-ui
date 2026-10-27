@@ -60,6 +60,7 @@ import {
   treeNavigateMessage,
   type TreeSnapshot,
 } from "@omp-ui/core/session-tree";
+import { parseFileSlashInvocation } from "@omp-ui/core/side-commands";
 import { randomId, randomUuid } from "../../lib/random-id";
 import {
   armLiveConnectTimer,
@@ -110,7 +111,7 @@ import {
 } from "@omp-ui/core/live-voice";
 import { liveAudioLocalToClient, supportsNativeLive } from "../../lib/live-voice";
 import { planReviewText } from "../../lib/plan-review-text";
-import type { CompactionOutcome, UiStore, WordPredictionFeedback } from "../types";
+import type { CompactionOutcome, RpcTabState, UiStore, WordPredictionFeedback } from "../types";
 
 export type SessionParamsSlice = Pick<
   UiStore,
@@ -393,7 +394,37 @@ const localCommands: readonly LocalCommand[] = [
       get().openCapabilitiesViewer(scopeCwd, tabId, "mcp", tab?.instanceId ?? null);
     },
   },
+  {
+    // A file slash command with `side: true` frontmatter (omp ≥ 18.13.0) runs
+    // as a side question, as omp's TUI does: it never enters the transcript
+    // or steers a running turn (issue #955). Over rpc omp would expand it as
+    // an ordinary prompt, so a native tab renders it through the side-commands
+    // bridge and asks omp's native btw. Catch-all match: must stay last.
+    match: /^\/\S/,
+    run(tabId, get, line) {
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
+      if (tab?.mode !== "rpc-ui") return false;
+      const invocation = parseFileSlashInvocation(line);
+      if (invocation === null || !isSideCommand(get().rpc[tabId], invocation.name)) return false;
+      return get().runSideCommand(tabId, invocation.name, invocation.args);
+    },
+  },
 ];
+
+/**
+ * A name the live session runs as a side question: published in the bridge's
+ * side set, and resolving in the rpc catalog to a file command under that
+ * exact name — a builtin, alias, skill, or extension command that shadows it
+ * keeps the ordinary path, as omp's own first-wins dedupe does (issue #955).
+ */
+function isSideCommand(rpc: RpcTabState | undefined, name: string): boolean {
+  const side = rpc?.sideCommands;
+  if (side?.available !== true || !side.commands.includes(name)) return false;
+  const command = rpc?.commands.find(
+    (c) => c.name === name || (c.aliases?.includes(name) ?? false),
+  );
+  return command?.source === "file" && command.name === name;
+}
 
 export function createSessionParamsSlice(
   set: SetState,

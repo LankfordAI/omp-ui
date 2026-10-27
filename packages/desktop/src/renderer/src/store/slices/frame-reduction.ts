@@ -22,6 +22,7 @@ import {
 import { goalStateFromFrame } from "@omp-ui/core/goal";
 import { VIBE_STATUS_KEY, parseVibeSnapshot } from "@omp-ui/core/vibe";
 import { applyBtwDelta, applyBtwRecord, parseBtwRecord } from "@omp-ui/core/side-questions";
+import { SIDE_COMMANDS_STATUS_KEY, parseSideCommandsSnapshot } from "@omp-ui/core/side-commands";
 import {
   applyLiveEnd,
   applyLiveLevels,
@@ -101,6 +102,7 @@ import {
   noteCapabilitiesSessionChange,
   rpcCommandMachinery,
 } from "./rpc-command";
+import { acceptSideCommandsSnapshot } from "./side-questions";
 import { findOwner, findRecord, sessionCwd } from "./view";
 import type { UiStore } from "../types";
 
@@ -241,6 +243,10 @@ export function createFrameReductionSlice(
     [VIBE_STATUS_KEY]: (tabId, text) => {
       const snapshot = parseVibeSnapshot(text);
       if (snapshot !== null) acceptVibeSnapshot(tabId, snapshot, get, m);
+    },
+    [SIDE_COMMANDS_STATUS_KEY]: (tabId, text) => {
+      const snapshot = parseSideCommandsSnapshot(text);
+      if (snapshot !== null) acceptSideCommandsSnapshot(tabId, snapshot, get, m);
     },
     [CAPABILITIES_STATUS_KEY]: (tabId, text) => {
       const snapshot = parseCapabilitySnapshot(text);
@@ -692,6 +698,8 @@ export function createFrameReductionSlice(
         }
         case "available_commands_update":
           m.patchRpc(tabId, { commands: parseCommandList(frame) });
+          // A reload may change the side set; re-arm only an armed bridge (issue #955).
+          if (get().rpc[tabId]?.sideCommands != null) void get().refreshSideCommands(tabId);
           return;
         case "subagent_lifecycle":
         case "subagent_progress":

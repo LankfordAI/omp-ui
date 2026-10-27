@@ -187,7 +187,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const stats = createStatsSlice(set, get);
   const fleet = createFleetSlice(set, get);
   const collab = createCollabSlice(set, get);
-  const sideQuestions = createSideQuestionsSlice(get, m);
+  const sideQuestions = createSideQuestionsSlice(set, get, m);
   const migrate = createMigrateSlice(set, get);
   const subagentControl = createSubagentControlSlice(get, m);
   const seance = createSeanceSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });

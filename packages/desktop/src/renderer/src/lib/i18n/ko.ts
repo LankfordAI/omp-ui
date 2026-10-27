@@ -2016,11 +2016,15 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.btw.statusError": "오류",
   "rail.btw.statusInterrupted": "중단됨",
   "rail.btw.emptyTitle": "아직 곁가지 질문이 없습니다",
-  "rail.btw.emptyHint": "위에서 질문하거나 /btw 뒤에 질문을 입력하세요. 답변은 대화 기록에 들어가지 않습니다.",
+  "rail.btw.emptyHint":
+    "위에서 질문하거나 /btw 뒤에 질문을 입력하세요. side: true가 설정된 명령도 여기서 답합니다. 답변은 대화 기록에 들어가지 않습니다.",
   "rail.btw.unavailable": "이 omp는 곁가지 질문에 기본적으로 답할 수 없습니다.",
   "rail.btw.needsNewerOmp": "이 omp에는 곁가지 질문이 없습니다 — omp를 {version} 이상으로 업데이트하세요",
   "rail.btw.busy": "곁가지 질문이 아직 진행 중입니다. 끝나길 기다리거나 취소하세요.",
   "rail.btw.tooLong": "곁가지 질문이 너무 깁니다(최대 {limit}자).",
+  "rail.btw.sideCommandFailed": "{command}을(를) 펼칠 수 없습니다: {message}",
+  "rail.btw.sideCommandEmpty": "{command}이(가) 빈 질문으로 펼쳐졌습니다.",
+  "rail.btw.sideCommandGone": "{command}은(는) 더 이상 곁가지 명령이 아닙니다. 다시 보내면 일반 프롬프트로 실행됩니다.",
   "rail.btw.sendFailed": "곁가지 질문을 세션에 보내지 못했습니다.",
   "rail.btw.refreshLabel": "곁가지 질문 다시 불러오기",
   // Seance 문의 (issue #885): 여덟 번째 레일 패널과 대화 상자.

@@ -2192,11 +2192,15 @@ export const en = {
   "rail.btw.statusError": "error",
   "rail.btw.statusInterrupted": "interrupted",
   "rail.btw.emptyTitle": "No side questions yet",
-  "rail.btw.emptyHint": "Ask one above or type /btw followed by your question. Answers never enter the transcript.",
+  "rail.btw.emptyHint":
+    "Ask one above or type /btw followed by your question, or a command whose file sets side: true. Answers never enter the transcript.",
   "rail.btw.unavailable": "This omp cannot answer side questions natively.",
   "rail.btw.needsNewerOmp": "this omp has no side questions — update omp to {version} or later",
   "rail.btw.busy": "A side question is still running — wait for it or cancel it.",
   "rail.btw.tooLong": "That side question is too long (limit {limit} characters).",
+  "rail.btw.sideCommandFailed": "{command} could not be expanded: {message}",
+  "rail.btw.sideCommandEmpty": "{command} expanded to an empty question.",
+  "rail.btw.sideCommandGone": "{command} is no longer a side command. Send it again to run it as a prompt.",
   "rail.btw.sendFailed": "The side question could not be sent to the session.",
   "rail.btw.refreshLabel": "reload side questions",
   // Seance consult (issue #885): the eighth rail pane and its dialog.

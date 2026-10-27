@@ -150,6 +150,7 @@ export { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabil
 export { vibeExtensionPath, writeVibeExtension } from "./vibe-extension";
 export { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-pane-extension";
 export { treeExtensionPath, writeTreeExtension } from "./tree-extension";
+export { sideCommandsExtensionPath, writeSideCommandsExtension } from "./side-commands-extension";
 export {
   autoresearchExtensionPath,
   writeAutoresearchExtension,

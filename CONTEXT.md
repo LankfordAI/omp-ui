@@ -218,7 +218,8 @@ An OMP `/btw` exchange asked against the live session's context without
 entering the main transcript or any later turn. A native tab shows them in the
 **Inspector rail**'s _Side questions_ pane (one running at a time, follow-ups on
 an answered topic, history kept in the session's own `btw-history/` files so it
-survives hibernation); a terminal tab's TUI keeps OMP's own `/btw`.
+survives hibernation); a terminal tab's TUI keeps OMP's own `/btw`. A file
+slash command with `side: true` frontmatter is also asked as a side question.
 _Avoid_: side chat, tangent, btw thread
 
 **Seance consult**:

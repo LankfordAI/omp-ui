@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react";
-import type { BtwTopic, BtwTurnStatus } from "@omp-ui/core/side-questions";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import type { BtwImage, BtwTopic, BtwTurnStatus } from "@omp-ui/core/side-questions";
 import { relativeTime } from "../lib/format";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { NATIVE_BTW_MIN_OMP, supportsNativeBtw } from "../lib/native-btw";
 import { useStore } from "../store";
+import { openImageViewer } from "./ImageViewer";
 import { Markdown } from "./Markdown";
 import { Button, Chip, Empty, IconButton, IconRefresh, type Tone } from "./ui";
 
@@ -12,8 +13,10 @@ import { Button, Chip, Empty, IconButton, IconRefresh, type Tone } from "./ui";
  * The Side questions rail pane (issue #682, native since #775): the `/btw`
  * exchanges asked against this session's context, none of which enter the
  * transcript. omp's native `btw` commands and the `btw_delta`/`btw_record`
- * frames build the snapshot; this pane only asks, cancels, and displays. Below
- * the native-command version floor it renders itself unavailable and
+ * frames build the snapshot; this pane only asks, cancels, and displays. A
+ * file slash command whose frontmatter sets `side: true` opens here too,
+ * titled by the command as typed (#955), and turns show their attached images.
+ * Below the native-command version floor it renders itself unavailable and
  * dispatches nothing.
  */
 
@@ -79,14 +82,55 @@ function AskBox({
   );
 }
 
+function TurnImages({ images }: { images: readonly BtwImage[] }) {
+  const t = useT();
+  const viewerImages = useMemo(
+    () =>
+      images.map((im, n) => ({
+        src: `data:${im.mimeType};base64,${im.data}`,
+        mimeType: im.mimeType,
+        label: t("transcript.image.alt", { n: n + 1 }),
+      })),
+    [images, t],
+  );
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {images.map((image, i) => (
+        <button
+          // Index-keyed deliberately: a turn's image list is fixed once
+          // recorded, and the base64 payload is far too long a key.
+          key={i}
+          type="button"
+          className="block cursor-zoom-in rounded border-0 p-0"
+          title={t("transcript.image.title", {
+            mimeType: image.mimeType,
+            n: i + 1,
+            count: images.length,
+          })}
+          aria-label={t("image.viewer.open", { n: i + 1 })}
+          onClick={() => openImageViewer(viewerImages, i)}
+        >
+          <img
+            src={`data:${image.mimeType};base64,${image.data}`}
+            alt={t("transcript.image.alt", { n: i + 1 })}
+            className="max-h-24 rounded border border-line-strong bg-sunken object-contain"
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function TopicCard({
   topic,
+  title,
   expanded,
   onToggle,
   followUpDisabled,
   onFollowUp,
 }: {
   topic: BtwTopic;
+  title?: string;
   expanded: boolean;
   onToggle: () => void;
   followUpDisabled: boolean;
@@ -102,7 +146,7 @@ function TopicCard({
         onClick={onToggle}
         className="flex w-full flex-col gap-1 px-2 py-1.5 text-left hover:bg-hover"
       >
-        <span className="text-[12px] leading-snug text-ink">{topic.question}</span>
+        <span className="text-[12px] leading-snug text-ink">{title ?? topic.question}</span>
         <span className="flex flex-wrap items-center gap-1.5">
           <Chip tone={STATUS_TONE[topic.status]}>{label}</Chip>
           <span className="text-[10px] text-ink-faint">
@@ -120,6 +164,7 @@ function TopicCard({
           {topic.turns.map((turn, index) => (
             <div key={index} className="space-y-1">
               {index > 0 && <p className="text-[12px] font-medium leading-snug text-ink">{turn.question}</p>}
+              {turn.images !== undefined && turn.images.length > 0 && <TurnImages images={turn.images} />}
               {turn.answer !== "" && <Markdown text={turn.answer} className={ANSWER_CLASS} />}
               {turn.status === "running" && turn.answer === "" && (
                 <p className="text-[11px] text-ink-faint">{t("rail.btw.thinking")}</p>
@@ -152,6 +197,7 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
   const askSideQuestion = useStore((s) => s.askSideQuestion);
   const cancelSideQuestion = useStore((s) => s.cancelSideQuestion);
   const refreshSideQuestions = useStore((s) => s.refreshSideQuestions);
+  const titles = useStore((s) => s.sideQuestionTitles);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   // Opening the pane re-reads the history files: topics from before a
@@ -165,6 +211,15 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
   const unavailable =
     !native || (snapshot !== null && !snapshot.available);
   const busy = active !== null;
+  // A typed side command titles its topic; the running card shows the title
+  // only while it is the topic's root turn, a follow-up shows its own question.
+  const activeTopic = active === null ? undefined : topics.find((topic) => topic.id === active.topicId);
+  const activeTitle =
+    active === null
+      ? undefined
+      : activeTopic === undefined || activeTopic.turns.length <= 1
+        ? titles[active.topicId]
+        : undefined;
 
   return (
     <div className="space-y-2.5 px-3 py-2.5">
@@ -202,7 +257,7 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
       {active !== null && (
         <div className="space-y-1.5 rounded-md border border-copper-dim/50 bg-raised px-2 py-1.5" aria-live="polite">
           <div className="flex items-start gap-1.5">
-            <span className="min-w-0 flex-1 text-[12px] leading-snug text-ink">{active.question}</span>
+            <span className="min-w-0 flex-1 text-[12px] leading-snug text-ink">{activeTitle ?? active.question}</span>
             <Button size="xs" variant="outline" tone="rose" onClick={() => void cancelSideQuestion(tabId)}>
               {t("rail.btw.cancel")}
             </Button>
@@ -227,6 +282,7 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
               <TopicCard
                 key={topic.id}
                 topic={topic}
+                title={titles[topic.id]}
                 expanded={expanded === topic.id}
                 onToggle={() => setExpanded((current) => (current === topic.id ? null : topic.id))}
                 followUpDisabled={busy || unavailable}

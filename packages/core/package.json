@@ -47,6 +47,7 @@
     "./session-command": "./src/session-command.ts",
     "./session-tree": "./src/session-tree.ts",
     "./side-questions": "./src/side-questions.ts",
+    "./side-commands": "./src/side-commands.ts",
     "./live-voice": "./src/live-voice.ts",
     "./title-card": "./src/title-card.ts",
     "./vault-shared": "./src/vault-shared.ts",
