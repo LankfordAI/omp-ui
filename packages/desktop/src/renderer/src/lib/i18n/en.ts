@@ -2432,10 +2432,13 @@ export const en = {
   "sidebar.session.implementsFrom": "Implements “{planTitle}” from {sourceTitle}",
   "sidebar.session.implementsUnavailable":
     "Implements “{planTitle}” — source unavailable",
-  "sidebar.session.implementation": "implementation",
   "sidebar.session.sourceUnavailable": "source unavailable",
   "sidebar.session.planSource": "plan source",
   "sidebar.session.machine": "on {machine}",
+  "sidebar.session.planChip": "plan",
+  "sidebar.session.implChip": "impl",
+  "sidebar.session.quoteQuestion": "question",
+  "sidebar.session.quotePlan": "plan ready",
 
   "sidebar.session.openPlanning": "open planning session",
   "sidebar.session.stopResumable": "stop the agent (session stays resumable)",
@@ -2449,8 +2452,6 @@ export const en = {
   "sidebar.session.liveVoice": "Live voice: {phase}",
   "sidebar.session.liveVoiceArmed": "live voice: ready — resume by viewing",
   "sidebar.session.liveVoicePending": "live voice: results waiting",
-
-  "sidebar.project.add": "add project",
 
   "sidebar.newSession": "new session — pick a project",
   "sidebar.settled.heading": "Settled ({n})",

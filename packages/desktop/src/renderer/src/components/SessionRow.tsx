@@ -1,12 +1,13 @@
-import type { MouseEvent as ReactMouseEvent } from "react";
+import { Fragment, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { relativeTime } from "../lib/format";
+import { tileModel, tileQuote } from "../lib/session-tile";
 import type { SessionSummary } from "@omp-ui/core/types";
 import { parseTitleCard } from "@omp-ui/core/title-card";
 import { useT, type MessageKey } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
 import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
-import { Button, Dot, IconButton, IconLock, IconSpeaker, type Tone } from "./ui";
+import { Button, Chip, Dot, IconButton, IconLock, IconSpeaker, type Tone } from "./ui";
 import type { SessionHandoff } from "../lib/session-handoffs";
 import type { LivePhase } from "@omp-ui/core/live-voice";
 
@@ -182,6 +183,7 @@ export function SessionRow({
   projectLabel,
   instanceNickname = null,
   onContextMenu,
+  density = "tile",
 }: {
   s: SessionSummary;
   onActivate?: () => void;
@@ -195,6 +197,9 @@ export function SessionRow({
   instanceNickname?: string | null;
   /** Right-click (or keyboard menu) on the row; Sidebar owns the portal. */
   onContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void;
+  /** tile: the three-line card (main list, Working, Snoozed); slim: the
+   *  two-line Settled row (issue #938). */
+  density?: "tile" | "slim";
 }) {
   const t = useT();
   const openSession = useStore((st) => st.openSession);
@@ -258,12 +263,79 @@ export function SessionRow({
         ? t("sidebar.session.implementsUnavailable", { planTitle: orphanSource.planTitle })
         : null;
 
+  // Issue #938: the tile's extra lines. Slim rows skip the derivations.
+  const slim = density === "slim";
+  const quote = slim ? null : tileQuote(s);
+  const model = slim ? null : tileModel(s);
+  // agentMode records the last rpc-ui incarnation, so a terminal tab never shows it.
+  const planMode = rpc && s.agentMode === "plan";
+  const impl = source !== null || orphanSource !== null;
+
+  // Status indicators, shared by both densities; never in the hover cluster.
+  const lockMark = s.private ? (
+    <span
+      role="img"
+      aria-label={t("session.badge.private")}
+      title={t("session.badge.private")}
+      className="shrink-0 self-center text-ink-faint"
+    >
+      <IconLock />
+    </span>
+  ) : null;
+  const voiceMark =
+    liveBadge !== null ? (
+      <span
+        role="img"
+        aria-label={
+          liveBadge === "armed"
+            ? t("sidebar.session.liveVoiceArmed")
+            : liveBadge === "pending"
+              ? t("sidebar.session.liveVoicePending")
+              : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge]) })
+        }
+        title={
+          liveBadge === "armed"
+            ? t("sidebar.session.liveVoiceArmed")
+            : liveBadge === "pending"
+              ? t("sidebar.session.liveVoicePending")
+              : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge]) })
+        }
+        className={cn(
+          "shrink-0 self-center",
+          liveBadge === "speaking" || liveBadge === "pending"
+            ? "text-signal"
+            : liveBadge === "error"
+              ? "text-rose"
+              : liveBadge === "muted" || liveBadge === "armed"
+                ? "text-ink-faint"
+                : "text-ink-mid",
+        )}
+      >
+        <IconSpeaker waves={liveBadge === "speaking" ? 2 : 1} />
+      </span>
+    ) : null;
+
+  // Line 2: project · branch · machine; the slim row leads with its state.
+  // The machine stays an inline span: a `<Chip>` would break the ellipsis.
+  const meta: ReactNode[] = [];
+  if (slim) {
+    meta.push(<span className={face.textClass}>{t(face.labelKey)}</span>);
+    if (showPersistedStatus && s.status) meta.push(s.status);
+  }
+  if (projectLabel) meta.push(projectLabel);
+  if (s.worktree) meta.push(<span title={s.worktree.path}>⎇ {s.worktree.branch}</span>);
+  if (instanceNickname) {
+    meta.push(
+      <span title={t("sidebar.session.machine", { machine: instanceNickname })}>{instanceNickname}</span>,
+    );
+  }
+  if (slim && s.snoozed === true) meta.push(t("sidebar.session.snoozed"));
+
   return (
     <div
       onContextMenu={onContextMenu}
       className={cn(
-        "group/row animate-slide-in relative flex items-center rounded-md",
-        "transition-colors duration-150",
+        "group/row animate-slide-in relative rounded-md transition-colors duration-150",
         selected ? "bg-raised" : "hover:bg-raised/60",
       )}
     >
@@ -286,15 +358,18 @@ export function SessionRow({
           onActivate?.();
         }}
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 pl-3 text-left",
+          "block w-full min-w-0 px-3 text-left",
+          slim ? "py-1.5" : "py-2",
           missing && !strandedSettle && "cursor-default",
         )}
       >
-        <Dot tone={face.tone} pulse={face.pulse} title={t(face.titleKey)} />
-        <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-start gap-2">
+          {slim && <Dot tone={face.tone} pulse={face.pulse} title={t(face.titleKey)} className="mt-1.5" />}
           <span
+            data-session-tile-title
             className={cn(
-              "block truncate text-xs transition-colors duration-150",
+              "min-w-0 flex-1 transition-colors duration-150",
+              slim ? "truncate text-xs" : "line-clamp-2 break-words text-[13.5px] leading-snug",
               missing ? "text-ink-faint" : "text-ink-mid group-hover/row:text-ink",
               selected && !missing && "text-ink",
             )}
@@ -302,96 +377,99 @@ export function SessionRow({
             {card === null ? (
               s.title
             ) : (
-              <span className="flex min-w-0 items-baseline gap-1.5">
+              <>
                 {card.icon !== null && (
-                  <span aria-hidden className="shrink-0">
+                  <span aria-hidden className="mr-1">
                     {card.icon}
                   </span>
                 )}
-                <span className="shrink-0 rounded bg-raised px-1 font-mono text-[10px] tracking-wide text-ink-mid">
+                <span className="mr-1.5 rounded bg-raised px-1 font-mono text-[10px] tracking-wide text-ink-mid">
                   {card.code}
                 </span>
-                <span className="min-w-0 truncate">{card.title}</span>
-              </span>
+                <span>{card.title}</span>
+              </>
             )}
           </span>
-          <span
-            title={absoluteTime(s.cachedModified)}
-            className="block truncate font-mono text-[10px] text-ink-faint tabular-nums"
-          >
-            <span className={face.textClass}>{t(face.labelKey)}</span>
-            {projectLabel ? ` · ${projectLabel}` : ""}
-            {when ? ` · ${when}` : ""}
-            {showPersistedStatus && s.status ? ` · ${s.status}` : ""}
-            {s.worktree ? (
-              <span title={s.worktree.path}>{` · ⎇ ${s.worktree.branch}`}</span>
-            ) : null}
-            {s.snoozed === true ? ` · ${t("sidebar.session.snoozed")}` : ""}
-            {/* Machine chip (#903): a bare `<Chip mono>` from ui/controls would
-             *  break this block/truncate span's ellipsis, so it mirrors the
-             *  worktree fragment's inline nested-span style instead. */}
-            {instanceNickname ? (
-              <span title={t("sidebar.session.machine", { machine: instanceNickname })}>
-                {` · ${instanceNickname}`}
-              </span>
-            ) : null}
-            {source !== null
-              ? ` · ${t("sidebar.session.implementation")}`
-              : orphanSource !== null
-                ? ` · ${t("sidebar.session.implementation")} · ${t("sidebar.session.sourceUnavailable")}`
-                : ""}
-            {handoff?.hasDescendants ? ` · ${t("sidebar.session.planSource")}` : ""}
-          </span>
+          {slim && lockMark}
+          {slim && voiceMark}
+          {when && (
+            <span
+              title={absoluteTime(s.cachedModified)}
+              className="shrink-0 pt-0.5 font-mono text-[10px] tabular-nums text-ink-faint"
+            >
+              {when}
+            </span>
+          )}
         </span>
+
+        {meta.length > 0 && (
+          <span className="mt-0.5 block truncate font-mono text-[10px] text-ink-faint">
+            {meta.map((node, i) => (
+              <Fragment key={i}>
+                {i > 0 ? " · " : null}
+                {node}
+              </Fragment>
+            ))}
+          </span>
+        )}
+
+        {!slim && (
+          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px]">
+            <span className={cn("inline-flex shrink-0 items-center gap-1 font-mono", face.textClass)}>
+              <Dot tone={face.tone} pulse={face.pulse} title={t(face.titleKey)} />
+              {t(face.labelKey)}
+            </span>
+            {showPersistedStatus && s.status ? (
+              <span className="shrink-0 font-mono text-ink-faint">{s.status}</span>
+            ) : null}
+            {model !== null && (
+              <span title={s.model ?? undefined} className="min-w-0 truncate font-mono text-ink-faint">
+                {model}
+              </span>
+            )}
+            {planMode && (
+              <Chip tone="iris" title={t("hud.mode.planDescription")}>
+                {t("sidebar.session.planChip")}
+              </Chip>
+            )}
+            {impl && <Chip title={implementsNote ?? undefined}>{t("sidebar.session.implChip")}</Chip>}
+            {orphanSource !== null && (
+              <span className="shrink-0 text-ink-faint">{t("sidebar.session.sourceUnavailable")}</span>
+            )}
+            {handoff?.hasDescendants ? (
+              <span className="shrink-0 text-ink-faint">{t("sidebar.session.planSource")}</span>
+            ) : null}
+            {s.snoozed === true ? (
+              <span className="shrink-0 text-ink-faint">{t("sidebar.session.snoozed")}</span>
+            ) : null}
+            <span className="ml-auto flex shrink-0 items-center gap-1">
+              {lockMark}
+              {voiceMark}
+            </span>
+          </span>
+        )}
+
+        {quote !== null && (
+          <span
+            title={quote.text}
+            className="mt-1.5 line-clamp-2 break-words border-l-2 border-iris-dim/60 pl-2 text-[11px] leading-snug text-ink-mid"
+          >
+            <span className="mr-1 font-mono text-[10px] uppercase text-iris">
+              {t(quote.kind === "plan" ? "sidebar.session.quotePlan" : "sidebar.session.quoteQuestion")}
+            </span>
+            {quote.text}
+          </span>
+        )}
       </button>
 
-      <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
-        {s.private ? (
-          <span
-            role="img"
-            aria-label={t("session.badge.private")}
-            title={t("session.badge.private")}
-            className="shrink-0 self-center text-ink-faint"
-          >
-            <IconLock />
-          </span>
-        ) : null}
-        {liveBadge !== null ? (
-          <span
-            role="img"
-            aria-label={
-              liveBadge === "armed"
-                ? t("sidebar.session.liveVoiceArmed")
-                : liveBadge === "pending"
-                  ? t("sidebar.session.liveVoicePending")
-                  : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge]) })
-            }
-            title={
-              liveBadge === "armed"
-                ? t("sidebar.session.liveVoiceArmed")
-                : liveBadge === "pending"
-                  ? t("sidebar.session.liveVoicePending")
-                  : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge]) })
-            }
-            className={cn(
-              "shrink-0 self-center",
-              liveBadge === "speaking" || liveBadge === "pending"
-                ? "text-signal"
-                : liveBadge === "error"
-                  ? "text-rose"
-                  : liveBadge === "muted" || liveBadge === "armed"
-                    ? "text-ink-faint"
-                    : "text-ink-mid",
-            )}
-          >
-            <IconSpeaker waves={liveBadge === "speaking" ? 2 : 1} />
-          </span>
-        ) : null}
+      {/* Hover actions (issue #938): at rest the cluster is invisible AND
+          pointer-events-none, so an unseen trash button never catches a click
+          aimed at the title or age. Keyboard focus still reaches it. */}
+      <div className="pointer-events-none absolute top-1 right-1 flex items-center gap-0.5 rounded-md border border-line bg-raised p-0.5 opacity-0 transition-opacity duration-150 group-hover/row:pointer-events-auto group-hover/row:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
         {source !== null && (
           <IconButton
             label={t("sidebar.session.openPlanning")}
             onClick={() => void openSession(source.tabId)}
-            className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
           >
             <IconPlan />
           </IconButton>
@@ -401,7 +479,6 @@ export function SessionRow({
             label={t("sidebar.session.stopResumable")}
             tone="copper"
             onClick={() => void terminate(s.tabId)}
-            className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
           >
             <IconPower />
           </IconButton>
@@ -412,7 +489,6 @@ export function SessionRow({
             variant="outline"
             onClick={() => void resumeDead(s.tabId)}
             title={t("sidebar.session.resumeTitle", { title: s.title })}
-            className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
           >
             {t("sidebar.session.resume")}
           </Button>
@@ -429,7 +505,6 @@ export function SessionRow({
             }
             disabled={!seanceAvailable}
             onClick={() => void consultFromRow(s.tabId)}
-            className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
           >
             <IconSeance />
           </IconButton>
@@ -444,7 +519,6 @@ export function SessionRow({
           }
           tone="rose"
           onClick={() => void deleteSession(s.tabId)}
-          className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
         >
           <IconTrash />
         </IconButton>
