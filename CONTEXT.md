@@ -127,15 +127,16 @@ to a repo. The record keeps that directory as its working directory plus an
 explicit chat marker; no project record exists and the chats root can never be
 registered. Chats list in the sidebar alongside project sessions, labelled
 *chat*, and a chat starts from the **Project quick-open**'s *No project* row
-(chat tabs share the tab strip). Chats run in Build mode only, share
-omp's global memory bank, seed from the last model a chat used, and hibernate
-as one group — at most the freshest chat stays warm. A branch of a chat is a
-chat sharing its directory; deleting the last record that uses a directory
-deletes the directory. Chats are host-local: joined remote instances never see
-them (ADR-0059). An *Ask chat* is a chat started from another session's *Ask
-about this session* action: its title names the source, and the source's
-summary rides as hidden pinned context; deep dives go through a Seance consult,
-so the source is never woken (ADR-0060).
+(chat tabs share the tab strip). Chats run in Build mode only, always carry
+the fleet tools (so a chat can start sessions in projects, Plan mode
+included), share omp's global memory bank, seed from the last model a chat
+used, and hibernate as one group — at most the freshest chat stays warm. A
+branch of a chat is a chat sharing its directory; deleting the last record
+that uses a directory deletes the directory. Chats are host-local: joined
+remote instances never see them (ADR-0059). An *Ask chat* is a chat started
+from another session's *Ask about this session* action: its title names the
+source, and the source's summary rides as hidden pinned context; deep dives go
+through a Seance consult, so the source is never woken (ADR-0060).
 _Avoid_: thread, conversation, scratch session, desk
 
 **Lineage**:

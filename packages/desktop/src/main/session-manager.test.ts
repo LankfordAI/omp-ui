@@ -8184,6 +8184,34 @@ describe("chat sessions (issue #894)", () => {
     expect(manager.isLive("chat-gone")).toBe(true);
   });
 
+  it.each(["new", "resume"] as const)(
+    "registers the fleet tools on a %s chat with the fleet setting off (#945)",
+    async (origin) => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      registry.setSetting("fleetAgentDispatch", false);
+      registry.setSetting("vaultRegistry", { vaults: [], defaultWriteVault: null });
+      if (origin === "new") {
+        await spawnChat(manager);
+      } else {
+        registry.addSession(
+          ownedSessionRecord({
+            tabId: "chat-fleet",
+            lineageDir: "omp-ui--chat--fleet",
+            projectCwd: Core.chatDirPath(chatsRoot()),
+            chat: true,
+          }),
+        );
+        await manager.spawn({ origin: "resume", resumeTabId: "chat-fleet", cols: 80, rows: 24 });
+      }
+      const commands = (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Array<Record<string, unknown>>;
+      const registration = commands.find((c) => c.type === "set_host_tools");
+      const names = (Array.isArray(registration?.tools) ? registration.tools : []).map((tool: unknown) =>
+        Core.isObject(tool) ? tool.name : null,
+      );
+      expect(names).toEqual(["omp-ui_notify", ...Core.FLEET_TOOLS]);
+    },
+  );
+
   it("refuses to switch a chat to the terminal", async () => {
     const { manager } = setup({ mode: "rpc-ui" });
     const { tabId } = await spawnChat(manager);

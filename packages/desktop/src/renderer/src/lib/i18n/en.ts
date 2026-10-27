@@ -2990,7 +2990,7 @@ export const en = {
   "palette.action.fleetDispatchDesc": "start fresh sessions on one or more fleet machines",
   "settings.remoteinstances.fleetAgentTitle": "Let agents dispatch fleet work",
   "settings.remoteinstances.fleetAgentHint":
-    "Adds fleet tools to sessions started after this is on, including starting sessions in this computer's projects. Agent-dispatched sessions never get them.",
+    "Adds fleet tools to project sessions started after this is on, including starting sessions in this computer's projects. Chats always have them; agent-dispatched sessions never do.",
   // Fleet access ladder (issue #901, ADR-0062)
   "settings.remoteinstances.fleetAccessTitle": "Fleet access",
   "settings.remoteinstances.execTitle": "Allow fleet exec",

@@ -6,6 +6,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 - An agent's `omp-ui_fleet_dispatch` call that names no machine now starts its one session on this computer whenever this computer has the project and a ready model provider, so asking a **Chat** to start work in a project no longer lands it on a joined member by load; **Manual only** on this computer, or more than one copy, still places automatically (#943).
 
+- A **Chat** always has omp-ui's fleet tools, so asking a chat to start sessions in a project — Plan mode included — works without turning on **Let agents dispatch fleet work**; that setting now decides only for project sessions (#945).
+
 ## Choose a download
 
 A release has exactly four distributable files. Replace `<version>` with the tag version without its leading `v`.

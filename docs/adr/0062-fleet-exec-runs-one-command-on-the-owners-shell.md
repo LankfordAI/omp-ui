@@ -89,7 +89,9 @@ turned on; the owner's check is enforced on the inbound handler.**
   registered only while *Let agents dispatch fleet work* is on and the
   session was not itself agent-dispatched (no recursion, §61), and every
   call runs at omp's `exec` approval tier — the user approves each
-  invocation the same way they approve any other host tool.
+  invocation the same way they approve any other host tool. *Amended
+  (#945): a **Chat** carries the set regardless of the setting (ADR-0061);
+  member ladders still gate every exec, project, and update call.*
 - **Bounds are the owner's, not the caller's.** 65,536 bytes per stream
   (stdout/stderr each truncated past the cap, `truncated: true` set), a
   30 s timeout after which the owner kills the process tree and answers

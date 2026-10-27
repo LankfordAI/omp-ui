@@ -114,7 +114,10 @@ delivery.**
   this same gate, five tools in all; see ADR-0062. *Amended (#942):
   `omp-ui_fleet_dispatch` takes an optional `planMode`, default false, so an
   agent can start read-only planning sessions; the owner's existing order
-  (plan arm before the fleet prompt) applies unchanged.*
+  (plan arm before the fleet prompt) applies unchanged.* *Amended (#945):
+  every **Chat** registers the fleet tools on each spawn and resume
+  regardless of the setting; the setting now governs project sessions only.
+  A chat is never dispatched, so no recursion is unaffected.*
 - **No recursion.** A session an agent dispatched (`requestedBy.kind:
   "agent"`) never gets the fleet tools, so a dispatched agent cannot dispatch
   further.

@@ -64,7 +64,7 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
   };
 }
 
-/** Notify is always present; registered vaults enable the ten vault tools; the fleet setting enables the three fleet tools. */
+/** Notify is always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the seven fleet tools. */
 export function hostToolsDefinition(
   opts: { vault: boolean; fleet: boolean } = { vault: false, fleet: false },
 ): RpcHostToolDefinition[] {
@@ -281,10 +281,11 @@ function vaultTools(): RpcHostToolDefinition[] {
 }
 
 /**
- * The fleet dispatch tools (issue #899, ADR-0061). Registered only while the
- * user turned on "Let agents dispatch fleet work" and the session was not
- * itself agent-dispatched. A remote-owned session answers from its own
- * host's fleet; omp's host-tool approval tier governs each call.
+ * The fleet tools (issue #899, ADR-0061). Registered on every chat (#945), and
+ * on other sessions only while the user turned on "Let agents dispatch fleet
+ * work" and the session was not itself agent-dispatched. A remote-owned
+ * session answers from its own host's fleet; omp's host-tool approval tier
+ * governs each call.
  */
 function fleetTools(): RpcHostToolDefinition[] {
   const [machines, dispatch, status, exec, project, execPoll, update] = FLEET_TOOLS;
