@@ -192,6 +192,26 @@ describe("AppUpdateCard", () => {
     expect(buttonWithTextOrNull("Later")).toBeNull();
   });
 
+  it("offers View release when the newest release is unreadable (issue #930)", () => {
+    useStore.setState({
+      appUpdate: appUpdateState({ status: "error", error: { kind: "unreadable", message: "m" } }),
+    });
+    renderCard();
+    expect(document.body.textContent).toContain("This build can't read the newest release");
+    expect(document.body.textContent).not.toContain("Update check failed");
+    click(buttonWithText("View release"));
+    expect(backendMock.openAppUpdateReleaseNotes).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an unreachable feed as a check failure without View release", () => {
+    useStore.setState({
+      appUpdate: appUpdateState({ status: "error", error: { kind: "unreachable", message: "m" } }),
+    });
+    renderCard();
+    expect(document.body.textContent).toContain("Update check failed");
+    expect(buttonWithTextOrNull("View release")).toBeNull();
+  });
+
   it.each(["appimage", "nsis", "maczip"] as const)(
     "restarts, arms install-on-quit, and dismisses a staged %s update",
     (format) => {

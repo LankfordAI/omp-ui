@@ -14,6 +14,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 - The Session HUD no longer carries an inspector toggle; the **Inspector rail** strip's group buttons open and close the inspector, and the compact nav keeps its inspector button (#947).
 
+- A manual update check that finds a release this build cannot read now says so and offers **View release**, instead of reporting that GitHub is unreachable (#930).
+
 ## Choose a download
 
 A release has exactly four distributable files. Replace `<version>` with the tag version without its leading `v`.

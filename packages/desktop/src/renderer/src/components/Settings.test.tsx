@@ -394,6 +394,16 @@ describe("Settings Updates page (issue #89)", () => {
     expect(backendMock.downloadAppUpdate).not.toHaveBeenCalled();
   });
 
+  it("offers View release when the feed's release is unreadable (issue #930)", async () => {
+    seed({
+      appUpdate: appUpdateState({ status: "error", error: { kind: "unreadable", message: "m" } }),
+    });
+    await renderSettings();
+    click(buttonWithText("View release")!);
+    expect(backendMock.openAppUpdateReleaseNotes).toHaveBeenCalledTimes(1);
+    expect(backendMock.downloadAppUpdate).not.toHaveBeenCalled();
+  });
+
   it("offers Restart now once an AppImage update is downloaded", async () => {
     seed({
       appUpdate: appUpdateState({

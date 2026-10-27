@@ -163,6 +163,7 @@ export type AppUpdateEvent =
   | { t: "disabled" }
   | { t: "check-begin" }
   | { t: "unreachable"; manual: boolean }
+  | { t: "release-unreadable"; manual: boolean; releaseUrl: string }
   | { t: "up-to-date"; manual: boolean }
   | { t: "offer-dismissed" }
   | { t: "available"; release: AppReleaseInfo; format: AppPackageFormat }
@@ -197,9 +198,12 @@ const REMOTE_STAGE_SETTLEMENTS: Partial<Record<AppUpdateEvent["t"], AppUpdateRem
  * state half merges exactly as the historical partial `set({...})` patches
  * did, so fields a transition does not name are deliberately RETAINED —
  * quirks included, kept verbatim from before this table existed:
- * - idle transitions ("unreachable"/"up-to-date"/"offer-dismissed" quiet
- *   arms, quiet stage-failed) keep stale release metadata, and the quiet
- *   stage-failed arm even keeps the stale error string.
+ * - idle transitions ("unreachable"/"release-unreadable"/"up-to-date"/
+ *   "offer-dismissed" quiet arms, quiet stage-failed) keep stale release
+ *   metadata, and the quiet stage-failed arm even keeps the stale error string.
+ * - the manual "release-unreadable" arm sets `releaseUrl` to the train's
+ *   release page and keeps a stale `latestVersion`/`releaseName`; it never
+ *   touches `release`/`stage`, so an in-flight stage still completes.
  * - "available" keeps a stale downloadedPath/error from an earlier manual
  *   download in the same session.
  * - a visible "stage-failed" keeps the stale progress number.
@@ -247,6 +251,24 @@ export function deriveAppUpdateState(
             ? {
                 status: "error",
                 error: { kind: "unreachable", message: "could not reach GitHub" },
+              }
+            : { status: "idle" },
+        ),
+      );
+    // The feed answered, but with a release this build cannot parse (issue
+    // #930) — a manual check says so and points the card at the train's
+    // release page; a background check stays silent like "unreachable".
+    case "release-unreadable":
+      return next(
+        state(
+          event.manual
+            ? {
+                status: "error",
+                error: {
+                  kind: "unreadable",
+                  message: "this omp-ui cannot read the newest release — install it from the release page",
+                },
+                releaseUrl: event.releaseUrl,
               }
             : { status: "idle" },
         ),
@@ -489,7 +511,8 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
    * - "unavailable": disabled updater, unreachable feed, a manual-installer
    *   format this machine cannot stage itself, or a newer check superseded
    *   this one (the checkGen latch) — which says nothing about staging.
-   * - "failed": the verified stage errored.
+   * - "failed": the verified stage errored, or the feed holds a release this
+   *   build cannot read (issue #930).
    */
   async stageForRemoteRequest(): Promise<AppUpdateRemoteStageResult> {
     if (!this.enabled) return "unavailable";
@@ -545,16 +568,21 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     }
     this.publish({ t: "check-begin" });
     const train = this.deps.getTrain();
-    const release = await (train === "nightly"
+    const lookup = await (train === "nightly"
       ? fetchNightlyAppRelease(this.deps.fetchImpl)
       : fetchLatestAppRelease(this.deps.fetchImpl));
     // A newer check — or onTrainChanged's reset + re-check — superseded
     // this one; it must not publish or stage anything anymore.
     if (gen !== this.checkGen) return this.state;
-    if (release === null) {
+    if (lookup.kind === "unreachable") {
       this.publish({ t: "unreachable", manual });
       return this.state;
     }
+    if (lookup.kind === "unreadable") {
+      this.publish({ t: "release-unreadable", manual, releaseUrl: lookup.page });
+      return this.state;
+    }
+    const release = lookup.release;
     if (compareAppVersions(this.deps.currentVersion, release.version, train) >= 0) {
       this.publish({ t: "up-to-date", manual });
       return this.state;

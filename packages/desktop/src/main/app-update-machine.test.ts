@@ -82,6 +82,25 @@ describe("deriveAppUpdateState", () => {
     expect(quiet.latestVersion).toBe("1.2.0");
   });
 
+  it("release-unreadable: manual reports unreadable with the page, quiet returns to idle", () => {
+    const page = "https://github.com/LankfordAI/omp-ui/releases/tag/nightly";
+    const prev = machine({
+      state: { ...IDLE_STATE, status: "checking", latestVersion: "1.2.0" },
+    });
+    const manual = step(prev, { t: "release-unreadable", manual: true, releaseUrl: page }).state;
+    expect(manual.status).toBe("error");
+    expect(manual.error?.kind).toBe("unreadable");
+    expect(manual.releaseUrl).toBe(page);
+    const quiet = step(prev, { t: "release-unreadable", manual: false, releaseUrl: page }).state;
+    expect(quiet.status).toBe("idle");
+    expect(quiet.latestVersion).toBe("1.2.0");
+    // An in-flight stage is untouched, so it still completes.
+    const staging = machine({ release: RELEASE, stage: { visible: true } });
+    const after = step(staging, { t: "release-unreadable", manual: true, releaseUrl: page });
+    expect(after.release).toBe(staging.release);
+    expect(after.stage).toBe(staging.stage);
+  });
+
   it("up-to-date: manual reports it, quiet returns to idle", () => {
     expect(step(machine(), { t: "up-to-date", manual: true }).state.status).toBe("up-to-date");
     expect(step(machine(), { t: "up-to-date", manual: false }).state.status).toBe("idle");
@@ -286,6 +305,8 @@ describe("deriveAppUpdateState", () => {
       { t: "check-begin" },
       { t: "unreachable", manual: true },
       { t: "unreachable", manual: false },
+      { t: "release-unreadable", manual: true, releaseUrl: "https://example.test/r" },
+      { t: "release-unreadable", manual: false, releaseUrl: "https://example.test/r" },
       { t: "up-to-date", manual: true },
       { t: "up-to-date", manual: false },
       { t: "offer-dismissed" },
