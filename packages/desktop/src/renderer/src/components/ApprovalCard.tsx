@@ -13,6 +13,8 @@ import { Button, Chip, Label } from "./ui";
  * answered label (once/session/deny) and a non-matching reply is a denial —
  * a dropped dialog must read as refusal, never a silent approval. Escape and
  * Deny both answer "deny", which lands the clean "denied by user" transcript path.
+ * A restricted-folder prompt (issue #951) shows the folder and the "asks in
+ * every mode" note in place of the generic reason.
  *
  * Non-modal by design, mounted in the floating dialog stack above the
  * composer: the transcript keeps streaming around it while the single tool
@@ -50,6 +52,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   // Frame text deliberately not i18n'd: it names omp's grant subject and
   // must match what the harness composed.
   const sessionLabel = prompt.sessionLabel;
+  const restrictedFolder = prompt.restrictedFolder;
   return (
     <div
       role="dialog"
@@ -64,13 +67,28 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
           {prompt.toolName}
         </span>
         {prompt.origin === "mcp" && <Chip tone="iris">{t("dialog.approval.origin")}</Chip>}
+        {restrictedFolder !== null && <Chip tone="copper">{t("dialog.approval.restricted")}</Chip>}
       </div>
       <div className="px-4 pt-2">
-        {prompt.reason !== null && (
-          <p className="text-[11px] leading-snug text-ink-mid">
-            <span className="text-ink-faint">{t("dialog.approval.reason")}: </span>
-            <span data-selectable>{prompt.reason}</span>
-          </p>
+        {restrictedFolder !== null ? (
+          <div data-approval-restricted>
+            <p className="text-[11px] leading-snug text-ink-mid">
+              <span className="text-ink-faint">{t("dialog.approval.restricted")}: </span>
+              <span data-selectable className="break-all font-mono">
+                {restrictedFolder}
+              </span>
+            </p>
+            <p className="mt-0.5 text-[10px] leading-snug text-ink-faint">
+              {t("dialog.approval.restrictedHint")}
+            </p>
+          </div>
+        ) : (
+          prompt.reason !== null && (
+            <p className="text-[11px] leading-snug text-ink-mid">
+              <span className="text-ink-faint">{t("dialog.approval.reason")}: </span>
+              <span data-selectable>{prompt.reason}</span>
+            </p>
+          )
         )}
         {prompt.details.length > 0 && (
           <pre

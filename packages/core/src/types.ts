@@ -47,7 +47,8 @@ export type SessionStatus =
 export type SessionMode = "pty" | "rpc-ui";
 export type AgentMode = "plan" | "build";
 /** omp's `tools.approvalMode` tiers (issue #681, ADR-0038): `always-ask`
- *  gates every tool, `write` gates mutating tools, `yolo` gates nothing. */
+ *  gates every tool, `write` gates mutating tools, `yolo` gates nothing but
+ *  restricted folders (`tools.restrictedFolders`, omp ≥ 18.13.1). */
 export type ApprovalMode = "always-ask" | "write" | "yolo";
 /** omp's controllable serving tiers (issue #719): `priority` is what
  *  `set_fast_mode(true)` / `/fast on` names, `ultrafast` is the `/fast

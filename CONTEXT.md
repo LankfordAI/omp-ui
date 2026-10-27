@@ -705,12 +705,15 @@ on the three-option shape, the frame's own session label: omp's runner maps
 the answered label to once, deny, or a session-wide allowance that lands only
 when the reply equals its composed label exactly. Closing the card or
 pressing Escape answers Deny: a dropped dialog is a refusal, never a silent
-approval.
+approval. On omp ≥ 18.13.1 a prompt whose reason is `Restricted folder: <path>`
+names that folder and notes that it asks in every approval mode; omp offers no
+session choice for it (issue #951).
 _Avoid_: approval dialog, permission prompt, tool gate card
 
 **Approval mode**:
 A session's pinned omp `tools.approvalMode` tier — `always-ask` (every tool
-waits), `write` (mutating tools wait), `yolo` (nothing waits) — or *inherit*,
+waits), `write` (mutating tools wait), `yolo` (nothing waits except a
+restricted folder) — or *inherit*,
 meaning no pin and omp resolves its own global/project config (where an
 absent key means yolo). omp binds the mode at process start, so the pin rides
 a `--config` overlay written at spawn and changing it relaunches the session
@@ -720,6 +723,14 @@ terminal session's prompts appear in its own embedded TUI, never as an
 approval card. Defaults live in omp's own config (ADR-0025), never in a
 second store.
 _Avoid_: permission mode, tool policy setting, auto-approve flag
+
+**Restricted folder**:
+A folder listed in omp's global `tools.restrictedFolders` (omp ≥ 18.13.1).
+Every read, write, edit, search, or command touching it or anything under it
+asks through the Approval card in every approval mode, `yolo` included; no
+session approval or remembered grant covers it, and a `deny` policy still
+denies. Edited on the omp settings page, Global layer only (issue #951).
+_Avoid_: protected folder, blocked folder, sandboxed folder
 
 **Magic keyword**:
 One of omp's four prose keywords — `ultrathink`, `orchestrate`, `workflowz`,

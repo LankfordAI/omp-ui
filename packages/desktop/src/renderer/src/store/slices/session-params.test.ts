@@ -2624,6 +2624,7 @@ describe("reconcilePendingDialogs (issue #555)", () => {
     details: [],
     providerSafety: [],
     sessionLabel: null,
+    restrictedFolder: null,
   };
 
   it("hydrates a held approval and keeps it out of the queue, idempotently", () => {

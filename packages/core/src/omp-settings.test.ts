@@ -21,6 +21,7 @@ import {
 import {
   COMPACTION_MODEL_THRESHOLD_SETTING_GROUP,
   CONTEXT_FILES_EXTRA_KEY,
+  RESTRICTED_FOLDERS_KEY,
 } from "./omp-settings-keys";
 
 const OMP = "/x/omp";
@@ -851,6 +852,18 @@ describe("writeOmpSetting", () => {
       '["AGENTS.local.md"]',
       "--json",
     ]);
+  });
+
+  it("allowlists tools.restrictedFolders and serializes the array as JSON (issue #951)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: RESTRICTED_FOLDERS_KEY, value: ["~/secrets"] },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "tools.restrictedFolders", '["~/secrets"]', "--json"]);
   });
 
   it("puts a negative number after `--` so omp's CLI does not read it as a flag (issue #105)", async () => {

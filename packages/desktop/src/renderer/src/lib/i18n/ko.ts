@@ -112,6 +112,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.approval.safety": "제공자 안전 검사",
   "dialog.approval.allow": "허용",
   "dialog.approval.deny": "거부",
+  "dialog.approval.restricted": "제한된 폴더",
+  "dialog.approval.restrictedHint":
+    "제한된 폴더(tools.restrictedFolders)는 yolo를 포함한 모든 승인 모드에서 승인을 요청합니다. 세션 승인이나 기억된 승인으로 대신할 수 없습니다.",
 
   "dialog.delete.kicker": "되돌릴 수 없는 작업",
   "dialog.delete.title": "“{title}”을(를) 삭제할까요?",
@@ -1147,11 +1150,22 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.omp.contextFilesRemove": "제거",
   "settings.omp.approval": "도구 승인",
   "settings.omp.approvalHint":
-    "어떤 omp 도구가 승인을 요청하는지 설정합니다. always-ask는 모든 도구, write는 변경을 수반하는 도구에만 승인을 요구하고, yolo은 요구하지 않습니다. Global 편집은 omp config set으로 이루어지고, Project 편집은 프로젝트의 .omp/config.yml에 이 키 하나만 쓰며, Project 값을 지우면 Global로 대체됩니다. 키가 없으면 omp 기본값인 yolo입니다. 변경 사항은 이후에 시작된 세션에 적용됩니다.",
+    "어떤 omp 도구가 승인을 요청하는지 설정합니다. always-ask는 모든 도구, write는 변경을 수반하는 도구에만 승인을 요구하고, yolo은 요구하지 않습니다 — 단, 제한된 폴더는 모든 모드에서 승인을 요청합니다. Global 편집은 omp config set으로 이루어지고, Project 편집은 프로젝트의 .omp/config.yml에 이 키 하나만 쓰며, Project 값을 지우면 Global로 대체됩니다. 키가 없으면 omp 기본값인 yolo입니다. 변경 사항은 이후에 시작된 세션에 적용됩니다.",
   "settings.omp.approvalInherit": "상속",
   "settings.omp.approvalClear": "지우기",
   "settings.omp.approvalUnsupported":
     "이 프로젝트의 tools.approvalMode는 여기서 편집할 수 없습니다: {reason}",
+  "settings.omp.restrictedFolders": "제한된 폴더",
+  "settings.omp.restrictedFoldersHint":
+    "이 폴더에서의 모든 읽기, 쓰기, 편집, 검색, 명령은 yolo를 포함한 모든 승인 모드에서 승인/거부를 요청하며, 세션 승인이나 기억된 승인으로 대신할 수 없습니다. 폴더를 지정하면 그 아래 전체가 제한되고, 명령은 실행 디렉터리로 판단합니다. ~는 홈 폴더로 확장되고, 상대 경로는 각 세션의 작업 디렉터리를 기준으로 해석됩니다. Global 전용입니다 (omp 18.13.1+).",
+  "settings.omp.restrictedFoldersAdd": "제한 폴더 추가",
+  "settings.omp.restrictedFoldersBrowse": "찾아보기…",
+  "settings.omp.restrictedFoldersRemove": "제거",
+  "settings.omp.restrictedFoldersProjectOverride":
+    "이 프로젝트의 .omp/config.yml이 여기서 Global 목록을 재정의합니다. omp 해석 결과: {paths}",
+  "settings.omp.restrictedFoldersPickerPath": "제한할 폴더 경로",
+  "settings.omp.restrictedFoldersPickerWillAdd": "제한 대상:",
+  "settings.omp.restrictedFoldersPickerAdd": "폴더 제한",
   "settings.omp.subagentRefresh": "에이전트 새로고침",
   "settings.omp.subagentRefreshing": "새로고침 중…",
   "settings.omp.subagentRosterEmpty": "발견된 에이전트 없음 — 새로고침으로 omp 에이전트 열거",
@@ -1747,7 +1761,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.approval.subagentHint": "서브에이전트는 세션 모드를 무시하며 — tools.approval 정책만 따릅니다.",
   "hud.approval.alwaysAskTitle": "always-ask — 모든 도구가 승인을 기다립니다",
   "hud.approval.writeTitle": "write — 변경 도구가 승인을 기다립니다",
-  "hud.approval.yoloTitle": "yolo — 아무것도 승인을 기다리지 않습니다",
+  "hud.approval.yoloTitle": "yolo — 제한된 폴더를 제외하고 아무것도 승인을 기다리지 않습니다",
   "hud.approval.inheritTitle": "상속 — omp 자체 설정이 결정합니다",
   "hud.metrics.advisorTotal": "어드바이저 합계",
   "hud.metrics.context": "컨텍스트",

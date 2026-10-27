@@ -122,6 +122,9 @@ export const en = {
   "dialog.approval.safety": "Provider safety checks",
   "dialog.approval.allow": "Allow",
   "dialog.approval.deny": "Deny",
+  "dialog.approval.restricted": "Restricted folder",
+  "dialog.approval.restrictedHint":
+    "Restricted folders (tools.restrictedFolders) ask in every approval mode, yolo included. No session or remembered approval covers them.",
 
   // DeleteSessionDialog.tsx
   "dialog.delete.kicker": "Irreversible action",
@@ -1272,11 +1275,22 @@ export const en = {
   "settings.omp.contextFilesRemove": "remove",
   "settings.omp.approval": "Tool approval",
   "settings.omp.approvalHint":
-    "Which omp tools ask for approval. always-ask gates every tool, write gates the mutating ones, yolo gates none. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. An unset key means yolo — omp's own default. Changes apply to sessions started afterwards.",
+    "Which omp tools ask for approval. always-ask gates every tool, write gates the mutating ones, yolo gates none — except restricted folders, which ask in every tier. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. An unset key means yolo — omp's own default. Changes apply to sessions started afterwards.",
   "settings.omp.approvalInherit": "inherit",
   "settings.omp.approvalClear": "clear",
   "settings.omp.approvalUnsupported":
     "This project's tools.approvalMode can't be edited here: {reason}",
+  "settings.omp.restrictedFolders": "Restricted folders",
+  "settings.omp.restrictedFoldersHint":
+    "Folders where every read, write, edit, search, or command asks for Approve/Deny in every approval mode, yolo included; no session or remembered approval covers them. A folder restricts everything under it, and commands match by the directory they run in. ~ expands to your home folder; a relative path resolves against each session's working directory. Global only (omp 18.13.1+).",
+  "settings.omp.restrictedFoldersAdd": "add restricted folder",
+  "settings.omp.restrictedFoldersBrowse": "Browse…",
+  "settings.omp.restrictedFoldersRemove": "remove",
+  "settings.omp.restrictedFoldersProjectOverride":
+    "This project's .omp/config.yml overrides the Global list here. omp resolves: {paths}",
+  "settings.omp.restrictedFoldersPickerPath": "restricted folder path",
+  "settings.omp.restrictedFoldersPickerWillAdd": "Will restrict:",
+  "settings.omp.restrictedFoldersPickerAdd": "Restrict folder",
   "settings.omp.subagentRefresh": "refresh agents",
   "settings.omp.subagentRefreshing": "refreshing…",
   "settings.omp.subagentRosterEmpty": "no agents discovered yet — refresh to enumerate omp's agents",
@@ -1919,7 +1933,7 @@ export const en = {
   "hud.approval.subagentHint": "Subagents ignore the session mode — your tools.approval policy governs them.",
   "hud.approval.alwaysAskTitle": "always-ask — every tool waits for your approval",
   "hud.approval.writeTitle": "write — mutating tools wait for your approval",
-  "hud.approval.yoloTitle": "yolo — nothing waits for approval",
+  "hud.approval.yoloTitle": "yolo — nothing waits for approval except restricted folders",
   "hud.approval.inheritTitle": "inherit — omp's own config decides",
   "hud.metrics.advisorTotal": "advisor total",
   "hud.metrics.context": "context",

@@ -27,6 +27,7 @@ const PROMPT: ApprovalPrompt = {
   details: ["ls -la /etc"],
   providerSafety: ["injection scan: passed"],
   sessionLabel: null,
+  restrictedFolder: null,
 };
 
 let root: Root | null = null;
@@ -114,6 +115,23 @@ describe("ApprovalCard (issue #681)", () => {
     expect(texts).toContain("Allow");
     expect(texts).toContain("Deny");
     expect(texts.some((t) => t?.includes("for this session"))).toBe(false);
+  });
+
+  it("names the restricted folder in place of the generic reason (issue #951)", () => {
+    render({
+      ...PROMPT,
+      origin: null,
+      providerSafety: [],
+      reason: "Restricted folder: /home/u/secrets",
+      restrictedFolder: "/home/u/secrets",
+    });
+    const card = document.querySelector("[data-approval-card]")!;
+    expect(card.textContent).toContain("Restricted folder");
+    expect(card.textContent).toContain("/home/u/secrets");
+    expect(card.textContent).toContain("ask in every approval mode");
+    expect(card.textContent).not.toContain("Reason:");
+    const texts = [...document.querySelectorAll("button")].map((b) => b.textContent);
+    expect(texts).toEqual(["Deny", "Allow"]);
   });
 
   it("maps Escape to Deny — a dropped dialog is a refusal, never silence", () => {
