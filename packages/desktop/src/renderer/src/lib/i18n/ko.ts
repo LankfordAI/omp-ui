@@ -2256,10 +2256,13 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.session.implementsFrom": "{sourceTitle}의 ‘{planTitle}’ 구현",
   "sidebar.session.implementsUnavailable":
     "‘{planTitle}’ 구현 — 원본 세션을 사용할 수 없음",
-  "sidebar.session.implementation": "구현",
   "sidebar.session.sourceUnavailable": "원본 세션을 사용할 수 없음",
   "sidebar.session.planSource": "플랜 원본",
   "sidebar.session.machine": "{machine}에서",
+  "sidebar.session.planChip": "플랜",
+  "sidebar.session.implChip": "구현",
+  "sidebar.session.quoteQuestion": "질문",
+  "sidebar.session.quotePlan": "플랜 준비됨",
 
   "sidebar.session.openPlanning": "플래닝 세션 열기",
   "sidebar.session.stopResumable": "에이전트 중지(세션은 재개 가능)",
@@ -2273,8 +2276,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.session.liveVoice": "라이브 음성: {phase}",
   "sidebar.session.liveVoiceArmed": "라이브 음성: 대기 중 — 열면 재개",
   "sidebar.session.liveVoicePending": "라이브 음성: 결과 대기 중",
-
-  "sidebar.project.add": "프로젝트 추가",
 
   "sidebar.newSession": "새 세션 — 프로젝트 선택",
   "sidebar.settled.heading": "종료됨 ({n})",

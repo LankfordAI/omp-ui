@@ -12,7 +12,7 @@ import {
   shouldRestoreDesktopView,
   desktopViewStorage,
 } from "./desktop-view-state";
-import { BROWSER_PANE_DEFAULT_WIDTH } from "./panel-layout";
+import { BROWSER_PANE_DEFAULT_WIDTH, SIDEBAR_DEFAULT_WIDTH } from "./panel-layout";
 
 /**
  * Version-gated desktop view restoration (issue #99 tier 3).
@@ -183,7 +183,7 @@ describe("desktop view state", () => {
       activeTabId: null,
     };
     expect(parseDesktopView(JSON.stringify(base))).toMatchObject({
-      sidebarWidth: 272,
+      sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
       inspectorWidth: 304,
     });
     expect(parseDesktopView(JSON.stringify({
@@ -197,7 +197,7 @@ describe("desktop view state", () => {
       sidebarWidth: "bad",
       inspectorWidth: null,
       browserPaneWidth: "wide",
-    }))).toMatchObject({ sidebarWidth: 272, inspectorWidth: 304, browserPaneWidth: 560 });
+    }))).toMatchObject({ sidebarWidth: SIDEBAR_DEFAULT_WIDTH, inspectorWidth: 304, browserPaneWidth: 560 });
   });
 
   it("parses a v1 snapshot written before the browser pane existed with the pane default (#528)", () => {
@@ -265,7 +265,7 @@ describe("desktop view state", () => {
       appVersion: null,
       tabIds: ["a", "b", "c"],
       activeTabId: null,
-      sidebarWidth: 272,
+      sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
       inspectorWidth: 304,
       browserPaneWidth: 560,
       diffViewLayout: "unified",

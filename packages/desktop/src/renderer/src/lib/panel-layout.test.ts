@@ -39,12 +39,14 @@ describe("desktop panel layout", () => {
   });
 
   it("reduces the inspector first when the 900px desktop budget is exceeded", () => {
+    // 900 − 380 fixed = 520 of room against 312 + 304 = 616: the inspector
+    // bottoms out at 224 (80 given) and the sidebar gives the remaining 16.
     expect(resolveDesktopPanelWidths({ ...defaults, viewportWidth: 900 })).toEqual({
-      sidebarWidth: 272,
-      inspectorWidth: 248,
+      sidebarWidth: 296,
+      inspectorWidth: INSPECTOR_MIN_WIDTH,
       browserPaneWidth: 0,
-      sidebarAllowedMax: 272,
-      inspectorAllowedMax: 248,
+      sidebarAllowedMax: 296,
+      inspectorAllowedMax: INSPECTOR_MIN_WIDTH,
       browserPaneAllowedMax: BROWSER_PANE_MAX_WIDTH,
       browserPaneFits: true,
     });
@@ -91,29 +93,29 @@ describe("desktop panel layout", () => {
   });
 
   it("yields inspector, then sidebar, then browser pane when the pane joins the budget", () => {
-    // 1440 − 380 fixed = 1060 of variable room against 272 + 304 + 560 = 1136:
-    // the inspector alone absorbs the 76 overflow.
+    // 1500 − 380 fixed = 1120 of variable room against 312 + 304 + 560 = 1176:
+    // the inspector alone absorbs the 56 overflow.
     const inspectorOnly = resolveDesktopPanelWidths({
       ...defaults,
-      viewportWidth: 1440,
+      viewportWidth: 1500,
       browserPaneOpen: true,
     });
     expect(inspectorOnly).toMatchObject({
-      sidebarWidth: 272,
-      inspectorWidth: 304 - 76,
+      sidebarWidth: 312,
+      inspectorWidth: 304 - 56,
       browserPaneWidth: 560,
       browserPaneFits: true,
     });
 
-    // 1400 → 1020 of room: the inspector bottoms out at 224 (80 given) and
-    // the sidebar gives the remaining 36; the pane keeps its preference.
+    // 1440 → 1060 of room, 116 overflow: the inspector bottoms out at 224 (80
+    // given) and the sidebar gives the remaining 36; the pane keeps its preference.
     const thenSidebar = resolveDesktopPanelWidths({
       ...defaults,
-      viewportWidth: 1400,
+      viewportWidth: 1440,
       browserPaneOpen: true,
     });
     expect(thenSidebar).toMatchObject({
-      sidebarWidth: 272 - 36,
+      sidebarWidth: 312 - 36,
       inspectorWidth: INSPECTOR_MIN_WIDTH,
       browserPaneWidth: 560,
       browserPaneFits: true,
@@ -135,7 +137,7 @@ describe("desktop panel layout", () => {
   });
 
   it("gives the chrome panes their room back when the pane falls back to the column posture", () => {
-    // 900 → 520 of room: sidebar 272 + inspector 304 = 576 already overflows,
+    // 900 → 520 of room: sidebar 312 + inspector 304 = 616 already overflows,
     // so no split can fit; the pane is not rendered and must not shrink them.
     const resolved = resolveDesktopPanelWidths({
       ...defaults,
@@ -146,10 +148,10 @@ describe("desktop panel layout", () => {
       ...resolveDesktopPanelWidths({ ...defaults, viewportWidth: 900, browserPaneOpen: false }),
       browserPaneFits: false,
     });
-    // 1100 → 720 of room: the pair fits at preference (576) but leaves 144 for
+    // 1100 → 720 of room: the pair fits at preference (616) but leaves 104 for
     // the pane, under its 360 minimum; neither chrome pane yields for it.
     expect(resolveDesktopPanelWidths({ ...defaults, viewportWidth: 1100, browserPaneOpen: true }))
-      .toMatchObject({ sidebarWidth: 272, inspectorWidth: 304, browserPaneFits: false });
+      .toMatchObject({ sidebarWidth: 312, inspectorWidth: 304, browserPaneFits: false });
     // Collapsing the sidebar and closing the inspector frees enough room: the
     // collapsed sidebar takes no width, so the pane gets 900 − 380 = 520.
     expect(resolveDesktopPanelWidths({

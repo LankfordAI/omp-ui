@@ -83,6 +83,7 @@ function render(
   installedVersion: string | null,
   instanceNickname?: string | null,
   storePatch?: Partial<Pick<UiStore, "tabs" | "exited" | "activeTabId">>,
+  density?: "tile" | "slim",
 ): HTMLElement {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
@@ -100,7 +101,7 @@ function render(
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  act(() => root!.render(<SessionRow s={s} instanceNickname={instanceNickname} />));
+  act(() => root!.render(<SessionRow s={s} instanceNickname={instanceNickname} density={density} />));
   return host;
 }
 
@@ -221,5 +222,58 @@ describe("settled missing row resurfaces its hidden tab (#926)", () => {
     await act(async () => button.click());
     expect(useStore.getState().tabs).toEqual([]);
     expect(useStore.getState().activeTabId).toBeNull();
+  });
+});
+
+// Issue #938: the tile quotes what a waiting session asks, marks plan mode,
+// and keeps its hover actions out of the click path at rest.
+describe("session tile (#938)", () => {
+  function unmount(): void {
+    act(() => root!.unmount());
+    root = null;
+    document.body.replaceChildren();
+  }
+
+  function planChip(el: HTMLElement): Element | null {
+    return el.querySelector(`[title="${t("hud.mode.planDescription")}"]`);
+  }
+
+  it("quotes the pending question on the tile but not on the slim row", () => {
+    const waiting = summary({
+      live: "live",
+      awaitingHumanAnswer: true,
+      pendingDialogs: [{ type: "extension_ui_request", id: "q1", method: "select", title: "Which DB? (1/2)" }],
+    });
+    const tile = render(waiting, "18.11.3");
+    expect(tile.textContent).toContain("Which DB?");
+    // The page marker is dropped, as on the dialog card's heading.
+    expect(tile.textContent).not.toContain("(1/2)");
+    expect(tile.textContent).toContain(t("sidebar.session.quoteQuestion"));
+    unmount();
+
+    const slim = render(waiting, "18.11.3", null, undefined, "slim");
+    expect(slim.textContent).not.toContain("Which DB?");
+    expect(slim.textContent).not.toContain(t("sidebar.session.quoteQuestion"));
+  });
+
+  it("shows the plan chip for a plan-mode rpc-ui record only", () => {
+    const el = render(summary({ agentMode: "plan" }), "18.11.3");
+    const chip = planChip(el);
+    expect(chip).not.toBeNull();
+    expect(chip!.textContent).toBe(t("sidebar.session.planChip"));
+    unmount();
+
+    // agentMode records the last rpc-ui incarnation; a terminal tab never shows it.
+    const pty = render(summary({ agentMode: "plan", mode: "pty" }), "18.11.3");
+    expect(planChip(pty)).toBeNull();
+  });
+
+  it("keeps the hover action cluster out of the click path at rest", () => {
+    const el = render(summary(), "18.11.3");
+    const del = el.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t("sidebar.session.deleteFiles")}"]`,
+    )!;
+    expect(del).not.toBeNull();
+    expect(del.parentElement!.classList.contains("pointer-events-none")).toBe(true);
   });
 });
