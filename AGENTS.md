@@ -34,6 +34,17 @@ Instructions for coding agents working in this repository.
   they read the plan. Git that is the subject of the change or evidence for a
   diagnosis (`git log --grep`, `git blame`) does belong in a plan.
 
+## Commit messages and issue closing
+
+- Every `#N` a commit cites is marked: `Fixes #N` when this commit completes
+  the issue and the change is verified, `Refs #N` otherwise.
+  `.githooks/commit-msg` rejects an unmarked `#N`, and `npm install` enables it.
+- Never write `Refs` to get past the hook when the work is done: a `Refs`
+  landing leaves the issue open on purpose.
+- A `Fixes #N` landing on `main` or `develop` closes the issue, so do not close
+  it by hand.
+- Wrap a `#N` that is not an issue in backticks.
+
 ## Feature requests and bugs → GitHub issues
 
 **Every incoming feature request or bug report MUST be captured as a GitHub
@@ -86,6 +97,6 @@ Body must cover (matching `.github/ISSUE_TEMPLATE/feature_request.yml`):
 - Search for duplicates first: `gh issue list --repo LankfordAI/omp-ui --search "<keywords>"`.
   If a duplicate exists, comment on it instead of opening a new issue.
 - One issue per distinct request or defect — never bundle several into one.
-- If you then implement the fix/feature, report which issue the work resolves,
-  so the commit or PR the user lands can carry `Fixes #N` / `Closes #N`.
+- If you then implement the fix/feature, mark it in the commit that completes
+  it (`Fixes #N`) and report the issue number.
 - Do not close an issue until the change is verified working.

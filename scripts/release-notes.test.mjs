@@ -13,6 +13,7 @@ import {
   mergedWindow,
   parseRefs,
   renderReleaseNotes,
+  unmarkedRefs,
 } from "./release-notes.mjs";
 
 const repo = "octo/widgets";
@@ -31,6 +32,21 @@ function commit(index, sha, subject, extra = {}) {
 
 function hit(index, sha, subject, meta) {
   return { ...commit(index, sha, subject), ...meta, text: cleanSubject(subject) };
+}
+
+for (const [input, expected] of [
+  ["test(core): retry teardown (#948)", [948]],
+  ["fix: x (#948)\n\nFixes #948", []],
+  ["fix: x (#910, #918)\n\nRefs #910\nFixes #918", []],
+  ["fix: x\n\nRefs #3, #4", []],
+  ["Merge branch 'main'\n\n# Conflicts:\n#\tsrc/a.ts", []],
+  ["style: use `#000` and #1a2b3c, see owner/repo#9", []],
+  ["#12 first\n\nsee #13", [12, 13]],
+  ["Merge pull request #7 from x/y", []],
+]) {
+  test(`unmarkedRefs(${JSON.stringify(input)})`, () => {
+    assert.deepEqual(unmarkedRefs(input), expected);
+  });
 }
 
 function entry(number, hits) {

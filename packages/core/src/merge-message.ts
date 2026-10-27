@@ -5,7 +5,9 @@
  * record per worktree session instead of a silent fast-forward. The message is
  * built from the commits being folded in: their subjects, plus every GitHub
  * closing reference found in their full messages, re-emitted as `Fixes <ref>`
- * lines so the merge commit itself names what the session closes.
+ * lines so the merge commit itself names what the session closes, then a
+ * `Refs #N` line for every other issue they cite, so the merge commit marks
+ * every citation it carries and passes the repo's `commit-msg` check (#949).
  *
  * No subject shape names the worktree branch (issue #490): that name is minted
  * per machine — project slug + base segments + random 8-hex tail (issues
@@ -28,6 +30,10 @@ const BULLET_LIMIT = 20;
  */
 const CLOSING_REF =
   /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[\s:]+((?:[\w.-]+\/[\w.-]+)?#\d+|GH-\d+)/gi;
+/** An issue citation, the same shape scripts/release-notes.mjs RE.cited reads. */
+const CITED_REF = /(^|[\s([])#(\d+)\b/g;
+/** Inline code spans: a "#N" inside backticks is not a citation. */
+const CODE_SPAN = /`[^`\n]*`/g;
 
 export interface MergeMessage {
   /** First line of the merge commit. */
@@ -36,10 +42,15 @@ export interface MergeMessage {
   body: string;
 }
 
-/** Clips `text` to `max` characters, marking a cut with an ellipsis. */
+/**
+ * Clips `text` to `max` characters, marking a cut with an ellipsis. A cut never
+ * leaves an unclosed code span or a partial issue reference behind.
+ */
 function clip(text: string, max: number): string {
   if (text.length <= max) return text;
-  return `${text.slice(0, Math.max(0, max - 3)).trimEnd()}...`;
+  let kept = text.slice(0, Math.max(0, max - 3));
+  if ((kept.match(/`/g)?.length ?? 0) % 2 === 1) kept = kept.slice(0, kept.lastIndexOf("`"));
+  return `${kept.replace(/\(?#\d*$/, "").trimEnd()}...`;
 }
 
 /** First non-empty line of a commit message, trimmed; "" when there is none. */
@@ -67,6 +78,30 @@ function closingRefs(messages: readonly string[]): string[] {
 }
 
 /**
+ * Ordered unique `#N` citations across `messages` that no closing reference
+ * covers, as `#N`. Git comment lines ("#" not followed by a digit) and inline
+ * code spans are skipped.
+ */
+function notedRefs(messages: readonly string[], closing: readonly string[]): string[] {
+  const seen = new Set(closing.map((ref) => ref.toLowerCase()));
+  const noted: string[] = [];
+  for (const message of messages) {
+    const text = message
+      .split("\n")
+      .filter((line) => !/^#(?!\d)/.test(line))
+      .join("\n")
+      .replace(CODE_SPAN, "");
+    for (const match of text.matchAll(CITED_REF)) {
+      const ref = `#${match[2]}`;
+      if (seen.has(ref)) continue;
+      seen.add(ref);
+      noted.push(ref);
+    }
+  }
+  return noted;
+}
+
+/**
  * Builds the merge commit message for folding into `destination`.
  * `messages` are the full `%B` messages of the non-merge commits being merged,
  * oldest first — the order they read in the body.
@@ -80,6 +115,7 @@ export function buildMergeMessage({
 }): MergeMessage {
   const subjects = messages.map(subjectOf).filter((subject) => subject !== "");
   const refs = closingRefs(messages);
+  const noted = notedRefs(messages, refs);
 
   let subject: string;
   if (subjects.length === 1) {
@@ -100,8 +136,10 @@ export function buildMergeMessage({
     }
     paragraphs.push(listed.join("\n"));
   }
-  if (refs.length > 0) {
-    paragraphs.push(refs.map((ref) => `Fixes ${ref}`).join("\n"));
+  if (refs.length > 0 || noted.length > 0) {
+    paragraphs.push(
+      [...refs.map((ref) => `Fixes ${ref}`), ...noted.map((ref) => `Refs ${ref}`)].join("\n"),
+    );
   }
 
   return { subject, body: paragraphs.join("\n\n") };

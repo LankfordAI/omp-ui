@@ -53,7 +53,30 @@ describe("buildMergeMessage", () => {
   });
 
   it("does not treat a bare reference as a closing reference", () => {
-    expect(build(["a\n\nsee #3 for context\n", "b\n"]).body).toBe("- a\n- b");
+    expect(build(["a\n\nsee #3 for context\n", "b\n"]).body).toBe("- a\n- b\n\nRefs #3");
+  });
+
+  it("a ref closed in one commit and cited bare in another stays Fixes only", () => {
+    expect(build(["a (#7)\n", "b\n\nFixes #7\n"]).body).toBe("- a (#7)\n- b\n\nFixes #7");
+  });
+
+  it("a borrowed subject's bare ref gets a Refs line", () => {
+    expect(build(["test: retry (#948)\n"])).toEqual({
+      subject: "test: retry (#948)",
+      body: "Refs #948",
+    });
+  });
+
+  it("a bullet clipped inside a ref drops the fragment", () => {
+    // The 97-character cut lands on "(#94", inside the reference.
+    const long = `${"x".repeat(92)} (#948) ${"y".repeat(60)}`;
+    expect(long).toHaveLength(160);
+    const { body } = build([`${long}\n`, "short\n"]);
+    const bullet = body.split("\n")[0];
+    expect(bullet).toBe(`- ${"x".repeat(92)}...`);
+    expect(bullet).not.toMatch(/#\d+\.\.\.$/);
+    expect(body).not.toMatch(/Refs #94(?!\d)/);
+    expect(body).toContain("Refs #948");
   });
 
   it("caps the bullet list at 20 with a counted tail", () => {
