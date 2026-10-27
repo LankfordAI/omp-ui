@@ -34,6 +34,8 @@ const TOKEN_KEYS = [
   "--color-iris",
   "--color-iris-dim",
   "--color-iris-wash",
+  "--color-think-cool",
+  "--color-think-warm",
   "--color-edge-hi",
   "--color-edge-lo",
 ];

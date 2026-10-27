@@ -375,6 +375,11 @@
     0 1px 2px 0 var(--color-edge-lo);
 }
 
+/* Dashed slider fill under auto thinking (issue #946): cuts the gradient into dashes. */
+@utility think-dashes {
+  mask: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 7px);
+}
+
 /* One-step top-lit plane: overlay falls to raised across the card's top,
  * so the fill reads as a lit surface instead of flat cardboard. */
 @utility plane-lit {

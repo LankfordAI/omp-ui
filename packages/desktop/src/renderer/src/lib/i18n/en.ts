@@ -398,6 +398,7 @@ export const en = {
   // stays a lowercase literal in every locale.
   "composer.thinking.auto": "auto",
   "composer.thinking.autoTitle": "auto — omp classifies each prompt; this turn: {level}",
+  "composer.thinking.now": "now {level}",
   // Compact prompt-options surface
   "composer.options.title": "prompt options",
   // Desktop options pill popover groups (issue #939)
@@ -405,6 +406,8 @@ export const en = {
   "composer.options.groupSession": "session",
   "composer.options.groupWorkspace": "workspace",
   "composer.options.advisorHint": "changes restart the session",
+  "composer.options.mode": "mode",
+  "composer.options.restarts": "restarts",
   // Desktop composer + menu (issue #939)
   "composer.plus.label": "attach, voice, and commands",
   "composer.plus.attachHint": "images · pdf",
