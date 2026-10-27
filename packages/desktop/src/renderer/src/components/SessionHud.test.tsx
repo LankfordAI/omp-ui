@@ -6,7 +6,7 @@ import type { GoalState, NativeGoal } from "@omp-ui/core/goal";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import type { AsyncJob, AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
 import type { LimitsView } from "@omp-ui/core/limits";
-import type { BackendState, ExperimentRecord, OmpSettingsSnapshot, ProjectExperiments, ServiceTier } from "@omp-ui/core/types";
+import type { ApprovalMode, BackendState, ExperimentRecord, OmpSettingsSnapshot, ProjectExperiments, ServiceTier } from "@omp-ui/core/types";
 import { emptySessionRuntime, type SessionRuntime } from "../lib/rpc-types";
 import { backendState, remoteInstance, rpcTabState, tabInfo } from "../test/fixtures";
 import type { ExperimentsCache, RpcTabState } from "../store/types";
@@ -1846,7 +1846,7 @@ describe("SessionHud approval mode control (issue #681)", () => {
     });
   };
 
-  const seedApproval = (mode: "always-ask" | "write" | "yolo" | null): void => {
+  const seedApproval = (mode: ApprovalMode | null): void => {
     useStore.setState((s) => ({
       state: {
         ...s.state!,
@@ -1901,6 +1901,49 @@ describe("SessionHud approval mode control (issue #681)", () => {
     act(() => pick("inherit").click());
     expect(setSessionApprovalMode).toHaveBeenCalledWith(TAB, null);
     expect(pick("always-ask").title).toContain("every tool waits");
+  });
+
+  const setInstalledOmp = (installedVersion: string): void => {
+    useStore.setState((s) => ({ ompUpdate: { ...s.ompUpdate, installedVersion } }));
+  };
+  const cachedChoice = (): HTMLButtonElement => {
+    const found = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "always-ask-cached",
+    );
+    if (!found) throw new Error('no "always-ask-cached" choice');
+    return found;
+  };
+
+  it("enables Ask and remember on omp 18.12.3 and calls the setter", () => {
+    const setSessionApprovalMode = vi.fn(async () => {});
+    useStore.setState({ setSessionApprovalMode });
+    setInstalledOmp("18.12.3");
+    seedApproval("write");
+    const host = renderWide();
+    openModes(host);
+    const choice = cachedChoice();
+    expect(choice.disabled).toBe(false);
+    expect(choice.title).toContain("Ask and remember");
+    act(() => choice.click());
+    expect(setSessionApprovalMode).toHaveBeenCalledWith(TAB, "always-ask-cached");
+  });
+
+  it("gates Ask and remember below omp 18.12.3", () => {
+    setInstalledOmp("18.12.2");
+    seedApproval("write");
+    const host = renderWide();
+    openModes(host);
+    const choice = cachedChoice();
+    expect(choice.disabled).toBe(true);
+    expect(choice.title).toContain("18.12.3");
+  });
+
+  it("keeps Ask and remember enabled for a session already pinned to it", () => {
+    setInstalledOmp("18.12.2");
+    seedApproval("always-ask-cached");
+    const host = renderWide();
+    openModes(host);
+    expect(cachedChoice().disabled).toBe(false);
   });
 
   it("shows the resolved omp value while inheriting", async () => {

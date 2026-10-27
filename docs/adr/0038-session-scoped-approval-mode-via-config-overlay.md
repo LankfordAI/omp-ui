@@ -107,3 +107,32 @@ force the floor from 18.8.8 to 18.11.3, deleting the two-option case that is
 live under the current floor. The card answers "session" by echoing the
 frame's verbatim middle label (`ApprovalPrompt.sessionLabel`), never a
 rebuilt string.
+
+## Amendment (2026-10, issue #950)
+
+omp 18.12.3 added a fourth tier, `always-ask-cached` (Ask and remember): every
+tool still waits, but the approval select can offer grants that omp records
+in its approval cache for this session or for every session. omp-ui pins it
+through the same `--config` overlay as the other three tiers;
+`APPROVAL_MODES` in `packages/core/src/approval.ts` is the single list.
+
+The grant shape inserts pairs before `Approve Once`: a folder grant
+(`Approve Directory: <dir>` / `Always Approve Directory: <dir>`) and/or a
+target grant (`Approve <target>` / `Always Approve <target>`), folder first,
+then `Approve Once`, an optional session label, and `Deny`. The recognizer
+locates `Approve Once` first and reads the pairs before it, because the
+target label can be a bare `Approve` — the same word the older shapes use for
+"once". Any other arrangement is rejected and falls back to the generic
+dialog. As with #883, the card replies with the frame's own label verbatim
+(`approvalReply`); omp honours a grant only on exact equality.
+
+The approval card needs no version gate: a grant-shaped frame is itself proof
+that the harness understands grants. The mode picker does need one
+(`ASK_AND_REMEMBER_MIN_OMP`): an older omp reading an unknown
+`tools.approvalMode` falls back to yolo, so offering the tier there would
+silently remove every prompt. Unlike #883, registering this gate raises
+`MIN_SUPPORTED_OMP` to 18.12.3. That costs nothing live: 18.12.0–18.12.2
+emit no approval shape that 18.12.3 does not, so the bump removes no case the
+card handles today. Remembered approvals are cleared with omp's
+`/forget-approvals`, sent from Settings → omp → Tool approval when the focused
+session advertises it.

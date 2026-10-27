@@ -13,6 +13,7 @@ import type { ReviewDocument } from "./review-config";
 import type { SessionExperiment } from "./experiment-types";
 import type { VaultAction } from "./vault-shared";
 import type { FleetModelChoice, FleetPendingDispatch, FleetProvenance, FleetSpawnSpec } from "./fleet";
+import type { APPROVAL_MODES } from "./approval";
 export type {
   CheckoutExperiments,
   ExperimentDetail,
@@ -46,9 +47,11 @@ export type SessionStatus =
 
 export type SessionMode = "pty" | "rpc-ui";
 export type AgentMode = "plan" | "build";
-/** omp's `tools.approvalMode` tiers (issue #681, ADR-0038): `always-ask`
- *  gates every tool, `write` gates mutating tools, `yolo` gates nothing. */
-export type ApprovalMode = "always-ask" | "write" | "yolo";
+/** omp's `tools.approvalMode` tiers (issue #681, #950, ADR-0038): `always-ask`
+ *  gates every non-read tool, `always-ask-cached` (Ask and remember, omp ≥ 18.12.3)
+ *  also asks before file reads and can remember a file or folder, `write` gates
+ *  exec tools, `yolo` gates nothing. */
+export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 /** omp's controllable serving tiers (issue #719): `priority` is what
  *  `set_fast_mode(true)` / `/fast on` names, `ultrafast` is the `/fast
  *  ultra` rail. Deliberately excludes Fireworks' provider-scoped tier —

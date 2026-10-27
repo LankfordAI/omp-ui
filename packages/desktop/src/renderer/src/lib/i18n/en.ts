@@ -121,6 +121,9 @@ export const en = {
   "dialog.approval.reason": "Reason",
   "dialog.approval.safety": "Provider safety checks",
   "dialog.approval.allow": "Allow",
+  "dialog.approval.allowOnce": "Allow once",
+  "dialog.approval.remember": "Remember",
+  "dialog.approval.rememberAlways": "in every session",
   "dialog.approval.deny": "Deny",
 
   // DeleteSessionDialog.tsx
@@ -1284,11 +1287,17 @@ export const en = {
   "settings.omp.contextFilesRemove": "remove",
   "settings.omp.approval": "Tool approval",
   "settings.omp.approvalHint":
-    "Which omp tools ask for approval. always-ask gates every tool, write gates the mutating ones, yolo gates none. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. An unset key means yolo — omp's own default. Changes apply to sessions started afterwards.",
+    "Which omp tools ask for approval. always-ask gates every tool that writes or runs commands, always-ask-cached (Ask and remember) also asks before file reads and can remember a file or folder for this session or every session, write gates the ones that run commands, yolo gates none. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. An unset key means yolo — omp's own default. Changes apply to sessions started afterwards.",
   "settings.omp.approvalInherit": "inherit",
   "settings.omp.approvalClear": "clear",
   "settings.omp.approvalUnsupported":
     "This project's tools.approvalMode can't be edited here: {reason}",
+  "settings.omp.approvalCachedNeedsOmp": "always-ask-cached needs omp {version} or later.",
+  "settings.omp.approvalForget": "forget remembered approvals",
+  "settings.omp.approvalForgetHint":
+    "Runs /forget-approvals in the focused session. omp forgets the approvals remembered for every session and the ones this session remembered; other running sessions keep their own until they end.",
+  "settings.omp.approvalForgetUnavailable": "Focus a running session on this computer to forget remembered approvals.",
+  "settings.omp.approvalForgetSent": "Sent — omp's reply is in the focused session's transcript.",
   "settings.omp.subagentRefresh": "refresh agents",
   "settings.omp.subagentRefreshing": "refreshing…",
   "settings.omp.subagentRosterEmpty": "no agents discovered yet — refresh to enumerate omp's agents",
@@ -1930,6 +1939,8 @@ export const en = {
   "hud.approval.ptyHint": "A terminal session shows its prompts in its own terminal.",
   "hud.approval.subagentHint": "Subagents ignore the session mode — your tools.approval policy governs them.",
   "hud.approval.alwaysAskTitle": "always-ask — every tool waits for your approval",
+  "hud.approval.alwaysAskCachedTitle":
+    "always-ask-cached — Ask and remember: file reads wait too, and an answer can remember the file or folder",
   "hud.approval.writeTitle": "write — mutating tools wait for your approval",
   "hud.approval.yoloTitle": "yolo — nothing waits for approval",
   "hud.approval.inheritTitle": "inherit — omp's own config decides",

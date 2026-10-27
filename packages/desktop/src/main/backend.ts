@@ -145,6 +145,7 @@ import {
   type RemoteInstanceInput,
   type RemoteInstancePatch,
   type RpcFrame,
+  isApprovalMode,
   type ApprovalMode,
   type ServiceTier,
   type SessionMode,
@@ -885,10 +886,10 @@ export class MainBackend {
           return { value: layer.shape === "value" ? layer.value : undefined, layer };
         },
         [CH.setProjectApprovalMode]: async (projectCwd: string, value: ApprovalMode | null) => {
-          // A free-text value would silently resolve to omp's fail-safe
-          // always-ask or be ignored — refuse before touching the file, same
-          // stance as the maxConcurrency guard (issue #681).
-          if (value !== null && value !== "always-ask" && value !== "write" && value !== "yolo") {
+          // A free-text value would make omp resolve the tier to yolo (no
+          // approvals at all) — refuse before touching the file, same stance
+          // as the maxConcurrency guard (issue #681, #950).
+          if (value !== null && !isApprovalMode(value)) {
             throw new Error(`refusing invalid approvalMode: ${value}`);
           }
           await setProjectConfigValue(projectCwd, ["tools", "approvalMode"], value);

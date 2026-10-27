@@ -2624,6 +2624,7 @@ describe("reconcilePendingDialogs (issue #555)", () => {
     details: [],
     providerSafety: [],
     sessionLabel: null,
+    grants: [],
   };
 
   it("hydrates a held approval and keeps it out of the queue, idempotently", () => {
@@ -2709,6 +2710,56 @@ describe("reconcilePendingDialogs (issue #555)", () => {
     // The null guard precedes the send AND the clear — the hold stays answerable.
     expect(h.sent.length).toBe(before);
     expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).not.toBeNull();
+  });
+
+  // Ask and remember (issue #950): omp 18.12.3's grant-shaped select.
+  const GRANT_OPTIONS = [
+    "Approve Directory: /p/src",
+    "Approve File",
+    "Always Approve Directory: /p/src",
+    "Always Approve File",
+    "Approve Once",
+    "Deny",
+  ];
+  const grantPrompt = {
+    ...emptyPrompt,
+    toolName: "read",
+    grants: [
+      { scope: "folder" as const, label: "Approve Directory: /p/src", alwaysLabel: "Always Approve Directory: /p/src" },
+      { scope: "target" as const, label: "Approve File", alwaysLabel: "Always Approve File" },
+    ],
+  };
+
+  it("answers an always grant with the frame's verbatim always-label (issue #950)", () => {
+    const frame = approvalDialog("a1", "read", GRANT_OPTIONS);
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().acceptApprovalPrompt(h.TAB, grantPrompt, frame);
+
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, { grant: "folder", always: true })).toBe(true);
+    expect(h.sent.at(-1)).toMatchObject({
+      tabId: h.TAB,
+      cmd: { type: "extension_ui_response", id: "a1", value: "Always Approve Directory: /p/src" },
+    });
+    expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toBeNull();
+  });
+
+  it("refuses a grant answer on a frame without grants and keeps the hold (issue #950)", () => {
+    const frame = approvalDialog("a1");
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: rpcTabState({ approvalPrompt: { prompt: emptyPrompt, frame } }) } });
+    const before = h.sent.length;
+    expect(h.useStore.getState().answerApprovalPrompt(h.TAB, { grant: "target", always: false })).toBe(false);
+    expect(h.sent.length).toBe(before);
+    expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).not.toBeNull();
+  });
+
+  it("hydrates a grant-shaped pending approval, not the queue (issue #950)", () => {
+    const appr = approvalDialog("a1", "read", GRANT_OPTIONS);
+    const state = stateWithDialogs([appr]);
+    h.useStore.setState({ state, rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().reconcilePendingDialogs(state);
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.extensionQueue).toHaveLength(0);
+    expect(tab.approvalPrompt).toMatchObject({ frame: appr, prompt: { toolName: "read", grants: grantPrompt.grants } });
   });
 });
 

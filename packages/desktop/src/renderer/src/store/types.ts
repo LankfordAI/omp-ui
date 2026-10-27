@@ -1460,7 +1460,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** Holds an approval frame on its tab, split out of the generic queue (issue #681). */
   acceptApprovalPrompt(tabId: string, prompt: ApprovalPrompt, frame: unknown): void;
   /** Answers the held approval (skipping the send when the process exited) and clears it.
-   *  False when none is held, or when "session" is asked of a two-option prompt. */
+   *  False when none is held, or when the frame offers no such choice (core's
+   *  approvalReply yields null: "session" without a session label, a grant scope it lacks). */
   answerApprovalPrompt(tabId: string, choice: ApprovalChoice): boolean;
   /**
    * Compacts the context. Resolves `acked` only when omp acknowledged the

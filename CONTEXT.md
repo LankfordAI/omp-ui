@@ -714,12 +714,20 @@ on the three-option shape, the frame's own session label: omp's runner maps
 the answered label to once, deny, or a session-wide allowance that lands only
 when the reply equals its composed label exactly. Closing the card or
 pressing Escape answers Deny: a dropped dialog is a refusal, never a silent
-approval.
+approval. Under Ask and remember (`always-ask-cached`, omp ≥ 18.12.3, issue
+#950) the frame can also carry grant pairs — `Approve Directory: <dir>` /
+`Always Approve Directory: <dir>` and `Approve <target>` /
+`Always Approve <target>` — ahead of `Approve Once`. The card shows those
+grant choices above Allow once; an "in every session" switch flips each
+button between omp's label and its always-label, and the reply echoes the
+frame's chosen label verbatim (ADR-0038 amended for issue #950).
 _Avoid_: approval dialog, permission prompt, tool gate card
 
 **Approval mode**:
 A session's pinned omp `tools.approvalMode` tier — `always-ask` (every tool
-waits), `write` (mutating tools wait), `yolo` (nothing waits) — or *inherit*,
+waits), `always-ask-cached` (Ask and remember: every tool waits, and the
+approval card can record a Remembered approval; omp ≥ 18.12.3), `write`
+(mutating tools wait), `yolo` (nothing waits) — or *inherit*,
 meaning no pin and omp resolves its own global/project config (where an
 absent key means yolo). omp binds the mode at process start, so the pin rides
 a `--config` overlay written at spawn and changing it relaunches the session
@@ -729,6 +737,14 @@ terminal session's prompts appear in its own embedded TUI, never as an
 approval card. Defaults live in omp's own config (ADR-0025), never in a
 second store.
 _Avoid_: permission mode, tool policy setting, auto-approve flag
+
+**Remembered approval**:
+A file or folder grant that Ask and remember records, from the approval card,
+for one session or for every session; omp keeps it in its own
+`approval-cache.db`, and a later matching tool call runs without asking. omp-ui
+stores none of it. `/forget-approvals` clears them, sent from Settings → omp →
+Tool approval or typed in the composer.
+_Avoid_: cached permission, allowlist entry, saved grant
 
 **Magic keyword**:
 One of omp's four prose keywords — `ultrathink`, `orchestrate`, `workflowz`,

@@ -80,6 +80,8 @@ Manual compacting summarizes the current context. The transcript records it as a
 
 The modes panel's queue controls set separate policies for steering messages, follow-ups, and tool interruption. Steering and follow-ups can drain one at a time or all at once. Interruption can stop an in-flight tool immediately or wait for it to finish.
 
+The modes panel's approval row also offers **Ask and remember** (`always-ask-cached`) on omp 18.12.3 or newer: every tool still asks, but the approval card can remember the answer. When omp offers a folder or file grant, the card lists those choices above **Allow once**. Turn on the **in every session** switch to make the grant permanent instead of lasting for this session only; the buttons then show omp's "Always …" labels. To forget remembered approvals, use **forget remembered approvals** in **Settings → omp → Tool approval** while a running native session is focused, or type `/forget-approvals`.
+
 ### Write in the composer
 
 The composer controls what the next native turn receives:
@@ -243,7 +245,7 @@ Only explicit Markdown note links participate. Literal paths, `[[wikilinks]]`, b
 
 Ask the agent in any native session for a note of everything worked on today, and it writes one **Day write-up** into the vault: `omp-ui/<YYYY-MM-DD> Day Write-up.md`, stamped without a project and linked from no Index note. It lands in the project's vault, or in the Default write vault when the project names none. The agent builds it from omp-ui's own session records: the day's sessions across every project, each with its title, mode, branch, and the agent's last reply. Your messages are never passed to it. Ask again the same day and it replaces that note's body instead of writing a second note. Any native session can do this once a vault is registered, whatever the project's Knowledge home. Your own Obsidian daily notes are untouched.
 
-Plan mode does not protect the vault: OMP's write guard covers the working tree, not omp-ui's host tools, so an agent in Plan mode can still write vault notes. Every vault tool runs at OMP's `exec` approval tier, so with **Tool approval** set to `write` or `always-ask` each vault call, reads included, asks for approval first. Subagents cannot call the vault tools, and a call the agent makes from inside its own eval kernel shows as that eval call; neither produces a vault card, and neither appears under Vault notes.
+Plan mode does not protect the vault: OMP's write guard covers the working tree, not omp-ui's host tools, so an agent in Plan mode can still write vault notes. Every vault tool runs at OMP's `exec` approval tier, so with **Tool approval** set to `write`, `always-ask`, or `always-ask-cached` each vault call, reads included, asks for approval first. Subagents cannot call the vault tools, and a call the agent makes from inside its own eval kernel shows as that eval call; neither produces a vault card, and neither appears under Vault notes.
 
 ## Share a terminal session live
 
