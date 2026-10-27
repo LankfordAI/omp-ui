@@ -8,6 +8,7 @@ import {
   useIncrementalHighlightTokens,
 } from "../lib/highlight";
 import { strField } from "../lib/fields";
+import { editErrorKindLabel } from "../lib/edit-rejections";
 import type { ThemedToken } from "shiki/core";
 import { useT, type MessageKey } from "../lib/i18n";
 import type { AdvisorNote, ToolItem } from "../lib/transcript";
@@ -657,6 +658,11 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
               {t("transcript.tool.stalled", { duration: formatDuration(streamStallMs) })}
             </Chip>
           ))}
+        {item.status === "error" && item.errorKind !== undefined && (
+          <Chip tone="rose" title={t("transcript.tool.errorKindTitle", { kind: item.errorKind })}>
+            {editErrorKindLabel(item.errorKind)}
+          </Chip>
+        )}
         {item.status === "error" && <Chip tone="rose">{t("transcript.tool.error")}</Chip>}
         {item.status === "aborted" && <Chip tone="copper">{t("transcript.tool.aborted")}</Chip>}
         {item.status === "cancelled" && <Chip>{t("transcript.tool.cancelled")}</Chip>}

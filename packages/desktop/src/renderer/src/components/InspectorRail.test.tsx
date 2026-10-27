@@ -4,7 +4,7 @@ import type { LiveAudioEntry } from "@omp-ui/core/live-voice";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { emptySessionRuntime } from "../lib/rpc-types";
+import { emptySessionRuntime, type SessionStats } from "../lib/rpc-types";
 import { applyLocale, resolveLocale, t } from "../lib/i18n";
 import type { RpcTabState } from "../store";
 import { backendState } from "../test/fixtures";
@@ -192,6 +192,21 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
   };
 }
 
+function sessionStats(patch: Partial<SessionStats> = {}): SessionStats {
+  return {
+    userMessages: 1, assistantMessages: 1, toolCalls: 3, toolResults: 3, totalMessages: 8,
+    tokens: { input: 10, output: 10, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 20 },
+    cost: 0, premiumRequests: 0, editRejections: [], contextUsage: null,
+    ...patch,
+  };
+}
+
+function railSection(title: string): HTMLElement | undefined {
+  return [...document.body.querySelectorAll<HTMLElement>("section")].find(
+    (s) => s.firstElementChild?.textContent === title,
+  );
+}
+
 function renderRail(): void {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -258,6 +273,28 @@ afterEach(() => {
 });
 
 describe("desktop InspectorRail", () => {
+  it("lists failed edits by reason with a total, and hides the section when there are none (issue #953)", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          stats: sessionStats({
+            editRejections: [{ kind: "stale_tag", count: 3 }, { kind: "future_kind", count: 1 }],
+          }),
+        }),
+      },
+    });
+    renderRail();
+    openPane("session");
+    const rows = [...railSection("failed edits")!.querySelectorAll("tr")].map((tr) =>
+      [...tr.cells].map((cell) => cell.textContent),
+    );
+    expect(rows).toEqual([["stale tag", "3"], ["future kind", "1"], ["total", "4"]]);
+
+    act(() => useStore.setState({ rpc: { [TAB]: runtime({ stats: sessionStats() }) } }));
+    expect(railSection("failed edits")).toBeUndefined();
+    expect(railSection("messages")).toBeDefined();
+  });
+
   it("shows four labelled groups and opens one pane at a time (issues #48, #75, #940)", () => {
     renderRail();
 

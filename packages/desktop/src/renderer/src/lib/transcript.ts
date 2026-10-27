@@ -83,6 +83,8 @@ export interface ToolItem {
   op?: string;
   /** bash details.wallTimeMs. */
   wallTimeMs?: number;
+  /** edit details.errorKind (omp 18.13.0+): why omp refused a failed edit; the card shows it only on error. */
+  errorKind?: string;
   notes?: AdvisorNote[];
   /** omp-ui vault host tool result details (issue #767): the card and the rail's Vault notes read it. */
   vault?: VaultToolDetails;
@@ -481,14 +483,15 @@ function assistantMeta(message: Record<string, unknown>): Partial<AssistantItem>
   };
 }
 
-/** Per-tool `result.details`: edit/write carry `path`/`op`, read hides it under meta.source. */
-function detailFacts(details: unknown): Pick<ToolItem, "path" | "op" | "wallTimeMs"> {
+/** Per-tool `result.details`: edit/write carry `path`/`op` (a failed edit `errorKind`), read hides it under meta.source. */
+function detailFacts(details: unknown): Pick<ToolItem, "path" | "op" | "wallTimeMs" | "errorKind"> {
   return {
     path:
       strField(details, "path") ??
       strField(field(field(details, "meta"), "source"), "value"),
     op: strField(details, "op"),
     wallTimeMs: numField(details, "wallTimeMs"),
+    errorKind: strField(details, "errorKind"),
   };
 }
 
