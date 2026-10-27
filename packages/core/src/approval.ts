@@ -22,7 +22,10 @@
  * located first to tell the shapes apart. The reply is always the option
  * label: omp's runner compares it for exact equality against its own composed
  * labels, so session and grant answers MUST echo the frame's verbatim label,
- * never a reconstruction. approvalReply does that mapping.
+ * never a reconstruction. approvalReply does that mapping. On omp ≥
+ * 18.13.1 a restricted-folder prompt uses the two-option shape with
+ * `Reason: Restricted folder: <path>`, and omp composes no session option for
+ * it because its session-subject lookup requires `source === "mode"`.
  */
 
 import type { ApprovalMode } from "./types";
@@ -69,6 +72,7 @@ export type ApprovalChoice =
 
 const ORIGIN_MCP_LINE = "Origin: MCP server tool";
 const REASON_PREFIX = "Reason: ";
+const RESTRICTED_PREFIX = "Restricted folder: ";
 const SAFETY_SENTINEL = "Provider safety checks:";
 
 export interface ApprovalPrompt {
@@ -76,6 +80,10 @@ export interface ApprovalPrompt {
   /** Set for `mcp__*` tools with no `approval` config entry. */
   origin: "mcp" | null;
   reason: string | null;
+  /** The folder named by a `Reason: Restricted folder: <path>` line (omp ≥ 18.13.1,
+   *  `tools.restrictedFolders`), verbatim; null otherwise. Such a prompt asks in
+   *  every approval mode and omp offers no session choice for it. */
+  restrictedFolder: string | null;
   /** formatApprovalDetails lines — where bash commands / edit arguments land. */
   details: string[];
   /** Lines after the sentinel line; empty when no provider-safety run. */
@@ -183,6 +191,7 @@ export function parseApprovalPrompt(title: unknown, options: unknown): ApprovalP
     toolName,
     origin: null,
     reason: null,
+    restrictedFolder: null,
     details: [],
     providerSafety: [],
     sessionLabel: read.sessionLabel,
@@ -203,6 +212,10 @@ export function parseApprovalPrompt(title: unknown, options: unknown): ApprovalP
     } else {
       prompt.details.push(line);
     }
+  }
+  if (prompt.reason !== null && prompt.reason.startsWith(RESTRICTED_PREFIX)) {
+    const folder = prompt.reason.slice(RESTRICTED_PREFIX.length);
+    if (folder !== "") prompt.restrictedFolder = folder;
   }
   return prompt;
 }

@@ -76,6 +76,20 @@ export const CONTEXT_FILES_SETTING_GROUP: OmpSettingGroup = {
 };
 
 /**
+ * Folders where every read, write, edit, search, or command asks for an
+ * explicit approval in every approval mode, yolo included (omp 18.13.1,
+ * issue #951). Allowlisted but NOT in OMP_SETTING_GROUPS: an array renders
+ * as a read-only JSON span in the generic row (rows.tsx), so
+ * RestrictedFoldersSection owns the editable row. Global-only: omp marks the
+ * key `restrictedFoldersNotProject`.
+ */
+export const RESTRICTED_FOLDERS_KEY = "tools.restrictedFolders";
+export const RESTRICTED_FOLDERS_SETTING_GROUP: OmpSettingGroup = {
+  title: "Restricted folders",
+  keys: [RESTRICTED_FOLDERS_KEY],
+};
+
+/**
  * The privacy keys. Allowlisted but NOT in OMP_SETTING_GROUPS: the Providers
  * page renders its own switch for the telemetry opt-out (issue #670), so the
  * omp page shows no duplicate row for it. Allowlisted so the write boundary
@@ -272,6 +286,7 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...SHARE_SETTING_GROUP.keys,
   ...APPROVAL_SETTING_GROUP.keys,
   ...SPEND_CAP_SETTING_GROUP.keys,
+  ...RESTRICTED_FOLDERS_SETTING_GROUP.keys,
   ...LIVE_VOICE_SETTING_GROUP.keys,
   ...STATUS_LINE_SETTING_GROUP.keys,
   ...COMPACTION_MODEL_THRESHOLD_SETTING_GROUP.keys,

@@ -50,7 +50,8 @@ export type AgentMode = "plan" | "build";
 /** omp's `tools.approvalMode` tiers (issue #681, #950, ADR-0038): `always-ask`
  *  gates every non-read tool, `always-ask-cached` (Ask and remember, omp ≥ 18.12.3)
  *  also asks before file reads and can remember a file or folder, `write` gates
- *  exec tools, `yolo` gates nothing. */
+ *  exec tools, `yolo` gates nothing but restricted folders
+ *  (`tools.restrictedFolders`, omp ≥ 18.13.1). */
 export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 /** omp's controllable serving tiers (issue #719): `priority` is what
  *  `set_fast_mode(true)` / `/fast on` names, `ultrafast` is the `/fast

@@ -4,15 +4,17 @@ import { backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { fuzzyMatch, highlightRuns } from "../lib/fuzzy";
 import { useT } from "../lib/i18n";
+import type { MessageKey } from "../lib/i18n/types";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey } from "../lib/hotkeys";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
 import { Button, Chip, Modal } from "./ui";
 
 /**
- * In-app, keyboard-driven directory picker for "Add project" (issue #16) and
- * "Add vault" (issue #764). Every keystroke asks the main process for one
- * directory listing whose leaf fuzzy-matches (subsequence) the current
+ * In-app, keyboard-driven directory picker for "Add project" (issue #16),
+ * "Add vault" (issue #764), and "Restrict folder" (issue #951). Every
+ * keystroke asks the main process for one directory listing whose leaf
+ * fuzzy-matches (subsequence) the current
  * directory's names (issue #483); a generation counter discards stale
  * responses (no debounce needed — local readdir is cheap). Rows are ranked
  * here with the shared scorer, and matched characters are highlighted. Enter
@@ -44,7 +46,7 @@ function commonPrefix(names: string[]): string {
 type PickerRow = { kind: "up" } | { kind: "dir"; entry: DirBrowseEntry; hits: number[] };
 
 export interface DirectoryPickerProps {
-  mode: "project" | "vault";
+  mode: "project" | "vault" | "folder";
   /** Whose filesystem is browsed (issue #416); vault mode always passes null. */
   instanceId: string | null;
   /** Line above the input (the joined instance's "Register project on {nickname}"), or null. */
@@ -54,10 +56,36 @@ export interface DirectoryPickerProps {
   onSubmit: (path: string) => Promise<void>;
 }
 
+/** Per-mode copy; the `vault` flag in the component only drives the `.obsidian` probe. */
+const PICKER_COPY: Record<
+  DirectoryPickerProps["mode"],
+  { placeholder: string; pathLabel: MessageKey; willAdd: MessageKey; add: MessageKey }
+> = {
+  project: {
+    placeholder: "~/path/to/project",
+    pathLabel: "project.picker.pathLabel",
+    willAdd: "project.picker.willAdd",
+    add: "project.picker.addProject",
+  },
+  vault: {
+    placeholder: "~/path/to/vault",
+    pathLabel: "settings.vault.pickerPath",
+    willAdd: "settings.vault.pickerWillAdd",
+    add: "settings.vault.pickerAdd",
+  },
+  folder: {
+    placeholder: "~/path/to/folder",
+    pathLabel: "settings.omp.restrictedFoldersPickerPath",
+    willAdd: "settings.omp.restrictedFoldersPickerWillAdd",
+    add: "settings.omp.restrictedFoldersPickerAdd",
+  },
+};
+
 export function DirectoryPicker({ mode, instanceId, banner, onClose, onSubmit }: DirectoryPickerProps) {
   const t = useT();
   const compact = useCompactShell();
   const vault = mode === "vault";
+  const copy = PICKER_COPY[mode];
 
   const [query, setQuery] = useState("~/");
   const [entries, setEntries] = useState<DirBrowseEntry[]>([]);
@@ -254,8 +282,8 @@ export function DirectoryPicker({ mode, instanceId, banner, onClose, onSubmit }:
           ref={inputRef}
           value={query}
           spellCheck={false}
-          placeholder={vault ? "~/path/to/vault" : "~/path/to/project"}
-          aria-label={vault ? t("settings.vault.pickerPath") : t("project.picker.pathLabel")}
+          placeholder={copy.placeholder}
+          aria-label={t(copy.pathLabel)}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleInputKey}
           className="min-w-0 flex-1 bg-transparent font-mono text-sm text-ink placeholder:text-ink-faint focus:outline-none"
@@ -320,7 +348,7 @@ export function DirectoryPicker({ mode, instanceId, banner, onClose, onSubmit }:
       <div className="border-t border-line px-3.5 py-2">
         <div className="flex items-center gap-3">
           <p className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">
-            {vault ? t("settings.vault.pickerWillAdd") : t("project.picker.willAdd")}{" "}
+            {t(copy.willAdd)}{" "}
             <span className="font-mono text-ink-mid">{resolvedPath || "—"}</span>
           </p>
           {vault && obsidianCheck !== null && obsidianCheck.path === resolvedPath && (obsidianCheck.found ? (
@@ -329,7 +357,7 @@ export function DirectoryPicker({ mode, instanceId, banner, onClose, onSubmit }:
             <Chip tone="copper">{t("settings.vault.notVaultYet")}</Chip>
           ))}
           <Button variant="solid" disabled={!resolvedPath || browseError !== null} onClick={() => submit(resolvedPath)}>
-            {vault ? t("settings.vault.pickerAdd") : t("project.picker.addProject")}
+            {t(copy.add)}
           </Button>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-ink-faint">

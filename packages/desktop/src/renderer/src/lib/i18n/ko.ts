@@ -115,6 +115,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.approval.remember": "기억",
   "dialog.approval.rememberAlways": "모든 세션에서",
   "dialog.approval.deny": "거부",
+  "dialog.approval.restricted": "제한된 폴더",
+  "dialog.approval.restrictedHint":
+    "제한된 폴더(tools.restrictedFolders)는 yolo를 포함한 모든 승인 모드에서 승인을 요청합니다. 세션 승인이나 기억된 승인으로 대신할 수 없습니다.",
 
   "dialog.delete.kicker": "되돌릴 수 없는 작업",
   "dialog.delete.title": "“{title}”을(를) 삭제할까요?",
@@ -1161,7 +1164,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.omp.contextFilesRemove": "제거",
   "settings.omp.approval": "도구 승인",
   "settings.omp.approvalHint":
-    "어떤 omp 도구가 승인을 요청하는지 설정합니다. always-ask는 쓰기나 명령 실행 도구에, always-ask-cached(묻고 기억)는 파일 읽기에도 승인을 요구하며 파일이나 폴더를 이 세션 또는 모든 세션에 대해 기억할 수 있고, write는 명령 실행 도구에만 요구하며, yolo는 요구하지 않습니다. Global 편집은 omp config set으로 이루어지고, Project 편집은 프로젝트의 .omp/config.yml에 이 키 하나만 쓰며, Project 값을 지우면 Global로 대체됩니다. 키가 없으면 omp 기본값인 yolo입니다. 변경 사항은 이후에 시작된 세션에 적용됩니다.",
+    "어떤 omp 도구가 승인을 요청하는지 설정합니다. always-ask는 쓰기나 명령 실행 도구에, always-ask-cached(묻고 기억)는 파일 읽기에도 승인을 요구하며 파일이나 폴더를 이 세션 또는 모든 세션에 대해 기억할 수 있고, write는 명령 실행 도구에만 요구하며, yolo는 요구하지 않습니다 — 단, 제한된 폴더는 모든 모드에서 승인을 요청합니다. Global 편집은 omp config set으로 이루어지고, Project 편집은 프로젝트의 .omp/config.yml에 이 키 하나만 쓰며, Project 값을 지우면 Global로 대체됩니다. 키가 없으면 omp 기본값인 yolo입니다. 변경 사항은 이후에 시작된 세션에 적용됩니다.",
   "settings.omp.approvalInherit": "상속",
   "settings.omp.approvalClear": "지우기",
   "settings.omp.approvalUnsupported":
@@ -1172,6 +1175,17 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "포커스된 세션에서 /forget-approvals를 실행합니다. omp는 모든 세션용으로 기억된 승인과 이 세션이 기억한 승인을 지웁니다. 실행 중인 다른 세션은 종료될 때까지 자체 승인을 유지합니다.",
   "settings.omp.approvalForgetUnavailable": "기억된 승인을 지우려면 이 컴퓨터에서 실행 중인 세션에 포커스하세요.",
   "settings.omp.approvalForgetSent": "전송됨 — omp의 응답은 포커스된 세션의 대화 기록에 있습니다.",
+  "settings.omp.restrictedFolders": "제한된 폴더",
+  "settings.omp.restrictedFoldersHint":
+    "이 폴더에서의 모든 읽기, 쓰기, 편집, 검색, 명령은 yolo를 포함한 모든 승인 모드에서 승인/거부를 요청하며, 세션 승인이나 기억된 승인으로 대신할 수 없습니다. 폴더를 지정하면 그 아래 전체가 제한되고, 명령은 실행 디렉터리로 판단합니다. ~는 홈 폴더로 확장되고, 상대 경로는 각 세션의 작업 디렉터리를 기준으로 해석됩니다. Global 전용입니다 (omp 18.13.1+).",
+  "settings.omp.restrictedFoldersAdd": "제한 폴더 추가",
+  "settings.omp.restrictedFoldersBrowse": "찾아보기…",
+  "settings.omp.restrictedFoldersRemove": "제거",
+  "settings.omp.restrictedFoldersProjectOverride":
+    "이 프로젝트의 .omp/config.yml이 여기서 Global 목록을 재정의합니다. omp 해석 결과: {paths}",
+  "settings.omp.restrictedFoldersPickerPath": "제한할 폴더 경로",
+  "settings.omp.restrictedFoldersPickerWillAdd": "제한 대상:",
+  "settings.omp.restrictedFoldersPickerAdd": "폴더 제한",
   "settings.omp.subagentRefresh": "에이전트 새로고침",
   "settings.omp.subagentRefreshing": "새로고침 중…",
   "settings.omp.subagentRosterEmpty": "발견된 에이전트 없음 — 새로고침으로 omp 에이전트 열거",
@@ -1769,7 +1783,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.approval.alwaysAskCachedTitle":
     "always-ask-cached — 묻고 기억: 파일 읽기도 승인을 기다리며, 답변으로 파일이나 폴더를 기억할 수 있습니다",
   "hud.approval.writeTitle": "write — 변경 도구가 승인을 기다립니다",
-  "hud.approval.yoloTitle": "yolo — 아무것도 승인을 기다리지 않습니다",
+  "hud.approval.yoloTitle": "yolo — 제한된 폴더를 제외하고 아무것도 승인을 기다리지 않습니다",
   "hud.approval.inheritTitle": "상속 — omp 자체 설정이 결정합니다",
   "hud.metrics.advisorTotal": "어드바이저 합계",
   "hud.metrics.context": "컨텍스트",

@@ -125,6 +125,9 @@ export const en = {
   "dialog.approval.remember": "Remember",
   "dialog.approval.rememberAlways": "in every session",
   "dialog.approval.deny": "Deny",
+  "dialog.approval.restricted": "Restricted folder",
+  "dialog.approval.restrictedHint":
+    "Restricted folders (tools.restrictedFolders) ask in every approval mode, yolo included. No session or remembered approval covers them.",
 
   // DeleteSessionDialog.tsx
   "dialog.delete.kicker": "Irreversible action",
@@ -1287,7 +1290,7 @@ export const en = {
   "settings.omp.contextFilesRemove": "remove",
   "settings.omp.approval": "Tool approval",
   "settings.omp.approvalHint":
-    "Which omp tools ask for approval. always-ask gates every tool that writes or runs commands, always-ask-cached (Ask and remember) also asks before file reads and can remember a file or folder for this session or every session, write gates the ones that run commands, yolo gates none. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. An unset key means yolo — omp's own default. Changes apply to sessions started afterwards.",
+    "Which omp tools ask for approval. always-ask gates every tool that writes or runs commands, always-ask-cached (Ask and remember) also asks before file reads and can remember a file or folder for this session or every session, write gates the ones that run commands, yolo gates none — except restricted folders, which ask in every tier. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. An unset key means yolo — omp's own default. Changes apply to sessions started afterwards.",
   "settings.omp.approvalInherit": "inherit",
   "settings.omp.approvalClear": "clear",
   "settings.omp.approvalUnsupported":
@@ -1298,6 +1301,17 @@ export const en = {
     "Runs /forget-approvals in the focused session. omp forgets the approvals remembered for every session and the ones this session remembered; other running sessions keep their own until they end.",
   "settings.omp.approvalForgetUnavailable": "Focus a running session on this computer to forget remembered approvals.",
   "settings.omp.approvalForgetSent": "Sent — omp's reply is in the focused session's transcript.",
+  "settings.omp.restrictedFolders": "Restricted folders",
+  "settings.omp.restrictedFoldersHint":
+    "Folders where every read, write, edit, search, or command asks for Approve/Deny in every approval mode, yolo included; no session or remembered approval covers them. A folder restricts everything under it, and commands match by the directory they run in. ~ expands to your home folder; a relative path resolves against each session's working directory. Global only (omp 18.13.1+).",
+  "settings.omp.restrictedFoldersAdd": "add restricted folder",
+  "settings.omp.restrictedFoldersBrowse": "Browse…",
+  "settings.omp.restrictedFoldersRemove": "remove",
+  "settings.omp.restrictedFoldersProjectOverride":
+    "This project's .omp/config.yml overrides the Global list here. omp resolves: {paths}",
+  "settings.omp.restrictedFoldersPickerPath": "restricted folder path",
+  "settings.omp.restrictedFoldersPickerWillAdd": "Will restrict:",
+  "settings.omp.restrictedFoldersPickerAdd": "Restrict folder",
   "settings.omp.subagentRefresh": "refresh agents",
   "settings.omp.subagentRefreshing": "refreshing…",
   "settings.omp.subagentRosterEmpty": "no agents discovered yet — refresh to enumerate omp's agents",
@@ -1942,7 +1956,7 @@ export const en = {
   "hud.approval.alwaysAskCachedTitle":
     "always-ask-cached — Ask and remember: file reads wait too, and an answer can remember the file or folder",
   "hud.approval.writeTitle": "write — mutating tools wait for your approval",
-  "hud.approval.yoloTitle": "yolo — nothing waits for approval",
+  "hud.approval.yoloTitle": "yolo — nothing waits for approval except restricted folders",
   "hud.approval.inheritTitle": "inherit — omp's own config decides",
   "hud.metrics.advisorTotal": "advisor total",
   "hud.metrics.context": "context",

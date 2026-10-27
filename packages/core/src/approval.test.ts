@@ -9,6 +9,7 @@ describe("parseApprovalPrompt", () => {
       toolName: "Bash",
       origin: null,
       reason: null,
+      restrictedFolder: null,
       details: [],
       providerSafety: [],
       sessionLabel: null,
@@ -32,6 +33,7 @@ describe("parseApprovalPrompt", () => {
       toolName: "Edit",
       origin: "mcp",
       reason: "policy: edits need a person",
+      restrictedFolder: null,
       details: ["--- a/src/x.ts", "+++ b/src/x.ts", "@@ -1 +1 @@"],
       providerSafety: [],
       sessionLabel: null,
@@ -64,6 +66,33 @@ describe("parseApprovalPrompt", () => {
     );
     expect(prompt?.reason).toBe("because");
     expect(prompt?.details).toEqual(["more of the reason", "ls -la"]);
+  });
+
+  it("reads a restricted-folder prompt (omp 18.13.1, issue #951)", () => {
+    const prompt = parseApprovalPrompt(
+      [
+        "Allow tool: read",
+        "Reason: Restricted folder: /home/u/secrets",
+        "Path: /home/u/secrets/a.txt",
+      ].join("\n"),
+      OPTIONS,
+    );
+    expect(prompt).toMatchObject({
+      toolName: "read",
+      reason: "Restricted folder: /home/u/secrets",
+      restrictedFolder: "/home/u/secrets",
+      sessionLabel: null,
+      details: ["Path: /home/u/secrets/a.txt"],
+    });
+  });
+
+  it("leaves restrictedFolder null for other reasons and an empty folder", () => {
+    const policy = parseApprovalPrompt("Allow tool: read\nReason: policy: x", OPTIONS);
+    expect(policy?.reason).toBe("policy: x");
+    expect(policy?.restrictedFolder).toBeNull();
+    const empty = parseApprovalPrompt("Allow tool: read\nReason: Restricted folder: ", OPTIONS);
+    expect(empty?.reason).toBe("Restricted folder: ");
+    expect(empty?.restrictedFolder).toBeNull();
   });
 
   it("accepts object options carrying the same labels", () => {

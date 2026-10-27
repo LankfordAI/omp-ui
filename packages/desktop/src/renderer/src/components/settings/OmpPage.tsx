@@ -13,6 +13,7 @@ import {
   SESSION_MAX_COST_KEY,
   SESSION_WARN_COST_KEY,
   SPEECH_SPEED_SETTING_KEY,
+  RESTRICTED_FOLDERS_KEY,
   TTS_LOCAL_SPEED_SETTING_KEY,
   STATUS_LINE_SEGMENT_OPTIONS_KEY,
 } from "@omp-ui/core/omp-settings-keys";
@@ -21,6 +22,7 @@ import { SubagentModelsSection } from "./SubagentModelsSection";
 import { SubagentConcurrencySection } from "./SubagentConcurrencySection";
 import { SpendCapSection } from "./SpendCapSection";
 import { ApprovalModeSection } from "./ApprovalModeSection";
+import { RestrictedFoldersSection } from "./RestrictedFoldersSection";
 import { ContextFilesSection } from "./ContextFilesSection";
 import { LiveVoiceSection } from "./LiveVoiceSection";
 import { StatusLineSection } from "./StatusLineSection";
@@ -161,6 +163,12 @@ export function OmpPage({
         pendingKey={pendingKey}
         commit={commit}
         retry={retry}
+      />
+
+      <RestrictedFoldersSection
+        entry={byKey.get(RESTRICTED_FOLDERS_KEY)}
+        pendingKey={pendingKey}
+        commit={commit}
       />
 
       <ContextFilesSection

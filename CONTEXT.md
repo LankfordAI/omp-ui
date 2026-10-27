@@ -720,14 +720,18 @@ approval. Under Ask and remember (`always-ask-cached`, omp ≥ 18.12.3, issue
 `Always Approve <target>` — ahead of `Approve Once`. The card shows those
 grant choices above Allow once; an "in every session" switch flips each
 button between omp's label and its always-label, and the reply echoes the
-frame's chosen label verbatim (ADR-0038 amended for issue #950).
+frame's chosen label verbatim (ADR-0038 amended for issue #950). On omp ≥
+18.13.1 a prompt whose reason is `Restricted folder: <path>` names that folder
+and notes that it asks in every approval mode; omp offers no session choice
+for it (issue #951).
 _Avoid_: approval dialog, permission prompt, tool gate card
 
 **Approval mode**:
 A session's pinned omp `tools.approvalMode` tier — `always-ask` (every tool
 waits), `always-ask-cached` (Ask and remember: every tool waits, and the
 approval card can record a Remembered approval; omp ≥ 18.12.3), `write`
-(mutating tools wait), `yolo` (nothing waits) — or *inherit*,
+(mutating tools wait), `yolo` (nothing waits except a restricted folder) — or
+*inherit*,
 meaning no pin and omp resolves its own global/project config (where an
 absent key means yolo). omp binds the mode at process start, so the pin rides
 a `--config` overlay written at spawn and changing it relaunches the session
@@ -745,6 +749,14 @@ for one session or for every session; omp keeps it in its own
 stores none of it. `/forget-approvals` clears them, sent from Settings → omp →
 Tool approval or typed in the composer.
 _Avoid_: cached permission, allowlist entry, saved grant
+
+**Restricted folder**:
+A folder listed in omp's global `tools.restrictedFolders` (omp ≥ 18.13.1).
+Every read, write, edit, search, or command touching it or anything under it
+asks through the Approval card in every approval mode, `yolo` included; no
+session approval or remembered grant covers it, and a `deny` policy still
+denies. Edited on the omp settings page, Global layer only (issue #951).
+_Avoid_: protected folder, blocked folder, sandboxed folder
 
 **Magic keyword**:
 One of omp's four prose keywords — `ultrathink`, `orchestrate`, `workflowz`,
