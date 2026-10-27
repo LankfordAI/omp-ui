@@ -2511,6 +2511,38 @@ describe("SessionManager live ownership", () => {
     expect(watcherDisposes.every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
     expect(manager.liveCount).toBe(0);
   });
+
+  it("killAll clears every housekeeping timer: collab poll, idle window, stall sweep (#910)", async () => {
+    // The harness afterEach relies on this: a chain killAll misses outlives
+    // its test and re-arms inside a later test's fake clock (#910).
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    try {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      registry.addSession(
+        ownedSessionRecord({
+          tabId: "tab-pty",
+          sessionId: null,
+          lineageDir: "omp-ui--proj--22222222-3333-4444-5555-666666666666",
+          projectCwd: PROJECT,
+          mode: "pty",
+        }),
+      );
+      await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+      await manager.spawn({ origin: "resume", resumeTabId: "tab-pty", cols: 80, rows: 24 });
+      // agent_start arms the stall sweep and (as any frame) the idle window;
+      // the PTY spawn armed the collab poll.
+      rpcInstances[0]!.frame({ type: "agent_start" });
+      const armed = vi.getTimerCount();
+
+      manager.killAll();
+
+      // A delta, not an absolute count: both reads are synchronous around
+      // killAll, so no foreign arm can land between them.
+      expect(armed - vi.getTimerCount()).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("lineage watcher broadcast throttle (issue #187)", () => {
