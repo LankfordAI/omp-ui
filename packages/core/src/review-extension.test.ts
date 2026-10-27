@@ -14,7 +14,14 @@ const nodeRequire = module.createRequire(import.meta.url);
 const dirs: string[] = [];
 
 afterEach(() => {
-  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  // A git child spawned in the temp repo can still hold it as its cwd when the
+  // test returns (an already-aborted signal makes execFile reject before git
+  // exits), and Windows then refuses the removal with EBUSY even though every
+  // assertion passed. git.test.ts and worktree.test.ts ride out the same lock;
+  // this harness now matches them (issue #948).
+  for (const dir of dirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
 });
 
 function tempDir(prefix: string): string {
