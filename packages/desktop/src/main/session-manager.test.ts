@@ -248,7 +248,7 @@ afterEach(() => {
   for (const manager of harnessManagers.splice(0)) manager.killAll();
 });
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"]; readModelCatalog?: SessionManagerDependencies["readModelCatalog"] } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"]; readModelCatalog?: SessionManagerDependencies["readModelCatalog"]; fleetWake?: SessionManagerDependencies["fleetWake"] } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -321,6 +321,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     hasConfiguredModelsFileProvider: opts.hasConfiguredModelsFileProvider,
     resolveModelHold: opts.resolveModelHold,
     readModelCatalog: opts.readModelCatalog,
+    fleetWake: opts.fleetWake,
     getOmpPath: () => "/test/omp",
     // The collab poll never shells out in tests: every probe reads as a CLI
     // hiccup, which holds the last snapshot (issue #686).
@@ -7380,6 +7381,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
             "omp-ui_fleet_project",
             "omp-ui_fleet_exec_poll",
             "omp-ui_fleet_update",
+            "omp-ui_fleet_send",
           ]
         : []),
     ]);
@@ -8796,5 +8798,259 @@ describe("model hold on an unreachable pinned endpoint (issue #932)", () => {
     client.send.mockClear();
     manager.rpcSend(tabId, { type: "prompt", id: "p2", message: "hello" });
     expect(client.send).toHaveBeenCalledWith(expect.objectContaining({ id: "p2" }));
+  });
+});
+
+// ADR-0069 / issues #957 + #959: staged fleet wakes and fleet_send on the owner.
+describe("fleet wake and fleet send (issues #957, #959)", () => {
+  type Cmd = { type: string; id?: string; message?: string; streamingBehavior?: string };
+  const settle = (): Promise<void> => new Promise<void>((resolve) => setImmediate(resolve));
+  const DISPATCH = "dispatch-0002";
+  const HOLD = { model: "litellm/Qwen", provider: "litellm", endpoint: "192.168.110.6:4000" };
+  const commandsOf = (): Cmd[] => (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Cmd[];
+  const wake = (wakeId: string): Core.FleetWakeMessage => ({
+    card: {
+      wakeId,
+      dispatchId: DISPATCH,
+      kind: "result",
+      title: "Fix the flake",
+      machine: "this computer",
+      childTabId: "child-tab",
+      outcome: "complete",
+    },
+    text: `Fleet result ${wakeId}`,
+  });
+  const ledger = (staged: Core.FleetWakeMessage[]) => {
+    const delivered = vi.fn<(tabId: string, wakeId: string) => void>();
+    return { access: { staged: () => staged, delivered }, delivered };
+  };
+  const requester = (sourceTabId: string | null = "src-tab", instanceId = "inst-a"): Core.FleetRequester => ({
+    instanceId,
+    label: "host-a",
+    kind: "agent",
+    sourceTabId,
+  });
+  const sendReq = (over: Partial<Core.FleetSendRequest> = {}): Core.FleetSendRequest => ({
+    requester: requester(),
+    dispatchId: DISPATCH,
+    message: "Now reply with OK.",
+    mode: "queue",
+    ...over,
+  });
+  const childSpawn = (manager: SessionManager): Promise<Core.SpawnAnswer> =>
+    manager.spawn({
+      origin: "new",
+      projectCwd: PROJECT,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+      fleet: {
+        dispatchId: DISPATCH,
+        batchId: null,
+        title: "Fix the flake",
+        prompt: "Fix it.",
+        requestedBy: requester(),
+      },
+    });
+  const lineageOf = (registry: Core.Registry, sessionsRoot: string, tabId: string): string =>
+    path.join(sessionsRoot, registry.sessions.find((s) => s.tabId === tabId)!.lineageDir);
+
+  it("arms staged wakes after the fleet prompt, then the inbox prompts as followUps", async () => {
+    const { access } = ledger([wake(`${DISPATCH}.result`)]);
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui", fleetWake: () => access });
+    const { tabId } = await childSpawn(manager);
+    rpcInstances.at(-1)!.exit(0);
+    await settle();
+    Core.stageFleetInbox(lineageOf(registry, sessionsRoot, tabId), { id: "in-1", text: "follow", mode: "queue" });
+
+    await manager.spawn({ origin: "resume", resumeTabId: tabId, cols: 80, rows: 24 });
+
+    expect(commandsOf().slice(-3)).toEqual([
+      { type: "prompt", id: Core.fleetPromptCommandId(DISPATCH), message: "Fix it." },
+      {
+        type: "prompt",
+        id: Core.fleetWakeCommandId(`${DISPATCH}.result`),
+        message: Core.fleetWakeArmMessage(wake(`${DISPATCH}.result`)),
+      },
+      { type: "prompt", id: Core.fleetSendCommandId("in-1"), message: "follow", streamingBehavior: "followUp" },
+    ]);
+  });
+
+  it("flushFleetWakes arms each staged wake once on a live tab", async () => {
+    const staged: Core.FleetWakeMessage[] = [];
+    const { access } = ledger(staged);
+    const { manager } = setup({ mode: "rpc-ui", fleetWake: () => access });
+    await resume(manager);
+    const client = rpcInstances.at(-1)!;
+    client.send.mockClear();
+    staged.push(wake("w.result"), wake("w.q0"));
+
+    manager.flushFleetWakes(TAB);
+    manager.flushFleetWakes(TAB);
+
+    expect(client.send.mock.calls.map(([cmd]) => (cmd as Cmd).id)).toEqual([
+      Core.fleetWakeCommandId("w.result"),
+      Core.fleetWakeCommandId("w.q0"),
+    ]);
+  });
+
+  it("flushFleetWakes sends nothing while the model is held", async () => {
+    const staged: Core.FleetWakeMessage[] = [];
+    const { access } = ledger(staged);
+    const { manager, registry } = setup({ mode: "rpc-ui", fleetWake: () => access, resolveModelHold: async () => HOLD });
+    registry.setSessionModel(TAB, "litellm/Qwen", null);
+    await resume(manager);
+    expect(manager.modelHold(TAB)).toEqual(HOLD);
+    const client = rpcInstances.at(-1)!;
+    client.send.mockClear();
+    staged.push(wake("w.result"));
+
+    manager.flushFleetWakes(TAB);
+
+    expect(client.send).not.toHaveBeenCalled();
+  });
+
+  it("flushFleetWakes resumes a dormant tab at most once per 60 s", async () => {
+    const { access } = ledger([wake("w.result")]);
+    const { manager } = setup({ mode: "rpc-ui", fleetWake: () => access });
+
+    manager.flushFleetWakes(TAB);
+    manager.flushFleetWakes(TAB);
+    await vi.waitFor(() => expect(manager.isLive(TAB)).toBe(true));
+    expect(RpcClientMock).toHaveBeenCalledTimes(1);
+    expect(commandsOf().map((c) => c.id)).toContain(Core.fleetWakeCommandId("w.result"));
+
+    rpcInstances.at(-1)!.exit(0);
+    await settle();
+    manager.flushFleetWakes(TAB);
+    await settle();
+    expect(RpcClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles a wake on its message_end and on the bridge's setStatus acknowledgement", async () => {
+    const { access, delivered } = ledger([]);
+    const { manager } = setup({ mode: "rpc-ui", fleetWake: () => access });
+    await resume(manager);
+    const client = rpcInstances.at(-1)!;
+
+    client.frame({
+      type: "message_end",
+      message: { role: "custom", customType: Core.FLEET_WAKE_CUSTOM_TYPE, content: "x", display: true, details: wake("w.result").card },
+    });
+    client.frame({
+      type: "extension_ui_request",
+      id: "st-1",
+      method: "setStatus",
+      statusKey: Core.FLEET_WAKE_STATUS_KEY,
+      statusText: JSON.stringify({ wakeId: "w.q0" }),
+    });
+
+    expect(delivered.mock.calls).toEqual([
+      [TAB, "w.result"],
+      [TAB, "w.q0"],
+    ]);
+  });
+
+  describe("fleetSend", () => {
+    it("refuses a caller that did not dispatch the session", async () => {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await childSpawn(manager);
+      const client = rpcInstances.at(-1)!;
+      client.send.mockClear();
+
+      await expect(manager.fleetSend(sendReq({ requester: requester("other-tab") }))).resolves.toEqual({
+        status: "refused",
+        reason: "only the session that dispatched this work can send to it",
+      });
+      await expect(manager.fleetSend(sendReq({ requester: requester("src-tab", "inst-b") }))).resolves.toMatchObject({
+        status: "refused",
+      });
+      expect(client.send).not.toHaveBeenCalled();
+    });
+
+    it("refuses while the session waits on the user's answer", async () => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      const { tabId } = await childSpawn(manager);
+      const client = rpcInstances.at(-1)!;
+      client.frame({ type: "extension_ui_request", id: "q1", method: "select", title: "Pick" });
+      client.send.mockClear();
+
+      await expect(manager.fleetSend(sendReq())).resolves.toEqual({
+        status: "refused",
+        reason: "the session is waiting for the user's answer; only the user can answer it",
+      });
+      expect(client.send).not.toHaveBeenCalled();
+      expect(Core.readFleetInbox(lineageOf(registry, sessionsRoot, tabId))).toEqual([]);
+    });
+
+    it("refuses a held session and a terminal-mode session", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui", resolveModelHold: async () => HOLD });
+      registry.setSessionModel(TAB, "litellm/Qwen", null);
+      // A fleet record is never probed for a hold (#956), so the dispatch rides on after the held boot.
+      await resume(manager);
+      expect(manager.modelHold(TAB)).toEqual(HOLD);
+      registry.updateSession(TAB, { fleet: { dispatchId: DISPATCH, batchId: null, requestedBy: requester() } } as Partial<Core.OwnedSessionRecord>);
+
+      await expect(manager.fleetSend(sendReq())).resolves.toEqual({
+        status: "refused",
+        reason: "the session is held: litellm/Qwen is not reachable",
+      });
+
+      registry.updateSession(TAB, { mode: "pty" });
+      await expect(manager.fleetSend(sendReq())).resolves.toEqual({
+        status: "refused",
+        reason: "the dispatched session runs in terminal mode",
+      });
+    });
+
+    it.each([
+      ["queue", "followUp"],
+      ["steer", "steer"],
+    ] as const)("live %s → prompt with %s; a success response delivers and consumes the inbox", async (mode, behavior) => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      const { tabId } = await childSpawn(manager);
+      const lineage = lineageOf(registry, sessionsRoot, tabId);
+      const client = rpcInstances.at(-1)!;
+      client.send.mockClear();
+
+      const outcome = manager.fleetSend(sendReq({ mode }));
+      expect(client.send).toHaveBeenCalledTimes(1);
+      const cmd = client.send.mock.calls[0]![0] as Cmd;
+      expect(cmd).toMatchObject({
+        type: "prompt",
+        message: Core.fleetSendText("Now reply with OK."),
+        streamingBehavior: behavior,
+      });
+      expect(cmd.id!.startsWith(Core.FLEET_SEND_COMMAND_PREFIX)).toBe(true);
+      expect(Core.readFleetInbox(lineage)).toHaveLength(1);
+
+      client.frame({ type: "response", id: cmd.id, command: "prompt", success: true });
+
+      await expect(outcome).resolves.toEqual({ status: "delivered" });
+      expect(Core.readFleetInbox(lineage)).toEqual([]);
+    });
+
+    it("a dormant session is queued and resumed with the message in its inbox", async () => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      const { tabId } = await childSpawn(manager);
+      rpcInstances.at(-1)!.exit(0);
+      await settle();
+
+      const outcome = await manager.fleetSend(sendReq());
+
+      expect(outcome).toMatchObject({ status: "queued" });
+      const inbox = Core.readFleetInbox(lineageOf(registry, sessionsRoot, tabId));
+      expect(inbox).toEqual([{ id: expect.any(String), text: Core.fleetSendText("Now reply with OK."), mode: "queue" }]);
+      await vi.waitFor(() => expect(RpcClientMock).toHaveBeenCalledTimes(2));
+      expect(commandsOf().at(-1)).toEqual({
+        type: "prompt",
+        id: Core.fleetSendCommandId(inbox[0]!.id),
+        message: Core.fleetSendText("Now reply with OK."),
+        streamingBehavior: "followUp",
+      });
+    });
   });
 });

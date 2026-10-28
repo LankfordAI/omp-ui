@@ -23,6 +23,7 @@ import { goalStateFromFrame } from "@omp-ui/core/goal";
 import { VIBE_STATUS_KEY, parseVibeSnapshot } from "@omp-ui/core/vibe";
 import { applyBtwDelta, applyBtwRecord, parseBtwRecord } from "@omp-ui/core/side-questions";
 import { SIDE_COMMANDS_STATUS_KEY, parseSideCommandsSnapshot } from "@omp-ui/core/side-commands";
+import { FLEET_WAKE_STATUS_KEY } from "@omp-ui/core/fleet-wake";
 import {
   applyLiveEnd,
   applyLiveLevels,
@@ -198,6 +199,8 @@ export function createFrameReductionSlice(
     stall: stallContinueWatcher,
   } = deps;
   const statusKeyHandlers: Record<string, (tabId: string, text: string | undefined) => void> = {
+    // The acknowledgement belongs to main; claim the key so it skips the generic extension route.
+    [FLEET_WAKE_STATUS_KEY]: () => {},
     [PLAN_STATUS_KEY]: (tabId, text) => {
       m.patchRpc(tabId, { plan: parsePlanStatus(text) });
     },

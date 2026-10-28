@@ -61,6 +61,8 @@ export * from "./knowledge-vault-extension";
 export * from "./ask-context";
 export * from "./fleet";
 export * from "./fleet-host";
+export * from "./fleet-wake";
+export { fleetWakeExtensionPath, fleetWakeExtensionSource, writeFleetWakeExtension } from "./fleet-wake-extension";
 export * from "./sessions-resource";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";

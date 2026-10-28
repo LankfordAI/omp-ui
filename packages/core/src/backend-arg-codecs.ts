@@ -5,6 +5,7 @@ import {
   parseFleetDetachedExecRequest,
   parseFleetDispatchRequest,
   parseFleetExecPollRequest,
+  parseFleetSendRequest,
   parseFleetExecRequest,
   parseFleetProjectManageRequest,
   parseFleetProviderKeysRequest,
@@ -16,6 +17,7 @@ import {
   type FleetDetachedExecRequest,
   type FleetDispatchRequest,
   type FleetExecPollRequest,
+  type FleetSendRequest,
   type FleetExecRequest,
   type FleetProjectManageRequest,
   type FleetProviderKeysRequest,
@@ -702,6 +704,18 @@ export const fleetExecPollRequestCodec: ArgCodec<FleetExecPollRequest> = {
   decode(value, path) {
     try {
       return parseFleetExecPollRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Fleet send (issue #959), via the shared parser. */
+export const fleetSendRequestCodec: ArgCodec<FleetSendRequest> = {
+  expected: "a valid fleet send request",
+  decode(value, path) {
+    try {
+      return parseFleetSendRequest(value);
     } catch (error) {
       return fail(path, `${this.expected} (${(error as Error).message})`);
     }

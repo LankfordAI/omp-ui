@@ -232,6 +232,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   // TranscriptView.tsx / SessionTreeViewer.tsx — 되돌리기 작업 (이슈 #680)
   "transcript.rewind.here": "여기로 되돌리기",
   "transcript.rewind.edit": "수정 후 재전송",
+  "transcript.fleetWake.result": "플릿 결과",
+  "transcript.fleetWake.question": "플릿 세션이 응답을 기다립니다",
+  "transcript.fleetWake.from": "{title} · {machine}",
   "transcript.rewind.done": "되돌렸습니다 — 이후 턴은 세션 파일에 다른 브랜치로 남아 있습니다",
   "transcript.rewind.navigated": "이동했습니다 — 트랜스크립트가 이동한 브랜치를 표시합니다",
   "transcript.rewind.busy": "되돌리기는 세션이 대기 중일 때 사용할 수 있습니다.",
@@ -2824,6 +2827,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "fleet.maintenance.revoked": "취소됨",
   "fleet.maintenance.revokedTitle": "업데이트가 커밋되기 전에 이 머신에 대한 완전 제어 권한이 상실되어 아무것도 교체되지 않았습니다.",
   "fleet.audit.update": "업데이트",
+  "fleet.audit.send": "전송",
   "fleet.update.title": "{target}의 버전 업데이트",
   "fleet.update.intro": "{target}은(는) 자체 네트워크에서 자체 검증 업데이터로 스스로 업데이트하며, 이 컴퓨터에서는 아무것도 전송하지 않습니다.",
   "fleet.update.loading": "{target}에 실행 중인 버전을 묻는 중…",

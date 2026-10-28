@@ -43,6 +43,8 @@ export const FLEET_DETACHED_EXEC_TIMEOUT_MS = 30 * 60_000;
 export const FLEET_EXEC_POLL_TAIL = 4_096;
 /** Longest a poll waits for the process to finish; inside the 45 s member-call bound. */
 export const FLEET_EXEC_POLL_WAIT_MAX_MS = 25_000;
+/** Longest omp-ui_fleet_status waits; inside the 60 s host-answer watchdog with the 5 s summary race. */
+export const FLEET_STATUS_WAIT_MAX_MS = 45_000;
 /** Running detached execs per member, across all dispatchers. */
 export const FLEET_DETACHED_EXECS_RUNNING_MAX = 4;
 /** Finished detached execs a member keeps for polling; the oldest finished one is evicted first. */
@@ -54,7 +56,7 @@ export const FLEET_SSH_PORT = 22;
 // eslint-disable-next-line no-control-regex
 export const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
 
-/** The seven agent-facing host tools (§6, issues #901, #905), in registration order. */
+/** The eight agent-facing host tools (§6, issues #901, #905, #959), in registration order. */
 export const FLEET_TOOLS = [
   "omp-ui_fleet_machines",
   "omp-ui_fleet_dispatch",
@@ -63,6 +65,7 @@ export const FLEET_TOOLS = [
   "omp-ui_fleet_project",
   "omp-ui_fleet_exec_poll",
   "omp-ui_fleet_update",
+  "omp-ui_fleet_send",
 ] as const;
 export type FleetToolName = (typeof FLEET_TOOLS)[number];
 
@@ -959,7 +962,7 @@ export interface FleetAuditEntry {
   dispatcherLabel: string;
   /** The agent's tab on the dispatcher when the call came from a tool. */
   sourceTabId: string | null;
-  action: "exec" | "exec-detached" | "manage" | "keys" | "update" | "grant-raise" | "grant-set";
+  action: "exec" | "exec-detached" | "manage" | "keys" | "update" | "send" | "grant-raise" | "grant-set";
   /** The rung used (actions) or the literal marker for grant bookkeeping. */
   rung: FleetRung | "raise" | "set";
   accepted: boolean;
@@ -1030,6 +1033,48 @@ export function parseFleetExecPollRequest(value: unknown): FleetExecPollRequest 
     waitMs: req.waitMs,
     cancel: req.cancel,
   };
+}
+
+export const FLEET_SEND_MAX = 20_000; // UTF-16 units
+export type FleetSendMode = "queue" | "steer";
+/** One message into a dispatched session (issue #959); the owner authorizes. */
+export interface FleetSendRequest {
+  requester: FleetRequester;
+  dispatchId: string;
+  message: string;
+  mode: FleetSendMode;
+}
+export type FleetSendOutcome =
+  | { status: "delivered" }
+  | { status: "queued"; detail: string }
+  | { status: "refused"; reason: string };
+export interface FleetToolSendArgs {
+  dispatchId: string;
+  message: string;
+  mode: FleetSendMode;
+}
+export const fleetSendCommandId = (sendId: string): string => `omp-ui-fleet-send-${sendId}`;
+export const FLEET_SEND_COMMAND_PREFIX = "omp-ui-fleet-send-";
+
+/** Strict parse of a fleet send request (codec + owner entry check). Messages are user-facing. */
+export function parseFleetSendRequest(value: unknown): FleetSendRequest {
+  const label = "send request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "dispatchId", "message", "mode"], label);
+  if (typeof req.message !== "string" || req.message.trim() === "") throw new Error(`${label}.message must not be blank`);
+  if (req.message.length > FLEET_SEND_MAX) throw new Error(`${label}.message exceeds ${FLEET_SEND_MAX} characters`);
+  if (req.mode !== "queue" && req.mode !== "steer") throw new Error(`${label}.mode must be queue or steer`);
+  return {
+    requester: parseFleetRequester(req.requester, `${label}.requester`),
+    dispatchId: idString(req.dispatchId, `${label}.dispatchId`),
+    message: req.message,
+    mode: req.mode,
+  };
+}
+
+/** The text the child sees; the prefix is fixed so the transcript says who spoke. */
+export function fleetSendText(message: string): string {
+  return `[omp-ui fleet] Message from the session that dispatched you:\n\n${message}`;
 }
 
 const FLEET_PROVIDER_KEY_VALUE_MAX_BYTES = 8_192;
@@ -1241,11 +1286,12 @@ export interface FleetToolUpdateArgs {
 export type FleetToolArguments =
   | { ok: true; tool: "machines" }
   | { ok: true; tool: "dispatch"; args: FleetToolDispatchArgs }
-  | { ok: true; tool: "status"; selector: { batchId: string } | { dispatchId: string } }
+  | { ok: true; tool: "status"; selector: { batchId: string } | { dispatchId: string }; waitMs: number }
   | { ok: true; tool: "exec"; args: FleetToolExecArgs }
   | { ok: true; tool: "project"; args: FleetToolProjectArgs }
   | { ok: true; tool: "execPoll"; args: FleetToolExecPollArgs }
   | { ok: true; tool: "update"; args: FleetToolUpdateArgs }
+  | { ok: true; tool: "send"; args: FleetToolSendArgs }
   | { ok: false; reason: string };
 
 function refuse(reason: string): { ok: false; reason: string } {
@@ -1263,14 +1309,21 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     return extra === undefined ? { ok: true, tool: "machines" } : refuse(`unknown argument "${extra}"`);
   }
   if (name === "omp-ui_fleet_status") {
-    const extra = unknownKey(["batchId", "dispatchId"]);
+    const extra = unknownKey(["batchId", "dispatchId", "waitMs"]);
     if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
     const hasBatch = a.batchId !== undefined;
     const hasDispatch = a.dispatchId !== undefined;
     if (hasBatch === hasDispatch) return refuse("give exactly one of batchId or dispatchId");
     const value = hasBatch ? a.batchId : a.dispatchId;
     if (typeof value !== "string" || value.trim() === "") return refuse(`${hasBatch ? "batchId" : "dispatchId"} must be a non-empty string`);
-    return { ok: true, tool: "status", selector: hasBatch ? { batchId: value.trim() } : { dispatchId: value.trim() } };
+    let waitMs = 0;
+    if (a.waitMs !== undefined) {
+      if (typeof a.waitMs !== "number" || !Number.isInteger(a.waitMs) || a.waitMs < 0 || a.waitMs > FLEET_STATUS_WAIT_MAX_MS) {
+        return refuse(`waitMs must be a whole number from 0 to ${FLEET_STATUS_WAIT_MAX_MS}`);
+      }
+      waitMs = a.waitMs;
+    }
+    return { ok: true, tool: "status", selector: hasBatch ? { batchId: value.trim() } : { dispatchId: value.trim() }, waitMs };
   }
   if (name === "omp-ui_fleet_exec") {
     const extra = unknownKey(["machine", "command", "cwd", "timeoutMs", "detach"]);
@@ -1352,6 +1405,15 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
       version = a.version;
     }
     return { ok: true, tool: "update", args: { machine: a.machine.trim(), target: a.target, action: a.action, version } };
+  }
+  if (name === "omp-ui_fleet_send") {
+    const extra = unknownKey(["dispatchId", "message", "mode"]);
+    if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
+    if (typeof a.dispatchId !== "string" || a.dispatchId.trim() === "") return refuse("dispatchId must be a non-empty string");
+    if (typeof a.message !== "string" || a.message.trim() === "") return refuse("message must not be blank");
+    if (a.message.length > FLEET_SEND_MAX) return refuse(`message exceeds ${FLEET_SEND_MAX} characters`);
+    if (a.mode !== undefined && a.mode !== "queue" && a.mode !== "steer") return refuse("mode must be queue or steer");
+    return { ok: true, tool: "send", args: { dispatchId: a.dispatchId.trim(), message: a.message, mode: a.mode === "steer" ? "steer" : "queue" } };
   }
   if (name !== "omp-ui_fleet_dispatch") return refuse(`unknown host tool "${name}"`);
   const extra = unknownKey(["prompt", "title", "project", "machines", "count", "workspace", "planMode", "model", "thinkingLevel"]);

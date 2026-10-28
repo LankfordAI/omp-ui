@@ -500,6 +500,7 @@ describe("HostBridge fleet tools (issue #899)", () => {
         execDetach: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         execPoll: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         update: async () => ({ kind: "refused", reason: "not wired in this fixture" }),
+        send: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         ...fleet,
       },
     });
@@ -527,8 +528,8 @@ describe("HostBridge fleet tools (issue #899)", () => {
           ],
         };
       },
-      status: async (sel) => {
-        statusSelectors.push(sel);
+      status: async (sel, waitMs) => {
+        statusSelectors.push({ sel, waitMs });
         return "- studio: Fix the flake: working";
       },
     });
@@ -539,8 +540,10 @@ describe("HostBridge fleet tools (issue #899)", () => {
     await settled();
     bridge.route("t1", toolCallFrame("s1", FLEET_TOOLS[2], { batchId: "batch-1" }), send);
     await settled();
+    bridge.route("t1", toolCallFrame("s2", FLEET_TOOLS[2], { dispatchId: "d-1", waitMs: 30_000 }), send);
+    await settled();
 
-    expect(sent.map((frame) => frame.id)).toEqual(["m1", "d1", "s1"]);
+    expect(sent.map((frame) => frame.id)).toEqual(["m1", "d1", "s1", "s2"]);
     for (const frame of sent) expect(frame).not.toHaveProperty("isError");
     expect(resultText(sent[0]!)).toContain("- studio: ready; CPU 25%; 50% memory free");
     expect(resultText(sent[0]!)).toContain(`${PROJECT} (${REPO_KEY})`);
@@ -567,7 +570,10 @@ describe("HostBridge fleet tools (issue #899)", () => {
     expect(dispatchText).toContain("- this computer: started (tab new-tab; model openrouter/openai/gpt-5.6-luna, thinking low); dispatchId d-1");
     expect(dispatchText).toContain("- studio: unknown (remote connection lost); dispatchId d-2");
     expect(dispatchText).toContain("omp-ui_fleet_status");
-    expect(statusSelectors).toEqual([{ batchId: "batch-1" }]);
+    expect(statusSelectors).toEqual([
+      { sel: { batchId: "batch-1" }, waitMs: 0 },
+      { sel: { dispatchId: "d-1" }, waitMs: 30_000 },
+    ]);
     expect(resultText(sent[2]!)).toBe("- studio: Fix the flake: working");
     // One line per dispatch: machine keys and statuses, never the prompt.
     expect(logs).toEqual([`omp-ui_fleet_dispatch from t1: ${LOCAL_MACHINE_KEY}=started, remote-b=unknown`]);
@@ -973,6 +979,53 @@ describe("HostBridge fleet tools (issue #899)", () => {
       "a version belongs on action update, not check",
     ]);
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it("answers omp-ui_fleet_send for each outcome, logs no message text, and never dispatches (issue #959)", async () => {
+    const outcomes = [
+      { status: "delivered" },
+      { status: "queued", detail: "the session was not running; it is resuming and receives the message first" },
+      { status: "refused", reason: "only the session that dispatched this work can send to it" },
+    ] as const;
+    const calls: Array<{ tabId: string; args: unknown }> = [];
+    let next = 0;
+    const dispatch = vi.fn(async (): Promise<FleetDispatchResult> => ({ batchId: null, outcomes: [] }));
+    const machines = vi.fn(async () => MACHINES);
+    const { bridge, sent, logs } = fleetBridge({
+      dispatch,
+      machines,
+      send: async (tabId, args) => {
+        calls.push({ tabId, args });
+        return outcomes[next++]!;
+      },
+    });
+    const send = (frame: RpcFrame): void => void sent.push(frame);
+    bridge.route("t1", toolCallFrame("x0", FLEET_TOOLS[7], { dispatchId: " d-1 ", message: "SECRET-FOLLOWUP rerun" }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("x1", FLEET_TOOLS[7], { dispatchId: "d-2", message: "SECRET-FOLLOWUP rerun", mode: "steer" }), send);
+    await settled();
+    bridge.route("t1", toolCallFrame("x2", FLEET_TOOLS[7], { dispatchId: "d-3", message: "SECRET-FOLLOWUP rerun" }), send);
+    await settled();
+
+    expect(calls).toEqual([
+      { tabId: "t1", args: { dispatchId: "d-1", message: "SECRET-FOLLOWUP rerun", mode: "queue" } },
+      { tabId: "t1", args: { dispatchId: "d-2", message: "SECRET-FOLLOWUP rerun", mode: "steer" } },
+      { tabId: "t1", args: { dispatchId: "d-3", message: "SECRET-FOLLOWUP rerun", mode: "queue" } },
+    ]);
+    // Refusals are answers, not error frames.
+    for (const frame of sent) expect(frame).not.toHaveProperty("isError");
+    expect(sent.map(resultText)).toEqual([
+      "delivered to dispatch d-1",
+      "queued — the session was not running; it is resuming and receives the message first",
+      "refused — only the session that dispatched this work can send to it",
+    ]);
+    expect(logs).toEqual([
+      "omp-ui_fleet_send from t1: d-1 delivered",
+      "omp-ui_fleet_send from t1: d-2 queued",
+      "omp-ui_fleet_send from t1: d-3 refused",
+    ]);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(machines).not.toHaveBeenCalled();
   });
 });
 

@@ -14,6 +14,7 @@ import {
   type ToolItem,
 } from "./transcript";
 import { withDocumentContext } from "./document-context";
+import { FLEET_WAKE_CUSTOM_TYPE } from "@omp-ui/core/fleet-wake";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -837,6 +838,89 @@ describe("reduceEvent advisory cards", () => {
   it("keeps a bare agent_start as the generic marker (#882)", () => {
     const items = reduceEvent([], { type: "agent_start" });
     expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent started" });
+  });
+});
+
+describe("reduceEvent fleet wake cards (#957)", () => {
+  const card = {
+    wakeId: "d1.result",
+    dispatchId: "d1",
+    kind: "result",
+    title: "Fix the build",
+    machine: "this computer",
+    childTabId: "tab-child",
+    outcome: "complete",
+  };
+  const wakeMessage = {
+    role: "custom",
+    customType: FLEET_WAKE_CUSTOM_TYPE,
+    content: "The build is green.",
+    display: true,
+    details: card,
+  };
+
+  it("renders one card when message_start and message_end carry the same message", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "message_start", message: wakeMessage });
+    items = reduceEvent(items, { type: "message_end", message: wakeMessage });
+    const cards = items.filter((i) => i.kind === "fleetWake");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ kind: "fleetWake", card, text: "The build is green." });
+  });
+
+  it("drops a message whose card is malformed", () => {
+    const bad = { ...wakeMessage, details: { ...card, kind: "other" } };
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "message_start", message: bad });
+    items = reduceEvent(items, { type: "message_end", message: bad });
+    expect(items.filter((i) => i.kind === "fleetWake")).toHaveLength(0);
+  });
+
+  it("keeps the card when rebuilding from history", () => {
+    const items = historyToItems([wakeMessage]);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: "fleetWake", card, text: "The build is green." });
+  });
+
+  const fleetMarkers = (items: RenderItem[]) =>
+    items.filter((i) => i.kind === "marker" && i.label === "fleet result started the run");
+
+  it("attributes the run the card opens, in omp's idle-delivery frame order", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "agent_start" });
+    items = reduceEvent(items, { type: "turn_start" });
+    items = reduceEvent(items, { type: "message_start", message: wakeMessage });
+    items = reduceEvent(items, { type: "message_end", message: wakeMessage });
+    expect(items.map((i) => i.kind)).toEqual(["marker", "fleetWake", "marker"]);
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "fleet result started the run", tone: "copper" });
+    expect(fleetMarkers(items)).toHaveLength(1);
+  });
+
+  it("still attributes the run after an empty assistant turn precedes the card", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "agent_start" });
+    items = reduceEvent(items, { type: "turn_start" });
+    items = reduceEvent(items, { type: "message_start", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, { type: "message_end", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, { type: "turn_end" });
+    items = reduceEvent(items, { type: "turn_start" });
+    items = reduceEvent(items, { type: "message_start", message: wakeMessage });
+    items = reduceEvent(items, { type: "message_end", message: wakeMessage });
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "fleet result started the run" });
+    expect(fleetMarkers(items)).toHaveLength(1);
+  });
+
+  it("adds no marker when the card lands mid-run as a follow-up", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "agent_start" });
+    items = reduceEvent(items, {
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "working on it" }] },
+    });
+    items = reduceEvent(items, { type: "message_start", message: wakeMessage });
+    items = reduceEvent(items, { type: "message_end", message: wakeMessage });
+    expect(items.at(-1)).toMatchObject({ kind: "fleetWake" });
+    expect(fleetMarkers(items)).toHaveLength(0);
   });
 });
 

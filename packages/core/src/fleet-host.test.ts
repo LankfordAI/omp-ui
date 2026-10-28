@@ -1,8 +1,15 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  consumeFleetInbox,
   detectHostOs,
   detectPackageManagers,
+  FLEET_INBOX_ARTIFACT,
   parseOsRelease,
+  readFleetInbox,
+  stageFleetInbox,
 } from "./fleet-host";
 
 /** An isExecutableFile seam that answers true only for the listed paths. */
@@ -253,5 +260,36 @@ describe("detectPackageManagers", () => {
         isExecutableFile: async () => true,
       }),
     ).toEqual([]);
+  });
+});
+
+describe("fleet send inbox (#959)", () => {
+  const dir = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "fleet-inbox-"));
+
+  it("stages in order, consumes by id, and removes the file when empty", () => {
+    const lineage = dir();
+    expect(readFleetInbox(lineage)).toEqual([]);
+    stageFleetInbox(lineage, { id: "a", text: "one", mode: "queue" });
+    stageFleetInbox(lineage, { id: "b", text: "two", mode: "steer" });
+    expect(readFleetInbox(lineage)).toEqual([
+      { id: "a", text: "one", mode: "queue" },
+      { id: "b", text: "two", mode: "steer" },
+    ]);
+    consumeFleetInbox(lineage, "a");
+    expect(readFleetInbox(lineage)).toEqual([{ id: "b", text: "two", mode: "steer" }]);
+    consumeFleetInbox(lineage, "b");
+    expect(fs.existsSync(path.join(lineage, FLEET_INBOX_ARTIFACT))).toBe(false);
+  });
+
+  it.each([
+    "not json",
+    JSON.stringify({ id: "a", text: "t", mode: "queue" }),
+    JSON.stringify([{ id: "a", text: "t", mode: "later" }]),
+    JSON.stringify([{ id: "a", text: "t", mode: "queue", extra: 1 }]),
+    JSON.stringify([{ id: "", text: "t", mode: "queue" }]),
+  ])("reads %s as empty", (content) => {
+    const lineage = dir();
+    fs.writeFileSync(path.join(lineage, FLEET_INBOX_ARTIFACT), content);
+    expect(readFleetInbox(lineage)).toEqual([]);
   });
 });

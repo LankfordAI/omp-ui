@@ -108,6 +108,7 @@ import {
   type FleetProjectManageRequest,
   type FleetRequester,
   type FleetRung,
+  type FleetSendRequest,
   type FleetHostReport,
   type FleetUpdateRequest,
   type FleetUpdateMemberRequest,
@@ -175,6 +176,7 @@ import { routeByTab } from "./remote-route";
 import { SessionManager } from "./session-manager";
 import { FleetDispatcher } from "./fleet-dispatcher";
 import { FleetServer } from "./fleet-server";
+import { FleetWakeCoordinator } from "./fleet-wake";
 import { probeSshPort } from "./ssh-probe";
 import { PlanVerifier } from "./plan-verifier";
 import { ClockStamper } from "./clock-stamper";
@@ -201,10 +203,15 @@ import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopMediaMessage 
 import { createDesktopPaneStream } from "./browser-pane-desktop-stream";
 import { TransferState } from "./transfer-state";
 
+/** A Fleet result's summary read races this window, the same bound as the status tool's summary race. */
+const FLEET_CHILD_SUMMARY_TIMEOUT_MS = 5_000;
+
 /** Owns application state and delegates every live child to SessionManager. */
 export class MainBackend {
   /** Serializes each complete state build and delivery so an older snapshot can never overtake a newer one. */
   private broadcastChain: Promise<void> = Promise.resolve();
+  /** Long-poll fleet status waiters (issue #958): each resolves after the next completed broadcast. */
+  readonly #broadcastWaiters = new Set<() => void>();
   private readonly registry: Registry;
   private ompPath = resolveOmpBinary();
   readonly sessions: SessionManager;
@@ -223,6 +230,8 @@ export class MainBackend {
   private readonly fleet: FleetDispatcher;
   /** Fleet exec ladder, node side (issue #901, ADR-0062): this machine's ceiling. */
   private readonly fleetServer: FleetServer;
+  /** Fleet result wake-up (issue #957, ADR-0069): the dispatching session's watch → stage → deliver ledger. */
+  private readonly fleetWake: FleetWakeCoordinator;
   /** fleet:hostReport caches: one shared resource sample per 5 s, repository
    *  keys per path for 60 s, head commits per path for 15 s. */
   private fleetResources: { at: number; value: Promise<HostResources> } | null = null;
@@ -401,6 +410,8 @@ export class MainBackend {
         hostNotify: (tabId, title, message) => this.notifier.notifyNow(tabId, title, message),
         // Lazy: the dispatcher is constructed after remoteInstances, below.
         fleet: () => this.fleet,
+        // Lazy for the same reason: the wake coordinator follows the fleet server.
+        fleetWake: () => this.fleetWake,
         browserPane: {
           // Cache the app window's real page dpr; screen.scaleFactor lies on Wayland
           // fractional scaling (reports 1 while the page renders at 1.5) (#557).
@@ -553,6 +564,19 @@ export class MainBackend {
       broadcast: () => this.broadcast(),
       probeSsh: (host) => probeSshPort(host),
       providerKeyValue: (envName) => this.providerKeys.rolloutValue(envName),
+      watchAgentDispatch: (sourceTabId, dispatches) => this.fleetWake.watch(sourceTabId, dispatches),
+      nextBroadcast: (timeoutMs) => {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        const done = (): void => {
+          clearTimeout(timer);
+          this.#broadcastWaiters.delete(done);
+          resolve();
+        };
+        const timer = setTimeout(done, timeoutMs);
+        this.#broadcastWaiters.add(done);
+        return promise;
+      },
+      sendLocal: (req) => this.fleetServer.send(req),
     });
     // The node half of the fleet ladder (issue #901): the owner answers for
     // its own machine, so it shares the registry and log dir with everything else.
@@ -577,6 +601,15 @@ export class MainBackend {
       },
       liveSessions: () => this.sessions.liveCount,
       pinned: () => ompPinActive(),
+      deliverSend: (req) => this.sessions.fleetSend(req),
+    });
+    this.fleetWake = new FleetWakeCoordinator({
+      dir: path.join(path.dirname(registryFile), "fleet-wake"),
+      instanceId: () => this.registry.getSetting("instanceId"),
+      hasSession: (tabId) => this.registry.sessions.some((s) => s.tabId === tabId),
+      summaryText: (machineKey, tabId) => this.fleetChildSummary(machineKey, tabId),
+      flush: (tabId) => this.sessions.flushFleetWakes(tabId),
+      log: (line) => appendMainLog(this.logDir, "main.log", line),
     });
     // Every registered project gets one gitdir watch (#498): a terminal
     // checkout, a commit, a branch made or deleted outside this app moves the
@@ -1309,6 +1342,8 @@ export class MainBackend {
         // cross the proxy to the owner; the rollout orchestrates in this main.
         [CH.fleetExecDetach]: (req: FleetDetachedExecRequest) => this.fleetServer.execDetach(req),
         [CH.fleetExecPoll]: (req: FleetExecPollRequest) => this.fleetServer.execPoll(req),
+        // Fleet send (issue #959): proxied to the owner, which authorizes and audits.
+        [CH.fleetSend]: (req: FleetSendRequest) => this.fleetServer.send(req),
         [CH.fleetProviderKeys]: (req: FleetProviderKeysRequest) => this.fleetServer.providerKeys(req),
         [CH.fleetRolloutProviderKeys]: (machineKey: string, envNames: string[]) =>
           this.fleet.rolloutProviderKeys(machineKey, envNames),
@@ -2208,6 +2243,24 @@ export class MainBackend {
     );
   }
 
+  /** A dispatched session's summary for its Fleet result: local or proxied, raced against 5 s (issue #957). */
+  private async fleetChildSummary(machineKey: string, tabId: string): Promise<string> {
+    const read =
+      machineKey === LOCAL_MACHINE_KEY
+        ? this.fleetSessionSummary(tabId)
+        : this.remoteInstances.request(machineKey, CH.fleetSessionSummary, [tabId]);
+    const timeout = Promise.withResolvers<null>();
+    const timer: NodeJS.Timeout = setTimeout(() => timeout.resolve(null), FLEET_CHILD_SUMMARY_TIMEOUT_MS);
+    try {
+      const text: unknown = await Promise.race([read, timeout.promise]);
+      return typeof text === "string" ? text.trim() : "Summary unavailable.";
+    } catch {
+      return "Summary unavailable.";
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /**
    * Suggests a branch name for a plan with omp's own small model. Null on
    * every failure path — the renderer pre-fills its slug-derived name, so
@@ -2387,10 +2440,17 @@ export class MainBackend {
     const task = this.broadcastChain.then(async () => {
       const state = await this.buildState();
       this.send(CH.onStateChanged, state);
+      this.fleetWake.observe(state);
+      this.#releaseBroadcastWaiters();
     });
     // Keep the queue usable after a failed build without changing the Promise
     // returned to this caller: `task` still carries its own rejection.
     this.broadcastChain = task.catch(() => {});
     return task;
+  }
+
+  /** Wakes every long-poll fleet status waiter after a completed broadcast (issue #958). */
+  #releaseBroadcastWaiters(): void {
+    for (const w of [...this.#broadcastWaiters]) w();
   }
 }

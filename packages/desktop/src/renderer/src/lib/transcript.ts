@@ -5,6 +5,7 @@ import { splitResolvedMentionContext } from "./mentions";
 import { splitDocumentContext, type DocumentRef } from "./document-context";
 import { parseOmpDiff, type DiffRow } from "./omp-diff";
 import { parseVaultDetails, type VaultToolDetails } from "@omp-ui/core/vault-shared";
+import { FLEET_WAKE_CUSTOM_TYPE, parseFleetWakeCard, type FleetWakeCard } from "@omp-ui/core/fleet-wake";
 
 export interface AdvisorNote {
   note: string;
@@ -189,6 +190,14 @@ export interface ShellItem {
   timestamp?: number;
 }
 
+/** A Fleet result or notice omp-ui posted into the dispatching session (#957). */
+export interface FleetWakeItem {
+  kind: "fleetWake";
+  id: string;
+  card: FleetWakeCard;
+  text: string;
+}
+
 export type RenderItem =
   | UserItem
   | AssistantItem
@@ -199,7 +208,8 @@ export type RenderItem =
   | MarkerItem
   | PlanItem
   | CommandItem
-  | ShellItem;
+  | ShellItem
+  | FleetWakeItem;
 
 let counter = 0;
 
@@ -298,6 +308,9 @@ export function itemSearchText(item: RenderItem): string {
       break;
     case "shell":
       fields.push(item.command, item.output, item.error);
+      break;
+    case "fleetWake":
+      fields.push(item.card.title, item.card.machine, item.text);
       break;
   }
   const text = fields
@@ -579,6 +592,43 @@ function appendAdvisory(items: RenderItem[], message: Record<string, unknown>): 
   return [...items, { kind: "advisory", id: `advisory-${++counter}`, notes }];
 }
 
+function isFleetWakeMessage(message: Record<string, unknown>): boolean {
+  return message.role === "custom" && message.customType === FLEET_WAKE_CUSTOM_TYPE;
+}
+
+/** message_start and message_end both carry the wake message — one card per wakeId. */
+function appendFleetWake(items: RenderItem[], message: Record<string, unknown>): RenderItem[] {
+  if (!isFleetWakeMessage(message)) return items;
+  const card = parseFleetWakeCard(message.details);
+  if (card === null) return items;
+  if (items.some((i) => i.kind === "fleetWake" && i.card.wakeId === card.wakeId)) return items;
+  return [...items, { kind: "fleetWake", id: `fleet-wake-${++counter}`, card, text: textFromContent(message.content) }];
+}
+
+/** True while the open run holds nothing since its "agent started" marker but
+ *  ambient chrome and the empty assistant message omp may emit before a custom one. */
+function runHasNoContent(items: RenderItem[]): boolean {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]!;
+    if (item.kind === "marker") {
+      if (item.label === "agent started") return true;
+      continue;
+    }
+    if (item.kind === "notice" || item.kind === "irc") continue;
+    if (item.kind === "assistant" && item.text === "" && item.thinking === "" && item.narration === "") continue;
+    return false;
+  }
+  return false;
+}
+
+/** Live frames: omp delivers an idle wake as agent_start, then the custom
+ *  message — a card that opens its run gets the attribution marker. */
+function appendLiveFleetWake(items: RenderItem[], message: Record<string, unknown>): RenderItem[] {
+  const next = appendFleetWake(items, message);
+  if (next === items || !runHasNoContent(items)) return next;
+  return [...next, markerItem("fleet result started the run", "copper")];
+}
+
 /**
  * Folds toolcall_start/delta/end assistantMessageEvents into a running tool
  * card, so the transcript shows a write's content while the model generates
@@ -700,6 +750,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       const message = isObj(event.message) ? event.message : null;
       if (!message) return items;
       if (isAdvisorMessage(message)) return appendAdvisory(items, message);
+      if (isFleetWakeMessage(message)) return appendLiveFleetWake(items, message);
       const role = str(message.role);
       if (role === "user") {
         return [
@@ -761,6 +812,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
     case "message_end": {
       const message = isObj(event.message) ? event.message : null;
       if (message && isAdvisorMessage(message)) return appendAdvisory(items, message);
+      if (message && isFleetWakeMessage(message)) return appendLiveFleetWake(items, message);
       // `providerPayload` also lives on the message and is megabytes wide —
       // only these accounting fields are ever lifted out of it.
       const meta = message && str(message.role) === "assistant" ? assistantMeta(message) : {};
@@ -1043,6 +1095,11 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
     if (isAdvisorMessage(raw)) {
       const notes = notesFromDetails(raw.details);
       if (notes.length > 0) items.push({ kind: "advisory", id: `advisory-${++counter}`, notes });
+      continue;
+    }
+    if (isFleetWakeMessage(raw)) {
+      const next = appendFleetWake(items, raw);
+      if (next !== items) items.push(next.at(-1)!);
       continue;
     }
     const role = str(raw.role);

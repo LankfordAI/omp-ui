@@ -9,6 +9,8 @@ import {
   type AppUpdateState,
   type FleetRequester,
   type FleetRung,
+  type FleetSendOutcome,
+  type FleetSendRequest,
   type FleetUpdateMemberRequest,
 } from "@omp-ui/core";
 import { hashRemotePassword, passwordSessionCredential } from "@omp-ui/server";
@@ -72,6 +74,7 @@ let stageAppUpdate: Mock;
 let armAppUpdateOnQuit: Mock;
 let liveSessions: number;
 let pinned: boolean;
+let deliverSend: Mock<(req: FleetSendRequest) => Promise<FleetSendOutcome>>;
 
 function server(
   execGit?: ConstructorParameters<typeof FleetServer>[0]["execGit"],
@@ -98,6 +101,7 @@ function server(
     armAppUpdateOnQuit: () => armAppUpdateOnQuit(),
     liveSessions: () => liveSessions,
     pinned: () => pinned,
+    deliverSend: (req) => deliverSend(req),
     ...(execGit === undefined ? {} : { execGit }),
     ...(commandDeps === undefined ? {} : { commandDeps }),
   });
@@ -122,6 +126,7 @@ beforeEach(() => {
   armAppUpdateOnQuit = vi.fn(() => true);
   liveSessions = 0;
   pinned = false;
+  deliverSend = vi.fn<(req: FleetSendRequest) => Promise<FleetSendOutcome>>(async () => ({ status: "delivered" }));
   updateStubs.checkOmpUpdate.mockReset().mockResolvedValue({
     installPath: null,
     installedVersion: null,
@@ -878,5 +883,50 @@ describe("FleetServer.updateMember (fleet remote version update)", () => {
       action: "update",
       detail: "omp revoked: the machine quit before the update finished",
     });
+  });
+});
+
+describe("FleetServer.send (issue #959)", () => {
+  const SECRET = "please rebase onto main and rerun the suite";
+  const sendReq = (requester: FleetRequester): FleetSendRequest => ({
+    requester,
+    dispatchId: "d1234567-89ab-cdef",
+    message: SECRET,
+    mode: "queue",
+  });
+
+  it("refuses a foreign instance below Dispatch, audits it, and never delivers", async () => {
+    grant(A.instanceId, "observe");
+    const s = server();
+    expect(await s.send(sendReq(A))).toEqual({ status: "refused", reason: expect.stringContaining('"dispatch"') });
+    expect(deliverSend).not.toHaveBeenCalled();
+    expect(s.auditEntries()).toEqual([
+      expect.objectContaining({ action: "send", rung: "dispatch", accepted: false, detail: "d1234567", dispatcherId: "inst-a" }),
+    ]);
+  });
+
+  it("delivers a foreign instance at Dispatch and audits without the message text", async () => {
+    const s = server();
+    const req = sendReq(A);
+    expect(await s.send(req)).toEqual({ status: "delivered" });
+    expect(deliverSend).toHaveBeenCalledWith(req);
+    expect(s.auditEntries()).toEqual([
+      expect.objectContaining({ action: "send", rung: "dispatch", accepted: true, detail: "d1234567 delivered" }),
+    ]);
+    const log = fs.readFileSync(path.join(base, "logs", "fleet-audit.log"), "utf8");
+    for (const text of [log, JSON.stringify(s.auditEntries())]) expect(text).not.toContain(SECRET);
+  });
+
+  it("skips the ladder for the own instance and audits a refused delivery as not accepted", async () => {
+    registry.setSetting("instanceId", "inst-own");
+    grant("inst-own", "observe");
+    deliverSend.mockResolvedValue({ status: "refused", reason: "the dispatched session runs in terminal mode" });
+    const s = server();
+    const own: FleetRequester = { ...A, instanceId: "inst-own" };
+    expect(await s.send(sendReq(own))).toEqual({ status: "refused", reason: "the dispatched session runs in terminal mode" });
+    expect(deliverSend).toHaveBeenCalledTimes(1);
+    expect(s.auditEntries()).toEqual([
+      expect.objectContaining({ action: "send", rung: "dispatch", accepted: false, detail: "d1234567 refused" }),
+    ]);
   });
 });

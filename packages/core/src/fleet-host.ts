@@ -1,16 +1,18 @@
 /**
  * Fleet dispatch (issue #899, ADR-0061): the Node half on the owning host.
  * The resource sampler and the OS / package-manager probes (issue #905)
- * behind `fleet:hostReport`, and the staged dispatch prompt — written into
+ * behind `fleet:hostReport`, the staged dispatch prompt — written into
  * the lineage dir at accept time, delivered on the initialCommands rail, and
- * unlinked once omp acknowledges the prompt.
+ * unlinked once omp acknowledges the prompt — and the fleet send inbox on
+ * the same rail (issue #959).
  */
 import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import type { FleetHostOs, FleetPackageManager } from "./fleet";
+import type { FleetHostOs, FleetPackageManager, FleetSendMode } from "./fleet";
+import { writeTextAtomic } from "./atomic-write";
 import {
   removeLineageArtifact,
   writeLineageArtifact,
@@ -43,6 +45,57 @@ export function readFleetPrompt(absLineageDir: string): string | null {
 /** Removes the staged prompt after omp acknowledged it; absent is success. */
 export function consumeFleetPrompt(absLineageDir: string): void {
   removeLineageArtifact(path.join(absLineageDir, FLEET_PROMPT_ARTIFACT));
+}
+
+export const FLEET_INBOX_ARTIFACT = "fleet-inbox.json";
+
+/** One omp-ui_fleet_send message staged for a dispatched session (issue #959). */
+export interface FleetInboxEntry {
+  id: string;
+  text: string;
+  mode: FleetSendMode;
+}
+
+function isFleetInboxEntry(value: unknown): value is FleetInboxEntry {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== 3) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.id === "string" &&
+    v.id !== "" &&
+    typeof v.text === "string" &&
+    v.text !== "" &&
+    (v.mode === "queue" || v.mode === "steer")
+  );
+}
+
+/** The staged messages in order; [] when absent, unreadable, or malformed. */
+export function readFleetInbox(absLineageDir: string): FleetInboxEntry[] {
+  try {
+    const parsed: unknown = JSON.parse(
+      fs.readFileSync(path.join(absLineageDir, FLEET_INBOX_ARTIFACT), "utf8"),
+    );
+    return Array.isArray(parsed) && parsed.every(isFleetInboxEntry) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Appends one message; it rides initialCommands until omp answers it. */
+export function stageFleetInbox(absLineageDir: string, entry: FleetInboxEntry): void {
+  writeTextAtomic(
+    path.join(absLineageDir, FLEET_INBOX_ARTIFACT),
+    JSON.stringify([...readFleetInbox(absLineageDir), entry]),
+  );
+}
+
+/** Drops message `id` once omp answered it; removes the file when empty. */
+export function consumeFleetInbox(absLineageDir: string, id: string): void {
+  const file = path.join(absLineageDir, FLEET_INBOX_ARTIFACT);
+  const rest = readFleetInbox(absLineageDir).filter((e) => e.id !== id);
+  if (rest.length === 0) removeLineageArtifact(file);
+  else writeTextAtomic(file, JSON.stringify(rest));
 }
 
 export interface HostResources {

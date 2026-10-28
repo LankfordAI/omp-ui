@@ -20,6 +20,7 @@ import { useTranscriptScale } from "../lib/text-scale";
 import type {
   AssistantItem,
   CommandItem,
+  FleetWakeItem,
   IrcItem,
   MarkerItem,
   NoticeItem,
@@ -558,6 +559,24 @@ function IrcLine({ item }: { item: IrcItem }) {
   );
 }
 
+function FleetWakeCard({ item }: { item: FleetWakeItem }) {
+  const t = useT();
+  const question = item.card.kind === "question";
+  return (
+    <div className="animate-rise rounded-md border border-line bg-raised px-2.5 py-1.5">
+      <div className="flex flex-wrap items-baseline gap-1.5 text-[11px]">
+        <Chip tone={question ? "copper" : "signal"}>
+          {t(question ? "transcript.fleetWake.question" : "transcript.fleetWake.result")}
+        </Chip>
+        <span className="min-w-0 truncate text-ink-mid">
+          {t("transcript.fleetWake.from", { title: item.card.title, machine: item.card.machine })}
+        </span>
+      </div>
+      <Markdown text={item.text} className="mt-1 text-[12px]" />
+    </div>
+  );
+}
+
 const MARKER_TONE: Record<string, string> = {
   signal: "text-signal",
   copper: "text-copper",
@@ -803,6 +822,7 @@ const SPEAKER: Record<RenderItem["kind"], string> = {
   plan: "tool",
   command: "command",
   shell: "shell",
+  fleetWake: "meta",
 };
 
 function buildRuns(items: RenderItem[]): Run[] {
@@ -894,6 +914,8 @@ const TranscriptRow = memo(function TranscriptRow({
       return <CommandRow item={item} tabId={tabId} />;
     case "shell":
       return <ShellRow item={item} tabId={tabId} />;
+    case "fleetWake":
+      return <FleetWakeCard item={item} />;
   }
 });
 

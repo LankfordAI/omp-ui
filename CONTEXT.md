@@ -1263,6 +1263,13 @@ The fleet dispatches one request created on several targets, sharing a
 sessions with the same `batchId`, and a single-target dispatch has none.
 _Avoid_: job group, fan-out job
 
+**Fleet result**:
+The visible message omp-ui posts into the session that dispatched work when a
+dispatched session finishes its first run (ADR-0069); posting it starts a turn
+there. A Fleet notice is the same message for a dispatched session waiting on
+the user.
+_Avoid_: callback, webhook, completion event
+
 **Fleet exec**:
 One bounded command a fleet member runs on its own shell at a dispatcher's
 request, gated by that member's grant ladder and answered with exit code plus

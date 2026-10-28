@@ -61,6 +61,7 @@ const AUDIT_ACTION_LABEL: Record<FleetAuditEntry["action"], MessageKey> = {
   "exec-detached": "fleet.audit.execDetached",
   keys: "fleet.audit.keys",
   update: "fleet.audit.update",
+  send: "fleet.audit.send",
 };
 
 /** One dispatched session wherever it lives: this app's registry or a joined instance's. */

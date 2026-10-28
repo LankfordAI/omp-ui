@@ -43,6 +43,7 @@ import {
   writePrivateGuardExtension,
   writePrivateOverlay,
   writeSideCommandsExtension,
+  writeFleetWakeExtension,
   writeChatOverlay,
   writeVaultOverlay,
   writeWorktreeOverlay,
@@ -351,6 +352,7 @@ export const RPC_BRIDGE_IDS = [
   "carryoverContext",
   "privateGuard",
   "sideCommands",
+  "fleetWake",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
 export type RpcBridgeWriters = Record<RpcBridgeId, (lineageDir: string) => string>;
@@ -373,6 +375,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   carryoverContext: writeCarryoverContextExtension,
   privateGuard: writePrivateGuardExtension,
   sideCommands: writeSideCommandsExtension,
+  fleetWake: writeFleetWakeExtension,
 };
 
 const RPC_BRIDGES: ReadonlyArray<{
@@ -398,6 +401,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "carryoverContext", logId: "carryover", warning: "carryover-context", enabled: () => true },
   { id: "privateGuard", logId: "private", warning: "private-guard", enabled: () => true },
   { id: "sideCommands", logId: "side-commands", warning: "side-commands", enabled: () => true },
+  { id: "fleetWake", logId: "fleet-wake", warning: "fleet-wake", enabled: () => true },
 ];
 export interface RpcExtensionWriteResult {
   paths: string[];

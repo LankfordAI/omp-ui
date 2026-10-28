@@ -5,8 +5,10 @@ import {
   type FleetDispatchRequest,
   type FleetHostProject,
   type FleetHostReport,
+  type FleetSendRequest,
   type NewRpcSpawnRequest,
   type RemoteInstanceSummary,
+  type SessionSummary,
 } from "@omp-ui/core";
 import { FleetDispatcher, type FleetDispatcherDeps } from "./fleet-dispatcher";
 
@@ -82,6 +84,7 @@ interface Harness {
 function harness(opts: {
   local: FleetHostReport;
   remotes?: Record<string, { report: () => Promise<FleetHostReport>; spawn?: (req: NewRpcSpawnRequest) => Promise<unknown> }>;
+  deps?: Partial<FleetDispatcherDeps>;
 }): Harness {
   let ids = 0;
   const known = new Set<string>();
@@ -113,8 +116,12 @@ function harness(opts: {
     },
     probeSsh: async () => true,
     providerKeyValue: () => null,
+    watchAgentDispatch: () => {},
+    nextBroadcast: async () => {},
+    sendLocal: async () => ({ status: "delivered" }),
     now: () => NOW,
     uuid: () => `id-${++ids}`,
+    ...opts.deps,
   };
   h.dispatcher = new FleetDispatcher(deps);
   return h;
@@ -404,6 +411,156 @@ describe("FleetDispatcher", () => {
   });
 });
 
+/** A live dispatched session; by default it finished its run (settled). */
+function fleetSession(
+  machineKey: string,
+  dispatchId: string,
+  patch: Partial<SessionSummary> = {},
+): { machineKey: string; nickname: string | null; summary: SessionSummary } {
+  return {
+    machineKey,
+    nickname: null,
+    summary: {
+      tabId: `tab-${dispatchId}`,
+      title: "Fix the flaky test",
+      live: "live",
+      pendingPlan: null,
+      awaitingHumanAnswer: false,
+      turnRunning: false,
+      sessionId: `session-${dispatchId}`,
+      status: "complete",
+      fleet: {
+        dispatchId,
+        batchId: null,
+        title: "Fix the flaky test",
+        prompt: "Fix the flaky test",
+        requestedBy: { instanceId: "dispatcher", label: "desk", kind: "agent", sourceTabId: "parent" },
+      },
+      ...patch,
+    } as unknown as SessionSummary,
+  };
+}
+
+describe("FleetDispatcher wake-up, long-poll status, send (issues #957-#959)", () => {
+  it("watches only an agent dispatch's non-failed outcomes, never a user dispatch", async () => {
+    const watch = vi.fn();
+    const picks = [
+      { machineKey: LOCAL_MACHINE_KEY, projectCwd: "/work/app" },
+      { machineKey: LOCAL_MACHINE_KEY, projectCwd: "/nowhere" },
+    ];
+    const h = harness({ local: report([project()]), deps: { watchAgentDispatch: watch } });
+    const result = await h.dispatcher.dispatch(explicit(picks), { kind: "agent", sourceTabId: "parent" });
+    const started = result.outcomes.find((o) => o.status === "started")!;
+    expect(result.outcomes.some((o) => o.status === "failed")).toBe(true);
+    expect(watch).toHaveBeenCalledTimes(1);
+    expect(watch).toHaveBeenCalledWith("parent", [{ dispatchId: started.dispatchId, machineKey: LOCAL_MACHINE_KEY }]);
+
+    await h.dispatcher.dispatch(explicit(picks), { kind: "user" });
+    expect(watch).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers at once with waitMs when the session already settled", async () => {
+    const nextBroadcast = vi.fn(async () => {});
+    const h = harness({
+      local: report([project()]),
+      deps: { nextBroadcast, fleetSessions: async () => [fleetSession(LOCAL_MACHINE_KEY, "d1")] },
+    });
+    expect(await h.dispatcher.statusText({ dispatchId: "d1" }, 30_000)).toContain("idle");
+    expect(nextBroadcast).not.toHaveBeenCalled();
+  });
+
+  it("answers after the broadcast that turns a working session idle", async () => {
+    let running = true;
+    let broadcasts = 0;
+    const h = harness({
+      local: report([project()]),
+      deps: {
+        fleetSessions: async () => [fleetSession(LOCAL_MACHINE_KEY, "d1", { turnRunning: running })],
+        nextBroadcast: async () => {
+          broadcasts += 1;
+          if (broadcasts === 2) running = false;
+        },
+      },
+    });
+    expect(await h.dispatcher.statusText({ dispatchId: "d1" }, 30_000)).toContain("idle");
+    expect(broadcasts).toBe(2);
+  });
+
+  it("keeps waiting on a fresh child through its first turn and answers once it settles", async () => {
+    let summary: Partial<SessionSummary> = { turnRunning: false, sessionId: null, status: null };
+    let broadcasts = 0;
+    const h = harness({
+      local: report([project()]),
+      deps: {
+        fleetSessions: async () => [fleetSession(LOCAL_MACHINE_KEY, "d1", summary)],
+        nextBroadcast: async () => {
+          broadcasts += 1;
+          summary =
+            broadcasts === 1
+              ? { turnRunning: true, sessionId: "session-d1", status: null }
+              : { turnRunning: false, sessionId: "session-d1", status: "complete" };
+        },
+      },
+    });
+    expect(await h.dispatcher.statusText({ dispatchId: "d1" }, 30_000)).toContain("idle");
+    expect(broadcasts).toBe(2);
+  });
+
+  it("gives up at the deadline while the session keeps working", async () => {
+    let now = NOW;
+    const waits: number[] = [];
+    const h = harness({
+      local: report([project()]),
+      deps: {
+        now: () => now,
+        fleetSessions: async () => [fleetSession(LOCAL_MACHINE_KEY, "d1", { turnRunning: true })],
+        nextBroadcast: async (timeoutMs) => {
+          waits.push(timeoutMs);
+          now += 4_000;
+        },
+      },
+    });
+    expect(await h.dispatcher.statusText({ dispatchId: "d1" }, 10_000)).toContain("working");
+    expect(waits).toEqual([10_000, 6_000, 2_000]);
+  });
+
+  it("refuses a send from a session that did not dispatch the child, without contacting the owner", async () => {
+    const sendLocal = vi.fn(async () => ({ status: "delivered" as const }));
+    const h = harness({
+      local: report([project()]),
+      remotes: { r1: { report: async () => report([]) } },
+      deps: { sendLocal, fleetSessions: async () => [fleetSession("r1", "d1")] },
+    });
+    const outcome = await h.dispatcher.send("stranger", { dispatchId: "d1", message: "hi", mode: "queue" });
+    expect(outcome.status).toBe("refused");
+    expect(sendLocal).not.toHaveBeenCalled();
+    expect(h.request.mock.calls.some(([, ch]) => ch === CH.fleetSend)).toBe(false);
+  });
+
+  it("sends to a remote child through fleet:send on its owner", async () => {
+    const h = harness({
+      local: report([project()]),
+      remotes: { r1: { report: async () => report([]) } },
+      deps: { fleetSessions: async () => [fleetSession("r1", "d1")] },
+    });
+    h.request.mockImplementation(async (_id, channel) => {
+      if (channel === CH.fleetSend) return { status: "delivered" };
+      throw new Error(`unexpected ${channel}`);
+    });
+    const outcome = await h.dispatcher.send("parent", { dispatchId: "d1", message: "hi", mode: "steer" });
+    expect(outcome).toEqual({ status: "delivered" });
+    const call = h.request.mock.calls.find(([, ch]) => ch === CH.fleetSend)!;
+    expect(call[0]).toBe("r1");
+    expect(CH.fleetSend).toBe("fleet:send");
+    expect(call[2][0] as FleetSendRequest).toMatchObject({
+      requester: { instanceId: "dispatcher", kind: "agent", sourceTabId: "parent" },
+      dispatchId: "d1",
+      message: "hi",
+      mode: "steer",
+    });
+  });
+});
+
 describe("FleetDispatcher fleet ladder (issue #901)", () => {
   /** One joined member r1 ("box-r1"), answering whatever `answer` returns per channel. */
   function ladder(
@@ -428,6 +585,9 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
       broadcast: async () => {},
       probeSsh: async () => true,
       providerKeyValue,
+      watchAgentDispatch: () => {},
+      nextBroadcast: async () => {},
+      sendLocal: async () => ({ status: "delivered" }),
       now: () => NOW,
       uuid: () => "u",
     });
@@ -684,6 +844,9 @@ describe("FleetDispatcher member address (issue #904)", () => {
       broadcast: async () => {},
       probeSsh,
       providerKeyValue: () => null,
+      watchAgentDispatch: () => {},
+      nextBroadcast: async () => {},
+      sendLocal: async () => ({ status: "delivered" }),
       now: () => NOW,
       uuid: () => "u",
     });
@@ -727,6 +890,9 @@ describe("FleetDispatcher fleet maintenance (fleet remote version update)", () =
       broadcast: async () => {},
       probeSsh: async () => true,
       providerKeyValue: () => null,
+      watchAgentDispatch: () => {},
+      nextBroadcast: async () => {},
+      sendLocal: async () => ({ status: "delivered" }),
       now: () => NOW,
       uuid: () => "u",
     });

@@ -138,4 +138,8 @@ describe("fleet channels (issue #899)", () => {
     }
     expect(REMOTE_PROXY_CHANNELS.has("fleet:updateMachine")).toBe(false);
   });
+
+  it("proxies fleet send to the owner (#959)", () => {
+    expect(REMOTE_PROXY_CHANNELS.has("fleet:send")).toBe(true);
+  });
 });
