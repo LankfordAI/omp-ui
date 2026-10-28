@@ -4,13 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- **Restricted folders** on the omp settings page edit omp's `tools.restrictedFolders`: every action in a listed folder asks for approval in every approval mode, `yolo` included. The approval card names the folder a prompt comes from (#951).
-- The **Jobs** pane draws OMP's live **job widgets** for running background jobs, with a headline figure plus a sparkline or meter and every block on expand, plus the completion estimate and stage of subagent jobs, and the HUD `jobs` chip shows the freshest headline; `async.widgets` now has a row under Settings → omp → Background jobs (#954).
-- omp's **Ask and remember** approval mode (`always-ask-cached`) is selectable, and its approval card offers omp's directory and file grant choices with a toggle to remember them across sessions (#950).
-- **Session spend caps**: `session.warnCost` and `session.maxCost` are editable on the omp settings page, and a turn stopped by the cap shows a spend-cap marker in the native transcript (#952).
-- The inspector rail's Session info pane breaks down **failed edits** by reason from omp's `editRejections` (#953).
-- Slash commands marked `side: true` run as **side questions** in native tabs, like `/btw` (#955).
-- **Fleet**: a dispatching session wakes with a result card when a session it dispatched settles, and gets a notice when one waits on the user (#957); `omp-ui_fleet_status` takes an optional `waitMs` long-poll (#958); and the new `omp-ui_fleet_send` tool queues or steers a message into a session the agent dispatched (#959).
+Nothing since [v0.27.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.27.2). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
