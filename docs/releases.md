@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.28.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.28.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- A Remote instance viewer newer than the host that owns a native tab no longer leaks hidden bridge commands such as `/omp-ui-side-commands` into the transcript as user prompts: omp-ui sends a bridge's arm only when the session's command catalog advertises that bridge (#960).
 
 ## Choose a download
 

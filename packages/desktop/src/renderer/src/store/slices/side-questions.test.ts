@@ -391,7 +391,10 @@ describe("side commands in a native tab (issue #955)", () => {
 
   it("available_commands_update re-arms the bridge only once it has published", () => {
     setupSide("rpc-ui", null);
-    const update = { type: "available_commands_update", commands: [fileCommand("sitrep")] };
+    const update = {
+      type: "available_commands_update",
+      commands: [fileCommand("sitrep"), fileCommand(SIDE_COMMANDS_COMMAND, "extension")],
+    };
     h.useStore.getState().handleRpcFrame(h.TAB, update);
     expect(prompts()).toEqual([]);
 

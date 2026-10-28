@@ -16,10 +16,10 @@ import {
   parseBtwRecord,
 } from "@omp-ui/core/side-questions";
 import {
+  SIDE_COMMANDS_COMMAND,
   type SideCommandFailure,
   type SideCommandsSnapshot,
   sideCommandRenderMessage,
-  sideCommandsArmMessage,
   sideCommandTitle,
 } from "@omp-ui/core/side-commands";
 import { field } from "../../lib/fields";
@@ -237,11 +237,7 @@ export function createSideQuestionsSlice(
   };
 
   const refreshSideCommands = async (tabId: string): Promise<void> => {
-    await m.runCommand(
-      tabId,
-      { type: "prompt", message: sideCommandsArmMessage() },
-      QUIET,
-    );
+    await m.runBridgeCommand(tabId, SIDE_COMMANDS_COMMAND, "", QUIET);
   };
 
   const runSideCommand = async (

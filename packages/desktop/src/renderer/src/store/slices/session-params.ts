@@ -4,7 +4,7 @@
 import type { ApprovalMode, BackendState, ImageAttachment, ServiceTier } from "@omp-ui/core/types";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { LIMITS_COMMAND } from "@omp-ui/core/limits";
-import { sessionSpendArmMessage } from "@omp-ui/core/session-spend";
+import { SESSION_SPEND_COMMAND } from "@omp-ui/core/session-spend";
 import { isHtmlPlanPath, planMessage } from "@omp-ui/core/plan";
 import { parseExperimentProposalTitle } from "@omp-ui/core/autoresearch";
 import { approvalReply, parseApprovalPrompt } from "@omp-ui/core/approval";
@@ -2431,18 +2431,15 @@ export function createSessionParamsSlice(
   /**
    * One hidden bridge command as a quiet prompt (the `refreshLimits` shape,
    * issue #680): the bridge's published snapshot — not the ack — answers for
-   * it, so the transcript gets no row and the busy sweep no strobe.
+   * it, so the transcript gets no row and the busy sweep no strobe. Sent only
+   * when the session advertises the command (issue #960).
    */
   const runHiddenCommand = async (
     tabId: string,
     command: string,
     args: string,
   ): Promise<void> => {
-    await m.runCommand(
-      tabId,
-      { type: "prompt", message: `/${command}${args === "" ? "" : ` ${args}`}` },
-      { allowDuringBoot: true, quiet: true },
-    );
+    await m.runBridgeCommand(tabId, command, args, { allowDuringBoot: true, quiet: true });
   };
 
   const setTodos = async (tabId: string, phases: TodoPhase[]): Promise<void> => {
@@ -2477,37 +2474,19 @@ export function createSessionParamsSlice(
     // The extension answers by publishing over setStatus. Until omp has run a
     // turn the session is uncaptured, so it reports a live-session wait which
     // the HUD treats as "not yet" rather than an error.
-    await m.runCommand(
-      tabId,
-      {
-        type: "prompt",
-        message: `/${ADVISOR_STATS_COMMAND}`,
-      },
-      { allowDuringBoot: true },
-    );
+    await m.runBridgeCommand(tabId, ADVISOR_STATS_COMMAND, "", { allowDuringBoot: true });
   };
 
   const refreshLimits = async (tabId: string): Promise<void> => {
     // The bridge answers by publishing over setStatus. Quiet: the arm rides
     // every boot and HUD refresh, and a busy sweep per shot would strobe the
     // command indicator for a readout the user never invoked (issue #673).
-    await m.runCommand(
-      tabId,
-      {
-        type: "prompt",
-        message: `/${LIMITS_COMMAND}`,
-      },
-      { allowDuringBoot: true, quiet: true },
-    );
+    await m.runBridgeCommand(tabId, LIMITS_COMMAND, "", { allowDuringBoot: true, quiet: true });
   };
 
   const refreshSessionSpend = async (tabId: string): Promise<void> => {
     // The refreshLimits shape: the bridge answers over setStatus (issue #866).
-    await m.runCommand(
-      tabId,
-      { type: "prompt", message: sessionSpendArmMessage() },
-      { allowDuringBoot: true, quiet: true },
-    );
+    await m.runBridgeCommand(tabId, SESSION_SPEND_COMMAND, "", { allowDuringBoot: true, quiet: true });
   };
 
   const refreshSubagents = async (tabId: string): Promise<void> => {

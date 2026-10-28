@@ -1911,6 +1911,15 @@ describe("handleRpcFrame routing", () => {
   });
 
   it("refreshAdvisorStats asks the extension over a slash command", async () => {
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: {
+          ...tab,
+          commands: [{ name: "omp-ui-advisor-stats", description: "", source: "extension" }],
+        },
+      },
+    });
     const pending = h.useStore.getState().refreshAdvisorStats(h.TAB);
     const entry = h.sent.pop()!;
     expect(entry.cmd).toMatchObject({

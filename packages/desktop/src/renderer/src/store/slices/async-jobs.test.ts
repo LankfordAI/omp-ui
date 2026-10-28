@@ -197,7 +197,11 @@ describe("killAsyncJob (issue #835)", () => {
 
 describe("boot arm (issue #835)", () => {
   it("driveBoot arms the bridge with the bare hidden command", async () => {
-    const answered = await h.driveBoot(h.TAB);
+    const answered = await h.driveBoot(h.TAB, {
+      get_available_commands: {
+        data: { commands: [{ name: ASYNC_JOBS_COMMAND, description: "", source: "extension" }] },
+      },
+    });
     expect(answered).toContain(`/${ASYNC_JOBS_COMMAND}`);
   });
 });

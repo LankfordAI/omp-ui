@@ -224,6 +224,16 @@ export interface StoreMachinery {
     cmd: SessionCommand,
     opts?: { quiet?: boolean; allowDuringBoot?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown>;
+  /**
+   * One hidden bridge command as a prompt, sent only when the session's omp
+   * advertises `command` (issue #960). Resolves null without sending otherwise.
+   */
+  runBridgeCommand(
+    tabId: string,
+    command: string,
+    args: string,
+    opts: { quiet?: boolean; allowDuringBoot?: boolean },
+  ): Promise<unknown>;
   pollUntil(
     tabId: string,
     pred: (tab: RpcTabState | undefined) => boolean,
@@ -1052,6 +1062,25 @@ export function createMachinery(
     }
   };
 
+  const runBridgeCommand = async (
+    tabId: string,
+    command: string,
+    args: string,
+    opts: { quiet?: boolean; allowDuringBoot?: boolean },
+  ): Promise<unknown> => {
+    // omp runs an unregistered slash line as ordinary prompt text: a user
+    // message and an agent turn. A renderer newer than the host owning the
+    // session (a Remote instance viewer) knows bridges that host never
+    // loaded, so the catalog — not this build's bridge list — decides.
+    const advertised = get().rpc[tabId]?.commands.some((c) => c.name === command) ?? false;
+    if (!advertised) return null;
+    return runCommand(
+      tabId,
+      { type: "prompt", message: args === "" ? `/${command}` : `/${command} ${args}` },
+      opts,
+    );
+  };
+
   /** Polls `rpc[tabId]` until `pred` holds (or the bounded deadline passes). */
   const pollUntil = (
     tabId: string,
@@ -1263,6 +1292,7 @@ export function createMachinery(
     pollUntilSettled,
     acceptsCommands,
     runCommand,
+    runBridgeCommand,
     pollUntil,
     syncSubagentSubscription,
     applyRpcState,

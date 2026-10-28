@@ -4,7 +4,7 @@
 // command lands mid-turn without streamingBehavior; the bridge's published
 // snapshot, never the prompt ack, carries the outcome.
 import {
-  asyncJobsArmMessage,
+  ASYNC_JOBS_COMMAND,
   asyncJobsKillMessage,
   type AsyncJobsSnapshot,
 } from "@omp-ui/core/async-jobs";
@@ -54,11 +54,10 @@ export function acceptAsyncJobsSnapshot(
 export function createAsyncJobsSlice(get: GetState, m: StoreMachinery): AsyncJobsSlice {
   /** The refreshLimits shape: quiet, allowed during boot, answered by setStatus. */
   const refreshAsyncJobs = async (tabId: string): Promise<void> => {
-    await m.runCommand(
-      tabId,
-      { type: "prompt", message: asyncJobsArmMessage() },
-      { allowDuringBoot: true, quiet: true },
-    );
+    await m.runBridgeCommand(tabId, ASYNC_JOBS_COMMAND, "", {
+      allowDuringBoot: true,
+      quiet: true,
+    });
   };
 
   /**

@@ -457,6 +457,11 @@ describe("bootRpcTab", () => {
     expect(commands).not.toContain("get_messages");
   });
 
+  /** The catalog a session answers when every named bridge is loaded. */
+  const catalogOf = (...names: string[]) => ({
+    data: { commands: names.map((name) => ({ name, description: "", source: "extension" })) },
+  });
+
   it("arms the advisor-stats extension even when the record's advisor flag is false", async () => {
     // A stale/false record (race with the broadcast after an advisor-toggle
     // relaunch) must not skip the arm: the runtime readout depends on it.
@@ -466,21 +471,33 @@ describe("bootRpcTab", () => {
     h.useStore.setState({ state: h.backendState });
     const boot = h.useStore.getState().bootRpcTab(h.TAB);
     const arms: unknown[] = [];
+    const answer = (cmd: Record<string, unknown>): void => {
+      if (cmd.type === "prompt" && cmd.message === "/omp-ui-advisor-stats") arms.push(cmd);
+      h.respond(
+        h.TAB,
+        cmd,
+        cmd.type === "get_available_commands" ? catalogOf("omp-ui-advisor-stats").data : {},
+      );
+    };
     for (let wave = 0; wave < 5; wave++) {
       await h.flushMicrotasks();
-      for (const { cmd } of h.sent.splice(0)) {
-        if (cmd.type === "prompt" && cmd.message === "/omp-ui-advisor-stats")
-          arms.push(cmd);
-        h.respond(h.TAB, cmd, {});
-      }
+      for (const { cmd } of h.sent.splice(0)) answer(cmd);
     }
     await boot;
-    for (const { cmd } of h.sent.splice(0)) {
-      if (cmd.type === "prompt" && cmd.message === "/omp-ui-advisor-stats")
-        arms.push(cmd);
-      h.respond(h.TAB, cmd, {});
-    }
+    for (const { cmd } of h.sent.splice(0)) answer(cmd);
     expect(arms).toHaveLength(1);
+  });
+
+  it("arms only the bridges the session's catalog advertises (issue #960)", async () => {
+    // A Remote instance viewer newer than the owning host knows bridges the
+    // host never loaded; omp would run an unregistered arm as a user prompt.
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({ state: h.backendState });
+    const sent = await h.driveBoot(h.TAB, {
+      get_available_commands: catalogOf("omp-ui-limits"),
+    });
+    const prompts = sent.filter((entry) => entry.startsWith("/"));
+    expect(prompts).toEqual(["/omp-ui-limits"]);
   });
 
   it("reports error, not ready, when get_state fails", async () => {
