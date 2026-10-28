@@ -51,7 +51,8 @@
     "./live-voice": "./src/live-voice.ts",
     "./title-card": "./src/title-card.ts",
     "./vault-shared": "./src/vault-shared.ts",
-    "./fleet": "./src/fleet.ts"
+    "./fleet": "./src/fleet.ts",
+    "./fleet-wake": "./src/fleet-wake.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

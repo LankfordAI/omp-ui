@@ -251,6 +251,9 @@ export const en = {
   // TranscriptView.tsx / SessionTreeViewer.tsx — rewind affordances (issue #680)
   "transcript.rewind.here": "rewind here",
   "transcript.rewind.edit": "edit and resend",
+  "transcript.fleetWake.result": "Fleet result",
+  "transcript.fleetWake.question": "Fleet session needs you",
+  "transcript.fleetWake.from": "{title} · {machine}",
   "transcript.rewind.done":
     "rewound — later turns stay in the session file as another branch",
   "transcript.rewind.navigated": "navigated — the transcript shows the branch you jumped to",
@@ -3012,6 +3015,7 @@ export const en = {
   "fleet.maintenance.revoked": "revoked",
   "fleet.maintenance.revokedTitle": "Full control was lost on this machine before the update committed, so nothing was replaced.",
   "fleet.audit.update": "update",
+  "fleet.audit.send": "send",
   "fleet.update.title": "Update versions on {target}",
   "fleet.update.intro": "{target} updates itself from its own network through its own verified updaters; nothing ships from this computer.",
   "fleet.update.loading": "Asking {target} what it runs…",

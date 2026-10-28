@@ -34,6 +34,8 @@ import {
   type FleetProviderKeysRequest,
   type FleetRequester,
   type FleetRung,
+  type FleetSendOutcome,
+  type FleetSendRequest,
   type FleetUpdateAck,
   type FleetUpdateMemberRequest,
   type FleetUpdatePollOutcome,
@@ -135,6 +137,8 @@ export interface FleetServerDeps {
   liveSessions: () => number;
   /** Core's pin rule: OMP_UI_OMP_PATH names an existing file. */
   pinned: () => boolean;
+  /** SessionManager.fleetSend on this machine (issue #959): stage, then deliver or resume. */
+  deliverSend: (req: FleetSendRequest) => Promise<FleetSendOutcome>;
   /** Test seams. */
   commandDeps?: FleetCommandDeps;
   execGit?: (file: string, args: string[], opts: { cwd: string; timeout: number }) => Promise<{ stdout: Buffer }>;
@@ -239,6 +243,27 @@ export class FleetServer {
   execPoll(req: FleetExecPollRequest): Promise<FleetExecPollOutcome> {
     this.#recordFirstSight(req.requester);
     return this.#detached.poll(req.requester, req.execId, req.waitMs, req.cancel);
+  }
+
+  /**
+   * `fleet:send` (issue #959): a foreign instance needs the Dispatch rung; the
+   * own instance skips the ladder. SessionManager re-checks the dispatcher.
+   * The message text never enters the audit log.
+   */
+  async send(req: FleetSendRequest): Promise<FleetSendOutcome> {
+    const own = req.requester.instanceId === this.#deps.registry.getSetting("instanceId");
+    let rung: FleetRung = "dispatch";
+    if (!own) {
+      const gate = this.check(req.requester, "dispatch");
+      if (!gate.ok) {
+        this.#audit("send", req.requester, "dispatch", false, req.dispatchId.slice(0, 8), null);
+        return { status: "refused", reason: gate.reason };
+      }
+      rung = gate.rung;
+    }
+    const outcome = await this.#deps.deliverSend(req);
+    this.#audit("send", req.requester, rung, outcome.status !== "refused", `${req.dispatchId.slice(0, 8)} ${outcome.status}`, null);
+    return outcome;
   }
 
   /**

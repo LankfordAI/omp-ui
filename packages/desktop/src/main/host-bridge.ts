@@ -45,9 +45,11 @@ import {
   type FleetExecOutcome,
   type FleetExecPollOutcome,
   type FleetProjectManageOutcome,
+  type FleetSendOutcome,
   type FleetToolExecArgs,
   type FleetToolExecPollArgs,
   type FleetToolProjectArgs,
+  type FleetToolSendArgs,
   type FleetToolUpdateArgs,
   type FleetMachine,
   type ObsidianListEntry,
@@ -97,7 +99,8 @@ export interface FleetBridgeDeps {
   machines(): Promise<FleetMachine[]>;
   /** Dispatches on behalf of the agent in `tabId`; the caller bounds it inside the answer watchdog. */
   dispatch(tabId: string, req: FleetDispatchRequest): Promise<FleetDispatchResult>;
-  status(sel: { batchId: string } | { dispatchId: string }): Promise<string>;
+  /** Status for a batch or dispatch; `waitMs` > 0 long-polls for a working session's next state change (issue #958). */
+  status(sel: { batchId: string } | { dispatchId: string }, waitMs: number): Promise<string>;
   /** One bounded command on a member (issue #901); refusals ride the outcome. */
   exec(tabId: string, args: FleetToolExecArgs): Promise<FleetExecOutcome>;
   /** Rung-3 clone/register on a member (issue #901). */
@@ -108,6 +111,8 @@ export interface FleetBridgeDeps {
   execPoll(tabId: string, args: FleetToolExecPollArgs): Promise<FleetExecPollOutcome>;
   /** Fleet maintenance on a member (fleet remote version update); refusals ride the answer. */
   update(tabId: string, args: FleetToolUpdateArgs): Promise<FleetAgentUpdateAnswer>;
+  /** Sends one message into a session this tab dispatched (issue #959); refusals ride the outcome. */
+  send(tabId: string, args: FleetToolSendArgs): Promise<FleetSendOutcome>;
 }
 
 export interface HostBridgeDeps {
@@ -393,7 +398,7 @@ export class HostBridge {
         return;
       }
       if (parsed.tool === "status") {
-        const text = await deps.status(parsed.selector);
+        const text = await deps.status(parsed.selector, parsed.waitMs);
         reply(hostToolTextResult(call.id, text));
         return;
       }
@@ -486,6 +491,19 @@ export class HostBridge {
         reply(hostToolTextResult(call.id, fleetUpdateAnswerText(parsed.args.machine, answer)));
         return;
       }
+      if (parsed.tool === "send") {
+        const outcome = await deps.send(tabId, parsed.args);
+        // Dispatch id and status only — the message never reaches the log.
+        this.deps.log(`omp-ui_fleet_send from ${tabId}: ${parsed.args.dispatchId} ${outcome.status}`);
+        const text =
+          outcome.status === "delivered"
+            ? `delivered to dispatch ${parsed.args.dispatchId}`
+            : outcome.status === "queued"
+              ? `queued — ${outcome.detail}`
+              : `refused — ${outcome.reason}`;
+        reply(hostToolTextResult(call.id, text));
+        return;
+      }
       const machines = await deps.machines();
       if (!retained()) return;
       const translated = fleetToolDispatchRequest(parsed.args, machines);
@@ -504,10 +522,7 @@ export class HostBridge {
         const detail = o.status === "started" ? `tab ${o.tabId}${fleetChoiceText(o.choice)}` : o.message;
         return `- ${name}: ${o.status} (${detail}); dispatchId ${o.dispatchId}`;
       });
-      const poll =
-        result.batchId !== null
-          ? `Poll omp-ui_fleet_status with batchId ${result.batchId}; do not dispatch again.`
-          : "Poll omp-ui_fleet_status with the dispatchId; do not dispatch again.";
+      const poll = `omp-ui wakes this session with a Fleet result when each dispatched session finishes; you may end your turn. To check sooner, call omp-ui_fleet_status with ${result.batchId !== null ? `batchId ${result.batchId}` : "the dispatchId"} and waitMs. Do not dispatch again.`;
       reply(
         hostToolTextResult(
           call.id,

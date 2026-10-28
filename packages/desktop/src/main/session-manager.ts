@@ -20,6 +20,16 @@ import {
   readFleetPrompt,
   consumeFleetPrompt,
   fleetPromptCommandId,
+  readFleetInbox,
+  stageFleetInbox,
+  consumeFleetInbox,
+  fleetSendCommandId,
+  fleetSendText,
+  FLEET_SEND_COMMAND_PREFIX,
+  fleetWakeArmMessage,
+  fleetWakeCommandId,
+  fleetWakeDeliveredId,
+  fleetWakeAcknowledgedId,
   capabilitiesMessage,
   CAPABILITIES_STATUS_KEY,
   deleteSessionFiles,
@@ -103,6 +113,9 @@ import {
   type FleetToolExecPollArgs,
   type FleetToolProjectArgs,
   type FleetToolUpdateArgs,
+  type FleetToolSendArgs,
+  type FleetSendRequest,
+  type FleetSendOutcome,
   type AskSource,
   type ObsidianListEntry,
   type RpcFrame,
@@ -143,6 +156,7 @@ import {
   wireRpc,
 } from "./live-entry";
 import { DialogGateTracker } from "./dialog-gate-tracker";
+import type { FleetWakeLedgerAccess } from "./fleet-wake";
 import { HibernationTracker } from "./hibernation-tracker";
 import { CapabilityControlTracker } from "./capability-control-tracker";
 import { HostBridge } from "./host-bridge";
@@ -205,13 +219,15 @@ export interface FleetDispatcherLike {
     who: { kind: "user" } | { kind: "agent"; sourceTabId: string },
     opts?: { deadlineMs?: number },
   ): Promise<FleetDispatchResult>;
-  statusText(sel: { batchId: string } | { dispatchId: string }): Promise<string>;
+  statusText(sel: { batchId: string } | { dispatchId: string }, waitMs: number): Promise<string>;
   exec(tabId: string, args: FleetToolExecArgs): Promise<FleetExecOutcome>;
   projectManage(tabId: string, args: FleetToolProjectArgs): Promise<FleetProjectManageOutcome>;
   execDetach(tabId: string, args: FleetToolExecArgs): Promise<FleetDetachedExecStartOutcome>;
   execPoll(tabId: string, args: FleetToolExecPollArgs): Promise<FleetExecPollOutcome>;
   /** Fleet maintenance on a member (fleet remote version update); refusals ride the answer. */
   update(tabId: string, args: FleetToolUpdateArgs): Promise<FleetAgentUpdateAnswer>;
+  /** omp-ui_fleet_send (#959): a message into a session this tab dispatched. */
+  send(tabId: string, args: FleetToolSendArgs): Promise<FleetSendOutcome>;
 }
 
 /** The agent dispatch deadline: the answer must land inside HOST_ANSWER_WATCHDOG_MS (60 s). */
@@ -297,6 +313,8 @@ export interface SessionManagerDependencies {
    * fleet tools answer as unavailable.
    */
   fleet?: () => FleetDispatcherLike;
+  /** The fleet-wake ledger (ADR-0069); lazy like `fleet`. */
+  fleetWake?: () => FleetWakeLedgerAccess;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -341,6 +359,10 @@ export class SessionManager {
   private readonly warmPool: WarmRpcPool;
   /** In-flight fleet spawns keyed by dispatchId (ADR-0061): a retried dispatch joins the first instead of starting a second process. */
   readonly #fleetInFlight = new Map<string, Promise<SpawnAnswer>>();
+  /** Last resume attempt per tab for a staged fleet wake: at most one per 60 s. */
+  readonly #wakeResumeAt = new Map<string, number>();
+  /** Pending acks for live fleet_send prompts, keyed by command id. */
+  readonly #fleetSendAcks = new Map<string, (ok: boolean) => void>();
   /** One `omp models` read shared by concurrent fleet spawns (#956); never cached past settle, so a new sign-in counts at the next dispatch. */
   #catalogRead: Promise<ModelCatalogSnapshot> | null = null;
   private obsidianListPending: Promise<ObsidianListEntry[]> | null = null;
@@ -493,7 +515,7 @@ export class SessionManager {
               machines: () => fleet().machines(),
               dispatch: (tabId, req) =>
                 fleet().dispatch(req, { kind: "agent", sourceTabId: tabId }, { deadlineMs: AGENT_FLEET_DEADLINE_MS }),
-              status: (sel) => fleet().statusText(sel),
+              status: (sel, waitMs) => fleet().statusText(sel, waitMs),
               // #901: the dispatcher bounds exec/project inside the watchdog itself.
               exec: (tabId, args) => fleet().exec(tabId, args),
               projectManage: (tabId, args) => fleet().projectManage(tabId, args),
@@ -502,6 +524,7 @@ export class SessionManager {
               execPoll: (tabId, args) => fleet().execPoll(tabId, args),
               // Fleet remote version update: the dispatcher answers polls for jobs it started; refusals ride the answer.
               update: (tabId, args) => fleet().update(tabId, args),
+              send: (tabId, args) => fleet().send(tabId, args),
             },
           }),
     });
@@ -1324,6 +1347,7 @@ export class SessionManager {
     entry.planBridgeLoaded = bridgeLoaded.plan;
     entry.advisorStatsBridgeLoaded = bridgeLoaded.advisorStats;
     entry.capabilitiesBridgeLoaded = bridgeLoaded.capabilities;
+    entry.fleetWakeBridgeLoaded = bridgeLoaded.fleetWake;
     // The bridge listener outlives the process: a relaunch under the same tab
     // reuses the endpoint, so the agent's remembered URL stays valid (#519).
     const cdpUrl = bridgeLoaded.browserPane ? await this.browserPanes.ensureEndpoint(record.tabId) : null;
@@ -1545,6 +1569,19 @@ export class SessionManager {
         initialCommands.push({ type: "prompt", id: fleetPromptCommandId(record.fleet.dispatchId), message: text });
       }
     }
+    // Staged fleet wakes (ADR-0069) ride after the fleet prompt; the ledger
+    // keeps each until its message_end, so a crash re-arms on the next spawn.
+    if (bridgeLoaded.fleetWake) {
+      for (const msg of this.deps.fleetWake?.().staged(record.tabId) ?? []) {
+        initialCommands.push({ type: "prompt", id: fleetWakeCommandId(msg.card.wakeId), message: fleetWakeArmMessage(msg) });
+        entry.fleetWakeSent.add(msg.card.wakeId);
+      }
+    }
+    // fleet_send messages not yet acknowledged (#959); followUp queues each
+    // behind the fleet prompt's turn.
+    for (const msg of readFleetInbox(absLineageDir)) {
+      initialCommands.push({ type: "prompt", id: fleetSendCommandId(msg.id), message: msg.text, streamingBehavior: "followUp" });
+    }
     // #932: an unreachable pinned endpoint boots the session unpinned and held.
     // The overlay drops only the model; the record keeps it for the next spawn.
     const modelHold = await this.probeModelHold(record, modelOverride);
@@ -1631,6 +1668,20 @@ export class SessionManager {
         ) {
           if (control.success === true) consumeFleetPrompt(absLineageDir);
           else console.warn("[fleet] dispatched prompt rejected:", record.tabId);
+        }
+        // Fleet wake settled (ADR-0069): its message_end, or the bridge's ack
+        // that the branch already holds it. Not identity-fenced, as above.
+        const wakeId = fleetWakeDeliveredId(frame) ?? fleetWakeAcknowledgedId(control);
+        if (wakeId !== null) this.deps.fleetWake?.().delivered(record.tabId, wakeId);
+        // A fleet_send prompt's ack (#959): omp answered, so the inbox entry goes either way.
+        if (
+          control?.kind === "response" &&
+          typeof control.id === "string" &&
+          control.id.startsWith(FLEET_SEND_COMMAND_PREFIX)
+        ) {
+          consumeFleetInbox(absLineageDir, control.id.slice(FLEET_SEND_COMMAND_PREFIX.length));
+          this.#fleetSendAcks.get(control.id)?.(control.success === true);
+          if (control.success !== true) console.warn("[fleet] sent message rejected:", record.tabId);
         }
         if (
           control !== null &&
@@ -1850,6 +1901,83 @@ export class SessionManager {
   modelHold(tabId: string): ModelHold | null {
     const entry = this.live.get(tabId);
     return entry?.kind === "rpc-ui" ? entry.modelHold : null;
+  }
+
+  /** Hands every staged fleet wake to the parent: arms on a live native process, else resumes it (§2.1). */
+  flushFleetWakes(tabId: string): void {
+    const access = this.deps.fleetWake?.();
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (access === undefined || record === undefined || record.mode !== "rpc-ui") return;
+    const staged = access.staged(tabId);
+    if (staged.length === 0) return;
+    const entry = this.live.get(tabId);
+    if (entry !== undefined) {
+      if (entry.kind !== "rpc-ui" || entry.rpc === null || !entry.fleetWakeBridgeLoaded || entry.modelHold !== null) return;
+      for (const msg of staged) {
+        if (entry.fleetWakeSent.has(msg.card.wakeId)) continue;
+        entry.fleetWakeSent.add(msg.card.wakeId);
+        entry.rpc.send({ type: "prompt", id: fleetWakeCommandId(msg.card.wakeId), message: fleetWakeArmMessage(msg) });
+      }
+      return;
+    }
+    if (this.pendingOp(tabId) !== undefined) return;
+    const last = this.#wakeResumeAt.get(tabId) ?? 0;
+    if (Date.now() - last < 60_000) return;
+    this.#wakeResumeAt.set(tabId, Date.now());
+    void this.spawn({ origin: "resume", resumeTabId: tabId, cols: 80, rows: 24 }).catch((err) =>
+      console.warn(`[fleet-wake] ${tabId}: resume for a staged fleet result failed:`, err),
+    );
+  }
+
+  /** omp-ui_fleet_send on the owner (#959): stages in the child's inbox, then prompts it live or resumes it. */
+  async fleetSend(req: FleetSendRequest): Promise<FleetSendOutcome> {
+    const refused = (reason: string): FleetSendOutcome => ({ status: "refused", reason });
+    const record = this.deps.registry.sessions.find((s) => s.fleet?.dispatchId === req.dispatchId);
+    if (record === undefined || record.fleet === null)
+      return refused(`no session on this machine carries dispatch ${req.dispatchId}`);
+    const by = record.fleet.requestedBy;
+    if (
+      by.kind !== "agent" ||
+      by.instanceId !== req.requester.instanceId ||
+      by.sourceTabId === null ||
+      by.sourceTabId !== req.requester.sourceTabId
+    )
+      return refused("only the session that dispatched this work can send to it");
+    if (record.mode !== "rpc-ui") return refused("the dispatched session runs in terminal mode");
+    const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
+    const id = randomUUID();
+    const text = fleetSendText(req.message);
+    const entry = this.live.get(record.tabId);
+    if (entry?.kind === "rpc-ui") {
+      if (entry.modelHold !== null) return refused(`the session is held: ${entry.modelHold.model} is not reachable`);
+      if (this.awaitingHumanAnswer(record.tabId))
+        return refused("the session is waiting for the user's answer; only the user can answer it");
+      stageFleetInbox(absLineageDir, { id, text, mode: req.mode });
+      const cmdId = fleetSendCommandId(id);
+      const ack = Promise.withResolvers<boolean | null>();
+      this.#fleetSendAcks.set(cmdId, ack.resolve);
+      this.rpcSend(record.tabId, {
+        type: "prompt",
+        id: cmdId,
+        message: text,
+        streamingBehavior: req.mode === "steer" ? "steer" : "followUp",
+      });
+      const timer = setTimeout(() => ack.resolve(null), 15_000);
+      const answer = await ack.promise;
+      clearTimeout(timer);
+      this.#fleetSendAcks.delete(cmdId);
+      if (answer === true) return { status: "delivered" };
+      if (answer === false) return refused("omp rejected the message");
+      return {
+        status: "queued",
+        detail: "omp has not acknowledged it yet; it is sent again when the session next starts if it never arrived",
+      };
+    }
+    stageFleetInbox(absLineageDir, { id, text, mode: req.mode });
+    void this.spawn({ origin: "resume", resumeTabId: record.tabId, cols: 80, rows: 24 }).catch((err) =>
+      console.warn(`[fleet] ${record.tabId}: resume for a sent message failed:`, err),
+    );
+    return { status: "queued", detail: "the session was not running; it is resuming and receives the message first" };
   }
 
   /** The observer fan-out + client broadcast tail of `onFrame` (§5.3). */

@@ -217,7 +217,8 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   // owner checks Full control; key values cross main-to-main only, and the
   // local fleet:rolloutProviderKeys orchestration stays off this list. Fleet
   // remote version update follows the same split: fleet:updateMember and
-  // fleet:updatePoll are proxied; the local fleet:updateMachine is not.
+  // fleet:updatePoll are proxied; the local fleet:updateMachine is not. Fleet
+  // send (#959) is proxied too; the owner re-checks the dispatcher and rung.
   "fleet:exec",
   "fleet:projectManage",
   "fleet:grantRung",
@@ -227,6 +228,7 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   "fleet:providerKeys",
   "fleet:updateMember",
   "fleet:updatePoll",
+  "fleet:send",
   // Session migration (#888): the pack legs run on the source host, the
   // ingest legs on the target; every chunk frame is base64 under the socket's
   // MAX_PAYLOAD. Transcript bytes may ride the renderer (already visible

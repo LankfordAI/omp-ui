@@ -42,6 +42,10 @@ export interface RpcLiveEntry extends LiveEntryBase {
   modelHold: ModelHold | null;
   /** Ids of set_model commands sent while held; a successful response to one lifts the hold. */
   readonly modelHoldPicks: Set<string>;
+  /** True when this spawn wrote the fleet-wake bridge (ADR-0069). */
+  fleetWakeBridgeLoaded: boolean;
+  /** Wake ids already armed on this process; each staged wake is handed over once per process. */
+  readonly fleetWakeSent: Set<string>;
 }
 
 export type LiveEntry = PtyLiveEntry | RpcLiveEntry;
@@ -88,6 +92,8 @@ export function createRpcLiveEntry(record: OwnedSessionRecord): RpcLiveEntry {
     browserPaneArmed: false,
     modelHold: null,
     modelHoldPicks: new Set(),
+    fleetWakeBridgeLoaded: false,
+    fleetWakeSent: new Set(),
   };
 }
 

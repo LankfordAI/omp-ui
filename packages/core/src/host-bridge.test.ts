@@ -108,6 +108,7 @@ describe("host registration definitions", () => {
         "omp-ui_fleet_project",
         "omp-ui_fleet_exec_poll",
         "omp-ui_fleet_update",
+        "omp-ui_fleet_send",
       ],
     ],
     [
@@ -147,6 +148,7 @@ describe("host registration definitions", () => {
         "omp-ui_fleet_project",
         "omp-ui_fleet_exec_poll",
         "omp-ui_fleet_update",
+        "omp-ui_fleet_send",
       ],
     ],
   ])("registers %j as exactly these tools in order", (opts, names) => {
@@ -160,7 +162,7 @@ describe("host registration definitions", () => {
       expect(tool.parameters.type).toBe("object");
       expect(tool.parameters.additionalProperties).toBe(false);
     }
-    expect(fleet).toHaveLength(7);
+    expect(fleet).toHaveLength(8);
     expect(fleet.map((tool) => tool.parameters.required ?? [])).toEqual([
       [],
       ["prompt", "project"],
@@ -169,7 +171,12 @@ describe("host registration definitions", () => {
       ["machine", "verb"],
       ["machine", "execId"],
       ["machine", "target", "action"],
+      ["dispatchId", "message"],
     ]);
+    const status = fleet[2]!.parameters.properties as Record<string, Record<string, unknown>>;
+    expect(status.waitMs).toMatchObject({ type: "integer", minimum: 0, maximum: 45_000 });
+    const send = fleet[7]!.parameters.properties as Record<string, Record<string, unknown>>;
+    expect(send).toMatchObject({ dispatchId: { type: "string" }, message: { type: "string" }, mode: { type: "string", enum: ["queue", "steer"] } });
     const exec = fleet[3]!.parameters.properties as Record<string, Record<string, unknown>>;
     expect(exec.detach).toMatchObject({ type: "boolean" });
     expect(exec.timeoutMs).toMatchObject({ type: "integer", minimum: 100, maximum: 30 * 60_000 });

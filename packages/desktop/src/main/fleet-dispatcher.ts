@@ -9,11 +9,13 @@ import { randomUUID } from "node:crypto";
 import {
   CH,
   FLEET_RUNGS,
+  FLEET_STATUS_WAIT_MAX_MS,
   LOCAL_MACHINE_KEY,
   PLACEMENT_WEIGHT,
   choosePlacement,
   deriveFleetTitle,
   eligibleMachineCount,
+  fleetChildSettled,
   fleetChoiceText,
   fleetMachineName,
   fleetMemberAddress,
@@ -53,10 +55,13 @@ import {
   type FleetProviderKeyEntry,
   type FleetProviderKeysOutcome,
   type FleetProviderKeysRequest,
+  type FleetSendOutcome,
+  type FleetSendRequest,
   type FleetRequester,
   type FleetRung,
   type FleetToolExecArgs,
   type FleetToolExecPollArgs,
+  type FleetToolSendArgs,
   type FleetToolProjectArgs,
   type FleetToolUpdateArgs,
   type FleetUpdateAck,
@@ -118,6 +123,12 @@ export interface FleetDispatcherDeps {
   probeSsh(host: string): Promise<boolean>;
   /** ProviderKeys.rolloutValue on this machine (issue #905); throws on unknown names. */
   providerKeyValue(envName: string): string | null;
+  /** FleetWakeCoordinator.watch (issue #957): records an agent dispatch's non-failed outcomes for the dispatcher's wake-up. */
+  watchAgentDispatch(sourceTabId: string, dispatches: Array<{ dispatchId: string; machineKey: string }>): void;
+  /** Resolves after the next completed state broadcast, or after `timeoutMs`. */
+  nextBroadcast(timeoutMs: number): Promise<void>;
+  /** FleetServer.send on this machine (issue #959). */
+  sendLocal(req: FleetSendRequest): Promise<FleetSendOutcome>;
   now?: () => number;
   uuid?: () => string;
 }
@@ -440,6 +451,16 @@ export class FleetDispatcher {
         return { ...base, status: "unknown", message: unknown };
       }),
     );
+    if (who.kind === "agent") {
+      try {
+        this.#deps.watchAgentDispatch(
+          who.sourceTabId,
+          outcomes.filter((o) => o.status !== "failed").map((o) => ({ dispatchId: o.dispatchId, machineKey: o.machineKey })),
+        );
+      } catch (err) {
+        console.warn(`[fleet] ${who.sourceTabId}: recording the dispatch for wake-up failed:`, err);
+      }
+    }
     if (pendingAdded) await this.#deps.broadcast();
     return { batchId, outcomes };
   }
@@ -517,9 +538,35 @@ export class FleetDispatcher {
   }
 
   /** The omp-ui_fleet_status answer: one line per matching session, then unresolved outcomes. */
-  async statusText(sel: { batchId: string } | { dispatchId: string }): Promise<string> {
+  async statusText(sel: { batchId: string } | { dispatchId: string }, waitMs = 0): Promise<string> {
     const matches = (f: { batchId: string | null; dispatchId: string }): boolean =>
       "batchId" in sel ? f.batchId === sel.batchId : f.dispatchId === sel.dispatchId;
+    if (waitMs > 0) {
+      // Busy: working, or idle/dormant before its first run finished (a fresh child is idle with no transcript yet).
+      // The wait ends only when some session leaves busy — settles or starts awaiting an answer.
+      const signature = async (): Promise<{ key: string; busy: boolean }> => {
+        const states = (await this.#deps.fleetSessions())
+          .filter((s) => s.summary.fleet != null && matches(s.summary.fleet))
+          .map((s) => {
+            const state = fleetSessionState(s.summary);
+            const busy = state === "working" || ((state === "idle" || state === "dormant") && !fleetChildSettled(s.summary));
+            return { id: s.summary.fleet!.dispatchId, state: busy ? "busy" : state };
+          });
+        const pending = this.pending().filter(matches);
+        return {
+          key: [...states.map((s) => `${s.id}=${s.state}`), ...pending.map((p) => `${p.dispatchId}=busy`)].sort().join("|"),
+          busy: states.some((s) => s.state === "busy") || pending.length > 0,
+        };
+      };
+      const first = await signature();
+      const deadline = this.#now() + Math.min(waitMs, FLEET_STATUS_WAIT_MAX_MS);
+      while (first.busy) {
+        const left = deadline - this.#now();
+        if (left <= 0) break;
+        await this.#deps.nextBroadcast(left);
+        if ((await signature()).key !== first.key) break;
+      }
+    }
     const sessions = (await this.#deps.fleetSessions()).filter((s) => {
       // An older remote's summary carries no fleet field at all.
       const fleet = s.summary.fleet as SessionSummary["fleet"] | undefined;
@@ -550,6 +597,27 @@ export class FleetDispatcher {
       );
     }
     return lines.join("\n");
+  }
+
+  /**
+   * `omp-ui_fleet_send` (issue #959): a message to a child this session
+   * dispatched. Pre-checked here; the owner re-checks the requester.
+   */
+  async send(tabId: string, args: FleetToolSendArgs): Promise<FleetSendOutcome> {
+    const s = (await this.#deps.fleetSessions()).find((x) => x.summary.fleet?.dispatchId === args.dispatchId);
+    if (s === undefined) {
+      return this.pending().some((p) => p.dispatchId === args.dispatchId)
+        ? { status: "refused", reason: "that dispatch's outcome is still unknown" }
+        : { status: "refused", reason: `no dispatched session has dispatch ${args.dispatchId}` };
+    }
+    const requester = this.requester("agent", tabId);
+    const by = s.summary.fleet!.requestedBy;
+    if (by.instanceId !== requester.instanceId || by.sourceTabId !== requester.sourceTabId) {
+      return { status: "refused", reason: "only the session that dispatched this work can send to it" };
+    }
+    const req: FleetSendRequest = { requester, dispatchId: args.dispatchId, message: args.message, mode: args.mode };
+    if (s.machineKey === LOCAL_MACHINE_KEY) return this.#deps.sendLocal(req);
+    return this.#memberCall<FleetSendOutcome>(s.machineKey, CH.fleetSend, [req], fleetMachineName({ nickname: s.nickname ?? s.machineKey }));
   }
 
   /**

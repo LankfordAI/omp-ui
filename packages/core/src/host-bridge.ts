@@ -7,7 +7,15 @@
 // result MUST carry `result.content` as an array or omp drops it as
 // malformed, and a URI scheme must match `^[a-z][a-z0-9+.-]*$`.
 
-import { FLEET_BATCH_MAX, FLEET_COMMAND_MAX, FLEET_DETACHED_EXEC_TIMEOUT_MS, FLEET_EXEC_POLL_WAIT_MAX_MS, FLEET_TOOLS } from "./fleet";
+import {
+  FLEET_BATCH_MAX,
+  FLEET_COMMAND_MAX,
+  FLEET_DETACHED_EXEC_TIMEOUT_MS,
+  FLEET_EXEC_POLL_WAIT_MAX_MS,
+  FLEET_SEND_MAX,
+  FLEET_STATUS_WAIT_MAX_MS,
+  FLEET_TOOLS,
+} from "./fleet";
 
 /** The one scheme omp-ui registers. Not in omp's reserved built-in set. */
 export const HOST_URI_SCHEME = "omp-ui";
@@ -64,7 +72,7 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
   };
 }
 
-/** Notify is always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the seven fleet tools. */
+/** Notify is always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the eight fleet tools. */
 export function hostToolsDefinition(
   opts: { vault: boolean; fleet: boolean } = { vault: false, fleet: false },
 ): RpcHostToolDefinition[] {
@@ -288,7 +296,7 @@ function vaultTools(): RpcHostToolDefinition[] {
  * governs each call.
  */
 function fleetTools(): RpcHostToolDefinition[] {
-  const [machines, dispatch, status, exec, project, execPoll, update] = FLEET_TOOLS;
+  const [machines, dispatch, status, exec, project, execPoll, update, send] = FLEET_TOOLS;
   return [
     {
       name: machines,
@@ -301,7 +309,7 @@ function fleetTools(): RpcHostToolDefinition[] {
       name: dispatch,
       loadMode: "essential",
       description:
-        "Start new omp sessions on fleet machines, this computer included, each running the given prompt unattended on the named machine, in a fresh worktree by default. Sessions start in Build mode; set planMode true to start them in read-only Plan mode, where a prompt that asks for a plan ends at a plan review the user answers (omp-ui_fleet_status then reports awaiting answer). A read-only planning session does not need its own worktree: workspace checkout is enough. Without machines, one session starts on this computer when this computer has the project with a ready model provider; leave machines out unless the user names a machine. Otherwise, and whenever count asks for more than one copy, omp-ui places the work automatically on the least-loaded machines with the same repository. Each session starts on model and thinkingLevel when given; without model it starts on that machine's first favorite it can run (omp-ui_fleet_machines lists each machine's favorites), else on its project default. The owning machine refuses a model or level it cannot run. Returns a batch id and one line per session, naming the model and thinking level it started on. Dispatching is not idempotent: poll progress with omp-ui_fleet_status instead of dispatching again.",
+        "Start new omp sessions on fleet machines, this computer included, each running the given prompt unattended on the named machine, in a fresh worktree by default. Sessions start in Build mode; set planMode true to start them in read-only Plan mode, where a prompt that asks for a plan ends at a plan review the user answers (omp-ui_fleet_status then reports awaiting answer). A read-only planning session does not need its own worktree: workspace checkout is enough. Without machines, one session starts on this computer when this computer has the project with a ready model provider; leave machines out unless the user names a machine. Otherwise, and whenever count asks for more than one copy, omp-ui places the work automatically on the least-loaded machines with the same repository. Each session starts on model and thinkingLevel when given; without model it starts on that machine's first favorite it can run (omp-ui_fleet_machines lists each machine's favorites), else on its project default. The owning machine refuses a model or level it cannot run. Returns a batch id and one line per session, naming the model and thinking level it started on. Dispatching is not idempotent: poll progress with omp-ui_fleet_status instead of dispatching again. When a session you dispatched finishes its first run, omp-ui posts a Fleet result into this session and starts a turn, so you can end your turn instead of polling; a session that needs the user's answer posts a Fleet notice.",
       parameters: {
         type: "object",
         properties: {
@@ -350,12 +358,18 @@ function fleetTools(): RpcHostToolDefinition[] {
       name: status,
       loadMode: "essential",
       description:
-        "Report on fleet sessions from one dispatch: machine, title, state (working, awaiting answer, idle, dormant), and the session summary once it is not working. Give exactly one of batchId or dispatchId from omp-ui_fleet_dispatch. Poll this instead of re-dispatching.",
+        "Report on fleet sessions from one dispatch: machine, title, state (working, awaiting answer, idle, dormant), and the session summary once it is not working. Give exactly one of batchId or dispatchId from omp-ui_fleet_dispatch. Poll this instead of re-dispatching; with waitMs it waits for a working session to finish or change state before answering.",
       parameters: {
         type: "object",
         properties: {
           batchId: { type: "string" },
           dispatchId: { type: "string" },
+          waitMs: {
+            type: "integer",
+            minimum: 0,
+            maximum: FLEET_STATUS_WAIT_MAX_MS,
+            description: "Wait up to this long for a working session to change state; default 0 answers at once.",
+          },
         },
         additionalProperties: false,
       },
@@ -445,6 +459,22 @@ function fleetTools(): RpcHostToolDefinition[] {
           },
         },
         required: ["machine", "target", "action"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: send,
+      loadMode: "essential",
+      description:
+        "Send a message into a session you started with omp-ui_fleet_dispatch: mode queue (default) delivers it after the session's current turn, or starts a turn when it is idle; mode steer delivers it into the running turn. Only the session that dispatched the work can send to it. A session waiting for the user's answer, held on an unreachable model, or in terminal mode refuses; a session that is not running resumes and receives the message first.",
+      parameters: {
+        type: "object",
+        properties: {
+          dispatchId: { type: "string", description: "The dispatchId omp-ui_fleet_dispatch reported." },
+          message: { type: "string", description: `The message, at most ${FLEET_SEND_MAX} characters.` },
+          mode: { type: "string", enum: ["queue", "steer"] },
+        },
+        required: ["dispatchId", "message"],
         additionalProperties: false,
       },
     },

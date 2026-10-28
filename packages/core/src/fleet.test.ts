@@ -4,6 +4,8 @@ import {
   FLEET_COMMAND_MAX,
   FLEET_EXEC_POLL_WAIT_MAX_MS,
   FLEET_PROMPT_MAX,
+  FLEET_SEND_MAX,
+  FLEET_STATUS_WAIT_MAX_MS,
   FLEET_TOOLS,
   FLEET_VERSION_PATTERN,
   fleetAppUpdateAvailable,
@@ -30,6 +32,7 @@ import {
   parseFleetProjectRoots,
   parseFleetProviderKeysRequest,
   parseFleetSpawnSpec,
+  parseFleetSendRequest,
   parseFleetToolArguments,
   parseFleetUpdateFacts,
   parseFleetUpdateMemberRequest,
@@ -237,7 +240,7 @@ describe("parseFleetDispatchRequest", () => {
 describe("fleet exec ladder contracts (issue #901)", () => {
   const requester = { instanceId: "inst-a", label: "studio", kind: "agent", sourceTabId: "tab-1" } as const;
 
-  it("exposes the seven agent tools in registration order", () => {
+  it("exposes the eight agent tools in registration order", () => {
     expect(FLEET_TOOLS).toEqual([
       "omp-ui_fleet_machines",
       "omp-ui_fleet_dispatch",
@@ -246,6 +249,7 @@ describe("fleet exec ladder contracts (issue #901)", () => {
       "omp-ui_fleet_project",
       "omp-ui_fleet_exec_poll",
       "omp-ui_fleet_update",
+      "omp-ui_fleet_send",
     ]);
   });
 
@@ -826,6 +830,58 @@ describe("omp-ui_fleet_update tool arguments", () => {
       request: { target: "omp", action: "stage", version: "18.13.1", allowLiveSessions: false },
     });
     expect(fleetToolUpdateRequest({ machine: "nope", target: "app", action: "check", version: null }, machines).ok).toBe(false);
+  });
+});
+
+describe("omp-ui_fleet_status waitMs (#958)", () => {
+  it("defaults to 0 and accepts whole numbers up to the cap", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_status", { dispatchId: " d-1 " })).toEqual({ ok: true, tool: "status", selector: { dispatchId: "d-1" }, waitMs: 0 });
+    expect(parseFleetToolArguments("omp-ui_fleet_status", { batchId: "b", waitMs: FLEET_STATUS_WAIT_MAX_MS })).toEqual({
+      ok: true,
+      tool: "status",
+      selector: { batchId: "b" },
+      waitMs: FLEET_STATUS_WAIT_MAX_MS,
+    });
+  });
+
+  it.each([-1, FLEET_STATUS_WAIT_MAX_MS + 1, 1.5, "100", null])("refuses waitMs %j", (waitMs) => {
+    expect(parseFleetToolArguments("omp-ui_fleet_status", { dispatchId: "d", waitMs })).toEqual({
+      ok: false,
+      reason: `waitMs must be a whole number from 0 to ${FLEET_STATUS_WAIT_MAX_MS}`,
+    });
+  });
+});
+
+describe("omp-ui_fleet_send (#959)", () => {
+  const requester = { instanceId: "inst-a", label: "studio", kind: "agent", sourceTabId: "tab-1" } as const;
+  const send = (args: unknown) => parseFleetToolArguments("omp-ui_fleet_send", args);
+
+  it("defaults to queue and trims the dispatchId, never the message", () => {
+    expect(send({ dispatchId: " d-1 ", message: " go on " })).toEqual({ ok: true, tool: "send", args: { dispatchId: "d-1", message: " go on ", mode: "queue" } });
+    expect(send({ dispatchId: "d-1", message: "stop", mode: "steer" })).toEqual({ ok: true, tool: "send", args: { dispatchId: "d-1", message: "stop", mode: "steer" } });
+  });
+
+  it.each([
+    [{ dispatchId: "d", message: "m", extra: 1 }, 'unknown argument "extra"'],
+    [{ message: "m" }, "dispatchId must be a non-empty string"],
+    [{ dispatchId: " ", message: "m" }, "dispatchId must be a non-empty string"],
+    [{ dispatchId: "d", message: "  " }, "message must not be blank"],
+    [{ dispatchId: "d" }, "message must not be blank"],
+    [{ dispatchId: "d", message: "x".repeat(FLEET_SEND_MAX + 1) }, `message exceeds ${FLEET_SEND_MAX} characters`],
+    [{ dispatchId: "d", message: "m", mode: "now" }, "mode must be queue or steer"],
+  ])("refuses %j", (args, reason) => {
+    expect(send(args)).toEqual({ ok: false, reason });
+  });
+
+  it("parses a send request strictly", () => {
+    const req = { requester, dispatchId: "d-1", message: "hi", mode: "queue" };
+    expect(parseFleetSendRequest(req)).toEqual(req);
+    expect(() => parseFleetSendRequest({ ...req, extra: true })).toThrow();
+    expect(() => parseFleetSendRequest({ ...req, mode: undefined })).toThrow();
+    expect(() => parseFleetSendRequest({ ...req, message: " " })).toThrow();
+    expect(() => parseFleetSendRequest({ ...req, message: "x".repeat(FLEET_SEND_MAX + 1) })).toThrow();
+    expect(() => parseFleetSendRequest({ ...req, dispatchId: "" })).toThrow();
+    expect(() => parseFleetSendRequest({ ...req, requester: undefined })).toThrow();
   });
 });
 

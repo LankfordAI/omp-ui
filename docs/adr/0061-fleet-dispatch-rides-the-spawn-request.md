@@ -127,7 +127,7 @@ delivery.**
   takes the first favorite that qualifies, else the project chain; a level
   must be `auto` or one of the model's efforts. A refusal fails that copy
   with the owner's reason, and the spawn answer's `choice` names what the
-  record started on.*
+  record started on.* *Amended (#957–#959): see ADR-0069.*
 - **No recursion.** A session an agent dispatched (`requestedBy.kind:
   "agent"`) never gets the fleet tools, so a dispatched agent cannot dispatch
   further.
