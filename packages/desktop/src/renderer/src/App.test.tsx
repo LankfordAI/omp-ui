@@ -284,6 +284,15 @@ describe("new-session entry points (issues #915/#919)", () => {
     });
   };
 
+  const pressModShiftO = (): void => {
+    document.body.focus();
+    act(() => {
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "O", ctrlKey: true, shiftKey: true, bubbles: true }),
+      );
+    });
+  };
+
   // Minimal record so isChatTab classifies the focused tab as a chat.
   const chatSummary = (): SessionSummary => ({
     tabId: "chat",
@@ -397,6 +406,17 @@ describe("new-session entry points (issues #915/#919)", () => {
     expect(newChat).not.toHaveBeenCalled();
     expect(spawnSession).not.toHaveBeenCalled();
     expect(useStore.getState().projectQuickOpen).not.toBeNull();
+  });
+
+  it("mod+shift+o starts a chat from a project tab without the quick-open (issue #962)", async () => {
+    const newChat = vi.fn(async () => "fresh-chat");
+    useStore.setState({ newChat });
+    renderApp();
+    pressModShiftO();
+    await act(async () => {});
+
+    expect(newChat).toHaveBeenCalledExactlyOnceWith();
+    expect(useStore.getState().projectQuickOpen).toBeNull();
   });
 });
 

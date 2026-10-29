@@ -127,6 +127,7 @@ to a repo. The record keeps that directory as its working directory plus an
 explicit chat marker; no project record exists and the chats root can never be
 registered. Chats list in the sidebar alongside project sessions, labelled
 *chat*, and a chat starts from the **Project quick-open**'s *No project* row
+or directly with `mod+shift+o`
 (chat tabs share the tab strip). Chats run in Build mode only, always carry
 the fleet tools (so a chat can start sessions in projects, Plan mode
 included), share omp's global memory bank, seed from the last model a chat
