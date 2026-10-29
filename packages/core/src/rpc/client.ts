@@ -133,6 +133,10 @@ export class RpcClient {
   #needsNegotiate = false;
   /** Exit-edge observers that fire regardless of arm state (warm-pool invalidation). */
   readonly #deathWatchers: Array<(code: number | null) => void> = [];
+  /** stderr line observers; registration replays every complete line still in the tail. */
+  readonly #stderrWatchers: Array<(line: string) => void> = [];
+  /** The unterminated stderr remainder awaiting its newline. */
+  #stderrPartial = "";
   #maxFrameBytes = DEFAULT_MAX_FRAME_BYTES;
   #pending: Buffer = Buffer.alloc(0);
   #stderrTail = "";
@@ -226,6 +230,18 @@ export class RpcClient {
   }
 
   /**
+   * Fires once per complete stderr line. Registration first replays the
+   * complete lines still held in the stderr tail, so a warm-booted client
+   * adopted after its boot warnings were printed (issue #970) still reports
+   * them; the tail is bounded, which boot-time output never outgrows.
+   */
+  onStderrLine(cb: (line: string) => void): void {
+    const done = this.#stderrTail.slice(0, this.#stderrTail.length - this.#stderrPartial.length);
+    for (const line of done.split("\n")) if (line !== "") cb(line);
+    this.#stderrWatchers.push(cb);
+  }
+
+  /**
    * Completes a deferred warm boot: swap in the session's observer set, flush
    * every initial command, then replay the frames that parked between ready
    * and arming (boot-time `extension_ui_request`s included — they still need
@@ -306,7 +322,14 @@ export class RpcClient {
   }
 
   #onStderr(chunk: Buffer): void {
-    this.#stderrTail = (this.#stderrTail + chunk.toString("utf8")).slice(-STDERR_TAIL_BYTES);
+    const text = chunk.toString("utf8");
+    this.#stderrTail = (this.#stderrTail + text).slice(-STDERR_TAIL_BYTES);
+    const lines = (this.#stderrPartial + text).split("\n");
+    this.#stderrPartial = lines.pop()!.slice(-STDERR_TAIL_BYTES);
+    for (const line of lines) {
+      if (line === "") continue;
+      for (const cb of this.#stderrWatchers) cb(line);
+    }
   }
 
   #fatal(msg: string): void {

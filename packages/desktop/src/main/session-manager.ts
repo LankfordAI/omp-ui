@@ -94,6 +94,9 @@ import {
   type ImageAttachment,
   type DocumentAttachment,
   type ModelHold,
+  type UnreachableModelHold,
+  modelHoldNotice,
+  parseModelNotFoundWarning,
   type ModelCatalogSnapshot,
   type FleetModelChoice,
   type FleetSpawnSpec,
@@ -194,10 +197,12 @@ import {
 const GRACEFUL_EXIT_MS = 3_000;
 const SIGKILL_EXIT_MS = 2_000;
 
-/** omp's restore failure (issue #774): only the resume path prints it, so the
- *  exit tail matching this is the whole detection — the group is the dead
- *  selector (`provider/id`). */
-const MODEL_RESTORE_RE = /Could not restore model (\S+)/;
+/** omp's model-selector failures that kill a spawn before ready, as the exit
+ *  tail reports them; the group is the dead selector. Issue #774: a resume
+ *  whose transcript model is gone (`Could not restore model x/y`). Issue #970:
+ *  a `--model` selector omp ≥ 18.14 cannot resolve exactly (`Model "x/y" not
+ *  found. Did you mean …?`) — the gate or a recovery pick. */
+const MODEL_RESTORE_RE = /Could not restore model (\S+)|Model "([^"]+)" not found/;
 
 /** How long a tool toggle waits for its correlated completion before `unconfirmed`. */
 const TOOL_MUTATION_TTL_MS = 30_000;
@@ -256,7 +261,13 @@ export interface SessionManagerDependencies {
    * (#932); the desktop backend wires it to core's resolveModelHold. Absent =
    * never hold.
    */
-  resolveModelHold?: (model: string) => Promise<ModelHold | null>;
+  resolveModelHold?: (model: string) => Promise<UnreachableModelHold | null>;
+  /**
+   * omp's own `--model` error for a selector, with its suggestions (#970);
+   * the desktop backend wires it to core's readModelSelectorError. Absent or
+   * null = the not-found hold keeps omp's boot warning alone.
+   */
+  readModelSelectorError?: (selector: string, cwd: string) => Promise<string | null>;
   /** The owner's `omp models` chat catalog for fleet model choice (#956); absent = unreadable. */
   readModelCatalog?: () => Promise<ModelCatalogSnapshot>;
   getOmpPath: () => string | null;
@@ -1727,7 +1738,7 @@ export class SessionManager {
         this.deps.send(CH.onRpcFrame, record.tabId, {
           type: "omp_ui_error",
           message: msg,
-          ...(failed !== null ? { failedModel: failed[1] } : {}),
+          ...(failed !== null ? { failedModel: failed[1] ?? failed[2] } : {}),
         });
       },
     };
@@ -1807,6 +1818,7 @@ export class SessionManager {
           });
     wireRpc(entry, rpc);
     this.live.set(record.tabId, entry);
+    this.watchModelNotFound(record, entry, rpc);
     this.watcherHub.start(record);
     // Arm LAST: the record is already published (above), and the negotiate,
     // the real command rail, and the replay of every buffered boot frame fire
@@ -1872,7 +1884,7 @@ export class SessionManager {
   private async probeModelHold(
     record: OwnedSessionRecord,
     modelOverride: string | undefined,
-  ): Promise<ModelHold | null> {
+  ): Promise<UnreachableModelHold | null> {
     const resolve = this.deps.resolveModelHold;
     if (
       resolve === undefined ||
@@ -1895,6 +1907,38 @@ export class SessionManager {
       console.warn("[model] reachability probe failed; booting pinned:", err);
       return null;
     }
+  }
+
+  /**
+   * #970: omp ≥ 18.14 resolves a provider-qualified `modelRoles.default` pin
+   * only by exact id or alias; a stale pin boots on omp's own fallback and
+   * says so once on stderr, before ready. That warning raises the same hold
+   * an unreachable endpoint does — prompts refused until the user picks — and
+   * omp's `--model` resolver is asked once for its suggestions. Only a spawn
+   * whose pin rides the overlay is watched: a `--model` boot (gate, recovery
+   * pick) dies instead, and the exit tail reaches the #774 failure surface.
+   */
+  private watchModelNotFound(record: OwnedSessionRecord, entry: RpcLiveEntry, rpc: RpcClient): void {
+    if (entry.modelHold !== null || gateSelector(this.gate) !== null || record.model === null) return;
+    rpc.onStderrLine((line) => {
+      if (this.live.get(record.tabId) !== entry || entry.modelHold !== null) return;
+      const hold = parseModelNotFoundWarning(line);
+      if (hold === null) return;
+      entry.modelHold = hold;
+      console.warn(`[model] ${record.tabId}: omp could not find ${hold.model}; booted on its fallback and held`);
+      this.deps.breadcrumb?.record("model-hold", { tabId: record.tabId, detail: "not-found" });
+      void this.deps.broadcast();
+      const read = this.deps.readModelSelectorError;
+      if (read === undefined) return;
+      void read(hold.model, record.worktree?.path ?? record.projectCwd).then(
+        (message) => {
+          if (message === null || entry.modelHold !== hold || this.live.get(record.tabId) !== entry) return;
+          entry.modelHold = { ...hold, message };
+          void this.deps.broadcast();
+        },
+        (err: unknown) => console.warn("[model] could not read omp's suggestions:", err),
+      );
+    });
   }
 
   /** The live session's model hold (#932); null when not held or not live. */
@@ -1949,7 +1993,7 @@ export class SessionManager {
     const text = fleetSendText(req.message);
     const entry = this.live.get(record.tabId);
     if (entry?.kind === "rpc-ui") {
-      if (entry.modelHold !== null) return refused(`the session is held: ${entry.modelHold.model} is not reachable`);
+      if (entry.modelHold !== null) return refused(`the session is held: ${modelHoldNotice(entry.modelHold)}`);
       if (this.awaitingHumanAnswer(record.tabId))
         return refused("the session is waiting for the user's answer; only the user can answer it");
       stageFleetInbox(absLineageDir, { id, text, mode: req.mode });
@@ -2738,7 +2782,7 @@ export class SessionManager {
       id: cmd.id,
       command: cmd.type,
       success: false,
-      error: `${hold.provider} (${hold.endpoint}) is not reachable, so this session started without ${hold.model}. Pick a model to send.`,
+      error: modelHoldNotice(hold),
     });
     return true;
   }

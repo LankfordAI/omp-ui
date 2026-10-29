@@ -38,7 +38,8 @@ export function ompChildEnv(
   return env;
 }
 
-function defaultSpawn(
+/** child_process.spawn over pipes, stdin closed; the default one-shot launcher. */
+export function spawnOmpOneShot(
   ompPath: string,
   argv: string[],
   env: NodeJS.ProcessEnv,
@@ -57,7 +58,7 @@ function defaultSpawn(
 export async function runOmpOnce(opts: RunOmpOnceOptions): Promise<string | null> {
   let child: OmpOneShotProcess;
   try {
-    child = (opts.spawn ?? defaultSpawn)(opts.ompPath, opts.argv, ompChildEnv(opts.ompPath));
+    child = (opts.spawn ?? spawnOmpOneShot)(opts.ompPath, opts.argv, ompChildEnv(opts.ompPath));
   } catch {
     return null;
   }

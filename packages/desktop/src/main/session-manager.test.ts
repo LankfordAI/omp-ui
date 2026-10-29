@@ -76,6 +76,8 @@ const rpcInstances: {
   inputFrame: (frame: unknown) => void;
   frame: (frame: unknown) => void;
   error: (msg: string) => void;
+  /** One omp stderr line, as the real client's onStderrLine reports it (#970). */
+  stderr: (line: string) => void;
 }[] = [];
 /** The arm/prompt messages among a spawn's initial commands: host registration commands (#688) carry no message, and tests that assert the arm order filter them out. */
 function armMessages(initialCommands: unknown): unknown[] {
@@ -248,7 +250,7 @@ afterEach(() => {
   for (const manager of harnessManagers.splice(0)) manager.killAll();
 });
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"]; readModelCatalog?: SessionManagerDependencies["readModelCatalog"]; fleetWake?: SessionManagerDependencies["fleetWake"] } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"]; readModelSelectorError?: SessionManagerDependencies["readModelSelectorError"]; readModelCatalog?: SessionManagerDependencies["readModelCatalog"]; fleetWake?: SessionManagerDependencies["fleetWake"] } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -320,6 +322,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     hasOAuthProvider: opts.hasOAuthProvider,
     hasConfiguredModelsFileProvider: opts.hasConfiguredModelsFileProvider,
     resolveModelHold: opts.resolveModelHold,
+    readModelSelectorError: opts.readModelSelectorError,
     readModelCatalog: opts.readModelCatalog,
     fleetWake: opts.fleetWake,
     getOmpPath: () => "/test/omp",
@@ -434,6 +437,7 @@ beforeEach(() => {
     opts: { onExit: (code: number | null) => void; onFrame: (frame: unknown) => void; onInputFrame?: (frame: unknown) => void; onError: (msg: string) => void; deferArm?: boolean; onBootReady?: () => void },
   ) {
     const deathWatchers: ((code: number | null) => void)[] = [];
+    const stderrWatchers: ((line: string) => void)[] = [];
     let armedFlag = opts.deferArm !== true;
     let deadFlag = false;
     const instance = {
@@ -449,6 +453,12 @@ beforeEach(() => {
       }),
       onDeath: (cb: (code: number | null) => void) => {
         deathWatchers.push(cb);
+      },
+      onStderrLine: (cb: (line: string) => void) => {
+        stderrWatchers.push(cb);
+      },
+      stderr: (line: string) => {
+        for (const cb of stderrWatchers) cb(line);
       },
       get armed() {
         return armedFlag;
@@ -8687,7 +8697,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
 // Issue #932: a fresh session whose pinned model's endpoint does not answer
 // boots unpinned and held until the user picks a model.
 describe("model hold on an unreachable pinned endpoint (issue #932)", () => {
-  const HOLD = { model: "litellm/Qwen", provider: "litellm", endpoint: "192.168.110.6:4000" };
+  const HOLD = { reason: "unreachable", model: "litellm/Qwen", provider: "litellm", endpoint: "192.168.110.6:4000" } as const;
   const freshSpawn = (manager: SessionManager): Promise<{ tabId: string }> =>
     manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
   const modelOverlay = (): string => {
@@ -8801,12 +8811,84 @@ describe("model hold on an unreachable pinned endpoint (issue #932)", () => {
   });
 });
 
+// Issue #970: omp ≥ 18.14 resolves a provider-qualified model selector only by
+// exact id or alias. The stderr lines below are verbatim from omp 18.14.0.
+describe("stale provider-qualified model pins on omp 18.14 (issue #970)", () => {
+  const BOOT_WARNING =
+    "Warning: Default model openrouter/claude-opus-4.8 not found. Using openrouter/openai/gpt-5.5";
+  const SELECTOR_ERROR =
+    'Model "openrouter/claude-opus-4.8" not found. Did you mean openrouter/anthropic/claude-opus-4.8, ' +
+    "openrouter/anthropic/claude-opus-4.8-fast, openrouter/anthropic/claude-opus-4.8:batch?";
+  const freshSpawn = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+
+  it("holds a session whose overlay pin omp could not find, with omp's suggestions, until a pick succeeds", async () => {
+    const readModelSelectorError = vi.fn(async () => SELECTOR_ERROR);
+    const { manager, registry, sent, broadcast } = setup({ mode: "rpc-ui", readModelSelectorError });
+    registry.setSessionModel(TAB, "openrouter/claude-opus-4.8", null);
+    const { tabId } = await freshSpawn(manager);
+    const client = rpcInstances.at(-1)!;
+    broadcast.mockClear();
+
+    client.stderr(BOOT_WARNING);
+    expect(manager.modelHold(tabId)).toEqual({
+      reason: "not-found",
+      model: "openrouter/claude-opus-4.8",
+      message: "Default model openrouter/claude-opus-4.8 not found. Using openrouter/openai/gpt-5.5",
+    });
+    expect(broadcast).toHaveBeenCalled();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(readModelSelectorError).toHaveBeenCalledWith("openrouter/claude-opus-4.8", PROJECT);
+    expect(manager.modelHold(tabId)).toMatchObject({ reason: "not-found", message: SELECTOR_ERROR });
+    // The record keeps the pin: the fallback model never replaces it.
+    expect(registry.sessions.find((s) => s.tabId === tabId)).toMatchObject({ model: "openrouter/claude-opus-4.8" });
+
+    // A prompt is refused with omp's own words instead of running on the fallback.
+    client.send.mockClear();
+    manager.rpcSend(tabId, { type: "prompt", id: "p1", message: "hello" });
+    expect(client.send).not.toHaveBeenCalled();
+    expect(sent).toContainEqual({
+      channel: CH.onRpcFrame,
+      args: [tabId, expect.objectContaining({ id: "p1", success: false, error: expect.stringContaining("Did you mean openrouter/anthropic/claude-opus-4.8") })],
+    });
+
+    // The existing picker path lifts it.
+    manager.rpcSend(tabId, { type: "set_model", id: "m1", provider: "openrouter", modelId: "anthropic/claude-opus-4.8" });
+    client.frame({ type: "response", id: "m1", success: true, data: {} });
+    expect(manager.modelHold(tabId)).toBeNull();
+  });
+
+  it("does not hold on unrelated stderr, or when no pin rides the overlay", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSessionModel(TAB, "openrouter/anthropic/claude-opus-4.8", null);
+    const { tabId } = await freshSpawn(manager);
+    rpcInstances.at(-1)!.stderr("Connected to MCP server: rea.");
+    expect(manager.modelHold(tabId)).toBeNull();
+
+    const unpinned = setup({ mode: "rpc-ui" });
+    const fresh = await freshSpawn(unpinned.manager);
+    rpcInstances.at(-1)!.stderr(BOOT_WARNING);
+    expect(unpinned.manager.modelHold(fresh.tabId)).toBeNull();
+  });
+
+  it("routes a --model boot that omp rejects to the recovery picker", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    sent.length = 0;
+    rpcInstances.at(-1)!.error(`omp exited with code 1; stderr: ${SELECTOR_ERROR}`);
+    expect(sent).toContainEqual({
+      channel: CH.onRpcFrame,
+      args: [TAB, expect.objectContaining({ type: "omp_ui_error", failedModel: "openrouter/claude-opus-4.8" })],
+    });
+  });
+});
+
 // ADR-0069 / issues #957 + #959: staged fleet wakes and fleet_send on the owner.
 describe("fleet wake and fleet send (issues #957, #959)", () => {
   type Cmd = { type: string; id?: string; message?: string; streamingBehavior?: string };
   const settle = (): Promise<void> => new Promise<void>((resolve) => setImmediate(resolve));
   const DISPATCH = "dispatch-0002";
-  const HOLD = { model: "litellm/Qwen", provider: "litellm", endpoint: "192.168.110.6:4000" };
+  const HOLD = { reason: "unreachable", model: "litellm/Qwen", provider: "litellm", endpoint: "192.168.110.6:4000" } as const;
   const commandsOf = (): Cmd[] => (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Cmd[];
   const wake = (wakeId: string): Core.FleetWakeMessage => ({
     card: {
@@ -8996,7 +9078,7 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
 
       await expect(manager.fleetSend(sendReq())).resolves.toEqual({
         status: "refused",
-        reason: "the session is held: litellm/Qwen is not reachable",
+        reason: expect.stringContaining("litellm/Qwen"),
       });
 
       registry.updateSession(TAB, { mode: "pty" });

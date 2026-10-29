@@ -1,6 +1,14 @@
 import * as net from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { endpointAddress, probeTcp, resolveModelHold } from "./model-hold";
+import { PassThrough } from "node:stream";
+import {
+  endpointAddress,
+  parseModelNotFoundWarning,
+  probeTcp,
+  readModelSelectorError,
+  resolveModelHold,
+} from "./model-hold";
+import type { OmpOneShotSpawn } from "./omp-process";
 
 const servers: net.Server[] = [];
 afterEach(async () => {
@@ -54,6 +62,7 @@ describe("resolveModelHold", () => {
     });
     expect(probed).toEqual(["192.168.110.6:4000"]);
     expect(hold).toEqual({
+      reason: "unreachable",
       model: "litellm/Qwen3.8-Flash-Next",
       provider: "litellm",
       endpoint: "192.168.110.6:4000",
@@ -73,5 +82,58 @@ describe("resolveModelHold", () => {
     expect(await resolveModelHold("openrouter/openai/gpt-5.5", { baseUrlFor, probe })).toBeNull();
     expect(await resolveModelHold("no-provider", { baseUrlFor, probe })).toBeNull();
     expect(probed).toBe(false);
+  });
+});
+
+describe("parseModelNotFoundWarning (issue #970)", () => {
+  it("reads omp 18.14's fallback warning, including behind an earlier warning", () => {
+    expect(
+      parseModelNotFoundWarning("Warning: Default model openrouter/claude-opus-4.8:high not found. Using openrouter/openai/gpt-5.5"),
+    ).toEqual({
+      reason: "not-found",
+      model: "openrouter/claude-opus-4.8:high",
+      message: "Default model openrouter/claude-opus-4.8:high not found. Using openrouter/openai/gpt-5.5",
+    });
+    expect(parseModelNotFoundWarning("Warning: x. Default model p/m not found. Using p/n")).toMatchObject({ model: "p/m" });
+  });
+
+  it("ignores the unavailable-credentials variant and unrelated lines", () => {
+    expect(
+      parseModelNotFoundWarning("Warning: Default model p/m is unavailable (no credentials, or not in enabledModels). Using p/n"),
+    ).toBeNull();
+    expect(parseModelNotFoundWarning("Connected to MCP server: rea.")).toBeNull();
+  });
+});
+
+describe("readModelSelectorError (issue #970)", () => {
+  const fakeSpawn = (stderr: string, code: number | null): { spawn: OmpOneShotSpawn; argv: string[][] } => {
+    const argv: string[][] = [];
+    const spawn: OmpOneShotSpawn = (_path, args) => {
+      argv.push(args);
+      const out = new PassThrough();
+      const err = new PassThrough();
+      let exit: ((c: number | null) => void) | undefined;
+      setImmediate(() => {
+        err.write(stderr);
+        setImmediate(() => exit?.(code));
+      });
+      return { stdout: out, stderr: err, kill: () => {}, onExit: (cb) => (exit = cb), onSpawnError: () => {} };
+    };
+    return { spawn, argv };
+  };
+
+  it("returns omp's not-found line with its suggestions from a --model boot", async () => {
+    const line =
+      'Model "openrouter/claude-opus-4.8" not found. Did you mean openrouter/anthropic/claude-opus-4.8, openrouter/anthropic/claude-opus-4.8-fast?';
+    const { spawn, argv } = fakeSpawn(`${line}\n\nRun \`omp models find <pattern>\` to search.\n`, 1);
+    await expect(
+      readModelSelectorError({ ompPath: "omp", cwd: "/p", selector: "openrouter/claude-opus-4.8", spawn }),
+    ).resolves.toBe(line);
+    expect(argv[0]).toEqual(expect.arrayContaining(["--model", "openrouter/claude-opus-4.8", "--no-session", "--cwd", "/p"]));
+  });
+
+  it("returns null when omp accepts the selector", async () => {
+    const { spawn } = fakeSpawn("", 0);
+    await expect(readModelSelectorError({ ompPath: "omp", cwd: "/p", selector: "p/m", spawn })).resolves.toBeNull();
   });
 });

@@ -524,16 +524,31 @@ export interface ProposedPlan {
 }
 
 /**
- * A fresh session booted without its pinned model because that model's
- * provider endpoint did not answer at spawn (#932). Prompts are refused until
- * the user picks a model; the record keeps the pin, so the next spawn retries it.
+ * A fresh session booted without its pinned model, so prompts are refused
+ * until the user picks one; the record keeps the pin, so the next spawn
+ * retries it. `unreachable`: the pinned model's provider endpoint did not
+ * answer at spawn (#932), so omp-ui booted unpinned. `not-found`: omp could
+ * not resolve the pinned selector and booted on a fallback it chose itself
+ * (#970, omp ≥ 18.14 rejects provider-qualified near matches). A hold from an
+ * older remote host carries no `reason` and reads as `unreachable`.
  */
-export interface ModelHold {
+export type ModelHold = UnreachableModelHold | NotFoundModelHold;
+
+export interface UnreachableModelHold {
+  reason: "unreachable";
   /** The pinned `provider/id` selector the session would have booted on. */
   model: string;
   provider: string;
   /** `host:port` that did not answer, for the notice. */
   endpoint: string;
+}
+
+export interface NotFoundModelHold {
+  reason: "not-found";
+  /** The selector omp could not resolve, as omp reported it. */
+  model: string;
+  /** omp's own words: its `--model` error with suggestions when it gave one, else its boot warning. */
+  message: string;
 }
 
 export interface SessionSummary extends OwnedSessionRecord {

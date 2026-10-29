@@ -498,3 +498,19 @@ describe("RpcClient lifecycle", () => {
     expect(h.errors).toEqual([]);
   });
 });
+
+describe("stderr lines (issue #970)", () => {
+  it("replays complete lines already printed, then reports each new line once across chunk splits", async () => {
+    const h = harness();
+    h.fake.stderr.write("Warning: Default model p/x not found. Using p/y\nConnec");
+    await tick();
+    const lines: string[] = [];
+    // A warm-adopted client registers after boot: the printed warning still arrives, the partial line does not.
+    h.client.onStderrLine((line) => lines.push(line));
+    expect(lines).toEqual(["Warning: Default model p/x not found. Using p/y"]);
+    h.fake.stderr.write("ted to MCP server: rea.\n\nlast");
+    await tick();
+    expect(lines).toEqual(["Warning: Default model p/x not found. Using p/y", "Connected to MCP server: rea."]);
+    h.client.kill();
+  });
+});

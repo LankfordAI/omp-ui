@@ -1317,11 +1317,13 @@ export function Composer({
               <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
             </svg>
             <span className="min-w-0 flex-1 break-words" data-selectable>
-              {t("composer.modelHold.notice", {
-                provider: modelHold.provider,
-                endpoint: modelHold.endpoint,
-                model: modelHold.model,
-              })}
+              {modelHold.reason === "not-found"
+                ? t("composer.modelHold.notFound", { model: modelHold.model, message: modelHold.message })
+                : t("composer.modelHold.notice", {
+                    provider: modelHold.provider,
+                    endpoint: modelHold.endpoint,
+                    model: modelHold.model,
+                  })}
             </span>
           </div>
         )}

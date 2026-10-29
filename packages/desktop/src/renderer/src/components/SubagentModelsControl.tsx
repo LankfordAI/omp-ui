@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { OmpSettingValue } from "@omp-ui/core/types";
 import { OMP_SUBAGENT_MODELS_KEY } from "@omp-ui/core/omp-settings-keys";
 import { SUBAGENT_MODEL_INHERIT, type SubagentModelMap } from "@omp-ui/core/subagent-model";
+import { parseModelRole } from "@omp-ui/core/model-role";
 import { backendFor, displayMessage } from "../backend";
 import { useT } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
@@ -32,6 +33,21 @@ interface PopoverGeometry {
 /** The record value of one settings entry, or {} when unset/not a record. */
 function recordOf(value: OmpSettingValue | undefined): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+}
+
+/**
+ * True when a concrete `provider/id[:level]` selector names no model in the
+ * live catalog (#970): omp ≥ 18.14 resolves a provider-qualified subagent
+ * override only by exact id or alias, and fails the subagent ("No model
+ * selected") instead of picking a sibling. `"*"` and `@role` are not checked;
+ * an empty catalog proves nothing.
+ */
+function isStaleSelector(selector: string, models: readonly ModelInfo[]): boolean {
+  if (models.length === 0 || !selector.includes("/") || selector.startsWith("@")) return false;
+  const known = new Set(models.map((m) => `${m.provider}/${m.id}`));
+  if (known.has(selector)) return false;
+  const role = parseModelRole(selector);
+  return role === null || !known.has(role.model);
 }
 
 /**
@@ -243,6 +259,11 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
                     {layer === "session" && <Chip tone="signal">{t("rail.agents.modelsLayerSession")}</Chip>}
                     {layer === "project" && <Chip tone="copper">{t("rail.agents.modelsLayerProject")}</Chip>}
                     {layer === "global" && <Chip>{t("rail.agents.modelsLayerGlobal")}</Chip>}
+                    {sessionValue !== undefined && isStaleSelector(sessionValue, models) && (
+                      <Chip tone="rose" title={t("rail.agents.modelsStaleTitle", { model: sessionValue })}>
+                        {t("rail.agents.modelsStale")}
+                      </Chip>
+                    )}
                     <button
                       type="button"
                       onClick={() => setPaletteAgent(agent)}

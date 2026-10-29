@@ -302,6 +302,19 @@ choice at all, the **Subagents inherit the session model** preference (on by
 default) expands the roster into `"*"` entries at spawn.
 _Avoid_: cheap model setting, agent model pin
 
+**Model hold**:
+A live native session that started without the model it was pinned to, so
+omp-ui refuses its prompts until the user picks a model from the model chip.
+A pick that omp accepts lifts the hold. The record keeps the pin, so the
+next spawn tries it again. There are two causes. The first is `unreachable`:
+the pinned provider's endpoint did not answer, so the session booted
+unpinned (#932). The second is `not-found`: omp ≥ 18.14 could not resolve
+the pinned selector exactly, so it booted on a fallback it chose itself. In
+that case the notice shows omp's error and its suggestions (#970). A
+`--model` boot that omp rejects is not a hold: the process dies before
+ready, and the tab's failure surface offers the recovery picker instead.
+_Avoid_: model lock, fallback mode, stale model banner
+
 **Browser pane**:
 A live web page inside an rpc-ui tab that the user and the agent share. The
 main process owns the page (an offscreen renderer in its own partition),

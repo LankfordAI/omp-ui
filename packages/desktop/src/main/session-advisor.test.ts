@@ -172,7 +172,7 @@ beforeEach(() => {
     opts: { onExit: (code: number | null) => void; configOverlays?: string[] },
   ) {
     rpcOptions.push(opts);
-    return { kill: vi.fn(() => opts.onExit(0)), send: vi.fn() };
+    return { kill: vi.fn(() => opts.onExit(0)), send: vi.fn(), onStderrLine: () => {} };
   } as unknown as typeof RpcClient);
 });
 

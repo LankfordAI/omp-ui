@@ -44,6 +44,7 @@ import {
   readStatsOverview,
   readModelsFileModelProviders,
   resolveModelHold,
+  readModelSelectorError,
   readMergeBackStatus,
   resolveMergeDestination,
   pullBranch,
@@ -391,6 +392,8 @@ export class MainBackend {
         hasOAuthProvider: () => this.providerOAuth.hasModelAccount(),
         hasConfiguredModelsFileProvider: () => readModelsFileModelProviders().length > 0,
         resolveModelHold: (model) => resolveModelHold(model),
+        readModelSelectorError: async (selector, cwd) =>
+          this.ompPath === null ? null : readModelSelectorError({ ompPath: this.ompPath, cwd, selector }),
         readModelCatalog: () => readModelCatalog({ ompPath: this.ompPath }),
         getOmpPath: () => this.ompPath,
         getSessionsRoot: () => this.sessionsRoot,
