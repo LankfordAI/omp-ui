@@ -45,6 +45,7 @@ import { findInstance, findOwner, findRecord, isChatTab, useStore } from "./stor
 const HINTS: [combo: string, what: MessageKey][] = [
   ["mod+k", "app.welcome.hintCommandPalette"],
   ["mod+shift+n", "app.welcome.hintNewSession"],
+  ["mod+shift+o", "app.welcome.hintNewChat"],
   ["mod+shift+p", "app.welcome.hintMode"],
   ["mod+j", "app.welcome.hintConsole"],
   ["mod+f", "app.welcome.hintSearch"],
@@ -316,6 +317,13 @@ export default function App() {
     "mod+shift+n": (e) => {
       e.preventDefault();
       openProjectQuickOpen();
+    },
+    // A new Chat in one keystroke (issue #962): the quick-open's No project row
+    // without the quick-open, from any focused tab, chat or project. A mod
+    // combo, so it fires mid-draft; the draft stays with its own tab.
+    "mod+shift+o": (e) => {
+      e.preventDefault();
+      void useStore.getState().newChat();
     },
     // The keyboard twin of the composer's Build / Plan selector: the same
     // in-process switch (ADR-0007), never a respawn. rpc-ui tabs only — a pty tab's TUI

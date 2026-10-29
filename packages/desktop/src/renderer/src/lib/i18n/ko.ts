@@ -27,6 +27,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "프로젝트 디렉터리를 추적한 다음 터미널이나 네이티브 세션에서 omp 에이전트를 실행하세요.",
   "app.welcome.hintCommandPalette": "명령 팔레트",
   "app.welcome.hintNewSession": "프로젝트 선택 후 새 세션",
+  "app.welcome.hintNewChat": "프로젝트 없이 새 채팅",
   "app.welcome.hintMode": "빌드 / 플랜 모드 전환",
   "app.welcome.hintConsole": "콘솔 전환",
   "app.welcome.hintSearch": "세션 내 검색",
