@@ -4,7 +4,10 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.27.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.27.2). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Live voice is **Hold-to-talk**: every call opens with the microphone closed, and it opens only while you hold `R` outside a text field or the capsule's talk button, closing a moment after release. Work parking and live progress reports are gone, so the call stays open through delegated work and speaks the result when the turn finishes, instead of falling silent (#965, #966; [ADR-0070](adr/0070-live-voice-holds-to-talk.md)).
+- When the branch is behind its upstream, the composer's **Options pill** grows a one-click pull cap; a diverged branch, a merge in progress, or a turn running on the same checkout opens the popover instead (#961).
+- `Mod+Shift+O` starts a new **Chat** from any focused tab, skipping the project quick-open (#962).
+- The Dark Modern theme's accent is cobalt blue instead of purple; terminal magenta stays magenta (#963).
 
 ## Choose a download
 
