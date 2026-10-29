@@ -85,9 +85,9 @@
       "--color-rose": "#f14c4c",
       "--color-rose-dim": "#a13636",
       "--color-rose-wash": "#2c1616",
-      "--color-iris": "#9c8cf0",
-      "--color-iris-dim": "#61549c",
-      "--color-iris-wash": "#1d1a2e",
+      "--color-iris": "#4d9eff",
+      "--color-iris-dim": "#2e64a6",
+      "--color-iris-wash": "#132233",
       "--color-think-cool": "#4fc1ff",
       "--color-think-warm": "#e586c8",
       "--color-edge-hi": "rgb(255 255 255 / 0.05)",
@@ -109,7 +109,8 @@
         "brightBlue": "#86b5dc",
         "brightMagenta": "#b5aaed",
         "brightCyan": "#80d3c2",
-        "blue": "#569cd6"
+        "blue": "#569cd6",
+        "magenta": "#c586c0"
       },
       "code": {
         "inserted": "#7cd6a7"
