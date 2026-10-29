@@ -61,6 +61,13 @@ type Pending =
   | { kind: "push"; branch: string }
   | { kind: "resolve" };
 
+export interface BranchChipExternalRequest {
+  /** Monotonic nonce so repeated clicks re-trigger the effect. */
+  nonce: number;
+  confirmPull?: boolean;
+  error?: string | null;
+}
+
 
 export function BranchChip({
   projectCwd,
@@ -70,6 +77,7 @@ export function BranchChip({
   workspaceDisabled = false,
   onCreateWorktree,
   finishTabId,
+  externalRequest,
 }: {
   projectCwd?: string;
   /** The remote instance owning the checkout (issue #416); null for this host. */
@@ -105,6 +113,7 @@ export function BranchChip({
    * every plain session and the compact sheet instance.
    */
   finishTabId?: string;
+  externalRequest?: BranchChipExternalRequest | null;
 }) {
   const t = useT();
   /** The drift count as prose: "3 commits" / "1 commit". */
@@ -186,6 +195,15 @@ export function BranchChip({
     }
     closeMenu();
   };
+
+  useEffect(() => {
+    if (externalRequest == null) return;
+    setMenuOpen(true);
+    menuOpenRef.current = true;
+    setMode("list");
+    setConfirm(externalRequest.confirmPull ? { kind: "pull" } : null);
+    setError(externalRequest.error ?? null);
+  }, [externalRequest]);
 
   // First paint reads local refs only: mounting a project must not reach the
   // network. Upstream freshness arrives on open, focus, or visibility instead.

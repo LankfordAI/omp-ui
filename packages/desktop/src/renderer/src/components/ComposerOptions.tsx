@@ -6,9 +6,9 @@ import { repositoryMembers, type CheckoutEntry } from "../lib/repository-members
 import { modelFastTier } from "../lib/rpc-types";
 import { thinkingLevelColor } from "../lib/thinking-colors";
 import { useDismissal } from "../lib/use-dismissal";
-import { findOwner, useStore } from "../store";
+import { findOwner, runningSessionTitleOnCheckout, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
-import { BranchChip } from "./BranchChip";
+import { BranchChip, type BranchChipExternalRequest } from "./BranchChip";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { FastModeControl } from "./FastModeControl";
 import { MachineChip } from "./MachineChip";
@@ -84,6 +84,8 @@ export function ComposerOptions({
   onModeSelected: () => void;
 }) {
   const t = useT();
+  const commits = (count: number): string =>
+    `${count} ${count === 1 ? t("composer.branch.commit") : t("composer.branch.commits")}`;
   const planEnabled = useStore((s) => s.rpc[tabId]?.plan?.enabled ?? false);
   const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const model = useStore((s) => s.rpc[tabId]?.model ?? null);
@@ -95,9 +97,13 @@ export function ComposerOptions({
   const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
   const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
-  const info = useStore((s) =>
-    projectCwd === undefined ? undefined : s.branches[projectKey(instanceId, projectCwd)],
-  );
+  const key = projectCwd === undefined ? undefined : projectKey(instanceId, projectCwd);
+  const info = useStore((s) => (key === undefined ? undefined : s.branches[key]));
+  const refreshing = useStore((s) => key !== undefined && s.branchActivity[key]?.refreshing === true);
+  const pulling = useStore((s) => key !== undefined && s.branchActivity[key]?.pulling === true);
+  const pushing = useStore((s) => key !== undefined && s.branchActivity[key]?.pushing === true);
+  const pullGitBranch = useStore((s) => s.pullGitBranch);
+  const busyTitle = useStore((s) => runningSessionTitleOnCheckout(s, projectCwd));
   // A number, so the selector stays stable across unrelated state ticks.
   const memberCount = useStore((s) => {
     const memberCwd = findOwner(s.state, tabId)?.record.projectCwd;
@@ -107,6 +113,7 @@ export function ComposerOptions({
   });
 
   const [open, setOpen] = useState(false);
+  const [branchRequest, setBranchRequest] = useState<BranchChipExternalRequest | null>(null);
   const rootRef = useRef<HTMLSpanElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -135,7 +142,30 @@ export function ComposerOptions({
   const machineVisible = offerMachine && memberCount >= 2;
   const resolvable = info?.current != null && info.upstreamRef !== null && info.hasUpstream;
   const behind = resolvable ? info.behind : 0;
-  const diverged = resolvable && info.ahead > 0 && info.behind > 0;
+  const ahead = resolvable ? info.ahead : 0;
+  const diverged = resolvable && ahead > 0 && behind > 0;
+  const mergeInProgress = info?.mergeInProgress === true;
+  const showPullCap = branchVisible && (pulling || (resolvable && behind > 0));
+  const pullCapDisabled = refreshing || pulling || pushing;
+
+  const handlePullCapClick = async (): Promise<void> => {
+    if (projectCwd === undefined || pullCapDisabled) return;
+    if (diverged || mergeInProgress) {
+      setOpen(true);
+      setBranchRequest((prev) => ({ nonce: (prev?.nonce ?? 0) + 1 }));
+      return;
+    }
+    if (busyTitle !== null) {
+      setOpen(true);
+      setBranchRequest((prev) => ({ nonce: (prev?.nonce ?? 0) + 1, confirmPull: true }));
+      return;
+    }
+    const err = await pullGitBranch(projectCwd, instanceId);
+    if (err !== null) {
+      setOpen(true);
+      setBranchRequest((prev) => ({ nonce: (prev?.nonce ?? 0) + 1, error: err }));
+    }
+  };
   const mode = planEnabled ? "plan" : "build";
   const autoTitle = t("composer.thinking.autoTitle", { level: thinkingLevel ?? "—" });
   const auto = thinkingConfigured === "auto";
@@ -153,7 +183,10 @@ export function ComposerOptions({
         aria-expanded={open}
         title={t("composer.options.title")}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex h-6 min-w-0 shrink items-center gap-1 rounded-full border border-line px-2 text-[11px] text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover"
+        className={cn(
+          "inline-flex h-6 min-w-0 shrink items-center gap-1 border border-line px-2 text-[11px] text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover",
+          showPullCap ? "rounded-l-full" : "rounded-full",
+        )}
       >
         {!chat && (
           <>
@@ -189,16 +222,43 @@ export function ComposerOptions({
               <span className="max-w-32 truncate font-mono">
                 ⎇ {workspace?.mode === "worktree" ? workspace.branch : info.current ?? t("composer.branch.detachedChip")}
               </span>
-              {behind > 0 && (
-                <span aria-hidden className={cn("shrink-0 font-mono", diverged ? "text-copper" : "text-ink-dim")}>
-                  ↓ {behind}
-                </span>
-              )}
             </span>
           </>
         )}
         <Chevron open={false} className="rotate-90 text-ink-faint" />
       </button>
+      {showPullCap && (
+        <button
+          type="button"
+          data-pill-segment="pull"
+          disabled={pullCapDisabled}
+          aria-label={
+            pulling
+              ? t("composer.branch.pulling")
+              : diverged && info?.upstreamRef != null
+                ? t("composer.branch.diverged", { ahead, behind, upstream: info.upstreamRef })
+                : t("composer.branch.pull", { commits: commits(behind) })
+          }
+          title={
+            pulling
+              ? t("composer.branch.pulling")
+              : mergeInProgress
+                ? t("composer.branch.mergeInProgress")
+                : diverged && info?.upstreamRef != null
+                  ? t("composer.branch.diverged", { ahead, behind, upstream: info.upstreamRef })
+                  : info?.upstreamRef != null
+                    ? `${t("composer.branch.pull", { commits: commits(behind) })} (${t("composer.branch.behind", { commits: commits(behind), upstream: info.upstreamRef })})`
+                    : undefined
+          }
+          onClick={() => void handlePullCapClick()}
+          className={cn(
+            "inline-flex h-6 shrink-0 items-center rounded-r-full border border-l-0 border-line px-2 font-mono text-[11px] tabular-nums transition-colors duration-150 hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim",
+            diverged || mergeInProgress ? "text-copper" : "text-ink-mid hover:text-ink",
+          )}
+        >
+          {pulling && behind === 0 ? "…" : `↓ ${behind}`}
+        </button>
+      )}
 
       <div
         ref={panelRef}
@@ -326,6 +386,7 @@ export function ComposerOptions({
               workspaceDisabled={workspaceDisabled}
               onCreateWorktree={onCreateWorktree}
               finishTabId={finishTabId}
+              externalRequest={branchRequest}
             />
           )}
           {offerMachine && <MachineChip tabId={tabId} disabled={machineDisabled} onPick={onPickMachine} />}
