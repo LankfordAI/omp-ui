@@ -294,6 +294,9 @@ describe("ShellDrawer focus", () => {
     expect(key({ key: "J", ctrlKey: true, shiftKey: true })).toBe(true);
     expect(key({ key: "k", ctrlKey: true })).toBe(true);
     expect(key({ key: "j" })).toBe(true);
+    // Ctrl+O stays the shell's: OMP's TUI expands tool output with it, so the
+    // app's mod+o (issue #964) must not be handed back here.
+    expect(key({ key: "o", ctrlKey: true })).toBe(true);
   });
 });
 

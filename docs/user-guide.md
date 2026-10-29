@@ -56,7 +56,7 @@ A chat tab hides what only makes sense in a repository: the branch and worktree 
 
 Press **New session** in the sidebar header, or `Mod+Shift+N`, to open the **project quick-open**. It lists your projects, **No project**, **Add project…**, and a **Register project on** row for each joined remote instance. The focused tab's project comes first — or **No project** when a chat, or nothing, is focused — so a single `Enter` starts another session like the one you are in. `Enter` starts a session in the highlighted project in the app's Default session mode, `Shift+Enter` opens the New session dialog for it, and while the search is empty `Mod+1` through `Mod+9` pick a row by position. When the sidebar is collapsed, the title bar shows the **New session** button instead. You can also start a session from a [project page](#project-pages), the command palette, or `/new` in the native composer. `/new` opens a new live session in a new tab; it does not reset the current tab in place. To skip the quick-open and start a chat directly, press `Mod+Shift+O`.
 
-Choose **New terminal session** when you want OMP's TUI. Choose **New session…** — the **New session dialog**, the one form that starts work here or on the [fleet](remote-instances.md#dispatch-work) — when the work must run in a separate checkout: pick **New worktree** as its workspace, and the [worktree sessions](#worktree-sessions) section explains its persistence and deletion rules. An optional first prompt rides along; left empty here, the session simply starts idle.
+Choose **New terminal session** when you want OMP's TUI. Choose **New session…** — the **New session dialog**, the one form that starts work here or on the [fleet](remote-instances.md#dispatch-work) — when the work must run in a separate checkout: pick **New worktree** as its workspace, and the [worktree sessions](#worktree-sessions) section explains its persistence and deletion rules. An optional first prompt rides along; left empty here, the session simply starts idle. `Mod+O` opens the dialog directly, seeded with the focused tab's project, even mid-draft in the composer. A focused terminal — a terminal tab or the console drawer — keeps `Ctrl+O` for itself, because OMP's TUI expands tool output with it; click outside the terminal first.
 
 Select a dormant or archived owned session under **Settled** to resume it. omp-ui restores an archived transcript before resuming. If an agent exits, use **Resume** in the sidebar or the session's exit screen. A session marked **missing** still has a record, but omp-ui cannot find its files, so its only available action is deletion.
 
@@ -329,6 +329,7 @@ For connecting a phone or another browser to the compact shell, see [Remote acce
 | `Mod+K` | Open the command palette. |
 | `Mod+Shift+N` | Open the project quick-open to start a session; the focused tab's project, or **No project** for a chat, comes first. |
 | `Mod+Shift+O` | Start a new chat with no project, skipping the project quick-open. |
+| `Mod+O` | Open the New session dialog seeded with the focused tab's project. A focused terminal tab or console drawer keeps `Ctrl+O`. |
 | `Mod+Shift+P` | Switch the focused native session between Build and Plan in-process. |
 | `Mod+J` | Show or hide the focused native session's console. |
 | `Mod+=` or `Mod+Shift+=` | Increase native transcript text size. |

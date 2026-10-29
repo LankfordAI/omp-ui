@@ -418,6 +418,26 @@ describe("new-session entry points (issues #915/#919)", () => {
     expect(newChat).toHaveBeenCalledExactlyOnceWith();
     expect(useStore.getState().projectQuickOpen).toBeNull();
   });
+
+  it("mod+o opens the New session dialog seeded with the focused tab, mid-draft (issue #964)", () => {
+    useStore.setState({
+      tabs: [{ tabId: "remote", mode: "rpc-ui", projectCwd: "/srv/p", hidden: false, instanceId: "inst-1" }],
+      activeTabId: "remote",
+      newSessionDialog: null,
+    });
+    renderApp();
+    // A composer draft holds focus: a mod combo still reaches the window map.
+    const draft = document.createElement("textarea");
+    document.body.append(draft);
+    draft.focus();
+    act(() => {
+      draft.dispatchEvent(new KeyboardEvent("keydown", { key: "o", ctrlKey: true, bubbles: true }));
+    });
+
+    expect(useStore.getState().newSessionDialog).toMatchObject({ projectCwd: "/srv/p", instanceId: "inst-1", where: "here" });
+    expect(useStore.getState().projectQuickOpen).toBeNull();
+    draft.remove();
+  });
 });
 
 describe("always-mounted sidebar (issue #919)", () => {

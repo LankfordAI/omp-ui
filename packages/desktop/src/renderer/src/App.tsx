@@ -46,6 +46,7 @@ const HINTS: [combo: string, what: MessageKey][] = [
   ["mod+k", "app.welcome.hintCommandPalette"],
   ["mod+shift+n", "app.welcome.hintNewSession"],
   ["mod+shift+o", "app.welcome.hintNewChat"],
+  ["mod+o", "app.welcome.hintNewSessionDialog"],
   ["mod+shift+p", "app.welcome.hintMode"],
   ["mod+j", "app.welcome.hintConsole"],
   ["mod+f", "app.welcome.hintSearch"],
@@ -324,6 +325,19 @@ export default function App() {
     "mod+shift+o": (e) => {
       e.preventDefault();
       void useStore.getState().newChat();
+    },
+    // The New session dialog in one keystroke (issue #964), seeded like the
+    // palette's New session…: the focused tab's project and owner. A mod
+    // combo, so it fires mid-draft. A focused terminal (pty tab, console
+    // drawer) keeps Ctrl+O for OMP's TUI with no carve-out here: xterm turns
+    // it into ^O and stops the keydown before this window listener. An open
+    // dialog is left alone so a second press never reseeds a form in progress.
+    "mod+o": (e) => {
+      e.preventDefault();
+      const s = useStore.getState();
+      if (s.newSessionDialog !== null) return;
+      const tab = tabs.find((t) => t.tabId === activeTabId);
+      s.openNewSessionDialog({ projectCwd: tab?.projectCwd ?? null, instanceId: tab?.instanceId ?? null });
     },
     // The keyboard twin of the composer's Build / Plan selector: the same
     // in-process switch (ADR-0007), never a respawn. rpc-ui tabs only — a pty tab's TUI

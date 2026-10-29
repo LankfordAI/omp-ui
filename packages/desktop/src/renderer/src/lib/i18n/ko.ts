@@ -28,6 +28,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "app.welcome.hintCommandPalette": "명령 팔레트",
   "app.welcome.hintNewSession": "프로젝트 선택 후 새 세션",
   "app.welcome.hintNewChat": "프로젝트 없이 새 채팅",
+  "app.welcome.hintNewSessionDialog": "새 세션 대화상자 — 여기 또는 플릿",
   "app.welcome.hintMode": "빌드 / 플랜 모드 전환",
   "app.welcome.hintConsole": "콘솔 전환",
   "app.welcome.hintSearch": "세션 내 검색",

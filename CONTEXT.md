@@ -237,8 +237,9 @@ _Avoid_: ghost session, séance thread, resume-by-reading
 
 **New session dialog**:
 The one form that starts work, opened from a project page in the **Project
-quick-open**, the command
-palette, or the **Fleet** view. It picks a project and a machine — **This
+quick-open**, the command palette, the **Fleet** view, or `mod+o` (seeded
+with the focused tab's project; a focused terminal keeps Ctrl+O). It picks a
+project and a machine — **This
 computer** (this app) or a fleet member — the workspace (a fresh
 worktree checkout or the project checkout), Build or Plan mode, an optional
 title, and a first prompt: required for a fleet dispatch, optional on this

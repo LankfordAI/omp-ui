@@ -33,6 +33,7 @@ export const en = {
   "app.welcome.hintCommandPalette": "command palette",
   "app.welcome.hintNewSession": "new session — pick a project",
   "app.welcome.hintNewChat": "new chat — no project",
+  "app.welcome.hintNewSessionDialog": "new session dialog — here or fleet",
   "app.welcome.hintMode": "switch Build / Plan mode",
   "app.welcome.hintConsole": "toggle console",
   "app.welcome.hintSearch": "search within a session",
