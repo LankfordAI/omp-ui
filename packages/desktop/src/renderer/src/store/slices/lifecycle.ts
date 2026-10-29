@@ -45,7 +45,7 @@ import {
   type Watchers,
 } from "./shared";
 import { disposeTabRuntime } from "./rpc-command";
-import { liveVoiceGeneration } from "./live-work-park";
+import { liveVoiceGeneration } from "./live-switch";
 import { findInstance, findOwner, findRecord, findWorktreeAt, focusOn } from "./view";
 import type {
   DeleteConfirmation,
@@ -625,9 +625,6 @@ export function createLifecycleSlice(
         (srcAfter === undefined ||
           (srcAfter === srcRt && srcAfter.liveArmed !== true))
       ) {
-        // #842: carry the typed seed turn's parking intent to the first start
-        // acknowledgement, only after #840 confirms the source process stopped.
-        m.patchRuntime(freshId, { liveWorkParkHandoff: true });
         void get().startLiveVoice(freshId);
       }
     }

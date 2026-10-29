@@ -1,5 +1,7 @@
 # Park the live call while the agent works, because the controller offers no idle phase mid-turn
 
+_Superseded by [ADR-0070](0070-live-voice-holds-to-talk.md): hold-to-talk keeps the call open through delegated work; work parking and progress reports are removed. Kept for the record._
+
 Resolves issue #815. Builds on ADR-0050's park/resume machinery (recap fold,
 pending pipeline, `buildLiveInstructions`) and adds a second park cause: the
 tab stays viewed, but the agent runs a *delegated* backend turn the voice call

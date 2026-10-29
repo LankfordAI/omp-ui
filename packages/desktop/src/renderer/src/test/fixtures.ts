@@ -25,8 +25,6 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     experimentsEnabled: false,
     snoozedSectionEnabled: false,
     voiceInputEnabled: false,
-    liveWorkParking: true,
-    liveProgressReportMinutes: null,
     sttModel: null,
     audioInputDevice: null,
     audioOutputDevice: null,

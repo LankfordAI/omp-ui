@@ -35,8 +35,6 @@ type SettingsHandlerChannels =
   | typeof CH.setExperimentsEnabled
   | typeof CH.setSnoozedSectionEnabled
   | typeof CH.setVoiceInputEnabled
-  | typeof CH.setLiveWorkParking
-  | typeof CH.setLiveProgressReportMinutes
   | typeof CH.setSttModel
   | typeof CH.setThemeId
   | typeof CH.setFontFamilyId
@@ -101,9 +99,6 @@ export function registerSettingsHandlers(
     [CH.setExperimentsEnabled]: (value: boolean) => commit("experimentsEnabled", value),
     [CH.setSnoozedSectionEnabled]: (value: boolean) => commit("snoozedSectionEnabled", value),
     [CH.setVoiceInputEnabled]: (value: boolean) => commit("voiceInputEnabled", value),
-    [CH.setLiveWorkParking]: (value: boolean) => commit("liveWorkParking", value),
-    [CH.setLiveProgressReportMinutes]: (value: number | null) =>
-      commit("liveProgressReportMinutes", value),
     [CH.setSttModel]: (value: string | null) => commit("sttModel", value),
     [CH.setThemeId]: (value: string) => commit("themeId", value),
     [CH.setFontFamilyId]: (value: string) => commit("fontFamilyId", value),

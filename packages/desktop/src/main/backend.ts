@@ -2338,8 +2338,6 @@ export class MainBackend {
       experimentsEnabled: this.registry.getSetting("experimentsEnabled"),
       snoozedSectionEnabled: this.registry.getSetting("snoozedSectionEnabled"),
       voiceInputEnabled: this.registry.getSetting("voiceInputEnabled"),
-      liveWorkParking: this.registry.getSetting("liveWorkParking"),
-      liveProgressReportMinutes: this.registry.getSetting("liveProgressReportMinutes"),
       sttModel: this.registry.getSetting("sttModel"),
       audioInputDevice: this.registry.getSetting("audioInputDevice"),
       audioOutputDevice: this.registry.getSetting("audioOutputDevice"),

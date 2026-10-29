@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { LiveAudioEntry } from "@omp-ui/core/live-voice";
+import { liveOutputSpeaking, type LiveAudioEntry } from "@omp-ui/core/live-voice";
 import type { SpendTotals } from "@omp-ui/core/session-spend";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
@@ -580,7 +580,10 @@ function VoiceRecordingsSection({ tabId }: { tabId: string }) {
   const pauseLiveReplay = useStore((s) => s.pauseLiveReplay);
   const resumeLiveReplay = useStore((s) => s.resumeLiveReplay);
   const liveReplay = useStore((s) => s.liveReplay);
-  const livePhase = useStore((s) => s.rpc[tabId]?.live?.phase ?? null);
+  const liveSpeaking = useStore((s) => {
+    const live = s.rpc[tabId]?.live;
+    return live != null && !live.ended && liveOutputSpeaking(live);
+  });
   const [entries, setEntries] = useState<LiveAudioEntry[] | null>(null);
 
   const refresh = useCallback((): void => {
@@ -645,7 +648,7 @@ function VoiceRecordingsSection({ tabId }: { tabId: string }) {
                 <IconButton label={t("composer.live.replayLoading")} onClick={() => {}} disabled>
                   <IconPlay className="size-3" />
                 </IconButton>
-              ) : livePhase === "speaking" && replay?.status !== "paused" ? (
+              ) : liveSpeaking && replay?.status !== "paused" ? (
                 <IconButton
                   label={t("composer.live.replayLiveBusy")}
                   onClick={() => {}}

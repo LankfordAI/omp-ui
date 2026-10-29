@@ -30,8 +30,6 @@ interface RegistrySettings {
   experimentsEnabled: boolean;
   snoozedSectionEnabled: boolean;
   voiceInputEnabled: boolean;
-  liveWorkParking: boolean;
-  liveProgressReportMinutes: number | null;
   sttModel: string | null;
   memoryDefaultsSeeded: boolean;
   autoThinkingDefaultSeeded: boolean;
@@ -140,8 +138,6 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     experimentsEnabled: false,
     snoozedSectionEnabled: false,
     voiceInputEnabled: false,
-    liveWorkParking: true,
-    liveProgressReportMinutes: null,
     sttModel: null,
     memoryDefaultsSeeded: false,
     reviewRoster: null,

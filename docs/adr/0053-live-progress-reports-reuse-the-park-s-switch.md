@@ -1,5 +1,7 @@
 # Live progress reports reuse the work park's switch, because the controller has no speak verb
 
+_Superseded by [ADR-0070](0070-live-voice-holds-to-talk.md): hold-to-talk keeps the call open through delegated work; work parking and progress reports are removed. Kept for the record._
+
 Resolves issue #826. Builds on ADR-0051's work parking: a live call parked for
 a delegated backend turn stays silent until `agent_end` wakes it. For long
 turns that silence reads as failure. This adds an opt-in cadence that briefly

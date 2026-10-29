@@ -36,9 +36,9 @@ import { peekTabRuntime, type GetState, type SetState, type StoreMachinery, type
 import {
   bumpLiveVoiceGeneration,
   cancelLiveSwitch,
-  clearLiveWorkTimers,
+  clearLiveTimers,
   planReviewGateKey,
-} from "./live-work-park";
+} from "./live-switch";
 import type { PlanReadiness, PlanRevisionNotes, RpcTabState } from "../types";
 export interface PlanExecutionSlice {
   acceptPlanReview(
@@ -106,7 +106,7 @@ export function createPlanExecutionSlice(
   const cancelReviewSwitch = (tabId: string): void => {
     bumpLiveVoiceGeneration(tabId);
     cancelLiveSwitch(tabId);
-    clearLiveWorkTimers(tabId);
+    clearLiveTimers(tabId);
   };
 
   const resetReviewRuntime = (tabId: string): void => {
@@ -117,11 +117,7 @@ export function createPlanExecutionSlice(
       liveReviewAppliedSourceKey: null,
       liveReviewAutoRequestedGateKey: undefined,
       liveReviewExplicitBriefingKey: undefined,
-      liveWorkPark: false,
       liveReviewFailedSourceKey: undefined,
-      liveOutputLoudAt: undefined,
-      liveWorkArmedAt: undefined,
-      liveProgressText: undefined,
       liveOrphanRestart: false,
     });
   };
@@ -406,31 +402,9 @@ export function createPlanExecutionSlice(
       if (get().rpc[tabId]?.plan?.enabled === true) {
         await ensureBuildMode(tabId);
       }
-      // #842: the EXECUTION_PROMPT is a typed turn, so no delegation frame
-      // arms the park — yet an owned, open call would stream the mic
-      // through the whole execution turn. The verdict's clearPlanReview has
-      // already queued the review-close's wake restart, so the call is
-      // mid-restart right here: the arm intent rides the one-shot flag to
-      // the restart's start ack, where armLiveWorkPark's own gates decide
-      // (a turn that ends before that ack clears the flag at `agent_end`).
-      // Same rule as the handoff carry: owner + armed + open at the verdict.
-      const execRt = peekTabRuntime(tabId);
-      const execLive = get().rpc[tabId]?.live;
-      if (
-        execRt?.liveVoiceOwner === true &&
-        execRt.liveArmed === true &&
-        execLive != null &&
-        !execLive.ended
-      )
-        m.patchRuntime(tabId, { liveWorkParkHandoff: true });
       const sending = get().sendPrompt(tabId, message, relaunched ? "prompt" : "follow_up");
-      // A rejected implementation prompt emits no turn, hence no `agent_end`
-      // to consume the arm intent — clear it so it cannot ride a later start.
       void sending.then(async (accepted) => {
-        if (!accepted) {
-          m.patchRuntime(tabId, { liveWorkParkHandoff: undefined });
-          return;
-        }
+        if (!accepted) return;
         // "Run as goal": the create frame lands strictly after the accepted
         // implementation prompt — the prompt never queues behind goal
         // machinery, and the goalOwnsSession watcher gate above sees the goal

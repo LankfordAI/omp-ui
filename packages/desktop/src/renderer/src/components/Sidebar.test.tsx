@@ -843,7 +843,7 @@ describe("Sidebar live voice speaker glyph (issue #807, #811)", () => {
   it("an armed parked row shows the dim ready glyph", () => {
     useStore.setState({
       rpc: { "tab-1": rpcTabState({ live: live({ phase: "listening", ended: true }) }) },
-      liveVoice: { "tab-1": { armed: true, parked: true, pending: false } },
+      liveVoice: { "tab-1": { armed: true, parked: true, pending: false, talking: false } },
     });
     renderSidebar();
     const mark = glyph();
@@ -854,7 +854,7 @@ describe("Sidebar live voice speaker glyph (issue #807, #811)", () => {
   it("a parked row with results waiting shows the accent glyph", () => {
     useStore.setState({
       rpc: { "tab-1": rpcTabState({ live: live({ phase: "listening", ended: true }) }) },
-      liveVoice: { "tab-1": { armed: true, parked: true, pending: true } },
+      liveVoice: { "tab-1": { armed: true, parked: true, pending: true, talking: false } },
     });
     renderSidebar();
     const mark = glyph();
@@ -865,7 +865,7 @@ describe("Sidebar live voice speaker glyph (issue #807, #811)", () => {
   it("an open call's phase glyph outranks the badge", () => {
     useStore.setState({
       rpc: { "tab-1": rpcTabState({ live: live({ phase: "speaking" }) }) },
-      liveVoice: { "tab-1": { armed: true, parked: false, pending: true } },
+      liveVoice: { "tab-1": { armed: true, parked: false, pending: true, talking: false } },
     });
     renderSidebar();
     expect(glyph()?.getAttribute("aria-label")).toBe("Live voice: speaking");

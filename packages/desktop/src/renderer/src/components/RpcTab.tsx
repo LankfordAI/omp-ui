@@ -6,6 +6,7 @@ import { findOwner, findRecord, useStore, type RpcFailure } from "../store";
 import { backend } from "../backend";
 import type { ModelCatalogSnapshot } from "@omp-ui/core/types";
 import { useT } from "../lib/i18n";
+import { useLiveTalkHotkey } from "../lib/use-live-talk-hotkey";
 import { Composer } from "./Composer";
 import { ConsoleDrawer } from "./ConsoleDrawer";
 import { ExtensionDialogHost } from "./ExtensionDialogHost";
@@ -205,6 +206,7 @@ const BOOT_STALL_MS = 60_000;
  */
 export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   const t = useT();
+  useLiveTalkHotkey(tabId, active);
   const rpc = useStore((s) => s.rpc[tabId]);
   const bootRpcTab = useStore((s) => s.bootRpcTab);
   const flagBootStall = useStore((s) => s.flagBootStall);

@@ -4,7 +4,7 @@ import { EXPERIMENT_PROPOSAL_SENTINEL, type ExperimentProposal } from "@omp-ui/c
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import {
   LIVE_CONNECT_TIMEOUT_MS,
-  LIVE_WORK_PARK_CAP_MS,
+  LIVE_TALK_RELEASE_TAIL_MS,
   type LiveSnapshot,
 } from "@omp-ui/core/live-voice";
 import { emptySessionRuntime } from "../../lib/rpc-types";
@@ -3440,24 +3440,48 @@ describe("live voice actions (issue #778)", () => {
     });
   };
 
-  const settle = async (): Promise<void> => {
-    for (let wave = 0; wave < 3; wave++) {
-      await h.flushMicrotasks();
-      for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
-    }
-    await h.flushMicrotasks();
-  };
-
   const live = () => h.useStore.getState().rpc[h.TAB]?.live ?? null;
 
   it("start sends live_start and patches a connecting snapshot", async () => {
     withVersion("18.7.0");
     const starting = h.useStore.getState().startLiveVoice(h.TAB);
-    expect(h.sent).toHaveLength(1);
+    expect(h.sent).toHaveLength(2);
     expect(h.sent[0]!.cmd).toMatchObject({ type: "live_start" });
+    expect(h.sent[1]!.cmd).toMatchObject({ type: "live_mute", muted: true });
     h.respond(h.TAB, h.sent[0]!.cmd, {});
     await starting;
     expect(live()).toMatchObject({ phase: "connecting", ended: false, error: null });
+  });
+
+  // ADR-0070: the microphone is closed from the first frame of every call,
+  // whether it is a fresh start or a wake after a park.
+  it("every live_start is followed by live_mute {muted:true} before its ack", async () => {
+    withVersion("18.7.0");
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    expect(h.sent.map(({ cmd }) => cmd)).toEqual([
+      expect.objectContaining({ type: "live_start" }),
+      expect.objectContaining({ type: "live_mute", muted: true }),
+    ]);
+    for (const { cmd } of h.sent.splice(0)) h.respond(h.TAB, cmd, {});
+    await starting;
+    const parking = h.useStore.getState().parkLiveVoice(h.TAB);
+    for (const { cmd } of h.sent.splice(0)) h.respond(h.TAB, cmd, {});
+    await parking;
+    expect(h.useStore.getState().liveVoice[h.TAB]).toMatchObject({ armed: true, parked: true });
+    const waking = h.useStore.getState().switchLiveVoice(h.TAB, { mode: "wake" });
+    await h.flushMicrotasks();
+    expect(h.sent.map(({ cmd }) => cmd)).toEqual([
+      expect.objectContaining({ type: "live_start" }),
+      expect.objectContaining({ type: "live_mute", muted: true }),
+    ]);
+    for (const { cmd } of h.sent.splice(0)) h.respond(h.TAB, cmd, {});
+    await waking;
+    expect(h.useStore.getState().liveVoice[h.TAB]).toEqual({
+      armed: true,
+      parked: false,
+      pending: false,
+      talking: false,
+    });
   });
 
   it.each([undefined, { instructions: "Diagnostic voice instructions" }])(
@@ -3477,17 +3501,17 @@ describe("live voice actions (issue #778)", () => {
     async (opts) => {
       withVersion("18.7.0");
       const starting = h.useStore.getState().startLiveVoice(h.TAB, opts);
-      expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["live_start"]);
+      expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["live_start", "live_mute"]);
       h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_levels", input: 0.2, output: 0 });
       h.useStore.setState({ activeTabId: "another-tab" });
       h.respond(h.TAB, h.sent[0]!.cmd, {});
       await starting;
-      expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["live_start", "live_stop"]);
+      expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["live_start", "live_mute", "live_stop"]);
       expect(peekTabRuntime(h.TAB)?.liveVoiceOwner).not.toBe(true);
       expect(peekTabRuntime(h.TAB)?.liveArmed).not.toBe(true);
       expect(peekTabRuntime(h.TAB)?.livePendingIncluded).toBeUndefined();
       expect(h.useStore.getState().liveVoice[h.TAB]).toBeUndefined();
-      h.respond(h.TAB, h.sent[1]!.cmd, {});
+      h.respond(h.TAB, h.sent[2]!.cmd, {});
       await h.flushMicrotasks();
       expect(live()?.ended).toBe(true);
       expect(h.sent.filter(({ cmd }) => cmd.type === "live_start")).toHaveLength(1);
@@ -3505,10 +3529,10 @@ describe("live voice actions (issue #778)", () => {
       h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_end" });
       const starting = h.useStore.getState().startLiveVoice(h.TAB, opts);
       h.useStore.setState({ activeTabId: "another-tab" });
-      h.respond(h.TAB, h.sent[1]!.cmd, {});
+      h.respond(h.TAB, h.sent[2]!.cmd, {});
       await parking;
       await starting;
-      expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["live_start", "live_stop"]);
+      expect(h.sent.map(({ cmd }) => cmd.type)).toEqual(["live_start", "live_mute", "live_stop"]);
       expect(live()?.ended).toBe(true);
       expect(h.useStore.getState().liveVoice[h.TAB]).toMatchObject({ armed: true, parked: true });
     },
@@ -3612,6 +3636,7 @@ describe("live voice actions (issue #778)", () => {
       armed: true,
       parked: false,
       pending: false,
+      talking: false,
     });
   });
 
@@ -3624,7 +3649,7 @@ describe("live voice actions (issue #778)", () => {
           live: { phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null },
         }),
       },
-      liveVoice: { [h.TAB]: { armed: true, parked: false, pending: true } },
+      liveVoice: { [h.TAB]: { armed: true, parked: false, pending: true, talking: false } },
     });
     const stopping = h.useStore.getState().stopLiveVoice(h.TAB);
     h.respond(h.TAB, h.sent[0]!.cmd, {});
@@ -3638,15 +3663,98 @@ describe("live voice actions (issue #778)", () => {
     expect(h.sent).toEqual([]);
   });
 
-  it("mute sends live_mute with the boolean", async () => {
-    withVersion("18.7.0");
-    const muting = h.useStore.getState().setLiveMuted(h.TAB, true);
-    await h.flushMicrotasks();
-    // Capture before settle: it splices the harness's sent log.
-    const muteFrame = h.sent.find((s) => s.cmd.type === "live_mute");
-    await settle();
-    await muting;
-    expect(muteFrame?.cmd).toMatchObject({ type: "live_mute", muted: true });
+  describe("setLiveTalking (ADR-0070)", () => {
+    /** Opens an owned call and answers its start and pre-mute. */
+    const openCall = async (): Promise<void> => {
+      withVersion("18.7.0");
+      const starting = h.useStore.getState().startLiveVoice(h.TAB);
+      for (const { cmd } of h.sent.splice(0)) h.respond(h.TAB, cmd, {});
+      await starting;
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "muted" });
+    };
+    const muteFrames = () => h.sent.filter(({ cmd }) => cmd.type === "live_mute").map(({ cmd }) => cmd.muted);
+    const badge = () => h.useStore.getState().liveVoice[h.TAB];
+    /** Presses talk and acknowledges its unmute. */
+    const press = async (): Promise<void> => {
+      const pressing = h.useStore.getState().setLiveTalking(h.TAB, true);
+      for (const { cmd } of h.sent.splice(0)) h.respond(h.TAB, cmd, {});
+      await pressing;
+    };
+
+    it("a press sends live_mute {muted:false} and shows the held state", async () => {
+      await openCall();
+      const pressing = h.useStore.getState().setLiveTalking(h.TAB, true);
+      expect(h.sent.map(({ cmd }) => cmd)).toEqual([expect.objectContaining({ type: "live_mute", muted: false })]);
+      expect(badge()?.talking).toBe(true);
+      h.respond(h.TAB, h.sent[0]!.cmd, {});
+      await pressing;
+      expect(badge()?.talking).toBe(true);
+      expect(live()?.error).toBeNull();
+    });
+
+    it("a release sends live_mute {muted:true} only after the release tail", async () => {
+      vi.useFakeTimers();
+      try {
+        await openCall();
+        await press();
+        await h.useStore.getState().setLiveTalking(h.TAB, false);
+        expect(badge()?.talking).toBe(false);
+        expect(muteFrames()).toEqual([]);
+        vi.advanceTimersByTime(LIVE_TALK_RELEASE_TAIL_MS - 1);
+        expect(muteFrames()).toEqual([]);
+        vi.advanceTimersByTime(1);
+        expect(muteFrames()).toEqual([true]);
+        for (const { cmd } of h.sent.splice(0)) h.respond(h.TAB, cmd, {});
+        await h.flushMicrotasks();
+        expect(live()?.error).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("a press inside the release tail cancels it and sends nothing", async () => {
+      vi.useFakeTimers();
+      try {
+        await openCall();
+        await press();
+        await h.useStore.getState().setLiveTalking(h.TAB, false);
+        vi.advanceTimersByTime(LIVE_TALK_RELEASE_TAIL_MS - 1);
+        await h.useStore.getState().setLiveTalking(h.TAB, true);
+        expect(badge()?.talking).toBe(true);
+        vi.advanceTimersByTime(LIVE_TALK_RELEASE_TAIL_MS * 2);
+        expect(muteFrames()).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("a press from a non-owner or with no open call sends nothing", async () => {
+      withVersion("18.7.0");
+      const rt = createMachinery(h.useStore.setState, h.useStore.getState, h.useStore).runtime(h.TAB);
+      rt.liveVoiceOwner = true;
+      rt.liveArmed = true;
+      await h.useStore.getState().setLiveTalking(h.TAB, true);
+      expect(h.sent).toEqual([]);
+      expect(rt.liveTalking).not.toBe(true);
+
+      await openCall();
+      peekTabRuntime(h.TAB)!.liveVoiceOwner = false;
+      await h.useStore.getState().setLiveTalking(h.TAB, true);
+      expect(h.sent).toEqual([]);
+      expect(peekTabRuntime(h.TAB)?.liveTalking).not.toBe(true);
+      expect(badge()?.talking).toBe(false);
+    });
+
+    it("a failed open clears the held state and shows the send failure", async () => {
+      await openCall();
+      const pressing = h.useStore.getState().setLiveTalking(h.TAB, true);
+      expect(badge()?.talking).toBe(true);
+      h.respond(h.TAB, h.sent[0]!.cmd, "temporary command failure", false);
+      await pressing;
+      expect(peekTabRuntime(h.TAB)?.liveTalking).toBe(false);
+      expect(badge()?.talking).toBe(false);
+      expect(live()?.error).toBe("the live voice command could not be sent");
+    });
   });
 
   it("clearLiveError keeps a running session but clears a dead one", async () => {
@@ -3727,11 +3835,11 @@ describe("live voice actions (issue #778)", () => {
         h.respond(h.TAB, h.sent[0]!.cmd, {});
         await starting;
         if (kind === "transient-error") {
-          h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
-          const muting = h.useStore.getState().setLiveMuted(h.TAB, true);
-          const command = h.sent.find(({ cmd }) => cmd.type === "live_mute")!;
+          h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "muted" });
+          const talking = h.useStore.getState().setLiveTalking(h.TAB, true);
+          const command = h.sent.find(({ cmd }) => cmd.type === "live_mute" && cmd.muted === false)!;
           h.respond(h.TAB, command.cmd, "temporary command failure", false);
-          await muting;
+          await talking;
           expect(live()?.error).toBeTruthy();
         } else {
           expect(live()).toMatchObject({ phase: null, levels: { input: 0.3, output: 0 }, ended: false });
@@ -3879,7 +3987,7 @@ describe("live voice actions (issue #778)", () => {
         await vi.advanceTimersByTimeAsync(LIVE_CONNECT_TIMEOUT_MS);
         expect(h.sent).toHaveLength(afterFirst);
         const restarting = h.useStore.getState().startLiveVoice(h.TAB);
-        const startCmd = h.sent.at(-1)!.cmd;
+        const startCmd = h.sent.findLast(({ cmd }) => cmd.type === "live_start")!.cmd;
         expect(startCmd).toMatchObject({ type: "live_start" });
         h.respond(h.TAB, startCmd, {});
         await restarting;
@@ -3893,63 +4001,6 @@ describe("live voice actions (issue #778)", () => {
         vi.useRealTimers();
       }
     });
-  });
-});
-
-describe("handoff park carry-over across the start ack (issue #842)", () => {
-  beforeEach(() => {
-    platformMocks.electron = true;
-    h.backendState = h.stateWithRecord("sess-1");
-    h.useStore.setState({
-      state: h.backendState,
-      activeTabId: h.TAB,
-      rpc: { [h.TAB]: rpcTabState() },
-    });
-    h.sent.length = 0;
-  });
-  afterEach(() => {
-    platformMocks.electron = false;
-  });
-
-  it("a failed destination start ack consumes the arm intent without arming", async () => {
-    vi.useFakeTimers();
-    try {
-      h.useStore.setState({
-        rpc: {
-          [h.TAB]: rpcTabState({
-            capabilities: { ompVersion: "18.7.0" } as unknown as CapabilitySnapshot,
-          }),
-        },
-      });
-      const starting = h.useStore.getState().startLiveVoice(h.TAB);
-      h.respond(h.TAB, h.sent.find((e) => e.cmd.type === "live_start")!.cmd, {});
-      await starting;
-      const stopping = h.useStore.getState().stopLiveVoice(h.TAB);
-      h.respond(h.TAB, h.sent.filter((e) => e.cmd.type === "live_stop").pop()!.cmd, {});
-      await stopping;
-      // The lifecycle carry-over gate rode the one-shot arm intent onto a
-      // destination start. Here that start's ack comes back FAILED: the call
-      // never opens, so the intent is consumed silently — an arm would park a
-      // call that does not exist, and the flag must not ride a later start.
-      const rt = peekTabRuntime(h.TAB)!;
-      rt.liveVoiceOwner = true;
-      rt.liveArmed = true;
-      rt.liveWorkParkHandoff = true;
-      const restarting = h.useStore.getState().startLiveVoice(h.TAB);
-      h.respond(
-        h.TAB,
-        h.sent.filter((e) => e.cmd.type === "live_start").pop()!.cmd,
-        "voice unavailable",
-        false,
-      );
-      await restarting;
-      expect(peekTabRuntime(h.TAB)?.liveWorkParkHandoff).toBeUndefined();
-      expect(peekTabRuntime(h.TAB)?.liveWorkPark).not.toBe(true);
-      vi.advanceTimersByTime(LIVE_WORK_PARK_CAP_MS);
-      expect(h.sent.filter((e) => e.cmd.type === "live_stop")).toHaveLength(1);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
 
@@ -4072,121 +4123,49 @@ describe("live voice in plan review", () => {
     expect(verbs("extension_ui_response")).toHaveLength(0);
   });
 
-  it("synchronous mute intent suppresses an automatic overview and is restored after context reconnect", async () => {
+  it("explicit stop clears talking and ignores a late talk acknowledgement", async () => {
     await arm();
-    const muting = h.useStore.getState().setLiveMuted(h.TAB, true);
-    expect(tab().live?.phase).toBe("listening");
-    expect(peekTabRuntime(h.TAB)?.liveUserMuted).toBe(true);
-    await present();
-    await ack("live_stop");
-    expect(verbs("live_start")).toHaveLength(1);
-    expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).toBeUndefined();
-    await ack("live_mute");
-    await muting;
-    await ack("live_start");
-    expect(verbs("live_mute")).toHaveLength(2);
-    expect(verbs("live_mute")[1]!.cmd).toMatchObject({ muted: true });
-    await ack("live_mute");
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "muted" });
-    const unmuting = h.useStore.getState().setLiveMuted(h.TAB, false);
-    await ack("live_mute");
-    await unmuting;
-    expect(verbs("live_start")).toHaveLength(1);
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
-    await ack("live_stop");
-    expect(verbs("live_start")).toHaveLength(2);
-    expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).toBeDefined();
-    await ack("live_start");
-  });
-
-  it.each(["restart", "acknowledged-unmute"])("observed mute survives review reconnect after %s without requesting an overview", async (kind) => {
-    await arm();
-    if (kind === "restart") {
-      const stopping = h.useStore.getState().stopLiveVoice(h.TAB);
-      await ack("live_stop");
-      await stopping;
-      expect(peekTabRuntime(h.TAB)?.liveUserMuted).toBeUndefined();
-      const starting = h.useStore.getState().startLiveVoice(h.TAB);
-      await ack("live_start");
-      await starting;
-    } else {
-      const unmuting = h.useStore.getState().setLiveMuted(h.TAB, false);
-      await ack("live_mute");
-      await unmuting;
-      expect(peekTabRuntime(h.TAB)?.liveUserMuted).toBe(false);
-    }
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
-    h.sent.length = 0;
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "muted" });
-    await present();
-    expect(peekTabRuntime(h.TAB)?.liveUserMuted).toBe(true);
-    await ack("live_stop");
-    expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).toBeUndefined();
-    await ack("live_start");
-    expect(verbs("live_mute")).toHaveLength(1);
-    expect(verbs("live_mute")[0]!.cmd).toMatchObject({ muted: true });
-    expect(h.sent.map((entry) => entry.cmd.type)).toEqual(["live_stop", "live_start", "live_mute"]);
-    await ack("live_mute");
-  });
-
-  it("a pending explicit unmute is not overwritten by the old muted phase during review reconnect", async () => {
-    await arm();
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "muted" });
-    const unmuting = h.useStore.getState().setLiveMuted(h.TAB, false);
-    await present();
-    expect(peekTabRuntime(h.TAB)?.liveUserMuted).toBe(false);
-    await ack("live_stop");
-    expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).toBeUndefined();
-    await ack("live_start");
-    expect(verbs("live_mute")).toHaveLength(1);
-    expect(verbs("live_mute")[0]!.cmd).toMatchObject({ muted: false });
-    expect(peekTabRuntime(h.TAB)?.liveUserMuted).toBe(false);
-    await ack("live_mute");
-    await unmuting;
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });
-    await ack("live_stop");
-    await ack("live_start");
-    expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).toBeDefined();
-    expect(verbs("live_mute")).toHaveLength(1);
-  });
-
-  it("explicit stop clears mute intent and ignores its late acknowledgement", async () => {
-    await arm();
-    const muting = h.useStore.getState().setLiveMuted(h.TAB, true);
+    const talking = h.useStore.getState().setLiveTalking(h.TAB, true);
+    expect(h.useStore.getState().liveVoice[h.TAB]?.talking).toBe(true);
     const stopping = h.useStore.getState().stopLiveVoice(h.TAB);
-    expect(peekTabRuntime(h.TAB)?.liveUserMuted).toBeUndefined();
+    expect(peekTabRuntime(h.TAB)?.liveTalking).not.toBe(true);
     await ack("live_stop");
     await stopping;
     await ack("live_mute", false);
-    await muting;
-    expect(peekTabRuntime(h.TAB)?.liveUserMuted).toBeUndefined();
+    await talking;
+    expect(peekTabRuntime(h.TAB)?.liveTalking).not.toBe(true);
     expect(tab().live?.error).toBeNull();
     const starting = h.useStore.getState().startLiveVoice(h.TAB);
     await ack("live_start");
     await starting;
-    expect(verbs("live_mute")).toHaveLength(1);
+    expect(verbs("live_mute").map((entry) => entry.cmd.muted)).toEqual([false, true]);
+    expect(h.useStore.getState().liveVoice[h.TAB]?.talking).toBe(false);
   });
 
-  it("manual explanation remains available with a muted microphone, and duplicate clicks share its reconnect", async () => {
+  it("an explanation reconnect while talking clears talking, and the new call is re-muted", async () => {
     await arm();
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "muted" });
     await present();
     await ack("live_stop");
     await ack("live_start");
     await ack("live_mute");
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "muted" });
     h.sent.length = 0;
+    const talking = h.useStore.getState().setLiveTalking(h.TAB, true);
+    await ack("live_mute");
+    await talking;
+    expect(h.useStore.getState().liveVoice[h.TAB]?.talking).toBe(true);
     const first = h.useStore.getState().explainPlanVoice(h.TAB);
     const second = h.useStore.getState().explainPlanVoice(h.TAB);
     expect(verbs("live_stop")).toHaveLength(1);
+    expect(peekTabRuntime(h.TAB)?.liveTalking).toBe(false);
+    expect(h.useStore.getState().liveVoice[h.TAB]?.talking).toBe(false);
     await ack("live_stop");
     expect(verbs("live_start")).toHaveLength(1);
     expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).toBeDefined();
     await ack("live_start");
     await Promise.all([first, second]);
-    expect(verbs("live_mute")).toHaveLength(1);
-    expect(verbs("live_mute")[0]!.cmd).toMatchObject({ muted: true });
-    expect(peekTabRuntime(h.TAB)?.liveUserMuted).toBe(true);
+    expect(verbs("live_mute").map((entry) => entry.cmd.muted)).toEqual([false, true]);
+    expect(peekTabRuntime(h.TAB)?.liveTalking).toBe(false);
     await ack("live_mute");
   });
 
@@ -4199,7 +4178,6 @@ describe("live voice in plan review", () => {
     expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).toBeDefined();
     await ack("live_start");
     await explaining;
-    await ack("live_mute");
     expect(verbs("live_stop")).toHaveLength(1);
     expect(verbs("live_start")).toHaveLength(1);
   });
@@ -4342,7 +4320,7 @@ describe("live voice in plan review", () => {
     await ack("live_start");
     expect(peekTabRuntime(h.TAB)?.liveReviewAppliedSourceKey).toBe(tab().planSourceKey);
     expect(h.sent.map((entry) => entry.cmd.type)).toEqual([
-      "live_stop", "live_start", "live_stop", "live_start",
+      "live_stop", "live_start", "live_mute", "live_stop", "live_start", "live_mute",
     ]);
   });
 
@@ -4485,21 +4463,28 @@ describe("live voice in plan review", () => {
     expect(peekTabRuntime(h.TAB)?.liveReviewTextCache).toBeUndefined();
   });
 
-  it("an older failed mute request cannot roll back newer requested intent", async () => {
-    await arm();
-    const unmuting = h.useStore.getState().setLiveMuted(h.TAB, false);
-    const muting = h.useStore.getState().setLiveMuted(h.TAB, true);
-    await ack("live_mute", false);
-    await unmuting;
-    expect(peekTabRuntime(h.TAB)?.liveUserMuted).toBe(true);
-    expect(tab().live?.error).toBeNull();
-    await ack("live_mute");
-    await muting;
-    await present();
-    await ack("live_stop");
-    expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).toBeUndefined();
-    await ack("live_start");
-    await ack("live_mute");
+  it("an older failed talk request cannot roll back a newer one", async () => {
+    vi.useFakeTimers();
+    try {
+      await arm();
+      const pressing = h.useStore.getState().setLiveTalking(h.TAB, true);
+      await h.useStore.getState().setLiveTalking(h.TAB, false);
+      vi.advanceTimersByTime(LIVE_TALK_RELEASE_TAIL_MS);
+      const pressingAgain = h.useStore.getState().setLiveTalking(h.TAB, true);
+      expect(verbs("live_mute").map((entry) => entry.cmd.muted)).toEqual([false, true, false]);
+      await ack("live_mute", false);
+      await pressing;
+      expect(peekTabRuntime(h.TAB)?.liveTalking).toBe(true);
+      expect(h.useStore.getState().liveVoice[h.TAB]?.talking).toBe(true);
+      expect(tab().live?.error).toBeNull();
+      await ack("live_mute");
+      await ack("live_mute");
+      await pressingAgain;
+      expect(peekTabRuntime(h.TAB)?.liveTalking).toBe(true);
+      expect(tab().live?.error).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a delayed stop acknowledgment cannot overwrite a different connection in the same runtime", async () => {

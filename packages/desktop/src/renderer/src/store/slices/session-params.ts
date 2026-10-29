@@ -63,20 +63,18 @@ import {
 import { parseFileSlashInvocation } from "@omp-ui/core/side-commands";
 import { randomId, randomUuid } from "../../lib/random-id";
 import {
-  armLiveConnectTimer,
+  armLiveTimer,
   bumpLiveVoiceGeneration,
   cancelLiveSwitch,
+  cancelLiveTimer,
   claimLiveSwitch,
-  clearLiveWorkTimers,
-  clearLiveWorkWindowTimers,
-  armLiveWorkCapTimer,
-  armLiveProgressTimer,
+  clearLiveTimers,
   finishLiveSwitch,
   liveVoiceGeneration,
   planReviewGateKey,
   type LiveSwitchEntry,
   type LiveSwitchRequest,
-} from "./live-work-park";
+} from "./live-switch";
 import {
   COMPACT_SETTLE_DEADLINE_MS,
   RPC_COMMAND_TIMEOUT_MS,
@@ -100,11 +98,8 @@ import {
   applyLiveEnd,
   applyLivePhase,
   buildLiveInstructions,
-  LIVE_PROGRESS_REPORT_CAP_MS,
-  LIVE_WORK_PARK_CAP_MS,
   emptyLiveSnapshot,
-  formatLiveProgressReport,
-  isLiveSessionActive,
+  LIVE_TALK_RELEASE_TAIL_MS,
   LIVE_CONNECT_TIMEOUT_MS,
   type LiveSnapshot,
   type LivePlanReviewContext,
@@ -140,12 +135,11 @@ export type SessionParamsSlice = Pick<
   | "startLiveVoice"
   | "parkLiveVoice"
   | "stopLiveVoice"
-  | "setLiveMuted"
+  | "setLiveTalking"
   | "clearLiveError"
   | "abandonStalledLiveConnect"
   | "switchLiveVoice"
   | "reconcileLivePlanReview"
-  | "armLiveWorkPark"
   | "explainPlanVoice"
   | "setSessionServiceTier"
   | "setServiceTier"
@@ -1043,136 +1037,24 @@ export function createSessionParamsSlice(
   const hasLiveCall = (live: LiveSnapshot | null | undefined): live is LiveSnapshot =>
     live != null && !live.ended;
 
-  // Only an in-flight explicit request may override observed mute state.
-  // Tokens also keep a stopped call's late acknowledgement from restoring intent.
-  const liveMuteRequests = new WeakMap<TabRuntime, object>();
-  const rememberedLiveMute = (rt: TabRuntime, live: LiveSnapshot | null | undefined): boolean =>
-    liveMuteRequests.has(rt) ? rt.liveUserMuted === true :
-      rt.liveUserMuted === true || live?.phase === "muted";
+  const liveTalkRequests = new WeakMap<TabRuntime, object>();
 
   /** An explicit stop disarms everything the park/resume machinery owns
    *  (#811) — shared by the open-call and parked-call stop paths. */
   const clearLiveVoiceState: Partial<TabRuntime> = {
     liveArmed: false,
     liveParked: false,
-    liveUserMuted: undefined,
     liveRecap: [],
     livePendingFeedback: [],
     liveCallSawDelegation: false,
     liveOrphanRestart: false,
     livePendingIncluded: undefined,
-    // #815: an explicit stop disarms work-parking too — no wake follows.
-    liveWorkPark: false,
-    // #842: the handoff's one-shot arm intent dies with an explicit stop.
-    liveWorkParkHandoff: undefined,
-    liveOutputLoudAt: undefined,
-    liveWorkArmedAt: undefined,
-    liveProgressText: undefined,
     liveReviewTextCache: undefined,
     liveReviewAppliedSourceKey: null,
     liveReviewAutoRequestedGateKey: undefined,
     liveReviewExplicitBriefingKey: undefined,
     liveReviewFailedSourceKey: undefined,
-    liveMuteRequestGeneration: undefined,
-  };
-
-  /** #815's work-park arm. Reached from the delegation frame's effect, the
-   *  plan-handoff seed turn's start ack (#842), and an in-place execute on
-   *  an open call (#842) — every arm runs these same gates. */
-  const armLiveWorkPark = (tabId: string): void => {
-    // #815: the delegation landed on an armed, open call and the
-    // setting is on — park for the duration of the backend turn. The
-    // cap timer bounds a turn that never goes quiet; the quiet timer
-    // arms itself from the first quiet `live_levels` frame after a loud
-    // one (levels are edge-triggered, so counting frames would drift).
-    if (get().state?.liveWorkParking === false) return;
-    // A review gate is already the wake boundary, never a new work park.
-    if (get().rpc[tabId]?.planReview !== null) return;
-    const armLive = get().rpc[tabId]?.live;
-    if (armLive === undefined || armLive === null || !isLiveSessionActive(armLive))
-      return;
-    clearLiveWorkTimers(tabId);
-    m.patchRuntime(tabId, {
-      liveWorkPark: true,
-      liveOutputLoudAt: undefined,
-      liveWorkArmedAt: Date.now(),
-    });
-    {
-      const armGen = liveVoiceGeneration(tabId);
-      armLiveWorkCapTimer(tabId, LIVE_WORK_PARK_CAP_MS, () => {
-        const rt = peekTabRuntime(tabId);
-        if (
-          rt?.liveWorkPark !== true ||
-          rt.liveVoiceOwner !== true ||
-          rt.liveArmed !== true ||
-          liveVoiceGeneration(tabId) !== armGen
-        )
-          return;
-        void get().switchLiveVoice(tabId, { mode: "park" });
-      });
-    }
-    {
-      // #826: while the call stays parked for this delegated turn, the
-      // cadence timer wakes it every N minutes to speak one progress
-      // report. The fire callback re-verifies like the cap callback and
-      // re-arms itself, so a skipped (unviewed) tick still yields the
-      // next chance; a wake pass clears the slot, so a final answer —
-      // or an explicit stop — ends the cadence.
-      const reportMinutes = get().state?.liveProgressReportMinutes;
-      if (typeof reportMinutes === "number") {
-        const armProgress = async (): Promise<void> => {
-          const rt = peekTabRuntime(tabId);
-          if (
-            rt?.liveWorkPark !== true ||
-            rt.liveVoiceOwner !== true ||
-            rt.liveArmed !== true
-          )
-            return;
-          const minutes = get().state?.liveProgressReportMinutes;
-          if (typeof minutes !== "number") return;
-          // Unviewed or gated: the tick is skipped, not ended — the
-          // cadence reschedules for the next chance (#826).
-          if (get().activeTabId !== tabId || get().rpc[tabId]?.planReview !== null) {
-            armLiveProgressTimer(tabId, minutes * 60_000, armProgress);
-            return;
-          }
-          const running: { name: string; intent?: string }[] = [];
-          let completed = 0;
-          for (const item of m.effectiveItems(tabId)) {
-            if (item.kind !== "tool") continue;
-            if (item.status === "running")
-              running.push({ name: item.name, ...(item.intent === undefined ? {} : { intent: item.intent }) });
-            else if (item.status === "done" || item.status === "error") completed += 1;
-          }
-          m.patchRuntime(tabId, {
-            liveProgressText: formatLiveProgressReport({
-              elapsedMs: Math.max(0, Date.now() - (rt.liveWorkArmedAt ?? Date.now())),
-              running,
-              completedTools: completed,
-            }),
-          });
-          await get().switchLiveVoice(tabId, { mode: "wake", progress: true });
-          // Re-arm from the callback (not setInterval): generation is
-          // recaptured each pass and a skipped tick still re-schedules.
-          const live = get().rpc[tabId]?.live;
-          const rt2 = peekTabRuntime(tabId);
-          // The flag is the cadence gate: `agent_end` clears it (the final
-          // answer owns the call now) and an explicit stop clears it. The
-          // snapshot only has to exist — an omp idle-end leaves the parked
-          // intent, and the next tick's wake reopens the call to speak.
-          if (
-            rt2?.liveWorkPark === true &&
-            live !== undefined &&
-            typeof get().state?.liveProgressReportMinutes === "number"
-          ) {
-            const nextMinutes = get().state?.liveProgressReportMinutes;
-            if (typeof nextMinutes === "number")
-              armLiveProgressTimer(tabId, nextMinutes * 60_000, armProgress);
-          }
-        };
-        armLiveProgressTimer(tabId, reportMinutes * 60_000, armProgress);
-      }
-    }
+    liveTalking: false,
   };
 
   /** Exact loaded bytes are projected once per source, never from a second read. */
@@ -1287,28 +1169,29 @@ export function createSessionParamsSlice(
     if (rt.liveStartInFlight !== undefined || hasLiveCall(get().rpc[tabId]?.live)) return;
     const review = readyLiveReview(tabId, rt);
     if (opts?.instructions === undefined && get().rpc[tabId]?.planReview !== null && review === null) return;
-    // Requested mute is intent; observed phase is still omp's UI truth.
     // Choose speech only now, after all waits, and claim immediately before dispatch.
-    const muted = rt.liveUserMuted === true || get().rpc[tabId]?.live?.phase === "muted";
     const briefOverview = opts?.instructions === undefined && review !== null &&
       get().rpc[tabId]?.planDeferred !== true &&
-      (request?.briefOverview === true ||
-        (!muted && rt.liveReviewAutoRequestedGateKey !== review.gateKey));
+      (request?.briefOverview === true || rt.liveReviewAutoRequestedGateKey !== review.gateKey);
     const built = opts?.instructions !== undefined
       ? { instructions: opts.instructions, pendingUsed: 0 }
       : buildLiveInstructions({
           recap: rt.liveRecap,
           pending: rt.livePendingFeedback,
           review: review === null ? undefined : { ...review.context, briefOverview },
-          progress: request?.progress === true ? rt.liveProgressText : undefined,
         });
     if (!valid() || !liveAdmitted(tabId)) return;
     const generation = liveVoiceGeneration(tabId);
     if (briefOverview && review !== null)
       m.patchRuntime(tabId, { liveReviewAutoRequestedGateKey: review.gateKey });
     const beforeStart = get().rpc[tabId]?.live;
-    const resp = await trackLiveDispatch(tabId, rt, "liveStartInFlight",
-      m.runCommand(tabId, { type: "live_start", instructions: built.instructions }, { quiet: true }));
+    const startDispatch = m.runCommand(tabId, { type: "live_start", instructions: built.instructions }, { quiet: true });
+    // Hold-to-talk (ADR-0070): the start frame is already on the wire; omp
+    // builds the controller synchronously and runs live_mute on the serial
+    // tail, so the microphone is closed before recording begins. A start that
+    // fails before its controller exists answers this with an error — ignored.
+    void get().rpcCommand(tabId, { type: "live_mute", muted: true }, { quiet: true }).catch(() => undefined);
+    const resp = await trackLiveDispatch(tabId, rt, "liveStartInFlight", startDispatch);
     if (!valid(resp !== null) || liveVoiceGeneration(tabId) !== generation || !liveAdmitted(tabId)) {
       // A late successful call is closed without restoring intent or markers.
       // A new process with the same id is not this call's lifetime.
@@ -1332,19 +1215,11 @@ export function createSessionParamsSlice(
       }
       return;
     }
-    // The report sentence was just carried (or abandoned) by this attempt;
-    // consume it so it can never ride an unrelated later wake (#826).
-    m.patchRuntime(tabId, {
-      liveReviewExplicitBriefingKey: undefined,
-      ...(request?.progress === true ? { liveProgressText: undefined } : {}),
-    });
+    m.patchRuntime(tabId, { liveReviewExplicitBriefingKey: undefined });
     if (resp === null) {
       m.patchRuntime(tabId, { liveReviewFailedSourceKey: review?.sourceKey ?? null });
       livePatch(tabId, { ...emptyLiveSnapshot(), ended: true, error: t("composer.live.sendFailed") });
       publishPlanVoice(tabId);
-      // #842: a failed start consumes the handoff's arm intent too, so it
-      // can never ride an unrelated later call.
-      m.patchRuntime(tabId, { liveWorkParkHandoff: undefined });
       return;
     }
     m.patchRuntime(tabId, {
@@ -1356,26 +1231,8 @@ export function createSessionParamsSlice(
       livePendingIncluded: built.pendingUsed,
       liveReviewAppliedSourceKey: opts?.instructions === undefined ? review?.sourceKey ?? null : null,
       liveReviewFailedSourceKey: undefined,
+      liveTalking: false,
     });
-    if (request?.progress === true) {
-      // Report window (#826): the mic must not stay open. A loud->quiet
-      // levels edge arms the ordinary 600ms quiet park; this cap closes a
-      // window where the model never speaks. The work-park flag is still
-      // set, which is what both park callbacks require.
-      m.patchRuntime(tabId, { liveOutputLoudAt: undefined });
-      const reportCapGen = liveVoiceGeneration(tabId);
-      armLiveWorkCapTimer(tabId, LIVE_PROGRESS_REPORT_CAP_MS, () => {
-        const windowRt = peekTabRuntime(tabId);
-        if (
-          windowRt?.liveWorkPark !== true ||
-          windowRt.liveVoiceOwner !== true ||
-          windowRt.liveArmed !== true ||
-          liveVoiceGeneration(tabId) !== reportCapGen
-        )
-          return;
-        void get().switchLiveVoice(tabId, { mode: "park" });
-      });
-    }
     m.syncLiveVoiceBadge(tabId);
     const reported = get().rpc[tabId]?.live;
     livePatch(tabId, {
@@ -1383,23 +1240,13 @@ export function createSessionParamsSlice(
         ? reported : applyLivePhase(emptyLiveSnapshot(), "connecting")),
       connectionId: randomUuid(),
     });
-    // #842: a plan handoff's typed seed turn emits no delegation frame, so
-    // the arm intent rode the flag to this ack — the one point where the
-    // call provably exists and ownership is set. `agent_end` clears the
-    // flag, so its presence here already means the handoff's turn is live;
-    // a turn that ended before this ack arms nothing.
-    if (rt.liveWorkParkHandoff === true) {
-      m.patchRuntime(tabId, { liveWorkParkHandoff: undefined });
-      get().armLiveWorkPark(tabId);
-    }
-    if (rt.liveUserMuted === true) void setLiveMuted(tabId, true);
     reconcileLivePlanReview(tabId);
     // Connecting watchdog (#827): armed only after the ack, so an ack
     // failure still fails through the sendFailed path above; a phase frame
     // that beat the ack makes the fire a no-op (the guard reads phase).
     {
       const connectGen = liveVoiceGeneration(tabId);
-      armLiveConnectTimer(tabId, LIVE_CONNECT_TIMEOUT_MS, () => {
+      armLiveTimer(tabId, "connect", LIVE_CONNECT_TIMEOUT_MS, () => {
         if (liveVoiceGeneration(tabId) !== connectGen) return;
         get().abandonStalledLiveConnect(tabId);
       });
@@ -1432,12 +1279,12 @@ export function createSessionParamsSlice(
       return resp !== null && peekTabRuntime(tabId) === rt;
     }
     if (rt.liveParked === true) return false;
-    // A park ends the quiet/cap window, never the #826 report cadence:
-    // a progress report re-parks through this path mid-delegated-turn.
-    clearLiveWorkWindowTimers(tabId);
+    cancelLiveTimer(tabId, "talkTail");
+    cancelLiveTimer(tabId, "orphan");
+    liveTalkRequests.delete(rt);
     m.patchRuntime(tabId, {
       liveRecap: appendLiveRecap(rt.liveRecap, live.turns),
-      liveUserMuted: rememberedLiveMute(rt, live),
+      liveTalking: false,
       liveParked: true,
     });
     m.syncLiveVoiceBadge(tabId);
@@ -1475,11 +1322,7 @@ export function createSessionParamsSlice(
       rt.liveReviewFailedSourceKey === (tab.planSourceKey ?? null)) return false;
     if (get().activeTabId !== tabId ||
       (!intentional && (rt.liveVoiceOwner !== true || rt.liveArmed !== true)) ||
-      (hasLiveCall(tab.live) && rt.liveVoiceOwner !== true && rt.liveStartInFlight === undefined && !startedHere) ||
-      // A progress wake (#826) may run while the work park flag is set —
-      // the flag survives the whole delegated turn so `agent_end` stays
-      // the final-answer truth.
-      (rt.liveWorkPark === true && request.progress !== true && tab.planReview === null)) return false;
+      (hasLiveCall(tab.live) && rt.liveVoiceOwner !== true && rt.liveStartInFlight === undefined && !startedHere)) return false;
     if (request.reviewKey === null) return tab.planReview === null;
     if (tab.planReview === null) return request.reviewKey === undefined;
     const review = readyLiveReview(tabId, rt);
@@ -1510,7 +1353,7 @@ export function createSessionParamsSlice(
       if (!stopped || !valid()) return;
     }
     if (!valid() || hasLiveCall(get().rpc[tabId]?.live)) return;
-    clearLiveWorkTimers(tabId);
+    clearLiveTimers(tabId);
     bumpLiveVoiceGeneration(tabId);
     entry.generation = liveVoiceGeneration(tabId);
     await dispatchLiveStart(tabId, rt, valid, request);
@@ -1540,8 +1383,7 @@ export function createSessionParamsSlice(
     if (review === null || tab.planDeferred || get().activeTabId !== tabId ||
       !liveAdmitted(tabId) || rt.liveVoiceOwner !== true || rt.liveArmed !== true ||
       rt.liveReviewFailedSourceKey === review.sourceKey) return;
-    const briefOverview = rt.liveReviewAutoRequestedGateKey !== review.gateKey &&
-      rt.liveUserMuted !== true && tab.live?.phase !== "muted";
+    const briefOverview = rt.liveReviewAutoRequestedGateKey !== review.gateKey;
     if (rt.liveReviewAppliedSourceKey === review.sourceKey && !briefOverview) return;
     void switchLiveVoice(tabId, { mode: "wake", reviewKey: review.sourceKey });
   };
@@ -1575,9 +1417,9 @@ export function createSessionParamsSlice(
     if (rt === undefined) return;
     bumpLiveVoiceGeneration(tabId);
     cancelLiveSwitch(tabId);
-    clearLiveWorkTimers(tabId);
+    clearLiveTimers(tabId);
     const existingStop = rt.liveStopInFlight;
-    liveMuteRequests.delete(rt);
+    liveTalkRequests.delete(rt);
     m.patchRuntime(tabId, clearLiveVoiceState);
     m.syncLiveVoiceBadge(tabId);
     publishPlanVoice(tabId);
@@ -1596,31 +1438,48 @@ export function createSessionParamsSlice(
     livePatch(tabId, applyLiveEnd(after, null));
   };
 
-  const setLiveMuted = async (tabId: string, muted: boolean): Promise<void> => {
-    if (!supportsNativeLive(get().rpc[tabId]?.capabilities?.ompVersion ?? null) ||
-      get().rpc[tabId] === undefined) return;
-    const rt = m.runtime(tabId);
-    const previous = rt.liveUserMuted;
-    const request = (rt.liveMuteRequestGeneration ?? 0) + 1;
-    const connectionId = get().rpc[tabId]?.live?.connectionId;
+  const sendLiveMute = async (tabId: string, rt: TabRuntime, muted: boolean): Promise<void> => {
     const token = {};
-    liveMuteRequests.set(rt, token);
-    m.patchRuntime(tabId, { liveUserMuted: muted, liveMuteRequestGeneration: request });
+    liveTalkRequests.set(rt, token);
+    const connectionId = get().rpc[tabId]?.live?.connectionId;
     const resp = await m.runCommand(tabId, { type: "live_mute", muted }, { quiet: true });
-    if (liveMuteRequests.get(rt) !== token) return;
-    liveMuteRequests.delete(rt);
-    if (peekTabRuntime(tabId) !== rt || rt.liveMuteRequestGeneration !== request ||
+    if (liveTalkRequests.get(rt) !== token) return; // a newer request owns the outcome
+    liveTalkRequests.delete(rt);
+    if (resp !== null || peekTabRuntime(tabId) !== rt ||
       get().rpc[tabId]?.live?.connectionId !== connectionId) return;
-    if (resp === null) {
-      m.patchRuntime(tabId, { liveUserMuted: previous });
-      const current = get().rpc[tabId]?.live;
-      if (current !== undefined && current !== null)
-        livePatch(tabId, { ...current, error: t("composer.live.sendFailed") });
-      reconcileLivePlanReview(tabId);
+    // A failed open leaves omp muted: drop the held state. A failed close is
+    // only reachable when omp has no controller (the call is gone) or the
+    // command timed out; either way the strip says so.
+    if (!muted && rt.liveTalking === true) {
+      m.patchRuntime(tabId, { liveTalking: false });
+      m.syncLiveVoiceBadge(tabId);
+    }
+    const current = get().rpc[tabId]?.live;
+    if (current != null) livePatch(tabId, { ...current, error: t("composer.live.sendFailed") });
+  };
+
+  const setLiveTalking = async (tabId: string, talking: boolean): Promise<void> => {
+    const rt = peekTabRuntime(tabId);
+    if (rt === undefined) return;
+    if (!talking) {
+      if (rt.liveTalking !== true) return;
+      m.patchRuntime(tabId, { liveTalking: false });
+      m.syncLiveVoiceBadge(tabId);
+      if (!hasLiveCall(get().rpc[tabId]?.live)) return;
+      const generation = liveVoiceGeneration(tabId);
+      armLiveTimer(tabId, "talkTail", LIVE_TALK_RELEASE_TAIL_MS, () => {
+        if (peekTabRuntime(tabId) !== rt || liveVoiceGeneration(tabId) !== generation ||
+          rt.liveTalking === true) return;
+        void sendLiveMute(tabId, rt, true);
+      });
       return;
     }
-    // Phase frames remain truth. Explicit unmute can request an initial overview.
-    reconcileLivePlanReview(tabId);
+    if (rt.liveVoiceOwner !== true || rt.liveArmed !== true || rt.liveTalking === true ||
+      !hasLiveCall(get().rpc[tabId]?.live) || !liveAdmitted(tabId)) return;
+    const micStillOpen = cancelLiveTimer(tabId, "talkTail");
+    m.patchRuntime(tabId, { liveTalking: true });
+    m.syncLiveVoiceBadge(tabId);
+    if (!micStillOpen) await sendLiveMute(tabId, rt, false);
   };
 
   const clearLiveError = (tabId: string): void => {
@@ -2701,7 +2560,6 @@ export function createSessionParamsSlice(
 
   return {
     advisorDefaults: {},
-    armLiveWorkPark,
     answerExtension,
     acceptApprovalPrompt,
     answerApprovalPrompt,
@@ -2726,7 +2584,7 @@ export function createSessionParamsSlice(
     startLiveVoice,
     parkLiveVoice,
     stopLiveVoice,
-    setLiveMuted,
+    setLiveTalking,
     clearLiveError,
     abandonStalledLiveConnect,
     switchLiveVoice,

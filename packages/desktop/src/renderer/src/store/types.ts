@@ -610,11 +610,6 @@ export interface SettingsSlice {
   setSnoozedSectionEnabled(on: boolean): Promise<void>;
   /** Shows/hides the composer mic button app-wide (issue #647). */
   setVoiceInputEnabled(on: boolean): Promise<void>;
-  /** Parks the live voice call while a delegated backend turn works (issue #815). */
-  setLiveWorkParking(on: boolean): Promise<void>;
-  /** Minutes between live-voice progress reports while work parking; null
-   *  disables (issue #826). */
-  setLiveProgressReportMinutes(minutes: number | null): Promise<void>;
   /** The app-wide dictation model; null auto-resolves at call time. */
   setSttModel(model: string | null): Promise<void>;
   /** One role's app-wide audio device (issue #857); null = OS default. */
@@ -952,6 +947,8 @@ export interface LiveVoiceBadge {
   armed: boolean;
   parked: boolean;
   pending: boolean;
+  /** Hold-to-talk held; the capsule's pressed state. */
+  talking: boolean;
 }
 
 export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, SeanceSlice {
@@ -961,7 +958,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   restoringTabs: boolean;
   exited: Record<string, number>;
   shellExited: Record<string, number>;
-  /** Sidebar badge for live voice park/resume (#811); mirrors the runtime. */
+  /** Live voice mirror of the runtime (#811, ADR-0070). */
   liveVoice: Record<string, LiveVoiceBadge>;
   /** True for tabs whose process omp-ui hibernated while idle (issue #246). */
   hibernated: Record<string, boolean>;
@@ -1399,20 +1396,14 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** Stops omp's live voice session (issue #778); `live_end` is the truth.
    *  Clears the #811 armed intent and the recap/pending buffers. */
   stopLiveVoice(tabId: string): Promise<void>;
-  /** Toggles the live session's mute (issue #778); `live_phase` "muted"
-   *  reports omp's truth, so no local toggle state is kept. */
-  setLiveMuted(tabId: string, muted: boolean): Promise<void>;
+  /** Hold-to-talk (ADR-0070): opens the open call's microphone while held;
+   *  a release closes it after LIVE_TALK_RELEASE_TAIL_MS. Owner-only. */
+  setLiveTalking(tabId: string, talking: boolean): Promise<void>;
   /** Drops the live error strip; keeps a running session's snapshot. */
   clearLiveError(tabId: string): void;
   /** The connecting watchdog's verdict (#827): locally end a live snapshot
    *  stuck on `connecting` so the pill becomes a restartable error. */
   abandonStalledLiveConnect(tabId: string): void;
-  /** The work-park arm (#815): gates and timers for parking the open call
-   *  while a live-owned turn works. Reached from the delegation frame, the
-   *  plan-handoff seed turn's start ack, and an in-place execute on an open
-   *  call (issue #842); every gate re-verifies, so callers only signal
-   *  intent. */
-  armLiveWorkPark(tabId: string): void;
   /** The recordings stored under this session's lineage dir (#809), newest
    *  first — disk enumeration, so a session that is not being viewed lists
    *  the same entries. [] while omp exposes no audio at all (ADR-0049). */
