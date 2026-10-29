@@ -75,6 +75,7 @@ const backendMock = {
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(async () => {}),
   convertToWorktree: vi.fn(async () => {}),
+  pullBranch: vi.fn(async () => {}),
   rpcSend: vi.fn(),
   transcribeAudio: vi.fn(async () => ({ text: "dictated words" })),
 };
@@ -194,6 +195,10 @@ function openOptions(): void {
 
 function pillSegment(name: "mode" | "model" | "thinking" | "branch"): HTMLElement | null {
   return optionsTrigger().querySelector<HTMLElement>(`[data-pill-segment="${name}"]`);
+}
+
+function pullCap(): HTMLButtonElement | null {
+  return document.body.querySelector<HTMLButtonElement>('button[data-pill-segment="pull"]');
 }
 
 /** The desktop `+` menu trigger (issue #939). */
@@ -3200,6 +3205,9 @@ describe("Composer options popover (issue #939)", () => {
   const nonGitListing = backendMock.listBranches.getMockImplementation()!;
   afterEach(() => {
     backendMock.listBranches.mockImplementation(nonGitListing);
+    backendMock.pullBranch.mockReset();
+    backendMock.pullBranch.mockResolvedValue(undefined);
+    useStore.setState({ branchActivity: {} });
   });
   const panel = (): HTMLElement =>
     document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="prompt options"]')!;
@@ -3218,7 +3226,72 @@ describe("Composer options popover (issue #939)", () => {
     expect(panel().hidden).toBe(true);
     const branch = pillSegment("branch");
     expect(branch?.textContent).toContain("⎇ main");
-    expect(branch?.textContent).toContain("↓ 2");
+    expect(branch?.textContent).not.toContain("↓ 2");
+    expect(pullCap()?.textContent).toBe("↓ 2");
+    expect(optionsTrigger().className).toContain("rounded-l-full");
+  });
+
+  it("omits the pull cap when behind === 0", () => {
+    seed("ready");
+    useStore.setState({ branches: { "/p": { ...gitBranches, behind: 0 } } });
+    renderComposer();
+    expect(pullCap()).toBeNull();
+    expect(optionsTrigger().className).toContain("rounded-full");
+  });
+
+  it("clicking the pull cap fast-forwards in one click without opening the options dialog", async () => {
+    backendMock.listBranches.mockResolvedValue({ ...gitBranches, behind: 0 });
+    seed("ready");
+    useStore.setState({ branches: { "/p": gitBranches } });
+    renderComposer();
+    await act(async () => {
+      pullCap()!.click();
+    });
+    expect(backendMock.pullBranch).toHaveBeenCalledOnce();
+    expect(backendMock.pullBranch).toHaveBeenCalledWith("/p");
+    expect(panel().hidden).toBe(true);
+  });
+
+  it("clicking the pull cap while a session is mid-turn opens the options popover to the busy pull confirmation", async () => {
+    backendMock.listBranches.mockResolvedValue({ ...gitBranches, behind: 0 });
+    seed("running");
+    useStore.setState({
+      branches: { "/p": gitBranches },
+      tabs: [{ tabId: TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null }],
+    });
+    renderComposer();
+    await act(async () => {
+      pullCap()!.click();
+    });
+    expect(backendMock.pullBranch).not.toHaveBeenCalled();
+    expect(panel().hidden).toBe(false);
+    const chip = document.body.querySelector<HTMLButtonElement>('section[aria-label="workspace"] button[aria-expanded]')!;
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    const pullAnyway = [...panel().querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "pull anyway",
+    );
+    expect(pullAnyway).toBeDefined();
+    await act(async () => {
+      pullAnyway!.click();
+    });
+    expect(backendMock.pullBranch).toHaveBeenCalledWith("/p");
+  });
+
+  it("clicking the pull cap when diverged opens the options popover and branch menu showing divergence", async () => {
+    seed("ready");
+    useStore.setState({
+      branches: { "/p": { ...gitBranches, ahead: 1, behind: 2 } },
+    });
+    renderComposer();
+    expect(pullCap()!.className).toContain("text-copper");
+    await act(async () => {
+      pullCap()!.click();
+    });
+    expect(backendMock.pullBranch).not.toHaveBeenCalled();
+    expect(panel().hidden).toBe(false);
+    const chip = document.body.querySelector<HTMLButtonElement>('section[aria-label="workspace"] button[aria-expanded]')!;
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    expect(panel().textContent).toContain("1 ahead, 2 behind origin/main");
   });
 
   it("peels a nested branch menu before closing the panel on Escape", async () => {
