@@ -44,9 +44,9 @@ import type {
   UiStore,
 } from "../types";
 import {
-  disposeLiveWorkPark,
-  resetLiveWorkParkForTests,
-} from "./live-work-park";
+  disposeLiveSwitch,
+  resetLiveSwitchForTests,
+} from "./live-switch";
 import { findRecord } from "./view";
 
 export type SetState = StoreApi<UiStore>["setState"];
@@ -133,17 +133,16 @@ export interface TabRuntime {
   liveReviewExplicitBriefingKey?: string;
   /** A failed refresh is retried only by an intentional request. */
   liveReviewFailedSourceKey?: string | null;
-  liveMuteRequestGeneration?: number;
   /** Live voice park/resume (issue #811): the user wants live voice in this
    *  session. Set on a successful `live_start`; cleared only by an explicit
    *  stop or the #808 hand-off — parking does not clear it. */
   liveArmed?: boolean;
-  /** Armed, but no realtime call is open because the tab is not the viewed
-   *  tab (#811). Avoid: muted, paused, suspended. */
+  /** Armed, but no realtime call is open: the tab is not the viewed tab
+   *  (#811), or the call ended on its own. */
   liveParked?: boolean;
-  /** Requested mute intent, independent of observed phase. Only an unset
-   * intent adopts observed mute at park; a new call reapplies it after ack. */
-  liveUserMuted?: boolean;
+  /** Hold-to-talk (ADR-0070): the user is holding R or the talk button on
+   *  this tab's open call. Cleared by release, park, stop, and live_end. */
+  liveTalking?: boolean;
   /** Rolling spoken transcript (#811): appended at every park, read by the
    *  instruction builder on every start. */
   liveRecap: LiveTurn[];
@@ -157,31 +156,10 @@ export interface TabRuntime {
    *  (#811). Without the turn scope, a typed turn during a call whose earlier
    *  spoken request set the call flag would false-fire the orphan rule. */
   liveDelegatedTurnSeen?: boolean;
-  /** An orphan answer is stored and the call should refresh-restart at the
-   *  next `listening` phase (#811). Cleared before dispatch so a failed
+  /** An orphan answer is stored and the call should refresh-restart once it
+   *  settles idle (#811, ADR-0070). Cleared before dispatch so a failed
    *  start cannot loop-restart. */
   liveOrphanRestart?: boolean;
-  /** Work-parking accepted for a running delegated turn (issue #815); the
-   *  wake owns the resume. Set ONLY by the arm effect when the setting is on;
-   *  cleared at `agent_end` and by explicit stop — never by a start ack. */
-  liveWorkPark?: boolean;
-  /** A plan handoff carries armed voice onto a destination whose seed turn is
-   *  typed, so no delegation frame will arm the park (issue #842). Set at the
-   *  handoff stop->start carry-over; consumed by the destination's first
-   *  successful `live_start` ack and cleared at `agent_end` and by explicit
-   *  stop. */
-  liveWorkParkHandoff?: boolean;
-  /** Epoch ms of the last `live_levels` frame whose output was loud;
-   *  `undefined` until the first loud frame after arming — quiet before any
-   *  loud frame never parks (the acknowledgment may not have started). */
-  liveOutputLoudAt?: number;
-  /** Epoch ms the work park armed (#826); drives the progress report's
-   *  elapsed time. Cleared wherever `liveWorkPark` clears. */
-  liveWorkArmedAt?: number;
-  /** The progress sentence built at the last timer fire (#826); consumed by
-   *  the next progress start (success or failure) so a stale report never
-   *  rides an unrelated later wake. */
-  liveProgressText?: string;
   /** The in-flight `live_stop` promise, identity-cleared in a finally;
    *  published by every dispatch site of the verb (issue #815). */
   liveStopInFlight?: Promise<unknown>;
@@ -595,7 +573,7 @@ export function resetTabRuntimesForTests(): void {
     }
   }
   tabRuntimes.clear();
-  resetLiveWorkParkForTests();
+  resetLiveSwitchForTests();
 }
 
 /** The tab's runtime if it owns one; never creates. Async continuations use
@@ -681,7 +659,7 @@ export function createMachinery(
 
   /**
    * The sidebar glyph cannot read the runtime — `patchRuntime` fires no store
-   * update — so park/resume mirrors three booleans into `liveVoice` (#811).
+   * update — so park/resume mirrors four booleans into `liveVoice` (#811).
    * Writes a new entry only when one changes and drops the key when all are
    * false, so selectors compare by reference cheaply.
    */
@@ -690,22 +668,24 @@ export function createMachinery(
     const armed = rt?.liveArmed === true;
     const parked = rt?.liveParked === true;
     const pending = (rt?.livePendingFeedback.length ?? 0) > 0;
+    const talking = rt?.liveTalking === true;
     set((s) => {
       const current = s.liveVoice[tabId];
       if (
         current !== undefined &&
         current.armed === armed &&
         current.parked === parked &&
-        current.pending === pending
+        current.pending === pending &&
+        current.talking === talking
       )
         return s;
-      if (!armed && !parked && !pending) {
+      if (!armed && !parked && !pending && !talking) {
         if (current === undefined) return s;
         const next = { ...s.liveVoice };
         delete next[tabId];
         return { liveVoice: next };
       }
-      return { liveVoice: { ...s.liveVoice, [tabId]: { armed, parked, pending } } };
+      return { liveVoice: { ...s.liveVoice, [tabId]: { armed, parked, pending, talking } } };
     });
   };
 
@@ -721,9 +701,9 @@ export function createMachinery(
     if (batch?.timer !== undefined) window.clearTimeout(batch.timer);
     if (current.streamStallTimer !== undefined)
       window.clearInterval(current.streamStallTimer);
-    // Work-parking side channels die with the runtime; the generation bumps so
+    // Live switch side channels die with the runtime; the generation bumps so
     // a relaunch under this tab id can never match a captured generation (#815).
-    disposeLiveWorkPark(tabId);
+    disposeLiveSwitch(tabId);
     tabRuntimes.delete(tabId);
   };
 

@@ -31,7 +31,7 @@ import { randomId } from "../../lib/random-id";
 import { markSharePrivacySeen } from "../../lib/share-privacy";
 import type { StoreMachinery } from "./shared";
 import type { CompactSurface, ErrorNotice, UiStore } from "../types";
-import { bumpLiveVoiceGeneration, cancelLiveSwitch } from "./live-work-park";
+import { bumpLiveVoiceGeneration, cancelLiveSwitch } from "./live-switch";
 import { TREE_COMMAND } from "@omp-ui/core/session-tree";
 
 export type { CompactSurface } from "../types";
@@ -369,9 +369,6 @@ export function installLiveVoiceParkResumeGuard(
     state.reconcileLivePlanReview(entered);
     if (rt.liveVoiceOwner !== true || rt.liveArmed !== true || rt.liveParked !== true)
       return;
-    // A work-park's wake owns this resume (#815): entering the tab mid-turn
-    // must not reopen a call the agent is still working against.
-    if (rt.liveWorkPark === true) return;
     void state.switchLiveVoice(entered, { mode: "wake" });
   });
   return unsubscribe;

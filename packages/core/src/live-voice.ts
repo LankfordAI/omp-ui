@@ -354,51 +354,43 @@ export const LIVE_INSTRUCTION_LIMITS = {
   totalChars: 16_000,
 } as const;
 
-/** Work-parking (issue #815): the live call parks while a delegated backend
- *  turn works. omp's controller emits `live_levels` edge-triggered — an
- *  unchanged level never repeats — so quiet output is one frame, not a
- *  heartbeat: the quiet verdict is a scheduled deadline, never a frame count.
- *  `LIVE_WORK_PARK_QUIET_RMS` is the loud/quiet split on the output level;
- *  `LIVE_WORK_PARK_QUIET_MS` is the deadline after the first quiet frame
- *  following a loud one (a loud frame resets it); `LIVE_WORK_PARK_CAP_MS`
- *  caps the wait from arming when output never registers loud. */
-export const LIVE_WORK_PARK_QUIET_RMS = 0.02;
-export const LIVE_WORK_PARK_QUIET_MS = 600;
-export const LIVE_WORK_PARK_CAP_MS = 4_000;
-
 /** The connecting watchdog (#827): live_start acked (or a connecting phase
  *  was observed) and no further phase arrived. Kept under the 30 s RPC
  *  command budget so an unacked start still fails through the ack path
  *  instead. */
 export const LIVE_CONNECT_TIMEOUT_MS = 20_000;
 
-/** Interstitial progress reports (issue #826): while work parking holds the
- *  call closed, a timer wakes it every N minutes to speak one short update,
- *  then re-parks. `LIVE_PROGRESS_REPORT_CAP_MS` bounds the report window the
- *  same way the work-park cap bounds the acknowledgment — if the model never
- *  registers loud output, the window still closes. `LIVE_PROGRESS_TEXT_MAX`
- *  caps the derived status sentence before it enters the instructions. */
-export const LIVE_PROGRESS_REPORT_CAP_MS = 60_000;
-export const LIVE_PROGRESS_TEXT_MAX = 600;
+/** Hold-to-talk (ADR-0070). omp's own speech threshold, vendored from
+ *  omp 18.13.3 `live/output-activity.ts` OUTPUT_ACTIVE_LEVEL. */
+export const LIVE_OUTPUT_ACTIVE_LEVEL = 0.015;
+/** After a talk release the mic stays open this long so the realtime
+ *  server hears trailing silence and ends the user's turn. */
+export const LIVE_TALK_RELEASE_TAIL_MS = 800;
+/** An orphan answer restarts the call only after the call has been idle
+ *  (not talking, not speaking) this long. Levels are edge-triggered, so
+ *  this is a deadline re-armed by every idle frame, not a frame count. */
+export const LIVE_ORPHAN_SETTLE_MS = 800;
 
-/** Deterministic status sentence for one progress report (the renderer
- *  supplies the data; this shapes it so tests pin one string). Elapsed
- *  under a minute rounds to "about a minute"; a running tool shows its
- *  `intent` headline when the transcript carries one. No paths or code —
- *  the base prompt already forbids reading those aloud. */
-export function formatLiveProgressReport(input: {
-  elapsedMs: number;
-  running: { name: string; intent?: string }[];
-  completedTools: number;
-}): string {
-  const minutes = Math.max(1, Math.round(input.elapsedMs / 60_000));
-  const elapsed = `Elapsed about ${minutes === 1 ? "a minute" : `${minutes} minutes`}.`;
-  const activity = input.running.length > 0
-    ? `Running now: ${input.running
-        .map((tool) => (tool.intent === undefined || tool.intent === "" ? tool.name : `${tool.name} — ${tool.intent}`))
-        .join("; ")}.`
-    : "Working between tool steps.";
-  return `${elapsed} ${activity} ${input.completedTools} tool steps completed since the request.`;
+/** omp's `muted` phase outranks `speaking`, so a held-closed call reports
+ *  `muted` while the model talks; the output level is the only evidence. */
+export function liveOutputSpeaking(snap: LiveSnapshot): boolean {
+  return snap.phase === "speaking" ||
+    (snap.phase === "muted" && (snap.levels?.output ?? 0) > LIVE_OUTPUT_ACTIVE_LEVEL);
+}
+
+/** What the UI shows. `muted` is never displayed: under hold-to-talk it is
+ *  the resting state, so it resolves to talking/speaking/working/ready. */
+export type LiveDisplayPhase = Exclude<LivePhase, "muted"> | "ready";
+
+export function liveDisplayPhase(
+  snap: LiveSnapshot,
+  opts: { talking: boolean; working: boolean },
+): LiveDisplayPhase | null {
+  if (snap.phase === null) return null;
+  if (snap.phase !== "muted") return snap.phase;
+  if (opts.talking) return "listening"; // unmute in flight
+  if (liveOutputSpeaking(snap)) return "speaking";
+  return opts.working ? "working" : "ready";
 }
 
 /** The exact reviewed artifact, separate from ordinary delegated results. */
@@ -446,16 +438,14 @@ ${artifact}
 }
 
 /**
- * base + `<voice-recap>` + `<pending-results>` + optional `<progress-report>`
- * + optional `<plan-review>`.
+ * base + `<voice-recap>` + `<pending-results>` + optional `<plan-review>`.
  * The recap keeps its last `recapTurns` entries and never exceeds
  * `recapChars` (oldest trimmed first); each pending entry truncates at
  * `pendingEntryChars` with a note that the full answer is in the session.
  * The ordinary envelope stays `totalChars`: trim oldest recap turns first,
- * then drop whole newest pending entries. The review and progress sections
- * are additional and never trimmed; their size increases the effective
- * ceiling equally. Empty ordinary inputs omit their sections; an empty
- * progress string omits its section too. `pendingUsed` counts only the
+ * then drop whole newest pending entries. The review section is additional
+ * and never trimmed; its size increases the effective ceiling equally.
+ * Empty ordinary inputs omit their sections. `pendingUsed` counts only the
  * ordinary entries actually carried (the oldest surviving prefix).
  */
 export function buildLiveInstructions(opts: {
@@ -463,19 +453,10 @@ export function buildLiveInstructions(opts: {
   pending: readonly string[];
   base?: string;
   review?: LivePlanReviewContext;
-  /** One derived status sentence (issue #826); see `formatLiveProgressReport`. */
-  progress?: string;
 }): LiveInstructions {
   const base = opts.base ?? LIVE_BASE_INSTRUCTIONS;
   const reviewSection = planReviewSection(opts.review);
-  // Additive like the review section, never trimmed; the sentence itself is
-  // already capped by `LIVE_PROGRESS_TEXT_MAX` (issue #826).
-  const progressSection =
-    opts.progress === undefined || opts.progress === ""
-      ? ""
-      : `\n\n<progress-report>\nThe client backend is still working on the user's request; nothing has failed.\nSTATUS: ${opts.progress.length > LIVE_PROGRESS_TEXT_MAX ? opts.progress.slice(0, LIVE_PROGRESS_TEXT_MAX) + " …" : opts.progress}\nImmediately speak ONE brief progress update in your own words from STATUS — one or two sentences, speech-friendly, no file paths or code. Do not claim completion or results. After the update, wait quietly for the backend.\n</progress-report>`;
-  const totalChars =
-    LIVE_INSTRUCTION_LIMITS.totalChars + reviewSection.length + progressSection.length;
+  const totalChars = LIVE_INSTRUCTION_LIMITS.totalChars + reviewSection.length;
   let recapLines = opts.recap
     .slice(-LIVE_INSTRUCTION_LIMITS.recapTurns)
     .map(recapLine);
@@ -489,8 +470,8 @@ export function buildLiveInstructions(opts: {
     if (recapLines.length > 0)
       text += `\n\n<voice-recap>\nEarlier in this conversation, oldest first:\n${recapLines.join("\n")}\n</voice-recap>`;
     if (entries.length > 0)
-      text += `\n\n<pending-results>\nBefore anything else, tell the user these results, briefly and in speech-friendly form.\n${entries.join("\n\n")}\n</pending-results>`;
-    return text + progressSection + reviewSection;
+      text += `\n\n<pending-results>\nImmediately speak these results now, without waiting for the user to speak first. Keep it brief and speech-friendly, and present them as your own work.\n${entries.join("\n\n")}\n</pending-results>`;
+    return text + reviewSection;
   };
   while (
     recapLines.length > 1 &&
@@ -509,7 +490,8 @@ export function buildLiveInstructions(opts: {
   return { instructions: text, pendingUsed: entries.length };
 }
 
-/** Vendored verbatim from omp 18.8.6 `live/prompts/live-instructions.md`
+/** Vendored verbatim from omp 18.8.6 `live/prompts/live-instructions.md`;
+ *  re-verified identical against omp 18.13.3
  *  (issue #811). Re-check when the bundled omp is bumped — risk: prompt
  *  drift. `{{firstName}}`/`{{username}}` are rendered by omp's placeholder
  *  pass on any passed string, verified on the 18.8.6 binary. */

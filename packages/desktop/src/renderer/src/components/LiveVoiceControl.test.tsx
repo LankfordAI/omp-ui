@@ -16,7 +16,7 @@ const { LiveVoiceControl } = await import("./LiveVoiceControl");
 const TAB = "tab-live";
 const startLiveVoice = vi.fn(async () => {});
 const stopLiveVoice = vi.fn(async () => {});
-const setLiveMuted = vi.fn(async () => {});
+const setLiveTalking = vi.fn(async () => {});
 let root: Root | null = null;
 
 /** Seeds the live snapshot the control reads; the gate is the callsite's job. */
@@ -26,7 +26,7 @@ const seed = (live: LiveSnapshot | null): void => {
     liveVoice: {},
     startLiveVoice,
     stopLiveVoice,
-    setLiveMuted,
+    setLiveTalking,
   });
 };
 
@@ -43,8 +43,20 @@ const button = (label: string): HTMLButtonElement | null =>
     (b) => b.getAttribute("aria-label") === label,
   ) ?? null;
 
+const LISTENING: LiveSnapshot = { phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null };
+
+/** jsdom has no PointerEvent; React's pointer handlers read button/pointerId off a MouseEvent. */
+const pointer = (el: Element, type: "pointerdown" | "pointerup"): void => {
+  act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0 })); });
+};
+
+const key = (el: Element, type: "keydown" | "keyup", k: string): void => {
+  act(() => { el.dispatchEvent(new KeyboardEvent(type, { bubbles: true, key: k })); });
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
+  HTMLElement.prototype.setPointerCapture = vi.fn();
 });
 
 afterEach(() => {
@@ -73,29 +85,46 @@ describe("LiveVoiceControl (issue #778)", () => {
     expect(startLiveVoice).not.toHaveBeenCalled();
   });
 
-  it("active renders the mute toggle and it sends the opposite", () => {
-    seed({ phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null });
+  it("pointer down on the talk button talks and pointer up releases", () => {
+    seed(LISTENING);
     render();
-    act(() => button("mute live voice")!.click());
-    expect(setLiveMuted).toHaveBeenCalledWith(TAB, true);
-
-    useStore.setState({
-      rpc: {
-        [TAB]: rpcTabState({
-          live: { phase: "muted", levels: null, turns: [], ended: false, error: null, connectionId: null },
-        }),
-      },
-    });
-    act(() => root!.render(<LiveVoiceControl tabId={TAB} />));
-    act(() => button("unmute live voice")!.click());
-    expect(setLiveMuted).toHaveBeenCalledWith(TAB, false);
+    const talk = button("hold to talk")!;
+    pointer(talk, "pointerdown");
+    expect(setLiveTalking).toHaveBeenLastCalledWith(TAB, true);
+    pointer(talk, "pointerup");
+    expect(setLiveTalking).toHaveBeenLastCalledWith(TAB, false);
   });
 
-  it("keeps accessible stop and mute controls available across level updates", () => {
+  it("Space keydown talks and keyup releases", () => {
+    seed(LISTENING);
+    render();
+    const talk = button("hold to talk")!;
+    key(talk, "keydown", " ");
+    expect(setLiveTalking).toHaveBeenLastCalledWith(TAB, true);
+    key(talk, "keyup", " ");
+    expect(setLiveTalking).toHaveBeenLastCalledWith(TAB, false);
+    expect(setLiveTalking).toHaveBeenCalledTimes(2);
+  });
+
+  it("aria-pressed follows the talking badge", () => {
+    seed(LISTENING);
+    render();
+    expect(button("hold to talk")!.getAttribute("aria-pressed")).toBe("false");
+    act(() => useStore.setState({ liveVoice: { [TAB]: { armed: true, parked: false, pending: false, talking: true } } }));
+    expect(button("hold to talk")!.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("a muted, quiet, idle call renders hold R to talk", () => {
+    seed({ phase: "muted", levels: { input: 0, output: 0 }, turns: [], ended: false, error: null, connectionId: null });
+    const host = render();
+    expect(host.textContent).toContain("hold R to talk");
+  });
+
+  it("keeps accessible stop and talk controls available across level updates", () => {
     seed({ phase: "speaking", levels: { input: 0.5, output: 0.2 }, turns: [], ended: false, error: null, connectionId: null });
     render();
     expect(button("stop live voice")?.disabled).toBe(false);
-    expect(button("mute live voice")?.disabled).toBe(false);
+    expect(button("hold to talk")?.disabled).toBe(false);
     act(() => useStore.setState({
       rpc: {
         [TAB]: rpcTabState({
@@ -104,7 +133,7 @@ describe("LiveVoiceControl (issue #778)", () => {
       },
     }));
     expect(button("stop live voice")?.disabled).toBe(false);
-    expect(button("mute live voice")?.disabled).toBe(false);
+    expect(button("hold to talk")?.disabled).toBe(false);
   });
 
   it("a session error shows in the idle capsule and starts remain available", () => {
@@ -149,18 +178,15 @@ describe("LiveVoiceControl (issue #778)", () => {
     expect(startLiveVoice).not.toHaveBeenCalled();
   });
 
-  it("allows mute, unmute and stop while preparation disables new starts", () => {
-    seed({ phase: "listening", levels: null, turns: [], ended: false, error: null, connectionId: null });
+  it("allows talk and stop while preparation disables new starts", () => {
+    seed(LISTENING);
     render(undefined, false, true);
-    expect(button("mute live voice")!.getAttribute("aria-pressed")).toBe("false");
-    act(() => button("mute live voice")!.click());
-    expect(setLiveMuted).toHaveBeenCalledWith(TAB, true);
-    act(() => useStore.setState({ rpc: { [TAB]: rpcTabState({
-      live: { phase: "muted", levels: null, turns: [], ended: false, error: null, connectionId: null },
-    }) } }));
-    expect(button("unmute live voice")!.getAttribute("aria-pressed")).toBe("true");
-    act(() => button("unmute live voice")!.click());
-    expect(setLiveMuted).toHaveBeenCalledWith(TAB, false);
+    const talk = button("hold to talk")!;
+    expect(talk.disabled).toBe(false);
+    pointer(talk, "pointerdown");
+    expect(setLiveTalking).toHaveBeenLastCalledWith(TAB, true);
+    pointer(talk, "pointerup");
+    expect(setLiveTalking).toHaveBeenLastCalledWith(TAB, false);
     act(() => button("stop live voice")!.click());
     expect(stopLiveVoice).toHaveBeenCalledWith(TAB);
     expect(startLiveVoice).not.toHaveBeenCalled();
@@ -168,7 +194,7 @@ describe("LiveVoiceControl (issue #778)", () => {
 
   it.each(["inline", "sheet"] as const)("keeps parked cancellation available in %s layout", (layout) => {
     seed(null);
-    useStore.setState({ liveVoice: { [TAB]: { armed: true, parked: true, pending: false } } });
+    useStore.setState({ liveVoice: { [TAB]: { armed: true, parked: true, pending: false, talking: false } } });
     render(layout, false, true);
     const cancel = layout === "sheet" ? button("start live voice")! : button("stop live voice")!;
     expect(cancel.disabled).toBe(false);

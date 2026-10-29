@@ -13,6 +13,7 @@
 import {
   formatLiveAudioRef,
   isLiveConnectionId,
+  liveOutputSpeaking,
   type LiveAudioEntry,
   type LiveAudioLoad,
   type LiveHistoryEntry,
@@ -168,7 +169,7 @@ export function createLiveAudioSlice(get: GetState, set: SetState): LiveAudioSli
     // rule as isLiveSessionActive, inlined for narrowing — the ended check
     // matters, because applyLiveEnd keeps the phase and a stopped session
     // has no live output to overlap (AC 2).
-    if (live !== null && !live.ended && live.phase === "speaking") return;
+    if (live !== null && !live.ended && liveOutputSpeaking(live)) return;
     const sessionId = state.rpc[tabId]?.session.sessionId ?? null;
     if (sessionId === null) return;
     // The ref's connection segment: an entry carries its own (disk truth,
@@ -261,8 +262,10 @@ export function installLiveReplayGuards(api: StoreApi<UiStore>): () => void {
     // arrived already speaking (a frame race) is covered by play's own
     // gate, not by re-pausing a clip that never overlapped.
     if (state.activeTabId !== replay.tabId) return;
-    const wasSpeaking = previous.rpc[replay.tabId]?.live?.phase === "speaking";
-    const isSpeaking = state.rpc[replay.tabId]?.live?.phase === "speaking";
+    const prevLive = previous.rpc[replay.tabId]?.live;
+    const nextLive = state.rpc[replay.tabId]?.live;
+    const wasSpeaking = prevLive != null && !prevLive.ended && liveOutputSpeaking(prevLive);
+    const isSpeaking = nextLive != null && !nextLive.ended && liveOutputSpeaking(nextLive);
     if (!wasSpeaking && isSpeaking) {
       replayAudio?.pause();
       api.setState({ liveReplay: { ...replay, status: "paused", notice: "live-speaking" } });

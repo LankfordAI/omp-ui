@@ -873,7 +873,7 @@ describe("live voice park/resume (issue #811)", () => {
       expect(sentOf("live_mute")).toEqual([]);
       expect(peek(A)?.liveParked).toBe(true);
       expect(peek(A)?.liveArmed).toBe(true);
-      expect(fresh.getState().liveVoice[A]).toEqual({ armed: true, parked: true, pending: false });
+      expect(fresh.getState().liveVoice[A]).toEqual({ armed: true, parked: true, pending: false, talking: false });
       await settleSends(fresh);
       // The parked snapshot reads ended, so the control shows idle.
       expect(fresh.getState().rpc[A]?.live?.ended).toBe(true);
@@ -961,26 +961,35 @@ describe("live voice park/resume (issue #811)", () => {
     }
   });
 
-  it("a user-muted park re-mutes the resumed call (AC 7a)", async () => {
+  it("a resumed call is re-gated, and leaving while talking drops the hold (AC 7a)", async () => {
     platformMocks.electron = true;
     try {
-      const { fresh } = await freshGuardedStore();
+      const { fresh, peek } = await freshGuardedStore();
       seedRpc(fresh, null);
       await arm(fresh, A);
-      // The user muted while listening: omp's truth lands before the leave.
       fresh.getState().handleRpcFrame(A, { type: "live_phase", phase: "muted" });
+      // The user is holding to talk when they leave.
+      void fresh.getState().setLiveTalking(A, true);
+      await settleSends(fresh);
+      expect(peek(A)?.liveTalking).toBe(true);
 
       fresh.getState().focusTab(B);
       await settleSends(fresh);
+      expect(peek(A)?.liveTalking).toBe(false);
+      expect(fresh.getState().liveVoice[A]?.talking).toBe(false);
       h.sent.length = 0;
       fresh.getState().focusTab(A);
+      await settleSends(fresh);
 
-      expect(sentOf("live_start")).toHaveLength(1);
-      await settleSends(fresh);
-      expect(sentOf("live_mute")).toEqual([
-        { tabId: A, cmd: expect.objectContaining({ type: "live_mute", muted: true }) },
+      // The resume opens muted: live_start is immediately followed by the gate.
+      const ofA = h.sent
+        .filter((s) => s.tabId === A && (s.cmd.type === "live_start" || s.cmd.type === "live_mute"))
+        .map((s) => s.cmd);
+      expect(ofA).toEqual([
+        expect.objectContaining({ type: "live_start" }),
+        expect.objectContaining({ type: "live_mute", muted: true }),
       ]);
-      await settleSends(fresh);
+      expect(peek(A)?.liveTalking).toBe(false);
     } finally {
       platformMocks.electron = false;
     }

@@ -9,7 +9,7 @@ import { deriveSidebarSessionState, useStore, type SidebarSessionState } from ".
 import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
 import { Button, Chip, Dot, IconButton, IconLock, IconSpeaker, type Tone } from "./ui";
 import type { SessionHandoff } from "../lib/session-handoffs";
-import type { LivePhase } from "@omp-ui/core/live-voice";
+import { liveDisplayPhase, type LiveDisplayPhase } from "@omp-ui/core/live-voice";
 
 /** One session state's sidebar face; the Fleet view's dispatch rows reuse it (issue #899). */
 export const SESSION_FACE: Record<
@@ -89,12 +89,12 @@ export const SESSION_FACE: Record<
 };
 
 // Live voice output (issue #807): phase → the existing composer phase label.
-const LIVE_PHASE_TITLE: Record<LivePhase, MessageKey> = {
+const LIVE_PHASE_TITLE: Record<LiveDisplayPhase, MessageKey> = {
   connecting: "composer.live.phaseConnecting",
   listening: "composer.live.phaseListening",
   working: "composer.live.phaseWorking",
   speaking: "composer.live.phaseSpeaking",
-  muted: "composer.live.phaseMuted",
+  ready: "composer.live.phaseReady",
   error: "composer.live.phaseError",
 };
 
@@ -227,10 +227,15 @@ export function SessionRow({
   // row; `ended` swaps the phase glyph for the runtime badge mirror —
   // results waiting outranks merely-ready, and a tab with no live voice at
   // all (no key) stays bare.
-  const liveBadge = useStore((st): LivePhase | "armed" | "pending" | null => {
+  const liveBadge = useStore((st): LiveDisplayPhase | "armed" | "pending" | null => {
     if (s.mode !== "rpc-ui") return null;
     const live = st.rpc[s.tabId]?.live;
-    if (live !== undefined && live !== null && !live.ended) return live.phase;
+    if (live !== undefined && live !== null && !live.ended) {
+      return liveDisplayPhase(live, {
+        talking: st.liveVoice[s.tabId]?.talking === true,
+        working: st.rpc[s.tabId]?.status === "running",
+      });
+    }
     const badge = st.liveVoice[s.tabId];
     if (badge === undefined) return null;
     return badge.pending ? "pending" : badge.armed ? "armed" : null;
@@ -306,7 +311,7 @@ export function SessionRow({
             ? "text-signal"
             : liveBadge === "error"
               ? "text-rose"
-              : liveBadge === "muted" || liveBadge === "armed"
+              : liveBadge === "ready" || liveBadge === "armed"
                 ? "text-ink-faint"
                 : "text-ink-mid",
         )}

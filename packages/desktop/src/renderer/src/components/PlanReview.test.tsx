@@ -2721,7 +2721,7 @@ describe("PlanReview live voice tray", () => {
     explainPlanVoice: useStore.getState().explainPlanVoice,
     startLiveVoice: useStore.getState().startLiveVoice,
     stopLiveVoice: useStore.getState().stopLiveVoice,
-    setLiveMuted: useStore.getState().setLiveMuted,
+    setLiveTalking: useStore.getState().setLiveTalking,
     listLiveHistory: useStore.getState().listLiveHistory,
     loadLiveRecording: useStore.getState().loadLiveRecording,
     playLiveRecording: useStore.getState().playLiveRecording,
@@ -2729,7 +2729,7 @@ describe("PlanReview live voice tray", () => {
   const explain = vi.fn(async () => {});
   const start = vi.fn(async () => {});
   const stop = vi.fn(async () => {});
-  const mute = vi.fn(async () => {});
+  const talk = vi.fn(async () => {});
   const play = vi.fn(async () => {});
   const history = vi.fn<typeof actions.listLiveHistory>(async () => []);
   const recording = vi.fn<typeof actions.loadLiveRecording>(async () => ({ status: "ready" }));
@@ -2754,8 +2754,14 @@ describe("PlanReview live voice tray", () => {
   const patch = (value: Parameters<typeof rpcTabState>[0]): void => {
     act(() => useStore.setState((s) => ({ rpc: { [TAB]: { ...s.rpc[TAB]!, ...value } } })));
   };
+  /** jsdom has no PointerEvent; React's pointer handlers read button/pointerId off a MouseEvent. */
+  const pointer = (el: Element, type: "pointerdown" | "pointerup"): void => {
+    act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0 })); });
+  };
 
   beforeEach(() => {
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    talk.mockClear();
     history.mockReset().mockResolvedValue([]);
     recording.mockReset().mockResolvedValue({ status: "ready" });
     useStore.setState({
@@ -2765,7 +2771,7 @@ describe("PlanReview live voice tray", () => {
       }) },
       exited: {}, liveVoice: {}, liveReplay: null,
       explainPlanVoice: explain, startLiveVoice: start, stopLiveVoice: stop,
-      setLiveMuted: mute, listLiveHistory: history, loadLiveRecording: recording,
+      setLiveTalking: talk, listLiveHistory: history, loadLiveRecording: recording,
       playLiveRecording: play,
     });
   });
@@ -2796,7 +2802,7 @@ describe("PlanReview live voice tray", () => {
     expect(useStore.getState().rpc[TAB]!.planReview).not.toBeNull();
   });
 
-  it("disables explanation and new starts during HTML preparation but keeps mute and stop accessible", async () => {
+  it("disables explanation and new starts during HTML preparation but keeps talk and stop accessible", async () => {
     planPrepared.state = { status: "pending", sourceKey: SOURCE_KEY };
     patch({
       planReview: tabState({}, true).planReview,
@@ -2806,10 +2812,12 @@ describe("PlanReview live voice tray", () => {
     render();
     expect(tray()!.querySelector('[role="status"]')).not.toBeNull();
     expect(buttonByText("Explain this plan").disabled).toBe(true);
-    expect(accessibleButton("unmute live voice").disabled).toBe(false);
+    expect(accessibleButton("hold to talk").disabled).toBe(false);
     expect(accessibleButton("stop live voice").disabled).toBe(false);
-    await act(async () => accessibleButton("unmute live voice").click());
-    expect(mute).toHaveBeenCalledWith(TAB, false);
+    pointer(accessibleButton("hold to talk"), "pointerdown");
+    expect(talk).toHaveBeenLastCalledWith(TAB, true);
+    pointer(accessibleButton("hold to talk"), "pointerup");
+    expect(talk).toHaveBeenLastCalledWith(TAB, false);
     await act(async () => accessibleButton("stop live voice").click());
     expect(stop).toHaveBeenCalledWith(TAB);
     expect(explain).not.toHaveBeenCalled();
@@ -2834,12 +2842,12 @@ describe("PlanReview live voice tray", () => {
   it("keeps explanation available with the microphone muted and while armed/parked", async () => {
     patch({ live: live("muted") });
     render();
-    expect(accessibleButton("unmute live voice").getAttribute("aria-pressed")).toBe("true");
+    expect(accessibleButton("hold to talk").getAttribute("aria-pressed")).toBe("false");
     await act(async () => buttonByText("Explain this plan").click());
     expect(explain).toHaveBeenCalledWith(TAB);
-    expect(mute).not.toHaveBeenCalled();
+    expect(talk).not.toHaveBeenCalled();
     patch({ live: null });
-    act(() => useStore.setState({ liveVoice: { [TAB]: { armed: true, parked: true, pending: false } } }));
+    act(() => useStore.setState({ liveVoice: { [TAB]: { armed: true, parked: true, pending: false, talking: false } } }));
     expect(buttonByText("Explain this plan").disabled).toBe(false);
     expect(accessibleButton("stop live voice").disabled).toBe(false);
   });
@@ -2848,7 +2856,7 @@ describe("PlanReview live voice tray", () => {
     patch({ live: live(), planVoice: { ready: true, busy: true, error: null } });
     render();
     expect(buttonByText("Explain this plan").disabled).toBe(true);
-    expect(accessibleButton("mute live voice").disabled).toBe(false);
+    expect(accessibleButton("hold to talk").disabled).toBe(false);
     expect(accessibleButton("stop live voice").disabled).toBe(false);
     patch({ live: null });
     expect(accessibleButton("start live voice").disabled).toBe(true);
@@ -2866,7 +2874,7 @@ describe("PlanReview live voice tray", () => {
     patch({ status, live: live() });
     render();
     expect(buttonByText("Explain this plan").disabled).toBe(true);
-    expect(accessibleButton("mute live voice").disabled).toBe(true);
+    expect(accessibleButton("hold to talk").disabled).toBe(true);
     expect(accessibleButton("stop live voice").disabled).toBe(true);
   });
 

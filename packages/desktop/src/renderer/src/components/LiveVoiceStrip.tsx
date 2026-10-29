@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
-import type { LiveHistoryEntry, LiveTurn } from "@omp-ui/core/live-voice";
+import { liveOutputSpeaking, type LiveHistoryEntry, type LiveTurn } from "@omp-ui/core/live-voice";
 import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { useCompactShell } from "../lib/responsive";
@@ -211,7 +211,7 @@ export function LiveVoiceStrip({
     // (AC 4). A clip the guard paused is exempt: Resume is an explicit
     // user decision, not an overlap starter. A reopen with no snapshot has
     // no live output to overlap at all.
-    if (live !== null && live.phase === "speaking" && replay?.status !== "paused") {
+    if (live !== null && !live.ended && liveOutputSpeaking(live) && replay?.status !== "paused") {
       return (
         <span className="ml-auto shrink-0">
           <IconButton label={t("composer.live.replayLiveBusy")} onClick={() => {}} disabled>

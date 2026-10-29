@@ -465,8 +465,9 @@ export const en = {
   // the phase, the meters and the live transcript.
   "composer.live.start": "start live voice",
   "composer.live.stop": "stop live voice",
-  "composer.live.mute": "mute live voice",
-  "composer.live.unmute": "unmute live voice",
+  "composer.live.holdToTalk": "hold to talk",
+  "composer.live.holdToTalkHint":
+    "Hold to talk, or hold R anywhere outside a text field. The microphone is closed whenever you are not holding.",
   "composer.live.micInUse": "the microphone is in use by live voice",
   "composer.live.needsNewerOmp": "this omp has no live voice — update omp to {version} or later",
   "composer.live.sendFailed": "the live voice command could not be sent",
@@ -475,7 +476,7 @@ export const en = {
   "composer.live.phaseListening": "listening",
   "composer.live.phaseWorking": "working",
   "composer.live.phaseSpeaking": "speaking",
-  "composer.live.phaseMuted": "muted",
+  "composer.live.phaseReady": "hold R to talk",
   "composer.live.phaseError": "error",
   "composer.live.phasePending": "…",
   "composer.live.roleUser": "you",
@@ -489,7 +490,7 @@ export const en = {
   "composer.live.dismiss": "dismiss live voice message",
   "composer.live.parked": "live · parked",
   "composer.live.parkedHint":
-    "The call is quiet while the assistant works — it speaks again when it finishes.",
+    "The call is closed for now and reopens when you return to this session. Click to turn live voice off.",
   "composer.strip.converting": "cutting the worktree…",
   "composer.machine.label": "Machine",
   "composer.machine.title": "Run this session on another machine with the same repository",
@@ -907,17 +908,6 @@ export const en = {
   "settings.general.audioDeviceInput": "Input",
   "settings.general.audioDeviceOutput": "Output",
   "settings.general.audioDeviceNotConnected": "(not connected)",
-  "settings.general.liveWorkParking": "Park live voice while the assistant works",
-  "settings.general.liveWorkParkingHint":
-    "When a spoken request hands work to the assistant, the live call closes while it works and reopens when there is something to say — no realtime model runs during the wait. Turning this off keeps the call open the whole time.",
-  "settings.general.liveProgressReports": "Live voice progress reports",
-  "settings.general.liveProgressReportsHint":
-    "While the assistant works with the live call parked, briefly reopen it every so often so it can speak a short progress update, then park again. Reports only happen while you are watching the session.",
-  "settings.general.liveProgressReportOff": "Off",
-  "settings.general.liveProgressReportEvery5": "Every 5 minutes",
-  "settings.general.liveProgressReportEvery15": "Every 15 minutes",
-  "settings.general.liveProgressReportEvery30": "Every 30 minutes",
-  "settings.general.liveProgressReportEvery60": "Every hour",
   "settings.general.dictationModel": "Dictation model",
   "settings.general.dictationModelHint":
     "Discovered from the installed OMP's speech-to-text catalog. Auto uses the first model a stored provider key makes callable.",

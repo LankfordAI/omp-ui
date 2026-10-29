@@ -89,8 +89,6 @@ describe("SETTINGS", () => {
       "experimentsEnabled",
       "snoozedSectionEnabled",
       "voiceInputEnabled",
-      "liveWorkParking",
-      "liveProgressReportMinutes",
       "sttModel",
       "audioInputDevice",
       "audioOutputDevice",
@@ -158,8 +156,6 @@ describe("Registry.load", () => {
     expect(reg.getSetting("snoozedSectionEnabled")).toBe(false);
     // Issue #647: the mic button is off, and the dictation model auto-resolves.
     expect(reg.getSetting("voiceInputEnabled")).toBe(false);
-    // Issue #815: work-parking defaults on — the burn is the status quo.
-    expect(reg.getSetting("liveWorkParking")).toBe(true);
     expect(reg.getSetting("sttModel")).toBeNull();
     // Issue #857: both audio roles default to the OS default.
     expect(reg.getSetting("audioInputDevice")).toBeNull();
@@ -886,8 +882,6 @@ describe("Registry persistence", () => {
       ["experimentsEnabled", (registry) => registry.setSetting("experimentsEnabled", false)],
       ["snoozedSectionEnabled", (registry) => registry.setSetting("snoozedSectionEnabled", false)],
       ["voiceInputEnabled", (registry) => registry.setSetting("voiceInputEnabled", false)],
-      ["liveWorkParking", (registry) => registry.setSetting("liveWorkParking", true)],
-      ["liveProgressReportMinutes", (registry) => registry.setSetting("liveProgressReportMinutes", null)],
       ["sttModel", (registry) => registry.setSetting("sttModel", null)],
       ["audioInputDevice", (registry) => registry.setSetting("audioInputDevice", null)],
       ["audioOutputDevice", (registry) => registry.setSetting("audioOutputDevice", null)],

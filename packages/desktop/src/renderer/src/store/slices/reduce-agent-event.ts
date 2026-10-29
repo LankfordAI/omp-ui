@@ -69,9 +69,7 @@ type AfterCommitEffect =
       item: NoticeItem;
     }
   | { phase: "after-commit"; type: "trigger-stall-continue"; repetition?: true }
-  | { phase: "after-commit"; type: "store-live-pending-feedback"; callOpen: boolean }
-  | { phase: "after-commit"; type: "arm-live-work-park" }
-  | { phase: "after-commit"; type: "wake-live-call" };
+  | { phase: "after-commit"; type: "store-live-pending-feedback"; callOpen: boolean };
 
 /**
  * Effects are ordered within each phase. The explicit pre-commit phase keeps
@@ -374,16 +372,6 @@ export function reduceAgentEvent(
         // who delivers the final answer at `agent_end`.
         runtimePatch.liveDelegatedTurnSeen = true;
         runtimePatch.liveCallSawDelegation = true;
-        // #815: an accepted work-park parks the call while this delegated
-        // turn works. The setting is read in the handler, not here; the
-        // open-call gate keeps a typed-turn or orphan path from arming.
-        if (
-          runtime.liveArmed === true &&
-          tab.live !== undefined &&
-          tab.live !== null &&
-          !tab.live.ended
-        )
-          effects.push({ phase: "after-commit", type: "arm-live-work-park" });
       }
     }
   }
@@ -433,43 +421,18 @@ export function reduceAgentEvent(
     // answer stranded: omp's controller silently discards appends after
     // `live_stop`. Store it for the next start; an open call that saw a
     // spoken request this call delivers "Agent Final Message" itself.
-    // #815: a work-park closes the call at delegation, so by turn end the
-    // call IS closed — the answer is stranded even though
-    // `liveCallSawDelegation` says the call heard the request. Parked
-    // counts as closed for the store gate.
+    // A visibility-parked call (#811) is closed for the turn even though it heard the request.
     const callOpen = tab.live !== undefined && tab.live !== null && !tab.live.ended;
     const closedForTurn = !callOpen || runtime.liveParked === true;
     if (
       runtime.liveVoiceOwner === true &&
       runtime.liveArmed === true &&
-      (
-        (runtime.liveDelegatedTurnSeen === true &&
-          (closedForTurn || runtime.liveCallSawDelegation !== true)) ||
-        // #842: a plan-handoff seed turn is typed and emits no delegation
-        // frame, but an accepted work-park is the same statement — this
-        // turn is live-owned and its call is closed for it — so a parked
-        // handoff turn's answer stores onto the wake too. An open,
-        // unparked call hears the final message itself: a plain typed turn
-        // still never passes this gate.
-        (runtime.liveWorkPark === true && closedForTurn)
-      )
+      runtime.liveDelegatedTurnSeen === true &&
+      (closedForTurn || runtime.liveCallSawDelegation !== true)
     ) {
       effects.push({ phase: "after-commit", type: "store-live-pending-feedback", callOpen });
     }
     runtimePatch.liveDelegatedTurnSeen = false;
-    // #842: the seed turn is over; the handoff's arm intent is spent
-    // whether or not a call ever opened on the destination.
-    runtimePatch.liveWorkParkHandoff = undefined;
-    // #815: the work-park's wake. The flag rode from the accepted arm; the
-    // store gate above already ran, so the pending text is in the runtime
-    // before the effect fires. Clear the flag on every turn end that
-    // carried it, viewed or not — the wake dispatch itself decides whether
-    // to reopen now (viewed) or leave the answer for the enter guard.
-    if (runtime.liveWorkPark === true) {
-      runtimePatch.liveWorkPark = false;
-      runtimePatch.liveOutputLoudAt = undefined;
-      effects.push({ phase: "after-commit", type: "wake-live-call" });
-    }
     if (tab.status === "running") {
       rpc.status = "ready";
       rpc.streamStallMs = undefined;

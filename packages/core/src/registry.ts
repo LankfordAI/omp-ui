@@ -77,13 +77,6 @@ export interface RegistrySettings {
   snoozedSectionEnabled: boolean;
   /** Global mic button in every composer (issue #647); default off. */
   voiceInputEnabled: boolean;
-  /** Park the live voice call while a delegated backend turn works (issue #815);
-   *  default on — the burn is the status quo. */
-  liveWorkParking: boolean;
-  /** Interstitial live-voice progress reports while work parking (issue
-   *  #826): minutes between reports; null disables. Default off — new
-   *  automatic speech is opt-in. */
-  liveProgressReportMinutes: number | null;
   /** omp STT selector used app-wide; null = pick the preferred callable model. */
   sttModel: string | null;
   /** Input-side audio device choice: pactl card device.description; null = OS default (issue #857). */
@@ -295,16 +288,6 @@ export const SETTINGS: SettingDescriptors = {
   voiceInputEnabled: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
-  ),
-  liveWorkParking: validatedSetting(
-    () => true,
-    (value): value is boolean => typeof value === "boolean",
-  ),
-  liveProgressReportMinutes: validatedSetting<number | null>(
-    () => null,
-    (value): value is number | null =>
-      value === null ||
-      (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 1440),
   ),
   sttModel: validatedSetting<string | null>(
     () => null,

@@ -83,3 +83,5 @@ is stamped with the omp version it was extracted from.
   and retune there.
 - #801's `liveVisibilityMuted` and the mute-on-visibility path are gone; the
   user's own mute button is unchanged (`liveUserMuted` survives a park).
+
+Amendment (ADR-0070): the mute toggle and `liveUserMuted` are replaced by hold-to-talk; every call starts muted.

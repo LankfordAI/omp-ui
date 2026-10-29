@@ -11,8 +11,9 @@ import {
   isLiveConnectionId,
   isLiveSessionActive,
   LIVE_BASE_INSTRUCTIONS,
-  formatLiveProgressReport,
-  LIVE_PROGRESS_TEXT_MAX,
+  LIVE_OUTPUT_ACTIVE_LEVEL,
+  liveDisplayPhase,
+  liveOutputSpeaking,
   LIVE_HISTORY_TEXT_MAX_BYTES,
   LIVE_INSTRUCTION_LIMITS,
   LIVE_RECAP_CUTOFF_SUFFIX,
@@ -466,62 +467,44 @@ describe("buildLiveInstructions (#811)", () => {
     expect(reviewed.instructions.startsWith(ordinary.instructions)).toBe(true);
     expect(reviewed.instructions).toContain("TAIL");
   });
-
-  it("appends a progress section additively and never lets it trim away", () => {
-    const recap = Array.from({ length: 24 }, (_, i) => turn("assistant", i, `${i}: ${"r".repeat(900)}`));
-    const ordinary = buildLiveInstructions({ recap, pending: [] });
-    const report = buildLiveInstructions({ recap, pending: [], progress: "Elapsed about 5 minutes." });
-    expect(report.instructions.startsWith(ordinary.instructions)).toBe(true);
-    expect(report.instructions).toContain("<progress-report>");
-    expect(report.instructions).toContain("STATUS: Elapsed about 5 minutes.");
-    expect(report.instructions).toContain("nothing has failed");
-    expect(report.pendingUsed).toBe(ordinary.pendingUsed);
-    // Recap still trims to the enlarged cap: the section is exempt.
-    const sectionLength =
-      report.instructions.length - report.instructions.indexOf("\n\n<progress-report>");
-    expect(report.instructions.length).toBeLessThanOrEqual(
-      LIVE_INSTRUCTION_LIMITS.totalChars + sectionLength,
-    );
-  });
-
-  it("omits an empty progress string and truncates an oversized one once", () => {
-    expect(buildLiveInstructions({ recap: [], pending: [], progress: "" }).instructions)
-      .toBe(buildLiveInstructions({ recap: [], pending: [] }).instructions);
-    const long = "s".repeat(LIVE_PROGRESS_TEXT_MAX + 400);
-    const built = buildLiveInstructions({ recap: [], pending: [], progress: long });
-    expect(built.instructions).toContain("s …\n");
-    expect(built.instructions).not.toContain("s".repeat(LIVE_PROGRESS_TEXT_MAX + 1));
-  });
-
-  it("progress reports before the review section so a gate still owns the tail", () => {
-    const built = buildLiveInstructions({
-      recap: [], pending: [],
-      progress: "Elapsed about 2 minutes.",
-      review: { title: "Plan", planFilePath: "/p.md", text: "body", briefOverview: false },
-    });
-    expect(built.instructions.indexOf("<progress-report>"))
-      .toBeLessThan(built.instructions.indexOf("<plan-review>"));
-  });
 });
 
-describe("formatLiveProgressReport (#826)", () => {
-  it("shapes elapsed, running tools with intents, and the completed count", () => {
-    expect(formatLiveProgressReport({
-      elapsedMs: 324_000,
-      running: [
-        { name: "bash", intent: "running the test suite" },
-        { name: "edit" },
-      ],
-      completedTools: 7,
-    })).toBe(
-      "Elapsed about 5 minutes. Running now: bash — running the test suite; edit. " +
-      "7 tool steps completed since the request.",
-    );
+describe("liveDisplayPhase / liveOutputSpeaking (ADR-0070)", () => {
+  const snap = (phase: LiveSnapshot["phase"], output = 0): LiveSnapshot => ({
+    ...emptyLiveSnapshot(),
+    phase,
+    levels: { input: 0, output },
+  });
+  const idle = { talking: false, working: false };
+
+  it("muted with output at the active level is ready (boundary exclusive)", () => {
+    const s = snap("muted", LIVE_OUTPUT_ACTIVE_LEVEL);
+    expect(LIVE_OUTPUT_ACTIVE_LEVEL).toBe(0.015);
+    expect(liveOutputSpeaking(s)).toBe(false);
+    expect(liveDisplayPhase(s, idle)).toBe("ready");
   });
 
-  it("rounds a sub-minute elapsed to a minute and says between-steps when idle", () => {
-    expect(formatLiveProgressReport({ elapsedMs: 40_000, running: [], completedTools: 0 }))
-      .toBe("Elapsed about a minute. Working between tool steps. 0 tool steps completed since the request.");
+  it("muted with output above the active level is speaking", () => {
+    const s = snap("muted", 0.016);
+    expect(liveOutputSpeaking(s)).toBe(true);
+    expect(liveDisplayPhase(s, idle)).toBe("speaking");
+  });
+
+  it("muted while talking is listening even when output is loud", () => {
+    expect(liveDisplayPhase(snap("muted", 0.9), { talking: true, working: false })).toBe("listening");
+  });
+
+  it("muted, working and quiet is working", () => {
+    expect(liveDisplayPhase(snap("muted", 0), { talking: false, working: true })).toBe("working");
+  });
+
+  it("a non-muted phase passes through", () => {
+    expect(liveDisplayPhase(snap("connecting", 0.9), { talking: true, working: true })).toBe("connecting");
+    expect(liveOutputSpeaking(snap("speaking"))).toBe(true);
+  });
+
+  it("a null phase is null", () => {
+    expect(liveDisplayPhase(snap(null, 0.9), { talking: true, working: true })).toBeNull();
   });
 });
 
