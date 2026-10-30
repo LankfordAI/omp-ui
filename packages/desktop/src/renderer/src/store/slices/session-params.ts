@@ -128,6 +128,8 @@ export type SessionParamsSlice = Pick<
   | "setSessionAdvisor"
   | "setSessionSnoozed"
   | "setSessionPinned"
+  | "setSessionAutoSettleOnMerge"
+  | "refreshPullRequests"
   | "holdPrompt"
   | "cancelHeldPrompt"
   | "sendHeldPromptNow"
@@ -806,6 +808,22 @@ export function createSessionParamsSlice(
     // host, and an older host's unknown-channel rejection surfaces here.
     try {
       await backend.setSessionPinned(tabId, pinned);
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+  // Pull request links (issue #985) live on the owning host; both calls are
+  // tab-routed, and an older host's unknown-channel rejection surfaces here.
+  const setSessionAutoSettleOnMerge = async (tabId: string, on: boolean | null): Promise<void> => {
+    try {
+      await backend.setSessionAutoSettleOnMerge(tabId, on);
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+  const refreshPullRequests = async (tabId: string): Promise<void> => {
+    try {
+      await backend.refreshPullRequests(tabId);
     } catch (err) {
       get().reportError(err);
     }
@@ -2747,6 +2765,8 @@ export function createSessionParamsSlice(
     setSessionAdvisor,
     setSessionSnoozed,
     setSessionPinned,
+    setSessionAutoSettleOnMerge,
+    refreshPullRequests,
     holdPrompt,
     cancelHeldPrompt,
     sendHeldPromptNow,

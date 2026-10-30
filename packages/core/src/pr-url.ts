@@ -76,6 +76,27 @@ async function resolveWebRemote(
 }
 
 /**
+ * The lowercased `owner/repo` web path a branch publishes to (issue #985):
+ * the same remote chain the PR link uses. A PR whose head repository differs
+ * is a same-named branch in someone else's fork. Null when unresolvable.
+ */
+export async function branchPushRepository(
+  projectCwd: string,
+  branch: string,
+  runGit: GitRunner = git,
+): Promise<string | null> {
+  try {
+    const root = (await runGit(projectCwd, ["rev-parse", "--show-toplevel"])).trim();
+    const remote = await resolveWebRemote(root, branch, runGit);
+    if (remote === null) return null;
+    const web = parseRemoteWebUrl(await runGit(root, ["remote", "get-url", "--push", remote]));
+    return web === null ? null : webPath(new URL(web).pathname).toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The host's new-PR URL for `base...head`, or null when the remote cannot be
  * read or has no web face. The three-dot separator stays literal: that is
  * GitHub's merge-base compare view, which is exactly what a PR proposes.

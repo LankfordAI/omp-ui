@@ -320,6 +320,8 @@ describe("new-session entry points (issues #915/#919)", () => {
     snoozedUntilMs: null,
     pinnedAtMs: null,
     heldPrompt: null,
+    pullRequests: [],
+    autoSettleOnMerge: null,
     private: false,
     chat: true,
     askSource: null,

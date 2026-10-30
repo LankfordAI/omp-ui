@@ -29,6 +29,7 @@ interface RegistrySettings {
   skipTerminateConfirmation: boolean;
   experimentsEnabled: boolean;
   snoozedSectionEnabled: boolean;
+  autoSettleMergedPullRequests: boolean;
   voiceInputEnabled: boolean;
   sttModel: string | null;
   memoryDefaultsSeeded: boolean;
@@ -113,6 +114,8 @@ export function ownedSessionRecord(
     snoozedUntilMs: null,
     pinnedAtMs: null,
     heldPrompt: null,
+    pullRequests: [],
+    autoSettleOnMerge: null,
     private: false,
     chat: false,
     askSource: null,
@@ -144,6 +147,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     skipTerminateConfirmation: false,
     experimentsEnabled: false,
     snoozedSectionEnabled: false,
+    autoSettleMergedPullRequests: true,
     voiceInputEnabled: false,
     sttModel: null,
     memoryDefaultsSeeded: false,

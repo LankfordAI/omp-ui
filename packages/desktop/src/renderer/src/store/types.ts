@@ -17,6 +17,7 @@ import type { SessionCommand } from "@omp-ui/core/session-command";
 import type { ProjectSettingsSectionId } from "../components/ProjectSettings";
 import type {
   AgentMode,
+  AutoSettledSession,
   ApprovalMode,
   AudioDeviceRole,
   AudioDevicesSnapshot,
@@ -668,6 +669,8 @@ export interface SettingsSlice {
   setExperimentsEnabled(on: boolean): Promise<void>;
   /** Sidebar Snoozed section gate (issue #935); default off. */
   setSnoozedSectionEnabled(on: boolean): Promise<void>;
+  /** Settle worktree sessions once their pull requests merge (issue #985); default on. */
+  setAutoSettleMergedPullRequests(on: boolean): Promise<void>;
   /** Shows/hides the composer mic button app-wide (issue #647). */
   setVoiceInputEnabled(on: boolean): Promise<void>;
   /** The app-wide dictation model; null auto-resolves at call time. */
@@ -1032,6 +1035,8 @@ export interface LiveVoiceBadge {
 /** One Settle action's undo record (issue #980): every session it settled, in request order. */
 export interface SettleUndoEntry {
   id: string;
+  /** `merged`: the owning host settled these because their pull requests merged (issue #985). */
+  cause?: "merged";
   sessions: Array<{
     tabId: string;
     title: string;
@@ -1409,6 +1414,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  normal resume path. False when nothing is left to undo. */
   undoSettle(): boolean;
   dismissSettleToast(): void;
+  /** A host settled these sessions because their pull requests merged
+   *  (issue #985): one undo entry and the toast, like a Settle. */
+  recordAutoSettle(sessions: AutoSettledSession[]): void;
   /**
    * Merges `source` into a worktree session's checkout (issue #387); null
    * when main rejected — already reported to the error notices.
@@ -1526,6 +1534,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setSessionSnoozed(tabId: string, snoozed: boolean, untilMs?: number | null): Promise<void>;
   /** Pins a session to the sidebar's Pinned group or unpins it (issue #981). */
   setSessionPinned(tabId: string, pinned: boolean): Promise<void>;
+  /** Per-session override for settling on merge (issue #985); null follows the setting. */
+  setSessionAutoSettleOnMerge(tabId: string, on: boolean | null): Promise<void>;
+  /** Re-reads the session host's pull request links now (issue #985). */
+  refreshPullRequests(tabId: string): Promise<void>;
   /** Snoozes every selected unsnoozed row (issue #988); `untilMs` null = indefinite. */
   snoozeSessions(tabIds: readonly string[], untilMs: number | null): Promise<void>;
   /** Unsnoozes every selected snoozed row (issue #988). */

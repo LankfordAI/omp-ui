@@ -220,6 +220,7 @@ import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopMediaMessage 
 import { createDesktopPaneStream } from "./browser-pane-desktop-stream";
 import { TransferState } from "./transfer-state";
 import { SnoozeClock } from "./snooze-clock";
+import { PullRequestPoller } from "./pull-request-poller";
 
 /** A Fleet result's summary read races this window, the same bound as the status tool's summary race. */
 const FLEET_CHILD_SUMMARY_TIMEOUT_MS = 5_000;
@@ -239,6 +240,8 @@ export class MainBackend {
   private readonly clockStamper: ClockStamper;
   /** Timed snooze deadlines (issue #979): wakes snoozed rows on this host. */
   private readonly snoozeClock: SnoozeClock;
+  /** Links forge pull requests to worktree sessions and settles merged ones (issue #985). */
+  private readonly pullRequests: PullRequestPoller;
   /** OS notifications for background sessions (issue #271). */
   private readonly notifier: DesktopNotifier;
   private readonly appUpdater: AppUpdater;
@@ -476,6 +479,20 @@ export class MainBackend {
           onDesktopMedia: (tabId, message) => this.forwardDesktopMedia(tabId, message),
         },
       });
+    this.pullRequests = new PullRequestPoller({
+      sessions: () => this.registry.sessions,
+      updateSession: (tabId, patch) => this.registry.updateSession(tabId, patch),
+      autoSettleDefault: () => this.registry.getSetting("autoSettleMergedPullRequests"),
+      isLive: (tabId) => this.sessions.isLive(tabId),
+      isTurnRunning: (tabId) => this.sessions.isTurnRunning(tabId),
+      // The Settle reap (#980/#924): rpc-ui hibernates, PTY terminates, snooze clears.
+      settle: (tabId) => this.sessions.settleSession(tabId),
+      broadcast: () => void this.broadcast(),
+      announceSettled: (sessions) => this.send(CH.onSessionsAutoSettled, sessions),
+      // The unit-test fake windows carry only the sink surface: unfocused.
+      isFocused: () => typeof win.isFocused === "function" && !win.isDestroyed() && win.isFocused(),
+    });
+    if (typeof win.on === "function") win.on("focus", () => this.pullRequests.onFocus());
     // Probe the window's true page dpr when the shell loads (and reloads) and
     // whenever the display geometry could have changed (#557). Every hook is
     // guarded: the unit-test fake windows carry only the sink surface.
@@ -724,6 +741,9 @@ export class MainBackend {
     // Send at reset (#986): a held prompt that fell due while the app was
     // closed resumes its session now; later ones arm their timer.
     this.sessions.heldPrompts?.sync();
+    // Pull request links (#985): one gh call per repository, now and on a
+    // focus-dependent cadence. Never throws; a missing or logged-out gh only logs.
+    this.pullRequests.start();
   }
 
   /** Read the window's real page devicePixelRatio; screen.scaleFactor lies under Wayland fractional scaling (#557). */
@@ -1075,6 +1095,12 @@ export class MainBackend {
           this.registry.updateSession(tabId, { pinnedAtMs: pinned ? (record.pinnedAtMs ?? Date.now()) : null });
           void this.broadcast();
         },
+        [CH.setSessionAutoSettleOnMerge]: (tabId: string, on: boolean | null) => {
+          // Applies to the next merge: a session whose PRs already merged stays as it is.
+          this.registry.updateSession(tabId, { autoSettleOnMerge: on });
+          void this.broadcast();
+        },
+        [CH.refreshPullRequests]: () => this.pullRequests.poll(),
         [CH.holdPrompt]: (tabId: string, req: HeldPromptRequest) => this.sessions.heldPrompts.hold(tabId, req),
         [CH.cancelHeldPrompt]: (tabId: string) => this.sessions.heldPrompts.cancel(tabId),
         [CH.sendHeldPromptNow]: (tabId: string) => this.sessions.heldPrompts.sendNow(tabId),
@@ -2039,6 +2065,8 @@ export class MainBackend {
           snoozedUntilMs: null,
           pinnedAtMs: null,
           heldPrompt: null,
+          pullRequests: [],
+          autoSettleOnMerge: null,
           private: false,
           // A migrated session always lands in a project.
           chat: false,
@@ -2190,6 +2218,7 @@ export class MainBackend {
     this.planVerifier.dispose();
     this.clockStamper.dispose();
     this.snoozeClock.dispose();
+    this.pullRequests.dispose();
     this.transfers.dispose();
     this.sessions.killAll();
     const headsSettled = this.headWatchers.disposeAll();
@@ -2511,6 +2540,7 @@ export class MainBackend {
       transcriptWidth: this.registry.getSetting("transcriptWidth"),
       experimentsEnabled: this.registry.getSetting("experimentsEnabled"),
       snoozedSectionEnabled: this.registry.getSetting("snoozedSectionEnabled"),
+      autoSettleMergedPullRequests: this.registry.getSetting("autoSettleMergedPullRequests"),
       voiceInputEnabled: this.registry.getSetting("voiceInputEnabled"),
       sttModel: this.registry.getSetting("sttModel"),
       audioInputDevice: this.registry.getSetting("audioInputDevice"),

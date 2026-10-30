@@ -21,6 +21,16 @@ export {
 export { git } from "./git";
 export { parseRemoteWebUrl, pullRequestUrl } from "./pr-url";
 export {
+  listBranchPullRequests,
+  parsePullRequestLinks,
+  parsePullRequestNodes,
+  runGh,
+  type GhResult,
+  type GhRunner,
+  type PullRequestLookup,
+  type PullRequestLookupFailure,
+} from "./pull-requests";
+export {
   addWorktree,
   addWorktreeForBranch,
   addWorktreeFromNewBase,

@@ -470,6 +470,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       backend.onSessionHibernated((tabId) =>
         lifecycle.teardownProcess(tabId, 0, true),
       );
+      // A merged pull request settled sessions on their host (issue #985):
+      // the teardown rides session:hibernated; this adds the Undo toast.
+      backend.onSessionsAutoSettled((sessions) => get().recordAutoSettle(sessions));
       // OS notification click (issue #271): resurface the session's tab —
       // openSession is the hide/resurface path; main dedupes the resume
       // against a live process, so a late-joining renderer never

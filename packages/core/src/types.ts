@@ -537,8 +537,42 @@ export interface OwnedSessionRecord {
    *  at `sendAtMs` through the normal prompt path. Post-dates schema-1:
    *  absent normalizes to null. */
   heldPrompt: HeldPrompt | null;
+  /** Pull requests whose head is this session's worktree branch, newest
+   *  first, as the owning host's poll last saw them on the forge (issue
+   *  #985). Post-dates schema-1: absent or malformed normalizes to []. */
+  pullRequests: PullRequestLink[];
+  /** Per-session override for settling once every linked pull request is
+   *  merged (issue #985); null follows the `autoSettleMergedPullRequests`
+   *  setting. Post-dates schema-1: absent normalizes to null. */
+  autoSettleOnMerge: boolean | null;
   cachedTitle: string | null;
   cachedModified: string | null;
+}
+
+/** A linked pull request's state; `draft` is an open PR marked draft. */
+export type PullRequestState = "open" | "draft" | "merged" | "closed";
+
+/** The head commit's combined check status; null = no checks reported. */
+export type PullRequestChecks = "passing" | "failing" | "pending" | null;
+
+/** One pull request linked to a session (issue #985). */
+export interface PullRequestLink {
+  number: number;
+  /** The PR's web page, as the forge reports it. */
+  url: string;
+  state: PullRequestState;
+  checks: PullRequestChecks;
+}
+
+/** One session an automatic merge settle stopped (issue #985): what Undo restores. */
+export interface AutoSettledSession {
+  tabId: string;
+  title: string;
+  /** Had a process: Undo resumes it. */
+  wasLive: boolean;
+  /** The settle cleared this snooze; Undo puts it back. */
+  snoozed: boolean;
+  snoozedUntilMs: number | null;
 }
 
 /** Plan-review gate the session's agent is blocked on right now. Main-process owned. */

@@ -41,6 +41,7 @@ type SettingsHandlerChannels =
   | typeof CH.setGettingStartedSeen
   | typeof CH.setExperimentsEnabled
   | typeof CH.setSnoozedSectionEnabled
+  | typeof CH.setAutoSettleMergedPullRequests
   | typeof CH.setVoiceInputEnabled
   | typeof CH.setSttModel
   | typeof CH.setThemeId
@@ -110,6 +111,7 @@ export function registerSettingsHandlers(
     [CH.setGettingStartedSeen]: (value: boolean) => commit("gettingStartedSeen", value),
     [CH.setExperimentsEnabled]: (value: boolean) => commit("experimentsEnabled", value),
     [CH.setSnoozedSectionEnabled]: (value: boolean) => commit("snoozedSectionEnabled", value),
+    [CH.setAutoSettleMergedPullRequests]: (value: boolean) => commit("autoSettleMergedPullRequests", value),
     [CH.setVoiceInputEnabled]: (value: boolean) => commit("voiceInputEnabled", value),
     [CH.setSttModel]: (value: string | null) => commit("sttModel", value),
     [CH.setThemeId]: (value: string) => commit("themeId", value),

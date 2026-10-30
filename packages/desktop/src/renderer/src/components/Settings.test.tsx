@@ -110,6 +110,7 @@ const backendMock = {
   setSkipTerminateConfirmation: vi.fn(),
   setExperimentsEnabled: vi.fn(async () => {}),
   setSnoozedSectionEnabled: vi.fn(async () => {}),
+  setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   switchMode: vi.fn(),

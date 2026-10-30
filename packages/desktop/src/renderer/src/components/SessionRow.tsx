@@ -10,6 +10,7 @@ import { canSettle, deriveSidebarSessionState, useStore, type SidebarSessionStat
 import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
 import { Button, Chip, Dot, IconButton, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
 import type { SessionHandoff } from "../lib/session-handoffs";
+import { openPullRequest, pullRequestFace, PullRequestChip } from "./PullRequestChip";
 import { liveDisplayPhase, type LiveDisplayPhase } from "@omp-ui/core/live-voice";
 
 /** One session state's sidebar face; the Fleet view's dispatch rows reuse it (issue #899). */
@@ -153,6 +154,27 @@ function IconSettle() {
       strokeLinejoin="round"
     >
       <path d="M3.5 8.5l3 3 6-7" />
+    </svg>
+  );
+}
+
+/** A pull request's two branch dots and merge arrow — the row's open-PR action (issue #985). */
+function IconPullRequest() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="4.5" cy="3.5" r="1.5" />
+      <circle cx="4.5" cy="12.5" r="1.5" />
+      <circle cx="11.5" cy="12.5" r="1.5" />
+      <path d="M4.5 5v6M11.5 11V6.5a2 2 0 0 0-2-2H7M8.5 3l-1.5 1.5L8.5 6" />
     </svg>
   );
 }
@@ -362,6 +384,10 @@ export function SessionRow({
         <IconSpeaker waves={liveBadge === "speaking" ? 2 : 1} />
       </span>
     ) : null;
+  // Linked pull requests (#985): an older remote host publishes none.
+  const pullRequests = s.pullRequests ?? [];
+  const firstPr = pullRequests[0];
+  const prChip = firstPr !== undefined ? <PullRequestChip links={pullRequests} interactive={false} /> : null;
 
   // Line 2: project · branch · machine; the slim row leads with its state.
   // The machine stays an inline span: a `<Chip>` would break the ellipsis.
@@ -452,6 +478,7 @@ export function SessionRow({
               </>
             )}
           </span>
+          {slim && prChip}
           {slim && pinMark}
           {slim && lockMark}
           {slim && voiceMark}
@@ -502,6 +529,7 @@ export function SessionRow({
             {handoff?.hasDescendants ? (
               <span className="shrink-0 text-ink-faint">{t("sidebar.session.planSource")}</span>
             ) : null}
+            {prChip}
             {snoozedLabel !== null ? (
               <span className="shrink-0 text-ink-faint">{snoozedLabel}</span>
             ) : null}
@@ -536,6 +564,14 @@ export function SessionRow({
             onClick={() => void openSession(source.tabId)}
           >
             <IconPlan />
+          </IconButton>
+        )}
+        {firstPr !== undefined && (
+          <IconButton
+            label={t("pullRequest.chip.openNamed", { number: firstPr.number, state: t(pullRequestFace(firstPr).labelKey) })}
+            onClick={() => openPullRequest(firstPr)}
+          >
+            <IconPullRequest />
           </IconButton>
         )}
         {settleable && (

@@ -106,6 +106,8 @@ function session(tabId: string, title: string, fleet: FleetProvenance | null): S
     snoozedUntilMs: null,
     pinnedAtMs: null,
     heldPrompt: null,
+    pullRequests: [],
+    autoSettleOnMerge: null,
     private: false,
     chat: false,
     askSource: null,

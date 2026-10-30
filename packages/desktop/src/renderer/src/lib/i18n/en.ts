@@ -916,6 +916,9 @@ export const en = {
   "settings.general.snoozedSection": "Snoozed section in the sidebar",
   "settings.general.snoozedSectionHint":
     "Group snoozed sessions under their own sidebar section. Off by default.",
+  "settings.general.autoSettleMerged": "Settle sessions when their pull requests merge",
+  "settings.general.autoSettleMergedHint":
+    "A worktree session whose pull requests are all merged moves to Settled, with Undo. omp-ui reads pull requests with your GitHub CLI (gh). Each session's title menu can turn this off for that session.",
   "settings.general.streamStallWatchdog": "Stream-stall watchdog",
   "settings.general.streamStallWatchdogHint":
     "Abort a running turn after this much model-stream silence. The clock runs only while a model request is in flight: local tool execution suspends it for as long as the tool runs, and tool completion, compaction, retry backoff, and human answers each restart a full window. The session stays live — stall auto-continue or any prompt resumes it.",
@@ -1539,6 +1542,17 @@ export const en = {
   "settle.toast.one": "Settled {title}",
   "settle.toast.many": "Settled {n} sessions",
   "settle.toast.undo": "Undo",
+  "settle.toast.mergedOne": "Pull request merged: settled {title}",
+  "settle.toast.mergedMany": "Pull requests merged: settled {n} sessions",
+  // Pull requests linked to sessions (issue #985).
+  "pullRequest.state.open": "open",
+  "pullRequest.state.draft": "draft",
+  "pullRequest.state.merged": "merged",
+  "pullRequest.state.closed": "closed",
+  "pullRequest.state.failing": "CI failing",
+  "pullRequest.chip.title": "pull request #{number}: {state}",
+  "pullRequest.chip.open": "open it in the browser",
+  "pullRequest.chip.openNamed": "Open pull request #{number} ({state})",
   "settle.error.skipped": "{title} did not settle: its process did not stop or was replaced",
   "settle.error.skippedReason": "its process did not stop or was replaced",
   "bulk.error.failed": "{n} of {total} sessions failed:\n{failures}",
@@ -1977,6 +1991,9 @@ export const en = {
   "hud.menu.compact": "Compact now",
   "hud.menu.settle": "Settle",
   "hud.menu.settleTitle": "done with this session: stop it and move it to Settled (Mod+Z undoes)",
+  "hud.menu.settleOnMerge": "Settle when pull requests merge",
+  "hud.menu.checkPullRequests": "Check pull requests now",
+  "hud.menu.checkPullRequestsTitle": "read this branch's pull requests from GitHub now instead of waiting for the next check",
   "hud.menu.share": "Share",
   "hud.menu.export": "Export HTML",
   "hud.menu.publish": "Publish encrypted snapshot",

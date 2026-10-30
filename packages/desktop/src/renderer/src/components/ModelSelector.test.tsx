@@ -77,6 +77,8 @@ function remoteProjectGroup(): ProjectGroup {
  snoozedUntilMs: null,
  pinnedAtMs: null,
  heldPrompt: null,
+ pullRequests: [],
+ autoSettleOnMerge: null,
  private: false,
  chat: false,
  askSource: null,

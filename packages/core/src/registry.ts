@@ -9,6 +9,7 @@ import { parseVaultRegistry } from "./vault-registry";
 import { isKnowledgeHome } from "./vault-shared";
 import { isHeldPrompt } from "./held-prompt";
 import { isProjectIcon } from "./project-icon";
+import { parsePullRequestLinks } from "./pull-requests";
 import {
   isFleetProvenance,
   parseFleetGrants,
@@ -85,6 +86,9 @@ export interface RegistrySettings {
   experimentsEnabled: boolean;
   /** Sidebar Snoozed section and Snooze/Unsnooze action (issue #935); default off. */
   snoozedSectionEnabled: boolean;
+  /** Settle a worktree session once every pull request linked to it is
+   *  merged (issue #985); default on. A record's autoSettleOnMerge overrides. */
+  autoSettleMergedPullRequests: boolean;
   /** Global mic button in every composer (issue #647); default off. */
   voiceInputEnabled: boolean;
   /** omp STT selector used app-wide; null = pick the preferred callable model. */
@@ -303,6 +307,10 @@ export const SETTINGS: SettingDescriptors = {
   ),
   snoozedSectionEnabled: validatedSetting(
     () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  autoSettleMergedPullRequests: validatedSetting(
+    () => true,
     (value): value is boolean => typeof value === "boolean",
   ),
   voiceInputEnabled: validatedSetting(
@@ -696,6 +704,9 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // pinnedAtMs (issue #981) post-dates snoozed; absent loads as null, a
     // present value must be a finite epoch-ms number or null.
     optNullable(value, "pinnedAtMs", (v) => typeof v === "number" && Number.isFinite(v)) &&
+    // autoSettleOnMerge (issue #985) post-dates schema-1; absent loads as
+    // null (follow the setting), a present value must be a boolean or null.
+    optNullable(value, "autoSettleOnMerge", (v) => typeof v === "boolean") &&
     // askSource (issue #895) post-dates schema-1; absent loads as null, a
     // present value must name both the source tab and its session id.
     optNullable(value, "askSource", isAskSource) &&
@@ -768,6 +779,9 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       // Never a validity gate (the reviewRoster rule): a malformed held prompt
       // (issue #986) normalizes to null so the session always survives.
       heldPrompt: isHeldPrompt(s.heldPrompt) ? s.heldPrompt : null,
+      // Never a validity gate: a malformed link drops only itself (issue #985).
+      pullRequests: parsePullRequestLinks(s.pullRequests),
+      autoSettleOnMerge: s.autoSettleOnMerge ?? null,
       askSource: s.askSource ?? null,
       fleet: s.fleet ?? null,
       model: s.model ?? null,

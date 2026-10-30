@@ -32,6 +32,7 @@ import { AdvisorRosterView } from "./AdvisorRoster";
 import { ApprovalModeControl } from "./ApprovalModeControl";
 import { GoalChip } from "./GoalChip";
 import { WorktreeChip } from "./WorktreeChip";
+import { PullRequestChip } from "./PullRequestChip";
 import { Button, Chevron, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconLock, IconRefresh, IconSessionTree, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
 import { TONE_TEXT } from "./ui/tone";
 
@@ -1027,6 +1028,15 @@ function TitleMenu({
     const rec = findRecord(s.state, tabId);
     return rec !== undefined && canSettle(rec, s.rpc[tabId]?.status === "running", s.state?.snoozedSectionEnabled === true);
   });
+  // Settle on merge (issue #985): only worktree sessions link pull requests.
+  // The record's override wins; null follows Settings → General.
+  const hasWorktree = useStore((s) => findRecord(s.state, tabId)?.worktree != null);
+  const autoSettleOnMerge = useStore((s) => {
+    const rec = findRecord(s.state, tabId);
+    return rec?.autoSettleOnMerge ?? s.state?.autoSettleMergedPullRequests ?? true;
+  });
+  const setSessionAutoSettleOnMerge = useStore((s) => s.setSessionAutoSettleOnMerge);
+  const refreshPullRequests = useStore((s) => s.refreshPullRequests);
   const [surface, setSurface] = useState<null | "menu" | "modes">(null);
   const [editing, setEditing] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -1188,6 +1198,22 @@ function TitleMenu({
                     >
                       {t("hud.menu.settle")}
                     </button>
+                  )}
+                  {hasWorktree && (
+                    <>
+                      {checkRow(t("hud.menu.settleOnMerge"), autoSettleOnMerge, null, () =>
+                        void setSessionAutoSettleOnMerge(tabId, !autoSettleOnMerge),
+                      )}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        title={t("hud.menu.checkPullRequestsTitle")}
+                        onClick={act(() => void refreshPullRequests(tabId))}
+                        className={MENU_ROW}
+                      >
+                        {t("hud.menu.checkPullRequests")}
+                      </button>
+                    </>
                   )}
                 </MenuGroup>
                 {MENU_SEPARATOR}
@@ -1669,6 +1695,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId))) ?? null;
   const openProjectSettingsForRoster = useStore((s) => s.openProjectSettings);
   const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
+  // Linked pull requests (#985); an older remote host publishes none. The
+  // record array is replaced on change, so the selector stays referentially stable.
+  const pullRequests = useStore((s) => findRecord(s.state, tabId)?.pullRequests);
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const openSessionTreeView = useStore((s) => s.openSessionTreeView);
   // The tree navigator needs a live process (its bridge publishes over
@@ -1846,7 +1875,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
       )}
     </Chip>
   );
-
+  const pullRequestChip = pullRequests !== undefined && pullRequests.length > 0 && (
+    <PullRequestChip links={pullRequests} interactive className={compact ? undefined : "[app-region:no-drag]"} />
+  );
 
   const refresh = () => {
     void refreshState(tabId);
@@ -1865,6 +1896,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           <LivenessBadge compacting={session?.isCompacting === true || compacting} stallMs={streamStallMs} face={resolvedFace} label={label} short />
           {instanceChip}
           {fleetChip}
+          {pullRequestChip}
           {agentModeChip}
           {goalChip}
           {vibeChip}
@@ -1992,6 +2024,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
             className="[app-region:no-drag]"
           />
         )}
+        {pullRequestChip}
         {goalChip}
         {vibeChip}
         {jobsChip}

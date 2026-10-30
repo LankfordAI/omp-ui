@@ -92,6 +92,9 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:setSubagentModels",
   "session:setSnoozed",
   "session:setPinned",
+  // Pull request links live on the session's host (issue #985).
+  "session:setAutoSettleOnMerge",
+  "session:refreshPullRequests",
   // A held prompt waits on the session's host (issue #986).
   "session:holdPrompt",
   "session:cancelHeldPrompt",
@@ -270,6 +273,7 @@ export const REMOTE_TAB_EVENTS: ReadonlySet<string> = new Set<string>([
   "pty:exit",
   "rpc:frame",
   "session:hibernated",
+  "session:autoSettled",
   "shell:data",
   "shell:exit",
   "browser-pane:frame",

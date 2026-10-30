@@ -16,7 +16,7 @@ export const SETTLE_UNDO_LIMIT = 20;
 
 export type SettleSlice = Pick<
   UiStore,
-  "settleUndo" | "settleToastId" | "settleSessions" | "undoSettle" | "dismissSettleToast"
+  "settleUndo" | "settleToastId" | "settleSessions" | "undoSettle" | "dismissSettleToast" | "recordAutoSettle"
 >;
 
 /**
@@ -120,6 +120,22 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
 
     dismissSettleToast() {
       set({ settleToastId: null });
+    },
+
+    recordAutoSettle(sessions) {
+      // A merged pull request settled these on their host (issue #985). The
+      // event reaches every renderer of the owning host and every joiner; each
+      // keeps its own undo entry, and Undo resumes through the normal path.
+      if (sessions.length === 0) return;
+      const entry: SettleUndoEntry = {
+        id: randomId(),
+        cause: "merged",
+        sessions: sessions.map((s) => ({ ...s })),
+      };
+      set((s) => ({
+        settleUndo: [...s.settleUndo, entry].slice(-SETTLE_UNDO_LIMIT),
+        settleToastId: entry.id,
+      }));
     },
   };
 }

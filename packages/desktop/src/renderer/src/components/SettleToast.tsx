@@ -30,7 +30,13 @@ export function SettleToast() {
     <UpdateCard key={entry.id} dismissLabel={t("update.card.dismiss")} onDismiss={onDismiss} autoDismissMs={SETTLE_TOAST_MS}>
       <div role="status" className="min-w-0">
         <p className="truncate text-sm font-medium text-ink">
-          {n === 1 ? t("settle.toast.one", { title: entry.sessions[0]!.title }) : t("settle.toast.many", { n })}
+          {entry.cause === "merged"
+            ? n === 1
+              ? t("settle.toast.mergedOne", { title: entry.sessions[0]!.title })
+              : t("settle.toast.mergedMany", { n })
+            : n === 1
+              ? t("settle.toast.one", { title: entry.sessions[0]!.title })
+              : t("settle.toast.many", { n })}
         </p>
         <div className="mt-2 flex items-center gap-2">
           <Button variant="outline" size="xs" onClick={() => void undoSettle()}>

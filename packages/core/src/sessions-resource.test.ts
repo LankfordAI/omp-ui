@@ -51,6 +51,8 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     snoozedUntilMs: null,
     pinnedAtMs: null,
     heldPrompt: null,
+    pullRequests: [],
+    autoSettleOnMerge: null,
     private: false,
     chat: false,
     askSource: null,

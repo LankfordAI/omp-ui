@@ -92,6 +92,17 @@ row mid-turn keeps Stop instead. `Mod+Z` outside a text field, or the toast's
 Undo, resumes the most recent settle made in this window during this run.
 _Avoid_: archive, history, inactive list
 
+**Linked pull request**:
+A pull request whose head is a **Worktree session**'s branch, as the owning
+host's poll last read it from the forge with the user's `gh` (ADR-0079,
+#985). The record keeps them newest first (`pullRequests`). The sidebar row
+and the Session HUD show the newest as a chip: open, draft, merged, closed,
+or CI failing. When every linked pull request merges, the host **Settle**s
+the session with Undo, unless Settings → General or the session's title menu
+turned that off. A pull request already merged when first seen never
+settles its session.
+_Avoid_: session PR, tracked PR, attached PR
+
 **Selection bar**:
 The sidebar footer's replacement while two or more rows are in the sidebar's
 multi-selection (issue #988). `Mod+click` toggles a row, `Shift+click` extends

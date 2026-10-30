@@ -1083,6 +1083,8 @@ export class SessionManager {
           snoozedUntilMs: null,
           pinnedAtMs: null,
           heldPrompt: null,
+          pullRequests: [],
+          autoSettleOnMerge: null,
           private: req.private === true,
           chat,
           askSource: ask?.source ?? null,
@@ -3211,6 +3213,8 @@ export class SessionManager {
       snoozedUntilMs: null,
       pinnedAtMs: null,
       heldPrompt: null,
+      pullRequests: [],
+      autoSettleOnMerge: null,
       private: source.private,
       // A branch of a chat is a chat sharing its scratch dir.
       chat: source.chat,

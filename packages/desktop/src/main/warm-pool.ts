@@ -159,6 +159,8 @@ export function sanitizeWarmTemplate(record: OwnedSessionRecord): OwnedSessionRe
     snoozedUntilMs: null,
     pinnedAtMs: null,
     heldPrompt: null,
+    pullRequests: [],
+    autoSettleOnMerge: null,
     private: false,
     cachedTitle: null,
     cachedModified: null,

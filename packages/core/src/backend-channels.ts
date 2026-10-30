@@ -1,4 +1,5 @@
 import type {
+  AutoSettledSession,
   AdvisorDefaults,
   AgentMode,
   ApprovalMode,
@@ -482,6 +483,11 @@ export const BACKEND_CHANNELS = {
   /** Sidebar Snoozed section and Snooze/Unsnooze action (issue #935); default off. */
   setSnoozedSectionEnabled: {
     channel: "settings:setSnoozedSectionEnabled",
+    ...request<[on: boolean], void>([bool()]),
+  },
+  /** Settle a worktree session once every linked pull request merges (issue #985); default on. */
+  setAutoSettleMergedPullRequests: {
+    channel: "settings:setAutoSettleMergedPullRequests",
     ...request<[on: boolean], void>([bool()]),
   },
   /** Shows or hides the microphone button in every composer (issue #647). */
@@ -1006,6 +1012,18 @@ export const BACKEND_CHANNELS = {
   setSessionPinned: {
     channel: "session:setPinned",
     ...request<[tabId: string, pinned: boolean], void>([str(), bool()]),
+  },
+  /** Per-session override for settling once every linked pull request is
+   *  merged (issue #985); null follows the app setting. */
+  setSessionAutoSettleOnMerge: {
+    channel: "session:setAutoSettleOnMerge",
+    ...request<[tabId: string, on: boolean | null], void>([str(), nullable(bool())]),
+  },
+  /** Re-reads every worktree session's pull requests from the forge now
+   *  (issue #985); resolves after the owning host's poll finishes. */
+  refreshPullRequests: {
+    channel: "session:refreshPullRequests",
+    ...request<[tabId: string], void>([str()]),
   },
   /** Holds a native session's prompt until its provider's usage window
    *  resets (issue #986). The owning host keeps it on the record and sends it
@@ -1749,6 +1767,11 @@ export const BACKEND_CHANNELS = {
   onSessionHibernated: {
     channel: "session:hibernated",
     ...event<[tabId: string]>(),
+  },
+  /** A merged pull request settled these sessions (issue #985): renderers offer Undo. */
+  onSessionsAutoSettled: {
+    channel: "session:autoSettled",
+    ...event<[sessions: AutoSettledSession[]]>(),
   },
   /**
    * A desktop OS notification for this tab was clicked: every renderer

@@ -70,6 +70,8 @@ function chatRecord(tabId: string): SessionSummary {
     snoozedUntilMs: null,
     pinnedAtMs: null,
     heldPrompt: null,
+    pullRequests: [],
+    autoSettleOnMerge: null,
     private: false,
     chat: true,
     askSource: null,

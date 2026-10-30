@@ -296,6 +296,7 @@ export function GeneralPage() {
   const setDefaultCompactionMethod = useStore((s) => s.setDefaultCompactionMethod);
   const setHibernateIdleMinutes = useStore((s) => s.setHibernateIdleMinutes);
   const setSnoozedSectionEnabled = useStore((s) => s.setSnoozedSectionEnabled);
+  const setAutoSettleMergedPullRequests = useStore((s) => s.setAutoSettleMergedPullRequests);
   const setStreamStallAbortSeconds = useStore(
     (s) => s.setStreamStallAbortSeconds,
   );
@@ -441,6 +442,16 @@ export function GeneralPage() {
           on={state?.snoozedSectionEnabled === true}
           onChange={(next) => void setSnoozedSectionEnabled(next)}
           label={t("settings.general.snoozedSection")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.autoSettleMerged")}
+        hint={t("settings.general.autoSettleMergedHint")}
+      >
+        <Switch
+          on={state?.autoSettleMergedPullRequests ?? true}
+          onChange={(next) => void setAutoSettleMergedPullRequests(next)}
+          label={t("settings.general.autoSettleMerged")}
         />
       </Row>
       <Row
